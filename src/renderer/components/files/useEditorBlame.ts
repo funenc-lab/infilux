@@ -13,6 +13,10 @@ const MS_PER_YEAR = 31536000000; // 365 days
 const CURSOR_DEBOUNCE_MS = 150;
 const CONTENT_CHANGE_DEBOUNCE_MS = 1000; // Debounce for re-fetching blame after edit
 
+// Global style element ID (shared across all editor instances)
+const GLOBAL_BLAME_STYLE_ID = 'git-blame-inline-styles-global';
+let globalStyleElementRefCount = 0;
+
 function formatRelativeTime(
   isoDate: string,
   t: (key: string, params?: Record<string, string | number>) => string
@@ -84,14 +88,14 @@ export function useEditorBlame({
       return;
     }
 
-    // Per-instance style element (not global)
-    const styleId = `git-blame-inline-styles-${filePath}`;
-    let styleElement: HTMLStyleElement | null = null;
+    // Get editor DOM node for scoped CSS variables
+    const editorDom = editor.getDomNode();
+    if (!editorDom) return;
 
-    // Create style element with CSS variable approach
-    if (!document.getElementById(styleId)) {
-      styleElement = document.createElement('style');
-      styleElement.id = styleId;
+    // Create or reference global style element (shared across all editor instances)
+    if (!document.getElementById(GLOBAL_BLAME_STYLE_ID)) {
+      const styleElement = document.createElement('style');
+      styleElement.id = GLOBAL_BLAME_STYLE_ID;
       styleElement.textContent = `
         .git-blame-decoration::after {
           content: var(--git-blame-content, '');
@@ -105,16 +109,18 @@ export function useEditorBlame({
       `;
       document.head.appendChild(styleElement);
     }
+    globalStyleElementRefCount++;
 
     let disposed = false;
+    let decorationCleared = false; // Flag to avoid redundant clearDeco calls
 
     const clearDeco = (): void => {
       if (stateRef.current.decorations.length > 0) {
         stateRef.current.decorations = editor.deltaDecorations(stateRef.current.decorations, []);
       }
       stateRef.current.currentLine = null;
-      // Reset CSS variable
-      document.documentElement.style.setProperty('--git-blame-content', "''");
+      // Reset CSS variable on editor DOM node (not global)
+      editorDom.style.setProperty('--git-blame-content', "''");
     };
 
     const showBlameForLine = (lineNumber: number): void => {
@@ -139,9 +145,9 @@ export function useEditorBlame({
       const shortHash = info.hash.slice(0, 7);
       const blameText = `  ${info.author}, ${timeAgo} · ${info.message} (${shortHash})`;
 
-      // Update CSS variable (much faster than replacing entire style tag)
+      // Update CSS variable on editor DOM node (scoped to this editor instance)
       const escaped = escapeCssString(blameText);
-      document.documentElement.style.setProperty('--git-blame-content', `'${escaped}'`);
+      editorDom.style.setProperty('--git-blame-content', `'${escaped}'`);
 
       const model = editor.getModel();
       if (!model) return;
@@ -215,11 +221,15 @@ export function useEditorBlame({
 
     const blurDisposable = editor.onDidBlurEditorText(() => {
       clearDeco();
+      decorationCleared = false; // Reset flag for next edit
     });
 
     const modelDisposable = editor.onDidChangeModelContent(() => {
-      // Clear current decoration since line info may be stale
-      clearDeco();
+      // Clear decoration only once per edit session (not on every keystroke)
+      if (!decorationCleared) {
+        clearDeco();
+        decorationCleared = true;
+      }
 
       // Debounce re-fetch to avoid excessive git calls during editing
       if (stateRef.current.contentChangeTimer) {
@@ -229,6 +239,7 @@ export function useEditorBlame({
         // Invalidate cache and re-fetch to get updated blame info
         stateRef.current.cache.delete(filePath);
         fetchAndShow();
+        decorationCleared = false; // Reset flag after re-fetch
       }, CONTENT_CHANGE_DEBOUNCE_MS);
     });
 
@@ -246,9 +257,15 @@ export function useEditorBlame({
         stateRef.current.contentChangeTimer = null;
       }
       clearDeco();
-      // Cleanup style element
-      if (styleElement) {
-        document.head.removeChild(styleElement);
+
+      // Cleanup global style element reference
+      globalStyleElementRefCount--;
+      if (globalStyleElementRefCount <= 0) {
+        const styleEl = document.getElementById(GLOBAL_BLAME_STYLE_ID);
+        if (styleEl) {
+          document.head.removeChild(styleEl);
+        }
+        globalStyleElementRefCount = 0;
       }
     };
   }, [editor, monacoInstance, filePath, rootPath, enabled, t]);

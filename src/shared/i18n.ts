@@ -713,6 +713,8 @@ export const zhTranslations: Record<string, string> = {
   'Make links clickable': '使链接可点击',
   'Smooth scrolling': '平滑滚动',
   'Enable smooth scrolling': '启用平滑滚动',
+  'Git Blame': 'Git Blame',
+  'Show inline git blame info at cursor line': '在光标行显示内联 Git Blame 信息',
   // Cursor section
   Cursor: '光标',
   'Cursor appearance settings': '光标外观设置',
@@ -1310,6 +1312,31 @@ export const zhTranslations: Record<string, string> = {
   'Launch Agent': '启动 Agent',
   'No tasks yet': '暂无任务',
   'Create your first task to get started': '创建第一个任务开始使用',
+  // Git Clone Settings
+  'Git Clone': 'Git 克隆',
+  'Base directory': '基础目录',
+  'Organized structure': '组织结构',
+  'Repository domains': '仓库域名',
+  'Built-in mappings': '内置映射',
+  'Settings for cloning remote Git repositories': '远程 Git 仓库克隆设置',
+  'Base directory for cloned repositories. Leave empty to use ~/ensoai/repos':
+    '克隆仓库的基础目录。留空则使用 ~/ensoai/repos',
+  'Clone to organized structure (baseDir/host/owner/repo) or flat (baseDir/repo)':
+    '克隆到组织结构（baseDir/host/owner/repo）或扁平结构（baseDir/repo）',
+  'Host-to-directory mappings for organizing cloned repositories':
+    '用于组织克隆仓库的域名到目录映射',
+  'No mappings configured': '未配置域名映射',
+  'Domain pattern': '域名格式',
+  'Directory name': '目录名称',
+  'Git host domain (e.g., gitlab.example.com or *.example.com)':
+    'Git 仓库域名（例如：gitlab.example.com 或 *.example.com）',
+  'Directory name for this host (e.g., gitlab, company-gitlab)':
+    '此域名的目录名（例如：gitlab、company-gitlab）',
+  'Pattern is required': '域名模式不能为空',
+  'Directory name is required': '目录名称不能为空',
+  'Pattern already exists': '域名模式已存在',
+  'Map a Git repository domain to a directory name for organizing cloned repositories':
+    '将 Git 仓库域名映射到目录名，以便组织克隆的仓库',
 };
 
 export function normalizeLocale(input?: string): Locale {
