@@ -5,6 +5,7 @@ import {
   ChevronUp,
   ExternalLink,
   FileCode,
+  FoldVertical,
   MessageSquare,
   Pencil,
   Plus,
@@ -139,6 +140,9 @@ export function DiffViewer({
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const isDirty = editedContent !== null;
+
+  // Hide unchanged regions state
+  const [hideUnchangedRegions, setHideUnchangedRegions] = useState(false);
 
   // Can edit: not commit view (history is readonly)
   const canEdit = !isCommitView;
@@ -775,6 +779,20 @@ export function DiffViewer({
     [file?.path, performAutoNavigation]
   );
 
+  // Toggle hide unchanged regions
+  const handleToggleUnchangedRegions = useCallback(() => {
+    const editor = editorRef.current;
+    if (editor) {
+      const newValue = !hideUnchangedRegions;
+      editor.updateOptions({
+        hideUnchangedRegions: {
+          enabled: newValue,
+        },
+      });
+      setHideUnchangedRegions(newValue);
+    }
+  }, [hideUnchangedRegions]);
+
   // Sync pendingNavigationDirectionRef with navigationDirection state
   useEffect(() => {
     if (navigationDirection) {
@@ -1100,6 +1118,21 @@ export function DiffViewer({
             <ExternalLink className="h-4 w-4" />
           </button>
 
+          {/* Collapse unchanged regions toggle */}
+          <button
+            type="button"
+            className={cn(
+              'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+              hideUnchangedRegions
+                ? 'text-primary bg-primary/10 hover:bg-primary/20'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            )}
+            onClick={handleToggleUnchangedRegions}
+            title={hideUnchangedRegions ? t('Show unchanged code') : t('Collapse unchanged code')}
+          >
+            <FoldVertical className="h-4 w-4" />
+          </button>
+
           {/* Edit / Save toggle */}
           {canEdit && (
             <>
@@ -1183,6 +1216,10 @@ export function DiffViewer({
               // Fixed options
               scrollBeyondLastLine: false,
               automaticLayout: true,
+              // Hide unchanged regions (collapse unchanged code)
+              hideUnchangedRegions: {
+                enabled: hideUnchangedRegions,
+              },
             }}
             // Prevent library from disposing models before DiffEditorWidget resets
             keepCurrentOriginalModel

@@ -618,6 +618,8 @@ export const zhTranslations: Record<string, string> = {
   'Sync with remote': '同步远程',
   '(commit history)': '(提交历史)',
   'Open in editor': '在编辑器中打开',
+  'Collapse unchanged code': '折叠未修改代码',
+  'Show unchanged code': '显示未修改代码',
   'Discard {{count}} changes': '撤销 {{count}} 处更改',
   'Delete {{count}} files': '删除 {{count}} 个文件',
   'Are you sure you want to discard changes to {{count}} files? This cannot be undone.':
