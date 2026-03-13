@@ -98,6 +98,7 @@ function getInitialState() {
     theme: 'system' as Theme,
     layoutMode: 'tree' as const,
     fileTreeDisplayMode: 'legacy' as const,
+    repositoryListDisplayMode: 'list' as const,
     language: getDefaultLocale(),
     fontSize: 14,
     fontFamily: 'Inter',
@@ -217,6 +218,9 @@ export const useSettingsStore = create<SettingsState>()(
       setLayoutMode: (layoutMode) => set({ layoutMode }),
 
       setFileTreeDisplayMode: (fileTreeDisplayMode) => set({ fileTreeDisplayMode }),
+
+      setRepositoryListDisplayMode: (repositoryListDisplayMode) =>
+        set({ repositoryListDisplayMode }),
 
       setLanguage: (language) => {
         document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';

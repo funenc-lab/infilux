@@ -1,6 +1,14 @@
 import type { Locale } from '@shared/i18n';
 import type { ShellInfo } from '@shared/types';
-import { Columns3, FileText, FolderOpen, RefreshCw, TreePine } from 'lucide-react';
+import {
+  Columns3,
+  FileText,
+  FolderOpen,
+  LayoutList,
+  RefreshCw,
+  TableProperties,
+  TreePine,
+} from 'lucide-react';
 import * as React from 'react';
 import {
   AlertDialog,
@@ -26,6 +34,7 @@ import { cn } from '@/lib/utils';
 import {
   type FileTreeDisplayMode,
   type LayoutMode,
+  type RepositoryListDisplayMode,
   type TerminalRenderer,
   useSettingsStore,
 } from '@/stores/settings';
@@ -76,6 +85,8 @@ export function GeneralSettings() {
     setLayoutMode,
     fileTreeDisplayMode,
     setFileTreeDisplayMode,
+    repositoryListDisplayMode,
+    setRepositoryListDisplayMode,
     terminalRenderer,
     setTerminalRenderer,
     terminalScrollback,
@@ -156,6 +167,26 @@ export function GeneralSettings() {
       icon: FolderOpen,
       label: t('Split sidebar'),
       description: t('Dedicated file sidebar + editor'),
+    },
+  ];
+
+  const repositoryListDisplayModeOptions: {
+    value: RepositoryListDisplayMode;
+    icon: React.ElementType;
+    label: string;
+    description: string;
+  }[] = [
+    {
+      value: 'list',
+      icon: LayoutList,
+      label: t('List'),
+      description: t('VSCode-style collapsible list'),
+    },
+    {
+      value: 'tabs',
+      icon: TableProperties,
+      label: t('Tabs'),
+      description: t('Horizontal tabs for quick switching'),
     },
   ];
 
@@ -394,6 +425,42 @@ export function GeneralSettings() {
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-full',
                 fileTreeDisplayMode === option.value
+                  ? 'bg-accent-foreground/20 text-accent-foreground'
+                  : 'bg-muted'
+              )}
+            >
+              <option.icon className="h-5 w-5" />
+            </div>
+            <span className="text-sm font-medium">{option.label}</span>
+            <span className="text-xs text-muted-foreground text-center">{option.description}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="border-t pt-4">
+        <h3 className="text-lg font-medium">{t('Repository List Display')}</h3>
+        <p className="text-sm text-muted-foreground">
+          {t('Choose how repositories and submodules are displayed in source control')}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {repositoryListDisplayModeOptions.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            onClick={() => setRepositoryListDisplayMode(option.value)}
+            className={cn(
+              'flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors',
+              repositoryListDisplayMode === option.value
+                ? 'border-primary bg-accent text-accent-foreground'
+                : 'border-transparent bg-muted/50 hover:bg-muted'
+            )}
+          >
+            <div
+              className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-full',
+                repositoryListDisplayMode === option.value
                   ? 'bg-accent-foreground/20 text-accent-foreground'
                   : 'bg-muted'
               )}

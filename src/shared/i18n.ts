@@ -331,7 +331,7 @@ export const zhTranslations: Record<string, string> = {
   'Remove repository confirm': '移除仓库',
   'Remove repository description': '此操作只会从应用中移除，不会删除本地文件。',
   'Repository Settings': '仓库设置',
-  Repositories: '存储库',
+  Repositories: '仓库列表',
   'Auto-initialize new worktrees': '自动初始化新 Worktree',
   'Automatically run init script when creating new worktrees':
     '创建新 Worktree 时自动运行初始化脚本',
@@ -633,6 +633,13 @@ export const zhTranslations: Record<string, string> = {
   'Tree + editor in one panel': '文件树与编辑器在同一面板',
   'Split sidebar': '分栏模式',
   'Dedicated file sidebar + editor': '独立文件侧栏 + 编辑器',
+  'Repository List Display': '仓库列表展示',
+  'Choose how repositories and submodules are displayed in source control':
+    '选择版本管理中仓库和子模块的展示方式',
+  List: '列表',
+  'VSCode-style collapsible list': 'VSCode 风格可折叠列表',
+  Tabs: '标签页',
+  'Horizontal tabs for quick switching': '水平标签页，快速切换',
   'Integrated tree + editor (original)': '树与编辑器一体（原有）',
   Original: '原有',
   'Split sidebar + editor (current)': '文件侧栏与编辑器分离（当前）',

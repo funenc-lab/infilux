@@ -17,6 +17,8 @@ export type LayoutMode = 'columns' | 'tree';
 
 export type FileTreeDisplayMode = 'legacy' | 'current';
 
+export type RepositoryListDisplayMode = 'tabs' | 'list';
+
 export type SettingsDisplayMode = 'tab' | 'draggable-modal';
 
 // Terminal types
@@ -271,6 +273,7 @@ export interface SettingsState {
   theme: Theme;
   layoutMode: LayoutMode;
   fileTreeDisplayMode: FileTreeDisplayMode;
+  repositoryListDisplayMode: RepositoryListDisplayMode;
   language: Locale;
   fontSize: number;
   fontFamily: string;
@@ -372,6 +375,7 @@ export interface SettingsState {
   setTheme: (theme: Theme) => void;
   setLayoutMode: (mode: LayoutMode) => void;
   setFileTreeDisplayMode: (mode: FileTreeDisplayMode) => void;
+  setRepositoryListDisplayMode: (mode: RepositoryListDisplayMode) => void;
   setLanguage: (language: Locale) => void;
   setFontSize: (size: number) => void;
   setFontFamily: (family: string) => void;
