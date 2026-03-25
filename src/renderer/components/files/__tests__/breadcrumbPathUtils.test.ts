@@ -3,6 +3,7 @@ import {
   buildBreadcrumbSegments,
   resolveBreadcrumbGitRoot,
   resolveFileListGitRoot,
+  resolveFileListPath,
 } from '../breadcrumbPathUtils';
 
 describe('breadcrumbPathUtils', () => {
@@ -111,5 +112,14 @@ describe('breadcrumbPathUtils', () => {
         '/Users/tanzv/Development/Git/EnsoAI'
       )
     ).toBe('/Users/tanzv/Development/Git/EnsoAI');
+  });
+
+  it('recovers duplicated root-prefixed absolute paths before listing files', () => {
+    expect(
+      resolveFileListPath(
+        '/Users/tanzv/Development/Git/EnsoAI//Users/tanzv/Development/Git/penpad/apps',
+        '/Users/tanzv/Development/Git/EnsoAI'
+      )
+    ).toBe('/Users/tanzv/Development/Git/penpad/apps');
   });
 });

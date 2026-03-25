@@ -30,7 +30,6 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
-  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -58,6 +57,7 @@ import {
   type TerminalRenderer,
   useSettingsStore,
 } from '@/stores/settings';
+import { TERMINAL_SCROLLBACK_OPTIONS } from '@/stores/settings/terminalScrollbackPolicy';
 
 // Parse shell arguments string, supporting single/double quotes for paths with spaces
 function parseShellArgs(input: string): string[] {
@@ -238,7 +238,7 @@ export function GeneralSettings() {
 
   const scrollbackOptions = React.useMemo(
     () =>
-      [1000, 5000, 10000, 20000, 50000].map((value) => ({
+      TERMINAL_SCROLLBACK_OPTIONS.map((value) => ({
         value,
         label: t('{{count}} lines', { count: numberFormatter.format(value) }),
       })),

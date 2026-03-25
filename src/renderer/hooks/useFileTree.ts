@@ -2,7 +2,10 @@ import type { FileEntry } from '@shared/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadFileTreeExpandedPaths, saveFileTreeExpandedPaths } from '@/App/storage';
-import { resolveFileListGitRoot } from '@/components/files/breadcrumbPathUtils';
+import {
+  resolveFileListGitRoot,
+  resolveFileListPath,
+} from '@/components/files/breadcrumbPathUtils';
 import { shouldRefreshFileTreeOnWatchResume, shouldWatchFileTree } from './fileTreeWatchPolicy';
 import { useShouldPoll } from './useWindowFocus';
 
@@ -29,7 +32,11 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     queryKey: ['file', 'list', rootPath],
     queryFn: async () => {
       if (!rootPath) return [];
-      return window.electronAPI.file.list(rootPath, resolveFileListGitRoot(rootPath, rootPath));
+      const resolvedRootPath = resolveFileListPath(rootPath, rootPath) ?? rootPath;
+      return window.electronAPI.file.list(
+        resolvedRootPath,
+        resolveFileListGitRoot(rootPath, rootPath)
+      );
     },
     enabled: enabled && !!rootPath,
   });
@@ -70,14 +77,15 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   // Load children for a directory
   const loadChildren = useCallback(
     async (path: string): Promise<FileEntry[]> => {
-      const cached = queryClient.getQueryData<FileEntry[]>(['file', 'list', path]);
+      const resolvedPath = resolveFileListPath(path, rootPath) ?? path;
+      const cached = queryClient.getQueryData<FileEntry[]>(['file', 'list', resolvedPath]);
       if (cached) return cached;
 
       const files = await window.electronAPI.file.list(
-        path,
+        resolvedPath,
         resolveFileListGitRoot(path, rootPath)
       );
-      queryClient.setQueryData(['file', 'list', path], files);
+      queryClient.setQueryData(['file', 'list', resolvedPath], files);
       return files;
     },
     [queryClient, rootPath]
@@ -283,11 +291,12 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   const refreshNodeChildren = useCallback(
     async (targetPath: string) => {
       try {
+        const resolvedTargetPath = resolveFileListPath(targetPath, rootPath) ?? targetPath;
         const newChildren = await window.electronAPI.file.list(
-          targetPath,
+          resolvedTargetPath,
           resolveFileListGitRoot(targetPath, rootPath)
         );
-        queryClient.setQueryData(['file', 'list', targetPath], newChildren);
+        queryClient.setQueryData(['file', 'list', resolvedTargetPath], newChildren);
 
         setTree((current) => {
           const updateNode = (nodes: FileTreeNode[]): FileTreeNode[] => {

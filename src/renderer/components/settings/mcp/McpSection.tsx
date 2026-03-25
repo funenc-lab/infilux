@@ -133,23 +133,23 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
 
   return (
     <div className="border-t pt-4 mt-4">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          onClick={() => setExpanded(!expanded)}
+        >
           {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
-          <Server className="h-4 w-4" />
-          <span className="text-sm font-medium">{t('MCP Servers')}</span>
-          <span className="text-xs text-muted-foreground">
+          <Server className="h-4 w-4 shrink-0" />
+          <span className="truncate text-sm font-medium">{t('MCP Servers')}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
             ({enabledCount}/{mcpServers.length})
           </span>
-        </div>
+        </button>
         <Button
           variant="ghost"
           size="icon-xs"
@@ -160,7 +160,7 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
         >
           <Plus className="h-3.5 w-3.5" />
         </Button>
-      </button>
+      </div>
 
       {expanded && (
         <div className="mt-3 space-y-2">

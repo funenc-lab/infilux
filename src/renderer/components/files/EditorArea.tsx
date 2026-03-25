@@ -29,7 +29,7 @@ import { addToast } from '@/components/ui/toast';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
 import { useI18n } from '@/i18n';
 import { toMonacoFileUri } from '@/lib/monacoModelPath';
-import { recordBulkReloadEvent } from '@/lib/runtimeDiagnostics';
+import { recordBulkReloadEvent, updateRendererDiagnostics } from '@/lib/runtimeDiagnostics';
 import { useActiveSessionId } from '@/stores/agentSessions';
 import type { EditorTab, PendingCursor } from '@/stores/editor';
 import { useEditorStore } from '@/stores/editor';
@@ -567,6 +567,12 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
         model.dispose();
       }
     }
+
+    const models = monacoApi.editor.getModels();
+    updateRendererDiagnostics({
+      monacoModelCount: models.length,
+      monacoFileModelCount: models.filter((model) => model.uri.scheme === 'file').length,
+    });
   }, [activeTabPath, isMonacoReady, openTabPaths]);
 
   // Handle pending cursor navigation (jump to line and select match)

@@ -1,3 +1,4 @@
+import { normalizeTerminalScrollback } from './terminalScrollbackPolicy';
 import type { SettingsState, TerminalKeybinding, XtermKeybindings } from './types';
 
 function sanitizeRemoteProfiles(
@@ -131,6 +132,10 @@ export function migrateSettings(
   // Migrate legacy 'canvas' renderer to 'webgl' (canvas support was removed)
   const terminalRenderer =
     (persisted.terminalRenderer as string) === 'canvas' ? 'webgl' : persisted.terminalRenderer;
+  const terminalScrollback = normalizeTerminalScrollback(
+    persisted.terminalScrollback,
+    currentState.terminalScrollback
+  );
 
   // Migrate xterm keybindings from legacy formats
   const migratedXtermKeybindings = migrateXtermKeybindings(persisted, currentState);
@@ -154,6 +159,7 @@ export function migrateSettings(
     ...persisted,
     // Override with migrated/sanitized values
     ...(terminalRenderer && { terminalRenderer }),
+    terminalScrollback,
     xtermKeybindings: migratedXtermKeybindings,
     mainTabKeybindings: {
       ...currentState.mainTabKeybindings,

@@ -18,6 +18,10 @@ describe('runtimeDiagnostics', () => {
       agentSessionCount: 3,
       terminalSessionCount: 2,
       editorTabCount: 5,
+      configuredTerminalScrollback: 5000,
+      estimatedTerminalScrollbackLineCapacity: 10000,
+      monacoModelCount: 6,
+      monacoFileModelCount: 3,
     });
 
     recordBulkReloadEvent('/repo/main.ts');
@@ -27,6 +31,10 @@ describe('runtimeDiagnostics', () => {
       agentSessionCount: 3,
       terminalSessionCount: 2,
       editorTabCount: 5,
+      configuredTerminalScrollback: 5000,
+      estimatedTerminalScrollbackLineCapacity: 10000,
+      monacoModelCount: 6,
+      monacoFileModelCount: 3,
       bulkReloadCount: 2,
       lastBulkReloadPath: '/repo/secondary.ts',
     });
