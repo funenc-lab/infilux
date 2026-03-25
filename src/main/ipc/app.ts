@@ -1,10 +1,11 @@
 import type { ProxySettings } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import { appDetector } from '../services/app/AppDetector';
 import { validateLocalPath } from '../services/app/PathValidator';
 import { getRecentProjects } from '../services/app/RecentProjectsService';
 import { applyProxy, testProxy } from '../services/proxy/ProxyConfig';
+import { buildRuntimeMemorySnapshot } from '../utils/runtimeMemory';
 
 export function registerAppHandlers() {
   ipcMain.handle(IPC_CHANNELS.APP_DETECT, async () => {
@@ -35,6 +36,17 @@ export function registerAppHandlers() {
   ipcMain.handle(IPC_CHANNELS.APP_SET_PROXY, (_, settings: ProxySettings) => applyProxy(settings));
 
   ipcMain.handle(IPC_CHANNELS.APP_TEST_PROXY, (_, proxyUrl: string) => testProxy(proxyUrl));
+
+  ipcMain.handle(IPC_CHANNELS.APP_GET_RUNTIME_METRICS, (event) => {
+    const rendererProcessId = event.sender.getOSProcessId();
+    const appMetrics = app.getAppMetrics();
+
+    return buildRuntimeMemorySnapshot({
+      appMetrics,
+      rendererMemory: null,
+      rendererProcessId: rendererProcessId > 0 ? rendererProcessId : null,
+    });
+  });
 
   ipcMain.handle(IPC_CHANNELS.APP_RECENT_PROJECTS, async () => {
     return await getRecentProjects();

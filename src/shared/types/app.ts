@@ -29,3 +29,31 @@ export interface ValidateLocalPathResult {
   exists: boolean;
   isDirectory: boolean;
 }
+
+export interface RuntimeMemoryProcessMetric {
+  pid: number;
+  type: string;
+  name: string | null;
+  serviceName: string | null;
+  workingSetSizeKb: number;
+  peakWorkingSetSizeKb: number;
+  privateBytesKb: number | null;
+}
+
+export interface RuntimeProcessMemoryDetails {
+  privateKb: number;
+  sharedKb: number;
+  residentSetKb: number | null;
+}
+
+export interface RuntimeMemorySnapshot {
+  capturedAt: number;
+  processCount: number;
+  rendererProcessId: number | null;
+  rendererMemory: RuntimeProcessMemoryDetails | null;
+  rendererMetric: RuntimeMemoryProcessMetric | null;
+  browserMetric: RuntimeMemoryProcessMetric | null;
+  gpuMetric: RuntimeMemoryProcessMetric | null;
+  totalAppWorkingSetSizeKb: number;
+  totalAppPrivateBytesKb: number;
+}

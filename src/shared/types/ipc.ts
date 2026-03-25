@@ -83,6 +83,7 @@ export const IPC_CHANNELS = {
   TEMP_WORKSPACE_CREATE: 'temp:workspace:create',
   TEMP_WORKSPACE_REMOVE: 'temp:workspace:remove',
   TEMP_WORKSPACE_CHECK_PATH: 'temp:workspace:checkPath',
+  TEMP_WORKSPACE_REHYDRATE: 'temp:workspace:rehydrate',
 
   // Files
   FILE_READ: 'file:read',
@@ -145,6 +146,7 @@ export const IPC_CHANNELS = {
   APP_SET_LANGUAGE: 'app:setLanguage',
   APP_SET_PROXY: 'app:setProxy',
   APP_TEST_PROXY: 'app:testProxy',
+  APP_GET_RUNTIME_METRICS: 'app:getRuntimeMetrics',
 
   // Window Controls (for frameless window)
   WINDOW_MINIMIZE: 'window:minimize',

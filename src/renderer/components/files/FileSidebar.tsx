@@ -17,7 +17,7 @@ import { useFileTree } from '@/hooks/useFileTree';
 import { useI18n } from '@/i18n';
 import { isFocusLocked, pauseFocusLock, restoreFocus } from '@/lib/focusLock';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
-import { getEditorSelectionText } from './EditorArea';
+import { getEditorSelectionText } from './editorSelectionCache';
 import {
   type ConflictInfo,
   type ConflictResolution,
@@ -235,7 +235,7 @@ export function FileSidebar({
       if (!effectiveSessionId) return;
       let displayPath = path;
       const normalizedRoot = rootPath ? normalizePath(rootPath) : '';
-      if (normalizedRoot && path.startsWith(normalizedRoot + '/')) {
+      if (normalizedRoot && path.startsWith(`${normalizedRoot}/`)) {
         displayPath = path.slice(normalizedRoot.length + 1);
       }
       terminalWrite(effectiveSessionId, `@${displayPath} `);

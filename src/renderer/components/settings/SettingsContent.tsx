@@ -25,7 +25,7 @@ import { KeybindingsSettings } from './KeybindingsSettings';
 import { RemoteSettings } from './RemoteSettings';
 import { WebInspectorSettings } from './WebInspectorSettings';
 
-interface SettingsContentProps {
+export interface SettingsContentProps {
   activeCategory?: SettingsCategory;
   onCategoryChange?: (category: SettingsCategory) => void;
   scrollToProvider?: boolean;

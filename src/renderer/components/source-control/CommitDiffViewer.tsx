@@ -1,10 +1,10 @@
 import type { FileDiff } from '@shared/types';
 import { Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
-import { DiffViewer } from '@/components/source-control/DiffViewer';
 import { useI18n } from '@/i18n';
+import { DeferredDiffViewer } from './DeferredDiffViewer';
 
-interface CommitDiffViewerProps {
+export interface CommitDiffViewerProps {
   rootPath: string;
   fileDiff: FileDiff | null | undefined;
   filePath: string | null;
@@ -59,12 +59,13 @@ export function CommitDiffViewer({
   return (
     <div className="flex h-full">
       <div className="flex-1 overflow-hidden">
-        <DiffViewer
+        <DeferredDiffViewer
           rootPath={rootPath}
           file={{ path: filePath, staged: false }}
           isActive={isActive}
           diff={diffData}
           isCommitView
+          shouldLoad={true}
           onPrevFile={onPrevFile}
           onNextFile={onNextFile}
           hasPrevFile={hasPrevFile}

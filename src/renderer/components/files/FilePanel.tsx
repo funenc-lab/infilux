@@ -28,7 +28,8 @@ import { useWindowFocus } from '@/hooks/useWindowFocus';
 import { useActiveSessionId } from '@/stores/agentSessions';
 import { type TerminalKeybinding, useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
-import { EditorArea, type EditorAreaRef } from './EditorArea';
+import { DeferredEditorArea } from './DeferredEditorArea';
+import type { EditorAreaRef } from './EditorArea';
 import {
   type ConflictInfo,
   type ConflictResolution,
@@ -54,7 +55,7 @@ function matchesKeybinding(e: KeyboardEvent, binding: TerminalKeybinding): boole
   return keyMatches && ctrlMatches && altMatches && shiftMatches && metaMatches;
 }
 
-interface FilePanelProps {
+export interface FilePanelProps {
   rootPath: string | undefined;
   isActive?: boolean;
 }
@@ -777,8 +778,9 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
 
       {/* Editor Area - right panel */}
       <div className="flex-1 overflow-hidden">
-        <EditorArea
+        <DeferredEditorArea
           ref={editorAreaRef}
+          shouldLoad={isActive || tabs.length > 0}
           tabs={tabs}
           activeTab={activeTab}
           activeTabPath={activeTab?.path ?? null}

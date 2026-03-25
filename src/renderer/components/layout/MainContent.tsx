@@ -15,14 +15,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
 import { normalizePath } from '@/App/storage';
 import { OpenInMenu } from '@/components/app/OpenInMenu';
-import { AgentPanel } from '@/components/chat/AgentPanel';
-import { CurrentFilePanel, FilePanel } from '@/components/files';
 import { RunningProjectsPopover } from '@/components/layout/RunningProjectsPopover';
-import { SettingsContent } from '@/components/settings';
 import type { SettingsCategory } from '@/components/settings/constants';
-import { SourceControlPanel } from '@/components/source-control';
-import { DiffReviewModal } from '@/components/source-control/DiffReviewModal';
-import { TodoPanel } from '@/components/todo';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -37,7 +31,15 @@ import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
-import { TerminalPanel } from '../terminal';
+import { DeferredAgentPanel } from './DeferredAgentPanel';
+import { DeferredCurrentFilePanel } from './DeferredCurrentFilePanel';
+import { DeferredDiffReviewModal } from './DeferredDiffReviewModal';
+import { DeferredFilePanel } from './DeferredFilePanel';
+import { DeferredSettingsContent } from './DeferredSettingsContent';
+import { DeferredSourceControlPanel } from './DeferredSourceControlPanel';
+import { DeferredTerminalPanel } from './DeferredTerminalPanel';
+import { DeferredTodoPanel } from './DeferredTodoPanel';
+import { shouldRenderTabPanel } from './mainContentMountPolicy';
 
 type LayoutMode = 'columns' | 'tree';
 
@@ -255,6 +257,9 @@ export function MainContent({
   const effectiveSourceControlRootPath = sourceControlRootPath ?? worktreePath;
   const effectiveReviewRootPath = reviewRootPath ?? worktreePath;
   const effectiveOpenInPath = openInPath ?? worktreePath;
+  const shouldRenderSourceControl = shouldRenderTabPanel('source-control', activeTab);
+  const shouldRenderTodo = shouldRenderTabPanel('todo', activeTab);
+  const shouldRenderSettings = shouldRenderTabPanel('settings', activeTab);
 
   // When background image is enabled, avoid stacking multiple semi-transparent bg-background layers
   // Keep bg-background on <main> only (1 layer), remove from all inner elements to prevent double-stacking
@@ -445,11 +450,12 @@ export function MainContent({
           {/* Always render AgentPanel if we have any valid paths (current or previous) */}
           {effectiveRepoPath && effectiveWorktreePath ? (
             <>
-              <AgentPanel
+              <DeferredAgentPanel
                 repoPath={effectiveRepoPath}
                 cwd={effectiveWorktreePath}
                 isActive={activeTab === 'chat' && hasActiveWorktree}
                 onSwitchWorktree={onSwitchWorktree}
+                shouldLoad
               />
               {/* Show overlay when no worktree is actively selected */}
               {!hasActiveWorktree && (
@@ -506,10 +512,11 @@ export function MainContent({
             activeTab === 'terminal' ? 'z-10' : 'invisible pointer-events-none z-0'
           )}
         >
-          <TerminalPanel
+          <DeferredTerminalPanel
             repoPath={effectiveRepoPath ?? undefined}
             cwd={effectiveWorktreePath ?? undefined}
             isActive={activeTab === 'terminal' && hasActiveWorktree}
+            shouldLoad={activeTab === 'terminal'}
           />
         </div>
         {/* File tab - keep mounted to preserve editor state */}
@@ -521,30 +528,40 @@ export function MainContent({
           )}
         >
           {fileTreeDisplayMode === 'current' ? (
-            <CurrentFilePanel rootPath={worktreePath} isActive={activeTab === 'file'} />
+            <DeferredCurrentFilePanel
+              rootPath={worktreePath}
+              isActive={activeTab === 'file'}
+              shouldLoad={activeTab === 'file'}
+            />
           ) : (
-            <FilePanel rootPath={worktreePath} isActive={activeTab === 'file'} />
+            <DeferredFilePanel
+              rootPath={worktreePath}
+              isActive={activeTab === 'file'}
+              shouldLoad={activeTab === 'file'}
+            />
           )}
         </div>
-        {/* Source Control tab - keep mounted to preserve selection state */}
-        <div
-          className={cn(
-            'absolute inset-0',
-            innerBg,
-            activeTab === 'source-control' ? 'z-10' : 'invisible pointer-events-none z-0'
-          )}
-        >
-          <SourceControlPanel
-            rootPath={effectiveSourceControlRootPath}
-            isActive={activeTab === 'source-control'}
-            onExpandWorktree={onExpandWorktree}
-            worktreeCollapsed={worktreeCollapsed}
-            emptyTitle={sourceControlEmptyTitle}
-            emptyDescription={sourceControlEmptyDescription}
-          />
-        </div>
+        {shouldRenderSourceControl && (
+          <div
+            className={cn(
+              'absolute inset-0',
+              innerBg,
+              activeTab === 'source-control' ? 'z-10' : 'invisible pointer-events-none z-0'
+            )}
+          >
+            <DeferredSourceControlPanel
+              shouldLoad={shouldRenderSourceControl}
+              rootPath={effectiveSourceControlRootPath}
+              isActive={activeTab === 'source-control'}
+              onExpandWorktree={onExpandWorktree}
+              worktreeCollapsed={worktreeCollapsed}
+              emptyTitle={sourceControlEmptyTitle}
+              emptyDescription={sourceControlEmptyDescription}
+            />
+          </div>
+        )}
         {/* Todo tab */}
-        {todoEnabled && (
+        {todoEnabled && shouldRenderTodo && (
           <div
             className={cn(
               'absolute inset-0',
@@ -552,7 +569,9 @@ export function MainContent({
               activeTab === 'todo' ? 'z-10' : 'invisible pointer-events-none z-0'
             )}
           >
-            <TodoPanel
+            <DeferredTodoPanel
+              shouldLoad={shouldRenderTodo}
+              repoPath={repoPath}
               worktreePath={worktreePath}
               isActive={activeTab === 'todo'}
               onSwitchToAgent={() => onTabChange('chat')}
@@ -560,7 +579,7 @@ export function MainContent({
           </div>
         )}
         {/* Settings tab */}
-        {settingsDisplayMode === 'tab' && (
+        {settingsDisplayMode === 'tab' && shouldRenderSettings && (
           <div
             className={cn(
               'absolute inset-0',
@@ -582,7 +601,8 @@ export function MainContent({
                 </button>
               </div>
               <div className="flex-1 overflow-hidden">
-                <SettingsContent
+                <DeferredSettingsContent
+                  shouldLoad={shouldRenderSettings}
                   activeCategory={settingsCategory}
                   onCategoryChange={onCategoryChange}
                   scrollToProvider={scrollToProvider}
@@ -594,7 +614,8 @@ export function MainContent({
       </div>
 
       {/* Diff Review Modal */}
-      <DiffReviewModal
+      <DeferredDiffReviewModal
+        shouldLoad={isReviewModalOpen}
         open={isReviewModalOpen}
         onOpenChange={setIsReviewModalOpen}
         rootPath={effectiveReviewRootPath}

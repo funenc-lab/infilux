@@ -1,18 +1,10 @@
 import { loader } from '@monaco-editor/react';
-import { shikiToMonaco } from '@shikijs/monaco';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
-import { createHighlighterCore } from 'shiki/core';
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
-import langAstro from 'shiki/langs/astro.mjs';
-import langSvelte from 'shiki/langs/svelte.mjs';
-import langVue from 'shiki/langs/vue.mjs';
-import themeVitesseDark from 'shiki/themes/vitesse-dark.mjs';
-import themeVitesseLight from 'shiki/themes/vitesse-light.mjs';
 // Import ini language for .env file syntax highlighting
 import 'monaco-editor/esm/vs/basic-languages/ini/ini.contribution';
 import { computeJavaFoldingRanges } from './javaFoldingUtils';
@@ -31,11 +23,6 @@ self.MonacoEnvironment = {
 // Tell @monaco-editor/react to use our pre-configured monaco instance
 loader.config({ monaco });
 
-// Pre-initialize Monaco to ensure it's ready before any editor renders
-const _loadedMonaco = await loader.init();
-
-// Pre-create models to trigger language feature loading (tokenizers are lazy-loaded)
-// This ensures syntax highlighting works immediately for DiffEditor
 const preloadLanguages = [
   'typescript',
   'javascript',
@@ -57,14 +44,6 @@ const preloadLanguages = [
   'graphql',
   'ini', // For .env files
 ];
-for (const lang of preloadLanguages) {
-  try {
-    const tempModel = monaco.editor.createModel('', lang);
-    tempModel.dispose();
-  } catch {
-    // Language may not be supported by Monaco, skip silently
-  }
-}
 
 // Register .env file extensions to use ini syntax highlighting
 monaco.languages.register({
@@ -75,19 +54,93 @@ monaco.languages.register({
 
 // Languages to highlight with Shiki (not natively supported by Monaco)
 const SHIKI_LANGUAGES = ['vue', 'svelte', 'astro'];
-const SHIKI_THEMES = ['vitesse-dark', 'vitesse-light'];
+const SHIKI_THEMES = new Set(['vitesse-dark', 'vitesse-light']);
+let monacoSetupPromise: Promise<void> | null = null;
+let languagesPreloaded = false;
+let shikiBridgeInstalled = false;
 
-// Register Shiki languages with Monaco for syntax highlighting
-// Uses fine-grained imports for smaller bundle size (no WASM needed)
-const shikiHighlighter = await createHighlighterCore({
-  themes: [themeVitesseDark, themeVitesseLight],
-  langs: [langVue, langSvelte, langAstro],
-  engine: createJavaScriptRegexEngine(),
-});
+function preloadMonacoLanguages(): void {
+  if (languagesPreloaded) {
+    return;
+  }
 
-// Register language IDs with Monaco (include extensions for auto-detection)
-for (const lang of SHIKI_LANGUAGES) {
-  monaco.languages.register({ id: lang, extensions: [`.${lang}`] });
+  for (const lang of preloadLanguages) {
+    try {
+      const tempModel = monaco.editor.createModel('', lang);
+      tempModel.dispose();
+    } catch {
+      // Language may not be supported by Monaco, skip silently
+    }
+  }
+
+  languagesPreloaded = true;
+}
+
+async function installShikiBridge(): Promise<void> {
+  if (shikiBridgeInstalled) {
+    return;
+  }
+
+  const [
+    { shikiToMonaco },
+    { createHighlighterCore },
+    { createJavaScriptRegexEngine },
+    { default: langAstro },
+    { default: langSvelte },
+    { default: langVue },
+    { default: themeVitesseDark },
+    { default: themeVitesseLight },
+  ] = await Promise.all([
+    import('@shikijs/monaco'),
+    import('shiki/core'),
+    import('shiki/engine/javascript'),
+    import('shiki/langs/astro.mjs'),
+    import('shiki/langs/svelte.mjs'),
+    import('shiki/langs/vue.mjs'),
+    import('shiki/themes/vitesse-dark.mjs'),
+    import('shiki/themes/vitesse-light.mjs'),
+  ]);
+
+  const shikiHighlighter = await createHighlighterCore({
+    themes: [themeVitesseDark, themeVitesseLight],
+    langs: [langVue, langSvelte, langAstro],
+    engine: createJavaScriptRegexEngine(),
+  });
+
+  for (const lang of SHIKI_LANGUAGES) {
+    monaco.languages.register({ id: lang, extensions: [`.${lang}`] });
+  }
+
+  const originalSetTheme = monaco.editor.setTheme.bind(monaco.editor);
+  shikiToMonaco(shikiHighlighter, monaco);
+  const shikiSetTheme = monaco.editor.setTheme.bind(monaco.editor);
+
+  monaco.editor.setTheme = (themeName: string) => {
+    if (SHIKI_THEMES.has(themeName)) {
+      shikiSetTheme(themeName);
+    } else {
+      originalSetTheme(themeName);
+    }
+  };
+
+  shikiBridgeInstalled = true;
+}
+
+export async function ensureMonacoSetup(): Promise<void> {
+  if (monacoSetupPromise) {
+    return monacoSetupPromise;
+  }
+
+  monacoSetupPromise = (async () => {
+    await loader.init();
+    preloadMonacoLanguages();
+    await installShikiBridge();
+  })().catch((error) => {
+    monacoSetupPromise = null;
+    throw error;
+  });
+
+  return monacoSetupPromise;
 }
 
 // Configure comment rules for all languages (enables Ctrl+/ / Cmd+/ shortcut)
@@ -126,25 +179,6 @@ for (const [langId, config] of Object.entries(LANGUAGE_COMMENTS)) {
     // Language may not be registered, skip silently
   }
 }
-
-// Save original setTheme before shikiToMonaco patches it
-const originalSetTheme = monaco.editor.setTheme.bind(monaco.editor);
-
-// Apply Shiki highlighting to Monaco (this patches setTheme)
-shikiToMonaco(shikiHighlighter, monaco);
-
-// Get Shiki's patched setTheme
-const shikiSetTheme = monaco.editor.setTheme.bind(monaco.editor);
-const shikiThemeSet = new Set<string>(SHIKI_THEMES);
-
-// Restore setTheme with fallback for non-Shiki themes
-monaco.editor.setTheme = (themeName: string) => {
-  if (shikiThemeSet.has(themeName)) {
-    shikiSetTheme(themeName);
-  } else {
-    originalSetTheme(themeName);
-  }
-};
 
 // Configure TypeScript compiler options to suppress module resolution errors
 // Monaco's TS service can't resolve project-specific paths like @/* aliases

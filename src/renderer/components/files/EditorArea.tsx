@@ -29,25 +29,28 @@ import { addToast } from '@/components/ui/toast';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
 import { useI18n } from '@/i18n';
 import { toMonacoFileUri } from '@/lib/monacoModelPath';
+import { recordBulkReloadEvent } from '@/lib/runtimeDiagnostics';
 import { useActiveSessionId } from '@/stores/agentSessions';
 import type { EditorTab, PendingCursor } from '@/stores/editor';
 import { useEditorStore } from '@/stores/editor';
 import { type TerminalKeybinding, useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { BreadcrumbTreeMenu } from './BreadcrumbTreeMenu';
+import { buildBreadcrumbSegments } from './breadcrumbPathUtils';
 import { CommentForm, useEditorLineComment } from './EditorLineComment';
 import { EditorTabs } from './EditorTabs';
 import { ExternalModificationBanner } from './ExternalModificationBanner';
 import { setupDefinitionNavigation } from './editorDefinitionProvider';
+import { buildBulkReloadPlan } from './editorReloadPolicy';
 import { setupDoubleClickScope } from './editorScopeSelection';
+import { setEditorSelectionText } from './editorSelectionCache';
 import { isImageFile, isPdfFile } from './fileIcons';
 import { ImagePreview } from './ImagePreview';
 import { MarkdownPreview } from './MarkdownPreview';
+import { ensureMonacoSetup } from './monacoSetup';
 import { CUSTOM_THEME_NAME, defineMonacoTheme } from './monacoTheme';
 import { PdfPreview } from './PdfPreview';
 import { useEditorBlame } from './useEditorBlame';
-// Import for side effects (Monaco setup)
-import './monacoSetup';
 
 type Monaco = typeof monaco;
 
@@ -110,12 +113,6 @@ function bindingToMonacoChord(binding: TerminalKeybinding, m: Monaco): number {
   return chord | keyCode;
 }
 
-let latestSelectionText = '';
-
-export function getEditorSelectionText(): string {
-  return latestSelectionText;
-}
-
 type MarkdownPreviewMode = 'off' | 'split' | 'fullscreen';
 
 export interface EditorAreaRef {
@@ -129,7 +126,7 @@ function isMarkdownFile(path: string | null): boolean {
   return ext === 'md' || ext === 'markdown';
 }
 
-interface EditorAreaProps {
+export interface EditorAreaProps {
   tabs: EditorTab[];
   activeTab: EditorTab | null;
   activeTabPath: string | null;
@@ -245,7 +242,9 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
   const previewModeRef = useRef<MarkdownPreviewMode>('off');
   previewModeRef.current = previewMode;
   const [editorReady, setEditorReady] = useState(false);
+  const [isMonacoReady, setIsMonacoReady] = useState(false);
   const [previewWidth, setPreviewWidth] = useState(50); // percentage
+  const requiresMonaco = Boolean(activeTab && !activeTab.isUnsupported && !isImage && !isPdf);
 
   // Sync preview mode from pendingCursor
   useEffect(() => {
@@ -261,6 +260,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
   const markExternalChange = useEditorStore((state) => state.markExternalChange);
   const applyExternalChange = useEditorStore((state) => state.applyExternalChange);
   const dismissExternalChange = useEditorStore((state) => state.dismissExternalChange);
+  const markTabsStale = useEditorStore((state) => state.markTabsStale);
   const themeDefinedRef = useRef(false);
   const selectionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectionWidgetRef = useRef<monaco.editor.IContentWidget | null>(null);
@@ -330,20 +330,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
 
   // Calculate breadcrumb segments from active file path
   const breadcrumbSegments = useMemo(() => {
-    if (!activeTabPath || !rootPath) return [];
-
-    const relativePath = activeTabPath.startsWith(rootPath)
-      ? activeTabPath.slice(rootPath.length).replace(/^\//, '')
-      : activeTabPath;
-
-    if (!relativePath) return [];
-
-    const parts = relativePath.split('/');
-    return parts.map((name, index) => ({
-      name,
-      path: `${rootPath}/${parts.slice(0, index + 1).join('/')}`,
-      isLast: index === parts.length - 1,
-    }));
+    return buildBreadcrumbSegments(activeTabPath, rootPath);
   }, [activeTabPath, rootPath]);
 
   // Keep refs in sync with state
@@ -486,7 +473,15 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
 
       // Bulk mode: agent modified too many files at once, reload all open tabs
       if (event.path.endsWith('/.enso-bulk')) {
-        for (const tab of tabsRef.current) scheduleReload(tab);
+        recordBulkReloadEvent(activeTabPathRef.current);
+        const plan = buildBulkReloadPlan(tabsRef.current, activeTabPathRef.current);
+        markTabsStale(plan.stalePaths);
+        for (const path of plan.immediateReloadPaths) {
+          const tab = tabsRef.current.find((item) => item.path === path);
+          if (tab) {
+            scheduleReload(tab);
+          }
+        }
         return;
       }
 
@@ -502,7 +497,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
       for (const timer of reloadTimers.values()) clearTimeout(timer);
       reloadTimers.clear();
     };
-  }, [onContentChange, markExternalChange, setEditorValueProgrammatically]);
+  }, [markTabsStale, onContentChange, markExternalChange, setEditorValueProgrammatically]);
 
   // Sync Monaco editor when store content is updated by background refresh (tab switch reload)
   useEffect(() => {
@@ -514,14 +509,33 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
     }
   }, [activeTab, setEditorValueProgrammatically]);
 
-  // Define custom theme on mount and when terminal theme / background image settings change
+  // Lazily initialize Monaco only when a text editor is actually needed.
   useEffect(() => {
-    defineMonacoTheme(terminalTheme, {
-      backgroundImageEnabled,
-      backgroundOpacity,
-    });
-    themeDefinedRef.current = true;
-  }, [terminalTheme, backgroundImageEnabled, backgroundOpacity]);
+    if (!requiresMonaco) {
+      return;
+    }
+
+    let cancelled = false;
+    ensureMonacoSetup()
+      .catch((error) => {
+        console.warn('[monaco] Deferred setup failed, continuing with base editor:', error);
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
+        defineMonacoTheme(terminalTheme, {
+          backgroundImageEnabled,
+          backgroundOpacity,
+        });
+        themeDefinedRef.current = true;
+        setIsMonacoReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requiresMonaco, terminalTheme, backgroundImageEnabled, backgroundOpacity]);
 
   // Handle pending cursor navigation (jump to line and select match)
   // Only handles same-file search; new file search is handled by handleEditorMount
@@ -904,7 +918,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
       if (!model) return;
 
       const selectedText = model.getValueInRange(selection);
-      latestSelectionText = selectedText;
+      setEditorSelectionText(selectedText);
 
       // Hide comment widget if selection changes
       if (commentWidgetInstance) {
@@ -1319,6 +1333,10 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
                 <ImagePreview path={activeTab.path} />
               ) : isPdf ? (
                 <PdfPreview path={activeTab.path} />
+              ) : !isMonacoReady ? (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  {t('Loading...')}
+                </div>
               ) : (
                 <Editor
                   key={activeTab.path}

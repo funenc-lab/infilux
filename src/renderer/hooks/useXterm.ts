@@ -146,9 +146,7 @@ export function useXterm({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const ptyIdRef = useRef<string | null>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
-  const exitCleanupRef = useRef<(() => void) | null>(null);
-  const stateCleanupRef = useRef<(() => void) | null>(null);
+  const sessionEventsCleanupRef = useRef<(() => void) | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<{ dispose: () => void } | null>(null);
   const copyOnSelectionHandlerRef = useRef<(() => void) | null>(null);
@@ -602,57 +600,6 @@ export function useXterm({
 
     try {
       const createRequestId = ++createRequestIdRef.current;
-      // Handle data from pty with debounced buffering for smooth rendering
-      // 30ms delay merges fragmented TUI packets (clear + write)
-      const cleanup = window.electronAPI.session.onData((event) => {
-        if (event.sessionId === ptyIdRef.current) {
-          // Buffer data
-          writeBufferRef.current += event.data;
-
-          if (!isFlushPendingRef.current) {
-            isFlushPendingRef.current = true;
-            setTimeout(() => {
-              if (writeBufferRef.current.length > 0) {
-                const bufferedData = writeBufferRef.current;
-                terminal.write(bufferedData);
-                // Call onData after write to avoid React re-render storm
-                onDataRef.current?.(bufferedData);
-                writeBufferRef.current = '';
-              }
-              isFlushPendingRef.current = false;
-            }, 30);
-          }
-        }
-      });
-      cleanupRef.current = cleanup;
-
-      // Handle exit - delay to ensure pending data events are received
-      // then flush remaining buffer before calling onExit
-      const exitCleanup = window.electronAPI.session.onExit((event) => {
-        if (event.sessionId === ptyIdRef.current) {
-          setRuntimeState('dead');
-          // Wait for any pending data events to arrive (IPC race condition)
-          setTimeout(() => {
-            // Flush any remaining buffered data
-            if (writeBufferRef.current.length > 0) {
-              const bufferedData = writeBufferRef.current;
-              terminal.write(bufferedData);
-              onDataRef.current?.(bufferedData);
-              writeBufferRef.current = '';
-            }
-            onExitRef.current?.();
-          }, 30);
-        }
-      });
-      exitCleanupRef.current = exitCleanup;
-
-      const stateCleanup = window.electronAPI.session.onState((event) => {
-        if (event.sessionId === ptyIdRef.current) {
-          setRuntimeState(event.state);
-        }
-      });
-      stateCleanupRef.current = stateCleanup;
-
       const createOptions = {
         cwd: cwd || window.electronAPI.env.HOME,
         // If command is provided (e.g., for agent), use shell/args directly
@@ -673,6 +620,43 @@ export function useXterm({
         onSessionIdChangeRef.current?.(sessionId);
       };
 
+      const subscribeToSession = (sessionId: string) => {
+        sessionEventsCleanupRef.current?.();
+        sessionEventsCleanupRef.current = window.electronAPI.session.subscribe(sessionId, {
+          onData: (event) => {
+            writeBufferRef.current += event.data;
+
+            if (!isFlushPendingRef.current) {
+              isFlushPendingRef.current = true;
+              setTimeout(() => {
+                if (writeBufferRef.current.length > 0) {
+                  const bufferedData = writeBufferRef.current;
+                  terminal.write(bufferedData);
+                  onDataRef.current?.(bufferedData);
+                  writeBufferRef.current = '';
+                }
+                isFlushPendingRef.current = false;
+              }, 30);
+            }
+          },
+          onExit: () => {
+            setRuntimeState('dead');
+            setTimeout(() => {
+              if (writeBufferRef.current.length > 0) {
+                const bufferedData = writeBufferRef.current;
+                terminal.write(bufferedData);
+                onDataRef.current?.(bufferedData);
+                writeBufferRef.current = '';
+              }
+              onExitRef.current?.();
+            }, 30);
+          },
+          onState: (event) => {
+            setRuntimeState(event.state);
+          },
+        });
+      };
+
       const attachToSession = (sessionId: string) =>
         window.electronAPI.session.attach({
           sessionId,
@@ -683,6 +667,7 @@ export function useXterm({
         const created = await window.electronAPI.session.create(createOptions);
         const createdSessionId = created.session.sessionId;
         setCurrentSessionId(createdSessionId);
+        subscribeToSession(createdSessionId);
         if (isRemoteVirtualPath(createOptions.cwd)) {
           return created;
         }
@@ -694,11 +679,14 @@ export function useXterm({
       if (backendSessionId) {
         try {
           setCurrentSessionId(backendSessionId);
+          subscribeToSession(backendSessionId);
           const result = await attachToSession(backendSessionId);
           session = result.session;
           replay = result.replay;
         } catch (error) {
           console.warn('[xterm] Failed to attach existing session, creating a new one:', error);
+          sessionEventsCleanupRef.current?.();
+          sessionEventsCleanupRef.current = null;
           ptyIdRef.current = null;
         }
       }
@@ -710,11 +698,17 @@ export function useXterm({
       }
 
       if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
+        sessionEventsCleanupRef.current?.();
+        sessionEventsCleanupRef.current = null;
+        ptyIdRef.current = null;
         await window.electronAPI.session.kill(session.sessionId).catch(() => {});
         return;
       }
 
-      ptyIdRef.current = session.sessionId;
+      if (ptyIdRef.current !== session.sessionId) {
+        setCurrentSessionId(session.sessionId);
+        subscribeToSession(session.sessionId);
+      }
       setIsLoading(false);
 
       if (replay) {
@@ -731,12 +725,8 @@ export function useXterm({
 
       // Focus is handled by the isActive effect after loading ends.
     } catch (error) {
-      cleanupRef.current?.();
-      cleanupRef.current = null;
-      exitCleanupRef.current?.();
-      exitCleanupRef.current = null;
-      stateCleanupRef.current?.();
-      stateCleanupRef.current = null;
+      sessionEventsCleanupRef.current?.();
+      sessionEventsCleanupRef.current = null;
       ptyIdRef.current = null;
       if (isUnmountedRef.current) {
         return;
@@ -788,9 +778,8 @@ export function useXterm({
       hasBeenActivatedRef.current = false;
       hasReceivedDataRef.current = false;
       createRequestIdRef.current += 1;
-      cleanupRef.current?.();
-      exitCleanupRef.current?.();
-      stateCleanupRef.current?.();
+      sessionEventsCleanupRef.current?.();
+      sessionEventsCleanupRef.current = null;
       if (ptyIdRef.current) {
         window.electronAPI.session.detach(ptyIdRef.current).catch(() => {});
         ptyIdRef.current = null;
@@ -810,7 +799,6 @@ export function useXterm({
       rendererAddonRef.current = null;
       terminalRef.current?.dispose();
       terminalRef.current = null;
-      stateCleanupRef.current = null;
     };
   }, []);
 
@@ -884,6 +872,7 @@ export function useXterm({
   useEffect(() => {
     if (isActive && terminalRef.current && !isLoading) {
       requestAnimationFrame(() => {
+        // biome-ignore lint/suspicious/noFocusedTests: fit resizes the terminal viewport.
         fit();
         terminalRef.current?.focus();
       });
@@ -906,6 +895,7 @@ export function useXterm({
           }
           terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
           if (isActive) {
+            // biome-ignore lint/suspicious/noFocusedTests: fit resizes the terminal viewport.
             fit();
           }
         });
@@ -923,6 +913,7 @@ export function useXterm({
         requestAnimationFrame(() => {
           terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
           if (isActive) {
+            // biome-ignore lint/suspicious/noFocusedTests: fit resizes the terminal viewport.
             fit();
           }
         });

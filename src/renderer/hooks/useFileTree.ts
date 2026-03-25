@@ -2,6 +2,7 @@ import type { FileEntry } from '@shared/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadFileTreeExpandedPaths, saveFileTreeExpandedPaths } from '@/App/storage';
+import { resolveFileListGitRoot } from '@/components/files/breadcrumbPathUtils';
 
 interface UseFileTreeOptions {
   rootPath: string | undefined;
@@ -25,7 +26,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     queryKey: ['file', 'list', rootPath],
     queryFn: async () => {
       if (!rootPath) return [];
-      return window.electronAPI.file.list(rootPath, rootPath);
+      return window.electronAPI.file.list(rootPath, resolveFileListGitRoot(rootPath, rootPath));
     },
     enabled: enabled && !!rootPath,
   });
@@ -69,7 +70,10 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       const cached = queryClient.getQueryData<FileEntry[]>(['file', 'list', path]);
       if (cached) return cached;
 
-      const files = await window.electronAPI.file.list(path, rootPath);
+      const files = await window.electronAPI.file.list(
+        path,
+        resolveFileListGitRoot(path, rootPath)
+      );
       queryClient.setQueryData(['file', 'list', path], files);
       return files;
     },
@@ -276,7 +280,10 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   const refreshNodeChildren = useCallback(
     async (targetPath: string) => {
       try {
-        const newChildren = await window.electronAPI.file.list(targetPath, rootPath);
+        const newChildren = await window.electronAPI.file.list(
+          targetPath,
+          resolveFileListGitRoot(targetPath, rootPath)
+        );
         queryClient.setQueryData(['file', 'list', targetPath], newChildren);
 
         setTree((current) => {

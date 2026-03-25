@@ -1,4 +1,5 @@
 export { CurrentFilePanel } from './CurrentFilePanel';
+export { DeferredEditorArea } from './DeferredEditorArea';
 export { EditorArea } from './EditorArea';
 export { EditorTabs } from './EditorTabs';
 export { FilePanel } from './FilePanel';

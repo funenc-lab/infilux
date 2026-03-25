@@ -2,6 +2,7 @@ import Editor from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
+import { ensureMonacoSetup } from '@/components/files/monacoSetup';
 import { CUSTOM_THEME_NAME, defineMonacoTheme } from '@/components/files/monacoTheme';
 import { useI18n } from '@/i18n';
 import { toMonacoVirtualUri } from '@/lib/monacoModelPath';
@@ -24,11 +25,29 @@ export function SearchPreviewPanel({ path, line, query }: SearchPreviewPanelProp
     useShallow((s) => ({ terminalTheme: s.terminalTheme, editorSettings: s.editorSettings }))
   );
 
-  // Define theme on mount
+  // Lazily initialize Monaco only when preview is requested.
   useEffect(() => {
-    defineMonacoTheme(terminalTheme);
-    setThemeReady(true);
-  }, [terminalTheme]);
+    if (!path) {
+      return;
+    }
+
+    let cancelled = false;
+    ensureMonacoSetup()
+      .catch((error) => {
+        console.warn('[monaco] Deferred setup failed, continuing with base preview:', error);
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
+        defineMonacoTheme(terminalTheme);
+        setThemeReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [path, terminalTheme]);
 
   const monacoTheme = themeReady ? CUSTOM_THEME_NAME : 'vs-dark';
 
@@ -161,36 +180,42 @@ export function SearchPreviewPanel({ path, line, query }: SearchPreviewPanelProp
 
       {/* Monaco Editor */}
       <div className="min-h-0 flex-1">
-        <Editor
-          key={path}
-          path={toMonacoVirtualUri('preview', path)}
-          value={content}
-          theme={monacoTheme}
-          onMount={handleEditorMount}
-          options={{
-            readOnly: true,
-            minimap: { enabled: false },
-            lineNumbers: 'on',
-            folding: false,
-            scrollBeyondLastLine: false,
-            renderLineHighlight: 'line',
-            overviewRulerBorder: false,
-            overviewRulerLanes: 0,
-            hideCursorInOverviewRuler: true,
-            scrollbar: {
-              vertical: 'auto',
-              horizontal: 'auto',
-              verticalScrollbarSize: 8,
-              horizontalScrollbarSize: 8,
-            },
-            fontSize: editorSettings.fontSize,
-            fontFamily: editorSettings.fontFamily,
-            wordWrap: 'on',
-            contextmenu: false,
-            selectOnLineNumbers: false,
-            glyphMargin: true,
-          }}
-        />
+        {themeReady ? (
+          <Editor
+            key={path}
+            path={toMonacoVirtualUri('preview', path)}
+            value={content}
+            theme={monacoTheme}
+            onMount={handleEditorMount}
+            options={{
+              readOnly: true,
+              minimap: { enabled: false },
+              lineNumbers: 'on',
+              folding: false,
+              scrollBeyondLastLine: false,
+              renderLineHighlight: 'line',
+              overviewRulerBorder: false,
+              overviewRulerLanes: 0,
+              hideCursorInOverviewRuler: true,
+              scrollbar: {
+                vertical: 'auto',
+                horizontal: 'auto',
+                verticalScrollbarSize: 8,
+                horizontalScrollbarSize: 8,
+              },
+              fontSize: editorSettings.fontSize,
+              fontFamily: editorSettings.fontFamily,
+              wordWrap: 'on',
+              contextmenu: false,
+              selectOnLineNumbers: false,
+              glyphMargin: true,
+            }}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            {t('Loading...')}
+          </div>
+        )}
       </div>
 
       {/* CSS for highlighting */}

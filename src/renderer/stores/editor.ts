@@ -5,6 +5,7 @@ export interface EditorTab {
   title: string;
   content: string;
   isDirty: boolean;
+  isStale?: boolean;
   encoding?: string;
   viewState?: unknown;
   isUnsupported?: boolean;
@@ -49,6 +50,7 @@ interface EditorState {
   markExternalChange: (path: string, externalContent: string) => void;
   applyExternalChange: (path: string) => void;
   dismissExternalChange: (path: string) => void;
+  markTabsStale: (paths: string[]) => void;
   setTabViewState: (path: string, viewState: unknown) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   setPendingCursor: (cursor: PendingCursor | null) => void;
@@ -79,6 +81,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
                   ...tab,
                   ...file,
                   title: file.title ?? tab.title,
+                  isStale: false,
                   // Clear external change state on explicit file open (fresh load)
                   hasExternalChange: false,
                   externalContent: undefined,
@@ -154,14 +157,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   updateFileContent: (path, content, isDirty = true) =>
     set((state) => ({
-      tabs: state.tabs.map((tab) => (tab.path === path ? { ...tab, content, isDirty } : tab)),
+      tabs: state.tabs.map((tab) =>
+        tab.path === path ? { ...tab, content, isDirty, isStale: false } : tab
+      ),
     })),
 
   markFileSaved: (path) =>
     set((state) => ({
       tabs: state.tabs.map((tab) =>
         tab.path === path
-          ? { ...tab, isDirty: false, hasExternalChange: false, externalContent: undefined }
+          ? {
+              ...tab,
+              isDirty: false,
+              isStale: false,
+              hasExternalChange: false,
+              externalContent: undefined,
+            }
           : tab
       ),
     })),
@@ -180,6 +191,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           ? {
               ...tab,
               content: tab.externalContent ?? tab.content,
+              isStale: false,
               isDirty: false,
               hasExternalChange: false,
               externalContent: undefined,
@@ -194,6 +206,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         tab.path === path ? { ...tab, hasExternalChange: false, externalContent: undefined } : tab
       ),
     })),
+
+  markTabsStale: (paths) =>
+    set((state) => {
+      if (paths.length === 0) {
+        return { tabs: state.tabs };
+      }
+      const staleSet = new Set(paths);
+      return {
+        tabs: state.tabs.map((tab) => (staleSet.has(tab.path) ? { ...tab, isStale: true } : tab)),
+      };
+    }),
 
   setTabViewState: (path, viewState) =>
     set((state) => ({
