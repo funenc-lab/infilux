@@ -18,7 +18,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CommentForm } from '@/components/files/EditorLineComment';
-import { monaco } from '@/components/files/monacoSetup';
+import { ensureMonacoSetup, monaco } from '@/components/files/monacoSetup';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -41,7 +41,7 @@ import { useTerminalWriteStore } from '@/stores/terminalWrite';
 
 type DiffEditorInstance = ReturnType<typeof monaco.editor.createDiffEditor>;
 
-interface DiffReviewModalProps {
+export interface DiffReviewModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   rootPath: string | undefined;
@@ -377,13 +377,29 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
     );
   }, [allComments, selectedFile]);
 
-  // Define theme on mount
+  // Lazily initialize Monaco only while the review modal is active.
   useEffect(() => {
-    if (open) {
-      defineMonacoDiffTheme(terminalTheme);
-      setIsThemeReady(true);
+    if (!open || !diff) {
+      return;
     }
-  }, [open, terminalTheme]);
+
+    let cancelled = false;
+    ensureMonacoSetup()
+      .catch((error) => {
+        console.warn('[monaco] Deferred setup failed, continuing with base review diff:', error);
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
+        defineMonacoDiffTheme(terminalTheme);
+        setIsThemeReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, diff, terminalTheme]);
 
   // Auto-select first file
   useEffect(() => {

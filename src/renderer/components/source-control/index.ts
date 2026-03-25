@@ -3,6 +3,8 @@ export { ChangesTree } from './ChangesTree';
 export { CommitBox } from './CommitBox';
 export { CommitDiffViewer } from './CommitDiffViewer';
 export { CommitHistoryList } from './CommitHistoryList';
+export { DeferredCommitDiffViewer } from './DeferredCommitDiffViewer';
+export { DeferredDiffViewer } from './DeferredDiffViewer';
 export { DiffViewer } from './DiffViewer';
 export { RepositoryList } from './RepositoryList';
 export { SourceControlPanel } from './SourceControlPanel';

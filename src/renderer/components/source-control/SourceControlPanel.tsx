@@ -55,14 +55,14 @@ import { useSourceControlStore } from '@/stores/sourceControl';
 import { BranchSwitcher } from './BranchSwitcher';
 import { ChangesList } from './ChangesList';
 import { CommitBox } from './CommitBox';
-import { CommitDiffViewer } from './CommitDiffViewer';
 import { CommitHistoryList } from './CommitHistoryList';
-import { DiffViewer } from './DiffViewer';
+import { DeferredCommitDiffViewer } from './DeferredCommitDiffViewer';
+import { DeferredDiffViewer } from './DeferredDiffViewer';
 import { RepositoryList } from './RepositoryList';
 import type { Repository } from './types';
 import { usePanelResize } from './usePanelResize';
 
-interface SourceControlPanelProps {
+export interface SourceControlPanelProps {
   rootPath: string | undefined;
   isActive?: boolean;
   onExpandWorktree?: () => void;
@@ -1118,12 +1118,13 @@ export function SourceControlPanel({
         <div className="flex flex-1 overflow-hidden">
           {selectedCommitHash ? (
             <div className="flex-1 overflow-hidden">
-              <CommitDiffViewer
+              <DeferredCommitDiffViewer
                 rootPath={selectedRepoPath ?? rootPath ?? ''}
                 fileDiff={commitDiff}
                 filePath={selectedCommitFile}
                 isActive={isActive}
                 isLoading={commitDiffLoading}
+                shouldLoad={Boolean(selectedCommitHash)}
                 onPrevFile={handlePrevCommitFile}
                 onNextFile={handleNextCommitFile}
                 hasPrevFile={currentCommitFileIndex > 0}
@@ -1132,20 +1133,22 @@ export function SourceControlPanel({
             </div>
           ) : selectedSubmoduleFile && rootPath ? (
             <div className="flex-1 overflow-hidden">
-              <DiffViewer
+              <DeferredDiffViewer
                 rootPath={joinPath(rootPath, selectedSubmoduleFile.submodulePath)}
                 file={{ path: selectedSubmoduleFile.path, staged: selectedSubmoduleFile.staged }}
                 diff={submoduleFileDiff ?? undefined}
                 skipFetch={true}
                 isActive={isActive}
+                shouldLoad={Boolean(selectedSubmoduleFile)}
               />
             </div>
           ) : (
             <div className="flex-1 overflow-hidden">
-              <DiffViewer
+              <DeferredDiffViewer
                 rootPath={selectedRepoPath ?? rootPath ?? ''}
                 file={selectedFile}
                 isActive={isActive}
+                shouldLoad={Boolean(selectedFile)}
                 onPrevFile={handlePrevFile}
                 onNextFile={handleNextFile}
                 hasPrevFile={currentFileIndex > 0}

@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CommentForm } from '@/components/files/EditorLineComment';
-import { monaco } from '@/components/files/monacoSetup';
+import { ensureMonacoSetup, monaco } from '@/components/files/monacoSetup';
 import {
   Empty,
   EmptyDescription,
@@ -104,7 +104,7 @@ function getLanguageFromPath(filePath: string): string {
   return languageMap[ext] || 'plaintext';
 }
 
-interface DiffViewerProps {
+export interface DiffViewerProps {
   rootPath: string;
   file: { path: string; staged: boolean } | null;
   isActive?: boolean;
@@ -210,14 +210,29 @@ export function DiffViewer({
   const selectionCommentDomRef = useRef<HTMLDivElement | null>(null);
   const selectionCommentRootRef = useRef<Root | null>(null);
 
-  // Define theme on mount and when terminal theme changes
+  // Lazily initialize Monaco only when diff content is ready.
   useEffect(() => {
-    defineMonacoDiffTheme(terminalTheme);
-    // Force re-render after theme is defined
-    if (!isThemeReady) {
-      setIsThemeReady(true);
+    if (!diff || diff.original == null || diff.modified == null) {
+      return;
     }
-  }, [terminalTheme, isThemeReady]);
+
+    let cancelled = false;
+    ensureMonacoSetup()
+      .catch((error) => {
+        console.warn('[monaco] Deferred setup failed, continuing with base diff:', error);
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
+        defineMonacoDiffTheme(terminalTheme);
+        setIsThemeReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [diff, terminalTheme]);
 
   // Handle submit comment
   const handleSubmitComment = useCallback(

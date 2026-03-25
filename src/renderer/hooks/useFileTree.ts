@@ -2,6 +2,12 @@ import type { FileEntry } from '@shared/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadFileTreeExpandedPaths, saveFileTreeExpandedPaths } from '@/App/storage';
+import {
+  resolveFileListGitRoot,
+  resolveFileListPath,
+} from '@/components/files/breadcrumbPathUtils';
+import { shouldRefreshFileTreeOnWatchResume, shouldWatchFileTree } from './fileTreeWatchPolicy';
+import { useShouldPoll } from './useWindowFocus';
 
 interface UseFileTreeOptions {
   rootPath: string | undefined;
@@ -16,6 +22,7 @@ interface FileTreeNode extends FileEntry {
 
 export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFileTreeOptions) {
   const queryClient = useQueryClient();
+  const shouldPoll = useShouldPoll();
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() =>
     rootPath ? loadFileTreeExpandedPaths(rootPath) : new Set()
   );
@@ -25,7 +32,11 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     queryKey: ['file', 'list', rootPath],
     queryFn: async () => {
       if (!rootPath) return [];
-      return window.electronAPI.file.list(rootPath, rootPath);
+      const resolvedRootPath = resolveFileListPath(rootPath, rootPath) ?? rootPath;
+      return window.electronAPI.file.list(
+        resolvedRootPath,
+        resolveFileListGitRoot(rootPath, rootPath)
+      );
     },
     enabled: enabled && !!rootPath,
   });
@@ -66,11 +77,15 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   // Load children for a directory
   const loadChildren = useCallback(
     async (path: string): Promise<FileEntry[]> => {
-      const cached = queryClient.getQueryData<FileEntry[]>(['file', 'list', path]);
+      const resolvedPath = resolveFileListPath(path, rootPath) ?? path;
+      const cached = queryClient.getQueryData<FileEntry[]>(['file', 'list', resolvedPath]);
       if (cached) return cached;
 
-      const files = await window.electronAPI.file.list(path, rootPath);
-      queryClient.setQueryData(['file', 'list', path], files);
+      const files = await window.electronAPI.file.list(
+        resolvedPath,
+        resolveFileListGitRoot(path, rootPath)
+      );
+      queryClient.setQueryData(['file', 'list', resolvedPath], files);
       return files;
     },
     [queryClient, rootPath]
@@ -276,8 +291,12 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   const refreshNodeChildren = useCallback(
     async (targetPath: string) => {
       try {
-        const newChildren = await window.electronAPI.file.list(targetPath, rootPath);
-        queryClient.setQueryData(['file', 'list', targetPath], newChildren);
+        const resolvedTargetPath = resolveFileListPath(targetPath, rootPath) ?? targetPath;
+        const newChildren = await window.electronAPI.file.list(
+          resolvedTargetPath,
+          resolveFileListGitRoot(targetPath, rootPath)
+        );
+        queryClient.setQueryData(['file', 'list', resolvedTargetPath], newChildren);
 
         setTree((current) => {
           const updateNode = (nodes: FileTreeNode[]): FileTreeNode[] => {
@@ -319,44 +338,65 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     [queryClient, rootPath, setAndPersistExpandedPaths]
   );
 
-  // Track if we need to refresh when becoming active
-  const needsRefreshOnActiveRef = useRef(false);
+  const shouldWatch = shouldWatchFileTree({
+    rootPath,
+    enabled,
+    isActive,
+    shouldPoll,
+  });
+  const previousWatchStateRef = useRef<{
+    rootPath: string | undefined;
+    shouldWatch: boolean;
+  }>({
+    rootPath: undefined,
+    shouldWatch: false,
+  });
 
-  // Use ref for isActive to avoid effect re-runs on tab switch
-  const isActiveRef = useRef(isActive);
-  isActiveRef.current = isActive;
+  const refresh = useCallback(async () => {
+    console.log('[useFileTree] Refresh started');
+    // Force invalidate all cached queries first
+    queryClient.invalidateQueries({ queryKey: ['file', 'list'] });
 
-  // File watch effect - always watch, but only update UI when active
+    // Refetch root directory first
+    await queryClient.refetchQueries({ queryKey: ['file', 'list', rootPath] });
+    console.log('[useFileTree] Root refetched');
+
+    // Refetch all expanded directories in parallel
+    const currentExpanded = Array.from(expandedPathsRef.current);
+    console.log('[useFileTree] Refetching expanded paths:', currentExpanded);
+    await Promise.all(
+      currentExpanded.filter((path) => path !== rootPath).map((path) => refreshNodeChildren(path))
+    );
+    console.log('[useFileTree] Refresh completed');
+  }, [queryClient, rootPath, refreshNodeChildren]);
+
+  // File watch effect - only watch while the file tree is active and the window is not idle
   useEffect(() => {
-    if (!rootPath || !enabled) return;
+    const nextWatchState = { rootPath, shouldWatch };
+    const previousWatchState = previousWatchStateRef.current;
+    previousWatchStateRef.current = nextWatchState;
 
-    // Start watching
+    if (!rootPath || !shouldWatch) return;
+
     window.electronAPI.file.watchStart(rootPath);
 
-    // Listen for changes
+    if (shouldRefreshFileTreeOnWatchResume(previousWatchState, nextWatchState)) {
+      void refresh();
+    }
+
     const unsubscribe = window.electronAPI.file.onChange(async (event) => {
       const parentPath = event.path.substring(0, event.path.lastIndexOf('/')) || rootPath;
 
-      // Always invalidate cache regardless of isActive
       if (parentPath !== rootPath) {
         queryClient.removeQueries({ queryKey: ['file', 'list', parentPath] });
       }
 
-      // If not active, mark for refresh when becoming active
-      if (!isActiveRef.current) {
-        needsRefreshOnActiveRef.current = true;
-        return;
-      }
-
       if (parentPath === rootPath) {
-        // Root directory change - refetch immediately
         await queryClient.refetchQueries({ queryKey: ['file', 'list', rootPath] });
       } else if (expandedPathsRef.current.has(parentPath)) {
-        // Expanded subdirectory change - refresh its children
         await refreshNodeChildren(parentPath);
       }
 
-      // If the changed path itself is an expanded directory, refresh its children
       if (expandedPathsRef.current.has(event.path)) {
         await refreshNodeChildren(event.path);
       }
@@ -366,7 +406,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       unsubscribe();
       window.electronAPI.file.watchStop(rootPath);
     };
-  }, [rootPath, enabled, queryClient, refreshNodeChildren]);
+  }, [queryClient, refresh, refreshNodeChildren, rootPath, shouldWatch]);
 
   // File operations
   const createFile = useCallback(
@@ -404,24 +444,6 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     },
     [queryClient]
   );
-
-  const refresh = useCallback(async () => {
-    console.log('[useFileTree] Refresh started');
-    // Force invalidate all cached queries first
-    queryClient.invalidateQueries({ queryKey: ['file', 'list'] });
-
-    // Refetch root directory first
-    await queryClient.refetchQueries({ queryKey: ['file', 'list', rootPath] });
-    console.log('[useFileTree] Root refetched');
-
-    // Refetch all expanded directories in parallel
-    const currentExpanded = Array.from(expandedPathsRef.current);
-    console.log('[useFileTree] Refetching expanded paths:', currentExpanded);
-    await Promise.all(
-      currentExpanded.filter((path) => path !== rootPath).map((path) => refreshNodeChildren(path))
-    );
-    console.log('[useFileTree] Refresh completed');
-  }, [queryClient, rootPath, refreshNodeChildren]);
 
   // Handle external file drop
   const handleExternalDrop = useCallback(
@@ -552,14 +574,6 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     },
     [refresh]
   );
-
-  // Refresh when becoming active if changes occurred while inactive
-  useEffect(() => {
-    if (isActive && needsRefreshOnActiveRef.current) {
-      needsRefreshOnActiveRef.current = false;
-      refresh();
-    }
-  }, [isActive, refresh]);
 
   // Reveal a file in the tree by expanding all parent directories
   const revealFile = useCallback(

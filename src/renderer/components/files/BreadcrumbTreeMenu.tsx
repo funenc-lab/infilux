@@ -4,6 +4,7 @@ import { ChevronRight, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { cn } from '@/lib/utils';
+import { resolveBreadcrumbGitRoot, resolveFileListPath } from './breadcrumbPathUtils';
 import { getFileIcon, getFileIconColor } from './fileIcons';
 
 // Query key constants to avoid magic strings
@@ -108,14 +109,20 @@ export function BreadcrumbTreeMenu({
     };
   }, [dirPath]);
 
+  const resolvedListPath = useMemo(
+    () => resolveFileListPath(listPath, rootPath) ?? listPath,
+    [listPath, rootPath]
+  );
+  const gitRoot = useMemo(() => resolveBreadcrumbGitRoot(listPath, rootPath), [listPath, rootPath]);
+
   // Fetch directory contents - reuse file tree cache by using same queryKey
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: [...QUERY_KEYS.FILE_LIST, listPath],
+    queryKey: [...QUERY_KEYS.FILE_LIST, resolvedListPath],
     queryFn: async () => {
-      if (!listPath || !rootPath) return [];
-      return window.electronAPI.file.list(listPath, rootPath);
+      if (!resolvedListPath) return [];
+      return window.electronAPI.file.list(resolvedListPath, gitRoot);
     },
-    enabled: !!listPath && !!rootPath,
+    enabled: !!resolvedListPath,
   });
 
   // Build tree: current directory + its children, reset when listPath changes
@@ -145,8 +152,12 @@ export function BreadcrumbTreeMenu({
       const cached = queryClient.getQueryData<FileEntry[]>([...QUERY_KEYS.FILE_LIST, path]);
       if (cached) return cached;
 
-      const files = await window.electronAPI.file.list(path, rootPath);
-      queryClient.setQueryData([...QUERY_KEYS.FILE_LIST, path], files);
+      const resolvedPath = resolveFileListPath(path, rootPath) ?? path;
+      const files = await window.electronAPI.file.list(
+        resolvedPath,
+        resolveBreadcrumbGitRoot(path, rootPath)
+      );
+      queryClient.setQueryData([...QUERY_KEYS.FILE_LIST, resolvedPath], files);
       return files;
     },
     [queryClient, rootPath]

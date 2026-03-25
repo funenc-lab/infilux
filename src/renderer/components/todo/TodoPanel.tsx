@@ -9,7 +9,7 @@ import {
 import { useI18n } from '@/i18n';
 import { KanbanBoard } from './KanbanBoard';
 
-interface TodoPanelProps {
+export interface TodoPanelProps {
   repoPath?: string;
   worktreePath?: string;
   isActive?: boolean;

@@ -24,7 +24,7 @@ import { TerminalGroup } from './TerminalGroup';
 import type { TerminalGroup as TerminalGroupType, TerminalTab } from './types';
 import { getNextTabName } from './types';
 
-interface TerminalPanelProps {
+export interface TerminalPanelProps {
   repoPath?: string;
   cwd?: string;
   isActive?: boolean;
