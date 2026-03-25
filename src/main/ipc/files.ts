@@ -20,6 +20,7 @@ import {
   toRemoteVirtualPath,
 } from '../services/remote/RemotePath';
 import { remoteRepositoryBackend } from '../services/remote/RemoteRepositoryBackend';
+import { shouldReturnEmptyFileList } from './fileListPolicy';
 
 /**
  * Normalize encoding name to a consistent format
@@ -577,7 +578,15 @@ export function registerFileHandlers(): void {
         registerAllowedLocalFileRoot(gitRoot, event.sender.id);
       }
 
-      const entries = await readdir(dirPath);
+      let entries: string[];
+      try {
+        entries = await readdir(dirPath);
+      } catch (error) {
+        if (shouldReturnEmptyFileList(error)) {
+          return [];
+        }
+        throw error;
+      }
       const result: FileEntry[] = [];
 
       for (const name of entries) {

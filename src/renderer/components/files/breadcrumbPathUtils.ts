@@ -108,11 +108,18 @@ export function resolveBreadcrumbGitRoot(
   return resolveFileListGitRoot(targetPath, rootPath);
 }
 
+export function resolveFileListPath(
+  targetPath: string | undefined,
+  rootPath: string | undefined
+): string | undefined {
+  return recoverNestedAbsolutePath(targetPath, rootPath) ?? targetPath;
+}
+
 export function resolveFileListGitRoot(
   targetPath: string | undefined,
   rootPath: string | undefined
 ): string | undefined {
-  const resolvedPath = recoverNestedAbsolutePath(targetPath, rootPath);
+  const resolvedPath = resolveFileListPath(targetPath, rootPath);
 
   if (!resolvedPath || !rootPath) {
     return undefined;

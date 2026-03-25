@@ -3,8 +3,12 @@ import type { RuntimeMemorySnapshot } from '@shared/types';
 export interface RendererDiagnosticsSnapshot {
   agentSessionCount: number;
   terminalSessionCount: number;
+  configuredTerminalScrollback: number;
+  estimatedTerminalScrollbackLineCapacity: number;
   editorTabCount: number;
   activeEditorPath: string | null;
+  monacoModelCount: number;
+  monacoFileModelCount: number;
   bulkReloadCount: number;
   lastBulkReloadAt: number | null;
   lastBulkReloadPath: string | null;
@@ -22,8 +26,12 @@ export interface RendererDiagnosticsSnapshot {
 const initialSnapshot = (): RendererDiagnosticsSnapshot => ({
   agentSessionCount: 0,
   terminalSessionCount: 0,
+  configuredTerminalScrollback: 0,
+  estimatedTerminalScrollbackLineCapacity: 0,
   editorTabCount: 0,
   activeEditorPath: null,
+  monacoModelCount: 0,
+  monacoFileModelCount: 0,
   bulkReloadCount: 0,
   lastBulkReloadAt: null,
   lastBulkReloadPath: null,

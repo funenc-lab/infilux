@@ -34,6 +34,10 @@ import {
 } from './defaults';
 import { cleanupLegacyFields, migrateSettings } from './migration';
 import { electronStorage } from './storage';
+import {
+  DEFAULT_TERMINAL_SCROLLBACK,
+  normalizeTerminalScrollback,
+} from './terminalScrollbackPolicy';
 import type {
   BackgroundSizeMode,
   BackgroundSourceType,
@@ -114,7 +118,7 @@ function getInitialState() {
     terminalFontWeightBold: '500' as FontWeight,
     terminalTheme: 'Dracula',
     terminalRenderer: 'dom' as const,
-    terminalScrollback: 10000,
+    terminalScrollback: DEFAULT_TERMINAL_SCROLLBACK,
     terminalOptionIsMeta: true,
     copyOnSelection: false,
 
@@ -272,7 +276,13 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       setTerminalRenderer: (terminalRenderer) => set({ terminalRenderer }),
-      setTerminalScrollback: (terminalScrollback) => set({ terminalScrollback }),
+      setTerminalScrollback: (terminalScrollback) =>
+        set({
+          terminalScrollback: normalizeTerminalScrollback(
+            terminalScrollback,
+            get().terminalScrollback
+          ),
+        }),
       setTerminalOptionIsMeta: (terminalOptionIsMeta) => set({ terminalOptionIsMeta }),
       setCopyOnSelection: (copyOnSelection) => set({ copyOnSelection }),
 
