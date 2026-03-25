@@ -43,6 +43,44 @@ Stop stashing and popping. Infilux treats every branch as a first-class workspac
 
 ---
 
+## Project Origin
+
+Infilux is the continuation of the same project that was previously presented as **EnsoAI**.
+
+The rename covers the product-facing brand and the primary repository identity, but it does not
+represent a restart or a fork. The current canonical project locations are:
+
+- **Repository (SSH)**: `git@github.com:funenc-lab/infilux.git`
+- **Repository (HTTPS)**: `https://github.com/funenc-lab/infilux`
+- **Releases**: `https://github.com/funenc-lab/infilux/releases/latest`
+
+### What changed
+
+- The active product name is now **Infilux**
+- The main GitHub repository has moved to `funenc-lab/infilux`
+- New architecture and product documentation now use the Infilux name consistently
+
+### What may still look old
+
+During the migration window, some external surfaces may still use legacy `EnsoAI` or `ensoai`
+identifiers, for example:
+
+- package manager channels
+- community links
+- badges or third-party listings
+- older screenshots, blog posts, issue discussions, or release references
+
+### Continuity
+
+- the codebase continues from the same project lineage
+- release history and historical references are still relevant
+- existing users of the earlier EnsoAI-branded project are in the right place
+
+When there is a naming mismatch, treat **Infilux** as the current official name and
+`EnsoAI` / `ensoai` as legacy identifiers retained for compatibility or migration convenience.
+
+---
+
 ## Installation
 
 ### Package Managers (Recommended)
