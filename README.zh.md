@@ -42,6 +42,43 @@
 
 ---
 
+## 项目来源
+
+Infilux 是此前以 **EnsoAI** 对外发布的同一个项目的延续版本。
+
+这次变更主要是产品品牌与主仓库标识的迁移，不是项目重启，也不是新 fork。当前应以
+下面这些地址作为正式入口：
+
+- **仓库（SSH）**: `git@github.com:funenc-lab/infilux.git`
+- **仓库（HTTPS）**: `https://github.com/funenc-lab/infilux`
+- **Releases**: `https://github.com/funenc-lab/infilux/releases/latest`
+
+### 已经完成的变化
+
+- 当前正式产品名为 **Infilux**
+- 主 GitHub 仓库已迁移到 `funenc-lab/infilux`
+- 新的架构文档与产品文档已经统一使用 Infilux 命名
+
+### 你仍可能看到的旧标识
+
+在迁移窗口期内，一些外部表面仍可能保留旧的 `EnsoAI` 或 `ensoai` 标识，例如：
+
+- 包管理渠道名称
+- 社区链接
+- 徽章或第三方收录页面
+- 较早的截图、博客、issue 讨论或历史发布记录
+
+### 连续性说明
+
+- 当前代码库延续自同一条项目演进线
+- 既有发布历史与历史资料依然有效
+- 如果你曾经使用过 EnsoAI，你现在所在的位置就是这个项目的后续主线
+
+如果遇到名称不一致，请以 **Infilux** 作为当前官方名称，把 `EnsoAI` / `ensoai`
+理解为兼容迁移阶段保留的历史标识。
+
+---
+
 ## 安装
 
 ### 包管理器（推荐）
