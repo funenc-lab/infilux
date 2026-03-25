@@ -44,6 +44,7 @@ import type {
   RemoteHelperStatus,
   RemoteRuntimeStatus,
   RepositoryRuntimeContext,
+  RuntimeMemorySnapshot,
   SessionAttachOptions,
   SessionAttachResult,
   SessionCreateOptions,
@@ -57,6 +58,7 @@ import type {
   ShellInfo,
   TempWorkspaceCheckResult,
   TempWorkspaceCreateResult,
+  TempWorkspaceItem,
   TempWorkspaceRemoveResult,
   TerminalCreateOptions,
   TerminalResizeOptions,
@@ -73,8 +75,10 @@ import type { AgentStopNotificationData } from '@shared/types/agent';
 import type { InspectPayload, WebInspectorStatus } from '@shared/types/webInspector';
 import { contextBridge, ipcRenderer, shell, webUtils } from 'electron';
 import pkg from '../../package.json';
+import { createSessionEventRouter } from './sessionEventRouter';
 
 const REMOTE_PATH_PREFIX = '/__enso_remote__';
+const sessionEventRouter = createSessionEventRouter(ipcRenderer);
 
 const electronAPI = {
   // Git
@@ -320,6 +324,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.TEMP_WORKSPACE_REMOVE, dirPath, basePath),
     checkPath: (dirPath: string): Promise<TempWorkspaceCheckResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.TEMP_WORKSPACE_CHECK_PATH, dirPath),
+    rehydrate: (items: TempWorkspaceItem[]): Promise<TempWorkspaceItem[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.TEMP_WORKSPACE_REHYDRATE, items),
   },
 
   // Files
@@ -402,19 +408,16 @@ const electronAPI = {
     getActivity: (id: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_GET_ACTIVITY, id),
     onData: (callback: (event: { id: string; data: string }) => void): (() => void) => {
-      const handler = (_: unknown, event: SessionDataEvent) =>
-        callback({ id: event.sessionId, data: event.data });
-      ipcRenderer.on(IPC_CHANNELS.SESSION_DATA, handler);
-      return () => ipcRenderer.off(IPC_CHANNELS.SESSION_DATA, handler);
+      return sessionEventRouter.onData((event) =>
+        callback({ id: event.sessionId, data: event.data })
+      );
     },
     onExit: (
       callback: (event: { id: string; exitCode: number; signal?: number }) => void
-    ): (() => void) => {
-      const handler = (_: unknown, event: SessionExitEvent) =>
-        callback({ id: event.sessionId, exitCode: event.exitCode, signal: event.signal });
-      ipcRenderer.on(IPC_CHANNELS.SESSION_EXIT, handler);
-      return () => ipcRenderer.off(IPC_CHANNELS.SESSION_EXIT, handler);
-    },
+    ): (() => void) =>
+      sessionEventRouter.onExit((event) =>
+        callback({ id: event.sessionId, exitCode: event.exitCode, signal: event.signal })
+      ),
   },
 
   session: {
@@ -433,21 +436,32 @@ const electronAPI = {
     list: (): Promise<SessionDescriptor[]> => ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
     getActivity: (sessionId: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_ACTIVITY, sessionId),
-    onData: (callback: (event: SessionDataEvent) => void): (() => void) => {
-      const handler = (_: unknown, event: SessionDataEvent) => callback(event);
-      ipcRenderer.on(IPC_CHANNELS.SESSION_DATA, handler);
-      return () => ipcRenderer.off(IPC_CHANNELS.SESSION_DATA, handler);
-    },
-    onExit: (callback: (event: SessionExitEvent) => void): (() => void) => {
-      const handler = (_: unknown, event: SessionExitEvent) => callback(event);
-      ipcRenderer.on(IPC_CHANNELS.SESSION_EXIT, handler);
-      return () => ipcRenderer.off(IPC_CHANNELS.SESSION_EXIT, handler);
-    },
-    onState: (callback: (event: SessionStateEvent) => void): (() => void) => {
-      const handler = (_: unknown, event: SessionStateEvent) => callback(event);
-      ipcRenderer.on(IPC_CHANNELS.SESSION_STATE, handler);
-      return () => ipcRenderer.off(IPC_CHANNELS.SESSION_STATE, handler);
-    },
+    onData: (callback: (event: SessionDataEvent) => void): (() => void) =>
+      sessionEventRouter.onData(callback),
+    onExit: (callback: (event: SessionExitEvent) => void): (() => void) =>
+      sessionEventRouter.onExit(callback),
+    onState: (callback: (event: SessionStateEvent) => void): (() => void) =>
+      sessionEventRouter.onState(callback),
+    onDataForSession: (
+      sessionId: string,
+      callback: (event: SessionDataEvent) => void
+    ): (() => void) => sessionEventRouter.onDataForSession(sessionId, callback),
+    onExitForSession: (
+      sessionId: string,
+      callback: (event: SessionExitEvent) => void
+    ): (() => void) => sessionEventRouter.onExitForSession(sessionId, callback),
+    onStateForSession: (
+      sessionId: string,
+      callback: (event: SessionStateEvent) => void
+    ): (() => void) => sessionEventRouter.onStateForSession(sessionId, callback),
+    subscribe: (
+      sessionId: string,
+      handlers: {
+        onData?: (event: SessionDataEvent) => void;
+        onExit?: (event: SessionExitEvent) => void;
+        onState?: (event: SessionStateEvent) => void;
+      }
+    ): (() => void) => sessionEventRouter.subscribe(sessionId, handlers),
   },
 
   // Agent
@@ -503,6 +517,25 @@ const electronAPI = {
       proxyUrl: string
     ): Promise<{ success: boolean; latency?: number; error?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_TEST_PROXY, proxyUrl),
+    getRuntimeMetrics: async (): Promise<RuntimeMemorySnapshot> => {
+      const snapshot = (await ipcRenderer.invoke(
+        IPC_CHANNELS.APP_GET_RUNTIME_METRICS
+      )) as RuntimeMemorySnapshot;
+
+      try {
+        const rendererMemory = await process.getProcessMemoryInfo();
+        return {
+          ...snapshot,
+          rendererMemory: {
+            privateKb: rendererMemory.private,
+            sharedKb: rendererMemory.shared,
+            residentSetKb: rendererMemory.residentSet ?? null,
+          },
+        };
+      } catch {
+        return snapshot;
+      }
+    },
   },
 
   // Dialog

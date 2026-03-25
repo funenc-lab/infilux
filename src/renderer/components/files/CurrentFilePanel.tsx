@@ -22,7 +22,8 @@ declare global {
 import { useEditor } from '@/hooks/useEditor';
 import { useWindowFocus } from '@/hooks/useWindowFocus';
 import { type TerminalKeybinding, useSettingsStore } from '@/stores/settings';
-import { EditorArea, type EditorAreaRef } from './EditorArea';
+import { DeferredEditorArea } from './DeferredEditorArea';
+import type { EditorAreaRef } from './EditorArea';
 import type { UnsavedChangesChoice } from './UnsavedChangesDialog';
 
 // Helper to check if a keyboard event matches a keybinding
@@ -35,7 +36,7 @@ function matchesKeybinding(e: KeyboardEvent, binding: TerminalKeybinding): boole
   return keyMatches && ctrlMatches && altMatches && shiftMatches && metaMatches;
 }
 
-interface CurrentFilePanelProps {
+export interface CurrentFilePanelProps {
   rootPath: string | undefined;
   isActive?: boolean;
 }
@@ -248,8 +249,9 @@ export function CurrentFilePanel({ rootPath, isActive = false }: CurrentFilePane
   return (
     <div className="flex h-full">
       <div className="flex-1 overflow-hidden">
-        <EditorArea
+        <DeferredEditorArea
           ref={editorAreaRef}
+          shouldLoad={isActive || tabs.length > 0}
           tabs={tabs}
           activeTab={activeTab}
           activeTabPath={activeTab?.path ?? null}

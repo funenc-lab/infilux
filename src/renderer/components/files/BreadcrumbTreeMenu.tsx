@@ -4,6 +4,7 @@ import { ChevronRight, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { cn } from '@/lib/utils';
+import { resolveBreadcrumbGitRoot } from './breadcrumbPathUtils';
 import { getFileIcon, getFileIconColor } from './fileIcons';
 
 // Query key constants to avoid magic strings
@@ -108,14 +109,16 @@ export function BreadcrumbTreeMenu({
     };
   }, [dirPath]);
 
+  const gitRoot = useMemo(() => resolveBreadcrumbGitRoot(listPath, rootPath), [listPath, rootPath]);
+
   // Fetch directory contents - reuse file tree cache by using same queryKey
   const { data: entries = [], isLoading } = useQuery({
     queryKey: [...QUERY_KEYS.FILE_LIST, listPath],
     queryFn: async () => {
-      if (!listPath || !rootPath) return [];
-      return window.electronAPI.file.list(listPath, rootPath);
+      if (!listPath) return [];
+      return window.electronAPI.file.list(listPath, gitRoot);
     },
-    enabled: !!listPath && !!rootPath,
+    enabled: !!listPath,
   });
 
   // Build tree: current directory + its children, reset when listPath changes
@@ -145,7 +148,10 @@ export function BreadcrumbTreeMenu({
       const cached = queryClient.getQueryData<FileEntry[]>([...QUERY_KEYS.FILE_LIST, path]);
       if (cached) return cached;
 
-      const files = await window.electronAPI.file.list(path, rootPath);
+      const files = await window.electronAPI.file.list(
+        path,
+        resolveBreadcrumbGitRoot(path, rootPath)
+      );
       queryClient.setQueryData([...QUERY_KEYS.FILE_LIST, path], files);
       return files;
     },

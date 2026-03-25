@@ -7,6 +7,7 @@ import {
   IPC_CHANNELS,
   type TempWorkspaceCheckResult,
   type TempWorkspaceCreateResult,
+  type TempWorkspaceItem,
   type TempWorkspaceRemoveResult,
 } from '@shared/types';
 import { ipcMain } from 'electron';
@@ -14,6 +15,7 @@ import { GitService } from '../services/git/GitService';
 import { sessionManager } from '../services/session/SessionManager';
 import { stopWatchersInDirectory } from './files';
 import { unregisterAuthorizedWorkdir } from './git';
+import { normalizeStoredTempWorkspaceItems } from './tempWorkspacePersistence';
 
 function expandHome(inputPath: string): string {
   if (!inputPath) return inputPath;
@@ -113,6 +115,33 @@ export function registerTempWorkspaceHandlers(): void {
     async (_event, rawPath: string): Promise<TempWorkspaceCheckResult> => {
       const resolved = path.resolve(expandHome(rawPath));
       return checkPathWritable(resolved);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.TEMP_WORKSPACE_REHYDRATE,
+    async (_event, items: TempWorkspaceItem[]): Promise<TempWorkspaceItem[]> => {
+      const normalizedItems = normalizeStoredTempWorkspaceItems(items);
+      const hydratedItems: TempWorkspaceItem[] = [];
+
+      for (const item of normalizedItems) {
+        try {
+          const resolvedPath = await resolveSafePath(item.path);
+          const stats = await lstat(resolvedPath);
+          if (!stats.isDirectory()) {
+            continue;
+          }
+
+          hydratedItems.push({
+            ...item,
+            path: resolvedPath,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }
+
+      return hydratedItems;
     }
   );
 
