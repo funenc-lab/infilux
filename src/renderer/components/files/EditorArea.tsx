@@ -41,13 +41,14 @@ import { CommentForm, useEditorLineComment } from './EditorLineComment';
 import { EditorTabs } from './EditorTabs';
 import { ExternalModificationBanner } from './ExternalModificationBanner';
 import { setupDefinitionNavigation } from './editorDefinitionProvider';
+import { buildRetainedEditorModelPaths, recordRecentEditorModelPath } from './editorModelRetention';
 import { buildBulkReloadPlan } from './editorReloadPolicy';
 import { setupDoubleClickScope } from './editorScopeSelection';
 import { setEditorSelectionText } from './editorSelectionCache';
 import { isImageFile, isPdfFile } from './fileIcons';
 import { ImagePreview } from './ImagePreview';
 import { MarkdownPreview } from './MarkdownPreview';
-import { ensureMonacoSetup } from './monacoSetup';
+import { ensureMonacoSetup, monaco as monacoApi } from './monacoSetup';
 import { CUSTOM_THEME_NAME, defineMonacoTheme } from './monacoTheme';
 import { PdfPreview } from './PdfPreview';
 import { useEditorBlame } from './useEditorBlame';
@@ -269,6 +270,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
   const hasPendingAutoSaveRef = useRef(false);
   const blurDisposableRef = useRef<monaco.IDisposable | null>(null);
   const activeTabPathRef = useRef<string | null>(null);
+  const recentModelPathsRef = useRef<string[]>([]);
   // Keep a ref to the latest tabs so the file-change listener never goes stale
   // without needing to re-register on every tab state update.
   const tabsRef = useRef<EditorTab[]>(tabs);
@@ -332,10 +334,18 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
   const breadcrumbSegments = useMemo(() => {
     return buildBreadcrumbSegments(activeTabPath, rootPath);
   }, [activeTabPath, rootPath]);
+  const openTabPaths = useMemo(() => tabs.map((tab) => tab.path), [tabs]);
 
   // Keep refs in sync with state
   useEffect(() => {
     activeTabPathRef.current = activeTabPath;
+  }, [activeTabPath]);
+
+  useEffect(() => {
+    recentModelPathsRef.current = recordRecentEditorModelPath(
+      recentModelPathsRef.current,
+      activeTabPath
+    );
   }, [activeTabPath]);
 
   useEffect(() => {
@@ -536,6 +546,28 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
       cancelled = true;
     };
   }, [requiresMonaco, terminalTheme, backgroundImageEnabled, backgroundOpacity]);
+
+  useEffect(() => {
+    if (!isMonacoReady) {
+      return;
+    }
+
+    const retainedPaths = buildRetainedEditorModelPaths({
+      activeTabPath,
+      openTabPaths,
+      recentPaths: recentModelPathsRef.current,
+    });
+
+    for (const model of monacoApi.editor.getModels()) {
+      if (model.uri.scheme !== 'file') {
+        continue;
+      }
+
+      if (!retainedPaths.has(model.uri.fsPath)) {
+        model.dispose();
+      }
+    }
+  }, [activeTabPath, isMonacoReady, openTabPaths]);
 
   // Handle pending cursor navigation (jump to line and select match)
   // Only handles same-file search; new file search is handled by handleEditorMount
