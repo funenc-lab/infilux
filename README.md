@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="EnsoAI Logo" width="120" />
+  <img src="docs/assets/logo.png" alt="Infilux Logo" width="120" />
 </p>
 
-<h1 align="center">EnsoAI</h1>
+<h1 align="center">Infilux</h1>
 
 <p align="center">
   <strong>Multiple Agents, Parallel Flow</strong>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/J3n5en/EnsoAI/releases/latest"><img src="https://img.shields.io/github/v/release/J3n5en/EnsoAI?style=flat&color=blue" alt="Release" /></a>
+  <a href="https://github.com/funenc-lab/infilux/releases/latest"><img src="https://img.shields.io/github/v/release/funenc-lab/infilux?style=flat&color=blue" alt="Release" /></a>
   <img src="https://img.shields.io/badge/Electron-39+-47848F?logo=electron&logoColor=white" alt="Electron" />
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="React" />
   <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
@@ -30,22 +30,24 @@
 </p>
 
 <p align="center">
-  <a href="https://www.producthunt.com/products/ensoai?utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-ensoai" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1057621&theme=light" alt="EnsoAI - Multiple AI Agents, Parallel Workflow in Git Worktrees | Product Hunt" width="250" height="54" /></a>
+  <a href="https://www.producthunt.com/products/ensoai?utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-ensoai" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1057621&theme=light" alt="Infilux - Multiple AI Agents, Parallel Workflow in Git Worktrees | Product Hunt" width="250" height="54" /></a>
 </p>
 
 ---
 
 ## Workflow, Reimagined.
 
-Stop stashing and popping. EnsoAI treats every branch as a first-class workspace with its own dedicated AI context.
+Stop stashing and popping. Infilux treats every branch as a first-class workspace with its own dedicated AI context.
 
-![EnsoAI Terminal](docs/assets/feature-terminal.png)
+![Infilux Terminal](docs/assets/feature-terminal.png)
 
 ---
 
 ## Installation
 
 ### Package Managers (Recommended)
+
+> Infilux is the active product name. Some package channels still use legacy `ensoai` identifiers until the repository migration is completed.
 
 **macOS (Homebrew)**
 
@@ -64,28 +66,28 @@ scoop install ensoai
 **Windows (Winget)**
 
 ```powershell
-winget install J3n5en.EnsoAI
+winget install J3n5en.Infilux
 ```
 
 ### Manual Download
 
-Download the installer for your platform from [GitHub Releases](https://github.com/J3n5en/EnsoAI/releases/latest):
+Download the installer for your platform from [GitHub Releases](https://github.com/funenc-lab/infilux/releases/latest):
 
 | Platform | File |
 |----------|------|
-| macOS (Apple Silicon) | `EnsoAI-x.x.x-arm64.dmg` |
-| macOS (Intel) | `EnsoAI-x.x.x.dmg` |
-| Windows (Installer) | `EnsoAI-Setup-x.x.x.exe` |
-| Windows (Portable) | `EnsoAI-x.x.x-portable.exe` |
-| Linux (AppImage) | `EnsoAI-x.x.x.AppImage` |
-| Linux (deb) | `ensoai_x.x.x_amd64.deb` |
+| macOS (Apple Silicon) | `Infilux-x.x.x-arm64.dmg` |
+| macOS (Intel) | `Infilux-x.x.x.dmg` |
+| Windows (Installer) | `Infilux-Setup-x.x.x.exe` |
+| Windows (Portable) | `Infilux-x.x.x-portable.exe` |
+| Linux (AppImage) | `Infilux-x.x.x.AppImage` |
+| Linux (deb) | `infilux_x.x.x_amd64.deb` |
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/J3n5en/EnsoAI.git
-cd EnsoAI
+git clone git@github.com:funenc-lab/infilux.git Infilux
+cd Infilux
 
 # Install dependencies (requires Node.js 20+, pnpm 10+)
 pnpm install
@@ -176,7 +178,7 @@ Create, switch, and manage Git worktrees instantly. No more context switching co
 
 ### IDE Bridge
 
-Use EnsoAI for orchestration, then jump into VS Code or Cursor for deep diving with a single click.
+Use Infilux for orchestration, then jump into VS Code or Cursor for deep diving with a single click.
 
 Quick access to all actions via `Cmd+Shift+P`:
 - **Panel Control** - Toggle Workspace/Worktree sidebar visibility
@@ -205,14 +207,48 @@ Quick access to all actions via `Cmd+Shift+P`:
 
 ---
 
+## Architecture at a Glance
+
+Infilux is organized around four explicit layers:
+
+```text
+Renderer UI
+  -> window.electronAPI (preload bridge)
+    -> IPC channels / push events
+      -> Main-process handlers
+        -> Native services / child processes / filesystem / remote runtime
+```
+
+Key architectural ideas:
+
+- **Worktree-first isolation**: editor tabs, terminals, and agent sessions are scoped to worktrees
+- **Explicit process boundaries**: renderer does not directly consume Electron or Node primitives
+- **Keep-mounted panels**: file, terminal, and source-control panels preserve runtime state when hidden
+- **Local + remote support**: file and navigation flows are designed for both local paths and remote virtual paths
+
+Project layers:
+
+- `src/main/` — lifecycle, IPC handlers, native/system services, cleanup
+- `src/preload/` — typed `window.electronAPI` bridge
+- `src/renderer/` — React UI, Zustand stores, React Query hooks, Monaco and xterm integration
+- `src/shared/` — cross-process contracts and pure utilities
+
+Architecture docs:
+
+- `docs/architecture.md` — system-level architecture, boundaries, hotspots, and extension paths
+- `docs/editor-architecture.md` — editor, file tree, navigation, dirty-state, and external-change flows
+- `docs/remote-architecture.md` — remote repository model, remote runtime, virtual-path semantics, auth, and lifecycle
+
+---
+
 ## FAQ
 
 ### Basic Usage
 
 <details>
-<summary><strong>How is EnsoAI different from a regular IDE?</strong></summary>
+<summary><strong>How is Infilux different from a regular IDE?</strong></summary>
 
-EnsoAI focuses on **Git Worktree + AI Agent** collaboration. It's not meant to replace VS Code or Cursor, but rather serves as a lightweight workspace manager that allows you to:
+Infilux focuses on **Git Worktree + AI Agent** collaboration. It's not meant to replace VS Code or Cursor, but rather serves as a lightweight workspace manager that allows you to:
 - Quickly switch between multiple worktrees, each running an independent AI Agent
 - Develop multiple feature branches simultaneously without interference
 - Jump to your preferred IDE anytime via "Open In" for deeper development
@@ -238,7 +274,7 @@ Yes. Each worktree's Agent session is saved independently. When you switch back 
 ### Use Cases
 
 <details>
-<summary><strong>When should I use EnsoAI?</strong></summary>
+<summary><strong>When should I use Infilux?</strong></summary>
 
 | Scenario | Description |
 |----------|-------------|
@@ -257,9 +293,9 @@ While ACP can unify core capabilities across different Agents, it's limited to j
 </details>
 
 <details>
-<summary><strong>What project size is EnsoAI suitable for?</strong></summary>
+<summary><strong>What project size is Infilux suitable for?</strong></summary>
 
-Best suited for small to medium projects. For large monorepos, we recommend using it alongside VS Code or similar full-featured IDEs — EnsoAI handles worktree management and AI interaction, while the IDE handles deep development.
+Best suited for small to medium projects. For large monorepos, we recommend using it alongside VS Code or similar full-featured IDEs — Infilux handles worktree management and AI interaction, while the IDE handles deep development.
 
 </details>
 
@@ -268,7 +304,7 @@ Best suited for small to medium projects. For large monorepos, we recommend usin
 ### Development Workflow
 
 <details>
-<summary><strong>What's a typical development workflow with EnsoAI?</strong></summary>
+<summary><strong>What's a typical development workflow with Infilux?</strong></summary>
 
 ```
 1. Open Workspace
