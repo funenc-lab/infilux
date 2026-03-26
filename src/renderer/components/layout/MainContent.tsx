@@ -554,7 +554,7 @@ export function MainContent({
       >
         <div className="control-topbar no-drag">
           <div className="control-topbar-main">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="control-topbar-nav">
               <AnimatePresence mode="popLayout">
                 {hasCollapsedPanels && (
                   <motion.div
@@ -575,7 +575,12 @@ export function MainContent({
                     <Menu>
                       <MenuTrigger
                         render={
-                          <button type="button" className={headerButtonClass} title={t('Panels')}>
+                          <button
+                            type="button"
+                            className={headerButtonClass}
+                            title={t('Panels')}
+                            aria-label={t('Panels')}
+                          >
                             <PanelLeft className="h-4 w-4" />
                           </button>
                         }
@@ -678,7 +683,7 @@ export function MainContent({
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="control-topbar-actions-cluster">
               <button
                 type="button"
                 data-active={isSettingsActive ? 'true' : 'false'}
@@ -694,6 +699,7 @@ export function MainContent({
                   size="sm"
                   onClick={() => setIsReviewModalOpen(true)}
                   className="control-topbar-action h-8 rounded-lg border-0 px-3 text-[12px]"
+                  data-priority="primary"
                 >
                   <MessageSquare className="h-4 w-4" />
                   {t('Review')}
@@ -707,7 +713,7 @@ export function MainContent({
 
           <div className="control-topbar-meta">
             <div className="control-topbar-context min-w-0 flex-1 overflow-hidden">
-              <div className="control-topbar-context-item min-w-0">
+              <div className="control-topbar-context-item min-w-0" data-emphasis="strong">
                 <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="control-topbar-context-label">{t('Repository')}</span>
                 <span className="control-topbar-context-value" title={repoLabel}>
@@ -715,7 +721,7 @@ export function MainContent({
                 </span>
               </div>
               <span className="control-topbar-separator">/</span>
-              <div className="control-topbar-context-item min-w-0">
+              <div className="control-topbar-context-item min-w-0" data-emphasis="strong">
                 <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="control-topbar-context-label">{t('Worktree')}</span>
                 <span className="control-topbar-context-value" title={worktreeLabel}>

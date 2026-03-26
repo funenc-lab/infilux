@@ -46,41 +46,47 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
     return null;
   }
 
-  const iconButtonClass = cn(
-    'control-icon-button flex h-8 w-8 items-center justify-center rounded-md',
-    'text-muted-foreground hover:text-foreground hover:bg-accent/60',
-    'transition-colors duration-150'
-  );
+  const iconButtonClass = cn('control-window-button');
 
   return (
-    <div className="relative z-50 flex h-8 shrink-0 items-center justify-between border-b bg-background drag-region select-none">
-      <div className="flex h-8 items-center gap-1.5 px-2 no-drag">
-        <img src={logoImage} alt="Infilux" className="h-5 w-5" />
-        <span className="text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase">
-          Infilux
+    <div className="control-titlebar relative z-50 shrink-0 px-2 drag-region select-none">
+      <div className="control-titlebar-brand no-drag">
+        <span className="control-titlebar-brand-mark">
+          <img src={logoImage} alt="Infilux" className="h-4 w-4" />
         </span>
+        <div className="control-titlebar-brand-stack">
+          <span className="control-titlebar-brand-title">Infilux</span>
+          <span className="control-titlebar-brand-subtitle">AI Collaboration Console</span>
+        </div>
       </div>
 
-      <div className="flex items-center no-drag">
+      <div className="control-titlebar-actions no-drag">
+        {onOpenSettings ? (
+          <button
+            type="button"
+            className={iconButtonClass}
+            onClick={onOpenSettings}
+            aria-label={t('Settings')}
+            title={t('Settings')}
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+
         <Menu>
           <MenuTrigger
             render={
-              <button type="button" className={iconButtonClass} aria-label={t('More')}>
+              <button
+                type="button"
+                className={iconButtonClass}
+                aria-label={t('More')}
+                title={t('More')}
+              >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
             }
           />
           <TitleBarMenuPopup align="end" sideOffset={6} className="min-w-[180px]">
-            {onOpenSettings ? (
-              <>
-                <MenuItem onClick={onOpenSettings}>
-                  <Settings className="h-3.5 w-3.5" />
-                  {t('Settings')}
-                  <MenuShortcut>Ctrl+,</MenuShortcut>
-                </MenuItem>
-                <MenuSeparator />
-              </>
-            ) : null}
             <MenuItem onClick={handleReload}>
               <RefreshCw className="h-3.5 w-3.5" />
               {t('Reload')}
@@ -104,8 +110,6 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
             </MenuItem>
           </TitleBarMenuPopup>
         </Menu>
-
-        <div className="mx-1 h-4 w-px bg-border" />
 
         <WindowControls />
       </div>
