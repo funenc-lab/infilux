@@ -1,3 +1,5 @@
+import { normalizePath } from '@/App/storage';
+
 export const MAX_INACTIVE_EDITOR_MODELS = 2;
 const MAX_RECENT_EDITOR_MODELS = 8;
 
@@ -10,7 +12,11 @@ export function recordRecentEditorModelPath(
     return recentPaths;
   }
 
-  const nextRecentPaths = [...recentPaths.filter((path) => path !== nextPath), nextPath];
+  const normalizedNextPath = normalizePath(nextPath);
+  const nextRecentPaths = [
+    ...recentPaths.filter((path) => normalizePath(path) !== normalizedNextPath),
+    nextPath,
+  ];
   return nextRecentPaths.slice(-maxEntries);
 }
 
@@ -25,16 +31,21 @@ export function buildRetainedEditorModelPaths({
   recentPaths: string[];
   maxInactiveModels?: number;
 }): Set<string> {
-  const openPathSet = new Set(openTabPaths);
+  const openPathMap = new Map(openTabPaths.map((path) => [normalizePath(path), path]));
   const retainedPaths = new Set<string>();
+  const normalizedActiveTabPath = activeTabPath ? normalizePath(activeTabPath) : null;
 
-  if (activeTabPath && openPathSet.has(activeTabPath)) {
-    retainedPaths.add(activeTabPath);
+  if (normalizedActiveTabPath) {
+    const canonicalActivePath = openPathMap.get(normalizedActiveTabPath);
+    if (canonicalActivePath) {
+      retainedPaths.add(canonicalActivePath);
+    }
   }
 
-  const recentInactivePaths = recentPaths.filter(
-    (path) => path !== activeTabPath && openPathSet.has(path)
-  );
+  const recentInactivePaths = recentPaths
+    .map((path) => openPathMap.get(normalizePath(path)) ?? null)
+    .filter((path): path is string => path !== null)
+    .filter((path) => path !== openPathMap.get(normalizedActiveTabPath ?? ''));
 
   for (const path of recentInactivePaths.slice(-maxInactiveModels)) {
     retainedPaths.add(path);

@@ -1,0 +1,215 @@
+import { describe, expect, it } from 'vitest';
+import { buildAgentLaunchPlan } from '../agentLaunchPlan';
+
+describe('buildAgentLaunchPlan', () => {
+  it('returns an empty plan when local execution has no resolved shell', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'linux',
+      resolvedShell: null,
+    });
+
+    expect(plan).toEqual({
+      command: undefined,
+      env: undefined,
+      initialCommand: undefined,
+      tmuxSessionName: null,
+    });
+  });
+
+  it('does not wrap remote agent commands in tmux', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      resumeSessionId: 'session-1',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: true,
+      executionPlatform: 'linux',
+      resolvedShell: null,
+      terminalSessionId: 'ui-session-1',
+    });
+
+    expect(plan.command).toBeUndefined();
+    expect(plan.tmuxSessionName).toBeNull();
+    expect(plan.initialCommand).toContain('claude --session-id session-1 --ide');
+    expect(plan.initialCommand).not.toContain('tmux -L enso');
+  });
+
+  it('keeps tmux wrapping for local unix agent sessions', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      resumeSessionId: 'session-1',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-lc'],
+      },
+      terminalSessionId: 'ui-session-1',
+    });
+
+    expect(plan.tmuxSessionName).toBe('enso-ui-session-1');
+    expect(plan.command).toEqual({
+      shell: '/bin/zsh',
+      args: [
+        '-lc',
+        "env -u TMUX tmux -L enso -f /dev/null new-session -A -s enso-ui-session-1 'claude --session-id session-1 --ide'",
+      ],
+    });
+  });
+
+  it('does not wrap local unix agent sessions in tmux when tmux persistence is disabled', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      resumeSessionId: 'session-1',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: false,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-lc'],
+      },
+      terminalSessionId: 'ui-session-1',
+    });
+
+    expect(plan.tmuxSessionName).toBeNull();
+    expect(plan.command).toEqual({
+      shell: '/bin/zsh',
+      args: ['-lc', 'claude --session-id session-1 --ide'],
+    });
+  });
+
+  it('returns an empty plan when hapi availability is still unknown', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      environment: 'hapi',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'linux',
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-lc'],
+      },
+    });
+
+    expect(plan).toEqual({
+      command: undefined,
+      env: undefined,
+      initialCommand: undefined,
+      tmuxSessionName: null,
+    });
+  });
+
+  it('builds a local hapi launch plan with env vars and unix prompt escaping', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      customArgs: '--dangerously-skip-permissions',
+      initialPrompt: "Fix path '\\src'\nnow",
+      resumeSessionId: 'session-2',
+      initialized: false,
+      environment: 'hapi',
+      hapiGlobalInstalled: false,
+      hapiCliApiToken: 'token-123',
+      isRemoteExecution: false,
+      executionPlatform: 'linux',
+      resolvedShell: {
+        shell: '/bin/bash',
+        execArgs: ['-lc'],
+      },
+    });
+
+    expect(plan.tmuxSessionName).toBeNull();
+    expect(plan.env).toEqual({ CLI_API_TOKEN: 'token-123' });
+    expect(plan.command?.shell).toBe('/bin/bash');
+    expect(plan.command?.args[0]).toBe('-lc');
+    expect(plan.command?.args[1]).toContain('npx -y @twsxtd/hapi');
+    expect(plan.command?.args[1]).toContain('--session-id session-2');
+    expect(plan.command?.args[1]).toContain('--ide');
+    expect(plan.command?.args[1]).toContain('--dangerously-skip-permissions');
+    expect(plan.command?.args[1]).toContain("$'Fix path");
+    expect(plan.command?.args[1]).toContain("\\nnow'");
+  });
+
+  it('builds a remote happy launch plan for non-claude agents', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: '/opt/tools/codex',
+      customArgs: '--profile fast',
+      initialPrompt: 'Ship it',
+      environment: 'happy',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: true,
+      executionPlatform: 'linux',
+      resolvedShell: null,
+    });
+
+    expect(plan.command).toBeUndefined();
+    expect(plan.env).toBeUndefined();
+    expect(plan.tmuxSessionName).toBeNull();
+    expect(plan.initialCommand).toBe("happy /opt/tools/codex --profile fast $'Ship it'");
+  });
+
+  it('wraps commands for wsl shells on windows', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      resumeSessionId: 'session-3',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: {
+        shell: 'C:/Windows/System32/wsl.exe',
+        execArgs: [],
+      },
+    });
+
+    expect(plan).toEqual({
+      command: {
+        shell: 'wsl.exe',
+        args: ['-e', 'sh', '-lc', 'exec "$SHELL" -ilc "claude --session-id session-3 --ide"'],
+      },
+      env: undefined,
+      initialCommand: undefined,
+      tmuxSessionName: null,
+    });
+  });
+
+  it('wraps windows powershell commands and escapes special prompt characters', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'cursor-agent',
+      customArgs: '--model gpt-5',
+      initialPrompt: 'say "hi" %PATH% $HOME `tick`\nnext',
+      resumeSessionId: 'resume-7',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: {
+        shell: 'pwsh.exe',
+        execArgs: ['-NoLogo', '-Command'],
+      },
+    });
+
+    expect(plan).toEqual({
+      command: {
+        shell: 'pwsh.exe',
+        args: [
+          '-NoLogo',
+          '-Command',
+          '& { cursor-agent --resume resume-7 --model gpt-5 "say \\"hi\\" %%PATH%% `$HOME ``tick`` next" }',
+        ],
+      },
+      env: undefined,
+      initialCommand: undefined,
+      tmuxSessionName: null,
+    });
+  });
+});

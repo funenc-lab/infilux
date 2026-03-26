@@ -28,4 +28,32 @@ describe('buildBulkReloadPlan', () => {
     expect(plan.immediateReloadPaths).toEqual([]);
     expect(plan.stalePaths).toEqual(['/repo/a.ts', '/repo/b.ts']);
   });
+
+  it('matches the active tab using normalized paths and returns canonical tab paths', () => {
+    const plan = buildBulkReloadPlan(
+      [
+        { path: '/Repo/Active.ts', isDirty: false },
+        { path: '/Repo/Other.ts', isDirty: false },
+      ],
+      '/repo/active.ts'
+    );
+
+    expect(plan.immediateReloadPaths).toEqual(['/Repo/Active.ts']);
+    expect(plan.stalePaths).toEqual(['/Repo/Other.ts']);
+  });
+
+  it('deduplicates repeated tab paths in the bulk reload plan', () => {
+    const plan = buildBulkReloadPlan(
+      [
+        { path: '/Repo/Active.ts', isDirty: false },
+        { path: '/repo/active.ts', isDirty: true },
+        { path: '/Repo/Other.ts', isDirty: false },
+        { path: '/repo/other.ts', isDirty: false },
+      ],
+      '/repo/active.ts'
+    );
+
+    expect(plan.immediateReloadPaths).toEqual(['/Repo/Active.ts']);
+    expect(plan.stalePaths).toEqual(['/Repo/Other.ts']);
+  });
 });

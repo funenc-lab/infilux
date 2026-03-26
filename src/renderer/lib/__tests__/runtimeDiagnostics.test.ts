@@ -13,6 +13,42 @@ describe('runtimeDiagnostics', () => {
     resetRendererDiagnostics();
   });
 
+  it('starts with a reset snapshot and returns defensive copies', () => {
+    const first = getRendererDiagnosticsSnapshot();
+    const emptySnapshot = {
+      agentSessionCount: 0,
+      terminalSessionCount: 0,
+      configuredTerminalScrollback: 0,
+      estimatedTerminalScrollbackLineCapacity: 0,
+      editorTabCount: 0,
+      activeEditorPath: null,
+      monacoModelCount: 0,
+      monacoFileModelCount: 0,
+      bulkReloadCount: 0,
+      lastBulkReloadAt: null,
+      lastBulkReloadPath: null,
+      lastMemorySampleAt: null,
+      rendererMemoryPrivateKb: null,
+      rendererMemorySharedKb: null,
+      rendererMemoryResidentSetKb: null,
+      rendererWorkingSetSizeKb: null,
+      rendererPeakWorkingSetSizeKb: null,
+      appProcessCount: null,
+      appTotalWorkingSetSizeKb: null,
+      peakAppTotalWorkingSetSizeKb: null,
+    };
+
+    expect(first).toEqual(emptySnapshot);
+
+    first.agentSessionCount = 99;
+    expect(getRendererDiagnosticsSnapshot().agentSessionCount).toBe(0);
+
+    updateRendererDiagnostics({ agentSessionCount: 2, activeEditorPath: '/repo/App.tsx' });
+    resetRendererDiagnostics();
+
+    expect(getRendererDiagnosticsSnapshot()).toEqual(emptySnapshot);
+  });
+
   it('tracks renderer counters and bulk reload metadata', () => {
     updateRendererDiagnostics({
       agentSessionCount: 3,
@@ -83,6 +119,34 @@ describe('runtimeDiagnostics', () => {
       appProcessCount: 3,
       appTotalWorkingSetSizeKb: 118000,
       peakAppTotalWorkingSetSizeKb: 120000,
+    });
+  });
+
+  it('stores null runtime metrics when renderer details are unavailable and initializes the peak', () => {
+    const sample: RuntimeMemorySnapshot = {
+      capturedAt: 300,
+      processCount: 1,
+      rendererProcessId: null,
+      rendererMemory: null,
+      rendererMetric: null,
+      browserMetric: null,
+      gpuMetric: null,
+      totalAppWorkingSetSizeKb: 64000,
+      totalAppPrivateBytesKb: 32000,
+    };
+
+    const result = recordRuntimeMemorySample(sample);
+
+    expect(result).toMatchObject({
+      lastMemorySampleAt: 300,
+      rendererMemoryPrivateKb: null,
+      rendererMemorySharedKb: null,
+      rendererMemoryResidentSetKb: null,
+      rendererWorkingSetSizeKb: null,
+      rendererPeakWorkingSetSizeKb: null,
+      appProcessCount: 1,
+      appTotalWorkingSetSizeKb: 64000,
+      peakAppTotalWorkingSetSizeKb: 64000,
     });
   });
 });
