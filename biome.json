@@ -47,6 +47,18 @@
     }
   },
   "files": {
-    "includes": ["**", "!**/node_modules", "!**/out", "!**/dist", "!**/*.min.js", "!**/*.css"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/out",
+      "!**/dist",
+      "!**/.worktrees",
+      "!**/coverage",
+      "!**/coverage-full",
+      "!**/.tmp-*",
+      "!**/tmp-cov-*",
+      "!**/*.min.js",
+      "!**/*.css"
+    ]
   }
 }
