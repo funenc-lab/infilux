@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_SVG="$ROOT_DIR/src/renderer/assets/logo.svg"
 MAC_SOURCE_SVG="$ROOT_DIR/src/renderer/assets/logo-mac.svg"
+MAC_LIGHT_SOURCE_SVG="$ROOT_DIR/src/renderer/assets/logo-mac-light.svg"
 MONO_SOURCE_SVG="$ROOT_DIR/src/renderer/assets/logo-mono.svg"
 BUILD_DIR="$ROOT_DIR/build"
 BUILD_ICON_DIR="$BUILD_DIR/icons"
@@ -43,6 +44,7 @@ mkdir -p "$TRAY_DIR"
 
 render_png "$SOURCE_SVG" 1024 "$BUILD_DIR/icon.png"
 render_png "$MAC_SOURCE_SVG" 1024 "$BUILD_DIR/icon-mac.png"
+render_png "$MAC_LIGHT_SOURCE_SVG" 1024 "$BUILD_DIR/icon-mac-light.png"
 render_png "$SOURCE_SVG" 2048 "$DOCS_ASSET_DIR/logo.png"
 render_png "$SOURCE_SVG" 32 "$RENDERER_ASSET_DIR/logo.png"
 

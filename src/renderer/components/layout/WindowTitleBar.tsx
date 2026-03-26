@@ -1,7 +1,6 @@
 import { REPOSITORY_URL } from '@shared/branding';
 import { ExternalLink, MoreHorizontal, RefreshCw, Settings, Terminal, X } from 'lucide-react';
 import { useCallback } from 'react';
-import logoImage from '@/assets/logo.svg';
 import {
   Menu,
   MenuItem,
@@ -12,6 +11,7 @@ import {
 } from '@/components/ui/menu';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { BrandMark } from './BrandMark';
 import { WindowControls } from './WindowControls';
 
 // Platform detection is kept at module scope to avoid conditional hooks.
@@ -52,7 +52,7 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
     <div className="control-titlebar relative z-50 shrink-0 px-2 drag-region select-none">
       <div className="control-titlebar-brand no-drag">
         <span className="control-titlebar-brand-mark">
-          <img src={logoImage} alt="Infilux" className="h-4 w-4" />
+          <BrandMark className="h-4 w-4" />
         </span>
         <div className="control-titlebar-brand-stack">
           <span className="control-titlebar-brand-title">Infilux</span>

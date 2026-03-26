@@ -74,6 +74,14 @@ files:
   - "!node_modules/pdfjs-dist/**"
   - "!node_modules/react-pdf/**"
 
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+  - from: build/icon-mac.png
+    to: icon-mac.png
+  - from: build/icon-mac-light.png
+    to: icon-mac-light.png
+
 asar: true
 asarUnpack:
   - "node_modules/@vscode/ripgrep/bin/**"

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type TrayListener = () => void;
@@ -145,6 +146,13 @@ describe('TrayService', () => {
     expect(trayServiceTestDoubles.getLastNativeImage()?.setTemplateImage).toHaveBeenCalledWith(
       true
     );
+    const [dataUrl] = (trayServiceTestDoubles.nativeImage.createFromDataURL.mock.calls[0] ??
+      []) as [string?];
+    expect(dataUrl).toContain('data:image/svg+xml;base64,');
+    const svg = Buffer.from(dataUrl?.split(',')[1] ?? '', 'base64').toString('utf8');
+    expect(svg).toContain('transform="translate(28 62) scale(0.34)"');
+    expect(svg).toContain('fill-rule="evenodd"');
+    expect(svg).not.toContain('<circle');
 
     const tray = trayServiceTestDoubles.getCreatedTray();
     expect(tray?.setToolTip).toHaveBeenCalledWith('Infilux');
