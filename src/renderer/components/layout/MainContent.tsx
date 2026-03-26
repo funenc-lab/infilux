@@ -48,17 +48,17 @@ import { buildMainContentRenderPlan } from './mainContentRenderPlan';
 
 type LayoutMode = 'columns' | 'tree';
 
-function getPathLabel(path?: string | null): string {
+function getPathLabel(path?: string | null): string | null {
   if (!path) {
-    return 'Awaiting selection';
+    return null;
   }
 
   return getDisplayPathBasename(path) || path;
 }
 
-function getAgentLabel(agentId?: string | null): string {
+function getAgentLabel(agentId?: string | null): string | null {
   if (!agentId) {
-    return 'No active agent';
+    return null;
   }
 
   return agentId
@@ -515,7 +515,19 @@ export function MainContent({
   const currentActivityState = (worktreePath && worktreeActivityStates[worktreePath]) || 'idle';
   const repoLabel = getPathLabel(repoPath);
   const worktreeLabel = getPathLabel(worktreePath);
-  const activeAgentLabel = activeSession?.name || getAgentLabel(activeSession?.agentId);
+  const activeAgentLabel = activeSession?.name ?? getAgentLabel(activeSession?.agentId);
+  const hasRepoContext = Boolean(repoLabel);
+  const hasWorktreeContext = Boolean(worktreeLabel);
+  const hasAgentContext = Boolean(activeAgentLabel);
+  const hasStatusSummary =
+    hasActiveWorktree ||
+    worktreeSessions.length > 0 ||
+    currentWorktreeActivity.terminalCount > 0 ||
+    unreadSessionsCount > 0 ||
+    outputtingSessionsCount > 0 ||
+    currentActivityState !== 'idle';
+  const shouldShowTopbarMeta =
+    hasRepoContext || hasWorktreeContext || hasAgentContext || hasStatusSummary;
   const liveStatus = useMemo(
     () =>
       getMainContentLiveStatus({
@@ -711,57 +723,77 @@ export function MainContent({
             </div>
           </div>
 
-          <div className="control-topbar-meta">
-            <div className="control-topbar-context min-w-0 flex-1 overflow-hidden">
-              <div className="control-topbar-context-item min-w-0" data-emphasis="strong">
-                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="control-topbar-context-label">{t('Repository')}</span>
-                <span className="control-topbar-context-value" title={repoLabel}>
-                  <strong>{repoLabel}</strong>
-                </span>
+          {shouldShowTopbarMeta ? (
+            <div className="control-topbar-meta">
+              <div className="control-topbar-context min-w-0 flex-1 overflow-hidden">
+                {hasRepoContext ? (
+                  <div className="control-topbar-context-item min-w-0" data-emphasis="strong">
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="control-topbar-context-label">{t('Repository')}</span>
+                    <span className="control-topbar-context-value" title={repoLabel ?? undefined}>
+                      <strong>{repoLabel}</strong>
+                    </span>
+                  </div>
+                ) : null}
+                {hasRepoContext && hasWorktreeContext ? (
+                  <span className="control-topbar-separator">/</span>
+                ) : null}
+                {hasWorktreeContext ? (
+                  <div className="control-topbar-context-item min-w-0" data-emphasis="strong">
+                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="control-topbar-context-label">{t('Worktree')}</span>
+                    <span
+                      className="control-topbar-context-value"
+                      title={worktreeLabel ?? undefined}
+                    >
+                      {worktreeLabel}
+                    </span>
+                  </div>
+                ) : null}
+                {(hasRepoContext || hasWorktreeContext) && hasAgentContext ? (
+                  <span className="control-topbar-separator hidden md:inline">/</span>
+                ) : null}
+                {hasAgentContext ? (
+                  <div className="control-topbar-context-item hidden min-w-0 md:inline-flex">
+                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="control-topbar-context-label">{t('Agent')}</span>
+                    <span
+                      className="control-topbar-context-value"
+                      title={activeAgentLabel ?? undefined}
+                    >
+                      {activeAgentLabel}
+                    </span>
+                  </div>
+                ) : null}
               </div>
-              <span className="control-topbar-separator">/</span>
-              <div className="control-topbar-context-item min-w-0" data-emphasis="strong">
-                <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="control-topbar-context-label">{t('Worktree')}</span>
-                <span className="control-topbar-context-value" title={worktreeLabel}>
-                  {worktreeLabel}
-                </span>
-              </div>
-              <span className="control-topbar-separator hidden md:inline">/</span>
-              <div className="control-topbar-context-item hidden min-w-0 md:inline-flex">
-                <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="control-topbar-context-label">{t('Agent')}</span>
-                <span className="control-topbar-context-value" title={activeAgentLabel}>
-                  {activeAgentLabel}
-                </span>
-              </div>
-            </div>
 
-            <div className="control-topbar-statuses shrink-0">
-              <span className="control-topbar-status" data-tone={liveStatusTone}>
-                <Activity className="h-3.5 w-3.5" />
-                {liveStatus.label}
-              </span>
-              {worktreeSessions.length > 0 && (
-                <span className="control-topbar-status">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {worktreeSessions.length}
-                </span>
-              )}
-              {currentWorktreeActivity.terminalCount > 0 && (
-                <span className="control-topbar-status">
-                  <Terminal className="h-3.5 w-3.5" />
-                  {currentWorktreeActivity.terminalCount}
-                </span>
-              )}
-              {unreadSessionsCount > 0 && (
-                <span className="control-topbar-status" data-tone="done">
-                  {unreadSessionsCount} unread
-                </span>
-              )}
+              <div className="control-topbar-statuses shrink-0">
+                {hasStatusSummary ? (
+                  <span className="control-topbar-status" data-tone={liveStatusTone}>
+                    <Activity className="h-3.5 w-3.5" />
+                    {liveStatus.label}
+                  </span>
+                ) : null}
+                {worktreeSessions.length > 0 && (
+                  <span className="control-topbar-status">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {worktreeSessions.length}
+                  </span>
+                )}
+                {currentWorktreeActivity.terminalCount > 0 && (
+                  <span className="control-topbar-status">
+                    <Terminal className="h-3.5 w-3.5" />
+                    {currentWorktreeActivity.terminalCount}
+                  </span>
+                )}
+                {unreadSessionsCount > 0 && (
+                  <span className="control-topbar-status" data-tone="done">
+                    {unreadSessionsCount} unread
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </header>
 
