@@ -277,26 +277,93 @@ function getReadableOnColor(background: string, darkOption = '#0f172a', lightOpt
     : lightOption;
 }
 
-function pickPrimaryAccent(theme: XtermTheme, background: string, isDark: boolean): string {
-  const candidates = isDark
-    ? [theme.brightBlue, theme.blue, theme.brightCyan, theme.cyan, theme.foreground]
-    : [theme.blue, theme.brightBlue, theme.magenta, theme.cyan, theme.foreground];
+function getColorVibrancy(color: string): number {
+  const rgb = hexToRgb(color);
+  if (!rgb) {
+    return 0;
+  }
 
+  const channels = [rgb.r, rgb.g, rgb.b];
+  return (Math.max(...channels) - Math.min(...channels)) / 255;
+}
+
+function getAccentRichness(color: string): number {
+  const rgb = hexToRgb(color);
+  if (!rgb) {
+    return 0;
+  }
+
+  const channels = [rgb.r, rgb.g, rgb.b].sort((left, right) => right - left);
+  return (channels[1] - channels[2]) / 255;
+}
+
+function isReadableAccentCandidate(candidate: string, background: string): boolean {
+  return getContrastRatio(candidate, background) >= 3;
+}
+
+function scoreAccentCandidate(candidate: string, background: string): number {
+  const contrast = getContrastRatio(candidate, background);
+  return (
+    Math.min(contrast, 5.5) * 1.6 +
+    getColorVibrancy(candidate) * 2.4 +
+    getAccentRichness(candidate) * 2.8
+  );
+}
+
+function pickBestAccentCandidate(candidates: string[], background: string): string {
   let best = candidates[0];
-  let bestContrast = 0;
+  let bestScore = Number.NEGATIVE_INFINITY;
 
   for (const candidate of candidates) {
-    const contrast = getContrastRatio(candidate, background);
-    if (contrast > bestContrast) {
+    const score = scoreAccentCandidate(candidate, background);
+
+    if (score > bestScore + 0.05) {
       best = candidate;
-      bestContrast = contrast;
-    }
-    if (contrast >= 3) {
-      return candidate;
+      bestScore = score;
     }
   }
 
   return best;
+}
+
+function pickPrimaryAccent(theme: XtermTheme, background: string, isDark: boolean): string {
+  if (!hexToRgb(background)) {
+    return theme.foreground;
+  }
+
+  const accentCandidateGroups = isDark
+    ? [
+        [
+          theme.brightMagenta,
+          theme.brightYellow,
+          theme.brightGreen,
+          theme.brightCyan,
+          theme.brightBlue,
+        ],
+        [theme.magenta, theme.yellow, theme.green, theme.cyan, theme.blue],
+      ]
+    : [
+        [theme.magenta, theme.blue, theme.cyan, theme.green, theme.yellow],
+        [
+          theme.brightMagenta,
+          theme.brightBlue,
+          theme.brightCyan,
+          theme.brightGreen,
+          theme.brightYellow,
+        ],
+      ];
+
+  for (const group of accentCandidateGroups) {
+    const readableCandidates = group.filter((candidate) =>
+      isReadableAccentCandidate(candidate, background)
+    );
+
+    if (readableCandidates.length > 0) {
+      return pickBestAccentCandidate(readableCandidates, background);
+    }
+  }
+
+  return pickBestAccentCandidate([...accentCandidateGroups.flat(), theme.foreground], background);
 }
 
 function createTerminalThemeVariables(theme: XtermTheme, isDark: boolean): Record<string, string> {

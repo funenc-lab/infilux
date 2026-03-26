@@ -15,13 +15,14 @@ import type {
 // Theme types
 export type Theme = 'light' | 'dark' | 'system' | 'sync-terminal';
 export type ColorPreset =
-  | 'classic-red'
-  | 'red-graphite-oled'
   | 'graphite-ink'
+  | 'graphite-red'
   | 'tide-blue'
   | 'warm-graphite'
   | 'soft-parchment'
-  | 'midnight-oled';
+  | 'midnight-oled'
+  | 'classic-red'
+  | 'red-graphite-oled';
 
 export type ThemeSelectionKind = 'preset' | 'custom';
 export type CustomThemeSourceType = 'preset' | 'blank';

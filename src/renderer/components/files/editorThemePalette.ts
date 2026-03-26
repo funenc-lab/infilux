@@ -1,4 +1,8 @@
-import { APP_COLOR_PRESET_OPTIONS, sanitizeCustomAccentColor } from '@/lib/appTheme';
+import {
+  APP_COLOR_PRESET_OPTIONS,
+  normalizeColorPreset,
+  sanitizeCustomAccentColor,
+} from '@/lib/appTheme';
 import { isTerminalThemeDark } from '@/lib/ghosttyTheme';
 import type { ColorPreset, CustomThemeDocument, Theme } from '@/stores/settings';
 
@@ -61,10 +65,10 @@ const editorPalettes: Record<ColorPreset, Record<'light' | 'dark', EditorSyntaxP
       keyword: '#a16366',
       string: '#6a7957',
       number: '#a56f3c',
-      type: '#86686b',
-      function: '#946266',
+      type: '#8d715d',
+      function: '#a46358',
       variable: '#372a2a',
-      constant: '#9b6d71',
+      constant: '#a98468',
       punctuation: '#756666',
       lineNumber: '#a08d8d',
       indentGuide: '#d6c9c8',
@@ -77,10 +81,10 @@ const editorPalettes: Record<ColorPreset, Record<'light' | 'dark', EditorSyntaxP
       keyword: '#cb7676',
       string: '#a9c18f',
       number: '#d7b077',
-      type: '#c69d9d',
-      function: '#de8f8f',
+      type: '#c7a183',
+      function: '#ef9d7d',
       variable: '#f0e6e4',
-      constant: '#d5a4a4',
+      constant: '#d8aa88',
       punctuation: '#cebebe',
       lineNumber: '#937f7d',
       indentGuide: '#4c3d3c',
@@ -95,10 +99,10 @@ const editorPalettes: Record<ColorPreset, Record<'light' | 'dark', EditorSyntaxP
       keyword: '#ab5356',
       string: '#697855',
       number: '#a36e3a',
-      type: '#865f62',
-      function: '#99484b',
+      type: '#936f5c',
+      function: '#ad5751',
       variable: '#352928',
-      constant: '#9d5f63',
+      constant: '#af8469',
       punctuation: '#726665',
       lineNumber: '#9c8d8b',
       indentGuide: '#d4c8c7',
@@ -111,10 +115,10 @@ const editorPalettes: Record<ColorPreset, Record<'light' | 'dark', EditorSyntaxP
       keyword: '#e07878',
       string: '#acc594',
       number: '#d9b179',
-      type: '#d59b9b',
-      function: '#f29696',
+      type: '#cba283',
+      function: '#f3a286',
       variable: '#f2e6e4',
-      constant: '#e5a7a7',
+      constant: '#dab093',
       punctuation: '#d3c4c2',
       lineNumber: '#8b7775',
       indentGuide: '#3c3131',
@@ -157,20 +161,20 @@ const editorPalettes: Record<ColorPreset, Record<'light' | 'dark', EditorSyntaxP
   },
   'tide-blue': {
     light: {
-      background: '#eef3f8',
-      foreground: '#233242',
-      comment: '#7f8ea0',
-      keyword: '#4f74bd',
-      string: '#4d7b63',
-      number: '#986e35',
-      type: '#437f98',
-      function: '#3f6995',
-      variable: '#263646',
-      constant: '#667cc8',
-      punctuation: '#647689',
-      lineNumber: '#8fa0b2',
-      indentGuide: '#c6d3e0',
-      indentGuideActive: '#93a9c0',
+      background: '#e9f2fb',
+      foreground: '#203345',
+      comment: '#7890a6',
+      keyword: '#3f74c2',
+      string: '#427d69',
+      number: '#946e34',
+      type: '#2f86a1',
+      function: '#2d6fa0',
+      variable: '#23374a',
+      constant: '#5c7fd3',
+      punctuation: '#5d7389',
+      lineNumber: '#879db2',
+      indentGuide: '#bfd1e2',
+      indentGuideActive: '#88a7c6',
     },
     dark: {
       background: '#172032',
@@ -197,10 +201,10 @@ const editorPalettes: Record<ColorPreset, Record<'light' | 'dark', EditorSyntaxP
       keyword: '#9d6d48',
       string: '#61724f',
       number: '#a56c2b',
-      type: '#6c8084',
-      function: '#7e644d',
+      type: '#7b7459',
+      function: '#9a7b56',
       variable: '#392f27',
-      constant: '#946f4d',
+      constant: '#a6845d',
       punctuation: '#746559',
       lineNumber: '#a18f82',
       indentGuide: '#d4c7bb',
@@ -213,14 +217,48 @@ const editorPalettes: Record<ColorPreset, Record<'light' | 'dark', EditorSyntaxP
       keyword: '#d4ae84',
       string: '#a8c08e',
       number: '#d8b37a',
-      type: '#9db9c4',
-      function: '#d7c1a8',
+      type: '#c3b18c',
+      function: '#d9c09a',
       variable: '#ece2d8',
-      constant: '#dfc198',
+      constant: '#d8bc8f',
       punctuation: '#cabdaf',
       lineNumber: '#8f8072',
       indentGuide: '#4c4038',
       indentGuideActive: '#6d5c51',
+    },
+  },
+  'graphite-red': {
+    light: {
+      background: '#f6f1ef',
+      foreground: '#352b2a',
+      comment: '#8f817d',
+      keyword: '#aa615e',
+      string: '#936661',
+      number: '#a17145',
+      type: '#886f67',
+      function: '#ad746f',
+      variable: '#3b302f',
+      constant: '#b08a68',
+      punctuation: '#786b67',
+      lineNumber: '#a39591',
+      indentGuide: '#dbcfcb',
+      indentGuideActive: '#b8a7a2',
+    },
+    dark: {
+      background: '#181314',
+      foreground: '#ebe1de',
+      comment: '#9e8985',
+      keyword: '#dc857c',
+      string: '#caa098',
+      number: '#d2a772',
+      type: '#c49d95',
+      function: '#e0aca4',
+      variable: '#ebe1de',
+      constant: '#d3af84',
+      punctuation: '#c8bbb7',
+      lineNumber: '#8d7c79',
+      indentGuide: '#473a3a',
+      indentGuideActive: '#6b5958',
     },
   },
   'soft-parchment': {
@@ -231,48 +269,48 @@ const editorPalettes: Record<ColorPreset, Record<'light' | 'dark', EditorSyntaxP
       keyword: '#8b5e3c',
       string: '#56714e',
       number: '#9c6f2b',
-      type: '#607685',
-      function: '#6f6258',
+      type: '#7d7057',
+      function: '#88715b',
       variable: '#3b3329',
-      constant: '#8a6644',
-      punctuation: '#6f6258',
+      constant: '#947654',
+      punctuation: '#726357',
       lineNumber: '#9a8e82',
       indentGuide: '#d9d0c3',
       indentGuideActive: '#b2a291',
     },
     dark: {
-      background: '#2a241f',
+      background: '#241f1a',
       foreground: '#efe4d7',
-      comment: '#a39689',
-      keyword: '#d0af7a',
+      comment: '#a09184',
+      keyword: '#d2b06f',
       string: '#a5c39b',
       number: '#dab272',
-      type: '#9db4c2',
-      function: '#d1c1af',
+      type: '#cab58d',
+      function: '#d6c0a1',
       variable: '#efe4d7',
-      constant: '#dfc396',
+      constant: '#d6bc90',
       punctuation: '#d0c3b6',
-      lineNumber: '#928577',
-      indentGuide: '#4d433a',
-      indentGuideActive: '#6d6155',
+      lineNumber: '#8d8072',
+      indentGuide: '#473d35',
+      indentGuideActive: '#685b4e',
     },
   },
   'midnight-oled': {
     light: {
-      background: '#eef1f6',
-      foreground: '#242d39',
-      comment: '#8591a0',
-      keyword: '#5069b1',
-      string: '#4f735c',
-      number: '#976a31',
-      type: '#507690',
-      function: '#46628b',
-      variable: '#262f3a',
-      constant: '#6f65aa',
-      punctuation: '#67717f',
-      lineNumber: '#8f9aa7',
-      indentGuide: '#cad2dc',
-      indentGuideActive: '#99a4b3',
+      background: '#e7ecf8',
+      foreground: '#212c3d',
+      comment: '#7d8b9e',
+      keyword: '#425dc4',
+      string: '#507260',
+      number: '#94682f',
+      type: '#3d7099',
+      function: '#365fa0',
+      variable: '#233041',
+      constant: '#5e58bd',
+      punctuation: '#626f82',
+      lineNumber: '#8696ab',
+      indentGuide: '#c0cbdf',
+      indentGuideActive: '#899ab8',
     },
     dark: {
       background: '#0f1218',
@@ -297,6 +335,16 @@ export function withAlpha(color: string, alphaHex: string): string {
   return `${color}${alphaHex}`;
 }
 
+function rgbChannelToHex(channel: number): string {
+  return Math.max(0, Math.min(255, Math.round(channel)))
+    .toString(16)
+    .padStart(2, '0');
+}
+
+function rgbToHex(rgb: { r: number; g: number; b: number }): string {
+  return `#${rgbChannelToHex(rgb.r)}${rgbChannelToHex(rgb.g)}${rgbChannelToHex(rgb.b)}`;
+}
+
 function parseHexColor(hex: string): { r: number; g: number; b: number } | null {
   const normalized = hex.trim().toLowerCase();
   if (!/^#(?:[0-9a-f]{6})$/.test(normalized)) {
@@ -310,21 +358,73 @@ function parseHexColor(hex: string): { r: number; g: number; b: number } | null 
   };
 }
 
-function toHexColor(value: string, fallback: string): string {
-  if (typeof document === 'undefined') {
-    return fallback;
+function parseRgbColor(value: string): { r: number; g: number; b: number } | null {
+  const normalized = value.trim().toLowerCase();
+  const commaSeparatedMatch = normalized.match(
+    /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*[\d.]+\s*)?\)$/
+  );
+
+  if (commaSeparatedMatch) {
+    return {
+      r: Number.parseFloat(commaSeparatedMatch[1]),
+      g: Number.parseFloat(commaSeparatedMatch[2]),
+      b: Number.parseFloat(commaSeparatedMatch[3]),
+    };
   }
 
-  const input = document.createElement('input');
-  input.type = 'color';
-  input.value = fallback;
+  const spaceSeparatedMatch = normalized.match(
+    /^rgba?\(\s*(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)(?:\s*\/\s*[\d.]+\s*)?\)$/
+  );
+
+  if (spaceSeparatedMatch) {
+    return {
+      r: Number.parseFloat(spaceSeparatedMatch[1]),
+      g: Number.parseFloat(spaceSeparatedMatch[2]),
+      b: Number.parseFloat(spaceSeparatedMatch[3]),
+    };
+  }
+
+  return null;
+}
+
+function resolveCssColorToHex(value: string): string | null {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    return null;
+  }
+
+  const host = document.body ?? document.documentElement;
+  if (!host) {
+    return null;
+  }
+
+  const probe = document.createElement('span');
+  probe.style.color = '';
+  probe.style.color = value;
+
+  host.appendChild(probe);
 
   try {
-    input.value = value;
-    return input.value || fallback;
-  } catch {
-    return fallback;
+    const resolvedColor = window.getComputedStyle(probe).color;
+    const rgb = parseRgbColor(resolvedColor);
+    return rgb ? rgbToHex(rgb) : null;
+  } finally {
+    probe.remove();
   }
+}
+
+function toHexColor(value: string, fallback: string): string {
+  const normalizedValue = value.trim().toLowerCase();
+  const parsedHex = parseHexColor(normalizedValue);
+  if (parsedHex) {
+    return normalizedValue;
+  }
+
+  const computedHex = resolveCssColorToHex(value);
+  if (computedHex) {
+    return computedHex;
+  }
+
+  return fallback;
 }
 
 function mixHex(left: string, right: string, leftWeight = 0.5): string {
@@ -385,7 +485,8 @@ function deriveCustomThemeEditorPalette(
 }
 
 function resolvePresetOption(preset: ColorPreset) {
-  return APP_COLOR_PRESET_OPTIONS.find((option) => option.id === preset);
+  const normalizedPreset = normalizeColorPreset(preset);
+  return APP_COLOR_PRESET_OPTIONS.find((option) => option.id === normalizedPreset);
 }
 
 function resolveDefaultEditorAccent(preset: ColorPreset): string {
@@ -444,15 +545,16 @@ export function resolveEditorVisualPalette({
   customTheme,
 }: Omit<BuildMonacoThemeOptions, 'backgroundImageEnabled'>): ResolvedEditorVisualPalette {
   const mode = resolveEditorThemeMode(theme, terminalTheme);
+  const normalizedPreset = normalizeColorPreset(colorPreset);
   const palette = customTheme
     ? deriveCustomThemeEditorPalette(customTheme, mode)
-    : editorPalettes[colorPreset][mode];
+    : editorPalettes[normalizedPreset][mode];
   const accent = customTheme
-    ? toHexColor(customTheme.tokens[mode].primary, resolveDefaultEditorAccent(colorPreset))
-    : sanitizeCustomAccentColor(customAccentColor) || resolveDefaultEditorAccent(colorPreset);
+    ? toHexColor(customTheme.tokens[mode].primary, resolveDefaultEditorAccent(normalizedPreset))
+    : sanitizeCustomAccentColor(customAccentColor) || resolveDefaultEditorAccent(normalizedPreset);
   const support = customTheme
-    ? toHexColor(customTheme.tokens[mode].support, resolveEditorSupportColor(colorPreset))
-    : resolveEditorSupportColor(colorPreset);
+    ? toHexColor(customTheme.tokens[mode].support, resolveEditorSupportColor(normalizedPreset))
+    : resolveEditorSupportColor(normalizedPreset);
   const lineHighlight = withAlpha(accent, mode === 'dark' ? '16' : '12');
 
   return {

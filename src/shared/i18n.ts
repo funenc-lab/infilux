@@ -355,8 +355,24 @@ export const zhTranslations: Record<string, string> = {
   'Select a Worktree to browse files': '选择 Worktree 以浏览文件',
   'Choose a worktree to browse files and open an editor':
     '选择一个 Worktree 以浏览文件并打开编辑器',
+  'File explorer needs a worktree': '文件浏览器需要一个 Worktree',
+  'Files, search, and editor tabs are scoped to the selected worktree.':
+    '文件、搜索和编辑器标签都属于当前选中的 Worktree。',
+  'Each worktree has its own files, search results, and editor tabs.':
+    '每个 Worktree 都有各自的文件、搜索结果和编辑器标签。',
+  'Choose a worktree to load its files': '选择一个 Worktree 以加载其文件',
+  'Choose a worktree to browse its files': '选择一个 Worktree 以浏览其文件',
+  'Files and folders appear here for the selected worktree.':
+    '当前选中的 Worktree 的文件和文件夹会显示在这里。',
+  'Choose a worktree in the sidebar to browse its files': '在侧栏中选择一个 Worktree 以浏览其文件',
   'Select a Worktree to open terminal': '选择 Worktree 以打开终端',
   'Choose a worktree to continue using AI Agent': '选择 Worktree 以继续使用 AI Agent',
+  'AI Agent needs a worktree': 'AI Agent 需要一个 Worktree',
+  'Agent sessions run inside the selected worktree and keep their own runtime state.':
+    'Agent 会话会在所选 Worktree 中运行，并保留各自的运行状态。',
+  'Each worktree keeps its own agent sessions, context, and output.':
+    '每个 Worktree 都保留各自的 Agent 会话、上下文和输出。',
+  'Choose a worktree in this repository': '在当前仓库中选择一个 Worktree',
   'Notification delay': '空闲时间',
   'Timed out': '检测超时',
   'Notifications when agent is idle': 'Agent 空闲时发送系统通知',
@@ -427,6 +443,7 @@ export const zhTranslations: Record<string, string> = {
   'Select a workspace': '选择工作区',
   'Select a Worktree to start using AI coding assistant':
     '选择一个 Worktree 以开始使用 AI 编码助手',
+  'Choose a worktree to start an AI agent session': '选择一个 Worktree 以启动 AI Agent 会话',
   'Select a Worktree to view changes': '选择一个 Worktree 以查看更改',
   'Select a file to view changes': '选择一个文件以查看更改',
   'Select file to view diff': '从左侧选择文件以查看更改',
@@ -474,17 +491,28 @@ export const zhTranslations: Record<string, string> = {
   'Terminal needs a worktree': '终端面板需要一个 Worktree',
   'Select a worktree first. Once created, terminal sessions stay mounted and keep their runtime state.':
     '请先选择一个 Worktree。创建后的终端会话会按 Worktree 持续保留运行状态。',
+  'Each worktree keeps its own terminal sessions and running commands.':
+    '每个 Worktree 都保留各自的终端会话和运行中的命令。',
   'Sessions persist by worktree': '会话按 Worktree 持续保留',
+  'Next Step': '下一步',
+  Worktree: 'Worktree',
+  'Use the sidebar to switch context': '使用侧栏切换当前上下文',
+  'Use the worktree sidebar to load the file tree': '使用 Worktree 侧栏加载文件树',
   'Choose a worktree to open a shell': '选择一个 Worktree 以打开终端会话',
+  'Choose a worktree to open a terminal': '选择一个 Worktree 以打开终端',
   'No terminals attached to this worktree': '当前 worktree 还没有终端会话',
   'Open a shell to run commands, inspect logs, or keep a long-running process attached to the current worktree.':
     '打开一个终端来执行命令、查看日志，或把长时间运行的进程挂在当前 worktree 上。',
+  'Start a terminal to run commands, inspect output, or keep a process attached to this worktree.':
+    '启动一个终端来执行命令、查看输出，或把进程挂在这个 worktree 上。',
   'No active shell sessions': '当前没有活动中的终端会话',
   'Shell sessions stay mounted by worktree': '终端会话会按 Worktree 持续挂载',
   'Create a terminal and start executing commands': '新建一个终端并开始执行命令',
   'Version control needs a worktree': '版本管理面板需要一个 Worktree',
   'Select a worktree before reviewing changes, staging files, or inspecting history.':
     '请先选择一个 Worktree，再查看变更、暂存文件或检查历史记录。',
+  'Each worktree keeps its own change list, staging area, and history context.':
+    '每个 Worktree 都保留各自的变更列表、暂存区和历史上下文。',
   'Choose a worktree to inspect changes': '选择一个 Worktree 以查看变更',
   'Already up to date': '已是最新',
   '{{branch}} is in sync with remote': '{{branch}} 与远程仓库已同步',
@@ -713,13 +741,86 @@ export const zhTranslations: Record<string, string> = {
   'Use the terminal theme as the app accent source': '使用终端主题作为应用强调色来源',
   'Terminal sync is active and will fall back to the selected mode when disabled.':
     '终端同步已启用，关闭后将回退到当前所选模式',
+  'Graphite Ink': '石墨墨影',
+  'Default console palette with cool graphite surfaces, steel-blue theme emphasis, and restrained teal support.':
+    '默认控制台配色，采用冷调石墨表面、钢蓝主题强调和克制的青绿色辅助。',
+  'Tide Blue': '潮汐蓝',
+  'A colder maritime variant with blue-slate structure and brighter aqua support for navigation and status scanability.':
+    '更偏冷的海洋变体，使用蓝灰结构和更明亮的水绿色辅助，提升导航与状态识别。',
+  'Warm Graphite': '暖石墨',
+  'Dark graphite with bronze theme color and muted olive support for a calmer, more material control room feel.':
+    '深石墨底色搭配青铜主题色与低饱和橄榄辅助，带来更沉稳、更具材质感的控制室氛围。',
+  'Graphite Red': '石墨红',
+  'Graphite surfaces with softened brick-red emphasis, paper-warm layering, and walnut support for focused writing and reading.':
+    '石墨表面配合柔和砖红主题强调、带纸感的暖层次和胡桃木辅助，适合专注写作与阅读。',
+  'Midnight Core': '午夜核心',
+  'The deepest dark preset, built for night work with restrained steel focus and a quiet indigo support layer.':
+    '最深沉的暗色预设，为夜间工作而设，使用克制的钢灰焦点色与安静的靛蓝辅助层。',
+  'Paper Console': '纸页控制台',
+  'A lighter editorial preset with parchment neutrals, tobacco theme color, and sage support for daytime work.':
+    '更明亮的编辑风格预设，采用羊皮纸中性色、烟草主题色与鼠尾草辅助，适合白天工作。',
+  Surfaces: '界面层次',
+  Typography: '文字',
+  Brand: '品牌',
   'Choose the palette that shapes surfaces, focus states, and brand emphasis.':
     '选择控制表面、焦点状态与品牌强调的配色方案',
+  'Custom themes': '自定义主题',
+  'Create blank themes or duplicate a preset into your own theme library.':
+    '创建空白主题，或将预设复制到你的主题库中。',
+  'Copy current preset': '复制当前预设',
+  'New blank': '新建空白',
+  Blank: '空白',
+  'From preset': '来自预设',
+  'Editable theme created from a neutral light and dark baseline.':
+    '基于中性的明暗基线创建的可编辑主题。',
+  'Custom theme built from a blank starting point.': '从空白起点创建的自定义主题。',
+  'Custom theme derived from {{name}}.': '从 {{name}} 派生的自定义主题。',
+  'Theme editor': '主题编辑器',
+  'Edit the full token set for the active custom theme.': '编辑当前自定义主题的完整 token 集。',
+  'Select a custom theme to edit, or duplicate a preset first.':
+    '选择一个自定义主题进行编辑，或先复制一个预设。',
+  'Blank base': '空白基底',
+  'Based on {{name}}': '基于 {{name}}',
+  'Status tokens inherit from the preset semantic family to preserve operational meaning.':
+    '状态 token 会继承预设的语义色族，以保持稳定的操作含义。',
+  'Select a custom theme to unlock the full token editor.':
+    '选择一个自定义主题以解锁完整 token 编辑器。',
+  'No custom themes yet. Start from a preset or create a blank theme document.':
+    '还没有自定义主题。可以从预设开始，或创建一个空白主题文档。',
+  'Runtime semantic colors stay locked to the selected theme family.':
+    '运行时语义色会锁定在当前所选主题族内。',
+  'Custom themes manage their own primary, accent, and support tokens.':
+    '自定义主题会独立管理自己的主色、强调色和辅助色 token。',
   'Custom accent': '自定义强调色',
   'Optional override for primary highlights and focus rings.': '可选覆盖主强调高亮与聚焦描边',
   'Using {{name}}': '使用 {{name}}',
   'Terminal sync can override the custom accent while it is active.':
     '启用终端同步时，终端强调色会覆盖自定义强调色',
+  Dracula: '德古拉',
+  'Dracula+': '德古拉+',
+  Nord: '北境',
+  Nordfox: '北狐',
+  TokyoNight: '东京夜',
+  'Catppuccin Frappe': 'Catppuccin 法布奇诺',
+  'Catppuccin Latte': 'Catppuccin 拿铁',
+  'Catppuccin Macchiato': 'Catppuccin 玛奇朵',
+  'Catppuccin Mocha': 'Catppuccin 摩卡',
+  'Builtin Solarized Dark': '内建 Solarized 深色',
+  'Builtin Solarized Light': '内建 Solarized 浅色',
+  Builtin: '内建',
+  'System Colors': '系统颜色',
+  'Higher Contrast': '高对比',
+  Day: '日间',
+  Moon: '月',
+  Night: '夜',
+  Storm: '风暴',
+  Hard: '硬核',
+  Material: '材质',
+  Classic: '经典',
+  Accent: '强调',
+  Support: '辅助',
+  Custom: '自定义',
+  '{{count}} tokens': '{{count}} 个 token',
   '(commit history)': '(提交历史)',
   'Open in editor': '在编辑器中打开',
   'Collapse unchanged code': '折叠未修改代码',

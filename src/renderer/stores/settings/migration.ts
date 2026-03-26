@@ -10,9 +10,8 @@ import type {
 } from './types';
 
 const COLOR_PRESETS: ColorPreset[] = [
-  'classic-red',
-  'red-graphite-oled',
   'graphite-ink',
+  'graphite-red',
   'tide-blue',
   'warm-graphite',
   'soft-parchment',
@@ -24,6 +23,8 @@ const LEGACY_COLOR_PRESET_MAP: Record<string, ColorPreset> = {
   'slate-indigo': 'graphite-ink',
   'amber-command': 'warm-graphite',
   'graphite-neutral': 'graphite-ink',
+  'classic-red': 'warm-graphite',
+  'red-graphite-oled': 'midnight-oled',
 };
 
 const CUSTOM_ACCENT_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;

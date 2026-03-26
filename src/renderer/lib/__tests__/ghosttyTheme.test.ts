@@ -74,6 +74,51 @@ describe('ghosttyTheme', () => {
     expect(getTerminalThemeAccent('Missing Theme')).toBe('');
   });
 
+  it('does not hard-bias sync-terminal accents toward blue when another vivid accent is stronger', async () => {
+    vi.resetModules();
+    vi.doMock('@/data/terminal-themes.json', () => ({
+      default: {
+        AccentChoice: {
+          name: 'AccentChoice',
+          palette: [
+            '#000000',
+            '#aa4444',
+            '#44aa66',
+            '#d4a84f',
+            '#4d7fff',
+            '#ff5fd2',
+            '#4fb8c8',
+            '#f2f2f2',
+            '#666666',
+            '#cc6666',
+            '#66cc88',
+            '#f0c96f',
+            '#77a0ff',
+            '#ff7ade',
+            '#79d4de',
+            '#ffffff',
+          ],
+          background: '#101114',
+          foreground: '#f2f2f2',
+          cursorColor: '#f2f2f2',
+          cursorText: '#101114',
+          selectionBackground: '#2b2d33',
+          selectionForeground: '#ffffff',
+        },
+      },
+    }));
+
+    const { getTerminalThemeAccent: getMockedTerminalThemeAccent } = await import(
+      '../ghosttyTheme'
+    );
+    const accent = getMockedTerminalThemeAccent('AccentChoice');
+
+    expect(accent).not.toBe('#77a0ff');
+    expect(accent).not.toBe('#4d7fff');
+    expect(accent).not.toBe('#f2f2f2');
+    expect(['#ff7ade', '#f0c96f', '#66cc88', '#79d4de']).toContain(accent);
+  });
+
   it('applies terminal theme variables and syncs dark mode when requested', () => {
     const setProperty = vi.fn();
     const toggle = vi.fn();

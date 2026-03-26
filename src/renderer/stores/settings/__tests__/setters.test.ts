@@ -22,6 +22,7 @@ async function loadSettingsStore(options?: {
   matchDark?: boolean;
   settingsReadResult?: Record<string, unknown> | null;
   webInspectorStartResult?: { success: boolean; error?: string };
+  platform?: 'darwin' | 'win32' | 'linux';
 }) {
   vi.resetModules();
 
@@ -102,7 +103,7 @@ async function loadSettingsStore(options?: {
         detect: shellDetect,
       },
       env: {
-        platform: 'darwin',
+        platform: options?.platform ?? 'darwin',
       },
       updater: {
         setAutoUpdateEnabled,
@@ -205,10 +206,17 @@ describe('settings store setters', () => {
     });
     expect(env.useSettingsStore.getState().customAccentColor).toBe('#ff7a00');
 
+    store.setFontFamily('Aptos');
+    store.setFontSize(15);
+    expect(env.styleSetProperty).toHaveBeenCalledWith('--font-family-sans', 'Aptos');
+    expect(env.styleSetProperty).toHaveBeenCalledWith('--app-font-size-base', '15px');
+
+    vi.clearAllMocks();
     store.setTerminalFontFamily('Fira Code');
     store.setTerminalFontSize(16);
     expect(env.styleSetProperty).toHaveBeenCalledWith('--font-family-mono', 'Fira Code');
-    expect(env.styleSetProperty).toHaveBeenCalledWith('--font-size-base', '16px');
+    expect(env.styleSetProperty).not.toHaveBeenCalledWith('--font-size-base', '16px');
+    expect(env.styleSetProperty).not.toHaveBeenCalledWith('--app-font-size-base', '16px');
 
     store.setLanguage('zh');
     expect(document.documentElement.lang).toBe('zh-CN');
@@ -259,6 +267,23 @@ describe('settings store setters', () => {
 
     await store.setWebInspectorEnabled(false);
     expect(env.webInspectorStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('chooses a platform-aware default UI font family', async () => {
+    const macEnv = await loadSettingsStore({ platform: 'darwin' });
+    expect(macEnv.useSettingsStore.getState().fontFamily).toBe(
+      '"SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif'
+    );
+
+    const windowsEnv = await loadSettingsStore({ platform: 'win32' });
+    expect(windowsEnv.useSettingsStore.getState().fontFamily).toBe(
+      '"Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif'
+    );
+
+    const linuxEnv = await loadSettingsStore({ platform: 'linux' });
+    expect(linuxEnv.useSettingsStore.getState().fontFamily).toBe(
+      '"Noto Sans CJK SC", "Noto Sans", "Ubuntu", "Liberation Sans", system-ui, sans-serif'
+    );
   });
 
   it('updates collection settings consistently across agents, providers, prompts, and favorites', async () => {

@@ -138,8 +138,13 @@ describe('settings rehydrate', () => {
       customAccentColor: '#ff79c6',
       customTheme: null,
     });
+    expect(styleSetProperty).toHaveBeenCalledWith(
+      '--font-family-sans',
+      '"SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif'
+    );
+    expect(styleSetProperty).toHaveBeenCalledWith('--app-font-size-base', '14px');
     expect(styleSetProperty).toHaveBeenCalledWith('--font-family-mono', 'Fira Code');
-    expect(styleSetProperty).toHaveBeenCalledWith('--font-size-base', '16px');
+    expect(styleSetProperty).not.toHaveBeenCalledWith('--font-size-base', '16px');
     expect(document.documentElement.lang).toBe('zh-CN');
     expect(setLanguage).toHaveBeenCalledWith('zh');
     expect(updateRendererLogging).toHaveBeenCalledWith(true, 'debug');

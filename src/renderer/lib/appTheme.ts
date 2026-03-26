@@ -81,6 +81,17 @@ export const APP_THEME_TOKEN_GROUPS = [
 ] as const;
 
 export const APP_THEME_TOKEN_KEYS = APP_THEME_TOKEN_GROUPS.flatMap((group) => [...group.keys]);
+export const APP_THEME_PROTECTED_TOKEN_KEYS = [
+  'success',
+  'warning',
+  'info',
+  'destructive',
+] as const;
+
+const RETIRED_COLOR_PRESET_MAP: Record<string, ColorPreset> = {
+  'classic-red': 'warm-graphite',
+  'red-graphite-oled': 'midnight-oled',
+};
 
 function mixToken(left: string, right: string, leftWeight: string): string {
   const numericLeftWeight = Number.parseInt(leftWeight, 10);
@@ -94,6 +105,12 @@ function mixToken(left: string, right: string, leftWeight: string): string {
 
 function createFoundationPalette(config: ThemeFoundationConfig): ThemeVariableMap {
   return {
+    '--theme-background-base': config.background,
+    '--theme-card-base': config.card,
+    '--theme-popover-base': config.popover,
+    '--theme-muted-base': config.muted,
+    '--theme-border-base': config.border,
+    '--theme-input-base': config.input ?? config.border,
     '--background': config.background,
     '--foreground': config.foreground,
     '--card': config.card,
@@ -237,19 +254,6 @@ function createFoundationFromThemeTokens(tokens: ThemeTokenSet): ThemeFoundation
   };
 }
 
-function createSemanticVariablesFromThemeTokens(tokens: ThemeTokenSet): ThemeVariableMap {
-  return {
-    '--destructive': tokens.destructive,
-    '--destructive-foreground': getReadableForeground(tokens.destructive),
-    '--success': tokens.success,
-    '--success-foreground': getReadableForeground(tokens.success),
-    '--warning': tokens.warning,
-    '--warning-foreground': getReadableForeground(tokens.warning),
-    '--info': tokens.info,
-    '--info-foreground': getReadableForeground(tokens.info),
-  };
-}
-
 const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
   'graphite-ink': {
     option: {
@@ -267,20 +271,20 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
     semanticFamily: 'cool-console',
     palettes: {
       light: {
-        background: 'oklch(0.982 0.004 250)',
+        background: 'oklch(0.978 0.006 250)',
         foreground: 'oklch(0.255 0.016 252)',
-        card: 'oklch(0.992 0.003 250)',
-        popover: 'oklch(0.994 0.003 250)',
-        secondary: 'oklch(0.956 0.006 248)',
-        muted: 'oklch(0.963 0.006 248)',
-        mutedForeground: 'oklch(0.53 0.012 248)',
-        accent: 'oklch(0.944 0.012 244)',
+        card: 'oklch(0.993 0.003 250)',
+        popover: 'oklch(0.996 0.003 250)',
+        secondary: 'oklch(0.949 0.009 248)',
+        muted: 'oklch(0.957 0.008 248)',
+        mutedForeground: 'oklch(0.49 0.014 248)',
+        accent: 'oklch(0.922 0.026 244)',
         accentForeground: 'oklch(0.245 0.018 252)',
         primary: 'oklch(0.58 0.078 244)',
         primaryForeground: 'oklch(0.986 0.003 252)',
         support: 'oklch(0.62 0.052 196)',
         supportForeground: 'oklch(0.986 0.003 252)',
-        border: 'oklch(0.902 0.008 248)',
+        border: 'oklch(0.874 0.012 248)',
         ring: 'oklch(0.654 0.086 244)',
       },
       dark: {
@@ -291,7 +295,7 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         secondary: 'oklch(0.244 0.013 248)',
         muted: 'oklch(0.232 0.012 248)',
         mutedForeground: 'oklch(0.72 0.012 248)',
-        accent: 'oklch(0.278 0.024 242)',
+        accent: 'oklch(0.296 0.034 242)',
         accentForeground: 'oklch(0.962 0.005 250)',
         primary: 'oklch(0.74 0.09 242)',
         primaryForeground: 'oklch(0.15 0.01 248)',
@@ -317,21 +321,21 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
     semanticFamily: 'cool-console',
     palettes: {
       light: {
-        background: 'oklch(0.983 0.006 230)',
-        foreground: 'oklch(0.25 0.02 236)',
-        card: 'oklch(0.993 0.004 230)',
-        popover: 'oklch(0.995 0.004 230)',
-        secondary: 'oklch(0.958 0.008 228)',
-        muted: 'oklch(0.964 0.008 228)',
-        mutedForeground: 'oklch(0.53 0.015 232)',
-        accent: 'oklch(0.946 0.018 224)',
-        accentForeground: 'oklch(0.24 0.022 236)',
-        primary: 'oklch(0.59 0.1 226)',
-        primaryForeground: 'oklch(0.988 0.003 230)',
-        support: 'oklch(0.64 0.07 194)',
-        supportForeground: 'oklch(0.988 0.003 230)',
-        border: 'oklch(0.904 0.01 228)',
-        ring: 'oklch(0.664 0.108 226)',
+        background: 'oklch(0.976 0.011 224)',
+        foreground: 'oklch(0.246 0.026 230)',
+        card: 'oklch(0.992 0.006 224)',
+        popover: 'oklch(0.995 0.006 224)',
+        secondary: 'oklch(0.946 0.016 220)',
+        muted: 'oklch(0.955 0.015 220)',
+        mutedForeground: 'oklch(0.484 0.022 224)',
+        accent: 'oklch(0.919 0.04 220)',
+        accentForeground: 'oklch(0.236 0.024 232)',
+        primary: 'oklch(0.588 0.112 220)',
+        primaryForeground: 'oklch(0.988 0.003 228)',
+        support: 'oklch(0.636 0.082 194)',
+        supportForeground: 'oklch(0.988 0.003 228)',
+        border: 'oklch(0.868 0.019 220)',
+        ring: 'oklch(0.662 0.118 220)',
       },
       dark: {
         background: 'oklch(0.17 0.014 232)',
@@ -341,7 +345,7 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         secondary: 'oklch(0.249 0.018 232)',
         muted: 'oklch(0.238 0.017 232)',
         mutedForeground: 'oklch(0.724 0.014 232)',
-        accent: 'oklch(0.284 0.03 224)',
+        accent: 'oklch(0.302 0.04 224)',
         accentForeground: 'oklch(0.964 0.006 232)',
         primary: 'oklch(0.75 0.106 224)',
         primaryForeground: 'oklch(0.152 0.012 232)',
@@ -367,20 +371,20 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
     semanticFamily: 'warm-console',
     palettes: {
       light: {
-        background: 'oklch(0.983 0.004 62)',
+        background: 'oklch(0.979 0.006 62)',
         foreground: 'oklch(0.275 0.015 48)',
-        card: 'oklch(0.993 0.003 62)',
-        popover: 'oklch(0.995 0.003 62)',
-        secondary: 'oklch(0.958 0.006 58)',
-        muted: 'oklch(0.964 0.006 58)',
-        mutedForeground: 'oklch(0.54 0.012 56)',
-        accent: 'oklch(0.946 0.014 52)',
+        card: 'oklch(0.994 0.003 62)',
+        popover: 'oklch(0.996 0.003 62)',
+        secondary: 'oklch(0.951 0.009 58)',
+        muted: 'oklch(0.958 0.008 58)',
+        mutedForeground: 'oklch(0.502 0.015 56)',
+        accent: 'oklch(0.924 0.028 50)',
         accentForeground: 'oklch(0.266 0.016 48)',
         primary: 'oklch(0.61 0.085 46)',
         primaryForeground: 'oklch(0.988 0.003 62)',
         support: 'oklch(0.6 0.056 146)',
         supportForeground: 'oklch(0.988 0.003 62)',
-        border: 'oklch(0.904 0.008 58)',
+        border: 'oklch(0.876 0.013 58)',
         ring: 'oklch(0.682 0.09 46)',
       },
       dark: {
@@ -391,7 +395,7 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         secondary: 'oklch(0.257 0.014 42)',
         muted: 'oklch(0.245 0.013 42)',
         mutedForeground: 'oklch(0.724 0.009 60)',
-        accent: 'oklch(0.291 0.024 44)',
+        accent: 'oklch(0.304 0.03 44)',
         accentForeground: 'oklch(0.964 0.004 68)',
         primary: 'oklch(0.756 0.09 44)',
         primaryForeground: 'oklch(0.154 0.01 42)',
@@ -399,6 +403,55 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         supportForeground: 'oklch(0.13 0.01 146)',
         border: 'oklch(0.332 0.016 42)',
         ring: 'oklch(0.8 0.095 44)',
+      },
+    },
+  },
+  'graphite-red': {
+    option: {
+      id: 'graphite-red',
+      label: 'Graphite Red',
+      description:
+        'Graphite surfaces with softened brick-red emphasis, paper-warm layering, and walnut support for focused writing and reading.',
+      themeHex: '#b86460',
+      accentHex: '#4a3735',
+      supportHex: '#8c756d',
+      swatches: ['#1d1919', '#b86460', '#8c756d'],
+    },
+    semanticFamily: 'signal-console',
+    palettes: {
+      light: {
+        background: 'oklch(0.98 0.005 28)',
+        foreground: 'oklch(0.288 0.012 26)',
+        card: 'oklch(0.995 0.003 28)',
+        popover: 'oklch(0.997 0.003 28)',
+        secondary: 'oklch(0.952 0.007 26)',
+        muted: 'oklch(0.959 0.007 26)',
+        mutedForeground: 'oklch(0.508 0.013 24)',
+        accent: 'oklch(0.926 0.024 24)',
+        accentForeground: 'oklch(0.292 0.012 26)',
+        primary: 'oklch(0.594 0.088 24)',
+        primaryForeground: 'oklch(0.988 0.002 24)',
+        support: 'oklch(0.612 0.026 42)',
+        supportForeground: 'oklch(0.988 0.002 24)',
+        border: 'oklch(0.884 0.011 24)',
+        ring: 'oklch(0.668 0.096 24)',
+      },
+      dark: {
+        background: 'oklch(0.166 0.014 18)',
+        foreground: 'oklch(0.946 0.004 28)',
+        card: 'oklch(0.202 0.016 18)',
+        popover: 'oklch(0.214 0.016 18)',
+        secondary: 'oklch(0.246 0.018 18)',
+        muted: 'oklch(0.235 0.017 18)',
+        mutedForeground: 'oklch(0.716 0.008 22)',
+        accent: 'oklch(0.294 0.036 20)',
+        accentForeground: 'oklch(0.964 0.004 24)',
+        primary: 'oklch(0.714 0.1 22)',
+        primaryForeground: 'oklch(0.146 0.008 22)',
+        support: 'oklch(0.688 0.036 38)',
+        supportForeground: 'oklch(0.126 0.008 38)',
+        border: 'oklch(0.314 0.02 18)',
+        ring: 'oklch(0.762 0.108 22)',
       },
     },
   },
@@ -416,21 +469,21 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
     semanticFamily: 'cool-console',
     palettes: {
       light: {
-        background: 'oklch(0.98 0.003 250)',
-        foreground: 'oklch(0.24 0.014 252)',
-        card: 'oklch(0.992 0.002 250)',
-        popover: 'oklch(0.994 0.002 250)',
-        secondary: 'oklch(0.955 0.004 250)',
-        muted: 'oklch(0.962 0.004 250)',
-        mutedForeground: 'oklch(0.52 0.011 252)',
-        accent: 'oklch(0.944 0.011 246)',
-        accentForeground: 'oklch(0.24 0.015 252)',
-        primary: 'oklch(0.57 0.072 242)',
-        primaryForeground: 'oklch(0.988 0.002 250)',
-        support: 'oklch(0.56 0.066 284)',
-        supportForeground: 'oklch(0.988 0.002 250)',
-        border: 'oklch(0.898 0.006 250)',
-        ring: 'oklch(0.65 0.082 242)',
+        background: 'oklch(0.968 0.012 266)',
+        foreground: 'oklch(0.232 0.022 258)',
+        card: 'oklch(0.986 0.007 266)',
+        popover: 'oklch(0.989 0.007 266)',
+        secondary: 'oklch(0.939 0.015 262)',
+        muted: 'oklch(0.948 0.014 262)',
+        mutedForeground: 'oklch(0.474 0.022 260)',
+        accent: 'oklch(0.912 0.044 254)',
+        accentForeground: 'oklch(0.23 0.021 258)',
+        primary: 'oklch(0.556 0.102 246)',
+        primaryForeground: 'oklch(0.988 0.002 260)',
+        support: 'oklch(0.552 0.094 290)',
+        supportForeground: 'oklch(0.988 0.002 260)',
+        border: 'oklch(0.858 0.021 262)',
+        ring: 'oklch(0.636 0.112 246)',
       },
       dark: {
         background: 'oklch(0.118 0.006 250)',
@@ -440,7 +493,7 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         secondary: 'oklch(0.205 0.009 250)',
         muted: 'oklch(0.194 0.008 250)',
         mutedForeground: 'oklch(0.706 0.008 252)',
-        accent: 'oklch(0.236 0.018 244)',
+        accent: 'oklch(0.25 0.026 244)',
         accentForeground: 'oklch(0.968 0.003 252)',
         primary: 'oklch(0.792 0.082 242)',
         primaryForeground: 'oklch(0.11 0.006 250)',
@@ -459,8 +512,8 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         'Graphite surfaces with command-red theme emphasis and cool steel support for stronger action contrast.',
       themeHex: '#cd6d69',
       accentHex: '#46302f',
-      supportHex: '#7390a8',
-      swatches: ['#1d1718', '#cd6d69', '#7390a8'],
+      supportHex: '#a07c61',
+      swatches: ['#1d1718', '#cd6d69', '#a07c61'],
     },
     semanticFamily: 'signal-console',
     palettes: {
@@ -476,7 +529,7 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         accentForeground: 'oklch(0.285 0.016 22)',
         primary: 'oklch(0.6 0.105 24)',
         primaryForeground: 'oklch(0.988 0.002 24)',
-        support: 'oklch(0.61 0.06 244)',
+        support: 'oklch(0.62 0.044 58)',
         supportForeground: 'oklch(0.988 0.002 24)',
         border: 'oklch(0.9 0.007 24)',
         ring: 'oklch(0.676 0.114 24)',
@@ -493,8 +546,8 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         accentForeground: 'oklch(0.964 0.004 24)',
         primary: 'oklch(0.76 0.112 24)',
         primaryForeground: 'oklch(0.148 0.01 22)',
-        support: 'oklch(0.716 0.064 244)',
-        supportForeground: 'oklch(0.128 0.01 244)',
+        support: 'oklch(0.722 0.052 58)',
+        supportForeground: 'oklch(0.128 0.01 58)',
         border: 'oklch(0.326 0.015 22)',
         ring: 'oklch(0.806 0.12 24)',
       },
@@ -508,8 +561,8 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         'An OLED-leaning red preset with darker chrome surfaces and sharper action contrast for night sessions.',
       themeHex: '#df6c67',
       accentHex: '#372322',
-      supportHex: '#7589b6',
-      swatches: ['#120e0f', '#df6c67', '#7589b6'],
+      supportHex: '#b18669',
+      swatches: ['#120e0f', '#df6c67', '#b18669'],
     },
     semanticFamily: 'signal-console',
     palettes: {
@@ -525,7 +578,7 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         accentForeground: 'oklch(0.27 0.015 22)',
         primary: 'oklch(0.616 0.118 24)',
         primaryForeground: 'oklch(0.988 0.002 22)',
-        support: 'oklch(0.606 0.064 244)',
+        support: 'oklch(0.616 0.046 58)',
         supportForeground: 'oklch(0.988 0.002 22)',
         border: 'oklch(0.897 0.006 22)',
         ring: 'oklch(0.692 0.126 24)',
@@ -542,8 +595,8 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
         accentForeground: 'oklch(0.968 0.003 24)',
         primary: 'oklch(0.804 0.122 24)',
         primaryForeground: 'oklch(0.102 0.004 22)',
-        support: 'oklch(0.73 0.068 244)',
-        supportForeground: 'oklch(0.102 0.004 244)',
+        support: 'oklch(0.736 0.056 58)',
+        supportForeground: 'oklch(0.102 0.004 58)',
         border: 'oklch(0.264 0.008 22)',
         ring: 'oklch(0.842 0.13 24)',
       },
@@ -563,38 +616,38 @@ const presetDefinitions: Record<ColorPreset, ThemePresetDefinition> = {
     semanticFamily: 'warm-console',
     palettes: {
       light: {
-        background: 'oklch(0.989 0.005 95)',
+        background: 'oklch(0.984 0.007 95)',
         foreground: 'oklch(0.3 0.013 75)',
         card: 'oklch(0.997 0.003 95)',
         popover: 'oklch(0.998 0.003 95)',
-        secondary: 'oklch(0.964 0.005 90)',
-        muted: 'oklch(0.969 0.005 90)',
-        mutedForeground: 'oklch(0.56 0.011 78)',
-        accent: 'oklch(0.949 0.011 86)',
+        secondary: 'oklch(0.956 0.008 90)',
+        muted: 'oklch(0.963 0.008 90)',
+        mutedForeground: 'oklch(0.514 0.013 78)',
+        accent: 'oklch(0.925 0.022 86)',
         accentForeground: 'oklch(0.28 0.014 75)',
         primary: 'oklch(0.61 0.072 82)',
         primaryForeground: 'oklch(0.99 0.003 95)',
         support: 'oklch(0.6 0.046 150)',
         supportForeground: 'oklch(0.99 0.003 95)',
-        border: 'oklch(0.91 0.006 90)',
+        border: 'oklch(0.882 0.01 90)',
         ring: 'oklch(0.692 0.08 82)',
       },
       dark: {
-        background: 'oklch(0.205 0.009 82)',
+        background: 'oklch(0.188 0.011 78)',
         foreground: 'oklch(0.948 0.005 95)',
-        card: 'oklch(0.242 0.01 82)',
-        popover: 'oklch(0.255 0.01 82)',
-        secondary: 'oklch(0.296 0.012 82)',
-        muted: 'oklch(0.284 0.011 82)',
-        mutedForeground: 'oklch(0.728 0.007 88)',
-        accent: 'oklch(0.322 0.018 82)',
+        card: 'oklch(0.226 0.012 78)',
+        popover: 'oklch(0.239 0.012 78)',
+        secondary: 'oklch(0.281 0.014 80)',
+        muted: 'oklch(0.269 0.013 80)',
+        mutedForeground: 'oklch(0.724 0.008 86)',
+        accent: 'oklch(0.318 0.028 80)',
         accentForeground: 'oklch(0.966 0.004 95)',
         primary: 'oklch(0.762 0.074 82)',
-        primaryForeground: 'oklch(0.192 0.008 82)',
+        primaryForeground: 'oklch(0.176 0.009 80)',
         support: 'oklch(0.712 0.05 150)',
         supportForeground: 'oklch(0.124 0.007 150)',
-        border: 'oklch(0.352 0.012 82)',
-        ring: 'oklch(0.81 0.08 82)',
+        border: 'oklch(0.338 0.015 80)',
+        ring: 'oklch(0.806 0.086 82)',
       },
     },
   },
@@ -642,6 +695,19 @@ function getReadableForeground(hex: string): string {
   return getRelativeLuminance(hex) > 0.45
     ? CUSTOM_ACCENT_DARK_FOREGROUND
     : CUSTOM_ACCENT_LIGHT_FOREGROUND;
+}
+
+function resolveSemanticPresetFamily(preset: ColorPreset): SemanticPresetFamily {
+  return presetDefinitions[normalizeColorPreset(preset)]?.semanticFamily ?? 'cool-console';
+}
+
+function resolveCustomThemeSemanticVariables(
+  customTheme: CustomThemeDocument,
+  mode: ResolvedThemeMode,
+  fallbackPreset: ColorPreset
+): ThemeVariableMap {
+  const semanticPreset = customTheme.sourcePresetId ?? fallbackPreset;
+  return semanticColorVariables[resolveSemanticPresetFamily(semanticPreset)][mode];
 }
 
 function createCustomAccentOverrides(
@@ -714,35 +780,50 @@ function createDerivedColorVariables(
     '--control-border-soft': `color-mix(in oklch, ${border} ${mode === 'dark' ? '84%' : '86%'}, transparent)`,
     '--control-shadow':
       mode === 'dark'
-        ? `0 18px 44px color-mix(in oklch, ${background} 76%, transparent)`
-        : `0 18px 44px color-mix(in oklch, ${foreground} 8%, transparent)`,
+        ? `0 2px 10px color-mix(in oklch, ${background} 68%, transparent)`
+        : `0 2px 10px color-mix(in oklch, ${foreground} 6%, transparent)`,
     '--control-chip-bg': mixToken(accent, background, mode === 'dark' ? '76%' : '78%'),
     '--control-idle': mixToken(mutedForeground, border, mode === 'dark' ? '62%' : '58%'),
     '--control-live': mixToken(success, theme, mode === 'dark' ? '84%' : '82%'),
     '--control-wait': mixToken(warning, theme, mode === 'dark' ? '88%' : '86%'),
     '--control-done': mixToken(info, support, mode === 'dark' ? '64%' : '62%'),
+    '--sidebar': mixToken(background, muted, mode === 'dark' ? '96%' : '97%'),
+    '--sidebar-foreground': foreground,
+    '--sidebar-primary': mixToken(theme, background, mode === 'dark' ? '82%' : '84%'),
+    '--sidebar-primary-foreground': foundation['--primary-foreground'],
+    '--sidebar-accent': mixToken(accent, background, mode === 'dark' ? '84%' : '78%'),
+    '--sidebar-accent-foreground': foreground,
+    '--sidebar-border': `color-mix(in oklch, ${border} ${mode === 'dark' ? '84%' : '82%'}, transparent)`,
+    '--sidebar-ring': foundation['--ring'],
   };
 }
 
 export const APP_COLOR_PRESET_OPTIONS: ColorPresetOption[] = [
   presetDefinitions['graphite-ink'].option,
+  presetDefinitions['graphite-red'].option,
   presetDefinitions['tide-blue'].option,
   presetDefinitions['warm-graphite'].option,
   presetDefinitions['midnight-oled'].option,
-  presetDefinitions['classic-red'].option,
-  presetDefinitions['red-graphite-oled'].option,
   presetDefinitions['soft-parchment'].option,
 ];
 
+export function normalizeColorPreset(preset: ColorPreset): ColorPreset {
+  return RETIRED_COLOR_PRESET_MAP[preset] ?? preset;
+}
+
 export function getColorPresetOption(preset: ColorPreset): ColorPresetOption {
-  return presetDefinitions[preset]?.option ?? presetDefinitions['graphite-ink'].option;
+  return (
+    presetDefinitions[normalizeColorPreset(preset)]?.option ??
+    presetDefinitions['graphite-ink'].option
+  );
 }
 
 export function resolvePresetThemeTokens(
   preset: ColorPreset,
   mode: ResolvedThemeMode
 ): ThemeTokenSet {
-  const presetDefinition = presetDefinitions[preset] ?? presetDefinitions['graphite-ink'];
+  const presetDefinition =
+    presetDefinitions[normalizeColorPreset(preset)] ?? presetDefinitions['graphite-ink'];
   return createThemeTokenSet(
     presetDefinition.palettes[mode],
     semanticColorVariables[presetDefinition.semanticFamily][mode]
@@ -753,19 +834,20 @@ export function createCustomThemeFromPresetDocument(
   preset: ColorPreset,
   name?: string
 ): CustomThemeDocument {
-  const option = getColorPresetOption(preset);
+  const normalizedPreset = normalizeColorPreset(preset);
+  const option = getColorPresetOption(normalizedPreset);
   const now = Date.now();
 
   return {
     id: createThemeId(),
     name: name?.trim() || `${option.label} Copy`,
     sourceType: 'preset',
-    sourcePresetId: preset,
+    sourcePresetId: normalizedPreset,
     createdAt: now,
     updatedAt: now,
     tokens: {
-      light: resolvePresetThemeTokens(preset, 'light'),
-      dark: resolvePresetThemeTokens(preset, 'dark'),
+      light: resolvePresetThemeTokens(normalizedPreset, 'light'),
+      dark: resolvePresetThemeTokens(normalizedPreset, 'dark'),
     },
   };
 }
@@ -807,7 +889,8 @@ export function resolveColorPresetVariables(
   preset: ColorPreset,
   customAccentColor: string
 ): ThemeVariableMap {
-  const presetDefinition = presetDefinitions[preset] ?? presetDefinitions['graphite-ink'];
+  const presetDefinition =
+    presetDefinitions[normalizeColorPreset(preset)] ?? presetDefinitions['graphite-ink'];
   const foundation = createFoundationPalette(presetDefinition.palettes[mode]);
   const semanticVariables = semanticColorVariables[presetDefinition.semanticFamily][mode];
   const accentOverrides = createCustomAccentOverrides(mode, foundation, customAccentColor);
@@ -842,7 +925,7 @@ export function resolveThemeVariables({
   const foundation = createFoundationPalette(
     createFoundationFromThemeTokens(customTheme.tokens[mode])
   );
-  const semanticVariables = createSemanticVariablesFromThemeTokens(customTheme.tokens[mode]);
+  const semanticVariables = resolveCustomThemeSemanticVariables(customTheme, mode, preset);
   const derivedVariables = createDerivedColorVariables(mode, foundation, semanticVariables);
 
   return {

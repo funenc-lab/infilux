@@ -236,6 +236,25 @@ describe('migrateSettings', () => {
     expect(inconsistent.claudeCodeIntegration.enhancedInputAutoPopup).toBe('always');
   });
 
+  it('accepts the graphite red preset as a persisted preset value', () => {
+    const result = migrateSettings(
+      {
+        colorPreset: 'graphite-red',
+        activeThemeSelection: {
+          kind: 'preset',
+          presetId: 'graphite-red',
+        },
+      } as unknown as Partial<SettingsState>,
+      createCurrentState()
+    );
+
+    expect(result.colorPreset).toBe('graphite-red');
+    expect(result.activeThemeSelection).toEqual({
+      kind: 'preset',
+      presetId: 'graphite-red',
+    });
+  });
+
   it('falls back to a supported color preset and sanitizes invalid custom accent values', () => {
     const result = migrateSettings(
       {
@@ -258,6 +277,25 @@ describe('migrateSettings', () => {
     );
 
     expect(result.colorPreset).toBe('warm-graphite');
+  });
+
+  it('retires the old red preset ids into the supported preset set', () => {
+    const result = migrateSettings(
+      {
+        colorPreset: 'classic-red' as never,
+        activeThemeSelection: {
+          kind: 'preset',
+          presetId: 'red-graphite-oled' as never,
+        } as never,
+      },
+      createCurrentState()
+    );
+
+    expect(result.colorPreset).toBe('warm-graphite');
+    expect(result.activeThemeSelection).toEqual({
+      kind: 'preset',
+      presetId: 'midnight-oled',
+    });
   });
 
   it('sanitizes custom themes and repairs invalid custom theme selections', () => {

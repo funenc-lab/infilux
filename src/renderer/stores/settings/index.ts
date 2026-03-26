@@ -4,9 +4,11 @@ import type { CustomAgent, McpServer, PromptPreset } from '@shared/types';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import {
+  APP_THEME_PROTECTED_TOKEN_KEYS,
   createBlankCustomThemeDocument,
   createCustomThemeFromPresetDocument,
   findCustomThemeBySelection,
+  normalizeColorPreset,
   resolveThemeVariables,
   sanitizeCustomAccentColor,
 } from '@/lib/appTheme';
@@ -34,6 +36,7 @@ import {
   defaultXtermKeybindings,
   getDefaultLocale,
   getDefaultShellConfig,
+  getDefaultUIFontFamily,
 } from './defaults';
 import { cleanupLegacyFields, migrateSettings } from './migration';
 import { electronStorage } from './storage';
@@ -51,15 +54,23 @@ import type {
   Theme,
 } from './types';
 
+const protectedThemeTokenKeys = new Set<string>(APP_THEME_PROTECTED_TOKEN_KEYS);
+
 export * from './defaults';
 // Re-export types and defaults for external use
 export * from './types';
 
-// Apply terminal font settings to app CSS variables
-function applyTerminalFont(fontFamily: string, fontSize: number): void {
+// Apply app typography settings to global UI CSS variables
+function applyAppTypography(fontFamily: string, fontSize: number): void {
+  const root = document.documentElement;
+  root.style.setProperty('--font-family-sans', fontFamily);
+  root.style.setProperty('--app-font-size-base', `${fontSize}px`);
+}
+
+// Apply terminal font settings to terminal-specific CSS variables
+function applyTerminalFont(fontFamily: string): void {
   const root = document.documentElement;
   root.style.setProperty('--font-family-mono', fontFamily);
-  root.style.setProperty('--font-size-base', `${fontSize}px`);
 }
 
 function resolveThemeMode(theme: Theme, terminalTheme: string): 'light' | 'dark' {
@@ -109,6 +120,11 @@ function applyAppTheme(
       ? getTerminalThemeAccent(terminalTheme)
       : customAccentColor;
   root.classList.toggle('dark', resolvedMode === 'dark');
+  if ('dataset' in root && root.dataset) {
+    root.dataset.themeMode = resolvedMode;
+    root.dataset.themeSource = theme;
+    root.dataset.themePreset = colorPreset;
+  }
   applyColorPreset(resolvedMode, colorPreset, effectiveAccentColor, customTheme);
 }
 
@@ -119,9 +135,10 @@ function applyInitialSettings(state: {
   customAccentColor: string;
   activeThemeSelection: SettingsState['activeThemeSelection'];
   customThemes: CustomThemeDocument[];
+  fontFamily: string;
+  fontSize: number;
   terminalTheme: string;
   terminalFontFamily: string;
-  terminalFontSize: number;
   language: Locale;
 }): void {
   const activeCustomTheme = findCustomThemeBySelection(
@@ -135,7 +152,8 @@ function applyInitialSettings(state: {
     sanitizeCustomAccentColor(state.customAccentColor),
     activeCustomTheme
   );
-  applyTerminalFont(state.terminalFontFamily, state.terminalFontSize);
+  applyAppTypography(state.fontFamily, state.fontSize);
+  applyTerminalFont(state.terminalFontFamily);
   const resolvedLanguage = normalizeLocale(state.language);
   document.documentElement.lang = resolvedLanguage === 'zh' ? 'zh-CN' : 'en';
   window.electronAPI.app.setLanguage(resolvedLanguage);
@@ -155,7 +173,7 @@ function getInitialState() {
     repositoryListDisplayMode: 'list' as const,
     language: getDefaultLocale(),
     fontSize: 14,
-    fontFamily: 'Inter',
+    fontFamily: getDefaultUIFontFamily(),
 
     // Terminal Settings
     terminalFontSize: 18,
@@ -291,13 +309,14 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       setColorPreset: (colorPreset) => {
+        const normalizedPreset = normalizeColorPreset(colorPreset);
         const { theme, terminalTheme, customAccentColor } = get();
-        applyAppTheme(theme, terminalTheme, colorPreset, customAccentColor, null);
+        applyAppTheme(theme, terminalTheme, normalizedPreset, customAccentColor, null);
         set({
-          colorPreset,
+          colorPreset: normalizedPreset,
           activeThemeSelection: {
             kind: 'preset',
-            presetId: colorPreset,
+            presetId: normalizedPreset,
           },
         });
       },
@@ -311,13 +330,14 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       setActivePresetTheme: (preset) => {
+        const normalizedPreset = normalizeColorPreset(preset);
         const { theme, terminalTheme, customAccentColor } = get();
-        applyAppTheme(theme, terminalTheme, preset, customAccentColor, null);
+        applyAppTheme(theme, terminalTheme, normalizedPreset, customAccentColor, null);
         set({
-          colorPreset: preset,
+          colorPreset: normalizedPreset,
           activeThemeSelection: {
             kind: 'preset',
-            presetId: preset,
+            presetId: normalizedPreset,
           },
         });
       },
@@ -345,7 +365,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       createCustomThemeFromPreset: (preset) => {
-        const nextTheme = createCustomThemeFromPresetDocument(preset);
+        const nextTheme = createCustomThemeFromPresetDocument(normalizeColorPreset(preset));
         const state = get();
         const customThemes = [...state.customThemes, nextTheme];
 
@@ -438,6 +458,14 @@ export const useSettingsStore = create<SettingsState>()(
       updateCustomThemeTokens: (themeId, mode, updates) => {
         const state = get();
         const timestamp = Date.now();
+        const sanitizedUpdates = Object.fromEntries(
+          Object.entries(updates).filter(([key]) => !protectedThemeTokenKeys.has(key))
+        );
+
+        if (Object.keys(sanitizedUpdates).length === 0) {
+          return;
+        }
+
         const customThemes = state.customThemes.map((theme) =>
           theme.id === themeId
             ? {
@@ -447,7 +475,7 @@ export const useSettingsStore = create<SettingsState>()(
                   ...theme.tokens,
                   [mode]: {
                     ...theme.tokens[mode],
-                    ...updates,
+                    ...sanitizedUpdates,
                   },
                 },
               }
@@ -485,17 +513,22 @@ export const useSettingsStore = create<SettingsState>()(
         set({ language });
       },
 
-      setFontSize: (fontSize) => set({ fontSize }),
-      setFontFamily: (fontFamily) => set({ fontFamily }),
+      setFontSize: (fontSize) => {
+        applyAppTypography(get().fontFamily, fontSize);
+        set({ fontSize });
+      },
+      setFontFamily: (fontFamily) => {
+        applyAppTypography(fontFamily, get().fontSize);
+        set({ fontFamily });
+      },
 
       // Terminal Setters
       setTerminalFontSize: (terminalFontSize) => {
-        applyTerminalFont(get().terminalFontFamily, terminalFontSize);
         set({ terminalFontSize });
       },
 
       setTerminalFontFamily: (terminalFontFamily) => {
-        applyTerminalFont(terminalFontFamily, get().terminalFontSize);
+        applyTerminalFont(terminalFontFamily);
         set({ terminalFontFamily });
       },
 

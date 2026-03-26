@@ -445,6 +445,25 @@ export function getDefaultShellConfig(): import('@shared/types').ShellConfig {
 }
 
 /**
+ * Get default UI font family based on platform.
+ * Keep the stack operational and native-feeling before any user override.
+ */
+export function getDefaultUIFontFamily(): string {
+  const executionPlatform = window.electronAPI?.env?.platform;
+
+  switch (executionPlatform) {
+    case 'darwin':
+      return '"SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif';
+    case 'win32':
+      return '"Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
+    case 'linux':
+      return '"Noto Sans CJK SC", "Noto Sans", "Ubuntu", "Liberation Sans", system-ui, sans-serif';
+    default:
+      return '"Aptos", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans", system-ui, sans-serif';
+  }
+}
+
+/**
  * Default Git clone settings
  */
 export const defaultGitCloneSettings: GitCloneSettings = {
