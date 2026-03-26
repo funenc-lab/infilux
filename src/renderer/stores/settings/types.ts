@@ -14,6 +14,63 @@ import type {
 
 // Theme types
 export type Theme = 'light' | 'dark' | 'system' | 'sync-terminal';
+export type ColorPreset =
+  | 'classic-red'
+  | 'red-graphite-oled'
+  | 'graphite-ink'
+  | 'tide-blue'
+  | 'warm-graphite'
+  | 'soft-parchment'
+  | 'midnight-oled';
+
+export type ThemeSelectionKind = 'preset' | 'custom';
+export type CustomThemeSourceType = 'preset' | 'blank';
+
+export interface ThemeTokenSet {
+  background: string;
+  foreground: string;
+  card: string;
+  popover: string;
+  secondary: string;
+  muted: string;
+  mutedForeground: string;
+  accent: string;
+  accentForeground: string;
+  primary: string;
+  primaryForeground: string;
+  support: string;
+  supportForeground: string;
+  border: string;
+  input: string;
+  ring: string;
+  success: string;
+  warning: string;
+  info: string;
+  destructive: string;
+}
+
+export interface CustomThemeDocument {
+  id: string;
+  name: string;
+  sourceType: CustomThemeSourceType;
+  sourcePresetId?: ColorPreset;
+  createdAt: number;
+  updatedAt: number;
+  tokens: {
+    light: ThemeTokenSet;
+    dark: ThemeTokenSet;
+  };
+}
+
+export type ThemeSelection =
+  | {
+      kind: 'preset';
+      presetId: ColorPreset;
+    }
+  | {
+      kind: 'custom';
+      customThemeId: string;
+    };
 
 export type LayoutMode = 'columns' | 'tree';
 
@@ -303,6 +360,10 @@ export interface GitCloneSettings {
 export interface SettingsState {
   // UI Settings
   theme: Theme;
+  colorPreset: ColorPreset;
+  customAccentColor: string;
+  activeThemeSelection: ThemeSelection;
+  customThemes: CustomThemeDocument[];
   layoutMode: LayoutMode;
   fileTreeDisplayMode: FileTreeDisplayMode;
   repositoryListDisplayMode: RepositoryListDisplayMode;
@@ -417,6 +478,19 @@ export interface SettingsState {
 
   // Setters - UI
   setTheme: (theme: Theme) => void;
+  setColorPreset: (preset: ColorPreset) => void;
+  setCustomAccentColor: (color: string) => void;
+  setActivePresetTheme: (preset: ColorPreset) => void;
+  setActiveCustomTheme: (themeId: string) => void;
+  createCustomThemeFromPreset: (preset: ColorPreset) => string;
+  createBlankCustomTheme: () => string;
+  renameCustomTheme: (themeId: string, name: string) => void;
+  deleteCustomTheme: (themeId: string) => void;
+  updateCustomThemeTokens: (
+    themeId: string,
+    mode: 'light' | 'dark',
+    updates: Partial<ThemeTokenSet>
+  ) => void;
   setLayoutMode: (mode: LayoutMode) => void;
   setFileTreeDisplayMode: (mode: FileTreeDisplayMode) => void;
   setRepositoryListDisplayMode: (mode: RepositoryListDisplayMode) => void;
