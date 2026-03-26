@@ -15,6 +15,7 @@ const settingsTestDoubles = vi.hoisted(() => {
     writeSharedSettings: vi.fn(),
     writeSharedSettingsToSession: vi.fn(),
     toggleClaudeProviderWatcher: vi.fn(),
+    existsSync: vi.fn(),
     readFileSync: vi.fn(),
   };
 });
@@ -35,6 +36,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('node:fs', () => ({
+  existsSync: settingsTestDoubles.existsSync,
   readFileSync: settingsTestDoubles.readFileSync,
 }));
 
@@ -60,6 +62,7 @@ describe('main settings handlers', () => {
     settingsTestDoubles.writeSharedSettings.mockReset();
     settingsTestDoubles.writeSharedSettingsToSession.mockReset();
     settingsTestDoubles.toggleClaudeProviderWatcher.mockReset();
+    settingsTestDoubles.existsSync.mockReset();
     settingsTestDoubles.readFileSync.mockReset();
   });
 
@@ -243,6 +246,83 @@ describe('main settings handlers', () => {
       truncated: false,
       error: 'Failed to read the selected settings file.',
     });
+  });
+
+  it('auto-detects a legacy settings file from typical locations and previews it', async () => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = '/Users/tester';
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'system',
+        },
+      },
+    });
+    settingsTestDoubles.existsSync.mockImplementation(
+      (candidatePath: string) => candidatePath === '/Users/tester/.ensoai/settings.json'
+    );
+    settingsTestDoubles.readFileSync.mockReturnValue(
+      JSON.stringify({
+        'enso-settings': {
+          state: {
+            theme: 'dark',
+          },
+        },
+      })
+    );
+
+    try {
+      const { registerSettingsHandlers } = await import('../settings');
+      registerSettingsHandlers();
+
+      const previewHandler = settingsTestDoubles.handlers.get(
+        IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW
+      );
+
+      expect(await previewHandler?.({})).toEqual({
+        sourcePath: '/Users/tester/.ensoai/settings.json',
+        importable: true,
+        diffCount: 1,
+        diffs: [
+          {
+            path: 'theme',
+            currentValue: '"system"',
+            importedValue: '"dark"',
+          },
+        ],
+        truncated: false,
+        error: undefined,
+      });
+    } finally {
+      process.env.HOME = previousHome;
+    }
+  });
+
+  it('reports a clear error when automatic legacy settings discovery finds nothing', async () => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = '/Users/tester';
+    settingsTestDoubles.existsSync.mockReturnValue(false);
+
+    try {
+      const { registerSettingsHandlers } = await import('../settings');
+      registerSettingsHandlers();
+
+      const previewHandler = settingsTestDoubles.handlers.get(
+        IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW
+      );
+
+      expect(await previewHandler?.({})).toEqual({
+        sourcePath: '',
+        importable: false,
+        diffCount: 0,
+        diffs: [],
+        truncated: false,
+        error: 'No EnsoAI settings file was found in the typical legacy locations.',
+      });
+      expect(settingsTestDoubles.readFileSync).not.toHaveBeenCalled();
+    } finally {
+      process.env.HOME = previousHome;
+    }
   });
 
   it('applies an imported EnsoAI settings file immediately and toggles the provider watcher when the imported value changes', async () => {

@@ -9,6 +9,7 @@ import {
 import {
   buildLegacySettingsImportPayload,
   buildLegacySettingsImportPreview,
+  findLegacySettingsImportSourcePath,
 } from '../services/settings/legacyImport';
 import { toggleClaudeProviderWatcher } from './claudeProvider';
 
@@ -19,6 +20,9 @@ let isDirty = false;
 
 const DEBOUNCE_MS = 500;
 const MAX_WAIT_MS = 5000;
+const LEGACY_IMPORT_READ_ERROR = 'Failed to read the selected settings file.';
+const LEGACY_IMPORT_AUTO_DISCOVERY_ERROR =
+  'No EnsoAI settings file was found in the typical legacy locations.';
 
 export function readSettings(): Record<string, unknown> | null {
   if (cachedSettings !== null) {
@@ -123,6 +127,23 @@ function parseSettingsFile(sourcePath: string): unknown {
   return JSON.parse(readFileSync(sourcePath, 'utf-8')) as unknown;
 }
 
+function previewLegacyImportFromPath(sourcePath: string) {
+  try {
+    const currentData = readSettings();
+    const importedData = parseSettingsFile(sourcePath);
+    return buildLegacySettingsImportPreview(currentData, importedData, sourcePath);
+  } catch {
+    return {
+      sourcePath,
+      importable: false,
+      diffCount: 0,
+      diffs: [],
+      truncated: false,
+      error: LEGACY_IMPORT_READ_ERROR,
+    };
+  }
+}
+
 export function registerSettingsHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SETTINGS_READ, async () => {
     return readSettings();
@@ -169,21 +190,27 @@ export function registerSettingsHandlers(): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_PREVIEW, async (_, sourcePath: string) => {
-    try {
-      const currentData = readSettings();
-      const importedData = parseSettingsFile(sourcePath);
-      return buildLegacySettingsImportPreview(currentData, importedData, sourcePath);
-    } catch {
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW, async () => {
+    const sourcePath = findLegacySettingsImportSourcePath({
+      env: process.env,
+    });
+
+    if (!sourcePath) {
       return {
-        sourcePath,
+        sourcePath: '',
         importable: false,
         diffCount: 0,
         diffs: [],
         truncated: false,
-        error: 'Failed to read the selected settings file.',
+        error: LEGACY_IMPORT_AUTO_DISCOVERY_ERROR,
       };
     }
+
+    return previewLegacyImportFromPath(sourcePath);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_PREVIEW, async (_, sourcePath: string) => {
+    return previewLegacyImportFromPath(sourcePath);
   });
 
   ipcMain.handle(IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_APPLY, async (_, sourcePath: string) => {
@@ -228,7 +255,7 @@ export function registerSettingsHandlers(): void {
         imported: false,
         sourcePath,
         diffCount: 0,
-        error: 'Failed to read the selected settings file.',
+        error: LEGACY_IMPORT_READ_ERROR,
       };
     }
   });
