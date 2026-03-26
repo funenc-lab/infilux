@@ -1,3 +1,4 @@
+import type { PersistentAgentSessionRecord } from '@shared/types';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { normalizePath, pathsEqual } from '@/App/storage';
@@ -39,9 +40,8 @@ export interface AggregatedOutputState {
   unread: number;
 }
 
-// Check if an agent command supports session persistence
-function isResumableAgent(agentCommand: string): boolean {
-  return agentCommand?.startsWith('claude') ?? false;
+function isPersistableSession(session: Session): boolean {
+  return Boolean(session.activated);
 }
 
 // Group states indexed by normalized worktree path
@@ -62,6 +62,7 @@ interface AgentSessionsState {
   reorderSessions: (repoPath: string, cwd: string, fromIndex: number, toIndex: number) => void;
   getSessions: (repoPath: string, cwd: string) => Session[];
   getActiveSessionId: (repoPath: string, cwd: string) => string | null;
+  upsertRecoveredSession: (record: PersistentAgentSessionRecord) => void;
 
   // Group state actions
   getGroupState: (cwd: string) => AgentGroupState;
@@ -112,9 +113,7 @@ function saveToStorage(sessions: Session[], activeIds: Record<string, string | n
   // Only persist sessions that are:
   // 1. Using agents that support resumption (e.g., claude)
   // 2. Activated (user has pressed Enter at least once)
-  const persistableSessions = sessions.filter(
-    (s) => isResumableAgent(s.agentCommand) && s.activated
-  );
+  const persistableSessions = sessions.filter((session) => isPersistableSession(session));
   const persistableIds = new Set(persistableSessions.map((s) => s.id));
   // Only keep activeIds that reference persistable sessions
   const persistableActiveIds: Record<string, string | null> = {};
@@ -303,6 +302,45 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
       );
       return firstSession?.id || null;
     },
+
+    upsertRecoveredSession: (record) =>
+      set((state) => {
+        const existing = state.sessions.find((session) => session.id === record.uiSessionId);
+        const recoveredSession: Session = {
+          id: record.uiSessionId,
+          sessionId: record.providerSessionId ?? record.uiSessionId,
+          backendSessionId: record.backendSessionId,
+          name: record.displayName,
+          agentId: record.agentId,
+          agentCommand: record.agentCommand,
+          customPath: record.customPath,
+          customArgs: record.customArgs,
+          initialized: record.initialized,
+          activated: record.activated,
+          repoPath: record.repoPath,
+          cwd: record.cwd,
+          environment: record.environment,
+          displayOrder: existing?.displayOrder,
+          terminalTitle: existing?.terminalTitle,
+          userRenamed: existing?.userRenamed,
+          pendingCommand: existing?.pendingCommand,
+          recovered: true,
+          recoveryState: record.lastKnownState,
+        };
+
+        const sessions = existing
+          ? state.sessions.map((session) =>
+              session.id === record.uiSessionId ? { ...session, ...recoveredSession } : session
+            )
+          : [...state.sessions, recoveredSession];
+
+        const activeKey = normalizePath(record.cwd);
+        const activeIds = state.activeIds[activeKey]
+          ? state.activeIds
+          : { ...state.activeIds, [activeKey]: record.uiSessionId };
+
+        return { sessions, activeIds };
+      }),
 
     // Group state actions
     getGroupState: (cwd) => {

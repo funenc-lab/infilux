@@ -33,6 +33,35 @@ interface TempWorkspaceState {
 
 let rehydratePromise: Promise<void> | null = null;
 
+function getErrorCode(err: unknown): string | null {
+  if (err && typeof err === 'object' && 'code' in err) {
+    return String((err as { code?: string }).code || '');
+  }
+  return null;
+}
+
+async function fallbackRehydrateItems(items: TempWorkspaceItem[]): Promise<TempWorkspaceItem[]> {
+  const results = await Promise.allSettled(
+    items.map((item) => window.electronAPI.file.list(item.path))
+  );
+  return items.filter((_item, index) => {
+    const result = results[index];
+    if (result.status === 'fulfilled') {
+      return true;
+    }
+    const code = getErrorCode(result.reason);
+    return code !== 'ENOENT' && code !== 'ENOTDIR';
+  });
+}
+
+async function rehydrateItems(items: TempWorkspaceItem[]): Promise<TempWorkspaceItem[]> {
+  const tempWorkspaceApi = window.electronAPI.tempWorkspace;
+  if (tempWorkspaceApi?.rehydrate) {
+    return tempWorkspaceApi.rehydrate(items);
+  }
+  return fallbackRehydrateItems(items);
+}
+
 export const useTempWorkspaceStore = create<TempWorkspaceState>((set, get) => ({
   items: loadFromStorage(),
   renameTargetId: null,
@@ -69,7 +98,7 @@ export const useTempWorkspaceStore = create<TempWorkspaceState>((set, get) => ({
     }
     rehydratePromise = (async () => {
       const items = loadFromStorage();
-      const hydratedItems = await window.electronAPI.tempWorkspace.rehydrate(items);
+      const hydratedItems = await rehydrateItems(items);
       saveToStorage(hydratedItems);
       set({ items: hydratedItems });
     })();
