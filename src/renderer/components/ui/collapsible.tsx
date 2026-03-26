@@ -24,22 +24,17 @@ function CollapsiblePanel({ className, children, ...props }: CollapsiblePrimitiv
       className={(state) =>
         cn(
           'h-(--collapsible-panel-height) overflow-hidden data-ending-style:h-0 data-starting-style:h-0',
+          'motion-reduce:[&>div]:transition-none',
+          '[&>div]:transition-[opacity,translate] [&>div]:duration-200 [&>div]:ease-out',
+          '[&[data-ending-style]>div]:translate-y-1 [&[data-ending-style]>div]:opacity-0',
+          '[&[data-starting-style]>div]:translate-y-1 [&[data-starting-style]>div]:opacity-0',
           typeof className === 'function' ? className(state) : className
         )
       }
       data-slot="collapsible-panel"
       {...props}
     >
-      <div
-        className={cn(
-          'motion-reduce:transition-none',
-          'transition-[opacity,translate] duration-200 ease-out',
-          '[.data-ending-style_&]:translate-y-1 [.data-ending-style_&]:opacity-0',
-          '[.data-starting-style_&]:translate-y-1 [.data-starting-style_&]:opacity-0'
-        )}
-      >
-        {children}
-      </div>
+      <div>{children}</div>
     </CollapsiblePrimitive.Panel>
   );
 }
