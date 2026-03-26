@@ -1010,7 +1010,6 @@ export function TreeSidebar({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag">
           <div className="control-sidebar-heading-copy">
-            <span className="control-sidebar-title">{t('Projects')}</span>
             <span className="control-sidebar-subtitle">
               {activeGroup?.name ?? t('Workspace overview')}
             </span>
