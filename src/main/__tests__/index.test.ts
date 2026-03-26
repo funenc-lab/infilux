@@ -40,6 +40,11 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const getPath = vi.fn((name: string) => pathValues.get(name) ?? `/mock/${name}`);
   const getName = vi.fn(() => 'Infilux');
   const setDockIcon = vi.fn();
+  const nativeThemeOn = vi.fn((event: string, listener: Listener) => {
+    const listeners = appListeners.get(`nativeTheme:${event}`) ?? [];
+    listeners.push(listener);
+    appListeners.set(`nativeTheme:${event}`, listeners);
+  });
   const quit = vi.fn();
   const exit = vi.fn();
   const appendSwitch = vi.fn();
@@ -106,12 +111,16 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       version: number;
       updatedAt?: number;
       settingsData?: unknown;
+      localStorage?: unknown;
       todos?: unknown;
     }
   >(() => ({ version: 1 }));
   const readSharedSettings = vi.fn(() => ({}));
   const writeSharedSessionState = vi.fn();
   const writeSharedSettings = vi.fn();
+  const readElectronLocalStorageSnapshotFromLevelDbDirs = vi.fn<
+    () => Record<string, string> | null
+  >(() => null);
   const readPersistentAgentSessions = vi.fn(() => []);
   const todoInitialize = vi.fn(async () => undefined);
   const todoExportAllTasks = vi.fn(async () => [{ id: 'board-1' }]);
@@ -124,6 +133,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const trayRefreshMenu = vi.fn();
   const trayDestroy = vi.fn();
   const trayIsInitialized = vi.fn(() => false);
+  let nativeThemeShouldUseDarkColors = true;
   const sqliteDatabaseConfigure = vi.fn();
   const sqliteDatabaseExec = vi.fn((sql: string, callback?: (err: Error | null) => void) => {
     void sql;
@@ -255,6 +265,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       getPath,
       getName,
       setDockIcon,
+      nativeThemeOn,
       quit,
       exit,
       appendSwitch,
@@ -298,6 +309,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       readSharedSettings,
       writeSharedSessionState,
       writeSharedSettings,
+      readElectronLocalStorageSnapshotFromLevelDbDirs,
       readPersistentAgentSessions,
       todoInitialize,
       todoExportAllTasks,
@@ -324,6 +336,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
 
     getPath.mockImplementation((name: string) => pathValues.get(name) ?? `/mock/${name}`);
     getName.mockReturnValue('Infilux');
+    nativeThemeShouldUseDarkColors = true;
     requestSingleInstanceLock.mockReturnValue(true);
     isReady.mockImplementation(() => ready);
     whenReady.mockImplementation(() => readyPromise);
@@ -356,6 +369,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     isLegacyTodoMigrated.mockReturnValue(true);
     readSharedSessionState.mockReturnValue({ version: 1 });
     readSharedSettings.mockReturnValue({});
+    readElectronLocalStorageSnapshotFromLevelDbDirs.mockReturnValue(null);
     readPersistentAgentSessions.mockReturnValue([]);
     todoInitialize.mockResolvedValue(undefined);
     todoExportAllTasks.mockResolvedValue([{ id: 'board-1' }]);
@@ -393,6 +407,12 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   async function emitApp(event: string, ...args: unknown[]) {
     for (const listener of appListeners.get(event) ?? []) {
       await listener(...args);
+    }
+  }
+
+  async function emitNativeTheme(event: string) {
+    for (const listener of appListeners.get(`nativeTheme:${event}`) ?? []) {
+      await listener();
     }
   }
 
@@ -441,6 +461,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     getPath,
     getName,
     setDockIcon,
+    nativeThemeOn,
     quit,
     exit,
     appendSwitch,
@@ -484,6 +505,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     readSharedSettings,
     writeSharedSessionState,
     writeSharedSettings,
+    readElectronLocalStorageSnapshotFromLevelDbDirs,
     readPersistentAgentSessions,
     todoInitialize,
     todoExportAllTasks,
@@ -512,6 +534,11 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     setNextOpenWindow,
     resolveWhenReady,
     emitApp,
+    emitNativeTheme,
+    getNativeThemeShouldUseDarkColors: () => nativeThemeShouldUseDarkColors,
+    setNativeThemeShouldUseDarkColors: (value: boolean) => {
+      nativeThemeShouldUseDarkColors = value;
+    },
     invokeProtocol,
   };
 });
@@ -562,6 +589,12 @@ vi.mock('electron', () => ({
     },
   },
   BrowserWindow: mainIndexTestDoubles.BrowserWindowMock,
+  nativeTheme: {
+    on: mainIndexTestDoubles.nativeThemeOn,
+    get shouldUseDarkColors() {
+      return mainIndexTestDoubles.getNativeThemeShouldUseDarkColors();
+    },
+  },
   ipcMain: {
     handle: mainIndexTestDoubles.ipcHandle,
   },
@@ -643,6 +676,14 @@ vi.mock('../services/SharedSessionState', () => ({
   readPersistentAgentSessions: mainIndexTestDoubles.readPersistentAgentSessions,
   writeSharedSessionState: mainIndexTestDoubles.writeSharedSessionState,
   writeSharedSettings: mainIndexTestDoubles.writeSharedSettings,
+}));
+
+vi.mock('../services/settings/legacyImport', () => ({
+  findLegacySettingsImportSourcePath: vi.fn(() => null),
+  readElectronLocalStorageSnapshotFromLevelDbDirs:
+    mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs,
+  readLegacyElectronLocalStorageSnapshot: vi.fn(() => null),
+  readLegacyImportLocalStorageSnapshot: vi.fn(() => null),
 }));
 
 vi.mock('../services/todo/TodoService', () => ({
@@ -955,6 +996,42 @@ describe('main entry', () => {
     expect(mainIndexTestDoubles.markLegacyTodoMigrated).toHaveBeenCalledTimes(1);
   });
 
+  it('recovers shared localStorage from the current profile leveldb when shared repos are missing', async () => {
+    mainIndexTestDoubles.readSharedSessionState.mockReturnValue({
+      version: 2,
+      updatedAt: 1,
+      localStorage: {
+        'enso-worktree-tabs': '{}',
+      },
+    });
+    mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs.mockReturnValue({
+      'enso-repositories':
+        '[{"id":"local:/repo/demo","name":"demo","path":"/repo/demo","kind":"local"}]',
+      'enso-selected-repo': '/repo/demo',
+      'enso-worktree-tabs': '{"/repo/demo":"chat"}',
+    });
+
+    const { __testables } = await importMainModule({
+      platform: 'darwin',
+    });
+
+    __testables.recoverSharedLocalStorageFromCurrentProfileIfNeeded();
+
+    expect(
+      mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs
+    ).toHaveBeenCalledWith(['/mock/appData/Infilux-dev/Local Storage/leveldb']);
+    expect(mainIndexTestDoubles.writeSharedSessionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        localStorage: {
+          'enso-repositories':
+            '[{"id":"local:/repo/demo","name":"demo","path":"/repo/demo","kind":"local"}]',
+          'enso-selected-repo': '/repo/demo',
+          'enso-worktree-tabs': '{}',
+        },
+      })
+    );
+  });
+
   it('marks missing legacy files, warns on migration failures, and initializes AppImage auto updates', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     process.env.APPIMAGE = '/tmp/Infilux.AppImage';
@@ -1182,6 +1259,50 @@ describe('main entry', () => {
 
     trayOptions?.onQuit();
     expect(mainIndexTestDoubles.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the light mac dock icon when the system appearance is light', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    mainIndexTestDoubles.setNativeThemeShouldUseDarkColors(false);
+    mainIndexTestDoubles.existsSync.mockImplementation(
+      (target: string) => target === join(process.cwd(), 'build', 'icon-mac-light.png')
+    );
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'darwin',
+    });
+
+    expect(mainIndexTestDoubles.setDockIcon).toHaveBeenCalledWith(
+      join(process.cwd(), 'build', 'icon-mac-light.png')
+    );
+  });
+
+  it('refreshes the mac dock icon when the system appearance changes', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    mainIndexTestDoubles.existsSync.mockImplementation(
+      (target: string) =>
+        target === join(process.cwd(), 'build', 'icon-mac.png') ||
+        target === join(process.cwd(), 'build', 'icon-mac-light.png')
+    );
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'darwin',
+    });
+
+    expect(mainIndexTestDoubles.setDockIcon).toHaveBeenLastCalledWith(
+      join(process.cwd(), 'build', 'icon-mac.png')
+    );
+
+    mainIndexTestDoubles.setNativeThemeShouldUseDarkColors(false);
+    await mainIndexTestDoubles.emitNativeTheme('updated');
+
+    expect(mainIndexTestDoubles.setDockIcon).toHaveBeenLastCalledWith(
+      join(process.cwd(), 'build', 'icon-mac-light.png')
+    );
   });
 
   it('initializes the tray on Windows and keeps the app alive when windows close', async () => {

@@ -339,18 +339,31 @@ describe('main settings handlers', () => {
         keep: true,
       },
     });
-    settingsTestDoubles.readFileSync.mockReturnValue(
-      JSON.stringify({
-        'enso-settings': {
-          state: {
-            claudeCodeIntegration: {
-              enableProviderWatcher: false,
+    settingsTestDoubles.readFileSync.mockImplementation((target: string) => {
+      if (target === '/Volumes/OldMac/.ensoai/settings.json') {
+        return JSON.stringify({
+          'enso-settings': {
+            state: {
+              claudeCodeIntegration: {
+                enableProviderWatcher: false,
+              },
+              theme: 'dark',
             },
-            theme: 'dark',
           },
-        },
-      })
-    );
+        });
+      }
+
+      if (target === '/Volumes/OldMac/.ensoai/session-state.json') {
+        return JSON.stringify({
+          localStorage: {
+            'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+            'enso-selected-repo': '/repo/demo',
+          },
+        });
+      }
+
+      throw new Error(`Unexpected read path: ${target}`);
+    });
 
     const { registerSettingsHandlers } = await import('../settings');
     registerSettingsHandlers();
@@ -365,6 +378,10 @@ describe('main settings handlers', () => {
       imported: true,
       sourcePath: '/Volumes/OldMac/.ensoai/settings.json',
       diffCount: 2,
+      legacyLocalStorageSnapshot: {
+        'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+        'enso-selected-repo': '/repo/demo',
+      },
     });
     expect(settingsTestDoubles.toggleClaudeProviderWatcher).toHaveBeenCalledWith(false);
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledWith({

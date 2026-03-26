@@ -4,6 +4,9 @@ import {
   buildLegacySettingsImportPreview,
   findLegacySettingsImportSourcePath,
   getLegacySettingsImportCandidatePaths,
+  readElectronLocalStorageSnapshotFromLevelDbDirs,
+  readLegacyElectronLocalStorageSnapshot,
+  readLegacyImportLocalStorageSnapshot,
 } from '../legacyImport';
 
 describe('legacySettingsImport', () => {
@@ -150,5 +153,137 @@ describe('legacySettingsImport', () => {
     });
 
     expect(sourcePath).toBeNull();
+  });
+
+  it('reads the sibling legacy session-state localStorage snapshot for sidebar migration', () => {
+    const snapshot = readLegacyImportLocalStorageSnapshot(
+      '/Volumes/OldMac/.ensoai/settings.json',
+      (candidatePath) => {
+        expect(candidatePath).toBe('/Volumes/OldMac/.ensoai/session-state.json');
+        return JSON.stringify({
+          localStorage: {
+            'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+            'enso-selected-repo': '/repo/demo',
+            ignored: 7,
+          },
+        });
+      }
+    );
+
+    expect(snapshot).toEqual({
+      'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+      'enso-selected-repo': '/repo/demo',
+    });
+  });
+
+  it('falls back to legacy Electron localStorage leveldb when session-state does not contain repositories', () => {
+    const snapshot = readLegacyElectronLocalStorageSnapshot('/Users/tester/.ensoai/settings.json', {
+      listDirectories: (targetPath) => {
+        if (targetPath === '/Users/tester/Library/Application Support') {
+          return ['enso-ai', 'infilux'];
+        }
+        if (
+          targetPath === '/Users/tester/Library/Application Support/enso-ai/Local Storage/leveldb'
+        ) {
+          return ['000003.log'];
+        }
+        return [];
+      },
+      readBinaryFile: (targetPath) => {
+        expect(targetPath).toBe(
+          '/Users/tester/Library/Application Support/enso-ai/Local Storage/leveldb/000003.log'
+        );
+        return Buffer.from(
+          [
+            'META:file://',
+            '_file://',
+            'enso-repositories',
+            '[{"id":"local:/repo/demo","name":"demo","path":"/repo/demo","kind":"local"}]',
+            '_file://',
+            'enso-selected-repo',
+            '/repo/demo',
+            '_file://',
+            'enso-worktree-tabs',
+            '{"/repo/demo":"chat"}',
+          ].join('\x01'),
+          'utf8'
+        );
+      },
+    });
+
+    expect(snapshot).toEqual({
+      'enso-repositories':
+        '[{"id":"local:/repo/demo","name":"demo","path":"/repo/demo","kind":"local"}]',
+      'enso-selected-repo': '/repo/demo',
+      'enso-worktree-tabs': '{"/repo/demo":"chat"}',
+    });
+  });
+
+  it('derives a minimal repository list from selected repo and worktree tabs when legacy leveldb has no explicit repository key', () => {
+    const snapshot = readLegacyElectronLocalStorageSnapshot('/Users/tester/.ensoai/settings.json', {
+      listDirectories: (targetPath) => {
+        if (targetPath === '/Users/tester/Library/Application Support') {
+          return ['enso-ai'];
+        }
+        if (
+          targetPath === '/Users/tester/Library/Application Support/enso-ai/Local Storage/leveldb'
+        ) {
+          return ['000003.log'];
+        }
+        return [];
+      },
+      readBinaryFile: () =>
+        Buffer.from(
+          [
+            'META:file://',
+            '_file://',
+            'enso-selected-repo',
+            '/repo/demo',
+            '_file://',
+            'enso-worktree-tabs',
+            '{"/repo/demo":"chat","/repo/demo/.worktrees/feature":"terminal","/Users/tester/ensoai/temporary/tmp":"chat"}',
+          ].join('\x01'),
+          'utf8'
+        ),
+    });
+
+    expect(snapshot).toEqual({
+      'enso-selected-repo': '/repo/demo',
+      'enso-worktree-tabs':
+        '{"/repo/demo":"chat","/repo/demo/.worktrees/feature":"terminal","/Users/tester/ensoai/temporary/tmp":"chat"}',
+      'enso-repositories': '[{"name":"demo","path":"/repo/demo","kind":"local"}]',
+    });
+  });
+
+  it('reads a repository snapshot directly from the current app leveldb directory', () => {
+    const snapshot = readElectronLocalStorageSnapshotFromLevelDbDirs(['/tmp/infilux-dev/leveldb'], {
+      listDirectories: (targetPath) => {
+        if (targetPath === '/tmp/infilux-dev/leveldb') {
+          return ['000004.log'];
+        }
+        return [];
+      },
+      readBinaryFile: (targetPath) => {
+        expect(targetPath).toBe('/tmp/infilux-dev/leveldb/000004.log');
+        return Buffer.from(
+          [
+            'META:http://localhost:5173',
+            '_http://localhost:5173',
+            'enso-repositories',
+            '[{"id":"local:/repo/demo","name":"demo","path":"/repo/demo","kind":"local"}]',
+            '_http://localhost:5173',
+            'enso-selected-repo',
+            '/repo/demo',
+          ].join('\x01'),
+          'utf8'
+        );
+      },
+    });
+
+    expect(snapshot).toEqual({
+      'enso-repositories':
+        '[{"id":"local:/repo/demo","name":"demo","path":"/repo/demo","kind":"local"}]',
+      'enso-selected-repo': '/repo/demo',
+    });
   });
 });

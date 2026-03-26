@@ -4,6 +4,10 @@ import { ALL_GROUP_ID, DEFAULT_GROUP_COLOR, DEFAULT_TAB_ORDER } from '../constan
 function createLocalStorageMock(initial?: Record<string, string>) {
   const data = new Map(Object.entries(initial ?? {}));
   return {
+    get length() {
+      return data.size;
+    },
+    key: vi.fn((index: number) => [...data.keys()][index] ?? null),
     getItem: vi.fn((key: string) => data.get(key) ?? null),
     setItem: vi.fn((key: string, value: string) => {
       data.set(key, value);
@@ -340,6 +344,114 @@ describe('storage helpers', () => {
     expect(() =>
       env.saveFileTreeExpandedPaths('/Repo/Root', new Set(['/repo/root/ignored']))
     ).not.toThrow();
+  });
+
+  it('imports the legacy sidebar-related localStorage snapshot with an allowlist', async () => {
+    const env = await loadStorageModule({
+      initialStorage: {
+        'custom-unrelated': 'keep-me',
+      },
+    });
+
+    const appliedKeys = env.applyImportedLegacyLocalStorageSnapshot({
+      [envKey('REPOSITORIES')]:
+        '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo","kind":"local"}]',
+      [envKey('SELECTED_REPO')]: '/repo/demo',
+      [`${envKey('FILE_TREE_EXPANDED_PREFIX')}:/repo/demo`]: '["/repo/demo/src"]',
+      'custom-unrelated': 'ignore-me',
+    });
+
+    expect(appliedKeys).toEqual([
+      env.STORAGE_KEYS.REPOSITORIES,
+      env.STORAGE_KEYS.SELECTED_REPO,
+      `${env.STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX}:/repo/demo`,
+    ]);
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      env.STORAGE_KEYS.REPOSITORIES,
+      '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo","kind":"local"}]'
+    );
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      env.STORAGE_KEYS.SELECTED_REPO,
+      '/repo/demo'
+    );
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      `${env.STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX}:/repo/demo`,
+      '["/repo/demo/src"]'
+    );
+    expect(env.localStorageMock.setItem).not.toHaveBeenCalledWith('custom-unrelated', 'ignore-me');
+  });
+
+  it('builds and compares managed localStorage snapshots consistently', async () => {
+    const env = await loadStorageModule({
+      initialStorage: {
+        [envKey('REPOSITORIES')]:
+          '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo","kind":"local"}]',
+        [envKey('SELECTED_REPO')]: '/repo/demo',
+        [`${envKey('FILE_TREE_EXPANDED_PREFIX')}:/repo/demo`]: '["/repo/demo/src"]',
+        'custom-unrelated': 'ignore-me',
+      },
+    });
+
+    expect(env.getManagedLocalStorageSnapshot()).toEqual({
+      [env.STORAGE_KEYS.REPOSITORIES]:
+        '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo","kind":"local"}]',
+      [env.STORAGE_KEYS.SELECTED_REPO]: '/repo/demo',
+      [`${env.STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX}:/repo/demo`]: '["/repo/demo/src"]',
+    });
+
+    expect(
+      env.hasManagedLocalStorageDifferences(
+        {
+          [env.STORAGE_KEYS.REPOSITORIES]: '[{"path":"/repo/demo"}]',
+        },
+        {
+          [env.STORAGE_KEYS.REPOSITORIES]: '[{"path":"/repo/next"}]',
+        }
+      )
+    ).toBe(true);
+    expect(
+      env.hasManagedLocalStorageDifferences(
+        {
+          [env.STORAGE_KEYS.REPOSITORIES]: '[{"path":"/repo/demo"}]',
+          'custom-unrelated': 'ignore-me',
+        },
+        {
+          [env.STORAGE_KEYS.REPOSITORIES]: '[{"path":"/repo/demo"}]',
+        }
+      )
+    ).toBe(false);
+    expect(
+      env.hasManagedRepositoryState({
+        [env.STORAGE_KEYS.WORKTREE_TABS]: '{}',
+      })
+    ).toBe(false);
+    expect(
+      env.hasManagedRepositoryState({
+        [env.STORAGE_KEYS.REPOSITORIES]: '[{"path":"/repo/demo"}]',
+      })
+    ).toBe(true);
+    expect(
+      env.shouldHydrateManagedLocalStorageFromSharedSnapshot({
+        currentSnapshot: {
+          [env.STORAGE_KEYS.WORKTREE_TABS]: '{}',
+        },
+        sharedSnapshot: {
+          [env.STORAGE_KEYS.REPOSITORIES]: '[{"path":"/repo/demo"}]',
+          [env.STORAGE_KEYS.SELECTED_REPO]: '/repo/demo',
+        },
+        legacyLocalStorageMigrated: false,
+      })
+    ).toBe(true);
+    expect(
+      env.shouldSyncManagedLocalStorageToSharedSession({
+        currentSnapshot: {
+          [env.STORAGE_KEYS.WORKTREE_TABS]: '{}',
+        },
+        sharedSnapshot: {
+          [env.STORAGE_KEYS.REPOSITORIES]: '[{"path":"/repo/demo"}]',
+        },
+      })
+    ).toBe(false);
   });
 });
 

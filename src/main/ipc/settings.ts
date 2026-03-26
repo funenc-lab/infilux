@@ -10,6 +10,8 @@ import {
   buildLegacySettingsImportPayload,
   buildLegacySettingsImportPreview,
   findLegacySettingsImportSourcePath,
+  readLegacyElectronLocalStorageSnapshot,
+  readLegacyImportLocalStorageSnapshot,
 } from '../services/settings/legacyImport';
 import { toggleClaudeProviderWatcher } from './claudeProvider';
 
@@ -238,18 +240,32 @@ export function registerSettingsHandlers(): void {
       }
 
       const written = persistSettingsImmediately(nextData);
-      return written
-        ? {
-            imported: true,
-            sourcePath,
-            diffCount: preview.diffCount,
-          }
-        : {
-            imported: false,
-            sourcePath,
-            diffCount: preview.diffCount,
-            error: 'Failed to persist imported settings.',
-          };
+      const sessionStateLocalStorageSnapshot = readLegacyImportLocalStorageSnapshot(sourcePath);
+      const legacyLevelDbLocalStorageSnapshot =
+        readLegacyElectronLocalStorageSnapshot(sourcePath) ?? undefined;
+      const legacyLocalStorageSnapshot =
+        sessionStateLocalStorageSnapshot || legacyLevelDbLocalStorageSnapshot
+          ? {
+              ...(legacyLevelDbLocalStorageSnapshot ?? {}),
+              ...(sessionStateLocalStorageSnapshot ?? {}),
+            }
+          : undefined;
+
+      if (written) {
+        return {
+          imported: true,
+          sourcePath,
+          diffCount: preview.diffCount,
+          legacyLocalStorageSnapshot,
+        };
+      }
+
+      return {
+        imported: false,
+        sourcePath,
+        diffCount: preview.diffCount,
+        error: 'Failed to persist imported settings.',
+      };
     } catch {
       return {
         imported: false,

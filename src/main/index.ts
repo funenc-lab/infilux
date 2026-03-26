@@ -6,7 +6,7 @@ import { type Locale, normalizeLocale } from '@shared/i18n';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { IPC_CHANNELS, type ProxySettings } from '@shared/types';
 import { customProtocolUriToPath, type SupportedFileUrlPlatform } from '@shared/utils/fileUrl';
-import { app, BrowserWindow, ipcMain, Menu, net, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, net, protocol } from 'electron';
 
 // Register custom protocol privileges
 protocol.registerSchemesAsPrivileged([
@@ -64,6 +64,12 @@ import {
   writeSharedSettings,
 } from './services/SharedSessionState';
 import { persistentAgentSessionRepository } from './services/session/PersistentAgentSessionRepository';
+import {
+  findLegacySettingsImportSourcePath,
+  readElectronLocalStorageSnapshotFromLevelDbDirs,
+  readLegacyElectronLocalStorageSnapshot,
+  readLegacyImportLocalStorageSnapshot,
+} from './services/settings/legacyImport';
 import { appTrayService } from './services/TrayService';
 import * as todoService from './services/todo/TodoService';
 import { webInspectorServer } from './services/webInspector';
@@ -234,7 +240,12 @@ function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
 }
 
 function resolveAppIconPath(): string | null {
-  const fileNames = process.platform === 'darwin' ? ['icon-mac.png', 'icon.png'] : ['icon.png'];
+  const fileNames =
+    process.platform === 'darwin'
+      ? nativeTheme.shouldUseDarkColors
+        ? ['icon-mac.png', 'icon-mac-light.png', 'icon.png']
+        : ['icon-mac-light.png', 'icon-mac.png', 'icon.png']
+      : ['icon.png'];
   const candidates = app.isPackaged
     ? fileNames.flatMap((fileName) => [
         join(process.resourcesPath, fileName),
@@ -249,6 +260,17 @@ function resolveAppIconPath(): string | null {
   }
 
   return null;
+}
+
+function syncDockIconWithAppearance(): void {
+  if (process.platform !== 'darwin') {
+    return;
+  }
+
+  const dockIconPath = resolveAppIconPath();
+  if (dockIconPath) {
+    app.dock?.setIcon(dockIconPath);
+  }
 }
 
 // In dev mode, use an isolated userData dir to avoid clashing with the packaged app.
@@ -453,6 +475,58 @@ async function migrateLegacyTodoIfNeeded(): Promise<void> {
   }
 }
 
+function recoverSharedLocalStorageFromCurrentProfileIfNeeded(): void {
+  const currentSession = readSharedSessionState();
+  const currentLocalStorage =
+    currentSession.localStorage && typeof currentSession.localStorage === 'object'
+      ? currentSession.localStorage
+      : {};
+
+  if (currentLocalStorage['enso-repositories']) {
+    return;
+  }
+
+  const levelDbDir = join(app.getPath('userData'), 'Local Storage', 'leveldb');
+  const recoveredSnapshotFromCurrentProfile = readElectronLocalStorageSnapshotFromLevelDbDirs([
+    levelDbDir,
+  ]);
+  const legacySourcePath = findLegacySettingsImportSourcePath({
+    homeDir: app.getPath('home'),
+    env: process.env,
+  });
+  const recoveredSnapshotFromLegacySource = legacySourcePath
+    ? {
+        ...(readLegacyElectronLocalStorageSnapshot(legacySourcePath) ?? {}),
+        ...(readLegacyImportLocalStorageSnapshot(legacySourcePath) ?? {}),
+      }
+    : null;
+  const recoveredSnapshot = recoveredSnapshotFromCurrentProfile?.['enso-repositories']
+    ? recoveredSnapshotFromCurrentProfile
+    : recoveredSnapshotFromLegacySource;
+
+  if (!recoveredSnapshot?.['enso-repositories']) {
+    log.info('[migration] No recoverable repository snapshot found in current or legacy profiles', {
+      levelDbDir,
+      legacySourcePath,
+    });
+    return;
+  }
+
+  writeSharedSessionState({
+    ...currentSession,
+    updatedAt: Date.now(),
+    localStorage: {
+      ...recoveredSnapshot,
+      ...currentLocalStorage,
+    },
+  });
+  log.info('[migration] Recovered shared localStorage from existing profile state', {
+    levelDbDir,
+    legacySourcePath,
+    recoveredKeyCount: Object.keys(recoveredSnapshot).length,
+  });
+}
+
 async function init(): Promise<void> {
   // Initialize logger from settings
   const settings = readSettings();
@@ -507,10 +581,8 @@ app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.infilux.app');
 
   if (process.platform === 'darwin') {
-    const dockIconPath = resolveAppIconPath();
-    if (dockIconPath) {
-      app.dock?.setIcon(dockIconPath);
-    }
+    nativeTheme.on('updated', syncDockIconWithAppearance);
+    syncDockIconWithAppearance();
   }
 
   // Allow EnhancedInput temp images to be previewed via local-file:// protocol.
@@ -526,6 +598,7 @@ app.whenReady().then(async () => {
   log.info('Shared state paths', sharedPaths);
   migrateLegacySettingsIfNeeded();
   await migrateLegacyTodoIfNeeded();
+  recoverSharedLocalStorageFromCurrentProfileIfNeeded();
 
   // Register protocol to handle local file:// URLs for markdown images
   protocol.handle('local-file', (request) => {
@@ -1006,9 +1079,11 @@ export const __testables = {
   initAutoUpdater,
   migrateLegacySettingsIfNeeded,
   migrateLegacyTodoIfNeeded,
+  recoverSharedLocalStorageFromCurrentProfileIfNeeded,
   init,
   handleShutdownSignal,
   getAnyWindow,
   openOrRestoreMainWindow,
   resolveAppIconPath,
+  syncDockIconWithAppearance,
 };

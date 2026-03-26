@@ -36,6 +36,164 @@ export const STORAGE_KEYS = {
   SC_HISTORY_EXPANDED: 'enso-sc-history-expanded',
 } as const;
 
+const LEGACY_LOCAL_STORAGE_IMPORT_KEYS = new Set<string>([
+  STORAGE_KEYS.REPOSITORIES,
+  STORAGE_KEYS.SELECTED_REPO,
+  STORAGE_KEYS.REMOTE_PROFILES,
+  STORAGE_KEYS.ACTIVE_WORKTREE,
+  STORAGE_KEYS.ACTIVE_WORKTREES,
+  STORAGE_KEYS.WORKTREE_TABS,
+  STORAGE_KEYS.WORKTREE_ORDER,
+  STORAGE_KEYS.TAB_ORDER,
+  STORAGE_KEYS.REPOSITORY_WIDTH,
+  STORAGE_KEYS.WORKTREE_WIDTH,
+  STORAGE_KEYS.FILE_SIDEBAR_WIDTH,
+  STORAGE_KEYS.TREE_SIDEBAR_WIDTH,
+  STORAGE_KEYS.REPOSITORY_COLLAPSED,
+  STORAGE_KEYS.WORKTREE_COLLAPSED,
+  STORAGE_KEYS.FILE_SIDEBAR_COLLAPSED,
+  STORAGE_KEYS.REPOSITORY_SETTINGS,
+  STORAGE_KEYS.REPOSITORY_GROUPS,
+  STORAGE_KEYS.ACTIVE_GROUP,
+  STORAGE_KEYS.GROUP_COLLAPSED_STATE,
+  STORAGE_KEYS.SC_REPO_LIST_EXPANDED,
+  STORAGE_KEYS.SC_CHANGES_EXPANDED,
+  STORAGE_KEYS.SC_HISTORY_EXPANDED,
+]);
+
+const LEGACY_LOCAL_STORAGE_IMPORT_PREFIXES = [STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX];
+
+function shouldImportLegacyLocalStorageKey(key: string): boolean {
+  return (
+    LEGACY_LOCAL_STORAGE_IMPORT_KEYS.has(key) ||
+    LEGACY_LOCAL_STORAGE_IMPORT_PREFIXES.some((prefix) => key.startsWith(`${prefix}:`))
+  );
+}
+
+export function filterManagedLocalStorageSnapshot(
+  snapshot: Record<string, string>
+): Record<string, string> {
+  const filteredSnapshot: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (!shouldImportLegacyLocalStorageKey(key)) {
+      continue;
+    }
+
+    filteredSnapshot[key] = value;
+  }
+
+  return filteredSnapshot;
+}
+
+export function getManagedLocalStorageSnapshot(
+  storage: Pick<Storage, 'length' | 'key' | 'getItem'> = localStorage
+): Record<string, string> {
+  const snapshot: Record<string, string> = {};
+
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (!key || !shouldImportLegacyLocalStorageKey(key)) {
+      continue;
+    }
+
+    const value = storage.getItem(key);
+    if (typeof value === 'string') {
+      snapshot[key] = value;
+    }
+  }
+
+  return snapshot;
+}
+
+export function hasManagedLocalStorageDifferences(
+  currentSnapshot: Record<string, string>,
+  nextSnapshot: Record<string, string>
+): boolean {
+  const filteredCurrentSnapshot = filterManagedLocalStorageSnapshot(currentSnapshot);
+  const filteredNextSnapshot = filterManagedLocalStorageSnapshot(nextSnapshot);
+  const keys = new Set([
+    ...Object.keys(filteredCurrentSnapshot),
+    ...Object.keys(filteredNextSnapshot),
+  ]);
+
+  for (const key of keys) {
+    if (filteredCurrentSnapshot[key] !== filteredNextSnapshot[key]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function hasManagedRepositoryState(snapshot: Record<string, string>): boolean {
+  const repositories = snapshot[STORAGE_KEYS.REPOSITORIES];
+  if (typeof repositories === 'string' && repositories !== '[]') {
+    return true;
+  }
+
+  const selectedRepo = snapshot[STORAGE_KEYS.SELECTED_REPO];
+  if (typeof selectedRepo === 'string' && selectedRepo.length > 0) {
+    return true;
+  }
+
+  const worktreeTabs = snapshot[STORAGE_KEYS.WORKTREE_TABS];
+  return typeof worktreeTabs === 'string' && worktreeTabs !== '{}';
+}
+
+export function shouldHydrateManagedLocalStorageFromSharedSnapshot(options: {
+  currentSnapshot: Record<string, string>;
+  sharedSnapshot: Record<string, string>;
+  legacyLocalStorageMigrated: boolean;
+}): boolean {
+  const { currentSnapshot, sharedSnapshot, legacyLocalStorageMigrated } = options;
+
+  if (Object.keys(sharedSnapshot).length === 0) {
+    return false;
+  }
+
+  if (!hasManagedLocalStorageDifferences(currentSnapshot, sharedSnapshot)) {
+    return false;
+  }
+
+  if (legacyLocalStorageMigrated) {
+    return true;
+  }
+
+  return hasManagedRepositoryState(sharedSnapshot) && !hasManagedRepositoryState(currentSnapshot);
+}
+
+export function shouldSyncManagedLocalStorageToSharedSession(options: {
+  currentSnapshot: Record<string, string>;
+  sharedSnapshot: Record<string, string>;
+}): boolean {
+  const { currentSnapshot, sharedSnapshot } = options;
+
+  if (Object.keys(currentSnapshot).length === 0) {
+    return false;
+  }
+
+  if (hasManagedRepositoryState(sharedSnapshot) && !hasManagedRepositoryState(currentSnapshot)) {
+    return false;
+  }
+
+  return hasManagedLocalStorageDifferences(sharedSnapshot, currentSnapshot);
+}
+
+export function applyImportedLegacyLocalStorageSnapshot(
+  snapshot: Record<string, string>
+): string[] {
+  const appliedKeys: string[] = [];
+  const filteredSnapshot = filterManagedLocalStorageSnapshot(snapshot);
+
+  for (const [key, value] of Object.entries(filteredSnapshot)) {
+    localStorage.setItem(key, value);
+    appliedKeys.push(key);
+  }
+
+  return appliedKeys;
+}
+
 // Helper to get initial value from localStorage
 export const getStoredNumber = (key: string, defaultValue: number): number => {
   const saved = localStorage.getItem(key);

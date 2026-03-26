@@ -17,5 +17,6 @@ export interface LegacySettingsImportApplyResult {
   imported: boolean;
   sourcePath: string;
   diffCount: number;
+  legacyLocalStorageSnapshot?: Record<string, string>;
   error?: string;
 }
