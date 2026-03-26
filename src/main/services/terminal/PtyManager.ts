@@ -622,14 +622,14 @@ export class PtyManager {
     const now = Date.now();
     const cached = this.activityCache.get(id);
 
-    // 返回缓存值（2 秒内）
-    if (cached && now - cached.lastCheckTs < this.ACTIVITY_CACHE_TTL_MS) {
-      return cached.lastValue;
-    }
-
     // 复用正在进行的检查
     if (cached?.inFlightPromise) {
       return cached.inFlightPromise;
+    }
+
+    // 返回缓存值（2 秒内）
+    if (cached && now - cached.lastCheckTs < this.ACTIVITY_CACHE_TTL_MS) {
+      return cached.lastValue;
     }
 
     // 执行新的活动检测

@@ -29,6 +29,7 @@ class AutoUpdaterService {
   private updateDownloaded = false;
   private _isQuittingForUpdate = false;
   private checkIntervalId: NodeJS.Timeout | null = null;
+  private initialCheckTimeoutId: NodeJS.Timeout | null = null;
   private lastCheckTime = 0;
   private onFocusHandler: (() => void) | null = null;
 
@@ -82,10 +83,7 @@ class AutoUpdaterService {
     autoUpdater.on('update-downloaded', (info) => {
       this.updateDownloaded = true;
       // Stop all future update checks to prevent race conditions
-      if (this.checkIntervalId) {
-        clearInterval(this.checkIntervalId);
-        this.checkIntervalId = null;
-      }
+      this.clearScheduledChecks();
       this.sendStatus({ status: 'downloaded', info });
     });
 
@@ -111,10 +109,7 @@ class AutoUpdaterService {
   }
 
   cleanup(): void {
-    if (this.checkIntervalId) {
-      clearInterval(this.checkIntervalId);
-      this.checkIntervalId = null;
-    }
+    this.clearScheduledChecks();
     if (this.mainWindow && this.onFocusHandler) {
       this.mainWindow.off('focus', this.onFocusHandler);
       this.onFocusHandler = null;
@@ -179,12 +174,26 @@ class AutoUpdaterService {
           this.checkForUpdates();
         }, CHECK_INTERVAL_MS);
       }
-      setTimeout(() => this.checkForUpdates(), 3000);
-    } else {
-      if (this.checkIntervalId) {
-        clearInterval(this.checkIntervalId);
-        this.checkIntervalId = null;
+      if (this.initialCheckTimeoutId) {
+        clearTimeout(this.initialCheckTimeoutId);
       }
+      this.initialCheckTimeoutId = setTimeout(() => {
+        this.initialCheckTimeoutId = null;
+        void this.checkForUpdates();
+      }, 3000);
+    } else {
+      this.clearScheduledChecks();
+    }
+  }
+
+  private clearScheduledChecks(): void {
+    if (this.checkIntervalId) {
+      clearInterval(this.checkIntervalId);
+      this.checkIntervalId = null;
+    }
+    if (this.initialCheckTimeoutId) {
+      clearTimeout(this.initialCheckTimeoutId);
+      this.initialCheckTimeoutId = null;
     }
   }
 }

@@ -63,6 +63,7 @@ import {
   writeSharedSessionState,
   writeSharedSettings,
 } from './services/SharedSessionState';
+import { persistentAgentSessionRepository } from './services/session/PersistentAgentSessionRepository';
 import { appTrayService } from './services/TrayService';
 import * as todoService from './services/todo/TodoService';
 import { webInspectorServer } from './services/webInspector';
@@ -475,6 +476,8 @@ async function init(): Promise<void> {
   if (!gitInstalled) {
     console.warn('Git is not installed. Some features may not work.');
   }
+
+  await persistentAgentSessionRepository.initialize();
 
   // Register IPC handlers
   registerIpcHandlers();
