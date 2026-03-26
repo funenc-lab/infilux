@@ -830,7 +830,7 @@ export function AddRepositoryDialog({
                       <span className="text-destructive">{t('Path is not a directory')}</span>
                     )}
                     {!isValidating && pathValidation?.isDirectory && (
-                      <span className="text-green-600">✓ {t('Valid directory')}</span>
+                      <span className="text-success">✓ {t('Valid directory')}</span>
                     )}
                     {!localPath && !isValidating && t('Select a local directory on your computer.')}
                   </FieldDescription>
@@ -855,7 +855,7 @@ export function AddRepositoryDialog({
                       <span className="ml-2 text-destructive">{t('Invalid URL format')}</span>
                     )}
                     {remoteUrl && isValidUrl && (
-                      <span className="ml-2 text-green-600">✓ {t('Valid URL')}</span>
+                      <span className="ml-2 text-success">✓ {t('Valid URL')}</span>
                     )}
                   </FieldDescription>
                 </Field>
@@ -1082,7 +1082,7 @@ export function AddRepositoryDialog({
 
           <DialogPanel className="space-y-4">
             {sshRoots.length > 0 && (
-              <div className="flex flex-wrap gap-2 rounded-xl border bg-muted/20 p-3">
+              <div className="control-panel-muted flex flex-wrap gap-2 rounded-xl p-3">
                 {sshRoots.map((root) => (
                   <Button
                     key={root}
@@ -1101,7 +1101,7 @@ export function AddRepositoryDialog({
               </div>
             )}
 
-            <div className="space-y-3 rounded-xl border bg-muted/10 p-3">
+            <div className="control-panel-muted space-y-3 rounded-xl p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-muted-foreground">
@@ -1141,7 +1141,7 @@ export function AddRepositoryDialog({
                 </div>
               </div>
 
-              <div className="max-h-72 overflow-y-auto rounded-lg border bg-background/80">
+              <div className="control-input max-h-72 overflow-y-auto rounded-lg">
                 {isLoadingEntries ? (
                   <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -1159,7 +1159,7 @@ export function AddRepositoryDialog({
                         setError(null);
                       }}
                     >
-                      <FolderOpen className="h-4 w-4 shrink-0 text-yellow-500" />
+                      <FolderOpen className="h-4 w-4 shrink-0 text-warning" />
                       <span className="min-w-0 flex-1 truncate">{entry.name}</span>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                     </button>

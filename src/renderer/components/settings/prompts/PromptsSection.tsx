@@ -183,9 +183,9 @@ export function PromptsSection({ repoPath }: { repoPath?: string }) {
         <div className="mt-3 space-y-2">
           {/* 未保存提示 */}
           {hasUnsavedConfig && (
-            <div className="flex items-center justify-between rounded-md border border-dashed border-yellow-500/50 bg-yellow-500/5 px-3 py-2">
+            <div className="flex items-center justify-between rounded-md border border-dashed border-warning/40 bg-warning/8 px-3 py-2">
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-yellow-500" />
+                <AlertCircle className="h-4 w-4 text-warning" />
                 <span className="text-sm text-muted-foreground">
                   {t('Current CLAUDE.md not saved')}
                 </span>

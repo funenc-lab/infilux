@@ -184,7 +184,7 @@ export function DraggableSettingsWindow({
           animate="animate"
           exit="exit"
           transition={isDragging ? { duration: 0 } : springFast}
-          className="fixed flex flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-sm"
+          className="control-floating fixed flex flex-col overflow-hidden rounded-2xl"
           style={
             {
               left: `${position.x}px`,
@@ -206,6 +206,7 @@ export function DraggableSettingsWindow({
             <h2 className="min-w-0 truncate text-lg font-medium">{t('Settings')}</h2>
             <div className="no-drag flex shrink-0 items-center gap-2">
               <button
+                aria-label={t('Switch to TAB mode')}
                 type="button"
                 onClick={() => setSettingsDisplayMode('tab')}
                 className="hidden h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground sm:flex"
@@ -215,6 +216,7 @@ export function DraggableSettingsWindow({
                 {t('Switch to TAB mode')}
               </button>
               <button
+                aria-label={t('Close')}
                 type="button"
                 onClick={() => onOpenChange(false)}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"

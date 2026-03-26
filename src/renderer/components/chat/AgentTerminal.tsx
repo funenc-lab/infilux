@@ -858,9 +858,10 @@ export function AgentTerminal({
       />
       {showScrollToBottom && (
         <button
+          aria-label={t('Scroll to bottom')}
           type="button"
           onClick={handleScrollToBottom}
-          className="absolute bottom-12 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-primary/80 text-primary-foreground shadow-lg transition-all hover:bg-primary hover:scale-105 active:scale-95"
+          className="absolute bottom-12 right-3 flex h-11 w-11 items-center justify-center rounded-full border border-primary/30 bg-primary/14 text-primary transition-[background-color,transform] hover:bg-primary/22 hover:scale-105 active:scale-95"
           title={t('Scroll to bottom')}
         >
           <ArrowDown className="h-4 w-4" />
@@ -882,8 +883,8 @@ export function AgentTerminal({
         </div>
       )}
       {runtimeState !== 'live' && !isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/70 backdrop-blur-sm">
-          <div className="rounded-lg border bg-background/90 px-4 py-3 text-center shadow-sm">
+        <div className="absolute inset-0 flex items-center justify-center bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px]">
+          <div className="control-floating-muted rounded-xl px-4 py-3 text-center">
             <div className="text-sm font-medium">
               {runtimeState === 'reconnecting'
                 ? t('Remote terminal reconnecting...')

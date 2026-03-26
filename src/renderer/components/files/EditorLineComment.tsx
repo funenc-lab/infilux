@@ -60,7 +60,7 @@ export function CommentForm({
       : `${lineNumber}`;
 
   return (
-    <div className="bg-background border rounded-lg shadow-lg p-3 w-[320px]">
+    <div className="control-floating w-[320px] rounded-xl p-3">
       <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
         <MessageSquare className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">
@@ -69,7 +69,7 @@ export function CommentForm({
       </div>
       <textarea
         ref={inputRef}
-        className="w-full h-20 rounded border bg-muted/50 p-2 text-sm text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+        className="control-input h-20 w-full resize-none rounded-lg p-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         placeholder={t('Leave a comment...')}
         value={text}
         onChange={(e) => setText(e.target.value)}

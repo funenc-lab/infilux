@@ -49,7 +49,7 @@ function MenuPopup({
         <MenuPrimitive.Popup
           className={cn(
             // 优化动画：150ms，使用模拟 Spring 的 cubic-bezier 曲线
-            "relative flex not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-lg border bg-popover bg-clip-padding shadow-lg outline-none transition-[scale,opacity] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] focus:outline-none has-data-starting-style:scale-95 has-data-starting-style:opacity-0 has-data-ending-style:scale-95 has-data-ending-style:opacity-0 dark:bg-clip-border dark:before:shadow-[0_-1px_--theme(--color-white/8%)]",
+            "control-menu relative flex not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-lg outline-none transition-[scale,opacity] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] focus:outline-none has-data-starting-style:scale-95 has-data-starting-style:opacity-0 has-data-ending-style:scale-95 has-data-ending-style:opacity-0",
             className
           )}
           data-slot="menu-popup"
@@ -296,8 +296,7 @@ function TitleBarMenuPopup({
       >
         <MenuPrimitive.Popup
           className={cn(
-            // 基础样式
-            "relative flex not-[class*='w-']:min-w-32 rounded-md border bg-popover shadow-lg outline-none",
+            "control-menu relative flex not-[class*='w-']:min-w-32 rounded-lg outline-none",
             // 优化动画：150ms，使用模拟 Spring 的 cubic-bezier 曲线
             'origin-(--transform-origin) transition-[scale,opacity] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)]',
             'has-data-starting-style:scale-95 has-data-starting-style:opacity-0',

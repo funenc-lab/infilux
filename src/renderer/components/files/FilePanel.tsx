@@ -3,9 +3,9 @@ import { FileCode } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { restorePanelWidthFromStorage } from '@/App/panelWidthStorage';
 import { normalizePath } from '@/App/storage';
+import { ControlStateActionButton } from '@/components/layout/ControlStateActionButton';
 import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { GlobalSearchDialog, type SearchMode } from '@/components/search';
-import { Button } from '@/components/ui/button';
 import { addToast, toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
@@ -803,20 +803,19 @@ export function FilePanel({
       <ControlStateCard
         icon={<FileCode className="h-5 w-5" />}
         eyebrow={t('File Explorer')}
-        title={t('File Explorer')}
-        description={t('Choose a worktree to browse files and open an editor')}
-        chipLabel={t('Choose Worktree')}
-        chipTone="wait"
+        title={t('File explorer needs a worktree')}
+        description={t('Each worktree has its own files, search results, and editor tabs.')}
+        metaLabel={t('Next Step')}
+        metaValue={
+          onExpandWorktree
+            ? t('Choose a worktree to browse its files')
+            : t('Use the sidebar to switch context')
+        }
         actions={
           onExpandWorktree && worktreeCollapsed ? (
-            <Button
-              variant="default"
-              size="lg"
-              onClick={onExpandWorktree}
-              className="control-action-button control-action-button-primary rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
-            >
+            <ControlStateActionButton onClick={onExpandWorktree}>
               {t('Choose Worktree')}
-            </Button>
+            </ControlStateActionButton>
           ) : null
         }
       />

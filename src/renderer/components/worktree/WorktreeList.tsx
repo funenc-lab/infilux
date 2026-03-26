@@ -107,8 +107,6 @@ export function WorktreeList({
         eyebrow={t('Choose Worktree')}
         title={t('No worktrees')}
         description={t('Click the button in the top right to create your first worktree')}
-        chipLabel={t('No worktrees')}
-        chipTone="wait"
         className="px-0 pb-0 pt-0"
         cardClassName="max-w-[min(54rem,100%)]"
       />
@@ -141,7 +139,7 @@ export function WorktreeList({
 
 function WorktreeCardSkeleton() {
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="control-panel rounded-xl p-4">
       <div className="flex items-center gap-2">
         <Skeleton className="h-4 w-4 rounded" />
         <Skeleton className="h-4 w-32" />

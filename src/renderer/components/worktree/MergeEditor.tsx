@@ -743,10 +743,7 @@ export function MergeEditor({
                 variant={index === currentIndex ? 'secondary' : 'ghost'}
                 size="xs"
                 onClick={() => setCurrentIndex(index)}
-                className={cn(
-                  'shrink-0',
-                  resolvedFiles.has(conflict.file) && 'text-green-600 dark:text-green-400'
-                )}
+                className={cn('shrink-0', resolvedFiles.has(conflict.file) && 'text-success')}
               >
                 {resolvedFiles.has(conflict.file) && <Check className="h-3 w-3" />}
                 {conflict.file.split('/').pop()}

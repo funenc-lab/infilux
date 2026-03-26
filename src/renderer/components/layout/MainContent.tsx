@@ -31,7 +31,8 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
-import { ConsoleEmptyState } from './ConsoleEmptyState';
+import { ControlStateActionButton } from './ControlStateActionButton';
+import { ControlStateCard } from './ControlStateCard';
 import { DeferredAgentPanel } from './DeferredAgentPanel';
 import { DeferredCurrentFilePanel } from './DeferredCurrentFilePanel';
 import { DeferredDiffReviewModal } from './DeferredDiffReviewModal';
@@ -87,49 +88,26 @@ function ConsoleIdleState({
     onExpandWorktree && worktreeCollapsed
       ? t('Expand the worktree sidebar and choose a worktree')
       : hasRepoContext
-        ? t('Choose a worktree to continue in this repository')
+        ? t('Choose a worktree in this repository')
         : t('Add or select a repository, then choose a worktree');
 
   return (
-    <div className="flex h-full items-center justify-center p-6 md:p-8">
-      <ConsoleEmptyState
-        className="max-w-[min(56rem,100%)]"
-        icon={<Sparkles className="h-5 w-5" />}
-        eyebrow={t('AI Collaboration Console')}
-        title={title}
-        description={description}
-        chips={[
-          {
-            label: hasRepoContext ? (repoLabel ?? t('Repository Ready')) : t('Awaiting Worktree'),
-            tone: hasRepoContext ? 'strong' : 'wait',
-          },
-        ]}
-        details={[
-          {
-            label: t('Status'),
-            value: hasRepoContext
-              ? t('No active worktree selected')
-              : t('No repository or worktree selected'),
-          },
-          { label: t('Panel'), value: t('AI Agent') },
-          { label: t('Repository'), value: repoLabel ?? t('No repository selected') },
-          { label: t('Next Step'), value: nextStep },
-        ]}
-        detailsLayout="compact"
-        actions={
-          onExpandWorktree && worktreeCollapsed ? (
-            <Button
-              onClick={onExpandWorktree}
-              variant="default"
-              className="control-action-button control-action-button-primary rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
-            >
-              <GitBranch className="mr-2 h-4 w-4" />
-              {t('Choose Worktree')}
-            </Button>
-          ) : null
-        }
-      />
-    </div>
+    <ControlStateCard
+      icon={<Sparkles className="h-5 w-5" />}
+      eyebrow={t('Agent Console')}
+      title={title}
+      description={description}
+      metaLabel={t('Next Step')}
+      metaValue={nextStep}
+      actions={
+        onExpandWorktree && worktreeCollapsed ? (
+          <ControlStateActionButton onClick={onExpandWorktree}>
+            <GitBranch className="mr-2 h-4 w-4" />
+            {t('Choose Worktree')}
+          </ControlStateActionButton>
+        ) : null
+      }
+    />
   );
 }
 
@@ -838,15 +816,12 @@ export function MainContent({
                 />
                 {/* Show overlay when no worktree is actively selected */}
                 {!hasActiveWorktree && (
-                  <div
-                    className={cn(
-                      'absolute inset-0 z-20 flex items-center justify-center',
-                      innerBg
-                    )}
-                  >
+                  <div className={cn('absolute inset-0 z-20', innerBg)}>
                     <ConsoleIdleState
-                      title={t('Select a Worktree')}
-                      description={t('Choose a worktree to continue using AI Agent')}
+                      title={t('AI Agent needs a worktree')}
+                      description={t(
+                        'Each worktree keeps its own agent sessions, context, and output.'
+                      )}
                       repoLabel={repoLabel}
                       worktreeCollapsed={worktreeCollapsed}
                       onExpandWorktree={onExpandWorktree}
@@ -855,10 +830,12 @@ export function MainContent({
                 )}
               </>
             ) : (
-              <div className={cn('h-full flex items-center justify-center', innerBg)}>
+              <div className={cn('h-full', innerBg)}>
                 <ConsoleIdleState
-                  title={t('Start using AI Agent')}
-                  description={t('Select a Worktree to start using AI coding assistant')}
+                  title={t('AI Agent needs a worktree')}
+                  description={t(
+                    'Each worktree keeps its own agent sessions, context, and output.'
+                  )}
                   repoLabel={repoLabel}
                   worktreeCollapsed={worktreeCollapsed}
                   onExpandWorktree={onExpandWorktree}

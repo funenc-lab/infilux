@@ -158,7 +158,7 @@ function SubmoduleGroup({
         ) : (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        <FolderGit2 className="h-4 w-4 shrink-0 text-yellow-500" />
+        <FolderGit2 className="h-4 w-4 shrink-0 text-warning" />
         <span className="flex-1 truncate font-medium">{submodule.name}</span>
         {submoduleCommentCount > 0 && (
           <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-xs text-primary">
@@ -762,7 +762,7 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
     selectionWidgetRootRef.current.render(
       <button
         type="button"
-        className="flex items-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground shadow-md hover:bg-primary/90 transition-colors"
+        className="flex items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-primary/14 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/22"
         onClick={showCommentForm}
         onMouseDown={(e) => e.preventDefault()}
       >

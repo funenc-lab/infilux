@@ -266,7 +266,8 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     const targetRootPath = rootPath as string;
     recoveredRootPathsRef.current.add(targetRootPath);
 
-    const recoveredGitRoot = resolveFileListGitRoot(targetRootPath, targetRootPath) ?? targetRootPath;
+    const recoveredGitRoot =
+      resolveFileListGitRoot(targetRootPath, targetRootPath) ?? targetRootPath;
     logFileTreeDiagnostics(
       'root-query:recover:start',
       {
@@ -329,14 +330,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     return () => {
       cancelled = true;
     };
-  }, [
-    queryClient,
-    rootFiles,
-    rootPath,
-    isRootLoading,
-    isRootError,
-    shouldLogDiagnostics,
-  ]);
+  }, [queryClient, rootFiles, rootPath, isRootLoading, isRootError, shouldLogDiagnostics]);
 
   // Toggle directory expansion
   const toggleExpand = useCallback(

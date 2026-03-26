@@ -65,7 +65,6 @@ export function TemporaryWorkspacePanel({
             <span className="control-sidebar-title">{t('Temp Sessions')}</span>
             <span className="control-sidebar-subtitle">{t('Disposable workspaces')}</span>
           </div>
-          <span className="control-sidebar-count">{filteredItems.length}</span>
         </div>
         <div className="control-sidebar-toolbar no-drag">
           <button

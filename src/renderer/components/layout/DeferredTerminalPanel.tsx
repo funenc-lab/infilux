@@ -42,8 +42,6 @@ export function DeferredTerminalPanel({ shouldLoad = true, ...props }: DeferredT
       eyebrow={t('Terminal Console')}
       title={t('Loading terminal')}
       description={t('Preparing shell sessions and terminal workspace')}
-      chipLabel={t('Terminal Console')}
-      chipTone="wait"
     />
   );
 }

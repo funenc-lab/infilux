@@ -428,7 +428,7 @@ export function CommitHistoryList({
             />
             <div
               ref={contextMenuRef}
-              className="fixed z-50 min-w-40 rounded-lg border bg-popover p-1 shadow-lg"
+              className="control-menu fixed z-50 min-w-40 rounded-lg p-1"
               style={{ left: contextMenu.position.x, top: contextMenu.position.y }}
             >
               <button

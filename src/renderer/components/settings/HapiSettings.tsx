@@ -247,7 +247,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
             <Github className="h-4 w-4" />
           </button>
           {hapiGlobal.installed ? (
-            <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600 dark:text-green-400">
+            <span className="control-badge control-badge-success">
               v{hapiGlobal.version || '?'}
             </span>
           ) : (
@@ -369,7 +369,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
                 <code className="flex-1 truncate text-xs">{cfStatus.url}</code>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={handleCopyUrl}>
                   {copied ? (
-                    <Check className="h-3.5 w-3.5 text-green-500" />
+                    <Check className="h-3.5 w-3.5 text-success" />
                   ) : (
                     <Copy className="h-3.5 w-3.5" />
                   )}
@@ -551,7 +551,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
           {happyGlobal === null ? (
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
           ) : happyGlobal.installed ? (
-            <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600 dark:text-green-400">
+            <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success">
               v{happyGlobal.version || '?'}
             </span>
           ) : (

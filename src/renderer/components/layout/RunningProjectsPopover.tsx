@@ -309,7 +309,7 @@ export function RunningProjectsPopover({
         )}
       </button>
 
-        <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogPopup className="sm:max-w-2xl p-0 overflow-visible" showCloseButton={false}>
           <div ref={dialogRef} className="relative">
             <div className="flex items-center gap-2 border-b border-border/60 bg-background/92 px-3 py-2">
@@ -425,7 +425,7 @@ export function RunningProjectsPopover({
                 />
                 <div
                   ref={menuRef}
-                  className="absolute z-50 min-w-40 rounded-lg border bg-popover p-1 shadow-lg"
+                  className="control-menu absolute z-50 min-w-40 rounded-lg p-1"
                   style={{ left: menuPosition.x, top: menuPosition.y }}
                 >
                   {menuProject.agents.length > 0 && menuProject.terminals.length > 0 && (

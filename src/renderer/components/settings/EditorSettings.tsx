@@ -231,7 +231,7 @@ export function EditorSettings() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold">{t(preset.labelKey)}</p>
+                  <p className="text-sm font-medium">{t(preset.labelKey)}</p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
                     {t(preset.descriptionKey)}
                   </p>

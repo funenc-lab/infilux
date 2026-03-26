@@ -92,7 +92,7 @@ export function TempWorkspaceContextMenu({
       />
       <div
         ref={menuRef}
-        className="fixed z-50 min-w-40 rounded-lg border bg-popover p-1 shadow-lg"
+        className="control-menu fixed z-50 min-w-40 rounded-lg p-1"
         style={{ left: menuPosition.x, top: menuPosition.y }}
       >
         {activity.agentCount > 0 && activity.terminalCount > 0 && (

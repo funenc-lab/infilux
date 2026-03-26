@@ -166,8 +166,8 @@ export function GlobalSearchDialog({
           style={{ zIndex: Z_INDEX.MODAL_CONTENT }}
         >
           <DialogPrimitive.Popup
-            className="no-drag pointer-events-auto relative row-start-2 flex min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl"
-            style={{ height: '70vh' }}
+            className="control-floating no-drag pointer-events-auto relative row-start-2 flex min-h-0 w-full max-w-[min(48rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl text-popover-foreground"
+            style={{ height: 'min(70vh, 48rem)' }}
             data-search-container
             onKeyDown={handleKeyDown}
           >

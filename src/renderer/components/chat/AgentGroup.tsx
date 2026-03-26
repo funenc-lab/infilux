@@ -125,7 +125,7 @@ export function AgentGroup({
               </Button>
               {showAgentMenu && enabledAgents.length > 0 && (
                 <div className="absolute left-1/2 top-full z-50 min-w-40 -translate-x-1/2 pt-2">
-                  <div className="rounded-lg border bg-popover p-1 shadow-lg">
+                  <div className="control-menu rounded-lg p-1">
                     <div className="px-2 py-1 text-xs text-muted-foreground">
                       {t('Select Agent')}
                     </div>

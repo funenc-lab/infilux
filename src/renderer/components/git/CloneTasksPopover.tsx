@@ -76,7 +76,7 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
             <div className="space-y-2">
               {/* Active tasks */}
               {activeTasks.map((task) => (
-                <div key={task.id} className="rounded-lg border bg-card p-3 space-y-2">
+                <div key={task.id} className="control-panel-muted space-y-2 rounded-xl p-3">
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin text-info" />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -93,7 +93,7 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
 
               {/* Completed tasks */}
               {completedTasks.map((task) => (
-                <div key={task.id} className="rounded-lg border bg-card p-3">
+                <div key={task.id} className="control-panel-muted rounded-xl p-3">
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-success" />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">

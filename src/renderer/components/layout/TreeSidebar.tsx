@@ -1030,15 +1030,7 @@ export function TreeSidebar({
     >
       {/* Header */}
       <div className="control-sidebar-header drag-region">
-        <div className="control-sidebar-heading no-drag">
-          <div className="control-sidebar-heading-copy">
-            <span className="control-sidebar-title">{t('Projects')}</span>
-            <span className="control-sidebar-subtitle">
-              {activeGroup?.name ?? t('Workspace overview')}
-            </span>
-          </div>
-          <span className="control-sidebar-count">{filteredRepos.length}</span>
-        </div>
+        <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
           {/* Manage repositories button */}
           <button
@@ -1363,7 +1355,7 @@ export function TreeSidebar({
           />
           <div
             ref={repoMenuRef}
-            className="fixed z-50 min-w-32 rounded-lg border bg-popover p-1 shadow-lg"
+            className="control-menu fixed z-50 min-w-32 rounded-lg p-1"
             style={{ left: repoMenuPosition.x, top: repoMenuPosition.y }}
             role="menu"
             aria-label={t('Repository actions')}
@@ -2071,7 +2063,7 @@ function WorktreeTreeItem({
           />
           <div
             ref={menuRef}
-            className="fixed z-50 min-w-40 rounded-lg border bg-popover p-1 shadow-lg"
+            className="control-menu fixed z-50 min-w-40 rounded-lg p-1"
             style={{ left: menuPosition.x, top: menuPosition.y }}
             role="menu"
             aria-label={t('Worktree actions')}

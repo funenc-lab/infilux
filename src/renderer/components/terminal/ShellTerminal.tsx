@@ -177,9 +177,10 @@ export function ShellTerminal({
       />
       {showScrollToBottom && (
         <button
+          aria-label={t('Scroll to bottom')}
           type="button"
           onClick={handleScrollToBottom}
-          className="control-floating-button absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg"
+          className="control-floating-button absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-lg"
           title={t('Scroll to bottom')}
         >
           <ArrowDown className="h-4 w-4" />

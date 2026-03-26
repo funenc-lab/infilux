@@ -45,8 +45,6 @@ export function DeferredSourceControlPanel({
       eyebrow={t('Version Control')}
       title={t('Loading version control')}
       description={t('Preparing repository status and diff tools')}
-      chipLabel={t('Version Control')}
-      chipTone="wait"
     />
   );
 }

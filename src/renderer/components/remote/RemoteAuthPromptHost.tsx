@@ -16,7 +16,7 @@ import { useI18n } from '@/i18n';
 
 function getPromptIcon(prompt: RemoteAuthPrompt) {
   if (prompt.kind === 'host-verification') {
-    return <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-yellow-500" />;
+    return <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-warning" />;
   }
   return <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-primary" />;
 }
@@ -88,19 +88,19 @@ export function RemoteAuthPromptHost() {
             </DialogHeader>
 
             <DialogPanel className="space-y-4">
-              <div className="rounded-xl border bg-muted/40 p-3 text-sm">
+              <div className="control-panel-muted rounded-xl p-3 text-sm">
                 <div className="font-medium">{currentPrompt.profileName}</div>
                 <div className="text-muted-foreground">{currentPrompt.sshTarget}</div>
               </div>
 
               {currentPrompt.promptText && (
-                <div className="rounded-xl border bg-background p-3 text-sm text-muted-foreground">
+                <div className="control-panel rounded-xl p-3 text-sm text-muted-foreground">
                   {currentPrompt.promptText}
                 </div>
               )}
 
               {currentPrompt.kind === 'host-verification' && currentPrompt.fingerprints?.length ? (
-                <div className="space-y-2 rounded-xl border bg-background p-3">
+                <div className="control-panel space-y-2 rounded-xl p-3">
                   <div className="font-medium text-sm">
                     {currentPrompt.host}:{currentPrompt.port}
                   </div>
@@ -108,7 +108,7 @@ export function RemoteAuthPromptHost() {
                     {currentPrompt.fingerprints.map((fingerprint) => (
                       <div
                         key={`${fingerprint.keyType}:${fingerprint.fingerprint}`}
-                        className="rounded-lg border bg-muted/30 p-2"
+                        className="control-panel-muted rounded-lg p-2"
                       >
                         <div className="font-medium">{fingerprint.keyType}</div>
                         <div className="break-all text-muted-foreground">

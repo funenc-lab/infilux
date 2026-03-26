@@ -57,7 +57,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-        <div className="w-full max-w-xl rounded-xl border bg-card p-6 shadow-sm">
+        <div className="control-panel w-full max-w-xl rounded-2xl p-6">
           <div className="space-y-3">
             <h1 className="text-lg font-semibold">The app ran into an unexpected error.</h1>
             <p className="text-sm text-muted-foreground">

@@ -441,10 +441,10 @@ export function FileSidebar({
         <ControlStateCard
           icon={<FileCode className="h-5 w-5" />}
           eyebrow={t('File Explorer')}
-          title={t('File Explorer')}
-          description={t('Select a Worktree to browse files')}
-          chipLabel={t('Choose Worktree')}
-          chipTone="wait"
+          title={t('File explorer needs a worktree')}
+          description={t('Files and folders appear here for the selected worktree.')}
+          metaLabel={t('Next Step')}
+          metaValue={t('Choose a worktree in the sidebar to browse its files')}
         />
       </aside>
     );

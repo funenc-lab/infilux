@@ -688,7 +688,7 @@ export function EnhancedInput({
     <div className="relative">
       {/* @ mention file search popup — outside overflow-hidden container */}
       {mentionQuery !== null && mentionResults.length > 0 && (
-        <div className="absolute bottom-full left-3 mb-1 w-72 rounded-lg border bg-popover shadow-lg z-10 overflow-hidden">
+        <div className="control-floating absolute bottom-full left-3 z-10 mb-1 w-[min(18rem,calc(100vw-1.5rem))] overflow-hidden rounded-lg">
           <div ref={mentionListRef} className="max-h-[240px] overflow-y-auto py-1">
             {mentionResults.map((item, i) => {
               const lastSep = item.relativePath.lastIndexOf('/');
@@ -744,7 +744,7 @@ export function EnhancedInput({
 
       {/* / slash command popup — outside overflow-hidden container */}
       {slashQuery !== null && slashResults.length > 0 && (
-        <div className="absolute bottom-full left-3 mb-1 w-80 rounded-lg border bg-popover shadow-lg z-10 overflow-hidden">
+        <div className="control-floating absolute bottom-full left-3 z-10 mb-1 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-lg">
           <div ref={slashListRef} className="max-h-[240px] overflow-y-auto py-1">
             {slashResults.map((item, i) => (
               <button
@@ -813,7 +813,7 @@ export function EnhancedInput({
           onChange={handleFileSelect}
         />
 
-        <div className="relative mx-3 my-2 rounded-lg border border-border bg-muted/30">
+        <div className="control-panel-muted relative mx-3 my-2 rounded-lg">
           {/* Close button (top-right) */}
           <button
             type="button"

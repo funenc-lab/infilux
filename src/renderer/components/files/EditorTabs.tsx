@@ -154,7 +154,9 @@ export function EditorTabs({
                 tabIndex={0}
                 className={cn(
                   'control-topbar-tab group min-w-[120px] max-w-[192px] cursor-pointer select-none',
-                  isActive ? 'shadow-[0_10px_28px_color-mix(in_oklch,var(--theme)_10%,transparent)]' : ''
+                  isActive
+                    ? 'shadow-[0_10px_28px_color-mix(in_oklch,var(--theme)_10%,transparent)]'
+                    : ''
                 )}
                 data-active={isActive}
               >

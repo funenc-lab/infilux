@@ -12,9 +12,9 @@ import type { TaskPriority, TodoTask } from './types';
 import { type ResolvedAgent, useEnabledAgents } from './useEnabledAgents';
 
 const PRIORITY_DOT: Record<TaskPriority, string> = {
-  low: 'bg-blue-500',
-  medium: 'bg-amber-500',
-  high: 'bg-red-500',
+  low: 'bg-info',
+  medium: 'bg-warning',
+  high: 'bg-destructive',
 };
 
 function formatRelativeTime(timestamp: number): string {
@@ -157,7 +157,7 @@ export function TaskCard({
       className={cn(
         'group flex items-center gap-1.5 border-b border-border/50 px-2 py-1.5 transition-colors hover:bg-accent/50',
         isDragging && 'opacity-50',
-        isOverlay && 'bg-background shadow-md border rounded-sm'
+        isOverlay && 'control-floating rounded-md border'
       )}
     >
       {/* Drag handle */}
@@ -221,7 +221,7 @@ export function TaskCard({
                     transform: 'translate(-100%, -100%)',
                   }}
                 >
-                  <div className="rounded-lg border bg-popover p-1 shadow-lg">
+                  <div className="control-menu rounded-lg p-1">
                     <div className="px-2 py-1">
                       <span className="text-xs text-muted-foreground">{t('Select Agent')}</span>
                     </div>

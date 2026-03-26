@@ -42,8 +42,6 @@ export function DeferredTodoPanel({ shouldLoad = true, ...props }: DeferredTodoP
       eyebrow={t('Todo')}
       title={t('Loading tasks')}
       description={t('Preparing the kanban board')}
-      chipLabel={t('Todo')}
-      chipTone="wait"
     />
   );
 }

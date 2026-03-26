@@ -421,8 +421,8 @@ describe('MainContent component render', () => {
       openInPath: undefined,
     });
 
-    expect(markup).toContain('Start using AI Agent');
-    expect(markup).toContain('Select a Worktree to start using AI coding assistant');
+    expect(markup).toContain('AI Agent needs a worktree');
+    expect(markup).toContain('Each worktree keeps its own agent sessions, context, and output.');
     expect(markup).not.toContain('data-panel="agent"');
   });
 
@@ -438,7 +438,7 @@ describe('MainContent component render', () => {
     });
 
     expect(markup).toContain('Choose Worktree');
-    expect(markup).toContain('Start using AI Agent');
+    expect(markup).toContain('AI Agent needs a worktree');
   });
 
   it('does not pass the previous worktree path into the current file panel when the current selection has no worktree yet', async () => {

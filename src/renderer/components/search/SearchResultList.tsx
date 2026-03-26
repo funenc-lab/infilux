@@ -63,7 +63,7 @@ function getFileIcon(path: string) {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'go', 'rs', 'java', 'cpp', 'c', 'h'];
   if (codeExts.includes(ext)) {
-    return <FileCode className="h-4 w-4 shrink-0 text-blue-500" />;
+    return <FileCode className="h-4 w-4 shrink-0 text-info" />;
   }
   return <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />;
 }

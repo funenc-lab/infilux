@@ -577,7 +577,7 @@ export function RemoteSettings() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h2 className="font-semibold text-xl">{t('Remote Connection')}</h2>
+        <h2 className="text-lg font-medium">{t('Remote Connection')}</h2>
         <p className="text-muted-foreground text-sm">
           {t(
             'Save SSH profiles here, then use the Remote Host entry in the sidebar to attach remote repositories into this window.'

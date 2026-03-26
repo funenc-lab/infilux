@@ -878,7 +878,7 @@ function WorktreeItem({
           />
           <div
             ref={menuRef}
-            className="fixed z-50 min-w-40 rounded-lg border bg-popover p-1 shadow-lg"
+            className="control-menu fixed z-50 min-w-40 rounded-lg p-1"
             style={{ left: menuPosition.x, top: menuPosition.y }}
             role="menu"
             aria-label={t('Worktree actions')}
@@ -1011,7 +1011,7 @@ function WorktreeItem({
 
 function WorktreeItemSkeleton() {
   return (
-    <div className="rounded-lg border bg-card p-3">
+    <div className="control-panel rounded-xl p-3">
       <div className="flex items-center gap-2">
         <div className="h-4 w-4 animate-pulse rounded bg-muted" />
         <div className="h-4 w-24 animate-pulse rounded bg-muted" />

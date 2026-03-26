@@ -200,9 +200,9 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
                     />
                     <div className="flex items-center gap-1.5 min-w-0">
                       {isHttp ? (
-                        <Globe className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                        <Globe className="h-3.5 w-3.5 shrink-0 text-info" />
                       ) : (
-                        <Terminal className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                        <Terminal className="h-3.5 w-3.5 shrink-0 text-success" />
                       )}
                       <div className="min-w-0">
                         <span className="text-sm font-medium truncate block">{server.name}</span>

@@ -1,7 +1,5 @@
 import {
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   FolderOpen,
   Heart,
   Image as ImageIcon,
@@ -37,7 +35,6 @@ import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
 import {
   APP_COLOR_PRESET_OPTIONS,
-  APP_THEME_TOKEN_GROUPS,
   findCustomThemeBySelection,
   getColorPresetOption,
   type ResolvedThemeMode,
@@ -55,13 +52,15 @@ import { cn } from '@/lib/utils';
 import {
   type ColorPreset,
   type CustomThemeDocument,
-  type FontWeight,
   type Theme,
   useSettingsStore,
 } from '@/stores/settings';
+import { AppearancePreviewPanel } from './AppearancePreviewPanel';
+import { AppearanceTerminalSettingsSection } from './AppearanceTerminalSettingsSection';
+import { AppearanceThemeEditorView } from './AppearanceThemeEditorView';
 import { buildAppearanceColorPresetModel } from './appearanceColorPresetModel';
 import { buildAppearanceThemeModel } from './appearanceThemeModel';
-import { fontWeightOptions } from './constants';
+import { filterTerminalThemeNames, localizeTerminalThemeName } from './terminalThemeLocalization';
 
 function resolveAppearancePreviewMode(theme: Theme, terminalTheme: string): ResolvedThemeMode {
   if (theme === 'light') {
@@ -189,9 +188,7 @@ function ThemeModeBrowserCard({
   customAccentColor,
   customTheme,
   isSelected,
-  isPreviewing,
   onSelect,
-  onPreview,
 }: {
   label: string;
   description: string;
@@ -202,9 +199,7 @@ function ThemeModeBrowserCard({
   customAccentColor: string;
   customTheme?: CustomThemeDocument | null;
   isSelected: boolean;
-  isPreviewing: boolean;
   onSelect: () => void;
-  onPreview: () => void;
 }) {
   const resolvedMode = React.useMemo(
     () => resolveAppearancePreviewMode(mode, terminalTheme),
@@ -230,15 +225,11 @@ function ThemeModeBrowserCard({
     <button
       type="button"
       onClick={onSelect}
-      onMouseEnter={onPreview}
-      onFocus={onPreview}
       className="group relative overflow-hidden rounded-xl border p-4 text-left transition-colors duration-200"
       style={{
         borderColor: isSelected
           ? palette['--ring']
-          : isPreviewing
-            ? palette['--border']
-            : 'color-mix(in oklab, var(--border) 88%, transparent)',
+          : 'color-mix(in oklab, var(--border) 88%, transparent)',
         background: buildPreviewSurfaceBackground({
           highlightColor: palette['--primary'],
           highlightAmount: 4,
@@ -272,18 +263,15 @@ function ThemeModeBrowserCard({
           <Icon className="h-4 w-4" />
         </div>
 
-        {isSelected ? (
-          <AppearanceSelectionBadge tone="current">{t('Current')}</AppearanceSelectionBadge>
-        ) : isPreviewing ? (
-          <AppearanceSelectionBadge tone="preview">{t('Preview')}</AppearanceSelectionBadge>
-        ) : null}
+        <div className="flex items-center gap-1.5">
+          {isSelected ? (
+            <AppearanceSelectionBadge tone="current">{t('Current')}</AppearanceSelectionBadge>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-4 min-w-0">
-        <p
-          className="text-sm font-semibold tracking-[-0.01em]"
-          style={{ color: palette['--foreground'] }}
-        >
+        <p className="text-sm font-medium" style={{ color: palette['--foreground'] }}>
           {label}
         </p>
         <p
@@ -730,41 +718,167 @@ function EditorSamplePreview({
       }),
     [accentColor, colorPreset, customTheme, terminalTheme, theme]
   );
+  const previewFontFamily = fontFamily.trim()
+    ? fontFamily
+    : 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+  type EditorSampleSegment = {
+    text: string;
+    color: string;
+    isSelection?: boolean;
+  };
+  type EditorSampleLine = {
+    lineNumber: number;
+    minimapWidth: number;
+    segments: EditorSampleSegment[];
+    isActiveLine?: boolean;
+    cursorColumn?: number;
+    decoration?: 'inserted';
+  };
+  const gutterBackground = withAlpha(palette.foreground, palette.mode === 'dark' ? '03' : '04');
+  const guideColor = withAlpha(palette.indentGuide, palette.mode === 'dark' ? '68' : '5c');
+  const selectedSegmentBackground = withAlpha(
+    palette.accent,
+    palette.mode === 'dark' ? '3b' : '24'
+  );
+  const insertedMarkerColor = withAlpha(palette.string, palette.mode === 'dark' ? 'b8' : '96');
 
-  const sampleLines = [
-    [
-      { text: 'export ', color: palette.keyword },
-      { text: 'function ', color: palette.keyword },
-      { text: 'syncTheme', color: palette.function },
-      { text: '(', color: palette.punctuation },
-      { text: 'preset', color: palette.variable },
-      { text: ': ', color: palette.punctuation },
-      { text: 'ThemePreset', color: palette.type },
-      { text: ') {', color: palette.punctuation },
-    ],
-    [{ text: '  // Editor readability stays calm', color: palette.comment }],
-    [
-      { text: '  const ', color: palette.keyword },
-      { text: 'accent', color: palette.variable },
-      { text: ' = ', color: palette.punctuation },
-      { text: 'preset', color: palette.variable },
-      { text: '.', color: palette.punctuation },
-      { text: 'accent', color: palette.constant },
-      { text: ';', color: palette.punctuation },
-    ],
-    [
-      { text: '  return ', color: palette.keyword },
-      { text: '{', color: palette.punctuation },
-      { text: ' focus', color: palette.variable },
-      { text: ': ', color: palette.punctuation },
-      { text: 'accent', color: palette.variable },
-      { text: ', preview', color: palette.variable },
-      { text: ': ', color: palette.punctuation },
-      { text: '"live"', color: palette.string },
-      { text: ' };', color: palette.punctuation },
-    ],
-    [{ text: '}', color: palette.punctuation }],
+  const sampleLines: EditorSampleLine[] = [
+    {
+      lineNumber: 12,
+      minimapWidth: 92,
+      segments: [
+        { text: 'import ', color: palette.keyword },
+        { text: '{ ', color: palette.punctuation },
+        { text: 'resolveEditorVisualPalette', color: palette.function },
+        { text: ' } ', color: palette.punctuation },
+        { text: 'from ', color: palette.keyword },
+        { text: "'@/components/files/editorThemePalette'", color: palette.string },
+        { text: ';', color: palette.punctuation },
+      ],
+    },
+    {
+      lineNumber: 13,
+      minimapWidth: 0,
+      segments: [],
+    },
+    {
+      lineNumber: 14,
+      minimapWidth: 74,
+      segments: [
+        { text: 'export ', color: palette.keyword },
+        { text: 'function ', color: palette.keyword },
+        { text: 'buildEditorPreview', color: palette.function },
+        { text: '(', color: palette.punctuation },
+        { text: 'theme', color: palette.variable },
+        { text: ': ', color: palette.punctuation },
+        { text: 'Theme', color: palette.type },
+        { text: ') {', color: palette.punctuation },
+      ],
+    },
+    {
+      lineNumber: 15,
+      minimapWidth: 58,
+      segments: [
+        { text: '  // Preview selection, cursor, and layout states', color: palette.comment },
+      ],
+    },
+    {
+      lineNumber: 16,
+      minimapWidth: 82,
+      segments: [
+        { text: '  const ', color: palette.keyword },
+        { text: 'preview', color: palette.variable },
+        { text: ' = ', color: palette.punctuation },
+        { text: 'resolveEditorVisualPalette', color: palette.function },
+        { text: '(', color: palette.punctuation },
+        { text: '{', color: palette.punctuation },
+      ],
+    },
+    {
+      lineNumber: 17,
+      minimapWidth: 64,
+      segments: [
+        { text: '    ', color: palette.punctuation },
+        { text: 'theme', color: palette.variable },
+        { text: ', ', color: palette.punctuation },
+        { text: 'selection', color: palette.variable },
+        { text: ': ', color: palette.punctuation },
+        { text: "'active'", color: palette.string, isSelection: true },
+        { text: ',', color: palette.punctuation },
+      ],
+    },
+    {
+      lineNumber: 18,
+      minimapWidth: 63,
+      decoration: 'inserted',
+      segments: [
+        { text: '    ', color: palette.punctuation },
+        { text: 'scale', color: palette.variable },
+        { text: ': ', color: palette.punctuation },
+        { text: '1.125', color: palette.number },
+        { text: ', ', color: palette.punctuation },
+        { text: 'stickyHeader', color: palette.variable },
+        { text: ': ', color: palette.punctuation },
+        { text: 'false', color: palette.constant },
+        { text: ',', color: palette.punctuation },
+      ],
+    },
+    {
+      lineNumber: 19,
+      minimapWidth: 80,
+      isActiveLine: true,
+      cursorColumn: 35,
+      segments: [
+        { text: '    ', color: palette.punctuation },
+        { text: 'markers', color: palette.variable },
+        { text: ': ', color: palette.punctuation },
+        { text: '[', color: palette.punctuation },
+        { text: "'cursor'", color: palette.string },
+        { text: ', ', color: palette.punctuation },
+        { text: "'selection'", color: palette.string, isSelection: true },
+        { text: ', ', color: palette.punctuation },
+        { text: "'gutter'", color: palette.string },
+        { text: '],', color: palette.punctuation },
+      ],
+    },
+    {
+      lineNumber: 20,
+      minimapWidth: 38,
+      segments: [{ text: '  });', color: palette.punctuation }],
+    },
+    {
+      lineNumber: 21,
+      minimapWidth: 0,
+      segments: [],
+    },
+    {
+      lineNumber: 22,
+      minimapWidth: 68,
+      segments: [
+        { text: '  return ', color: palette.keyword },
+        { text: 'preview', color: palette.variable },
+        { text: '.surface ', color: palette.punctuation },
+        { text: '?? ', color: palette.keyword },
+        { text: "'editor'", color: palette.string, isSelection: true },
+        { text: ';', color: palette.punctuation },
+      ],
+    },
+    {
+      lineNumber: 23,
+      minimapWidth: 16,
+      segments: [{ text: '}', color: palette.punctuation }],
+    },
   ];
+  const minimapRows = sampleLines.map((line) => ({
+    width: line.minimapWidth,
+    color: line.isActiveLine
+      ? palette.accent
+      : line.decoration === 'inserted'
+        ? insertedMarkerColor
+        : line.segments[0]?.color === palette.comment
+          ? withAlpha(palette.comment, '88')
+          : withAlpha(line.segments[0]?.color ?? palette.foreground, '52'),
+  }));
 
   return (
     <div
@@ -773,66 +887,140 @@ function EditorSamplePreview({
         backgroundColor: palette.background,
         borderColor: palette.indentGuide,
         boxShadow: `inset 0 1px 0 ${withAlpha(palette.foreground, '08')}`,
+        color: palette.foreground,
       }}
     >
       <div
-        className="flex items-center justify-between border-b px-3 py-2"
+        className="flex items-center justify-between gap-4 border-b px-3 py-2"
         style={{
-          backgroundColor: withAlpha(palette.lineHighlight, 'cc'),
+          backgroundColor: withAlpha(palette.foreground, palette.mode === 'dark' ? '04' : '03'),
           borderColor: palette.indentGuide,
         }}
       >
-        <div className="flex items-center gap-2">
-          <span
-            className="h-2.5 w-2.5 rounded-full"
-            style={{ backgroundColor: palette.constant }}
-          />
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette.number }} />
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette.string }} />
+        <div className="min-w-0">
+          <p className="truncate text-[11px] font-medium" style={{ color: palette.foreground }}>
+            src/renderer/theme/preview.ts
+          </p>
+          <p className="truncate text-[10px]" style={{ color: palette.lineNumber }}>
+            Selection, cursor, and active line states
+          </p>
         </div>
         <span
-          className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-          style={{
-            backgroundColor: withAlpha(palette.accent, '24'),
-            color: palette.accent,
-          }}
+          className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em]"
+          style={{ color: palette.lineNumber }}
         >
-          settings/theme.ts
+          TypeScript
         </span>
       </div>
 
-      <div className="px-0 py-2" style={{ fontFamily, fontSize: `${fontSize}px`, lineHeight }}>
-        {sampleLines.map((segments, index) => {
-          const isActiveLine = index === 2;
-
-          return (
+      <div
+        className="grid grid-cols-[minmax(0,1fr)_2.75rem]"
+        style={{
+          fontFamily: previewFontFamily,
+          fontSize: `${fontSize}px`,
+          lineHeight,
+        }}
+      >
+        <div
+          className="min-h-[14rem] py-2"
+          style={{
+            backgroundImage: `linear-gradient(90deg, ${gutterBackground} 0, ${gutterBackground} 3.4rem, transparent 3.4rem), repeating-linear-gradient(90deg, transparent 0, transparent 2.2ch, ${guideColor} 2.2ch, transparent 2.3ch)`,
+          }}
+        >
+          {sampleLines.map((line) => (
             <div
-              key={`editor-sample-line-${index + 1}`}
-              className="grid grid-cols-[2.8rem_1fr] items-start px-3"
+              key={`editor-sample-line-${line.lineNumber}`}
+              className="grid grid-cols-[0.375rem_3rem_minmax(0,1fr)] items-start px-3"
               style={{
-                backgroundColor: isActiveLine ? palette.lineHighlight : 'transparent',
-                borderLeft: isActiveLine ? `2px solid ${palette.accent}` : '2px solid transparent',
+                backgroundColor: line.isActiveLine
+                  ? palette.lineHighlight
+                  : line.decoration === 'inserted'
+                    ? palette.diffInsertedLine
+                    : 'transparent',
+                borderLeft: line.isActiveLine
+                  ? `2px solid ${palette.accent}`
+                  : '2px solid transparent',
               }}
             >
+              <div className="flex justify-center pt-1.5">
+                {line.isActiveLine ? (
+                  <span
+                    className="h-4 w-0.5 rounded-full"
+                    style={{ backgroundColor: palette.accent }}
+                  />
+                ) : line.decoration === 'inserted' ? (
+                  <span
+                    className="h-4 w-0.5 rounded-full"
+                    style={{ backgroundColor: insertedMarkerColor }}
+                  />
+                ) : null}
+              </div>
               <div
                 className="select-none pr-3 pt-0.5 text-right text-[0.82em]"
-                style={{ color: palette.lineNumber }}
+                style={{ color: line.isActiveLine ? palette.foreground : palette.lineNumber }}
               >
-                {index + 1}
+                {line.lineNumber}
               </div>
-              <div className="min-w-0 overflow-hidden py-0.5">
-                {segments.map((segment, segmentIndex) => (
+              <div className="relative min-w-0 overflow-hidden py-0.5 whitespace-pre">
+                {line.segments.map((segment, segmentIndex) => (
                   <span
-                    key={`editor-sample-segment-${index + 1}-${segmentIndex + 1}`}
-                    style={{ color: segment.color }}
+                    key={`editor-sample-segment-${line.lineNumber}-${segmentIndex + 1}`}
+                    style={{
+                      color: segment.isSelection ? palette.foreground : segment.color,
+                      backgroundColor: segment.isSelection
+                        ? selectedSegmentBackground
+                        : 'transparent',
+                      borderRadius: segment.isSelection ? '0.22rem' : undefined,
+                      paddingInline: segment.isSelection ? '0.08rem' : undefined,
+                    }}
                   >
                     {segment.text}
                   </span>
                 ))}
+                {line.cursorColumn ? (
+                  <span
+                    className="pointer-events-none absolute w-px rounded-full"
+                    style={{
+                      left: `calc(${line.cursorColumn}ch + 0.125rem)`,
+                      top: '0.2em',
+                      bottom: '0.2em',
+                      backgroundColor: palette.accent,
+                      boxShadow: `0 0 0 1px ${withAlpha(palette.background, '66')}`,
+                    }}
+                  />
+                ) : null}
               </div>
             </div>
-          );
-        })}
+          ))}
+        </div>
+
+        <div
+          className="flex flex-col gap-1.5 border-l px-2 py-2"
+          style={{
+            backgroundColor: withAlpha(palette.foreground, palette.mode === 'dark' ? '03' : '04'),
+            borderColor: palette.indentGuide,
+          }}
+        >
+          {minimapRows.map((row, index) => (
+            <span
+              key={`editor-sample-minimap-${index + 1}`}
+              className="h-1 rounded-full"
+              style={{
+                width: `${Math.max(10, row.width)}%`,
+                backgroundColor: row.width === 0 ? 'transparent' : row.color,
+                opacity: row.width === 0 ? 0 : 1,
+              }}
+            />
+          ))}
+          <span
+            className="mt-1 h-2 w-full rounded-full"
+            style={{ backgroundColor: palette.diffInsertedText }}
+          />
+          <span
+            className="mt-auto h-8 rounded-sm"
+            style={{ backgroundColor: palette.selectionBackground }}
+          />
+        </div>
       </div>
     </div>
   );
@@ -840,24 +1028,31 @@ function EditorSamplePreview({
 
 function describeCustomTheme(
   customTheme: CustomThemeDocument,
-  fallbackPreset: ColorPreset
+  fallbackPreset: ColorPreset,
+  t: (key: string, params?: Record<string, string | number>) => string
 ): string {
   if (customTheme.sourceType === 'blank') {
-    return 'Custom theme built from a blank starting point.';
+    return t('Custom theme built from a blank starting point.');
   }
 
-  return `Custom theme derived from ${getColorPresetOption(customTheme.sourcePresetId ?? fallbackPreset).label}.`;
+  return t('Custom theme derived from {{name}}.', {
+    name: t(getColorPresetOption(customTheme.sourcePresetId ?? fallbackPreset).label),
+  });
 }
 
 function ThemeTokenInputCard({
   tokenKey,
   value,
+  readOnly = false,
   onChange,
 }: {
   tokenKey: string;
   value: string;
+  readOnly?: boolean;
   onChange: (nextValue: string) => void;
 }) {
+  const { t } = useI18n();
+
   return (
     <div
       className="rounded-lg border border-border/70 bg-background/40 p-3"
@@ -884,7 +1079,17 @@ function ThemeTokenInputCard({
       </div>
 
       <div className="mt-3">
-        <Input value={value} onChange={(event) => onChange(event.target.value)} />
+        <Input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          readOnly={readOnly}
+          disabled={readOnly}
+        />
+        {readOnly ? (
+          <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+            {t('Runtime semantic colors stay locked to the selected theme family.')}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -911,10 +1116,13 @@ function FavoriteButton({
         e.preventDefault();
         onClick(e);
       }}
-      className={cn('p-1 hover:text-red-500 transition-colors', className)}
+      className={cn(
+        'p-1 text-muted-foreground transition-colors hover:text-destructive',
+        className
+      )}
     >
       {isFavorite ? (
-        <Heart className="h-4 w-4 fill-red-500 text-red-500" />
+        <Heart className="h-4 w-4 fill-current text-destructive" />
       ) : (
         <Heart className="h-4 w-4" />
       )}
@@ -928,7 +1136,6 @@ function ThemeCombobox({
   themes,
   favoriteThemes,
   onToggleFavorite,
-  onThemeHover,
   showFavoritesOnly,
   onShowFavoritesOnlyChange,
   showEmptyFavoritesHint,
@@ -938,43 +1145,40 @@ function ThemeCombobox({
   themes: string[];
   favoriteThemes: string[];
   onToggleFavorite: (theme: string) => void;
-  onThemeHover?: (theme: string) => void;
   showFavoritesOnly: boolean;
   onShowFavoritesOnlyChange: (checked: boolean) => void;
   showEmptyFavoritesHint?: boolean;
 }) {
   const { t } = useI18n();
-  // 使用内部值与外部值解耦，防止悬停时下拉框关闭
+  const getThemeLabel = React.useCallback(
+    (themeName: string) => localizeTerminalThemeName(themeName, t),
+    [t]
+  );
   const [internalValue, setInternalValue] = React.useState(value);
-  const [search, setSearch] = React.useState(value);
+  const [search, setSearch] = React.useState(() => getThemeLabel(value));
   const [isOpen, setIsOpen] = React.useState(false);
-  const hoverTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const listRef = React.useRef<HTMLDivElement>(null);
-  const originalValueRef = React.useRef<string>(value);
-  const explicitSelectionRef = React.useRef(false);
-
-  // 性能优化：使用 Set 替代数组查找
   const favoriteSet = React.useMemo(() => new Set(favoriteThemes), [favoriteThemes]);
 
-  // 仅在下拉框关闭时同步外部值
   React.useEffect(() => {
     if (!isOpen) {
       setInternalValue(value);
-      setSearch(value);
+      setSearch(getThemeLabel(value));
     }
-  }, [value, isOpen]);
+  }, [value, isOpen, getThemeLabel]);
 
   const filteredThemes = React.useMemo(() => {
-    if (!search || search === internalValue) return themes;
-    const query = search.toLowerCase();
-    return themes.filter((name) => name.toLowerCase().includes(query));
-  }, [themes, search, internalValue]);
+    return filterTerminalThemeNames({
+      themes,
+      query: search,
+      selectedTheme: internalValue,
+      t,
+    });
+  }, [themes, search, internalValue, t]);
 
   const handleValueChange = (newValue: string | null) => {
     if (newValue) {
-      explicitSelectionRef.current = true;
       setInternalValue(newValue);
-      setSearch(newValue);
+      setSearch(getThemeLabel(newValue));
     }
     onValueChange(newValue);
   };
@@ -982,60 +1186,10 @@ function ThemeCombobox({
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
     if (open) {
-      originalValueRef.current = value;
-      explicitSelectionRef.current = false;
       setInternalValue(value);
-      setSearch(value);
-    } else {
-      // 关闭时如果没有显式选择，恢复原始主题
-      if (!explicitSelectionRef.current) {
-        onThemeHover?.(originalValueRef.current);
-      }
+      setSearch(getThemeLabel(value));
     }
   };
-
-  const handleItemMouseEnter = (themeName: string) => {
-    clearTimeout(hoverTimeoutRef.current);
-    hoverTimeoutRef.current = setTimeout(() => {
-      onThemeHover?.(themeName);
-    }, 50);
-  };
-
-  const handleItemMouseLeave = () => {
-    clearTimeout(hoverTimeoutRef.current);
-  };
-
-  // 键盘导航处理 - 使用捕获阶段监听，确保在输入框处理之前捕获事件
-  React.useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        // 使用 requestAnimationFrame 确保 Combobox 完成高亮状态更新后再查询
-        requestAnimationFrame(() => {
-          const highlighted = listRef.current?.querySelector('[data-highlighted]');
-          if (highlighted) {
-            const themeName = highlighted.getAttribute('data-value');
-            if (themeName) {
-              onThemeHover?.(themeName);
-            }
-          }
-        });
-      }
-    };
-
-    // 使用 capture: true 在捕获阶段监听，确保事件不会被输入框拦截
-    document.addEventListener('keydown', handleKeyDown, true);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown, true);
-    };
-  }, [isOpen, onThemeHover]);
-
-  React.useEffect(() => {
-    return () => {
-      clearTimeout(hoverTimeoutRef.current);
-    };
-  }, []);
 
   return (
     <Combobox<string>
@@ -1066,7 +1220,7 @@ function ThemeCombobox({
         </div>
       </div>
       <ComboboxPopup>
-        <ComboboxList ref={listRef}>
+        <ComboboxList>
           {filteredThemes.length === 0 && (
             <div className="py-6 text-center text-sm text-muted-foreground">
               {showEmptyFavoritesHint
@@ -1079,8 +1233,6 @@ function ThemeCombobox({
               key={name}
               value={name}
               data-value={name}
-              onMouseEnter={() => handleItemMouseEnter(name)}
-              onMouseLeave={handleItemMouseLeave}
               endAddon={
                 <FavoriteButton
                   isFavorite={favoriteSet.has(name)}
@@ -1091,7 +1243,7 @@ function ThemeCombobox({
                 />
               }
             >
-              {name}
+              {getThemeLabel(name)}
             </ComboboxItem>
           ))}
         </ComboboxList>
@@ -1116,11 +1268,15 @@ export function AppearanceSettings() {
     renameCustomTheme,
     deleteCustomTheme,
     updateCustomThemeTokens,
+    fontSize: appFontSize,
+    setFontSize: setAppFontSize,
+    fontFamily: appFontFamily,
+    setFontFamily: setAppFontFamily,
     terminalTheme,
     setTerminalTheme,
-    terminalFontSize: globalFontSize,
+    terminalFontSize,
     setTerminalFontSize,
-    terminalFontFamily: globalFontFamily,
+    terminalFontFamily,
     setTerminalFontFamily,
     terminalFontWeight,
     setTerminalFontWeight,
@@ -1157,27 +1313,20 @@ export function AppearanceSettings() {
     toggleFavoriteTerminalTheme,
   } = useSettingsStore();
   const { t } = useI18n();
-  const [livePreviewTheme, setLivePreviewTheme] = React.useState<Theme | null>(null);
-  const [previewPreset, setPreviewPreset] = React.useState<ColorPreset | null>(null);
-  const [previewCustomThemeId, setPreviewCustomThemeId] = React.useState<string | null>(null);
   const [tokenEditorMode, setTokenEditorMode] = React.useState<ResolvedThemeMode>('dark');
+  const [editingCustomThemeId, setEditingCustomThemeId] = React.useState<string | null>(null);
   const themeModel = React.useMemo(() => buildAppearanceThemeModel({ theme, t }), [theme, t]);
-  const effectivePreviewTheme = livePreviewTheme ?? theme;
   const activeCustomTheme = React.useMemo(
     () => findCustomThemeBySelection(customThemes, activeThemeSelection),
     [activeThemeSelection, customThemes]
   );
-  const previewCustomTheme = React.useMemo(
-    () => customThemes.find((entry) => entry.id === previewCustomThemeId) ?? null,
-    [customThemes, previewCustomThemeId]
+  const editingCustomTheme = React.useMemo(
+    () => customThemes.find((candidate) => candidate.id === editingCustomThemeId) ?? null,
+    [customThemes, editingCustomThemeId]
   );
-  const effectivePreviewCustomTheme = previewCustomTheme ?? activeCustomTheme;
-  const effectivePreviewPreset = previewPreset ?? colorPreset;
-  const livePreviewActive =
-    livePreviewTheme !== null || previewPreset !== null || previewCustomThemeId !== null;
-  const colorPreviewMode = React.useMemo(
-    () => resolveAppearancePreviewMode(effectivePreviewTheme, terminalTheme),
-    [effectivePreviewTheme, terminalTheme]
+  const activeAppearanceMode = React.useMemo(
+    () => resolveAppearancePreviewMode(theme, terminalTheme),
+    [terminalTheme, theme]
   );
   const themeModeIcons: Record<Exclude<Theme, 'sync-terminal'>, React.ElementType> = {
     light: Sun,
@@ -1186,41 +1335,75 @@ export function AppearanceSettings() {
   };
 
   // Local state for inputs
-  const [localFontSize, setLocalFontSize] = React.useState(globalFontSize);
-  const [localFontFamily, setLocalFontFamily] = React.useState(globalFontFamily);
+  const [localAppFontSize, setLocalAppFontSize] = React.useState(appFontSize);
+  const [localAppFontFamily, setLocalAppFontFamily] = React.useState(appFontFamily);
+  const [localTerminalFontSize, setLocalTerminalFontSize] = React.useState(terminalFontSize);
+  const [localTerminalFontFamily, setLocalTerminalFontFamily] = React.useState(terminalFontFamily);
   const [showFavoritesOnly, setShowFavoritesOnly] = React.useState(false);
   const [bgSettingsOpen, setBgSettingsOpen] = React.useState(false);
 
   // Sync local state with global when global changes externally
   React.useEffect(() => {
-    setLocalFontSize(globalFontSize);
-  }, [globalFontSize]);
+    setLocalAppFontSize(appFontSize);
+  }, [appFontSize]);
 
   React.useEffect(() => {
-    setLocalFontFamily(globalFontFamily);
-  }, [globalFontFamily]);
+    setLocalAppFontFamily(appFontFamily);
+  }, [appFontFamily]);
 
-  // Apply font size change (with validation)
-  const applyFontSizeChange = React.useCallback(() => {
-    const validFontSize = Math.max(8, Math.min(32, localFontSize || 8));
-    if (validFontSize !== localFontSize) {
-      setLocalFontSize(validFontSize);
+  React.useEffect(() => {
+    setLocalTerminalFontSize(terminalFontSize);
+  }, [terminalFontSize]);
+
+  React.useEffect(() => {
+    setLocalTerminalFontFamily(terminalFontFamily);
+  }, [terminalFontFamily]);
+
+  React.useEffect(() => {
+    if (editingCustomThemeId && !editingCustomTheme) {
+      setEditingCustomThemeId(null);
     }
-    if (validFontSize !== globalFontSize) {
+  }, [editingCustomTheme, editingCustomThemeId]);
+
+  const applyAppFontSizeChange = React.useCallback(() => {
+    const validFontSize = Math.max(12, Math.min(20, localAppFontSize || 14));
+    if (validFontSize !== localAppFontSize) {
+      setLocalAppFontSize(validFontSize);
+    }
+    if (validFontSize !== appFontSize) {
+      setAppFontSize(validFontSize);
+    }
+  }, [localAppFontSize, appFontSize, setAppFontSize]);
+
+  const applyAppFontFamilyChange = React.useCallback(() => {
+    const validFontFamily = localAppFontFamily.trim() || appFontFamily;
+    if (validFontFamily !== localAppFontFamily) {
+      setLocalAppFontFamily(validFontFamily);
+    }
+    if (validFontFamily !== appFontFamily) {
+      setAppFontFamily(validFontFamily);
+    }
+  }, [localAppFontFamily, appFontFamily, setAppFontFamily]);
+
+  const applyTerminalFontSizeChange = React.useCallback(() => {
+    const validFontSize = Math.max(8, Math.min(32, localTerminalFontSize || 8));
+    if (validFontSize !== localTerminalFontSize) {
+      setLocalTerminalFontSize(validFontSize);
+    }
+    if (validFontSize !== terminalFontSize) {
       setTerminalFontSize(validFontSize);
     }
-  }, [localFontSize, globalFontSize, setTerminalFontSize]);
+  }, [localTerminalFontSize, setTerminalFontSize, terminalFontSize]);
 
-  // Apply font family change (with validation)
-  const applyFontFamilyChange = React.useCallback(() => {
-    const validFontFamily = localFontFamily.trim() || globalFontFamily;
-    if (validFontFamily !== localFontFamily) {
-      setLocalFontFamily(validFontFamily);
+  const applyTerminalFontFamilyChange = React.useCallback(() => {
+    const validFontFamily = localTerminalFontFamily.trim() || terminalFontFamily;
+    if (validFontFamily !== localTerminalFontFamily) {
+      setLocalTerminalFontFamily(validFontFamily);
     }
-    if (validFontFamily !== globalFontFamily) {
+    if (validFontFamily !== terminalFontFamily) {
       setTerminalFontFamily(validFontFamily);
     }
-  }, [localFontFamily, globalFontFamily, setTerminalFontFamily]);
+  }, [localTerminalFontFamily, setTerminalFontFamily, terminalFontFamily]);
 
   // Get theme names synchronously from embedded data
   const themeNames = React.useMemo(() => getThemeNames(), []);
@@ -1239,79 +1422,60 @@ export function AppearanceSettings() {
   }, [themeNames, showFavoritesOnly, favoriteTerminalThemes, terminalTheme]);
 
   const showEmptyFavoritesHint = showFavoritesOnly && favoriteTerminalThemes.length === 0;
+  const activePresetId = activeCustomTheme?.sourcePresetId ?? colorPreset;
   const colorPresetModel = React.useMemo(
     () =>
       buildAppearanceColorPresetModel({
         selectedPresetId: colorPreset,
         presetOptions: APP_COLOR_PRESET_OPTIONS,
+        t,
       }),
-    [colorPreset]
+    [colorPreset, t]
   );
   const selectedPreset = colorPresetModel.selectedPreset;
   const colorInputValue = customAccentColor || selectedPreset.themeHex;
   const presetCardAccentColor = React.useMemo(
-    () => resolveAppearanceAccentColor(effectivePreviewTheme, terminalTheme, customAccentColor),
-    [customAccentColor, effectivePreviewTheme, terminalTheme]
+    () => resolveAppearanceAccentColor(theme, terminalTheme, customAccentColor),
+    [customAccentColor, terminalTheme, theme]
   );
-  const previewAccentColor = React.useMemo(() => {
-    if (effectivePreviewCustomTheme) {
-      return effectivePreviewCustomTheme.tokens[colorPreviewMode].primary;
+  const activeAccentColor = React.useMemo(() => {
+    if (activeCustomTheme) {
+      return activeCustomTheme.tokens[activeAppearanceMode].primary;
     }
 
-    return resolveAppearanceAccentColor(effectivePreviewTheme, terminalTheme, customAccentColor);
-  }, [
-    colorPreviewMode,
-    customAccentColor,
-    effectivePreviewCustomTheme,
-    effectivePreviewTheme,
-    terminalTheme,
-  ]);
-  const previewedPreset = React.useMemo(
-    () =>
-      getColorPresetOption(effectivePreviewCustomTheme?.sourcePresetId ?? effectivePreviewPreset) ??
-      selectedPreset,
-    [effectivePreviewCustomTheme, effectivePreviewPreset, selectedPreset]
+    return resolveAppearanceAccentColor(theme, terminalTheme, customAccentColor);
+  }, [activeAppearanceMode, activeCustomTheme, customAccentColor, terminalTheme, theme]);
+  const activePreset = React.useMemo(
+    () => getColorPresetOption(activePresetId) ?? selectedPreset,
+    [activePresetId, selectedPreset]
   );
-  const previewModeLabel = React.useMemo(() => {
-    if (effectivePreviewTheme === 'sync-terminal') {
+  const activeModeLabel = React.useMemo(() => {
+    if (theme === 'sync-terminal') {
       return t('Sync terminal theme');
     }
 
-    return (
-      themeModel.modeOptions.find((option) => option.value === effectivePreviewTheme)?.label ??
-      t('System')
-    );
-  }, [effectivePreviewTheme, t, themeModel.modeOptions]);
+    return themeModel.modeOptions.find((option) => option.value === theme)?.label ?? t('System');
+  }, [t, theme, themeModel.modeOptions]);
 
   React.useEffect(() => {
     applyAppearancePreview({
-      theme: effectivePreviewTheme,
+      theme,
       terminalTheme,
-      colorPreset: effectivePreviewPreset,
-      accentColor: previewAccentColor,
-      customTheme: effectivePreviewCustomTheme,
+      colorPreset: activePresetId,
+      accentColor: activeAccentColor,
+      customTheme: activeCustomTheme,
     });
 
     return () => {
       applyAppearancePreview({
         theme,
         terminalTheme,
-        colorPreset,
-        accentColor: resolveAppearanceAccentColor(theme, terminalTheme, customAccentColor),
+        colorPreset: activePresetId,
+        accentColor: activeAccentColor,
         customTheme: activeCustomTheme,
       });
     };
-  }, [
-    activeCustomTheme,
-    colorPreset,
-    customAccentColor,
-    effectivePreviewCustomTheme,
-    effectivePreviewPreset,
-    effectivePreviewTheme,
-    previewAccentColor,
-    terminalTheme,
-    theme,
-  ]);
+  }, [activeCustomTheme, activeAccentColor, activePresetId, terminalTheme, theme]);
 
   // Get preview theme synchronously
   const terminalPreviewTheme = React.useMemo(() => {
@@ -1323,6 +1487,33 @@ export function AppearanceSettings() {
       setTerminalTheme(value);
     }
   };
+
+  const handleOpenCustomThemeEditor = React.useCallback(
+    (themeId: string) => {
+      setActiveCustomTheme(themeId);
+      setEditingCustomThemeId(themeId);
+    },
+    [setActiveCustomTheme]
+  );
+
+  const handleCreateThemeFromPreset = React.useCallback(() => {
+    const nextThemeId = createCustomThemeFromPreset(colorPreset);
+    setEditingCustomThemeId(nextThemeId);
+  }, [colorPreset, createCustomThemeFromPreset]);
+
+  const handleCreateBlankTheme = React.useCallback(() => {
+    const nextThemeId = createBlankCustomTheme();
+    setEditingCustomThemeId(nextThemeId);
+  }, [createBlankCustomTheme]);
+
+  const handleDeleteEditingTheme = React.useCallback(() => {
+    if (!editingCustomTheme) {
+      return;
+    }
+
+    setEditingCustomThemeId(null);
+    deleteCustomTheme(editingCustomTheme.id);
+  }, [deleteCustomTheme, editingCustomTheme]);
 
   const handlePrevTheme = () => {
     const list = showFavoritesOnly ? displayThemes : themeNames;
@@ -1386,13 +1577,45 @@ export function AppearanceSettings() {
       : backgroundSourceType === 'url'
         ? setBackgroundUrlPath
         : setBackgroundImagePath;
-  const effectivePreviewDescription = effectivePreviewCustomTheme
-    ? describeCustomTheme(
-        effectivePreviewCustomTheme,
-        effectivePreviewCustomTheme.sourcePresetId ?? effectivePreviewPreset
-      )
-    : previewedPreset.description;
-  const tokenEditorTheme = activeCustomTheme;
+  const activeAppearanceDescription = activeCustomTheme
+    ? describeCustomTheme(activeCustomTheme, activeCustomTheme.sourcePresetId ?? colorPreset, t)
+    : t(activePreset.description);
+  const editorPresetId = editingCustomTheme?.sourcePresetId ?? colorPreset;
+  const editorAccentColor =
+    editingCustomTheme?.tokens[activeAppearanceMode].primary ?? activeAccentColor;
+  const editorAppearanceDescription = editingCustomTheme
+    ? describeCustomTheme(editingCustomTheme, editorPresetId, t)
+    : '';
+
+  if (editingCustomTheme) {
+    return (
+      <AppearanceThemeEditorView
+        customTheme={editingCustomTheme}
+        tokenEditorMode={tokenEditorMode}
+        activeModeLabel={activeModeLabel}
+        activeAppearanceMode={activeAppearanceMode}
+        editorPresetId={editorPresetId}
+        editorAppearanceDescription={editorAppearanceDescription}
+        editorAccentColor={editorAccentColor}
+        theme={theme}
+        terminalTheme={terminalTheme}
+        editorFontSize={editorSettings.fontSize}
+        editorFontFamily={editorSettings.fontFamily}
+        editorLineHeight={editorSettings.lineHeight}
+        onBack={() => setEditingCustomThemeId(null)}
+        onTokenEditorModeChange={setTokenEditorMode}
+        onRename={(name) => renameCustomTheme(editingCustomTheme.id, name)}
+        onDelete={handleDeleteEditingTheme}
+        onUpdateTokens={(mode, updates) =>
+          updateCustomThemeTokens(editingCustomTheme.id, mode, updates)
+        }
+        SelectionBadge={AppearanceSelectionBadge}
+        ThemeTokenCard={ThemeTokenInputCard}
+        PresetPreview={ColorPresetPreview}
+        EditorPreview={EditorSamplePreview}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1404,10 +1627,7 @@ export function AppearanceSettings() {
               <p className="text-sm text-muted-foreground">{t('Choose interface theme')}</p>
             </div>
 
-            <div
-              className="grid gap-3 md:grid-cols-3"
-              onMouseLeave={() => setLivePreviewTheme(null)}
-            >
+            <div className="grid gap-3 md:grid-cols-3">
               {themeModel.modeOptions.map((option) => {
                 const OptionIcon = themeModeIcons[option.value];
 
@@ -1419,25 +1639,17 @@ export function AppearanceSettings() {
                     icon={OptionIcon}
                     mode={option.value}
                     terminalTheme={terminalTheme}
-                    colorPreset={
-                      effectivePreviewCustomTheme?.sourcePresetId ?? effectivePreviewPreset
-                    }
+                    colorPreset={activePresetId}
                     customAccentColor={customAccentColor}
-                    customTheme={effectivePreviewCustomTheme}
+                    customTheme={activeCustomTheme}
                     isSelected={themeModel.activeMode === option.value}
-                    isPreviewing={livePreviewTheme === option.value}
                     onSelect={() => setTheme(option.value)}
-                    onPreview={() => setLivePreviewTheme(option.value)}
                   />
                 );
               })}
             </div>
 
-            <div
-              className="control-panel-muted overflow-hidden rounded-xl p-4"
-              onMouseEnter={() => setLivePreviewTheme('sync-terminal')}
-              onMouseLeave={() => setLivePreviewTheme(null)}
-            >
+            <div className="control-panel-muted overflow-hidden rounded-xl p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.95rem] border border-border/70 bg-background/35">
@@ -1445,16 +1657,10 @@ export function AppearanceSettings() {
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold tracking-[-0.01em]">
-                        {t('Sync terminal theme')}
-                      </p>
+                      <p className="text-sm font-medium">{t('Sync terminal theme')}</p>
                       {themeModel.terminalSyncEnabled ? (
                         <AppearanceSelectionBadge tone="current">
                           {t('Current')}
-                        </AppearanceSelectionBadge>
-                      ) : livePreviewTheme === 'sync-terminal' ? (
-                        <AppearanceSelectionBadge tone="preview">
-                          {t('Preview')}
                         </AppearanceSelectionBadge>
                       ) : null}
                     </div>
@@ -1501,7 +1707,7 @@ export function AppearanceSettings() {
                 </div>
               ) : (
                 <p className="mt-4 text-xs leading-5 text-muted-foreground">
-                  Custom themes manage their own primary, accent, and support tokens.
+                  {t('Custom themes manage their own primary, accent, and support tokens.')}
                 </p>
               )}
             </div>
@@ -1513,19 +1719,15 @@ export function AppearanceSettings() {
               </p>
             </div>
 
-            <div
-              className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
-              onMouseLeave={() => setPreviewPreset(null)}
-            >
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {colorPresetModel.compactOptions.map((option) => {
                 const isSelected =
                   activeThemeSelection.kind === 'preset' &&
                   activeThemeSelection.presetId === option.id;
-                const isPreviewing = previewPreset === option.id;
                 const optionPalette = resolveThemeVariables({
-                  mode: colorPreviewMode,
+                  mode: activeAppearanceMode,
                   preset: option.id,
-                  customAccentColor: previewAccentColor,
+                  customAccentColor: activeAccentColor,
                 });
 
                 return (
@@ -1533,15 +1735,11 @@ export function AppearanceSettings() {
                     type="button"
                     key={option.id}
                     onClick={() => setActivePresetTheme(option.id)}
-                    onMouseEnter={() => setPreviewPreset(option.id)}
-                    onFocus={() => setPreviewPreset(option.id)}
                     className="group relative overflow-hidden rounded-xl border p-4 text-left transition-colors duration-200"
                     style={{
                       borderColor: isSelected
                         ? optionPalette['--ring']
-                        : isPreviewing
-                          ? optionPalette['--border']
-                          : 'color-mix(in oklab, var(--border) 88%, transparent)',
+                        : 'color-mix(in oklab, var(--border) 88%, transparent)',
                       background: buildPreviewSurfaceBackground({
                         highlightColor: optionPalette['--primary'],
                         highlightAmount: 10,
@@ -1556,7 +1754,7 @@ export function AppearanceSettings() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p
-                          className="truncate text-sm font-semibold tracking-[-0.01em]"
+                          className="truncate text-sm font-medium"
                           style={{ color: optionPalette['--foreground'] }}
                         >
                           {option.label}
@@ -1565,11 +1763,6 @@ export function AppearanceSettings() {
                           {isSelected ? (
                             <AppearanceSelectionBadge tone="current">
                               {t('Current')}
-                            </AppearanceSelectionBadge>
-                          ) : null}
-                          {isPreviewing ? (
-                            <AppearanceSelectionBadge tone="preview">
-                              {t('Preview')}
                             </AppearanceSelectionBadge>
                           ) : null}
                           {option.recommended ? (
@@ -1609,7 +1802,7 @@ export function AppearanceSettings() {
 
                     <ColorPresetMiniCard
                       presetId={option.id}
-                      mode={colorPreviewMode}
+                      mode={activeAppearanceMode}
                       accentColor={presetCardAccentColor}
                     />
                   </button>
@@ -1620,35 +1813,36 @@ export function AppearanceSettings() {
             <div className="control-panel-muted space-y-3 rounded-xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-medium">Custom themes</h3>
+                  <h3 className="text-lg font-medium">{t('Custom themes')}</h3>
                   <p className="text-sm text-muted-foreground">
-                    Create blank themes or duplicate a preset into your own theme library.
+                    {t('Create blank themes or duplicate a preset into your own theme library.')}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => createCustomThemeFromPreset(colorPreset)}
-                  >
-                    Copy current preset
+                  <Button variant="outline" size="sm" onClick={handleCreateThemeFromPreset}>
+                    {t('Copy current preset')}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => createBlankCustomTheme()}>
-                    New blank
+                  {activeCustomTheme ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenCustomThemeEditor(activeCustomTheme.id)}
+                    >
+                      {t('Edit selected')}
+                    </Button>
+                  ) : null}
+                  <Button variant="outline" size="sm" onClick={handleCreateBlankTheme}>
+                    {t('New blank')}
                   </Button>
                 </div>
               </div>
 
               {customThemes.length > 0 ? (
-                <div
-                  className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
-                  onMouseLeave={() => setPreviewCustomThemeId(null)}
-                >
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {customThemes.map((customTheme) => {
                     const isSelected =
                       activeThemeSelection.kind === 'custom' &&
                       activeThemeSelection.customThemeId === customTheme.id;
-                    const isPreviewing = previewCustomThemeId === customTheme.id;
                     const themePresetId = customTheme.sourcePresetId ?? colorPreset;
 
                     return (
@@ -1656,28 +1850,19 @@ export function AppearanceSettings() {
                         key={customTheme.id}
                         type="button"
                         onClick={() => setActiveCustomTheme(customTheme.id)}
-                        onMouseEnter={() => setPreviewCustomThemeId(customTheme.id)}
-                        onFocus={() => setPreviewCustomThemeId(customTheme.id)}
                         className="rounded-xl border border-border/70 bg-background/35 p-4 text-left transition-colors"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold tracking-[-0.01em]">
-                              {customTheme.name}
-                            </p>
+                            <p className="truncate text-sm font-medium">{customTheme.name}</p>
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {isSelected ? (
                                 <AppearanceSelectionBadge tone="current">
                                   {t('Current')}
                                 </AppearanceSelectionBadge>
                               ) : null}
-                              {isPreviewing ? (
-                                <AppearanceSelectionBadge tone="preview">
-                                  {t('Preview')}
-                                </AppearanceSelectionBadge>
-                              ) : null}
                               <AppearanceSelectionBadge tone="muted">
-                                {customTheme.sourceType === 'blank' ? 'Blank' : 'From preset'}
+                                {customTheme.sourceType === 'blank' ? t('Blank') : t('From preset')}
                               </AppearanceSelectionBadge>
                             </div>
                           </div>
@@ -1685,14 +1870,14 @@ export function AppearanceSettings() {
 
                         <p className="mt-3 text-xs leading-5 text-muted-foreground">
                           {customTheme.sourceType === 'blank'
-                            ? 'Editable theme created from a neutral light and dark baseline.'
-                            : describeCustomTheme(customTheme, themePresetId)}
+                            ? t('Editable theme created from a neutral light and dark baseline.')
+                            : describeCustomTheme(customTheme, themePresetId, t)}
                         </p>
 
                         <ColorPresetMiniCard
                           presetId={themePresetId}
-                          mode={colorPreviewMode}
-                          accentColor={previewAccentColor}
+                          mode={activeAppearanceMode}
+                          accentColor={activeAccentColor}
                           customTheme={customTheme}
                         />
                       </button>
@@ -1701,104 +1886,7 @@ export function AppearanceSettings() {
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-border/70 bg-background/25 px-4 py-5 text-sm text-muted-foreground">
-                  No custom themes yet. Start from a preset or create a blank theme document.
-                </div>
-              )}
-            </div>
-
-            <div className="control-panel-muted space-y-3 rounded-xl p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-medium">Theme editor</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {tokenEditorTheme
-                      ? 'Edit the full token set for the active custom theme.'
-                      : 'Select a custom theme to edit, or duplicate a preset first.'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={tokenEditorMode === 'light' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setTokenEditorMode('light')}
-                  >
-                    {t('Light')}
-                  </Button>
-                  <Button
-                    variant={tokenEditorMode === 'dark' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setTokenEditorMode('dark')}
-                  >
-                    {t('Dark')}
-                  </Button>
-                </div>
-              </div>
-
-              {tokenEditorTheme ? (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/35 px-3 py-3">
-                    <div className="min-w-[16rem] flex-1">
-                      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                        Name
-                      </p>
-                      <Input
-                        value={tokenEditorTheme.name}
-                        onChange={(event) =>
-                          renameCustomTheme(tokenEditorTheme.id, event.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <AppearanceSelectionBadge tone="muted">
-                        {tokenEditorTheme.sourceType === 'blank'
-                          ? 'Blank base'
-                          : `Based on ${getColorPresetOption(tokenEditorTheme.sourcePresetId ?? colorPreset).label}`}
-                      </AppearanceSelectionBadge>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => deleteCustomTheme(tokenEditorTheme.id)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-
-                  {APP_THEME_TOKEN_GROUPS.map((group) => (
-                    <div
-                      key={group.id}
-                      className="space-y-3 rounded-lg border border-border/60 bg-background/20 p-3"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium">{group.label}</p>
-                        <AppearanceSelectionBadge tone="muted">
-                          {group.keys.length} tokens
-                        </AppearanceSelectionBadge>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        {group.keys.map((tokenKey) => {
-                          const value = tokenEditorTheme.tokens[tokenEditorMode][tokenKey];
-
-                          return (
-                            <ThemeTokenInputCard
-                              key={`${group.id}-${tokenKey}`}
-                              tokenKey={tokenKey}
-                              value={value}
-                              onChange={(nextValue) =>
-                                updateCustomThemeTokens(tokenEditorTheme.id, tokenEditorMode, {
-                                  [tokenKey]: nextValue,
-                                })
-                              }
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-border/70 bg-background/25 px-4 py-5 text-sm text-muted-foreground">
-                  Select a custom theme to unlock the full token editor.
+                  {t('No custom themes yet. Start from a preset or create a blank theme document.')}
                 </div>
               )}
             </div>
@@ -1806,93 +1894,30 @@ export function AppearanceSettings() {
         </div>
       </div>
 
-      <div className="control-panel rounded-xl p-4 md:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-base font-semibold tracking-[-0.015em]">
-                {effectivePreviewCustomTheme?.name ?? previewedPreset.label}
-              </p>
-              <AppearanceSelectionBadge tone={livePreviewActive ? 'preview' : 'current'}>
-                {livePreviewActive ? t('Preview') : t('Current')}
-              </AppearanceSelectionBadge>
-              <AppearanceSelectionBadge tone="muted">{previewModeLabel}</AppearanceSelectionBadge>
-              {effectivePreviewCustomTheme ? (
-                <AppearanceSelectionBadge tone="muted">Custom</AppearanceSelectionBadge>
-              ) : null}
-            </div>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              {effectivePreviewDescription}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 sm:min-w-[15rem]">
-            {[
-              {
-                label: 'Theme',
-                color:
-                  effectivePreviewCustomTheme?.tokens[colorPreviewMode].primary ??
-                  previewedPreset.themeHex,
-              },
-              {
-                label: 'Accent',
-                color:
-                  effectivePreviewCustomTheme?.tokens[colorPreviewMode].accent ??
-                  previewAccentColor,
-              },
-              {
-                label: 'Support',
-                color:
-                  effectivePreviewCustomTheme?.tokens[colorPreviewMode].support ??
-                  previewedPreset.supportHex,
-              },
-            ].map((entry) => (
-              <div
-                key={`${entry.label}-${entry.color}`}
-                className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full border"
-                    style={{
-                      backgroundColor: entry.color,
-                      borderColor: fadePreviewColor('var(--foreground)', 10),
-                    }}
-                  />
-                  <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                    {entry.label}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-5 space-y-4">
-          <ColorPresetPreview
-            presetId={previewedPreset.id}
-            mode={colorPreviewMode}
-            accentColor={previewAccentColor}
-            customTheme={effectivePreviewCustomTheme}
-          />
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium">{t('Editor sample')}</p>
-              <span className="text-xs text-muted-foreground">{t('Live code preview')}</span>
-            </div>
-            <EditorSamplePreview
-              theme={effectivePreviewTheme}
-              terminalTheme={terminalTheme}
-              colorPreset={previewedPreset.id}
-              accentColor={previewAccentColor}
-              customTheme={effectivePreviewCustomTheme}
-              fontSize={editorSettings.fontSize}
-              fontFamily={editorSettings.fontFamily}
-              lineHeight={editorSettings.lineHeight}
-            />
-          </div>
-        </div>
-      </div>
+      <AppearancePreviewPanel
+        title={activeCustomTheme?.name ?? t(activePreset.label)}
+        description={activeAppearanceDescription}
+        modeLabel={activeModeLabel}
+        isCustom={Boolean(activeCustomTheme)}
+        themeColor={
+          activeCustomTheme?.tokens[activeAppearanceMode].primary ?? activePreset.themeHex
+        }
+        accentColor={activeCustomTheme?.tokens[activeAppearanceMode].accent ?? activeAccentColor}
+        supportColor={
+          activeCustomTheme?.tokens[activeAppearanceMode].support ?? activePreset.supportHex
+        }
+        previewPresetId={activePreset.id}
+        previewMode={activeAppearanceMode}
+        previewCustomTheme={activeCustomTheme}
+        theme={theme}
+        terminalTheme={terminalTheme}
+        editorFontSize={editorSettings.fontSize}
+        editorFontFamily={editorSettings.fontFamily}
+        editorLineHeight={editorSettings.lineHeight}
+        SelectionBadge={AppearanceSelectionBadge}
+        PresetPreview={ColorPresetPreview}
+        EditorPreview={EditorSamplePreview}
+      />
 
       {/* Beta Features Section */}
       <div className="border-t pt-6">
@@ -2196,128 +2221,100 @@ export function AppearanceSettings() {
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Terminal Section */}
       <div className="border-t pt-6">
-        <h3 className="text-lg font-medium">{t('Terminal')}</h3>
-        <p className="text-sm text-muted-foreground">{t('Terminal appearance')}</p>
+        <h3 className="text-lg font-medium">{t('Interface typography')}</h3>
+        <p className="text-sm text-muted-foreground">
+          {t(
+            'Adjust the app font family and UI base size without changing editor or terminal text.'
+          )}
+        </p>
       </div>
 
-      {/* Preview */}
-      <div className="space-y-2">
-        <p className="text-sm font-medium">{t('Preview')}</p>
-        <TerminalPreview
-          theme={terminalPreviewTheme}
-          fontSize={localFontSize}
-          fontFamily={localFontFamily}
-          fontWeight={terminalFontWeight}
-        />
-      </div>
-
-      {/* Theme Selector */}
-      <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Color scheme')}</span>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={handlePrevTheme}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <div className="flex-1">
-            <ThemeCombobox
-              value={terminalTheme}
-              onValueChange={handleThemeChange}
-              themes={displayThemes}
-              favoriteThemes={favoriteTerminalThemes}
-              onToggleFavorite={toggleFavoriteTerminalTheme}
-              onThemeHover={setTerminalTheme}
-              showFavoritesOnly={showFavoritesOnly}
-              onShowFavoritesOnlyChange={setShowFavoritesOnly}
-              showEmptyFavoritesHint={showEmptyFavoritesHint}
-            />
-          </div>
-          <Button variant="outline" size="icon" onClick={handleNextTheme}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+      <div className="control-panel-muted rounded-xl p-4">
+        <div
+          className="rounded-[0.95rem] border border-border/70 bg-background/40 px-4 py-4"
+          style={{
+            fontFamily: localAppFontFamily,
+            fontSize: `${localAppFontSize}px`,
+          }}
+        >
+          <p className="text-[0.72em] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {t('Interface sample')}
+          </p>
+          <p className="mt-2 text-[1.2em] font-semibold tracking-[-0.02em] text-foreground">
+            {t('Workspace control surface')}
+          </p>
+          <p className="mt-2 max-w-[56ch] text-[0.94em] leading-[1.55] text-muted-foreground">
+            {t(
+              'This preview follows the app typography tokens only. Editor and terminal fonts stay independent.'
+            )}
+          </p>
         </div>
       </div>
 
-      {/* Font Family */}
       <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Font')}</span>
+        <span className="text-sm font-medium">{t('UI font')}</span>
         <Input
-          value={localFontFamily}
-          onChange={(e) => setLocalFontFamily(e.target.value)}
-          onBlur={applyFontFamilyChange}
+          value={localAppFontFamily}
+          onChange={(e) => setLocalAppFontFamily(e.target.value)}
+          onBlur={applyAppFontFamilyChange}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              applyFontFamilyChange();
+              applyAppFontFamilyChange();
               e.currentTarget.blur();
             }
           }}
-          placeholder="JetBrains Mono, monospace"
+          placeholder="system-ui, sans-serif"
         />
       </div>
 
-      {/* Font Size */}
       <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Font size')}</span>
+        <span className="text-sm font-medium">{t('UI font size')}</span>
         <div className="flex items-center gap-2">
           <Input
             type="number"
-            value={localFontSize}
-            onChange={(e) => setLocalFontSize(Number(e.target.value))}
-            onBlur={applyFontSizeChange}
+            value={localAppFontSize}
+            onChange={(e) => setLocalAppFontSize(Number(e.target.value))}
+            onBlur={applyAppFontSizeChange}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                applyFontSizeChange();
+                applyAppFontSizeChange();
                 e.currentTarget.blur();
               }
             }}
-            min={8}
-            max={32}
+            min={12}
+            max={20}
             className="w-20"
           />
           <span className="text-sm text-muted-foreground">px</span>
         </div>
       </div>
 
-      {/* Font Weight */}
-      <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Font weight')}</span>
-        <Select
-          value={terminalFontWeight}
-          onValueChange={(v) => setTerminalFontWeight(v as FontWeight)}
-        >
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopup>
-            {fontWeightOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-      </div>
-
-      {/* Font Weight Bold */}
-      <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Bold font weight')}</span>
-        <Select
-          value={terminalFontWeightBold}
-          onValueChange={(v) => setTerminalFontWeightBold(v as FontWeight)}
-        >
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopup>
-            {fontWeightOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-      </div>
+      <AppearanceTerminalSettingsSection
+        terminalPreviewTheme={terminalPreviewTheme}
+        localFontSize={localTerminalFontSize}
+        localFontFamily={localTerminalFontFamily}
+        terminalFontWeight={terminalFontWeight}
+        terminalFontWeightBold={terminalFontWeightBold}
+        terminalTheme={terminalTheme}
+        displayThemes={displayThemes}
+        favoriteTerminalThemes={favoriteTerminalThemes}
+        showFavoritesOnly={showFavoritesOnly}
+        showEmptyFavoritesHint={showEmptyFavoritesHint}
+        onPrevTheme={handlePrevTheme}
+        onNextTheme={handleNextTheme}
+        onThemeChange={handleThemeChange}
+        onToggleFavoriteTheme={toggleFavoriteTerminalTheme}
+        onShowFavoritesOnlyChange={setShowFavoritesOnly}
+        onFontFamilyChange={setLocalTerminalFontFamily}
+        onFontFamilyCommit={applyTerminalFontFamilyChange}
+        onFontSizeChange={setLocalTerminalFontSize}
+        onFontSizeCommit={applyTerminalFontSizeChange}
+        onFontWeightChange={setTerminalFontWeight}
+        onFontWeightBoldChange={setTerminalFontWeightBold}
+        ThemeSelector={ThemeCombobox}
+        TerminalPreview={TerminalPreview}
+      />
     </div>
   );
 }

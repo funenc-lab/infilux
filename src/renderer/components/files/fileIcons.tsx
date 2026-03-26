@@ -96,7 +96,7 @@ export function getFileIcon(name: string, isDirectory: boolean, isExpanded = fal
 
 export function getFileIconColor(name: string, isDirectory: boolean): string {
   if (isDirectory) {
-    return 'text-amber-500';
+    return 'text-warning';
   }
 
   const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -104,31 +104,31 @@ export function getFileIconColor(name: string, isDirectory: boolean): string {
   switch (ext) {
     case 'ts':
     case 'tsx':
-      return 'text-blue-500';
+      return 'text-info';
     case 'js':
     case 'jsx':
     case 'mjs':
     case 'cjs':
-      return 'text-yellow-500';
+      return 'text-warning';
     case 'json':
-      return 'text-yellow-600';
+      return 'text-warning';
     case 'html':
-      return 'text-orange-500';
+      return 'text-support';
     case 'css':
     case 'scss':
     case 'less':
-      return 'text-pink-500';
+      return 'text-support';
     case 'md':
-      return 'text-sky-500';
+      return 'text-info';
     case 'pdf':
-      return 'text-red-500';
+      return 'text-destructive';
     case 'svg':
     case 'png':
     case 'jpg':
     case 'jpeg':
     case 'gif':
     case 'webp':
-      return 'text-green-500';
+      return 'text-success';
     default:
       return 'text-muted-foreground';
   }

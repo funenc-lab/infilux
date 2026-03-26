@@ -302,7 +302,7 @@ export function PdfPreview({ path }: PdfPreviewProps) {
         <canvas
           ref={canvasRef}
           className={cn(
-            'mx-auto shadow-lg',
+            'mx-auto rounded-lg border border-border/70 bg-background',
             rendering && 'opacity-50 transition-opacity duration-200'
           )}
         />

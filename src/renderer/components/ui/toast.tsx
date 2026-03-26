@@ -82,7 +82,7 @@ function SendToSessionButton({ title, description, onClose }: SendToSessionButto
     <button
       type="button"
       onClick={handleClick}
-      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
       title={t('Send to session')}
     >
       <SendIcon className="h-3.5 w-3.5" />
@@ -174,7 +174,7 @@ function Toasts({ position = 'bottom-right' }: { position: ToastPosition }) {
                 {/* Close button - top right */}
                 <Toast.Close
                   aria-label="Close notification"
-                  className="absolute right-2 top-2 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="absolute right-2 top-2 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                   data-slot="toast-close"
                 >
                   <XIcon className="h-4 w-4" />

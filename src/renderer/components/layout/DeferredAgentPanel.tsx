@@ -42,8 +42,6 @@ export function DeferredAgentPanel({ shouldLoad = true, ...props }: DeferredAgen
       eyebrow={t('Agent Console')}
       title={t('Loading AI Agent')}
       description={t('Preparing agent sessions and terminal workspace')}
-      chipLabel={t('Agent Console')}
-      chipTone="wait"
     />
   );
 }

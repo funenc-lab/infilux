@@ -32,7 +32,7 @@ function TooltipPopup({
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Positioner
         align={align}
-        className="h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none"
+        className="h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) data-instant:transition-none"
         style={{ zIndex: zIndex ?? Z_INDEX.TOOLTIP }}
         data-slot="tooltip-positioner"
         side={side}

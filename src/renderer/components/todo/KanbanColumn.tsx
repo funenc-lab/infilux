@@ -45,6 +45,7 @@ export function KanbanColumn({
           <span className="text-[10px] text-muted-foreground/60">{tasks.length}</span>
         </div>
         <button
+          aria-label={t('New Task')}
           type="button"
           onClick={onAddTask}
           className="flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground/60 hover:bg-accent/50 hover:text-foreground transition-colors"

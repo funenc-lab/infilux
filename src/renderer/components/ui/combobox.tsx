@@ -173,7 +173,7 @@ function ComboboxPopup({
       >
         <span
           className={cn(
-            'relative flex max-h-full origin-(--transform-origin) rounded-lg border bg-popover bg-clip-padding transition-[scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-lg has-data-starting-style:scale-98 has-data-starting-style:opacity-0 dark:not-in-data-[slot=group]:bg-clip-border',
+            'control-floating relative flex max-h-full origin-(--transform-origin) rounded-lg transition-[scale,opacity] has-data-starting-style:scale-98 has-data-starting-style:opacity-0',
             className
           )}
         >

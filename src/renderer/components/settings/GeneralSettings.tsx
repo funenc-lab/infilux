@@ -25,6 +25,10 @@ import {
 } from 'lucide-react';
 import * as React from 'react';
 import {
+  applyImportedLegacyLocalStorageSnapshot,
+  getManagedLocalStorageSnapshot,
+} from '@/App/storage';
+import {
   AlertDialog,
   AlertDialogClose,
   AlertDialogDescription,
@@ -105,16 +109,69 @@ interface UpdateStatus {
   error?: string;
 }
 
-function getOptionCardClassName(isSelected: boolean): string {
-  return isSelected
-    ? 'border-border bg-muted/45 text-foreground'
-    : 'border-transparent bg-muted/30 hover:bg-muted/45';
+function SettingsOptionCard({
+  icon: Icon,
+  label,
+  description,
+  isSelected,
+  onClick,
+}: {
+  icon: React.ElementType;
+  label: string;
+  description: string;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'group relative flex min-w-0 items-start gap-3 rounded-lg border border-transparent px-3 py-3 text-left transition-colors',
+        isSelected
+          ? 'bg-accent/38 text-foreground'
+          : 'text-muted-foreground hover:bg-accent/20 hover:text-foreground'
+      )}
+    >
+      <span
+        className={cn(
+          'absolute left-1.5 top-3 bottom-3 w-0.5 rounded-full transition-opacity',
+          isSelected ? 'bg-primary opacity-100' : 'bg-border opacity-0'
+        )}
+      />
+      <span
+        className={cn(
+          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors',
+          isSelected ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground'
+        )}
+      >
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-foreground">{label}</span>
+        <span className="mt-1 block text-xs leading-5 text-muted-foreground">{description}</span>
+      </span>
+    </button>
+  );
 }
 
-function getOptionIconClassName(isSelected: boolean): string {
-  return isSelected
-    ? 'border border-border/80 bg-background text-foreground'
-    : 'bg-muted/70 text-muted-foreground';
+function SettingsCodeSurface({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'control-panel-muted rounded-xl border border-border/70 px-3 py-2 text-xs font-mono break-all',
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
 }
 
 function getLegacySettingsPathExamples(): string[] {
@@ -535,6 +592,22 @@ export function GeneralSettings() {
         return;
       }
 
+      const importedLocalStorageKeys = result.legacyLocalStorageSnapshot
+        ? applyImportedLegacyLocalStorageSnapshot(result.legacyLocalStorageSnapshot)
+        : [];
+
+      if (importedLocalStorageKeys.length > 0) {
+        await window.electronAPI.sessionStorage.importLocalStorage(
+          getManagedLocalStorageSnapshot()
+        );
+        console.info('[settings] Imported legacy localStorage snapshot', {
+          importedLocalStorageKeys,
+          sourcePath: result.sourcePath,
+        });
+        window.location.reload();
+        return;
+      }
+
       await useSettingsStore.persist.rehydrate();
       setLegacyImportDialogOpen(false);
       setLegacyImportPreview(null);
@@ -649,96 +722,66 @@ export function GeneralSettings() {
       </div>
 
       {/* Layout Section */}
-      <div className="border-t pt-4">
-        <h3 className="text-lg font-medium">{t('Layout')}</h3>
-        <p className="text-sm text-muted-foreground">{t('Choose sidebar layout mode')}</p>
-      </div>
+      <div className="control-panel rounded-xl p-4 md:p-5">
+        <div className="space-y-5">
+          <div>
+            <h3 className="text-lg font-medium">{t('Layout')}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{t('Choose sidebar layout mode')}</p>
+          </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {layoutModeOptions.map((option) => (
-          <button
-            type="button"
-            key={option.value}
-            onClick={() => setLayoutMode(option.value)}
-            className={cn(
-              'flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors',
-              getOptionCardClassName(layoutMode === option.value)
-            )}
-          >
-            <div
-              className={cn(
-                'flex h-10 w-10 items-center justify-center rounded-full',
-                getOptionIconClassName(layoutMode === option.value)
-              )}
-            >
-              <option.icon className="h-5 w-5" />
-            </div>
-            <span className="text-sm font-medium">{option.label}</span>
-            <span className="text-xs text-muted-foreground text-center">{option.description}</span>
-          </button>
-        ))}
-      </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {layoutModeOptions.map((option) => (
+              <SettingsOptionCard
+                key={option.value}
+                icon={option.icon}
+                label={option.label}
+                description={option.description}
+                isSelected={layoutMode === option.value}
+                onClick={() => setLayoutMode(option.value)}
+              />
+            ))}
+          </div>
 
-      <div className="border-t pt-4">
-        <h3 className="text-lg font-medium">{t('File Tree Display')}</h3>
-        <p className="text-sm text-muted-foreground">{t('Choose file tree display mode')}</p>
-      </div>
+          <div className="border-t border-border/70 pt-5">
+            <h3 className="text-lg font-medium">{t('File Tree Display')}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('Choose file tree display mode')}
+            </p>
+          </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {fileTreeDisplayModeOptions.map((option) => (
-          <button
-            type="button"
-            key={option.value}
-            onClick={() => setFileTreeDisplayMode(option.value)}
-            className={cn(
-              'flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors',
-              getOptionCardClassName(fileTreeDisplayMode === option.value)
-            )}
-          >
-            <div
-              className={cn(
-                'flex h-10 w-10 items-center justify-center rounded-full',
-                getOptionIconClassName(fileTreeDisplayMode === option.value)
-              )}
-            >
-              <option.icon className="h-5 w-5" />
-            </div>
-            <span className="text-sm font-medium">{option.label}</span>
-            <span className="text-xs text-muted-foreground text-center">{option.description}</span>
-          </button>
-        ))}
-      </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {fileTreeDisplayModeOptions.map((option) => (
+              <SettingsOptionCard
+                key={option.value}
+                icon={option.icon}
+                label={option.label}
+                description={option.description}
+                isSelected={fileTreeDisplayMode === option.value}
+                onClick={() => setFileTreeDisplayMode(option.value)}
+              />
+            ))}
+          </div>
 
-      <div className="border-t pt-4">
-        <h3 className="text-lg font-medium">{t('Repository List Display')}</h3>
-        <p className="text-sm text-muted-foreground">
-          {t('Choose how repositories and submodules are displayed in source control')}
-        </p>
-      </div>
+          <div className="border-t border-border/70 pt-5">
+            <h3 className="text-lg font-medium">{t('Repository List Display')}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('Choose how repositories and submodules are displayed in source control')}
+            </p>
+          </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {repositoryListDisplayModeOptions.map((option) => (
-          <button
-            type="button"
-            key={option.value}
-            onClick={() => setRepositoryListDisplayMode(option.value)}
-            className={cn(
-              'flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors',
-              getOptionCardClassName(repositoryListDisplayMode === option.value)
-            )}
-          >
-            <div
-              className={cn(
-                'flex h-10 w-10 items-center justify-center rounded-full',
-                getOptionIconClassName(repositoryListDisplayMode === option.value)
-              )}
-            >
-              <option.icon className="h-5 w-5" />
-            </div>
-            <span className="text-sm font-medium">{option.label}</span>
-            <span className="text-xs text-muted-foreground text-center">{option.description}</span>
-          </button>
-        ))}
+          <div className="grid gap-3 md:grid-cols-2">
+            {repositoryListDisplayModeOptions.map((option) => (
+              <SettingsOptionCard
+                key={option.value}
+                icon={option.icon}
+                label={option.label}
+                description={option.description}
+                isSelected={repositoryListDisplayMode === option.value}
+                onClick={() => setRepositoryListDisplayMode(option.value)}
+              />
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Auto-create session */}
@@ -863,7 +906,7 @@ export function GeneralSettings() {
                     if (categoryApps.length === 0) return null;
                     return (
                       <div key={category}>
-                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                        <div className="px-1 py-1 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
                           {label}
                         </div>
                         {categoryApps.map((app) => {
@@ -871,7 +914,7 @@ export function GeneralSettings() {
                           return (
                             <div
                               key={app.bundleId}
-                              className="flex items-center justify-between rounded-md py-1.5 pl-2 transition-colors hover:bg-muted/40"
+                              className="control-panel-muted flex items-center justify-between rounded-xl px-3 py-2 transition-colors"
                             >
                               <div className="flex items-center gap-2">
                                 <CategoryIcon className="h-4 w-4 text-muted-foreground" />
@@ -1013,7 +1056,7 @@ export function GeneralSettings() {
       <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Repository domains')}</span>
         <div className="space-y-1.5">
-          <div className="rounded-md border border-border/80 bg-muted/35 px-3 py-2 text-sm">
+          <div className="control-panel-muted rounded-xl px-3 py-3 text-sm">
             <div className="mb-2 flex items-center justify-between">
               <span className="font-medium">{t('Repository domains')}</span>
               <Button
@@ -1087,7 +1130,7 @@ export function GeneralSettings() {
               value={shellConfig.shellType}
               onValueChange={(v) => setShellConfig({ ...shellConfig, shellType: v as never })}
             >
-              <SelectTrigger className="w-64">
+              <SelectTrigger className="max-w-full sm:w-64">
                 <SelectValue>
                   {isCustomShell ? t('Custom') : currentShell?.name || shellConfig.shellType}
                 </SelectValue>
@@ -1097,11 +1140,7 @@ export function GeneralSettings() {
                   <SelectItem key={shell.id} value={shell.id}>
                     <div className="flex items-center gap-2">
                       <span>{shell.name}</span>
-                      {shell.isWsl && (
-                        <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-600 dark:text-blue-400">
-                          WSL
-                        </span>
-                      )}
+                      {shell.isWsl && <span className="control-badge control-badge-info">WSL</span>}
                     </div>
                   </SelectItem>
                 ))}
@@ -1340,9 +1379,7 @@ export function GeneralSettings() {
               )}
             </Button>
             {proxyTestStatus === 'success' && proxyTestLatency !== null && (
-              <span className="text-xs text-green-600 dark:text-green-400">
-                ✓ {proxyTestLatency}ms
-              </span>
+              <span className="text-xs text-success">✓ {proxyTestLatency}ms</span>
             )}
             {proxyTestStatus === 'error' && proxyTestError && (
               <span className="text-xs text-destructive" title={proxyTestError}>
@@ -1478,9 +1515,7 @@ export function GeneralSettings() {
       <div className="settings-field-row settings-field-row-start">
         <span className="mt-2 text-sm font-medium">Current Log File</span>
         <div className="min-w-0 flex-1 space-y-3">
-          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs font-mono break-all">
-            {logDiagnosticsModel.currentLogPath}
-          </div>
+          <SettingsCodeSurface>{logDiagnosticsModel.currentLogPath}</SettingsCodeSurface>
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-medium">Recent Log Output</span>
             <Button
@@ -1535,7 +1570,7 @@ export function GeneralSettings() {
               {t('Choose settings file')}
             </Button>
           </div>
-          <div className="rounded-lg border bg-muted/30 px-3 py-3">
+          <div className="control-panel-muted rounded-xl px-3 py-3">
             <div className="text-xs font-medium text-foreground">{t('Typical paths')}</div>
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
               {getLegacySettingsPathExamples().map((examplePath) => (
@@ -1552,7 +1587,7 @@ export function GeneralSettings() {
                 legacyImportStatus.tone === 'error'
                   ? 'text-destructive'
                   : legacyImportStatus.tone === 'success'
-                    ? 'text-emerald-600'
+                    ? 'text-success'
                     : 'text-muted-foreground'
               )}
             >
@@ -1575,7 +1610,7 @@ export function GeneralSettings() {
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">v{appVersion}</span>
             {updateStatus?.status === 'available' && updateStatus.info?.version && (
-              <span className="text-xs text-green-600 dark:text-green-400">
+              <span className="text-xs text-success">
                 ({t('New version')}: v{updateStatus.info.version})
               </span>
             )}
@@ -1704,9 +1739,7 @@ export function GeneralSettings() {
           <DialogPanel className="space-y-4">
             <div className="space-y-1.5">
               <div className="text-sm font-medium">{t('Source file')}</div>
-              <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs font-mono break-all">
-                {legacyImportPreview?.sourcePath}
-              </div>
+              <SettingsCodeSurface>{legacyImportPreview?.sourcePath}</SettingsCodeSurface>
             </div>
 
             <div className="space-y-1.5">
@@ -1725,7 +1758,7 @@ export function GeneralSettings() {
                           <div className="text-xs font-medium text-muted-foreground">
                             {t('Current')}
                           </div>
-                          <div className="rounded-md bg-muted/40 px-2 py-1.5 text-xs font-mono break-all">
+                          <div className="control-panel-muted rounded-lg border border-border/60 px-2 py-1.5 text-xs font-mono break-all">
                             {diff.currentValue}
                           </div>
                         </div>
@@ -1733,7 +1766,7 @@ export function GeneralSettings() {
                           <div className="text-xs font-medium text-muted-foreground">
                             {t('Imported')}
                           </div>
-                          <div className="rounded-md border border-border/70 bg-muted/35 px-2 py-1.5 text-xs font-mono break-all">
+                          <div className="control-panel rounded-lg border border-border/70 px-2 py-1.5 text-xs font-mono break-all">
                             {diff.importedValue}
                           </div>
                         </div>

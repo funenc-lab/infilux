@@ -200,8 +200,9 @@ export function WorktreeCard({
         onDragOver={onDragOver}
         onDrop={onDrop}
         className={cn(
-          'group relative w-full text-left rounded-lg border bg-card p-4 transition-all hover:shadow-md',
+          'control-panel group relative w-full rounded-xl p-4 text-left transition-[border-color,background-color]',
           isActive && 'border-primary ring-1 ring-primary/20',
+          !isActive && 'hover:border-border',
           worktree.isLocked && 'opacity-75'
         )}
         onClick={() => onSelect?.(worktree)}
@@ -222,8 +223,9 @@ export function WorktreeCard({
       onDragOver={onDragOver}
       onDrop={onDrop}
       className={cn(
-        'group relative w-full text-left rounded-lg border bg-card p-4 transition-all hover:shadow-md',
+        'control-panel group relative w-full rounded-xl p-4 text-left transition-[border-color,background-color]',
         isActive && 'border-primary ring-1 ring-primary/20',
+        !isActive && 'hover:border-border',
         worktree.isLocked && 'opacity-75'
       )}
       onClick={() => onSelect?.(worktree)}

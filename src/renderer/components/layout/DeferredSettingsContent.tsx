@@ -45,8 +45,6 @@ export function DeferredSettingsContent({
       eyebrow={t('Settings')}
       title={t('Loading settings')}
       description={t('Preparing preferences and configuration panels')}
-      chipLabel={t('Settings')}
-      chipTone="wait"
     />
   );
 }

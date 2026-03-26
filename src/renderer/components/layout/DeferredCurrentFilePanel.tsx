@@ -22,8 +22,6 @@ export function DeferredCurrentFilePanel(props: DeferredCurrentFilePanelProps) {
       eyebrow={t('File Explorer')}
       title={t('Loading editor')}
       description={t('Preparing active file workspace')}
-      chipLabel={t('File Explorer')}
-      chipTone="wait"
     />
   );
 }

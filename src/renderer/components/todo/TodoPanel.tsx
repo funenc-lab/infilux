@@ -20,8 +20,6 @@ export function TodoPanel({ repoPath, worktreePath, onSwitchToAgent }: TodoPanel
         eyebrow={t('Todo')}
         title={t('No repository selected')}
         description={t('Select a repository to manage tasks')}
-        chipLabel={t('Todo')}
-        chipTone="wait"
       />
     );
   }

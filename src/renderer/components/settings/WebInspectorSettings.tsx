@@ -92,7 +92,7 @@ export function WebInspectorSettings() {
         </p>
       </div>
 
-      <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+      <div className="control-panel-muted space-y-3 rounded-xl p-4">
         <div className="flex items-start gap-3">
           <Globe className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
           <div className="space-y-2">
@@ -140,7 +140,7 @@ export function WebInspectorSettings() {
         <p className="text-sm text-muted-foreground">{t('How to use Web Inspector')}</p>
       </div>
 
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="control-panel-muted rounded-xl p-4">
         <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-2">
           <li>{t('Enable Web Inspector above')}</li>
           <li>{t('Open any webpage with the userscript installed')}</li>

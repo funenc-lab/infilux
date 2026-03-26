@@ -20,7 +20,7 @@ export function QuickTerminalButton({
   const buttonPosition = useSettingsStore((s) => s.quickTerminal.buttonPosition);
   const setButtonPosition = useSettingsStore((s) => s.setQuickTerminalButtonPosition);
 
-  const BUTTON_SIZE = 40; // 更小更精致
+  const BUTTON_SIZE = 44;
 
   // 计算容器边界（相对于 viewport）
   const getContainerBounds = useCallback(() => {
@@ -78,23 +78,23 @@ export function QuickTerminalButton({
 
   return (
     <button
+      aria-label="Quick Terminal"
+      aria-pressed={isOpen}
       type="button"
       onClick={handleClick}
       {...dragHandlers}
       className={cn(
-        'fixed z-30 flex items-center justify-center rounded-full',
-        'border backdrop-blur-sm',
-        // 阴影效果
-        'shadow-[0_2px_8px_rgba(0,0,0,0.12)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.16)]',
+        'control-floating-button fixed z-30 flex items-center justify-center rounded-full',
+        'pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11',
         // 拖动时状态
         isDragging && 'cursor-grabbing opacity-70 scale-95',
         !isDragging && 'cursor-grab transition-all duration-200', // 只在非拖动时启用过渡
         // 根据状态设置背景和文字颜色
         isOpen
-          ? 'bg-accent text-accent-foreground border-accent/50'
+          ? 'border-primary/34 bg-primary/16 text-primary'
           : hasRunningProcess
-            ? 'bg-accent text-accent-foreground border-accent/50 hover:bg-accent/90'
-            : 'bg-background/95 text-muted-foreground border-border/50 hover:bg-accent/30 hover:text-foreground hover:border-accent/30'
+            ? 'border-support/34 bg-support/14 text-support hover:bg-support/18'
+            : 'text-muted-foreground hover:border-border hover:bg-accent/20 hover:text-foreground'
       )}
       style={{
         left: `${position.x}px`,

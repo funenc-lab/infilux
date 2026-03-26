@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { List, Plus, Terminal, X } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { ControlStateActionButton } from '@/components/layout/ControlStateActionButton';
 import { useI18n } from '@/i18n';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
@@ -400,15 +400,10 @@ export function TerminalGroup({
             ]}
             detailsLayout="compact"
             actions={
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleNewTab}
-                className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
-              >
+              <ControlStateActionButton density="compact" onClick={handleNewTab}>
                 <Plus className="h-4 w-4" />
                 {t('New Terminal')}
-              </Button>
+              </ControlStateActionButton>
             }
           />
         </div>

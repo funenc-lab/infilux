@@ -77,7 +77,10 @@ describe('breadcrumbPathUtils', () => {
 
   it('preserves UNC prefixes for absolute paths outside the root', () => {
     expect(
-      buildBreadcrumbSegments('//server/share/docs/readme.md', '/Users/tanzv/Development/Git/EnsoAI')
+      buildBreadcrumbSegments(
+        '//server/share/docs/readme.md',
+        '/Users/tanzv/Development/Git/EnsoAI'
+      )
     ).toEqual([
       { name: 'server', path: '//server', isLast: false },
       { name: 'share', path: '//server/share', isLast: false },
@@ -204,7 +207,9 @@ describe('breadcrumbPathUtils', () => {
   it('returns the original path when no root is provided and handles undefined targets', () => {
     expect(resolveFileListPath(undefined, '/Users/tanzv/Development/Git/EnsoAI')).toBeUndefined();
     expect(resolveFileListPath('/tmp/outside.txt', undefined)).toBe('/tmp/outside.txt');
-    expect(resolveFileListGitRoot(undefined, '/Users/tanzv/Development/Git/EnsoAI')).toBeUndefined();
+    expect(
+      resolveFileListGitRoot(undefined, '/Users/tanzv/Development/Git/EnsoAI')
+    ).toBeUndefined();
     expect(resolveFileListGitRoot('/tmp/outside.txt', undefined)).toBeUndefined();
   });
 });

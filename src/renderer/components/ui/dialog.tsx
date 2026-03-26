@@ -28,7 +28,7 @@ function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props)
   return (
     <DialogPrimitive.Backdrop
       className={cn(
-        'fixed inset-0 no-drag bg-black/24 transition-opacity duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
+        'fixed inset-0 no-drag bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px] transition-opacity duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
         className
       )}
       data-slot="dialog-backdrop"
@@ -135,7 +135,7 @@ function DialogFooter({
       className={cn(
         'flex flex-col-reverse gap-2 px-6 sm:flex-row sm:justify-end sm:rounded-b-[calc(var(--radius-2xl)-1px)]',
         variant === 'default' &&
-          'border-t border-border/70 bg-[color:color-mix(in_oklch,var(--muted)_72%,var(--background)_28%)] py-4',
+          'border-t border-border/70 bg-[color:color-mix(in_oklch,var(--control-surface-muted)_82%,var(--background)_18%)] py-4',
         variant === 'bare' &&
           'in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3 pt-4 pb-6',
         className

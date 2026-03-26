@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
+import { ControlStateActionButton } from '@/components/layout/ControlStateActionButton';
 import {
   buildConsoleButtonStyle,
   buildConsoleTypographyModel,
@@ -22,7 +23,6 @@ import {
   BreadcrumbList,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { Button } from '@/components/ui/button';
 import { addToast } from '@/components/ui/toast';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
 import { useI18n } from '@/i18n';
@@ -940,7 +940,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
     widgetRootRef.current.render(
       <button
         type="button"
-        className="flex items-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground shadow-md hover:bg-primary/90 transition-colors"
+        className="flex items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-primary/14 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/22"
         onClick={showCommentForm}
         onMouseDown={(e) => e.preventDefault()}
       >
@@ -1509,15 +1509,12 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
               detailsLayout="compact"
               actions={
                 onToggleFileTree && isFileTreeCollapsed ? (
-                  <Button
-                    variant="default"
-                    size="lg"
+                  <ControlStateActionButton
                     onClick={onToggleFileTree}
-                    className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
                     style={emptyStateButtonStyle}
                   >
                     {t('Show File Tree')}
-                  </Button>
+                  </ControlStateActionButton>
                 ) : null
               }
             />

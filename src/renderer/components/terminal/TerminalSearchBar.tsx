@@ -114,13 +114,14 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
 
     return (
       <div
-        className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md border px-2 py-1 shadow-lg"
+        className="control-floating absolute right-2 top-2 z-10 flex items-center gap-1 rounded-lg px-2 py-1"
         style={{
           backgroundColor: bgColor,
           borderColor,
         }}
       >
         <input
+          aria-label="Search terminal output"
           ref={inputRef}
           type="text"
           value={searchTerm}
@@ -135,10 +136,12 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
 
         {/* Case sensitive toggle */}
         <button
+          aria-label="Toggle case sensitive search"
+          aria-pressed={caseSensitive}
           type="button"
           onClick={() => setCaseSensitive(!caseSensitive)}
           className={cn(
-            'flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors',
+            'relative flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11',
             caseSensitive ? '' : 'opacity-50 hover:opacity-100'
           )}
           style={{
@@ -152,10 +155,12 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
 
         {/* Whole word toggle */}
         <button
+          aria-label="Toggle whole word search"
+          aria-pressed={wholeWord}
           type="button"
           onClick={() => setWholeWord(!wholeWord)}
           className={cn(
-            'flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors',
+            'relative flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11',
             wholeWord ? '' : 'opacity-50 hover:opacity-100'
           )}
           style={{
@@ -169,10 +174,12 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
 
         {/* Regex toggle */}
         <button
+          aria-label="Toggle regular expression search"
+          aria-pressed={regex}
           type="button"
           onClick={() => setRegex(!regex)}
           className={cn(
-            'flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors',
+            'relative flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11',
             regex ? '' : 'opacity-50 hover:opacity-100'
           )}
           style={{
@@ -188,9 +195,10 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
 
         {/* Previous */}
         <button
+          aria-label="Find previous match"
           type="button"
           onClick={() => handleSearch('prev')}
-          className="flex h-6 w-6 items-center justify-center rounded opacity-70 hover:opacity-100 transition-opacity"
+          className="relative flex h-6 w-6 items-center justify-center rounded opacity-70 transition-opacity hover:opacity-100 pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11"
           style={{ color: fgColor }}
           title="Previous (Shift+Enter)"
         >
@@ -199,9 +207,10 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
 
         {/* Next */}
         <button
+          aria-label="Find next match"
           type="button"
           onClick={() => handleSearch('next')}
-          className="flex h-6 w-6 items-center justify-center rounded opacity-70 hover:opacity-100 transition-opacity"
+          className="relative flex h-6 w-6 items-center justify-center rounded opacity-70 transition-opacity hover:opacity-100 pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11"
           style={{ color: fgColor }}
           title="Next (Enter)"
         >
@@ -210,9 +219,10 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
 
         {/* Close */}
         <button
+          aria-label="Close search"
           type="button"
           onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded opacity-70 hover:opacity-100 transition-opacity"
+          className="relative flex h-6 w-6 items-center justify-center rounded opacity-70 transition-opacity hover:opacity-100 pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11"
           style={{ color: fgColor }}
           title="Close (Esc)"
         >

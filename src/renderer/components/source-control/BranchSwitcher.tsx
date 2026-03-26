@@ -193,7 +193,7 @@ export function BranchSwitcher({
                   <SelectItem value={branch.name}>
                     <div className="flex items-center gap-2 min-w-0">
                       {branch.current && (
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" />
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
                       )}
                       <span className="min-w-0 truncate">{branch.name}</span>
                     </div>

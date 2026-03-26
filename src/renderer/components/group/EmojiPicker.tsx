@@ -79,7 +79,7 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
               role="presentation"
             />
             <div
-              className="fixed z-[101] rounded-lg shadow-lg overflow-hidden"
+              className="control-floating fixed z-[101] overflow-hidden rounded-xl"
               style={{ top: position.top, left: position.left }}
             >
               <EmojiPickerReact

@@ -507,7 +507,6 @@ export function RepositorySidebar({
               {activeGroup?.name ?? t('All repositories')}
             </span>
           </div>
-          <span className="control-sidebar-count">{filteredRepos.length}</span>
         </div>
         <div className="control-sidebar-toolbar no-drag">
           {onSwitchWorktreeByPath && (
@@ -753,7 +752,7 @@ export function RepositorySidebar({
           />
           <div
             ref={menuRef}
-            className="fixed z-50 min-w-32 rounded-lg border bg-popover p-1 shadow-lg"
+            className="control-menu fixed z-50 min-w-32 rounded-lg p-1"
             style={{ left: menuPosition.x, top: menuPosition.y }}
             role="menu"
             aria-label={t('Repository actions')}

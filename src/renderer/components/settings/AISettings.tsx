@@ -394,7 +394,7 @@ export function AISettings() {
                 </Select>
                 <p className="text-xs text-muted-foreground">{t('AI provider to use')}</p>
                 {codeReview.provider === 'codex-cli' && (
-                  <p className="text-xs text-amber-500">
+                  <p className="text-xs text-warning">
                     {t('Codex does not support streaming output')}
                   </p>
                 )}
@@ -507,7 +507,7 @@ export function AISettings() {
                   </div>
                 )}
                 {promptValidation && promptValidation.warnings.length > 0 && (
-                  <div className="text-xs text-amber-500 space-y-0.5">
+                  <div className="text-xs text-warning space-y-0.5">
                     {promptValidation.warnings.map((warning) => (
                       <div key={warning}>⚠️ {warning}</div>
                     ))}

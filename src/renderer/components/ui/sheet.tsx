@@ -23,7 +23,7 @@ function SheetBackdrop({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       className={cn(
         // 优化动画：150ms 快速响应
-        'fixed inset-0 z-50 bg-black/32 backdrop-blur-sm transition-opacity duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
+        'fixed inset-0 z-50 bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px] transition-opacity duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
         className
       )}
       data-slot="sheet-backdrop"
@@ -76,7 +76,7 @@ function SheetPopup({
         <SheetPrimitive.Popup
           className={cn(
             // 优化动画：150ms，使用模拟 Spring 的 cubic-bezier 曲线实现弹性滑入
-            'relative flex max-h-full min-h-0 w-full min-w-0 flex-col bg-popover bg-clip-padding text-popover-foreground shadow-lg transition-[opacity,translate] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] will-change-transform before:pointer-events-none before:absolute before:inset-0 before:shadow-[0_1px_--theme(--color-black/4%)] data-ending-style:opacity-0 data-starting-style:opacity-0 max-sm:before:hidden dark:bg-clip-border dark:before:shadow-[0_-1px_--theme(--color-white/8%)]',
+            'control-floating relative flex max-h-full min-h-0 w-full min-w-0 flex-col text-popover-foreground transition-[opacity,translate] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] will-change-transform data-ending-style:opacity-0 data-starting-style:opacity-0',
             side === 'bottom' &&
               'row-start-2 border-t data-ending-style:translate-y-8 data-starting-style:translate-y-8',
             side === 'top' &&
@@ -132,7 +132,8 @@ function SheetFooter({
     <div
       className={cn(
         'flex flex-col-reverse gap-2 px-6 sm:flex-row sm:justify-end',
-        variant === 'default' && 'border-t bg-muted/50 py-4',
+        variant === 'default' &&
+          'border-t bg-[color:color-mix(in_oklch,var(--control-surface-muted)_82%,var(--background)_18%)] py-4',
         variant === 'bare' &&
           'in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pt-3 pt-4 pb-6',
         className

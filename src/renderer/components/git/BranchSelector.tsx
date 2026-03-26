@@ -79,7 +79,7 @@ export function BranchSelector({
                 <SelectItem key={branch.name} value={branch.name}>
                   <div className="flex items-center gap-2 w-full">
                     {branch.current && (
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" />
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-success" />
                     )}
                     <span className="min-w-0 flex-1 truncate">{branch.name}</span>
                     {branch.merged && (

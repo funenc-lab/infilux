@@ -206,7 +206,7 @@ function RepositoryItem({
         {/* Indent for submodules */}
         {isSubmodule && <div className="w-3 shrink-0" />}
 
-        <Icon className={cn('h-3.5 w-3.5 shrink-0', isSubmodule ? 'text-yellow-500' : '')} />
+        <Icon className={cn('h-3.5 w-3.5 shrink-0', isSubmodule ? 'text-warning' : '')} />
 
         <span className="min-w-0 flex-1 truncate" title={repository.name}>
           {repository.name}

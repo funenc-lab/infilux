@@ -242,8 +242,8 @@ export function StatusLine({ sessionId, onHeightChange }: StatusLineProps) {
       elements.push(
         <div key="lines" className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           <GitCommitHorizontal className="h-5 w-5" />
-          <span className="text-green-500">+{status.cost.totalLinesAdded}</span>
-          <span className="text-red-500">-{status.cost.totalLinesRemoved}</span>
+          <span className="text-success">+{status.cost.totalLinesAdded}</span>
+          <span className="text-destructive">-{status.cost.totalLinesRemoved}</span>
         </div>
       );
     }
