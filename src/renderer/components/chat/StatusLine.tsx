@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { type StatusData, useAgentStatusStore } from '@/stores/agentStatus';
 import { type StatusLineFieldSettings, useSettingsStore } from '@/stores/settings';
 
@@ -112,14 +113,25 @@ function DirItem({ path, icon, label }: DirItemProps) {
     setOpen(false);
     try {
       await navigator.clipboard.writeText(displayPath);
+      const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'path' }, t);
       toastManager.add({
-        title: t('Copied'),
-        description: t('Path copied to clipboard'),
+        title: successCopy.title,
+        description: successCopy.description,
         type: 'success',
         timeout: 2000,
       });
-    } catch {
-      // Ignore clipboard errors
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const errorCopy = buildClipboardToastCopy(
+        { phase: 'error', subject: 'path', message: message || undefined },
+        t
+      );
+      toastManager.add({
+        title: errorCopy.title,
+        description: errorCopy.description,
+        type: 'error',
+        timeout: 3000,
+      });
     }
   }, [displayPath, t]);
 

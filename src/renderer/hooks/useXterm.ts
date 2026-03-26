@@ -11,6 +11,13 @@ import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { useNavigationStore } from '@/stores/navigation';
 import { useSettingsStore } from '@/stores/settings';
+import {
+  buildXtermRecoveryAttemptKey,
+  createXtermSessionBindingSnapshot,
+  resolveReusableBackendSessionId,
+  shouldRebindXtermSession,
+  shouldRetryDeadSessionRecovery,
+} from './xtermSessionRecovery';
 import '@xterm/xterm/css/xterm.css';
 
 // Regex to match file paths with optional line:column
@@ -147,9 +154,14 @@ export function useXterm({
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const ptyIdRef = useRef<string | null>(null);
   const sessionEventsCleanupRef = useRef<(() => void) | null>(null);
+  const terminalInputCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<{ dispose: () => void } | null>(null);
   const copyOnSelectionHandlerRef = useRef<(() => void) | null>(null);
+  const activeSessionBindingRef = useRef<ReturnType<
+    typeof createXtermSessionBindingSnapshot
+  > | null>(null);
+  const deadRecoveryAttemptKeyRef = useRef<string | null>(null);
   const isUnmountedRef = useRef(false);
   const createRequestIdRef = useRef(0);
   const onExitRef = useRef(onExit);
@@ -190,6 +202,16 @@ export function useXterm({
         ? `${command.shell}:${command.args.join(' ')}`
         : `shellConfig:${JSON.stringify(shellConfig)}:initialCommand:${initialCommand || ''}`,
     [command, shellConfig, initialCommand]
+  );
+  const desiredSessionBinding = useMemo(
+    () =>
+      createXtermSessionBindingSnapshot({
+        cwd: cwd || window.electronAPI.env.HOME,
+        kind,
+        persistOnDisconnect,
+        sessionId: backendSessionId,
+      }),
+    [backendSessionId, cwd, kind, persistOnDisconnect]
   );
   // rAF write buffer for smooth rendering
   const writeBufferRef = useRef('');
@@ -296,181 +318,204 @@ export function useXterm({
     terminal.refresh(0, terminal.rows - 1);
   }, []);
 
+  const resetSessionBinding = useCallback(async (terminal: Terminal, clearTerminal: boolean) => {
+    createRequestIdRef.current += 1;
+    activeSessionBindingRef.current = null;
+    deadRecoveryAttemptKeyRef.current = null;
+    sessionEventsCleanupRef.current?.();
+    sessionEventsCleanupRef.current = null;
+    writeBufferRef.current = '';
+    isFlushPendingRef.current = false;
+    setRuntimeState('live');
+
+    const currentSessionId = ptyIdRef.current;
+    ptyIdRef.current = null;
+    if (currentSessionId) {
+      await window.electronAPI.session.detach(currentSessionId).catch(() => {});
+    }
+
+    if (clearTerminal) {
+      terminal.reset();
+    }
+  }, []);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
   const initTerminal = useCallback(async () => {
-    if (!containerRef.current || terminalRef.current) return;
+    if (!containerRef.current && !terminalRef.current) return;
 
     setIsLoading(true);
 
-    const terminal = new Terminal({
-      cursorBlink: true,
-      cursorStyle: 'bar',
-      fontSize: settings.fontSize,
-      fontFamily: settings.fontFamily,
-      fontWeight: settings.fontWeight,
-      fontWeightBold: settings.fontWeightBold,
-      theme: settings.theme,
-      scrollback: settings.scrollback,
-      macOptionIsMeta: settings.optionIsMeta,
-      allowProposedApi: true,
-      allowTransparency: settings.backgroundImageEnabled,
-      rescaleOverlappingGlyphs: true,
-    });
+    let terminal = terminalRef.current;
 
-    const fitAddon = new FitAddon();
-    const searchAddon = new SearchAddon();
-    const webLinksAddon = new WebLinksAddon((_event, uri) => {
-      window.electronAPI.shell.openExternal(uri);
-    });
-    const unicode11Addon = new Unicode11Addon();
-
-    terminal.loadAddon(fitAddon);
-    terminal.loadAddon(searchAddon);
-    terminal.loadAddon(webLinksAddon);
-    terminal.loadAddon(unicode11Addon);
-    terminal.unicode.activeVersion = '11';
-
-    terminal.open(containerRef.current);
-    fitAddon.fit();
-
-    // IME compositionend 兜底：清空 textarea 防止旧内容残留导致输入异常
-    const textarea = terminal.textarea;
-    if (textarea) {
-      textarea.addEventListener('compositionend', () => {
-        // 延迟清空，确保 xterm 先读取最终文本
-        setTimeout(() => {
-          textarea.value = '';
-        }, 0);
+    if (!terminal) {
+      const nextTerminal = new Terminal({
+        cursorBlink: true,
+        cursorStyle: 'bar',
+        fontSize: settings.fontSize,
+        fontFamily: settings.fontFamily,
+        fontWeight: settings.fontWeight,
+        fontWeightBold: settings.fontWeightBold,
+        theme: settings.theme,
+        scrollback: settings.scrollback,
+        macOptionIsMeta: settings.optionIsMeta,
+        allowProposedApi: true,
+        allowTransparency: settings.backgroundImageEnabled,
+        rescaleOverlappingGlyphs: true,
       });
-    }
+      terminal = nextTerminal;
 
-    // Listen for title changes (OSC escape sequences)
-    terminal.onTitleChange((title) => {
-      onTitleChangeRef.current?.(title);
-    });
+      const fitAddon = new FitAddon();
+      const searchAddon = new SearchAddon();
+      const webLinksAddon = new WebLinksAddon((_event, uri) => {
+        window.electronAPI.shell.openExternal(uri);
+      });
+      const unicode11Addon = new Unicode11Addon();
 
-    // Load renderer
-    loadRenderer(terminal, terminalRenderer);
+      terminal.loadAddon(fitAddon);
+      terminal.loadAddon(searchAddon);
+      terminal.loadAddon(webLinksAddon);
+      terminal.loadAddon(unicode11Addon);
+      terminal.unicode.activeVersion = '11';
 
-    // Register file path link provider for click-to-open-in-editor
-    const linkProviderDisposable = terminal.registerLinkProvider({
-      provideLinks: (bufferLineNumber, callback) => {
-        // Guard against disposed terminal
-        if (!terminalRef.current) {
-          callback(undefined);
-          return;
-        }
-        const line = terminal.buffer.active.getLine(bufferLineNumber - 1);
-        if (!line) {
-          callback(undefined);
-          return;
-        }
+      const container = containerRef.current;
+      if (!container) {
+        setIsLoading(false);
+        return;
+      }
 
-        const lineText = line.translateToString();
-        const links: Array<{
-          range: {
-            start: { x: number; y: number };
-            end: { x: number; y: number };
-          };
-          text: string;
-          activate: () => void;
-        }> = [];
+      terminal.open(container);
+      fitAddon.fit();
 
-        // Reset regex state
-        FILE_PATH_REGEX.lastIndex = 0;
+      const textarea = terminal.textarea;
+      if (textarea) {
+        textarea.addEventListener('compositionend', () => {
+          setTimeout(() => {
+            textarea.value = '';
+          }, 0);
+        });
+      }
 
-        let match: RegExpExecArray | null = null;
-        // biome-ignore lint/suspicious/noAssignInExpressions: standard regex exec loop
-        while ((match = FILE_PATH_REGEX.exec(lineText)) !== null) {
-          const fullMatch = match[0];
-          const filePath = match[1];
-          const lineNum = match[2] ? Number.parseInt(match[2], 10) : undefined;
-          const colNum = match[3] ? Number.parseInt(match[3], 10) : undefined;
+      terminal.onTitleChange((title) => {
+        onTitleChangeRef.current?.(title);
+      });
 
-          // Calculate start position (skip leading whitespace/delimiter)
-          const startIndex =
-            match.index +
-            (fullMatch.length -
-              filePath.length -
-              (match[2] ? `:${match[2]}`.length : 0) -
-              (match[3] ? `:${match[3]}`.length : 0));
+      loadRenderer(terminal, terminalRenderer);
 
-          // Calculate end position
-          const endIndex = match.index + fullMatch.length;
+      const linkProviderDisposable = terminal.registerLinkProvider({
+        provideLinks: (bufferLineNumber, callback) => {
+          const currentTerminal = terminalRef.current;
+          if (!currentTerminal) {
+            callback(undefined);
+            return;
+          }
+          const line = currentTerminal.buffer.active.getLine(bufferLineNumber - 1);
+          if (!line) {
+            callback(undefined);
+            return;
+          }
 
-          links.push({
+          const lineText = line.translateToString();
+          const links: Array<{
             range: {
-              start: { x: startIndex + 1, y: bufferLineNumber },
-              end: { x: endIndex + 1, y: bufferLineNumber },
-            },
-            text: fullMatch.trim(),
-            activate: async () => {
-              // Resolve relative path to absolute
-              const basePath = cwdRef.current || '';
-              let absolutePath = filePath.startsWith('/')
-                ? filePath
-                : `${basePath}/${filePath}`.replace(/\/\.\//g, '/');
+              start: { x: number; y: number };
+              end: { x: number; y: number };
+            };
+            text: string;
+            activate: () => void;
+          }> = [];
 
-              // Check if file exists
-              let exists = await window.electronAPI.file.exists(absolutePath);
+          FILE_PATH_REGEX.lastIndex = 0;
 
-              // If not found and it's a bare filename, search in workspace
-              if (!exists && !filePath.includes('/')) {
-                try {
-                  const results = await window.electronAPI.search.files({
-                    query: filePath,
-                    rootPath: basePath,
-                    maxResults: 1,
-                  });
-                  if (results?.length > 0) {
-                    absolutePath = results[0].path;
-                    exists = true;
+          while (true) {
+            const match = FILE_PATH_REGEX.exec(lineText);
+            if (match === null) {
+              break;
+            }
+
+            const fullMatch = match[0];
+            const filePath = match[1];
+            const lineNum = match[2] ? Number.parseInt(match[2], 10) : undefined;
+            const colNum = match[3] ? Number.parseInt(match[3], 10) : undefined;
+            const startIndex =
+              match.index +
+              (fullMatch.length -
+                filePath.length -
+                (match[2] ? `:${match[2]}`.length : 0) -
+                (match[3] ? `:${match[3]}`.length : 0));
+            const endIndex = match.index + fullMatch.length;
+
+            links.push({
+              range: {
+                start: { x: startIndex + 1, y: bufferLineNumber },
+                end: { x: endIndex + 1, y: bufferLineNumber },
+              },
+              text: fullMatch.trim(),
+              activate: async () => {
+                const basePath = cwdRef.current || '';
+                let absolutePath = filePath.startsWith('/')
+                  ? filePath
+                  : `${basePath}/${filePath}`.replace(/\/\.\//g, '/');
+
+                let exists = await window.electronAPI.file.exists(absolutePath);
+                if (!exists && !filePath.includes('/')) {
+                  try {
+                    const results = await window.electronAPI.search.files({
+                      query: filePath,
+                      rootPath: basePath,
+                      maxResults: 1,
+                    });
+                    if (results?.length > 0) {
+                      absolutePath = results[0].path;
+                      exists = true;
+                    }
+                  } catch (error) {
+                    console.warn(`Failed to search for file: ${filePath}`, error);
                   }
-                } catch (error) {
-                  console.warn(`Failed to search for file: ${filePath}`, error);
                 }
-              }
 
-              if (!exists) return;
+                if (!exists) return;
 
-              // Check if it's a Markdown file
-              const isMarkdown = absolutePath.toLowerCase().endsWith('.md');
+                const isMarkdown = absolutePath.toLowerCase().endsWith('.md');
+                navigateToFile({
+                  path: absolutePath,
+                  line: lineNum,
+                  column: colNum,
+                  previewMode: isMarkdown ? 'fullscreen' : undefined,
+                });
+              },
+            });
+          }
 
-              navigateToFile({
-                path: absolutePath,
-                line: lineNum,
-                column: colNum,
-                previewMode: isMarkdown ? 'fullscreen' : undefined,
-              });
-            },
-          });
+          callback(links.length > 0 ? links : undefined);
+        },
+      });
+      linkProviderDisposableRef.current = linkProviderDisposable;
+
+      const handleCopyOnSelection = () => {
+        if (!copyOnSelectionRef.current) return;
+        setTimeout(() => {
+          const currentTerminal = terminalRef.current;
+          if (!currentTerminal) return;
+          if (currentTerminal.hasSelection()) {
+            navigator.clipboard.writeText(currentTerminal.getSelection()).catch(() => {});
+          }
+        }, 0);
+      };
+      terminal.element?.addEventListener('mouseup', handleCopyOnSelection);
+      copyOnSelectionHandlerRef.current = handleCopyOnSelection;
+
+      terminalInputCleanupRef.current = terminal.onData((data) => {
+        if (ptyIdRef.current && runtimeStateRef.current === 'live') {
+          window.electronAPI.session.write(ptyIdRef.current, data);
         }
+      });
 
-        callback(links.length > 0 ? links : undefined);
-      },
-    });
-    linkProviderDisposableRef.current = linkProviderDisposable;
-
-    // Copy on Selection: copy selected text to clipboard when mouse is released
-    const handleCopyOnSelection = () => {
-      if (!copyOnSelectionRef.current) return;
-      // Defer to next task so xterm finalizes the selection first
-      setTimeout(() => {
-        // Guard: terminal may have been disposed between mouseup and this callback
-        if (!terminalRef.current) return;
-        if (terminal.hasSelection()) {
-          navigator.clipboard.writeText(terminal.getSelection()).catch(() => {
-            // Ignore clipboard write failures (e.g., window not focused)
-          });
-        }
-      }, 0);
-    };
-    terminal.element?.addEventListener('mouseup', handleCopyOnSelection);
-    copyOnSelectionHandlerRef.current = handleCopyOnSelection;
-
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-    searchAddonRef.current = searchAddon;
+      terminalRef.current = terminal;
+      fitAddonRef.current = fitAddon;
+      searchAddonRef.current = searchAddon;
+    } else {
+      await resetSessionBinding(terminal, true);
+    }
 
     // Custom key handler
     terminal.attachCustomKeyEventHandler((event) => {
@@ -676,11 +721,17 @@ export function useXterm({
 
       let session = null;
       let replay: string | undefined;
-      if (backendSessionId) {
+      const reusableBackendSessionId = await resolveReusableBackendSessionId({
+        backendSessionId,
+        cwd: createOptions.cwd,
+        getRemoteStatus: (connectionId) => window.electronAPI.remote.getStatus(connectionId),
+      });
+
+      if (reusableBackendSessionId) {
         try {
-          setCurrentSessionId(backendSessionId);
-          subscribeToSession(backendSessionId);
-          const result = await attachToSession(backendSessionId);
+          setCurrentSessionId(reusableBackendSessionId);
+          subscribeToSession(reusableBackendSessionId);
+          const result = await attachToSession(reusableBackendSessionId);
           session = result.session;
           replay = result.replay;
         } catch (error) {
@@ -709,19 +760,19 @@ export function useXterm({
         setCurrentSessionId(session.sessionId);
         subscribeToSession(session.sessionId);
       }
+      activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
+        cwd: createOptions.cwd,
+        kind,
+        persistOnDisconnect,
+        sessionId: session.sessionId,
+      });
+      deadRecoveryAttemptKeyRef.current = null;
       setIsLoading(false);
 
       if (replay) {
         terminal.write(replay);
         onDataRef.current?.(replay);
       }
-
-      // Handle input
-      terminal.onData((data) => {
-        if (ptyIdRef.current && runtimeStateRef.current === 'live') {
-          window.electronAPI.session.write(ptyIdRef.current, data);
-        }
-      });
 
       // Focus is handled by the isActive effect after loading ends.
     } catch (error) {
@@ -741,9 +792,13 @@ export function useXterm({
     command,
     shellConfig,
     commandKey,
+    env,
     terminalRenderer,
     kind,
     persistOnDisconnect,
+    navigateToFile,
+    loadRenderer,
+    resetSessionBinding,
     write,
   ]);
 
@@ -758,6 +813,45 @@ export function useXterm({
       });
     }
   }, [isActive, initialCommand, initTerminal]);
+
+  useEffect(() => {
+    const shouldActivate = isActive || Boolean(initialCommand);
+    if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
+      return;
+    }
+
+    if (!shouldRebindXtermSession(activeSessionBindingRef.current, desiredSessionBinding)) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void initTerminal();
+      });
+    });
+  }, [desiredSessionBinding, initTerminal, initialCommand, isActive]);
+
+  useEffect(() => {
+    const shouldActivate = isActive || Boolean(initialCommand);
+    if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
+      return;
+    }
+
+    if (runtimeState !== 'dead') {
+      return;
+    }
+
+    if (!shouldRetryDeadSessionRecovery(deadRecoveryAttemptKeyRef.current, desiredSessionBinding)) {
+      return;
+    }
+    deadRecoveryAttemptKeyRef.current = buildXtermRecoveryAttemptKey(desiredSessionBinding);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void initTerminal();
+      });
+    });
+  }, [desiredSessionBinding, initTerminal, initialCommand, isActive, runtimeState]);
 
   // Handle dynamic renderer switching
   useEffect(() => {
@@ -778,8 +872,12 @@ export function useXterm({
       hasBeenActivatedRef.current = false;
       hasReceivedDataRef.current = false;
       createRequestIdRef.current += 1;
+      activeSessionBindingRef.current = null;
+      deadRecoveryAttemptKeyRef.current = null;
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
+      terminalInputCleanupRef.current?.dispose();
+      terminalInputCleanupRef.current = null;
       if (ptyIdRef.current) {
         window.electronAPI.session.detach(ptyIdRef.current).catch(() => {});
         ptyIdRef.current = null;

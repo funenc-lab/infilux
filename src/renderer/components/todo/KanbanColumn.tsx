@@ -74,7 +74,7 @@ export function KanbanColumn({
             ))}
             {tasks.length === 0 && (
               <div className="flex items-center justify-center py-6 text-xs text-muted-foreground/50">
-                {t('No tasks yet')}
+                {t('No tasks')}
               </div>
             )}
           </div>

@@ -3,10 +3,14 @@ import type { MergeConflict, MergeConflictContent } from '@shared/types';
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X } from 'lucide-react';
 import * as monaco from 'monaco-editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  buildMonacoThemeDefinition,
+  resolveEditorVisualPalette,
+  withAlpha,
+} from '@/components/files/editorThemePalette';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/i18n';
-import { getXtermTheme, isTerminalThemeDark } from '@/lib/ghosttyTheme';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -34,39 +38,8 @@ interface ConflictChunk {
   baseContent: string;
 }
 
-function defineMergeTheme(terminalThemeName: string) {
-  const xtermTheme = getXtermTheme(terminalThemeName);
-  if (!xtermTheme) return;
-
-  const isDark = isTerminalThemeDark(terminalThemeName);
-
-  monaco.editor.defineTheme(MERGE_THEME_NAME, {
-    base: isDark ? 'vs-dark' : 'vs',
-    inherit: true,
-    rules: [
-      { token: 'comment', foreground: xtermTheme.brightBlack.replace('#', '') },
-      { token: 'keyword', foreground: xtermTheme.magenta.replace('#', '') },
-      { token: 'string', foreground: xtermTheme.green.replace('#', '') },
-      { token: 'number', foreground: xtermTheme.yellow.replace('#', '') },
-      { token: 'type', foreground: xtermTheme.cyan.replace('#', '') },
-      { token: 'function', foreground: xtermTheme.blue.replace('#', '') },
-      { token: 'variable', foreground: xtermTheme.red.replace('#', '') },
-    ],
-    colors: {
-      'editor.background': xtermTheme.background,
-      'editor.foreground': xtermTheme.foreground,
-      'editor.selectionBackground': xtermTheme.selectionBackground,
-      'editor.lineHighlightBackground': isDark
-        ? `${xtermTheme.brightBlack}30`
-        : `${xtermTheme.black}10`,
-      'editorCursor.foreground': xtermTheme.cursor,
-      'editorLineNumber.foreground': xtermTheme.brightBlack,
-      'editorLineNumber.activeForeground': xtermTheme.foreground,
-      // Diff colors
-      'diffEditor.insertedTextBackground': isDark ? '#2ea04326' : '#2ea04320',
-      'diffEditor.removedTextBackground': isDark ? '#f8514926' : '#f8514920',
-    },
-  });
+function defineMergeTheme(options: Parameters<typeof buildMonacoThemeDefinition>[0]) {
+  monaco.editor.defineTheme(MERGE_THEME_NAME, buildMonacoThemeDefinition(options));
 }
 
 // Simple LCS-based diff algorithm
@@ -235,7 +208,8 @@ export function MergeEditor({
   getConflictContent,
 }: MergeEditorProps) {
   const { t } = useI18n();
-  const { terminalTheme, editorSettings } = useSettingsStore();
+  const { theme, terminalTheme, colorPreset, customAccentColor, editorSettings } =
+    useSettingsStore();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [content, setContent] = useState<MergeConflictContent | null>(null);
   const [result, setResult] = useState('');
@@ -264,6 +238,17 @@ export function MergeEditor({
   const originalResultRef = useRef<string>('');
   const acceptedRef = useRef(false);
 
+  const mergePalette = useMemo(
+    () =>
+      resolveEditorVisualPalette({
+        theme,
+        terminalTheme,
+        colorPreset,
+        customAccentColor,
+      }),
+    [colorPreset, customAccentColor, terminalTheme, theme]
+  );
+
   const currentConflict = conflicts[currentIndex];
 
   // Compute conflict chunks
@@ -274,8 +259,13 @@ export function MergeEditor({
 
   // Define theme on mount
   useEffect(() => {
-    defineMergeTheme(terminalTheme);
-  }, [terminalTheme]);
+    defineMergeTheme({
+      theme,
+      terminalTheme,
+      colorPreset,
+      customAccentColor,
+    });
+  }, [colorPreset, customAccentColor, terminalTheme, theme]);
 
   // Load conflict content when file changes
   useEffect(() => {
@@ -365,7 +355,7 @@ export function MergeEditor({
         isWholeLine: true,
         className: 'current-chunk-highlight',
         overviewRuler: {
-          color: '#007acc',
+          color: mergePalette.accent,
           position: monaco.editor.OverviewRulerLane.Full,
         },
       },
@@ -394,7 +384,7 @@ export function MergeEditor({
         [createChunkDecoration(chunk.oursLines.start, chunk.oursLines.end)]
       );
     }
-  }, [conflictChunks, currentChunkIndex]);
+  }, [conflictChunks, currentChunkIndex, mergePalette.accent]);
 
   // Update chunk highlight when chunk index changes
   useEffect(() => {
@@ -679,28 +669,28 @@ export function MergeEditor({
       {/* CSS for diff highlighting */}
       <style>{`
         .diff-added-line {
-          background-color: rgba(46, 160, 67, 0.15) !important;
+          background-color: ${mergePalette.diffInsertedLine} !important;
         }
         .diff-modified-line {
-          background-color: rgba(210, 153, 34, 0.15) !important;
+          background-color: ${withAlpha(mergePalette.number, '18')} !important;
         }
         .diff-added-glyph {
-          background-color: #2ea043;
+          background-color: ${mergePalette.string};
           width: 4px !important;
           margin-left: 3px;
         }
         .diff-modified-glyph {
-          background-color: #d29922;
+          background-color: ${mergePalette.number};
           width: 4px !important;
           margin-left: 3px;
         }
         .current-chunk-highlight {
-          background-color: rgba(0, 122, 204, 0.12) !important;
-          border-left: 2px solid #007acc !important;
+          background-color: ${withAlpha(mergePalette.accent, '1f')} !important;
+          border-left: 2px solid ${mergePalette.accent} !important;
         }
         .preview-highlight {
-          background-color: rgba(59, 130, 246, 0.15) !important;
-          border-left: 2px solid rgb(59, 130, 246) !important;
+          background-color: ${withAlpha(mergePalette.accent, '26')} !important;
+          border-left: 2px solid ${mergePalette.accent} !important;
         }
       `}</style>
 

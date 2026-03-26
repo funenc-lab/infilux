@@ -18,6 +18,7 @@ import { Dialog, DialogPopup } from '@/components/ui/dialog';
 import { toastManager } from '@/components/ui/toast';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
+import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
@@ -260,13 +261,29 @@ export function RunningProjectsPopover({
     setMenuOpen(true);
   }, []);
 
-  const handleCopyPath = (path: string) => {
-    navigator.clipboard.writeText(getDisplayPath(path));
-    toastManager.add({
-      type: 'success',
-      title: t('Copied to clipboard'),
-    });
-    setMenuOpen(false);
+  const handleCopyPath = async (path: string) => {
+    try {
+      await navigator.clipboard.writeText(getDisplayPath(path));
+      const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'path' }, t);
+      toastManager.add({
+        type: 'success',
+        title: successCopy.title,
+        description: successCopy.description,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const errorCopy = buildClipboardToastCopy(
+        { phase: 'error', subject: 'path', message: message || undefined },
+        t
+      );
+      toastManager.add({
+        type: 'error',
+        title: errorCopy.title,
+        description: errorCopy.description,
+      });
+    } finally {
+      setMenuOpen(false);
+    }
   };
 
   return (
@@ -274,9 +291,13 @@ export function RunningProjectsPopover({
       <button
         type="button"
         className={cn(
-          'control-icon-button relative flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors',
+          'control-sidebar-toolbutton relative no-drag',
           totalRunning > 0 && 'text-foreground'
         )}
+        data-emphasis={totalRunning > 0 ? 'true' : 'false'}
+        aria-label={
+          totalRunning > 0 ? `${t('Running Projects')} (${totalRunning})` : t('Running Projects')
+        }
         title={t('Running Projects')}
         onClick={() => setOpen(true)}
       >
@@ -288,10 +309,10 @@ export function RunningProjectsPopover({
         )}
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={setOpen}>
         <DialogPopup className="sm:max-w-2xl p-0 overflow-visible" showCloseButton={false}>
           <div ref={dialogRef} className="relative">
-            <div className="flex items-center gap-2 border-b px-3 py-2">
+            <div className="flex items-center gap-2 border-b border-border/60 bg-background/92 px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
               <input
                 ref={searchInputRef}
@@ -321,14 +342,17 @@ export function RunningProjectsPopover({
                           type="button"
                           data-index={index}
                           className={cn(
-                            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium hover:bg-accent/50',
-                            isSelected && 'bg-accent'
+                            'control-tree-node flex w-full items-center gap-2 px-2 py-1.5 text-sm',
+                            isSelected && 'bg-theme/12 ring-1 ring-inset ring-theme/18'
                           )}
                           onClick={() => handleSelectItem(item)}
                           onContextMenu={(e) => handleContextMenu(e, item.project)}
                           onMouseEnter={() => setSelectedIndex(index)}
+                          data-active={isSelected ? 'repo' : 'false'}
                         >
-                          <FolderGit2 className="h-4 w-4 shrink-0 text-yellow-500" />
+                          <span className="control-tree-glyph h-4 w-4 shrink-0">
+                            <FolderGit2 className="h-4 w-4 shrink-0 text-support" />
+                          </span>
                           <span className="min-w-0 flex-1 truncate text-left">
                             <span className="text-muted-foreground">{item.project.repoName}</span>
                             <span className="mx-1 text-muted-foreground/50">/</span>
@@ -348,8 +372,8 @@ export function RunningProjectsPopover({
                           type="button"
                           data-index={index}
                           className={cn(
-                            'flex w-full items-center gap-2 rounded-md px-2 py-1 pl-6 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                            isSelected && 'bg-accent text-foreground'
+                            'flex w-full items-center gap-2 rounded-md px-2 py-1 pl-6 text-sm text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground',
+                            isSelected && 'bg-theme/10 text-foreground'
                           )}
                           onClick={() => handleSelectItem(item)}
                           onMouseEnter={() => setSelectedIndex(index)}
@@ -370,8 +394,8 @@ export function RunningProjectsPopover({
                         type="button"
                         data-index={index}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1 pl-6 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                          isSelected && 'bg-accent text-foreground'
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1 pl-6 text-sm text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground',
+                          isSelected && 'bg-theme/10 text-foreground'
                         )}
                         onClick={() => handleSelectItem(item)}
                         onMouseEnter={() => setSelectedIndex(index)}
@@ -407,7 +431,7 @@ export function RunningProjectsPopover({
                   {menuProject.agents.length > 0 && menuProject.terminals.length > 0 && (
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                       onClick={() => {
                         setMenuOpen(false);
                         closeAgentSessions(menuProject.path);
@@ -422,7 +446,7 @@ export function RunningProjectsPopover({
                   {menuProject.agents.length > 0 && (
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                       onClick={() => {
                         setMenuOpen(false);
                         closeAgentSessions(menuProject.path);
@@ -437,7 +461,7 @@ export function RunningProjectsPopover({
                   {menuProject.terminals.length > 0 && (
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                       onClick={() => {
                         setMenuOpen(false);
                         closeTerminalSessions(menuProject.path);
@@ -453,7 +477,7 @@ export function RunningProjectsPopover({
 
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                     onClick={() => {
                       setMenuOpen(false);
                       window.electronAPI.shell.openPath(menuProject.path);
@@ -465,7 +489,7 @@ export function RunningProjectsPopover({
 
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                     onClick={() => handleCopyPath(menuProject.path)}
                   >
                     <Copy className="h-4 w-4" />

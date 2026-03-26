@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/i18n';
+import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
 import { useTempWorkspaceStore } from '@/stores/tempWorkspace';
 
 interface TempWorkspaceDialogsProps {
@@ -44,6 +45,9 @@ export function TempWorkspaceDialogs({
     () => items.find((item) => item.id === deleteTargetId) || null,
     [items, deleteTargetId]
   );
+  const deleteDialogCopy = deleteTarget
+    ? buildRemovalDialogCopy({ kind: 'temp-session', name: deleteTarget.title }, t)
+    : null;
 
   const [renameValue, setRenameValue] = useState('');
 
@@ -92,9 +96,12 @@ export function TempWorkspaceDialogs({
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => (!open ? openDelete(null) : null)}>
         <AlertDialogPopup className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('Delete temp session?')}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteDialogCopy?.title ?? t('Delete temp session')}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {t('This will delete the temp session directory and its contents.')}
+              {deleteDialogCopy?.description}
+              <span className="block mt-2 text-destructive">{deleteDialogCopy?.consequence}</span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -108,7 +115,7 @@ export function TempWorkspaceDialogs({
                 openDelete(null);
               }}
             >
-              {t('Delete')}
+              {deleteDialogCopy?.actionLabel ?? t('Delete temp session')}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>

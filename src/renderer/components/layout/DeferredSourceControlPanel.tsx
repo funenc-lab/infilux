@@ -1,14 +1,8 @@
 import { GitBranch } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { SourceControlPanelProps } from '@/components/source-control/SourceControlPanel';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
+import { ControlStateCard } from './ControlStateCard';
 
 type SourceControlPanelComponent = React.ComponentType<SourceControlPanelProps>;
 
@@ -46,14 +40,13 @@ export function DeferredSourceControlPanel({
   }
 
   return (
-    <Empty className="h-full border-0">
-      <EmptyMedia variant="icon">
-        <GitBranch className="h-4.5 w-4.5" />
-      </EmptyMedia>
-      <EmptyHeader>
-        <EmptyTitle>{t('Loading version control')}</EmptyTitle>
-        <EmptyDescription>{t('Preparing repository status and diff tools')}</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <ControlStateCard
+      icon={<GitBranch className="h-5 w-5" />}
+      eyebrow={t('Version Control')}
+      title={t('Loading version control')}
+      description={t('Preparing repository status and diff tools')}
+      chipLabel={t('Version Control')}
+      chipTone="wait"
+    />
   );
 }

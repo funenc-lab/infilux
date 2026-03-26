@@ -1,6 +1,5 @@
 import type { TempWorkspaceItem } from '@shared/types';
-import { isWslUncPath } from '@shared/utils/path';
-import { motion } from 'framer-motion';
+import { getDisplayPath, isWslUncPath } from '@shared/utils/path';
 import {
   FolderGit2,
   GitBranch,
@@ -22,7 +21,6 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
-import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 
@@ -63,45 +61,44 @@ export function TemporaryWorkspacePanel({
   }, [sortedItems, searchQuery]);
 
   return (
-    <aside className="flex h-full w-full flex-col border-r bg-background">
-      {/* Header with buttons */}
-      <div className="flex h-12 items-center justify-end gap-1 border-b px-3 drag-region">
-        <button
-          type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-          onClick={onRefresh}
-          title={t('Refresh')}
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
-        {onCollapse && (
+    <aside className="control-sidebar flex h-full w-full flex-col border-r bg-background">
+      <div className="flex h-9 items-center justify-end gap-1 border-b border-border/60 px-2 drag-region">
+        <div className="control-sidebar-toolbar no-drag">
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-            onClick={onCollapse}
-            title={t('Collapse')}
+            className="control-sidebar-toolbutton no-drag"
+            onClick={onRefresh}
+            title={t('Refresh')}
           >
-            <PanelLeftClose className="h-4 w-4" />
+            <RefreshCw className="h-3.5 w-3.5" />
           </button>
-        )}
+          {onCollapse && (
+            <button
+              type="button"
+              className="control-sidebar-toolbutton no-drag"
+              onClick={onCollapse}
+              title={t('Collapse')}
+            >
+              <PanelLeftClose className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Search bar */}
-      <div className="px-3 py-2">
-        <div className="flex h-8 items-center gap-2 rounded-lg border px-2">
-          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <div className="control-sidebar-strip">
+        <div className="control-sidebar-filter control-sidebar-search">
+          <Search className="control-sidebar-search-icon h-3.5 w-3.5" />
           <input
             type="text"
             placeholder={t('Search sessions')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-full w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
+            className="control-sidebar-search-input"
           />
         </div>
       </div>
 
-      {/* List */}
-      <div className="flex-1 overflow-auto p-2">
+      <div className="flex-1 overflow-auto px-1.5 py-1.5">
         {filteredItems.length === 0 ? (
           <Empty className="h-full border-0">
             <EmptyMedia variant="icon">
@@ -133,11 +130,10 @@ export function TemporaryWorkspacePanel({
         )}
       </div>
 
-      {/* Footer - Create Temp Session Button */}
-      <div className="shrink-0 border-t p-2">
+      <div className="shrink-0 border-t border-border/60 p-1.5">
         <button
           type="button"
-          className="flex h-8 w-full items-center justify-start gap-2 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+          className="flex h-7 w-full items-center justify-start gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground"
           onClick={onCreate}
         >
           <Plus className="h-4 w-4" />
@@ -169,7 +165,8 @@ function TemporaryWorkspaceItemRow({
   const activities = useWorktreeActivityStore((s) => s.activities);
   const activity = activities[item.path] || { agentCount: 0, terminalCount: 0 };
   const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
-  const useLtrPathDisplay = isWslUncPath(item.path);
+  const displayPath = getDisplayPath(item.path);
+  const useLtrPathDisplay = isWslUncPath(displayPath);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -183,44 +180,44 @@ function TemporaryWorkspaceItemRow({
         type="button"
         onClick={onSelect}
         onContextMenu={handleContextMenu}
-        className={cn(
-          'relative flex w-full flex-col items-start gap-1 rounded-lg p-3 text-left transition-colors',
-          isActive ? 'text-accent-foreground' : 'hover:bg-accent/50'
-        )}
+        className="control-tree-node group flex w-full flex-col gap-0.5 px-2 py-1 text-left"
+        data-active={isActive ? 'worktree' : 'false'}
       >
-        {isActive && (
-          <motion.div
-            layoutId="temp-workspace-panel-highlight"
-            className="absolute inset-0 rounded-lg bg-accent"
-            transition={springFast}
-          />
-        )}
-        <div className="relative z-10 flex w-full items-center gap-2">
-          <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
-          <span className="control-badge shrink-0">{t('Main')}</span>
-        </div>
-        <div
-          className={cn(
-            'relative z-10 w-full overflow-hidden whitespace-nowrap text-ellipsis pl-6 text-xs text-muted-foreground [text-align:left] [unicode-bidi:plaintext]',
-            useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
-          )}
-          title={item.path}
-        >
-          {item.path}
+        <div className="relative z-10 flex w-full items-start gap-1.5">
+          <span className="control-tree-glyph mt-0.5 h-4 w-4 shrink-0">
+            <GitBranch className="control-tree-icon h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="control-tree-title min-w-0 flex-1 truncate">{item.title}</span>
+              <span className="control-tree-flag control-tree-flag-main shrink-0">{t('Main')}</span>
+            </div>
+            <div
+              className={cn(
+                'control-tree-subtitle mt-px overflow-hidden whitespace-nowrap text-ellipsis [text-align:left] [unicode-bidi:plaintext]',
+                useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
+              )}
+              title={displayPath}
+            >
+              {displayPath}
+            </div>
+          </div>
         </div>
         {hasActivity && (
-          <div className="relative z-10 flex items-center gap-3 pl-6 text-xs text-muted-foreground">
+          <div className="control-tree-meta control-tree-meta-row relative z-10 mt-0.5 pl-[1.25rem]">
             {activity.agentCount > 0 && (
-              <span className="flex items-center gap-1">
+              <span className="control-tree-metric">
                 <Sparkles className="h-3 w-3" />
-                {activity.agentCount}
+                <span className="control-tree-metric-value">{activity.agentCount}</span>
               </span>
             )}
+            {activity.agentCount > 0 && activity.terminalCount > 0 && (
+              <span className="control-tree-separator">·</span>
+            )}
             {activity.terminalCount > 0 && (
-              <span className="flex items-center gap-1">
+              <span className="control-tree-metric">
                 <Terminal className="h-3 w-3" />
-                {activity.terminalCount}
+                <span className="control-tree-metric-value">{activity.terminalCount}</span>
               </span>
             )}
           </div>

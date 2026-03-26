@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Pencil, Plus } from 'lucide-react';
+import { ChevronDown, Pencil, Plus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ALL_GROUP_ID, type RepositoryGroup } from '@/App/constants';
 import { useI18n } from '@/i18n';
@@ -41,7 +41,7 @@ export function GroupSelector({
   };
 
   return (
-    <div className="border-b border-border/60 px-2 py-1.5">
+    <div className="px-0">
       <div
         ref={triggerRef}
         role="button"
@@ -53,27 +53,25 @@ export function GroupSelector({
             setIsOpen((prev) => !prev);
           }
         }}
-        className="group relative flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm transition-colors hover:bg-accent/24"
+        className="control-sidebar-filter group relative cursor-pointer"
       >
         {displayEmoji && (
-          <span className="w-5 shrink-0 text-center text-[15px]">{displayEmoji}</span>
+          <span className="w-4 shrink-0 text-center text-[14px]">{displayEmoji}</span>
         )}
         {!isAllSelected && (
           <span
-            className="h-2.5 w-2.5 shrink-0 rounded-full border"
+            className="h-2 w-2 shrink-0 rounded-full border"
             style={{ backgroundColor: activeGroup?.color }}
             aria-hidden="true"
           />
         )}
-        <span className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground">
-          {displayName}
-        </span>
-        <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">
+        <span className="control-tree-title min-w-0 flex-1 truncate text-left">{displayName}</span>
+        <span className="control-tree-meta shrink-0 font-medium uppercase tabular-nums">
           {displayCount}
         </span>
         <ChevronDown
           className={cn(
-            'h-3 w-3 shrink-0 text-muted-foreground transition-transform',
+            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
             isOpen && 'rotate-180'
           )}
         />
@@ -87,7 +85,7 @@ export function GroupSelector({
               onAddGroup();
             }
           }}
-          className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent/32 hover:text-foreground group-hover:opacity-100"
+          className="shrink-0 rounded-sm p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent/12 hover:text-foreground group-hover:opacity-100"
           title={isAllSelected ? t('New Group') : t('Edit Group')}
         >
           {isAllSelected ? <Plus className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
@@ -110,14 +108,13 @@ export function GroupSelector({
                 onClick={() => handleSelect(ALL_GROUP_ID)}
                 className={cn(
                   'flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm',
-                  'hover:bg-accent/36'
+                  'hover:bg-accent/28'
                 )}
               >
                 <span className="min-w-0 flex-1 truncate text-left">{t('All')}</span>
                 <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                   {totalCount}
                 </span>
-                {isAllSelected && <Check className="h-4 w-4 shrink-0 text-primary" />}
               </button>
 
               {groups.length > 0 && <div className="my-1 h-px bg-border" />}
@@ -136,7 +133,7 @@ export function GroupSelector({
                   }}
                   className={cn(
                     'group/item flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm',
-                    'hover:bg-accent/36'
+                    'hover:bg-accent/28'
                   )}
                 >
                   <span className="text-[15px]">{group.emoji}</span>
@@ -149,32 +146,28 @@ export function GroupSelector({
                   <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                     {repositoryCounts[group.id] || 0}
                   </span>
-                  {activeGroupId === group.id ? (
-                    <Check className="h-4 w-4 shrink-0 text-primary" />
-                  ) : (
-                    <button
-                      type="button"
-                      tabIndex={0}
-                      onClick={(e) => {
+                  <button
+                    type="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsOpen(false);
+                      onSelectGroup(group.id);
+                      onEditGroup();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
                         e.stopPropagation();
                         setIsOpen(false);
                         onSelectGroup(group.id);
                         onEditGroup();
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.stopPropagation();
-                          setIsOpen(false);
-                          onSelectGroup(group.id);
-                          onEditGroup();
-                        }
-                      }}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover/item:opacity-100 hover:text-foreground"
-                      title={t('Edit Group')}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+                      }
+                    }}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover/item:opacity-100 hover:text-foreground"
+                    title={t('Edit Group')}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               ))}
 
@@ -186,7 +179,7 @@ export function GroupSelector({
                   setIsOpen(false);
                   onAddGroup();
                 }}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/36 hover:text-foreground"
+                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/28 hover:text-foreground"
               >
                 <Plus className="h-4 w-4" />
                 <span>{t('New Group')}</span>

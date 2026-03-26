@@ -1,13 +1,7 @@
 import type { GitStatus, GitWorktree } from '@shared/types';
 import { GitBranch } from 'lucide-react';
 import { useCallback, useRef } from 'react';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/i18n';
 import { WorktreeCard } from './WorktreeCard';
@@ -108,17 +102,16 @@ export function WorktreeList({
 
   if (worktrees.length === 0) {
     return (
-      <Empty>
-        <EmptyMedia>
-          <GitBranch className="h-12 w-12 text-muted-foreground/50" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{t('No worktrees')}</EmptyTitle>
-          <EmptyDescription>
-            {t('Click the button in the top right to create your first worktree')}
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <ControlStateCard
+        icon={<GitBranch className="h-5 w-5" />}
+        eyebrow={t('Choose Worktree')}
+        title={t('No worktrees')}
+        description={t('Click the button in the top right to create your first worktree')}
+        chipLabel={t('No worktrees')}
+        chipTone="wait"
+        className="px-0 pb-0 pt-0"
+        cardClassName="max-w-[min(54rem,100%)]"
+      />
     );
   }
 

@@ -41,6 +41,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { toastManager } from '@/components/ui/toast';
 import { useCodeReview } from '@/hooks/useCodeReview';
 import { useI18n } from '@/i18n';
+import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { useActiveSessionId } from '@/stores/agentSessions';
 import { stopCodeReview, useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useSettingsStore } from '@/stores/settings';
@@ -198,16 +199,25 @@ export function CodeReviewModal({ open, onOpenChange, repoPath }: CodeReviewModa
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(content);
+      const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'review' }, t);
       toastManager.add({
-        title: t('Copied'),
-        description: t('Review content copied to clipboard'),
+        title: successCopy.title,
+        description: successCopy.description,
         type: 'success',
         timeout: 2000,
       });
-    } catch {
+    } catch (err) {
+      const errorCopy = buildClipboardToastCopy(
+        {
+          phase: 'error',
+          subject: 'review',
+          message: err instanceof Error ? err.message : String(err),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Copy failed'),
-        description: t('Failed to copy content'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 3000,
       });
@@ -282,7 +292,7 @@ export function CodeReviewModal({ open, onOpenChange, repoPath }: CodeReviewModa
       case 'streaming':
         return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
       case 'complete':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case 'error':
         return <XCircle className="h-4 w-4 text-destructive" />;
       default:
@@ -413,7 +423,7 @@ export function CodeReviewModal({ open, onOpenChange, repoPath }: CodeReviewModa
       <AlertDialog open={showRestartConfirm} onOpenChange={setShowRestartConfirm}>
         <AlertDialogPopup zIndexLevel="nested">
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('Confirm Restart')}</AlertDialogTitle>
+            <AlertDialogTitle>{t('Restart review')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('Review in progress. Are you sure you want to restart?')}
             </AlertDialogDescription>

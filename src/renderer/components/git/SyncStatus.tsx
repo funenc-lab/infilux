@@ -40,13 +40,13 @@ export function SyncStatus({
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 text-sm">
         {ahead > 0 && (
-          <span className="flex items-center gap-1 text-blue-500">
+          <span className="flex items-center gap-1 text-info">
             <ArrowUp className="h-4 w-4" />
             {ahead}
           </span>
         )}
         {behind > 0 && (
-          <span className="flex items-center gap-1 text-orange-500">
+          <span className="flex items-center gap-1 text-warning">
             <ArrowDown className="h-4 w-4" />
             {behind}
           </span>

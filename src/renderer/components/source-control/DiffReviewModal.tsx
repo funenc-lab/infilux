@@ -18,7 +18,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CommentForm } from '@/components/files/EditorLineComment';
+import { buildMonacoThemeDefinition } from '@/components/files/editorThemePalette';
 import { ensureMonacoSetup, monaco } from '@/components/files/monacoSetup';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -28,12 +30,12 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@/components/ui/empty';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useFileChanges, useFileDiff } from '@/hooks/useSourceControl';
 import { useSubmoduleChanges, useSubmoduleFileDiff, useSubmodules } from '@/hooks/useSubmodules';
 import { useI18n } from '@/i18n';
-import { getXtermTheme, isTerminalThemeDark } from '@/lib/ghosttyTheme';
+import { findCustomThemeBySelection } from '@/lib/appTheme';
+import { getFileStatusTextClass } from '@/lib/fileStatusTone';
 import { cn } from '@/lib/utils';
 import { useActiveSessionId } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
@@ -61,21 +63,6 @@ interface CommentData {
 // 扩展 FileChange 类型，支持子模块
 interface ExtendedFileChange extends FileChange {
   submodulePath?: string; // 子模块路径
-}
-
-function getStatusColor(status: FileChange['status']): string {
-  switch (status) {
-    case 'A':
-      return 'text-green-500';
-    case 'D':
-      return 'text-red-500';
-    case 'M':
-      return 'text-yellow-500';
-    case 'R':
-      return 'text-blue-500';
-    default:
-      return 'text-muted-foreground';
-  }
 }
 
 function getStatusLabel(status: FileChange['status']): string {
@@ -128,34 +115,8 @@ function getLanguageFromPath(filePath: string): string {
 
 const CUSTOM_THEME_NAME = 'enso-review-diff-theme';
 
-function defineMonacoDiffTheme(terminalThemeName: string) {
-  const xtermTheme = getXtermTheme(terminalThemeName);
-  if (!xtermTheme) return;
-
-  const isDark = isTerminalThemeDark(terminalThemeName);
-
-  monaco.editor.defineTheme(CUSTOM_THEME_NAME, {
-    base: isDark ? 'vs-dark' : 'vs',
-    inherit: true,
-    rules: [
-      { token: 'comment', foreground: xtermTheme.brightBlack.replace('#', '') },
-      { token: 'keyword', foreground: xtermTheme.magenta.replace('#', '') },
-      { token: 'string', foreground: xtermTheme.green.replace('#', '') },
-      { token: 'number', foreground: xtermTheme.yellow.replace('#', '') },
-      { token: 'type', foreground: xtermTheme.cyan.replace('#', '') },
-      { token: 'function', foreground: xtermTheme.blue.replace('#', '') },
-      { token: 'variable', foreground: xtermTheme.red.replace('#', '') },
-    ],
-    colors: {
-      'editor.background': xtermTheme.background,
-      'editor.foreground': xtermTheme.foreground,
-      'diffEditor.insertedTextBackground': isDark ? '#2ea04326' : '#2ea04320',
-      'diffEditor.removedTextBackground': isDark ? '#f8514926' : '#f8514920',
-      'diffEditor.insertedLineBackground': isDark ? '#2ea04315' : '#2ea04310',
-      'diffEditor.removedLineBackground': isDark ? '#f8514915' : '#f8514910',
-      'editor.lineHighlightBackground': isDark ? '#ffffff10' : '#00000008',
-    },
-  });
+function defineMonacoDiffTheme(options: Parameters<typeof buildMonacoThemeDefinition>[0]) {
+  monaco.editor.defineTheme(CUSTOM_THEME_NAME, buildMonacoThemeDefinition(options));
 }
 
 // Submodule Group Component
@@ -235,7 +196,7 @@ function SubmoduleGroup({
                 )}
                 onClick={() => onSelectFile(extendedFile)}
               >
-                <FileCode className={cn('h-4 w-4 shrink-0', getStatusColor(file.status))} />
+                <FileCode className={cn('h-4 w-4 shrink-0', getFileStatusTextClass(file.status))} />
                 <span className="flex-1 truncate">{file.path.split('/').pop()}</span>
                 {fileCommentCount > 0 && (
                   <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-xs text-primary">
@@ -243,7 +204,7 @@ function SubmoduleGroup({
                   </span>
                 )}
                 <span
-                  className={cn('text-xs shrink-0', getStatusColor(file.status))}
+                  className={cn('text-xs shrink-0', getFileStatusTextClass(file.status))}
                   title={getStatusLabel(file.status)}
                 >
                   {file.status}
@@ -291,7 +252,16 @@ function CommentItem({ comment, onDelete }: { comment: CommentData; onDelete: ()
 export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffReviewModalProps) {
   const { t } = useI18n();
   const sessionId = useActiveSessionId(rootPath);
-  const { terminalTheme, editorSettings } = useSettingsStore();
+  const {
+    theme,
+    terminalTheme,
+    colorPreset,
+    customAccentColor,
+    activeThemeSelection,
+    customThemes,
+    editorSettings,
+  } = useSettingsStore();
+  const activeCustomTheme = findCustomThemeBySelection(customThemes, activeThemeSelection);
   const write = useTerminalWriteStore((state) => state.write);
   const focus = useTerminalWriteStore((state) => state.focus);
 
@@ -392,14 +362,20 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
         if (cancelled) {
           return;
         }
-        defineMonacoDiffTheme(terminalTheme);
+        defineMonacoDiffTheme({
+          theme,
+          terminalTheme,
+          colorPreset,
+          customAccentColor,
+          customTheme: activeCustomTheme,
+        });
         setIsThemeReady(true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [open, diff, terminalTheme]);
+  }, [activeCustomTheme, colorPreset, customAccentColor, diff, open, terminalTheme, theme]);
 
   // Auto-select first file
   useEffect(() => {
@@ -1110,7 +1086,9 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
                         )}
                         onClick={() => setSelectedFile(file)}
                       >
-                        <FileCode className={cn('h-4 w-4 shrink-0', getStatusColor(file.status))} />
+                        <FileCode
+                          className={cn('h-4 w-4 shrink-0', getFileStatusTextClass(file.status))}
+                        />
                         <span className="flex-1 truncate">{file.path.split('/').pop()}</span>
                         {fileCommentCount > 0 && (
                           <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-xs text-primary">
@@ -1118,7 +1096,7 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
                           </span>
                         )}
                         <span
-                          className={cn('text-xs shrink-0', getStatusColor(file.status))}
+                          className={cn('text-xs shrink-0', getFileStatusTextClass(file.status))}
                           title={getStatusLabel(file.status)}
                         >
                           {file.status}
@@ -1172,7 +1150,7 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
                 <div className="flex items-center min-w-0">
                   <span className="text-muted-foreground truncate">{selectedFile.path}</span>
                   {selectedFile.staged && (
-                    <span className="ml-2 rounded bg-green-500/20 px-1.5 py-0.5 text-xs text-green-500 shrink-0">
+                    <span className="ml-2 shrink-0 rounded border border-success/25 bg-success/10 px-1.5 py-0.5 text-xs text-success">
                       {t('Staged')}
                     </span>
                   )}
@@ -1198,24 +1176,40 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
 
             <div className="flex-1 min-h-0">
               {isLoadingDiff ? (
-                <div className="flex items-center justify-center h-full">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <div className="flex h-full items-center justify-center p-5">
+                  <ConsoleEmptyState
+                    variant="embedded"
+                    icon={<Loader2 className="h-4.5 w-4.5 animate-spin" />}
+                    eyebrow={t('Review Diff')}
+                    title={t('Loading diff')}
+                    description={t('Preparing the selected file for review')}
+                    chips={[{ label: t('Loading'), tone: 'wait' }]}
+                  />
                 </div>
               ) : !selectedFile ? (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  {t('Select a file to view diff')}
+                <div className="flex h-full items-center justify-center p-5">
+                  <ConsoleEmptyState
+                    variant="embedded"
+                    icon={<FileCode className="h-4.5 w-4.5" />}
+                    eyebrow={t('Review Diff')}
+                    title={t('Select a file to view diff')}
+                    description={t(
+                      'Choose a changed file from the review list to inspect its diff'
+                    )}
+                    chips={[{ label: t('Awaiting Selection'), tone: 'wait' }]}
+                  />
                 </div>
               ) : diff?.isBinary ? (
-                <Empty className="h-full">
-                  <EmptyMedia variant="icon">
-                    <FileX2 className="h-4.5 w-4.5" />
-                  </EmptyMedia>
-                  <EmptyHeader>
-                    <EmptyDescription>
-                      {t('Binary file not supported for diff preview')}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
+                <div className="flex h-full items-center justify-center p-5">
+                  <ConsoleEmptyState
+                    variant="embedded"
+                    icon={<FileX2 className="h-4.5 w-4.5" />}
+                    eyebrow={t('Review Diff')}
+                    title={selectedFile.path}
+                    description={t('Binary file not supported for diff preview')}
+                    chips={[{ label: t('Binary File'), tone: 'wait' }]}
+                  />
+                </div>
               ) : diff && isThemeReady ? (
                 <DiffEditor
                   key={`${selectedFile.path}-${selectedFile.staged}`}

@@ -6,6 +6,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator } from '@/components/ui/menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import type { EditorTab } from '@/stores/editor';
@@ -93,17 +94,22 @@ export function EditorTabs({
     if (!menuTabPath) return;
     try {
       await navigator.clipboard.writeText(getDisplayPath(menuTabPath));
+      const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'path' }, t);
       toastManager.add({
-        title: t('Copied'),
-        description: t('Path copied to clipboard'),
+        title: successCopy.title,
+        description: successCopy.description,
         type: 'success',
         timeout: 2000,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const errorCopy = buildClipboardToastCopy(
+        { phase: 'error', subject: 'path', message: message || undefined },
+        t
+      );
       toastManager.add({
-        title: t('Copy failed'),
-        description: message || t('Failed to copy content'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 3000,
       });
@@ -116,9 +122,9 @@ export function EditorTabs({
   }
 
   return (
-    <div className="h-10 shrink-0 overflow-hidden border-b">
+    <div className="shrink-0 border-b border-border/60 bg-background/95 px-1.5 py-1">
       <ScrollArea className="h-full">
-        <div className="flex h-9 w-max pb-1">
+        <div className="control-topbar-tabs h-9 w-max min-w-full">
           {tabs.map((tab, index) => {
             const isActive = tab.path === activeTabPath;
             const Icon = getFileIcon(tab.title, false);
@@ -147,38 +153,36 @@ export function EditorTabs({
                 role="button"
                 tabIndex={0}
                 className={cn(
-                  'group relative flex h-9 min-w-[120px] max-w-[180px] cursor-pointer select-none items-center gap-2 border-r px-3 text-sm transition-colors',
-                  isActive
-                    ? 'text-foreground'
-                    : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'
+                  'control-topbar-tab group min-w-[120px] max-w-[192px] cursor-pointer select-none',
+                  isActive ? 'shadow-[0_10px_28px_color-mix(in_oklch,var(--theme)_10%,transparent)]' : ''
                 )}
+                data-active={isActive}
               >
-                {/* Active indicator - 使用 layoutId 实现平滑滑动 */}
                 {isActive && (
                   <motion.div
                     layoutId="editor-tab-indicator"
-                    className="absolute inset-x-0 top-0 h-[2px] bg-primary"
+                    className="control-topbar-tab-surface"
                     transition={springFast}
                   />
                 )}
 
-                {/* Icon */}
-                <Icon className={cn('h-4 w-4 shrink-0', iconColor)} />
+                <span className="control-topbar-tab-icon">
+                  <Icon className={cn('h-4 w-4 shrink-0', iconColor)} />
+                </span>
 
-                {/* Title */}
-                <span className="flex-1 truncate">
+                <span className="control-topbar-tab-label min-w-0 flex-1 truncate">
                   {tab.isDirty && <span className="mr-0.5">*</span>}
                   {tab.title}
                 </span>
 
-                {/* Close button */}
                 <button
                   type="button"
                   onClick={(e) => onTabClose(tab.path, e)}
+                  aria-label={t('Close Tab')}
                   className={cn(
-                    'shrink-0 rounded p-0.5 text-primary opacity-0 transition-opacity hover:bg-primary/20',
+                    'relative z-10 shrink-0 rounded-[0.34375rem] p-0.5 text-muted-foreground opacity-0 transition-all hover:bg-theme/10 hover:text-foreground',
                     'group-hover:opacity-100',
-                    isActive && 'opacity-60'
+                    isActive && 'opacity-70'
                   )}
                 >
                   <X className="h-3.5 w-3.5" />

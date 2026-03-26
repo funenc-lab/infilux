@@ -168,7 +168,7 @@ export function WorktreeCard({
       <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
         {hasChanges ? (
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-green-500" />
+            <span className="h-2 w-2 rounded-full bg-success" />
             {t('You have {{count}} changed files', { count: changedFilesCount })}
           </span>
         ) : (
@@ -178,12 +178,10 @@ export function WorktreeCard({
           </span>
         )}
         {status?.ahead && status.ahead > 0 && (
-          <span className="text-blue-500">
-            {t('{{count}} commits ahead', { count: status.ahead })}
-          </span>
+          <span className="text-info">{t('{{count}} commits ahead', { count: status.ahead })}</span>
         )}
         {status?.behind && status.behind > 0 && (
-          <span className="text-orange-500">
+          <span className="text-warning">
             {t('{{count}} commits behind', { count: status.behind })}
           </span>
         )}

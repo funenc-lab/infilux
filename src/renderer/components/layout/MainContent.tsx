@@ -699,7 +699,10 @@ export function MainContent({
               <button
                 type="button"
                 data-active={isSettingsActive ? 'true' : 'false'}
-                className={cn(headerButtonClass, 'w-8 px-0')}
+                data-role="shell"
+                aria-label={t('Settings')}
+                aria-pressed={isSettingsActive}
+                className={cn(headerButtonClass, 'control-topbar-shell-button w-8 px-0')}
                 onClick={onToggleSettings}
                 title={t('Settings')}
               >

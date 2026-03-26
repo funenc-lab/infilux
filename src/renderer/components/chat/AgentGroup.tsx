@@ -1,9 +1,10 @@
-import { Plus, Sparkles } from 'lucide-react';
+import { Bot, Plus } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
+import { ConsoleEmptyState } from '../layout/ConsoleEmptyState';
 import { type Session, SessionBar } from './SessionBar';
 import type { AgentGroup as AgentGroupType } from './types';
 
@@ -83,74 +84,102 @@ export function AgentGroup({
       // biome-ignore lint/a11y/useKeyWithClickEvents: click activates group
       <div
         className={cn(
-          'absolute inset-0 flex flex-col items-center justify-center gap-4 text-muted-foreground pointer-events-auto',
+          'absolute inset-0 flex items-center justify-center px-5 py-5 pointer-events-auto',
           !bgImageEnabled && 'bg-background'
         )}
         onClick={onGroupClick}
       >
-        <Sparkles className="h-12 w-12 opacity-50" />
-        <p className="text-sm">{t('No agent sessions')}</p>
-        <div
-          className="relative"
-          onMouseEnter={() => setShowAgentMenu(true)}
-          onMouseLeave={() => setShowAgentMenu(false)}
-        >
-          <Button variant="outline" size="sm" onClick={onSessionNew}>
-            <Plus className="mr-2 h-4 w-4" />
-            {t('New Session')}
-          </Button>
-          {showAgentMenu && enabledAgents.length > 0 && (
-            <div className="absolute left-1/2 -translate-x-1/2 top-full pt-1 z-50 min-w-40">
-              <div className="rounded-lg border bg-popover p-1 shadow-lg">
-                <div className="px-2 py-1 text-xs text-muted-foreground">{t('Select Agent')}</div>
-                {[...enabledAgents]
-                  .sort((a, b) => {
-                    const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
-                    const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
-                    return bDefault - aDefault;
-                  })
-                  .map((agentId) => {
-                    const isHapi = agentId.endsWith('-hapi');
-                    const isHappy = agentId.endsWith('-happy');
-                    const baseId = isHapi
-                      ? agentId.slice(0, -5)
-                      : isHappy
-                        ? agentId.slice(0, -6)
-                        : agentId;
-                    const customAgent = customAgents.find((a) => a.id === baseId);
-                    const baseName = customAgent?.name ?? agentInfo[baseId]?.name ?? baseId;
-                    const name = isHapi
-                      ? `${baseName} (Hapi)`
-                      : isHappy
-                        ? `${baseName} (Happy)`
-                        : baseName;
-                    const isDefault = agentSettings[agentId]?.isDefault;
-                    return (
-                      <button
-                        type="button"
-                        key={agentId}
-                        onClick={() => {
-                          onSessionNewWithAgent(
-                            agentId,
-                            customAgent?.command ?? agentInfo[baseId]?.command ?? 'claude'
-                          );
-                          setShowAgentMenu(false);
-                        }}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
-                      >
-                        <span>{name}</span>
-                        {isDefault && (
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {t('(default)')}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-              </div>
-            </div>
+        <ConsoleEmptyState
+          variant="embedded"
+          className="max-w-[min(34rem,100%)]"
+          icon={<Bot className="h-4.5 w-4.5" />}
+          eyebrow={t('Agent Group')}
+          title={t('No sessions in this agent group')}
+          description={t(
+            'Start a new agent session in this split to keep orchestration scoped to the current worktree context.'
           )}
-        </div>
+          chips={[{ label: t('Awaiting Session'), tone: 'wait' }]}
+          details={[
+            { label: t('Status'), value: t('No agent sessions are attached') },
+            { label: t('Profiles Ready'), value: String(enabledAgents.length) },
+            { label: t('Next Step'), value: t('Create a session or choose an agent profile') },
+          ]}
+          detailsLayout="compact"
+          actions={
+            <div
+              className="relative"
+              onMouseEnter={() => setShowAgentMenu(true)}
+              onMouseLeave={() => setShowAgentMenu(false)}
+            >
+              <Button
+                variant="default"
+                size="sm"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSessionNew();
+                }}
+                className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+              >
+                <Plus className="h-4 w-4" />
+                {t('New Session')}
+              </Button>
+              {showAgentMenu && enabledAgents.length > 0 && (
+                <div className="absolute left-1/2 top-full z-50 min-w-40 -translate-x-1/2 pt-2">
+                  <div className="rounded-lg border bg-popover p-1 shadow-lg">
+                    <div className="px-2 py-1 text-xs text-muted-foreground">
+                      {t('Select Agent')}
+                    </div>
+                    {[...enabledAgents]
+                      .sort((a, b) => {
+                        const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
+                        const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
+                        return bDefault - aDefault;
+                      })
+                      .map((agentId) => {
+                        const isHapi = agentId.endsWith('-hapi');
+                        const isHappy = agentId.endsWith('-happy');
+                        const baseId = isHapi
+                          ? agentId.slice(0, -5)
+                          : isHappy
+                            ? agentId.slice(0, -6)
+                            : agentId;
+                        const customAgent = customAgents.find((a) => a.id === baseId);
+                        const baseName = customAgent?.name ?? agentInfo[baseId]?.name ?? baseId;
+                        const name = isHapi
+                          ? `${baseName} (Hapi)`
+                          : isHappy
+                            ? `${baseName} (Happy)`
+                            : baseName;
+                        const isDefault = agentSettings[agentId]?.isDefault;
+                        return (
+                          <button
+                            type="button"
+                            key={agentId}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onSessionNewWithAgent(
+                                agentId,
+                                customAgent?.command ?? agentInfo[baseId]?.command ?? 'claude'
+                              );
+                              setShowAgentMenu(false);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm whitespace-nowrap text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                          >
+                            <span>{name}</span>
+                            {isDefault && (
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {t('(default)')}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </div>
+          }
+        />
       </div>
     );
   }

@@ -1,14 +1,8 @@
 import { Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { AgentPanelProps } from '@/components/chat/AgentPanel';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
+import { ControlStateCard } from './ControlStateCard';
 
 type AgentPanelComponent = React.ComponentType<AgentPanelProps>;
 
@@ -43,14 +37,13 @@ export function DeferredAgentPanel({ shouldLoad = true, ...props }: DeferredAgen
   }
 
   return (
-    <Empty className="h-full border-0">
-      <EmptyMedia variant="icon">
-        <Sparkles className="h-4.5 w-4.5" />
-      </EmptyMedia>
-      <EmptyHeader>
-        <EmptyTitle>{t('Loading AI Agent')}</EmptyTitle>
-        <EmptyDescription>{t('Preparing agent sessions and terminal workspace')}</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <ControlStateCard
+      icon={<Sparkles className="h-5 w-5" />}
+      eyebrow={t('Agent Console')}
+      title={t('Loading AI Agent')}
+      description={t('Preparing agent sessions and terminal workspace')}
+      chipLabel={t('Agent Console')}
+      chipTone="wait"
+    />
   );
 }

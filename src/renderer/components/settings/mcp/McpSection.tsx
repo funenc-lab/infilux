@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { useSettingsStore } from '@/stores/settings';
 import { McpServerDialog } from './McpServerDialog';
 
@@ -116,7 +117,15 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
   const handleDelete = async (id: string) => {
     removeMcpServer(id);
     await window.electronAPI.claudeConfig.mcp.delete(repoPath, id);
-    toastManager.add({ type: 'success', title: t('MCP server removed') });
+    const copy = buildSettingsWorkflowToastCopy(
+      {
+        action: 'mcp-remove',
+        phase: 'success',
+        name: id,
+      },
+      t
+    );
+    toastManager.add({ type: 'success', title: copy.title, description: copy.description });
   };
 
   const handleSave = async (server: McpServer) => {
@@ -128,7 +137,15 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
     // 使用 upsert 更新单个服务器
     await window.electronAPI.claudeConfig.mcp.upsert(repoPath, server);
     setDialogOpen(false);
-    toastManager.add({ type: 'success', title: t('MCP server saved') });
+    const copy = buildSettingsWorkflowToastCopy(
+      {
+        action: 'mcp-save',
+        phase: 'success',
+        name: server.name,
+      },
+      t
+    );
+    toastManager.add({ type: 'success', title: copy.title, description: copy.description });
   };
 
   return (

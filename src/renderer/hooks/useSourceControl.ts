@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toastManager } from '@/components/ui/toast';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
+import { buildSourceControlToastCopy } from '@/lib/feedbackCopy';
 
 const emptyResult: FileChangesResult = { changes: [] };
 
@@ -62,9 +63,17 @@ export function useGitStage() {
       ]);
     },
     onError: (error) => {
+      const errorCopy = buildSourceControlToastCopy(
+        {
+          action: 'stage',
+          phase: 'error',
+          message: error instanceof Error ? error.message : t('Unknown error'),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Stage failed'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });
@@ -88,9 +97,17 @@ export function useGitUnstage() {
       ]);
     },
     onError: (error) => {
+      const errorCopy = buildSourceControlToastCopy(
+        {
+          action: 'unstage',
+          phase: 'error',
+          message: error instanceof Error ? error.message : t('Unknown error'),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Unstage failed'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });
@@ -114,9 +131,17 @@ export function useGitDiscard() {
       ]);
     },
     onError: (error) => {
+      const errorCopy = buildSourceControlToastCopy(
+        {
+          action: 'discard',
+          phase: 'error',
+          message: error instanceof Error ? error.message : t('Unknown error'),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Discard failed'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });
@@ -142,9 +167,17 @@ export function useGitCommit() {
       ]);
     },
     onError: (error) => {
+      const errorCopy = buildSourceControlToastCopy(
+        {
+          action: 'commit',
+          phase: 'error',
+          message: error instanceof Error ? error.message : t('Unknown error'),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Commit failed'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });

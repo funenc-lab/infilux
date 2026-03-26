@@ -1,17 +1,14 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { FileCode } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { restorePanelWidthFromStorage } from '@/App/panelWidthStorage';
 import { normalizePath } from '@/App/storage';
+import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { GlobalSearchDialog, type SearchMode } from '@/components/search';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { Button } from '@/components/ui/button';
 import { addToast, toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { pauseFocusLock, restoreFocus } from '@/lib/focusLock';
 import { requestUnsavedChoice } from '@/stores/unsavedPrompt';
 
@@ -36,6 +33,8 @@ import {
   FileConflictDialog,
 } from './FileConflictDialog';
 import { FileTree } from './FileTree';
+import { createInitialFilePanelTrackingState } from './fileTreeTrackingState';
+import { shouldAutoExpandIntegratedFileTree } from './fileTreeVisibilityPolicy';
 import { NewItemDialog } from './NewItemDialog';
 import type { UnsavedChangesChoice } from './UnsavedChangesDialog';
 
@@ -64,7 +63,12 @@ export interface FilePanelProps {
 
 type NewItemType = 'file' | 'directory' | null;
 
-export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
+export function FilePanel({
+  rootPath,
+  isActive = false,
+  onExpandWorktree,
+  worktreeCollapsed = false,
+}: FilePanelProps) {
   const { t } = useI18n();
   const sessionId = useActiveSessionId(rootPath);
   const {
@@ -209,8 +213,11 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
 
   // Panel resize state
   const [panelWidth, setPanelWidth] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? Number(saved) : PANEL_DEFAULT_WIDTH;
+    return restorePanelWidthFromStorage(localStorage.getItem(STORAGE_KEY), {
+      min: PANEL_MIN_WIDTH,
+      max: PANEL_MAX_WIDTH,
+      fallback: PANEL_DEFAULT_WIDTH,
+    });
   });
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -220,11 +227,40 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
     const saved = localStorage.getItem('enso-file-tree-collapsed');
     return saved === 'true';
   });
+  const previousFilePanelStateRef = useRef<{
+    isActive: boolean;
+    rootPath: string | undefined;
+    activeFilePath: string | null;
+  }>(createInitialFilePanelTrackingState());
 
   // Persist file tree collapse state
   useEffect(() => {
     localStorage.setItem('enso-file-tree-collapsed', String(isFileTreeCollapsed));
   }, [isFileTreeCollapsed]);
+
+  useEffect(() => {
+    const previousState = previousFilePanelStateRef.current;
+
+    if (
+      shouldAutoExpandIntegratedFileTree({
+        isActive,
+        previousIsActive: previousState.isActive,
+        isFileTreeCollapsed,
+        rootPath,
+        previousRootPath: previousState.rootPath,
+        activeFilePath: activeTab?.path ?? null,
+        previousActiveFilePath: previousState.activeFilePath,
+      })
+    ) {
+      setIsFileTreeCollapsed(false);
+    }
+
+    previousFilePanelStateRef.current = {
+      isActive,
+      rootPath,
+      activeFilePath: activeTab?.path ?? null,
+    };
+  }, [activeTab?.path, isActive, isFileTreeCollapsed, rootPath]);
 
   // Toggle file tree collapse
   const handleToggleFileTree = useCallback(() => {
@@ -245,10 +281,18 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
       }
       terminalWrite(sessionId, `@${displayPath} `);
       terminalFocus(sessionId);
+      const copy = buildFileWorkflowToastCopy(
+        {
+          action: 'send-to-session',
+          phase: 'success',
+          target: `@${displayPath}`,
+        },
+        t
+      );
       addToast({
         type: 'success',
-        title: t('Sent to session'),
-        description: `@${displayPath}`,
+        title: copy.title,
+        description: copy.description,
         timeout: 2000,
       });
     },
@@ -374,10 +418,14 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
           await saveFile.mutateAsync(path);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
+          const errorCopy = buildFileWorkflowToastCopy(
+            { action: 'file-save', phase: 'error', message },
+            t
+          );
           toastManager.add({
             type: 'error',
-            title: t('Save failed'),
-            description: message,
+            title: errorCopy.title,
+            description: errorCopy.description,
           });
           return;
         }
@@ -401,10 +449,14 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
             await saveFile.mutateAsync(path);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+            const errorCopy = buildFileWorkflowToastCopy(
+              { action: 'file-save', phase: 'error', message },
+              t
+            );
             toastManager.add({
               type: 'error',
-              title: t('Save failed'),
-              description: message,
+              title: errorCopy.title,
+              description: errorCopy.description,
             });
             return;
           }
@@ -506,12 +558,19 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
       } else {
         // Show result toast
         if (result.success.length > 0) {
+          const successCopy = buildFileWorkflowToastCopy(
+            {
+              action: 'file-transfer',
+              phase: 'success',
+              operation,
+              count: result.success.length,
+            },
+            t
+          );
           toastManager.add({
             type: 'success',
-            title: t('{{operation}} completed', {
-              operation: operation === 'copy' ? 'Copy' : 'Move',
-            }),
-            description: t('{{count}} file(s) successful', { count: result.success.length }),
+            title: successCopy.title,
+            description: successCopy.description,
             timeout: 3000,
           });
 
@@ -557,10 +616,18 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
           }
         }
         if (result.failed.length > 0) {
+          const errorCopy = buildFileWorkflowToastCopy(
+            {
+              action: 'file-transfer',
+              phase: 'error',
+              count: result.failed.length,
+            },
+            t
+          );
           toastManager.add({
             type: 'error',
-            title: t('Operation failed'),
-            description: t('{{count}} file(s) failed', { count: result.failed.length }),
+            title: errorCopy.title,
+            description: errorCopy.description,
             timeout: 3000,
           });
         }
@@ -602,12 +669,19 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
 
       // Show result toast
       if (result.success.length > 0) {
+        const successCopy = buildFileWorkflowToastCopy(
+          {
+            action: 'file-transfer',
+            phase: 'success',
+            operation: pendingDropData.operation,
+            count: result.success.length,
+          },
+          t
+        );
         toastManager.add({
           type: 'success',
-          title: t('{{operation}} completed', {
-            operation: pendingDropData.operation === 'copy' ? 'Copy' : 'Move',
-          }),
-          description: t('{{count}} file(s) successful', { count: result.success.length }),
+          title: successCopy.title,
+          description: successCopy.description,
           timeout: 3000,
         });
 
@@ -656,10 +730,18 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
         }
       }
       if (result.failed.length > 0) {
+        const errorCopy = buildFileWorkflowToastCopy(
+          {
+            action: 'file-transfer',
+            phase: 'error',
+            count: result.failed.length,
+          },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('Operation failed'),
-          description: t('{{count}} file(s) failed', { count: result.failed.length }),
+          title: errorCopy.title,
+          description: errorCopy.description,
           timeout: 3000,
         });
       }
@@ -718,15 +800,26 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
 
   if (!rootPath) {
     return (
-      <Empty className="h-full">
-        <EmptyMedia variant="icon">
-          <FileCode className="h-4.5 w-4.5" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{t('File Explorer')}</EmptyTitle>
-          <EmptyDescription>{t('Select a Worktree to browse files')}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <ControlStateCard
+        icon={<FileCode className="h-5 w-5" />}
+        eyebrow={t('File Explorer')}
+        title={t('File Explorer')}
+        description={t('Choose a worktree to browse files and open an editor')}
+        chipLabel={t('Choose Worktree')}
+        chipTone="wait"
+        actions={
+          onExpandWorktree && worktreeCollapsed ? (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={onExpandWorktree}
+              className="rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
+            >
+              {t('Choose Worktree')}
+            </Button>
+          ) : null
+        }
+      />
     );
   }
 

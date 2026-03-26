@@ -18,16 +18,29 @@ function CollapsibleTrigger({ className, ...props }: CollapsiblePrimitive.Trigge
   );
 }
 
-function CollapsiblePanel({ className, ...props }: CollapsiblePrimitive.Panel.Props) {
+function CollapsiblePanel({ className, children, ...props }: CollapsiblePrimitive.Panel.Props) {
   return (
     <CollapsiblePrimitive.Panel
-      className={cn(
-        'h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 data-ending-style:h-0 data-starting-style:h-0',
-        className
-      )}
+      className={(state) =>
+        cn(
+          'h-(--collapsible-panel-height) overflow-hidden data-ending-style:h-0 data-starting-style:h-0',
+          typeof className === 'function' ? className(state) : className
+        )
+      }
       data-slot="collapsible-panel"
       {...props}
-    />
+    >
+      <div
+        className={cn(
+          'motion-reduce:transition-none',
+          'transition-[opacity,translate] duration-200 ease-out',
+          '[.data-ending-style_&]:translate-y-1 [.data-ending-style_&]:opacity-0',
+          '[.data-starting-style_&]:translate-y-1 [.data-starting-style_&]:opacity-0'
+        )}
+      >
+        {children}
+      </div>
+    </CollapsiblePrimitive.Panel>
   );
 }
 

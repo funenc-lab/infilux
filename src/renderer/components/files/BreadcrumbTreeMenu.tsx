@@ -268,7 +268,7 @@ export function BreadcrumbTreeMenu({
         return (
           <div key={node.path}>
             <MenuItem
-              className={cn('min-h-7', isActive && 'bg-accent/50', node.isDirectory && 'pr-2')}
+              className={cn('min-h-7', isActive && 'bg-theme/10', node.isDirectory && 'pr-2')}
               style={{ paddingLeft: `${currentLevel * 12 + 8}px` }}
               onClick={() => handleNodeClick(node)}
             >

@@ -17,17 +17,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CommentForm } from '@/components/files/EditorLineComment';
 import { ensureMonacoSetup, monaco } from '@/components/files/monacoSetup';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { toastManager } from '@/components/ui/toast';
 import { useFileDiff } from '@/hooks/useSourceControl';
 import { useI18n } from '@/i18n';
-import { getXtermTheme, isTerminalThemeDark } from '@/lib/ghosttyTheme';
+import { findCustomThemeBySelection } from '@/lib/appTheme';
+import { buildSourceControlWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { toMonacoVirtualUri } from '@/lib/monacoModelPath';
 import { cn } from '@/lib/utils';
@@ -36,40 +31,20 @@ import { useNavigationStore } from '@/stores/navigation';
 import { useSettingsStore } from '@/stores/settings';
 import { useSourceControlStore } from '@/stores/sourceControl';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
+import { buildMonacoThemeDefinition } from '../files/editorThemePalette';
 
 type DiffEditorInstance = ReturnType<typeof monaco.editor.createDiffEditor>;
 
 const CUSTOM_THEME_NAME = 'enso-diff-theme';
 
-function defineMonacoDiffTheme(terminalThemeName: string) {
-  const xtermTheme = getXtermTheme(terminalThemeName);
-  if (!xtermTheme) return;
-
-  const isDark = isTerminalThemeDark(terminalThemeName);
-
-  monaco.editor.defineTheme(CUSTOM_THEME_NAME, {
-    base: isDark ? 'vs-dark' : 'vs',
-    inherit: true,
-    rules: [
-      { token: 'comment', foreground: xtermTheme.brightBlack.replace('#', '') },
-      { token: 'keyword', foreground: xtermTheme.magenta.replace('#', '') },
-      { token: 'string', foreground: xtermTheme.green.replace('#', '') },
-      { token: 'number', foreground: xtermTheme.yellow.replace('#', '') },
-      { token: 'type', foreground: xtermTheme.cyan.replace('#', '') },
-      { token: 'function', foreground: xtermTheme.blue.replace('#', '') },
-      { token: 'variable', foreground: xtermTheme.red.replace('#', '') },
-    ],
-    colors: {
-      'editor.background': xtermTheme.background,
-      'editor.foreground': xtermTheme.foreground,
-      'diffEditor.insertedTextBackground': isDark ? '#2ea04326' : '#2ea04320',
-      'diffEditor.removedTextBackground': isDark ? '#f8514926' : '#f8514920',
-      'diffEditor.insertedLineBackground': isDark ? '#2ea04315' : '#2ea04310',
-      'diffEditor.removedLineBackground': isDark ? '#f8514915' : '#f8514910',
-      // Current diff highlight
-      'editor.lineHighlightBackground': isDark ? '#ffffff10' : '#00000008',
-    },
-  });
+function defineMonacoDiffTheme(options: {
+  theme: ReturnType<typeof useSettingsStore.getState>['theme'];
+  terminalTheme: string;
+  colorPreset: ReturnType<typeof useSettingsStore.getState>['colorPreset'];
+  customAccentColor: string;
+  customTheme: ReturnType<typeof useSettingsStore.getState>['customThemes'][number] | null;
+}) {
+  monaco.editor.defineTheme(CUSTOM_THEME_NAME, buildMonacoThemeDefinition(options));
 }
 
 function getLanguageFromPath(filePath: string): string {
@@ -132,7 +107,17 @@ export function DiffViewer({
   const sessionId = useActiveSessionId(rootPath);
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const { terminalTheme, sourceControlKeybindings, editorSettings } = useSettingsStore();
+  const {
+    theme,
+    terminalTheme,
+    colorPreset,
+    customAccentColor,
+    activeThemeSelection,
+    customThemes,
+    sourceControlKeybindings,
+    editorSettings,
+  } = useSettingsStore();
+  const activeCustomTheme = findCustomThemeBySelection(customThemes, activeThemeSelection);
   const { navigationDirection, setNavigationDirection } = useSourceControlStore();
   const navigateToFile = useNavigationStore((s) => s.navigateToFile);
   const write = useTerminalWriteStore((state) => state.write);
@@ -225,14 +210,20 @@ export function DiffViewer({
         if (cancelled) {
           return;
         }
-        defineMonacoDiffTheme(terminalTheme);
+        defineMonacoDiffTheme({
+          theme,
+          terminalTheme,
+          colorPreset,
+          customAccentColor,
+          customTheme: activeCustomTheme,
+        });
         setIsThemeReady(true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [diff, terminalTheme]);
+  }, [diff, theme, terminalTheme, colorPreset, customAccentColor, activeCustomTheme]);
 
   // Handle submit comment
   const handleSubmitComment = useCallback(
@@ -964,15 +955,27 @@ export function DiffViewer({
       setEditedContent(null);
       setIsEditing(false);
 
+      const successCopy = buildSourceControlWorkflowToastCopy(
+        { action: 'file-save', phase: 'success' },
+        t
+      );
       toastManager.add({
-        title: t('File saved'),
+        title: successCopy.title,
         type: 'success',
         timeout: 2000,
       });
     } catch (error) {
+      const errorCopy = buildSourceControlWorkflowToastCopy(
+        {
+          action: 'file-save',
+          phase: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Failed to save file'),
-        description: error instanceof Error ? error.message : String(error),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });
@@ -1040,45 +1043,61 @@ export function DiffViewer({
 
   if (!file) {
     return (
-      <Empty className="h-full">
-        <EmptyMedia variant="icon">
-          <FileCode className="h-4.5 w-4.5" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{t('View diff')}</EmptyTitle>
-          <EmptyDescription>{t('Select file to view diff')}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="flex h-full items-center justify-center p-5">
+        <ConsoleEmptyState
+          variant="embedded"
+          icon={<FileCode className="h-4.5 w-4.5" />}
+          eyebrow={t('Diff Viewer')}
+          title={t('View diff')}
+          description={t('Select file to view diff')}
+          chips={[{ label: t('Awaiting Selection'), tone: 'wait' }]}
+        />
+      </div>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <p className="text-sm">{t('Loading...')}</p>
+      <div className="flex h-full items-center justify-center p-5">
+        <ConsoleEmptyState
+          variant="embedded"
+          icon={<MessageSquare className="h-4.5 w-4.5" />}
+          eyebrow={t('Diff Viewer')}
+          title={t('Loading diff')}
+          description={t('Preparing the selected file diff')}
+          chips={[{ label: t('Loading'), tone: 'wait' }]}
+        />
       </div>
     );
   }
 
   if (!diff) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <p className="text-sm">{t('Failed to load diff')}</p>
+      <div className="flex h-full items-center justify-center p-5">
+        <ConsoleEmptyState
+          variant="embedded"
+          icon={<FileX2 className="h-4.5 w-4.5" />}
+          eyebrow={t('Diff Viewer')}
+          title={t('Failed to load diff')}
+          description={t('Refresh the file selection or switch to another changed file')}
+          chips={[{ label: t('Unavailable'), tone: 'wait' }]}
+        />
       </div>
     );
   }
 
   if (diff.isBinary) {
     return (
-      <Empty className="h-full">
-        <EmptyMedia variant="icon">
-          <FileX2 className="h-4.5 w-4.5" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{file.path}</EmptyTitle>
-          <EmptyDescription>{t('Binary file not supported for diff preview')}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="flex h-full items-center justify-center p-5">
+        <ConsoleEmptyState
+          variant="embedded"
+          icon={<FileX2 className="h-4.5 w-4.5" />}
+          eyebrow={t('Diff Viewer')}
+          title={file.path}
+          description={t('Binary file not supported for diff preview')}
+          chips={[{ label: t('Binary File'), tone: 'wait' }]}
+        />
+      </div>
     );
   }
 
@@ -1118,7 +1137,7 @@ export function DiffViewer({
 
           {/* Boundary hint */}
           {boundaryHint && (
-            <span className="mr-2 text-xs text-orange-500">{getBoundaryTooltip()}</span>
+            <span className="mr-2 text-xs text-warning">{getBoundaryTooltip()}</span>
           )}
 
           {/* Previous diff */}
@@ -1183,7 +1202,7 @@ export function DiffViewer({
                   type="button"
                   className={cn(
                     'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
-                    'text-green-500 hover:bg-green-500/20 hover:text-green-400'
+                    'text-success hover:bg-success/15 hover:text-success'
                   )}
                   onClick={handleSave}
                   disabled={isSaving}

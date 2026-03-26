@@ -34,13 +34,15 @@ export function GitSyncButton({
     return (
       <button
         type="button"
+        data-mode="publish"
         onClick={(e) => {
           e.stopPropagation();
           onPublish();
         }}
         disabled={isSyncing}
+        aria-label={t('Publish branch to remote')}
         className={cn(
-          'flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50',
+          'control-tree-sync inline-flex shrink-0 items-center gap-0.75 rounded-sm px-0.5 py-0 text-[9px] font-medium tracking-[0.03em] transition-colors hover:bg-primary/7 hover:text-primary disabled:opacity-50',
           className
         )}
         title={t('Publish branch to remote')}
@@ -62,13 +64,15 @@ export function GitSyncButton({
     return (
       <button
         type="button"
+        data-mode="sync"
         onClick={(e) => {
           e.stopPropagation();
           onSync();
         }}
         disabled={isSyncing}
+        aria-label={t('Sync with remote')}
         className={cn(
-          'flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50',
+          'control-tree-sync inline-flex shrink-0 items-center gap-0.75 rounded-sm px-0.5 py-0 text-[9px] font-medium tracking-[0.02em] transition-colors hover:bg-accent/8 hover:text-foreground disabled:opacity-50',
           className
         )}
         title={t('Sync with remote')}
@@ -78,13 +82,13 @@ export function GitSyncButton({
         ) : (
           <>
             {ahead > 0 && (
-              <span className="flex items-center gap-0.5 text-info">
+              <span className="control-tree-sync-metric control-tree-sync-ahead">
                 <ArrowUp className="h-3 w-3" />
                 {ahead}
               </span>
             )}
             {behind > 0 && (
-              <span className="flex items-center gap-0.5 text-warning">
+              <span className="control-tree-sync-metric control-tree-sync-behind">
                 <ArrowDown className="h-3 w-3" />
                 {behind}
               </span>

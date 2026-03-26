@@ -32,6 +32,7 @@ import {
   isClaudeProviderMatch,
   markClaudeProviderSwitch,
 } from '@/lib/claudeProvider';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { ProviderDialog } from './ProviderDialog';
@@ -233,10 +234,18 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
     const success = await window.electronAPI.claudeProvider.apply(repoPath, provider);
     if (success) {
       queryClient.invalidateQueries({ queryKey: ['claude-settings', repoPath ?? null] });
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'provider-switch',
+          phase: 'success',
+          name: provider.name,
+        },
+        t
+      );
       toastManager.add({
         type: 'success',
-        title: t('Provider switched'),
-        description: provider.name,
+        title: copy.title,
+        description: copy.description,
       });
     } else {
       clearClaudeProviderSwitch();

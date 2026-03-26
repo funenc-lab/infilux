@@ -181,7 +181,7 @@ export function CloneProgressFloat({ onCloneComplete }: CloneProgressFloatProps)
           onKeyDown={handleKeyDown}
         >
           <div className="flex items-center gap-2">
-            <Download className="h-4 w-4 shrink-0 text-blue-500 animate-pulse" />
+            <Download className="h-4 w-4 shrink-0 animate-pulse text-info" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
               {t('Cloning')} {task.repoName}
             </span>
@@ -199,10 +199,10 @@ export function CloneProgressFloat({ onCloneComplete }: CloneProgressFloatProps)
       {visibleCompletedTasks.map((task) => (
         <div
           key={task.id}
-          className="rounded-lg border border-green-500/30 bg-card shadow-lg p-3 animate-in slide-in-from-bottom-2"
+          className="rounded-lg border border-success/30 bg-card shadow-lg p-3 animate-in slide-in-from-bottom-2"
         >
           <div className="flex items-center gap-2">
-            <Check className="h-4 w-4 shrink-0 text-green-500" />
+            <Check className="h-4 w-4 shrink-0 text-success" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{task.repoName}</span>
             <Button
               size="sm"

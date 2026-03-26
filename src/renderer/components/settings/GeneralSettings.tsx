@@ -318,7 +318,7 @@ export function GeneralSettings() {
   const [legacyImportDialogOpen, setLegacyImportDialogOpen] = React.useState(false);
   const [legacyImportBusy, setLegacyImportBusy] = React.useState(false);
   const [legacyImportStatus, setLegacyImportStatus] = React.useState<{
-    tone: 'success' | 'error';
+    tone: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
   const [logDiagnostics, setLogDiagnostics] = React.useState<LogDiagnostics | null>(null);
@@ -459,6 +459,30 @@ export function GeneralSettings() {
     setTempPathDialogOpen(true);
   }, [setDefaultTemporaryPath]);
 
+  const openLegacyImportPreview = React.useCallback(
+    async (sourcePath: string) => {
+      setLegacyImportBusy(true);
+      try {
+        const preview = await window.electronAPI.settings.previewLegacyImport(sourcePath);
+        if (!preview.importable) {
+          setLegacyImportPreview(null);
+          setLegacyImportDialogOpen(false);
+          setLegacyImportStatus({
+            tone: 'error',
+            message: preview.error ?? t('Failed to preview EnsoAI settings import.'),
+          });
+          return;
+        }
+
+        setLegacyImportPreview(preview);
+        setLegacyImportDialogOpen(true);
+      } finally {
+        setLegacyImportBusy(false);
+      }
+    },
+    [t]
+  );
+
   const handleSelectLegacySettingsFile = React.useCallback(async () => {
     setLegacyImportStatus(null);
     const selectedPath = await window.electronAPI.dialog.openFile({
@@ -468,14 +492,19 @@ export function GeneralSettings() {
       return;
     }
 
+    await openLegacyImportPreview(selectedPath);
+  }, [openLegacyImportPreview]);
+
+  const handleAutoDetectLegacySettingsFile = React.useCallback(async () => {
     setLegacyImportBusy(true);
     try {
-      const preview = await window.electronAPI.settings.previewLegacyImport(selectedPath);
+      setLegacyImportStatus(null);
+      const preview = await window.electronAPI.settings.previewLegacyImportFromTypicalPaths();
       if (!preview.importable) {
         setLegacyImportPreview(null);
         setLegacyImportDialogOpen(false);
         setLegacyImportStatus({
-          tone: 'error',
+          tone: preview.sourcePath ? 'error' : 'info',
           message: preview.error ?? t('Failed to preview EnsoAI settings import.'),
         });
         return;
@@ -1485,17 +1514,25 @@ export function GeneralSettings() {
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
             {t(
-              'Choose an EnsoAI settings.json file from another machine and review the changed keys before applying them.'
+              'Detect the typical EnsoAI settings locations first, or choose a settings.json file manually and review the changed keys before applying them.'
             )}
           </p>
           <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => void handleAutoDetectLegacySettingsFile()}
+              disabled={legacyImportBusy}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              {legacyImportBusy ? t('Loading preview...') : t('Detect automatically')}
+            </Button>
             <Button
               variant="outline"
               onClick={() => void handleSelectLegacySettingsFile()}
               disabled={legacyImportBusy}
             >
               <FolderOpen className="mr-2 h-4 w-4" />
-              {legacyImportBusy ? t('Loading preview...') : t('Select EnsoAI settings file')}
+              {t('Choose settings file')}
             </Button>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-3">
@@ -1512,7 +1549,11 @@ export function GeneralSettings() {
             <p
               className={cn(
                 'text-sm',
-                legacyImportStatus.tone === 'error' ? 'text-destructive' : 'text-emerald-600'
+                legacyImportStatus.tone === 'error'
+                  ? 'text-destructive'
+                  : legacyImportStatus.tone === 'success'
+                    ? 'text-emerald-600'
+                    : 'text-muted-foreground'
               )}
             >
               {legacyImportStatus.message}

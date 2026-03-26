@@ -1,12 +1,6 @@
 import { FileCode } from 'lucide-react';
 import { forwardRef, useEffect, useState } from 'react';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { useI18n } from '@/i18n';
 import type { CommitDiffViewerProps } from './CommitDiffViewer';
 
@@ -46,28 +40,30 @@ export const DeferredCommitDiffViewer = forwardRef<unknown, DeferredCommitDiffVi
 
     if (!shouldLoad) {
       return (
-        <Empty className="h-full border-0">
-          <EmptyMedia variant="icon">
-            <FileCode className="h-4.5 w-4.5" />
-          </EmptyMedia>
-          <EmptyHeader>
-            <EmptyTitle>{t('Select a file to view changes')}</EmptyTitle>
-            <EmptyDescription>{t('Choose a commit file to open the diff view')}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <div className="flex h-full items-center justify-center p-5">
+          <ConsoleEmptyState
+            variant="embedded"
+            icon={<FileCode className="h-4.5 w-4.5" />}
+            eyebrow={t('Commit Diff')}
+            title={t('Select a file to view changes')}
+            description={t('Choose a commit file to open the diff view')}
+            chips={[{ label: t('Awaiting Selection'), tone: 'wait' }]}
+          />
+        </div>
       );
     }
 
     return (
-      <Empty className="h-full border-0">
-        <EmptyMedia variant="icon">
-          <FileCode className="h-4.5 w-4.5" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{t('Loading commit diff')}</EmptyTitle>
-          <EmptyDescription>{t('Preparing the commit diff runtime')}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="flex h-full items-center justify-center p-5">
+        <ConsoleEmptyState
+          variant="embedded"
+          icon={<FileCode className="h-4.5 w-4.5" />}
+          eyebrow={t('Commit Diff')}
+          title={t('Loading commit diff')}
+          description={t('Preparing the commit diff runtime')}
+          chips={[{ label: t('Loading'), tone: 'wait' }]}
+        />
+      </div>
     );
   }
 );

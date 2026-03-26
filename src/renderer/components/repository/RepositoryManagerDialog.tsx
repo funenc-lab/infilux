@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useI18n } from '@/i18n';
+import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 
 interface RepositoryManagerDialogProps {
@@ -47,9 +48,12 @@ export function RepositoryManagerDialog({
   onRemoveRepository,
   onSettingsChange,
 }: RepositoryManagerDialogProps) {
-  const { t, tNode } = useI18n();
+  const { t } = useI18n();
   const [settingsMap, setSettingsMap] = useState<Record<string, RepositorySettings>>({});
   const [repoToRemove, setRepoToRemove] = useState<Repository | null>(null);
+  const removeDialogCopy = repoToRemove
+    ? buildRemovalDialogCopy({ kind: 'repository', name: repoToRemove.name }, t)
+    : null;
 
   // Load settings for all repositories
   useEffect(() => {
@@ -104,7 +108,7 @@ export function RepositoryManagerDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogPopup className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('Manage Repositories')}</DialogTitle>
+            <DialogTitle>{t('Repositories')}</DialogTitle>
             <DialogDescription>
               {t('{{total}} repositories, {{hidden}} hidden', {
                 total: repositories.length,
@@ -177,20 +181,18 @@ export function RepositoryManagerDialog({
       >
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('Remove repository')}</AlertDialogTitle>
+            <AlertDialogTitle>{removeDialogCopy?.title ?? t('Remove repository')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {tNode('Are you sure you want to remove {{name}} from the workspace?', {
-                name: <strong>{repoToRemove?.name}</strong>,
-              })}
+              {removeDialogCopy?.description}
               <span className="block mt-2 text-muted-foreground">
-                {t('This will only remove it from the app and will not delete local files.')}
+                {removeDialogCopy?.consequence}
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline">{t('Cancel')}</Button>} />
             <Button variant="destructive" onClick={handleConfirmRemove}>
-              {t('Remove')}
+              {removeDialogCopy?.actionLabel ?? t('Remove repository')}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>

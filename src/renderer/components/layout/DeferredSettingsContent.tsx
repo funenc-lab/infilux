@@ -1,14 +1,8 @@
 import { Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { SettingsContentProps } from '@/components/settings/SettingsContent';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
+import { ControlStateCard } from './ControlStateCard';
 
 type SettingsContentComponent = React.ComponentType<SettingsContentProps>;
 
@@ -46,14 +40,13 @@ export function DeferredSettingsContent({
   }
 
   return (
-    <Empty className="h-full border-0">
-      <EmptyMedia variant="icon">
-        <Settings className="h-4.5 w-4.5" />
-      </EmptyMedia>
-      <EmptyHeader>
-        <EmptyTitle>{t('Loading settings')}</EmptyTitle>
-        <EmptyDescription>{t('Preparing preferences and configuration panels')}</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <ControlStateCard
+      icon={<Settings className="h-5 w-5" />}
+      eyebrow={t('Settings')}
+      title={t('Loading settings')}
+      description={t('Preparing preferences and configuration panels')}
+      chipLabel={t('Settings')}
+      chipTone="wait"
+    />
   );
 }

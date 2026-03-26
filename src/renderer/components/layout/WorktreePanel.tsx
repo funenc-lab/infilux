@@ -23,6 +23,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
+import { getActivityStateMeta } from '@/components/ui/activityStatus';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -33,13 +34,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { GlowBorder, type GlowState, useGlowEffectEnabled } from '@/components/ui/glow-card';
 import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
@@ -47,9 +41,12 @@ import { useGitSync } from '@/hooks/useGitSync';
 import { useWorktreeOutputState } from '@/hooks/useOutputState';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
+import { buildClipboardToastCopy, buildRemovalDialogCopy } from '@/lib/feedbackCopy';
+import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { ConsoleEmptyState } from './ConsoleEmptyState';
 
 interface WorktreePanelProps {
   worktrees: GitWorktree[];
@@ -106,6 +103,17 @@ export function WorktreePanel({
   const [worktreeToDelete, setWorktreeToDelete] = useState<GitWorktree | null>(null);
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [forceDelete, setForceDelete] = useState(false);
+  const deleteWorktreeName = worktreeToDelete?.branch || t('Detached');
+  const deleteWorktreeDialogCopy = worktreeToDelete
+    ? buildRemovalDialogCopy(
+        {
+          kind: 'worktree',
+          name: deleteWorktreeName,
+          prunable: worktreeToDelete.prunable,
+        },
+        t
+      )
+    : null;
 
   // Drag reorder
   const draggedIndexRef = useRef<number | null>(null);
@@ -265,6 +273,7 @@ export function WorktreePanel({
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
             type="text"
+            aria-label={t('Search worktrees')}
             placeholder={t('Search worktrees')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -276,51 +285,87 @@ export function WorktreePanel({
       {/* Worktree List */}
       <div className="flex-1 overflow-auto p-2">
         {inactiveRemote ? (
-          <Empty className="h-full border-0">
-            <EmptyMedia variant="icon">
-              <GitBranch className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle className="text-base">
-                {isRemoteReconnecting
+          <div className="flex h-full items-center justify-center p-3">
+            <ConsoleEmptyState
+              variant="embedded"
+              icon={<GitBranch className="h-4.5 w-4.5" />}
+              eyebrow={t('Worktree Sidebar')}
+              title={
+                isRemoteReconnecting
                   ? t('Remote connection lost. Attempting to reconnect...')
                   : isRemoteFailed
                     ? t('Remote connection lost')
-                    : t('Remote repository is not connected yet')}
-              </EmptyTitle>
-              <EmptyDescription>
-                {isRemoteReconnecting
+                    : t('Remote repository is not connected yet')
+              }
+              description={
+                isRemoteReconnecting
                   ? t('Reconnecting remote connection...')
                   : isRemoteFailed
                     ? remoteStatus?.error || t('Remote connection lost')
-                    : t('Click the selected repository again to connect and load worktrees.')}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+                    : t('Click the selected repository again to connect and load worktrees.')
+              }
+              chips={[
+                {
+                  label: isRemoteReconnecting ? t('Reconnecting') : t('Remote Unavailable'),
+                  tone: 'wait',
+                },
+              ]}
+              details={[
+                {
+                  label: t('Status'),
+                  value: isRemoteReconnecting
+                    ? t('Connection recovery in progress')
+                    : t('Remote runtime unavailable'),
+                },
+                { label: t('Repository'), value: projectName || t('Remote repository') },
+                {
+                  label: t('Next Step'),
+                  value: isRemoteReconnecting
+                    ? t('Wait for the remote connection to recover')
+                    : t('Reconnect the selected repository to load worktrees'),
+                },
+              ]}
+              detailsLayout="compact"
+            />
+          </div>
         ) : error ? (
-          <Empty className="h-full border-0">
-            <EmptyMedia variant="icon">
-              <GitBranch className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle className="text-base">{t('Not a Git repository')}</EmptyTitle>
-              <EmptyDescription>
-                {t('This directory is not a Git repository. Initialize it to enable Git features.')}
-              </EmptyDescription>
-            </EmptyHeader>
-            <div className="mt-2 flex gap-2">
-              <Button onClick={onRefresh} variant="outline" size="sm">
-                <RefreshCw className="mr-2 h-4 w-4" />
-                {t('Refresh')}
-              </Button>
-              {onInitGit && (
-                <Button onClick={onInitGit} size="sm">
-                  <GitBranch className="mr-2 h-4 w-4" />
-                  {t('Initialize repository')}
-                </Button>
+          <div className="flex h-full items-center justify-center p-3">
+            <ConsoleEmptyState
+              variant="embedded"
+              icon={<GitBranch className="h-4.5 w-4.5" />}
+              eyebrow={t('Worktree Sidebar')}
+              title={t('Not a Git repository')}
+              description={t(
+                'This directory is not a Git repository. Initialize it to enable branches, worktrees, and source-control workflows.'
               )}
-            </div>
-          </Empty>
+              chips={[{ label: t('Repository Required'), tone: 'wait' }]}
+              details={[
+                { label: t('Status'), value: t('Git metadata not found') },
+                { label: t('Repository'), value: projectName || t('Current directory') },
+                { label: t('Next Step'), value: t('Refresh or initialize the repository') },
+              ]}
+              detailsLayout="compact"
+              actions={
+                <>
+                  <Button onClick={onRefresh} variant="outline" size="sm" className="rounded-xl">
+                    <RefreshCw className="h-4 w-4" />
+                    {t('Refresh')}
+                  </Button>
+                  {onInitGit && (
+                    <Button
+                      onClick={onInitGit}
+                      variant="default"
+                      size="sm"
+                      className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+                    >
+                      <GitBranch className="h-4 w-4" />
+                      {t('Initialize repository')}
+                    </Button>
+                  )}
+                </>
+              }
+            />
+          </div>
         ) : isLoading ? (
           <div className="space-y-2">
             {[0, 1, 2].map((i) => (
@@ -328,39 +373,69 @@ export function WorktreePanel({
             ))}
           </div>
         ) : filteredWorktreesWithIndex.length === 0 ? (
-          <Empty className="h-full border-0">
-            <EmptyMedia variant="icon">
-              <GitBranch className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle className="text-base">
-                {searchQuery ? t('No matching worktrees') : t('No worktrees')}
-              </EmptyTitle>
-              <EmptyDescription>
-                {searchQuery
-                  ? t('Try a different search term')
-                  : t('Create your first worktree to get started')}
-              </EmptyDescription>
-            </EmptyHeader>
-            {!searchQuery && (
-              <CreateWorktreeDialog
-                branches={branches}
-                projectName={projectName}
-                workdir={workdir}
-                isLoading={isCreating}
-                onSubmit={onCreateWorktree}
-                trigger={
-                  <Button
-                    variant="outline"
-                    className="control-panel-muted mt-2 rounded-xl border-0"
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    {t('Create Worktree')}
-                  </Button>
-                }
-              />
-            )}
-          </Empty>
+          <div className="flex h-full items-center justify-center p-3">
+            <ConsoleEmptyState
+              variant="embedded"
+              icon={<GitBranch className="h-4.5 w-4.5" />}
+              eyebrow={t('Worktree Sidebar')}
+              title={searchQuery ? t('No matching worktrees') : t('No worktrees')}
+              description={
+                searchQuery
+                  ? t(
+                      'No worktrees match the current search. Adjust the query to broaden the result set.'
+                    )
+                  : t(
+                      'Create your first worktree to branch work safely without leaving the main repository context.'
+                    )
+              }
+              chips={[
+                {
+                  label: searchQuery ? t('Filtered View') : t('Awaiting Worktree'),
+                  tone: 'wait',
+                },
+              ]}
+              details={[
+                {
+                  label: t('Status'),
+                  value: searchQuery
+                    ? t('Search returned no worktrees')
+                    : t('No worktrees have been created'),
+                },
+                {
+                  label: t('Repository'),
+                  value: projectName || t('Current repository'),
+                },
+                {
+                  label: t('Next Step'),
+                  value: searchQuery
+                    ? t('Try another search term')
+                    : t('Create a worktree to start a new branch context'),
+                },
+              ]}
+              detailsLayout="compact"
+              actions={
+                !searchQuery ? (
+                  <CreateWorktreeDialog
+                    branches={branches}
+                    projectName={projectName}
+                    workdir={workdir}
+                    isLoading={isCreating}
+                    onSubmit={onCreateWorktree}
+                    trigger={
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+                      >
+                        <Plus className="h-4 w-4" />
+                        {t('Create Worktree')}
+                      </Button>
+                    }
+                  />
+                ) : null
+              }
+            />
+          </div>
         ) : (
           <LayoutGroup>
             <div className="space-y-1">
@@ -426,20 +501,18 @@ export function WorktreePanel({
       >
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('Delete Worktree')}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteWorktreeDialogCopy?.title ?? t('Delete Worktree')}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {tNode('Are you sure you want to delete worktree {{name}}?', {
-                name: <strong>{worktreeToDelete?.branch}</strong>,
-              })}
+              {deleteWorktreeDialogCopy?.description}
               {worktreeToDelete?.prunable ? (
                 <span className="block mt-2 text-muted-foreground">
-                  {t('This directory has already been removed; Git records will be cleaned up.')}
+                  {deleteWorktreeDialogCopy?.consequence}
                 </span>
               ) : (
                 <span className="block mt-2 text-destructive">
-                  {t(
-                    'This will delete the directory and all files inside. This action cannot be undone!'
-                  )}
+                  {deleteWorktreeDialogCopy?.consequence}
                 </span>
               )}
             </AlertDialogDescription>
@@ -490,7 +563,7 @@ export function WorktreePanel({
                 }
               }}
             >
-              {t('Delete')}
+              {deleteWorktreeDialogCopy?.actionLabel ?? t('Delete worktree')}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
@@ -537,6 +610,8 @@ function WorktreeItem({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuWasOpenRef = useRef(false);
   const isMain =
     worktree.isMainWorktree || worktree.branch === 'main' || worktree.branch === 'master';
   const branchDisplay = worktree.branch || t('Detached');
@@ -580,17 +655,22 @@ function WorktreeItem({
   const handleCopyPath = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(displayWorktreePath);
+      const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'path' }, t);
       toastManager.add({
-        title: t('Copied'),
-        description: t('Path copied to clipboard'),
+        title: successCopy.title,
+        description: successCopy.description,
         type: 'success',
         timeout: 2000,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const errorCopy = buildClipboardToastCopy(
+        { phase: 'error', subject: 'path', message: message || undefined },
+        t
+      );
       toastManager.add({
-        title: t('Copy failed'),
-        description: message || t('Failed to copy content'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 3000,
       });
@@ -609,6 +689,7 @@ function WorktreeItem({
   // Adjust menu position if it overflows viewport
   useEffect(() => {
     if (menuOpen && menuRef.current) {
+      focusFirstMenuItem(menuRef.current);
       const menu = menuRef.current;
       const rect = menu.getBoundingClientRect();
       const viewportHeight = window.innerHeight;
@@ -632,139 +713,146 @@ function WorktreeItem({
     }
   }, [menuOpen, menuPosition]);
 
-  const activityChipClassName =
-    activityState === 'running'
-      ? 'control-chip-live'
-      : activityState === 'waiting_input'
-        ? 'control-chip-wait'
-        : activityState === 'completed'
-          ? 'control-chip-done'
-          : '';
-  const activityLabel =
-    activityState === 'running'
-      ? 'Running'
-      : activityState === 'waiting_input'
-        ? 'Awaiting input'
-        : activityState === 'completed'
-          ? 'Completed'
-          : '';
+  const activityMeta = getActivityStateMeta(activityState);
 
   // Common worktree item content
+  useEffect(() => {
+    if (menuOpen) {
+      menuWasOpenRef.current = true;
+      return;
+    }
+
+    if (menuWasOpenRef.current) {
+      menuTriggerRef.current?.focus();
+      menuWasOpenRef.current = false;
+    }
+  }, [menuOpen]);
+
   const worktreeItemContent = (
     <>
       {/* Drop indicator - top */}
       {showDropIndicator && dropDirection === 'top' && (
-        <div className="absolute -top-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
+        <div className="absolute -top-0.5 left-2 right-2 h-0.5 rounded-full bg-theme/75" />
       )}
-      <button
-        type="button"
+      <div
         draggable={draggable}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        onClick={onClick}
         onContextMenu={handleContextMenu}
         className={cn(
           'control-panel-muted relative flex w-full flex-col items-start gap-2 rounded-xl p-3 text-left transition-all cursor-pointer',
           isPrunable && 'opacity-50',
           isActive
-            ? 'text-accent-foreground border-primary/35 bg-primary/[0.10]'
-            : 'hover:border-primary/18 hover:bg-accent/35'
+            ? 'border-theme/22 bg-theme/10 text-foreground'
+            : 'hover:border-theme/16 hover:bg-theme/8'
         )}
       >
         {isActive && (
           <motion.div
             layoutId="worktree-panel-highlight"
-            className="absolute inset-0 rounded-xl border border-primary/30 bg-primary/[0.08]"
+            className="absolute inset-0 rounded-xl border border-theme/18 bg-theme/6"
             transition={springFast}
           />
         )}
         {/* Branch name */}
         <div className="relative z-10 flex w-full items-start gap-2">
-          <GitBranch
-            className={cn(
-              'mt-0.5 h-4 w-4 shrink-0',
-              isPrunable
-                ? 'text-destructive'
-                : isActive
-                  ? 'text-accent-foreground'
-                  : 'text-muted-foreground'
-            )}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className={cn('truncate font-medium', isPrunable && 'line-through')}>
-                {branchDisplay}
-              </span>
-              {isPrunable ? (
-                <span className="control-chip shrink-0 bg-destructive/10 text-destructive">
-                  {t('Deleted')}
-                </span>
-              ) : isMain ? (
-                <span className="control-chip control-chip-strong shrink-0">{t('Main')}</span>
-              ) : isMerged ? (
-                <span className="control-chip control-chip-done shrink-0">{t('Merged')}</span>
-              ) : null}
+          <button
+            ref={menuTriggerRef}
+            type="button"
+            onClick={onClick}
+            className="min-w-0 flex flex-1 flex-col items-start gap-2 rounded-[inherit] text-left outline-none"
+          >
+            <div className="flex w-full items-start gap-2">
+              <GitBranch
+                className={cn(
+                  'mt-0.5 h-4 w-4 shrink-0',
+                  isPrunable
+                    ? 'text-destructive'
+                    : isActive
+                      ? 'text-foreground'
+                      : 'text-muted-foreground'
+                )}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={cn('truncate font-medium', isPrunable && 'line-through')}>
+                    {branchDisplay}
+                  </span>
+                  {isPrunable ? (
+                    <span className="control-chip shrink-0 bg-destructive/10 text-destructive">
+                      {t('Deleted')}
+                    </span>
+                  ) : isMain ? (
+                    <span className="control-chip control-chip-strong shrink-0">{t('Main')}</span>
+                  ) : isMerged ? (
+                    <span className="control-chip control-chip-done shrink-0">{t('Merged')}</span>
+                  ) : null}
+                </div>
+                <div
+                  className={cn(
+                    'mt-1 overflow-hidden whitespace-nowrap text-ellipsis text-xs leading-5 [text-align:left] [unicode-bidi:plaintext]',
+                    useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]',
+                    isPrunable && 'line-through',
+                    isActive ? 'text-foreground/72' : 'text-muted-foreground'
+                  )}
+                  title={displayWorktreePath}
+                >
+                  {displayWorktreePath}
+                </div>
+              </div>
             </div>
-            <div
-              className={cn(
-                'mt-1 overflow-hidden whitespace-nowrap text-ellipsis text-xs leading-5 [text-align:left] [unicode-bidi:plaintext]',
-                useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]',
-                isPrunable && 'line-through',
-                isActive ? 'text-accent-foreground/70' : 'text-muted-foreground'
-              )}
-              title={displayWorktreePath}
-            >
-              {displayWorktreePath}
-            </div>
-          </div>
-          <GitSyncButton
-            ahead={ahead}
-            behind={behind}
-            tracking={tracking}
-            currentBranch={currentBranch}
-            isSyncing={isSyncing}
-            onSync={handleSync}
-            onPublish={handlePublish}
-          />
-        </div>
 
-        <div className="relative z-10 flex flex-wrap items-center gap-1.5 pl-6 text-xs text-muted-foreground">
-          {activityState !== 'idle' && (
-            <span className={cn('control-chip', activityChipClassName)}>
-              <ActivityIndicator state={activityState} size="sm" />
-              {activityLabel}
-            </span>
-          )}
-          {activity.agentCount > 0 && (
-            <span className="control-chip">
-              <Sparkles className="h-3 w-3" />
-              {activity.agentCount}
-            </span>
-          )}
-          {activity.terminalCount > 0 && (
-            <span className="control-chip">
-              <Terminal className="h-3 w-3" />
-              {activity.terminalCount}
-            </span>
-          )}
-          {hasDiffStats && (
-            <span className="control-chip">
-              {diffStats.insertions > 0 && (
-                <span className="text-[color:var(--success)]">+{diffStats.insertions}</span>
+            <div className="flex flex-wrap items-center gap-1.5 pl-6 text-xs text-muted-foreground">
+              {activityState !== 'idle' && (
+                <span className={cn('control-chip', activityMeta.chipClassName)}>
+                  <ActivityIndicator state={activityState} size="sm" />
+                  {activityMeta.label}
+                </span>
               )}
-              {diffStats.deletions > 0 && (
-                <span className="text-red-600 dark:text-red-400">-{diffStats.deletions}</span>
+              {activity.agentCount > 0 && (
+                <span className="control-chip">
+                  <Sparkles className="h-3 w-3" />
+                  {activity.agentCount}
+                </span>
               )}
-            </span>
-          )}
+              {activity.terminalCount > 0 && (
+                <span className="control-chip">
+                  <Terminal className="h-3 w-3" />
+                  {activity.terminalCount}
+                </span>
+              )}
+              {hasDiffStats && (
+                <span className="control-chip">
+                  {diffStats.insertions > 0 && (
+                    <span className="text-[color:var(--success)]">+{diffStats.insertions}</span>
+                  )}
+                  {diffStats.deletions > 0 && (
+                    <span className="text-destructive">-{diffStats.deletions}</span>
+                  )}
+                </span>
+              )}
+            </div>
+          </button>
+
+          <div className="relative z-10 shrink-0 pl-1 pt-0.5">
+            <GitSyncButton
+              ahead={ahead}
+              behind={behind}
+              tracking={tracking}
+              currentBranch={currentBranch}
+              isSyncing={isSyncing}
+              onSync={handleSync}
+              onPublish={handlePublish}
+            />
+          </div>
         </div>
-      </button>
+      </div>
       {/* Drop indicator - bottom */}
       {showDropIndicator && dropDirection === 'bottom' && (
-        <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
+        <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 rounded-full bg-theme/75" />
       )}
     </>
   );
@@ -785,7 +873,6 @@ function WorktreeItem({
           <div
             className="fixed inset-0 z-50"
             onClick={() => setMenuOpen(false)}
-            onKeyDown={(e) => e.key === 'Escape' && setMenuOpen(false)}
             onContextMenu={(e) => {
               e.preventDefault();
               setMenuOpen(false);
@@ -796,17 +883,21 @@ function WorktreeItem({
             ref={menuRef}
             className="fixed z-50 min-w-40 rounded-lg border bg-popover p-1 shadow-lg"
             style={{ left: menuPosition.x, top: menuPosition.y }}
+            role="menu"
+            aria-label={t('Worktree actions')}
+            onKeyDown={(e) => handleMenuNavigationKeyDown(e, () => setMenuOpen(false))}
           >
             {/* Close All Sessions */}
             {activity.agentCount > 0 && activity.terminalCount > 0 && (
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                 onClick={() => {
                   setMenuOpen(false);
                   closeAgentSessions(worktree.path);
                   closeTerminalSessions(worktree.path);
                 }}
+                role="menuitem"
               >
                 <X className="h-4 w-4" />
                 {t('Close All Sessions')}
@@ -817,11 +908,12 @@ function WorktreeItem({
             {activity.agentCount > 0 && (
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                 onClick={() => {
                   setMenuOpen(false);
                   closeAgentSessions(worktree.path);
                 }}
+                role="menuitem"
               >
                 <X className="h-4 w-4" />
                 <Sparkles className="h-4 w-4" />
@@ -833,11 +925,12 @@ function WorktreeItem({
             {activity.terminalCount > 0 && (
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                 onClick={() => {
                   setMenuOpen(false);
                   closeTerminalSessions(worktree.path);
                 }}
+                role="menuitem"
               >
                 <X className="h-4 w-4" />
                 <Terminal className="h-4 w-4" />
@@ -851,11 +944,12 @@ function WorktreeItem({
             {/* Open Folder */}
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
               onClick={() => {
                 setMenuOpen(false);
                 window.electronAPI.shell.openPath(worktree.path);
               }}
+              role="menuitem"
             >
               <FolderOpen className="h-4 w-4" />
               {t('Open folder')}
@@ -864,11 +958,12 @@ function WorktreeItem({
             {/* Copy Path */}
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
               onClick={() => {
                 setMenuOpen(false);
                 handleCopyPath();
               }}
+              role="menuitem"
             >
               <Copy className="h-4 w-4" />
               {t('Copy Path')}
@@ -878,11 +973,12 @@ function WorktreeItem({
             {onMerge && !isMain && !isPrunable && (
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
                 onClick={() => {
                   setMenuOpen(false);
                   onMerge();
                 }}
+                role="menuitem"
               >
                 <GitMerge className="h-4 w-4" />
                 {t('Merge to Branch...')}
@@ -896,7 +992,7 @@ function WorktreeItem({
             <button
               type="button"
               className={cn(
-                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent/50',
+                'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10',
                 isMain && 'pointer-events-none opacity-50'
               )}
               onClick={() => {
@@ -904,6 +1000,7 @@ function WorktreeItem({
                 onDelete();
               }}
               disabled={isMain}
+              role="menuitem"
             >
               <Trash2 className="h-4 w-4" />
               {isPrunable ? t('Clean up records') : t('Delete')}

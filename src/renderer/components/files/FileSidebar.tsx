@@ -3,18 +3,13 @@ import { FileCode } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { panelTransition } from '@/App/constants';
 import { normalizePath } from '@/App/storage';
+import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { GlobalSearchDialog, type SearchMode } from '@/components/search';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { addToast, toastManager } from '@/components/ui/toast';
 import { useEditor } from '@/hooks/useEditor';
 import { useFileTree } from '@/hooks/useFileTree';
 import { useI18n } from '@/i18n';
+import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { isFocusLocked, pauseFocusLock, restoreFocus } from '@/lib/focusLock';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { getEditorSelectionText } from './editorSelectionCache';
@@ -240,10 +235,18 @@ export function FileSidebar({
       }
       terminalWrite(effectiveSessionId, `@${displayPath} `);
       terminalFocus(effectiveSessionId);
+      const copy = buildFileWorkflowToastCopy(
+        {
+          action: 'send-to-session',
+          phase: 'success',
+          target: `@${displayPath}`,
+        },
+        t
+      );
       addToast({
         type: 'success',
-        title: t('Sent to session'),
-        description: `@${displayPath}`,
+        title: copy.title,
+        description: copy.description,
         timeout: 2000,
       });
     },
@@ -262,12 +265,19 @@ export function FileSidebar({
       }
 
       if (result.success.length > 0) {
+        const successCopy = buildFileWorkflowToastCopy(
+          {
+            action: 'file-transfer',
+            phase: 'success',
+            operation,
+            count: result.success.length,
+          },
+          t
+        );
         toastManager.add({
           type: 'success',
-          title: t('{{operation}} completed', {
-            operation: operation === 'copy' ? 'Copy' : 'Move',
-          }),
-          description: t('{{count}} file(s) successful', { count: result.success.length }),
+          title: successCopy.title,
+          description: successCopy.description,
           timeout: 3000,
         });
 
@@ -303,10 +313,18 @@ export function FileSidebar({
         }
       }
       if (result.failed.length > 0) {
+        const errorCopy = buildFileWorkflowToastCopy(
+          {
+            action: 'file-transfer',
+            phase: 'error',
+            count: result.failed.length,
+          },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('Operation failed'),
-          description: t('{{count}} file(s) failed', { count: result.failed.length }),
+          title: errorCopy.title,
+          description: errorCopy.description,
           timeout: 3000,
         });
       }
@@ -344,12 +362,19 @@ export function FileSidebar({
       setConflicts([]);
 
       if (result.success.length > 0) {
+        const successCopy = buildFileWorkflowToastCopy(
+          {
+            action: 'file-transfer',
+            phase: 'success',
+            operation: pendingDropData.operation,
+            count: result.success.length,
+          },
+          t
+        );
         toastManager.add({
           type: 'success',
-          title: t('{{operation}} completed', {
-            operation: pendingDropData.operation === 'copy' ? 'Copy' : 'Move',
-          }),
-          description: t('{{count}} file(s) successful', { count: result.success.length }),
+          title: successCopy.title,
+          description: successCopy.description,
           timeout: 3000,
         });
 
@@ -385,10 +410,18 @@ export function FileSidebar({
         }
       }
       if (result.failed.length > 0) {
+        const errorCopy = buildFileWorkflowToastCopy(
+          {
+            action: 'file-transfer',
+            phase: 'error',
+            count: result.failed.length,
+          },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('Operation failed'),
-          description: t('{{count}} file(s) failed', { count: result.failed.length }),
+          title: errorCopy.title,
+          description: errorCopy.description,
           timeout: 3000,
         });
       }
@@ -405,15 +438,14 @@ export function FileSidebar({
   if (!rootPath) {
     return (
       <aside className="flex h-full w-full flex-col border-r bg-background">
-        <Empty className="h-full">
-          <EmptyMedia variant="icon">
-            <FileCode className="h-4.5 w-4.5" />
-          </EmptyMedia>
-          <EmptyHeader>
-            <EmptyTitle>{t('File Explorer')}</EmptyTitle>
-            <EmptyDescription>{t('Select a Worktree to browse files')}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <ControlStateCard
+          icon={<FileCode className="h-5 w-5" />}
+          eyebrow={t('File Explorer')}
+          title={t('File Explorer')}
+          description={t('Select a Worktree to browse files')}
+          chipLabel={t('Choose Worktree')}
+          chipTone="wait"
+        />
       </aside>
     );
   }

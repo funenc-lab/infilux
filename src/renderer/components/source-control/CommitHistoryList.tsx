@@ -14,6 +14,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
+import { buildClipboardToastCopy, buildSourceControlToastCopy } from '@/lib/feedbackCopy';
+import { getFileStatusTextClass } from '@/lib/fileStatusTone';
 import { cn } from '@/lib/utils';
 import { type ResetMode, ResetModeDialog } from './ResetModeDialog';
 
@@ -85,17 +87,25 @@ export function CommitHistoryList({
     if (!contextMenu.commit) return;
     try {
       await navigator.clipboard.writeText(contextMenu.commit.hash);
+      const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'commit-id' }, t);
       toastManager.add({
-        title: t('Copied'),
-        description: t('Commit ID copied to clipboard'),
+        title: successCopy.title,
+        description: successCopy.description,
         type: 'success',
         timeout: 2000,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const errorCopy = buildClipboardToastCopy(
+        {
+          phase: 'error',
+          subject: 'commit-id',
+          message: err instanceof Error ? err.message : String(err),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Copy failed'),
-        description: message || t('Failed to copy content'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 3000,
       });
@@ -108,18 +118,26 @@ export function CommitHistoryList({
     closeContextMenu();
     try {
       await window.electronAPI.git.revert(workdir, contextMenu.commit.hash);
+      const successCopy = buildSourceControlToastCopy({ action: 'revert', phase: 'success' }, t);
       toastManager.add({
-        title: t('Revert successful'),
-        description: t('Commit has been reverted'),
+        title: successCopy.title,
+        description: successCopy.description,
         type: 'success',
         timeout: 3000,
       });
       onRefresh?.();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const errorCopy = buildSourceControlToastCopy(
+        {
+          action: 'revert',
+          phase: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Revert failed'),
-        description: message,
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });
@@ -138,18 +156,29 @@ export function CommitHistoryList({
       setResetDialog({ open: false, commit: null });
       try {
         await window.electronAPI.git.reset(workdir, resetDialog.commit.hash, mode);
+        const successCopy = buildSourceControlToastCopy(
+          { action: 'reset', phase: 'success', mode: t(RESET_MODE_LABELS[mode]) },
+          t
+        );
         toastManager.add({
-          title: t('Reset successful'),
-          description: t('Reset to {{mode}} mode', { mode: t(RESET_MODE_LABELS[mode]) }),
+          title: successCopy.title,
+          description: successCopy.description,
           type: 'success',
           timeout: 3000,
         });
         onRefresh?.();
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const errorCopy = buildSourceControlToastCopy(
+          {
+            action: 'reset',
+            phase: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          },
+          t
+        );
         toastManager.add({
-          title: t('Reset failed'),
-          description: message,
+          title: errorCopy.title,
+          description: errorCopy.description,
           type: 'error',
           timeout: 5000,
         });
@@ -231,7 +260,7 @@ export function CommitHistoryList({
     return (
       <div className="flex h-full min-h-[120px] flex-col items-center justify-center text-muted-foreground">
         <GitCommit className="mb-2 h-10 w-10 opacity-50" />
-        <p className="text-sm">{t('No commits yet')}</p>
+        <p className="text-sm">{t('No commits')}</p>
       </div>
     );
   }
@@ -351,13 +380,13 @@ export function CommitHistoryList({
                               <Icon
                                 className={cn(
                                   'h-3.5 w-3.5 shrink-0',
-                                  isFileSelected ? '' : getStatusColor(file.status)
+                                  isFileSelected ? '' : getFileStatusTextClass(file.status)
                                 )}
                               />
                               <span
                                 className={cn(
                                   'shrink-0 font-mono text-[10px]',
-                                  isFileSelected ? '' : getStatusColor(file.status)
+                                  isFileSelected ? '' : getFileStatusTextClass(file.status)
                                 )}
                               >
                                 {file.status}
@@ -450,7 +479,7 @@ export function CommitHistoryList({
   );
 }
 
-// Helper functions for file icons and status colors
+// Helper functions for file icons
 function getFileIcon(status: CommitFileChange['status']) {
   switch (status) {
     case 'A':
@@ -459,23 +488,5 @@ function getFileIcon(status: CommitFileChange['status']) {
       return FileX;
     default:
       return FileEdit;
-  }
-}
-
-function getStatusColor(status: CommitFileChange['status']) {
-  switch (status) {
-    case 'A':
-      return 'text-green-500';
-    case 'D':
-      return 'text-red-500';
-    case 'M':
-      return 'text-orange-500';
-    case 'R':
-    case 'C':
-      return 'text-blue-500';
-    case 'X':
-      return 'text-purple-500';
-    default:
-      return 'text-muted-foreground';
   }
 }
