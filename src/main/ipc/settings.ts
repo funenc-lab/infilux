@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { IPC_CHANNELS } from '@shared/types';
 import { app, ipcMain } from 'electron';
 import {
+  getSharedLocalStorageSnapshot,
   readSharedSettings,
   writeSharedSettings,
   writeSharedSettingsToSession,
@@ -129,11 +130,31 @@ function parseSettingsFile(sourcePath: string): unknown {
   return JSON.parse(readFileSync(sourcePath, 'utf-8')) as unknown;
 }
 
+function readImportedLegacyLocalStorageSnapshot(sourcePath: string): Record<string, string> | null {
+  const sessionStateLocalStorageSnapshot = readLegacyImportLocalStorageSnapshot(sourcePath);
+  const legacyLevelDbLocalStorageSnapshot = readLegacyElectronLocalStorageSnapshot(sourcePath);
+
+  if (!sessionStateLocalStorageSnapshot && !legacyLevelDbLocalStorageSnapshot) {
+    return null;
+  }
+
+  return {
+    ...(legacyLevelDbLocalStorageSnapshot ?? {}),
+    ...(sessionStateLocalStorageSnapshot ?? {}),
+  };
+}
+
 function previewLegacyImportFromPath(sourcePath: string) {
   try {
     const currentData = readSettings();
     const importedData = parseSettingsFile(sourcePath);
-    return buildLegacySettingsImportPreview(currentData, importedData, sourcePath);
+    const currentLocalStorageSnapshot = getSharedLocalStorageSnapshot();
+    const importedLocalStorageSnapshot = readImportedLegacyLocalStorageSnapshot(sourcePath);
+
+    return buildLegacySettingsImportPreview(currentData, importedData, sourcePath, {
+      currentLocalStorageSnapshot,
+      importedLocalStorageSnapshot,
+    });
   } catch {
     return {
       sourcePath,
@@ -219,7 +240,12 @@ export function registerSettingsHandlers(): void {
     try {
       const currentData = readSettings();
       const importedData = parseSettingsFile(sourcePath);
-      const preview = buildLegacySettingsImportPreview(currentData, importedData, sourcePath);
+      const currentLocalStorageSnapshot = getSharedLocalStorageSnapshot();
+      const importedLocalStorageSnapshot = readImportedLegacyLocalStorageSnapshot(sourcePath);
+      const preview = buildLegacySettingsImportPreview(currentData, importedData, sourcePath, {
+        currentLocalStorageSnapshot,
+        importedLocalStorageSnapshot,
+      });
       if (!preview.importable) {
         return {
           imported: false,
@@ -240,16 +266,7 @@ export function registerSettingsHandlers(): void {
       }
 
       const written = persistSettingsImmediately(nextData);
-      const sessionStateLocalStorageSnapshot = readLegacyImportLocalStorageSnapshot(sourcePath);
-      const legacyLevelDbLocalStorageSnapshot =
-        readLegacyElectronLocalStorageSnapshot(sourcePath) ?? undefined;
-      const legacyLocalStorageSnapshot =
-        sessionStateLocalStorageSnapshot || legacyLevelDbLocalStorageSnapshot
-          ? {
-              ...(legacyLevelDbLocalStorageSnapshot ?? {}),
-              ...(sessionStateLocalStorageSnapshot ?? {}),
-            }
-          : undefined;
+      const legacyLocalStorageSnapshot = importedLocalStorageSnapshot ?? undefined;
 
       if (written) {
         return {

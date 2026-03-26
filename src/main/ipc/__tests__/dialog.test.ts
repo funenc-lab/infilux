@@ -146,13 +146,14 @@ describe('dialog IPC handlers', () => {
     expect(
       await getHandler(IPC_CHANNELS.DIALOG_OPEN_FILE)(event, {
         filters: [{ name: 'TypeScript', extensions: ['ts'] }],
+        showHiddenFiles: true,
       })
     ).toBe('/tmp/file.ts');
     expect(dialogTestDoubles.showOpenDialog).toHaveBeenNthCalledWith(
       2,
       { id: 'focused-window' },
       {
-        properties: ['openFile'],
+        properties: ['openFile', 'showHiddenFiles'],
         title: 'translated:Select file',
         filters: [{ name: 'TypeScript', extensions: ['ts'] }],
       }

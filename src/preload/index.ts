@@ -560,6 +560,7 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_DIRECTORY),
     openFile: (options?: {
       filters?: Array<{ name: string; extensions: string[] }>;
+      showHiddenFiles?: boolean;
     }): Promise<string | null> => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FILE, options),
   },
 

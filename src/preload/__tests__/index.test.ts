@@ -228,10 +228,17 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.APP_SET_PROXY, { enabled: true, host: '127.0.0.1', port: 7890 }],
       },
       {
-        run: () => api.dialog.openFile({ filters: [{ name: 'TypeScript', extensions: ['ts'] }] }),
+        run: () =>
+          api.dialog.openFile({
+            filters: [{ name: 'TypeScript', extensions: ['ts'] }],
+            showHiddenFiles: true,
+          }),
         expected: [
           IPC_CHANNELS.DIALOG_OPEN_FILE,
-          { filters: [{ name: 'TypeScript', extensions: ['ts'] }] },
+          {
+            filters: [{ name: 'TypeScript', extensions: ['ts'] }],
+            showHiddenFiles: true,
+          },
         ],
       },
       {

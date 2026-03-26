@@ -12,6 +12,7 @@ const settingsTestDoubles = vi.hoisted(() => {
       beforeQuitHandler = handler;
     },
     readSharedSettings: vi.fn(),
+    getSharedLocalStorageSnapshot: vi.fn(),
     writeSharedSettings: vi.fn(),
     writeSharedSettingsToSession: vi.fn(),
     toggleClaudeProviderWatcher: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock('node:fs', () => ({
 
 vi.mock('../../services/SharedSessionState', () => ({
   readSharedSettings: settingsTestDoubles.readSharedSettings,
+  getSharedLocalStorageSnapshot: settingsTestDoubles.getSharedLocalStorageSnapshot,
   writeSharedSettings: settingsTestDoubles.writeSharedSettings,
   writeSharedSettingsToSession: settingsTestDoubles.writeSharedSettingsToSession,
 }));
@@ -59,6 +61,8 @@ describe('main settings handlers', () => {
     vi.clearAllMocks();
     settingsTestDoubles.readSharedSettings.mockReset();
     settingsTestDoubles.readSharedSettings.mockReturnValue({});
+    settingsTestDoubles.getSharedLocalStorageSnapshot.mockReset();
+    settingsTestDoubles.getSharedLocalStorageSnapshot.mockReturnValue({});
     settingsTestDoubles.writeSharedSettings.mockReset();
     settingsTestDoubles.writeSharedSettingsToSession.mockReset();
     settingsTestDoubles.toggleClaudeProviderWatcher.mockReset();
@@ -248,6 +252,133 @@ describe('main settings handlers', () => {
     });
   });
 
+  it('treats legacy localStorage repository data as importable even when the settings slice already matches', async () => {
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'dark',
+          language: 'en',
+        },
+      },
+    });
+    settingsTestDoubles.getSharedLocalStorageSnapshot.mockReturnValue({
+      'enso-repositories': '[]',
+    });
+    settingsTestDoubles.readFileSync.mockImplementation((targetPath: string) => {
+      if (targetPath === '/tmp/importable-settings.json') {
+        return JSON.stringify({
+          'enso-settings': {
+            state: {
+              theme: 'dark',
+              language: 'en',
+            },
+          },
+        });
+      }
+
+      if (targetPath === '/tmp/session-state.json') {
+        return JSON.stringify({
+          localStorage: {
+            'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+            'enso-selected-repo': '/repo/demo',
+          },
+        });
+      }
+
+      throw new Error(`Unexpected read path: ${targetPath}`);
+    });
+
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const previewHandler = settingsTestDoubles.handlers.get(
+      IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_PREVIEW
+    );
+
+    expect(await previewHandler?.({}, '/tmp/importable-settings.json')).toEqual({
+      sourcePath: '/tmp/importable-settings.json',
+      importable: true,
+      diffCount: 2,
+      diffs: [
+        {
+          path: 'localStorage.enso-repositories',
+          currentValue: '"[]"',
+          importedValue:
+            '"[{\\"path\\":\\"/repo/demo\\",\\"name\\":\\"demo\\",\\"id\\":\\"local:/repo/demo\\"}]"',
+        },
+        {
+          path: 'localStorage.enso-selected-repo',
+          currentValue: 'Not set',
+          importedValue: '"/repo/demo"',
+        },
+      ],
+      truncated: false,
+      error: undefined,
+    });
+  });
+
+  it('applies legacy localStorage repository data even when the settings slice already matches', async () => {
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'dark',
+          language: 'en',
+        },
+      },
+    });
+    settingsTestDoubles.getSharedLocalStorageSnapshot.mockReturnValue({
+      'enso-repositories': '[]',
+    });
+    settingsTestDoubles.readFileSync.mockImplementation((targetPath: string) => {
+      if (targetPath === '/tmp/importable-settings.json') {
+        return JSON.stringify({
+          'enso-settings': {
+            state: {
+              theme: 'dark',
+              language: 'en',
+            },
+          },
+        });
+      }
+
+      if (targetPath === '/tmp/session-state.json') {
+        return JSON.stringify({
+          localStorage: {
+            'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+            'enso-selected-repo': '/repo/demo',
+          },
+        });
+      }
+
+      throw new Error(`Unexpected read path: ${targetPath}`);
+    });
+
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const applyImportHandler = settingsTestDoubles.handlers.get(
+      IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_APPLY
+    );
+
+    expect(await applyImportHandler?.({}, '/tmp/importable-settings.json')).toEqual({
+      imported: true,
+      sourcePath: '/tmp/importable-settings.json',
+      diffCount: 2,
+      legacyLocalStorageSnapshot: {
+        'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+        'enso-selected-repo': '/repo/demo',
+      },
+    });
+    expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledWith({
+      'enso-settings': {
+        state: {
+          theme: 'dark',
+          language: 'en',
+        },
+      },
+    });
+  });
+
   it('auto-detects a legacy settings file from typical locations and previews it', async () => {
     const previousHome = process.env.HOME;
     process.env.HOME = '/Users/tester';
@@ -377,7 +508,7 @@ describe('main settings handlers', () => {
     expect(result).toEqual({
       imported: true,
       sourcePath: '/Volumes/OldMac/.ensoai/settings.json',
-      diffCount: 2,
+      diffCount: 4,
       legacyLocalStorageSnapshot: {
         'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
         'enso-selected-repo': '/repo/demo',

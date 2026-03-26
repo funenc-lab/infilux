@@ -31,14 +31,20 @@ export function registerDialogHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.DIALOG_OPEN_FILE,
-    async (event, options?: { filters?: Array<{ name: string; extensions: string[] }> }) => {
+    async (
+      event,
+      options?: {
+        filters?: Array<{ name: string; extensions: string[] }>;
+        showHiddenFiles?: boolean;
+      }
+    ) => {
       const window =
         BrowserWindow.fromWebContents(event.sender) ??
         BrowserWindow.getFocusedWindow() ??
         BrowserWindow.getAllWindows()[0];
       const t = (key: string) => translate(getCurrentLocale(), key);
       const result = await dialog.showOpenDialog(window, {
-        properties: ['openFile'],
+        properties: options?.showHiddenFiles ? ['openFile', 'showHiddenFiles'] : ['openFile'],
         title: t('Select file'),
         filters: options?.filters,
       });

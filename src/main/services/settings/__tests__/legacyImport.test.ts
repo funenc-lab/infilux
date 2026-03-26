@@ -79,6 +79,54 @@ describe('legacySettingsImport', () => {
     expect(preview.error).toBe('Selected file does not contain persisted EnsoAI settings.');
   });
 
+  it('includes managed localStorage diffs in the import preview when the settings slice already matches', () => {
+    const preview = buildLegacySettingsImportPreview(
+      {
+        'enso-settings': {
+          state: {
+            theme: 'dark',
+            language: 'en',
+          },
+        },
+      },
+      {
+        'enso-settings': {
+          state: {
+            theme: 'dark',
+            language: 'en',
+          },
+        },
+      },
+      '/Volumes/OldMac/.ensoai/settings.json',
+      {
+        currentLocalStorageSnapshot: {
+          'enso-repositories': '[]',
+        },
+        importedLocalStorageSnapshot: {
+          'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+          'enso-selected-repo': '/repo/demo',
+        },
+      }
+    );
+
+    expect(preview.importable).toBe(true);
+    expect(preview.diffCount).toBe(2);
+    expect(preview.truncated).toBe(false);
+    expect(preview.diffs).toEqual([
+      {
+        path: 'localStorage.enso-repositories',
+        currentValue: '"[]"',
+        importedValue:
+          '"[{\\"path\\":\\"/repo/demo\\",\\"name\\":\\"demo\\",\\"id\\":\\"local:/repo/demo\\"}]"',
+      },
+      {
+        path: 'localStorage.enso-selected-repo',
+        currentValue: 'Not set',
+        importedValue: '"/repo/demo"',
+      },
+    ]);
+  });
+
   it('builds an apply payload that only replaces the persisted settings slice', () => {
     const payload = buildLegacySettingsImportPayload(
       {

@@ -544,6 +544,7 @@ export function GeneralSettings() {
     setLegacyImportStatus(null);
     const selectedPath = await window.electronAPI.dialog.openFile({
       filters: [{ name: 'JSON', extensions: ['json'] }],
+      showHiddenFiles: true,
     });
     if (!selectedPath) {
       return;
