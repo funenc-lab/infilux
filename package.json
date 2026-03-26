@@ -28,7 +28,8 @@
     "test:coverage:full": "vitest run --config vitest.full.config.ts --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check .",
+    "lint": "biome check . && npx tsx scripts/check-renderer-theme-colors.ts",
+    "lint:theme": "npx tsx scripts/check-renderer-theme-colors.ts",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "prepare": "husky"

@@ -24,14 +24,22 @@ pnpm-debug.log*
 
 # Testing
 coverage/
+coverage-full/
 
 # Misc
 *.pem
 thumbs.db
 dist*/
 build/cer.p12
+AgentPanel-*.js
+.tmp/
+.tmp-*/
+.tmp-bin/
+.tmp-review/
 
 .omc/
 .worktrees
 .claude/
 .serena/
+.impeccable.md
+.superpowers/

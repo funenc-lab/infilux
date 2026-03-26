@@ -55,8 +55,12 @@
       "!**/.worktrees",
       "!**/coverage",
       "!**/coverage-full",
+      "!**/.tmp",
       "!**/.tmp-*",
+      "!**/.tmp-bin",
+      "!**/.tmp-review",
       "!**/tmp-cov-*",
+      "!**/AgentPanel-*.js",
       "!**/*.min.js",
       "!**/*.css"
     ]
