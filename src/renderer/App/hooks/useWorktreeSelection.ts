@@ -4,6 +4,7 @@ import type { MutableRefObject } from 'react';
 import { useCallback, useEffect } from 'react';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
 import { requestUnsavedChoice } from '@/stores/unsavedPrompt';
@@ -97,10 +98,14 @@ export function useWorktreeSelection(
               useEditorStore.getState().markFileSaved(tab.path);
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
+              const errorCopy = buildFileWorkflowToastCopy(
+                { action: 'file-save', phase: 'error', message },
+                t
+              );
               toastManager.add({
                 type: 'error',
-                title: t('Save failed'),
-                description: message,
+                title: errorCopy.title,
+                description: errorCopy.description,
               });
               return;
             }
@@ -112,10 +117,14 @@ export function useWorktreeSelection(
               }
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
+              const errorCopy = buildFileWorkflowToastCopy(
+                { action: 'file-read', phase: 'error', message },
+                t
+              );
               toastManager.add({
                 type: 'error',
-                title: t('File read failed'),
-                description: message,
+                title: errorCopy.title,
+                description: errorCopy.description,
               });
               return;
             }

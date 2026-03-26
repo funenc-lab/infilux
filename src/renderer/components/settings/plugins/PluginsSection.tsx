@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { MarketplacesDialog } from './MarketplacesDialog';
 import { PluginBrowserDialog } from './PluginBrowserDialog';
 
@@ -53,11 +54,36 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
     try {
       const success = await window.electronAPI.claudeConfig.plugins.uninstall(repoPath, pluginId);
       if (success) {
-        toastManager.add({ type: 'success', title: t('Plugin uninstalled') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'plugin-uninstall',
+            phase: 'success',
+            id: pluginId,
+          },
+          t
+        );
+        toastManager.add({ type: 'success', title: copy.title, description: copy.description });
         setPlugins((prev) => prev.filter((p) => p.id !== pluginId));
       } else {
-        toastManager.add({ type: 'error', title: t('Failed to uninstall plugin') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'plugin-uninstall',
+            phase: 'error',
+          },
+          t
+        );
+        toastManager.add({ type: 'error', title: copy.title, description: copy.description });
       }
+    } catch (error) {
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'plugin-uninstall',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
+      toastManager.add({ type: 'error', title: copy.title, description: copy.description });
     } finally {
       setUninstalling(null);
     }
@@ -67,23 +93,24 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
 
   return (
     <div className="border-t pt-4 mt-4">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex w-full items-center justify-between gap-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
           {expanded ? (
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
           ) : (
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
-          <Puzzle className="h-4 w-4" />
+          <Puzzle className="h-4 w-4 shrink-0" />
           <span className="text-sm font-medium">{t('Plugins')}</span>
           <span className="text-xs text-muted-foreground">
             ({enabledCount}/{plugins.length})
           </span>
-        </div>
+        </button>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -106,7 +133,7 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
             <Settings2 className="h-3.5 w-3.5" />
           </Button>
         </div>
-      </button>
+      </div>
 
       <MarketplacesDialog
         open={marketplacesOpen}

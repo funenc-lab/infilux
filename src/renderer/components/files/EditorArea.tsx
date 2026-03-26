@@ -11,29 +11,29 @@ import {
   useState,
 } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { normalizePath } from '@/App/storage';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
+import {
+  buildConsoleButtonStyle,
+  buildConsoleTypographyModel,
+} from '@/components/layout/consoleTypography';
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { Button } from '@/components/ui/button';
 import { addToast } from '@/components/ui/toast';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
 import { useI18n } from '@/i18n';
+import { findCustomThemeBySelection } from '@/lib/appTheme';
+import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { toMonacoFileUri } from '@/lib/monacoModelPath';
 import { recordBulkReloadEvent, updateRendererDiagnostics } from '@/lib/runtimeDiagnostics';
 import { useActiveSessionId } from '@/stores/agentSessions';
 import type { EditorTab, PendingCursor } from '@/stores/editor';
 import { useEditorStore } from '@/stores/editor';
-import { type TerminalKeybinding, useSettingsStore } from '@/stores/settings';
+import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { BreadcrumbTreeMenu } from './BreadcrumbTreeMenu';
 import { buildBreadcrumbSegments } from './breadcrumbPathUtils';
@@ -41,11 +41,21 @@ import { CommentForm, useEditorLineComment } from './EditorLineComment';
 import { EditorTabs } from './EditorTabs';
 import { ExternalModificationBanner } from './ExternalModificationBanner';
 import { setupDefinitionNavigation } from './editorDefinitionProvider';
+import {
+  buildIdleEditorStateModel,
+  buildUnsupportedEditorStateModel,
+} from './editorEmptyStateModel';
+import { bindingToMonacoChord } from './editorKeybinding';
 import { buildRetainedEditorModelPaths, recordRecentEditorModelPath } from './editorModelRetention';
+import { getDisplayPathRelativeToRoot } from './editorPathDisplay';
+import {
+  type MarkdownPreviewMode,
+  resolveEditorPreviewPolicy,
+  resolveNextPreviewMode,
+} from './editorPreviewPolicy';
 import { buildBulkReloadPlan } from './editorReloadPolicy';
 import { setupDoubleClickScope } from './editorScopeSelection';
 import { setEditorSelectionText } from './editorSelectionCache';
-import { isImageFile, isPdfFile } from './fileIcons';
 import { ImagePreview } from './ImagePreview';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ensureMonacoSetup, monaco as monacoApi } from './monacoSetup';
@@ -55,76 +65,9 @@ import { useEditorBlame } from './useEditorBlame';
 
 type Monaco = typeof monaco;
 
-// Map from codeToKey() output to Monaco KeyCode property names
-const SPECIAL_KEY_MAP: Record<string, string> = {
-  '[': 'BracketLeft',
-  ']': 'BracketRight',
-  ';': 'Semicolon',
-  "'": 'Quote',
-  '`': 'Backquote',
-  ',': 'Comma',
-  '.': 'Period',
-  '/': 'Slash',
-  '\\': 'Backslash',
-  '-': 'Minus',
-  '=': 'Equal',
-  space: 'Space',
-  enter: 'Enter',
-  escape: 'Escape',
-  tab: 'Tab',
-  backspace: 'Backspace',
-  delete: 'Delete',
-  arrowup: 'UpArrow',
-  arrowdown: 'DownArrow',
-  arrowleft: 'LeftArrow',
-  arrowright: 'RightArrow',
-  home: 'Home',
-  end: 'End',
-  pageup: 'PageUp',
-  pagedown: 'PageDown',
-};
-
-// Convert a TerminalKeybinding to a Monaco editor chord number.
-// Returns 0 if the key cannot be mapped (caller should skip addCommand).
-function bindingToMonacoChord(binding: TerminalKeybinding, m: Monaco): number {
-  let chord = 0;
-  if (binding.ctrl) chord |= m.KeyMod.WinCtrl;
-  if (binding.meta) chord |= m.KeyMod.CtrlCmd;
-  if (binding.shift) chord |= m.KeyMod.Shift;
-  if (binding.alt) chord |= m.KeyMod.Alt;
-
-  const key = binding.key.toLowerCase();
-  if (!key) return 0;
-  let keyCode: number | undefined;
-
-  if (/^[a-z]$/.test(key)) {
-    keyCode = m.KeyCode[`Key${key.toUpperCase()}` as keyof typeof m.KeyCode] as number;
-  } else if (/^f\d+$/.test(key)) {
-    keyCode = m.KeyCode[key.toUpperCase() as keyof typeof m.KeyCode] as number;
-  } else if (/^\d$/.test(key)) {
-    keyCode = m.KeyCode[`Digit${key}` as keyof typeof m.KeyCode] as number;
-  } else {
-    const monacoName = SPECIAL_KEY_MAP[key];
-    if (monacoName) {
-      keyCode = m.KeyCode[monacoName as keyof typeof m.KeyCode] as number;
-    }
-  }
-
-  if (keyCode === undefined || keyCode === 0) return 0;
-  return chord | keyCode;
-}
-
-type MarkdownPreviewMode = 'off' | 'split' | 'fullscreen';
-
 export interface EditorAreaRef {
   getSelectedText: () => string;
   requestCloseTab: (path: string) => void;
-}
-
-function isMarkdownFile(path: string | null): boolean {
-  if (!path) return false;
-  const ext = path.split('.').pop()?.toLowerCase();
-  return ext === 'md' || ext === 'markdown';
 }
 
 export interface EditorAreaProps {
@@ -184,15 +127,38 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
   );
   const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
   const {
+    theme,
     terminalTheme,
+    colorPreset,
+    customAccentColor,
+    activeThemeSelection,
+    customThemes,
+    fontFamily,
+    fontSize,
     editorSettings,
     editorKeybindings,
     claudeCodeIntegration,
     backgroundImageEnabled,
-    backgroundOpacity,
   } = useSettingsStore();
+  const activeCustomTheme = useMemo(
+    () => findCustomThemeBySelection(customThemes, activeThemeSelection),
+    [activeThemeSelection, customThemes]
+  );
   const write = useTerminalWriteStore((state) => state.write);
   const focus = useTerminalWriteStore((state) => state.focus);
+  const emptyStateButtonStyle = useMemo(
+    () =>
+      buildConsoleButtonStyle(
+        buildConsoleTypographyModel({
+          appFontFamily: fontFamily,
+          appFontSize: fontSize,
+          editorFontFamily: editorSettings.fontFamily,
+          editorFontSize: editorSettings.fontSize,
+          editorLineHeight: editorSettings.lineHeight,
+        })
+      ),
+    [fontFamily, fontSize, editorSettings]
+  );
 
   // Helper function to format line reference from selection
   const formatLineRef = useCallback((selection: monaco.Selection): string => {
@@ -203,18 +169,9 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
       : `L${selection.startLineNumber}-L${endLine}`;
   }, []);
 
-  // Helper function to convert absolute path to relative path
+  // Helper function to convert absolute path to a display-friendly relative path
   const getRelativePath = useCallback(
-    (absolutePath: string): string => {
-      if (!rootPath) return absolutePath;
-      const normalizedRoot = normalizePath(rootPath);
-      const normalizedPath = normalizePath(absolutePath);
-      if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
-        // Return original case path (not normalized) for display
-        return absolutePath.slice(rootPath.length + 1);
-      }
-      return absolutePath;
-    },
+    (absolutePath: string): string => getDisplayPathRelativeToRoot(absolutePath, rootPath),
     [rootPath]
   );
 
@@ -225,10 +182,18 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
       const displayPath = getRelativePath(path);
       write(sessionId, `@${displayPath} `);
       focus(sessionId);
+      const copy = buildFileWorkflowToastCopy(
+        {
+          action: 'send-to-session',
+          phase: 'success',
+          target: `@${displayPath}`,
+        },
+        t
+      );
       addToast({
         type: 'success',
-        title: t('Sent to session'),
-        description: `@${displayPath}`,
+        title: copy.title,
+        description: copy.description,
         timeout: 2000,
       });
     },
@@ -236,21 +201,31 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
   );
 
   // Markdown preview state
-  const isMarkdown = isMarkdownFile(activeTabPath);
-  const isImage = isImageFile(activeTabPath);
-  const isPdf = isPdfFile(activeTabPath);
+  const { isMarkdown, isImage, isPdf, requiresMonaco } = useMemo(
+    () =>
+      resolveEditorPreviewPolicy({
+        activeTabPath,
+        hasActiveTab: Boolean(activeTab),
+        isUnsupported: activeTab?.isUnsupported ?? false,
+      }),
+    [activeTab, activeTabPath]
+  );
   const [previewMode, setPreviewMode] = useState<MarkdownPreviewMode>('off');
   const previewModeRef = useRef<MarkdownPreviewMode>('off');
   previewModeRef.current = previewMode;
   const [editorReady, setEditorReady] = useState(false);
   const [isMonacoReady, setIsMonacoReady] = useState(false);
   const [previewWidth, setPreviewWidth] = useState(50); // percentage
-  const requiresMonaco = Boolean(activeTab && !activeTab.isUnsupported && !isImage && !isPdf);
 
   // Sync preview mode from pendingCursor
   useEffect(() => {
-    if (pendingCursor?.previewMode && isMarkdown) {
-      setPreviewMode(pendingCursor.previewMode);
+    const nextPreviewMode = resolveNextPreviewMode(
+      previewModeRef.current,
+      pendingCursor?.previewMode,
+      isMarkdown
+    );
+    if (nextPreviewMode !== previewModeRef.current) {
+      setPreviewMode(nextPreviewMode);
     }
   }, [pendingCursor?.previewMode, isMarkdown]);
   const resizingRef = useRef(false);
@@ -317,6 +292,27 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
     enabled: editorReady && editorSettings.gitBlameEnabled,
     t,
   });
+
+  const idleStateModel = useMemo(
+    () =>
+      buildIdleEditorStateModel({
+        isFileTreeCollapsed: Boolean(isFileTreeCollapsed),
+        t,
+      }),
+    [isFileTreeCollapsed, t]
+  );
+
+  const unsupportedStateModel = useMemo(
+    () =>
+      activeTab
+        ? buildUnsupportedEditorStateModel({
+            displayPath: getRelativePath(activeTab.path),
+            fileTitle: activeTab.title,
+            t,
+          })
+        : null,
+    [activeTab, getRelativePath, t]
+  );
 
   // Wrap onSave to refresh blame after save
   const handleSaveWithBlameRefresh = useCallback(
@@ -534,9 +530,13 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
         if (cancelled) {
           return;
         }
-        defineMonacoTheme(terminalTheme, {
+        defineMonacoTheme({
+          theme,
+          terminalTheme,
+          colorPreset,
+          customAccentColor,
+          customTheme: activeCustomTheme,
           backgroundImageEnabled,
-          backgroundOpacity,
         });
         themeDefinedRef.current = true;
         setIsMonacoReady(true);
@@ -545,7 +545,15 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
     return () => {
       cancelled = true;
     };
-  }, [requiresMonaco, terminalTheme, backgroundImageEnabled, backgroundOpacity]);
+  }, [
+    requiresMonaco,
+    theme,
+    terminalTheme,
+    colorPreset,
+    customAccentColor,
+    activeCustomTheme,
+    backgroundImageEnabled,
+  ]);
 
   useEffect(() => {
     if (!isMonacoReady) {
@@ -664,10 +672,18 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
           terminalFocus(currentSessionId);
 
           // Show success toast
+          const copy = buildFileWorkflowToastCopy(
+            {
+              action: 'send-to-session',
+              phase: 'success',
+              target: `@${displayPath}#${lineRef}`,
+            },
+            t
+          );
           addToast({
             type: 'success',
-            title: t('Sent to session'),
-            description: `@${displayPath}#${lineRef}`,
+            title: copy.title,
+            description: copy.description,
             timeout: 2000,
           });
         },
@@ -1246,7 +1262,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
           <button
             type="button"
             onClick={onToggleFileTree}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            className="control-topbar-action h-10 w-10 shrink-0 rounded-none border-b border-r border-border/60"
             title={t('Show file tree')}
           >
             <ChevronRight className="h-4 w-4" />
@@ -1273,7 +1289,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
           <button
             type="button"
             onClick={cyclePreviewMode}
-            className="flex h-10 w-10 shrink-0 items-center justify-center border-b text-muted-foreground hover:text-foreground transition-colors"
+            className="control-topbar-action h-10 w-10 shrink-0 rounded-none border-b border-l border-border/60"
             title={
               previewMode === 'off'
                 ? t('Show split preview')
@@ -1311,7 +1327,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
                     >
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 rounded-sm hover:bg-accent/50 px-1 py-0.5 -mx-1 transition-colors text-foreground truncate"
+                        className="inline-flex items-center gap-1 rounded-sm px-1 py-0.5 -mx-1 text-foreground transition-colors hover:bg-theme/8"
                       >
                         {segment.name}
                       </button>
@@ -1356,17 +1372,31 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
               }}
             >
               {activeTab.isUnsupported ? (
-                <Empty className="flex-1">
-                  <EmptyMedia variant="icon">
-                    <FileX className="h-4.5 w-4.5" />
-                  </EmptyMedia>
-                  <EmptyHeader>
-                    <EmptyTitle>{t('No preview available')}</EmptyTitle>
-                    <EmptyDescription>
-                      {t('This file type is not supported for preview')}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
+                <div className="flex h-full items-start justify-center px-6 pb-6 pt-12 sm:pt-16">
+                  <ConsoleEmptyState
+                    className="max-w-[min(60rem,100%)]"
+                    icon={<FileX className="h-5 w-5" />}
+                    eyebrow={unsupportedStateModel?.eyebrow ?? t('Preview Unavailable')}
+                    title={
+                      unsupportedStateModel?.title ??
+                      t('This file cannot be rendered in the editor')
+                    }
+                    description={
+                      unsupportedStateModel?.description ??
+                      t(
+                        'Use another application to inspect this file, or switch to a supported file to keep editing in place.'
+                      )
+                    }
+                    chips={[
+                      {
+                        label: unsupportedStateModel?.chipLabel ?? t('Unsupported File'),
+                        tone: unsupportedStateModel?.chipTone ?? 'wait',
+                      },
+                    ]}
+                    details={unsupportedStateModel?.details ?? []}
+                    detailsLayout="compact"
+                  />
+                </div>
               ) : isImage ? (
                 <ImagePreview path={activeTab.path} />
               ) : isPdf ? (
@@ -1467,17 +1497,31 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
             )}
           </>
         ) : (
-          <Empty className="flex-1">
-            <EmptyMedia variant="icon">
-              <FileCode className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle>{t('Start editing')}</EmptyTitle>
-              <EmptyDescription>
-                {t('Select a file from the file tree to begin editing')}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <div className="flex h-full flex-1 items-start justify-center px-6 pb-6 pt-12 sm:pt-16">
+            <ConsoleEmptyState
+              className="max-w-[min(60rem,100%)]"
+              icon={<FileCode className="h-5 w-5" />}
+              eyebrow={idleStateModel.eyebrow}
+              title={idleStateModel.title}
+              description={idleStateModel.description}
+              chips={[{ label: idleStateModel.chipLabel, tone: idleStateModel.chipTone }]}
+              details={idleStateModel.details}
+              detailsLayout="compact"
+              actions={
+                onToggleFileTree && isFileTreeCollapsed ? (
+                  <Button
+                    variant="default"
+                    size="lg"
+                    onClick={onToggleFileTree}
+                    className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
+                    style={emptyStateButtonStyle}
+                  >
+                    {t('Show File Tree')}
+                  </Button>
+                ) : null
+              }
+            />
+          </div>
         )}
       </div>
     </div>
