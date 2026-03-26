@@ -61,6 +61,13 @@ export function parseGitUrl(url: string): ParsedGitUrl | null {
       }
     }
 
+    if (repo.endsWith('.git')) {
+      repo = repo.slice(0, -4);
+      if (pathSegments.length > 0) {
+        pathSegments[pathSegments.length - 1] = repo;
+      }
+    }
+
     return {
       protocol,
       host,

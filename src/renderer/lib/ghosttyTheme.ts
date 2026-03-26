@@ -144,6 +144,10 @@ interface RGBA {
   a: number;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 function parseColorWithAlpha(color: string): RGBA | null {
   const c = color.trim();
 
@@ -197,16 +201,19 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   return rgba ? { r: rgba.r, g: rgba.g, b: rgba.b } : null;
 }
 
-function rgbToHex(r: number, g: number, b: number): string {
-  return `#${[r, g, b].map((x) => Math.round(x).toString(16).padStart(2, '0')).join('')}`;
-}
+function formatRgba({ r, g, b, a }: RGBA): string {
+  const rounded = {
+    r: Math.round(r),
+    g: Math.round(g),
+    b: Math.round(b),
+    a: clamp(a, 0, 1),
+  };
 
-function mixColors(color1: string, color2: string, weight: number): string {
-  const c1 = hexToRgb(color1);
-  const c2 = hexToRgb(color2);
-  if (!c1 || !c2) return color1;
-  const w = Math.max(0, Math.min(1, weight));
-  return rgbToHex(c1.r * (1 - w) + c2.r * w, c1.g * (1 - w) + c2.g * w, c1.b * (1 - w) + c2.b * w);
+  if (rounded.a >= 0.999) {
+    return `rgb(${rounded.r}, ${rounded.g}, ${rounded.b})`;
+  }
+
+  return `rgba(${rounded.r}, ${rounded.g}, ${rounded.b}, ${rounded.a.toFixed(3)})`;
 }
 
 export function hexToRgba(color: string, opacity: number): string {
@@ -227,10 +234,133 @@ function getLuminance(hex: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+function getContrastRatio(foreground: string, background: string): number {
+  const lighter = Math.max(getLuminance(foreground), getLuminance(background));
+  const darker = Math.min(getLuminance(foreground), getLuminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function mixColors(left: string, right: string, ratio: number): string {
+  const leftColor = parseColorWithAlpha(left);
+  const rightColor = parseColorWithAlpha(right);
+  if (!leftColor || !rightColor) {
+    return left;
+  }
+
+  const normalizedRatio = clamp(ratio, 0, 1);
+  const inverseRatio = 1 - normalizedRatio;
+
+  return formatRgba({
+    r: leftColor.r * inverseRatio + rightColor.r * normalizedRatio,
+    g: leftColor.g * inverseRatio + rightColor.g * normalizedRatio,
+    b: leftColor.b * inverseRatio + rightColor.b * normalizedRatio,
+    a: leftColor.a * inverseRatio + rightColor.a * normalizedRatio,
+  });
+}
+
+function ensureReadableForeground(
+  foreground: string,
+  background: string,
+  fallback: string,
+  minimumContrast = 4.5
+): string {
+  if (getContrastRatio(foreground, background) >= minimumContrast) {
+    return foreground;
+  }
+
+  return getContrastRatio(fallback, background) >= minimumContrast ? fallback : foreground;
+}
+
+function getReadableOnColor(background: string, darkOption = '#0f172a', lightOption = '#ffffff') {
+  return getContrastRatio(darkOption, background) > getContrastRatio(lightOption, background)
+    ? darkOption
+    : lightOption;
+}
+
+function pickPrimaryAccent(theme: XtermTheme, background: string, isDark: boolean): string {
+  const candidates = isDark
+    ? [theme.brightBlue, theme.blue, theme.brightCyan, theme.cyan, theme.foreground]
+    : [theme.blue, theme.brightBlue, theme.magenta, theme.cyan, theme.foreground];
+
+  let best = candidates[0];
+  let bestContrast = 0;
+
+  for (const candidate of candidates) {
+    const contrast = getContrastRatio(candidate, background);
+    if (contrast > bestContrast) {
+      best = candidate;
+      bestContrast = contrast;
+    }
+    if (contrast >= 3) {
+      return candidate;
+    }
+  }
+
+  return best;
+}
+
+function createTerminalThemeVariables(theme: XtermTheme, isDark: boolean): Record<string, string> {
+  const fallbackTheme = isDark ? defaultDarkTheme : defaultLightTheme;
+  const background = theme.background;
+  const foreground = ensureReadableForeground(
+    theme.foreground,
+    background,
+    fallbackTheme.foreground,
+    4.5
+  );
+  const primary = pickPrimaryAccent(theme, background, isDark);
+  const primaryForeground = getReadableOnColor(primary);
+  const card = mixColors(background, foreground, isDark ? 0.04 : 0.025);
+  const popover = mixColors(background, foreground, isDark ? 0.045 : 0.03);
+  const secondary = mixColors(background, foreground, isDark ? 0.085 : 0.065);
+  const muted = mixColors(background, foreground, isDark ? 0.07 : 0.055);
+  const mutedForeground = ensureReadableForeground(
+    mixColors(foreground, background, isDark ? 0.3 : 0.38),
+    muted,
+    mixColors(fallbackTheme.foreground, background, isDark ? 0.24 : 0.32),
+    3.4
+  );
+  const accent = mixColors(background, primary, isDark ? 0.2 : 0.14);
+  const accentForeground = getReadableOnColor(accent);
+  const border = mixColors(background, foreground, isDark ? 0.16 : 0.12);
+  const input = mixColors(background, foreground, isDark ? 0.17 : 0.13);
+  const ring = primary;
+
+  return {
+    '--background': background,
+    '--foreground': foreground,
+    '--card': card,
+    '--card-foreground': foreground,
+    '--popover': popover,
+    '--popover-foreground': foreground,
+    '--secondary': secondary,
+    '--secondary-foreground': foreground,
+    '--muted': muted,
+    '--muted-foreground': mutedForeground,
+    '--accent': accent,
+    '--accent-foreground': accentForeground,
+    '--primary': primary,
+    '--primary-foreground': primaryForeground,
+    '--border': border,
+    '--input': input,
+    '--ring': ring,
+  };
+}
+
 export function isTerminalThemeDark(themeName: string): boolean {
   const theme = getXtermTheme(themeName);
   if (!theme) return true;
   return getLuminance(theme.background) < 0.5;
+}
+
+export function getTerminalThemeAccent(themeName: string): string {
+  const theme = getXtermTheme(themeName);
+  if (!theme) {
+    return '';
+  }
+
+  const isDark = getLuminance(theme.background) < 0.5;
+  return pickPrimaryAccent(theme, theme.background, isDark);
 }
 
 // Apply terminal theme colors to app CSS variables
@@ -247,68 +377,11 @@ export function applyTerminalThemeToApp(themeName: string, syncDarkMode = true):
     root.classList.toggle('dark', isDark);
   }
 
-  // Base colors
-  root.style.setProperty('--background', theme.background);
-  root.style.setProperty('--foreground', theme.foreground);
+  const variables = createTerminalThemeVariables(theme, isDark);
 
-  // Card - same as background or slightly different
-  root.style.setProperty('--card', theme.background);
-  root.style.setProperty('--card-foreground', theme.foreground);
-
-  // Popover
-  root.style.setProperty('--popover', theme.background);
-  root.style.setProperty('--popover-foreground', theme.foreground);
-
-  // Primary - use foreground as primary
-  root.style.setProperty('--primary', theme.foreground);
-  root.style.setProperty('--primary-foreground', theme.background);
-
-  // Secondary - muted version of background
-  const secondaryBg = isDark
-    ? mixColors(theme.background, theme.brightBlack, 0.5)
-    : mixColors(theme.background, theme.black, 0.1);
-  root.style.setProperty('--secondary', secondaryBg);
-  root.style.setProperty('--secondary-foreground', theme.foreground);
-
-  // Muted
-  const mutedBg = isDark
-    ? mixColors(theme.background, theme.brightBlack, 0.4)
-    : mixColors(theme.background, theme.black, 0.08);
-  const mutedFg = isDark
-    ? mixColors(theme.foreground, theme.background, 0.4)
-    : mixColors(theme.foreground, theme.background, 0.3);
-  root.style.setProperty('--muted', mutedBg);
-  root.style.setProperty('--muted-foreground', mutedFg);
-
-  // Accent - use blue mixed with background for softer appearance
-  const accentColor = isDark ? theme.brightBlue : theme.blue;
-  const softAccent = mixColors(theme.background, accentColor, 0.3);
-  const isSoftAccentDark = getLuminance(softAccent) < 0.5;
-  root.style.setProperty('--accent', softAccent);
-  root.style.setProperty('--accent-foreground', isSoftAccentDark ? '#ffffff' : '#000000');
-
-  // Semantic colors
-  root.style.setProperty('--destructive', theme.red);
-  root.style.setProperty('--destructive-foreground', '#ffffff');
-
-  root.style.setProperty('--success', theme.green);
-  root.style.setProperty('--success-foreground', '#ffffff');
-
-  root.style.setProperty('--warning', theme.yellow);
-  root.style.setProperty('--warning-foreground', isDark ? theme.background : '#000000');
-
-  root.style.setProperty('--info', theme.blue);
-  root.style.setProperty('--info-foreground', '#ffffff');
-
-  // Border & input
-  const borderColor = isDark
-    ? mixColors(theme.background, theme.foreground, 0.15)
-    : mixColors(theme.background, theme.foreground, 0.12);
-  root.style.setProperty('--border', borderColor);
-  root.style.setProperty('--input', borderColor);
-
-  // Ring - accent based
-  root.style.setProperty('--ring', isDark ? theme.brightBlue : theme.blue);
+  for (const [name, value] of Object.entries(variables)) {
+    root.style.setProperty(name, value);
+  }
 }
 
 // Clear terminal theme colors from app (restore CSS defaults)
@@ -321,22 +394,14 @@ export function clearTerminalThemeFromApp(): void {
     '--card-foreground',
     '--popover',
     '--popover-foreground',
-    '--primary',
-    '--primary-foreground',
     '--secondary',
     '--secondary-foreground',
     '--muted',
     '--muted-foreground',
     '--accent',
     '--accent-foreground',
-    '--destructive',
-    '--destructive-foreground',
-    '--success',
-    '--success-foreground',
-    '--warning',
-    '--warning-foreground',
-    '--info',
-    '--info-foreground',
+    '--primary',
+    '--primary-foreground',
     '--border',
     '--input',
     '--ring',
