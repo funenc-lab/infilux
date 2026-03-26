@@ -5,6 +5,7 @@ import type { TabId } from '@/App/constants';
 import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select';
 import { useDetectedApps, useOpenWith } from '@/hooks/useAppDetector';
 import { useI18n } from '@/i18n';
+import { cn } from '@/lib/utils';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -87,7 +88,7 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-sm">
+      <div className="control-panel-muted flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px]">
         <FolderOpen className="h-3.5 w-3.5" />
         <span>Loading...</span>
       </div>
@@ -96,7 +97,7 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
 
   if (visibleApps.length === 0) {
     return (
-      <div className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-sm">
+      <div className="control-panel-muted flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px]">
         <FolderOpen className="h-3.5 w-3.5" />
         <span>No Apps</span>
       </div>
@@ -105,7 +106,7 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
 
   if (!path || isRemotePath) {
     return (
-      <div className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-sm opacity-50">
+      <div className="control-panel-muted flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] opacity-50">
         <FolderOpen className="h-3.5 w-3.5" />
         <span>{isRemotePath ? 'Remote Only' : 'Quick Open'}</span>
       </div>
@@ -122,20 +123,24 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
   const displayIcon = isOpeningFile ? FileCode : FolderOpen;
 
   return (
-    <div className="flex h-8 items-center rounded-full bg-muted">
-      {/* Left: Quick open button */}
+    <div className="control-panel-muted flex h-8 items-center rounded-lg border-0">
       <button
         type="button"
         onClick={handleQuickOpen}
-        className="flex h-full items-center gap-1.5 px-3 text-sm hover:bg-accent/50 rounded-l-full transition-colors"
+        className="flex h-full min-w-0 items-center gap-1.5 rounded-l-lg px-2.5 text-[13px] transition-colors hover:bg-muted/40"
       >
         <AppIcon bundleId={defaultApp.bundleId} name={defaultApp.name} fallback={displayIcon} />
-        <span>{defaultApp.name}</span>
+        <span className="max-w-28 truncate">{defaultApp.name}</span>
       </button>
 
-      {/* Right: Dropdown trigger */}
       <Select value="" onValueChange={handleOpen}>
-        <SelectTrigger className="h-full min-h-0 min-w-0 w-6 gap-0 rounded-r-full border-0 bg-transparent p-0 px-1 shadow-none ring-0 focus-visible:ring-0 focus-visible:border-0 hover:bg-accent/50 data-[state=open]:bg-accent/50 [&_[data-slot=select-icon]]:hidden">
+        <SelectTrigger
+          className={cn(
+            'h-full min-h-0 w-6 min-w-0 gap-0 rounded-r-lg border-0 bg-transparent p-0 px-1 shadow-none ring-0',
+            'hover:bg-muted/40 data-[state=open]:bg-muted/40 focus-visible:border-0 focus-visible:ring-0',
+            '[&_[data-slot=select-icon]]:hidden'
+          )}
+        >
           <ChevronDown className="h-3 w-3" />
         </SelectTrigger>
         <SelectPopup>

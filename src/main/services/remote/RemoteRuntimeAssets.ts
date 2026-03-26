@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { RELEASES_DOWNLOAD_URL } from '@shared/branding';
+import { REMOTE_RUNTIME_INSTALL_SUBPATH } from '@shared/paths';
 import type { RemotePlatform } from '@shared/types';
 import { app } from 'electron';
 import pkg from '../../../../package.json';
@@ -24,10 +26,10 @@ export interface RemoteRuntimeAsset {
 }
 
 export const MANAGED_REMOTE_NODE_VERSION = '20.19.0';
-export const MANAGED_REMOTE_RUNTIME_DIR = '.ensoai/remote-runtime';
+export const MANAGED_REMOTE_RUNTIME_DIR = REMOTE_RUNTIME_INSTALL_SUBPATH;
 
 const GITHUB_RELEASE_TAG = `v${pkg.version}`;
-const GITHUB_RELEASE_ASSET_BASE_URL = `https://github.com/J3n5en/EnsoAI/releases/download/${GITHUB_RELEASE_TAG}`;
+const GITHUB_RELEASE_ASSET_BASE_URL = `${RELEASES_DOWNLOAD_URL}/${GITHUB_RELEASE_TAG}`;
 const REMOTE_RUNTIME_DEV_SCRIPT = join(process.cwd(), 'scripts', 'build-remote-runtime-bundle.mjs');
 
 function buildManagedLinuxRuntimeArchiveName(arch: RemoteRuntimeArch): string {
@@ -161,7 +163,7 @@ async function writeResponseBodyToFile(
 ): Promise<void> {
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'EnsoAI Remote Runtime Installer',
+      'User-Agent': 'Infilux Remote Runtime Installer',
     },
   });
 

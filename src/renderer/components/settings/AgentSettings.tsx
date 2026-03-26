@@ -19,6 +19,13 @@ const itemVariants = {
 
 const itemTransition = { duration: 0.2, ease: 'easeInOut' as const };
 
+function getAgentRowClassName(isDimmed = false): string {
+  return cn(
+    'flex items-center justify-between rounded-lg border border-border/80 bg-muted/20 px-3 py-2',
+    isDimmed && 'opacity-50'
+  );
+}
+
 type AgentFormProps =
   | {
       agent: CustomAgent;
@@ -423,12 +430,7 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
                     transition={itemTransition}
                     className="overflow-hidden"
                   >
-                    <div
-                      className={cn(
-                        'flex items-center justify-between rounded-lg border px-3 py-2',
-                        isDetected && !isInstalled && 'opacity-50'
-                      )}
-                    >
+                    <div className={getAgentRowClassName(isDetected && !isInstalled)}>
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <span className="font-medium text-sm">{info.name}</span>
                         {detectionInfo?.version && (
@@ -497,7 +499,7 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
               })}
           </AnimatePresence>
           {allAgentInfos.filter(({ id }) => agentSettings[id]?.enabled).length === 0 && (
-            <div className="rounded-lg border border-dashed p-3 text-center">
+            <div className="rounded-lg border border-dashed border-border/80 bg-muted/20 p-3 text-center">
               <p className="text-xs text-muted-foreground">{t('No enabled agents')}</p>
             </div>
           )}
@@ -527,12 +529,7 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
                     transition={itemTransition}
                     className="overflow-hidden"
                   >
-                    <div
-                      className={cn(
-                        'flex items-center justify-between rounded-lg border px-3 py-2',
-                        isDetected && !isInstalled && 'opacity-50'
-                      )}
-                    >
+                    <div className={getAgentRowClassName(isDetected && !isInstalled)}>
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <span className="font-medium text-sm">{info.name}</span>
                         {detectionInfo?.version && (
@@ -620,16 +617,11 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
               const canSetDefault = canEnable && config?.enabled;
 
               return (
-                <div
-                  key={agentId}
-                  className="flex items-center justify-between rounded-lg border px-3 py-2"
-                >
+                <div key={agentId} className={getAgentRowClassName()}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{info.name}</span>
-                      <span className="whitespace-nowrap rounded bg-orange-500/10 px-1.5 py-0.5 text-xs text-orange-600 dark:text-orange-400">
-                        Hapi
-                      </span>
+                      <span className="control-chip">Hapi</span>
                     </div>
                   </div>
 
@@ -672,16 +664,11 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
               const canSetDefault = canEnable && config?.enabled;
 
               return (
-                <div
-                  key={agentId}
-                  className="flex items-center justify-between rounded-lg border px-3 py-2"
-                >
+                <div key={agentId} className={getAgentRowClassName()}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{info.name}</span>
-                      <span className="whitespace-nowrap rounded bg-purple-500/10 px-1.5 py-0.5 text-xs text-purple-600 dark:text-purple-400">
-                        Happy
-                      </span>
+                      <span className="control-chip">Happy</span>
                     </div>
                   </div>
 
@@ -738,14 +725,14 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
                 <div
                   key={agent.id}
                   className={cn(
-                    'rounded-lg border px-3 py-2',
+                    'rounded-lg border border-border/80 bg-muted/20 px-3 py-2',
                     isDetected && !isInstalled && 'opacity-50'
                   )}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="font-medium text-sm">{agent.name}</span>
-                      <code className="rounded bg-muted px-1 py-0.5 text-xs truncate">
+                      <code className="rounded border border-border/70 bg-muted/35 px-1 py-0.5 text-xs truncate">
                         {agent.command}
                       </code>
                       {detectionInfo?.version && (
@@ -826,7 +813,7 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
         )}
 
         {customAgents.length === 0 && !isAddingAgent && (
-          <div className="rounded-lg border border-dashed p-4 text-center">
+          <div className="rounded-lg border border-dashed border-border/80 bg-muted/20 p-4 text-center">
             <p className="text-xs text-muted-foreground">{t('No custom agents yet')}</p>
           </div>
         )}

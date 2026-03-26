@@ -198,9 +198,7 @@ function TemporaryWorkspaceItemRow({
         <div className="relative z-10 flex w-full items-center gap-2">
           <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
-          <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-600 dark:text-emerald-400">
-            {t('Main')}
-          </span>
+          <span className="control-badge shrink-0">{t('Main')}</span>
         </div>
         <div
           className={cn(

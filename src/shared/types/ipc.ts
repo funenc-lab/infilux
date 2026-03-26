@@ -129,6 +129,11 @@ export const IPC_CHANNELS = {
 
   // Agent
   AGENT_LIST: 'agent:list',
+  AGENT_SESSION_LIST_RECOVERABLE: 'agentSession:listRecoverable',
+  AGENT_SESSION_RESTORE_WORKTREE: 'agentSession:restoreWorktree',
+  AGENT_SESSION_RECONCILE: 'agentSession:reconcile',
+  AGENT_SESSION_ABANDON: 'agentSession:abandon',
+  AGENT_SESSION_MARK_PERSISTENT: 'agentSession:markPersistent',
   AGENT_STOP_NOTIFICATION: 'agent:stop:notification',
   AGENT_ASK_USER_QUESTION_NOTIFICATION: 'agent:askUserQuestion:notification',
   AGENT_PRE_TOOL_USE_NOTIFICATION: 'agent:preToolUse:notification',
@@ -218,6 +223,8 @@ export const IPC_CHANNELS = {
   // Settings
   SETTINGS_READ: 'settings:read',
   SETTINGS_WRITE: 'settings:write',
+  SETTINGS_IMPORT_LEGACY_PREVIEW: 'settings:importLegacy:preview',
+  SETTINGS_IMPORT_LEGACY_APPLY: 'settings:importLegacy:apply',
 
   // Notification
   NOTIFICATION_SHOW: 'notification:show',

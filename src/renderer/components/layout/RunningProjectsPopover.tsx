@@ -274,15 +274,15 @@ export function RunningProjectsPopover({
       <button
         type="button"
         className={cn(
-          'relative flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors',
-          totalRunning > 0 && 'text-green-500'
+          'control-icon-button relative flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors',
+          totalRunning > 0 && 'text-foreground'
         )}
         title={t('Running Projects')}
         onClick={() => setOpen(true)}
       >
         <Activity className="h-4 w-4" />
         {showBadge && totalRunning > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-green-500 px-1 text-[10px] font-medium text-white">
+          <span className="control-badge control-badge-live absolute -right-1 -top-1 min-w-[18px] px-1">
             {totalRunning}
           </span>
         )}

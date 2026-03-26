@@ -14,6 +14,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         external: ['node-pty', '@parcel/watcher'],
+        output: {
+          // Keep the Electron main process in a single bundle to avoid circular cross-chunk imports.
+          inlineDynamicImports: true,
+        },
       },
     },
   },

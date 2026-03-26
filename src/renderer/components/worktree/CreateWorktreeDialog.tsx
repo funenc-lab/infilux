@@ -1,3 +1,4 @@
+import { DEFAULT_WORKSPACE_ROOT_DIRNAME, DEFAULT_WORKTREES_DIRNAME } from '@shared/paths';
 import type {
   GhCliStatus,
   GitBranch as GitBranchType,
@@ -101,7 +102,7 @@ export function CreateWorktreeDialog({
   const [selectedPr, setSelectedPr] = React.useState<PullRequest | null>(null);
 
   // Worktree path: {defaultWorktreePath}/{projectName}/{branchName}
-  // Falls back to ~/ensoai/workspaces if not configured
+  // Falls back to ~/infilux/workspaces if not configured
   const home = window.electronAPI?.env?.HOME || '';
   const isWindows = window.electronAPI?.env?.platform === 'win32';
   const pathSep = isWindows ? '\\' : '/';
@@ -111,8 +112,10 @@ export function CreateWorktreeDialog({
     const normalizedName = projectName.replace(/\\/g, '/');
     const projectBaseName = normalizedName.split('/').filter(Boolean).pop() || projectName;
 
-    // Use configured path or default to ~/ensoai/workspaces
-    const basePath = defaultWorktreePath || [home, 'ensoai', 'workspaces'].join(pathSep);
+    // Use configured path or default to ~/infilux/workspaces
+    const basePath =
+      defaultWorktreePath ||
+      [home, DEFAULT_WORKSPACE_ROOT_DIRNAME, DEFAULT_WORKTREES_DIRNAME].join(pathSep);
     return [basePath, projectBaseName, branchName].join(pathSep);
   };
 

@@ -57,8 +57,8 @@ export const zhTranslations: Record<string, string> = {
   'Temp Session': '临时会话',
   'Temp Session settings': '临时会话设置',
   'Show Temp Session entry for quick scratch sessions': '显示临时会话入口，用于快速临时会话',
-  'Default directory for new temp sessions. Leave empty to use ~/ensoai/temporary':
-    '新建临时会话的默认目录。留空则使用 ~/ensoai/temporary',
+  'Default directory for new temp sessions. Leave empty to use ~/infilux/temporary':
+    '新建临时会话的默认目录。留空则使用 ~/infilux/temporary',
   'Automatically create Agent/Terminal Session when activating a temp session':
     '激活临时会话时自动创建 Agent/Terminal Session',
   'No temp sessions': '暂无临时会话',
@@ -821,7 +821,7 @@ export const zhTranslations: Record<string, string> = {
   'Claude Code Integration': 'Claude Code 集成',
   'Connect to Claude Code CLI for enhanced IDE features':
     '连接 Claude Code CLI 以获得增强的 IDE 功能',
-  'Enable Integration': '启动 Claude-EnsoAI 集成',
+  'Enable Integration': '启动 Claude-Infilux 集成',
   'Start WebSocket server for Claude Code connection': '启动 WebSocket 服务器以连接 Claude Code',
   'Debounce Time': '防抖时间',
   'Delay before sending selection changes to Claude Code':
@@ -1061,10 +1061,10 @@ export const zhTranslations: Record<string, string> = {
     '填写与 ssh 命令相同的目标字符串。',
   'Helper install directory': '助手安装目录',
   'Runtime install directory': '运行时安装目录',
-  'Optional override, for example ~/.ensoai/remote-helper':
-    '可选覆盖目录，例如 ~/.ensoai/remote-helper',
-  'Optional override, for example ~/.ensoai/remote-runtime':
-    '可选覆盖目录，例如 ~/.ensoai/remote-runtime',
+  'Optional override, for example ~/.infilux/remote-helper':
+    '可选覆盖目录，例如 ~/.infilux/remote-helper',
+  'Optional override, for example ~/.infilux/remote-runtime':
+    '可选覆盖目录，例如 ~/.infilux/remote-runtime',
   'Remote Helper': '远程助手',
   'Managed Remote Runtime': '托管远程运行时',
   'Install, refresh, update, or remove the helper on the selected remote host.':
@@ -1148,8 +1148,8 @@ export const zhTranslations: Record<string, string> = {
   'Fill in the profile name and SSH target before testing the connection.':
     '请先填写配置名称和 SSH 目标，再测试连接。',
   'Connection succeeded': '连接成功',
-  'The remote host is reachable and ready for Enso remote helper setup.':
-    '远程主机可访问，已可继续安装 Enso 远程助手。',
+  'The remote host is reachable and ready for Infilux remote helper setup.':
+    '远程主机可访问，已可继续安装 Infilux 远程助手。',
   'The remote host is reachable and ready for managed runtime setup.':
     '远程主机可访问，已可继续安装托管远程运行时。',
   'Connection failed': '连接失败',
@@ -1347,10 +1347,10 @@ export const zhTranslations: Record<string, string> = {
   'CLI install failed': 'CLI 安装失败',
   'CLI uninstall success': 'CLI 卸载成功',
   'CLI uninstall failed': 'CLI 卸载失败',
-  "'enso' command installed to {{path}}": "'enso' 命令已安装到 {{path}}",
-  "'enso' command uninstalled": "'enso' 命令已卸载",
-  "Uninstall 'enso' command": "卸载 'enso' 命令",
-  "Install 'enso' command to PATH": "安装 'enso' 命令到 PATH",
+  "'infilux' command installed to {{path}}": "'infilux' 命令已安装到 {{path}}",
+  "'infilux' command uninstalled": "'infilux' 命令已卸载",
+  "Uninstall 'infilux' command": "卸载 'infilux' 命令",
+  "Install 'infilux' command to PATH": "安装 'infilux' 命令到 PATH",
   'Quick Tunnel': '快速隧道',
   'Auth Tunnel': '认证隧道',
   'Create a temporary tunnel with auto-generated URL. No authentication required.':
@@ -1395,8 +1395,8 @@ export const zhTranslations: Record<string, string> = {
   'Git worktree save location settings': 'Git Worktree 保存位置设置',
   'Git auto refresh': 'Git 自动刷新',
   'Automatically fetch and refresh git status': '自动拉取远程更新并刷新 Git 状态',
-  'Default directory for new worktrees. Leave empty to use ~/ensoai/workspaces':
-    '新建 Worktree 的默认目录，留空则使用 ~/ensoai/workspaces',
+  'Default directory for new worktrees. Leave empty to use ~/infilux/workspaces':
+    '新建 Worktree 的默认目录，留空则使用 ~/infilux/workspaces',
   // Claude Provider
   'Claude Provider': 'Claude Provider',
   'Add Provider': '添加配置',
@@ -1584,7 +1584,7 @@ export const zhTranslations: Record<string, string> = {
   'Open any webpage with the userscript installed': '打开任意已安装用户脚本的网页',
   'Click the userscript manager icon and select "Enable Web Inspector"':
     '点击油猴图标，选择「启用 Web Inspector」',
-  'Click the Enso button on the webpage': '点击网页上的 Enso 按钮',
+  'Click the Infilux button on the webpage': '点击网页上的 Infilux 按钮',
   'Click on any element to inspect': '点击任意元素进行检查',
   'Element info will be sent to your active agent session': '元素信息将发送到当前活跃的 Agent 会话',
   'Copy on Selection': '选中即复制',
@@ -1648,8 +1648,8 @@ export const zhTranslations: Record<string, string> = {
   'Repository domains': '仓库域名',
   'Built-in mappings': '内置映射',
   'Settings for cloning remote Git repositories': '远程 Git 仓库克隆设置',
-  'Base directory for cloned repositories. Leave empty to use ~/ensoai/repos':
-    '克隆仓库的基础目录。留空则使用 ~/ensoai/repos',
+  'Base directory for cloned repositories. Leave empty to use ~/infilux/repos':
+    '克隆仓库的基础目录。留空则使用 ~/infilux/repos',
   'Clone to organized structure (baseDir/host/owner/repo) or flat (baseDir/repo)':
     '克隆到组织结构（baseDir/host/owner/repo）或扁平结构（baseDir/repo）',
   'Host-to-directory mappings for organizing cloned repositories':

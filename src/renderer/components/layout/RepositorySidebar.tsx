@@ -51,7 +51,7 @@ import {
 import { RepoItemWithGlow } from '@/components/ui/glow-wrappers';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
-import { heightVariants, springFast, springStandard } from '@/lib/motion';
+import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
@@ -378,6 +378,10 @@ export function RepositorySidebar({
     const isSelected = selectedRepo === repo.path;
     const displayRepoPath = getDisplayPath(repo.path);
     const useLtrPathDisplay = isWslUncPath(displayRepoPath);
+    const repoWorktrees = allRepoWorktreesMap[repo.path] || [];
+    const activeWorktreeCount = repoWorktrees.filter((worktree) =>
+      activePathSet.has(normalizePath(worktree.path))
+    ).length;
     return (
       <RepoItemWithGlow key={repo.path} repoPath={repo.path}>
         {/* Drop indicator - top */}
@@ -386,74 +390,70 @@ export function RepositorySidebar({
           draggedIndexRef.current > originalIndex && (
             <div className="absolute -top-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
           )}
-        <button
-          type="button"
+        <div
           draggable={!searchQuery}
           onDragStart={(e) => handleDragStart(e, originalIndex, repo)}
           onDragEnd={handleDragEnd}
           onDragOver={(e) => handleDragOver(e, originalIndex, sectionGroupId)}
           onDragLeave={handleDragLeave}
           onDrop={(e) => handleDrop(e, originalIndex, sectionGroupId)}
-          onClick={() => onSelectRepo(repo.path, { activateRemote: true })}
           onContextMenu={(e) => handleContextMenu(e, repo)}
           className={cn(
-            'group relative flex w-full flex-col items-start gap-1 rounded-lg p-3 text-left transition-colors',
-            isSelected ? 'text-accent-foreground' : 'hover:bg-accent/50',
+            'group relative flex w-full flex-col items-start gap-1 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+            isSelected ? 'bg-accent/32 text-foreground' : 'hover:bg-accent/20',
             draggedIndexRef.current === originalIndex && 'opacity-50'
           )}
         >
-          {/* Sliding highlight background */}
-          {isSelected && (
-            <motion.div
-              layoutId="repo-sidebar-highlight"
-              className="absolute inset-0 rounded-lg bg-accent"
-              transition={springFast}
-            />
-          )}
-          {/* Repo name + Settings */}
-          <div className="relative z-10 flex w-full items-center gap-2">
-            <FolderGit2
+          <div className="relative z-10 flex w-full items-start gap-2">
+            <button
+              type="button"
+              className="flex min-w-0 flex-1 items-start gap-2 text-left outline-none"
+              onClick={() => onSelectRepo(repo.path, { activateRemote: true })}
+            >
+              <FolderGit2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <span className="min-w-0 block truncate text-sm font-medium text-foreground">
+                  {repo.name}
+                </span>
+                <div
+                  className={cn(
+                    'mt-0.5 w-full overflow-hidden whitespace-nowrap text-ellipsis text-xs leading-5 [text-align:left]',
+                    isSelected ? 'text-accent-foreground/70' : 'text-muted-foreground',
+                    useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
+                  )}
+                  title={displayRepoPath}
+                >
+                  {displayRepoPath}
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
               className={cn(
-                'h-4 w-4 shrink-0',
-                isSelected ? 'text-accent-foreground' : 'text-muted-foreground'
+                'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-accent/32 hover:text-foreground',
+                isSelected
+                  ? 'opacity-100'
+                  : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
               )}
-            />
-            <span className="truncate font-medium flex-1">{repo.name}</span>
-            {/* Repository Settings */}
-            <div
-              role="button"
-              tabIndex={0}
-              className="shrink-0 p-1 rounded hover:bg-muted cursor-pointer"
               onClick={(e) => {
                 e.stopPropagation();
                 setRepoSettingsTarget(repo);
                 setRepoSettingsOpen(true);
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setRepoSettingsTarget(repo);
-                  setRepoSettingsOpen(true);
-                }
-              }}
               title={t('Repository Settings')}
             >
               <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
-            </div>
+            </button>
           </div>
-          {/* Path */}
-          <div
-            className={cn(
-              'relative z-10 w-full pl-6 text-xs overflow-hidden whitespace-nowrap text-ellipsis [text-align:left]',
-              isSelected ? 'text-accent-foreground/70' : 'text-muted-foreground',
-              useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
+          {(isSelected || activeWorktreeCount > 0) &&
+            (repoWorktrees.length > 0 || activeWorktreeCount > 0) && (
+              <div className="relative z-10 pl-6 text-[11px] text-muted-foreground">
+                {repoWorktrees.length > 0 ? `${repoWorktrees.length} trees` : ''}
+                {repoWorktrees.length > 0 && activeWorktreeCount > 0 ? ' · ' : ''}
+                {activeWorktreeCount > 0 ? `${activeWorktreeCount} live` : ''}
+              </div>
             )}
-            title={displayRepoPath}
-          >
-            {displayRepoPath}
-          </div>
-        </button>
+        </div>
         {/* Drop indicator - bottom */}
         {dropTargetIndex === originalIndex &&
           draggedIndexRef.current !== null &&
@@ -467,13 +467,13 @@ export function RepositorySidebar({
   return (
     <aside
       className={cn(
-        'flex h-full w-full flex-col border-r bg-background transition-colors',
+        'control-sidebar flex h-full w-full flex-col border-r bg-background transition-colors',
         isFileDragOver && 'bg-primary/10'
       )}
     >
       {/* Header */}
-      <div className="flex h-12 items-center justify-end gap-2 border-b px-3 drag-region">
-        <div className="flex items-center gap-1">
+      <div className="flex h-10 items-center justify-end gap-1.5 border-b border-border/60 px-2.5 drag-region">
+        <div className="flex items-center gap-1 no-drag">
           {onSwitchWorktreeByPath && (
             <RunningProjectsPopover
               onSelectWorktreeByPath={onSwitchWorktreeByPath}
@@ -483,11 +483,11 @@ export function RepositorySidebar({
           {onCollapse && (
             <button
               type="button"
-              className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+              className="control-icon-button flex h-7 w-7 items-center justify-center rounded-md no-drag text-muted-foreground transition-colors hover:text-foreground"
               onClick={onCollapse}
               title={t('Collapse')}
             >
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
@@ -507,8 +507,8 @@ export function RepositorySidebar({
       )}
 
       {/* Search */}
-      <div className="px-3 py-2">
-        <div className="flex h-8 items-center gap-2 rounded-lg border px-2">
+      <div className="px-2.5 py-2">
+        <div className="control-input flex h-9 items-center gap-2 rounded-lg px-2.5">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
             ref={searchInputRef}
@@ -535,7 +535,7 @@ export function RepositorySidebar({
       </div>
 
       {/* Repository List */}
-      <div className="flex-1 overflow-auto px-2 pb-2">
+      <div className="flex-1 overflow-auto px-2 py-1">
         {temporaryWorkspaceEnabled && (
           <div className="mb-2">
             <RepoItemWithGlow repoPath={TEMP_REPO_ID}>
@@ -543,22 +543,19 @@ export function RepositorySidebar({
                 type="button"
                 onClick={() => onSelectRepo(TEMP_REPO_ID)}
                 className={cn(
-                  'group relative flex w-full flex-col items-start gap-1 rounded-lg p-3 text-left transition-colors',
-                  selectedRepo === TEMP_REPO_ID ? 'text-accent-foreground' : 'hover:bg-accent/50'
+                  'group relative flex w-full flex-col items-start gap-1 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                  selectedRepo === TEMP_REPO_ID
+                    ? 'bg-accent/32 text-foreground'
+                    : 'hover:bg-accent/20'
                 )}
               >
-                {selectedRepo === TEMP_REPO_ID && (
-                  <motion.div
-                    layoutId="repo-sidebar-temp-highlight"
-                    className="absolute inset-0 rounded-lg bg-accent"
-                    transition={springFast}
-                  />
-                )}
                 <div className="relative z-10 flex w-full items-center gap-2">
                   <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate font-medium">{t('Temp Session')}</span>
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {t('Temp Session')}
+                  </span>
                 </div>
-                <span className="relative z-10 pl-6 text-xs text-muted-foreground">
+                <span className="relative z-10 pl-6 text-[11px] leading-5 text-muted-foreground">
                   {tempBasePath || t('Quick scratch sessions')}
                 </span>
               </button>
@@ -609,7 +606,7 @@ export function RepositorySidebar({
                       <button
                         type="button"
                         onClick={() => toggleGroupCollapsed(section.groupId)}
-                        className="flex h-7 w-full items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent/30 hover:text-foreground transition-colors select-none"
+                        className="flex h-8 w-full items-center gap-1 rounded-xl px-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground select-none"
                       >
                         <ChevronRight
                           className={cn(
@@ -625,7 +622,7 @@ export function RepositorySidebar({
                           />
                         )}
                         <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                        <span className="shrink-0 text-[11px] text-muted-foreground/65">
                           {section.repos.length}
                         </span>
                       </button>
@@ -669,7 +666,7 @@ export function RepositorySidebar({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="flex h-8 flex-1 items-center justify-start gap-2 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="control-panel-muted flex h-10 flex-1 items-center justify-start gap-2 rounded-xl px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
             onClick={(e) => {
               e.currentTarget.blur();
               onAddRepository();

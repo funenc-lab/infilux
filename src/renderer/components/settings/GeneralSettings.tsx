@@ -1,5 +1,12 @@
 import type { Locale } from '@shared/i18n';
-import type { LogDiagnostics, ShellInfo } from '@shared/types';
+import {
+  DEFAULT_REPOSITORIES_DIRNAME,
+  DEFAULT_TEMPORARY_DIRNAME,
+  DEFAULT_WORKSPACE_ROOT_DIRNAME,
+  DEFAULT_WORKTREES_DIRNAME,
+  LEGACY_SETTINGS_IMPORT_PATH_EXAMPLES,
+} from '@shared/paths';
+import type { LegacySettingsImportPreview, LogDiagnostics, ShellInfo } from '@shared/types';
 import { AppCategory } from '@shared/types';
 import {
   ChevronRight,
@@ -96,6 +103,22 @@ interface UpdateStatus {
   status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
   info?: { version?: string };
   error?: string;
+}
+
+function getOptionCardClassName(isSelected: boolean): string {
+  return isSelected
+    ? 'border-border bg-muted/45 text-foreground'
+    : 'border-transparent bg-muted/30 hover:bg-muted/45';
+}
+
+function getOptionIconClassName(isSelected: boolean): string {
+  return isSelected
+    ? 'border border-border/80 bg-background text-foreground'
+    : 'bg-muted/70 text-muted-foreground';
+}
+
+function getLegacySettingsPathExamples(): string[] {
+  return LEGACY_SETTINGS_IMPORT_PATH_EXAMPLES;
 }
 
 export function GeneralSettings() {
@@ -290,6 +313,14 @@ export function GeneralSettings() {
   const [mappingPattern, setMappingPattern] = React.useState('');
   const [mappingDirname, setMappingDirname] = React.useState('');
   const [mappingError, setMappingError] = React.useState('');
+  const [legacyImportPreview, setLegacyImportPreview] =
+    React.useState<LegacySettingsImportPreview | null>(null);
+  const [legacyImportDialogOpen, setLegacyImportDialogOpen] = React.useState(false);
+  const [legacyImportBusy, setLegacyImportBusy] = React.useState(false);
+  const [legacyImportStatus, setLegacyImportStatus] = React.useState<{
+    tone: 'success' | 'error';
+    message: string;
+  } | null>(null);
   const [logDiagnostics, setLogDiagnostics] = React.useState<LogDiagnostics | null>(null);
   const [logDiagnosticsStatus, setLogDiagnosticsStatus] = React.useState<
     'idle' | 'loading' | 'ready' | 'error'
@@ -428,6 +459,67 @@ export function GeneralSettings() {
     setTempPathDialogOpen(true);
   }, [setDefaultTemporaryPath]);
 
+  const handleSelectLegacySettingsFile = React.useCallback(async () => {
+    setLegacyImportStatus(null);
+    const selectedPath = await window.electronAPI.dialog.openFile({
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (!selectedPath) {
+      return;
+    }
+
+    setLegacyImportBusy(true);
+    try {
+      const preview = await window.electronAPI.settings.previewLegacyImport(selectedPath);
+      if (!preview.importable) {
+        setLegacyImportPreview(null);
+        setLegacyImportDialogOpen(false);
+        setLegacyImportStatus({
+          tone: 'error',
+          message: preview.error ?? t('Failed to preview EnsoAI settings import.'),
+        });
+        return;
+      }
+
+      setLegacyImportPreview(preview);
+      setLegacyImportDialogOpen(true);
+    } finally {
+      setLegacyImportBusy(false);
+    }
+  }, [t]);
+
+  const handleApplyLegacyImport = React.useCallback(async () => {
+    if (!legacyImportPreview) {
+      return;
+    }
+
+    setLegacyImportBusy(true);
+    try {
+      const result = await window.electronAPI.settings.applyLegacyImport(
+        legacyImportPreview.sourcePath
+      );
+      if (!result.imported) {
+        setLegacyImportStatus({
+          tone: 'error',
+          message: result.error ?? t('Failed to import EnsoAI settings.'),
+        });
+        return;
+      }
+
+      await useSettingsStore.persist.rehydrate();
+      setLegacyImportDialogOpen(false);
+      setLegacyImportPreview(null);
+      setLegacyImportStatus({
+        tone: 'success',
+        message: t('Imported {{count}} changed settings from EnsoAI.', {
+          count: result.diffCount,
+        }),
+      });
+    } finally {
+      setLegacyImportBusy(false);
+    }
+  }, [legacyImportPreview, t]);
+
   React.useEffect(() => {
     window.electronAPI.shell.detect().then((detected) => {
       setShells(detected);
@@ -512,7 +604,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Language */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Language')}</span>
         <div className="space-y-1.5">
           <Select value={language} onValueChange={(v) => setLanguage(v as Locale)}>
@@ -540,18 +632,14 @@ export function GeneralSettings() {
             key={option.value}
             onClick={() => setLayoutMode(option.value)}
             className={cn(
-              'flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors',
-              layoutMode === option.value
-                ? 'border-primary bg-accent text-accent-foreground'
-                : 'border-transparent bg-muted/50 hover:bg-muted'
+              'flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors',
+              getOptionCardClassName(layoutMode === option.value)
             )}
           >
             <div
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-full',
-                layoutMode === option.value
-                  ? 'bg-accent-foreground/20 text-accent-foreground'
-                  : 'bg-muted'
+                getOptionIconClassName(layoutMode === option.value)
               )}
             >
               <option.icon className="h-5 w-5" />
@@ -574,18 +662,14 @@ export function GeneralSettings() {
             key={option.value}
             onClick={() => setFileTreeDisplayMode(option.value)}
             className={cn(
-              'flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors',
-              fileTreeDisplayMode === option.value
-                ? 'border-primary bg-accent text-accent-foreground'
-                : 'border-transparent bg-muted/50 hover:bg-muted'
+              'flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors',
+              getOptionCardClassName(fileTreeDisplayMode === option.value)
             )}
           >
             <div
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-full',
-                fileTreeDisplayMode === option.value
-                  ? 'bg-accent-foreground/20 text-accent-foreground'
-                  : 'bg-muted'
+                getOptionIconClassName(fileTreeDisplayMode === option.value)
               )}
             >
               <option.icon className="h-5 w-5" />
@@ -610,18 +694,14 @@ export function GeneralSettings() {
             key={option.value}
             onClick={() => setRepositoryListDisplayMode(option.value)}
             className={cn(
-              'flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors',
-              repositoryListDisplayMode === option.value
-                ? 'border-primary bg-accent text-accent-foreground'
-                : 'border-transparent bg-muted/50 hover:bg-muted'
+              'flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors',
+              getOptionCardClassName(repositoryListDisplayMode === option.value)
             )}
           >
             <div
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-full',
-                repositoryListDisplayMode === option.value
-                  ? 'bg-accent-foreground/20 text-accent-foreground'
-                  : 'bg-muted'
+                getOptionIconClassName(repositoryListDisplayMode === option.value)
               )}
             >
               <option.icon className="h-5 w-5" />
@@ -634,7 +714,7 @@ export function GeneralSettings() {
 
       {/* Auto-create session */}
       {/* Quick Terminal */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Quick Terminal')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -645,7 +725,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Todo Kanban */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Todo')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Enable Todo kanban board tab')}</p>
@@ -659,7 +739,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Temp Session */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Temp Session')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -673,7 +753,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Temp Session Auto-create */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Auto-create session')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -688,14 +768,14 @@ export function GeneralSettings() {
       </div>
 
       {/* Temp Session Path */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Save location')}</span>
         <div className="space-y-1.5">
           <div className="flex gap-2">
             <Input
               value={defaultTemporaryPath}
               onChange={(e) => setDefaultTemporaryPath(e.target.value)}
-              placeholder="~/ensoai/temporary"
+              placeholder={`~/${DEFAULT_WORKSPACE_ROOT_DIRNAME}/${DEFAULT_TEMPORARY_DIRNAME}`}
               className="flex-1"
               disabled={!temporaryWorkspaceEnabled}
             />
@@ -709,13 +789,13 @@ export function GeneralSettings() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            {t('Default directory for new temp sessions. Leave empty to use ~/ensoai/temporary')}
+            {t('Default directory for new temp sessions. Leave empty to use ~/infilux/temporary')}
           </p>
         </div>
       </div>
 
       {/* Hide Groups */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Hide Groups')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -727,7 +807,7 @@ export function GeneralSettings() {
 
       {/* Quick Open */}
       {detectedApps.length > 0 && (
-        <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+        <div className="settings-field-row settings-field-row-start">
           <span className="text-sm font-medium leading-8">{t('Quick Open')}</span>
           <Collapsible>
             <div className="flex h-8 items-center justify-between">
@@ -762,7 +842,7 @@ export function GeneralSettings() {
                           return (
                             <div
                               key={app.bundleId}
-                              className="flex items-center justify-between rounded-md pl-2 py-1.5 hover:bg-accent/50"
+                              className="flex items-center justify-between rounded-md py-1.5 pl-2 transition-colors hover:bg-muted/40"
                             >
                               <div className="flex items-center gap-2">
                                 <CategoryIcon className="h-4 w-4 text-muted-foreground" />
@@ -795,7 +875,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Auto-create session */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Auto-create session')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -809,14 +889,14 @@ export function GeneralSettings() {
       </div>
 
       {/* Default Worktree Path */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Save location')}</span>
         <div className="space-y-1.5">
           <div className="flex gap-2">
             <Input
               value={defaultWorktreePath}
               onChange={(e) => setDefaultWorktreePath(e.target.value)}
-              placeholder="~/ensoai/workspaces"
+              placeholder={`~/${DEFAULT_WORKSPACE_ROOT_DIRNAME}/${DEFAULT_WORKTREES_DIRNAME}`}
               className="flex-1"
             />
             <Button
@@ -833,13 +913,13 @@ export function GeneralSettings() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            {t('Default directory for new worktrees. Leave empty to use ~/ensoai/workspaces')}
+            {t('Default directory for new worktrees. Leave empty to use ~/infilux/workspaces')}
           </p>
         </div>
       </div>
 
       {/* Git Auto Refresh */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Git auto refresh')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -857,14 +937,14 @@ export function GeneralSettings() {
       </div>
 
       {/* Base Directory */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Base directory')}</span>
         <div className="space-y-1.5">
           <div className="flex gap-2">
             <Input
               value={gitClone.baseDir}
               onChange={(e) => setGitClone({ baseDir: e.target.value })}
-              placeholder="~/ensoai/repos"
+              placeholder={`~/${DEFAULT_WORKSPACE_ROOT_DIRNAME}/${DEFAULT_REPOSITORIES_DIRNAME}`}
               className="flex-1"
             />
             <Button
@@ -881,13 +961,13 @@ export function GeneralSettings() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            {t('Base directory for cloned repositories. Leave empty to use ~/ensoai/repos')}
+            {t('Base directory for cloned repositories. Leave empty to use ~/infilux/repos')}
           </p>
         </div>
       </div>
 
       {/* Organized Structure Toggle */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Organized structure')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -901,11 +981,11 @@ export function GeneralSettings() {
       </div>
 
       {/* Repository Domains */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Repository domains')}</span>
         <div className="space-y-1.5">
-          <div className="rounded-md border bg-muted/50 px-3 py-2 text-sm">
-            <div className="flex items-center justify-between mb-2">
+          <div className="rounded-md border border-border/80 bg-muted/35 px-3 py-2 text-sm">
+            <div className="mb-2 flex items-center justify-between">
               <span className="font-medium">{t('Repository domains')}</span>
               <Button
                 type="button"
@@ -966,7 +1046,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Shell */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Shell')}</span>
         <div className="space-y-1.5">
           {loadingShells ? (
@@ -1029,7 +1109,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Renderer */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Renderer')}</span>
         <div className="space-y-1.5">
           <Select
@@ -1057,7 +1137,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Scrollback */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Terminal scrollback')}</span>
         <div className="space-y-1.5">
           <Select
@@ -1086,7 +1166,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Copy on Selection */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Copy on Selection')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -1103,7 +1183,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Notification Enable */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Enable notifications')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Notifications when agent is idle')}</p>
@@ -1115,7 +1195,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Notification Delay */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Idle time')}</span>
         <div className="space-y-1.5">
           <Select
@@ -1144,7 +1224,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Enter Delay */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Enter delay')}</span>
         <div className="space-y-1.5">
           <Select
@@ -1179,7 +1259,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Proxy Enable */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Enable proxy')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -1193,7 +1273,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Proxy Server */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Proxy server')}</span>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
@@ -1248,7 +1328,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Proxy Bypass */}
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+      <div className="settings-field-row settings-field-row-start">
         <span className="text-sm font-medium mt-2">{t('Bypass list')}</span>
         <div className="space-y-1.5">
           <Input
@@ -1265,7 +1345,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Use proxy for updates */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Update via proxy')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -1291,7 +1371,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Enable Logging */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Enable Logging')}</span>
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">
@@ -1302,7 +1382,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Log Level */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Log Level')}</span>
         <Select
           value={logLevel}
@@ -1335,7 +1415,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Open Log Folder */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Log Files')}</span>
         <Button variant="outline" size="sm" onClick={handleOpenLogFolder} className="w-fit">
           <FileText className="mr-2 h-4 w-4" />
@@ -1344,7 +1424,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Log Retention Days */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Log Retention')}</span>
         <div className="flex items-center gap-2">
           <Select
@@ -1366,9 +1446,9 @@ export function GeneralSettings() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
-        <span className="text-sm font-medium mt-2">Current Log File</span>
-        <div className="min-w-0 space-y-3">
+      <div className="settings-field-row settings-field-row-start">
+        <span className="mt-2 text-sm font-medium">Current Log File</span>
+        <div className="min-w-0 flex-1 space-y-3">
           <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs font-mono break-all">
             {logDiagnosticsModel.currentLogPath}
           </div>
@@ -1393,6 +1473,54 @@ export function GeneralSettings() {
         </div>
       </div>
 
+      <div className="pt-4 border-t">
+        <h3 className="text-lg font-medium">{t('Import from EnsoAI')}</h3>
+        <p className="text-sm text-muted-foreground">
+          {t('Preview and import settings from an EnsoAI settings.json file')}
+        </p>
+      </div>
+
+      <div className="settings-field-row settings-field-row-start">
+        <span className="mt-2 text-sm font-medium">{t('Settings import')}</span>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {t(
+              'Choose an EnsoAI settings.json file from another machine and review the changed keys before applying them.'
+            )}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => void handleSelectLegacySettingsFile()}
+              disabled={legacyImportBusy}
+            >
+              <FolderOpen className="mr-2 h-4 w-4" />
+              {legacyImportBusy ? t('Loading preview...') : t('Select EnsoAI settings file')}
+            </Button>
+          </div>
+          <div className="rounded-lg border bg-muted/30 px-3 py-3">
+            <div className="text-xs font-medium text-foreground">{t('Typical paths')}</div>
+            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+              {getLegacySettingsPathExamples().map((examplePath) => (
+                <div key={examplePath} className="font-mono">
+                  {examplePath}
+                </div>
+              ))}
+            </div>
+          </div>
+          {legacyImportStatus && (
+            <p
+              className={cn(
+                'text-sm',
+                legacyImportStatus.tone === 'error' ? 'text-destructive' : 'text-emerald-600'
+              )}
+            >
+              {legacyImportStatus.message}
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* Updates Section */}
       <div className="pt-4 border-t">
         <h3 className="text-lg font-medium">{t('Updates')}</h3>
@@ -1400,7 +1528,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Current Version */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Version')}</span>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -1432,7 +1560,7 @@ export function GeneralSettings() {
       </div>
 
       {/* Auto Update */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Auto update')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -1508,6 +1636,95 @@ export function GeneralSettings() {
               {t('Cancel')}
             </Button>
             <Button onClick={handleSaveHostMapping}>{t('Save')}</Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog
+        open={legacyImportDialogOpen}
+        onOpenChange={(open) => {
+          if (legacyImportBusy) {
+            return;
+          }
+          setLegacyImportDialogOpen(open);
+          if (!open) {
+            setLegacyImportPreview(null);
+          }
+        }}
+      >
+        <DialogPopup className="max-w-2xl" zIndexLevel="nested" showCloseButton={!legacyImportBusy}>
+          <DialogHeader>
+            <DialogTitle>{t('Import from EnsoAI')}</DialogTitle>
+            <DialogDescription>
+              {t('Review the changed settings before importing them into the current app profile.')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogPanel className="space-y-4">
+            <div className="space-y-1.5">
+              <div className="text-sm font-medium">{t('Source file')}</div>
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs font-mono break-all">
+                {legacyImportPreview?.sourcePath}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="text-sm font-medium">
+                {t('Changed keys ({{count}})', {
+                  count: legacyImportPreview?.diffCount ?? 0,
+                })}
+              </div>
+              <div className="overflow-hidden rounded-md border">
+                <div className="max-h-80 divide-y overflow-y-auto">
+                  {legacyImportPreview?.diffs.map((diff) => (
+                    <div key={diff.path} className="space-y-2 px-3 py-3">
+                      <div className="text-sm font-medium">{diff.path}</div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <div className="text-xs font-medium text-muted-foreground">
+                            {t('Current')}
+                          </div>
+                          <div className="rounded-md bg-muted/40 px-2 py-1.5 text-xs font-mono break-all">
+                            {diff.currentValue}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs font-medium text-muted-foreground">
+                            {t('Imported')}
+                          </div>
+                          <div className="rounded-md border border-border/70 bg-muted/35 px-2 py-1.5 text-xs font-mono break-all">
+                            {diff.importedValue}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {legacyImportPreview?.truncated && (
+                <p className="text-xs text-muted-foreground">
+                  {t('Only the first {{count}} changed keys are shown in the preview.', {
+                    count: legacyImportPreview.diffs.length,
+                  })}
+                </p>
+              )}
+            </div>
+          </DialogPanel>
+
+          <DialogFooter variant="bare">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setLegacyImportDialogOpen(false);
+                setLegacyImportPreview(null);
+              }}
+              disabled={legacyImportBusy}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button onClick={() => void handleApplyLegacyImport()} disabled={legacyImportBusy}>
+              {legacyImportBusy ? t('Importing...') : t('Import settings')}
+            </Button>
           </DialogFooter>
         </DialogPopup>
       </Dialog>

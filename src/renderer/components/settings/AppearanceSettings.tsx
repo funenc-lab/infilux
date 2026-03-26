@@ -570,8 +570,8 @@ export function AppearanceSettings() {
       {/* Glow Effect Toggle */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-green-500/20 to-amber-500/20">
-            <Sparkles className="h-4 w-4 text-green-500" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-muted/35">
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
           </div>
           <div>
             <p className="text-sm font-medium">{t('Glow Effect')}</p>
@@ -587,8 +587,8 @@ export function AppearanceSettings() {
       <Collapsible open={bgSettingsOpen} onOpenChange={setBgSettingsOpen} className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20">
-              <ImageIcon className="h-4 w-4 text-blue-500" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-muted/35">
+              <ImageIcon className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
               <p className="text-sm font-medium">{t('Background Image')}</p>
@@ -601,8 +601,8 @@ export function AppearanceSettings() {
             <Switch checked={backgroundImageEnabled} onCheckedChange={setBackgroundImageEnabled} />
             <CollapsibleTrigger
               className={cn(
-                'inline-flex items-center justify-center h-8 w-8 rounded-md',
-                'hover:bg-accent hover:text-accent-foreground transition-colors'
+                'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors',
+                'hover:bg-accent/40 hover:text-foreground'
               )}
             >
               <ChevronDown
@@ -881,7 +881,7 @@ export function AppearanceSettings() {
       </div>
 
       {/* Theme Selector */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Color scheme')}</span>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" onClick={handlePrevTheme}>
@@ -907,7 +907,7 @@ export function AppearanceSettings() {
       </div>
 
       {/* Font Family */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Font')}</span>
         <Input
           value={localFontFamily}
@@ -924,7 +924,7 @@ export function AppearanceSettings() {
       </div>
 
       {/* Font Size */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Font size')}</span>
         <div className="flex items-center gap-2">
           <Input
@@ -947,7 +947,7 @@ export function AppearanceSettings() {
       </div>
 
       {/* Font Weight */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Font weight')}</span>
         <Select
           value={terminalFontWeight}
@@ -967,7 +967,7 @@ export function AppearanceSettings() {
       </div>
 
       {/* Font Weight Bold */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Bold font weight')}</span>
         <Select
           value={terminalFontWeightBold}

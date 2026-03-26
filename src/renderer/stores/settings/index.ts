@@ -4,10 +4,13 @@ import type { CustomAgent, McpServer, PromptPreset } from '@shared/types';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import {
-  applyTerminalThemeToApp,
-  clearTerminalThemeFromApp,
-  isTerminalThemeDark,
-} from '@/lib/ghosttyTheme';
+  createBlankCustomThemeDocument,
+  createCustomThemeFromPresetDocument,
+  findCustomThemeBySelection,
+  resolveThemeVariables,
+  sanitizeCustomAccentColor,
+} from '@/lib/appTheme';
+import { getTerminalThemeAccent, isTerminalThemeDark } from '@/lib/ghosttyTheme';
 import { updateRendererLogging } from '@/utils/logging';
 import {
   defaultAgentSettings,
@@ -41,6 +44,8 @@ import {
 import type {
   BackgroundSizeMode,
   BackgroundSourceType,
+  ColorPreset,
+  CustomThemeDocument,
   FontWeight,
   SettingsState,
   Theme,
@@ -57,42 +62,79 @@ function applyTerminalFont(fontFamily: string, fontSize: number): void {
   root.style.setProperty('--font-size-base', `${fontSize}px`);
 }
 
-// Apply app theme (dark/light mode)
-function applyAppTheme(theme: Theme, terminalTheme: string): void {
-  const root = document.documentElement;
-  let isDark: boolean;
-
+function resolveThemeMode(theme: Theme, terminalTheme: string): 'light' | 'dark' {
   switch (theme) {
     case 'light':
-      isDark = false;
-      break;
+      return 'light';
     case 'dark':
-      isDark = true;
-      break;
+      return 'dark';
     case 'system':
-      isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      break;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     case 'sync-terminal':
-      isDark = isTerminalThemeDark(terminalTheme);
-      break;
+      return isTerminalThemeDark(terminalTheme) ? 'dark' : 'light';
   }
+}
 
-  root.classList.toggle('dark', isDark);
+function applyColorPreset(
+  mode: 'light' | 'dark',
+  colorPreset: ColorPreset,
+  customAccentColor: string,
+  customTheme: CustomThemeDocument | null
+): void {
+  const root = document.documentElement;
+  const variables = resolveThemeVariables({
+    mode,
+    preset: colorPreset,
+    customAccentColor,
+    customTheme,
+  });
+
+  for (const [name, value] of Object.entries(variables)) {
+    root.style.setProperty(name, value);
+  }
+}
+
+// Apply app theme (dark/light mode)
+function applyAppTheme(
+  theme: Theme,
+  terminalTheme: string,
+  colorPreset: ColorPreset,
+  customAccentColor: string,
+  customTheme: CustomThemeDocument | null
+): void {
+  const root = document.documentElement;
+  const resolvedMode = resolveThemeMode(theme, terminalTheme);
+  const effectiveAccentColor =
+    theme === 'sync-terminal' && !customTheme
+      ? getTerminalThemeAccent(terminalTheme)
+      : customAccentColor;
+  root.classList.toggle('dark', resolvedMode === 'dark');
+  applyColorPreset(resolvedMode, colorPreset, effectiveAccentColor, customTheme);
 }
 
 // Apply initial settings on app load
 function applyInitialSettings(state: {
   theme: Theme;
+  colorPreset: ColorPreset;
+  customAccentColor: string;
+  activeThemeSelection: SettingsState['activeThemeSelection'];
+  customThemes: CustomThemeDocument[];
   terminalTheme: string;
   terminalFontFamily: string;
   terminalFontSize: number;
   language: Locale;
 }): void {
-  if (state.theme === 'sync-terminal') {
-    applyTerminalThemeToApp(state.terminalTheme, true);
-  } else {
-    applyAppTheme(state.theme, state.terminalTheme);
-  }
+  const activeCustomTheme = findCustomThemeBySelection(
+    state.customThemes,
+    state.activeThemeSelection
+  );
+  applyAppTheme(
+    state.theme,
+    state.terminalTheme,
+    state.colorPreset,
+    sanitizeCustomAccentColor(state.customAccentColor),
+    activeCustomTheme
+  );
   applyTerminalFont(state.terminalFontFamily, state.terminalFontSize);
   const resolvedLanguage = normalizeLocale(state.language);
   document.documentElement.lang = resolvedLanguage === 'zh' ? 'zh-CN' : 'en';
@@ -104,6 +146,10 @@ function getInitialState() {
   return {
     // UI Settings
     theme: 'system' as Theme,
+    colorPreset: 'graphite-ink' as ColorPreset,
+    customAccentColor: '',
+    activeThemeSelection: { kind: 'preset' as const, presetId: 'graphite-ink' as ColorPreset },
+    customThemes: [] as CustomThemeDocument[],
     layoutMode: 'tree' as const,
     fileTreeDisplayMode: 'legacy' as const,
     repositoryListDisplayMode: 'list' as const,
@@ -220,6 +266,13 @@ function getInitialState() {
   };
 }
 
+function getActiveCustomTheme(state: Pick<
+  SettingsState,
+  'activeThemeSelection' | 'customThemes'
+>): CustomThemeDocument | null {
+  return findCustomThemeBySelection(state.customThemes, state.activeThemeSelection);
+}
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
@@ -227,14 +280,204 @@ export const useSettingsStore = create<SettingsState>()(
 
       // UI Setters
       setTheme: (theme) => {
-        const terminalTheme = get().terminalTheme;
-        if (theme === 'sync-terminal') {
-          applyTerminalThemeToApp(terminalTheme, true);
-        } else {
-          clearTerminalThemeFromApp();
-          applyAppTheme(theme, terminalTheme);
-        }
+        const { terminalTheme, colorPreset, customAccentColor } = get();
+        applyAppTheme(
+          theme,
+          terminalTheme,
+          colorPreset,
+          customAccentColor,
+          getActiveCustomTheme(get())
+        );
         set({ theme });
+      },
+
+      setColorPreset: (colorPreset) => {
+        const { theme, terminalTheme, customAccentColor } = get();
+        applyAppTheme(theme, terminalTheme, colorPreset, customAccentColor, null);
+        set({
+          colorPreset,
+          activeThemeSelection: {
+            kind: 'preset',
+            presetId: colorPreset,
+          },
+        });
+      },
+
+      setCustomAccentColor: (customAccentColor) => {
+        const sanitizedAccentColor = sanitizeCustomAccentColor(customAccentColor);
+        const { theme, terminalTheme, colorPreset } = get();
+        const activeCustomTheme = getActiveCustomTheme(get());
+        applyAppTheme(
+          theme,
+          terminalTheme,
+          colorPreset,
+          sanitizedAccentColor,
+          activeCustomTheme
+        );
+        set({ customAccentColor: sanitizedAccentColor });
+      },
+
+      setActivePresetTheme: (preset) => {
+        const { theme, terminalTheme, customAccentColor } = get();
+        applyAppTheme(theme, terminalTheme, preset, customAccentColor, null);
+        set({
+          colorPreset: preset,
+          activeThemeSelection: {
+            kind: 'preset',
+            presetId: preset,
+          },
+        });
+      },
+
+      setActiveCustomTheme: (themeId) => {
+        const state = get();
+        const customTheme =
+          state.customThemes.find((entry) => entry.id === themeId) ?? null;
+        if (!customTheme) {
+          return;
+        }
+
+        applyAppTheme(
+          state.theme,
+          state.terminalTheme,
+          state.colorPreset,
+          state.customAccentColor,
+          customTheme
+        );
+        set({
+          activeThemeSelection: {
+            kind: 'custom',
+            customThemeId: themeId,
+          },
+        });
+      },
+
+      createCustomThemeFromPreset: (preset) => {
+        const nextTheme = createCustomThemeFromPresetDocument(preset);
+        const state = get();
+        const customThemes = [...state.customThemes, nextTheme];
+
+        applyAppTheme(
+          state.theme,
+          state.terminalTheme,
+          state.colorPreset,
+          state.customAccentColor,
+          nextTheme
+        );
+        set({
+          customThemes,
+          activeThemeSelection: {
+            kind: 'custom',
+            customThemeId: nextTheme.id,
+          },
+        });
+
+        return nextTheme.id;
+      },
+
+      createBlankCustomTheme: () => {
+        const nextTheme = createBlankCustomThemeDocument();
+        const state = get();
+        const customThemes = [...state.customThemes, nextTheme];
+
+        applyAppTheme(
+          state.theme,
+          state.terminalTheme,
+          state.colorPreset,
+          state.customAccentColor,
+          nextTheme
+        );
+        set({
+          customThemes,
+          activeThemeSelection: {
+            kind: 'custom',
+            customThemeId: nextTheme.id,
+          },
+        });
+
+        return nextTheme.id;
+      },
+
+      renameCustomTheme: (themeId, name) => {
+        const nextName = name.trim();
+        if (!nextName) {
+          return;
+        }
+
+        set((state) => ({
+          customThemes: state.customThemes.map((theme) =>
+            theme.id === themeId
+              ? {
+                  ...theme,
+                  name: nextName,
+                  updatedAt: Date.now(),
+                }
+              : theme
+          ),
+        }));
+      },
+
+      deleteCustomTheme: (themeId) => {
+        const state = get();
+        const customThemes = state.customThemes.filter((theme) => theme.id !== themeId);
+        const nextSelection =
+          state.activeThemeSelection.kind === 'custom' &&
+          state.activeThemeSelection.customThemeId === themeId
+            ? {
+                kind: 'preset' as const,
+                presetId: state.colorPreset,
+              }
+            : state.activeThemeSelection;
+        const nextCustomTheme = findCustomThemeBySelection(customThemes, nextSelection);
+
+        applyAppTheme(
+          state.theme,
+          state.terminalTheme,
+          state.colorPreset,
+          state.customAccentColor,
+          nextCustomTheme
+        );
+        set({
+          customThemes,
+          activeThemeSelection: nextSelection,
+        });
+      },
+
+      updateCustomThemeTokens: (themeId, mode, updates) => {
+        const state = get();
+        const timestamp = Date.now();
+        const customThemes = state.customThemes.map((theme) =>
+          theme.id === themeId
+            ? {
+                ...theme,
+                updatedAt: timestamp,
+                tokens: {
+                  ...theme.tokens,
+                  [mode]: {
+                    ...theme.tokens[mode],
+                    ...updates,
+                  },
+                },
+              }
+            : theme
+        );
+        const activeCustomTheme =
+          state.activeThemeSelection.kind === 'custom' &&
+          state.activeThemeSelection.customThemeId === themeId
+            ? customThemes.find((theme) => theme.id === themeId) ?? null
+            : getActiveCustomTheme({
+                activeThemeSelection: state.activeThemeSelection,
+                customThemes,
+              });
+
+        applyAppTheme(
+          state.theme,
+          state.terminalTheme,
+          state.colorPreset,
+          state.customAccentColor,
+          activeCustomTheme
+        );
+        set({ customThemes });
       },
 
       setLayoutMode: (layoutMode) => set({ layoutMode }),
@@ -268,9 +511,9 @@ export const useSettingsStore = create<SettingsState>()(
       setTerminalFontWeightBold: (terminalFontWeightBold) => set({ terminalFontWeightBold }),
 
       setTerminalTheme: (terminalTheme) => {
-        const currentTheme = get().theme;
-        if (currentTheme === 'sync-terminal') {
-          applyTerminalThemeToApp(terminalTheme, true);
+        const { theme, colorPreset, customAccentColor } = get();
+        if (theme === 'sync-terminal') {
+          applyAppTheme(theme, terminalTheme, colorPreset, customAccentColor);
         }
         set({ terminalTheme });
       },
@@ -813,7 +1056,12 @@ export const useSettingsStore = create<SettingsState>()(
         mediaQuery.addEventListener('change', () => {
           const currentState = useSettingsStore.getState();
           if (currentState.theme === 'system') {
-            applyAppTheme('system', currentState.terminalTheme);
+            applyAppTheme(
+              'system',
+              currentState.terminalTheme,
+              currentState.colorPreset,
+              currentState.customAccentColor
+            );
           }
         });
 

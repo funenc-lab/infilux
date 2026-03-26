@@ -1,3 +1,4 @@
+import { DEFAULT_REPOSITORIES_DIRNAME, DEFAULT_WORKSPACE_ROOT_DIRNAME } from '@shared/paths';
 import type { GitHostMapping, ParsedGitUrl } from '@shared/types';
 
 /**
@@ -92,7 +93,7 @@ export function findHostDirname(host: string, mappings: GitHostMapping[]): strin
     // - The resulting pattern is simple: ^escaped\.pattern[\w.-]*$
     // Escape special regex characters except *, then replace * with wildcard pattern
     const escaped = m.pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp('^' + escaped.replace(/\*/g, '[\\w.-]*') + '$');
+    const regex = new RegExp(`^${escaped.replace(/\*/g, '[\\w.-]*')}$`);
     return regex.test(host);
   });
   if (wildcardMatch) {
@@ -152,9 +153,9 @@ export function generateClonePath(
 export function getDefaultBaseDir(): string {
   const homeDir = window.electronAPI?.env?.HOME || '';
   if (homeDir) {
-    return joinPath(homeDir, 'ensoai', 'repos');
+    return joinPath(homeDir, DEFAULT_WORKSPACE_ROOT_DIRNAME, DEFAULT_REPOSITORIES_DIRNAME);
   }
-  return joinPath('~', 'ensoai', 'repos');
+  return joinPath('~', DEFAULT_WORKSPACE_ROOT_DIRNAME, DEFAULT_REPOSITORIES_DIRNAME);
 }
 
 /**

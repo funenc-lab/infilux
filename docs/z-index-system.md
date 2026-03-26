@@ -285,4 +285,4 @@ import { Z_INDEX } from '@/renderer/lib/z-index';
 ---
 
 **最后更新**：2026-01-28
-**维护者**：EnsoAI 开发团队
+**维护者**：Infilux 开发团队

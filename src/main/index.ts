@@ -3,6 +3,7 @@ import { extname, join } from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { type Locale, normalizeLocale } from '@shared/i18n';
+import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { IPC_CHANNELS, type ProxySettings } from '@shared/types';
 import { customProtocolUriToPath, type SupportedFileUrlPlatform } from '@shared/utils/fileUrl';
 import { app, BrowserWindow, ipcMain, Menu, net, protocol } from 'electron';
@@ -62,6 +63,7 @@ import {
   writeSharedSessionState,
   writeSharedSettings,
 } from './services/SharedSessionState';
+import { appTrayService } from './services/TrayService';
 import * as todoService from './services/todo/TodoService';
 import { webInspectorServer } from './services/webInspector';
 import log, { initLogger } from './utils/logger';
@@ -230,6 +232,24 @@ function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
   };
 }
 
+function resolveAppIconPath(): string | null {
+  const fileNames = process.platform === 'darwin' ? ['icon-mac.png', 'icon.png'] : ['icon.png'];
+  const candidates = app.isPackaged
+    ? fileNames.flatMap((fileName) => [
+        join(process.resourcesPath, fileName),
+        join(process.resourcesPath, 'build', fileName),
+      ])
+    : fileNames.map((fileName) => join(process.cwd(), 'build', fileName));
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 // In dev mode, use an isolated userData dir to avoid clashing with the packaged app.
 // This prevents Chromium/Electron profile locking from causing an "empty" localStorage in later instances.
 if (isDev) {
@@ -240,17 +260,17 @@ if (isDev) {
 // Register URL scheme handler (must be done before app is ready)
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('enso', process.execPath, [process.argv[1]]);
+    app.setAsDefaultProtocolClient('infilux', process.execPath, [process.argv[1]]);
   }
 } else {
-  app.setAsDefaultProtocolClient('enso');
+  app.setAsDefaultProtocolClient('infilux');
 }
 
-// Parse URL and extract path
-function parseEnsoUrl(url: string): string | null {
+// Parse Infilux URL and extract path
+function parseInfiluxUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol === 'enso:') {
+    if (parsed.protocol === 'infilux:') {
       const path = parsed.searchParams.get('path');
       if (path) {
         return decodeURIComponent(path);
@@ -295,8 +315,8 @@ function handleCommandLineArgs(argv: string[]): void {
       }
       return;
     }
-    if (arg.startsWith('enso://')) {
-      const rawPath = parseEnsoUrl(arg);
+    if (arg.startsWith('infilux://')) {
+      const rawPath = parseInfiluxUrl(arg);
       const path = rawPath ? sanitizePath(rawPath) : null;
       if (path) {
         sendOpenPath(path);
@@ -309,7 +329,7 @@ function handleCommandLineArgs(argv: string[]): void {
 // macOS: Handle open-url event
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  const path = parseEnsoUrl(url);
+  const path = parseInfiluxUrl(url);
   if (path) {
     if (app.isReady()) {
       sendOpenPath(path);
@@ -448,7 +468,7 @@ async function init(): Promise<void> {
   const logLevel = (ensoSettings?.state?.logLevel as 'error' | 'warn' | 'info' | 'debug') ?? 'info';
   const logRetentionDays = (ensoSettings?.state?.logRetentionDays as number) ?? 7;
   initLogger(loggingEnabled, logLevel, logRetentionDays);
-  log.info('EnsoAI started');
+  log.info('Infilux started');
 
   // Check Git installation
   const gitInstalled = await checkGitInstalled();
@@ -463,15 +483,38 @@ async function init(): Promise<void> {
   registerClaudeBridgeIpcHandlers();
 }
 
+function openOrRestoreMainWindow(): BrowserWindow {
+  const existingWindow = getAnyWindow();
+  if (existingWindow) {
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.focus();
+    return existingWindow;
+  }
+
+  const window = openLocalWindow();
+  mainWindow = window;
+  webInspectorServer.setMainWindow(window);
+  return window;
+}
+
 app.whenReady().then(async () => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.ensoai.app');
+  electronApp.setAppUserModelId('com.infilux.app');
+
+  if (process.platform === 'darwin') {
+    const dockIconPath = resolveAppIconPath();
+    if (dockIconPath) {
+      app.dock?.setIcon(dockIconPath);
+    }
+  }
 
   // Allow EnhancedInput temp images to be previewed via local-file:// protocol.
   // NOTE: This is registered here (in the same module as the protocol handler)
   // to avoid any potential issues with module-level state not being shared.
-  const ensoaiInputDir = join(app.getPath('temp'), 'ensoai-input');
-  registerAllowedLocalFileRoot(ensoaiInputDir);
+  const infiluxInputDir = join(app.getPath('temp'), TEMP_INPUT_DIRNAME);
+  registerAllowedLocalFileRoot(infiluxInputDir);
 
   // Clean up temp files from previous sessions
   await cleanupTempFiles();
@@ -831,6 +874,16 @@ app.whenReady().then(async () => {
   });
   Menu.setApplicationMenu(menu);
 
+  appTrayService.init({
+    onOpen: () => {
+      openOrRestoreMainWindow();
+    },
+    onQuit: () => {
+      app.quit();
+    },
+    statusLabel: app.getName(),
+  });
+
   // Handle initial command line args (this may set pendingOpenPath)
   handleCommandLineArgs(process.argv);
 
@@ -840,11 +893,12 @@ app.whenReady().then(async () => {
       onNewWindow: handleNewWindow,
     });
     Menu.setApplicationMenu(updatedMenu);
+    appTrayService.refreshMenu();
   });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = openLocalWindow();
+      mainWindow = openOrRestoreMainWindow();
     }
   });
 
@@ -855,6 +909,12 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  mainWindow = null;
+  webInspectorServer.setMainWindow(null);
+
+  if (appTrayService.isInitialized()) {
+    return;
+  }
   app.quit();
 });
 
@@ -869,6 +929,7 @@ app.on('will-quit', (event) => {
   console.log('[app] Will quit, cleaning up...');
   cleanupWindowHandlers?.();
   cleanupWindowHandlers = null;
+  appTrayService.destroy();
   unwatchClaudeSettings();
   gitAutoFetchService.cleanup();
 
@@ -915,6 +976,7 @@ process.on('unhandledRejection', (reason) => {
 function handleShutdownSignal(signal: string): void {
   console.log(`[app] Received ${signal}, exiting...`);
   // Sync cleanup: kill child processes immediately
+  appTrayService.destroy();
   unwatchClaudeSettings();
   gitAutoFetchService.cleanup();
   cleanupAllResourcesSync();
@@ -928,3 +990,22 @@ process.on('SIGHUP', () => handleShutdownSignal('SIGHUP'));
 function getAnyWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
 }
+
+export const __testables = {
+  isPrivateIpLiteral,
+  isAllowedRemoteImageUrl,
+  sanitizeProfileName,
+  parseInfiluxUrl,
+  sendOpenPath,
+  sanitizePath,
+  handleCommandLineArgs,
+  readStoredLanguage,
+  initAutoUpdater,
+  migrateLegacySettingsIfNeeded,
+  migrateLegacyTodoIfNeeded,
+  init,
+  handleShutdownSignal,
+  getAnyWindow,
+  openOrRestoreMainWindow,
+  resolveAppIconPath,
+};

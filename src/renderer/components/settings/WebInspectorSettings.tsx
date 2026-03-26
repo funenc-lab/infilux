@@ -1,3 +1,4 @@
+import { WEB_INSPECTOR_SCRIPT_URL } from '@shared/branding';
 import { ExternalLink, Globe } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
@@ -6,8 +7,7 @@ import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 
 const WEB_INSPECTOR_PORT = 18765;
-const SCRIPT_INSTALL_URL =
-  'https://raw.githubusercontent.com/J3n5en/EnsoAI/refs/heads/main/scripts/web-inspector.user.js';
+const SCRIPT_INSTALL_URL = WEB_INSPECTOR_SCRIPT_URL;
 
 export function WebInspectorSettings() {
   const { webInspectorEnabled, setWebInspectorEnabled } = useSettingsStore();
@@ -51,7 +51,7 @@ export function WebInspectorSettings() {
       </div>
 
       {/* Enable Switch */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Enable')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -62,16 +62,16 @@ export function WebInspectorSettings() {
       </div>
 
       {/* Server Status */}
-      <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Status')}</span>
         <div className="flex items-center gap-2">
           <span
             className={`inline-flex h-2 w-2 rounded-full ${
               serverStatus === 'running'
-                ? 'bg-green-500'
+                ? 'bg-[color:var(--success)]'
                 : serverStatus === 'stopped'
-                  ? 'bg-gray-400'
-                  : 'bg-yellow-500'
+                  ? 'bg-muted-foreground/45'
+                  : 'bg-[color:var(--warning)]'
             }`}
           />
           <span className="text-sm text-muted-foreground">
@@ -145,7 +145,7 @@ export function WebInspectorSettings() {
           <li>{t('Enable Web Inspector above')}</li>
           <li>{t('Open any webpage with the userscript installed')}</li>
           <li>{t('Click the userscript manager icon and select "Enable Web Inspector"')}</li>
-          <li>{t('Click the Enso button on the webpage')}</li>
+          <li>{t('Click the Infilux button on the webpage')}</li>
           <li>{t('Click on any element to inspect')}</li>
           <li>{t('Element info will be sent to your active agent session')}</li>
         </ol>

@@ -1,4 +1,5 @@
 import type { ClaudeProvider } from '@shared/types';
+import { getDisplayPathBasename } from '@shared/utils/path';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Ban,
@@ -13,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { GlowState } from '@/components/ui/glow-card';
 import { GlowCard, useGlowEffectEnabled } from '@/components/ui/glow-card';
 import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
@@ -90,6 +92,39 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = {
   cursor: { name: 'Cursor', command: 'cursor-agent' },
   opencode: { name: 'OpenCode', command: 'opencode' },
 };
+
+function getSessionStateMeta(state: GlowState): {
+  label: string;
+  chipClassName: string;
+  dotClassName: string;
+} {
+  switch (state) {
+    case 'running':
+      return {
+        label: 'LIVE',
+        chipClassName: 'control-chip-live',
+        dotClassName: 'bg-emerald-500',
+      };
+    case 'waiting_input':
+      return {
+        label: 'WAIT',
+        chipClassName: 'control-chip-wait',
+        dotClassName: 'bg-amber-500',
+      };
+    case 'completed':
+      return {
+        label: 'DONE',
+        chipClassName: 'control-chip-done',
+        dotClassName: 'bg-sky-500',
+      };
+    default:
+      return {
+        label: 'IDLE',
+        chipClassName: '',
+        dotClassName: 'bg-muted-foreground/45',
+      };
+  }
+}
 
 // Session tab with glow effect
 interface SessionTabProps {
@@ -173,7 +208,7 @@ const ProviderMenuItem = React.memo(function ProviderMenuItem({
   return (
     <div
       className={cn(
-        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+        'control-panel-muted mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors hover:text-foreground',
         effectiveIsDisabled && 'opacity-50'
       )}
     >
@@ -254,7 +289,7 @@ function MarqueeText({ children, className }: { children: string; className?: st
     <div
       ref={outerRef}
       className={cn('overflow-hidden whitespace-nowrap', className)}
-      style={{ maxWidth: MAX_TAB_TEXT_WIDTH }}
+      style={{ maxWidth: `clamp(72px, 18vw, ${MAX_TAB_TEXT_WIDTH}px)` }}
     >
       <span
         ref={innerRefCb}
@@ -295,6 +330,7 @@ function SessionTab({
 }: SessionTabProps) {
   const outputState = useSessionOutputState(session.id);
   const glowEnabled = useGlowEffectEnabled();
+  const stateMeta = getSessionStateMeta(outputState);
 
   // When glow effect is disabled, use simple button with indicator dot
   if (!glowEnabled) {
@@ -308,10 +344,10 @@ function SessionTab({
           role="button"
           tabIndex={0}
           className={cn(
-            'group flex items-center gap-1.5 rounded-full px-3 py-1 text-sm transition-colors cursor-pointer',
+            'control-panel-muted group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer',
             isActive
-              ? 'bg-accent text-accent-foreground'
-              : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+              ? 'border-primary/45 bg-accent/50 text-foreground shadow-none'
+              : 'text-muted-foreground hover:text-foreground',
             isDragging && 'opacity-50'
           )}
           draggable
@@ -336,6 +372,7 @@ function SessionTab({
             onStartEdit();
           }}
         >
+          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', stateMeta.dotClassName)} />
           {isEditing ? (
             <input
               ref={inputRef}
@@ -345,7 +382,7 @@ function SessionTab({
               onBlur={onFinishEdit}
               onKeyDown={onKeyDown}
               onClick={(e) => e.stopPropagation()}
-              className="w-20 bg-transparent outline-none border-b border-current"
+              className="control-input h-6 w-24 rounded-md border-0 px-2 text-sm text-foreground outline-none"
             />
           ) : (
             <MarqueeText>{getSessionDisplayName(session)}</MarqueeText>
@@ -357,8 +394,8 @@ function SessionTab({
               onClose();
             }}
             className={cn(
-              'flex h-4 w-4 items-center justify-center rounded-full transition-colors',
-              'hover:bg-destructive/20 hover:text-destructive',
+              'flex h-5 w-5 items-center justify-center rounded-lg transition-colors',
+              'hover:bg-destructive/12 hover:text-destructive',
               !isActive && 'opacity-0 group-hover:opacity-100'
             )}
           >
@@ -386,10 +423,10 @@ function SessionTab({
         role="button"
         tabIndex={0}
         className={cn(
-          'group flex items-center gap-1.5 rounded-full px-3 py-1 text-sm transition-colors cursor-pointer',
+          'control-panel-muted group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer',
           isActive
-            ? 'bg-accent text-accent-foreground'
-            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+            ? 'border-primary/45 bg-accent/50 text-foreground shadow-none'
+            : 'text-muted-foreground hover:text-foreground',
           isDragging && 'opacity-50'
         )}
         draggable
@@ -414,6 +451,9 @@ function SessionTab({
           onStartEdit();
         }}
       >
+        <span
+          className={cn('relative z-10 h-1.5 w-1.5 shrink-0 rounded-full', stateMeta.dotClassName)}
+        />
         {isEditing ? (
           <input
             ref={inputRef}
@@ -423,7 +463,7 @@ function SessionTab({
             onBlur={onFinishEdit}
             onKeyDown={onKeyDown}
             onClick={(e) => e.stopPropagation()}
-            className="relative z-10 w-20 bg-transparent outline-none border-b border-current"
+            className="control-input relative z-10 h-6 w-24 rounded-md border-0 px-2 text-sm text-foreground outline-none"
           />
         ) : (
           <MarqueeText className="relative z-10">{getSessionDisplayName(session)}</MarqueeText>
@@ -435,8 +475,8 @@ function SessionTab({
             onClose();
           }}
           className={cn(
-            'relative z-10 flex h-4 w-4 items-center justify-center rounded-full transition-colors',
-            'hover:bg-destructive/20 hover:text-destructive',
+            'relative z-10 flex h-5 w-5 items-center justify-center rounded-lg transition-colors',
+            'hover:bg-destructive/12 hover:text-destructive',
             !isActive && 'opacity-0 group-hover:opacity-100'
           )}
         >
@@ -680,6 +720,13 @@ export function SessionBar({
     if (id.endsWith('-hapi') && !hapiSettings.enabled) return false;
     return true;
   });
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId) ?? null,
+    [sessions, activeSessionId]
+  );
+  const activeSessionState = useSessionOutputState(activeSessionId ?? '');
+  const activeSessionMeta = getSessionStateMeta(activeSessionState);
+  const repoLabel = repoPath ? getDisplayPathBasename(repoPath) : null;
 
   // Save state
   useEffect(() => {
@@ -838,7 +885,7 @@ export function SessionBar({
         {state.collapsed ? (
           <div
             className={cn(
-              'flex h-10 w-10 items-center justify-center rounded-full border bg-background/90 shadow-lg backdrop-blur-sm',
+              'control-toolbar flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground',
               state.edge === 'left' && 'rounded-l-md',
               state.edge === 'right' && 'rounded-r-md'
             )}
@@ -846,9 +893,23 @@ export function SessionBar({
             <Sparkles className="h-4 w-4 text-muted-foreground" />
           </div>
         ) : (
-          <div className="flex flex-nowrap items-center gap-1 rounded-full border bg-background/80 px-2 py-1.5 shadow-lg backdrop-blur-sm min-w-fit">
+          <div className="control-toolbar flex max-w-[calc(100vw-1rem)] min-w-0 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden rounded-2xl px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:max-w-[calc(100vw-2rem)]">
+            <div className="hidden items-center gap-2 pr-2 text-xs text-muted-foreground md:flex">
+              <span>{repoLabel ?? 'AI'}</span>
+              {activeSession ? (
+                <>
+                  <span className="text-border">/</span>
+                  <span className="truncate">{getSessionDisplayName(activeSession)}</span>
+                </>
+              ) : null}
+              <span className="text-border">/</span>
+              <span>{activeSessionMeta.label}</span>
+            </div>
+
+            <div className="control-divider mx-1 hidden h-4 w-px md:block" />
+
             <div
-              className="flex h-7 w-4 items-center justify-center text-muted-foreground/50 cursor-grab"
+              className="flex h-7 w-4 cursor-grab items-center justify-center text-muted-foreground/50"
               onMouseDown={handleMouseDown}
             >
               <GripVertical className="h-3.5 w-3.5" />
@@ -880,7 +941,7 @@ export function SessionBar({
               />
             ))}
 
-            <div className="mx-1 h-4 w-px bg-border" />
+            <div className="control-divider mx-1 h-5 w-px" />
 
             <div
               className="relative"
@@ -890,7 +951,7 @@ export function SessionBar({
               <button
                 type="button"
                 onClick={handleAddClick}
-                className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+                className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -907,9 +968,11 @@ export function SessionBar({
                       : 'top-full pt-1'
                   )}
                 >
-                  <div className="rounded-lg border bg-popover p-1 shadow-lg">
-                    <div className="flex items-center justify-between px-2 py-1">
-                      <span className="text-xs text-muted-foreground">{t('Select Agent')}</span>
+                  <div className="control-menu rounded-2xl p-2">
+                    <div className="mb-1 flex items-center justify-between px-1 py-1">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {t('Select Agent')}
+                      </span>
                       <Tooltip>
                         <TooltipTrigger render={<span />}>
                           <button
@@ -919,7 +982,7 @@ export function SessionBar({
                               setShowAgentMenu(false);
                               window.dispatchEvent(new CustomEvent('open-settings-agent'));
                             }}
-                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                            className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
                           >
                             <Settings className="h-3.5 w-3.5" />
                           </button>
@@ -954,14 +1017,14 @@ export function SessionBar({
                             type="button"
                             key={agentId}
                             onClick={() => handleSelectAgent(agentId)}
-                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
+                            className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent/40 hover:text-foreground whitespace-nowrap"
                           >
-                            <span>{name}</span>
-                            {isDefault && (
+                            <span className="min-w-0 flex-1 truncate">{name}</span>
+                            {isDefault ? (
                               <span className="shrink-0 text-xs text-muted-foreground">
-                                {t('(default)')}
+                                {t('Default')}
                               </span>
-                            )}
+                            ) : null}
                           </button>
                         );
                       })}
@@ -973,7 +1036,7 @@ export function SessionBar({
             {/* Provider Tag - 仅在展开且设置启用时显示 */}
             {!state.collapsed && showProviderSwitcher && (
               <>
-                <div className="mx-1 h-4 w-px bg-border" />
+                <div className="control-divider mx-1 h-4 w-px" />
 
                 <div
                   className="relative shrink-0"
@@ -983,7 +1046,7 @@ export function SessionBar({
                   <button
                     type="button"
                     onClick={() => setShowProviderMenu(!showProviderMenu)}
-                    className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors whitespace-nowrap"
+                    className="control-icon-button flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground whitespace-nowrap"
                     title={activeProvider?.name ?? t('Select Provider')}
                   >
                     <svg
@@ -1015,9 +1078,9 @@ export function SessionBar({
                           : 'top-full pt-1'
                       )}
                     >
-                      <div className="rounded-lg border bg-popover p-1 shadow-lg">
-                        <div className="flex items-center justify-between px-2 py-1">
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      <div className="control-menu rounded-2xl p-2">
+                        <div className="mb-1 flex items-center justify-between px-1 py-1">
+                          <span className="text-xs font-medium whitespace-nowrap text-muted-foreground">
                             {t('Select Provider')}
                           </span>
                           <Tooltip>
@@ -1029,7 +1092,7 @@ export function SessionBar({
                                   setShowProviderMenu(false);
                                   window.dispatchEvent(new CustomEvent('open-settings-provider'));
                                 }}
-                                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                                className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
                               >
                                 <Settings className="h-3.5 w-3.5" />
                               </button>
@@ -1068,19 +1131,19 @@ export function SessionBar({
             {/* Quick Terminal Button - 在 Provider Switcher 之后 */}
             {!state.collapsed && onToggleQuickTerminal && (
               <>
-                <div className="mx-1 h-4 w-px bg-border" />
+                <div className="control-divider mx-1 h-4 w-px" />
                 <Tooltip>
                   <TooltipTrigger render={<span />}>
                     <button
                       type="button"
                       onClick={onToggleQuickTerminal}
                       className={cn(
-                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors',
+                        'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
                         quickTerminalOpen
                           ? 'bg-accent text-accent-foreground'
                           : quickTerminalHasProcess
                             ? 'bg-accent text-accent-foreground'
-                            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                            : 'text-muted-foreground hover:text-accent-foreground'
                       )}
                     >
                       <Terminal className="h-3.5 w-3.5" />

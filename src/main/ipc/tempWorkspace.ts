@@ -4,6 +4,11 @@ import { access, lstat, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
+  DEFAULT_TEMPORARY_DIRNAME,
+  DEFAULT_WORKSPACE_ROOT_DIRNAME,
+  TEMP_PERMISSION_FILE_PREFIX,
+} from '@shared/paths';
+import {
   IPC_CHANNELS,
   type TempWorkspaceCheckResult,
   type TempWorkspaceCreateResult,
@@ -55,7 +60,7 @@ function mapError(err: unknown, fallbackCode = 'UNKNOWN'): { code: string; messa
 function resolveBasePath(rawBasePath?: string): string {
   return rawBasePath?.trim()
     ? path.resolve(expandHome(rawBasePath.trim()))
-    : path.join(homedir(), 'ensoai', 'temporary');
+    : path.join(homedir(), DEFAULT_WORKSPACE_ROOT_DIRNAME, DEFAULT_TEMPORARY_DIRNAME);
 }
 
 function isSubPath(basePath: string, targetPath: string): boolean {
@@ -95,7 +100,7 @@ async function checkPathWritable(dirPath: string): Promise<TempWorkspaceCheckRes
   let testFile: string | null = null;
   try {
     await mkdir(dirPath, { recursive: true });
-    testFile = path.join(dirPath, `.ensoai-permission-${randomUUID()}.tmp`);
+    testFile = path.join(dirPath, `${TEMP_PERMISSION_FILE_PREFIX}${randomUUID()}.tmp`);
     await writeFile(testFile, 'test', { encoding: 'utf-8' });
     await access(testFile, constants.R_OK | constants.W_OK);
     return { ok: true };

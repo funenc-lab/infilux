@@ -66,7 +66,7 @@ function useCliInstall() {
         toastManager.add({
           type: 'success',
           title: t('CLI install success'),
-          description: t("'enso' command installed to {{path}}", { path: result.path ?? '' }),
+          description: t("'infilux' command installed to {{path}}", { path: result.path ?? '' }),
         });
       } else if (result.error) {
         toastManager.add({
@@ -99,7 +99,7 @@ function useCliUninstall() {
         toastManager.add({
           type: 'success',
           title: t('CLI uninstall success'),
-          description: t("'enso' command uninstalled"),
+          description: t("'infilux' command uninstalled"),
         });
       } else if (result.error) {
         toastManager.add({
@@ -314,8 +314,8 @@ export function ActionPanel({
                   ? t('Uninstalling...')
                   : t('Installing...')
                 : cliStatus?.installed
-                  ? t("Uninstall 'enso' command")
-                  : t("Install 'enso' command to PATH"),
+                  ? t("Uninstall 'infilux' command")
+                  : t("Install 'infilux' command to PATH"),
             icon: cliInstall.isPending || cliUninstall.isPending ? Loader2 : Terminal,
             loading: cliInstall.isPending || cliUninstall.isPending,
             disabled: cliInstall.isPending || cliUninstall.isPending,

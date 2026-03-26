@@ -120,7 +120,7 @@ export function KeybindingsSettings() {
         <h3 className="text-lg font-medium">{t('Global')}</h3>
         <p className="text-sm text-muted-foreground mb-4">{t('App-wide shortcuts')}</p>
         <div className="space-y-3">
-          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Running Projects')}</span>
             <KeybindingInput
               value={globalKeybindings.runningProjects}
@@ -140,7 +140,7 @@ export function KeybindingsSettings() {
         <h3 className="text-lg font-medium">{t('Workspace')}</h3>
         <p className="text-sm text-muted-foreground mb-4">{t('Workspace panel shortcuts')}</p>
         <div className="space-y-3">
-          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Toggle Repository')}</span>
             <KeybindingInput
               value={workspaceKeybindings.toggleRepository}
@@ -152,7 +152,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Toggle Worktree')}</span>
             <KeybindingInput
               value={workspaceKeybindings.toggleWorktree}
@@ -165,7 +165,7 @@ export function KeybindingsSettings() {
             />
           </div>
           {/* 新增：切换活跃 Worktree */}
-          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Switch Active Worktree')}</span>
             <KeybindingInput
               value={workspaceKeybindings.switchActiveWorktree}
@@ -187,7 +187,7 @@ export function KeybindingsSettings() {
           {t('Set global main tab shortcuts (Cmd on macOS, Win on Windows)')}
         </p>
         <div className="space-y-3">
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Switch to Agent')}</span>
             <KeybindingInput
               value={mainTabKeybindings.switchToAgent}
@@ -199,7 +199,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Switch to File')}</span>
             <KeybindingInput
               value={mainTabKeybindings.switchToFile}
@@ -211,7 +211,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Switch to Terminal')}</span>
             <KeybindingInput
               value={mainTabKeybindings.switchToTerminal}
@@ -223,7 +223,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Switch to Version Control')}</span>
             <KeybindingInput
               value={mainTabKeybindings.switchToSourceControl}
@@ -243,7 +243,7 @@ export function KeybindingsSettings() {
         <h3 className="text-lg font-medium">{t('Search')}</h3>
         <p className="text-sm text-muted-foreground mb-4">{t('File search shortcuts')}</p>
         <div className="space-y-3">
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Search files')}</span>
             <KeybindingInput
               value={searchKeybindings.searchFiles}
@@ -255,7 +255,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Search content')}</span>
             <KeybindingInput
               value={searchKeybindings.searchContent}
@@ -275,7 +275,7 @@ export function KeybindingsSettings() {
         <h3 className="text-lg font-medium">{t('Editor')}</h3>
         <p className="text-sm text-muted-foreground mb-4">{t('Editor shortcuts')}</p>
         <div className="space-y-3">
-          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Show Symbols')}</span>
             <KeybindingInput
               value={editorKeybindings.gotoSymbol}
@@ -294,7 +294,7 @@ export function KeybindingsSettings() {
           {t('Shortcuts for terminal and agent sessions')}
         </p>
         <div className="space-y-3">
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('New Tab')}</span>
             <KeybindingInput
               value={xtermKeybindings.newTab}
@@ -303,7 +303,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Close Tab')}</span>
             <KeybindingInput
               value={xtermKeybindings.closeTab}
@@ -312,7 +312,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Next Tab')}</span>
             <KeybindingInput
               value={xtermKeybindings.nextTab}
@@ -321,7 +321,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Previous Tab')}</span>
             <KeybindingInput
               value={xtermKeybindings.prevTab}
@@ -330,7 +330,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Split pane')}</span>
             <KeybindingInput
               value={xtermKeybindings.split}
@@ -339,7 +339,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Merge pane')}</span>
             <KeybindingInput
               value={xtermKeybindings.merge}
@@ -348,7 +348,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Clear terminal')}</span>
             <KeybindingInput
               value={xtermKeybindings.clear}
@@ -359,7 +359,7 @@ export function KeybindingsSettings() {
           </div>
           {/* Option as Meta Key (macOS only) */}
           {window.electronAPI?.env?.platform === 'darwin' && (
-            <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm">{t('Option as Meta')}</span>
               <div className="flex items-center gap-3">
                 <Switch checked={terminalOptionIsMeta} onCheckedChange={setTerminalOptionIsMeta} />
@@ -377,7 +377,7 @@ export function KeybindingsSettings() {
         <h3 className="text-lg font-medium">{t('Version Control')}</h3>
         <p className="text-sm text-muted-foreground mb-4">{t('Diff navigation shortcuts')}</p>
         <div className="space-y-3">
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Previous change')}</span>
             <KeybindingInput
               value={sourceControlKeybindings.prevDiff}
@@ -389,7 +389,7 @@ export function KeybindingsSettings() {
               }}
             />
           </div>
-          <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm">{t('Next change')}</span>
             <KeybindingInput
               value={sourceControlKeybindings.nextDiff}

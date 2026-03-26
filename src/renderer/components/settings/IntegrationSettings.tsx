@@ -99,7 +99,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
       {claudeCodeIntegration.enabled && (
         <div className="mt-4 space-y-4 border-t pt-4">
           {/* Selection Changed Debounce */}
-          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+          <div className="settings-field-row">
             <span className="text-sm font-medium">{t('Debounce Time')}</span>
             <div className="space-y-1.5">
               <Select
@@ -126,7 +126,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
           </div>
 
           {/* At Mentioned Keybinding */}
-          <div className="grid grid-cols-[140px_1fr] items-start gap-4">
+          <div className="settings-field-row settings-field-row-start">
             <span className="text-sm font-medium mt-2">{t('Mention Shortcut')}</span>
             <div className="space-y-1.5">
               <KeybindingInput

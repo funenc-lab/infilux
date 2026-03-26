@@ -1,17 +1,12 @@
 import type { AIProvider } from '@shared/types';
-import { Plus, Settings, Sparkles } from 'lucide-react';
+import { getDisplayPathBasename } from '@shared/utils/path';
+import { Bot, Plus, Settings } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
 import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
@@ -100,6 +95,18 @@ function getDefaultAgentId(
   }
   // Ultimate fallback
   return 'claude';
+}
+
+function getAgentDisplayLabel(
+  agentId: string,
+  customAgents: Array<{ id: string; name: string; command: string }>
+): string {
+  const isHapi = agentId.endsWith('-hapi');
+  const isHappy = agentId.endsWith('-happy');
+  const baseId = isHapi ? agentId.slice(0, -5) : isHappy ? agentId.slice(0, -6) : agentId;
+  const customAgent = customAgents.find((agent) => agent.id === baseId);
+  const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? baseId;
+  return isHapi ? `${baseName} (Hapi)` : isHappy ? `${baseName} (Happy)` : baseName;
 }
 
 function createSession(
@@ -1528,6 +1535,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
   // Get current worktree's group positions for terminal placement
   const currentGroupPositions = getGroupPositions(currentGroupState);
+  const defaultAgentLabel = getAgentDisplayLabel(defaultAgentId, customAgents);
 
   return (
     <div
@@ -1540,105 +1548,119 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       {showEmptyState && (
         <div
           className={cn(
-            'absolute inset-0 z-20 flex items-center justify-center',
+            'absolute inset-0 z-20 flex items-center justify-center p-6',
             !bgImageEnabled && 'bg-background'
           )}
         >
-          <Empty className="border-0">
-            <EmptyMedia variant="icon">
-              <Sparkles className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle>{t('No agent sessions')}</EmptyTitle>
-              <EmptyDescription>{t('Create a session to start using AI Agent')}</EmptyDescription>
-            </EmptyHeader>
-            <div
-              className="relative"
-              onMouseEnter={() => setShowAgentMenu(true)}
-              onMouseLeave={() => setShowAgentMenu(false)}
-            >
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  handleNewSession();
-                  setShowAgentMenu(false);
-                }}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                {t('New Session')}
-              </Button>
-              {showAgentMenu && enabledAgents.length > 0 && (
-                <div className="absolute left-0 top-full pt-1 z-50 min-w-40 text-left">
-                  <div className="rounded-lg border bg-popover p-1 shadow-lg">
-                    <div className="flex items-center justify-between px-2 py-1">
-                      <span className="text-xs text-muted-foreground">{t('Select Agent')}</span>
-                      <Tooltip>
-                        <TooltipTrigger render={<span />}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowAgentMenu(false);
-                              window.dispatchEvent(new CustomEvent('open-settings-agent'));
-                            }}
-                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                          >
-                            <Settings className="h-3.5 w-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipPopup side="right">{t('Manage Agents')}</TooltipPopup>
-                      </Tooltip>
+          <ConsoleEmptyState
+            icon={<Bot className="h-5 w-5" />}
+            eyebrow="Agent Console"
+            title={t('No agent sessions are attached to this worktree')}
+            description={t(
+              'Start a session to dispatch work, inspect runtime output, or hand control back to a specific agent profile.'
+            )}
+            chips={[{ label: defaultAgentLabel, tone: 'strong' }]}
+            details={[
+              { label: t('Worktree'), value: getDisplayPathBasename(cwd) },
+              { label: t('Default Agent'), value: defaultAgentLabel },
+              { label: t('Profiles Ready'), value: String(enabledAgents.length) },
+            ]}
+            actions={
+              <>
+                <div
+                  className="relative"
+                  onMouseEnter={() => setShowAgentMenu(true)}
+                  onMouseLeave={() => setShowAgentMenu(false)}
+                >
+                  <Button
+                    onClick={() => {
+                      handleNewSession();
+                      setShowAgentMenu(false);
+                    }}
+                    className="control-panel-muted h-10 rounded-xl border-0 px-4 shadow-none"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t('New Session')}
+                  </Button>
+                  {showAgentMenu && enabledAgents.length > 0 && (
+                    <div className="absolute left-0 top-full z-50 min-w-48 pt-2 text-left">
+                      <div className="control-menu rounded-xl p-2">
+                        <div className="mb-1 flex items-center justify-between px-1 py-1">
+                          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                            {t('Select Agent')}
+                          </span>
+                          <Tooltip>
+                            <TooltipTrigger render={<span />}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowAgentMenu(false);
+                                  window.dispatchEvent(new CustomEvent('open-settings-agent'));
+                                }}
+                                className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:text-foreground"
+                              >
+                                <Settings className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipPopup side="right">{t('Manage Agents')}</TooltipPopup>
+                          </Tooltip>
+                        </div>
+                        {[...enabledAgents]
+                          .sort((a, b) => {
+                            const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
+                            const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
+                            return bDefault - aDefault;
+                          })
+                          .map((agentId) => {
+                            const isHapi = agentId.endsWith('-hapi');
+                            const isHappy = agentId.endsWith('-happy');
+                            const baseId = isHapi
+                              ? agentId.slice(0, -5)
+                              : isHappy
+                                ? agentId.slice(0, -6)
+                                : agentId;
+                            const customAgent = customAgents.find((a) => a.id === baseId);
+                            const name = getAgentDisplayLabel(agentId, customAgents);
+                            const isDefault = agentSettings[agentId]?.isDefault;
+
+                            return (
+                              <button
+                                type="button"
+                                key={agentId}
+                                onClick={() => {
+                                  handleNewSessionWithAgent(
+                                    agentId,
+                                    customAgent?.command ?? AGENT_INFO[baseId]?.command ?? 'claude'
+                                  );
+                                  setShowAgentMenu(false);
+                                }}
+                                className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent/45 whitespace-nowrap"
+                              >
+                                <span className="min-w-0 flex-1 truncate">{name}</span>
+                                {isDefault ? (
+                                  <span className="control-chip control-chip-strong shrink-0">
+                                    {t('Default')}
+                                  </span>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                      </div>
                     </div>
-                    {[...enabledAgents]
-                      .sort((a, b) => {
-                        const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
-                        const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
-                        return bDefault - aDefault;
-                      })
-                      .map((agentId) => {
-                        const isHapi = agentId.endsWith('-hapi');
-                        const isHappy = agentId.endsWith('-happy');
-                        const baseId = isHapi
-                          ? agentId.slice(0, -5)
-                          : isHappy
-                            ? agentId.slice(0, -6)
-                            : agentId;
-                        const customAgent = customAgents.find((a) => a.id === baseId);
-                        const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? baseId;
-                        const name = isHapi
-                          ? `${baseName} (Hapi)`
-                          : isHappy
-                            ? `${baseName} (Happy)`
-                            : baseName;
-                        const isDefault = agentSettings[agentId]?.isDefault;
-                        return (
-                          <button
-                            type="button"
-                            key={agentId}
-                            onClick={() => {
-                              handleNewSessionWithAgent(
-                                agentId,
-                                customAgent?.command ?? AGENT_INFO[baseId]?.command ?? 'claude'
-                              );
-                              setShowAgentMenu(false);
-                            }}
-                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
-                          >
-                            <span>{name}</span>
-                            {isDefault && (
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {t('(default)')}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </Empty>
+                <Button
+                  variant="ghost"
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-settings-agent'))}
+                  className="control-panel-muted h-10 rounded-xl px-4 text-muted-foreground hover:text-foreground"
+                >
+                  <Settings className="mr-2 h-4 w-4" />
+                  {t('Manage Agents')}
+                </Button>
+              </>
+            }
+          />
         </div>
       )}
       {/* Resize handles - only for current worktree */}
