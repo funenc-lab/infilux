@@ -5,6 +5,7 @@ import {
   Clock,
   FolderGit2,
   FolderMinus,
+  MoreHorizontal,
   PanelLeftClose,
   Plus,
   Search,
@@ -41,20 +42,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
-import { RepoItemWithGlow } from '@/components/ui/glow-wrappers';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
+import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
+import { focusFirstMenuItem } from '@/lib/menuA11y';
 import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { ConsoleEmptyState } from './ConsoleEmptyState';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 
 interface Repository {
@@ -117,7 +113,7 @@ export function RepositorySidebar({
   temporaryWorkspaceEnabled = false,
   tempBasePath = '',
 }: RepositorySidebarProps) {
-  const { t, tNode } = useI18n();
+  const { t } = useI18n();
   const _settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const [searchQuery, setSearchQuery] = useState('');
@@ -125,7 +121,12 @@ export function RepositorySidebar({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [menuRepo, setMenuRepo] = useState<Repository | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [repoToRemove, setRepoToRemove] = useState<Repository | null>(null);
+  const removeDialogCopy = repoToRemove
+    ? buildRemovalDialogCopy({ kind: 'repository', name: repoToRemove.name }, t)
+    : null;
   const [repoSettingsOpen, setRepoSettingsOpen] = useState(false);
   const [repoSettingsTarget, setRepoSettingsTarget] = useState<Repository | null>(null);
   const [createGroupDialogOpen, setCreateGroupDialogOpen] = useState(false);
@@ -236,10 +237,24 @@ export function RepositorySidebar({
 
   const handleContextMenu = (e: React.MouseEvent, repo: Repository) => {
     e.preventDefault();
+    e.stopPropagation();
+    setMenuAnchor(null);
     setMenuPosition({ x: e.clientX, y: e.clientY });
     setMenuRepo(repo);
     setMenuOpen(true);
   };
+
+  useEffect(() => {
+    if (menuOpen && menuRef.current) {
+      focusFirstMenuItem(menuRef.current);
+    }
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      menuAnchor?.focus();
+    }
+  }, [menuAnchor, menuOpen]);
 
   const handleRemoveClick = () => {
     if (menuRepo) {
@@ -383,12 +398,12 @@ export function RepositorySidebar({
       activePathSet.has(normalizePath(worktree.path))
     ).length;
     return (
-      <RepoItemWithGlow key={repo.path} repoPath={repo.path}>
+      <div key={repo.path} className="relative">
         {/* Drop indicator - top */}
         {dropTargetIndex === originalIndex &&
           draggedIndexRef.current !== null &&
           draggedIndexRef.current > originalIndex && (
-            <div className="absolute -top-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
+            <div className="absolute -top-0.5 left-2 right-2 h-0.5 rounded-full bg-theme/75" />
           )}
         <div
           draggable={!searchQuery}
@@ -399,26 +414,43 @@ export function RepositorySidebar({
           onDrop={(e) => handleDrop(e, originalIndex, sectionGroupId)}
           onContextMenu={(e) => handleContextMenu(e, repo)}
           className={cn(
-            'group relative flex w-full flex-col items-start gap-1 rounded-lg px-2.5 py-1.5 text-left transition-colors',
-            isSelected ? 'bg-accent/32 text-foreground' : 'hover:bg-accent/20',
+            'control-tree-node group relative flex w-full flex-col items-start gap-0.5 px-2 py-1 text-left transition-colors',
             draggedIndexRef.current === originalIndex && 'opacity-50'
           )}
+          data-active={isSelected ? 'repo' : 'false'}
         >
-          <div className="relative z-10 flex w-full items-start gap-2">
+          <div className="relative z-10 flex w-full items-start gap-1.5">
             <button
               type="button"
-              className="flex min-w-0 flex-1 items-start gap-2 text-left outline-none"
+              className="flex min-w-0 flex-1 items-start gap-1.5 text-left outline-none"
               onClick={() => onSelectRepo(repo.path, { activateRemote: true })}
             >
-              <FolderGit2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="control-tree-glyph mt-0.5 h-4 w-4 shrink-0">
+                <FolderGit2 className="control-tree-icon h-4 w-4" />
+              </span>
               <div className="min-w-0 flex-1">
-                <span className="min-w-0 block truncate text-sm font-medium text-foreground">
-                  {repo.name}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="control-tree-title min-w-0 flex-1 truncate">{repo.name}</span>
+                  {(isSelected || activeWorktreeCount > 0) &&
+                    (repoWorktrees.length > 0 || activeWorktreeCount > 0) && (
+                      <span className="control-tree-meta control-tree-meta-row shrink-0">
+                        {repoWorktrees.length > 0 ? (
+                          <span className="control-tree-count">{repoWorktrees.length} trees</span>
+                        ) : null}
+                        {repoWorktrees.length > 0 && activeWorktreeCount > 0 ? (
+                          <span className="control-tree-separator">·</span>
+                        ) : null}
+                        {activeWorktreeCount > 0 ? (
+                          <span className="control-tree-count control-tree-count-live">
+                            {activeWorktreeCount} live
+                          </span>
+                        ) : null}
+                      </span>
+                    )}
+                </div>
                 <div
                   className={cn(
-                    'mt-0.5 w-full overflow-hidden whitespace-nowrap text-ellipsis text-xs leading-5 [text-align:left]',
-                    isSelected ? 'text-accent-foreground/70' : 'text-muted-foreground',
+                    'control-tree-subtitle mt-px w-full overflow-hidden whitespace-nowrap text-ellipsis [text-align:left]',
                     useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
                   )}
                   title={displayRepoPath}
@@ -429,38 +461,31 @@ export function RepositorySidebar({
             </button>
             <button
               type="button"
-              className={cn(
-                'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-accent/32 hover:text-foreground',
-                isSelected
-                  ? 'opacity-100'
-                  : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
-              )}
+              className="control-tree-action flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-theme/10 hover:text-foreground"
               onClick={(e) => {
                 e.stopPropagation();
-                setRepoSettingsTarget(repo);
-                setRepoSettingsOpen(true);
+                setMenuAnchor(e.currentTarget);
+                const rect = e.currentTarget.getBoundingClientRect();
+                setMenuPosition({
+                  x: Math.max(8, Math.round(rect.right - 176)),
+                  y: Math.round(rect.bottom + 6),
+                });
+                setMenuRepo(repo);
+                setMenuOpen(true);
               }}
-              title={t('Repository Settings')}
+              title={t('Repository actions')}
             >
-              <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+              <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
           </div>
-          {(isSelected || activeWorktreeCount > 0) &&
-            (repoWorktrees.length > 0 || activeWorktreeCount > 0) && (
-              <div className="relative z-10 pl-6 text-[11px] text-muted-foreground">
-                {repoWorktrees.length > 0 ? `${repoWorktrees.length} trees` : ''}
-                {repoWorktrees.length > 0 && activeWorktreeCount > 0 ? ' · ' : ''}
-                {activeWorktreeCount > 0 ? `${activeWorktreeCount} live` : ''}
-              </div>
-            )}
         </div>
         {/* Drop indicator - bottom */}
         {dropTargetIndex === originalIndex &&
           draggedIndexRef.current !== null &&
           draggedIndexRef.current < originalIndex && (
-            <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
+            <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 rounded-full bg-theme/75" />
           )}
-      </RepoItemWithGlow>
+      </div>
     );
   };
 
@@ -468,12 +493,21 @@ export function RepositorySidebar({
     <aside
       className={cn(
         'control-sidebar flex h-full w-full flex-col border-r bg-background transition-colors',
-        isFileDragOver && 'bg-primary/10'
+        isFileDragOver && 'bg-theme/8'
       )}
     >
       {/* Header */}
-      <div className="flex h-10 items-center justify-end gap-1.5 border-b border-border/60 px-2.5 drag-region">
-        <div className="flex items-center gap-1 no-drag">
+      <div className="control-sidebar-header drag-region">
+        <div className="control-sidebar-heading no-drag">
+          <div className="control-sidebar-heading-copy">
+            <span className="control-sidebar-title">{t('Repositories')}</span>
+            <span className="control-sidebar-subtitle">
+              {activeGroup?.name ?? t('All repositories')}
+            </span>
+          </div>
+          <span className="control-sidebar-count">{filteredRepos.length}</span>
+        </div>
+        <div className="control-sidebar-toolbar no-drag">
           {onSwitchWorktreeByPath && (
             <RunningProjectsPopover
               onSelectWorktreeByPath={onSwitchWorktreeByPath}
@@ -483,7 +517,7 @@ export function RepositorySidebar({
           {onCollapse && (
             <button
               type="button"
-              className="control-icon-button flex h-7 w-7 items-center justify-center rounded-md no-drag text-muted-foreground transition-colors hover:text-foreground"
+              className="control-sidebar-toolbutton no-drag"
               onClick={onCollapse}
               title={t('Collapse')}
             >
@@ -494,109 +528,125 @@ export function RepositorySidebar({
       </div>
 
       {/* Group Selector - only show when groups are not hidden */}
-      {!hideGroups && (
-        <GroupSelector
-          groups={groups}
-          activeGroupId={activeGroupId}
-          repositoryCounts={repositoryCounts}
-          totalCount={repositories.length}
-          onSelectGroup={onSwitchGroup}
-          onEditGroup={() => setEditGroupDialogOpen(true)}
-          onAddGroup={() => setCreateGroupDialogOpen(true)}
-        />
-      )}
+      <div className="control-sidebar-strip">
+        {!hideGroups && (
+          <GroupSelector
+            groups={groups}
+            activeGroupId={activeGroupId}
+            repositoryCounts={repositoryCounts}
+            totalCount={repositories.length}
+            onSelectGroup={onSwitchGroup}
+            onEditGroup={() => setEditGroupDialogOpen(true)}
+            onAddGroup={() => setCreateGroupDialogOpen(true)}
+          />
+        )}
 
-      {/* Search */}
-      <div className="px-2.5 py-2">
-        <div className="control-input flex h-9 items-center gap-2 rounded-lg px-2.5">
-          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="control-sidebar-filter control-sidebar-search">
+          <Search className="control-sidebar-search-icon h-3.5 w-3.5" />
           <input
             ref={searchInputRef}
             type="text"
+            aria-label={t('Search repositories')}
             placeholder={`${t('Search repositories')} (:active)`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-full w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
+            className="control-sidebar-search-input"
           />
           {searchQuery.length > 0 && (
             <button
               type="button"
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="control-sidebar-search-clear"
               onClick={() => {
                 setSearchQuery('');
                 searchInputRef.current?.focus();
               }}
+              aria-label={t('Clear search')}
               title={t('Clear')}
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3 w-3" />
             </button>
           )}
         </div>
       </div>
 
       {/* Repository List */}
-      <div className="flex-1 overflow-auto px-2 py-1">
+      <div className="flex-1 overflow-auto px-1.5 py-1.5">
         {temporaryWorkspaceEnabled && (
-          <div className="mb-2">
-            <RepoItemWithGlow repoPath={TEMP_REPO_ID}>
-              <button
-                type="button"
-                onClick={() => onSelectRepo(TEMP_REPO_ID)}
-                className={cn(
-                  'group relative flex w-full flex-col items-start gap-1 rounded-lg px-2.5 py-1.5 text-left transition-colors',
-                  selectedRepo === TEMP_REPO_ID
-                    ? 'bg-accent/32 text-foreground'
-                    : 'hover:bg-accent/20'
-                )}
-              >
-                <div className="relative z-10 flex w-full items-center gap-2">
-                  <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate text-sm font-medium text-foreground">
-                    {t('Temp Session')}
-                  </span>
-                </div>
-                <span className="relative z-10 pl-6 text-[11px] leading-5 text-muted-foreground">
-                  {tempBasePath || t('Quick scratch sessions')}
+          <div className="mb-1.5">
+            <button
+              type="button"
+              onClick={() => onSelectRepo(TEMP_REPO_ID)}
+              className="control-tree-node group relative flex w-full flex-col items-start gap-0.5 px-2 py-1 text-left transition-colors"
+              data-active={selectedRepo === TEMP_REPO_ID ? 'repo' : 'false'}
+            >
+              <div className="relative z-10 flex w-full items-center gap-1.5">
+                <span className="control-tree-glyph h-4 w-4 shrink-0">
+                  <Clock className="control-tree-icon h-4 w-4" />
                 </span>
-              </button>
-            </RepoItemWithGlow>
+                <span className="control-tree-title truncate">{t('Temp Session')}</span>
+              </div>
+              <span className="control-tree-subtitle relative z-10 mt-px pl-[1.375rem]">
+                {tempBasePath || t('Quick scratch sessions')}
+              </span>
+            </button>
           </div>
         )}
         {filteredRepos.length === 0 && hasSearchFilter ? (
-          <Empty className="h-full border-0">
-            <EmptyMedia variant="icon">
-              <Search className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle className="text-base">{t('No matching repositories')}</EmptyTitle>
-              <EmptyDescription>{t('Try a different search term')}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <div className="flex h-full items-center justify-center p-3">
+            <ConsoleEmptyState
+              variant="embedded"
+              icon={<Search className="h-4.5 w-4.5" />}
+              eyebrow={t('Repository Sidebar')}
+              title={t('No matching repositories')}
+              description={t(
+                'No repositories match the current filters. Adjust the search query or clear the active filter token.'
+              )}
+              chips={[{ label: t('Filtered View'), tone: 'wait' }]}
+              details={[
+                { label: t('Status'), value: t('Search returned no repositories') },
+                { label: t('Active Filter'), value: searchQuery.trim() || t('Search query') },
+                { label: t('Next Step'), value: t('Try another search term or clear filters') },
+              ]}
+              detailsLayout="compact"
+            />
+          </div>
         ) : repositories.length === 0 ? (
-          <Empty className="h-full border-0">
-            <EmptyMedia variant="icon">
-              <FolderGit2 className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle className="text-base">{t('Add Repository')}</EmptyTitle>
-              <EmptyDescription>{t('Add a repository to get started.')}</EmptyDescription>
-            </EmptyHeader>
-            <Button
-              onClick={(e) => {
-                e.currentTarget.blur();
-                onAddRepository();
-              }}
-              variant="outline"
-              className="mt-2"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              {t('Add Repository')}
-            </Button>
-          </Empty>
+          <div className="flex h-full items-center justify-center p-3">
+            <ConsoleEmptyState
+              variant="embedded"
+              icon={<FolderGit2 className="h-4.5 w-4.5" />}
+              eyebrow={t('Repository Sidebar')}
+              title={t('No repositories connected')}
+              description={t(
+                'Add a repository to start switching context, browsing worktrees, and opening the rest of the operational surfaces.'
+              )}
+              chips={[{ label: t('Awaiting Repository'), tone: 'wait' }]}
+              details={[
+                { label: t('Status'), value: t('Repository list is empty') },
+                { label: t('Panel'), value: t('Repository Sidebar') },
+                { label: t('Next Step'), value: t('Add a repository to begin') },
+              ]}
+              detailsLayout="compact"
+              actions={
+                <Button
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onAddRepository();
+                  }}
+                  variant="default"
+                  size="sm"
+                  className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+                >
+                  <Plus className="h-4 w-4" />
+                  {t('Add Repository')}
+                </Button>
+              }
+            />
+          </div>
         ) : (
           <LayoutGroup>
             {showSections ? (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {groupedSections.map((section) => {
                   const isCollapsed = !!collapsedGroups[section.groupId];
                   const isUngrouped = section.groupId === UNGROUPED_SECTION_ID;
@@ -606,23 +656,25 @@ export function RepositorySidebar({
                       <button
                         type="button"
                         onClick={() => toggleGroupCollapsed(section.groupId)}
-                        className="flex h-8 w-full items-center gap-1 rounded-xl px-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground select-none"
+                        className="control-section-header select-none"
                       >
                         <ChevronRight
                           className={cn(
-                            'h-3.5 w-3.5 shrink-0 transition-transform duration-150',
+                            'h-3 w-3 shrink-0 transition-transform duration-150',
                             !isCollapsed && 'rotate-90'
                           )}
                         />
-                        {section.emoji && <span className="shrink-0 text-sm">{section.emoji}</span>}
+                        {section.emoji && (
+                          <span className="shrink-0 text-[12px]">{section.emoji}</span>
+                        )}
                         {!isUngrouped && section.color && (
                           <span
-                            className="h-2 w-2 shrink-0 rounded-full"
+                            className="h-1.5 w-1.5 shrink-0 rounded-full"
                             style={{ backgroundColor: section.color }}
                           />
                         )}
                         <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
-                        <span className="shrink-0 text-[11px] text-muted-foreground/65">
+                        <span className="shrink-0 text-[10px] tracking-[0.08em] text-muted-foreground/65">
                           {section.repos.length}
                         </span>
                       </button>
@@ -662,11 +714,11 @@ export function RepositorySidebar({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 border-t p-2">
+      <div className="shrink-0 border-t border-border/60 p-1.5">
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="control-panel-muted flex h-10 flex-1 items-center justify-start gap-2 rounded-xl px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="flex h-8 flex-1 items-center justify-start gap-2 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground"
             onClick={(e) => {
               e.currentTarget.blur();
               onAddRepository();
@@ -684,7 +736,6 @@ export function RepositorySidebar({
           <div
             className="fixed inset-0 z-50"
             onClick={() => setMenuOpen(false)}
-            onKeyDown={(e) => e.key === 'Escape' && setMenuOpen(false)}
             onContextMenu={(e) => {
               e.preventDefault();
               setMenuOpen(false);
@@ -692,8 +743,12 @@ export function RepositorySidebar({
             role="presentation"
           />
           <div
+            ref={menuRef}
             className="fixed z-50 min-w-32 rounded-lg border bg-popover p-1 shadow-lg"
             style={{ left: menuPosition.x, top: menuPosition.y }}
+            role="menu"
+            aria-label={t('Repository actions')}
+            onKeyDown={(e) => handleMenuNavigationKeyDown(e, () => setMenuOpen(false))}
           >
             {/* Move to Group - only show when groups are not hidden */}
             {!hideGroups && onMoveToGroup && groups.length > 0 && (
@@ -715,8 +770,27 @@ export function RepositorySidebar({
 
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+              onClick={() => {
+                setMenuOpen(false);
+                if (menuRepo) {
+                  setRepoSettingsTarget(menuRepo);
+                  setRepoSettingsOpen(true);
+                }
+              }}
+              role="menuitem"
+            >
+              <Settings2 className="h-4 w-4" />
+              {t('Repository Settings')}
+            </button>
+
+            <div className="my-1 h-px bg-border" />
+
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10"
               onClick={handleRemoveClick}
+              role="menuitem"
             >
               <FolderMinus className="h-4 w-4" />
               {t('Remove repository')}
@@ -736,20 +810,18 @@ export function RepositorySidebar({
       >
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('Remove repository')}</AlertDialogTitle>
+            <AlertDialogTitle>{removeDialogCopy?.title ?? t('Remove repository')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {tNode('Are you sure you want to remove {{name}} from the workspace?', {
-                name: <strong>{repoToRemove?.name}</strong>,
-              })}
+              {removeDialogCopy?.description}
               <span className="block mt-2 text-muted-foreground">
-                {t('This will only remove it from the app and will not delete local files.')}
+                {removeDialogCopy?.consequence}
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline">{t('Cancel')}</Button>} />
             <Button variant="destructive" onClick={handleConfirmRemove}>
-              {t('Remove')}
+              {removeDialogCopy?.actionLabel ?? t('Remove repository')}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
