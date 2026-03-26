@@ -292,6 +292,7 @@ export function QuickTerminalModal({
                 cwd={terminalCwd}
                 backendSessionId={terminalCwd === cwd ? backendSessionId : undefined}
                 isActive={open && terminalCwd === cwd}
+                onExit={terminalCwd === cwd ? handleRealClose : undefined}
                 onInit={onSessionInit}
                 onSessionIdChange={onSessionInit}
               />

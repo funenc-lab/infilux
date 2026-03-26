@@ -12,23 +12,40 @@ import {
   WORKTREE_MAX,
   WORKTREE_MIN,
 } from './constants';
-import { getStoredNumber, STORAGE_KEYS } from './storage';
+import { restorePanelWidthFromStorage } from './panelWidthStorage';
+import { STORAGE_KEYS } from './storage';
 
 type ResizePanel = 'repository' | 'worktree' | 'fileSidebar' | null;
 type LayoutMode = 'columns' | 'tree';
 
 export function usePanelResize(layoutMode: LayoutMode = 'columns') {
   const [repositoryWidth, setRepositoryWidth] = useState(() =>
-    getStoredNumber(STORAGE_KEYS.REPOSITORY_WIDTH, REPOSITORY_DEFAULT)
+    restorePanelWidthFromStorage(localStorage.getItem(STORAGE_KEYS.REPOSITORY_WIDTH), {
+      min: REPOSITORY_MIN,
+      max: REPOSITORY_MAX,
+      fallback: REPOSITORY_DEFAULT,
+    })
   );
   const [worktreeWidth, setWorktreeWidth] = useState(() =>
-    getStoredNumber(STORAGE_KEYS.WORKTREE_WIDTH, WORKTREE_DEFAULT)
+    restorePanelWidthFromStorage(localStorage.getItem(STORAGE_KEYS.WORKTREE_WIDTH), {
+      min: WORKTREE_MIN,
+      max: WORKTREE_MAX,
+      fallback: WORKTREE_DEFAULT,
+    })
   );
   const [treeSidebarWidth, setTreeSidebarWidth] = useState(() =>
-    getStoredNumber(STORAGE_KEYS.TREE_SIDEBAR_WIDTH, TREE_SIDEBAR_DEFAULT)
+    restorePanelWidthFromStorage(localStorage.getItem(STORAGE_KEYS.TREE_SIDEBAR_WIDTH), {
+      min: TREE_SIDEBAR_MIN,
+      max: REPOSITORY_MAX + WORKTREE_MAX,
+      fallback: TREE_SIDEBAR_DEFAULT,
+    })
   );
   const [fileSidebarWidth, setFileSidebarWidth] = useState(() =>
-    getStoredNumber(STORAGE_KEYS.FILE_SIDEBAR_WIDTH, FILE_SIDEBAR_DEFAULT)
+    restorePanelWidthFromStorage(localStorage.getItem(STORAGE_KEYS.FILE_SIDEBAR_WIDTH), {
+      min: FILE_SIDEBAR_MIN,
+      max: FILE_SIDEBAR_MAX,
+      fallback: FILE_SIDEBAR_DEFAULT,
+    })
   );
   const [resizing, setResizing] = useState<ResizePanel>(null);
 
