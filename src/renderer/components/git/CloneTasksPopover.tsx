@@ -78,7 +78,7 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
               {activeTasks.map((task) => (
                 <div key={task.id} className="rounded-lg border bg-card p-3 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-500" />
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-info" />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                       {task.repoName}
                     </span>
@@ -95,7 +95,7 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
               {completedTasks.map((task) => (
                 <div key={task.id} className="rounded-lg border bg-card p-3">
                   <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 shrink-0 text-green-500" />
+                    <Check className="h-4 w-4 shrink-0 text-success" />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                       {task.repoName}
                     </span>
@@ -174,19 +174,19 @@ export function CloneTasksBadge({ onClick, showBadge = true }: CloneTasksBadgePr
       type="button"
       className={cn(
         'relative flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors',
-        totalActive > 0 && 'text-blue-500'
+        totalActive > 0 && 'text-info'
       )}
       title={t('Clone Tasks')}
       onClick={onClick}
     >
       <Download className="h-4 w-4" />
       {showBadge && totalActive > 0 && (
-        <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-medium text-white">
+        <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-info px-1 text-[10px] font-medium text-info-foreground">
           {totalActive}
         </span>
       )}
       {showBadge && totalActive === 0 && hasCompletedOrError && (
-        <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-green-500" />
+        <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-success" />
       )}
     </button>
   );

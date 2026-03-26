@@ -30,8 +30,10 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Menu, MenuItem, MenuPopup, MenuSeparator } from '@/components/ui/menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { toastManager } from '@/components/ui/toast';
 import type { FileTreeNode } from '@/hooks/useFileTree';
 import { useI18n } from '@/i18n';
+import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { getFileIcon, getFileIconColor } from './fileIcons';
 
@@ -369,17 +371,65 @@ export function FileTree({
     [editValue, onRename]
   );
 
-  const handleCopyPath = useCallback((path: string) => {
-    navigator.clipboard.writeText(getDisplayPath(path));
-  }, []);
+  const handleCopyPath = useCallback(
+    async (path: string) => {
+      try {
+        await navigator.clipboard.writeText(getDisplayPath(path));
+        const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'path' }, t);
+        toastManager.add({
+          title: successCopy.title,
+          description: successCopy.description,
+          type: 'success',
+          timeout: 2000,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const errorCopy = buildClipboardToastCopy(
+          { phase: 'error', subject: 'path', message: message || undefined },
+          t
+        );
+        toastManager.add({
+          title: errorCopy.title,
+          description: errorCopy.description,
+          type: 'error',
+          timeout: 3000,
+        });
+      }
+    },
+    [t]
+  );
 
   const handleCopyRelativePath = useCallback(
-    (path: string) => {
+    async (path: string) => {
       if (!rootPath) return;
       const relativePath = path.startsWith(rootPath) ? path.substring(rootPath.length + 1) : path;
-      navigator.clipboard.writeText(relativePath);
+      try {
+        await navigator.clipboard.writeText(relativePath);
+        const successCopy = buildClipboardToastCopy(
+          { phase: 'success', subject: 'relative-path' },
+          t
+        );
+        toastManager.add({
+          title: successCopy.title,
+          description: successCopy.description,
+          type: 'success',
+          timeout: 2000,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const errorCopy = buildClipboardToastCopy(
+          { phase: 'error', subject: 'relative-path', message: message || undefined },
+          t
+        );
+        toastManager.add({
+          title: errorCopy.title,
+          description: errorCopy.description,
+          type: 'error',
+          timeout: 3000,
+        });
+      }
     },
-    [rootPath]
+    [rootPath, t]
   );
 
   const handleRevealInFinder = useCallback(async (path: string) => {
@@ -1075,7 +1125,7 @@ export function FileTree({
             <button
               type="button"
               onClick={() => onCreateFile(rootPath)}
-              className="flex items-center gap-1 text-xs hover:text-foreground"
+              className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-theme/8 hover:text-foreground"
             >
               <FilePlus className="h-3 w-3" />
               {t('New File')}
@@ -1083,7 +1133,7 @@ export function FileTree({
             <button
               type="button"
               onClick={() => onCreateDirectory(rootPath)}
-              className="flex items-center gap-1 text-xs hover:text-foreground"
+              className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-theme/8 hover:text-foreground"
             >
               <FolderPlus className="h-3 w-3" />
               {t('New Folder')}
@@ -1102,7 +1152,7 @@ export function FileTree({
         className={cn(
           'pb-20 outline-none',
           // Highlight root folder when dragging over
-          draggingOverFolderPath === rootPath && 'bg-primary/10'
+          draggingOverFolderPath === rootPath && 'rounded-md bg-theme/8'
         )}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
@@ -1111,12 +1161,12 @@ export function FileTree({
         onContextMenu={handleRootContextMenu}
       >
         {/* Toolbar */}
-        <div className="sticky top-0 z-10 flex h-12 items-center justify-between gap-1 border-b bg-background px-3">
+        <div className="sticky top-0 z-10 flex h-12 items-center justify-between gap-1 border-b border-border/60 bg-background/95 px-3 backdrop-blur-sm">
           {onToggleCollapse && (
             <button
               type="button"
               onClick={onToggleCollapse}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              className="control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
               title={t('Collapse file tree')}
             >
               <PanelLeftClose className="h-4 w-4" />
@@ -1129,7 +1179,7 @@ export function FileTree({
                 const targetPath = getCreateTargetPath();
                 if (targetPath) onCreateFile(targetPath);
               }}
-              className="p-1 text-muted-foreground hover:text-foreground rounded"
+              className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
               title={t('New File')}
             >
               <FilePlus className="h-4 w-4" />
@@ -1140,7 +1190,7 @@ export function FileTree({
                 const targetPath = getCreateTargetPath();
                 if (targetPath) onCreateDirectory(targetPath);
               }}
-              className="p-1 text-muted-foreground hover:text-foreground rounded"
+              className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
               title={t('New Folder')}
             >
               <FolderPlus className="h-4 w-4" />
@@ -1148,7 +1198,7 @@ export function FileTree({
             <button
               type="button"
               onClick={onRefresh}
-              className="p-1 text-muted-foreground hover:text-foreground rounded"
+              className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
               title={t('Refresh')}
             >
               <RefreshCw className="h-4 w-4" />
@@ -1156,7 +1206,7 @@ export function FileTree({
             <button
               type="button"
               onClick={handleCollapseAll}
-              className="p-1 text-muted-foreground hover:text-foreground rounded"
+              className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
               title={t('Collapse all folders')}
             >
               <SquareMinus className="h-4 w-4" />
@@ -1165,7 +1215,7 @@ export function FileTree({
               <button
                 type="button"
                 onClick={onOpenSearch}
-                className="p-1 text-muted-foreground hover:text-foreground rounded"
+                className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
                 title={t('Search')}
               >
                 <Search className="h-4 w-4" />
@@ -1665,7 +1715,7 @@ function FileTreeNodeComponent({
     actualNode.isDirectory && draggingOverFolderPath === actualNode.path;
 
   return (
-    <div className={cn(shouldHighlightThisFolder && 'bg-primary/10 rounded-sm')}>
+    <div className={cn(shouldHighlightThisFolder && 'rounded-md bg-theme/8')}>
       {/* Tree node row */}
       <div
         role="button"
@@ -1673,8 +1723,8 @@ function FileTreeNodeComponent({
         draggable={!isEditing}
         data-node-path={actualNode.path}
         className={cn(
-          'flex h-7 cursor-pointer select-none items-center gap-1 rounded-sm px-2 text-sm hover:bg-accent/50',
-          isSelected && 'bg-accent text-accent-foreground',
+          'flex h-7 cursor-pointer select-none items-center gap-1 rounded-md px-2 text-sm text-foreground/92 transition-colors hover:bg-theme/8',
+          isSelected && 'bg-theme/12 text-foreground ring-1 ring-inset ring-theme/18',
           actualNode.ignored && 'opacity-50',
           isBeingDragged && 'opacity-40'
         )}

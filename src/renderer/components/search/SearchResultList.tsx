@@ -46,7 +46,7 @@ function HighlightText({ text, query }: { text: string; query: string }) {
       {parts.map((part, i) =>
         part.highlight ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: parts are derived from text split, order is stable
-          <mark key={i} className="bg-yellow-500/40 text-inherit rounded-sm px-0.5">
+          <mark key={i} className="rounded-sm bg-warning/20 px-0.5 text-inherit">
             {part.text}
           </mark>
         ) : (

@@ -1,14 +1,8 @@
 import { Terminal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { TerminalPanelProps } from '@/components/terminal/TerminalPanel';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
+import { ControlStateCard } from './ControlStateCard';
 
 type TerminalPanelComponent = React.ComponentType<TerminalPanelProps>;
 
@@ -43,14 +37,13 @@ export function DeferredTerminalPanel({ shouldLoad = true, ...props }: DeferredT
   }
 
   return (
-    <Empty className="h-full border-0">
-      <EmptyMedia variant="icon">
-        <Terminal className="h-4.5 w-4.5" />
-      </EmptyMedia>
-      <EmptyHeader>
-        <EmptyTitle>{t('Loading terminal')}</EmptyTitle>
-        <EmptyDescription>{t('Preparing shell sessions and terminal workspace')}</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <ControlStateCard
+      icon={<Terminal className="h-5 w-5" />}
+      eyebrow={t('Terminal Console')}
+      title={t('Loading terminal')}
+      description={t('Preparing shell sessions and terminal workspace')}
+      chipLabel={t('Terminal Console')}
+      chipTone="wait"
+    />
   );
 }

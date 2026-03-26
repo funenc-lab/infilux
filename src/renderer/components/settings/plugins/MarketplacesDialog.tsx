@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 
 interface MarketplacesDialogProps {
   open: boolean;
@@ -61,14 +62,46 @@ export function MarketplacesDialog({ open, onOpenChange, repoPath }: Marketplace
         repo
       );
       if (success) {
-        toastManager.add({ type: 'success', title: t('Marketplace added') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'marketplace-add',
+            phase: 'success',
+            repo,
+          },
+          t
+        );
+        toastManager.add({
+          type: 'success',
+          title: copy.title,
+          description: copy.description,
+        });
         setNewRepo('');
         await loadMarketplaces();
       } else {
-        toastManager.add({ type: 'error', title: t('Marketplace already exists') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'marketplace-exists',
+            phase: 'error',
+            repo,
+          },
+          t
+        );
+        toastManager.add({
+          type: 'error',
+          title: copy.title,
+          description: copy.description,
+        });
       }
-    } catch {
-      toastManager.add({ type: 'error', title: t('Failed to add marketplace') });
+    } catch (error) {
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'marketplace-add',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
+      toastManager.add({ type: 'error', title: copy.title, description: copy.description });
     } finally {
       setLoading(false);
     }
@@ -81,11 +114,40 @@ export function MarketplacesDialog({ open, onOpenChange, repoPath }: Marketplace
         name
       );
       if (success) {
-        toastManager.add({ type: 'success', title: t('Marketplace removed') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'marketplace-remove',
+            phase: 'success',
+            name,
+          },
+          t
+        );
+        toastManager.add({
+          type: 'success',
+          title: copy.title,
+          description: copy.description,
+        });
         await loadMarketplaces();
+      } else {
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'marketplace-remove',
+            phase: 'error',
+          },
+          t
+        );
+        toastManager.add({ type: 'error', title: copy.title, description: copy.description });
       }
-    } catch {
-      toastManager.add({ type: 'error', title: t('Failed to remove marketplace') });
+    } catch (error) {
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'marketplace-remove',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
+      toastManager.add({ type: 'error', title: copy.title, description: copy.description });
     }
   };
 
@@ -94,13 +156,40 @@ export function MarketplacesDialog({ open, onOpenChange, repoPath }: Marketplace
     try {
       const success = await window.electronAPI.claudeConfig.plugins.marketplaces.refresh(repoPath);
       if (success) {
-        toastManager.add({ type: 'success', title: t('Marketplaces updated') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'marketplace-refresh',
+            phase: 'success',
+            name: t('Plugin Marketplaces'),
+          },
+          t
+        );
+        toastManager.add({
+          type: 'success',
+          title: copy.title,
+          description: copy.description,
+        });
         await loadMarketplaces();
       } else {
-        toastManager.add({ type: 'error', title: t('Failed to update marketplaces') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'marketplace-refresh',
+            phase: 'error',
+          },
+          t
+        );
+        toastManager.add({ type: 'error', title: copy.title, description: copy.description });
       }
-    } catch {
-      toastManager.add({ type: 'error', title: t('Failed to update marketplaces') });
+    } catch (error) {
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'marketplace-refresh',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
+      toastManager.add({ type: 'error', title: copy.title, description: copy.description });
     } finally {
       setRefreshing(false);
     }

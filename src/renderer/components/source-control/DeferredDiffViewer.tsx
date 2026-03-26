@@ -1,12 +1,6 @@
 import { FileCode } from 'lucide-react';
 import { forwardRef, useEffect, useState } from 'react';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { useI18n } from '@/i18n';
 import type { DiffViewerProps } from './DiffViewer';
 
@@ -47,28 +41,30 @@ export const DeferredDiffViewer = forwardRef<unknown, DeferredDiffViewerProps>(
 
     if (!shouldLoad) {
       return (
-        <Empty className="h-full border-0">
-          <EmptyMedia variant="icon">
-            <FileCode className="h-4.5 w-4.5" />
-          </EmptyMedia>
-          <EmptyHeader>
-            <EmptyTitle>{t('Select a file to view changes')}</EmptyTitle>
-            <EmptyDescription>{t('Choose a changed file to open the diff view')}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <div className="flex h-full items-center justify-center p-5">
+          <ConsoleEmptyState
+            variant="embedded"
+            icon={<FileCode className="h-4.5 w-4.5" />}
+            eyebrow={t('Diff Viewer')}
+            title={t('Select a file to view changes')}
+            description={t('Choose a changed file to open the diff view')}
+            chips={[{ label: t('Awaiting Selection'), tone: 'wait' }]}
+          />
+        </div>
       );
     }
 
     return (
-      <Empty className="h-full border-0">
-        <EmptyMedia variant="icon">
-          <FileCode className="h-4.5 w-4.5" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{t('Loading diff viewer')}</EmptyTitle>
-          <EmptyDescription>{t('Preparing the diff runtime')}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="flex h-full items-center justify-center p-5">
+        <ConsoleEmptyState
+          variant="embedded"
+          icon={<FileCode className="h-4.5 w-4.5" />}
+          eyebrow={t('Diff Viewer')}
+          title={t('Loading diff viewer')}
+          description={t('Preparing the diff runtime')}
+          chips={[{ label: t('Loading'), tone: 'wait' }]}
+        />
+      </div>
     );
   }
 );

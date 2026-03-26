@@ -35,7 +35,7 @@ export function CommitHistory({
     return (
       <div className="flex items-center justify-center py-8 text-muted-foreground">
         <GitCommit className="mr-2 h-5 w-5" />
-        {t('No commits yet')}
+        {t('No commits')}
       </div>
     );
   }

@@ -692,6 +692,27 @@
     color: var(--foreground);
   }
 
+  .control-topbar-shell-button {
+    border: 1px solid transparent;
+  }
+
+  .control-topbar-shell-button[data-active="false"] {
+    color: color-mix(in oklch, var(--muted-foreground) 86%, transparent);
+  }
+
+  .control-topbar-shell-button[data-active="true"] {
+    border-color: color-mix(in oklch, var(--border) 78%, transparent);
+    background: color-mix(
+      in oklch,
+      var(--control-surface-muted) 74%,
+      var(--background) 26%
+    );
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent);
+    color: var(--foreground);
+  }
+
   .control-topbar-action[data-priority="primary"] {
     background: color-mix(in oklch, var(--primary) 14%, var(--background) 86%);
     color: color-mix(in oklch, var(--primary) 74%, var(--foreground) 26%);
@@ -948,12 +969,12 @@
 
   .control-sidebar-header {
     display: flex;
-    min-height: 2.5rem;
+    min-height: 2.375rem;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: 0.5rem;
     border-bottom: 1px solid color-mix(in oklch, var(--border) 68%, transparent);
-    padding-inline: 0.625rem 0.5rem;
+    padding-inline: 0.625rem 0.4375rem;
     background: linear-gradient(
       180deg,
       color-mix(in oklch, var(--background) 95%, var(--muted) 5%) 0%,
@@ -981,11 +1002,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.6875rem;
-    font-weight: 650;
-    letter-spacing: 0.08em;
+    font-size: 0.75rem;
+    font-weight: 640;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground) 12%);
+    color: color-mix(in oklch, var(--foreground) 92%, var(--muted-foreground) 8%);
   }
 
   .control-sidebar-subtitle {
@@ -993,46 +1014,51 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.625rem;
-    color: color-mix(in oklch, var(--muted-foreground) 76%, transparent);
+    font-size: 0.59375rem;
+    letter-spacing: 0.01em;
+    color: color-mix(in oklch, var(--muted-foreground) 68%, transparent);
   }
 
   .control-sidebar-count {
     display: inline-flex;
-    min-width: 1.25rem;
-    height: 1.25rem;
+    min-width: 1.125rem;
+    height: 1.125rem;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
     border-radius: 999px;
-    border: 1px solid color-mix(in oklch, var(--border) 76%, transparent);
-    background: color-mix(in oklch, var(--background) 94%, var(--muted) 6%);
-    padding-inline: 0.375rem;
-    font-size: 0.6875rem;
+    border: 1px solid color-mix(in oklch, var(--border) 52%, transparent);
+    background: color-mix(in oklch, var(--background) 96%, var(--muted) 4%);
+    padding-inline: 0.3125rem;
+    font-size: 0.625rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    color: color-mix(in oklch, var(--foreground) 78%, var(--muted-foreground) 22%);
+    color: color-mix(in oklch, var(--muted-foreground) 82%, var(--foreground) 18%);
   }
 
   .control-sidebar-toolbar {
     display: inline-flex;
     align-items: center;
-    gap: 0.1875rem;
-    padding: 0.15625rem;
+    gap: 0.125rem;
+    padding: 0;
     border-radius: 0.625rem;
-    background: color-mix(in oklch, var(--background) 96%, var(--muted) 4%);
+    background: transparent;
   }
 
   .control-sidebar-toolbutton {
     display: inline-flex;
-    height: 2.25rem;
-    width: 2.25rem;
+    height: 2rem;
+    width: 2rem;
     align-items: center;
     justify-content: center;
-    border-radius: 0.4375rem;
-    color: color-mix(in oklch, var(--muted-foreground) 92%, transparent);
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: color-mix(in oklch, var(--muted-foreground) 88%, transparent);
+    box-shadow: inset 0 0 0 1px transparent;
     transition:
       background-color 140ms ease,
+      border-color 140ms ease,
       color 140ms ease,
       box-shadow 140ms ease;
   }
@@ -1040,13 +1066,14 @@
   .control-sidebar-toolbutton:hover {
     background: color-mix(
       in oklch,
-      var(--control-surface-muted) 58%,
-      transparent
+      var(--control-surface-muted) 42%,
+      var(--background) 58%
     );
     color: var(--foreground);
   }
 
   .control-sidebar-toolbutton:focus-visible {
+    outline: 2px solid color-mix(in oklch, var(--ring) 72%, transparent);
     outline-offset: 1px;
   }
 
@@ -1056,12 +1083,15 @@
       var(--foreground) 86%,
       var(--muted-foreground) 14%
     );
-    background: radial-gradient(
-      circle at 50% 50%,
-      color-mix(in oklch, var(--control-surface) 88%, transparent) 0,
-      color-mix(in oklch, var(--control-surface) 52%, transparent) 58%,
-      transparent 100%
+    border-color: color-mix(in oklch, var(--border) 66%, transparent);
+    background: color-mix(
+      in oklch,
+      var(--control-surface-muted) 58%,
+      var(--background) 42%
     );
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 0 0 1px color-mix(in oklch, var(--foreground) 2%, transparent);
   }
 
   .control-sidebar-filter {
@@ -1650,15 +1680,7 @@
 
 /* Monaco Editor - Current diff highlight */
 .current-diff-highlight {
-  background-color: rgba(255, 255, 255, 0.08) !important;
-}
-
-.dark .current-diff-highlight {
-  background-color: rgba(255, 255, 255, 0.08) !important;
-}
-
-:root .current-diff-highlight {
-  background-color: rgba(0, 0, 0, 0.06) !important;
+  background-color: color-mix(in oklab, var(--foreground) 8%, transparent) !important;
 }
 
 .current-diff-gutter {

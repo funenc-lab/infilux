@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 
 interface PluginBrowserDialogProps {
   open: boolean;
@@ -84,7 +85,19 @@ export function PluginBrowserDialog({
       );
 
       if (success) {
-        toastManager.add({ type: 'success', title: t('Plugin installed') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'plugin-install',
+            phase: 'success',
+            id: pluginId,
+          },
+          t
+        );
+        toastManager.add({
+          type: 'success',
+          title: copy.title,
+          description: copy.description,
+        });
         // 本地更新状态，避免重新加载导致滚动重置
         setPlugins((prev) =>
           prev.map((p) =>
@@ -95,10 +108,25 @@ export function PluginBrowserDialog({
         );
         onInstalled?.();
       } else {
-        toastManager.add({ type: 'error', title: t('Failed to install plugin') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'plugin-install',
+            phase: 'error',
+          },
+          t
+        );
+        toastManager.add({ type: 'error', title: copy.title, description: copy.description });
       }
-    } catch {
-      toastManager.add({ type: 'error', title: t('Failed to install plugin') });
+    } catch (error) {
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'plugin-install',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
+      toastManager.add({ type: 'error', title: copy.title, description: copy.description });
     } finally {
       setInstalling(null);
     }
@@ -112,7 +140,19 @@ export function PluginBrowserDialog({
       const success = await window.electronAPI.claudeConfig.plugins.uninstall(repoPath, pluginId);
 
       if (success) {
-        toastManager.add({ type: 'success', title: t('Plugin uninstalled') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'plugin-uninstall',
+            phase: 'success',
+            id: pluginId,
+          },
+          t
+        );
+        toastManager.add({
+          type: 'success',
+          title: copy.title,
+          description: copy.description,
+        });
         // 本地更新状态，避免重新加载导致滚动重置
         setPlugins((prev) =>
           prev.map((p) =>
@@ -123,10 +163,25 @@ export function PluginBrowserDialog({
         );
         onInstalled?.();
       } else {
-        toastManager.add({ type: 'error', title: t('Failed to uninstall plugin') });
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'plugin-uninstall',
+            phase: 'error',
+          },
+          t
+        );
+        toastManager.add({ type: 'error', title: copy.title, description: copy.description });
       }
-    } catch {
-      toastManager.add({ type: 'error', title: t('Failed to uninstall plugin') });
+    } catch (error) {
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'plugin-uninstall',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
+      toastManager.add({ type: 'error', title: copy.title, description: copy.description });
     } finally {
       setInstalling(null);
     }

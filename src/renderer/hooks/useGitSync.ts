@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildSourceControlWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { useGitPull, useGitPush, useGitStatus } from './useGit';
 
 interface UseGitSyncOptions {
@@ -58,43 +59,34 @@ export function useGitSync({ workdir, enabled = true }: UseGitSyncOptions) {
       }
       refetchStatus();
 
-      if (pulled && pushed) {
-        toastManager.add({
-          title: t('Sync completed'),
-          description: t('Pulled {{pulled}} commit(s), pushed {{pushed}} commit(s) on {{branch}}', {
-            pulled: behindVal,
-            pushed: aheadVal,
-            branch: branch ?? '',
-          }),
-          type: 'success',
-          timeout: 3000,
-        });
-      } else if (pulled) {
-        toastManager.add({
-          title: t('Sync completed'),
-          description: t('Pulled {{count}} commit(s) on {{branch}}', {
-            count: behindVal,
-            branch: branch ?? '',
-          }),
-          type: 'success',
-          timeout: 3000,
-        });
-      } else if (pushed) {
-        toastManager.add({
-          title: t('Sync completed'),
-          description: t('Pushed {{count}} commit(s) on {{branch}}', {
-            count: aheadVal,
-            branch: branch ?? '',
-          }),
-          type: 'success',
-          timeout: 3000,
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const successCopy = buildSourceControlWorkflowToastCopy(
+        {
+          action: 'sync',
+          phase: 'success',
+          branch: branch ?? '',
+          pulled: pulled ? behindVal : 0,
+          pushed: pushed ? aheadVal : 0,
+        },
+        t
+      );
       toastManager.add({
-        title: t('Sync failed'),
-        description: message,
+        title: successCopy.title,
+        description: successCopy.description,
+        type: 'success',
+        timeout: pulled || pushed ? 3000 : 2000,
+      });
+    } catch (error) {
+      const errorCopy = buildSourceControlWorkflowToastCopy(
+        {
+          action: 'sync',
+          phase: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+        t
+      );
+      toastManager.add({
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });
@@ -115,19 +107,32 @@ export function useGitSync({ workdir, enabled = true }: UseGitSyncOptions) {
       });
       refetchStatus();
 
-      toastManager.add({
-        title: t('Branch published'),
-        description: t('Branch {{branch}} is now tracking origin/{{branch}}', {
+      const successCopy = buildSourceControlWorkflowToastCopy(
+        {
+          action: 'publish',
+          phase: 'success',
           branch,
-        }),
+        },
+        t
+      );
+      toastManager.add({
+        title: successCopy.title,
+        description: successCopy.description,
         type: 'success',
         timeout: 3000,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const errorCopy = buildSourceControlWorkflowToastCopy(
+        {
+          action: 'publish',
+          phase: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Publish failed'),
-        description: message,
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });

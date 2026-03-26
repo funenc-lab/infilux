@@ -1,11 +1,5 @@
 import { KanbanSquare } from 'lucide-react';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { useI18n } from '@/i18n';
 import { KanbanBoard } from './KanbanBoard';
 
@@ -21,17 +15,14 @@ export function TodoPanel({ repoPath, worktreePath, onSwitchToAgent }: TodoPanel
 
   if (!repoPath) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <Empty className="border-0">
-          <EmptyMedia variant="icon">
-            <KanbanSquare className="h-4.5 w-4.5" />
-          </EmptyMedia>
-          <EmptyHeader>
-            <EmptyTitle>{t('No repository selected')}</EmptyTitle>
-            <EmptyDescription>{t('Select a repository to manage tasks')}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </div>
+      <ControlStateCard
+        icon={<KanbanSquare className="h-5 w-5" />}
+        eyebrow={t('Todo')}
+        title={t('No repository selected')}
+        description={t('Select a repository to manage tasks')}
+        chipLabel={t('Todo')}
+        chipTone="wait"
+      />
     );
   }
 

@@ -23,6 +23,12 @@ import {
   useSettingsStore,
 } from '@/stores/settings';
 import { AUTO_SAVE_DELAY_DEFAULT } from './constants';
+import { getReadabilityWhitespaceLabelKey } from './editorReadabilityLabels';
+import {
+  applyEditorReadabilityPreset,
+  EDITOR_READABILITY_PRESETS,
+  getMatchingEditorReadabilityPreset,
+} from './editorReadabilityPresets';
 
 export function EditorSettings() {
   const { editorSettings, setEditorSettings } = useSettingsStore();
@@ -188,9 +194,75 @@ export function EditorSettings() {
   );
 
   const tabSizeOptions = [2, 4, 8];
+  const activeReadabilityPreset = useMemo(
+    () => getMatchingEditorReadabilityPreset(editorSettings),
+    [editorSettings]
+  );
+  const handleApplyReadabilityPreset = React.useCallback(
+    (presetId: (typeof EDITOR_READABILITY_PRESETS)[number]['id']) => {
+      setEditorSettings(applyEditorReadabilityPreset(editorSettings, presetId));
+    },
+    [editorSettings, setEditorSettings]
+  );
 
   return (
     <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-medium">{t('Reading profile')}</h3>
+        <p className="text-sm text-muted-foreground">
+          {t('Apply a tuned editor profile before adjusting individual controls')}
+        </p>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-3">
+        {EDITOR_READABILITY_PRESETS.map((preset) => {
+          const isActive = activeReadabilityPreset === preset.id;
+
+          return (
+            <button
+              type="button"
+              key={preset.id}
+              onClick={() => handleApplyReadabilityPreset(preset.id)}
+              className={`rounded-2xl border p-4 text-left transition-colors ${
+                isActive
+                  ? 'border-primary bg-accent/40 text-foreground'
+                  : 'border-border/70 bg-muted/20 hover:bg-muted/45'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">{t(preset.labelKey)}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {t(preset.descriptionKey)}
+                  </p>
+                </div>
+                {isActive ? (
+                  <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                    {t('Current')}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full border border-border/70 bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                  {t('Size')} {preset.patch.fontSize}
+                </span>
+                <span className="rounded-full border border-border/70 bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                  {t('Line height')} {preset.patch.lineHeight}
+                </span>
+                <span className="rounded-full border border-border/70 bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                  {t('Whitespace')}:{' '}
+                  {t(getReadabilityWhitespaceLabelKey(preset.patch.renderWhitespace))}
+                </span>
+                <span className="rounded-full border border-border/70 bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                  {t('Word wrap')}: {t(preset.patch.wordWrap === 'on' ? 'On' : 'Off')}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Font Section */}
       <div>
         <h3 className="text-lg font-medium">{t('Font')}</h3>

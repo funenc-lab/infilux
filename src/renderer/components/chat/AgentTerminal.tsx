@@ -9,10 +9,12 @@ import { useRepositoryRuntimeContext } from '@/hooks/useRepositoryRuntimeContext
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
 import { useI18n } from '@/i18n';
+import { buildChatNotificationCopy } from '@/lib/feedbackCopy';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { buildAgentLaunchPlan } from './agentLaunchPlan';
 
 interface AgentTerminalProps {
   id?: string; // Terminal session ID (UI key)
@@ -288,204 +290,29 @@ export function AgentTerminal({
     };
   }, [terminalSessionId, clearRuntimeState, stopActivityPolling]);
 
-  // Cleanup tmux session on unmount
-  useEffect(() => {
-    return () => {
-      if (tmuxSessionNameRef.current) {
-        window.electronAPI.tmux.killSession(cwd, tmuxSessionNameRef.current);
-      }
-    };
-  }, [cwd]);
-
   // Build command with session args
   const { command, env, initialCommand } = useMemo(() => {
-    if (!isRemoteExecution && !resolvedShell) {
-      return { command: undefined, env: undefined, initialCommand: undefined };
-    }
-
-    // Use custom path if provided, otherwise use agentCommand
-    const effectiveCommand = customPath || agentCommand;
-
-    const supportsSession = agentCommand?.startsWith('claude') || agentCommand === 'cursor-agent';
-    // Only Claude CLI supports --ide; Cursor CLI does not (errors with "unknown option '--ide'")
-    const supportIde = agentCommand?.startsWith('claude');
-    const effectiveSessionId = resumeSessionId;
-
-    // Build agent args: cursor-agent and initialized claude use --resume; otherwise --session-id
-    let agentArgs: string[] = [];
-    if (supportsSession && effectiveSessionId) {
-      if (agentCommand === 'cursor-agent' || initialized) {
-        agentArgs = ['--resume', effectiveSessionId];
-      } else {
-        agentArgs = ['--session-id', effectiveSessionId];
-      }
-    }
-
-    if (supportIde) {
-      agentArgs.push('--ide');
-    }
-
-    // Append custom args if provided
-    if (customArgs) {
-      agentArgs.push(customArgs);
-    }
-
-    const isWindows = executionPlatform === 'win32';
-
-    // Append initial prompt as CLI positional argument (for auto-execute)
-    // Most CLI agents (claude, codex, gemini, etc.) accept a prompt as trailing argument
-    if (initialPrompt) {
-      if (isWindows) {
-        // Windows: use double quotes with PowerShell/cmd compatible escaping
-        // Escape: backslashes (double them), double quotes (backslash), backticks (PowerShell)
-        const escaped = initialPrompt
-          .replace(/\\/g, '\\\\')
-          .replace(/"/g, '\\"')
-          .replace(/`/g, '``')
-          .replace(/%/g, '%%') // cmd variable expansion
-          .replace(/\$/g, '`$') // PowerShell variable expansion
-          .replace(/\n/g, ' '); // Replace newlines with spaces for Windows
-        agentArgs.push(`"${escaped}"`);
-      } else {
-        // Unix: use $'...' ANSI-C quoting syntax (bash/zsh compatible)
-        // This handles: backslashes, single quotes, and newlines
-        const escaped = initialPrompt
-          .replace(/\\/g, '\\\\')
-          .replace(/'/g, "\\'")
-          .replace(/\n/g, '\\n');
-        agentArgs.push(`$'${escaped}'`);
-      }
-    }
-    let envVars: Record<string, string> | undefined;
-
-    // Hapi environment: run through hapi (global) or npx @twsxtd/hapi with CLI_API_TOKEN
-    if (environment === 'hapi') {
-      // Wait for hapi global check to complete - return undefined to delay terminal init
-      if (hapiGlobalInstalled === null) {
-        return { command: undefined, env: undefined, initialCommand: undefined };
-      }
-
-      // Use global 'hapi' command if installed, otherwise use npx
-      const hapiPrefix = hapiGlobalInstalled ? 'hapi' : 'npx -y @twsxtd/hapi';
-      // claude is default for hapi, so omit agent name for claude
-      const hapiArgs = agentCommand?.startsWith('claude') ? '' : effectiveCommand;
-      const hapiCommand = `${hapiPrefix} ${hapiArgs} ${agentArgs.join(' ')}`.trim();
-
-      // Pass CLI_API_TOKEN from hapiSettings
-      if (hapiSettings.cliApiToken) {
-        envVars = { CLI_API_TOKEN: hapiSettings.cliApiToken };
-      }
-
-      if (isRemoteExecution) {
-        return {
-          command: undefined,
-          env: envVars,
-          initialCommand: hapiCommand,
-        };
-      }
-
-      return {
-        command: {
-          shell: resolvedShell!.shell,
-          args: [...resolvedShell!.execArgs, hapiCommand],
-        },
-        env: envVars,
-        initialCommand: undefined,
-      };
-    }
-
-    // Happy environment: run through 'happy' command
-    // claude -> happy (claude is default), codex -> happy codex
-    if (environment === 'happy') {
-      const happyArgs = agentCommand?.startsWith('claude') ? '' : effectiveCommand;
-      const happyCommand = `happy ${happyArgs} ${agentArgs.join(' ')}`.trim();
-
-      if (isRemoteExecution) {
-        return {
-          command: undefined,
-          env: envVars,
-          initialCommand: happyCommand,
-        };
-      }
-
-      return {
-        command: {
-          shell: resolvedShell!.shell,
-          args: [...resolvedShell!.execArgs, happyCommand],
-        },
-        env: envVars,
-        initialCommand: undefined,
-      };
-    }
-
-    // Safe: all interpolated values (effectiveCommand, agentArgs, tmuxSessionName) are
-    // derived from internal app config / controlled constants, not from arbitrary user input.
-    const fullCommand = `${effectiveCommand} ${agentArgs.join(' ')}`.trim();
-
-    // Determine if tmux wrapping should be applied
-    const isClaude = agentCommand?.startsWith('claude') ?? false;
-    const shouldUseTmux = claudeCodeIntegration.tmuxEnabled && isClaude && !isWindows;
-
-    // Build tmux session name from terminal session ID
-    const tmuxSessionName =
-      shouldUseTmux && terminalSessionId
-        ? `enso-${terminalSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_')
-        : null;
-    tmuxSessionNameRef.current = tmuxSessionName;
-
-    // Wrap command in tmux if enabled
-    let finalCommand = fullCommand;
-    if (tmuxSessionName) {
-      const escaped = fullCommand.replace(/'/g, "'\\''");
-      finalCommand = `env -u TMUX tmux -L enso -f /dev/null new-session -A -s ${tmuxSessionName} '${escaped}'`;
-    }
-
-    if (isRemoteExecution) {
-      return {
-        command: undefined,
-        env: envVars,
-        initialCommand: finalCommand,
-      };
-    }
-
-    const shellName = resolvedShell!.shell.toLowerCase();
-
-    // WSL: detect from shell name (wsl.exe)
-    if (shellName.includes('wsl') && isWindows) {
-      // Use -e to run command directly, sh -lc loads login profile
-      // exec $SHELL replaces with user's shell (zsh/bash/etc.)
-      const escapedCommand = finalCommand.replace(/"/g, '\\"');
-      return {
-        command: {
-          shell: 'wsl.exe',
-          args: ['-e', 'sh', '-lc', `exec "$SHELL" -ilc "${escapedCommand}"`],
-        },
-        env: envVars,
-        initialCommand: undefined,
-      };
-    }
-
-    // PowerShell: wrap command in script block to preserve argument structure
-    // Without this, PowerShell interprets args like --session-id as its own parameters
-    if (shellName.includes('powershell') || shellName.includes('pwsh')) {
-      return {
-        command: {
-          shell: resolvedShell!.shell,
-          args: [...resolvedShell!.execArgs, `& { ${finalCommand} }`],
-        },
-        env: envVars,
-        initialCommand: undefined,
-      };
-    }
-
-    // Native environment: use user's configured shell
+    const plan = buildAgentLaunchPlan({
+      agentCommand,
+      customPath,
+      customArgs,
+      initialPrompt,
+      resumeSessionId,
+      initialized,
+      environment,
+      hapiGlobalInstalled,
+      hapiCliApiToken: hapiSettings.cliApiToken,
+      isRemoteExecution,
+      executionPlatform,
+      tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
+      resolvedShell,
+      terminalSessionId,
+    });
+    tmuxSessionNameRef.current = plan.tmuxSessionName;
     return {
-      command: {
-        shell: resolvedShell!.shell,
-        args: [...resolvedShell!.execArgs, finalCommand],
-      },
-      env: envVars,
-      initialCommand: undefined,
+      command: plan.command,
+      env: plan.env,
+      initialCommand: plan.initialCommand,
     };
   }, [
     agentCommand,
@@ -499,8 +326,8 @@ export function AgentTerminal({
     hapiGlobalInstalled,
     isRemoteExecution,
     executionPlatform,
-    resolvedShell,
     claudeCodeIntegration.tmuxEnabled,
+    resolvedShell,
     terminalSessionId,
   ]);
 
@@ -586,9 +413,17 @@ export function AgentTerminal({
           const projectName = cwd?.split('/').pop() || 'Unknown';
           const notificationBody = currentTitleRef.current || projectName;
           if (!terminalSessionId) return;
+          const notificationCopy = buildChatNotificationCopy(
+            {
+              action: 'command-completed',
+              command: agentCommand,
+              body: notificationBody,
+            },
+            t
+          );
           window.electronAPI.notification.show({
-            title: t('{{command}} completed', { command: agentCommand }),
-            body: notificationBody,
+            title: notificationCopy.title,
+            body: notificationCopy.body,
             sessionId: terminalSessionId,
           });
         }

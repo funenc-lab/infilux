@@ -1,14 +1,8 @@
 import { KanbanSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { TodoPanelProps } from '@/components/todo/TodoPanel';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
+import { ControlStateCard } from './ControlStateCard';
 
 type TodoPanelComponent = React.ComponentType<TodoPanelProps>;
 
@@ -43,14 +37,13 @@ export function DeferredTodoPanel({ shouldLoad = true, ...props }: DeferredTodoP
   }
 
   return (
-    <Empty className="h-full border-0">
-      <EmptyMedia variant="icon">
-        <KanbanSquare className="h-4.5 w-4.5" />
-      </EmptyMedia>
-      <EmptyHeader>
-        <EmptyTitle>{t('Loading tasks')}</EmptyTitle>
-        <EmptyDescription>{t('Preparing the kanban board')}</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <ControlStateCard
+      icon={<KanbanSquare className="h-5 w-5" />}
+      eyebrow={t('Todo')}
+      title={t('Loading tasks')}
+      description={t('Preparing the kanban board')}
+      chipLabel={t('Todo')}
+      chipTone="wait"
+    />
   );
 }

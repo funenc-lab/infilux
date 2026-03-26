@@ -6,6 +6,7 @@ import { useI18n } from '@/i18n';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
+import { ConsoleEmptyState } from '../layout/ConsoleEmptyState';
 import type { TerminalGroup as TerminalGroupType, TerminalTab } from './types';
 import { getNextTabName } from './types';
 
@@ -378,16 +379,38 @@ export function TerminalGroup({
       {hasNoTabs && (
         <div
           className={cn(
-            'flex h-full w-full flex-col items-center justify-center gap-4 text-muted-foreground',
+            'flex h-full w-full items-center justify-center px-5 py-5',
             !bgImageEnabled && 'bg-background'
           )}
         >
-          <Terminal className="h-12 w-12 opacity-50" />
-          <p className="text-sm">{t('No terminals open')}</p>
-          <Button variant="outline" size="sm" onClick={handleNewTab}>
-            <Plus className="mr-2 h-4 w-4" />
-            {t('New Terminal')}
-          </Button>
+          <ConsoleEmptyState
+            variant="embedded"
+            className="max-w-[min(34rem,100%)]"
+            icon={<Terminal className="h-4.5 w-4.5" />}
+            eyebrow={t('Terminal Group')}
+            title={t('No terminals open in this group')}
+            description={t(
+              'Open a shell in this split to run commands, inspect output, or keep a process attached to the current worktree.'
+            )}
+            chips={[{ label: t('Awaiting Shell'), tone: 'wait' }]}
+            details={[
+              { label: t('Status'), value: t('No terminal tabs are attached') },
+              { label: t('Runtime'), value: t('Shell sessions stay mounted by worktree') },
+              { label: t('Next Step'), value: t('Create a terminal and start executing commands') },
+            ]}
+            detailsLayout="compact"
+            actions={
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleNewTab}
+                className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+              >
+                <Plus className="h-4 w-4" />
+                {t('New Terminal')}
+              </Button>
+            }
+          />
         </div>
       )}
     </div>

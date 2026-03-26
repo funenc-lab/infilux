@@ -1,5 +1,6 @@
-import type { ClaudeProvider } from '@shared/types';
+import type { ClaudeProvider, PersistentAgentRuntimeState } from '@shared/types';
 import { getDisplayPathBasename } from '@shared/utils/path';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Ban,
@@ -14,7 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { GlowState } from '@/components/ui/glow-card';
+import { getActivityStateMeta } from '@/components/ui/activityStatus';
 import { GlowCard, useGlowEffectEnabled } from '@/components/ui/glow-card';
 import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
@@ -25,8 +26,10 @@ import {
   isClaudeProviderMatch,
   markClaudeProviderSwitch,
 } from '@/lib/claudeProvider';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
+import { resolvePersistedInstalledAgents, resolveRemoteInstalledAgents } from './agentAvailability';
 
 const STORAGE_KEY = 'enso-session-bar';
 const EDGE_THRESHOLD = 20; // pixels from edge
@@ -49,6 +52,8 @@ export interface Session {
   terminalTitle?: string; // current terminal title from OSC escape sequence
   userRenamed?: boolean; // true when user has manually renamed this session
   pendingCommand?: string; // command to send after agent is ready (e.g., from todo task)
+  recovered?: boolean;
+  recoveryState?: PersistentAgentRuntimeState;
 }
 
 interface SessionBarProps {
@@ -92,39 +97,6 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = {
   cursor: { name: 'Cursor', command: 'cursor-agent' },
   opencode: { name: 'OpenCode', command: 'opencode' },
 };
-
-function getSessionStateMeta(state: GlowState): {
-  label: string;
-  chipClassName: string;
-  dotClassName: string;
-} {
-  switch (state) {
-    case 'running':
-      return {
-        label: 'LIVE',
-        chipClassName: 'control-chip-live',
-        dotClassName: 'bg-emerald-500',
-      };
-    case 'waiting_input':
-      return {
-        label: 'WAIT',
-        chipClassName: 'control-chip-wait',
-        dotClassName: 'bg-amber-500',
-      };
-    case 'completed':
-      return {
-        label: 'DONE',
-        chipClassName: 'control-chip-done',
-        dotClassName: 'bg-sky-500',
-      };
-    default:
-      return {
-        label: 'IDLE',
-        chipClassName: '',
-        dotClassName: 'bg-muted-foreground/45',
-      };
-  }
-}
 
 // Session tab with glow effect
 interface SessionTabProps {
@@ -330,7 +302,7 @@ function SessionTab({
 }: SessionTabProps) {
   const outputState = useSessionOutputState(session.id);
   const glowEnabled = useGlowEffectEnabled();
-  const stateMeta = getSessionStateMeta(outputState);
+  const stateMeta = getActivityStateMeta(outputState);
 
   // When glow effect is disabled, use simple button with indicator dot
   if (!glowEnabled) {
@@ -550,25 +522,46 @@ export function SessionBar({
     onSuccess: (success, provider) => {
       if (!success) {
         clearClaudeProviderSwitch();
+        const errorCopy = buildSettingsWorkflowToastCopy(
+          { action: 'provider-switch', phase: 'error' },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('Switch failed'),
+          title: errorCopy.title,
+          description: errorCopy.description,
         });
         return;
       }
       queryClient.invalidateQueries({ queryKey: ['claude-settings', repoPath ?? null] });
+      const successCopy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'provider-switch',
+          phase: 'success',
+          name: provider.name,
+        },
+        t
+      );
       toastManager.add({
         type: 'success',
-        title: t('Provider switched'),
-        description: provider.name,
+        title: successCopy.title,
+        description: successCopy.description,
       });
     },
     onError: (error) => {
       clearClaudeProviderSwitch();
+      const errorCopy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'provider-switch',
+          phase: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+        t
+      );
       toastManager.add({
         type: 'error',
-        title: t('Switch failed'),
-        description: error instanceof Error ? error.message : String(error),
+        title: errorCopy.title,
+        description: errorCopy.description,
       });
     },
   });
@@ -670,54 +663,78 @@ export function SessionBar({
 
   // Get enabled agents from settings (use persisted detection status, no scanning)
   const { agentSettings, agentDetectionStatus, customAgents, hapiSettings } = useSettingsStore();
+  const isRemoteRepo = useMemo(
+    () => Boolean(repoPath && isRemoteVirtualPath(repoPath)),
+    [repoPath]
+  );
 
-  // Build installed agents set from persisted detection status
+  // Build installed agents from persisted local detection or remote runtime probing.
   useEffect(() => {
     const enabledAgentIds = Object.keys(agentSettings).filter((id) => agentSettings[id]?.enabled);
-    const newInstalled = new Set<string>();
-
-    for (const agentId of enabledAgentIds) {
-      // Default agent is always considered installed (no detection needed)
-      // This ensures the default agent shows in menu even if user never ran detection
-      if (agentSettings[agentId]?.isDefault) {
-        newInstalled.add(agentId);
-        continue;
-      }
-
-      // Handle Hapi agents: check if base CLI is detected as installed
-      if (agentId.endsWith('-hapi')) {
-        if (!hapiSettings.enabled) continue;
-        const baseId = agentId.slice(0, -5);
-        if (agentDetectionStatus[baseId]?.installed) {
-          newInstalled.add(agentId);
-        }
-        continue;
-      }
-
-      // Handle Happy agents: check if base CLI is detected as installed
-      if (agentId.endsWith('-happy')) {
-        const baseId = agentId.slice(0, -6);
-        if (agentDetectionStatus[baseId]?.installed) {
-          newInstalled.add(agentId);
-        }
-        continue;
-      }
-
-      // Regular agents: use persisted detection status
-      if (agentDetectionStatus[agentId]?.installed) {
-        newInstalled.add(agentId);
-      }
+    if (enabledAgentIds.length === 0) {
+      setInstalledAgents(new Set());
+      return;
     }
 
-    setInstalledAgents(newInstalled);
-  }, [agentSettings, agentDetectionStatus, hapiSettings.enabled]);
+    if (!isRemoteRepo || !repoPath) {
+      setInstalledAgents(
+        resolvePersistedInstalledAgents({
+          agentSettings,
+          agentDetectionStatus,
+          hapiEnabled: hapiSettings.enabled,
+          happyEnabled: hapiSettings.happyEnabled,
+          trustDefaultAgent: true,
+        })
+      );
+      return;
+    }
+
+    let cancelled = false;
+    void resolveRemoteInstalledAgents(
+      {
+        enabledAgentIds,
+        agentSettings,
+        customAgents,
+        hapiEnabled: hapiSettings.enabled,
+        happyEnabled: hapiSettings.happyEnabled,
+      },
+      {
+        detectCli: (agentId, customAgent, customPath) =>
+          window.electronAPI.cli.detectOne(repoPath, agentId, customAgent, customPath),
+        checkHapi: () => window.electronAPI.hapi.checkGlobal(repoPath, false),
+        checkHappy: () => window.electronAPI.happy.checkGlobal(repoPath, false),
+      }
+    )
+      .then((nextInstalledAgents) => {
+        if (!cancelled) {
+          setInstalledAgents(nextInstalledAgents);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInstalledAgents(new Set());
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    agentSettings,
+    agentDetectionStatus,
+    customAgents,
+    hapiSettings.enabled,
+    hapiSettings.happyEnabled,
+    isRemoteRepo,
+    repoPath,
+  ]);
 
   // Filter to only enabled AND installed agents (includes WSL/Hapi variants)
   // For Hapi agents, also check if hapi is still enabled
   const enabledAgents = Object.keys(agentSettings).filter((id) => {
     if (!agentSettings[id]?.enabled || !installedAgents.has(id)) return false;
-    // Hapi agents require hapiSettings.enabled
     if (id.endsWith('-hapi') && !hapiSettings.enabled) return false;
+    if (id.endsWith('-happy') && !hapiSettings.happyEnabled) return false;
     return true;
   });
   const activeSession = useMemo(
@@ -725,7 +742,7 @@ export function SessionBar({
     [sessions, activeSessionId]
   );
   const activeSessionState = useSessionOutputState(activeSessionId ?? '');
-  const activeSessionMeta = getSessionStateMeta(activeSessionState);
+  const activeSessionMeta = getActivityStateMeta(activeSessionState);
   const repoLabel = repoPath ? getDisplayPathBasename(repoPath) : null;
 
   // Save state
@@ -893,266 +910,264 @@ export function SessionBar({
             <Sparkles className="h-4 w-4 text-muted-foreground" />
           </div>
         ) : (
-          <div className="control-toolbar flex max-w-[calc(100vw-1rem)] min-w-0 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden rounded-2xl px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:max-w-[calc(100vw-2rem)]">
-            <div className="hidden items-center gap-2 pr-2 text-xs text-muted-foreground md:flex">
-              <span>{repoLabel ?? 'AI'}</span>
-              {activeSession ? (
-                <>
-                  <span className="text-border">/</span>
-                  <span className="truncate">{getSessionDisplayName(activeSession)}</span>
-                </>
-              ) : null}
-              <span className="text-border">/</span>
-              <span>{activeSessionMeta.label}</span>
-            </div>
+          <div className="control-toolbar flex max-w-[calc(100vw-1rem)] min-w-0 items-center gap-1 rounded-2xl px-2 py-1.5 sm:max-w-[calc(100vw-2rem)]">
+            <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="hidden items-center gap-2 pr-2 text-xs text-muted-foreground md:flex">
+                <span>{repoLabel ?? 'AI'}</span>
+                {activeSession ? (
+                  <>
+                    <span className="text-border">/</span>
+                    <span className="truncate">{getSessionDisplayName(activeSession)}</span>
+                  </>
+                ) : null}
+                <span className="text-border">/</span>
+                <span>{activeSessionMeta.label}</span>
+              </div>
 
-            <div className="control-divider mx-1 hidden h-4 w-px md:block" />
+              <div className="control-divider mx-1 hidden h-4 w-px md:block" />
 
-            <div
-              className="flex h-7 w-4 cursor-grab items-center justify-center text-muted-foreground/50"
-              onMouseDown={handleMouseDown}
-            >
-              <GripVertical className="h-3.5 w-3.5" />
-            </div>
-
-            {sessions.map((session, index) => (
-              <SessionTab
-                key={session.id}
-                session={session}
-                index={index}
-                isActive={activeSessionId === session.id}
-                isEditing={editingId === session.id}
-                editingName={editingName}
-                isDragging={draggedTabIndexRef.current === index}
-                dropTargetIndex={dropTargetIndex}
-                draggedTabIndex={draggedTabIndexRef.current}
-                inputRef={inputRef}
-                onSelect={() => onSelectSession(session.id)}
-                onClose={() => onCloseSession(session.id)}
-                onStartEdit={() => handleStartEdit(session)}
-                onEditingNameChange={setEditingName}
-                onFinishEdit={handleFinishEdit}
-                onKeyDown={handleKeyDown}
-                onDragStart={(e) => handleTabDragStart(e, index)}
-                onDragEnd={handleTabDragEnd}
-                onDragOver={(e) => handleTabDragOver(e, index)}
-                onDragLeave={handleTabDragLeave}
-                onDrop={(e) => handleTabDrop(e, index)}
-              />
-            ))}
-
-            <div className="control-divider mx-1 h-5 w-px" />
-
-            <div
-              className="relative"
-              onMouseEnter={handleAddMouseEnter}
-              onMouseLeave={() => setShowAgentMenu(false)}
-            >
-              <button
-                type="button"
-                onClick={handleAddClick}
-                className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+              <div
+                className="flex h-7 w-4 cursor-grab items-center justify-center text-muted-foreground/50"
+                onMouseDown={handleMouseDown}
               >
-                <Plus className="h-4 w-4" />
-              </button>
+                <GripVertical className="h-3.5 w-3.5" />
+              </div>
 
-              {/* Agent selection menu for new session */}
-              {showAgentMenu && (
-                <div
-                  className={cn(
-                    'absolute right-[-10px] z-50 min-w-32',
-                    // Show menu above when bar is in bottom half of container
-                    containerRef.current &&
-                      state.y > containerRef.current.getBoundingClientRect().height / 2
-                      ? 'bottom-full pb-1'
-                      : 'top-full pt-1'
-                  )}
-                >
-                  <div className="control-menu rounded-2xl p-2">
-                    <div className="mb-1 flex items-center justify-between px-1 py-1">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {t('Select Agent')}
-                      </span>
-                      <Tooltip>
-                        <TooltipTrigger render={<span />}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowAgentMenu(false);
-                              window.dispatchEvent(new CustomEvent('open-settings-agent'));
-                            }}
-                            className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            <Settings className="h-3.5 w-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipPopup side="right">{t('Manage Agents')}</TooltipPopup>
-                      </Tooltip>
-                    </div>
-                    {[...enabledAgents]
-                      .sort((a, b) => {
-                        const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
-                        const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
-                        return bDefault - aDefault;
-                      })
-                      .map((agentId) => {
-                        const isHapi = agentId.endsWith('-hapi');
-                        const isHappy = agentId.endsWith('-happy');
-                        const baseId = isHapi
-                          ? agentId.slice(0, -5)
-                          : isHappy
-                            ? agentId.slice(0, -6)
-                            : agentId;
-                        const customAgent = customAgents.find((a) => a.id === baseId);
-                        const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? baseId;
-                        const name = isHapi
-                          ? `${baseName} (Hapi)`
-                          : isHappy
-                            ? `${baseName} (Happy)`
-                            : baseName;
-                        const isDefault = agentSettings[agentId]?.isDefault;
-                        return (
-                          <button
-                            type="button"
-                            key={agentId}
-                            onClick={() => handleSelectAgent(agentId)}
-                            className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent/40 hover:text-foreground whitespace-nowrap"
-                          >
-                            <span className="min-w-0 flex-1 truncate">{name}</span>
-                            {isDefault ? (
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {t('Default')}
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
+              {sessions.map((session, index) => (
+                <SessionTab
+                  key={session.id}
+                  session={session}
+                  index={index}
+                  isActive={activeSessionId === session.id}
+                  isEditing={editingId === session.id}
+                  editingName={editingName}
+                  isDragging={draggedTabIndexRef.current === index}
+                  dropTargetIndex={dropTargetIndex}
+                  draggedTabIndex={draggedTabIndexRef.current}
+                  inputRef={inputRef}
+                  onSelect={() => onSelectSession(session.id)}
+                  onClose={() => onCloseSession(session.id)}
+                  onStartEdit={() => handleStartEdit(session)}
+                  onEditingNameChange={setEditingName}
+                  onFinishEdit={handleFinishEdit}
+                  onKeyDown={handleKeyDown}
+                  onDragStart={(e) => handleTabDragStart(e, index)}
+                  onDragEnd={handleTabDragEnd}
+                  onDragOver={(e) => handleTabDragOver(e, index)}
+                  onDragLeave={handleTabDragLeave}
+                  onDrop={(e) => handleTabDrop(e, index)}
+                />
+              ))}
             </div>
 
-            {/* Provider Tag - 仅在展开且设置启用时显示 */}
-            {!state.collapsed && showProviderSwitcher && (
-              <>
-                <div className="control-divider mx-1 h-4 w-px" />
+            <div className="flex shrink-0 items-center gap-1">
+              <div className="control-divider mx-1 h-5 w-px" />
 
-                <div
-                  className="relative shrink-0"
-                  onMouseEnter={() => setShowProviderMenu(true)}
-                  onMouseLeave={() => setShowProviderMenu(false)}
+              <div
+                className="relative"
+                onMouseEnter={handleAddMouseEnter}
+                onMouseLeave={() => setShowAgentMenu(false)}
+              >
+                <button
+                  type="button"
+                  onClick={handleAddClick}
+                  className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  <button
-                    type="button"
-                    onClick={() => setShowProviderMenu(!showProviderMenu)}
-                    className="control-icon-button flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground whitespace-nowrap"
-                    title={activeProvider?.name ?? t('Select Provider')}
+                  <Plus className="h-4 w-4" />
+                </button>
+
+                {showAgentMenu && (
+                  <div
+                    className={cn(
+                      'absolute right-[-10px] z-50 min-w-32',
+                      containerRef.current &&
+                        state.y > containerRef.current.getBoundingClientRect().height / 2
+                        ? 'bottom-full pb-1'
+                        : 'top-full pt-1'
+                    )}
                   >
-                    <svg
-                      fill="currentColor"
-                      fillRule="evenodd"
-                      height="1em"
-                      className="h-3.5 w-3.5 shrink-0"
-                      viewBox="0 0 24 24"
-                      width="1em"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <title>Claude</title>
-                      <path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" />
-                    </svg>
-                    {activeProvider ? (
-                      <span>{truncateProviderName(activeProvider.name)}</span>
-                    ) : null}
-                  </button>
-
-                  {/* Provider 选择菜单 */}
-                  {showProviderMenu && providers.length > 0 && (
-                    <div
-                      className={cn(
-                        'absolute right-[-10px] z-50 min-w-32',
-                        // 根据工具栏位置决定菜单方向
-                        containerRef.current &&
-                          state.y > containerRef.current.getBoundingClientRect().height / 2
-                          ? 'bottom-full pb-1'
-                          : 'top-full pt-1'
-                      )}
-                    >
-                      <div className="control-menu rounded-2xl p-2">
-                        <div className="mb-1 flex items-center justify-between px-1 py-1">
-                          <span className="text-xs font-medium whitespace-nowrap text-muted-foreground">
-                            {t('Select Provider')}
-                          </span>
-                          <Tooltip>
-                            <TooltipTrigger render={<span />}>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowProviderMenu(false);
-                                  window.dispatchEvent(new CustomEvent('open-settings-provider'));
-                                }}
-                                className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
-                              >
-                                <Settings className="h-3.5 w-3.5" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipPopup side="right">{t('Manage Providers')}</TooltipPopup>
-                          </Tooltip>
-                        </div>
-                        {providers.map((provider) => {
-                          const isActive = activeProvider?.id === provider.id;
-                          const isDisabled = provider.enabled === false;
-
+                    <div className="control-menu rounded-2xl p-2">
+                      <div className="mb-1 flex items-center justify-between px-1 py-1">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {t('Select Agent')}
+                        </span>
+                        <Tooltip>
+                          <TooltipTrigger render={<span />}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowAgentMenu(false);
+                                window.dispatchEvent(new CustomEvent('open-settings-agent'));
+                              }}
+                              className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              <Settings className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipPopup side="right">{t('Agent profiles')}</TooltipPopup>
+                        </Tooltip>
+                      </div>
+                      {[...enabledAgents]
+                        .sort((a, b) => {
+                          const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
+                          const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
+                          return bDefault - aDefault;
+                        })
+                        .map((agentId) => {
+                          const isHapi = agentId.endsWith('-hapi');
+                          const isHappy = agentId.endsWith('-happy');
+                          const baseId = isHapi
+                            ? agentId.slice(0, -5)
+                            : isHappy
+                              ? agentId.slice(0, -6)
+                              : agentId;
+                          const customAgent = customAgents.find((a) => a.id === baseId);
+                          const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? baseId;
+                          const name = isHapi
+                            ? `${baseName} (Hapi)`
+                            : isHappy
+                              ? `${baseName} (Happy)`
+                              : baseName;
+                          const isDefault = agentSettings[agentId]?.isDefault;
                           return (
-                            <ProviderMenuItem
-                              key={provider.id}
-                              provider={provider}
-                              isActive={isActive}
-                              isDisabled={isDisabled}
-                              isPending={applyProvider.isPending}
-                              activeProviderId={activeProvider?.id}
-                              providers={providers}
-                              onApplyProvider={handleApplyProvider}
-                              onCloseMenu={handleCloseProviderMenu}
-                              setClaudeProviderEnabled={setClaudeProviderEnabled}
-                              enableProviderDisableFeature={enableProviderDisableFeature}
-                              t={t}
-                            />
+                            <button
+                              type="button"
+                              key={agentId}
+                              onClick={() => handleSelectAgent(agentId)}
+                              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent/40 hover:text-foreground whitespace-nowrap"
+                            >
+                              <span className="min-w-0 flex-1 truncate">{name}</span>
+                              {isDefault ? (
+                                <span className="shrink-0 text-xs text-muted-foreground">
+                                  {t('Default')}
+                                </span>
+                              ) : null}
+                            </button>
                           );
                         })}
-                      </div>
                     </div>
-                  )}
-                </div>
-              </>
-            )}
+                  </div>
+                )}
+              </div>
 
-            {/* Quick Terminal Button - 在 Provider Switcher 之后 */}
-            {!state.collapsed && onToggleQuickTerminal && (
-              <>
-                <div className="control-divider mx-1 h-4 w-px" />
-                <Tooltip>
-                  <TooltipTrigger render={<span />}>
+              {!state.collapsed && showProviderSwitcher && (
+                <>
+                  <div className="control-divider mx-1 h-4 w-px" />
+
+                  <div
+                    className="relative shrink-0"
+                    onMouseEnter={() => setShowProviderMenu(true)}
+                    onMouseLeave={() => setShowProviderMenu(false)}
+                  >
                     <button
                       type="button"
-                      onClick={onToggleQuickTerminal}
-                      className={cn(
-                        'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
-                        quickTerminalOpen
-                          ? 'bg-accent text-accent-foreground'
-                          : quickTerminalHasProcess
-                            ? 'bg-accent text-accent-foreground'
-                            : 'text-muted-foreground hover:text-accent-foreground'
-                      )}
+                      onClick={() => setShowProviderMenu(!showProviderMenu)}
+                      className="control-icon-button flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground whitespace-nowrap"
+                      title={activeProvider?.name ?? t('Select Provider')}
                     >
-                      <Terminal className="h-3.5 w-3.5" />
+                      <svg
+                        fill="currentColor"
+                        fillRule="evenodd"
+                        height="1em"
+                        className="h-3.5 w-3.5 shrink-0"
+                        viewBox="0 0 24 24"
+                        width="1em"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <title>Claude</title>
+                        <path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" />
+                      </svg>
+                      {activeProvider ? (
+                        <span>{truncateProviderName(activeProvider.name)}</span>
+                      ) : null}
                     </button>
-                  </TooltipTrigger>
-                  <TooltipPopup>{t('Quick Terminal')} (Ctrl+`)</TooltipPopup>
-                </Tooltip>
-              </>
-            )}
+
+                    {showProviderMenu && providers.length > 0 && (
+                      <div
+                        className={cn(
+                          'absolute right-[-10px] z-50 min-w-32',
+                          containerRef.current &&
+                            state.y > containerRef.current.getBoundingClientRect().height / 2
+                            ? 'bottom-full pb-1'
+                            : 'top-full pt-1'
+                        )}
+                      >
+                        <div className="control-menu rounded-2xl p-2">
+                          <div className="mb-1 flex items-center justify-between px-1 py-1">
+                            <span className="text-xs font-medium whitespace-nowrap text-muted-foreground">
+                              {t('Select Provider')}
+                            </span>
+                            <Tooltip>
+                              <TooltipTrigger render={<span />}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowProviderMenu(false);
+                                    window.dispatchEvent(new CustomEvent('open-settings-provider'));
+                                  }}
+                                  className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+                                >
+                                  <Settings className="h-3.5 w-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipPopup side="right">{t('Manage Providers')}</TooltipPopup>
+                            </Tooltip>
+                          </div>
+                          {providers.map((provider) => {
+                            const isActive = activeProvider?.id === provider.id;
+                            const isDisabled = provider.enabled === false;
+
+                            return (
+                              <ProviderMenuItem
+                                key={provider.id}
+                                provider={provider}
+                                isActive={isActive}
+                                isDisabled={isDisabled}
+                                isPending={applyProvider.isPending}
+                                activeProviderId={activeProvider?.id}
+                                providers={providers}
+                                onApplyProvider={handleApplyProvider}
+                                onCloseMenu={handleCloseProviderMenu}
+                                setClaudeProviderEnabled={setClaudeProviderEnabled}
+                                enableProviderDisableFeature={enableProviderDisableFeature}
+                                t={t}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {!state.collapsed && onToggleQuickTerminal && (
+                <>
+                  <div className="control-divider mx-1 h-4 w-px" />
+                  <Tooltip>
+                    <TooltipTrigger render={<span />}>
+                      <button
+                        type="button"
+                        onClick={onToggleQuickTerminal}
+                        className={cn(
+                          'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+                          quickTerminalOpen
+                            ? 'bg-accent text-accent-foreground'
+                            : quickTerminalHasProcess
+                              ? 'bg-accent text-accent-foreground'
+                              : 'text-muted-foreground hover:text-accent-foreground'
+                        )}
+                      >
+                        <Terminal className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipPopup>{t('Quick Terminal')} (Ctrl+`)</TooltipPopup>
+                  </Tooltip>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -88,7 +88,7 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
 
   if (isLoading) {
     return (
-      <div className="control-panel-muted flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px]">
+      <div className="control-topbar-action h-8 gap-1.5 rounded-lg px-2.5 text-[12px]">
         <FolderOpen className="h-3.5 w-3.5" />
         <span>Loading...</span>
       </div>
@@ -97,7 +97,7 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
 
   if (visibleApps.length === 0) {
     return (
-      <div className="control-panel-muted flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px]">
+      <div className="control-topbar-action h-8 gap-1.5 rounded-lg px-2.5 text-[12px]">
         <FolderOpen className="h-3.5 w-3.5" />
         <span>No Apps</span>
       </div>
@@ -106,7 +106,7 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
 
   if (!path || isRemotePath) {
     return (
-      <div className="control-panel-muted flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] opacity-50">
+      <div className="control-topbar-action h-8 gap-1.5 rounded-lg px-2.5 text-[12px] opacity-50">
         <FolderOpen className="h-3.5 w-3.5" />
         <span>{isRemotePath ? 'Remote Only' : 'Quick Open'}</span>
       </div>
@@ -123,11 +123,11 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
   const displayIcon = isOpeningFile ? FileCode : FolderOpen;
 
   return (
-    <div className="control-panel-muted flex h-8 items-center rounded-lg border-0">
+    <div className="control-topbar-action h-8 rounded-lg border-0 p-0">
       <button
         type="button"
         onClick={handleQuickOpen}
-        className="flex h-full min-w-0 items-center gap-1.5 rounded-l-lg px-2.5 text-[13px] transition-colors hover:bg-muted/40"
+        className="flex h-full min-w-0 items-center gap-1.5 rounded-l-lg px-2.5 text-[12px] transition-colors hover:bg-muted/40"
       >
         <AppIcon bundleId={defaultApp.bundleId} name={defaultApp.name} fallback={displayIcon} />
         <span className="max-w-28 truncate">{defaultApp.name}</span>

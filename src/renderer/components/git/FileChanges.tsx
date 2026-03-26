@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useI18n } from '@/i18n';
+import { getFileStatusTextClass } from '@/lib/fileStatusTone';
 import { cn } from '@/lib/utils';
 
 type FileStatus = 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?';
@@ -28,16 +29,6 @@ const statusIcons: Record<FileStatus, React.ElementType> = {
   C: FilePlus,
   U: FileQuestion,
   '?': FileQuestion,
-};
-
-const statusColors: Record<FileStatus, string> = {
-  M: 'text-orange-500',
-  A: 'text-green-500',
-  D: 'text-red-500',
-  R: 'text-blue-500',
-  C: 'text-blue-500',
-  U: 'text-purple-500',
-  '?': 'text-muted-foreground',
 };
 
 export function FileChanges({
@@ -102,7 +93,7 @@ export function FileChanges({
                   />
                 )}
 
-                <span className={cn('shrink-0 font-mono text-xs', statusColors[status])}>
+                <span className={cn('shrink-0 font-mono text-xs', getFileStatusTextClass(status))}>
                   {status}
                 </span>
 

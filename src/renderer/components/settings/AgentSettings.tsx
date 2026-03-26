@@ -814,7 +814,7 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
 
         {customAgents.length === 0 && !isAddingAgent && (
           <div className="rounded-lg border border-dashed border-border/80 bg-muted/20 p-4 text-center">
-            <p className="text-xs text-muted-foreground">{t('No custom agents yet')}</p>
+            <p className="text-xs text-muted-foreground">{t('No custom agents')}</p>
           </div>
         )}
       </div>

@@ -33,6 +33,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useI18n } from '@/i18n';
+import {
+  buildRemoteSettingsFeedbackCopy,
+  buildRemoteSettingsSurfaceCopy,
+} from '@/lib/feedbackCopy';
 import { useSettingsStore } from '@/stores/settings';
 
 interface RemoteProfileFormState {
@@ -102,10 +106,18 @@ export function RemoteSettings() {
       }
       setFeedback(null);
     } catch (error) {
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'profiles-load',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
       setFeedback({
         variant: 'error',
-        title: t('Failed to load remote profiles'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: copy.title,
+        description: copy.description,
       });
     } finally {
       setBusyAction(null);
@@ -142,10 +154,18 @@ export function RemoteSettings() {
       } catch (error) {
         setRuntimeStatus(null);
         if (mode === 'refresh') {
+          const copy = buildRemoteSettingsFeedbackCopy(
+            {
+              action: 'runtime-status',
+              phase: 'error',
+              message: error instanceof Error ? error.message : undefined,
+            },
+            t
+          );
           setFeedback({
             variant: 'error',
-            title: t('Failed to refresh runtime status'),
-            description: error instanceof Error ? error.message : t('Unknown error'),
+            title: copy.title,
+            description: copy.description,
           });
         }
         return null;
@@ -181,19 +201,33 @@ export function RemoteSettings() {
 
   const handleSave = React.useCallback(async () => {
     if (!form.name.trim()) {
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'profile-name',
+          phase: 'error',
+        },
+        t
+      );
       setFeedback({
         variant: 'error',
-        title: t('Profile name is required'),
-        description: t('Give this connection a short recognizable name.'),
+        title: copy.title,
+        description: copy.description,
       });
       return;
     }
 
     if (!form.sshTarget.trim()) {
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'ssh-target',
+          phase: 'error',
+        },
+        t
+      );
       setFeedback({
         variant: 'error',
-        title: t('SSH target is required'),
-        description: t('Use the same target you would pass to ssh, for example user@example.com.'),
+        title: copy.title,
+        description: copy.description,
       });
       return;
     }
@@ -209,18 +243,33 @@ export function RemoteSettings() {
       });
       upsertRemoteProfile(savedProfile);
       setSelectedProfileId(savedProfile.id);
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'profile-save',
+          phase: 'success',
+        },
+        t
+      );
       setFeedback({
         variant: 'success',
-        title: t('Remote profile saved'),
-        description: t('You can now use it from the Remote Host entry in the sidebar.'),
+        title: copy.title,
+        description: copy.description,
       });
       await loadProfiles();
       await loadRuntimeStatus(savedProfile.id, 'silent');
     } catch (error) {
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'profile-save',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
       setFeedback({
         variant: 'error',
-        title: t('Failed to save remote profile'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: copy.title,
+        description: copy.description,
       });
     } finally {
       setBusyAction(null);
@@ -237,17 +286,32 @@ export function RemoteSettings() {
       syncFormFromProfile(null);
       setTestResult(null);
       setRuntimeStatus(null);
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'profile-delete',
+          phase: 'success',
+        },
+        t
+      );
       setFeedback({
         variant: 'success',
-        title: t('Remote profile deleted'),
-        description: t('The saved SSH connection has been removed.'),
+        title: copy.title,
+        description: copy.description,
       });
       await loadProfiles();
     } catch (error) {
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'profile-delete',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
       setFeedback({
         variant: 'error',
-        title: t('Failed to delete remote profile'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: copy.title,
+        description: copy.description,
       });
     } finally {
       setBusyAction(null);
@@ -257,10 +321,17 @@ export function RemoteSettings() {
   const handleTest = React.useCallback(async () => {
     const draftProfile = buildDraftProfile();
     if (!draftProfile.name || !draftProfile.sshTarget) {
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'profile-incomplete',
+          phase: 'error',
+        },
+        t
+      );
       setFeedback({
         variant: 'error',
-        title: t('Profile is incomplete'),
-        description: t('Fill in the profile name and SSH target before testing the connection.'),
+        title: copy.title,
+        description: copy.description,
       });
       return;
     }
@@ -271,30 +342,61 @@ export function RemoteSettings() {
       setTestResult(result);
       if (result.success) {
         if (result.runtimeError) {
+          const copy = buildRemoteSettingsFeedbackCopy(
+            {
+              action: 'connection-test',
+              phase: 'error',
+              message: result.runtimeError,
+            },
+            t
+          );
           setFeedback({
             variant: 'error',
-            title: t('Connection failed'),
-            description: result.runtimeError,
+            title: copy.title,
+            description: copy.description,
           });
         } else {
+          const copy = buildRemoteSettingsFeedbackCopy(
+            {
+              action: 'connection-test',
+              phase: 'success',
+            },
+            t
+          );
           setFeedback({
             variant: 'success',
-            title: t('Connection succeeded'),
-            description: t('The remote host is reachable and ready for managed runtime setup.'),
+            title: copy.title,
+            description: copy.description,
           });
         }
       } else {
+        const copy = buildRemoteSettingsFeedbackCopy(
+          {
+            action: 'connection-test',
+            phase: 'error',
+            message: result.error || undefined,
+          },
+          t
+        );
         setFeedback({
           variant: 'error',
-          title: t('Connection failed'),
-          description: result.error || t('Unknown error'),
+          title: copy.title,
+          description: copy.description,
         });
       }
     } catch (error) {
+      const copy = buildRemoteSettingsFeedbackCopy(
+        {
+          action: 'connection-test',
+          phase: 'error',
+          message: error instanceof Error ? error.message : undefined,
+        },
+        t
+      );
       setFeedback({
         variant: 'error',
-        title: t('Connection failed'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: copy.title,
+        description: copy.description,
       });
     } finally {
       setBusyAction(null);
@@ -304,7 +406,7 @@ export function RemoteSettings() {
   const runRuntimeAction = React.useCallback(
     async (
       action: 'install' | 'update' | 'delete',
-      onSuccess: () => { title: string; description: string }
+      successAction: 'runtime-install' | 'runtime-update' | 'runtime-delete'
     ) => {
       if (!selectedProfileId) return;
 
@@ -324,22 +426,36 @@ export function RemoteSettings() {
               ? await window.electronAPI.remote.updateRuntime(selectedProfileId)
               : await window.electronAPI.remote.deleteRuntime(selectedProfileId);
         setRuntimeStatus(nextStatus);
-        const message = onSuccess();
+        const message = buildRemoteSettingsFeedbackCopy(
+          {
+            action: successAction,
+            phase: 'success',
+          },
+          t
+        );
         setFeedback({
           variant: 'success',
           title: message.title,
           description: message.description,
         });
       } catch (error) {
+        const copy = buildRemoteSettingsFeedbackCopy(
+          {
+            action:
+              action === 'install'
+                ? 'runtime-install'
+                : action === 'update'
+                  ? 'runtime-update'
+                  : 'runtime-delete',
+            phase: 'error',
+            message: error instanceof Error ? error.message : undefined,
+          },
+          t
+        );
         setFeedback({
           variant: 'error',
-          title:
-            action === 'install'
-              ? t('Failed to install runtime')
-              : action === 'update'
-                ? t('Failed to update runtime')
-                : t('Failed to delete runtime'),
-          description: error instanceof Error ? error.message : t('Unknown error'),
+          title: copy.title,
+          description: copy.description,
         });
       } finally {
         setBusyAction(null);
@@ -349,26 +465,17 @@ export function RemoteSettings() {
   );
 
   const handleInstallRuntime = React.useCallback(async () => {
-    await runRuntimeAction('install', () => ({
-      title: t('Runtime installed'),
-      description: t('The managed remote runtime is now installed on this host.'),
-    }));
-  }, [runRuntimeAction, t]);
+    await runRuntimeAction('install', 'runtime-install');
+  }, [runRuntimeAction]);
 
   const handleUpdateRuntime = React.useCallback(async () => {
-    await runRuntimeAction('update', () => ({
-      title: t('Runtime updated'),
-      description: t('The managed remote runtime was reinstalled successfully.'),
-    }));
-  }, [runRuntimeAction, t]);
+    await runRuntimeAction('update', 'runtime-update');
+  }, [runRuntimeAction]);
 
   const handleDeleteRuntime = React.useCallback(async () => {
     setDeleteRuntimeDialogOpen(false);
-    await runRuntimeAction('delete', () => ({
-      title: t('Runtime deleted'),
-      description: t('All installed managed runtime versions for this profile were removed.'),
-    }));
-  }, [runRuntimeAction, t]);
+    await runRuntimeAction('delete', 'runtime-delete');
+  }, [runRuntimeAction]);
 
   const environmentItems = React.useMemo(
     () =>
@@ -446,6 +553,26 @@ export function RemoteSettings() {
   const runtimeInstalled = runtimeStatus?.installed ?? false;
   const currentVersionInstalled =
     runtimeStatus?.installedVersions.includes(runtimeStatus.currentVersion) ?? false;
+  const runtimeSelectProfileCopy = buildRemoteSettingsSurfaceCopy(
+    { action: 'runtime-select-profile' },
+    t
+  );
+  const runtimeStatusAlertCopy = buildRemoteSettingsSurfaceCopy(
+    {
+      action: 'runtime-status-error',
+      message: runtimeStatus?.error,
+    },
+    t
+  );
+  const runtimeStatusSummaryCopy = buildRemoteSettingsSurfaceCopy(
+    { action: 'runtime-status-summary' },
+    t
+  );
+  const remoteEnvironmentCopy = buildRemoteSettingsSurfaceCopy({ action: 'remote-environment' }, t);
+  const runtimeDeleteDialogCopy = buildRemoteSettingsSurfaceCopy(
+    { action: 'runtime-delete-dialog' },
+    t
+  );
 
   return (
     <div className="space-y-6">
@@ -494,7 +621,7 @@ export function RemoteSettings() {
               </Select>
               <FieldDescription>
                 {profiles.length === 0
-                  ? t('No profiles saved yet.')
+                  ? t('No saved SSH profiles')
                   : t('{{count}} saved profiles', { count: profiles.length })}
               </FieldDescription>
             </Field>
@@ -628,23 +755,21 @@ export function RemoteSettings() {
         <CardPanel className="space-y-6">
           {!hasSelectedProfile ? (
             <Alert variant="info">
-              <AlertTitle>{t('Select a profile')}</AlertTitle>
-              <AlertDescription>
-                {t('Choose a saved SSH profile above before managing the remote runtime.')}
-              </AlertDescription>
+              <AlertTitle>{runtimeSelectProfileCopy.title}</AlertTitle>
+              <AlertDescription>{runtimeSelectProfileCopy.description}</AlertDescription>
             </Alert>
           ) : (
             <>
               {runtimeStatus?.error && (
                 <Alert variant="error">
-                  <AlertTitle>{t('Failed to refresh runtime status')}</AlertTitle>
-                  <AlertDescription>{runtimeStatus.error}</AlertDescription>
+                  <AlertTitle>{runtimeStatusAlertCopy.title}</AlertTitle>
+                  <AlertDescription>{runtimeStatusAlertCopy.description}</AlertDescription>
                 </Alert>
               )}
 
               {runtimeStatus && (
                 <Alert variant="info">
-                  <AlertTitle>{t('Runtime status')}</AlertTitle>
+                  <AlertTitle>{runtimeStatusSummaryCopy.title}</AlertTitle>
                   <AlertDescription className="grid gap-3 sm:grid-cols-2">
                     {runtimeInfoItems.map((item) => (
                       <div
@@ -736,7 +861,7 @@ export function RemoteSettings() {
 
       {testResult?.success && (
         <Alert variant="info">
-          <AlertTitle>{t('Remote environment')}</AlertTitle>
+          <AlertTitle>{remoteEnvironmentCopy.title}</AlertTitle>
           <AlertDescription className="grid gap-3 sm:grid-cols-2">
             {environmentItems.map((item) => (
               <div key={item.label} className="min-w-0 rounded-lg bg-background/70 px-3 py-2">
@@ -753,10 +878,8 @@ export function RemoteSettings() {
       <AlertDialog open={deleteRuntimeDialogOpen} onOpenChange={setDeleteRuntimeDialogOpen}>
         <AlertDialogPopup className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('Delete managed remote runtime?')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('This will remove all installed managed runtime versions for this SSH profile.')}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{runtimeDeleteDialogCopy.title}</AlertDialogTitle>
+            <AlertDialogDescription>{runtimeDeleteDialogCopy.description}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline">{t('Cancel')}</Button>} />

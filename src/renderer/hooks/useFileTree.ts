@@ -6,6 +6,7 @@ import {
   resolveFileListGitRoot,
   resolveFileListPath,
 } from '@/components/files/breadcrumbPathUtils';
+import { shouldRecoverRootFileList } from './fileTreeRootRecoveryPolicy';
 import { shouldRefreshFileTreeOnWatchResume, shouldWatchFileTree } from './fileTreeWatchPolicy';
 import { useShouldPoll } from './useWindowFocus';
 
@@ -20,23 +21,72 @@ interface FileTreeNode extends FileEntry {
   isLoading?: boolean;
 }
 
+const shouldLogFileTreeDiagnostics = import.meta.env.DEV;
+
+function logFileTreeDiagnostics(
+  stage: string,
+  payload: Record<string, unknown>,
+  shouldLog: boolean
+): void {
+  if (!shouldLog) {
+    return;
+  }
+
+  console.info(`[file-tree] ${stage}`, payload);
+}
+
+function emitFileTreeRuntimeDiagnostics(stage: string, payload: Record<string, unknown>): void {
+  if (import.meta.env.MODE === 'test') {
+    return;
+  }
+
+  console.error(`[file-tree-debug] ${stage}`, payload);
+}
+
 export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFileTreeOptions) {
   const queryClient = useQueryClient();
   const shouldPoll = useShouldPoll();
+  const shouldLogDiagnostics = shouldLogFileTreeDiagnostics;
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() =>
     rootPath ? loadFileTreeExpandedPaths(rootPath) : new Set()
   );
 
   // Fetch root directory
-  const { data: rootFiles, isLoading: isRootLoading } = useQuery({
+  const {
+    data: rootFiles,
+    isLoading: isRootLoading,
+    isError: isRootError,
+  } = useQuery({
     queryKey: ['file', 'list', rootPath],
     queryFn: async () => {
       if (!rootPath) return [];
       const resolvedRootPath = resolveFileListPath(rootPath, rootPath) ?? rootPath;
-      return window.electronAPI.file.list(
-        resolvedRootPath,
-        resolveFileListGitRoot(rootPath, rootPath)
+      const resolvedGitRoot = resolveFileListGitRoot(rootPath, rootPath);
+      logFileTreeDiagnostics(
+        'root-query:start',
+        { rootPath, resolvedRootPath, resolvedGitRoot },
+        shouldLogDiagnostics
       );
+      emitFileTreeRuntimeDiagnostics('root-query:start', {
+        rootPath,
+        resolvedRootPath,
+        resolvedGitRoot,
+        enabled,
+        isActive,
+      });
+      const files = await window.electronAPI.file.list(resolvedRootPath, resolvedGitRoot);
+      logFileTreeDiagnostics(
+        'root-query:success',
+        { rootPath, resolvedRootPath, resolvedGitRoot, count: files.length },
+        shouldLogDiagnostics
+      );
+      emitFileTreeRuntimeDiagnostics('root-query:success', {
+        rootPath,
+        resolvedRootPath,
+        resolvedGitRoot,
+        count: files.length,
+      });
+      return files;
     },
     enabled: enabled && !!rootPath,
   });
@@ -55,6 +105,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   rootPathRef.current = rootPath;
   // Track whether children have been restored for the current rootPath
   const childrenRestoredRef = useRef(false);
+  const recoveredRootPathsRef = useRef<Set<string>>(new Set());
 
   // Helper: update expanded state and persist to localStorage atomically
   const setAndPersistExpandedPaths = useCallback((paths: Set<string>) => {
@@ -67,6 +118,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     if (!rootPath) return;
 
     childrenRestoredRef.current = false;
+    recoveredRootPathsRef.current.delete(rootPath);
     setExpandedPaths(loadFileTreeExpandedPaths(rootPath));
     setTree([]);
 
@@ -78,17 +130,32 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   const loadChildren = useCallback(
     async (path: string): Promise<FileEntry[]> => {
       const resolvedPath = resolveFileListPath(path, rootPath) ?? path;
+      const resolvedGitRoot = resolveFileListGitRoot(path, rootPath);
       const cached = queryClient.getQueryData<FileEntry[]>(['file', 'list', resolvedPath]);
-      if (cached) return cached;
+      if (cached) {
+        logFileTreeDiagnostics(
+          'children-query:cache-hit',
+          { path, rootPath, resolvedPath, resolvedGitRoot, count: cached.length },
+          shouldLogDiagnostics
+        );
+        return cached;
+      }
 
-      const files = await window.electronAPI.file.list(
-        resolvedPath,
-        resolveFileListGitRoot(path, rootPath)
+      logFileTreeDiagnostics(
+        'children-query:start',
+        { path, rootPath, resolvedPath, resolvedGitRoot },
+        shouldLogDiagnostics
+      );
+      const files = await window.electronAPI.file.list(resolvedPath, resolvedGitRoot);
+      logFileTreeDiagnostics(
+        'children-query:success',
+        { path, rootPath, resolvedPath, resolvedGitRoot, count: files.length },
+        shouldLogDiagnostics
       );
       queryClient.setQueryData(['file', 'list', resolvedPath], files);
       return files;
     },
-    [queryClient, rootPath]
+    [queryClient, rootPath, shouldLogDiagnostics]
   );
 
   // 递归更新树，设置整个子目录链的 children
@@ -113,6 +180,17 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   // Update tree when root files change, then restore children for all expanded paths
   useEffect(() => {
     if (!rootFiles || !rootPath) return;
+
+    logFileTreeDiagnostics(
+      'root-files:update',
+      { rootPath, count: rootFiles.length },
+      shouldLogDiagnostics
+    );
+    emitFileTreeRuntimeDiagnostics('root-files:update', {
+      rootPath,
+      count: rootFiles.length,
+      expandedCount: expandedPathsRef.current.size,
+    });
 
     // Merge root-level nodes, preserving already-loaded children
     const mergeNodes = (newNodes: FileEntry[], oldNodes: FileTreeNode[]): FileTreeNode[] => {
@@ -170,7 +248,95 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     return () => {
       cancelled = true;
     };
-  }, [rootFiles, rootPath, loadChildren, updateTreeWithChain]);
+  }, [rootFiles, rootPath, loadChildren, updateTreeWithChain, shouldLogDiagnostics]);
+
+  useEffect(() => {
+    if (
+      !shouldRecoverRootFileList({
+        hasRootPath: Boolean(rootPath),
+        isRootLoading,
+        isRootError,
+        rootFileCount: rootFiles?.length ?? null,
+        alreadyRecovered: rootPath ? recoveredRootPathsRef.current.has(rootPath) : false,
+      })
+    ) {
+      return;
+    }
+
+    const targetRootPath = rootPath as string;
+    recoveredRootPathsRef.current.add(targetRootPath);
+
+    const recoveredGitRoot = resolveFileListGitRoot(targetRootPath, targetRootPath) ?? targetRootPath;
+    logFileTreeDiagnostics(
+      'root-query:recover:start',
+      {
+        rootPath: targetRootPath,
+        isRootError,
+        rootFileCount: rootFiles?.length ?? null,
+      },
+      shouldLogDiagnostics
+    );
+    emitFileTreeRuntimeDiagnostics('root-query:recover:start', {
+      rootPath: targetRootPath,
+      isRootError,
+      rootFileCount: rootFiles?.length ?? null,
+    });
+
+    let cancelled = false;
+
+    const recoverRootFiles = async () => {
+      try {
+        const files = await window.electronAPI.file.list(targetRootPath, recoveredGitRoot);
+        if (cancelled) {
+          return;
+        }
+
+        queryClient.setQueryData(['file', 'list', targetRootPath], files);
+
+        logFileTreeDiagnostics(
+          'root-query:recover:success',
+          {
+            rootPath: targetRootPath,
+            count: files.length,
+          },
+          shouldLogDiagnostics
+        );
+        emitFileTreeRuntimeDiagnostics('root-query:recover:success', {
+          rootPath: targetRootPath,
+          count: files.length,
+        });
+      } catch (error) {
+        if (!cancelled) {
+          recoveredRootPathsRef.current.delete(targetRootPath);
+        }
+        logFileTreeDiagnostics(
+          'root-query:recover:error',
+          {
+            rootPath: targetRootPath,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          shouldLogDiagnostics
+        );
+        emitFileTreeRuntimeDiagnostics('root-query:recover:error', {
+          rootPath: targetRootPath,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+
+    void recoverRootFiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    queryClient,
+    rootFiles,
+    rootPath,
+    isRootLoading,
+    isRootError,
+    shouldLogDiagnostics,
+  ]);
 
   // Toggle directory expansion
   const toggleExpand = useCallback(
@@ -292,9 +458,17 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     async (targetPath: string) => {
       try {
         const resolvedTargetPath = resolveFileListPath(targetPath, rootPath) ?? targetPath;
-        const newChildren = await window.electronAPI.file.list(
-          resolvedTargetPath,
-          resolveFileListGitRoot(targetPath, rootPath)
+        const resolvedGitRoot = resolveFileListGitRoot(targetPath, rootPath);
+        logFileTreeDiagnostics(
+          'refresh-node:start',
+          { targetPath, rootPath, resolvedTargetPath, resolvedGitRoot },
+          shouldLogDiagnostics
+        );
+        const newChildren = await window.electronAPI.file.list(resolvedTargetPath, resolvedGitRoot);
+        logFileTreeDiagnostics(
+          'refresh-node:success',
+          { targetPath, rootPath, resolvedTargetPath, resolvedGitRoot, count: newChildren.length },
+          shouldLogDiagnostics
         );
         queryClient.setQueryData(['file', 'list', resolvedTargetPath], newChildren);
 
@@ -335,7 +509,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         }
       }
     },
-    [queryClient, rootPath, setAndPersistExpandedPaths]
+    [queryClient, rootPath, setAndPersistExpandedPaths, shouldLogDiagnostics]
   );
 
   const shouldWatch = shouldWatchFileTree({

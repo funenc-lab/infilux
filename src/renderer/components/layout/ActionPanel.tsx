@@ -29,6 +29,7 @@ import {
   isClaudeProviderMatch,
   markClaudeProviderSwitch,
 } from '@/lib/claudeProvider';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { type TerminalKeybinding, useSettingsStore } from '@/stores/settings';
 
@@ -63,24 +64,48 @@ function useCliInstall() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['cli', 'install-status'] });
       if (result.installed) {
+        const successCopy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'cli-install',
+            phase: 'success',
+            path: result.path ?? '',
+          },
+          t
+        );
         toastManager.add({
           type: 'success',
-          title: t('CLI install success'),
-          description: t("'infilux' command installed to {{path}}", { path: result.path ?? '' }),
+          title: successCopy.title,
+          description: successCopy.description,
         });
       } else if (result.error) {
+        const errorCopy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'cli-install',
+            phase: 'error',
+            message: result.error,
+          },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('CLI install failed'),
-          description: result.error,
+          title: errorCopy.title,
+          description: errorCopy.description,
         });
       }
     },
     onError: (error) => {
+      const errorCopy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'cli-install',
+          phase: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+        t
+      );
       toastManager.add({
         type: 'error',
-        title: t('CLI install failed'),
-        description: error instanceof Error ? error.message : String(error),
+        title: errorCopy.title,
+        description: errorCopy.description,
       });
     },
   });
@@ -96,24 +121,47 @@ function useCliUninstall() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['cli', 'install-status'] });
       if (!result.installed) {
+        const successCopy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'cli-uninstall',
+            phase: 'success',
+          },
+          t
+        );
         toastManager.add({
           type: 'success',
-          title: t('CLI uninstall success'),
-          description: t("'infilux' command uninstalled"),
+          title: successCopy.title,
+          description: successCopy.description,
         });
       } else if (result.error) {
+        const errorCopy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'cli-uninstall',
+            phase: 'error',
+            message: result.error,
+          },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('CLI uninstall failed'),
-          description: result.error,
+          title: errorCopy.title,
+          description: errorCopy.description,
         });
       }
     },
     onError: (error) => {
+      const errorCopy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'cli-uninstall',
+          phase: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+        t
+      );
       toastManager.add({
         type: 'error',
-        title: t('CLI uninstall failed'),
-        description: error instanceof Error ? error.message : String(error),
+        title: errorCopy.title,
+        description: errorCopy.description,
       });
     },
   });
@@ -243,10 +291,18 @@ export function ActionPanel({
         return;
       }
       queryClient.invalidateQueries({ queryKey: ['claude-settings', repoPath ?? null] });
+      const successCopy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'provider-switch',
+          phase: 'success',
+          name: provider.name,
+        },
+        t
+      );
       toastManager.add({
         type: 'success',
-        title: t('Provider switched'),
-        description: provider.name,
+        title: successCopy.title,
+        description: successCopy.description,
       });
     },
     onError: () => {

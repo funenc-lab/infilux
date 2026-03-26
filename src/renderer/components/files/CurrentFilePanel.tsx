@@ -1,15 +1,11 @@
 import { FileCode } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { GlobalSearchDialog, type SearchMode } from '@/components/search';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { Button } from '@/components/ui/button';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { requestUnsavedChoice } from '@/stores/unsavedPrompt';
 
 // Global ref for passing selected text to search dialog
@@ -39,9 +35,16 @@ function matchesKeybinding(e: KeyboardEvent, binding: TerminalKeybinding): boole
 export interface CurrentFilePanelProps {
   rootPath: string | undefined;
   isActive?: boolean;
+  onExpandWorktree?: () => void;
+  worktreeCollapsed?: boolean;
 }
 
-export function CurrentFilePanel({ rootPath, isActive = false }: CurrentFilePanelProps) {
+export function CurrentFilePanel({
+  rootPath,
+  isActive = false,
+  onExpandWorktree,
+  worktreeCollapsed = false,
+}: CurrentFilePanelProps) {
   const { t } = useI18n();
   const {
     tabs,
@@ -159,10 +162,14 @@ export function CurrentFilePanel({ rootPath, isActive = false }: CurrentFilePane
           await saveFile.mutateAsync(path);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
+          const errorCopy = buildFileWorkflowToastCopy(
+            { action: 'file-save', phase: 'error', message },
+            t
+          );
           toastManager.add({
             type: 'error',
-            title: t('Save failed'),
-            description: message,
+            title: errorCopy.title,
+            description: errorCopy.description,
           });
           return;
         }
@@ -186,10 +193,14 @@ export function CurrentFilePanel({ rootPath, isActive = false }: CurrentFilePane
             await saveFile.mutateAsync(path);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+            const errorCopy = buildFileWorkflowToastCopy(
+              { action: 'file-save', phase: 'error', message },
+              t
+            );
             toastManager.add({
               type: 'error',
-              title: t('Save failed'),
-              description: message,
+              title: errorCopy.title,
+              description: errorCopy.description,
             });
             return;
           }
@@ -234,15 +245,26 @@ export function CurrentFilePanel({ rootPath, isActive = false }: CurrentFilePane
 
   if (!rootPath) {
     return (
-      <Empty className="h-full">
-        <EmptyMedia variant="icon">
-          <FileCode className="h-4.5 w-4.5" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{t('File Explorer')}</EmptyTitle>
-          <EmptyDescription>{t('Select a Worktree to browse files')}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <ControlStateCard
+        icon={<FileCode className="h-5 w-5" />}
+        eyebrow={t('File Explorer')}
+        title={t('File Explorer')}
+        description={t('Choose a worktree to browse files and open an editor')}
+        chipLabel={t('Choose Worktree')}
+        chipTone="wait"
+        actions={
+          onExpandWorktree && worktreeCollapsed ? (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={onExpandWorktree}
+              className="rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
+            >
+              {t('Choose Worktree')}
+            </Button>
+          ) : null
+        }
+      />
     );
   }
 

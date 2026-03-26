@@ -2,6 +2,7 @@ import { Copy, FolderOpen, Pencil, Sparkles, Terminal, Trash2, X } from 'lucide-
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 
 interface TempWorkspaceContextMenuProps {
@@ -53,17 +54,22 @@ export function TempWorkspaceContextMenu({
   const handleCopyPath = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(path);
+      const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'path' }, t);
       toastManager.add({
-        title: t('Copied'),
-        description: t('Path copied to clipboard'),
+        title: successCopy.title,
+        description: successCopy.description,
         type: 'success',
         timeout: 2000,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const errorCopy = buildClipboardToastCopy(
+        { phase: 'error', subject: 'path', message: message || undefined },
+        t
+      );
       toastManager.add({
-        title: t('Copy failed'),
-        description: message || t('Failed to copy content'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 3000,
       });

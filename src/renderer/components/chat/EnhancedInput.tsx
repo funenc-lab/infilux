@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog, DialogPopup } from '@/components/ui/dialog';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildChatInputToastCopy } from '@/lib/feedbackCopy';
 import { isFocusLocked, lockFocus, unlockFocus } from '@/lib/focusLock';
 import { toLocalFileUrl } from '@/lib/localFileUrl';
 import { cn } from '@/lib/utils';
@@ -396,10 +397,14 @@ export function EnhancedInput({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const errorCopy = buildChatInputToastCopy(
+        { action: 'message-send', phase: 'error', message },
+        t
+      );
       toastManager.add({
         type: 'error',
-        title: t('Failed to send message'),
-        description: message,
+        title: errorCopy.title,
+        description: errorCopy.description,
       });
     }
   }, [content, imagePaths, onSend, keepOpenAfterSend, onOpenChange, repoPath, t]);
@@ -524,10 +529,14 @@ export function EnhancedInput({
       try {
         // Check file size
         if (file.size > MAX_IMAGE_SIZE) {
+          const warningCopy = buildChatInputToastCopy(
+            { action: 'image-size', phase: 'warning', sizeMb: 10 },
+            t
+          );
           toastManager.add({
             type: 'warning',
-            title: t('Image too large'),
-            description: t('Max image size is {{size}}MB', { size: 10 }),
+            title: warningCopy.title,
+            description: warningCopy.description,
           });
           return null;
         }
@@ -549,19 +558,31 @@ export function EnhancedInput({
           return result.path;
         }
 
+        const errorCopy = buildChatInputToastCopy(
+          {
+            action: 'image-save',
+            phase: 'error',
+            message: result.error || undefined,
+          },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('Failed to save image'),
-          description: result.error || t('Unknown error'),
+          title: errorCopy.title,
+          description: errorCopy.description,
         });
 
         return null;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const errorCopy = buildChatInputToastCopy(
+          { action: 'image-save', phase: 'error', message },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('Failed to save image'),
-          description: message,
+          title: errorCopy.title,
+          description: errorCopy.description,
         });
         return null;
       }
@@ -576,10 +597,14 @@ export function EnhancedInput({
 
       // Check limit
       if (imagePaths.length + imageFiles.length > MAX_IMAGES) {
+        const warningCopy = buildChatInputToastCopy(
+          { action: 'image-count', phase: 'warning', count: MAX_IMAGES },
+          t
+        );
         toastManager.add({
           type: 'warning',
-          title: t('Too many images'),
-          description: t('Max images is {{count}}', { count: MAX_IMAGES }),
+          title: warningCopy.title,
+          description: warningCopy.description,
         });
         return;
       }

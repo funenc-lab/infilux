@@ -1,6 +1,7 @@
 import type { FileDiff } from '@shared/types';
-import { Loader2 } from 'lucide-react';
+import { FileCode, Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { useI18n } from '@/i18n';
 import { DeferredDiffViewer } from './DeferredDiffViewer';
 
@@ -43,12 +44,26 @@ export function CommitDiffViewer({
   // Don't render DiffViewer while loading or without data
   if (isLoading || !filePath || !fileDiff) {
     return (
-      <div className="flex h-full">
-        <div className="flex flex-1 items-center justify-center">
+      <div className="flex h-full items-center justify-center p-5">
+        <div className="w-full max-w-[min(38rem,100%)]">
           {isLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <ConsoleEmptyState
+              variant="embedded"
+              icon={<Loader2 className="h-4.5 w-4.5 animate-spin" />}
+              eyebrow={t('Commit Diff')}
+              title={t('Loading commit diff')}
+              description={t('Preparing the selected file diff')}
+              chips={[{ label: t('Loading'), tone: 'wait' }]}
+            />
           ) : (
-            <p className="text-sm text-muted-foreground">{t('Select a file to view changes')}</p>
+            <ConsoleEmptyState
+              variant="embedded"
+              icon={<FileCode className="h-4.5 w-4.5" />}
+              eyebrow={t('Commit Diff')}
+              title={t('Select a file to view changes')}
+              description={t('Choose a file from the commit list to inspect its diff')}
+              chips={[{ label: t('Awaiting Selection'), tone: 'wait' }]}
+            />
           )}
         </div>
       </div>

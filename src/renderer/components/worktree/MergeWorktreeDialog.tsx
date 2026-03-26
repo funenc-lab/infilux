@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/select';
 import { addToast } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildSourceControlWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { Z_INDEX } from '@/lib/z-index';
 
 interface MergeWorktreeDialogProps {
@@ -109,10 +110,18 @@ export function MergeWorktreeDialog({
       if (result.success && result.merged) {
         // Show warnings if any (combined into a single toast)
         if (result.warnings && result.warnings.length > 0) {
+          const copy = buildSourceControlWorkflowToastCopy(
+            {
+              action: 'merge-warning',
+              phase: 'success',
+              warnings: result.warnings,
+            },
+            t
+          );
           addToast({
             type: 'warning',
-            title: t('Merge completed with warnings'),
-            description: result.warnings.join('\n'),
+            title: copy.title,
+            description: copy.description,
           });
         }
         onOpenChange(false);

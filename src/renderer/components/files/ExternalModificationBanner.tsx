@@ -13,20 +13,20 @@ export function ExternalModificationBanner({
   const { t } = useI18n();
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-600 dark:text-yellow-400">
+    <div className="flex shrink-0 items-center gap-2 border-b border-warning/25 bg-warning/10 px-3 py-1.5 text-xs text-warning">
       <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{t('File changed externally')}</span>
       <button
         type="button"
         onClick={onReload}
-        className="shrink-0 rounded px-2 py-0.5 font-medium transition-colors hover:bg-yellow-500/20"
+        className="shrink-0 rounded px-2 py-0.5 font-medium transition-colors hover:bg-warning/15"
       >
         {t('Reload')}
       </button>
       <button
         type="button"
         onClick={onDismiss}
-        className="shrink-0 rounded px-2 py-0.5 transition-colors hover:bg-yellow-500/20"
+        className="shrink-0 rounded px-2 py-0.5 transition-colors hover:bg-warning/15"
       >
         {t('Keep Mine')}
       </button>

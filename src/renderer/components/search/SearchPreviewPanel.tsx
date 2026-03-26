@@ -2,9 +2,11 @@ import Editor from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
+import { resolveEditorVisualPalette, withAlpha } from '@/components/files/editorThemePalette';
 import { ensureMonacoSetup } from '@/components/files/monacoSetup';
 import { CUSTOM_THEME_NAME, defineMonacoTheme } from '@/components/files/monacoTheme';
 import { useI18n } from '@/i18n';
+import { findCustomThemeBySelection } from '@/lib/appTheme';
 import { toMonacoVirtualUri } from '@/lib/monacoModelPath';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -21,9 +23,33 @@ export function SearchPreviewPanel({ path, line, query }: SearchPreviewPanelProp
   const [content, setContent] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [themeReady, setThemeReady] = useState(false);
-  const { terminalTheme, editorSettings } = useSettingsStore(
-    useShallow((s) => ({ terminalTheme: s.terminalTheme, editorSettings: s.editorSettings }))
+  const {
+    theme,
+    terminalTheme,
+    colorPreset,
+    customAccentColor,
+    activeThemeSelection,
+    customThemes,
+    editorSettings,
+  } = useSettingsStore(
+    useShallow((s) => ({
+      theme: s.theme,
+      terminalTheme: s.terminalTheme,
+      colorPreset: s.colorPreset,
+      customAccentColor: s.customAccentColor,
+      activeThemeSelection: s.activeThemeSelection,
+      customThemes: s.customThemes,
+      editorSettings: s.editorSettings,
+    }))
   );
+  const activeCustomTheme = findCustomThemeBySelection(customThemes, activeThemeSelection);
+  const highlightPalette = resolveEditorVisualPalette({
+    theme,
+    terminalTheme,
+    colorPreset,
+    customAccentColor,
+    customTheme: activeCustomTheme,
+  });
 
   // Lazily initialize Monaco only when preview is requested.
   useEffect(() => {
@@ -40,14 +66,20 @@ export function SearchPreviewPanel({ path, line, query }: SearchPreviewPanelProp
         if (cancelled) {
           return;
         }
-        defineMonacoTheme(terminalTheme);
+        defineMonacoTheme({
+          theme,
+          terminalTheme,
+          colorPreset,
+          customAccentColor,
+          customTheme: activeCustomTheme,
+        });
         setThemeReady(true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [path, terminalTheme]);
+  }, [path, theme, terminalTheme, colorPreset, customAccentColor, activeCustomTheme]);
 
   const monacoTheme = themeReady ? CUSTOM_THEME_NAME : 'vs-dark';
 
@@ -221,14 +253,14 @@ export function SearchPreviewPanel({ path, line, query }: SearchPreviewPanelProp
       {/* CSS for highlighting */}
       <style>{`
         .search-preview-highlight-line {
-          background-color: rgba(255, 255, 0, 0.15) !important;
+          background-color: ${withAlpha(highlightPalette.accent, '18')} !important;
         }
         .search-preview-highlight-text {
-          background-color: rgba(255, 200, 0, 0.4) !important;
+          background-color: ${withAlpha(highlightPalette.accent, '38')} !important;
           border-radius: 2px;
         }
         .search-preview-glyph {
-          background-color: #ffc800;
+          background-color: ${highlightPalette.accent};
           width: 4px !important;
           margin-left: 3px;
           border-radius: 2px;

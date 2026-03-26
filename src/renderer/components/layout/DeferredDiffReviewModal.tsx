@@ -1,14 +1,8 @@
 import { MessageSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import type { DiffReviewModalProps } from '@/components/source-control/DiffReviewModal';
 import { Dialog, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
 
 type DiffReviewModalComponent = React.ComponentType<DiffReviewModalProps>;
@@ -58,15 +52,16 @@ export function DeferredDiffReviewModal({
         <DialogHeader>
           <DialogTitle>{t('Loading review')}</DialogTitle>
         </DialogHeader>
-        <Empty className="border-0 py-6">
-          <EmptyMedia variant="icon">
-            <MessageSquare className="h-4.5 w-4.5" />
-          </EmptyMedia>
-          <EmptyHeader>
-            <EmptyTitle>{t('Preparing review workspace')}</EmptyTitle>
-            <EmptyDescription>{t('Loading comments and diff tools')}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <div className="px-1 pb-1">
+          <ConsoleEmptyState
+            variant="embedded"
+            icon={<MessageSquare className="h-4.5 w-4.5" />}
+            eyebrow={t('Review Console')}
+            title={t('Preparing review workspace')}
+            description={t('Loading comments and diff tools')}
+            chips={[{ label: t('Loading'), tone: 'wait' }]}
+          />
+        </div>
       </DialogPopup>
     </Dialog>
   );

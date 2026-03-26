@@ -106,15 +106,18 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
 
     if (!isOpen) return null;
 
-    const bgColor = theme?.background ?? '#1e1e1e';
-    const fgColor = theme?.foreground ?? '#d4d4d4';
+    const bgColor = theme?.background ?? 'var(--popover)';
+    const fgColor = theme?.foreground ?? 'var(--foreground)';
+    const borderColor = `color-mix(in oklab, ${fgColor} 22%, transparent)`;
+    const activeToggleBackground = `color-mix(in oklab, ${fgColor} 16%, transparent)`;
+    const activeToggleColor = `color-mix(in oklab, ${fgColor} 92%, var(--foreground) 8%)`;
 
     return (
       <div
         className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md border px-2 py-1 shadow-lg"
         style={{
           backgroundColor: bgColor,
-          borderColor: `${fgColor}30`,
+          borderColor,
         }}
       >
         <input
@@ -124,11 +127,10 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           placeholder="Search..."
-          className={cn(
-            'w-40 bg-transparent text-sm outline-none placeholder:opacity-50',
-            hasResults === false && searchTerm && 'text-red-400'
-          )}
-          style={{ color: fgColor }}
+          className="w-40 bg-transparent text-sm outline-none placeholder:opacity-50"
+          style={{
+            color: hasResults === false && searchTerm ? 'var(--destructive)' : fgColor,
+          }}
         />
 
         {/* Case sensitive toggle */}
@@ -137,9 +139,12 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
           onClick={() => setCaseSensitive(!caseSensitive)}
           className={cn(
             'flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors',
-            caseSensitive ? 'bg-white/20' : 'opacity-50 hover:opacity-100'
+            caseSensitive ? '' : 'opacity-50 hover:opacity-100'
           )}
-          style={{ color: fgColor }}
+          style={{
+            color: caseSensitive ? activeToggleColor : fgColor,
+            backgroundColor: caseSensitive ? activeToggleBackground : 'transparent',
+          }}
           title="Case Sensitive (Aa)"
         >
           Aa
@@ -151,9 +156,12 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
           onClick={() => setWholeWord(!wholeWord)}
           className={cn(
             'flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors',
-            wholeWord ? 'bg-white/20' : 'opacity-50 hover:opacity-100'
+            wholeWord ? '' : 'opacity-50 hover:opacity-100'
           )}
-          style={{ color: fgColor }}
+          style={{
+            color: wholeWord ? activeToggleColor : fgColor,
+            backgroundColor: wholeWord ? activeToggleBackground : 'transparent',
+          }}
           title="Whole Word"
         >
           W
@@ -165,15 +173,18 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
           onClick={() => setRegex(!regex)}
           className={cn(
             'flex h-6 w-6 items-center justify-center rounded text-xs font-bold transition-colors',
-            regex ? 'bg-white/20' : 'opacity-50 hover:opacity-100'
+            regex ? '' : 'opacity-50 hover:opacity-100'
           )}
-          style={{ color: fgColor }}
+          style={{
+            color: regex ? activeToggleColor : fgColor,
+            backgroundColor: regex ? activeToggleBackground : 'transparent',
+          }}
           title="Regular Expression"
         >
           .*
         </button>
 
-        <div className="mx-1 h-4 w-px" style={{ backgroundColor: `${fgColor}30` }} />
+        <div className="mx-1 h-4 w-px" style={{ backgroundColor: borderColor }} />
 
         {/* Previous */}
         <button

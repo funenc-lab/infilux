@@ -1723,6 +1723,7 @@ function WorktreeTreeItem({
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuWasOpenRef = useRef(false);
   const isMain =
     worktree.isMainWorktree || worktree.branch === 'main' || worktree.branch === 'master';
   const branchDisplay = worktree.branch || t('Detached');
@@ -1838,8 +1839,14 @@ function WorktreeTreeItem({
   }, [menuOpen, menuPosition]);
 
   useEffect(() => {
-    if (!menuOpen) {
+    if (menuOpen) {
+      menuWasOpenRef.current = true;
+      return;
+    }
+
+    if (menuWasOpenRef.current) {
       menuTriggerRef.current?.focus();
+      menuWasOpenRef.current = false;
     }
   }, [menuOpen]);
 

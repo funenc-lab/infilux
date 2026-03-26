@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildSourceControlWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -57,17 +58,33 @@ export function CommitBox({
       if (result.success && result.message) {
         setMessage(result.message);
       } else {
+        const errorCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'commit-message',
+            phase: 'error',
+            message: result.error === 'timeout' ? t('Generation timed out') : result.error,
+          },
+          t
+        );
         toastManager.add({
-          title: t('Failed to generate commit message'),
-          description: result.error === 'timeout' ? t('Generation timed out') : result.error,
+          title: errorCopy.title,
+          description: errorCopy.description,
           type: 'error',
           timeout: 5000,
         });
       }
     } catch (error) {
+      const errorCopy = buildSourceControlWorkflowToastCopy(
+        {
+          action: 'commit-message',
+          phase: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+        t
+      );
       toastManager.add({
-        title: t('Failed to generate commit message'),
-        description: error instanceof Error ? error.message : String(error),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });

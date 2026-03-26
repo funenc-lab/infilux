@@ -17,6 +17,7 @@ import { useCallback, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SmoothCollapse } from '@/components/ui/smooth-collapse';
 import { useI18n } from '@/i18n';
+import { getFileStatusTextClass } from '@/lib/fileStatusTone';
 import { cn } from '@/lib/utils';
 import { useSourceControlStore } from '@/stores/sourceControl';
 import { useChangesActions } from './useChangesActions';
@@ -42,16 +43,6 @@ const statusIcons: Record<FileChangeStatus, React.ElementType> = {
   C: FilePlus,
   U: FilePlus,
   X: FileWarning,
-};
-
-const statusColors: Record<FileChangeStatus, string> = {
-  M: 'text-orange-500',
-  A: 'text-green-500',
-  D: 'text-red-500',
-  R: 'text-blue-500',
-  C: 'text-blue-500',
-  U: 'text-green-500',
-  X: 'text-purple-500',
 };
 
 interface TreeNode {
@@ -249,10 +240,15 @@ function FileTreeNode({
       tabIndex={0}
     >
       <div className="h-3.5 w-3.5 shrink-0" />
-      <Icon className={cn('h-4 w-4 shrink-0', isSelected ? '' : statusColors[file.status])} />
+      <Icon
+        className={cn('h-4 w-4 shrink-0', isSelected ? '' : getFileStatusTextClass(file.status))}
+      />
 
       <span
-        className={cn('shrink-0 font-mono text-xs', isSelected ? '' : statusColors[file.status])}
+        className={cn(
+          'shrink-0 font-mono text-xs',
+          isSelected ? '' : getFileStatusTextClass(file.status)
+        )}
       >
         {file.status}
       </span>
