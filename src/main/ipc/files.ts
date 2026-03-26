@@ -20,6 +20,7 @@ import {
   toRemoteVirtualPath,
 } from '../services/remote/RemotePath';
 import { remoteRepositoryBackend } from '../services/remote/RemoteRepositoryBackend';
+import { shouldReturnEmptyFileList } from './fileListPolicy';
 import {
   detectEncoding,
   getRemoteWatcherKey,
@@ -28,7 +29,6 @@ import {
   normalizeWatchedPath,
   resolveBatchConflictTargetPath,
 } from './fileUtils';
-import { shouldReturnEmptyFileList } from './fileListPolicy';
 
 type FileWatcherEventType = 'create' | 'update' | 'delete';
 type FileWatcherState = 'starting' | 'running' | 'stopping';
@@ -60,6 +60,27 @@ const fileResourceOwners = new Set<number>();
 const remoteWatchers = new Map<string, RemoteWatcherRegistration>();
 const remoteWatcherConnectionSubscriptions = new Map<string, () => void>();
 const pendingRemoteWatcherConnectionSubscriptions = new Map<string, Promise<void>>();
+const shouldLogFileListDiagnostics =
+  process.env.NODE_ENV !== 'test' &&
+  (process.env.ENSO_DEBUG_FILE_LIST === '1' ||
+    !('isPackaged' in app) ||
+    !(app as { isPackaged?: boolean }).isPackaged);
+
+function logFileListDiagnostics(stage: string, payload: Record<string, unknown>): void {
+  if (!shouldLogFileListDiagnostics) {
+    return;
+  }
+
+  console.info(`[file-list] ${stage}`, payload);
+}
+
+function emitFileListRuntimeDiagnostics(stage: string, payload: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  console.error(`[file-list-debug] ${stage}`, payload);
+}
 
 function trackWatcherKey(ownerId: number, key: string): void {
   const keys = ownerWatcherKeys.get(ownerId) ?? new Set<string>();
@@ -479,6 +500,7 @@ export function registerFileHandlers(): void {
     IPC_CHANNELS.FILE_LIST,
     async (event, dirPath: string, gitRoot?: string): Promise<FileEntry[]> => {
       if (isRemoteVirtualPath(dirPath)) {
+        logFileListDiagnostics('remote-list:start', { dirPath, gitRoot });
         return remoteRepositoryBackend.listFiles(dirPath);
       }
 
@@ -487,15 +509,49 @@ export function registerFileHandlers(): void {
         registerAllowedLocalFileRoot(gitRoot, event.sender.id);
       }
 
+      logFileListDiagnostics('local-list:start', {
+        dirPath,
+        gitRoot,
+        senderId: event.sender.id,
+      });
+      emitFileListRuntimeDiagnostics('local-list:start', {
+        dirPath,
+        gitRoot,
+        senderId: event.sender.id,
+      });
+
       let entries: string[];
       try {
         entries = await readdir(dirPath);
       } catch (error) {
         if (shouldReturnEmptyFileList(error)) {
+          const nodeError = error as NodeJS.ErrnoException;
+          logFileListDiagnostics('local-list:empty-on-error', {
+            dirPath,
+            gitRoot,
+            code: nodeError.code,
+            message: nodeError.message,
+          });
+          emitFileListRuntimeDiagnostics('local-list:empty-on-error', {
+            dirPath,
+            gitRoot,
+            code: nodeError.code,
+            message: nodeError.message,
+          });
           return [];
         }
         throw error;
       }
+      logFileListDiagnostics('local-list:readdir-success', {
+        dirPath,
+        gitRoot,
+        count: entries.length,
+      });
+      emitFileListRuntimeDiagnostics('local-list:readdir-success', {
+        dirPath,
+        gitRoot,
+        count: entries.length,
+      });
       const result: FileEntry[] = [];
 
       for (const name of entries) {
@@ -532,13 +588,26 @@ export function registerFileHandlers(): void {
         }
       }
 
-      return result.sort((a, b) => {
+      const sortedResult = result.sort((a, b) => {
         // Directories first
         if (a.isDirectory !== b.isDirectory) {
           return a.isDirectory ? -1 : 1;
         }
         return a.name.localeCompare(b.name);
       });
+
+      logFileListDiagnostics('local-list:result', {
+        dirPath,
+        gitRoot,
+        count: sortedResult.length,
+      });
+      emitFileListRuntimeDiagnostics('local-list:result', {
+        dirPath,
+        gitRoot,
+        count: sortedResult.length,
+      });
+
+      return sortedResult;
     }
   );
 

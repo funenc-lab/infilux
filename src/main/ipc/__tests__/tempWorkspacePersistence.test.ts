@@ -42,4 +42,12 @@ describe('tempWorkspacePersistence', () => {
       },
     ]);
   });
+
+  it('recovers nested Windows absolute paths stored with a duplicated prefix', () => {
+    expect(
+      normalizeStoredTempWorkspacePath(
+        'C:/Users/tanzv/Development/Git/penpad/C:/Users/tanzv/Development/Project/cvat'
+      )
+    ).toBe('C:/Users/tanzv/Development/Project/cvat');
+  });
 });

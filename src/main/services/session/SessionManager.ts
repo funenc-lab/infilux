@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   IPC_CHANNELS,
   type SessionAttachOptions,
@@ -14,9 +15,11 @@ import { BrowserWindow, type WebContents } from 'electron';
 import { remoteConnectionManager } from '../remote/RemoteConnectionManager';
 import { isRemoteVirtualPath, parseRemoteVirtualPath } from '../remote/RemotePath';
 import { PtyManager } from '../terminal/PtyManager';
+import { localSupervisorRuntime } from './LocalSupervisorRuntime';
 
 interface ManagedSessionRecord extends SessionDescriptor {
   attachedWindowIds: Set<number>;
+  localRuntime?: 'pty' | 'supervisor';
   connectionId?: string;
   runtimeState?: SessionRuntimeState;
   replayBuffer?: string;
@@ -50,6 +53,7 @@ export class SessionManager {
   readonly localPtyManager = new PtyManager();
 
   private readonly sessions = new Map<string, ManagedSessionRecord>();
+  private localSupervisorSubscriptionsInitialized = false;
   private readonly remoteSubscriptions = new Map<
     string,
     {
@@ -81,6 +85,9 @@ export class SessionManager {
     const windowId = getWindowId(target);
     const existing = this.sessions.get(options.sessionId);
     if (existing?.backend === 'local') {
+      if (existing.localRuntime === 'supervisor') {
+        return this.attachSupervisorSession(windowId, existing);
+      }
       existing.attachedWindowIds.add(windowId);
       const replay = existing.replayBuffer || undefined;
       if (existing.streamState === 'buffering') {
@@ -149,6 +156,10 @@ export class SessionManager {
       }
     }
 
+    if (this.shouldUseLocalSupervisorAttach(options)) {
+      return this.restoreSupervisorSession(windowId, options.sessionId);
+    }
+
     if (!options.cwd || !isRemoteVirtualPath(options.cwd)) {
       throw new Error(`Session not found: ${options.sessionId}`);
     }
@@ -186,6 +197,14 @@ export class SessionManager {
     }
 
     session.attachedWindowIds.delete(windowId);
+    if (session.backend === 'local' && session.localRuntime === 'supervisor') {
+      await localSupervisorRuntime.detachSession(sessionId).catch(() => {});
+      if (session.attachedWindowIds.size === 0) {
+        this.sessions.delete(sessionId);
+      }
+      return;
+    }
+
     if (session.backend === 'remote' && session.connectionId) {
       await this.ensureRemoteSubscriptions(session.connectionId);
       await remoteConnectionManager
@@ -235,6 +254,20 @@ export class SessionManager {
       return;
     }
 
+    if (session.localRuntime === 'supervisor') {
+      const attachedWindowIds = new Set(session.attachedWindowIds);
+      await localSupervisorRuntime.killSession(sessionId).catch(() => {});
+      this.sessions.delete(sessionId);
+      this.emitExit(
+        {
+          sessionId,
+          exitCode: 0,
+        },
+        attachedWindowIds
+      );
+      return;
+    }
+
     const attachedWindowIds = new Set(session.attachedWindowIds);
     this.localPtyManager.destroy(sessionId);
     this.sessions.delete(sessionId);
@@ -268,6 +301,19 @@ export class SessionManager {
       return;
     }
 
+    if (session.localRuntime === 'supervisor') {
+      void Promise.resolve(localSupervisorRuntime.writeSession(sessionId, data)).catch(() => {
+        this.emitState(
+          {
+            sessionId,
+            state: 'dead',
+          },
+          new Set(session.attachedWindowIds)
+        );
+      });
+      return;
+    }
+
     this.localPtyManager.write(sessionId, data);
   }
 
@@ -296,6 +342,21 @@ export class SessionManager {
       return;
     }
 
+    if (session.localRuntime === 'supervisor') {
+      void Promise.resolve(localSupervisorRuntime.resizeSession(sessionId, cols, rows)).catch(
+        () => {
+          this.emitState(
+            {
+              sessionId,
+              state: 'dead',
+            },
+            new Set(session.attachedWindowIds)
+          );
+        }
+      );
+      return;
+    }
+
     this.localPtyManager.resize(sessionId, cols, rows);
   }
 
@@ -310,6 +371,12 @@ export class SessionManager {
       return remoteConnectionManager
         .call<boolean>(session.connectionId, 'session:getActivity', { sessionId })
         .catch(() => false);
+    }
+
+    if (session.localRuntime === 'supervisor') {
+      return Promise.resolve(localSupervisorRuntime.getSessionActivity(sessionId)).catch(
+        () => false
+      );
     }
 
     return this.localPtyManager.getProcessActivity(sessionId);
@@ -347,13 +414,21 @@ export class SessionManager {
     await this.localPtyManager.destroyAllAndWait();
   }
 
-  private createLocal(windowId: number, options: SessionCreateOptions): SessionOpenResult {
+  private async createLocal(
+    windowId: number,
+    options: SessionCreateOptions
+  ): Promise<SessionOpenResult> {
+    if (this.shouldUseLocalSupervisor(options)) {
+      return this.createSupervisorSession(windowId, options);
+    }
+
     const kind = options.kind ?? 'terminal';
     const cwd = options.cwd || process.env.HOME || process.env.USERPROFILE || '/';
     const sessionId = this.localPtyManager.allocateId();
     const record: ManagedSessionRecord = {
       sessionId,
       backend: 'local',
+      localRuntime: 'pty',
       kind,
       cwd,
       persistOnDisconnect: Boolean(options.persistOnDisconnect),
@@ -381,6 +456,86 @@ export class SessionManager {
 
     return {
       session: this.toDescriptor(record),
+    };
+  }
+
+  private shouldUseLocalSupervisor(options: SessionCreateOptions): boolean {
+    return (
+      process.platform === 'win32' &&
+      options.kind === 'agent' &&
+      Boolean(options.persistOnDisconnect)
+    );
+  }
+
+  private shouldUseLocalSupervisorAttach(options: SessionAttachOptions): boolean {
+    return (
+      process.platform === 'win32' && Boolean(options.cwd && !isRemoteVirtualPath(options.cwd))
+    );
+  }
+
+  private async createSupervisorSession(
+    windowId: number,
+    options: SessionCreateOptions
+  ): Promise<SessionOpenResult> {
+    this.ensureLocalSupervisorSubscriptions();
+    const sessionId = `supervisor-${randomUUID()}`;
+    const result = await localSupervisorRuntime.createSession({
+      sessionId,
+      options,
+    });
+    const record: ManagedSessionRecord = {
+      ...result.session,
+      backend: 'local',
+      localRuntime: 'supervisor',
+      attachedWindowIds: new Set([windowId]),
+      replayBuffer: '',
+      streamState: 'live',
+    };
+    this.sessions.set(record.sessionId, record);
+    return {
+      session: this.toDescriptor(record),
+    };
+  }
+
+  private async attachSupervisorSession(
+    windowId: number,
+    session: ManagedSessionRecord
+  ): Promise<SessionAttachResult> {
+    this.ensureLocalSupervisorSubscriptions();
+    const result = await localSupervisorRuntime.attachSession(session.sessionId);
+    session.attachedWindowIds.add(windowId);
+    session.cwd = result.session.cwd;
+    session.kind = result.session.kind;
+    session.persistOnDisconnect = result.session.persistOnDisconnect;
+    session.createdAt = result.session.createdAt;
+    session.metadata = result.session.metadata;
+    session.localRuntime = 'supervisor';
+    session.replayBuffer = result.replay ?? '';
+    session.streamState = 'live';
+    return {
+      session: this.toDescriptor(session),
+      replay: result.replay,
+    };
+  }
+
+  private async restoreSupervisorSession(
+    windowId: number,
+    sessionId: string
+  ): Promise<SessionAttachResult> {
+    this.ensureLocalSupervisorSubscriptions();
+    const result = await localSupervisorRuntime.attachSession(sessionId);
+    const record: ManagedSessionRecord = {
+      ...result.session,
+      backend: 'local',
+      localRuntime: 'supervisor',
+      attachedWindowIds: new Set([windowId]),
+      replayBuffer: result.replay ?? '',
+      streamState: 'live',
+    };
+    this.sessions.set(sessionId, record);
+    return {
+      session: this.toDescriptor(record),
+      replay: result.replay,
     };
   }
 
@@ -505,6 +660,32 @@ export class SessionManager {
         this.emitExit(pendingExit, attachedWindowIds);
       }
     }, 0);
+  }
+
+  private ensureLocalSupervisorSubscriptions(): void {
+    if (this.localSupervisorSubscriptionsInitialized) {
+      return;
+    }
+
+    this.localSupervisorSubscriptionsInitialized = true;
+
+    localSupervisorRuntime.onData((event) => {
+      const session = this.sessions.get(event.sessionId);
+      if (!session || session.localRuntime !== 'supervisor') {
+        return;
+      }
+
+      this.appendReplayBuffer(session, event.data);
+      this.emitData(event.sessionId, event.data, new Set(session.attachedWindowIds));
+    });
+
+    localSupervisorRuntime.onExit((event) => {
+      this.handleLocalExit(event.sessionId, event.exitCode, event.signal);
+    });
+
+    localSupervisorRuntime.onDisconnect(() => {
+      // Supervisor-backed sessions remain alive without renderer attachments.
+    });
   }
 
   private async ensureRemoteSubscriptions(connectionId: string): Promise<void> {

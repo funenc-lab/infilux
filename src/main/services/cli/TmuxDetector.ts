@@ -46,6 +46,19 @@ class TmuxDetector {
     }
   }
 
+  async hasSession(name: string): Promise<boolean> {
+    if (isWindows) {
+      return false;
+    }
+
+    try {
+      await execInPty(`tmux -L enso has-session -t ${name}`, { timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async killServer(): Promise<void> {
     if (isWindows) return;
     try {
