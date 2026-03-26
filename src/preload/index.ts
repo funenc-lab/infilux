@@ -29,6 +29,8 @@ import type {
   GitStatus,
   GitSubmodule,
   GitWorktree,
+  LogConfigUpdate,
+  LogDiagnostics,
   McpServer,
   McpServerConfig,
   MergeConflict,
@@ -1220,12 +1222,12 @@ const electronAPI = {
 
   // Logging
   log: {
-    updateConfig: (config: {
-      enabled: boolean;
-      level: 'error' | 'warn' | 'info' | 'debug';
-    }): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.LOG_UPDATE_CONFIG, config),
+    updateConfig: (config: LogConfigUpdate): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.LOG_UPDATE_CONFIG, config),
     openFolder: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.LOG_OPEN_FOLDER),
     getPath: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.LOG_GET_PATH),
+    getDiagnostics: (lineCount?: number): Promise<LogDiagnostics> =>
+      ipcRenderer.invoke(IPC_CHANNELS.LOG_GET_DIAGNOSTICS, lineCount),
   },
 
   // Utilities
