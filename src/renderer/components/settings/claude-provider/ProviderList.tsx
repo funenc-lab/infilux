@@ -77,12 +77,12 @@ function ProviderItem({
       dragListener={false}
       dragControls={controls}
       className={cn(
-        'group flex items-center justify-between rounded-md px-3 py-2 transition-colors',
+        'group flex items-center justify-between rounded-lg border px-3 py-2.5 transition-colors',
         isActive
-          ? 'bg-accent text-accent-foreground'
+          ? 'border-border bg-muted/45 text-foreground'
           : effectiveIsDisabled
-            ? 'opacity-60'
-            : 'cursor-pointer hover:bg-accent/50'
+            ? 'border-transparent opacity-60'
+            : 'cursor-pointer border-transparent hover:bg-muted/40'
       )}
       onClick={() => {
         // 如果刚刚在拖拽手柄上释放，不触发选中
@@ -100,7 +100,7 @@ function ProviderItem({
       }}
       drag="y"
     >
-      <div className="flex items-center gap-2">
+      <div className="min-w-0 flex items-center gap-2">
         <div
           role="button"
           tabIndex={0}
@@ -122,7 +122,7 @@ function ProviderItem({
 
         <span
           className={cn(
-            'text-sm font-medium',
+            'truncate text-sm font-medium',
             effectiveIsDisabled && 'text-muted-foreground line-through'
           )}
         >
@@ -130,7 +130,7 @@ function ProviderItem({
         </span>
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="ml-3 flex shrink-0 items-center gap-1">
         {enableProviderDisableFeature && (
           <Tooltip>
             <TooltipTrigger render={<span />}>
@@ -298,9 +298,8 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
 
   return (
     <div className={cn('space-y-3', className)}>
-      {/* 当前配置状态 */}
       {hasUnsavedConfig && claudeData?.extracted && (
-        <div className="flex items-center justify-between rounded-md border border-dashed border-yellow-500/50 bg-yellow-500/5 px-3 py-2">
+        <div className="flex items-center justify-between rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
           <span className="text-sm text-muted-foreground">{t('Current config not saved')}</span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="xs" className="h-6" onClick={() => setPreviewOpen(true)}>
@@ -315,9 +314,13 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         </div>
       )}
 
-      {/* Provider 列表 */}
       {providers.length > 0 ? (
-        <Reorder.Group axis="y" values={providers} onReorder={handleReorder} className="space-y-1">
+        <Reorder.Group
+          axis="y"
+          values={providers}
+          onReorder={handleReorder}
+          className="space-y-1.5"
+        >
           {providers.map((provider) => {
             const isActive = activeProvider?.id === provider.id;
             const isDisabled = provider.enabled === false;
@@ -344,13 +347,11 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         </div>
       )}
 
-      {/* 添加按钮 */}
       <Button variant="outline" size="sm" className="w-full" onClick={handleAdd}>
         <Plus className="mr-1.5 h-3.5 w-3.5" />
         {t('Add Provider')}
       </Button>
 
-      {/* 弹窗 */}
       <ProviderDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -364,7 +365,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
             <DialogTitle>{t('Preview')}</DialogTitle>
           </DialogHeader>
           <DialogPanel>
-            <pre className="max-h-[420px] whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-xs text-muted-foreground">
+            <pre className="max-h-[420px] whitespace-pre-wrap rounded-lg border border-border/70 bg-muted/35 p-3 text-xs text-muted-foreground">
               {JSON.stringify(
                 {
                   env: {

@@ -201,7 +201,7 @@ export function useXterm({
     }
   }, []);
 
-  const fit = useCallback(() => {
+  const fitTerminal = useCallback(() => {
     if (
       fitAddonRef.current &&
       terminalRef.current &&
@@ -872,12 +872,11 @@ export function useXterm({
   useEffect(() => {
     if (isActive && terminalRef.current && !isLoading) {
       requestAnimationFrame(() => {
-        // biome-ignore lint/suspicious/noFocusedTests: fit resizes the terminal viewport.
-        fit();
+        fitTerminal();
         terminalRef.current?.focus();
       });
     }
-  }, [isActive, isLoading, fit]);
+  }, [isActive, isLoading, fitTerminal]);
 
   // Handle window visibility change to refresh terminal rendering
   useEffect(() => {
@@ -895,8 +894,7 @@ export function useXterm({
           }
           terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
           if (isActive) {
-            // biome-ignore lint/suspicious/noFocusedTests: fit resizes the terminal viewport.
-            fit();
+            fitTerminal();
           }
         });
       }
@@ -904,7 +902,7 @@ export function useXterm({
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isActive, fit]);
+  }, [isActive, fitTerminal]);
 
   // Handle app focus/blur events (macOS app switching)
   useEffect(() => {
@@ -913,8 +911,7 @@ export function useXterm({
         requestAnimationFrame(() => {
           terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
           if (isActive) {
-            // biome-ignore lint/suspicious/noFocusedTests: fit resizes the terminal viewport.
-            fit();
+            fitTerminal();
           }
         });
       }
@@ -922,7 +919,7 @@ export function useXterm({
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [isActive, fit]);
+  }, [isActive, fitTerminal]);
 
   // Silent Reset: Proactively clear texture atlas every 30 mins to prevent long-term fragmentation
   useEffect(() => {
@@ -960,7 +957,7 @@ export function useXterm({
     runtimeState,
     settings,
     write,
-    fit,
+    fit: fitTerminal,
     terminal: terminalRef.current,
     findNext,
     findPrevious,

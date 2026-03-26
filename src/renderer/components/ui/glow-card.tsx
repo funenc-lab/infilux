@@ -33,13 +33,8 @@ interface GlowCardProps {
 }
 
 /**
- * GlowCard - A card component with animated glow effects based on agent activity state
- *
- * States:
- * - idle: No glow effect
- * - running: Animated green flowing glow (Claude is actively working)
- * - waiting_input: Animated amber pulsing glow (Claude waiting for user input)
- * - completed: Subtle blue static glow (Claude finished working)
+ * GlowCard keeps the legacy API but renders a quieter state treatment that
+ * matches the console visual system.
  */
 export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
   (
@@ -84,7 +79,7 @@ export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
-        {/* Glow effect layer */}
+        {/* Quiet state layer */}
         {state === 'running' && <RunningGlow />}
         {state === 'waiting_input' && <WaitingInputGlow />}
         {state === 'completed' && <CompletedGlow />}
@@ -99,7 +94,7 @@ export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
 GlowCard.displayName = 'GlowCard';
 
 /**
- * Simple inline indicator dot for smaller UI elements
+ * State indicator dot for smaller UI elements
  */
 export function GlowIndicator({
   state,
@@ -119,9 +114,9 @@ export function GlowIndicator({
   };
 
   const colorClasses: Record<GlowState, string> = {
-    running: 'bg-green-500',
-    waiting_input: 'bg-amber-500',
-    completed: 'bg-blue-400',
+    running: 'bg-[color:var(--control-live)]',
+    waiting_input: 'bg-[color:var(--control-wait)]',
+    completed: 'bg-[color:var(--control-done)]',
     idle: '',
   };
 
@@ -160,7 +155,7 @@ export function GlowIndicator({
 }
 
 /**
- * Lightweight glow effect for tree items and list rows
+ * Lightweight state frame for tree items and list rows
  */
 export function GlowBorder({
   state,
@@ -177,7 +172,7 @@ export function GlowBorder({
 
   return (
     <div className={cn('relative', className)}>
-      {/* Glow effect layer */}
+      {/* Quiet state layer */}
       {state === 'running' && <RunningGlow />}
       {state === 'waiting_input' && <WaitingInputGlow />}
       {state === 'completed' && <CompletedGlow />}
@@ -189,172 +184,70 @@ export function GlowBorder({
 }
 
 /**
- * Glow effect for "running" state - animated green flowing glow
- * Used when Claude is actively working
+ * Running state frame
  */
 function RunningGlow() {
   return (
-    <>
-      {/* Soft radial glow from center */}
-      <motion.div
-        className="absolute inset-0 rounded-[inherit]"
-        style={{
-          background:
-            'radial-gradient(ellipse at 50% 50%, rgba(34, 197, 94, 0.25) 0%, transparent 70%)',
-        }}
-        animate={{
-          opacity: [0.3, 1, 0.3],
-        }}
-        transition={{
-          duration: 2,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-      {/* Complete border highlight */}
-      <motion.div
-        className="absolute inset-0 rounded-[inherit] pointer-events-none z-20"
-        style={{
-          border: '1.5px solid rgba(34, 197, 94, 0.9)',
-        }}
-        animate={{
-          opacity: [0.2, 1, 0.2],
-        }}
-        transition={{
-          duration: 1.8,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-      {/* Outer soft glow */}
-      <motion.div
-        className="absolute -inset-[3px] rounded-[inherit] -z-10"
-        style={{
-          boxShadow: '0 0 40px rgba(34, 197, 94, 0.5)',
-        }}
-        animate={{
-          opacity: [0.2, 1, 0.2],
-        }}
-        transition={{
-          duration: 2,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-    </>
+    <motion.div
+      className="absolute inset-0 rounded-[inherit] border pointer-events-none"
+      style={{
+        borderColor: 'color-mix(in oklch, var(--control-live) 42%, transparent)',
+        background: 'color-mix(in oklch, var(--control-live) 8%, var(--background) 92%)',
+      }}
+      animate={{
+        opacity: [0.68, 0.92, 0.68],
+      }}
+      transition={{
+        duration: 2.4,
+        repeat: Number.POSITIVE_INFINITY,
+        ease: 'easeOut',
+      }}
+    />
   );
 }
 
 /**
- * Glow effect for "waiting_input" state - animated amber pulsing glow
- * Used when Claude is waiting for user input
+ * Waiting state frame
  */
 function WaitingInputGlow() {
   return (
-    <>
-      {/* Soft radial glow */}
-      <motion.div
-        className="absolute inset-0 rounded-[inherit]"
-        style={{
-          background:
-            'radial-gradient(ellipse at 50% 50%, rgba(251, 191, 36, 0.22) 0%, transparent 70%)',
-        }}
-        animate={{
-          opacity: [0.3, 1, 0.3],
-        }}
-        transition={{
-          duration: 2.8,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-      {/* Complete border highlight */}
-      <motion.div
-        className="absolute inset-0 rounded-[inherit] pointer-events-none z-20"
-        style={{
-          border: '1.5px solid rgba(251, 191, 36, 0.9)',
-        }}
-        animate={{
-          opacity: [0.2, 1, 0.2],
-        }}
-        transition={{
-          duration: 2.5,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-      {/* Outer amber glow */}
-      <motion.div
-        className="absolute -inset-[3px] rounded-[inherit] -z-10"
-        style={{
-          boxShadow: '0 0 40px rgba(251, 191, 36, 0.5)',
-        }}
-        animate={{
-          opacity: [0.2, 1, 0.2],
-        }}
-        transition={{
-          duration: 2.8,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-    </>
+    <motion.div
+      className="absolute inset-0 rounded-[inherit] border pointer-events-none"
+      style={{
+        borderColor: 'color-mix(in oklch, var(--control-wait) 46%, transparent)',
+        background: 'color-mix(in oklch, var(--control-wait) 10%, var(--background) 90%)',
+      }}
+      animate={{
+        opacity: [0.72, 1, 0.72],
+      }}
+      transition={{
+        duration: 2.8,
+        repeat: Number.POSITIVE_INFINITY,
+        ease: 'easeOut',
+      }}
+    />
   );
 }
 
 /**
- * Glow effect for "completed" state - blue pulsing glow
- * Used when Claude has finished working
+ * Completed state frame
  */
 function CompletedGlow() {
   return (
-    <>
-      {/* Soft radial glow - blue tint */}
-      <motion.div
-        className="absolute inset-0 rounded-[inherit]"
-        style={{
-          background:
-            'radial-gradient(ellipse at 50% 50%, rgba(59, 130, 246, 0.22) 0%, transparent 70%)',
-        }}
-        animate={{
-          opacity: [0.3, 1, 0.3],
-        }}
-        transition={{
-          duration: 3.5,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-      {/* Complete border highlight */}
-      <motion.div
-        className="absolute inset-0 rounded-[inherit] pointer-events-none z-20"
-        style={{
-          border: '1.5px solid rgba(59, 130, 246, 0.9)',
-        }}
-        animate={{
-          opacity: [0.2, 1, 0.2],
-        }}
-        transition={{
-          duration: 3.2,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-      {/* Outer blue glow */}
-      <motion.div
-        className="absolute -inset-[3px] rounded-[inherit] -z-10"
-        style={{
-          boxShadow: '0 0 40px rgba(59, 130, 246, 0.5)',
-        }}
-        animate={{
-          opacity: [0.2, 1, 0.2],
-        }}
-        transition={{
-          duration: 3.5,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: 'easeInOut',
-        }}
-      />
-    </>
+    <motion.div
+      className="absolute inset-0 rounded-[inherit] border pointer-events-none"
+      style={{
+        borderColor: 'color-mix(in oklch, var(--control-done) 40%, transparent)',
+        background: 'color-mix(in oklch, var(--control-done) 9%, var(--background) 91%)',
+      }}
+      animate={{
+        opacity: [0.72, 0.9, 0.72],
+      }}
+      transition={{
+        duration: 2.6,
+        repeat: Number.POSITIVE_INFINITY,
+        ease: 'easeOut',
+      }}
+    />
   );
 }

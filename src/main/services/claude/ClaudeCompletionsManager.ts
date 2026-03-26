@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { type AsyncSubscription, subscribe } from '@parcel/watcher';
+import { CLAUDE_COMPLETIONS_CACHE_FILENAME } from '@shared/paths';
 import type { ClaudeSlashCompletionItem, ClaudeSlashCompletionsSnapshot } from '@shared/types';
 
 function getClaudeConfigDir(): string {
@@ -25,7 +26,7 @@ function getClaudeConfigDirs(): string[] {
   const envDir = process.env.CLAUDE_CONFIG_DIR;
 
   const candidates = [homeDir];
-  if (envDir && envDir.trim()) {
+  if (envDir?.trim()) {
     candidates.push(envDir);
   }
 
@@ -47,7 +48,7 @@ function getClaudeSkillsDirs(): string[] {
 
 function getLearnedCacheFilePath(): string {
   // The learned cache follows CLAUDE_CONFIG_DIR (if set); otherwise it defaults to ~/.claude.
-  return path.join(getPrimaryClaudeConfigDir(), 'cache', 'ensoai-slash-learned.json');
+  return path.join(getPrimaryClaudeConfigDir(), 'cache', CLAUDE_COMPLETIONS_CACHE_FILENAME);
 }
 
 let snapshot: ClaudeSlashCompletionsSnapshot = { items: [], updatedAt: 0 };

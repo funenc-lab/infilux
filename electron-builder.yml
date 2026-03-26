@@ -1,5 +1,5 @@
-appId: com.ensoai.app
-productName: EnsoAI
+appId: com.infilux.app
+productName: Infilux
 copyright: Copyright © 2025
 
 directories:
@@ -91,12 +91,12 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   notarize: true
-  # Register enso:// URL scheme
+  # Register infilux:// URL scheme
   extendInfo:
     CFBundleURLTypes:
-      - CFBundleURLName: EnsoAI
+      - CFBundleURLName: Infilux
         CFBundleURLSchemes:
-          - enso
+          - infilux
 
 dmg:
   sign: true
@@ -126,7 +126,7 @@ nsis:
   deleteAppDataOnUninstall: false
   # Enable differential download for NSIS
   differentialPackage: true
-  # Register enso:// URL scheme
+  # Register infilux:// URL scheme
   include: build/installer.nsh
 
 linux:
@@ -135,15 +135,15 @@ linux:
       arch: [x64]
     - target: deb
       arch: [x64]
-  executableName: enso-ai
-  maintainer: EnsoAI Team <crolin-zhang@users.noreply.github.com>
+  executableName: infilux
+  maintainer: Infilux Team <crolin-zhang@users.noreply.github.com>
   category: Development
-  # Register enso:// URL scheme
+  # Register infilux:// URL scheme
   mimeTypes:
-    - x-scheme-handler/enso
+    - x-scheme-handler/infilux
 
 publish:
   provider: github
-  owner: J3n5en
-  repo: EnsoAI
+  owner: funenc-lab
+  repo: infilux
   releaseType: draft

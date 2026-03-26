@@ -36,6 +36,7 @@ import type {
   MergeConflict,
   MergeConflictContent,
   MergeState,
+  PersistentAgentSessionRecord,
   ProxySettings,
   PullRequest,
   RecentEditorProject,
@@ -46,6 +47,7 @@ import type {
   RemoteHelperStatus,
   RemoteRuntimeStatus,
   RepositoryRuntimeContext,
+  RestoreWorktreeSessionsRequest,
   RuntimeMemorySnapshot,
   SessionAttachOptions,
   SessionAttachResult,
@@ -471,6 +473,18 @@ const electronAPI = {
     list: (): Promise<AgentMetadata[]> => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LIST),
   },
 
+  agentSession: {
+    listRecoverable: () => ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_LIST_RECOVERABLE),
+    restoreWorktreeSessions: (request: RestoreWorktreeSessionsRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_RESTORE_WORKTREE, request),
+    reconcile: (uiSessionId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_RECONCILE, uiSessionId),
+    markPersistent: (record: PersistentAgentSessionRecord) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT, record),
+    abandon: (uiSessionId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_ABANDON, uiSessionId),
+  },
+
   // App
   app: {
     getPath: (name: string): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PATH, name),
@@ -685,6 +699,14 @@ const electronAPI = {
     read: (): Promise<unknown> => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_READ),
     write: (data: unknown): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_WRITE, data),
+    previewLegacyImport: (
+      sourcePath: string
+    ): Promise<import('@shared/types').LegacySettingsImportPreview> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_PREVIEW, sourcePath),
+    applyLegacyImport: (
+      sourcePath: string
+    ): Promise<import('@shared/types').LegacySettingsImportApplyResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_APPLY, sourcePath),
   },
 
   // Todo

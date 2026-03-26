@@ -46,7 +46,7 @@ describe('parseGitLogOutput', () => {
       [
         'def456',
         '2026-03-24 11:00:00 +0800',
-        'EnsoAI Team',
+        'Infilux Team',
         'admin@j3n5en.com',
         'fix(editor): 修复路径解析错误',
         '',
@@ -57,10 +57,35 @@ describe('parseGitLogOutput', () => {
       {
         hash: 'def456',
         date: '2026-03-24 11:00:00 +0800',
-        author_name: 'EnsoAI Team',
+        author_name: 'Infilux Team',
         author_email: 'admin@j3n5en.com',
         message: 'fix(editor): 修复路径解析错误',
         fullMessage: 'fix(editor): 修复路径解析错误',
+        refs: undefined,
+      },
+    ]);
+  });
+
+  it('drops empty HEAD refs after normalization', () => {
+    const output =
+      [
+        'ghi789',
+        '2026-03-24 12:00:00 +0800',
+        'Tester',
+        'tester@example.com',
+        'chore: tidy',
+        '',
+        'HEAD ->',
+      ].join(GIT_LOG_FIELD_SEPARATOR) + GIT_LOG_RECORD_SEPARATOR;
+
+    expect(parseGitLogOutput(output)).toEqual([
+      {
+        hash: 'ghi789',
+        date: '2026-03-24 12:00:00 +0800',
+        author_name: 'Tester',
+        author_email: 'tester@example.com',
+        message: 'chore: tidy',
+        fullMessage: 'chore: tidy',
         refs: undefined,
       },
     ]);

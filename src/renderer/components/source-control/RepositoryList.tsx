@@ -155,7 +155,7 @@ export function RepositoryList({
             >
               <span className="text-sm whitespace-nowrap">{repo.name}</span>
               {repo.changesCount > 0 && (
-                <span className="ml-1 flex items-center justify-center min-w-[18px] h-[18px] text-[10px] leading-none bg-primary text-primary-foreground rounded-full shrink-0 font-medium px-1">
+                <span className="control-badge ml-1 shrink-0 min-w-[18px]">
                   {repo.changesCount}
                 </span>
               )}

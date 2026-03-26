@@ -32,7 +32,7 @@ export function DraggableSettingsWindow({
   const setSettingsModalPosition = useSettingsStore((s) => s.setSettingsModalPosition);
   const setSettingsDisplayMode = useSettingsStore((s) => s.setSettingsDisplayMode);
 
-  // 拖动状态
+  // Drag state
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState(savedPosition || { x: 0, y: 0 });
   const dragStartPos = useRef<{ x: number; y: number; lastX?: number; lastY?: number }>({
@@ -40,47 +40,64 @@ export function DraggableSettingsWindow({
     y: 0,
   });
   const windowRef = useRef<HTMLDivElement>(null);
+  const [viewportSize, setViewportSize] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
 
-  // 窗口尺寸常量
-  const WINDOW_WIDTH = 896; // max-w-4xl
+  // Window size caps
+  const WINDOW_WIDTH = 896;
   const WINDOW_HEIGHT = 600;
+  const frameWidth = Math.min(WINDOW_WIDTH, Math.max(320, viewportSize.width - 24));
+  const frameHeight = Math.min(WINDOW_HEIGHT, Math.max(420, viewportSize.height - 24));
 
-  // macOS traffic lights 安全边距（避免标题栏被遮挡）
+  // macOS traffic light safe area keeps the title bar clear.
   const isMac = window.electronAPI.env.platform === 'darwin';
-  const MAC_SAFE_MARGIN_X = 0; // 左侧不限制
-  const MAC_SAFE_MARGIN_Y = 50; // traffic lights 高度 + 缓冲
+  const MAC_SAFE_MARGIN_X = 0;
+  const MAC_SAFE_MARGIN_Y = 50;
 
-  // 居中计算和位置验证
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Center and clamp the window inside the viewport.
   useEffect(() => {
     if (!open) return;
 
     const minX = isMac ? MAC_SAFE_MARGIN_X : 0;
     const minY = isMac ? MAC_SAFE_MARGIN_Y : 0;
-    const centerX = Math.max(minX, (window.innerWidth - WINDOW_WIDTH) / 2);
-    const centerY = Math.max(minY, (window.innerHeight - WINDOW_HEIGHT) / 2);
+    const centerX = Math.max(minX, (viewportSize.width - frameWidth) / 2);
+    const centerY = Math.max(minY, (viewportSize.height - frameHeight) / 2);
 
     if (!savedPosition) {
-      // 首次打开：居中
+      // Center on first open.
       setPosition({ x: centerX, y: centerY });
     } else {
-      // 验证保存的位置是否在安全区域内
       const isOutOfBounds =
         savedPosition.x < minX ||
         savedPosition.y < minY ||
-        savedPosition.x + WINDOW_WIDTH > window.innerWidth ||
-        savedPosition.y + WINDOW_HEIGHT > window.innerHeight;
+        savedPosition.x + frameWidth > viewportSize.width ||
+        savedPosition.y + frameHeight > viewportSize.height;
 
       if (isOutOfBounds) {
-        // 位置超出安全区域：重置为居中
+        // Reset when the saved position is no longer valid.
         setPosition({ x: centerX, y: centerY });
         setSettingsModalPosition({ x: centerX, y: centerY });
       } else {
         setPosition(savedPosition);
       }
     }
-  }, [open, savedPosition, setSettingsModalPosition, isMac]);
+  }, [open, savedPosition, setSettingsModalPosition, isMac, frameHeight, frameWidth, viewportSize]);
 
-  // ESC 键关闭
+  // Close on Escape.
   useEffect(() => {
     if (!open) return;
 
@@ -94,7 +111,7 @@ export function DraggableSettingsWindow({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [open, onOpenChange]);
 
-  // 拖动逻辑 - 使用原生 DOM 操作避免 React 重渲染导致的延迟
+  // Use direct DOM updates during dragging to avoid repaint lag.
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest('.no-drag')) return;
@@ -117,23 +134,20 @@ export function DraggableSettingsWindow({
       let newX = e.clientX - dragStartPos.current.x;
       let newY = e.clientY - dragStartPos.current.y;
 
-      // 边界限制（防止拖出屏幕）
-      newX = Math.max(minX, Math.min(newX, window.innerWidth - WINDOW_WIDTH));
-      newY = Math.max(minY, Math.min(newY, window.innerHeight - WINDOW_HEIGHT));
+      // Keep the frame inside the viewport.
+      newX = Math.max(minX, Math.min(newX, viewportSize.width - frameWidth));
+      newY = Math.max(minY, Math.min(newY, viewportSize.height - frameHeight));
 
-      // 直接操作 DOM，避免 React 状态更新导致的重渲染延迟
       if (windowRef.current) {
         windowRef.current.style.left = `${newX}px`;
         windowRef.current.style.top = `${newY}px`;
       }
-      // 保存最新位置用于 mouseup 时同步到 state
       dragStartPos.current.lastX = newX;
       dragStartPos.current.lastY = newY;
     };
 
     const handleMouseUp = () => {
       setIsDragging(false);
-      // 同步最终位置到 React state
       const finalX = dragStartPos.current.lastX ?? position.x;
       const finalY = dragStartPos.current.lastY ?? position.y;
       setPosition({ x: finalX, y: finalY });
@@ -146,77 +160,79 @@ export function DraggableSettingsWindow({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, isMac, position.x, position.y, setSettingsModalPosition]);
+  }, [
+    isDragging,
+    isMac,
+    position.x,
+    position.y,
+    setSettingsModalPosition,
+    frameHeight,
+    frameWidth,
+    viewportSize.height,
+    viewportSize.width,
+  ]);
 
   if (!open) return null;
 
   return createPortal(
     <AnimatePresence>
       {open && (
-        <>
-          {/* 可拖动窗口 */}
-          <motion.div
-            ref={windowRef}
-            variants={scaleInVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            transition={isDragging ? { duration: 0 } : springFast}
-            className="fixed flex flex-col rounded-2xl border bg-popover shadow-lg"
-            style={
-              {
-                // 使用 left/top 而非 transform，避免与 framer-motion 动画冲突
-                left: `${position.x}px`,
-                top: `${position.y}px`,
-                width: `${WINDOW_WIDTH}px`,
-                height: `${WINDOW_HEIGHT}px`,
-                zIndex: Z_INDEX.SETTINGS_WINDOW,
-                // 阻止主窗口 drag-region 穿透
-                WebkitAppRegion: 'no-drag',
-              } as React.CSSProperties
-            }
+        <motion.div
+          ref={windowRef}
+          variants={scaleInVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={isDragging ? { duration: 0 } : springFast}
+          className="fixed flex flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-sm"
+          style={
+            {
+              left: `${position.x}px`,
+              top: `${position.y}px`,
+              width: `${frameWidth}px`,
+              height: `${frameHeight}px`,
+              zIndex: Z_INDEX.SETTINGS_WINDOW,
+              WebkitAppRegion: 'no-drag',
+            } as React.CSSProperties
+          }
+        >
+          <div
+            className={cn(
+              'flex items-center justify-between gap-3 rounded-t-xl border-b px-4 py-2.5 select-none',
+              isDragging ? 'cursor-grabbing' : 'cursor-grab'
+            )}
+            onMouseDown={handleMouseDown}
           >
-            {/* 可拖动标题栏 */}
-            <div
-              className={cn(
-                'flex items-center justify-between border-b px-4 py-3 select-none rounded-t-2xl',
-                isDragging ? 'cursor-grabbing' : 'cursor-grab'
-              )}
-              onMouseDown={handleMouseDown}
-            >
-              <h2 className="text-lg font-medium">{t('Settings')}</h2>
-              <div className="no-drag flex items-center gap-2">
-                {/* 切换按钮：切换到 Tab 模式 */}
-                <button
-                  type="button"
-                  onClick={() => setSettingsDisplayMode('tab')}
-                  className="flex h-6 items-center gap-1 rounded px-2 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-                  title={t('Switch to TAB mode')}
-                >
-                  <LayoutGrid className="h-3 w-3" />
-                  {t('Switch to TAB mode')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenChange(false)}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+            <h2 className="min-w-0 truncate text-lg font-medium">{t('Settings')}</h2>
+            <div className="no-drag flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSettingsDisplayMode('tab')}
+                className="hidden h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground sm:flex"
+                title={t('Switch to TAB mode')}
+              >
+                <LayoutGrid className="h-3 w-3" />
+                {t('Switch to TAB mode')}
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenChange(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
+          </div>
 
-            {/* 设置内容 */}
-            <div className="flex flex-1 min-h-0">
-              <SettingsContent
-                activeCategory={activeCategory}
-                onCategoryChange={onCategoryChange}
-                scrollToProvider={scrollToProvider}
-                repoPath={repoPath}
-              />
-            </div>
-          </motion.div>
-        </>
+          <div className="flex flex-1 min-h-0">
+            <SettingsContent
+              activeCategory={activeCategory}
+              onCategoryChange={onCategoryChange}
+              scrollToProvider={scrollToProvider}
+              repoPath={repoPath}
+            />
+          </div>
+        </motion.div>
       )}
     </AnimatePresence>,
     document.body

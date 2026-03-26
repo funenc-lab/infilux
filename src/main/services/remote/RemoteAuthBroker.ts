@@ -3,6 +3,7 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { REMOTE_AUTH_DIRNAME, RUNTIME_STATE_DIRNAME } from '@shared/paths';
 import type {
   ConnectionProfile,
   RemoteAuthPrompt,
@@ -97,7 +98,11 @@ function normalizePromptSignature(promptText: string): string {
 }
 
 function getBrokerRoot(): string {
-  return join(process.env.HOME || process.env.USERPROFILE || homedir(), '.ensoai', 'remote-auth');
+  return join(
+    process.env.HOME || process.env.USERPROFILE || homedir(),
+    RUNTIME_STATE_DIRNAME,
+    REMOTE_AUTH_DIRNAME
+  );
 }
 
 function normalizePromptText(promptText: string): string {

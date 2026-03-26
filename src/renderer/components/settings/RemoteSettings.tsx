@@ -1,3 +1,4 @@
+import { REMOTE_RUNTIME_INSTALL_EXAMPLE } from '@shared/paths';
 import type { ConnectionProfile, ConnectionTestResult, RemoteRuntimeStatus } from '@shared/types';
 import {
   Download,
@@ -564,7 +565,7 @@ export function RemoteSettings() {
                 onChange={(event) =>
                   setForm((current) => ({ ...current, runtimeInstallDir: event.target.value }))
                 }
-                placeholder={t('Optional override, for example ~/.ensoai/remote-runtime')}
+                placeholder={t(`Optional override, for example ${REMOTE_RUNTIME_INSTALL_EXAMPLE}`)}
               />
             </Field>
           </div>

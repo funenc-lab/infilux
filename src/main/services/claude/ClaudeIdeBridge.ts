@@ -92,7 +92,7 @@ function writeLockFile({
   port,
   authToken,
   workspaceFolders = [],
-  ideName = 'EnsoAI',
+  ideName = 'Infilux',
 }: {
   port: number;
   authToken: string;
@@ -208,7 +208,7 @@ function createJsonRpcHandler({ ideName }: { ideName: string }) {
 export async function startClaudeIdeBridge(
   options: ClaudeIdeBridgeOptions = {}
 ): Promise<ClaudeIdeBridgeInstance> {
-  const { workspaceFolders: initialFolders = [], ideName = 'EnsoAI' } = options;
+  const { workspaceFolders: initialFolders = [], ideName = 'Infilux' } = options;
   const authToken = crypto.randomUUID();
 
   // Mutable state for workspace folders
@@ -666,7 +666,7 @@ export function updateClaudeWorkspaceFolders(folders: string[]): void {
 }
 
 // Dynamic enable/disable based on settings
-let bridgeOptions: ClaudeIdeBridgeOptions = { ideName: 'EnsoAI' };
+let bridgeOptions: ClaudeIdeBridgeOptions = { ideName: 'Infilux' };
 
 export async function setClaudeBridgeEnabled(
   enabled: boolean,

@@ -198,7 +198,7 @@ export function EditorSettings() {
       </div>
 
       {/* Font Family */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Font family')}</span>
         <Input
           value={localFontFamily}
@@ -215,7 +215,7 @@ export function EditorSettings() {
       </div>
 
       {/* Font Size */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Font size')}</span>
         <div className="flex items-center gap-2">
           <Input
@@ -238,7 +238,7 @@ export function EditorSettings() {
       </div>
 
       {/* Line Height */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Line height')}</span>
         <div className="flex items-center gap-2">
           <Input
@@ -261,7 +261,7 @@ export function EditorSettings() {
       </div>
 
       {/* Font Ligatures */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Font ligatures')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Enable font ligatures')}</p>
@@ -279,7 +279,7 @@ export function EditorSettings() {
       </div>
 
       {/* Padding Top */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Padding top')}</span>
         <div className="flex items-center gap-2">
           <Input
@@ -302,7 +302,7 @@ export function EditorSettings() {
       </div>
 
       {/* Padding Bottom */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Padding bottom')}</span>
         <div className="flex items-center gap-2">
           <Input
@@ -331,7 +331,7 @@ export function EditorSettings() {
       </div>
 
       {/* Tab Size */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Tab size')}</span>
         <Select
           value={String(editorSettings.tabSize)}
@@ -351,7 +351,7 @@ export function EditorSettings() {
       </div>
 
       {/* Insert Spaces */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Insert spaces')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Use spaces instead of tabs')}</p>
@@ -369,7 +369,7 @@ export function EditorSettings() {
       </div>
 
       {/* Minimap */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Minimap')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Show minimap in editor')}</p>
@@ -381,7 +381,7 @@ export function EditorSettings() {
       </div>
 
       {/* Git Blame */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Git Blame')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -395,7 +395,7 @@ export function EditorSettings() {
       </div>
 
       {/* Line Numbers */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Line numbers')}</span>
         <Select
           value={editorSettings.lineNumbers}
@@ -417,7 +417,7 @@ export function EditorSettings() {
       </div>
 
       {/* Word Wrap */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Word wrap')}</span>
         <Select
           value={editorSettings.wordWrap}
@@ -439,7 +439,7 @@ export function EditorSettings() {
       </div>
 
       {/* Render Whitespace */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Whitespace')}</span>
         <Select
           value={editorSettings.renderWhitespace}
@@ -466,7 +466,7 @@ export function EditorSettings() {
       </div>
 
       {/* Render Line Highlight */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Line highlight')}</span>
         <Select
           value={editorSettings.renderLineHighlight}
@@ -494,7 +494,7 @@ export function EditorSettings() {
       </div>
 
       {/* Folding */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Code folding')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Enable code folding')}</p>
@@ -506,7 +506,7 @@ export function EditorSettings() {
       </div>
 
       {/* Links */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Clickable links')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Make links clickable')}</p>
@@ -518,7 +518,7 @@ export function EditorSettings() {
       </div>
 
       {/* Smooth Scrolling */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Smooth scrolling')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Enable smooth scrolling')}</p>
@@ -536,7 +536,7 @@ export function EditorSettings() {
       </div>
 
       {/* Cursor Style */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Cursor style')}</span>
         <Select
           value={editorSettings.cursorStyle}
@@ -558,7 +558,7 @@ export function EditorSettings() {
       </div>
 
       {/* Cursor Blinking */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Cursor blinking')}</span>
         <Select
           value={editorSettings.cursorBlinking}
@@ -586,7 +586,7 @@ export function EditorSettings() {
       </div>
 
       {/* Bracket Pair Colorization */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Rainbow brackets')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Colorize matching bracket pairs')}</p>
@@ -598,7 +598,7 @@ export function EditorSettings() {
       </div>
 
       {/* Match Brackets */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Match brackets')}</span>
         <Select
           value={editorSettings.matchBrackets}
@@ -622,7 +622,7 @@ export function EditorSettings() {
       </div>
 
       {/* Bracket Pair Guides */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Bracket guides')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Show bracket pair guides')}</p>
@@ -634,7 +634,7 @@ export function EditorSettings() {
       </div>
 
       {/* Indentation Guides */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Indent guides')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">{t('Show indentation guides')}</p>
@@ -652,7 +652,7 @@ export function EditorSettings() {
       </div>
 
       {/* Auto Closing Brackets */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Auto brackets')}</span>
         <Select
           value={editorSettings.autoClosingBrackets}
@@ -679,7 +679,7 @@ export function EditorSettings() {
       </div>
 
       {/* Auto Closing Quotes */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Auto quotes')}</span>
         <Select
           value={editorSettings.autoClosingQuotes}
@@ -709,7 +709,7 @@ export function EditorSettings() {
       </div>
 
       {/* Auto Save Mode */}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Auto save')}</span>
         <Select
           value={editorSettings.autoSave}
@@ -732,7 +732,7 @@ export function EditorSettings() {
 
       {/* Auto Save Delay */}
       {editorSettings.autoSave === 'afterDelay' && (
-        <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+        <div className="settings-field-row">
           <span className="text-sm font-medium">{t('Delay')}</span>
           <div className="flex items-center gap-2">
             <Input

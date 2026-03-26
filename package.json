@@ -1,10 +1,10 @@
 {
-  "name": "enso-ai",
+  "name": "infilux",
   "version": "0.2.38",
-  "description": "EnsoAI - Git Worktree Manager with AI Agent",
+  "description": "Infilux - Git Worktree Manager with AI Agent",
   "main": "./out/main/index.js",
   "author": {
-    "name": "EnsoAI Team",
+    "name": "Infilux Team",
     "email": "admin@j3n5en.com"
   },
   "license": "MIT",
@@ -24,6 +24,8 @@
     "generate:themes": "npx tsx scripts/generate-themes.ts",
     "diagnostics:collect": "npx tsx scripts/collect-diagnostics.ts",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:coverage:full": "vitest run --config vitest.full.config.ts --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
@@ -92,6 +94,7 @@
     "@types/sqlite3": "^3.1.11",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.2",
+    "@vitest/coverage-v8": "^3.2.4",
     "autoprefixer": "^10.4.23",
     "electron": "^39.2.7",
     "electron-builder": "^26.4.0",

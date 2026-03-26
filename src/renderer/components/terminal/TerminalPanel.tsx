@@ -1,15 +1,10 @@
+import { getDisplayPathBasename } from '@shared/utils/path';
 import { Plus, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { cleanPath, normalizePath } from '@/App/storage';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
@@ -770,19 +765,24 @@ export function TerminalPanel({ repoPath, cwd, isActive = false }: TerminalPanel
     return (
       <div
         className={cn(
-          'h-full flex items-center justify-center',
+          'flex h-full items-center justify-center p-6',
           !bgImageEnabled && 'bg-background'
         )}
       >
-        <Empty className="border-0">
-          <EmptyMedia variant="icon">
-            <Terminal className="h-4.5 w-4.5" />
-          </EmptyMedia>
-          <EmptyHeader>
-            <EmptyTitle>{t('Terminal')}</EmptyTitle>
-            <EmptyDescription>{t('Select a Worktree to open terminal')}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <ConsoleEmptyState
+          icon={<Terminal className="h-5 w-5" />}
+          eyebrow="Terminal Console"
+          title={t('Terminal needs a worktree')}
+          description={t(
+            'Select a worktree first. Once created, terminal sessions stay mounted and keep their runtime state.'
+          )}
+          chips={[{ label: t('Awaiting Worktree'), tone: 'wait' }]}
+          details={[
+            { label: t('Panel'), value: t('Terminal') },
+            { label: t('Context'), value: t('No worktree selected') },
+            { label: t('Runtime Model'), value: t('Sessions persist by worktree') },
+          ]}
+        />
       </div>
     );
   }
@@ -827,23 +827,33 @@ export function TerminalPanel({ repoPath, cwd, isActive = false }: TerminalPanel
       {showEmptyState && (
         <div
           className={cn(
-            'absolute inset-0 z-20 flex items-center justify-center',
+            'absolute inset-0 z-20 flex items-center justify-center p-6',
             !bgImageEnabled && 'bg-background'
           )}
         >
-          <Empty className="border-0">
-            <EmptyMedia variant="icon">
-              <Terminal className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle>{t('No terminals open')}</EmptyTitle>
-              <EmptyDescription>{t('Create a terminal to start working')}</EmptyDescription>
-            </EmptyHeader>
-            <Button variant="outline" size="sm" onClick={handleNewTerminal}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t('New Terminal')}
-            </Button>
-          </Empty>
+          <ConsoleEmptyState
+            icon={<Terminal className="h-5 w-5" />}
+            eyebrow="Terminal Console"
+            title={t('No terminals attached to this worktree')}
+            description={t(
+              'Open a shell to run commands, inspect logs, or keep a long-running process attached to the current worktree.'
+            )}
+            chips={[{ label: getDisplayPathBasename(cwd), tone: 'strong' }]}
+            details={[
+              { label: t('Worktree'), value: getDisplayPathBasename(cwd) },
+              { label: t('Runtime'), value: t('No active shell sessions') },
+              { label: t('Next Step'), value: t('Create a terminal and start executing commands') },
+            ]}
+            actions={
+              <Button
+                onClick={handleNewTerminal}
+                className="control-panel-muted h-10 rounded-xl border-0 px-4 shadow-none"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {t('New Terminal')}
+              </Button>
+            }
+          />
         </div>
       )}
       {/* Render all worktrees' group structures (tab bars only) */}

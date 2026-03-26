@@ -82,7 +82,7 @@ import { useWorktreeOutputState } from '@/hooks/useOutputState';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
-import { heightVariants, springFast, springStandard } from '@/lib/motion';
+import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
@@ -757,17 +757,12 @@ export function TreeSidebar({
     const workdir = repoMainWorktree?.path || repo.path;
     const displayRepoPath = getDisplayPath(repo.path);
     const useLtrPathDisplay = isWslUncPath(displayRepoPath);
+    const activeWorktreeCount = repoWts.filter((wt) =>
+      activePathSet.has(normalizePath(wt.path))
+    ).length;
 
     return (
-      <div key={repo.path} className={cn('relative rounded-lg', isSelected && 'pb-2')}>
-        {/* Sliding highlight background for selected repo */}
-        {isSelected && (
-          <motion.div
-            layoutId="repo-container-highlight"
-            className="absolute inset-0 rounded-lg bg-accent/40"
-            transition={springFast}
-          />
-        )}
+      <div key={repo.path} className={cn('relative rounded-xl', isSelected && 'pb-3')}>
         {/* Repository row */}
         <div>
           {/* Drop indicator - top */}
@@ -777,8 +772,6 @@ export function TreeSidebar({
               <div className="absolute -top-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
             )}
           <div
-            role="button"
-            tabIndex={0}
             draggable={!searchQuery && !!onReorderRepositories}
             onDragStart={(e) => handleRepoDragStart(e, originalIndex, repo)}
             onDragEnd={handleRepoDragEnd}
@@ -786,40 +779,51 @@ export function TreeSidebar({
             onDragLeave={handleRepoDragLeave}
             onDrop={(e) => handleRepoDrop(e, originalIndex, sectionGroupId)}
             onContextMenu={(e) => handleRepoContextMenu(e, repo)}
-            onClick={() => {
-              toggleRepoExpanded(repo.path);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                toggleRepoExpanded(repo.path);
-              }
-            }}
             className={cn(
-              'group relative flex w-full flex-col gap-1 rounded-lg px-2 py-2 text-left transition-colors cursor-pointer',
-              !isSelected && 'hover:bg-accent/30',
+              'group relative flex w-full flex-col gap-1 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+              isSelected ? 'bg-accent/32 text-foreground' : 'hover:bg-accent/20',
               draggedRepoIndexRef.current === originalIndex && 'opacity-50'
             )}
           >
-            {/* Row 1: Chevron + Icon + Name + CreateWorktree + Settings */}
-            <div className="relative z-10 flex w-full items-center gap-1">
-              <span className="shrink-0 w-5 h-5 flex items-center justify-center">
+            {/* Row 1: Chevron + Icon + Name + Actions */}
+            <div className="relative z-10 flex w-full items-start gap-2">
+              <button
+                type="button"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleRepoExpanded(repo.path);
+                }}
+                title={isExpanded ? t('Collapse') : t('Expand')}
+              >
                 <ChevronRight
                   className={cn(
                     'h-3.5 w-3.5 text-muted-foreground transition-transform duration-200',
                     isExpanded && 'rotate-90'
                   )}
                 />
-              </span>
-              <FolderGit2
-                className={cn(
-                  'h-4 w-4 shrink-0',
-                  isSelected ? 'text-accent-foreground' : 'text-muted-foreground'
-                )}
-              />
-              <span className="min-w-0 flex-1 truncate font-medium text-sm text-left">
-                {repo.name}
-              </span>
+              </button>
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-start gap-2 text-left outline-none"
+                onClick={() => onSelectRepo(repo.path, { activateRemote: true })}
+              >
+                <FolderGit2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <span className="min-w-0 block truncate text-left text-sm font-medium text-foreground">
+                    {repo.name}
+                  </span>
+                  <div
+                    className={cn(
+                      'mt-0.5 overflow-hidden whitespace-nowrap text-ellipsis text-xs leading-5 text-muted-foreground [text-align:left]',
+                      useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
+                    )}
+                    title={displayRepoPath}
+                  >
+                    {displayRepoPath}
+                  </div>
+                </div>
+              </button>
 
               {/* Create Worktree Button */}
               {isSelected && repoCanLoad ? (
@@ -835,7 +839,12 @@ export function TreeSidebar({
                   trigger={
                     <button
                       type="button"
-                      className="shrink-0 p-1 rounded hover:bg-muted"
+                      className={cn(
+                        'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-accent/32 hover:text-foreground',
+                        isSelected
+                          ? 'opacity-100'
+                          : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                      )}
                       onClick={(e) => {
                         e.stopPropagation();
                         e.currentTarget.blur();
@@ -849,7 +858,12 @@ export function TreeSidebar({
               ) : (
                 <button
                   type="button"
-                  className="shrink-0 p-1 rounded hover:bg-muted"
+                  className={cn(
+                    'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-accent/32 hover:text-foreground',
+                    isSelected
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                  )}
                   onClick={(e) => {
                     e.stopPropagation();
                     e.currentTarget.blur();
@@ -866,7 +880,12 @@ export function TreeSidebar({
               {/* Repository Settings Button */}
               <button
                 type="button"
-                className="shrink-0 p-1 rounded hover:bg-muted"
+                className={cn(
+                  'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-accent/32 hover:text-foreground',
+                  isSelected
+                    ? 'opacity-100'
+                    : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                )}
                 onClick={(e) => {
                   e.stopPropagation();
                   setRepoSettingsTarget(repo);
@@ -877,17 +896,14 @@ export function TreeSidebar({
                 <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
               </button>
             </div>
-
-            {/* Row 3: Path */}
-            <span
-              className={cn(
-                'relative z-10 pl-6 overflow-hidden whitespace-nowrap text-ellipsis text-xs text-muted-foreground [text-align:left]',
-                useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
-              )}
-              title={displayRepoPath}
-            >
-              {displayRepoPath}
-            </span>
+            {(isSelected || isExpanded || activeWorktreeCount > 0) &&
+            ((repoCanLoad && repoWts.length > 0) || activeWorktreeCount > 0) ? (
+              <div className="relative z-10 pl-7 text-[11px] text-muted-foreground">
+                {repoWts.length > 0 ? `${repoWts.length} trees` : ''}
+                {repoWts.length > 0 && activeWorktreeCount > 0 ? ' · ' : ''}
+                {activeWorktreeCount > 0 ? `${activeWorktreeCount} live` : ''}
+              </div>
+            ) : null}
           </div>
           {/* Drop indicator - bottom */}
           {dropRepoTargetIndex === originalIndex &&
@@ -905,14 +921,14 @@ export function TreeSidebar({
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="ml-2 mr-2 mt-1 flex flex-col gap-y-0.5 overflow-hidden"
+              className="ml-1.5 mr-1.5 mt-1 flex flex-col gap-y-0.5 overflow-hidden"
             >
               {!repoCanLoad ? (
-                <div className="py-2 px-2 text-xs text-muted-foreground">
+                <div className="px-3 py-1.5 text-xs text-muted-foreground">
                   {t('Click to load worktrees')}
                 </div>
               ) : repoError ? (
-                <div className="py-2 px-2 text-xs text-muted-foreground flex flex-col items-center gap-1.5">
+                <div className="flex flex-col items-start gap-1.5 px-3 py-1.5 text-xs text-muted-foreground">
                   <span className="text-destructive">{t('Not a Git repository')}</span>
                   {onInitGit && isSelected && (
                     <Button
@@ -932,11 +948,14 @@ export function TreeSidebar({
               ) : repoLoading ? (
                 <div className="space-y-1">
                   {[0, 1].map((i) => (
-                    <div key={`skeleton-${i}`} className="h-8 animate-pulse rounded-lg bg-muted" />
+                    <div
+                      key={`skeleton-${i}`}
+                      className="mx-2 h-12 animate-pulse rounded-lg bg-accent/18"
+                    />
                   ))}
                 </div>
               ) : repoWorktrees.length === 0 ? (
-                <div className="py-2 px-2 text-xs text-muted-foreground">
+                <div className="px-3 py-1.5 text-xs text-muted-foreground">
                   {hasSearchFilter
                     ? t('No matching worktrees')
                     : t('No worktrees. Create one to get started.')}
@@ -985,33 +1004,33 @@ export function TreeSidebar({
   return (
     <aside
       className={cn(
-        'flex h-full w-full flex-col border-r bg-background transition-colors',
+        'control-sidebar flex h-full w-full flex-col border-r bg-background transition-colors',
         isFileDragOver && 'bg-primary/10'
       )}
     >
       {/* Header */}
-      <div className="flex h-12 items-center justify-end gap-2 border-b px-3 drag-region">
-        <div className="flex items-center gap-1">
+      <div className="flex h-10 items-center justify-end gap-1.5 border-b border-border/60 px-2.5 drag-region">
+        <div className="flex items-center gap-1 no-drag">
           {/* Manage repositories button */}
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="control-icon-button flex h-7 w-7 items-center justify-center rounded-md no-drag text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => setRepoManagerOpen(true)}
             title={t('Manage Repositories')}
           >
-            <List className="h-4 w-4" />
+            <List className="h-3.5 w-3.5" />
           </button>
           {/* Refresh button */}
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="control-icon-button flex h-7 w-7 items-center justify-center rounded-md no-drag text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => {
               onRefresh();
               refetchExpandedWorktrees();
             }}
             title={t('Refresh')}
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className="h-3.5 w-3.5" />
           </button>
           <RunningProjectsPopover
             onSelectWorktreeByPath={onSwitchWorktreeByPath || (() => {})}
@@ -1020,11 +1039,11 @@ export function TreeSidebar({
           {onCollapse && (
             <button
               type="button"
-              className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+              className="control-icon-button flex h-7 w-7 items-center justify-center rounded-md no-drag text-muted-foreground transition-colors hover:text-foreground"
               onClick={onCollapse}
               title={t('Collapse')}
             >
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
@@ -1042,8 +1061,8 @@ export function TreeSidebar({
         />
       )}
 
-      <div className="px-3 py-2">
-        <div className="flex h-8 items-center gap-2 rounded-lg border px-2">
+      <div className="px-2.5 py-2">
+        <div className="control-input flex h-9 items-center gap-2 rounded-lg px-2.5">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
             ref={searchInputRef}
@@ -1070,7 +1089,7 @@ export function TreeSidebar({
       </div>
 
       {/* Tree List */}
-      <div className="flex-1 overflow-auto px-2 pb-2">
+      <div className="flex-1 overflow-auto px-2 py-1">
         {temporaryWorkspaceEnabled && (
           <div className="mb-2">
             <div
@@ -1084,17 +1103,12 @@ export function TreeSidebar({
                 }
               }}
               className={cn(
-                'group relative flex w-full flex-col gap-1 rounded-lg px-2 py-2 text-left transition-colors cursor-pointer',
-                selectedRepo === TEMP_REPO_ID ? 'text-accent-foreground' : 'hover:bg-accent/30'
+                'group relative flex w-full flex-col gap-1 rounded-lg px-2.5 py-1.5 text-left transition-colors cursor-pointer',
+                selectedRepo === TEMP_REPO_ID
+                  ? 'bg-accent/32 text-foreground'
+                  : 'hover:bg-accent/20'
               )}
             >
-              {selectedRepo === TEMP_REPO_ID && (
-                <motion.div
-                  layoutId="temp-root-highlight"
-                  className="absolute inset-0 rounded-lg bg-accent/50"
-                  transition={springFast}
-                />
-              )}
               <div className="relative z-10 flex w-full items-center gap-1">
                 <span className="shrink-0 w-5 h-5 flex items-center justify-center">
                   <ChevronRight
@@ -1111,7 +1125,12 @@ export function TreeSidebar({
                 {onCreateTempWorkspace && (
                   <button
                     type="button"
-                    className="shrink-0 p-1 rounded hover:bg-muted"
+                    className={cn(
+                      'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-accent/32 hover:text-foreground',
+                      selectedRepo === TEMP_REPO_ID
+                        ? 'opacity-100'
+                        : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                    )}
                     onClick={(e) => {
                       e.stopPropagation();
                       onCreateTempWorkspace();
@@ -1125,7 +1144,7 @@ export function TreeSidebar({
               {tempBasePath && (
                 <span
                   className={cn(
-                    'relative z-10 pl-6 overflow-hidden whitespace-nowrap text-ellipsis text-xs text-muted-foreground [text-align:left] [unicode-bidi:plaintext]',
+                    'relative z-10 pl-6 overflow-hidden whitespace-nowrap text-ellipsis text-[11px] leading-5 text-muted-foreground [text-align:left] [unicode-bidi:plaintext]',
                     isWslUncPath(tempBasePath) ? '[direction:ltr]' : '[direction:rtl]'
                   )}
                 >
@@ -1211,7 +1230,7 @@ export function TreeSidebar({
                       <button
                         type="button"
                         onClick={() => toggleGroupCollapsed(section.groupId)}
-                        className="flex h-7 w-full items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent/30 hover:text-foreground transition-colors select-none"
+                        className="flex h-7 w-full items-center gap-1 rounded-lg px-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:bg-accent/22 hover:text-foreground select-none"
                       >
                         <ChevronRight
                           className={cn(
@@ -1227,7 +1246,7 @@ export function TreeSidebar({
                           />
                         )}
                         <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                        <span className="shrink-0 text-[11px] text-muted-foreground/65">
                           {section.repos.length}
                         </span>
                       </button>
@@ -1271,7 +1290,7 @@ export function TreeSidebar({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="flex h-8 flex-1 items-center justify-start gap-2 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="control-input flex h-[34px] flex-1 items-center justify-start gap-2 rounded-lg px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
             onClick={(e) => {
               e.currentTarget.blur();
               onAddRepository();
@@ -1588,7 +1607,6 @@ function TempWorkspaceTreeItem({
   onRequestRename,
   onRequestDelete,
 }: TempWorkspaceTreeItemProps) {
-  const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const activities = useWorktreeActivityStore((s) => s.activities);
@@ -1610,35 +1628,16 @@ function TempWorkspaceTreeItem({
           onContextMenu={handleContextMenu}
           className={cn(
             'group relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 pl-[24px] text-left transition-colors',
-            isActive ? 'text-accent-foreground' : 'hover:bg-accent/30'
+            isActive ? 'bg-accent/32 text-foreground' : 'hover:bg-accent/20'
           )}
         >
-          {isActive && (
-            <motion.div
-              layoutId="temp-workspace-highlight"
-              className="absolute inset-0 rounded-lg bg-accent/50"
-              transition={springFast}
-            />
-          )}
-          <GitBranch className="relative z-10 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="relative z-10 min-w-0 flex-1 truncate text-sm">{item.title}</span>
-          <span className="relative z-10 shrink-0 rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-medium uppercase text-emerald-600 dark:text-emerald-400">
-            {t('Main')}
-          </span>
+          <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
           {hasActivity && (
-            <div className="relative z-10 flex items-center gap-1.5 shrink-0 text-[10px] text-muted-foreground">
-              {activity.agentCount > 0 && (
-                <span className="flex items-center gap-0.5">
-                  <Sparkles className="h-3 w-3" />
-                  {activity.agentCount}
-                </span>
-              )}
-              {activity.terminalCount > 0 && (
-                <span className="flex items-center gap-0.5">
-                  <Terminal className="h-3 w-3" />
-                  {activity.terminalCount}
-                </span>
-              )}
+            <div className="shrink-0 text-[11px] text-muted-foreground">
+              {activity.agentCount > 0 ? `${activity.agentCount} agents` : ''}
+              {activity.agentCount > 0 && activity.terminalCount > 0 ? ' · ' : ''}
+              {activity.terminalCount > 0 ? `${activity.terminalCount} terminals` : ''}
             </div>
           )}
         </button>
@@ -1805,6 +1804,22 @@ function WorktreeTreeItem({
   }, [menuOpen, menuPosition]);
 
   // Button content (without activity indicator - it's now outside)
+  const activityChipClassName =
+    activityState === 'running'
+      ? 'control-chip-live'
+      : activityState === 'waiting_input'
+        ? 'control-chip-wait'
+        : activityState === 'completed'
+          ? 'control-chip-done'
+          : '';
+  const activityLabel =
+    activityState === 'running'
+      ? 'Running'
+      : activityState === 'waiting_input'
+        ? 'Awaiting input'
+        : activityState === 'completed'
+          ? 'Completed'
+          : '';
   const buttonContent = (
     <>
       {/* Drop indicator - top */}
@@ -1829,71 +1844,73 @@ function WorktreeTreeItem({
         }}
         onContextMenu={handleContextMenu}
         className={cn(
-          'relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors text-sm cursor-pointer',
+          'relative flex w-full flex-col gap-1 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors cursor-pointer',
           isPrunable && 'opacity-50',
-          isActive
-            ? 'border border-primary bg-primary/10'
-            : 'border border-transparent hover:bg-accent/50'
+          isActive ? 'bg-accent/32' : 'hover:bg-accent/18'
         )}
       >
-        <GitBranch
-          className={cn(
-            'h-3.5 w-3.5 shrink-0',
-            isPrunable ? 'text-destructive' : isActive ? 'text-primary' : 'text-muted-foreground'
-          )}
-        />
-        <span className={cn('min-w-0 flex-1 truncate', isPrunable && 'line-through')}>
-          {branchDisplay}
-        </span>
-        {isPrunable ? (
-          <span className="shrink-0 rounded bg-destructive/20 px-1 py-0.5 text-[9px] font-medium uppercase text-destructive">
-            {t('Deleted')}
-          </span>
-        ) : isMain ? (
-          <span className="shrink-0 rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-medium uppercase text-emerald-600 dark:text-emerald-400">
-            {t('Main')}
-          </span>
-        ) : isMerged ? (
-          <span className="shrink-0 rounded bg-success/20 px-1 py-0.5 text-[9px] font-medium uppercase text-success-foreground">
-            {t('Merged')}
-          </span>
-        ) : null}
-        {/* Git sync status */}
-        <GitSyncButton
-          ahead={aheadCount}
-          behind={behindCount}
-          tracking={tracking}
-          currentBranch={currentBranch}
-          isSyncing={isSyncing}
-          onSync={handleSync}
-          onPublish={handlePublish}
-        />
-        {/* Activity counts */}
-        <div className="flex items-center gap-1.5 shrink-0 text-[10px] text-muted-foreground">
-          {activity.agentCount > 0 && (
-            <span className="flex items-center gap-0.5">
-              <Sparkles className="h-3 w-3" />
-              {activity.agentCount}
+        <div className="flex w-full items-start gap-2">
+          <GitBranch
+            className={cn(
+              'mt-0.5 h-3.5 w-3.5 shrink-0',
+              isPrunable ? 'text-destructive' : isActive ? 'text-primary' : 'text-muted-foreground'
+            )}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  'min-w-0 flex-1 truncate font-medium text-foreground',
+                  isPrunable && 'line-through'
+                )}
+              >
+                {branchDisplay}
+              </span>
+              {isPrunable ? (
+                <span className="control-badge shrink-0 text-destructive">{t('Deleted')}</span>
+              ) : isMain ? (
+                <span className="control-badge shrink-0">{t('Main')}</span>
+              ) : isMerged ? (
+                <span className="control-badge shrink-0">{t('Merged')}</span>
+              ) : null}
+            </div>
+            <div className="mt-0.5 truncate text-xs leading-5 text-muted-foreground [unicode-bidi:plaintext]">
+              {displayWorktreePath}
+            </div>
+          </div>
+          <GitSyncButton
+            ahead={aheadCount}
+            behind={behindCount}
+            tracking={tracking}
+            currentBranch={currentBranch}
+            isSyncing={isSyncing}
+            onSync={handleSync}
+            onPublish={handlePublish}
+          />
+        </div>
+
+        <div className="pl-[22px] text-[11px] text-muted-foreground">
+          {activityState !== 'idle' && (
+            <span className={cn('control-badge mr-2', activityChipClassName)}>
+              <ActivityIndicator state={activityState} size="sm" />
+              {activityLabel}
             </span>
           )}
-          {activity.terminalCount > 0 && (
-            <span className="flex items-center gap-0.5">
-              <Terminal className="h-3 w-3" />
-              {activity.terminalCount}
-            </span>
-          )}
-          {hasDiffStats && (
-            <span className="flex items-center gap-0.5">
-              {diffStats.insertions > 0 && (
-                <span className="text-emerald-600 dark:text-emerald-400">
-                  +{diffStats.insertions}
-                </span>
-              )}
-              {diffStats.deletions > 0 && (
-                <span className="text-red-600 dark:text-red-400">-{diffStats.deletions}</span>
-              )}
-            </span>
-          )}
+          {activity.agentCount > 0 ? `${activity.agentCount} agents` : ''}
+          {activity.agentCount > 0 && (activity.terminalCount > 0 || hasDiffStats) ? ' · ' : ''}
+          {activity.terminalCount > 0 ? `${activity.terminalCount} terminals` : ''}
+          {activity.terminalCount > 0 && hasDiffStats ? ' · ' : ''}
+          {hasDiffStats ? (
+            <>
+              {diffStats.insertions > 0 ? (
+                <span className="text-[color:var(--success)]">+{diffStats.insertions}</span>
+              ) : null}
+              {diffStats.insertions > 0 && diffStats.deletions > 0 ? ' ' : ''}
+              {diffStats.deletions > 0 ? (
+                <span className="text-destructive">-{diffStats.deletions}</span>
+              ) : null}
+            </>
+          ) : null}
         </div>
       </div>
       {/* Drop indicator - bottom */}

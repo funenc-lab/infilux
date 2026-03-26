@@ -2,13 +2,13 @@
 
 ## 目标模型
 
-Enso 当前的 remote 模式不是 VS Code Remote 那种“把整个窗口切到远端”。
+Infilux 当前的 remote 模式不是 VS Code Remote 那种“把整个窗口切到远端”。
 
 它的目标更窄，也更实际：
 
 - 把远程仓库路径挂进当前本地窗口
-- 在同一个窗口里继续使用 Enso 现有的仓库、文件、终端、worktree、Claude 能力
-- 只闭环 Enso 自己的远程仓库工作流，不扩展成通用远程 IDE 平台
+- 在同一个窗口里继续使用 Infilux 现有的仓库、文件、终端、worktree、Claude 能力
+- 只闭环 Infilux 自己的远程仓库工作流，不扩展成通用远程 IDE 平台
 
 这件事值不值得做？值得。因为用户真正要的是在当前窗口里操作远程仓库，而不是再造一个完整的 VS Code Remote 平台。
 
@@ -187,7 +187,7 @@ Enso 当前的 remote 模式不是 VS Code Remote 那种“把整个窗口切到
 目标：确认诊断里的同步步骤是真同步。
 
 - 建立连接前修改本地共享设置
-- 建立连接后检查远端 `~/.ensoai/` 下共享状态文件
+- 建立连接后检查远端 `~/.infilux/` 下共享状态文件
 - 至少确认：
   - `settings.json`
   - `session-state.json`
@@ -212,9 +212,9 @@ Enso 当前的 remote 模式不是 VS Code Remote 那种“把整个窗口切到
 ### 当前与 VS Code Remote 的核心区别
 
 - VS Code Remote 的模型是“把整个工作台迁到远端”
-- Enso 的模型是“把远程仓库挂进当前本地窗口”
+- Infilux 的模型是“把远程仓库挂进当前本地窗口”
 - VS Code Remote 更像远程 IDE 平台
-- Enso remote 更像远程仓库工作流增强
+- Infilux remote 更像远程仓库工作流增强
 
 这不是缺点本身。只要产品边界说清楚，它就是一个更小、更稳、更容易闭环的方案。
 

@@ -4,6 +4,7 @@ import { ChevronDown, GitBranch, GripVertical, History, PanelLeft } from 'lucide
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getStoredBoolean, STORAGE_KEYS } from '@/App/storage';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -14,13 +15,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { toastManager } from '@/components/ui/toast';
 import {
   useGitBranches,
@@ -848,23 +842,42 @@ export function SourceControlPanel({
 
   if (!rootPath) {
     return (
-      <Empty className="h-full">
-        <EmptyMedia variant="icon">
-          <GitBranch className="h-4.5 w-4.5" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{emptyTitle ?? t('Version Control')}</EmptyTitle>
-          <EmptyDescription>
-            {emptyDescription ?? t('Select a Worktree to view changes')}
-          </EmptyDescription>
-        </EmptyHeader>
-        {onExpandWorktree && worktreeCollapsed && (
-          <Button onClick={onExpandWorktree} variant="outline" className="mt-2">
-            <GitBranch className="mr-2 h-4 w-4" />
-            {t('Choose Worktree')}
-          </Button>
-        )}
-      </Empty>
+      <div className="flex h-full items-center justify-center p-6">
+        <ConsoleEmptyState
+          icon={<GitBranch className="h-5 w-5" />}
+          eyebrow="Source Control"
+          title={emptyTitle ?? t('Version control needs a worktree')}
+          description={
+            emptyDescription ??
+            t('Select a worktree before reviewing changes, staging files, or inspecting history.')
+          }
+          chips={[{ label: t('Awaiting Worktree'), tone: 'wait' }]}
+          details={[
+            { label: t('Panel'), value: emptyTitle ?? t('Version Control') },
+            {
+              label: t('Next Step'),
+              value: onExpandWorktree
+                ? t('Choose a worktree to inspect changes')
+                : t('Use the sidebar to switch context'),
+            },
+            {
+              label: t('Sidebar'),
+              value: worktreeCollapsed ? t('Collapsed') : t('Visible'),
+            },
+          ]}
+          actions={
+            onExpandWorktree && worktreeCollapsed ? (
+              <Button
+                onClick={onExpandWorktree}
+                className="control-panel-muted h-10 rounded-xl border-0 px-4 shadow-none"
+              >
+                <GitBranch className="mr-2 h-4 w-4" />
+                {t('Choose Worktree')}
+              </Button>
+            ) : null
+          }
+        />
+      </div>
     );
   }
 

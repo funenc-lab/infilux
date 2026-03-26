@@ -53,7 +53,7 @@ async function runWithAdminPrivileges(shellCommand: string): Promise<void> {
   // Linux: use terminal emulator to run sudo
   // This is more reliable than zenity/kdialog which may have compatibility issues
 
-  const successMarker = `/tmp/enso-cli-install-success-${Date.now()}`;
+  const successMarker = `/tmp/infilux-cli-install-success-${Date.now()}`;
   const escapedCmd = shellCommand.replace(/'/g, "'\\''");
   const sudoScript = `sudo sh -c '${escapedCmd}' && touch "${successMarker}"; echo ""; read -p "安装完成，按 Enter 关闭此窗口..."`;
 
@@ -147,10 +147,10 @@ class CliInstaller {
     if (isWindows) {
       // Windows: install to user's local bin
       const localAppData = process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local');
-      return join(localAppData, 'Programs', 'enso', 'enso.cmd');
+      return join(localAppData, 'Programs', 'infilux', 'infilux.cmd');
     }
     // macOS/Linux: install to /usr/local/bin
-    return '/usr/local/bin/enso';
+    return '/usr/local/bin/infilux';
   }
 
   private getAppPath(): string {
@@ -164,7 +164,7 @@ class CliInstaller {
         return match[1];
       }
       // Fallback for dev mode
-      return '/Applications/EnsoAI.app';
+      return '/Applications/Infilux.app';
     }
     if (isWindows) {
       return app.getPath('exe');
@@ -175,7 +175,7 @@ class CliInstaller {
   private generateMacScript(): string {
     const appPath = this.getAppPath();
     return `#!/bin/bash
-# EnsoAI CLI - Open directories in EnsoAI
+# Infilux CLI - Open directories in Infilux
 
 # Get the target path
 if [ -z "$1" ]; then
@@ -193,23 +193,23 @@ else
   fi
 fi
 
-# Check if EnsoAI is running (production or dev mode)
-if pgrep -x "EnsoAI" > /dev/null 2>&1 || pgrep -f "electron.*EnsoAI" > /dev/null 2>&1; then
+# Check if Infilux is running (production or dev mode)
+if pgrep -x "Infilux" > /dev/null 2>&1 || pgrep -f "electron.*Infilux" > /dev/null 2>&1; then
   # App is running, use AppleScript to send message directly
   osascript -e "
     tell application \\"System Events\\"
-      set frontmost of (first process whose name contains \\"EnsoAI\\" or name is \\"Electron\\") to true
+      set frontmost of (first process whose name contains \\"Infilux\\" or name is \\"Electron\\") to true
     end tell
   " 2>/dev/null
 
   # Use open with URL scheme
-  open "enso://open?path=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TARGET_PATH', safe=''))")"
+  open "infilux://open?path=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TARGET_PATH', safe=''))")"
 else
   # App not running, launch it with the path
   if [ -d "${appPath}" ]; then
     open -a "${appPath}" --args "--open-path=$TARGET_PATH"
   else
-    echo "EnsoAI not found at ${appPath}"
+    echo "Infilux not found at ${appPath}"
     exit 1
   fi
 fi
@@ -222,7 +222,7 @@ fi
     return `@echo off
 setlocal enabledelayedexpansion
 
-:: EnsoAI CLI - Open directories in EnsoAI
+:: Infilux CLI - Open directories in Infilux
 
 :: Get the target path
 if "%~1"=="" (
@@ -231,12 +231,12 @@ if "%~1"=="" (
   set "TARGET_PATH=%~f1"
 )
 
-:: Check if EnsoAI is running
-tasklist /FI "IMAGENAME eq EnsoAI.exe" 2>NUL | find /I /N "EnsoAI.exe">NUL
+:: Check if Infilux is running
+tasklist /FI "IMAGENAME eq Infilux.exe" 2>NUL | find /I /N "Infilux.exe">NUL
 if %ERRORLEVEL%==0 (
   :: App is running, use URL scheme with PowerShell for proper URL encoding
   for /f "usebackq delims=" %%i in (\`powershell -NoProfile -Command "[uri]::EscapeDataString('%TARGET_PATH%')"\`) do set "ENCODED_PATH=%%i"
-  start "" "enso://open?path=!ENCODED_PATH!"
+  start "" "infilux://open?path=!ENCODED_PATH!"
 ) else (
   :: App not running, launch with path (use caret to escape special chars, no extra quotes)
   "${exePath}" --open-path=!TARGET_PATH!
@@ -247,7 +247,7 @@ if %ERRORLEVEL%==0 (
   private generateLinuxScript(): string {
     const exePath = this.getAppPath();
     return `#!/bin/bash
-# EnsoAI CLI - Open directories in EnsoAI
+# Infilux CLI - Open directories in Infilux
 
 # Get the target path
 if [ -z "$1" ]; then
@@ -265,18 +265,18 @@ else
   fi
 fi
 
-# Check if EnsoAI is running
-if pgrep -x "ensoai" > /dev/null 2>&1 || pgrep -f "EnsoAI" > /dev/null 2>&1; then
+# Check if Infilux is running
+if pgrep -x "infilux" > /dev/null 2>&1 || pgrep -f "Infilux" > /dev/null 2>&1; then
   # App is running, use xdg-open with URL scheme
   ENCODED_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TARGET_PATH', safe=''))")
-  xdg-open "enso://open?path=$ENCODED_PATH" 2>/dev/null || \\
-    gio open "enso://open?path=$ENCODED_PATH" 2>/dev/null
+  xdg-open "infilux://open?path=$ENCODED_PATH" 2>/dev/null || \\
+    gio open "infilux://open?path=$ENCODED_PATH" 2>/dev/null
 else
   # App not running, launch it with the path
   if [ -x "${exePath}" ]; then
     "${exePath}" --open-path="$TARGET_PATH" &
   else
-    echo "EnsoAI not found at ${exePath}"
+    echo "Infilux not found at ${exePath}"
     exit 1
   fi
 fi
@@ -321,7 +321,7 @@ fi
       } else {
         // macOS/Linux: need admin privileges to write to /usr/local/bin
         const script = isLinux ? this.generateLinuxScript() : this.generateMacScript();
-        const tempPath = join(app.getPath('temp'), 'enso-cli-script');
+        const tempPath = join(app.getPath('temp'), 'infilux-cli-script');
         writeFileSync(tempPath, script, { mode: 0o755 });
 
         const escapedTempPath = tempPath.replace(/"/g, '\\"');

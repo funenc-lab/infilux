@@ -1,3 +1,4 @@
+import { TEMP_INPUT_FILE_PREFIX } from '@shared/paths';
 import type { ClaudeSlashCompletionItem, ClaudeSlashCompletionsSnapshot } from '@shared/types';
 import type { FileSearchResult } from '@shared/types/search';
 import { Paperclip, Send, X } from 'lucide-react';
@@ -539,7 +540,7 @@ export function EnhancedInput({
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(2, 8);
         const extension = getImageExtension(file);
-        const filename = `ensoai-input-${timestamp}-${random}.${extension}`;
+        const filename = `${TEMP_INPUT_FILE_PREFIX}-${timestamp}-${random}.${extension}`;
 
         // Save to temp directory via electron API
         const result = await window.electronAPI.file.saveToTemp(filename, buffer);

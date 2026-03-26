@@ -1,3 +1,4 @@
+import { REPOSITORY_URL } from '@shared/branding';
 import { translate } from '@shared/i18n';
 import { app, BrowserWindow, Menu, shell } from 'electron';
 import { getCurrentLocale } from './i18n';
@@ -158,7 +159,7 @@ export function buildAppMenu(options: MenuOptions = {}): Menu {
       submenu: [
         {
           label: t('Learn More'),
-          click: () => shell.openExternal('https://github.com/J3n5en/EnsoAI'),
+          click: () => shell.openExternal(REPOSITORY_URL),
         },
       ],
     },

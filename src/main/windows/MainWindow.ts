@@ -65,6 +65,18 @@ function saveWindowState(win: BrowserWindow): void {
   } catch {}
 }
 
+function resolveWindowIconPath(): string | undefined {
+  if (process.platform === 'darwin') {
+    return undefined;
+  }
+
+  const candidates = app.isPackaged
+    ? [join(process.resourcesPath, 'icon.png'), join(process.resourcesPath, 'build', 'icon.png')]
+    : [join(process.cwd(), 'build', 'icon.png'), join(app.getAppPath(), 'build', 'icon.png')];
+
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
 interface CreateMainWindowOptions {
   initializeWindow?: (window: BrowserWindow) => Promise<void> | void;
   partition?: string;
@@ -107,6 +119,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
 
   const isMac = process.platform === 'darwin';
   const isWindows = process.platform === 'win32';
+  const windowIconPath = resolveWindowIconPath();
 
   const win = new BrowserWindow({
     width: state.width,
@@ -123,6 +136,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
     ...(isMac && { trafficLightPosition: TRAFFIC_LIGHTS_DEFAULT_POSITION }),
     // Windows 启用 thickFrame 以支持窗口边缘拖拽调整大小
     ...(isWindows && { thickFrame: true }),
+    ...(windowIconPath ? { icon: windowIconPath } : {}),
     show: false,
     webPreferences: {
       nodeIntegration: false,

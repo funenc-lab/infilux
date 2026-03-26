@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { RUNTIME_STATE_DIRNAME } from '@shared/paths';
 import {
   type ConnectionProfile,
   type ConnectionTestResult,
@@ -417,7 +418,10 @@ function getRemoteSettingsPath(): string {
 }
 
 function getRemoteStateRoot(): string {
-  return join(process.env.HOME || process.env.USERPROFILE || app.getPath('home'), '.ensoai');
+  return join(
+    process.env.HOME || process.env.USERPROFILE || app.getPath('home'),
+    RUNTIME_STATE_DIRNAME
+  );
 }
 
 function getAppKnownHostsPath(): string {
@@ -1371,7 +1375,7 @@ export class RemoteConnectionManager {
     settingsPath: string;
     sessionStatePath: string;
   } {
-    const rootDir = normalizeRemotePath(`${runtime.homeDir}/.ensoai`);
+    const rootDir = normalizeRemotePath(`${runtime.homeDir}/${RUNTIME_STATE_DIRNAME}`);
     return {
       rootDir,
       settingsPath: normalizeRemotePath(`${rootDir}/${REMOTE_SHARED_SETTINGS_FILENAME}`),

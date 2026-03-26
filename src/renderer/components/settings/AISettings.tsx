@@ -65,6 +65,9 @@ const REASONING_EFFORTS: { value: string; label: string }[] = [
   { value: 'xhigh', label: 'xHigh' },
 ];
 
+const PROMPT_TEXTAREA_CLASS =
+  'control-input h-40 w-full rounded-md bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50';
+
 // Get default model for provider
 function getDefaultModel(provider: AIProvider): string {
   const models = MODELS_BY_PROVIDER[provider];
@@ -168,7 +171,7 @@ export function AISettings() {
         {commitMessageGenerator.enabled && (
           <div className="mt-4 space-y-4 border-t pt-4">
             {/* Provider */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Provider')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -194,7 +197,7 @@ export function AISettings() {
             </div>
 
             {/* Model */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Model')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -226,7 +229,7 @@ export function AISettings() {
 
             {/* Reasoning Level - Only for Codex CLI */}
             {commitMessageGenerator.provider === 'codex-cli' && (
-              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+              <div className="settings-field-row">
                 <span className="text-sm font-medium">{t('Reasoning Level')}</span>
                 <div className="space-y-1.5">
                   <Select
@@ -258,7 +261,7 @@ export function AISettings() {
             )}
 
             {/* Max Diff Lines */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Max Diff Lines')}</span>
               <div className="space-y-1.5">
                 <Input
@@ -278,7 +281,7 @@ export function AISettings() {
             </div>
 
             {/* Timeout */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Timeout')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -308,7 +311,7 @@ export function AISettings() {
                   value={commitMessageGenerator.prompt}
                   onChange={(e) => setCommitMessageGenerator({ prompt: e.target.value })}
                   maxLength={4000}
-                  className="w-full h-40 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={PROMPT_TEXTAREA_CLASS}
                   placeholder={t(
                     'Enter a prompt template for generating commit messages.\nAvailable variables:\n• {recent_commits} - Recent commit messages\n• {staged_stat} - Staged changes statistics\n• {staged_diff} - Staged changes diff'
                   )}
@@ -368,7 +371,7 @@ export function AISettings() {
         {codeReview.enabled && (
           <div className="mt-4 space-y-4 border-t pt-4">
             {/* Provider */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Provider')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -399,7 +402,7 @@ export function AISettings() {
             </div>
 
             {/* Model */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Model')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -427,7 +430,7 @@ export function AISettings() {
 
             {/* Reasoning Level - Only for Codex CLI */}
             {codeReview.provider === 'codex-cli' && (
-              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+              <div className="settings-field-row">
                 <span className="text-sm font-medium">{t('Reasoning Level')}</span>
                 <div className="space-y-1.5">
                   <Select
@@ -459,7 +462,7 @@ export function AISettings() {
             )}
 
             {/* Language */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Language')}</span>
               <div className="space-y-1.5">
                 <Input
@@ -482,7 +485,7 @@ export function AISettings() {
                   value={codeReview.prompt ?? ''}
                   onChange={(e) => setCodeReview({ prompt: e.target.value })}
                   maxLength={8000}
-                  className="w-full h-40 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={PROMPT_TEXTAREA_CLASS}
                   placeholder={t(
                     'Enter a prompt template for code review.\nAvailable variables:\n• {language} - Review output language\n• {git_diff} - Git diff of changes\n• {git_log} - Commit history'
                   )}
@@ -564,7 +567,7 @@ export function AISettings() {
         {branchNameGenerator.enabled && (
           <div className="mt-4 space-y-4 border-t pt-4">
             {/* Provider */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Provider')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -590,7 +593,7 @@ export function AISettings() {
             </div>
 
             {/* Model */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Model')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -620,7 +623,7 @@ export function AISettings() {
 
             {/* Reasoning Level - Only for Codex CLI */}
             {branchNameGenerator.provider === 'codex-cli' && (
-              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+              <div className="settings-field-row">
                 <span className="text-sm font-medium">{t('Reasoning Level')}</span>
                 <div className="space-y-1.5">
                   <Select
@@ -657,7 +660,7 @@ export function AISettings() {
                 <textarea
                   value={branchNameGenerator.prompt}
                   onChange={(e) => setBranchNameGenerator({ prompt: e.target.value })}
-                  className="w-full h-40 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={PROMPT_TEXTAREA_CLASS}
                   placeholder={t(
                     'Enter a prompt template, and the AI will generate branch names according to your rules.\nAvailable variables:\n• {description} - Feature description\n• {current_date} - Current date\n• {current_time} - Current time'
                   )}
@@ -717,7 +720,7 @@ export function AISettings() {
         {todoPolish.enabled && (
           <div className="mt-4 space-y-4 border-t pt-4">
             {/* Provider */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Provider')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -743,7 +746,7 @@ export function AISettings() {
             </div>
 
             {/* Model */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Model')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -773,7 +776,7 @@ export function AISettings() {
 
             {/* Reasoning Level - Only for Codex CLI */}
             {todoPolish.provider === 'codex-cli' && (
-              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+              <div className="settings-field-row">
                 <span className="text-sm font-medium">{t('Reasoning Level')}</span>
                 <div className="space-y-1.5">
                   <Select
@@ -805,7 +808,7 @@ export function AISettings() {
             )}
 
             {/* Timeout */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Timeout')}</span>
               <div className="space-y-1.5">
                 <Select
@@ -834,7 +837,7 @@ export function AISettings() {
                 <textarea
                   value={todoPolish.prompt}
                   onChange={(e) => setTodoPolish({ prompt: e.target.value })}
-                  className="w-full h-40 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={PROMPT_TEXTAREA_CLASS}
                   placeholder={t(
                     'Enter a prompt template.\nAvailable variables:\n• {text} - Raw requirement text'
                   )}

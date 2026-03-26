@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
+import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -216,7 +217,7 @@ export function WorktreePanel({
   }, [worktrees, activities, fetchDiffStats, shouldPoll]);
 
   return (
-    <aside className="flex h-full w-full flex-col border-r bg-background">
+    <aside className="control-sidebar flex h-full w-full flex-col border-r bg-background">
       {/* Header with buttons */}
       <div
         className={cn(
@@ -228,7 +229,7 @@ export function WorktreePanel({
         {repositoryCollapsed && onExpandRepository && (
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="control-panel-muted flex h-8 w-8 items-center justify-center rounded-xl no-drag text-muted-foreground transition-colors hover:text-foreground"
             onClick={onExpandRepository}
             title={t('Expand Repository')}
           >
@@ -238,7 +239,7 @@ export function WorktreePanel({
         {/* Refresh button */}
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+          className="control-panel-muted flex h-8 w-8 items-center justify-center rounded-xl no-drag text-muted-foreground transition-colors hover:text-foreground"
           onClick={onRefresh}
           title={t('Refresh')}
           disabled={inactiveRemote}
@@ -249,7 +250,7 @@ export function WorktreePanel({
         {onCollapse && (
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="control-panel-muted flex h-8 w-8 items-center justify-center rounded-xl no-drag text-muted-foreground transition-colors hover:text-foreground"
             onClick={onCollapse}
             title={t('Collapse')}
           >
@@ -260,7 +261,7 @@ export function WorktreePanel({
 
       {/* Search bar */}
       <div className="px-3 py-2">
-        <div className="flex h-8 items-center gap-2 rounded-lg border px-2">
+        <div className="control-input flex h-10 items-center gap-2 rounded-xl px-3">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
             type="text"
@@ -349,7 +350,10 @@ export function WorktreePanel({
                 isLoading={isCreating}
                 onSubmit={onCreateWorktree}
                 trigger={
-                  <Button variant="outline" className="mt-2">
+                  <Button
+                    variant="outline"
+                    className="control-panel-muted mt-2 rounded-xl border-0"
+                  >
                     <Plus className="mr-2 h-4 w-4" />
                     {t('Create Worktree')}
                   </Button>
@@ -401,7 +405,7 @@ export function WorktreePanel({
           trigger={
             <button
               type="button"
-              className="flex h-8 w-full items-center justify-start gap-2 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+              className="control-panel-muted flex h-10 w-full items-center justify-start gap-2 rounded-xl px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               <Plus className="h-4 w-4" />
               {t('New Worktree')}
@@ -563,10 +567,12 @@ function WorktreeItem({
     insertions: 0,
     deletions: 0,
   };
+  const activityStates = useWorktreeActivityStore((s) => s.activityStates);
   const closeAgentSessions = useWorktreeActivityStore((s) => s.closeAgentSessions);
   const closeTerminalSessions = useWorktreeActivityStore((s) => s.closeTerminalSessions);
   const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
   const hasDiffStats = diffStats.insertions > 0 || diffStats.deletions > 0;
+  const activityState = activityStates[worktree.path] || 'idle';
 
   // Check if any session in this worktree has outputting or unread state
   const outputState = useWorktreeOutputState(worktree.path);
@@ -626,6 +632,23 @@ function WorktreeItem({
     }
   }, [menuOpen, menuPosition]);
 
+  const activityChipClassName =
+    activityState === 'running'
+      ? 'control-chip-live'
+      : activityState === 'waiting_input'
+        ? 'control-chip-wait'
+        : activityState === 'completed'
+          ? 'control-chip-done'
+          : '';
+  const activityLabel =
+    activityState === 'running'
+      ? 'Running'
+      : activityState === 'waiting_input'
+        ? 'Awaiting input'
+        : activityState === 'completed'
+          ? 'Completed'
+          : '';
+
   // Common worktree item content
   const worktreeItemContent = (
     <>
@@ -644,23 +667,25 @@ function WorktreeItem({
         onClick={onClick}
         onContextMenu={handleContextMenu}
         className={cn(
-          'relative flex w-full flex-col items-start gap-1 rounded-lg p-3 text-left transition-colors cursor-pointer',
+          'control-panel-muted relative flex w-full flex-col items-start gap-2 rounded-xl p-3 text-left transition-all cursor-pointer',
           isPrunable && 'opacity-50',
-          isActive ? 'text-accent-foreground' : 'hover:bg-accent/50'
+          isActive
+            ? 'text-accent-foreground border-primary/35 bg-primary/[0.10]'
+            : 'hover:border-primary/18 hover:bg-accent/35'
         )}
       >
         {isActive && (
           <motion.div
             layoutId="worktree-panel-highlight"
-            className="absolute inset-0 rounded-lg bg-accent"
+            className="absolute inset-0 rounded-xl border border-primary/30 bg-primary/[0.08]"
             transition={springFast}
           />
         )}
         {/* Branch name */}
-        <div className="relative z-10 flex w-full items-center gap-2">
+        <div className="relative z-10 flex w-full items-start gap-2">
           <GitBranch
             className={cn(
-              'h-4 w-4 shrink-0',
+              'mt-0.5 h-4 w-4 shrink-0',
               isPrunable
                 ? 'text-destructive'
                 : isActive
@@ -668,23 +693,33 @@ function WorktreeItem({
                   : 'text-muted-foreground'
             )}
           />
-          <span className={cn('truncate font-medium', isPrunable && 'line-through')}>
-            {branchDisplay}
-          </span>
-          {isPrunable ? (
-            <span className="shrink-0 rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
-              {t('Deleted')}
-            </span>
-          ) : isMain ? (
-            <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-600 dark:text-emerald-400">
-              {t('Main')}
-            </span>
-          ) : isMerged ? (
-            <span className="shrink-0 rounded bg-success/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-success-foreground">
-              {t('Merged')}
-            </span>
-          ) : null}
-          {/* Git sync status - inline with branch name */}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className={cn('truncate font-medium', isPrunable && 'line-through')}>
+                {branchDisplay}
+              </span>
+              {isPrunable ? (
+                <span className="control-chip shrink-0 bg-destructive/10 text-destructive">
+                  {t('Deleted')}
+                </span>
+              ) : isMain ? (
+                <span className="control-chip control-chip-strong shrink-0">{t('Main')}</span>
+              ) : isMerged ? (
+                <span className="control-chip control-chip-done shrink-0">{t('Merged')}</span>
+              ) : null}
+            </div>
+            <div
+              className={cn(
+                'mt-1 overflow-hidden whitespace-nowrap text-ellipsis text-xs leading-5 [text-align:left] [unicode-bidi:plaintext]',
+                useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]',
+                isPrunable && 'line-through',
+                isActive ? 'text-accent-foreground/70' : 'text-muted-foreground'
+              )}
+              title={displayWorktreePath}
+            >
+              {displayWorktreePath}
+            </div>
+          </div>
           <GitSyncButton
             ahead={ahead}
             behind={behind}
@@ -696,48 +731,36 @@ function WorktreeItem({
           />
         </div>
 
-        {/* Path - use rtl direction to show ellipsis at start, keeping end visible */}
-        <div
-          className={cn(
-            'relative z-10 w-full overflow-hidden whitespace-nowrap text-ellipsis pl-6 text-xs [text-align:left] [unicode-bidi:plaintext]',
-            useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]',
-            isPrunable && 'line-through',
-            isActive ? 'text-accent-foreground/70' : 'text-muted-foreground'
+        <div className="relative z-10 flex flex-wrap items-center gap-1.5 pl-6 text-xs text-muted-foreground">
+          {activityState !== 'idle' && (
+            <span className={cn('control-chip', activityChipClassName)}>
+              <ActivityIndicator state={activityState} size="sm" />
+              {activityLabel}
+            </span>
           )}
-          title={displayWorktreePath}
-        >
-          {displayWorktreePath}
+          {activity.agentCount > 0 && (
+            <span className="control-chip">
+              <Sparkles className="h-3 w-3" />
+              {activity.agentCount}
+            </span>
+          )}
+          {activity.terminalCount > 0 && (
+            <span className="control-chip">
+              <Terminal className="h-3 w-3" />
+              {activity.terminalCount}
+            </span>
+          )}
+          {hasDiffStats && (
+            <span className="control-chip">
+              {diffStats.insertions > 0 && (
+                <span className="text-[color:var(--success)]">+{diffStats.insertions}</span>
+              )}
+              {diffStats.deletions > 0 && (
+                <span className="text-red-600 dark:text-red-400">-{diffStats.deletions}</span>
+              )}
+            </span>
+          )}
         </div>
-
-        {/* Activity counts and diff stats (only shown when has active sessions) */}
-        {hasActivity && (
-          <div className="relative z-10 flex items-center gap-3 pl-6 text-xs text-muted-foreground">
-            {activity.agentCount > 0 && (
-              <span className="flex items-center gap-1">
-                <Sparkles className="h-3 w-3" />
-                {activity.agentCount}
-              </span>
-            )}
-            {activity.terminalCount > 0 && (
-              <span className="flex items-center gap-1">
-                <Terminal className="h-3 w-3" />
-                {activity.terminalCount}
-              </span>
-            )}
-            {hasDiffStats && (
-              <span className="flex items-center gap-1.5">
-                {diffStats.insertions > 0 && (
-                  <span className="text-emerald-600 dark:text-emerald-400">
-                    +{diffStats.insertions}
-                  </span>
-                )}
-                {diffStats.deletions > 0 && (
-                  <span className="text-red-600 dark:text-red-400">-{diffStats.deletions}</span>
-                )}
-              </span>
-            )}
-          </div>
-        )}
       </button>
       {/* Drop indicator - bottom */}
       {showDropIndicator && dropDirection === 'bottom' && (

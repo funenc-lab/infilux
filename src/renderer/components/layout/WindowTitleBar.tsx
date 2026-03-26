@@ -1,6 +1,7 @@
+import { REPOSITORY_URL } from '@shared/branding';
 import { ExternalLink, MoreHorizontal, RefreshCw, Settings, Terminal, X } from 'lucide-react';
 import { useCallback } from 'react';
-import logoImage from '@/assets/logo.png';
+import logoImage from '@/assets/logo.svg';
 import {
   Menu,
   MenuItem,
@@ -13,7 +14,7 @@ import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { WindowControls } from './WindowControls';
 
-// 平台检查在模块级别进行，避免在组件内部违反 Hooks 规则
+// Platform detection is kept at module scope to avoid conditional hooks.
 const isMac = typeof window !== 'undefined' && window.electronAPI?.env?.platform === 'darwin';
 
 interface WindowTitleBarProps {
@@ -21,13 +22,13 @@ interface WindowTitleBarProps {
 }
 
 /**
- * Custom title bar for frameless windows (Windows/Linux)
- * Modern minimal design with settings button and more menu
+ * Custom title bar for frameless windows on Windows/Linux.
+ * Keep this layer focused on window identity and system actions.
  */
 export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
   const { t } = useI18n();
 
-  // 所有 hooks 必须在条件返回之前调用，遵循 React Hooks 规则
+  // Hooks must be declared before any conditional return.
   const handleReload = useCallback(() => {
     window.location.reload();
   }, []);
@@ -40,48 +41,27 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
     window.electronAPI.shell.openExternal(url);
   }, []);
 
-  // On macOS, we don't need the custom title bar (uses native hiddenInset)
+  // macOS uses the native hiddenInset title bar.
   if (isMac) {
     return null;
   }
 
-  // 更多按钮样式
   const iconButtonClass = cn(
-    'flex h-7 w-7 items-center justify-center rounded-sm',
-    'text-muted-foreground hover:text-foreground hover:bg-muted/80',
+    'control-icon-button flex h-8 w-8 items-center justify-center rounded-md',
+    'text-muted-foreground hover:text-foreground hover:bg-accent/60',
     'transition-colors duration-150'
   );
 
   return (
     <div className="relative z-50 flex h-8 shrink-0 items-center justify-between border-b bg-background drag-region select-none">
-      {/* Left: App icon and name (clickable to open settings) */}
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className={cn(
-          'flex h-8 items-center gap-1.5 px-2 no-drag',
-          'transition-opacity duration-200 hover:opacity-80 active:opacity-60'
-        )}
-        title={`${t('Settings')} (Ctrl+,)`}
-      >
-        <img src={logoImage} alt="Enso AI" className="h-5 w-5" />
-        <span className="text-xs font-medium text-muted-foreground">Enso AI</span>
-      </button>
+      <div className="flex h-8 items-center gap-1.5 px-2 no-drag">
+        <img src={logoImage} alt="Infilux" className="h-5 w-5" />
+        <span className="text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase">
+          Infilux
+        </span>
+      </div>
 
-      {/* Right: Actions and window controls */}
       <div className="flex items-center no-drag">
-        {/* Settings Button */}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className={iconButtonClass}
-          aria-label={t('Settings')}
-          title={`${t('Settings')} (Ctrl+,)`}
-        >
-          <Settings className="h-3.5 w-3.5" />
-        </button>
-
-        {/* More Menu */}
         <Menu>
           <MenuTrigger
             render={
@@ -91,6 +71,16 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
             }
           />
           <TitleBarMenuPopup align="end" sideOffset={6} className="min-w-[180px]">
+            {onOpenSettings ? (
+              <>
+                <MenuItem onClick={onOpenSettings}>
+                  <Settings className="h-3.5 w-3.5" />
+                  {t('Settings')}
+                  <MenuShortcut>Ctrl+,</MenuShortcut>
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            ) : null}
             <MenuItem onClick={handleReload}>
               <RefreshCw className="h-3.5 w-3.5" />
               {t('Reload')}
@@ -102,7 +92,7 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
               <MenuShortcut>F12</MenuShortcut>
             </MenuItem>
             <MenuSeparator />
-            <MenuItem onClick={() => handleOpenExternal('https://github.com/J3n5en/EnsoAI')}>
+            <MenuItem onClick={() => handleOpenExternal(REPOSITORY_URL)}>
               <ExternalLink className="h-3.5 w-3.5" />
               {t('GitHub')}
             </MenuItem>
@@ -115,10 +105,8 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
           </TitleBarMenuPopup>
         </Menu>
 
-        {/* Separator */}
-        <div className="h-4 w-px bg-border mx-1" />
+        <div className="mx-1 h-4 w-px bg-border" />
 
-        {/* Window controls */}
         <WindowControls />
       </div>
     </div>

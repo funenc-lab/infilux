@@ -1,3 +1,4 @@
+import { DEFAULT_TEMPORARY_DIRNAME, DEFAULT_WORKSPACE_ROOT_DIRNAME } from '@shared/paths';
 import type {
   GitWorktree,
   RemoteConnectionStatus,
@@ -307,7 +308,9 @@ export default function App() {
   const pathSep = isWindows ? '\\' : '/';
   const homeDir = window.electronAPI?.env.HOME || '';
   const effectiveTempBasePath = useMemo(
-    () => defaultTemporaryPath || [homeDir, 'ensoai', 'temporary'].join(pathSep),
+    () =>
+      defaultTemporaryPath ||
+      [homeDir, DEFAULT_WORKSPACE_ROOT_DIRNAME, DEFAULT_TEMPORARY_DIRNAME].join(pathSep),
     [defaultTemporaryPath, homeDir, pathSep]
   );
   const tempBasePathDisplay = useMemo(() => {

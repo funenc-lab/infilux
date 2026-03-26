@@ -1,4 +1,5 @@
 export * from './agent';
+export * from './agentSession';
 export * from './ai';
 export * from './app';
 export * from './claude';
@@ -14,6 +15,7 @@ export * from './remote';
 export * from './repositoryContext';
 export * from './search';
 export * from './session';
+export * from './settingsImport';
 export * from './shell';
 export * from './tempWorkspace';
 export * from './terminal';

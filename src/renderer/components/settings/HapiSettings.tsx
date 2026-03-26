@@ -402,7 +402,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
                   <p className="text-xs text-muted-foreground">
                     {t('Use a pre-configured tunnel with your Cloudflare account.')}
                   </p>
-                  <div className="grid grid-cols-[100px_1fr] items-center gap-4">
+                  <div className="settings-field-row">
                     <span className="text-sm font-medium">{t('Tunnel Token')}</span>
                     <Input
                       type="password"
@@ -440,7 +440,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
             <h4 className="text-sm font-medium text-muted-foreground">{t('Configuration')}</h4>
 
             {/* Server Port */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Server Port')}</span>
               <div className="space-y-1.5">
                 <Input
@@ -457,7 +457,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
             </div>
 
             {/* Access Token */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Access Token')}</span>
               <div className="space-y-1.5">
                 <div className="flex gap-2">
@@ -480,7 +480,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
             </div>
 
             {/* Telegram Bot Token */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Telegram Bot Token')}</span>
               <div className="space-y-1.5">
                 <Input
@@ -498,7 +498,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
             </div>
 
             {/* Public URL */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Public URL')}</span>
               <div className="space-y-1.5">
                 <Input
@@ -516,7 +516,7 @@ export function HapiSettings({ repoPath }: { repoPath?: string }) {
             </div>
 
             {/* Allowed Chat IDs */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Allowed Chat IDs')}</span>
               <div className="space-y-1.5">
                 <Input
