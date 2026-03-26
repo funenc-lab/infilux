@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLegacySettingsImportPayload,
   buildLegacySettingsImportPreview,
+  findLegacySettingsImportSourcePath,
+  getLegacySettingsImportCandidatePaths,
 } from '../legacyImport';
 
 describe('legacySettingsImport', () => {
@@ -108,5 +110,45 @@ describe('legacySettingsImport', () => {
         },
       },
     });
+  });
+
+  it('builds prioritized legacy settings import candidates from home and Windows profile paths', () => {
+    expect(
+      getLegacySettingsImportCandidatePaths({
+        homeDir: '/Users/tester',
+        env: {
+          HOME: '/Users/tester',
+          USERPROFILE: 'C:\\Users\\tester',
+          HOMEDRIVE: 'C:',
+          HOMEPATH: '\\Users\\tester',
+        },
+      })
+    ).toEqual(['/Users/tester/.ensoai/settings.json', 'C:\\Users\\tester\\.ensoai\\settings.json']);
+  });
+
+  it('returns the first existing legacy settings file from the candidate list', () => {
+    const sourcePath = findLegacySettingsImportSourcePath({
+      homeDir: '/Users/tester',
+      env: {
+        HOME: '/Users/tester',
+        USERPROFILE: '/Volumes/OldMac/Users/tester',
+      },
+      fileExists: (candidatePath) =>
+        candidatePath === '/Volumes/OldMac/Users/tester/.ensoai/settings.json',
+    });
+
+    expect(sourcePath).toBe('/Volumes/OldMac/Users/tester/.ensoai/settings.json');
+  });
+
+  it('returns null when no legacy settings file exists in the typical locations', () => {
+    const sourcePath = findLegacySettingsImportSourcePath({
+      homeDir: '/Users/tester',
+      env: {
+        HOME: '/Users/tester',
+      },
+      fileExists: () => false,
+    });
+
+    expect(sourcePath).toBeNull();
   });
 });

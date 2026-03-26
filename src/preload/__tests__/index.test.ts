@@ -269,6 +269,10 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.TMUX_CHECK, '/repo', true],
       },
       {
+        run: () => api.settings.previewLegacyImportFromTypicalPaths(),
+        expected: [IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW],
+      },
+      {
         run: () => api.settings.applyLegacyImport('/tmp/settings.json'),
         expected: [IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_APPLY, '/tmp/settings.json'],
       },

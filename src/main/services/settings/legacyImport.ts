@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join, win32 } from 'node:path';
+import { LEGACY_RUNTIME_STATE_DIRNAME, SETTINGS_FILENAME } from '@shared/paths';
 import type { LegacySettingsImportPreview } from '@shared/types';
 
 const SETTINGS_SLICE_KEY = 'enso-settings';
@@ -8,8 +11,33 @@ type PersistedSettingsSlice = Record<string, unknown> & {
   state?: Record<string, unknown>;
 };
 
+interface LegacySettingsImportDiscoveryOptions {
+  homeDir?: string;
+  env?: NodeJS.ProcessEnv;
+  fileExists?: (candidatePath: string) => boolean;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function buildLegacySettingsPath(rootPath: string): string {
+  const useWindowsPath = rootPath.includes('\\') || /^[A-Za-z]:/.test(rootPath);
+  return useWindowsPath
+    ? win32.join(rootPath, LEGACY_RUNTIME_STATE_DIRNAME, SETTINGS_FILENAME)
+    : join(rootPath, LEGACY_RUNTIME_STATE_DIRNAME, SETTINGS_FILENAME);
+}
+
+function appendCandidate(candidates: string[], rootPath: string | undefined): void {
+  const trimmedRoot = rootPath?.trim();
+  if (!trimmedRoot) {
+    return;
+  }
+
+  const candidatePath = buildLegacySettingsPath(trimmedRoot);
+  if (!candidates.includes(candidatePath)) {
+    candidates.push(candidatePath);
+  }
 }
 
 function extractSettingsSlice(document: unknown): PersistedSettingsSlice | null {
@@ -28,6 +56,36 @@ function extractSettingsSlice(document: unknown): PersistedSettingsSlice | null 
   }
 
   return slice as PersistedSettingsSlice;
+}
+
+export function getLegacySettingsImportCandidatePaths(
+  options: LegacySettingsImportDiscoveryOptions = {}
+): string[] {
+  const candidates: string[] = [];
+  const env = options.env ?? {};
+
+  appendCandidate(candidates, options.homeDir);
+  appendCandidate(candidates, env.HOME);
+  appendCandidate(candidates, env.USERPROFILE);
+
+  if (env.HOMEDRIVE && env.HOMEPATH) {
+    appendCandidate(candidates, `${env.HOMEDRIVE}${env.HOMEPATH}`);
+  }
+
+  return candidates;
+}
+
+export function findLegacySettingsImportSourcePath(
+  options: LegacySettingsImportDiscoveryOptions = {}
+): string | null {
+  const fileExists = options.fileExists ?? existsSync;
+  for (const candidatePath of getLegacySettingsImportCandidatePaths(options)) {
+    if (fileExists(candidatePath)) {
+      return candidatePath;
+    }
+  }
+
+  return null;
 }
 
 function stableStringify(value: unknown): string {

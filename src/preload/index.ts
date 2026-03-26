@@ -699,6 +699,9 @@ const electronAPI = {
     read: (): Promise<unknown> => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_READ),
     write: (data: unknown): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_WRITE, data),
+    previewLegacyImportFromTypicalPaths: (): Promise<
+      import('@shared/types').LegacySettingsImportPreview
+    > => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW),
     previewLegacyImport: (
       sourcePath: string
     ): Promise<import('@shared/types').LegacySettingsImportPreview> =>

@@ -223,6 +223,7 @@ export const IPC_CHANNELS = {
   // Settings
   SETTINGS_READ: 'settings:read',
   SETTINGS_WRITE: 'settings:write',
+  SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW: 'settings:importLegacy:autoPreview',
   SETTINGS_IMPORT_LEGACY_PREVIEW: 'settings:importLegacy:preview',
   SETTINGS_IMPORT_LEGACY_APPLY: 'settings:importLegacy:apply',
 
