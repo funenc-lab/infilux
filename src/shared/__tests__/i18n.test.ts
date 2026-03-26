@@ -10,6 +10,12 @@ describe('shared i18n helpers', () => {
 
   it('returns translated values and falls back to the key when missing', () => {
     expect(getTranslation('zh', 'Action Panel')).toBe('操作面板');
+    expect(
+      getTranslation(
+        'zh',
+        'Add one to unlock worktrees, files, terminals, and agent sessions from this sidebar.'
+      )
+    ).toBe('从此侧边栏添加一个仓库，即可解锁 worktree、文件、终端和 Agent 会话。');
     expect(getTranslation('zh', 'Missing key')).toBe('Missing key');
     expect(getTranslation('en', 'Action Panel')).toBe('Action Panel');
   });

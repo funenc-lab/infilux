@@ -4,6 +4,8 @@ export const zhTranslations: Record<string, string> = {
   'Action Panel': '操作面板',
   'Add Repository': '添加仓库',
   'Add a repository to get started.': '添加一个仓库开始使用。',
+  'Add one to unlock worktrees, files, terminals, and agent sessions from this sidebar.':
+    '从此侧边栏添加一个仓库，即可解锁 worktree、文件、终端和 Agent 会话。',
   'Add Workspace': '新建工作区',
   'Add agent': '添加 Agent',
   'Add to favorites': '添加收藏',
