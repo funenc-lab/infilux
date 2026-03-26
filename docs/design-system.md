@@ -17,6 +17,15 @@
 3. 组件存放于 `src/renderer/components/ui/`
 4. 仅在 @coss/ui 无法满足时才手动实现
 
+长期组件治理规则以 `agents/component-governance.md` 为准。
+
+补充约束：
+
+- 先复用，再扩展，再抽象，最后才新增 primitive
+- feature-specific 逻辑不要下沉到 `ui/` primitive
+- 共享抽象必须基于稳定的重复模式，而不是表面相似
+- variant 只能表达稳定语义，不能掩盖多个不同组件
+
 ## 设计定位
 
 ### 产品角色
@@ -147,6 +156,17 @@ Worktree 项必须优先显示：
 - 状态文字优先短词和大写标签，不写长句
 - 路径永远是辅助信息，不得比对象名更显眼
 
+### 9. 文案规则
+
+- 文案优先表达状态、动作、后果，不做装饰性表达
+- Label 要短、明确、可扫描
+- Empty state 必须说明“缺什么、为什么重要、下一步做什么”
+- Destructive 文案必须直接说明后果，必要时明确不可撤销
+- Toast 和反馈文案要短，优先回答“发生了什么”
+- 同一概念在全产品中尽量使用同一术语
+
+长期文案规则以 `agents/content-copy-guidelines.md` 为准。
+
 ### 8. 交互反馈规则
 
 - 全局必须保留 `focus-visible`
@@ -212,7 +232,19 @@ Worktree 项必须优先显示：
 
 只要这 5 个问题里有 2 个回答不清楚，就不要进入样式细节。
 
+长期视觉审查清单以 `agents/visual-review-checklist.md` 为准。
+
+最低审查要求：
+
+- 当前上下文是否一眼可读
+- 主动作是否足够明确
+- 状态语义是否唯一
+- 高密度下层级是否仍然清晰
+- 视觉强化是否服务操作，而不是服务装饰
+
 ## Color System
+
+长期 token 治理规则以 `agents/design-token-governance.md` 为准。
 
 ### Theme Variables
 
@@ -229,6 +261,13 @@ Worktree 项必须优先显示：
 | `primary` | 强调色/品牌色 |
 | `primary-foreground` | 强调色上的文字 |
 | `destructive` | 危险操作 |
+
+补充治理约束：
+
+- foundation token、semantic token、derived product token、contextual override token 必须分层清晰
+- semantic token 不能因为 preset、sync-terminal 或背景图而失去语义
+- 局部视觉处理优先使用窄范围 override 变量，不要随意重写整套 token
+- token 名称必须表达职责，而不是临时视觉效果
 
 ### 使用规范
 
@@ -247,6 +286,50 @@ className="bg-accent text-accent-foreground"
 // 危险操作
 variant="destructive"
 ```
+
+### Background Image Overlay Rules
+
+背景图是 **surface treatment**，不是新的主题来源。
+
+允许影响：
+
+- `background`
+- `card`
+- `popover`
+- `muted`
+- 必要时的 `border` / `input` 透明层次
+
+不允许影响：
+
+- `primary`
+- `accent`
+- `ring`
+- `destructive`
+- `success`
+- `warning`
+- `info`
+- `control-chip-live / wait / done`
+
+实现规则：
+
+- 背景图模式优先通过 `--panel-bg-opacity` 这类局部变量控制透明度
+- 优先在 CSS overlay 层处理，不要在 JS 中直接重写整套主题 token
+- 背景图只能改变面板透明感，**不能抹掉当前主题的强调色身份**
+- 当背景图与可读性冲突时，优先保证文本、状态和焦点可见性
+
+### Accessibility Summary
+
+实现界面时，至少满足以下规则：
+
+- 保持全局 `focus-visible`
+- `hover`、`selected`、`focused` 必须可区分
+- 重要状态不能只靠颜色表达
+- 高密度界面允许存在，但必须保持主次层级清晰
+- 键盘可以完成核心流程
+- 动效用于解释变化，不用于制造噱头
+- 背景图、主题同步、自定义配色都不能破坏可读性
+
+长期规则以 `agents/accessibility-rules.md` 为准。
 
 ## Spacing & Sizing
 
@@ -520,6 +603,8 @@ monaco.editor.defineTheme('enso-theme', {
 
 ## Interaction Patterns
 
+长期交互模式规则以 `agents/interaction-patterns.md` 为准。
+
 ### 文件树
 
 - **单击文件**: 在编辑器中打开
@@ -532,6 +617,15 @@ monaco.editor.defineTheme('enso-theme', {
 - **拖拽 Tab**: 重新排序
 - **点击关闭按钮**: 关闭文件
 - **Cmd/Ctrl+S**: 保存当前文件
+
+### 交互摘要
+
+- 交互优先回答“当前上下文是什么、下一步能做什么”
+- `hover`、`focus`、`selected`、`active` 必须可区分
+- 空状态必须提供明确下一步动作
+- Context Menu 只承载次级操作，不隐藏高频主操作
+- Destructive action 必须更明确、更克制、更有确认感
+- 多面板切换必须保持方向感，不能制造不必要的状态丢失
 
 ## Flexbox 技巧
 
@@ -554,11 +648,16 @@ className="min-w-0 flex-1 truncate"
 
 本项目使用 **Framer Motion** 作为动画库，配置集中在 `src/renderer/lib/motion.ts`。
 
+长期 motion 原则以 `agents/motion-principles.md` 为准。
+
 ### 设计原则
 
 - **快速响应**：动画时长控制在 150-200ms，保持操作效率
 - **Spring 物理**：使用 Spring 弹性动画，带来自然的物理感
 - **GPU 加速**：优先使用 `transform`、`opacity` 属性，启用硬件加速
+- **服务理解**：动效必须帮助用户理解变化、层级和连续性
+- **克制优先**：高密度区域优先使用更安静、更短、更少的动效
+- **可降级**：非必要动画必须可被 reduced-motion 路径削弱或移除
 
 ### Spring 配置
 

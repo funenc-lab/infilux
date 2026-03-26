@@ -33,6 +33,15 @@ Infilux/
 - `src/renderer/AGENTS.md` — Renderer architecture, state ownership, panels, and UI rules
 - `src/preload/AGENTS.md` — Context bridge and `window.electronAPI` extension rules
 - `src/shared/AGENTS.md` — Shared types, channel contracts, and cross-process utility rules
+- `agents/design-context.md` — Persistent product style, brand direction, and visual decision principles
+- `agents/theme-palette-policy.md` — Theme hierarchy, semantic color guardrails, and terminal sync policy
+- `agents/accessibility-rules.md` — Keyboard, contrast, motion, and dense-UI accessibility expectations
+- `agents/motion-principles.md` — Product motion philosophy, hierarchy, and reduced-motion rules
+- `agents/interaction-patterns.md` — Navigation, selection, empty-state, dialog, and workflow interaction rules
+- `agents/component-governance.md` — Reuse, extraction, variants, layering, and primitive creation rules
+- `agents/design-token-governance.md` — Token layers, ownership, overrides, and semantic integrity rules
+- `agents/visual-review-checklist.md` — Recurring visual review checklist for context, hierarchy, state, and product character
+- `agents/content-copy-guidelines.md` — UI copy tone, label, status, empty-state, and destructive wording rules
 
 ## SYSTEM ARCHITECTURE
 
@@ -69,6 +78,15 @@ Renderer UI
 | Electron bridge surface | `src/preload/index.ts` | Renderer should not import Electron directly |
 | Tests | `src/**/__tests__/**/*.test.ts` | Vitest is available for targeted unit tests |
 | UI rules | `docs/design-system.md` | Read before building or changing UI |
+| Product style intent | `agents/design-context.md` | Read when making visual or brand-level design decisions |
+| Theme and palette policy | `agents/theme-palette-policy.md` | Read when changing tokens, color semantics, or sync-terminal behavior |
+| Accessibility policy | `agents/accessibility-rules.md` | Read when changing focus, contrast, motion, density, or status presentation |
+| Motion policy | `agents/motion-principles.md` | Read when changing transitions, micro-interactions, or panel animation behavior |
+| Interaction policy | `agents/interaction-patterns.md` | Read when changing navigation, selection, menus, dialogs, or empty-state behavior |
+| Component governance | `agents/component-governance.md` | Read when reusing, extending, extracting, or adding UI components |
+| Token governance | `agents/design-token-governance.md` | Read when adding tokens, changing token ownership, or adjusting runtime overrides |
+| Visual review checklist | `agents/visual-review-checklist.md` | Read before considering a UI change visually complete or polished |
+| Content copy guidelines | `agents/content-copy-guidelines.md` | Read when changing labels, buttons, states, dialogs, empty states, or feedback text |
 
 ## KEY HOTSPOTS
 
@@ -100,6 +118,15 @@ Treat changes in these files as architecture changes, not local edits.
 
 - Prefer existing `@coss/ui` components in `src/renderer/components/ui/` before creating new primitives.
 - Follow `docs/design-system.md` for spacing, tokens, and interaction patterns.
+- Follow `agents/design-context.md` for dark-first tone, brand personality, and long-term visual direction.
+- Follow `agents/theme-palette-policy.md` for semantic color stability, neutral-base rules, and controlled terminal-theme full sync.
+- Follow `agents/accessibility-rules.md` for keyboard access, focus visibility, contrast, motion restraint, and dense-UI readability.
+- Follow `agents/motion-principles.md` for animation hierarchy, operational tempo, and reduced-motion-safe interaction behavior.
+- Follow `agents/interaction-patterns.md` for context-first navigation, selection clarity, deliberate destructive actions, and action-oriented empty states.
+- Follow `agents/component-governance.md` for reuse-first component evolution, correct layering, and disciplined primitive creation.
+- Follow `agents/design-token-governance.md` for token layering, source-of-truth clarity, override hierarchy, and semantic token safety.
+- Follow `agents/visual-review-checklist.md` to review context clarity, hierarchy, state semantics, and overall product character before shipping UI work.
+- Follow `agents/content-copy-guidelines.md` for calm, direct, action-oriented UI wording and consistent destructive/status/empty-state language.
 - Preserve truncation safety in flex layouts with `min-w-0`, `flex-1`, and `shrink-0` where appropriate.
 
 ### File-system and path handling
