@@ -255,10 +255,10 @@ export function CurrentFilePanel({
         actions={
           onExpandWorktree && worktreeCollapsed ? (
             <Button
-              variant="outline"
+              variant="default"
               size="lg"
               onClick={onExpandWorktree}
-              className="rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
+              className="control-action-button control-action-button-primary rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
             >
               {t('Choose Worktree')}
             </Button>

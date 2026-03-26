@@ -992,7 +992,7 @@ export function SourceControlPanel({
           type="button"
           onClick={() => setSidebarCollapsed(false)}
           className={cn(
-            'flex h-full shrink-0 items-center justify-center border-r text-muted-foreground/60 hover:bg-accent/50 hover:text-foreground transition-all duration-200 ease-out overflow-hidden',
+            'flex h-full shrink-0 items-center justify-center overflow-hidden border-r text-muted-foreground/60 transition-[opacity,color,background-color] duration-200 ease-out hover:bg-accent/50 hover:text-foreground',
             sidebarCollapsed ? 'w-6 opacity-100' : 'w-0 opacity-0'
           )}
           title={t('Show sidebar')}
@@ -1003,7 +1003,7 @@ export function SourceControlPanel({
         {/* Left: Changes List */}
         <div
           className={cn(
-            'flex shrink-0 min-h-0 flex-col border-r overflow-hidden transition-[width,opacity] duration-200 ease-out',
+            'flex shrink-0 min-h-0 flex-col overflow-hidden border-r transition-opacity duration-200 ease-out',
             sidebarCollapsed ? 'w-0 opacity-0' : 'opacity-100'
           )}
           style={{ width: sidebarCollapsed ? 0 : panelWidth }}

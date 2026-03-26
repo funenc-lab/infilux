@@ -18,6 +18,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import {
   AlertDialog,
   AlertDialogDescription,
@@ -1118,28 +1119,63 @@ export function FileTree({
 
   if (tree.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-        <p className="text-sm">{t('No files')}</p>
-        {rootPath && (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => onCreateFile(rootPath)}
-              className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-theme/8 hover:text-foreground"
-            >
-              <FilePlus className="h-3 w-3" />
-              {t('New File')}
-            </button>
-            <button
-              type="button"
-              onClick={() => onCreateDirectory(rootPath)}
-              className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-theme/8 hover:text-foreground"
-            >
-              <FolderPlus className="h-3 w-3" />
-              {t('New Folder')}
-            </button>
-          </div>
-        )}
+      <div className="flex h-full items-center justify-center p-3">
+        <ConsoleEmptyState
+          variant="embedded"
+          className="max-w-[min(34rem,100%)]"
+          icon={<FolderPlus className="h-4.5 w-4.5" />}
+          eyebrow={t('File Tree')}
+          title={t('This directory is empty')}
+          description={t(
+            'Create a file or folder here to start editing, searching, and sending project context into the current worktree.'
+          )}
+          chips={[
+            {
+              label: rootPath ? t('Empty Directory') : t('Awaiting Directory'),
+              tone: 'wait',
+            },
+          ]}
+          details={[
+            { label: t('Status'), value: t('No files in this directory') },
+            {
+              label: t('Location'),
+              value: rootPath ? getDisplayPath(rootPath) : t('No directory selected'),
+            },
+            {
+              label: t('Next Step'),
+              value: rootPath
+                ? t('Create a file or folder to start working in this location')
+                : t('Select a directory to continue'),
+            },
+          ]}
+          detailsLayout="compact"
+          actions={
+            rootPath ? (
+              <>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => onCreateFile(rootPath)}
+                  className="control-action-button control-action-button-primary rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+                >
+                  <FilePlus className="h-4 w-4" />
+                  {t('New File')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onCreateDirectory(rootPath)}
+                  className="control-action-button control-action-button-secondary rounded-xl px-4 text-sm font-medium tracking-[-0.01em]"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                  {t('New Folder')}
+                </Button>
+              </>
+            ) : null
+          }
+        />
       </div>
     );
   }

@@ -118,6 +118,25 @@ vi.mock('@/components/layout/RunningProjectsPopover', () => ({
     React.createElement('div', { 'data-component': 'RunningProjectsPopover' }),
 }));
 
+vi.mock('../ConsoleEmptyState', () => ({
+  ConsoleEmptyState: ({
+    title,
+    description,
+    actions,
+  }: {
+    title: string;
+    description: string;
+    actions?: React.ReactNode;
+  }) =>
+    React.createElement(
+      'div',
+      { 'data-component': 'ConsoleEmptyState' },
+      React.createElement('div', null, title),
+      React.createElement('div', null, description),
+      actions ?? null
+    ),
+}));
+
 vi.mock('@/components/ui/button', () => ({
   Button: ({
     children,
@@ -455,5 +474,20 @@ describe('MainContent component render', () => {
     expect(switchedMarkup).toContain('data-panel="file-legacy"');
     expect(switchedMarkup).toContain('data-root-path=""');
     expect(switchedMarkup).not.toContain('data-root-path="/repo/old/worktrees/previous"');
+  });
+
+  it('uses the shared topbar action styling for the settings button', async () => {
+    const markup = await renderMainContent('file');
+
+    expect(markup).toContain('aria-label="Settings"');
+    expect(markup).toContain('aria-pressed="false"');
+    expect(markup).toContain('class="control-topbar-action"');
+    expect(markup).not.toContain('control-topbar-shell-button');
+  });
+
+  it('renders the main header with the shared topbar header shell class', async () => {
+    const markup = await renderMainContent('file');
+
+    expect(markup).toContain('control-topbar-header');
   });
 });
