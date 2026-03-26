@@ -266,10 +266,9 @@ function getInitialState() {
   };
 }
 
-function getActiveCustomTheme(state: Pick<
-  SettingsState,
-  'activeThemeSelection' | 'customThemes'
->): CustomThemeDocument | null {
+function getActiveCustomTheme(
+  state: Pick<SettingsState, 'activeThemeSelection' | 'customThemes'>
+): CustomThemeDocument | null {
   return findCustomThemeBySelection(state.customThemes, state.activeThemeSelection);
 }
 
@@ -307,13 +306,7 @@ export const useSettingsStore = create<SettingsState>()(
         const sanitizedAccentColor = sanitizeCustomAccentColor(customAccentColor);
         const { theme, terminalTheme, colorPreset } = get();
         const activeCustomTheme = getActiveCustomTheme(get());
-        applyAppTheme(
-          theme,
-          terminalTheme,
-          colorPreset,
-          sanitizedAccentColor,
-          activeCustomTheme
-        );
+        applyAppTheme(theme, terminalTheme, colorPreset, sanitizedAccentColor, activeCustomTheme);
         set({ customAccentColor: sanitizedAccentColor });
       },
 
@@ -331,8 +324,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       setActiveCustomTheme: (themeId) => {
         const state = get();
-        const customTheme =
-          state.customThemes.find((entry) => entry.id === themeId) ?? null;
+        const customTheme = state.customThemes.find((entry) => entry.id === themeId) ?? null;
         if (!customTheme) {
           return;
         }
@@ -464,7 +456,7 @@ export const useSettingsStore = create<SettingsState>()(
         const activeCustomTheme =
           state.activeThemeSelection.kind === 'custom' &&
           state.activeThemeSelection.customThemeId === themeId
-            ? customThemes.find((theme) => theme.id === themeId) ?? null
+            ? (customThemes.find((theme) => theme.id === themeId) ?? null)
             : getActiveCustomTheme({
                 activeThemeSelection: state.activeThemeSelection,
                 customThemes,
@@ -513,7 +505,13 @@ export const useSettingsStore = create<SettingsState>()(
       setTerminalTheme: (terminalTheme) => {
         const { theme, colorPreset, customAccentColor } = get();
         if (theme === 'sync-terminal') {
-          applyAppTheme(theme, terminalTheme, colorPreset, customAccentColor);
+          applyAppTheme(
+            theme,
+            terminalTheme,
+            colorPreset,
+            customAccentColor,
+            getActiveCustomTheme(get())
+          );
         }
         set({ terminalTheme });
       },
@@ -1060,7 +1058,8 @@ export const useSettingsStore = create<SettingsState>()(
               'system',
               currentState.terminalTheme,
               currentState.colorPreset,
-              currentState.customAccentColor
+              currentState.customAccentColor,
+              getActiveCustomTheme(currentState)
             );
           }
         });
