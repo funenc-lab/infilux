@@ -39,6 +39,8 @@ function matchesKeybinding(e: KeyboardEvent, binding: TerminalKeybinding): boole
 export interface CurrentFilePanelProps {
   rootPath: string | undefined;
   isActive?: boolean;
+  onExpandWorktree?: () => void;
+  worktreeCollapsed?: boolean;
 }
 
 export function CurrentFilePanel({ rootPath, isActive = false }: CurrentFilePanelProps) {

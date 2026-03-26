@@ -1,4 +1,4 @@
-import type { ClaudeProvider } from '@shared/types';
+import type { ClaudeProvider, PersistentAgentRuntimeState } from '@shared/types';
 import { getDisplayPathBasename } from '@shared/utils/path';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -49,6 +49,8 @@ export interface Session {
   terminalTitle?: string; // current terminal title from OSC escape sequence
   userRenamed?: boolean; // true when user has manually renamed this session
   pendingCommand?: string; // command to send after agent is ready (e.g., from todo task)
+  recovered?: boolean;
+  recoveryState?: PersistentAgentRuntimeState;
 }
 
 interface SessionBarProps {

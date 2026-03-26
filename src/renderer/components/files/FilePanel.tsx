@@ -58,6 +58,8 @@ function matchesKeybinding(e: KeyboardEvent, binding: TerminalKeybinding): boole
 export interface FilePanelProps {
   rootPath: string | undefined;
   isActive?: boolean;
+  onExpandWorktree?: () => void;
+  worktreeCollapsed?: boolean;
 }
 
 type NewItemType = 'file' | 'directory' | null;
