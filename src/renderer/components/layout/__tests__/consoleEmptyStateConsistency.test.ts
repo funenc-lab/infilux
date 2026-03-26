@@ -6,6 +6,11 @@ import { describe, expect, it } from 'vitest';
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mainContentSource = readFileSync(resolve(currentDir, '../MainContent.tsx'), 'utf8');
 const treeSidebarSource = readFileSync(resolve(currentDir, '../TreeSidebar.tsx'), 'utf8');
+const worktreePanelSource = readFileSync(resolve(currentDir, '../WorktreePanel.tsx'), 'utf8');
+const temporaryWorkspacePanelSource = readFileSync(
+  resolve(currentDir, '../TemporaryWorkspacePanel.tsx'),
+  'utf8'
+);
 const fileTreeSource = readFileSync(resolve(currentDir, '../../files/FileTree.tsx'), 'utf8');
 
 describe('Console empty state consistency', () => {
@@ -20,8 +25,11 @@ describe('Console empty state consistency', () => {
     expect(treeSidebarSource).not.toContain('EmptyTitle');
   });
 
-  it('uses the shared console empty state and action button styles in the file tree', () => {
-    expect(fileTreeSource).toContain('ConsoleEmptyState');
+  it('uses sidebar empty states for sidebar and tree containers', () => {
+    expect(worktreePanelSource).toContain('SidebarEmptyState');
+    expect(temporaryWorkspacePanelSource).toContain('SidebarEmptyState');
+    expect(fileTreeSource).toContain('SidebarEmptyState');
+    expect(worktreePanelSource).not.toContain('ConsoleEmptyState');
     expect(fileTreeSource).toContain('control-action-button-primary');
     expect(fileTreeSource).toContain('control-action-button-secondary');
   });

@@ -28,9 +28,7 @@ function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props)
   return (
     <DialogPrimitive.Backdrop
       className={cn(
-        // 优化动画：150ms，使用 ease-out 实现快速响应
-        // z-index 由 DialogPopup 通过 style prop 统一控制
-        'fixed inset-0 no-drag bg-black/32 backdrop-blur-sm transition-opacity duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
+        'fixed inset-0 no-drag bg-black/24 transition-opacity duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
         className
       )}
       data-slot="dialog-backdrop"
@@ -88,10 +86,9 @@ function DialogPopup({
       >
         <DialogPrimitive.Popup
           className={cn(
-            // 优化动画：150ms，使用模拟 Spring 的 cubic-bezier 曲线
-            '-translate-y-[calc(1.25rem*var(--nested-dialogs))] no-drag pointer-events-auto relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg scale-[calc(1-0.1*var(--nested-dialogs))] flex-col rounded-2xl border bg-popover bg-clip-padding text-popover-foreground opacity-[calc(1-0.1*var(--nested-dialogs))] shadow-lg transition-[scale,opacity,translate] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] will-change-transform before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] data-nested:data-ending-style:translate-y-8 data-nested:data-starting-style:translate-y-8 data-nested-dialog-open:origin-top data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0 dark:bg-clip-border dark:before:shadow-[0_-1px_--theme(--color-white/8%)]',
+            '-translate-y-[calc(0.75rem*var(--nested-dialogs))] control-floating no-drag pointer-events-auto relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg flex-col rounded-xl text-popover-foreground opacity-[calc(1-0.06*var(--nested-dialogs))] transition-[opacity,translate] duration-150 ease-out will-change-transform data-nested:data-ending-style:translate-y-4 data-nested:data-starting-style:translate-y-4 data-nested-dialog-open:origin-top data-ending-style:translate-y-2 data-starting-style:translate-y-2 data-ending-style:opacity-0 data-starting-style:opacity-0',
             bottomStickOnMobile &&
-              'max-sm:rounded-none max-sm:border-x-0 max-sm:border-t max-sm:border-b-0 max-sm:opacity-[calc(1-min(var(--nested-dialogs),1))] max-sm:data-ending-style:translate-y-4 max-sm:data-starting-style:translate-y-4 max-sm:before:hidden max-sm:before:rounded-none',
+              'max-sm:rounded-none max-sm:border-x-0 max-sm:border-t max-sm:border-b-0 max-sm:opacity-[calc(1-min(var(--nested-dialogs),1))] max-sm:data-ending-style:translate-y-4 max-sm:data-starting-style:translate-y-4',
             className
           )}
           style={mergedStyle}
@@ -137,7 +134,8 @@ function DialogFooter({
     <div
       className={cn(
         'flex flex-col-reverse gap-2 px-6 sm:flex-row sm:justify-end sm:rounded-b-[calc(var(--radius-2xl)-1px)]',
-        variant === 'default' && 'border-t bg-muted/50 py-4',
+        variant === 'default' &&
+          'border-t border-border/70 bg-[color:color-mix(in_oklch,var(--muted)_72%,var(--background)_28%)] py-4',
         variant === 'bare' &&
           'in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3 pt-4 pb-6',
         className

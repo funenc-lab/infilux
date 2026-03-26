@@ -18,7 +18,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
+import { SidebarEmptyState } from '@/components/layout/SidebarEmptyState';
 import {
   AlertDialog,
   AlertDialogDescription,
@@ -1119,36 +1119,34 @@ export function FileTree({
 
   if (tree.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-3">
-        <ConsoleEmptyState
-          variant="embedded"
-          className="max-w-[min(34rem,100%)]"
+      <div className="flex h-full items-start justify-start px-2 py-3">
+        <SidebarEmptyState
           icon={<FolderPlus className="h-4.5 w-4.5" />}
-          eyebrow={t('File Tree')}
+          label={t('Empty Directory')}
           title={t('This directory is empty')}
           description={t(
             'Create a file or folder here to start editing, searching, and sending project context into the current worktree.'
           )}
-          chips={[
-            {
-              label: rootPath ? t('Empty Directory') : t('Awaiting Directory'),
-              tone: 'wait',
-            },
-          ]}
-          details={[
-            { label: t('Status'), value: t('No files in this directory') },
-            {
-              label: t('Location'),
-              value: rootPath ? getDisplayPath(rootPath) : t('No directory selected'),
-            },
-            {
-              label: t('Next Step'),
-              value: rootPath
-                ? t('Create a file or folder to start working in this location')
-                : t('Select a directory to continue'),
-            },
-          ]}
-          detailsLayout="compact"
+          meta={
+            <div className="space-y-1">
+              <div>
+                <span className="font-medium text-foreground">{t('Status')}: </span>
+                <span>{t('No files in this directory')}</span>
+              </div>
+              <div>
+                <span className="font-medium text-foreground">{t('Location')}: </span>
+                <span>{rootPath ? getDisplayPath(rootPath) : t('No directory selected')}</span>
+              </div>
+              <div>
+                <span className="font-medium text-foreground">{t('Next Step')}: </span>
+                <span>
+                  {rootPath
+                    ? t('Create a file or folder to start working in this location')
+                    : t('Select a directory to continue')}
+                </span>
+              </div>
+            </div>
+          }
           actions={
             rootPath ? (
               <>
@@ -1157,7 +1155,7 @@ export function FileTree({
                   variant="default"
                   size="sm"
                   onClick={() => onCreateFile(rootPath)}
-                  className="control-action-button control-action-button-primary rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+                  className="control-action-button control-action-button-primary rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
                 >
                   <FilePlus className="h-4 w-4" />
                   {t('New File')}
@@ -1167,7 +1165,7 @@ export function FileTree({
                   variant="outline"
                   size="sm"
                   onClick={() => onCreateDirectory(rootPath)}
-                  className="control-action-button control-action-button-secondary rounded-xl px-4 text-sm font-medium tracking-[-0.01em]"
+                  className="control-action-button control-action-button-secondary h-8 rounded-lg px-3 text-sm"
                 >
                   <FolderPlus className="h-4 w-4" />
                   {t('New Folder')}

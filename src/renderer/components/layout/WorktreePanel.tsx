@@ -46,7 +46,7 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
-import { ConsoleEmptyState } from './ConsoleEmptyState';
+import { SidebarEmptyState } from './SidebarEmptyState';
 
 interface WorktreePanelProps {
   worktrees: GitWorktree[];
@@ -190,6 +190,19 @@ export function WorktreePanel({
         wt.branch?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         getDisplayPath(wt.path).toLowerCase().includes(searchQuery.toLowerCase())
     );
+  const renderSidebarMeta = useCallback(
+    (items: Array<{ label: string; value: string }>) => (
+      <div className="space-y-1">
+        {items.map((item) => (
+          <div key={item.label}>
+            <span className="font-medium text-foreground">{item.label}: </span>
+            <span>{item.value}</span>
+          </div>
+        ))}
+      </div>
+    ),
+    []
+  );
 
   // Get the main worktree path for git operations
   const mainWorktree = worktrees.find((wt) => wt.isMainWorktree);
@@ -205,6 +218,16 @@ export function WorktreePanel({
       remoteStatus.phase === 'failed' &&
       remoteStatus.recoverable === false
   );
+  const remoteEmptyTitle = isRemoteReconnecting
+    ? t('Remote connection lost. Attempting to reconnect...')
+    : isRemoteFailed
+      ? t('Remote connection lost')
+      : t('Remote repository is not connected yet');
+  const remoteEmptyDescription = isRemoteReconnecting
+    ? t('Reconnecting remote connection...')
+    : isRemoteFailed
+      ? remoteStatus?.error || t('Remote connection lost')
+      : t('Click the selected repository again to connect and load worktrees.');
 
   useEffect(() => {
     if (worktrees.length === 0 || !shouldPoll) return;
@@ -285,32 +308,13 @@ export function WorktreePanel({
       {/* Worktree List */}
       <div className="flex-1 overflow-auto p-2">
         {inactiveRemote ? (
-          <div className="flex h-full items-center justify-center p-3">
-            <ConsoleEmptyState
-              variant="embedded"
+          <div className="flex h-full items-start justify-start px-2 py-3">
+            <SidebarEmptyState
               icon={<GitBranch className="h-4.5 w-4.5" />}
-              eyebrow={t('Worktree Sidebar')}
-              title={
-                isRemoteReconnecting
-                  ? t('Remote connection lost. Attempting to reconnect...')
-                  : isRemoteFailed
-                    ? t('Remote connection lost')
-                    : t('Remote repository is not connected yet')
-              }
-              description={
-                isRemoteReconnecting
-                  ? t('Reconnecting remote connection...')
-                  : isRemoteFailed
-                    ? remoteStatus?.error || t('Remote connection lost')
-                    : t('Click the selected repository again to connect and load worktrees.')
-              }
-              chips={[
-                {
-                  label: isRemoteReconnecting ? t('Reconnecting') : t('Remote Unavailable'),
-                  tone: 'wait',
-                },
-              ]}
-              details={[
+              label={t('Remote Unavailable')}
+              title={remoteEmptyTitle}
+              description={remoteEmptyDescription}
+              meta={renderSidebarMeta([
                 {
                   label: t('Status'),
                   value: isRemoteReconnecting
@@ -324,30 +328,31 @@ export function WorktreePanel({
                     ? t('Wait for the remote connection to recover')
                     : t('Reconnect the selected repository to load worktrees'),
                 },
-              ]}
-              detailsLayout="compact"
+              ])}
             />
           </div>
         ) : error ? (
-          <div className="flex h-full items-center justify-center p-3">
-            <ConsoleEmptyState
-              variant="embedded"
+          <div className="flex h-full items-start justify-start px-2 py-3">
+            <SidebarEmptyState
               icon={<GitBranch className="h-4.5 w-4.5" />}
-              eyebrow={t('Worktree Sidebar')}
+              label={t('Repository Required')}
               title={t('Not a Git repository')}
               description={t(
                 'This directory is not a Git repository. Initialize it to enable branches, worktrees, and source-control workflows.'
               )}
-              chips={[{ label: t('Repository Required'), tone: 'wait' }]}
-              details={[
+              meta={renderSidebarMeta([
                 { label: t('Status'), value: t('Git metadata not found') },
                 { label: t('Repository'), value: projectName || t('Current directory') },
                 { label: t('Next Step'), value: t('Refresh or initialize the repository') },
-              ]}
-              detailsLayout="compact"
+              ])}
               actions={
                 <>
-                  <Button onClick={onRefresh} variant="outline" size="sm" className="rounded-xl">
+                  <Button
+                    onClick={onRefresh}
+                    variant="outline"
+                    size="sm"
+                    className="control-action-button control-action-button-secondary h-8 rounded-lg px-3 text-sm"
+                  >
                     <RefreshCw className="h-4 w-4" />
                     {t('Refresh')}
                   </Button>
@@ -356,7 +361,7 @@ export function WorktreePanel({
                       onClick={onInitGit}
                       variant="default"
                       size="sm"
-                      className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+                      className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
                     >
                       <GitBranch className="h-4 w-4" />
                       {t('Initialize repository')}
@@ -373,11 +378,10 @@ export function WorktreePanel({
             ))}
           </div>
         ) : filteredWorktreesWithIndex.length === 0 ? (
-          <div className="flex h-full items-center justify-center p-3">
-            <ConsoleEmptyState
-              variant="embedded"
+          <div className="flex h-full items-start justify-start px-2 py-3">
+            <SidebarEmptyState
               icon={<GitBranch className="h-4.5 w-4.5" />}
-              eyebrow={t('Worktree Sidebar')}
+              label={searchQuery ? t('Filtered View') : t('Awaiting Worktree')}
               title={searchQuery ? t('No matching worktrees') : t('No worktrees')}
               description={
                 searchQuery
@@ -388,13 +392,7 @@ export function WorktreePanel({
                       'Create your first worktree to branch work safely without leaving the main repository context.'
                     )
               }
-              chips={[
-                {
-                  label: searchQuery ? t('Filtered View') : t('Awaiting Worktree'),
-                  tone: 'wait',
-                },
-              ]}
-              details={[
+              meta={renderSidebarMeta([
                 {
                   label: t('Status'),
                   value: searchQuery
@@ -411,8 +409,7 @@ export function WorktreePanel({
                     ? t('Try another search term')
                     : t('Create a worktree to start a new branch context'),
                 },
-              ]}
-              detailsLayout="compact"
+              ])}
               actions={
                 !searchQuery ? (
                   <CreateWorktreeDialog
@@ -425,7 +422,7 @@ export function WorktreePanel({
                       <Button
                         variant="default"
                         size="sm"
-                        className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+                        className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
                       >
                         <Plus className="h-4 w-4" />
                         {t('Create Worktree')}

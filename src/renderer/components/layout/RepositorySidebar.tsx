@@ -424,6 +424,7 @@ export function RepositorySidebar({
               type="button"
               className="flex min-w-0 flex-1 items-start gap-1.5 text-left outline-none"
               onClick={() => onSelectRepo(repo.path, { activateRemote: true })}
+              aria-current={isSelected ? 'page' : undefined}
             >
               <span className="control-tree-glyph mt-0.5 h-4 w-4 shrink-0">
                 <FolderGit2 className="control-tree-icon h-4 w-4" />
@@ -473,6 +474,7 @@ export function RepositorySidebar({
                 setMenuRepo(repo);
                 setMenuOpen(true);
               }}
+              aria-label={t('Repository actions')}
               title={t('Repository actions')}
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
@@ -578,14 +580,22 @@ export function RepositorySidebar({
               onClick={() => onSelectRepo(TEMP_REPO_ID)}
               className="control-tree-node group relative flex w-full flex-col items-start gap-0.5 px-2 py-1 text-left transition-colors"
               data-active={selectedRepo === TEMP_REPO_ID ? 'repo' : 'false'}
+              aria-current={selectedRepo === TEMP_REPO_ID ? 'page' : undefined}
             >
               <div className="relative z-10 flex w-full items-center gap-1.5">
                 <span className="control-tree-glyph h-4 w-4 shrink-0">
                   <Clock className="control-tree-icon h-4 w-4" />
                 </span>
-                <span className="control-tree-title truncate">{t('Temp Session')}</span>
+                <span className="control-tree-title min-w-0 flex-1 truncate">
+                  {t('Temp Session')}
+                </span>
               </div>
-              <span className="control-tree-subtitle relative z-10 mt-px pl-[1.375rem]">
+              <span
+                className={cn(
+                  'control-tree-subtitle relative z-10 mt-px overflow-hidden whitespace-nowrap text-ellipsis pl-[1.375rem] [unicode-bidi:plaintext]',
+                  tempBasePath && isWslUncPath(tempBasePath) ? '[direction:ltr]' : '[direction:rtl]'
+                )}
+              >
                 {tempBasePath || t('Quick scratch sessions')}
               </span>
             </button>
@@ -655,6 +665,8 @@ export function RepositorySidebar({
                         type="button"
                         onClick={() => toggleGroupCollapsed(section.groupId)}
                         className="control-section-header select-none"
+                        aria-expanded={!isCollapsed}
+                        aria-controls={`repository-section-${section.groupId}`}
                       >
                         <ChevronRight
                           className={cn(
@@ -687,6 +699,7 @@ export function RepositorySidebar({
                             variants={heightVariants}
                             transition={springStandard}
                             className="overflow-hidden"
+                            id={`repository-section-${section.groupId}`}
                           >
                             <div className="space-y-1 pt-0.5">
                               {section.repos.map(({ repo, originalIndex }) =>
@@ -712,20 +725,18 @@ export function RepositorySidebar({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 border-t border-border/60 p-1.5">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="flex h-8 flex-1 items-center justify-start gap-2 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onAddRepository();
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            {t('Add Repository')}
-          </button>
-        </div>
+      <div className="control-sidebar-footer">
+        <button
+          type="button"
+          className="control-sidebar-footer-action control-sidebar-footer-action-primary"
+          onClick={(e) => {
+            e.currentTarget.blur();
+            onAddRepository();
+          }}
+        >
+          <Plus className="h-4 w-4" />
+          {t('Add Repository')}
+        </button>
       </div>
 
       {/* Context Menu */}
