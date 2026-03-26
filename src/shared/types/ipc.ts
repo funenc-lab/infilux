@@ -315,6 +315,7 @@ export const IPC_CHANNELS = {
   LOG_UPDATE_CONFIG: 'log:update-config',
   LOG_OPEN_FOLDER: 'log:open-folder',
   LOG_GET_PATH: 'log:get-path',
+  LOG_GET_DIAGNOSTICS: 'log:get-diagnostics',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

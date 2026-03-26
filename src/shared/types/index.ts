@@ -6,6 +6,7 @@ export * from './cli';
 export * from './file';
 export * from './git';
 export * from './ipc';
+export * from './log';
 export * from './mcp';
 export * from './plugins';
 export * from './prompts';

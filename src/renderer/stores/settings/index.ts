@@ -757,22 +757,36 @@ export const useSettingsStore = create<SettingsState>()(
 
       // Logging Setters
       setLoggingEnabled: (loggingEnabled) => {
-        const { logLevel } = get();
+        const { logLevel, logRetentionDays } = get();
         set({ loggingEnabled });
-        window.electronAPI.log.updateConfig({ enabled: loggingEnabled, level: logLevel });
+        window.electronAPI.log.updateConfig({
+          enabled: loggingEnabled,
+          level: logLevel,
+          retentionDays: logRetentionDays,
+        });
         updateRendererLogging(loggingEnabled, logLevel);
       },
 
       setLogLevel: (logLevel) => {
-        const { loggingEnabled } = get();
+        const { loggingEnabled, logRetentionDays } = get();
         set({ logLevel });
-        window.electronAPI.log.updateConfig({ enabled: loggingEnabled, level: logLevel });
+        window.electronAPI.log.updateConfig({
+          enabled: loggingEnabled,
+          level: logLevel,
+          retentionDays: logRetentionDays,
+        });
         updateRendererLogging(loggingEnabled, logLevel);
       },
 
       setLogRetentionDays: (logRetentionDays) => {
         const clampedDays = Math.min(30, Math.max(1, Math.floor(logRetentionDays)));
         set({ logRetentionDays: clampedDays });
+        const { loggingEnabled, logLevel } = get();
+        window.electronAPI.log.updateConfig({
+          enabled: loggingEnabled,
+          level: logLevel,
+          retentionDays: clampedDays,
+        });
       },
     }),
     {

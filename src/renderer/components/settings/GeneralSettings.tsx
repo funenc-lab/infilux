@@ -1,5 +1,5 @@
 import type { Locale } from '@shared/i18n';
-import type { ShellInfo } from '@shared/types';
+import type { LogDiagnostics, ShellInfo } from '@shared/types';
 import { AppCategory } from '@shared/types';
 import {
   ChevronRight,
@@ -58,6 +58,7 @@ import {
   useSettingsStore,
 } from '@/stores/settings';
 import { TERMINAL_SCROLLBACK_OPTIONS } from '@/stores/settings/terminalScrollbackPolicy';
+import { buildLogDiagnosticsModel } from './logDiagnosticsModel';
 
 // Parse shell arguments string, supporting single/double quotes for paths with spaces
 function parseShellArgs(input: string): string[] {
@@ -289,6 +290,11 @@ export function GeneralSettings() {
   const [mappingPattern, setMappingPattern] = React.useState('');
   const [mappingDirname, setMappingDirname] = React.useState('');
   const [mappingError, setMappingError] = React.useState('');
+  const [logDiagnostics, setLogDiagnostics] = React.useState<LogDiagnostics | null>(null);
+  const [logDiagnosticsStatus, setLogDiagnosticsStatus] = React.useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle');
+  const logDiagnosticsRefreshKey = `${loggingEnabled}:${logLevel}:${logRetentionDays}`;
 
   const handleTestProxy = React.useCallback(async () => {
     if (!proxySettings.server) return;
@@ -398,6 +404,19 @@ export function GeneralSettings() {
     await window.electronAPI.log.openFolder();
   }, []);
 
+  const refreshLogDiagnostics = React.useCallback(async () => {
+    setLogDiagnosticsStatus('loading');
+
+    try {
+      const nextDiagnostics = await window.electronAPI.log.getDiagnostics(80);
+      setLogDiagnostics(nextDiagnostics);
+      setLogDiagnosticsStatus('ready');
+    } catch (error) {
+      console.error('[Settings] Failed to load log diagnostics:', error);
+      setLogDiagnosticsStatus('error');
+    }
+  }, []);
+
   const handleSelectTempPath = React.useCallback(async () => {
     const result = await window.electronAPI.dialog.openDirectory();
     if (!result) return;
@@ -415,6 +434,33 @@ export function GeneralSettings() {
       setLoadingShells(false);
     });
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const requestKey = logDiagnosticsRefreshKey;
+    setLogDiagnosticsStatus('loading');
+
+    void window.electronAPI.log
+      .getDiagnostics(80)
+      .then((nextDiagnostics) => {
+        if (cancelled || !requestKey) {
+          return;
+        }
+        setLogDiagnostics(nextDiagnostics);
+        setLogDiagnosticsStatus('ready');
+      })
+      .catch((error) => {
+        if (cancelled || !requestKey) {
+          return;
+        }
+        console.error('[Settings] Failed to load log diagnostics:', error);
+        setLogDiagnosticsStatus('error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [logDiagnosticsRefreshKey]);
 
   // Listen for update status changes
   React.useEffect(() => {
@@ -453,6 +499,10 @@ export function GeneralSettings() {
   const shellArgsPlaceholder = isWindows
     ? '/k "C:\\Program Files\\init.bat"'
     : "-l -c '/usr/local/bin/app'";
+  const logDiagnosticsModel = buildLogDiagnosticsModel({
+    status: logDiagnosticsStatus,
+    diagnostics: logDiagnostics,
+  });
 
   return (
     <div className="space-y-6">
@@ -1313,6 +1363,33 @@ export function GeneralSettings() {
           <span className="text-xs text-muted-foreground">
             {t('Old log files will be automatically deleted')}
           </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+        <span className="text-sm font-medium mt-2">Current Log File</span>
+        <div className="min-w-0 space-y-3">
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs font-mono break-all">
+            {logDiagnosticsModel.currentLogPath}
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium">Recent Log Output</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void refreshLogDiagnostics()}
+              disabled={logDiagnosticsModel.isLoading}
+              className="w-fit"
+            >
+              <RefreshCw
+                className={cn('mr-2 h-4 w-4', logDiagnosticsModel.isLoading && 'animate-spin')}
+              />
+              {t('Refresh')}
+            </Button>
+          </div>
+          <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/35 p-3 text-xs text-muted-foreground">
+            {logDiagnosticsModel.output}
+          </pre>
         </div>
       </div>
 

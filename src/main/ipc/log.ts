@@ -1,17 +1,16 @@
-import path from 'node:path';
+import type { LogConfigUpdate } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { app, ipcMain, shell } from 'electron';
-import log, { initLogger } from '../utils/logger';
+import log, { getLogDiagnostics, initLogger } from '../utils/logger';
 
 export function registerLogHandlers(): void {
   // Update logging configuration (enabled state and/or level)
-  ipcMain.handle(
-    IPC_CHANNELS.LOG_UPDATE_CONFIG,
-    async (_, config: { enabled: boolean; level: 'error' | 'warn' | 'info' | 'debug' }) => {
-      initLogger(config.enabled, config.level);
-      log.info(`Logging config updated: enabled=${config.enabled}, level=${config.level}`);
-    }
-  );
+  ipcMain.handle(IPC_CHANNELS.LOG_UPDATE_CONFIG, async (_, config: LogConfigUpdate) => {
+    initLogger(config.enabled, config.level, config.retentionDays);
+    log.info(
+      `Logging config updated: enabled=${config.enabled}, level=${config.level}, retentionDays=${config.retentionDays ?? 'unchanged'}`
+    );
+  });
 
   // Open log folder
   ipcMain.handle(IPC_CHANNELS.LOG_OPEN_FOLDER, async () => {
@@ -26,5 +25,9 @@ export function registerLogHandlers(): void {
   // Get log file path (current day's log file)
   ipcMain.handle(IPC_CHANNELS.LOG_GET_PATH, async () => {
     return log.transports.file.getFile()?.path ?? '';
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LOG_GET_DIAGNOSTICS, async (_, lineCount?: number) => {
+    return getLogDiagnostics(lineCount);
   });
 }
