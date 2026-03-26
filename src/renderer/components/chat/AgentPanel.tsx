@@ -1,19 +1,17 @@
-import type { AIProvider } from '@shared/types';
-import { Plus, Settings, Sparkles } from 'lucide-react';
+import type { AIProvider, PersistentAgentSessionRecord } from '@shared/types';
+import { getDisplayPathBasename } from '@shared/utils/path';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
+import { Bot, ChevronDown, Plus, Settings } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
+import { buildChatNotificationCopy } from '@/lib/feedbackCopy';
 import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
@@ -24,8 +22,15 @@ import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { BUILTIN_AGENT_IDS, useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { buildConsoleButtonStyle, buildConsoleTypographyModel } from '../layout/consoleTypography';
 import { AgentGroup } from './AgentGroup';
 import { AgentTerminal } from './AgentTerminal';
+import {
+  probeRemoteAgentAvailability,
+  resolvePersistedInstalledAgents,
+  resolveRemoteInstalledAgents,
+} from './agentAvailability';
+import { buildAgentEmptyStateModel } from './agentEmptyStateModel';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
 import { QuickTerminalModal } from './QuickTerminalModal';
 import type { Session } from './SessionBar';
@@ -33,7 +38,7 @@ import { StatusLine } from './StatusLine';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
 
-interface AgentPanelProps {
+export interface AgentPanelProps {
   repoPath: string; // repository path (workspace identifier)
   cwd: string; // current worktree path
   isActive?: boolean;
@@ -50,6 +55,47 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = {
   cursor: { name: 'Cursor', command: 'cursor-agent' },
   opencode: { name: 'OpenCode', command: 'opencode' },
 };
+
+const EMPTY_STATE_ACTION_BUTTON_CLASS_NAME =
+  'control-action-button inline-flex min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl';
+const EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME =
+  'control-action-button-primary min-w-[14rem] px-5 text-[15px] font-semibold tracking-[-0.01em]';
+const EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME =
+  'control-action-button-secondary px-4 text-[15px] font-medium';
+const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME =
+  'control-menu-item mt-1 flex w-full items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium text-foreground whitespace-nowrap';
+
+function buildPersistentHostSessionKey(uiSessionId: string): string {
+  return `enso-${uiSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
+  const isWindows = window.electronAPI.env.platform === 'win32';
+
+  return {
+    uiSessionId: session.id,
+    backendSessionId: session.backendSessionId,
+    providerSessionId: session.sessionId,
+    agentId: session.agentId,
+    agentCommand: session.agentCommand,
+    customPath: session.customPath,
+    customArgs: session.customArgs,
+    environment: session.environment || 'native',
+    repoPath: session.repoPath,
+    cwd: session.cwd,
+    displayName: session.name,
+    activated: Boolean(session.activated),
+    initialized: session.initialized,
+    hostKind: isWindows ? 'supervisor' : 'tmux',
+    hostSessionKey: isWindows
+      ? (session.backendSessionId ?? session.id)
+      : buildPersistentHostSessionKey(session.id),
+    recoveryPolicy: 'auto',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    lastKnownState: session.recoveryState ?? 'live',
+  };
+}
 
 /**
  * Whether the session uses Cursor CLI. Session name from terminal title / first line
@@ -100,6 +146,18 @@ function getDefaultAgentId(
   }
   // Ultimate fallback
   return 'claude';
+}
+
+function getAgentDisplayLabel(
+  agentId: string,
+  customAgents: Array<{ id: string; name: string; command: string }>
+): string {
+  const isHapi = agentId.endsWith('-hapi');
+  const isHappy = agentId.endsWith('-happy');
+  const baseId = isHapi ? agentId.slice(0, -5) : isHappy ? agentId.slice(0, -6) : agentId;
+  const customAgent = customAgents.find((agent) => agent.id === baseId);
+  const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? baseId;
+  return isHapi ? `${baseName} (Hapi)` : isHappy ? `${baseName} (Happy)` : baseName;
 }
 
 function createSession(
@@ -207,6 +265,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     autoCreateSessionOnTempActivate,
     claudeCodeIntegration,
     terminalTheme,
+    fontFamily,
+    fontSize,
+    editorSettings,
   } = useSettingsStore();
   // 添加 ?? true 回退，兼容老用户可能没有 enabled 字段的情况
   const quickTerminalEnabled = useSettingsStore((s) => s.quickTerminal.enabled ?? true);
@@ -249,7 +310,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   }, [terminalTheme, bgImageEnabled]);
   const statusLineEnabled = claudeCodeIntegration.statusLineEnabled;
   const defaultAgentId = useMemo(() => getDefaultAgentId(agentSettings), [agentSettings]);
+  const isRemoteRepo = useMemo(() => isRemoteVirtualPath(repoPath), [repoPath]);
   const { setAgentCount, registerAgentCloseHandler } = useWorktreeActivityStore();
+  const upsertRecoveredSession = useAgentSessionsStore((s) => s.upsertRecoveredSession);
 
   const [hasRunningProcess, setHasRunningProcess] = useState(false);
   const quickTerminalFocusLeaseRef = useRef<{
@@ -296,6 +359,13 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const updateSession = useAgentSessionsStore((state) => state.updateSession);
   const setActiveId = useAgentSessionsStore((state) => state.setActiveId);
+  const persistableSessions = useMemo(
+    () =>
+      allSessions.filter(
+        (session) => Boolean(session.activated) && !isRemoteVirtualPath(session.cwd)
+      ),
+    [allSessions]
+  );
 
   // Enhanced input state actions from store
   const setEnhancedInputOpen = useAgentSessionsStore((state) => state.setEnhancedInputOpen);
@@ -436,7 +506,17 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   }, [allSessions, repoPath, cwd]);
 
   const killBackendSession = useCallback((session?: Session) => {
-    if (!session?.backendSessionId) {
+    if (!session) {
+      return;
+    }
+
+    if (window.electronAPI.env.platform !== 'win32') {
+      void window.electronAPI.tmux
+        .killSession(session.cwd, buildPersistentHostSessionKey(session.id))
+        .catch(() => {});
+    }
+
+    if (!session.backendSessionId) {
       return;
     }
 
@@ -447,6 +527,98 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       );
     });
   }, []);
+
+  useEffect(() => {
+    void Promise.allSettled(
+      persistableSessions.map((session) =>
+        window.electronAPI.agentSession.markPersistent(buildPersistentRecord(session))
+      )
+    );
+  }, [persistableSessions]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreSessions = async () => {
+      if (isRemoteVirtualPath(cwd)) {
+        return;
+      }
+      const result = await window.electronAPI.agentSession.restoreWorktreeSessions({
+        repoPath,
+        cwd,
+      });
+      if (cancelled) {
+        return;
+      }
+
+      const recoverableItems = result.items.filter(
+        (
+          item: Awaited<
+            ReturnType<typeof window.electronAPI.agentSession.restoreWorktreeSessions>
+          >['items'][number]
+        ) => item.recoverable
+      );
+      if (recoverableItems.length === 0) {
+        return;
+      }
+
+      const restoredIds: string[] = [];
+      for (const item of recoverableItems) {
+        upsertRecoveredSession(item.record);
+        restoredIds.push(item.record.uiSessionId);
+      }
+
+      updateCurrentGroupState((state) => {
+        if (restoredIds.length === 0) {
+          return state;
+        }
+
+        if (state.groups.length === 0) {
+          return {
+            groups: [
+              {
+                id: crypto.randomUUID(),
+                sessionIds: restoredIds,
+                activeSessionId: restoredIds[0] ?? null,
+              },
+            ],
+            activeGroupId: null,
+            flexPercents: [100],
+          };
+        }
+
+        const existingSessionIds = new Set(state.groups.flatMap((group) => group.sessionIds));
+        const missingIds = restoredIds.filter((id) => !existingSessionIds.has(id));
+        if (missingIds.length === 0) {
+          return state;
+        }
+
+        const targetGroupId = state.activeGroupId || state.groups[0]?.id;
+        if (!targetGroupId) {
+          return state;
+        }
+
+        return {
+          ...state,
+          groups: state.groups.map((group) =>
+            group.id === targetGroupId
+              ? {
+                  ...group,
+                  sessionIds: [...group.sessionIds, ...missingIds],
+                  activeSessionId: group.activeSessionId ?? missingIds[0] ?? null,
+                }
+              : group
+          ),
+        };
+      });
+    };
+
+    void restoreSessions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, repoPath, updateCurrentGroupState, upsertRecoveredSession]);
 
   // Sync activeIds from store to group state when changed externally (e.g., from RunningProjectsPopover)
   useEffect(() => {
@@ -482,55 +654,76 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const [installedAgents, setInstalledAgents] = useState<Set<string>>(new Set());
 
-  // Build installed agents set from persisted detection status
+  // Build installed agents from persisted local detection or remote runtime probing.
   useEffect(() => {
     const enabledAgentIds = Object.keys(agentSettings).filter((id) => agentSettings[id]?.enabled);
-    const newInstalled = new Set<string>();
-
-    for (const agentId of enabledAgentIds) {
-      // Default agent is always considered installed (no detection needed)
-      // This ensures the default agent shows in menu even if user never ran detection
-      if (agentSettings[agentId]?.isDefault) {
-        newInstalled.add(agentId);
-        continue;
-      }
-
-      // Handle Hapi agents: check if base CLI is detected as installed
-      if (agentId.endsWith('-hapi')) {
-        if (!hapiSettings.enabled) continue;
-        const baseId = agentId.slice(0, -5);
-        if (agentDetectionStatus[baseId]?.installed) {
-          newInstalled.add(agentId);
-        }
-        continue;
-      }
-
-      // Handle Happy agents: check if base CLI is detected as installed
-      if (agentId.endsWith('-happy')) {
-        const baseId = agentId.slice(0, -6);
-        if (agentDetectionStatus[baseId]?.installed) {
-          newInstalled.add(agentId);
-        }
-        continue;
-      }
-
-      // Regular agents: use persisted detection status
-      if (agentDetectionStatus[agentId]?.installed) {
-        newInstalled.add(agentId);
-      }
+    if (enabledAgentIds.length === 0) {
+      setInstalledAgents(new Set());
+      return;
     }
 
-    setInstalledAgents(newInstalled);
-  }, [agentSettings, agentDetectionStatus, hapiSettings.enabled]);
+    if (!isRemoteRepo) {
+      setInstalledAgents(
+        resolvePersistedInstalledAgents({
+          agentSettings,
+          agentDetectionStatus,
+          hapiEnabled: hapiSettings.enabled,
+          happyEnabled: hapiSettings.happyEnabled,
+          trustDefaultAgent: true,
+        })
+      );
+      return;
+    }
+
+    let cancelled = false;
+    void resolveRemoteInstalledAgents(
+      {
+        enabledAgentIds,
+        agentSettings,
+        customAgents,
+        hapiEnabled: hapiSettings.enabled,
+        happyEnabled: hapiSettings.happyEnabled,
+      },
+      {
+        detectCli: (agentId, customAgent, customPath) =>
+          window.electronAPI.cli.detectOne(repoPath, agentId, customAgent, customPath),
+        checkHapi: () => window.electronAPI.hapi.checkGlobal(repoPath, false),
+        checkHappy: () => window.electronAPI.happy.checkGlobal(repoPath, false),
+      }
+    )
+      .then((nextInstalledAgents) => {
+        if (!cancelled) {
+          setInstalledAgents(nextInstalledAgents);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInstalledAgents(new Set());
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    agentSettings,
+    agentDetectionStatus,
+    customAgents,
+    hapiSettings.enabled,
+    hapiSettings.happyEnabled,
+    isRemoteRepo,
+    repoPath,
+  ]);
 
   // Filter to only enabled AND installed agents
   const enabledAgents = useMemo(() => {
     return Object.keys(agentSettings).filter((id) => {
       if (!agentSettings[id]?.enabled || !installedAgents.has(id)) return false;
       if (id.endsWith('-hapi') && !hapiSettings.enabled) return false;
+      if (id.endsWith('-happy') && !hapiSettings.happyEnabled) return false;
       return true;
     });
-  }, [agentSettings, installedAgents, hapiSettings.enabled]);
+  }, [agentSettings, installedAgents, hapiSettings.enabled, hapiSettings.happyEnabled]);
 
   // Sync initialized agent session counts to worktree activity store
   useEffect(() => {
@@ -632,6 +825,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         if (session.initialized) {
           killBackendSession(session);
         }
+        void window.electronAPI.agentSession.abandon(session.id);
         removeSession(session.id);
       }
 
@@ -652,53 +846,150 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     removeGroupState,
   ]);
 
+  const ensureAgentLaunchable = useCallback(
+    async (agentId: string) => {
+      if (!isRemoteRepo) {
+        return true;
+      }
+
+      try {
+        const availability = await probeRemoteAgentAvailability(
+          {
+            agentId,
+            agentSettings,
+            customAgents,
+            hapiEnabled: hapiSettings.enabled,
+            happyEnabled: hapiSettings.happyEnabled,
+          },
+          {
+            detectCli: (nextAgentId, customAgent, customPath) =>
+              window.electronAPI.cli.detectOne(repoPath, nextAgentId, customAgent, customPath),
+            checkHapi: () => window.electronAPI.hapi.checkGlobal(repoPath, false),
+            checkHappy: () => window.electronAPI.happy.checkGlobal(repoPath, false),
+          }
+        );
+
+        if (availability.available) {
+          return true;
+        }
+
+        let description = t(
+          'The selected agent is not available on the remote host. Install it remotely and try again.'
+        );
+        if (availability.reason === 'agent-missing') {
+          description = t(
+            'The selected agent CLI is not installed on the remote host. Install it remotely and try again.'
+          );
+        } else if (availability.reason === 'hapi-disabled') {
+          description = t('Enable Hapi in settings before starting this remote session.');
+        } else if (availability.reason === 'hapi-missing') {
+          description = t(
+            'The hapi wrapper is not installed on the remote host. Install it remotely and try again.'
+          );
+        } else if (availability.reason === 'happy-disabled') {
+          description = t('Enable Happy in settings before starting this remote session.');
+        } else if (availability.reason === 'happy-missing') {
+          description = t(
+            'The happy wrapper is not installed on the remote host. Install it remotely and try again.'
+          );
+        }
+
+        toastManager.add({
+          type: 'error',
+          title: t('Unable to start remote agent'),
+          description,
+        });
+
+        setInstalledAgents((prev) => {
+          if (!prev.has(agentId)) {
+            return prev;
+          }
+
+          const next = new Set(prev);
+          next.delete(agentId);
+          return next;
+        });
+
+        return false;
+      } catch (error) {
+        toastManager.add({
+          type: 'error',
+          title: t('Unable to verify remote agent'),
+          description:
+            error instanceof Error
+              ? error.message
+              : t('Check the remote host connection and try again.'),
+        });
+        return false;
+      }
+    },
+    [
+      agentSettings,
+      customAgents,
+      hapiSettings.enabled,
+      hapiSettings.happyEnabled,
+      isRemoteRepo,
+      repoPath,
+      t,
+    ]
+  );
+
   // Handle new session in active group
   const handleNewSession = useCallback(
     (targetGroupId?: string) => {
-      const newSession = createSession(repoPath, cwd, defaultAgentId, customAgents, agentSettings);
-      addSession(newSession);
-
-      // Auto open enhanced input for new Claude session if enabled
-      const baseAgentId = defaultAgentId.replace(/-hapi$/, '').replace(/-happy$/, '');
-      const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
-      if (
-        baseAgentId === 'claude' &&
-        claudeCodeIntegration.enhancedInputEnabled &&
-        (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
-      ) {
-        setEnhancedInputOpen(newSession.id, true);
-      }
-
-      // Add session to group
-      updateCurrentGroupState((state) => {
-        const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
-        if (!groupId) {
-          // No groups exist - create first group with this session
-          const newGroup: AgentGroupType = {
-            id: crypto.randomUUID(),
-            sessionIds: [newSession.id],
-            activeSessionId: newSession.id,
-          };
-          return {
-            groups: [newGroup],
-            activeGroupId: newGroup.id,
-            flexPercents: [100],
-          };
+      void (async () => {
+        if (!(await ensureAgentLaunchable(defaultAgentId))) {
+          return;
         }
 
-        return {
-          ...state,
-          groups: state.groups.map((g) =>
-            g.id === groupId
-              ? {
-                  ...g,
-                  sessionIds: [...g.sessionIds, newSession.id],
-                  activeSessionId: newSession.id,
-                }
-              : g
-          ),
-        };
-      });
+        const newSession = createSession(
+          repoPath,
+          cwd,
+          defaultAgentId,
+          customAgents,
+          agentSettings
+        );
+        addSession(newSession);
+
+        const baseAgentId = defaultAgentId.replace(/-hapi$/, '').replace(/-happy$/, '');
+        const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
+        if (
+          baseAgentId === 'claude' &&
+          claudeCodeIntegration.enhancedInputEnabled &&
+          (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
+        ) {
+          setEnhancedInputOpen(newSession.id, true);
+        }
+
+        updateCurrentGroupState((state) => {
+          const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
+          if (!groupId) {
+            const newGroup: AgentGroupType = {
+              id: crypto.randomUUID(),
+              sessionIds: [newSession.id],
+              activeSessionId: newSession.id,
+            };
+            return {
+              groups: [newGroup],
+              activeGroupId: newGroup.id,
+              flexPercents: [100],
+            };
+          }
+
+          return {
+            ...state,
+            groups: state.groups.map((g) =>
+              g.id === groupId
+                ? {
+                    ...g,
+                    sessionIds: [...g.sessionIds, newSession.id],
+                    activeSessionId: newSession.id,
+                  }
+                : g
+            ),
+          };
+        });
+      })();
     },
     [
       repoPath,
@@ -711,6 +1002,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       claudeCodeIntegration.enhancedInputEnabled,
       claudeCodeIntegration.enhancedInputAutoPopup,
       setEnhancedInputOpen,
+      ensureAgentLaunchable,
     ]
   );
 
@@ -776,6 +1068,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       if (!session) return;
 
       killBackendSession(session);
+      void window.electronAPI.agentSession.abandon(id);
       removeSessionFromUi(id, groupId);
     },
     [allSessions, killBackendSession, removeSessionFromUi]
@@ -876,9 +1169,17 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         const agentName = AGENT_INFO[session.agentId]?.name || session.agentCommand;
         // Use terminal title as body, fall back to project name
         const notificationBody = session.terminalTitle || projectName;
+        const notificationCopy = buildChatNotificationCopy(
+          {
+            action: 'command-completed',
+            command: agentName,
+            body: notificationBody,
+          },
+          t
+        );
         window.electronAPI.notification.show({
-          title: t('{{command}} completed', { command: agentName }),
-          body: notificationBody,
+          title: notificationCopy.title,
+          body: notificationCopy.body,
           sessionId: session.id,
         });
       }
@@ -909,7 +1210,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           const agentName = AGENT_INFO[session.agentId]?.name || session.agentCommand;
 
           // Extract first question text if available
-          let questionPreview = '需要回答问题';
+          let questionPreview = t('User response required');
           if (toolInput && typeof toolInput === 'object' && 'questions' in toolInput) {
             const questions = (toolInput as { questions: Array<{ question: string }> }).questions;
             if (questions?.[0]?.question) {
@@ -917,16 +1218,24 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
             }
           }
 
+          const notificationCopy = buildChatNotificationCopy(
+            {
+              action: 'waiting-input',
+              command: agentName,
+              preview: questionPreview,
+            },
+            t
+          );
           window.electronAPI.notification.show({
-            title: `${agentName} 等待输入`,
-            body: questionPreview,
+            title: notificationCopy.title,
+            body: notificationCopy.body,
             sessionId: session.id,
           });
         }
       }
     );
     return unsubscribe;
-  }, [findSessionByNotificationId]);
+  }, [findSessionByNotificationId, t]);
 
   // 监听 Claude status line 更新
   useEffect(() => {
@@ -1031,81 +1340,79 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   );
 
   const handleNewSessionWithAgent = useCallback(
-    (agentId: string, agentCommand: string, targetGroupId?: string) => {
-      // Handle Hapi and Happy agent IDs
-      const isHapi = agentId.endsWith('-hapi');
-      const isHappy = agentId.endsWith('-happy');
-      const baseId = isHapi ? agentId.slice(0, -5) : isHappy ? agentId.slice(0, -6) : agentId;
-
-      // Get agent name for display
-      const customAgent = customAgents.find((a) => a.id === baseId);
-      const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? 'Agent';
-      const name = isHapi ? `${baseName} (Hapi)` : isHappy ? `${baseName} (Happy)` : baseName;
-
-      // Determine environment
-      const environment = isHapi ? 'hapi' : isHappy ? 'happy' : 'native';
-
-      // Get custom path and args from settings (for builtin agents)
-      const agentConfig = agentSettings[baseId];
-      const customPath = agentConfig?.customPath;
-      const customArgs = agentConfig?.customArgs;
-
-      const id = crypto.randomUUID();
-      const newSession: Session = {
-        id,
-        sessionId: id, // Initialize sessionId with same value as id
-        name,
-        agentId,
-        agentCommand,
-        customPath,
-        customArgs,
-        initialized: false,
-        repoPath,
-        cwd,
-        environment,
-      };
-
-      addSession(newSession);
-
-      // Auto open enhanced input for new Claude session if enabled
-      const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
-      if (
-        baseId === 'claude' &&
-        claudeCodeIntegration.enhancedInputEnabled &&
-        (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
-      ) {
-        setEnhancedInputOpen(newSession.id, true);
-      }
-
-      // Add to target group or active group
-      updateCurrentGroupState((state) => {
-        const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
-        if (!groupId) {
-          const newGroup: AgentGroupType = {
-            id: crypto.randomUUID(),
-            sessionIds: [newSession.id],
-            activeSessionId: newSession.id,
-          };
-          return {
-            groups: [newGroup],
-            activeGroupId: newGroup.id,
-            flexPercents: [100],
-          };
+    (agentId: string, _agentCommand: string, targetGroupId?: string) => {
+      void (async () => {
+        if (!(await ensureAgentLaunchable(agentId))) {
+          return;
         }
 
-        return {
-          ...state,
-          groups: state.groups.map((g) =>
-            g.id === groupId
-              ? {
-                  ...g,
-                  sessionIds: [...g.sessionIds, newSession.id],
-                  activeSessionId: newSession.id,
-                }
-              : g
-          ),
+        const isHapi = agentId.endsWith('-hapi');
+        const isHappy = agentId.endsWith('-happy');
+        const baseId = isHapi ? agentId.slice(0, -5) : isHappy ? agentId.slice(0, -6) : agentId;
+        const customAgent = customAgents.find((a) => a.id === baseId);
+        const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? 'Agent';
+        const name = isHapi ? `${baseName} (Hapi)` : isHappy ? `${baseName} (Happy)` : baseName;
+        const environment = isHapi ? 'hapi' : isHappy ? 'happy' : 'native';
+        const resolvedCommand = customAgent?.command ?? AGENT_INFO[baseId]?.command ?? 'claude';
+        const agentConfig = agentSettings[baseId];
+        const customPath = agentConfig?.customPath;
+        const customArgs = agentConfig?.customArgs;
+
+        const id = crypto.randomUUID();
+        const newSession: Session = {
+          id,
+          sessionId: id,
+          name,
+          agentId,
+          agentCommand: resolvedCommand,
+          customPath,
+          customArgs,
+          initialized: false,
+          repoPath,
+          cwd,
+          environment,
         };
-      });
+
+        addSession(newSession);
+
+        const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
+        if (
+          baseId === 'claude' &&
+          claudeCodeIntegration.enhancedInputEnabled &&
+          (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
+        ) {
+          setEnhancedInputOpen(newSession.id, true);
+        }
+
+        updateCurrentGroupState((state) => {
+          const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
+          if (!groupId) {
+            const newGroup: AgentGroupType = {
+              id: crypto.randomUUID(),
+              sessionIds: [newSession.id],
+              activeSessionId: newSession.id,
+            };
+            return {
+              groups: [newGroup],
+              activeGroupId: newGroup.id,
+              flexPercents: [100],
+            };
+          }
+
+          return {
+            ...state,
+            groups: state.groups.map((g) =>
+              g.id === groupId
+                ? {
+                    ...g,
+                    sessionIds: [...g.sessionIds, newSession.id],
+                    activeSessionId: newSession.id,
+                  }
+                : g
+            ),
+          };
+        });
+      })();
     },
     [
       repoPath,
@@ -1117,6 +1424,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       claudeCodeIntegration.enhancedInputEnabled,
       claudeCodeIntegration.enhancedInputAutoPopup,
       setEnhancedInputOpen,
+      ensureAgentLaunchable,
     ]
   );
 
@@ -1180,6 +1488,19 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         }
 
         // Source group has only 1 session, create a new session in new group
+        return state;
+      });
+
+      const sourceGroup = groups.find((group) => group.id === fromGroupId);
+      if (!sourceGroup || sourceGroup.sessionIds.length > 1) {
+        return;
+      }
+
+      void (async () => {
+        if (!(await ensureAgentLaunchable(defaultAgentId))) {
+          return;
+        }
+
         const newSession = createSession(
           repoPath,
           cwd,
@@ -1189,34 +1510,41 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         );
         addSession(newSession);
 
-        const newGroup: AgentGroupType = {
-          id: crypto.randomUUID(),
-          sessionIds: [newSession.id],
-          activeSessionId: newSession.id,
-        };
+        updateCurrentGroupState((state) => {
+          const fromIndex = state.groups.findIndex((group) => group.id === fromGroupId);
+          if (fromIndex === -1) {
+            return state;
+          }
 
-        const newGroups = [...state.groups];
-        newGroups.splice(fromIndex + 1, 0, newGroup);
+          const newGroup: AgentGroupType = {
+            id: crypto.randomUUID(),
+            sessionIds: [newSession.id],
+            activeSessionId: newSession.id,
+          };
 
-        // Recalculate flex percentages evenly
-        const newFlexPercents = newGroups.map(() => 100 / newGroups.length);
+          const newGroups = [...state.groups];
+          newGroups.splice(fromIndex + 1, 0, newGroup);
+          const newFlexPercents = newGroups.map(() => 100 / newGroups.length);
 
-        return {
-          ...state,
-          groups: newGroups,
-          activeGroupId: newGroup.id,
-          flexPercents: newFlexPercents,
-        };
-      });
+          return {
+            ...state,
+            groups: newGroups,
+            activeGroupId: newGroup.id,
+            flexPercents: newFlexPercents,
+          };
+        });
+      })();
     },
     [
       cwd,
       repoPath,
+      groups,
       defaultAgentId,
       customAgents,
       agentSettings,
       addSession,
       updateCurrentGroupState,
+      ensureAgentLaunchable,
     ]
   );
 
@@ -1490,6 +1818,34 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     }
     return max;
   }, [statusLineHeightsByGroupId]);
+  const defaultAgentLabel = getAgentDisplayLabel(defaultAgentId, customAgents);
+  const emptyStateModel = useMemo(
+    () =>
+      buildAgentEmptyStateModel({
+        defaultAgentLabel,
+        enabledAgentCount: enabledAgents.length,
+        t,
+      }),
+    [defaultAgentLabel, enabledAgents.length, t]
+  );
+  const emptyStateTypography = useMemo(
+    () =>
+      buildConsoleTypographyModel({
+        appFontFamily: fontFamily,
+        appFontSize: fontSize,
+        editorFontFamily: editorSettings.fontFamily,
+        editorFontSize: editorSettings.fontSize,
+        editorLineHeight: editorSettings.lineHeight,
+      }),
+    [fontFamily, fontSize, editorSettings]
+  );
+  const emptyStateButtonStyle = useMemo(
+    () => buildConsoleButtonStyle(emptyStateTypography),
+    [emptyStateTypography]
+  );
+  const handleOpenAgentSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('open-settings-agent'));
+  }, []);
 
   if (!cwd) return null;
 
@@ -1540,105 +1896,163 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       {showEmptyState && (
         <div
           className={cn(
-            'absolute inset-0 z-20 flex items-center justify-center',
+            'absolute inset-0 z-20 flex items-start justify-center px-6 pb-6 pt-12 sm:pt-16',
             !bgImageEnabled && 'bg-background'
           )}
         >
-          <Empty className="border-0">
-            <EmptyMedia variant="icon">
-              <Sparkles className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle>{t('No agent sessions')}</EmptyTitle>
-              <EmptyDescription>{t('Create a session to start using AI Agent')}</EmptyDescription>
-            </EmptyHeader>
-            <div
-              className="relative"
-              onMouseEnter={() => setShowAgentMenu(true)}
-              onMouseLeave={() => setShowAgentMenu(false)}
-            >
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  handleNewSession();
-                  setShowAgentMenu(false);
-                }}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                {t('New Session')}
-              </Button>
-              {showAgentMenu && enabledAgents.length > 0 && (
-                <div className="absolute left-0 top-full pt-1 z-50 min-w-40 text-left">
-                  <div className="rounded-lg border bg-popover p-1 shadow-lg">
-                    <div className="flex items-center justify-between px-2 py-1">
-                      <span className="text-xs text-muted-foreground">{t('Select Agent')}</span>
-                      <Tooltip>
-                        <TooltipTrigger render={<span />}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowAgentMenu(false);
-                              window.dispatchEvent(new CustomEvent('open-settings-agent'));
-                            }}
-                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                          >
-                            <Settings className="h-3.5 w-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipPopup side="right">{t('Manage Agents')}</TooltipPopup>
-                      </Tooltip>
-                    </div>
-                    {[...enabledAgents]
-                      .sort((a, b) => {
-                        const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
-                        const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
-                        return bDefault - aDefault;
-                      })
-                      .map((agentId) => {
-                        const isHapi = agentId.endsWith('-hapi');
-                        const isHappy = agentId.endsWith('-happy');
-                        const baseId = isHapi
-                          ? agentId.slice(0, -5)
-                          : isHappy
-                            ? agentId.slice(0, -6)
-                            : agentId;
-                        const customAgent = customAgents.find((a) => a.id === baseId);
-                        const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? baseId;
-                        const name = isHapi
-                          ? `${baseName} (Hapi)`
-                          : isHappy
-                            ? `${baseName} (Happy)`
-                            : baseName;
-                        const isDefault = agentSettings[agentId]?.isDefault;
-                        return (
-                          <button
-                            type="button"
-                            key={agentId}
-                            onClick={() => {
-                              handleNewSessionWithAgent(
-                                agentId,
-                                customAgent?.command ?? AGENT_INFO[baseId]?.command ?? 'claude'
+          <ConsoleEmptyState
+            className="max-w-[min(60rem,100%)]"
+            icon={<Bot className="h-5 w-5" />}
+            eyebrow={t('Agent Console')}
+            title={t('No agent sessions are attached to this worktree')}
+            description={t(
+              'Launch the default agent immediately or choose another profile to resume orchestration in this worktree.'
+            )}
+            chips={[{ label: getDisplayPathBasename(cwd), tone: 'strong' }]}
+            details={[
+              { label: t('Status'), value: emptyStateModel.statusLabel },
+              { label: t('Default Agent'), value: defaultAgentLabel },
+              { label: t('Profiles Ready'), value: String(enabledAgents.length) },
+              {
+                label: t('Next Step'),
+                value: emptyStateModel.nextStepLabel,
+              },
+            ]}
+            detailsLayout="compact"
+            actions={
+              <>
+                <div
+                  className="relative flex min-w-0 flex-wrap items-center gap-2"
+                  onMouseEnter={() => setShowAgentMenu(true)}
+                  onMouseLeave={() => setShowAgentMenu(false)}
+                >
+                  <Button
+                    variant="default"
+                    size="lg"
+                    onClick={() => {
+                      if (emptyStateModel.primaryActionIntent === 'open-agent-settings') {
+                        handleOpenAgentSettings();
+                      } else {
+                        handleNewSession();
+                      }
+                      setShowAgentMenu(false);
+                    }}
+                    className={cn(
+                      EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
+                      EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME,
+                      'rounded-xl'
+                    )}
+                    style={emptyStateButtonStyle}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {emptyStateModel.primaryActionLabel}
+                  </Button>
+                  {emptyStateModel.showProfilePicker ? (
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      aria-label={t('Choose Profile')}
+                      onClick={() => setShowAgentMenu((current) => !current)}
+                      className={cn(
+                        EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
+                        EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME,
+                        'rounded-xl'
+                      )}
+                      style={emptyStateButtonStyle}
+                    >
+                      {t('Choose Profile')}
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                  {showAgentMenu &&
+                    emptyStateModel.showProfilePicker &&
+                    enabledAgents.length > 0 && (
+                      <div className="absolute left-0 top-full z-50 min-w-52 pt-2 text-left">
+                        <div className="control-menu rounded-2xl p-2">
+                          <div className="mb-1 flex items-center justify-between px-1 py-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                              {t('Start with Profile')}
+                            </span>
+                            <Tooltip>
+                              <TooltipTrigger render={<span />}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowAgentMenu(false);
+                                    handleOpenAgentSettings();
+                                  }}
+                                  className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:text-foreground"
+                                >
+                                  <Settings className="h-3.5 w-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipPopup side="right">{t('Agent profiles')}</TooltipPopup>
+                            </Tooltip>
+                          </div>
+                          {[...enabledAgents]
+                            .sort((a, b) => {
+                              const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
+                              const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
+                              return bDefault - aDefault;
+                            })
+                            .map((agentId) => {
+                              const isHapi = agentId.endsWith('-hapi');
+                              const isHappy = agentId.endsWith('-happy');
+                              const baseId = isHapi
+                                ? agentId.slice(0, -5)
+                                : isHappy
+                                  ? agentId.slice(0, -6)
+                                  : agentId;
+                              const customAgent = customAgents.find((a) => a.id === baseId);
+                              const name = getAgentDisplayLabel(agentId, customAgents);
+                              const isDefault = agentSettings[agentId]?.isDefault;
+
+                              return (
+                                <button
+                                  type="button"
+                                  key={agentId}
+                                  onClick={() => {
+                                    handleNewSessionWithAgent(
+                                      agentId,
+                                      customAgent?.command ??
+                                        AGENT_INFO[baseId]?.command ??
+                                        'claude'
+                                    );
+                                    setShowAgentMenu(false);
+                                  }}
+                                  className={EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME}
+                                >
+                                  <span className="min-w-0 flex-1 truncate">{name}</span>
+                                  {isDefault ? (
+                                    <span className="control-chip control-chip-strong shrink-0">
+                                      {t('Default')}
+                                    </span>
+                                  ) : null}
+                                </button>
                               );
-                              setShowAgentMenu(false);
-                            }}
-                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
-                          >
-                            <span>{name}</span>
-                            {isDefault && (
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {t('(default)')}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
+                            })}
+                        </div>
+                      </div>
+                    )}
                 </div>
-              )}
-            </div>
-          </Empty>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={handleOpenAgentSettings}
+                  className={cn(
+                    EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
+                    EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME,
+                    'rounded-xl'
+                  )}
+                  style={emptyStateButtonStyle}
+                >
+                  <Settings className="h-4 w-4" />
+                  {t('Agent profiles')}
+                </Button>
+              </>
+            }
+          />
         </div>
       )}
       {/* Resize handles - only for current worktree */}

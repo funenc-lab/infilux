@@ -9,7 +9,7 @@ import { getDisplayPath, getDisplayPathBasename } from '@shared/utils/path';
 import { isRemoteVirtualPath, toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { buildRepositoryId } from '@shared/utils/workspace';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ALL_GROUP_ID,
   panelTransition,
@@ -17,6 +17,7 @@ import {
   type TabId,
   TEMP_REPO_ID,
 } from './App/constants';
+import { resolveFileSidebarVisibility } from './App/fileSidebarVisibilityPolicy';
 import {
   useAppLifecycle,
   useBackgroundImage,
@@ -47,8 +48,11 @@ import {
 } from './App/storage';
 import { useAppKeyboardShortcuts } from './App/useAppKeyboardShortcuts';
 import { usePanelResize } from './App/usePanelResize';
+import { resolvePreferredWorktreeSelection } from './App/worktreeSelectionPolicy';
 import { DevToolsOverlay } from './components/DevToolsOverlay';
 import { FileSidebar } from './components/files';
+import { createInitialFileSidebarTrackingState } from './components/files/fileTreeTrackingState';
+import { shouldAutoExpandFileSidebar } from './components/files/fileTreeVisibilityPolicy';
 import { UnsavedPromptHost } from './components/files/UnsavedPromptHost';
 import { AddRepositoryDialog } from './components/git';
 import { CloneProgressFloat } from './components/git/CloneProgressFloat';
@@ -87,6 +91,7 @@ import {
   useWorktreeResolveConflict,
 } from './hooks/useWorktree';
 import { useI18n } from './i18n';
+import { buildOperationToastCopy, buildSourceControlWorkflowToastCopy } from './lib/feedbackCopy';
 import { initCloneProgressListener } from './stores/cloneTasks';
 import { useEditorStore } from './stores/editor';
 import { useInitScriptStore } from './stores/initScript';
@@ -197,6 +202,11 @@ export default function App() {
   const [fileSidebarCollapsed, setFileSidebarCollapsed] = useState(() =>
     getStoredBoolean(STORAGE_KEYS.FILE_SIDEBAR_COLLAPSED, false)
   );
+  const previousFileWorkspaceStateRef = useRef<{
+    activeTab: TabId | null;
+    worktreePath: string | null;
+    activeFilePath: string | null;
+  }>(createInitialFileSidebarTrackingState());
 
   const [activatedRemoteRepos, setActivatedRemoteRepos] = useState<Set<string>>(() => new Set());
   const [remoteStatuses, setRemoteStatuses] = useState<Record<string, RemoteConnectionStatus>>({});
@@ -301,7 +311,6 @@ export default function App() {
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const temporaryWorkspaceEnabled = useSettingsStore((s) => s.temporaryWorkspaceEnabled);
   const fileTreeDisplayMode = useSettingsStore((s) => s.fileTreeDisplayMode);
-  const hasActiveWorktree = Boolean(activeWorktree?.path);
   const defaultTemporaryPath = useSettingsStore((s) => s.defaultTemporaryPath);
   const isWindows = window.electronAPI?.env.platform === 'win32';
   const pathSep = isWindows ? '\\' : '/';
@@ -335,6 +344,8 @@ export default function App() {
 
   const worktreeError = useWorktreeStore((s) => s.error);
   const setWorktreeError = useWorktreeStore((s) => s.setError);
+  const activeEditorTabPath = useEditorStore((s) => s.activeTabPath);
+  const currentEditorWorktreePath = useEditorStore((s) => s.currentWorktreePath);
   const clearEditorWorktreeState = useEditorStore((s) => s.clearWorktreeState);
   const tempWorkspaces = useTempWorkspaceStore((s) => s.items);
   const addTempWorkspace = useTempWorkspaceStore((s) => s.addItem);
@@ -430,6 +441,8 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.FILE_SIDEBAR_COLLAPSED, String(fileSidebarCollapsed));
   }, [fileSidebarCollapsed]);
+
+  const sortedGroups = useMemo(() => [...groups].sort((a, b) => a.order - b.order), [groups]);
 
   useTempWorkspaceSync(
     effectiveTemporaryWorkspaceEnabled,
@@ -530,9 +543,16 @@ export default function App() {
 
     if (!activeWorktree) {
       const savedWorktreePath = repoWorktreeMap[selectedRepo];
-      if (!savedWorktreePath) return;
       if (!worktreesFetched) return;
       if (worktreesFetching) return;
+
+      if (!savedWorktreePath) {
+        const defaultWorktree = resolvePreferredWorktreeSelection(selectedRepo, worktrees);
+        if (defaultWorktree) {
+          setActiveWorktree(defaultWorktree);
+        }
+        return;
+      }
 
       const matchedWorktree = worktrees.find((wt) => wt.path === savedWorktreePath);
       if (matchedWorktree) {
@@ -561,11 +581,52 @@ export default function App() {
     setActiveWorktree,
   ]);
 
-  const sortedGroups = useMemo(() => [...groups].sort((a, b) => a.order - b.order), [groups]);
   const sortedWorktrees = useMemo(
     () => getSortedWorktrees(selectedRepo, worktrees),
     [getSortedWorktrees, selectedRepo, worktrees]
   );
+  const { shouldRender: shouldRenderFileSidebar, rootPath: fileSidebarRootPath } =
+    resolveFileSidebarVisibility({
+      fileTreeDisplayMode,
+      activeWorktreePath: activeWorktree?.path ?? null,
+      editorWorktreePath: currentEditorWorktreePath,
+      activeFilePath: activeEditorTabPath,
+      candidateWorktreePaths: sortedWorktrees.map((worktree) => worktree.path),
+    });
+
+  useEffect(() => {
+    const previousState = previousFileWorkspaceStateRef.current;
+    const nextWorktreePath = fileSidebarRootPath;
+
+    if (
+      shouldAutoExpandFileSidebar({
+        activeTab,
+        previousActiveTab: previousState.activeTab,
+        fileTreeDisplayMode,
+        hasActiveWorktree: shouldRenderFileSidebar,
+        isFileSidebarCollapsed: fileSidebarCollapsed,
+        worktreePath: nextWorktreePath,
+        previousWorktreePath: previousState.worktreePath,
+        activeFilePath: activeEditorTabPath,
+        previousActiveFilePath: previousState.activeFilePath,
+      })
+    ) {
+      setFileSidebarCollapsed(false);
+    }
+
+    previousFileWorkspaceStateRef.current = {
+      activeTab,
+      worktreePath: nextWorktreePath,
+      activeFilePath: activeEditorTabPath,
+    };
+  }, [
+    activeTab,
+    activeEditorTabPath,
+    fileSidebarRootPath,
+    fileSidebarCollapsed,
+    fileTreeDisplayMode,
+    shouldRenderFileSidebar,
+  ]);
 
   useGroupSync(hideGroups, activeGroupId, setActiveGroupId, saveActiveGroupId);
   useOpenPathListener(true, repositories, saveRepositories, setSelectedRepoState);
@@ -689,30 +750,57 @@ export default function App() {
   );
 
   const handleCreateTempWorkspace = useCallback(async () => {
+    const loadingCopy = buildOperationToastCopy(
+      {
+        phase: 'loading',
+        kind: 'temp-session',
+        action: 'create',
+        label: t('Temp Session'),
+      },
+      t
+    );
     const toastId = toastManager.add({
       type: 'loading',
-      title: t('Creating...'),
-      description: t('Temp Session'),
+      title: loadingCopy.title,
+      description: loadingCopy.description,
       timeout: 0,
     });
 
     const result = await window.electronAPI.tempWorkspace.create(effectiveTempBasePath);
     if (!result.ok) {
       toastManager.close(toastId);
+      const errorCopy = buildOperationToastCopy(
+        {
+          phase: 'error',
+          kind: 'temp-session',
+          action: 'create',
+          message: result.message || t('Failed to create temp session'),
+        },
+        t
+      );
       toastManager.add({
         type: 'error',
-        title: t('Create failed'),
-        description: result.message || t('Failed to create temp session'),
+        title: errorCopy.title,
+        description: errorCopy.description,
       });
       return;
     }
 
     addTempWorkspace(result.item);
     toastManager.close(toastId);
+    const successCopy = buildOperationToastCopy(
+      {
+        phase: 'success',
+        kind: 'temp-session',
+        action: 'create',
+        label: result.item.title,
+      },
+      t
+    );
     toastManager.add({
       type: 'success',
-      title: t('Temp Session created'),
-      description: result.item.title,
+      title: successCopy.title,
+      description: successCopy.description,
     });
     await handleSelectTempWorkspace(result.item.path);
   }, [addTempWorkspace, effectiveTempBasePath, handleSelectTempWorkspace, t]);
@@ -726,10 +814,19 @@ export default function App() {
       const target = tempWorkspaces.find((item) => item.id === id);
       if (!target) return;
 
+      const loadingCopy = buildOperationToastCopy(
+        {
+          phase: 'loading',
+          kind: 'temp-session',
+          action: 'delete',
+          label: target.title,
+        },
+        t
+      );
       const toastId = toastManager.add({
         type: 'loading',
-        title: t('Deleting...'),
-        description: target.title,
+        title: loadingCopy.title,
+        description: loadingCopy.description,
         timeout: 0,
       });
 
@@ -742,10 +839,19 @@ export default function App() {
       );
       if (!result.ok) {
         toastManager.close(toastId);
+        const errorCopy = buildOperationToastCopy(
+          {
+            phase: 'error',
+            kind: 'temp-session',
+            action: 'delete',
+            message: result.message || t('Failed to delete temp session'),
+          },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('Delete failed'),
-          description: result.message || t('Failed to delete temp session'),
+          title: errorCopy.title,
+          description: errorCopy.description,
         });
         return;
       }
@@ -764,10 +870,19 @@ export default function App() {
       }
 
       toastManager.close(toastId);
+      const successCopy = buildOperationToastCopy(
+        {
+          phase: 'success',
+          kind: 'temp-session',
+          action: 'delete',
+          label: target.title,
+        },
+        t
+      );
       toastManager.add({
         type: 'success',
-        title: t('Temp Session deleted'),
-        description: target.title,
+        title: successCopy.title,
+        description: successCopy.description,
       });
     },
     [
@@ -999,11 +1114,19 @@ export default function App() {
   ) => {
     if (!selectedRepo) return;
 
-    // Show loading toast
+    const loadingCopy = buildOperationToastCopy(
+      {
+        phase: 'loading',
+        kind: 'worktree',
+        action: 'delete',
+        label: worktree.branch || getDisplayPath(worktree.path),
+      },
+      t
+    );
     const toastId = toastManager.add({
       type: 'loading',
-      title: t('Deleting...'),
-      description: worktree.branch || getDisplayPath(worktree.path),
+      title: loadingCopy.title,
+      description: loadingCopy.description,
       timeout: 0,
     });
 
@@ -1027,26 +1150,42 @@ export default function App() {
         }
         refetchBranches();
 
-        // Show success toast
         toastManager.close(toastId);
+        const successCopy = buildOperationToastCopy(
+          {
+            phase: 'success',
+            kind: 'worktree',
+            action: 'delete',
+            label: worktree.branch || getDisplayPath(worktree.path),
+          },
+          t
+        );
         toastManager.add({
           type: 'success',
-          title: t('Worktree deleted'),
-          description: worktree.branch || getDisplayPath(worktree.path),
+          title: successCopy.title,
+          description: successCopy.description,
         });
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         const hasUncommitted = message.includes('modified or untracked');
 
-        // Show error toast
         toastManager.close(toastId);
+        const errorCopy = buildOperationToastCopy(
+          {
+            phase: 'error',
+            kind: 'worktree',
+            action: 'delete',
+            message: hasUncommitted
+              ? t('This directory contains uncommitted changes. Please check "Force delete".')
+              : message,
+          },
+          t
+        );
         toastManager.add({
           type: 'error',
-          title: t('Delete failed'),
-          description: hasUncommitted
-            ? t('This directory contains uncommitted changes. Please check "Force delete".')
-            : message,
+          title: errorCopy.title,
+          description: errorCopy.description,
         });
       });
   };
@@ -1090,15 +1229,18 @@ export default function App() {
       stashedPaths.push(result.worktreePath);
     }
     if (stashedPaths.length > 0) {
+      const copy = buildSourceControlWorkflowToastCopy(
+        {
+          action: 'merge-stash',
+          phase: 'success',
+          paths: stashedPaths,
+        },
+        t
+      );
       toastManager.add({
         type: 'info',
-        title: t('Changes stashed'),
-        description:
-          t(
-            'Your uncommitted changes were stashed. After resolving conflicts, run "git stash pop" in:'
-          ) +
-          '\n' +
-          stashedPaths.join('\n'),
+        title: copy.title,
+        description: copy.description,
       });
     }
   };
@@ -1129,10 +1271,18 @@ export default function App() {
     if (result.success) {
       // Show warnings if any (combined into a single toast)
       if (result.warnings && result.warnings.length > 0) {
+        const copy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'merge-warning',
+            phase: 'success',
+            warnings: result.warnings,
+          },
+          t
+        );
         addToast({
           type: 'warning',
-          title: t('Merge completed with warnings'),
-          description: result.warnings.join('\n'),
+          title: copy.title,
+          description: copy.description,
         });
       }
       setMergeConflicts(null);
@@ -1365,9 +1515,9 @@ export default function App() {
         )}
 
         {/* Main Content */}
-        {fileTreeDisplayMode === 'current' && hasActiveWorktree && (
+        {shouldRenderFileSidebar && (
           <FileSidebar
-            rootPath={activeWorktree?.path}
+            rootPath={fileSidebarRootPath ?? undefined}
             isActive={activeTab === 'file'}
             width={fileSidebarWidth}
             collapsed={fileSidebarCollapsed}
@@ -1386,9 +1536,7 @@ export default function App() {
           worktreePath={activeWorktree?.path}
           repositoryCollapsed={repositoryCollapsed}
           worktreeCollapsed={layoutMode === 'tree' ? repositoryCollapsed : worktreeCollapsed}
-          fileSidebarCollapsed={
-            fileTreeDisplayMode === 'current' && hasActiveWorktree ? fileSidebarCollapsed : false
-          }
+          fileSidebarCollapsed={shouldRenderFileSidebar ? fileSidebarCollapsed : false}
           layoutMode={layoutMode}
           onExpandRepository={() => setRepositoryCollapsed(false)}
           onExpandWorktree={
@@ -1397,9 +1545,7 @@ export default function App() {
               : () => setWorktreeCollapsed(false)
           }
           onExpandFileSidebar={
-            fileTreeDisplayMode === 'current' && hasActiveWorktree
-              ? () => setFileSidebarCollapsed(false)
-              : undefined
+            shouldRenderFileSidebar ? () => setFileSidebarCollapsed(false) : undefined
           }
           onSwitchWorktree={handleSwitchWorktreePath}
           onSwitchTab={handleTabChange}
@@ -1471,7 +1617,7 @@ export default function App() {
         >
           <DialogPopup className="sm:max-w-sm" showCloseButton={false}>
             <DialogHeader>
-              <DialogTitle>{t('Confirm exit')}</DialogTitle>
+              <DialogTitle>{t('Exit app')}</DialogTitle>
               <DialogDescription>{t('Are you sure you want to exit the app?')}</DialogDescription>
             </DialogHeader>
             <DialogFooter variant="bare">

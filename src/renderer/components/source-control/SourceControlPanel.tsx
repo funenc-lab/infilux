@@ -4,6 +4,11 @@ import { ChevronDown, GitBranch, GripVertical, History, PanelLeft } from 'lucide
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getStoredBoolean, STORAGE_KEYS } from '@/App/storage';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
+import {
+  buildConsoleButtonStyle,
+  buildConsoleTypographyModel,
+} from '@/components/layout/consoleTypography';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -14,13 +19,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { toastManager } from '@/components/ui/toast';
 import {
   useGitBranches,
@@ -49,20 +47,24 @@ import {
   useUnstageSubmodule,
 } from '@/hooks/useSubmodules';
 import { useI18n } from '@/i18n';
+import {
+  buildSourceControlToastCopy,
+  buildSourceControlWorkflowToastCopy,
+} from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { useSourceControlStore } from '@/stores/sourceControl';
 import { BranchSwitcher } from './BranchSwitcher';
 import { ChangesList } from './ChangesList';
 import { CommitBox } from './CommitBox';
-import { CommitDiffViewer } from './CommitDiffViewer';
 import { CommitHistoryList } from './CommitHistoryList';
-import { DiffViewer } from './DiffViewer';
+import { DeferredCommitDiffViewer } from './DeferredCommitDiffViewer';
+import { DeferredDiffViewer } from './DeferredDiffViewer';
 import { RepositoryList } from './RepositoryList';
 import type { Repository } from './types';
 import { usePanelResize } from './usePanelResize';
 
-interface SourceControlPanelProps {
+export interface SourceControlPanelProps {
   rootPath: string | undefined;
   isActive?: boolean;
   onExpandWorktree?: () => void;
@@ -80,8 +82,26 @@ export function SourceControlPanel({
   emptyDescription,
 }: SourceControlPanelProps) {
   const { t, tNode } = useI18n();
+  const appFontFamily = useSettingsStore((state) => state.fontFamily);
+  const appFontSize = useSettingsStore((state) => state.fontSize);
+  const editorSettings = useSettingsStore((state) => state.editorSettings);
   const queryClient = useQueryClient();
   const repositoryListDisplayMode = useSettingsStore((s) => s.repositoryListDisplayMode);
+  const emptyStateTypography = useMemo(
+    () =>
+      buildConsoleTypographyModel({
+        appFontFamily,
+        appFontSize,
+        editorFontFamily: editorSettings.fontFamily,
+        editorFontSize: editorSettings.fontSize,
+        editorLineHeight: editorSettings.lineHeight,
+      }),
+    [appFontFamily, appFontSize, editorSettings]
+  );
+  const emptyStateButtonStyle = useMemo(
+    () => buildConsoleButtonStyle(emptyStateTypography),
+    [emptyStateTypography]
+  );
 
   // Accordion state - collapsible sections (persisted to localStorage)
   const [changesExpanded, setChangesExpanded] = useState(() =>
@@ -313,48 +333,34 @@ export function SourceControlPanel({
         refetchCommits();
 
         const branch = repo.branch ?? '';
-        if (pulled && pushed) {
-          toastManager.add({
-            title: t('Sync completed'),
-            description: t(
-              'Pulled {{pulled}} commit(s), pushed {{pushed}} commit(s) on {{branch}}',
-              { pulled: repoBehind, pushed: repoAhead, branch }
-            ),
-            type: 'success',
-            timeout: 3000,
-          });
-        } else if (pulled) {
-          toastManager.add({
-            title: t('Sync completed'),
-            description: t('Pulled {{count}} commit(s) on {{branch}}', {
-              count: repoBehind,
-              branch,
-            }),
-            type: 'success',
-            timeout: 3000,
-          });
-        } else if (pushed) {
-          toastManager.add({
-            title: t('Sync completed'),
-            description: t('Pushed {{count}} commit(s) on {{branch}}', {
-              count: repoAhead,
-              branch,
-            }),
-            type: 'success',
-            timeout: 3000,
-          });
-        } else {
-          toastManager.add({
-            title: t('Already up to date'),
-            description: t('{{branch}} is in sync with remote', { branch }),
-            type: 'success',
-            timeout: 2000,
-          });
-        }
-      } catch (error) {
+        const successCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'sync',
+            phase: 'success',
+            branch,
+            pulled: pulled ? repoBehind : 0,
+            pushed: pushed ? repoAhead : 0,
+          },
+          t
+        );
         toastManager.add({
-          title: t('Sync failed'),
-          description: error instanceof Error ? error.message : String(error),
+          title: successCopy.title,
+          description: successCopy.description,
+          type: 'success',
+          timeout: pulled || pushed ? 3000 : 2000,
+        });
+      } catch (error) {
+        const errorCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'sync',
+            phase: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          },
+          t
+        );
+        toastManager.add({
+          title: errorCopy.title,
+          description: errorCopy.description,
           type: 'error',
           timeout: 5000,
         });
@@ -400,18 +406,32 @@ export function SourceControlPanel({
         refetch();
         refetchCommits();
 
-        toastManager.add({
-          title: t('Branch published'),
-          description: t('Branch {{branch}} is now tracking origin/{{branch}}', {
+        const successCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'publish',
+            phase: 'success',
             branch: branch ?? '',
-          }),
+          },
+          t
+        );
+        toastManager.add({
+          title: successCopy.title,
+          description: successCopy.description,
           type: 'success',
           timeout: 3000,
         });
       } catch (error) {
+        const errorCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'publish',
+            phase: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          },
+          t
+        );
         toastManager.add({
-          title: t('Publish failed'),
-          description: error instanceof Error ? error.message : String(error),
+          title: errorCopy.title,
+          description: errorCopy.description,
           type: 'error',
           timeout: 5000,
         });
@@ -455,16 +475,32 @@ export function SourceControlPanel({
           ? branch.slice(branch.indexOf('/', 8) + 1)
           : branch;
 
+        const successCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'branch-switch',
+            phase: 'success',
+            branch: displayBranch,
+          },
+          t
+        );
         toastManager.add({
-          title: t('Branch switched'),
-          description: t('Branch switched to {{branch}}', { branch: displayBranch }),
+          title: successCopy.title,
+          description: successCopy.description,
           type: 'success',
           timeout: 3000,
         });
       } catch (error) {
+        const errorCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'branch-switch',
+            phase: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          },
+          t
+        );
         toastManager.add({
-          title: t('Failed to switch branch'),
-          description: error instanceof Error ? error.message : String(error),
+          title: errorCopy.title,
+          description: errorCopy.description,
           type: 'error',
           timeout: 5000,
         });
@@ -500,16 +536,32 @@ export function SourceControlPanel({
         refetchCommits();
         refetchStatus();
 
+        const successCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'branch-create',
+            phase: 'success',
+            branch: name,
+          },
+          t
+        );
         toastManager.add({
-          title: t('Branch created'),
-          description: t('Branch switched to {{branch}}', { branch: name }),
+          title: successCopy.title,
+          description: successCopy.description,
           type: 'success',
           timeout: 3000,
         });
       } catch (error) {
+        const errorCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'branch-create',
+            phase: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          },
+          t
+        );
         toastManager.add({
-          title: t('Failed to create branch'),
-          description: error instanceof Error ? error.message : String(error),
+          title: errorCopy.title,
+          description: errorCopy.description,
           type: 'error',
           timeout: 5000,
         });
@@ -713,9 +765,23 @@ export function SourceControlPanel({
         setSelectedFile(null);
       }
     } catch (error) {
+      const errorCopy =
+        confirmAction.type === 'discard'
+          ? buildSourceControlToastCopy(
+              {
+                action: 'discard',
+                phase: 'error',
+                message: error instanceof Error ? error.message : t('Unknown error'),
+              },
+              t
+            )
+          : {
+              title: t('Delete failed'),
+              description: error instanceof Error ? error.message : t('Unknown error'),
+            };
       toastManager.add({
-        title: confirmAction.type === 'discard' ? t('Discard failed') : t('Delete failed'),
-        description: error instanceof Error ? error.message : t('Unknown error'),
+        title: errorCopy.title,
+        description: errorCopy.description,
         type: 'error',
         timeout: 5000,
       });
@@ -740,17 +806,33 @@ export function SourceControlPanel({
 
       try {
         await commitMutation.mutateAsync({ workdir: selectedRepoPath, message });
+        const successCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'commit',
+            phase: 'success',
+            count: staged.length,
+          },
+          t
+        );
         toastManager.add({
-          title: t('Commit successful'),
-          description: t('Committed {{count}} files', { count: staged.length }),
+          title: successCopy.title,
+          description: successCopy.description,
           type: 'success',
           timeout: 3000,
         });
         setSelectedFile(null);
       } catch (error) {
+        const errorCopy = buildSourceControlWorkflowToastCopy(
+          {
+            action: 'commit',
+            phase: 'error',
+            message: error instanceof Error ? error.message : t('Unknown error'),
+          },
+          t
+        );
         toastManager.add({
-          title: t('Commit failed'),
-          description: error instanceof Error ? error.message : t('Unknown error'),
+          title: errorCopy.title,
+          description: errorCopy.description,
           type: 'error',
           timeout: 5000,
         });
@@ -848,23 +930,48 @@ export function SourceControlPanel({
 
   if (!rootPath) {
     return (
-      <Empty className="h-full">
-        <EmptyMedia variant="icon">
-          <GitBranch className="h-4.5 w-4.5" />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>{emptyTitle ?? t('Version Control')}</EmptyTitle>
-          <EmptyDescription>
-            {emptyDescription ?? t('Select a Worktree to view changes')}
-          </EmptyDescription>
-        </EmptyHeader>
-        {onExpandWorktree && worktreeCollapsed && (
-          <Button onClick={onExpandWorktree} variant="outline" className="mt-2">
-            <GitBranch className="mr-2 h-4 w-4" />
-            {t('Choose Worktree')}
-          </Button>
-        )}
-      </Empty>
+      <div className="flex h-full items-start justify-center px-6 pb-6 pt-12 sm:pt-16">
+        <ConsoleEmptyState
+          className="max-w-[min(60rem,100%)]"
+          icon={<GitBranch className="h-5 w-5" />}
+          eyebrow={t('Version Control Console')}
+          title={emptyTitle ?? t('Version control needs a worktree')}
+          description={
+            emptyDescription ??
+            t('Select a worktree before reviewing changes, staging files, or inspecting history.')
+          }
+          chips={[{ label: t('Awaiting Worktree'), tone: 'wait' }]}
+          details={[
+            { label: t('Status'), value: t('No worktree selected') },
+            { label: t('Panel'), value: emptyTitle ?? t('Version Control') },
+            {
+              label: t('Next Step'),
+              value: onExpandWorktree
+                ? t('Choose a worktree to inspect changes')
+                : t('Use the sidebar to switch context'),
+            },
+            {
+              label: t('Sidebar'),
+              value: worktreeCollapsed ? t('Collapsed') : t('Visible'),
+            },
+          ]}
+          detailsLayout="compact"
+          actions={
+            onExpandWorktree && worktreeCollapsed ? (
+              <Button
+                variant="default"
+                size="lg"
+                onClick={onExpandWorktree}
+                className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
+                style={emptyStateButtonStyle}
+              >
+                <GitBranch className="h-4 w-4" />
+                {t('Choose Worktree')}
+              </Button>
+            ) : null
+          }
+        />
+      </div>
     );
   }
 
@@ -984,7 +1091,7 @@ export function SourceControlPanel({
             >
               {/* Warning for skipped directories - only for main repo */}
               {!selectedSubmodulePath && skippedDirs && skippedDirs.length > 0 && (
-                <div className="mx-2 mt-2 rounded-md bg-yellow-500/10 border border-yellow-500/20 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
+                <div className="mx-2 mt-2 rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">
                   <span className="font-medium">{t('Performance warning')}:</span>{' '}
                   {t('Skipped {{dirs}} (not in .gitignore)', {
                     dirs: skippedDirs.join(', '),
@@ -1118,12 +1225,13 @@ export function SourceControlPanel({
         <div className="flex flex-1 overflow-hidden">
           {selectedCommitHash ? (
             <div className="flex-1 overflow-hidden">
-              <CommitDiffViewer
+              <DeferredCommitDiffViewer
                 rootPath={selectedRepoPath ?? rootPath ?? ''}
                 fileDiff={commitDiff}
                 filePath={selectedCommitFile}
                 isActive={isActive}
                 isLoading={commitDiffLoading}
+                shouldLoad={Boolean(selectedCommitHash)}
                 onPrevFile={handlePrevCommitFile}
                 onNextFile={handleNextCommitFile}
                 hasPrevFile={currentCommitFileIndex > 0}
@@ -1132,20 +1240,22 @@ export function SourceControlPanel({
             </div>
           ) : selectedSubmoduleFile && rootPath ? (
             <div className="flex-1 overflow-hidden">
-              <DiffViewer
+              <DeferredDiffViewer
                 rootPath={joinPath(rootPath, selectedSubmoduleFile.submodulePath)}
                 file={{ path: selectedSubmoduleFile.path, staged: selectedSubmoduleFile.staged }}
                 diff={submoduleFileDiff ?? undefined}
                 skipFetch={true}
                 isActive={isActive}
+                shouldLoad={Boolean(selectedSubmoduleFile)}
               />
             </div>
           ) : (
             <div className="flex-1 overflow-hidden">
-              <DiffViewer
+              <DeferredDiffViewer
                 rootPath={selectedRepoPath ?? rootPath ?? ''}
                 file={selectedFile}
                 isActive={isActive}
+                shouldLoad={Boolean(selectedFile)}
                 onPrevFile={handlePrevFile}
                 onNextFile={handleNextFile}
                 hasPrevFile={currentFileIndex > 0}

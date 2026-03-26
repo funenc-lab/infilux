@@ -3,6 +3,7 @@ import type { SettingsCategory } from '@/components/settings/constants';
 import { addToast, toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { consumeClaudeProviderSwitch, isClaudeProviderMatch } from '@/lib/claudeProvider';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { useSettingsStore } from '@/stores/settings';
 
 export function useClaudeProviderListener(
@@ -40,17 +41,32 @@ export function useClaudeProviderListener(
 
       if (matched) {
         // Switched to a known provider
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'provider-switch',
+            phase: 'success',
+            name: matched.name,
+          },
+          t
+        );
         providerToastRef.current = toastManager.add({
           type: 'info',
-          title: t('Provider switched'),
-          description: matched.name,
+          title: copy.title,
+          description: copy.description,
         });
       } else {
         // New unsaved config detected
+        const copy = buildSettingsWorkflowToastCopy(
+          {
+            action: 'provider-detected',
+            phase: 'info',
+          },
+          t
+        );
         providerToastRef.current = addToast({
           type: 'info',
-          title: t('New provider detected'),
-          description: t('Click to save this config'),
+          title: copy.title,
+          description: copy.description,
           actions: [
             {
               label: t('Preview'),

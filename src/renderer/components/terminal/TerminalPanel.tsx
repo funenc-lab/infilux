@@ -1,15 +1,14 @@
+import { getDisplayPathBasename } from '@shared/utils/path';
 import { Plus, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { cleanPath, normalizePath } from '@/App/storage';
-import { Button } from '@/components/ui/button';
+import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+  buildConsoleButtonStyle,
+  buildConsoleTypographyModel,
+} from '@/components/layout/consoleTypography';
+import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
@@ -24,10 +23,12 @@ import { TerminalGroup } from './TerminalGroup';
 import type { TerminalGroup as TerminalGroupType, TerminalTab } from './types';
 import { getNextTabName } from './types';
 
-interface TerminalPanelProps {
+export interface TerminalPanelProps {
   repoPath?: string;
   cwd?: string;
   isActive?: boolean;
+  onExpandWorktree?: () => void;
+  worktreeCollapsed?: boolean;
 }
 
 interface GroupState {
@@ -52,7 +53,13 @@ function createInitialGroupState(originalPath = ''): GroupState {
 // Per-worktree state
 type WorktreeGroupStates = Record<string, GroupState>;
 
-export function TerminalPanel({ repoPath, cwd, isActive = false }: TerminalPanelProps) {
+export function TerminalPanel({
+  repoPath,
+  cwd,
+  isActive = false,
+  onExpandWorktree,
+  worktreeCollapsed = false,
+}: TerminalPanelProps) {
   const { t } = useI18n();
   const [worktreeStates, setWorktreeStates] = useState<WorktreeGroupStates>({});
   // Global terminal IDs to keep terminals mounted across group moves
@@ -64,6 +71,9 @@ export function TerminalPanel({ repoPath, cwd, isActive = false }: TerminalPanel
   const autoCreateSessionOnTempActivate = useSettingsStore(
     (state) => state.autoCreateSessionOnTempActivate
   );
+  const appFontFamily = useSettingsStore((state) => state.fontFamily);
+  const appFontSize = useSettingsStore((state) => state.fontSize);
+  const editorSettings = useSettingsStore((state) => state.editorSettings);
   const terminalTheme = useSettingsStore((state) => state.terminalTheme);
   const bgImageEnabled = useSettingsStore((state) => state.backgroundImageEnabled);
   const terminalBgColor = useMemo(() => {
@@ -75,6 +85,21 @@ export function TerminalPanel({ repoPath, cwd, isActive = false }: TerminalPanel
   const syncTerminalSessions = useTerminalStore((s) => s.syncSessions);
   const { pendingScript, clearPendingScript } = useInitScriptStore();
   const pendingScriptProcessedRef = useRef<string | null>(null);
+  const emptyStateTypography = useMemo(
+    () =>
+      buildConsoleTypographyModel({
+        appFontFamily,
+        appFontSize,
+        editorFontFamily: editorSettings.fontFamily,
+        editorFontSize: editorSettings.fontSize,
+        editorLineHeight: editorSettings.lineHeight,
+      }),
+    [appFontFamily, appFontSize, editorSettings]
+  );
+  const emptyStateButtonStyle = useMemo(
+    () => buildConsoleButtonStyle(emptyStateTypography),
+    [emptyStateTypography]
+  );
 
   // Get current worktree's state
   const currentState = useMemo(() => {
@@ -770,19 +795,46 @@ export function TerminalPanel({ repoPath, cwd, isActive = false }: TerminalPanel
     return (
       <div
         className={cn(
-          'h-full flex items-center justify-center',
+          'flex h-full items-start justify-center px-6 pb-6 pt-12 sm:pt-16',
           !bgImageEnabled && 'bg-background'
         )}
       >
-        <Empty className="border-0">
-          <EmptyMedia variant="icon">
-            <Terminal className="h-4.5 w-4.5" />
-          </EmptyMedia>
-          <EmptyHeader>
-            <EmptyTitle>{t('Terminal')}</EmptyTitle>
-            <EmptyDescription>{t('Select a Worktree to open terminal')}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <ConsoleEmptyState
+          className="max-w-[min(60rem,100%)]"
+          icon={<Terminal className="h-5 w-5" />}
+          eyebrow={t('Terminal Console')}
+          title={t('Terminal needs a worktree')}
+          description={t(
+            'Select a worktree first. Once created, terminal sessions stay mounted and keep their runtime state.'
+          )}
+          chips={[{ label: t('Awaiting Worktree'), tone: 'wait' }]}
+          details={[
+            { label: t('Status'), value: t('No worktree selected') },
+            { label: t('Panel'), value: t('Terminal Console') },
+            { label: t('Runtime Model'), value: t('Sessions persist by worktree') },
+            {
+              label: t('Next Step'),
+              value: onExpandWorktree
+                ? t('Choose a worktree to open a shell')
+                : t('Use the sidebar to switch context'),
+            },
+          ]}
+          detailsLayout="compact"
+          actions={
+            onExpandWorktree && worktreeCollapsed ? (
+              <Button
+                variant="default"
+                size="lg"
+                onClick={onExpandWorktree}
+                className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
+                style={emptyStateButtonStyle}
+              >
+                <Terminal className="h-4 w-4" />
+                {t('Choose Worktree')}
+              </Button>
+            ) : null
+          }
+        />
       </div>
     );
   }
@@ -827,23 +879,38 @@ export function TerminalPanel({ repoPath, cwd, isActive = false }: TerminalPanel
       {showEmptyState && (
         <div
           className={cn(
-            'absolute inset-0 z-20 flex items-center justify-center',
+            'absolute inset-0 z-20 flex items-start justify-center px-6 pb-6 pt-12 sm:pt-16',
             !bgImageEnabled && 'bg-background'
           )}
         >
-          <Empty className="border-0">
-            <EmptyMedia variant="icon">
-              <Terminal className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle>{t('No terminals open')}</EmptyTitle>
-              <EmptyDescription>{t('Create a terminal to start working')}</EmptyDescription>
-            </EmptyHeader>
-            <Button variant="outline" size="sm" onClick={handleNewTerminal}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t('New Terminal')}
-            </Button>
-          </Empty>
+          <ConsoleEmptyState
+            className="max-w-[min(60rem,100%)]"
+            icon={<Terminal className="h-5 w-5" />}
+            eyebrow={t('Terminal Console')}
+            title={t('No terminals attached to this worktree')}
+            description={t(
+              'Open a shell to run commands, inspect logs, or keep a long-running process attached to the current worktree.'
+            )}
+            chips={[{ label: getDisplayPathBasename(cwd), tone: 'strong' }]}
+            details={[
+              { label: t('Status'), value: t('No active shell sessions') },
+              { label: t('Runtime'), value: t('Shell sessions stay mounted by worktree') },
+              { label: t('Next Step'), value: t('Create a terminal and start executing commands') },
+            ]}
+            detailsLayout="compact"
+            actions={
+              <Button
+                variant="default"
+                size="lg"
+                onClick={handleNewTerminal}
+                className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-[15px] font-semibold tracking-[-0.01em]"
+                style={emptyStateButtonStyle}
+              >
+                <Plus className="h-4 w-4" />
+                {t('New Terminal')}
+              </Button>
+            }
+          />
         </div>
       )}
       {/* Render all worktrees' group structures (tab bars only) */}

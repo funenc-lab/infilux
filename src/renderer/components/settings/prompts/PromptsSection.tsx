@@ -14,6 +14,7 @@ import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { PromptEditorDialog } from './PromptEditorDialog';
@@ -67,8 +68,21 @@ export function PromptsSection({ repoPath }: { repoPath?: string }) {
   };
 
   const handleDelete = (id: string) => {
+    const preset = promptPresets.find((item) => item.id === id);
     removePromptPreset(id);
-    toastManager.add({ type: 'success', title: t('Prompt preset removed') });
+    const copy = buildSettingsWorkflowToastCopy(
+      {
+        action: 'prompt-remove',
+        phase: 'success',
+        name: preset?.name,
+      },
+      t
+    );
+    toastManager.add({
+      type: 'success',
+      title: copy.title,
+      description: copy.description,
+    });
   };
 
   const handleActivate = async (id: string) => {
@@ -80,9 +94,28 @@ export function PromptsSection({ repoPath }: { repoPath?: string }) {
     if (success) {
       setPromptPresetEnabled(id);
       setCurrentContent(preset.content);
-      toastManager.add({ type: 'success', title: t('Prompt activated') });
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'prompt-activate',
+          phase: 'success',
+          name: preset.name,
+        },
+        t
+      );
+      toastManager.add({
+        type: 'success',
+        title: copy.title,
+        description: copy.description,
+      });
     } else {
-      toastManager.add({ type: 'error', title: t('Failed to activate prompt') });
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'prompt-activate',
+          phase: 'error',
+        },
+        t
+      );
+      toastManager.add({ type: 'error', title: copy.title, description: copy.description });
     }
   };
 
@@ -106,39 +139,45 @@ export function PromptsSection({ repoPath }: { repoPath?: string }) {
     }
     setDialogOpen(false);
     setSaveFromCurrent(false);
-    toastManager.add({ type: 'success', title: t('Prompt saved') });
+    const copy = buildSettingsWorkflowToastCopy(
+      {
+        action: 'prompt-save',
+        phase: 'success',
+        name: preset.name,
+      },
+      t
+    );
+    toastManager.add({
+      type: 'success',
+      title: copy.title,
+      description: copy.description,
+    });
   };
 
   return (
     <div className="border-t pt-4 mt-4">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex w-full items-center justify-between gap-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
           {expanded ? (
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
           ) : (
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
-          <FileText className="h-4 w-4" />
+          <FileText className="h-4 w-4 shrink-0" />
           <span className="text-sm font-medium">{t('Prompts')}</span>
           {activePreset && (
-            <span className="text-xs text-muted-foreground">({activePreset.name})</span>
+            <span className="truncate text-xs text-muted-foreground">({activePreset.name})</span>
           )}
-        </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleAdd();
-          }}
-        >
+        </button>
+        <Button variant="ghost" size="icon-xs" onClick={handleAdd}>
           <Plus className="h-3.5 w-3.5" />
         </Button>
-      </button>
+      </div>
 
       {expanded && (
         <div className="mt-3 space-y-2">
