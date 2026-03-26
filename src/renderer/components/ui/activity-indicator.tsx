@@ -17,9 +17,9 @@ const sizeClasses = {
 
 const colorClasses: Record<AgentActivityState, string> = {
   idle: '',
-  running: 'bg-green-500',
-  waiting_input: 'bg-amber-500',
-  completed: 'bg-blue-500',
+  running: 'bg-[color:var(--control-live)]',
+  waiting_input: 'bg-[color:var(--control-wait)]',
+  completed: 'bg-[color:var(--control-done)]',
 };
 
 const titleKeys: Record<AgentActivityState, string> = {
