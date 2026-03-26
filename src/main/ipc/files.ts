@@ -1,11 +1,11 @@
 import { rmSync } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { type FileEntry, type FileReadResult, IPC_CHANNELS } from '@shared/types';
 import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron';
 import iconv from 'iconv-lite';
 import { isBinaryFile } from 'isbinaryfile';
-import jschardet from 'jschardet';
 import { FileWatcher } from '../services/files/FileWatcher';
 import {
   registerAllowedLocalFileRoot,
@@ -20,56 +20,15 @@ import {
   toRemoteVirtualPath,
 } from '../services/remote/RemotePath';
 import { remoteRepositoryBackend } from '../services/remote/RemoteRepositoryBackend';
-
-/**
- * Normalize encoding name to a consistent format
- */
-function normalizeEncoding(encoding: string): string {
-  const normalized = encoding.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const encodingMap: Record<string, string> = {
-    gb2312: 'gb2312',
-    gbk: 'gbk',
-    gb18030: 'gb18030',
-    big5: 'big5',
-    shiftjis: 'shift_jis',
-    eucjp: 'euc-jp',
-    euckr: 'euc-kr',
-    iso88591: 'iso-8859-1',
-    windows1252: 'windows-1252',
-    utf8: 'utf-8',
-    utf16le: 'utf-16le',
-    utf16be: 'utf-16be',
-    ascii: 'ascii',
-  };
-  return encodingMap[normalized] || encoding;
-}
-
-/**
- * Detect file encoding from buffer
- */
-function detectEncoding(buffer: Buffer): { encoding: string; confidence: number } {
-  // Check for BOM first
-  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
-    return { encoding: 'utf-8', confidence: 1 };
-  }
-  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
-    return { encoding: 'utf-16le', confidence: 1 };
-  }
-  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
-    return { encoding: 'utf-16be', confidence: 1 };
-  }
-
-  const result = jschardet.detect(buffer);
-  if (result?.encoding) {
-    return {
-      encoding: normalizeEncoding(result.encoding),
-      confidence: result.confidence,
-    };
-  }
-
-  // Default to utf-8 if detection fails
-  return { encoding: 'utf-8', confidence: 0 };
-}
+import { shouldReturnEmptyFileList } from './fileListPolicy';
+import {
+  detectEncoding,
+  getRemoteWatcherKey,
+  getWatcherKey,
+  normalizeRemoteWatchPath,
+  normalizeWatchedPath,
+  resolveBatchConflictTargetPath,
+} from './fileUtils';
 
 type FileWatcherEventType = 'create' | 'update' | 'delete';
 type FileWatcherState = 'starting' | 'running' | 'stopping';
@@ -101,54 +60,26 @@ const fileResourceOwners = new Set<number>();
 const remoteWatchers = new Map<string, RemoteWatcherRegistration>();
 const remoteWatcherConnectionSubscriptions = new Map<string, () => void>();
 const pendingRemoteWatcherConnectionSubscriptions = new Map<string, Promise<void>>();
+const shouldLogFileListDiagnostics =
+  process.env.NODE_ENV !== 'test' &&
+  (process.env.ENSO_DEBUG_FILE_LIST === '1' ||
+    !('isPackaged' in app) ||
+    !(app as { isPackaged?: boolean }).isPackaged);
 
-function resolveBatchConflictTargetPath(
-  targetDir: string,
-  fallbackName: string,
-  newName?: string
-): string {
-  const candidate = newName?.trim() || fallbackName;
-  if (!candidate || candidate === '.' || candidate === '..' || /[\\/]/.test(candidate)) {
-    throw new Error('Invalid conflict rename target');
+function logFileListDiagnostics(stage: string, payload: Record<string, unknown>): void {
+  if (!shouldLogFileListDiagnostics) {
+    return;
   }
 
-  const resolvedTargetDir = resolve(targetDir);
-  const resolvedTargetPath = resolve(resolvedTargetDir, candidate);
-  const relativePath = relative(resolvedTargetDir, resolvedTargetPath);
-  if (
-    relativePath === '' ||
-    relativePath === '.' ||
-    relativePath.startsWith(`..${sep}`) ||
-    relativePath === '..'
-  ) {
-    throw new Error('Conflict rename target escapes destination directory');
+  console.info(`[file-list] ${stage}`, payload);
+}
+
+function emitFileListRuntimeDiagnostics(stage: string, payload: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === 'test') {
+    return;
   }
 
-  return resolvedTargetPath;
-}
-
-function normalizeWatchedPath(inputPath: string): string {
-  const normalizedPath = inputPath.replace(/\\/g, '/');
-  if (process.platform === 'win32' || process.platform === 'darwin') {
-    return normalizedPath.toLowerCase();
-  }
-  return normalizedPath;
-}
-
-function normalizeRemoteWatchPath(inputPath: string): string {
-  const normalizedPath = inputPath.replace(/\\/g, '/');
-  if (normalizedPath === '/') {
-    return '/';
-  }
-  return normalizedPath.replace(/\/+$/, '');
-}
-
-function getWatcherKey(ownerId: number, dirPath: string): string {
-  return `${ownerId}:${normalizeWatchedPath(dirPath)}`;
-}
-
-function getRemoteWatcherKey(windowId: number, dirPath: string): string {
-  return `${windowId}:${normalizeRemoteWatchPath(dirPath)}`;
+  console.error(`[file-list-debug] ${stage}`, payload);
 }
 
 function trackWatcherKey(ownerId: number, key: string): void {
@@ -393,12 +324,12 @@ export function registerFileHandlers(): void {
     ): Promise<{ success: boolean; path?: string; error?: string }> => {
       try {
         const tempDir = app.getPath('temp');
-        const ensoaiInputDir = join(tempDir, 'ensoai-input');
+        const infiluxInputDir = join(tempDir, TEMP_INPUT_DIRNAME);
         ensureFileOwnerCleanup(event.sender);
         // Allow renderer to preview saved temp images via local-file:// protocol.
         // Without this, local-file access is denied by default.
-        registerAllowedLocalFileRoot(ensoaiInputDir, event.sender.id);
-        await mkdir(ensoaiInputDir, { recursive: true });
+        registerAllowedLocalFileRoot(infiluxInputDir, event.sender.id);
+        await mkdir(infiluxInputDir, { recursive: true });
 
         // Defense-in-depth: never trust renderer-controlled path segments.
         const safeName = basename(filename);
@@ -406,11 +337,11 @@ export function registerFileHandlers(): void {
           return { success: false, error: 'Invalid filename' };
         }
 
-        const filePath = join(ensoaiInputDir, safeName);
+        const filePath = join(infiluxInputDir, safeName);
 
         // Double-check resolved path stays within the allowed directory.
         const resolvedPath = resolve(filePath);
-        const allowedRoot = resolve(ensoaiInputDir) + sep;
+        const allowedRoot = resolve(infiluxInputDir) + sep;
         if (!resolvedPath.startsWith(allowedRoot)) {
           return { success: false, error: 'Invalid filename' };
         }
@@ -569,6 +500,7 @@ export function registerFileHandlers(): void {
     IPC_CHANNELS.FILE_LIST,
     async (event, dirPath: string, gitRoot?: string): Promise<FileEntry[]> => {
       if (isRemoteVirtualPath(dirPath)) {
+        logFileListDiagnostics('remote-list:start', { dirPath, gitRoot });
         return remoteRepositoryBackend.listFiles(dirPath);
       }
 
@@ -577,7 +509,49 @@ export function registerFileHandlers(): void {
         registerAllowedLocalFileRoot(gitRoot, event.sender.id);
       }
 
-      const entries = await readdir(dirPath);
+      logFileListDiagnostics('local-list:start', {
+        dirPath,
+        gitRoot,
+        senderId: event.sender.id,
+      });
+      emitFileListRuntimeDiagnostics('local-list:start', {
+        dirPath,
+        gitRoot,
+        senderId: event.sender.id,
+      });
+
+      let entries: string[];
+      try {
+        entries = await readdir(dirPath);
+      } catch (error) {
+        if (shouldReturnEmptyFileList(error)) {
+          const nodeError = error as NodeJS.ErrnoException;
+          logFileListDiagnostics('local-list:empty-on-error', {
+            dirPath,
+            gitRoot,
+            code: nodeError.code,
+            message: nodeError.message,
+          });
+          emitFileListRuntimeDiagnostics('local-list:empty-on-error', {
+            dirPath,
+            gitRoot,
+            code: nodeError.code,
+            message: nodeError.message,
+          });
+          return [];
+        }
+        throw error;
+      }
+      logFileListDiagnostics('local-list:readdir-success', {
+        dirPath,
+        gitRoot,
+        count: entries.length,
+      });
+      emitFileListRuntimeDiagnostics('local-list:readdir-success', {
+        dirPath,
+        gitRoot,
+        count: entries.length,
+      });
       const result: FileEntry[] = [];
 
       for (const name of entries) {
@@ -614,13 +588,26 @@ export function registerFileHandlers(): void {
         }
       }
 
-      return result.sort((a, b) => {
+      const sortedResult = result.sort((a, b) => {
         // Directories first
         if (a.isDirectory !== b.isDirectory) {
           return a.isDirectory ? -1 : 1;
         }
         return a.name.localeCompare(b.name);
       });
+
+      logFileListDiagnostics('local-list:result', {
+        dirPath,
+        gitRoot,
+        count: sortedResult.length,
+      });
+      emitFileListRuntimeDiagnostics('local-list:result', {
+        dirPath,
+        gitRoot,
+        count: sortedResult.length,
+      });
+
+      return sortedResult;
     }
   );
 
@@ -1033,25 +1020,25 @@ export function stopAllFileWatchersSync(): void {
 }
 
 /**
- * Clean up temporary files from ensoai-input directory
+ * Clean up temporary files from the managed temp input directory
  * Cross-platform compatible with retry logic for Windows file locks
  */
 export async function cleanupTempFiles(): Promise<void> {
   try {
     const tempDir = app.getPath('temp');
-    const ensoaiInputDir = join(tempDir, 'ensoai-input');
+    const infiluxInputDir = join(tempDir, TEMP_INPUT_DIRNAME);
 
     // Use recursive and force options for cross-platform compatibility
     // force: true - ignore errors if directory doesn't exist
     // recursive: true - delete directory and all contents
-    await rm(ensoaiInputDir, {
+    await rm(infiluxInputDir, {
       recursive: true,
       force: true,
       maxRetries: 3, // Retry on Windows file lock issues
       retryDelay: 100, // Wait 100ms between retries
     });
 
-    console.log('[files] Cleaned up temp directory:', ensoaiInputDir);
+    console.log('[files] Cleaned up temp directory:', infiluxInputDir);
   } catch (error) {
     // Don't throw - cleanup failure shouldn't block app startup/shutdown
     console.warn('[files] Failed to cleanup temp files:', error);
@@ -1065,17 +1052,17 @@ export async function cleanupTempFiles(): Promise<void> {
 export function cleanupTempFilesSync(): void {
   try {
     const tempDir = app.getPath('temp');
-    const ensoaiInputDir = join(tempDir, 'ensoai-input');
+    const infiluxInputDir = join(tempDir, TEMP_INPUT_DIRNAME);
 
     // Sync version with same options
-    rmSync(ensoaiInputDir, {
+    rmSync(infiluxInputDir, {
       recursive: true,
       force: true,
       maxRetries: 3,
       retryDelay: 100,
     });
 
-    console.log('[files] Cleaned up temp directory (sync):', ensoaiInputDir);
+    console.log('[files] Cleaned up temp directory (sync):', infiluxInputDir);
   } catch (error) {
     console.warn('[files] Failed to cleanup temp files (sync):', error);
   }

@@ -1,3 +1,5 @@
+import type { PersistentAgentSessionRecord } from './agentSession';
+
 export type WorkspaceKind = 'local' | 'remote';
 
 export type WorkspacePlatform = 'linux' | 'darwin' | 'win32';
@@ -180,4 +182,5 @@ export interface SessionStorageDocument {
   settingsData: Record<string, unknown>;
   localStorage: Record<string, string>;
   todos: Record<string, SessionTodoTask[]>;
+  persistentAgentSessions: PersistentAgentSessionRecord[];
 }

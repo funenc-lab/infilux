@@ -93,16 +93,23 @@ export function forceReplaceClose(win: BrowserWindow): void {
   if (win.isDestroyed()) {
     return;
   }
-  windowReplacementControllers.get(win)?.forceReplaceClose() ?? win.close();
+  const controller = windowReplacementControllers.get(win);
+  if (controller) {
+    controller.forceReplaceClose();
+    return;
+  }
+  win.close();
 }
 
 export function createMainWindow(options: CreateMainWindowOptions = {}): BrowserWindow {
-  const replacementState = options.replaceWindow?.isDestroyed()
-    ? null
-    : {
-        ...options.replaceWindow?.getBounds(),
-        isMaximized: options.replaceWindow?.isMaximized(),
-      };
+  const replacementState = options.replaceWindow
+    ? options.replaceWindow.isDestroyed()
+      ? null
+      : {
+          ...options.replaceWindow.getBounds(),
+          isMaximized: options.replaceWindow.isMaximized(),
+        }
+    : null;
   const state = replacementState ?? loadWindowState();
 
   const isMac = process.platform === 'darwin';

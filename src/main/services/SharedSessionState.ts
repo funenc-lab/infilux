@@ -1,12 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SessionStorageDocument, SessionTodoTask } from '@shared/types';
+import { RUNTIME_STATE_DIRNAME, SESSION_STATE_FILENAME, SETTINGS_FILENAME } from '@shared/paths';
+import type {
+  PersistentAgentSessionRecord,
+  SessionStorageDocument,
+  SessionTodoTask,
+} from '@shared/types';
 import { app } from 'electron';
 
 const STORAGE_VERSION = 2;
-const SHARED_STATE_DIR = '.ensoai';
-const SETTINGS_FILENAME = 'settings.json';
-const SESSION_FILENAME = 'session-state.json';
 const SETTINGS_MIGRATION_MARKER = '.local-settings-migrated';
 const TODO_MIGRATION_MARKER = '.local-todo-migrated';
 const LOCAL_STORAGE_MIGRATION_MARKER = '.local-localstorage-migrated';
@@ -31,7 +33,10 @@ function now(): number {
 }
 
 function getSharedRoot(): string {
-  return join(process.env.HOME || process.env.USERPROFILE || app.getPath('home'), SHARED_STATE_DIR);
+  return join(
+    process.env.HOME || process.env.USERPROFILE || app.getPath('home'),
+    RUNTIME_STATE_DIRNAME
+  );
 }
 
 function getSettingsPath(): string {
@@ -39,7 +44,7 @@ function getSettingsPath(): string {
 }
 
 function getSessionPath(): string {
-  return join(getSharedRoot(), SESSION_FILENAME);
+  return join(getSharedRoot(), SESSION_STATE_FILENAME);
 }
 
 function getMigrationMarkerPath(marker: string): string {
@@ -55,7 +60,10 @@ function atomicWriteJson(targetPath: string, data: unknown): void {
 
 function defaultSessionStorageDocument(
   input?: Partial<
-    Pick<SessionStorageDocument, 'updatedAt' | 'settingsData' | 'localStorage' | 'todos'>
+    Pick<
+      SessionStorageDocument,
+      'updatedAt' | 'settingsData' | 'localStorage' | 'persistentAgentSessions' | 'todos'
+    >
   >
 ): SessionStorageDocument {
   return {
@@ -63,8 +71,44 @@ function defaultSessionStorageDocument(
     updatedAt: input?.updatedAt ?? now(),
     settingsData: input?.settingsData ?? {},
     localStorage: input?.localStorage ?? {},
+    persistentAgentSessions: input?.persistentAgentSessions ?? [],
     todos: input?.todos ?? {},
   };
+}
+
+function normalizePersistentAgentSessions(value: unknown): PersistentAgentSessionRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is PersistentAgentSessionRecord => {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+
+    const record = item as Partial<PersistentAgentSessionRecord>;
+    return (
+      typeof record.uiSessionId === 'string' &&
+      record.uiSessionId.length > 0 &&
+      typeof record.agentId === 'string' &&
+      record.agentId.length > 0 &&
+      typeof record.agentCommand === 'string' &&
+      record.agentCommand.length > 0 &&
+      typeof record.environment === 'string' &&
+      typeof record.repoPath === 'string' &&
+      typeof record.cwd === 'string' &&
+      typeof record.displayName === 'string' &&
+      typeof record.activated === 'boolean' &&
+      typeof record.initialized === 'boolean' &&
+      typeof record.hostKind === 'string' &&
+      typeof record.hostSessionKey === 'string' &&
+      record.hostSessionKey.length > 0 &&
+      typeof record.recoveryPolicy === 'string' &&
+      typeof record.createdAt === 'number' &&
+      typeof record.updatedAt === 'number' &&
+      typeof record.lastKnownState === 'string'
+    );
+  });
 }
 
 function normalizeTodoMap(value: unknown): Record<string, SessionTodoTask[]> {
@@ -118,6 +162,7 @@ export function readSharedSessionState(): SessionStorageDocument {
             parsed.localStorage && typeof parsed.localStorage === 'object'
               ? (parsed.localStorage as Record<string, string>)
               : {},
+          persistentAgentSessions: normalizePersistentAgentSessions(parsed.persistentAgentSessions),
           todos: normalizeTodoMap(parsed.todos),
         })
       : defaultSessionStorageDocument();
@@ -151,6 +196,26 @@ export function writeSharedLocalStorageSnapshot(snapshot: Record<string, string>
     updatedAt: now(),
     localStorage: { ...snapshot },
   }));
+}
+
+export function readPersistentAgentSessions(): PersistentAgentSessionRecord[] {
+  return [...readSharedSessionState().persistentAgentSessions];
+}
+
+export function writePersistentAgentSessions(records: PersistentAgentSessionRecord[]): void {
+  updateSharedSessionState((current) => ({
+    ...current,
+    updatedAt: now(),
+    persistentAgentSessions: [...records],
+  }));
+}
+
+export function updatePersistentAgentSessions(
+  updater: (current: PersistentAgentSessionRecord[]) => PersistentAgentSessionRecord[]
+): PersistentAgentSessionRecord[] {
+  const next = updater(readPersistentAgentSessions());
+  writePersistentAgentSessions(next);
+  return next;
 }
 
 export function readSharedTodoTasks(repoPath: string): SessionTodoTask[] {

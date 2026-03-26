@@ -1,9 +1,13 @@
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { stopAllCodeReviews } from '../services/ai';
 import { disposeClaudeIdeBridge } from '../services/claude/ClaudeIdeBridge';
+import { persistentAgentSessionRepository } from '../services/session/PersistentAgentSessionRepository';
+import { persistentAgentSessionService } from '../services/session/PersistentAgentSessionService';
 import { autoUpdaterService } from '../services/updater/AutoUpdater';
 import { webInspectorServer } from '../services/webInspector';
 import { cleanupExecInPtys, cleanupExecInPtysSync } from '../utils/shell';
 import { registerAgentHandlers } from './agent';
+import { registerAgentSessionHandlers } from './agentSession';
 import { registerAppHandlers } from './app';
 import {
   registerClaudeCompletionsHandlers,
@@ -45,6 +49,18 @@ import { registerUpdaterHandlers } from './updater';
 import { registerWebInspectorHandlers } from './webInspector';
 import { clearAllWorktreeServices, registerWorktreeHandlers } from './worktree';
 
+function shouldCleanupTmuxServer(): boolean {
+  return !persistentAgentSessionService
+    .listCachedSessionsSync()
+    .some(
+      (session) =>
+        session.hostKind === 'tmux' &&
+        !isRemoteVirtualPath(session.cwd) &&
+        !isRemoteVirtualPath(session.repoPath) &&
+        (session.lastKnownState === 'live' || session.lastKnownState === 'reconnecting')
+    );
+}
+
 export function registerIpcHandlers(): void {
   registerGitHandlers();
   registerWorktreeHandlers();
@@ -52,6 +68,7 @@ export function registerIpcHandlers(): void {
   registerSessionHandlers();
   registerSessionStorageHandlers();
   registerAgentHandlers();
+  registerAgentSessionHandlers();
   registerDialogHandlers();
   registerAppHandlers();
   registerCliHandlers();
@@ -116,10 +133,12 @@ export async function cleanupAllResources(): Promise<void> {
   ]);
 
   // Fast synchronous cleanup (runs after async steps or deadline)
-  try {
-    cleanupTmuxSync();
-  } catch (err) {
-    console.warn('[cleanup] tmux warning:', err);
+  if (shouldCleanupTmuxServer()) {
+    try {
+      cleanupTmuxSync();
+    } catch (err) {
+      console.warn('[cleanup] tmux warning:', err);
+    }
   }
   webInspectorServer.stop();
   stopAllCodeReviews();
@@ -129,6 +148,9 @@ export async function cleanupAllResources(): Promise<void> {
   disposeClaudeIdeBridge();
   await remoteConnectionManager.cleanup();
   await cleanupTodo();
+  await persistentAgentSessionRepository.close().catch((err) => {
+    console.warn('[cleanup] persistentAgentSessions warning:', err);
+  });
 }
 
 /**
@@ -145,8 +167,9 @@ export function cleanupAllResourcesSync(): void {
   // Kill Hapi/Cloudflared processes (sync)
   cleanupHapiSync();
 
-  // Kill tmux enso server (sync)
-  cleanupTmuxSync();
+  if (shouldCleanupTmuxServer()) {
+    cleanupTmuxSync();
+  }
 
   // Stop Web Inspector server (sync)
   webInspectorServer.stop();
