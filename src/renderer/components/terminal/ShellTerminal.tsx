@@ -179,7 +179,7 @@ export function ShellTerminal({
         <button
           type="button"
           onClick={handleScrollToBottom}
-          className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-primary/80 text-primary-foreground shadow-lg transition-all hover:bg-primary hover:scale-105 active:scale-95"
+          className="control-floating-button absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg"
           title={t('Scroll to bottom')}
         >
           <ArrowDown className="h-4 w-4" />
@@ -199,8 +199,8 @@ export function ShellTerminal({
         </div>
       )}
       {runtimeState !== 'live' && !isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/70 backdrop-blur-sm">
-          <div className="rounded-lg border bg-background/90 px-4 py-3 text-center shadow-sm">
+        <div className="absolute inset-0 flex items-center justify-center bg-background/72">
+          <div className="control-floating rounded-lg px-4 py-3 text-center">
             <div className="text-sm font-medium">
               {runtimeState === 'reconnecting'
                 ? t('Remote terminal reconnecting...')

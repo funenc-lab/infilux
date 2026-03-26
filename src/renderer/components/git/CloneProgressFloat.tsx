@@ -112,17 +112,17 @@ export function CloneProgressFloat({ onCloneComplete }: CloneProgressFloatProps)
         type="button"
         onClick={handleToggleCollapse}
         className={cn(
-          'fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full px-3 py-2 shadow-lg transition-all hover:scale-105',
+          'control-floating fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-xl px-3 py-2 transition-colors',
           activeTasks.length > 0
-            ? 'bg-blue-500 text-white'
+            ? 'border-info/35 text-info'
             : completedTasks.length > 0
-              ? 'bg-green-500 text-white'
-              : 'bg-destructive text-destructive-foreground'
+              ? 'border-success/35 text-success'
+              : 'border-destructive/35 text-destructive'
         )}
       >
         {activeTasks.length > 0 ? (
           <>
-            <Download className="h-4 w-4 animate-pulse" />
+            <Download className="h-4 w-4" />
             <span className="text-sm font-medium">
               {activeTasks.length > 1 ? `${activeTasks.length} ${t('tasks')}` : `${totalProgress}%`}
             </span>
@@ -150,7 +150,7 @@ export function CloneProgressFloat({ onCloneComplete }: CloneProgressFloatProps)
       {visibleErrorTasks.map((task) => (
         <div
           key={task.id}
-          className="rounded-lg border border-destructive/50 bg-card shadow-lg p-3 animate-in slide-in-from-bottom-2"
+          className="control-floating rounded-lg border-destructive/35 p-3 animate-in slide-in-from-bottom-2"
         >
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
@@ -176,12 +176,12 @@ export function CloneProgressFloat({ onCloneComplete }: CloneProgressFloatProps)
           key={task.id}
           role="button"
           tabIndex={0}
-          className="rounded-lg border bg-card shadow-lg p-3 space-y-2 animate-in slide-in-from-bottom-2 cursor-pointer hover:bg-accent/30 transition-colors"
+          className="control-floating rounded-lg p-3 space-y-2 animate-in slide-in-from-bottom-2 cursor-pointer transition-colors hover:bg-accent/12"
           onClick={handleToggleCollapse}
           onKeyDown={handleKeyDown}
         >
           <div className="flex items-center gap-2">
-            <Download className="h-4 w-4 shrink-0 animate-pulse text-info" />
+            <Download className="h-4 w-4 shrink-0 text-info" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
               {t('Cloning')} {task.repoName}
             </span>
@@ -199,7 +199,7 @@ export function CloneProgressFloat({ onCloneComplete }: CloneProgressFloatProps)
       {visibleCompletedTasks.map((task) => (
         <div
           key={task.id}
-          className="rounded-lg border border-success/30 bg-card shadow-lg p-3 animate-in slide-in-from-bottom-2"
+          className="control-floating rounded-lg border-success/28 p-3 animate-in slide-in-from-bottom-2"
         >
           <div className="flex items-center gap-2">
             <Check className="h-4 w-4 shrink-0 text-success" />
@@ -226,7 +226,7 @@ export function CloneProgressFloat({ onCloneComplete }: CloneProgressFloatProps)
 
       {/* Hidden tasks indicator */}
       {hiddenCount > 0 && (
-        <div className="rounded-lg border bg-card/80 shadow-lg p-2 animate-in slide-in-from-bottom-2">
+        <div className="control-floating-muted rounded-lg p-2 animate-in slide-in-from-bottom-2">
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <MoreHorizontal className="h-3 w-3" />
             <span>{t('and {{count}} more...', { count: hiddenCount })}</span>

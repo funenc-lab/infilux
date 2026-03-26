@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { forwardRef, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -121,27 +120,19 @@ export function GlowIndicator({
   };
 
   return (
-    <motion.span
+    <span
       className={cn(
         'inline-block rounded-full shrink-0',
         sizeClasses[size],
         colorClasses[state],
         className
       )}
-      animate={
-        state === 'running'
-          ? {
-              scale: [1, 1.2, 1],
-              opacity: [1, 0.8, 1],
-            }
-          : {
-              opacity: [0.6, 1, 0.6],
-            }
-      }
-      transition={{
-        duration: state === 'running' ? 1 : 2,
-        repeat: Number.POSITIVE_INFINITY,
-        ease: 'easeInOut',
+      style={{
+        opacity: state === 'running' ? 1 : 0.86,
+        boxShadow:
+          state === 'running'
+            ? '0 0 0 1px color-mix(in oklch, var(--control-live) 22%, transparent)'
+            : undefined,
       }}
       title={
         state === 'running'
@@ -188,19 +179,11 @@ export function GlowBorder({
  */
 function RunningGlow() {
   return (
-    <motion.div
+    <div
       className="absolute inset-0 rounded-[inherit] border pointer-events-none"
       style={{
-        borderColor: 'color-mix(in oklch, var(--control-live) 42%, transparent)',
-        background: 'color-mix(in oklch, var(--control-live) 8%, var(--background) 92%)',
-      }}
-      animate={{
-        opacity: [0.68, 0.92, 0.68],
-      }}
-      transition={{
-        duration: 2.4,
-        repeat: Number.POSITIVE_INFINITY,
-        ease: 'easeOut',
+        borderColor: 'color-mix(in oklch, var(--control-live) 32%, var(--border) 68%)',
+        background: 'color-mix(in oklch, var(--control-live) 6%, var(--background) 94%)',
       }}
     />
   );
@@ -211,19 +194,11 @@ function RunningGlow() {
  */
 function WaitingInputGlow() {
   return (
-    <motion.div
+    <div
       className="absolute inset-0 rounded-[inherit] border pointer-events-none"
       style={{
-        borderColor: 'color-mix(in oklch, var(--control-wait) 46%, transparent)',
-        background: 'color-mix(in oklch, var(--control-wait) 10%, var(--background) 90%)',
-      }}
-      animate={{
-        opacity: [0.72, 1, 0.72],
-      }}
-      transition={{
-        duration: 2.8,
-        repeat: Number.POSITIVE_INFINITY,
-        ease: 'easeOut',
+        borderColor: 'color-mix(in oklch, var(--control-wait) 34%, var(--border) 66%)',
+        background: 'color-mix(in oklch, var(--control-wait) 7%, var(--background) 93%)',
       }}
     />
   );
@@ -234,19 +209,11 @@ function WaitingInputGlow() {
  */
 function CompletedGlow() {
   return (
-    <motion.div
+    <div
       className="absolute inset-0 rounded-[inherit] border pointer-events-none"
       style={{
-        borderColor: 'color-mix(in oklch, var(--control-done) 40%, transparent)',
-        background: 'color-mix(in oklch, var(--control-done) 9%, var(--background) 91%)',
-      }}
-      animate={{
-        opacity: [0.72, 0.9, 0.72],
-      }}
-      transition={{
-        duration: 2.6,
-        repeat: Number.POSITIVE_INFINITY,
-        ease: 'easeOut',
+        borderColor: 'color-mix(in oklch, var(--control-done) 30%, var(--border) 70%)',
+        background: 'color-mix(in oklch, var(--control-done) 6%, var(--background) 94%)',
       }}
     />
   );

@@ -130,12 +130,12 @@ function AppearanceSelectionBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] uppercase',
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] uppercase',
         tone === 'current'
-          ? 'border border-foreground/10 bg-foreground text-background'
+          ? 'border-primary/24 bg-primary/12 text-foreground'
           : tone === 'preview'
-            ? 'border border-border/70 bg-background/80 text-foreground'
-            : 'border border-border/70 bg-background/40 text-muted-foreground'
+            ? 'border-border/70 bg-background/80 text-foreground'
+            : 'border-border/70 bg-muted/50 text-muted-foreground'
       )}
     >
       {children}
@@ -172,15 +172,11 @@ function buildPreviewSurfaceBackground({
   baseColor: string;
   baseAmount: number;
 }): string {
-  return `linear-gradient(180deg, ${fadePreviewColor(highlightColor, highlightAmount)} 0%, transparent ${highlightStop}), linear-gradient(135deg, ${mixPreviewColor(surfaceColor, surfaceAmount, baseColor)} 0%, ${mixPreviewColor(baseColor, baseAmount, surfaceColor)} 100%)`;
+  return `linear-gradient(180deg, ${fadePreviewColor(highlightColor, Math.max(1, Math.round(highlightAmount * 0.45)))} 0%, transparent ${highlightStop}), linear-gradient(180deg, ${mixPreviewColor(surfaceColor, surfaceAmount, baseColor)} 0%, ${mixPreviewColor(baseColor, baseAmount, surfaceColor)} 100%)`;
 }
 
 function buildPreviewInsetHighlight(color: string, amount: number): string {
   return `inset 0 1px 0 ${fadePreviewColor(color, amount)}`;
-}
-
-function buildPreviewAmbientShadow(color: string, amount: number, geometry: string): string {
-  return `${geometry} ${fadePreviewColor(color, amount)}`;
 }
 
 function ThemeModeBrowserCard({
@@ -236,7 +232,7 @@ function ThemeModeBrowserCard({
       onClick={onSelect}
       onMouseEnter={onPreview}
       onFocus={onPreview}
-      className="group relative overflow-hidden rounded-[1.35rem] border p-4 text-left transition-all duration-200"
+      className="group relative overflow-hidden rounded-xl border p-4 text-left transition-colors duration-200"
       style={{
         borderColor: isSelected
           ? palette['--ring']
@@ -245,15 +241,15 @@ function ThemeModeBrowserCard({
             : 'color-mix(in oklab, var(--border) 88%, transparent)',
         background: buildPreviewSurfaceBackground({
           highlightColor: palette['--primary'],
-          highlightAmount: 10,
-          highlightStop: '24%',
+          highlightAmount: 4,
+          highlightStop: '18%',
           surfaceColor: palette['--card'],
-          surfaceAmount: 84,
+          surfaceAmount: 90,
           baseColor: palette['--background'],
-          baseAmount: 72,
+          baseAmount: 82,
         }),
         boxShadow: isSelected
-          ? `${buildPreviewInsetHighlight(palette['--foreground'], 10)}, ${buildPreviewAmbientShadow(palette['--muted'], 52, '0 18px 32px')}`
+          ? `${buildPreviewInsetHighlight(palette['--foreground'], 6)}, 0 0 0 1px ${fadePreviewColor(palette['--primary'], 18)}`
           : buildPreviewInsetHighlight(palette['--foreground'], 3),
       }}
     >
@@ -266,7 +262,7 @@ function ThemeModeBrowserCard({
 
       <div className="flex items-start justify-between gap-3">
         <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.95rem] border"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border"
           style={{
             backgroundColor: mixPreviewColor(palette['--accent'], 66, palette['--background']),
             borderColor: mixPreviewColor(palette['--border'], 75, palette['--background']),
@@ -335,7 +331,7 @@ function ColorPresetMiniCard({
 
   return (
     <div
-      className="mt-3 overflow-hidden rounded-[1rem] border"
+      className="mt-3 overflow-hidden rounded-lg border"
       style={{
         background: `linear-gradient(180deg, color-mix(in oklab, ${palette['--foreground']} 3%, transparent) 0%, transparent 30%), ${palette['--background']}`,
         borderColor: palette['--border'],
@@ -345,12 +341,12 @@ function ColorPresetMiniCard({
       <div
         className="h-1"
         style={{
-          background: `linear-gradient(90deg, ${palette['--primary']} 0%, ${palette['--accent']} 100%)`,
+          backgroundColor: mixPreviewColor(palette['--primary'], 64, palette['--support']),
         }}
       />
       <div className="grid grid-cols-[0.92fr_1.08fr] gap-2 p-2.5">
         <div
-          className="rounded-[0.9rem] border p-2"
+          className="rounded-md border p-2"
           style={{
             backgroundColor: mixPreviewColor(palette['--secondary'], 86, palette['--background']),
             borderColor: palette['--border'],
@@ -378,7 +374,7 @@ function ColorPresetMiniCard({
           </div>
         </div>
         <div
-          className="rounded-[0.9rem] border p-2"
+          className="rounded-md border p-2"
           style={{
             backgroundColor: mixPreviewColor(palette['--card'], 92, palette['--background']),
             borderColor: palette['--border'],
@@ -453,14 +449,14 @@ function ColorPresetPreview({
 
   return (
     <div
-      className="relative overflow-hidden rounded-[1.05rem] border"
+      className="relative overflow-hidden rounded-lg border"
       style={{
         backgroundColor: background,
         borderColor: border,
       }}
     >
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-12 opacity-70"
+        className="pointer-events-none absolute inset-x-0 top-0 h-8 opacity-45"
         style={{
           background: `linear-gradient(180deg, ${accent} 0%, transparent 100%)`,
         }}
@@ -483,7 +479,7 @@ function ColorPresetPreview({
             style={{
               backgroundColor: card,
               borderColor: border,
-              boxShadow: `0 1px 0 ${border}`,
+              boxShadow: `inset 0 1px 0 ${withAlpha(foreground, '08')}`,
             }}
           >
             <div
@@ -772,11 +768,11 @@ function EditorSamplePreview({
 
   return (
     <div
-      className="overflow-hidden rounded-[1.05rem] border"
+      className="overflow-hidden rounded-lg border"
       style={{
         backgroundColor: palette.background,
         borderColor: palette.indentGuide,
-        boxShadow: `0 18px 40px ${withAlpha(palette.punctuation, '10')}`,
+        boxShadow: `inset 0 1px 0 ${withAlpha(palette.foreground, '08')}`,
       }}
     >
       <div
@@ -864,11 +860,10 @@ function ThemeTokenInputCard({
 }) {
   return (
     <div
-      className="rounded-[1.05rem] border border-border/70 p-3"
+      className="rounded-lg border border-border/70 bg-background/40 p-3"
       style={{
-        background:
-          'linear-gradient(180deg, color-mix(in oklab, var(--foreground) 2%, transparent) 0%, transparent 24%), color-mix(in oklab, var(--background) 84%, transparent)',
-        boxShadow: buildPreviewInsetHighlight('var(--foreground)', 3),
+        background: 'color-mix(in oklab, var(--background) 92%, var(--muted) 8%)',
+        boxShadow: buildPreviewInsetHighlight('var(--foreground)', 2),
       }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -879,7 +874,7 @@ function ThemeTokenInputCard({
           <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/90">{value}</p>
         </div>
         <div
-          className="h-11 w-11 shrink-0 rounded-[0.95rem] border"
+          className="h-11 w-11 shrink-0 rounded-lg border"
           style={{
             backgroundColor: value,
             borderColor: fadePreviewColor('var(--foreground)', 10),
@@ -1402,21 +1397,7 @@ export function AppearanceSettings() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <div
-          className="overflow-hidden rounded-[1.65rem] border border-border/70 p-4 md:p-5"
-          style={{
-            background: buildPreviewSurfaceBackground({
-              highlightColor: 'var(--foreground)',
-              highlightAmount: 2,
-              highlightStop: '18%',
-              surfaceColor: 'var(--card)',
-              surfaceAmount: 92,
-              baseColor: 'var(--background)',
-              baseAmount: 90,
-            }),
-            boxShadow: `${buildPreviewInsetHighlight('var(--foreground)', 3)}, ${buildPreviewAmbientShadow('var(--muted)', 56, '0 28px 50px')}`,
-          }}
-        >
+        <div className="control-panel overflow-hidden rounded-xl p-4 md:p-5">
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-medium">{t('Theme mode')}</h3>
@@ -1453,19 +1434,7 @@ export function AppearanceSettings() {
             </div>
 
             <div
-              className="overflow-hidden rounded-[1.35rem] border border-border/70 p-4"
-              style={{
-                background: buildPreviewSurfaceBackground({
-                  highlightColor: 'var(--foreground)',
-                  highlightAmount: 2,
-                  highlightStop: '22%',
-                  surfaceColor: 'var(--card)',
-                  surfaceAmount: 88,
-                  baseColor: 'var(--background)',
-                  baseAmount: 84,
-                }),
-                boxShadow: buildPreviewInsetHighlight('var(--foreground)', 3),
-              }}
+              className="control-panel-muted overflow-hidden rounded-xl p-4"
               onMouseEnter={() => setLivePreviewTheme('sync-terminal')}
               onMouseLeave={() => setLivePreviewTheme(null)}
             >
@@ -1566,7 +1535,7 @@ export function AppearanceSettings() {
                     onClick={() => setActivePresetTheme(option.id)}
                     onMouseEnter={() => setPreviewPreset(option.id)}
                     onFocus={() => setPreviewPreset(option.id)}
-                    className="group relative overflow-hidden rounded-[1.35rem] border p-4 text-left transition-all duration-200"
+                    className="group relative overflow-hidden rounded-xl border p-4 text-left transition-colors duration-200"
                     style={{
                       borderColor: isSelected
                         ? optionPalette['--ring']
@@ -1648,7 +1617,7 @@ export function AppearanceSettings() {
               })}
             </div>
 
-            <div className="space-y-3 rounded-[1.35rem] border border-border/70 p-4">
+            <div className="control-panel-muted space-y-3 rounded-xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-medium">Custom themes</h3>
@@ -1689,7 +1658,7 @@ export function AppearanceSettings() {
                         onClick={() => setActiveCustomTheme(customTheme.id)}
                         onMouseEnter={() => setPreviewCustomThemeId(customTheme.id)}
                         onFocus={() => setPreviewCustomThemeId(customTheme.id)}
-                        className="rounded-[1.3rem] border border-border/70 bg-background/35 p-4 text-left transition-all"
+                        className="rounded-xl border border-border/70 bg-background/35 p-4 text-left transition-colors"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -1731,13 +1700,13 @@ export function AppearanceSettings() {
                   })}
                 </div>
               ) : (
-                <div className="rounded-[1.2rem] border border-dashed border-border/70 bg-background/25 px-4 py-5 text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-border/70 bg-background/25 px-4 py-5 text-sm text-muted-foreground">
                   No custom themes yet. Start from a preset or create a blank theme document.
                 </div>
               )}
             </div>
 
-            <div className="space-y-3 rounded-[1.35rem] border border-border/70 p-4">
+            <div className="control-panel-muted space-y-3 rounded-xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-medium">Theme editor</h3>
@@ -1767,7 +1736,7 @@ export function AppearanceSettings() {
 
               {tokenEditorTheme ? (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.1rem] border border-border/70 bg-background/35 px-3 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/35 px-3 py-3">
                     <div className="min-w-[16rem] flex-1">
                       <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                         Name
@@ -1798,7 +1767,7 @@ export function AppearanceSettings() {
                   {APP_THEME_TOKEN_GROUPS.map((group) => (
                     <div
                       key={group.id}
-                      className="space-y-3 rounded-[1.15rem] border border-border/60 bg-background/20 p-3"
+                      className="space-y-3 rounded-lg border border-border/60 bg-background/20 p-3"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium">{group.label}</p>
@@ -1828,7 +1797,7 @@ export function AppearanceSettings() {
                   ))}
                 </div>
               ) : (
-                <div className="rounded-[1.2rem] border border-dashed border-border/70 bg-background/25 px-4 py-5 text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-border/70 bg-background/25 px-4 py-5 text-sm text-muted-foreground">
                   Select a custom theme to unlock the full token editor.
                 </div>
               )}
@@ -1837,21 +1806,7 @@ export function AppearanceSettings() {
         </div>
       </div>
 
-      <div
-        className="rounded-[1.45rem] border border-border/70 p-4 md:p-5"
-        style={{
-          background: buildPreviewSurfaceBackground({
-            highlightColor: 'var(--foreground)',
-            highlightAmount: 2,
-            highlightStop: '16%',
-            surfaceColor: 'var(--card)',
-            surfaceAmount: 82,
-            baseColor: 'var(--background)',
-            baseAmount: 78,
-          }),
-          boxShadow: `${buildPreviewInsetHighlight('var(--foreground)', 3)}, ${buildPreviewAmbientShadow('var(--muted)', 46, '0 16px 32px')}`,
-        }}
-      >
+      <div className="control-panel rounded-xl p-4 md:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -1894,7 +1849,7 @@ export function AppearanceSettings() {
             ].map((entry) => (
               <div
                 key={`${entry.label}-${entry.color}`}
-                className="rounded-[0.95rem] border border-border/70 bg-background/55 px-2.5 py-2"
+                className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2"
               >
                 <div className="flex items-center gap-2">
                   <span
@@ -1952,9 +1907,9 @@ export function AppearanceSettings() {
             <Sparkles className="h-4 w-4 text-muted-foreground" />
           </div>
           <div>
-            <p className="text-sm font-medium">{t('Glow Effect')}</p>
+            <p className="text-sm font-medium">{t('State Highlight')}</p>
             <p className="text-xs text-muted-foreground">
-              {t('Animated glow border for AI output states')}
+              {t('Highlight AI output states with stronger borders')}
             </p>
           </div>
         </div>
