@@ -1,5 +1,32 @@
+import { resolvePresetThemeTokens } from '@/lib/appTheme';
 import { normalizeTerminalScrollback } from './terminalScrollbackPolicy';
-import type { SettingsState, TerminalKeybinding, XtermKeybindings } from './types';
+import type {
+  ColorPreset,
+  CustomThemeDocument,
+  SettingsState,
+  TerminalKeybinding,
+  ThemeTokenSet,
+  XtermKeybindings,
+} from './types';
+
+const COLOR_PRESETS: ColorPreset[] = [
+  'classic-red',
+  'red-graphite-oled',
+  'graphite-ink',
+  'tide-blue',
+  'warm-graphite',
+  'soft-parchment',
+  'midnight-oled',
+];
+
+const LEGACY_COLOR_PRESET_MAP: Record<string, ColorPreset> = {
+  'relay-teal': 'tide-blue',
+  'slate-indigo': 'graphite-ink',
+  'amber-command': 'warm-graphite',
+  'graphite-neutral': 'graphite-ink',
+};
+
+const CUSTOM_ACCENT_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;
 
 function sanitizeRemoteProfiles(
   profiles: SettingsState['remoteSettings']['profiles'] | undefined
@@ -43,6 +70,91 @@ function sanitizeString(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
 }
 
+function sanitizeColorPreset(value: unknown, fallback: ColorPreset): ColorPreset {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  if (COLOR_PRESETS.includes(value as ColorPreset)) {
+    return value as ColorPreset;
+  }
+
+  return LEGACY_COLOR_PRESET_MAP[value] ?? fallback;
+}
+
+function sanitizeCustomAccentColor(value: unknown): string {
+  return typeof value === 'string' && CUSTOM_ACCENT_PATTERN.test(value) ? value.toLowerCase() : '';
+}
+
+function sanitizeThemeTokenSet(value: unknown, fallback: ThemeTokenSet): ThemeTokenSet {
+  if (!value || typeof value !== 'object') {
+    return fallback;
+  }
+
+  const candidate = value as Partial<Record<keyof ThemeTokenSet, unknown>>;
+
+  return {
+    background: sanitizeString(candidate.background, fallback.background),
+    foreground: sanitizeString(candidate.foreground, fallback.foreground),
+    card: sanitizeString(candidate.card, fallback.card),
+    popover: sanitizeString(candidate.popover, fallback.popover),
+    secondary: sanitizeString(candidate.secondary, fallback.secondary),
+    muted: sanitizeString(candidate.muted, fallback.muted),
+    mutedForeground: sanitizeString(candidate.mutedForeground, fallback.mutedForeground),
+    accent: sanitizeString(candidate.accent, fallback.accent),
+    accentForeground: sanitizeString(candidate.accentForeground, fallback.accentForeground),
+    primary: sanitizeString(candidate.primary, fallback.primary),
+    primaryForeground: sanitizeString(candidate.primaryForeground, fallback.primaryForeground),
+    support: sanitizeString(candidate.support, fallback.support),
+    supportForeground: sanitizeString(candidate.supportForeground, fallback.supportForeground),
+    border: sanitizeString(candidate.border, fallback.border),
+    input: sanitizeString(candidate.input, fallback.input),
+    ring: sanitizeString(candidate.ring, fallback.ring),
+    success: sanitizeString(candidate.success, fallback.success),
+    warning: sanitizeString(candidate.warning, fallback.warning),
+    info: sanitizeString(candidate.info, fallback.info),
+    destructive: sanitizeString(candidate.destructive, fallback.destructive),
+  };
+}
+
+function sanitizeCustomThemes(value: unknown): CustomThemeDocument[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry): CustomThemeDocument | null => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+
+      const candidate = entry as Partial<CustomThemeDocument>;
+      const sourcePresetId = sanitizeColorPreset(candidate.sourcePresetId, 'graphite-ink');
+      const lightFallback = resolvePresetThemeTokens(sourcePresetId, 'light');
+      const darkFallback = resolvePresetThemeTokens(sourcePresetId, 'dark');
+      const id = sanitizeString(candidate.id, '');
+      const name = sanitizeString(candidate.name, '').trim();
+
+      if (!id || !name) {
+        return null;
+      }
+
+      return {
+        id,
+        name,
+        sourceType: candidate.sourceType === 'blank' ? 'blank' : 'preset',
+        createdAt: clampNumber(candidate.createdAt, 0, Number.MAX_SAFE_INTEGER, Date.now()),
+        updatedAt: clampNumber(candidate.updatedAt, 0, Number.MAX_SAFE_INTEGER, Date.now()),
+        tokens: {
+          light: sanitizeThemeTokenSet(candidate.tokens?.light, lightFallback),
+          dark: sanitizeThemeTokenSet(candidate.tokens?.dark, darkFallback),
+        },
+        ...(candidate.sourceType === 'preset' ? { sourcePresetId } : {}),
+      } satisfies CustomThemeDocument;
+    })
+    .filter((entry): entry is CustomThemeDocument => entry !== null);
+}
+
 /**
  * Migrate persisted state to current state format
  * Handles version upgrades, field sanitization, and legacy data migration
@@ -56,6 +168,33 @@ export function migrateSettings(
   }
 
   const persisted = persistedState;
+  const sanitizedColorPreset = sanitizeColorPreset(persisted.colorPreset, currentState.colorPreset);
+  const sanitizedCustomAccentColor = sanitizeCustomAccentColor(persisted.customAccentColor);
+  const sanitizedCustomThemes = sanitizeCustomThemes(persisted.customThemes);
+  const persistedActiveThemeSelection = persisted.activeThemeSelection;
+  const sanitizedCustomThemeId =
+    persistedActiveThemeSelection?.kind === 'custom'
+      ? (sanitizedCustomThemes.find(
+          (theme) => theme.id === persistedActiveThemeSelection.customThemeId
+        )?.id ??
+        sanitizedCustomThemes[0]?.id ??
+        '')
+      : '';
+  const sanitizedActiveThemeSelection =
+    persistedActiveThemeSelection?.kind === 'custom'
+      ? {
+          kind: 'custom' as const,
+          customThemeId: sanitizedCustomThemeId,
+        }
+      : {
+          kind: 'preset' as const,
+          presetId: sanitizeColorPreset(
+            persistedActiveThemeSelection?.kind === 'preset'
+              ? persistedActiveThemeSelection.presetId
+              : undefined,
+            sanitizedColorPreset
+          ),
+        };
 
   // Sanitize background image settings
   const sanitizedBackgroundOpacity = clampNumber(
@@ -157,6 +296,17 @@ export function migrateSettings(
   return {
     ...currentState,
     ...persisted,
+    colorPreset: sanitizedColorPreset,
+    customAccentColor: sanitizedCustomAccentColor,
+    customThemes: sanitizedCustomThemes,
+    activeThemeSelection:
+      sanitizedActiveThemeSelection.kind === 'custom' &&
+      !sanitizedActiveThemeSelection.customThemeId
+        ? {
+            kind: 'preset',
+            presetId: sanitizedColorPreset,
+          }
+        : sanitizedActiveThemeSelection,
     // Override with migrated/sanitized values
     ...(terminalRenderer && { terminalRenderer }),
     terminalScrollback,

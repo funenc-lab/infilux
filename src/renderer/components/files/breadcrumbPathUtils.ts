@@ -8,11 +8,25 @@ function trimTrailingSeparators(path: string): string {
   return path.replace(/[\\/]+$/, '');
 }
 
+function isWindowsStylePath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(path) || /^\\\\/.test(path);
+}
+
+function usesCaseInsensitiveComparison(path: string): boolean {
+  if (isWindowsStylePath(path)) {
+    return true;
+  }
+
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return /\b(mac|darwin|win)\b/i.test(navigator.userAgent);
+}
+
 function normalizeComparisonPath(path: string): string {
   const trimmed = trimTrailingSeparators(path).replace(/\\/g, '/');
-  return process.platform === 'win32' || process.platform === 'darwin'
-    ? trimmed.toLowerCase()
-    : trimmed;
+  return usesCaseInsensitiveComparison(path) ? trimmed.toLowerCase() : trimmed;
 }
 
 function recoverNestedAbsolutePath(
