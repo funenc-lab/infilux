@@ -68,13 +68,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
 import { useGitSync } from '@/hooks/useGitSync';
@@ -93,6 +86,7 @@ import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
+import { SidebarEmptyState } from './SidebarEmptyState';
 
 interface TreeSidebarProps {
   repositories: Repository[];
@@ -1188,36 +1182,57 @@ export function TreeSidebar({
         )}
 
         {repositories.length === 0 ? (
-          <Empty className="h-full border-0">
-            <EmptyMedia variant="icon">
-              <FolderGit2 className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle className="text-base">{t('Add Repository')}</EmptyTitle>
-              <EmptyDescription>{t('Add a repository to get started.')}</EmptyDescription>
-            </EmptyHeader>
-            <Button
-              onClick={(e) => {
-                e.currentTarget.blur();
-                onAddRepository();
-              }}
-              variant="outline"
-              className="mt-2"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              {t('Add Repository')}
-            </Button>
-          </Empty>
+          <div className="flex h-full items-start justify-start px-2 py-3">
+            <SidebarEmptyState
+              icon={<FolderGit2 className="h-4.5 w-4.5" />}
+              label={t('Getting Started')}
+              title={t('No repositories yet')}
+              description={t(
+                'Add one to unlock worktrees, files, terminals, and agent sessions from this sidebar.'
+              )}
+              actions={
+                <Button
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onAddRepository();
+                  }}
+                  variant="default"
+                  size="sm"
+                  className="control-action-button control-action-button-primary rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
+                >
+                  <Plus className="h-4 w-4" />
+                  {t('Add Repository')}
+                </Button>
+              }
+            />
+          </div>
         ) : filteredRepos.length === 0 ? (
-          <Empty className="h-full border-0">
-            <EmptyMedia variant="icon">
-              <Search className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle className="text-base">{t('No matching results')}</EmptyTitle>
-              <EmptyDescription>{t('Try a different search term')}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <div className="flex h-full items-start justify-start px-2 py-3">
+            <SidebarEmptyState
+              icon={<Search className="h-4.5 w-4.5" />}
+              label={t('Filtered View')}
+              title={t('No matches')}
+              description={t(
+                'No repositories or temp sessions match the current search. Try a broader term or clear the filter.'
+              )}
+              meta={t('Filter: {{query}}', {
+                query: searchQuery.trim() || t('Search query'),
+              })}
+              actions={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="control-action-button control-action-button-secondary h-8 rounded-lg px-3 text-sm"
+                  onClick={() => {
+                    setSearchQuery('');
+                    searchInputRef.current?.focus();
+                  }}
+                >
+                  {t('Clear Search')}
+                </Button>
+              }
+            />
+          </div>
         ) : (
           <LayoutGroup>
             {showSections ? (

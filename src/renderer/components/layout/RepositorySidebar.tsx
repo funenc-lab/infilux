@@ -50,8 +50,8 @@ import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
-import { ConsoleEmptyState } from './ConsoleEmptyState';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
+import { SidebarEmptyState } from './SidebarEmptyState';
 
 interface Repository {
   name: string;
@@ -592,41 +592,39 @@ export function RepositorySidebar({
           </div>
         )}
         {filteredRepos.length === 0 && hasSearchFilter ? (
-          <div className="flex h-full items-center justify-center p-3">
-            <ConsoleEmptyState
-              variant="embedded"
+          <div className="flex h-full items-start justify-start px-2 py-3">
+            <SidebarEmptyState
               icon={<Search className="h-4.5 w-4.5" />}
-              eyebrow={t('Repository Sidebar')}
-              title={t('No matching repositories')}
-              description={t(
-                'No repositories match the current filters. Adjust the search query or clear the active filter token.'
-              )}
-              chips={[{ label: t('Filtered View'), tone: 'wait' }]}
-              details={[
-                { label: t('Status'), value: t('Search returned no repositories') },
-                { label: t('Active Filter'), value: searchQuery.trim() || t('Search query') },
-                { label: t('Next Step'), value: t('Try another search term or clear filters') },
-              ]}
-              detailsLayout="compact"
+              label={t('Filtered View')}
+              title={t('No matches')}
+              description={t('Try a broader search or clear the current filter.')}
+              meta={t('Filter: {{query}}', {
+                query: searchQuery.trim() || t('Search query'),
+              })}
+              actions={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="control-action-button control-action-button-secondary h-8 rounded-lg px-3 text-sm"
+                  onClick={() => {
+                    setSearchQuery('');
+                    searchInputRef.current?.focus();
+                  }}
+                >
+                  {t('Clear Search')}
+                </Button>
+              }
             />
           </div>
         ) : repositories.length === 0 ? (
-          <div className="flex h-full items-center justify-center p-3">
-            <ConsoleEmptyState
-              variant="embedded"
+          <div className="flex h-full items-start justify-start px-2 py-3">
+            <SidebarEmptyState
               icon={<FolderGit2 className="h-4.5 w-4.5" />}
-              eyebrow={t('Repository Sidebar')}
-              title={t('No repositories connected')}
+              label={t('Getting Started')}
+              title={t('No repositories yet')}
               description={t(
-                'Add a repository to start switching context, browsing worktrees, and opening the rest of the operational surfaces.'
+                'Add one to start switching context, browsing worktrees, and opening operational surfaces.'
               )}
-              chips={[{ label: t('Awaiting Repository'), tone: 'wait' }]}
-              details={[
-                { label: t('Status'), value: t('Repository list is empty') },
-                { label: t('Panel'), value: t('Repository Sidebar') },
-                { label: t('Next Step'), value: t('Add a repository to begin') },
-              ]}
-              detailsLayout="compact"
               actions={
                 <Button
                   onClick={(e) => {
@@ -635,7 +633,7 @@ export function RepositorySidebar({
                   }}
                   variant="default"
                   size="sm"
-                  className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+                  className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
                 >
                   <Plus className="h-4 w-4" />
                   {t('Add Repository')}

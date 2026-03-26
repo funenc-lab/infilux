@@ -13,6 +13,11 @@ const terminalPanelSource = readFileSync(
   resolve(currentDir, '../../terminal/TerminalPanel.tsx'),
   'utf8'
 );
+const filePanelSource = readFileSync(resolve(currentDir, '../../files/FilePanel.tsx'), 'utf8');
+const currentFilePanelSource = readFileSync(
+  resolve(currentDir, '../../files/CurrentFilePanel.tsx'),
+  'utf8'
+);
 
 describe('Console empty state action styles', () => {
   it('uses shared console action button classes in the editor empty state', () => {
@@ -31,5 +36,14 @@ describe('Console empty state action styles', () => {
     expect(terminalPanelSource).toContain('control-action-button');
     expect(terminalPanelSource).toContain('control-action-button-primary');
     expect(terminalPanelSource).toContain('variant="default"');
+  });
+
+  it('uses shared console action button classes in the file panel empty states', () => {
+    expect(filePanelSource).toContain('control-action-button');
+    expect(filePanelSource).toContain('control-action-button-primary');
+    expect(filePanelSource).toContain('variant="default"');
+    expect(currentFilePanelSource).toContain('control-action-button');
+    expect(currentFilePanelSource).toContain('control-action-button-primary');
+    expect(currentFilePanelSource).toContain('variant="default"');
   });
 });

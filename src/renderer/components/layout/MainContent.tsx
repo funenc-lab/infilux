@@ -21,7 +21,6 @@ import { RunningProjectsPopover } from '@/components/layout/RunningProjectsPopov
 import type { SettingsCategory } from '@/components/settings/constants';
 import { getMainContentLiveStatus } from '@/components/ui/activityStatus';
 import { Button } from '@/components/ui/button';
-import { EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { useI18n } from '@/i18n';
 import { springFast } from '@/lib/motion';
@@ -32,6 +31,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
+import { ConsoleEmptyState } from './ConsoleEmptyState';
 import { DeferredAgentPanel } from './DeferredAgentPanel';
 import { DeferredCurrentFilePanel } from './DeferredCurrentFilePanel';
 import { DeferredDiffReviewModal } from './DeferredDiffReviewModal';
@@ -71,48 +71,64 @@ function getAgentLabel(agentId?: string | null): string | null {
 function ConsoleIdleState({
   title,
   description,
-  action,
+  repoLabel,
+  worktreeCollapsed = false,
+  onExpandWorktree,
 }: {
   title: string;
   description: string;
-  action?: React.ReactNode;
+  repoLabel?: string | null;
+  worktreeCollapsed?: boolean;
+  onExpandWorktree?: (() => void) | undefined;
 }) {
+  const { t } = useI18n();
+  const hasRepoContext = Boolean(repoLabel);
+  const nextStep =
+    onExpandWorktree && worktreeCollapsed
+      ? t('Expand the worktree sidebar and choose a worktree')
+      : hasRepoContext
+        ? t('Choose a worktree to continue in this repository')
+        : t('Add or select a repository, then choose a worktree');
+
   return (
     <div className="flex h-full items-center justify-center p-6 md:p-8">
-      <div className="w-full max-w-3xl">
-        <div className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          AI Collaboration Console
-        </div>
-        <EmptyHeader className="mt-3 max-w-2xl items-start text-left">
-          <EmptyTitle className="text-2xl font-semibold tracking-[-0.03em]">{title}</EmptyTitle>
-          <EmptyDescription className="mt-3 max-w-xl text-sm leading-6">
-            {description}
-          </EmptyDescription>
-        </EmptyHeader>
-
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-border/70 bg-background px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <Sparkles className="h-4 w-4 text-primary" />
-              Agent
-            </div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Start or resume a session after selecting the correct worktree.
-            </p>
-          </div>
-          <div className="rounded-xl border border-border/70 bg-background px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <Terminal className="h-4 w-4 text-primary" />
-              Runtime
-            </div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Keep terminal output close to the active task so interventions stay quick.
-            </p>
-          </div>
-        </div>
-
-        {action ? <div className="mt-6 flex items-center gap-3">{action}</div> : null}
-      </div>
+      <ConsoleEmptyState
+        className="max-w-[min(56rem,100%)]"
+        icon={<Sparkles className="h-5 w-5" />}
+        eyebrow={t('AI Collaboration Console')}
+        title={title}
+        description={description}
+        chips={[
+          {
+            label: hasRepoContext ? (repoLabel ?? t('Repository Ready')) : t('Awaiting Worktree'),
+            tone: hasRepoContext ? 'strong' : 'wait',
+          },
+        ]}
+        details={[
+          {
+            label: t('Status'),
+            value: hasRepoContext
+              ? t('No active worktree selected')
+              : t('No repository or worktree selected'),
+          },
+          { label: t('Panel'), value: t('AI Agent') },
+          { label: t('Repository'), value: repoLabel ?? t('No repository selected') },
+          { label: t('Next Step'), value: nextStep },
+        ]}
+        detailsLayout="compact"
+        actions={
+          onExpandWorktree && worktreeCollapsed ? (
+            <Button
+              onClick={onExpandWorktree}
+              variant="default"
+              className="control-action-button control-action-button-primary rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+            >
+              <GitBranch className="mr-2 h-4 w-4" />
+              {t('Choose Worktree')}
+            </Button>
+          ) : null
+        }
+      />
     </div>
   );
 }
@@ -558,9 +574,9 @@ export function MainContent({
   return (
     <main className={cn('flex min-w-0 flex-1 flex-col overflow-hidden bg-background')}>
       <header
+        data-background={bgImageEnabled ? 'transparent' : 'surface'}
         className={cn(
-          'shrink-0 border-b border-border/60 px-3 py-2 drag-region',
-          innerBg,
+          'control-topbar-header shrink-0 drag-region',
           needsTrafficLightPadding && 'pl-[80px]'
         )}
       >
@@ -699,10 +715,9 @@ export function MainContent({
               <button
                 type="button"
                 data-active={isSettingsActive ? 'true' : 'false'}
-                data-role="shell"
                 aria-label={t('Settings')}
                 aria-pressed={isSettingsActive}
-                className={cn(headerButtonClass, 'control-topbar-shell-button w-8 px-0')}
+                className={headerButtonClass}
                 onClick={onToggleSettings}
                 title={t('Settings')}
               >
@@ -832,18 +847,9 @@ export function MainContent({
                     <ConsoleIdleState
                       title={t('Select a Worktree')}
                       description={t('Choose a worktree to continue using AI Agent')}
-                      action={
-                        onExpandWorktree && worktreeCollapsed ? (
-                          <Button
-                            onClick={onExpandWorktree}
-                            variant="outline"
-                            className="control-panel-muted rounded-xl border-0"
-                          >
-                            <GitBranch className="mr-2 h-4 w-4" />
-                            {t('Choose Worktree')}
-                          </Button>
-                        ) : null
-                      }
+                      repoLabel={repoLabel}
+                      worktreeCollapsed={worktreeCollapsed}
+                      onExpandWorktree={onExpandWorktree}
                     />
                   </div>
                 )}
@@ -853,18 +859,9 @@ export function MainContent({
                 <ConsoleIdleState
                   title={t('Start using AI Agent')}
                   description={t('Select a Worktree to start using AI coding assistant')}
-                  action={
-                    onExpandWorktree && worktreeCollapsed ? (
-                      <Button
-                        onClick={onExpandWorktree}
-                        variant="outline"
-                        className="control-panel-muted rounded-xl border-0"
-                      >
-                        <GitBranch className="mr-2 h-4 w-4" />
-                        {t('Choose Worktree')}
-                      </Button>
-                    ) : null
-                  }
+                  repoLabel={repoLabel}
+                  worktreeCollapsed={worktreeCollapsed}
+                  onExpandWorktree={onExpandWorktree}
                 />
               </div>
             )}
