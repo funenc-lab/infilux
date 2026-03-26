@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="Infilux Logo" width="120" />
+  <picture>
+    <source srcset="src/renderer/assets/logo.svg" type="image/svg+xml" />
+    <img src="docs/assets/logo.png" alt="Infilux Logo" width="120" />
+  </picture>
 </p>
 
 <h1 align="center">Infilux</h1>
