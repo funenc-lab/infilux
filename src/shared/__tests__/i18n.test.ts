@@ -18,6 +18,11 @@ describe('shared i18n helpers', () => {
     ).toBe('从此侧边栏添加一个仓库，即可解锁 worktree、文件、终端和 Agent 会话。');
     expect(getTranslation('zh', 'Missing key')).toBe('Missing key');
     expect(getTranslation('en', 'Action Panel')).toBe('Action Panel');
+    expect(getTranslation('zh', 'Interface typography')).toBe('界面排版');
+    expect(getTranslation('zh', 'UI font')).toBe('界面字体');
+    expect(getTranslation('zh', 'UI font size')).toBe('界面字号');
+    expect(getTranslation('zh', 'Interface sample')).toBe('界面示例');
+    expect(getTranslation('zh', 'Workspace control surface')).toBe('工作台控制界面');
   });
 
   it('interpolates template parameters without replacing unknown tokens', () => {

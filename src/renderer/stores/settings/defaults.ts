@@ -1,3 +1,4 @@
+import type { Locale } from '@shared/i18n';
 import { normalizeLocale } from '@shared/i18n';
 import type { ProxySettings } from '@shared/types';
 import type {
@@ -445,21 +446,31 @@ export function getDefaultShellConfig(): import('@shared/types').ShellConfig {
 }
 
 /**
- * Get default UI font family based on platform.
+ * Get default UI font family based on platform and locale.
  * Keep the stack operational and native-feeling before any user override.
  */
-export function getDefaultUIFontFamily(): string {
-  const executionPlatform = window.electronAPI?.env?.platform;
+export function getDefaultUIFontFamily(locale: Locale = getDefaultLocale()): string {
+  const executionPlatform =
+    typeof window !== 'undefined' ? window.electronAPI?.env?.platform : undefined;
+  const normalizedLocale = normalizeLocale(locale);
 
   switch (executionPlatform) {
     case 'darwin':
-      return '"SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif';
+      return normalizedLocale === 'zh'
+        ? '"PingFang SC", "Hiragino Sans GB", "SF Pro Text", "Helvetica Neue", system-ui, sans-serif'
+        : '"SF Pro Text", "Helvetica Neue", system-ui, sans-serif';
     case 'win32':
-      return '"Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
+      return normalizedLocale === 'zh'
+        ? '"Microsoft YaHei UI", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif'
+        : '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
     case 'linux':
-      return '"Noto Sans CJK SC", "Noto Sans", "Ubuntu", "Liberation Sans", system-ui, sans-serif';
+      return normalizedLocale === 'zh'
+        ? '"Noto Sans CJK SC", "Noto Sans", "Ubuntu", "Liberation Sans", system-ui, sans-serif'
+        : '"Noto Sans", "Ubuntu", "Liberation Sans", system-ui, sans-serif';
     default:
-      return '"Aptos", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans", system-ui, sans-serif';
+      return normalizedLocale === 'zh'
+        ? '"PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", system-ui, sans-serif'
+        : '"Aptos", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans", system-ui, sans-serif';
   }
 }
 

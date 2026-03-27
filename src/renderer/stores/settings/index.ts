@@ -161,6 +161,8 @@ function applyInitialSettings(state: {
 
 // Get initial state values
 function getInitialState() {
+  const defaultLanguage = getDefaultLocale();
+
   return {
     // UI Settings
     theme: 'system' as Theme,
@@ -171,9 +173,9 @@ function getInitialState() {
     layoutMode: 'tree' as const,
     fileTreeDisplayMode: 'legacy' as const,
     repositoryListDisplayMode: 'list' as const,
-    language: getDefaultLocale(),
+    language: defaultLanguage,
     fontSize: 14,
-    fontFamily: getDefaultUIFontFamily(),
+    fontFamily: getDefaultUIFontFamily(defaultLanguage),
 
     // Terminal Settings
     terminalFontSize: 18,
@@ -508,9 +510,22 @@ export const useSettingsStore = create<SettingsState>()(
         set({ repositoryListDisplayMode }),
 
       setLanguage: (language) => {
-        document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
-        window.electronAPI.app.setLanguage(language);
-        set({ language });
+        const normalizedLanguage = normalizeLocale(language);
+        const currentState = get();
+        const currentDefaultFontFamily = getDefaultUIFontFamily(currentState.language);
+        const nextDefaultFontFamily = getDefaultUIFontFamily(normalizedLanguage);
+        const nextFontFamily =
+          currentState.fontFamily === currentDefaultFontFamily
+            ? nextDefaultFontFamily
+            : currentState.fontFamily;
+
+        document.documentElement.lang = normalizedLanguage === 'zh' ? 'zh-CN' : 'en';
+        window.electronAPI.app.setLanguage(normalizedLanguage);
+        applyAppTypography(nextFontFamily, currentState.fontSize);
+        set({
+          language: normalizedLanguage,
+          fontFamily: nextFontFamily,
+        });
       },
 
       setFontSize: (fontSize) => {

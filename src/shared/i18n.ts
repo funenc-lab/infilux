@@ -52,6 +52,15 @@ export const zhTranslations: Record<string, string> = {
   Brightness: '亮度',
   Saturation: '饱和度',
   'Editor sample': '编辑器示例',
+  'Interface typography': '界面排版',
+  'Adjust the app font family and UI base size without changing editor or terminal text.':
+    '调整应用界面的字体与基础字号，不影响编辑器和终端文本。',
+  'Interface sample': '界面示例',
+  'Workspace control surface': '工作台控制界面',
+  'This preview follows the app typography tokens only. Editor and terminal fonts stay independent.':
+    '此预览仅跟随应用界面的排版设置，编辑器和终端字体保持独立。',
+  'UI font': '界面字体',
+  'UI font size': '界面字号',
   'Live code preview': '实时代码预览',
   'Reading profile': '阅读预设',
   'Apply a tuned editor profile before adjusting individual controls':

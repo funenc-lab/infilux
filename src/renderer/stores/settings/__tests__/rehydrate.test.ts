@@ -140,7 +140,7 @@ describe('settings rehydrate', () => {
     });
     expect(styleSetProperty).toHaveBeenCalledWith(
       '--font-family-sans',
-      '"SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif'
+      '"PingFang SC", "Hiragino Sans GB", "SF Pro Text", "Helvetica Neue", system-ui, sans-serif'
     );
     expect(styleSetProperty).toHaveBeenCalledWith('--app-font-size-base', '14px');
     expect(styleSetProperty).toHaveBeenCalledWith('--font-family-mono', 'Fira Code');

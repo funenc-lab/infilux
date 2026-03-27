@@ -1,4 +1,6 @@
+import { normalizeLocale } from '@shared/i18n';
 import { resolvePresetThemeTokens } from '@/lib/appTheme';
+import { getDefaultUIFontFamily } from './defaults';
 import { normalizeTerminalScrollback } from './terminalScrollbackPolicy';
 import type {
   ColorPreset,
@@ -169,6 +171,7 @@ export function migrateSettings(
   }
 
   const persisted = persistedState;
+  const sanitizedLanguage = normalizeLocale(persisted.language);
   const sanitizedColorPreset = sanitizeColorPreset(persisted.colorPreset, currentState.colorPreset);
   const sanitizedCustomAccentColor = sanitizeCustomAccentColor(persisted.customAccentColor);
   const sanitizedCustomThemes = sanitizeCustomThemes(persisted.customThemes);
@@ -294,9 +297,16 @@ export function migrateSettings(
     })
   );
 
+  const sanitizedFontFamily =
+    typeof persisted.fontFamily === 'string' && persisted.fontFamily.trim().length > 0
+      ? persisted.fontFamily
+      : getDefaultUIFontFamily(sanitizedLanguage);
+
   return {
     ...currentState,
     ...persisted,
+    language: sanitizedLanguage,
+    fontFamily: sanitizedFontFamily,
     colorPreset: sanitizedColorPreset,
     customAccentColor: sanitizedCustomAccentColor,
     customThemes: sanitizedCustomThemes,
