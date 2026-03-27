@@ -157,9 +157,9 @@ describe('resolveEditorVisualPalette', () => {
       customTheme: null,
     });
 
-    expect(palette.lineNumber).toBe('#777d84');
-    expect(palette.indentGuide).toBe('#454a4e');
-    expect(palette.indentGuideActive).toBe('#5f666d');
+    expect(palette.lineNumber).toBe('#7c8289');
+    expect(palette.indentGuide).toBe('#464b50');
+    expect(palette.indentGuideActive).toBe('#61686f');
   });
 
   it('enforces editor clarity thresholds across every preset', () => {
