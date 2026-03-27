@@ -94,6 +94,19 @@ describe('resolveEditorVisualPalette', () => {
     expect(palette.support).toBe('#8c756d');
   });
 
+  it('falls back to warm graphite editor accents when the preset id is unknown', () => {
+    const palette = resolveEditorVisualPalette({
+      theme: 'dark',
+      terminalTheme: 'Dracula',
+      colorPreset: 'unknown-preset' as never,
+      customAccentColor: '',
+      customTheme: null,
+    });
+
+    expect(palette.accent).toBe('#c2875d');
+    expect(palette.support).toBe('#6b8c72');
+  });
+
   it('resolves custom theme oklch tokens through computed styles instead of falling back to the dark defaults', () => {
     const previousWindow = globalThis.window;
     const previousDocument = globalThis.document;

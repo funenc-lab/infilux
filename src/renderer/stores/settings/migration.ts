@@ -30,6 +30,7 @@ const LEGACY_COLOR_PRESET_MAP: Record<string, ColorPreset> = {
 };
 
 const CUSTOM_ACCENT_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;
+const SAFE_THEME_SOURCE_PRESET: ColorPreset = 'warm-graphite';
 
 function sanitizeRemoteProfiles(
   profiles: SettingsState['remoteSettings']['profiles'] | undefined
@@ -132,7 +133,10 @@ function sanitizeCustomThemes(value: unknown): CustomThemeDocument[] {
       }
 
       const candidate = entry as Partial<CustomThemeDocument>;
-      const sourcePresetId = sanitizeColorPreset(candidate.sourcePresetId, 'graphite-ink');
+      const sourcePresetId = sanitizeColorPreset(
+        candidate.sourcePresetId,
+        SAFE_THEME_SOURCE_PRESET
+      );
       const lightFallback = resolvePresetThemeTokens(sourcePresetId, 'light');
       const darkFallback = resolvePresetThemeTokens(sourcePresetId, 'dark');
       const id = sanitizeString(candidate.id, '');

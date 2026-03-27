@@ -326,6 +326,15 @@ describe('migrateSettings', () => {
             tokens: {},
           },
           {
+            id: 'invalid-preset-theme',
+            name: 'Invalid Preset Theme',
+            sourceType: 'preset',
+            sourcePresetId: 'unknown-preset',
+            createdAt: 14,
+            updatedAt: 15,
+            tokens: {},
+          },
+          {
             id: '',
             name: 'invalid',
           },
@@ -338,7 +347,7 @@ describe('migrateSettings', () => {
       createCurrentState()
     );
 
-    expect(result.customThemes).toHaveLength(2);
+    expect(result.customThemes).toHaveLength(3);
     expect(result.customThemes[0]).toMatchObject({
       id: 'preset-theme',
       name: 'Preset Theme',
@@ -352,6 +361,12 @@ describe('migrateSettings', () => {
       sourceType: 'blank',
     });
     expect('sourcePresetId' in result.customThemes[1]).toBe(false);
+    expect(result.customThemes[2]).toMatchObject({
+      id: 'invalid-preset-theme',
+      name: 'Invalid Preset Theme',
+      sourceType: 'preset',
+      sourcePresetId: 'warm-graphite',
+    });
     expect(result.activeThemeSelection).toEqual({
       kind: 'custom',
       customThemeId: 'preset-theme',

@@ -87,17 +87,17 @@ describe('resolveColorPresetVariables', () => {
     expect(vars['--success']).toBe('oklch(0.678 0.116 154)');
   });
 
-  it('falls back to the default preset when the runtime preset id is unknown', () => {
+  it('falls back to a neutral warm graphite preset when the runtime preset id is unknown', () => {
     const vars = resolveColorPresetVariables(
       'dark',
       'unknown-preset' as unknown as Parameters<typeof resolveColorPresetVariables>[1],
       'invalid'
     );
 
-    expect(vars['--background']).toBe('oklch(0.165 0.01 248)');
-    expect(vars['--primary']).toBe('oklch(0.74 0.09 242)');
-    expect(vars['--accent']).toBe('oklch(0.296 0.034 242)');
-    expect(vars['--theme']).toBe('oklch(0.74 0.09 242)');
+    expect(vars['--background']).toBe('oklch(0.175 0.011 42)');
+    expect(vars['--primary']).toBe('oklch(0.756 0.09 44)');
+    expect(vars['--accent']).toBe('oklch(0.304 0.03 44)');
+    expect(vars['--theme']).toBe('oklch(0.756 0.09 44)');
   });
 
   it('uses the dark-mode custom accent mix and readable dark foreground for bright accents', () => {

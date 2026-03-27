@@ -1,5 +1,5 @@
 import {
-  APP_COLOR_PRESET_OPTIONS,
+  getColorPresetOption,
   normalizeColorPreset,
   sanitizeCustomAccentColor,
 } from '@/lib/appTheme';
@@ -485,16 +485,23 @@ function deriveCustomThemeEditorPalette(
 }
 
 function resolvePresetOption(preset: ColorPreset) {
-  const normalizedPreset = normalizeColorPreset(preset);
-  return APP_COLOR_PRESET_OPTIONS.find((option) => option.id === normalizedPreset);
+  return getColorPresetOption(normalizeColorPreset(preset));
+}
+
+function resolveEditorPresetPalette(
+  preset: ColorPreset,
+  mode: 'light' | 'dark'
+): EditorSyntaxPalette {
+  const resolvedPreset = resolvePresetOption(preset).id;
+  return editorPalettes[resolvedPreset][mode];
 }
 
 function resolveDefaultEditorAccent(preset: ColorPreset): string {
-  return resolvePresetOption(preset)?.themeHex ?? '#7d94c9';
+  return resolvePresetOption(preset).themeHex;
 }
 
 function resolveEditorSupportColor(preset: ColorPreset): string {
-  return resolvePresetOption(preset)?.supportHex ?? '#5e8f92';
+  return resolvePresetOption(preset).supportHex;
 }
 
 function resolveEditorSemanticDiff(
@@ -548,7 +555,7 @@ export function resolveEditorVisualPalette({
   const normalizedPreset = normalizeColorPreset(colorPreset);
   const palette = customTheme
     ? deriveCustomThemeEditorPalette(customTheme, mode)
-    : editorPalettes[normalizedPreset][mode];
+    : resolveEditorPresetPalette(normalizedPreset, mode);
   const accent = customTheme
     ? toHexColor(customTheme.tokens[mode].primary, resolveDefaultEditorAccent(normalizedPreset))
     : sanitizeCustomAccentColor(customAccentColor) || resolveDefaultEditorAccent(normalizedPreset);

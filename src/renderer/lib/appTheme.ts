@@ -50,6 +50,7 @@ type SemanticPresetFamily = 'signal-console' | 'cool-console' | 'warm-console';
 const CUSTOM_ACCENT_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;
 const CUSTOM_ACCENT_DARK_FOREGROUND = '#081018';
 const CUSTOM_ACCENT_LIGHT_FOREGROUND = '#f5f7fb';
+const SAFE_FALLBACK_COLOR_PRESET: ColorPreset = 'warm-graphite';
 
 export const APP_THEME_TOKEN_GROUPS = [
   {
@@ -92,6 +93,12 @@ const RETIRED_COLOR_PRESET_MAP: Record<string, ColorPreset> = {
   'classic-red': 'warm-graphite',
   'red-graphite-oled': 'midnight-oled',
 };
+
+function resolvePresetDefinition(preset: ColorPreset): ThemePresetDefinition {
+  return (
+    presetDefinitions[normalizeColorPreset(preset)] ?? presetDefinitions[SAFE_FALLBACK_COLOR_PRESET]
+  );
+}
 
 function mixToken(left: string, right: string, leftWeight: string): string {
   const numericLeftWeight = Number.parseInt(leftWeight, 10);
@@ -698,7 +705,7 @@ function getReadableForeground(hex: string): string {
 }
 
 function resolveSemanticPresetFamily(preset: ColorPreset): SemanticPresetFamily {
-  return presetDefinitions[normalizeColorPreset(preset)]?.semanticFamily ?? 'cool-console';
+  return resolvePresetDefinition(preset).semanticFamily;
 }
 
 function resolveCustomThemeSemanticVariables(
@@ -812,18 +819,14 @@ export function normalizeColorPreset(preset: ColorPreset): ColorPreset {
 }
 
 export function getColorPresetOption(preset: ColorPreset): ColorPresetOption {
-  return (
-    presetDefinitions[normalizeColorPreset(preset)]?.option ??
-    presetDefinitions['graphite-ink'].option
-  );
+  return resolvePresetDefinition(preset).option;
 }
 
 export function resolvePresetThemeTokens(
   preset: ColorPreset,
   mode: ResolvedThemeMode
 ): ThemeTokenSet {
-  const presetDefinition =
-    presetDefinitions[normalizeColorPreset(preset)] ?? presetDefinitions['graphite-ink'];
+  const presetDefinition = resolvePresetDefinition(preset);
   return createThemeTokenSet(
     presetDefinition.palettes[mode],
     semanticColorVariables[presetDefinition.semanticFamily][mode]
@@ -889,8 +892,7 @@ export function resolveColorPresetVariables(
   preset: ColorPreset,
   customAccentColor: string
 ): ThemeVariableMap {
-  const presetDefinition =
-    presetDefinitions[normalizeColorPreset(preset)] ?? presetDefinitions['graphite-ink'];
+  const presetDefinition = resolvePresetDefinition(preset);
   const foundation = createFoundationPalette(presetDefinition.palettes[mode]);
   const semanticVariables = semanticColorVariables[presetDefinition.semanticFamily][mode];
   const accentOverrides = createCustomAccentOverrides(mode, foundation, customAccentColor);
