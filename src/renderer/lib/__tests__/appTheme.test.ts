@@ -27,12 +27,12 @@ describe('resolveColorPresetVariables', () => {
   it('returns the graphite-ink preset tokens for dark mode', () => {
     const vars = resolveColorPresetVariables('dark', 'graphite-ink', '');
 
-    expect(vars['--background']).toBe('oklch(0.165 0.01 248)');
-    expect(vars['--primary']).toBe('oklch(0.74 0.09 242)');
-    expect(vars['--accent']).toBe('oklch(0.296 0.034 242)');
-    expect(vars['--support']).toBe('oklch(0.72 0.058 196)');
-    expect(vars['--theme']).toBe('oklch(0.74 0.09 242)');
-    expect(vars['--ring']).toBe('oklch(0.784 0.1 242)');
+    expect(vars['--background']).toBe('oklch(0.165 0.006 242)');
+    expect(vars['--primary']).toBe('oklch(0.74 0.05 242)');
+    expect(vars['--accent']).toBe('oklch(0.296 0.016 242)');
+    expect(vars['--support']).toBe('oklch(0.72 0.035 196)');
+    expect(vars['--theme']).toBe('oklch(0.74 0.05 242)');
+    expect(vars['--ring']).toBe('oklch(0.784 0.058 242)');
     expect(vars['--info']).toBe('oklch(0.742 0.1 244)');
   });
 
@@ -46,14 +46,14 @@ describe('resolveColorPresetVariables', () => {
     expect(vars['--ring']).toBe('oklch(0.662 0.118 220)');
   });
 
-  it('preserves midnight core identity in light mode instead of collapsing into graphite ink', () => {
+  it('preserves the dark preset identity in light mode instead of collapsing into graphite ink', () => {
     const vars = resolveColorPresetVariables('light', 'midnight-oled', '');
 
-    expect(vars['--background']).toBe('oklch(0.968 0.012 266)');
-    expect(vars['--accent']).toBe('oklch(0.912 0.044 254)');
-    expect(vars['--primary']).toBe('oklch(0.556 0.102 246)');
-    expect(vars['--support']).toBe('oklch(0.552 0.094 290)');
-    expect(vars['--ring']).toBe('oklch(0.636 0.112 246)');
+    expect(vars['--background']).toBe('oklch(0.952 0.003 250)');
+    expect(vars['--accent']).toBe('oklch(0.888 0.01 250)');
+    expect(vars['--primary']).toBe('oklch(0.578 0.022 250)');
+    expect(vars['--support']).toBe('oklch(0.662 0.09 58)');
+    expect(vars['--ring']).toBe('oklch(0.656 0.028 250)');
   });
 
   it('keeps paper console dark mode grounded enough for operational surfaces', () => {
@@ -76,14 +76,14 @@ describe('resolveColorPresetVariables', () => {
     expect(vars['--ring']).toBe('oklch(0.8 0.095 44)');
   });
 
-  it('normalizes the retired forge-red oled preset to midnight core', () => {
+  it('normalizes the retired forge-red oled preset to graphite black', () => {
     const vars = resolveColorPresetVariables('dark', 'red-graphite-oled', '');
 
     expect(getColorPresetOption('red-graphite-oled').id).toBe('midnight-oled');
-    expect(vars['--background']).toBe('oklch(0.118 0.006 250)');
-    expect(vars['--primary']).toBe('oklch(0.792 0.082 242)');
-    expect(vars['--support']).toBe('oklch(0.72 0.074 282)');
-    expect(vars['--ring']).toBe('oklch(0.83 0.09 242)');
+    expect(vars['--background']).toBe('oklch(0.185 0.003 250)');
+    expect(vars['--primary']).toBe('oklch(0.788 0.028 250)');
+    expect(vars['--support']).toBe('oklch(0.736 0.1 58)');
+    expect(vars['--ring']).toBe('oklch(0.832 0.034 250)');
     expect(vars['--success']).toBe('oklch(0.678 0.116 154)');
   });
 
@@ -107,7 +107,7 @@ describe('resolveColorPresetVariables', () => {
     expect(vars['--primary-foreground']).toBe('#081018');
     expect(vars['--theme']).toBe('#f4f4f4');
     expect(vars['--theme-foreground']).toBe('#081018');
-    expect(vars['--accent']).toBe('color-mix(in oklch, #f4f4f4 18%, oklch(0.202 0.012 248) 82%)');
+    expect(vars['--accent']).toBe('color-mix(in oklch, #f4f4f4 18%, oklch(0.202 0.007 242) 82%)');
     expect(vars['--ring']).toBe('#f4f4f4');
   });
 
@@ -129,10 +129,10 @@ describe('resolveColorPresetVariables', () => {
     const vars = resolveColorPresetVariables('dark', 'graphite-red', '');
 
     expect(getColorPresetOption('graphite-red').id).toBe('graphite-red');
-    expect(vars['--background']).toBe('oklch(0.166 0.014 18)');
+    expect(vars['--background']).toBe('oklch(0.168 0.008 36)');
     expect(vars['--primary']).toBe('oklch(0.714 0.1 22)');
-    expect(vars['--accent']).toBe('oklch(0.294 0.036 20)');
-    expect(vars['--support']).toBe('oklch(0.688 0.036 38)');
+    expect(vars['--accent']).toBe('oklch(0.294 0.018 34)');
+    expect(vars['--support']).toBe('oklch(0.676 0.022 46)');
     expect(vars['--ring']).toBe('oklch(0.762 0.108 22)');
     expect(vars['--destructive']).toBe('oklch(0.648 0.148 24)');
   });
@@ -186,6 +186,35 @@ describe('resolveColorPresetVariables', () => {
       expect(mutedDelta).toBeGreaterThanOrEqual(0.017);
       expect(mutedTextDelta).toBeGreaterThanOrEqual(0.44);
       expect(borderDelta).toBeGreaterThanOrEqual(0.09);
+    }
+  });
+
+  it('enforces preset clarity thresholds for text, borders, and focus surfaces', () => {
+    for (const option of APP_COLOR_PRESET_OPTIONS) {
+      for (const mode of ['light', 'dark'] as const) {
+        const tokens = resolvePresetThemeTokens(option.id, mode);
+        const backgroundTextDelta = Math.abs(
+          extractOklchLightness(tokens.background) - extractOklchLightness(tokens.foreground)
+        );
+        const backgroundMutedTextDelta = Math.abs(
+          extractOklchLightness(tokens.background) - extractOklchLightness(tokens.mutedForeground)
+        );
+        const primaryForegroundDelta = Math.abs(
+          extractOklchLightness(tokens.primary) - extractOklchLightness(tokens.primaryForeground)
+        );
+        const accentForegroundDelta = Math.abs(
+          extractOklchLightness(tokens.accent) - extractOklchLightness(tokens.accentForeground)
+        );
+        const backgroundBorderDelta = Math.abs(
+          extractOklchLightness(tokens.background) - extractOklchLightness(tokens.border)
+        );
+
+        expect(backgroundTextDelta).toBeGreaterThanOrEqual(mode === 'dark' ? 0.6 : 0.58);
+        expect(backgroundMutedTextDelta).toBeGreaterThanOrEqual(0.44);
+        expect(primaryForegroundDelta).toBeGreaterThanOrEqual(0.37);
+        expect(accentForegroundDelta).toBeGreaterThanOrEqual(0.58);
+        expect(backgroundBorderDelta).toBeGreaterThanOrEqual(0.09);
+      }
     }
   });
 

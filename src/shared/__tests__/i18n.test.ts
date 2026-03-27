@@ -23,6 +23,13 @@ describe('shared i18n helpers', () => {
     expect(getTranslation('zh', 'UI font size')).toBe('界面字号');
     expect(getTranslation('zh', 'Interface sample')).toBe('界面示例');
     expect(getTranslation('zh', 'Workspace control surface')).toBe('工作台控制界面');
+    expect(getTranslation('zh', 'Graphite Black')).toBe('石墨黑');
+    expect(
+      getTranslation(
+        'zh',
+        'High-clarity graphite-black system with crisp charcoal surfaces, neutral steel focus, and amber support cues.'
+      )
+    ).toBe('高对比石墨黑系统，采用清晰的炭黑表面、中性钢灰焦点与暖琥珀辅助提示。');
   });
 
   it('interpolates template parameters without replacing unknown tokens', () => {

@@ -45,7 +45,7 @@ describe('buildAppearanceColorPresetModel', () => {
 
     expect(model.selectedPreset.label).toBe('translated:Graphite Ink');
     expect(model.selectedPreset.description).toBe(
-      'translated:Default console palette with cool graphite surfaces, steel-blue theme emphasis, and restrained teal support.'
+      'translated:Default console palette with neutral graphite surfaces, slate focus accents, and restrained mineral support.'
     );
   });
 });

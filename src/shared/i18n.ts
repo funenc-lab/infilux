@@ -751,8 +751,8 @@ export const zhTranslations: Record<string, string> = {
   'Terminal sync is active and will fall back to the selected mode when disabled.':
     '终端同步已启用，关闭后将回退到当前所选模式',
   'Graphite Ink': '石墨墨影',
-  'Default console palette with cool graphite surfaces, steel-blue theme emphasis, and restrained teal support.':
-    '默认控制台配色，采用冷调石墨表面、钢蓝主题强调和克制的青绿色辅助。',
+  'Default console palette with neutral graphite surfaces, slate focus accents, and restrained mineral support.':
+    '默认控制台配色，采用中性石墨表面、板岩焦点强调与克制的矿物感辅助色。',
   'Tide Blue': '潮汐蓝',
   'A colder maritime variant with blue-slate structure and brighter aqua support for navigation and status scanability.':
     '更偏冷的海洋变体，使用蓝灰结构和更明亮的水绿色辅助，提升导航与状态识别。',
@@ -760,11 +760,13 @@ export const zhTranslations: Record<string, string> = {
   'Dark graphite with bronze theme color and muted olive support for a calmer, more material control room feel.':
     '深石墨底色搭配青铜主题色与低饱和橄榄辅助，带来更沉稳、更具材质感的控制室氛围。',
   'Graphite Red': '石墨红',
-  'Graphite surfaces with softened brick-red emphasis, paper-warm layering, and walnut support for focused writing and reading.':
-    '石墨表面配合柔和砖红主题强调、带纸感的暖层次和胡桃木辅助，适合专注写作与阅读。',
-  'Midnight Core': '午夜核心',
-  'The deepest dark preset, built for night work with restrained steel focus and a quiet indigo support layer.':
-    '最深沉的暗色预设，为夜间工作而设，使用克制的钢灰焦点色与安静的靛蓝辅助层。',
+  'Neutral graphite surfaces with softened brick-red emphasis and walnut support for focused writing and reading.':
+    '中性石墨表面配合柔和砖红主题强调与胡桃木辅助，适合专注写作与阅读。',
+  'Graphite Black': '石墨黑',
+  'High-clarity graphite-black system with crisp charcoal surfaces, neutral steel focus, and amber support cues.':
+    '高对比石墨黑系统，采用清晰的炭黑表面、中性钢灰焦点与暖琥珀辅助提示。',
+  'High-clarity dark system with crisp charcoal surfaces, neutral steel focus, and amber support cues.':
+    '高对比暗黑系统，采用清晰的炭黑表面、中性钢灰焦点与暖琥珀辅助提示。',
   'Paper Console': '纸页控制台',
   'A lighter editorial preset with parchment neutrals, tobacco theme color, and sage support for daytime work.':
     '更明亮的编辑风格预设，采用羊皮纸中性色、烟草主题色与鼠尾草辅助，适合白天工作。',
