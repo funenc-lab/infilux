@@ -249,6 +249,8 @@ export const defaultRemoteSettings: RemoteSettings = {
   profiles: [],
 };
 
+export const defaultConfirmBeforeClosingAgentSession = true;
+
 // Default proxy settings
 export const defaultProxySettings: ProxySettings = {
   enabled: false,
@@ -472,6 +474,40 @@ export function getDefaultUIFontFamily(locale: Locale = getDefaultLocale()): str
         ? '"PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", system-ui, sans-serif'
         : '"Aptos", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans", system-ui, sans-serif';
   }
+}
+
+export interface UIFontPresetOption {
+  id: 'platform-default' | 'english-priority' | 'cjk-priority';
+  fontFamily: string;
+}
+
+export function getRecommendedUIFontPresets(
+  locale: Locale = getDefaultLocale()
+): UIFontPresetOption[] {
+  const normalizedLocale = normalizeLocale(locale);
+  const englishFontFamily = getDefaultUIFontFamily('en');
+  const cjkFontFamily = getDefaultUIFontFamily('zh');
+  const preferredCjkFirst = normalizedLocale === 'zh';
+
+  const orderedOptions: UIFontPresetOption[] = [
+    {
+      id: 'platform-default',
+      fontFamily: getDefaultUIFontFamily(normalizedLocale),
+    },
+    {
+      id: preferredCjkFirst ? 'cjk-priority' : 'english-priority',
+      fontFamily: preferredCjkFirst ? cjkFontFamily : englishFontFamily,
+    },
+    {
+      id: preferredCjkFirst ? 'english-priority' : 'cjk-priority',
+      fontFamily: preferredCjkFirst ? englishFontFamily : cjkFontFamily,
+    },
+  ];
+
+  return orderedOptions.filter(
+    (option, index, collection) =>
+      collection.findIndex((candidate) => candidate.fontFamily === option.fontFamily) === index
+  );
 }
 
 /**

@@ -19,6 +19,16 @@ const appearanceThemeEditorViewSource = readFileSync(
 
 describe('appearance editor preview structure', () => {
   it('renders editor-state cues instead of a decorative snippet header', () => {
+    expect(appearanceSettingsSource).toContain(
+      'const previewLineHeight = Math.min(Math.max(lineHeight, 1.28), 1.52);'
+    );
+    expect(appearanceSettingsSource).toContain(
+      'className="grid grid-cols-[minmax(0,1fr)_2.75rem]"'
+    );
+    expect(appearanceSettingsSource).toContain(
+      'className="grid grid-cols-[0.375rem_2.75rem_minmax(0,1fr)] items-start px-3"'
+    );
+    expect(appearanceSettingsSource).toContain('min-h-[13.5rem] py-2');
     expect(appearanceSettingsSource).toContain('selectionBackground');
     expect(appearanceSettingsSource).toContain('cursorColumn');
     expect(appearanceSettingsSource).toContain('minimapRows');
@@ -28,6 +38,7 @@ describe('appearance editor preview structure', () => {
     expect(appearanceSettingsSource).toContain('repeating-linear-gradient');
     expect(appearanceSettingsSource).toContain('src/renderer/theme/preview.ts');
     expect(appearanceSettingsSource).toContain('Selection, cursor, and active line states');
+    expect(appearanceSettingsSource).not.toContain('py-0.5 whitespace-pre');
   });
 
   it('uses streamlined editor preview copy in both preview surfaces', () => {

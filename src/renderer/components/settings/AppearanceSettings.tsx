@@ -52,6 +52,7 @@ import { cn } from '@/lib/utils';
 import {
   type ColorPreset,
   type CustomThemeDocument,
+  getRecommendedUIFontPresets,
   type Theme,
   useSettingsStore,
 } from '@/stores/settings';
@@ -721,6 +722,7 @@ function EditorSamplePreview({
   const previewFontFamily = fontFamily.trim()
     ? fontFamily
     : 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+  const previewLineHeight = Math.min(Math.max(lineHeight, 1.28), 1.52);
   type EditorSampleSegment = {
     text: string;
     color: string;
@@ -912,7 +914,7 @@ function EditorSamplePreview({
       }}
     >
       <div
-        className="flex items-center justify-between gap-4 border-b px-3 py-2"
+        className="flex items-center justify-between gap-3 border-b px-3 py-2"
         style={{
           backgroundColor: withAlpha(palette.foreground, palette.mode === 'dark' ? '04' : '03'),
           borderColor: palette.indentGuide,
@@ -927,7 +929,7 @@ function EditorSamplePreview({
           </p>
         </div>
         <span
-          className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em]"
+          className="shrink-0 text-[9.5px] font-medium uppercase tracking-[0.08em]"
           style={{ color: palette.lineNumber }}
         >
           TypeScript
@@ -939,19 +941,19 @@ function EditorSamplePreview({
         style={{
           fontFamily: previewFontFamily,
           fontSize: `${fontSize}px`,
-          lineHeight,
+          lineHeight: previewLineHeight,
         }}
       >
         <div
-          className="min-h-[14rem] py-2"
+          className="min-h-[13.5rem] py-2"
           style={{
-            backgroundImage: `linear-gradient(90deg, ${gutterBackground} 0, ${gutterBackground} 3.4rem, transparent 3.4rem), repeating-linear-gradient(90deg, transparent 0, transparent 2.2ch, ${guideColor} 2.2ch, transparent 2.3ch)`,
+            backgroundImage: `linear-gradient(90deg, ${gutterBackground} 0, ${gutterBackground} 3.1rem, transparent 3.1rem), repeating-linear-gradient(90deg, transparent 0, transparent 2.2ch, ${guideColor} 2.2ch, transparent 2.3ch)`,
           }}
         >
           {sampleLines.map((line) => (
             <div
               key={`editor-sample-line-${line.lineNumber}`}
-              className="grid grid-cols-[0.375rem_3rem_minmax(0,1fr)] items-start px-3"
+              className="grid grid-cols-[0.375rem_2.75rem_minmax(0,1fr)] items-start px-3"
               style={{
                 backgroundColor: line.isActiveLine
                   ? palette.lineHighlight
@@ -965,7 +967,7 @@ function EditorSamplePreview({
                   : '2px solid transparent',
               }}
             >
-              <div className="flex justify-center pt-1.5">
+              <div className="flex justify-center pt-[0.32rem]">
                 {line.isActiveLine ? (
                   <span
                     className="h-4 w-0.5 rounded-full"
@@ -984,18 +986,24 @@ function EditorSamplePreview({
                 ) : null}
               </div>
               <div
-                className="flex select-none items-start justify-end gap-1 pr-3 pt-0.5 text-right text-[0.82em]"
-                style={{ color: line.isActiveLine ? palette.foreground : palette.lineNumber }}
+                className="flex select-none items-start justify-end gap-1 pr-3 text-right text-[0.82em]"
+                style={{
+                  color: line.isActiveLine ? palette.foreground : palette.lineNumber,
+                  paddingTop: '0.18rem',
+                }}
               >
                 {line.marker === 'warning' ? (
                   <span
-                    className="mt-[0.2rem] h-1.5 w-1.5 rounded-full"
+                    className="mt-[0.2rem] h-1.5 w-1.5 shrink-0 rounded-full"
                     style={{ backgroundColor: palette.number }}
                   />
                 ) : null}
                 {line.lineNumber}
               </div>
-              <div className="relative min-w-0 overflow-hidden py-0.5 whitespace-pre">
+              <div
+                className="relative min-w-0 overflow-hidden whitespace-pre"
+                style={{ paddingBlock: '0.12rem' }}
+              >
                 {line.segments.map((segment, segmentIndex) => (
                   <span
                     key={`editor-sample-segment-${line.lineNumber}-${segmentIndex + 1}`}
@@ -1016,8 +1024,8 @@ function EditorSamplePreview({
                     className="pointer-events-none absolute w-px rounded-full"
                     style={{
                       left: `calc(${line.cursorColumn}ch + 0.125rem)`,
-                      top: '0.2em',
-                      bottom: '0.2em',
+                      top: '0.16em',
+                      bottom: '0.16em',
                       backgroundColor: palette.accent,
                       boxShadow: `0 0 0 1px ${withAlpha(palette.background, '66')}`,
                     }}
@@ -1029,7 +1037,7 @@ function EditorSamplePreview({
         </div>
 
         <div
-          className="relative flex flex-col gap-1.5 border-l px-2 py-2"
+          className="relative flex flex-col gap-1 border-l px-1.5 py-2"
           style={{
             backgroundColor: withAlpha(palette.foreground, palette.mode === 'dark' ? '03' : '04'),
             borderColor: palette.indentGuide,
@@ -1269,7 +1277,7 @@ function ThemeCombobox({
       <ComboboxPopup>
         <ComboboxList>
           {filteredThemes.length === 0 && (
-            <div className="py-6 text-center text-sm text-muted-foreground">
+            <div className="py-6 text-center ui-type-section-description text-muted-foreground">
               {showEmptyFavoritesHint
                 ? t('No favorite themes yet. Click the heart icon to add favorites.')
                 : t('No themes found')}
@@ -1315,6 +1323,7 @@ export function AppearanceSettings() {
     renameCustomTheme,
     deleteCustomTheme,
     updateCustomThemeTokens,
+    language,
     fontSize: appFontSize,
     setFontSize: setAppFontSize,
     fontFamily: appFontFamily,
@@ -1375,6 +1384,10 @@ export function AppearanceSettings() {
     () => resolveAppearancePreviewMode(theme, terminalTheme),
     [terminalTheme, theme]
   );
+  const uiFontPresetOptions = React.useMemo(
+    () => getRecommendedUIFontPresets(language),
+    [language]
+  );
   const themeModeIcons: Record<Exclude<Theme, 'sync-terminal'>, React.ElementType> = {
     light: Sun,
     dark: Moon,
@@ -1431,6 +1444,31 @@ export function AppearanceSettings() {
       setAppFontFamily(validFontFamily);
     }
   }, [localAppFontFamily, appFontFamily, setAppFontFamily]);
+
+  const selectedUIFontPresetId = React.useMemo(
+    () =>
+      uiFontPresetOptions.find((option) => option.fontFamily === localAppFontFamily)?.id ??
+      'custom',
+    [localAppFontFamily, uiFontPresetOptions]
+  );
+
+  const handleUIFontPresetChange = React.useCallback(
+    (presetId: string | null) => {
+      if (!presetId) {
+        return;
+      }
+
+      const nextPreset = uiFontPresetOptions.find((option) => option.id === presetId);
+
+      if (!nextPreset) {
+        return;
+      }
+
+      setLocalAppFontFamily(nextPreset.fontFamily);
+      setAppFontFamily(nextPreset.fontFamily);
+    },
+    [setAppFontFamily, uiFontPresetOptions]
+  );
 
   const applyTerminalFontSizeChange = React.useCallback(() => {
     const validFontSize = Math.max(8, Math.min(32, localTerminalFontSize || 8));
@@ -1670,8 +1708,10 @@ export function AppearanceSettings() {
         <div className="control-panel overflow-hidden rounded-xl p-4 md:p-5">
           <div className="space-y-6">
             <div>
-              <h3 className="text-lg font-medium">{t('Theme mode')}</h3>
-              <p className="text-sm text-muted-foreground">{t('Choose interface theme')}</p>
+              <h3 className="ui-type-section-title">{t('Theme mode')}</h3>
+              <p className="ui-type-section-description text-muted-foreground">
+                {t('Choose interface theme')}
+              </p>
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
@@ -1747,7 +1787,7 @@ export function AppearanceSettings() {
                         </Button>
                       ) : null}
                     </div>
-                    <div className="mt-2 rounded-[0.95rem] border border-border/70 bg-background/55 px-3 py-2.5 text-sm text-muted-foreground">
+                    <div className="mt-2 rounded-[0.95rem] border border-border/70 bg-background/55 px-3 py-2.5 ui-type-section-description text-muted-foreground">
                       {customAccentColor || t('Using {{name}}', { name: selectedPreset.label })}
                     </div>
                   </div>
@@ -1760,8 +1800,8 @@ export function AppearanceSettings() {
             </div>
 
             <div className="space-y-2">
-              <h3 className="text-lg font-medium">{t('Color scheme')}</h3>
-              <p className="text-sm text-muted-foreground">
+              <h3 className="ui-type-section-title">{t('Color scheme')}</h3>
+              <p className="ui-type-section-description text-muted-foreground">
                 {t('Choose the palette that shapes surfaces, focus states, and brand emphasis.')}
               </p>
             </div>
@@ -1860,8 +1900,8 @@ export function AppearanceSettings() {
             <div className="control-panel-muted space-y-3 rounded-xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-medium">{t('Custom themes')}</h3>
-                  <p className="text-sm text-muted-foreground">
+                  <h3 className="ui-type-section-title">{t('Custom themes')}</h3>
+                  <p className="ui-type-section-description text-muted-foreground">
                     {t('Create blank themes or duplicate a preset into your own theme library.')}
                   </p>
                 </div>
@@ -1932,7 +1972,7 @@ export function AppearanceSettings() {
                   })}
                 </div>
               ) : (
-                <div className="rounded-xl border border-dashed border-border/70 bg-background/25 px-4 py-5 text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-border/70 bg-background/25 px-4 py-5 ui-type-section-description text-muted-foreground">
                   {t('No custom themes yet. Start from a preset or create a blank theme document.')}
                 </div>
               )}
@@ -1968,8 +2008,10 @@ export function AppearanceSettings() {
 
       {/* Beta Features Section */}
       <div className="border-t pt-6">
-        <h3 className="text-lg font-medium">{t('Beta Features')}</h3>
-        <p className="text-sm text-muted-foreground">{t('Experimental features')}</p>
+        <h3 className="ui-type-section-title">{t('Beta Features')}</h3>
+        <p className="ui-type-section-description text-muted-foreground">
+          {t('Experimental features')}
+        </p>
       </div>
 
       {/* Glow Effect Toggle */}
@@ -2166,7 +2208,7 @@ export function AppearanceSettings() {
           <div className="space-y-2">
             <div className="flex justify-between">
               <label className="text-sm font-medium">{t('Opacity')}</label>
-              <span className="text-sm text-muted-foreground">
+              <span className="ui-type-section-description text-muted-foreground">
                 {Math.round(backgroundOpacity * 100)}%
               </span>
             </div>
@@ -2185,7 +2227,9 @@ export function AppearanceSettings() {
           <div className="space-y-2">
             <div className="flex justify-between">
               <label className="text-sm font-medium">{t('Blur')}</label>
-              <span className="text-sm text-muted-foreground">{backgroundBlur}px</span>
+              <span className="ui-type-section-description text-muted-foreground">
+                {backgroundBlur}px
+              </span>
             </div>
             <input
               type="range"
@@ -2200,7 +2244,7 @@ export function AppearanceSettings() {
 
           {/* More - Brightness & Saturation */}
           <Collapsible className="space-y-3">
-            <CollapsibleTrigger className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <CollapsibleTrigger className="flex items-center gap-1 ui-type-section-description text-muted-foreground hover:text-foreground transition-colors">
               <ChevronDown className="h-3.5 w-3.5 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
               {t('More Options')}
             </CollapsibleTrigger>
@@ -2209,7 +2253,7 @@ export function AppearanceSettings() {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <label className="text-sm font-medium">{t('Brightness')}</label>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="ui-type-section-description text-muted-foreground">
                     {Math.round(backgroundBrightness * 100)}%
                   </span>
                 </div>
@@ -2228,7 +2272,7 @@ export function AppearanceSettings() {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <label className="text-sm font-medium">{t('Saturation')}</label>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="ui-type-section-description text-muted-foreground">
                     {Math.round(backgroundSaturation * 100)}%
                   </span>
                 </div>
@@ -2269,8 +2313,8 @@ export function AppearanceSettings() {
       </Collapsible>
 
       <div className="border-t pt-6">
-        <h3 className="text-lg font-medium">{t('Interface typography')}</h3>
-        <p className="text-sm text-muted-foreground">
+        <h3 className="ui-type-section-title">{t('Interface typography')}</h3>
+        <p className="ui-type-section-description text-muted-foreground">
           {t(
             'Adjust the app font family and UI base size without changing editor or terminal text.'
           )}
@@ -2300,7 +2344,27 @@ export function AppearanceSettings() {
       </div>
 
       <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('UI font')}</span>
+        <span className="text-sm font-medium">{t('Recommended font stack')}</span>
+        <Select value={selectedUIFontPresetId} onValueChange={handleUIFontPresetChange}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            {uiFontPresetOptions.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                {option.id === 'platform-default'
+                  ? t('Platform default')
+                  : option.id === 'english-priority'
+                    ? t('English UI optimized')
+                    : t('Chinese UI optimized')}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </div>
+
+      <div className="settings-field-row">
+        <span className="text-sm font-medium">{t('Custom font stack')}</span>
         <Input
           value={localAppFontFamily}
           onChange={(e) => setLocalAppFontFamily(e.target.value)}
@@ -2333,7 +2397,7 @@ export function AppearanceSettings() {
             max={20}
             className="w-20"
           />
-          <span className="text-sm text-muted-foreground">px</span>
+          <span className="ui-type-section-description text-muted-foreground">px</span>
         </div>
       </div>
 

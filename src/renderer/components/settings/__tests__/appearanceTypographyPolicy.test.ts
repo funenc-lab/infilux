@@ -21,4 +21,12 @@ describe('appearance typography policy', () => {
       'className="text-base font-semibold tracking-[-0.015em]"'
     );
   });
+
+  it('offers a recommended font-stack picker while preserving manual font entry', () => {
+    expect(appearanceSettingsSource).toContain("t('Recommended font stack')");
+    expect(appearanceSettingsSource).toContain("t('Custom font stack')");
+    expect(appearanceSettingsSource).toContain('uiFontPresetOptions.map((option) => (');
+    expect(appearanceSettingsSource).toContain('setLocalAppFontFamily(nextPreset.fontFamily)');
+    expect(appearanceSettingsSource).toContain('placeholder="system-ui, sans-serif"');
+  });
 });

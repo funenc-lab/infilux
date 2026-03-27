@@ -21,6 +21,8 @@ describe('shared i18n helpers', () => {
     expect(getTranslation('zh', 'Interface typography')).toBe('界面排版');
     expect(getTranslation('zh', 'UI font')).toBe('界面字体');
     expect(getTranslation('zh', 'UI font size')).toBe('界面字号');
+    expect(getTranslation('zh', 'Recommended font stack')).toBe('推荐字体方案');
+    expect(getTranslation('zh', 'Custom font stack')).toBe('自定义字体栈');
     expect(getTranslation('zh', 'Interface sample')).toBe('界面示例');
     expect(getTranslation('zh', 'Workspace control surface')).toBe('工作台控制界面');
     expect(getTranslation('zh', 'Graphite Black')).toBe('石墨黑');

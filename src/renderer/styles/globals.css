@@ -83,6 +83,30 @@
     --font-family-sans: "Aptos", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans", system-ui, sans-serif;
     --font-family-mono: "JetBrains Mono", "Menlo", monospace;
     --app-font-size-base: 14px;
+    --ui-text-section-title-size: 1.125rem;
+    --ui-text-section-title-line-height: 1.5rem;
+    --ui-text-section-description-size: 0.90625rem;
+    --ui-text-section-description-line-height: 1.4375rem;
+    --ui-text-block-title-size: 1.03125rem;
+    --ui-text-block-title-line-height: 1.4375rem;
+    --ui-text-panel-title-size: 1.125rem;
+    --ui-text-panel-title-line-height: 1.5rem;
+    --ui-text-panel-description-size: 0.90625rem;
+    --ui-text-panel-description-line-height: 1.5625rem;
+    --ui-text-meta-size: 0.78125rem;
+    --ui-text-meta-line-height: 1.15rem;
+    --ui-text-sidebar-title-size: 0.75rem;
+    --ui-text-sidebar-title-line-height: 1rem;
+    --ui-text-sidebar-subtitle-size: 0.71875rem;
+    --ui-text-sidebar-subtitle-line-height: 1rem;
+    --ui-text-tree-title-size: 0.875rem;
+    --ui-text-tree-title-line-height: 1.125rem;
+    --ui-text-tree-subtitle-size: 0.71875rem;
+    --ui-text-tree-subtitle-line-height: 1rem;
+    --ui-text-topbar-action-size: 0.78125rem;
+    --ui-text-topbar-action-line-height: 1.0625rem;
+    --ui-text-tree-meta-size: 0.6875rem;
+    --ui-text-tree-meta-line-height: 1rem;
     --background: oklch(0.982 0.004 250);
     --foreground: oklch(0.255 0.016 252);
     --card: oklch(0.992 0.003 250);
@@ -488,6 +512,75 @@
     background: color-mix(in oklch, var(--background) 92%, var(--muted) 8%);
   }
 
+  .ui-type-label {
+    font-size: 0.8125rem;
+    line-height: 1.2rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .ui-type-body-sm {
+    font-size: 0.93rem;
+    line-height: 1.5rem;
+  }
+
+  .ui-type-body-md {
+    font-size: 1rem;
+    line-height: 1.55rem;
+  }
+
+  .ui-type-title-md {
+    font-size: 1.125rem;
+    line-height: 1.45rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .ui-type-title-lg {
+    font-size: 1.375rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+  }
+
+  .ui-type-section-title {
+    font-size: var(--ui-text-section-title-size);
+    line-height: var(--ui-text-section-title-line-height);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  .ui-type-section-description {
+    font-size: var(--ui-text-section-description-size);
+    line-height: var(--ui-text-section-description-line-height);
+  }
+
+  .ui-type-block-title {
+    font-size: var(--ui-text-block-title-size);
+    line-height: var(--ui-text-block-title-line-height);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .ui-type-panel-title {
+    font-size: var(--ui-text-panel-title-size);
+    line-height: var(--ui-text-panel-title-line-height);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  .ui-type-panel-description {
+    font-size: var(--ui-text-panel-description-size);
+    line-height: var(--ui-text-panel-description-line-height);
+  }
+
+  .ui-type-meta {
+    font-size: var(--ui-text-meta-size);
+    line-height: var(--ui-text-meta-line-height);
+    letter-spacing: 0.01em;
+  }
+
   .control-chip {
     display: inline-flex;
     align-items: center;
@@ -573,15 +666,51 @@
   .control-badge-live {
     border-color: color-mix(
       in oklch,
-      var(--control-live) 36%,
-      var(--border) 64%
+      var(--control-live) 28%,
+      var(--border) 72%
     );
     background: color-mix(
       in oklch,
-      var(--control-live) 16%,
-      var(--background) 84%
+      var(--control-live) 11%,
+      var(--background) 89%
     );
-    color: color-mix(in oklch, var(--control-live) 74%, var(--foreground) 26%);
+    color: color-mix(in oklch, var(--control-live) 68%, var(--foreground) 32%);
+  }
+
+  .control-toolbar-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 1;
+    min-width: 1rem;
+    min-height: 1rem;
+    padding-inline: 0.22rem;
+    transform: none;
+    box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--background) 94%, var(--muted) 6%);
+    pointer-events: none;
+  }
+
+  .control-toolbar-badge-green {
+    border-color: color-mix(
+      in oklch,
+      var(--success) 58%,
+      var(--border) 42%
+    );
+    background: color-mix(
+      in oklch,
+      var(--success) 26%,
+      var(--background) 74%
+    );
+    color: color-mix(in oklch, var(--success) 92%, var(--foreground) 8%);
+  }
+
+  .control-toolbar-badge-anchor {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-inline: 0.0625rem;
+    padding-top: 0.125rem;
+    padding-right: 0.125rem;
   }
 
   .control-badge-wait {
@@ -745,14 +874,16 @@
     overflow: hidden;
     align-items: center;
     gap: 0.4375rem;
+    box-shadow: inset 0 0 0 1px transparent;
     border-radius: 0.4375rem;
     padding-inline: 0.5625rem 0.6875rem;
-    font-size: 0.734375rem;
+    font-size: 0.765625rem;
     font-weight: 500;
     color: color-mix(in oklch, var(--muted-foreground) 90%, transparent);
     transition:
       color 140ms ease,
-      background-color 140ms ease;
+      background-color 140ms ease,
+      box-shadow 140ms ease;
   }
 
   .control-topbar-tab-icon {
@@ -777,23 +908,25 @@
   .control-topbar-tab[data-active="true"] {
     color: var(--foreground);
     font-weight: 570;
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 44%, transparent);
   }
 
   .control-topbar-tab[data-active="false"]:hover {
     background: color-mix(
       in oklch,
-      var(--control-surface-muted) 52%,
+      var(--control-surface-muted) 22%,
       transparent
     );
-    color: var(--foreground);
+    color: color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground) 12%);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 26%, transparent);
   }
 
   .control-topbar-tab[data-active="false"]:hover .control-topbar-tab-icon {
-    background: color-mix(in oklch, var(--accent) 10%, transparent);
+    background: color-mix(in oklch, var(--accent) 5%, transparent);
   }
 
   .control-topbar-tab[data-active="true"] .control-topbar-tab-icon {
-    background: color-mix(in oklch, var(--control-surface) 72%, transparent);
+    background: color-mix(in oklch, var(--control-surface) 44%, transparent);
     color: color-mix(
       in oklch,
       var(--foreground) 86%,
@@ -805,18 +938,7 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background:
-      radial-gradient(
-        circle at 0.95rem 50%,
-        color-mix(in oklch, var(--control-surface) 90%, transparent) 0,
-        color-mix(in oklch, var(--control-surface) 54%, transparent) 0.65rem,
-        transparent 1.45rem
-      ),
-      linear-gradient(
-        90deg,
-        color-mix(in oklch, var(--control-surface) 34%, transparent) 0%,
-        transparent 40%
-      );
+    background: color-mix(in oklch, var(--control-surface) 28%, transparent);
   }
 
   .control-topbar-action {
@@ -825,10 +947,12 @@
     align-items: center;
     justify-content: center;
     gap: 0.375rem;
+    border: 1px solid transparent;
     border-radius: 0.625rem;
     background: transparent;
     padding-inline: 0.625rem;
-    font-size: 0.75rem;
+    font-size: var(--ui-text-topbar-action-size);
+    line-height: var(--ui-text-topbar-action-line-height);
     font-weight: 500;
     color: color-mix(in oklch, var(--muted-foreground) 88%, transparent);
     transition:
@@ -840,18 +964,20 @@
   .control-topbar-action:hover {
     background: color-mix(
       in oklch,
-      var(--control-surface-muted) 26%,
-      var(--background) 74%
+      var(--control-surface-muted) 18%,
+      var(--background) 82%
     );
-    color: var(--foreground);
+    border-color: color-mix(in oklch, var(--border) 28%, transparent);
+    color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);
   }
 
   .control-topbar-action[data-active="true"] {
     background: color-mix(
       in oklch,
-      var(--control-surface-muted) 28%,
-      var(--background) 72%
+      var(--control-surface-muted) 24%,
+      var(--background) 76%
     );
+    border-color: color-mix(in oklch, var(--border) 36%, transparent);
     color: var(--foreground);
   }
 
@@ -874,11 +1000,11 @@
 
   .control-topbar-meta {
     display: flex;
-    min-height: 1.125rem;
+    min-height: 1rem;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    padding-inline: 0.125rem;
+    gap: 0.375rem;
+    padding-inline: 0;
   }
 
   .control-topbar-context,
@@ -886,7 +1012,7 @@
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: 0.625rem;
+    gap: 0.375rem;
   }
 
   .control-topbar-context-item {
@@ -898,11 +1024,11 @@
 
   .control-topbar-context-label {
     flex-shrink: 0;
-    font-size: 0.625rem;
+    font-size: 0.65625rem;
     font-weight: 640;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: color-mix(in oklch, var(--muted-foreground) 64%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
   }
 
   .control-topbar-context-value {
@@ -910,8 +1036,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.78125rem;
-    line-height: 1.05rem;
+    font-size: 0.8125rem;
+    line-height: 1.1rem;
     color: color-mix(
       in oklch,
       var(--muted-foreground) 80%,
@@ -948,10 +1074,56 @@
     align-items: center;
     gap: 0.25rem;
     white-space: nowrap;
-    font-size: 0.75rem;
-    font-weight: 540;
-    color: color-mix(in oklch, var(--muted-foreground) 78%, transparent);
+    font-size: 0.71875rem;
+    font-weight: 580;
+    color: color-mix(in oklch, var(--muted-foreground) 74%, transparent);
     font-variant-numeric: tabular-nums;
+  }
+
+  .control-topbar-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1875rem;
+    white-space: nowrap;
+    font-size: 0.6875rem;
+    font-weight: 520;
+    color: color-mix(in oklch, var(--muted-foreground) 66%, transparent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .control-topbar-statuses > * + * {
+    position: relative;
+    padding-left: 0.5rem;
+  }
+
+  .control-topbar-statuses > * + *::before {
+    content: '·';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    color: color-mix(in oklch, var(--muted-foreground) 34%, transparent);
+  }
+
+  .control-topbar-metric-value {
+    color: color-mix(in oklch, var(--foreground) 68%, var(--muted-foreground) 32%);
+    font-weight: 610;
+  }
+
+  .control-topbar-metric-label {
+    color: color-mix(in oklch, var(--muted-foreground) 54%, transparent);
+  }
+
+  .control-topbar-metric[data-tone="done"] {
+    color: color-mix(in oklch, var(--control-done) 56%, var(--muted-foreground) 44%);
+  }
+
+  .control-topbar-metric[data-tone="done"] .control-topbar-metric-value {
+    color: color-mix(in oklch, var(--control-done) 70%, var(--foreground) 30%);
+  }
+
+  .control-topbar-metric[data-tone="done"] .control-topbar-metric-label {
+    color: color-mix(in oklch, var(--control-done) 54%, var(--muted-foreground) 46%);
   }
 
   .control-topbar-status[data-tone="live"] {
@@ -1101,9 +1273,12 @@
 
   .control-sidebar-header {
     display: flex;
+    min-height: 2.75rem;
     align-items: center;
     justify-content: space-between;
-    gap: 0.625rem;
+    gap: 0.5rem;
+    overflow: visible;
+    padding-block: 0.25rem;
     padding-inline: 0.75rem 0.5625rem;
     background: transparent;
   }
@@ -1128,7 +1303,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.71875rem;
+    font-size: var(--ui-text-sidebar-title-size);
+    line-height: var(--ui-text-sidebar-title-line-height);
     font-weight: 640;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -1140,7 +1316,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.6875rem;
+    font-size: var(--ui-text-sidebar-subtitle-size);
+    line-height: var(--ui-text-sidebar-subtitle-line-height);
     font-weight: 500;
     letter-spacing: 0.015em;
     color: color-mix(in oklch, var(--muted-foreground) 74%, transparent);
@@ -1149,31 +1326,47 @@
   .control-sidebar-toolbar {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.3125rem;
+    overflow: visible;
     padding: 0;
+  }
+
+  .control-sidebar-toolbar-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .control-sidebar-toolbar-group + .control-sidebar-toolbar-group {
+    margin-left: 0.125rem;
+    padding-left: 0.375rem;
+    border-left: 1px solid color-mix(in oklch, var(--border) 28%, transparent);
   }
 
   .control-sidebar-toolbutton {
     display: inline-flex;
-    height: 2.25rem;
-    width: 2.25rem;
+    height: 2.125rem;
+    width: 2.125rem;
     align-items: center;
     justify-content: center;
     border: 1px solid transparent;
-    border-radius: 0.625rem;
+    border-radius: 0.5625rem;
     background: transparent;
-    color: color-mix(in oklch, var(--muted-foreground) 88%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 82%, transparent);
     transition:
       background-color 140ms ease,
+      border-color 140ms ease,
       color 140ms ease;
   }
 
   .control-sidebar-toolbutton:hover {
     background: color-mix(
       in oklch,
-      var(--control-surface-muted) 28%,
-      var(--background) 72%
+      var(--control-surface-muted) 20%,
+      var(--background) 80%
     );
+    border-color: color-mix(in oklch, var(--border) 20%, transparent);
     color: var(--foreground);
   }
 
@@ -1182,16 +1375,16 @@
     outline-offset: 1px;
   }
 
-  .control-sidebar-toolbutton[data-emphasis="true"] {
+  .control-sidebar-toolbutton[data-open="true"] {
     color: color-mix(
       in oklch,
-      var(--foreground) 86%,
-      var(--muted-foreground) 14%
+      var(--foreground) 78%,
+      var(--muted-foreground) 22%
     );
     background: color-mix(
       in oklch,
-      var(--control-surface-muted) 30%,
-      var(--background) 70%
+      var(--control-surface-muted) 24%,
+      var(--background) 76%
     );
   }
 
@@ -1230,6 +1423,9 @@
       var(--background) 94%,
       var(--control-surface-muted) 6%
     );
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklch, var(--ring) 18%, transparent),
+      0 0 0 1px color-mix(in oklch, var(--ring) 22%, transparent);
   }
 
   .control-sidebar-search-icon {
@@ -1288,29 +1484,64 @@
 
   .control-section-header {
     display: flex;
-    min-height: 1.875rem;
+    min-height: 1.625rem;
     width: 100%;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.25rem;
     border-radius: 0.5rem;
-    padding-inline: 0.625rem;
-    font-size: 0.6875rem;
-    font-weight: 620;
-    letter-spacing: 0.12em;
+    padding-inline: 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 540;
+    letter-spacing: 0.065em;
     text-transform: uppercase;
-    color: color-mix(
-      in oklch,
-      var(--muted-foreground) 84%,
-      var(--foreground) 16%
-    );
+    border: 1px solid transparent;
+    color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
     transition:
       background-color 140ms ease,
+      box-shadow 140ms ease,
       color 140ms ease;
   }
 
   .control-section-header:hover {
-    background: color-mix(in oklch, var(--accent) 7%, transparent);
-    color: var(--foreground);
+    background: color-mix(in oklch, var(--accent) 0.9%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 14%, transparent);
+    color: color-mix(in oklch, var(--foreground) 66%, var(--muted-foreground) 34%);
+  }
+
+  .control-section-header:focus-visible {
+    background: color-mix(in oklch, var(--accent) 1.3%, transparent);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklch, var(--border) 18%, transparent),
+      0 0 0 1px color-mix(in oklch, var(--ring) 22%, transparent);
+    color: color-mix(in oklch, var(--foreground) 74%, var(--muted-foreground) 26%);
+    outline: none;
+  }
+
+  .control-section-header:hover .control-section-count,
+  .control-section-header:focus-visible .control-section-count {
+    color: color-mix(in oklch, var(--muted-foreground) 44%, var(--foreground) 56%);
+  }
+
+  .control-section-header:hover .control-section-marker,
+  .control-section-header:focus-visible .control-section-marker {
+    opacity: 0.7;
+  }
+
+  .control-section-marker {
+    flex-shrink: 0;
+    font-size: 0.625rem;
+    line-height: 1;
+    opacity: 0.58;
+  }
+
+  .control-section-count {
+    flex-shrink: 0;
+    font-size: 0.59375rem;
+    font-weight: 520;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklch, var(--muted-foreground) 52%, transparent);
   }
 
   .control-icon-button {
@@ -1357,11 +1588,7 @@
     flex-shrink: 0;
     border-top: 1px solid color-mix(in oklch, var(--border) 68%, transparent);
     padding: 0.625rem;
-    background: linear-gradient(
-      180deg,
-      color-mix(in oklch, var(--background) 98%, transparent) 0%,
-      color-mix(in oklch, var(--background) 95%, var(--muted) 5%) 100%
-    );
+    background: color-mix(in oklch, var(--background) 97%, var(--muted) 3%);
   }
 
   .control-sidebar-footer-action {
@@ -1384,31 +1611,85 @@
   }
 
   .control-sidebar-footer-action-primary {
-    border: 1px solid color-mix(in oklch, var(--primary) 24%, transparent);
-    background: color-mix(in oklch, var(--primary) 13%, var(--background) 87%);
-    color: color-mix(in oklch, var(--primary) 78%, var(--foreground) 22%);
+    border: 1px solid color-mix(in oklch, var(--primary) 18%, transparent);
+    background: color-mix(in oklch, var(--primary) 9%, var(--background) 91%);
+    color: color-mix(in oklch, var(--primary) 70%, var(--foreground) 30%);
     box-shadow:
-      inset 0 1px 0 color-mix(in oklch, var(--foreground) 3%, transparent),
-      0 12px 28px color-mix(in oklch, var(--primary) 14%, transparent);
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 2%, transparent),
+      0 6px 14px color-mix(in oklch, var(--foreground) 3%, transparent);
   }
 
   .control-sidebar-footer-action-primary:hover {
-    border-color: color-mix(in oklch, var(--primary) 30%, transparent);
-    background: color-mix(in oklch, var(--primary) 16%, var(--background) 84%);
-    color: color-mix(in oklch, var(--primary) 82%, var(--foreground) 18%);
+    border-color: color-mix(in oklch, var(--primary) 22%, transparent);
+    background: color-mix(in oklch, var(--primary) 11%, var(--background) 89%);
+    color: color-mix(in oklch, var(--primary) 74%, var(--foreground) 26%);
     box-shadow:
-      inset 0 1px 0 color-mix(in oklch, var(--foreground) 3%, transparent),
-      0 16px 34px color-mix(in oklch, var(--primary) 16%, transparent);
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 2%, transparent),
+      0 8px 18px color-mix(in oklch, var(--foreground) 4%, transparent);
   }
 
   .control-tree-node {
+    --control-tree-node-bg: transparent;
+    --control-tree-node-border: transparent;
+    --control-tree-node-ring: transparent;
+    --control-tree-title-color: var(--foreground);
+    --control-tree-title-weight: 590;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 72%,
+      var(--background) 28%
+    );
+    --control-tree-meta-color: color-mix(in oklch, var(--muted-foreground) 78%, transparent);
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 58%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 72%,
+      var(--foreground) 28%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
+    --control-tree-icon-color: var(--muted-foreground);
+    --control-tree-glyph-bg: transparent;
+    --control-tree-disclosure-opacity: 0.64;
+    --control-tree-disclosure-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 78%,
+      var(--foreground) 22%
+    );
+    --control-tree-disclosure-bg: transparent;
+    --control-tree-disclosure-border: transparent;
+    --control-tree-action-opacity: 0;
+    --control-tree-glyph-offset-y: 0.125rem;
+    --control-tree-subtitle-offset-y: 0.0625rem;
+    --control-tree-meta-offset-y: 0.25rem;
+    --control-tree-tail-opacity: 0.36;
+    --control-tree-row-gap: 0.375rem;
+    --control-tree-glyph-slot-size: 1rem;
+    --control-tree-text-offset: calc(
+      var(--control-tree-glyph-slot-size) + var(--control-tree-row-gap)
+    );
+    --control-tree-tail-gap: 0.375rem;
+    --control-tree-tail-offset-y: 0.125rem;
+    --control-tree-tail-padding-start: 0.5rem;
     position: relative;
     border-radius: 0.625rem;
-    box-shadow: inset 0 0 0 1px transparent;
+    background: var(--control-tree-node-bg);
+    box-shadow:
+      inset 0 0 0 1px var(--control-tree-node-border),
+      0 0 0 1px var(--control-tree-node-ring);
     transition:
       background-color 160ms ease,
       box-shadow 160ms ease,
       color 160ms ease;
+  }
+
+  .control-tree-primary:focus-visible {
+    outline: none;
+  }
+
+  .control-tree-primary[data-surface="row"] {
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .control-tree-node::before {
@@ -1417,7 +1698,7 @@
     left: 0.3125rem;
     top: 0.4rem;
     bottom: 0.4rem;
-    width: 2px;
+    width: 1px;
     border-radius: 999px;
     background: transparent;
     opacity: 0;
@@ -1427,80 +1708,484 @@
   }
 
   .control-tree-node[data-active="false"]:hover {
-    background: color-mix(in oklch, var(--accent) 1.8%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 36%, transparent);
+    --control-tree-node-bg: color-mix(in oklch, var(--accent) 1.2%, transparent);
+    --control-tree-node-border: color-mix(in oklch, var(--border) 24%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 96%, var(--muted-foreground) 4%);
+    --control-tree-title-weight: 594;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 64%,
+      var(--foreground) 36%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 70%,
+      var(--foreground) 30%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 54%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 68%,
+      var(--foreground) 32%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 52%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 82%,
+      var(--foreground) 18%
+    );
+    --control-tree-glyph-bg: color-mix(in oklch, var(--accent) 2.4%, transparent);
+    --control-tree-disclosure-opacity: 0.76;
+    --control-tree-disclosure-bg: color-mix(in oklch, var(--accent) 2.1%, transparent);
+    --control-tree-disclosure-border: color-mix(in oklch, var(--border) 18%, transparent);
+  }
+
+  .control-tree-node[data-active="false"]:focus-within {
+    --control-tree-node-bg: color-mix(in oklch, var(--accent) 1.6%, transparent);
+    --control-tree-node-border: color-mix(in oklch, var(--border) 28%, transparent);
+    --control-tree-node-ring: color-mix(in oklch, var(--ring) 24%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 97%, var(--muted-foreground) 3%);
+    --control-tree-title-weight: 596;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 62%,
+      var(--foreground) 38%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 68%,
+      var(--foreground) 32%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 52%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 66%,
+      var(--foreground) 34%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 54%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 76%,
+      var(--foreground) 24%
+    );
+    --control-tree-glyph-bg: color-mix(in oklch, var(--accent) 2.4%, transparent);
+    --control-tree-disclosure-opacity: 0.82;
+    --control-tree-disclosure-bg: color-mix(in oklch, var(--accent) 2.6%, transparent);
+    --control-tree-disclosure-border: color-mix(in oklch, var(--ring) 18%, transparent);
+    --control-tree-action-opacity: 0.56;
+    --control-tree-tail-opacity: 0.82;
   }
 
   .control-tree-node[data-active="repo"] {
-    background: color-mix(
+    --control-tree-node-bg: color-mix(
       in oklch,
-      var(--accent) 4%,
-      var(--background) 96%
+      var(--accent) 2.4%,
+      var(--background) 97.6%
     );
-    box-shadow:
-      inset 0 0 0 1px color-mix(in oklch, var(--border) 48%, transparent),
-      inset 0 1px 0 color-mix(in oklch, var(--foreground) 2%, transparent);
+    --control-tree-node-border: color-mix(in oklch, var(--border) 36%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);
+    --control-tree-title-weight: 570;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 58%,
+      var(--foreground) 42%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 60%,
+      var(--foreground) 40%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 56%,
+      var(--foreground) 44%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 52%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 18%,
+      var(--muted-foreground) 82%
+    );
+    --control-tree-disclosure-opacity: 0.72;
+    --control-tree-action-opacity: 0.18;
+  }
+
+  .control-tree-node[data-active="repo"][data-selection-tone="context"] {
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--accent) 1.8%,
+      var(--background) 98.2%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--border) 30%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 86%, var(--muted-foreground) 14%);
+    --control-tree-title-weight: 564;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 62%,
+      var(--foreground) 38%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 64%,
+      var(--foreground) 36%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 54%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 60%,
+      var(--foreground) 40%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 54%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 14%,
+      var(--muted-foreground) 86%
+    );
+    --control-tree-disclosure-opacity: 0.68;
+    --control-tree-action-opacity: 0.14;
   }
 
   .control-tree-node[data-active="worktree"] {
-    background: color-mix(
+    --control-tree-node-bg: color-mix(
       in oklch,
-      var(--primary) 7.5%,
-      var(--background) 92.5%
+      var(--primary) 4.2%,
+      var(--background) 95.8%
     );
-    box-shadow:
-      inset 0 0 0 1px color-mix(in oklch, var(--primary) 16%, transparent),
-      inset 0 -1px 0 color-mix(in oklch, var(--primary) 20%, transparent);
+    --control-tree-node-border: color-mix(in oklch, var(--primary) 22%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 98%, var(--muted-foreground) 2%);
+    --control-tree-title-weight: 600;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 42%,
+      var(--foreground) 58%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 44%,
+      var(--foreground) 56%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 40%,
+      var(--foreground) 60%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 48%,
+      var(--muted-foreground) 52%
+    );
+    --control-tree-action-opacity: 0.18;
+    --control-tree-tail-opacity: 0.44;
+  }
+
+  .control-tree-node[data-active="worktree"] .control-tree-primary[data-surface="row"] {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .control-tree-node[data-active="repo"]:hover {
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--accent) 2.8%,
+      var(--background) 97.2%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--border) 40%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 94%, var(--muted-foreground) 6%);
+    --control-tree-title-weight: 576;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 54%,
+      var(--foreground) 46%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 56%,
+      var(--foreground) 44%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 54%,
+      var(--foreground) 46%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 24%,
+      var(--muted-foreground) 76%
+    );
+    --control-tree-glyph-bg: color-mix(in oklch, var(--accent) 2.4%, transparent);
+    --control-tree-disclosure-opacity: 0.84;
+    --control-tree-disclosure-bg: color-mix(in oklch, var(--accent) 2.4%, transparent);
+    --control-tree-disclosure-border: color-mix(in oklch, var(--border) 22%, transparent);
+    --control-tree-action-opacity: 0.56;
+    --control-tree-tail-opacity: 0.82;
+  }
+
+  .control-tree-node[data-active="repo"][data-selection-tone="context"]:hover {
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--accent) 2.1%,
+      var(--background) 97.9%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--border) 34%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 91%, var(--muted-foreground) 9%);
+    --control-tree-title-weight: 570;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 58%,
+      var(--foreground) 42%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 60%,
+      var(--foreground) 40%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 56%,
+      var(--foreground) 44%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 52%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 20%,
+      var(--muted-foreground) 80%
+    );
+    --control-tree-disclosure-opacity: 0.78;
+    --control-tree-disclosure-bg: color-mix(in oklch, var(--accent) 2.1%, transparent);
+    --control-tree-disclosure-border: color-mix(in oklch, var(--border) 20%, transparent);
+  }
+
+  .control-tree-node[data-active="repo"]:focus-within {
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--accent) 2.8%,
+      var(--background) 97.2%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--border) 40%, transparent);
+    --control-tree-node-ring: color-mix(in oklch, var(--ring) 26%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 95%, var(--muted-foreground) 5%);
+    --control-tree-title-weight: 578;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 52%,
+      var(--foreground) 48%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 54%,
+      var(--foreground) 46%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 46%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 52%,
+      var(--foreground) 48%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 28%,
+      var(--muted-foreground) 72%
+    );
+    --control-tree-glyph-bg: color-mix(in oklch, var(--accent) 2.4%, transparent);
+    --control-tree-disclosure-opacity: 0.84;
+    --control-tree-disclosure-bg: color-mix(in oklch, var(--accent) 2.6%, transparent);
+    --control-tree-disclosure-border: color-mix(in oklch, var(--ring) 18%, transparent);
+    --control-tree-action-opacity: 0.56;
+    --control-tree-tail-opacity: 0.82;
+  }
+
+  .control-tree-node[data-active="repo"][data-selection-tone="context"]:focus-within {
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--accent) 2.1%,
+      var(--background) 97.9%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--border) 34%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 92%, var(--muted-foreground) 8%);
+    --control-tree-title-weight: 572;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 56%,
+      var(--foreground) 44%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 58%,
+      var(--foreground) 42%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 54%,
+      var(--foreground) 46%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 22%,
+      var(--muted-foreground) 78%
+    );
+    --control-tree-disclosure-opacity: 0.78;
+    --control-tree-disclosure-bg: color-mix(in oklch, var(--accent) 2.3%, transparent);
+    --control-tree-disclosure-border: color-mix(in oklch, var(--ring) 16%, transparent);
+  }
+
+  .control-tree-node[data-active="worktree"]:hover {
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--primary) 4.8%,
+      var(--background) 95.2%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--primary) 26%, transparent);
+    --control-tree-title-color: var(--foreground);
+    --control-tree-title-weight: 604;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 36%,
+      var(--foreground) 64%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 38%,
+      var(--foreground) 62%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 34%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 36%,
+      var(--foreground) 64%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 36%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 54%,
+      var(--muted-foreground) 46%
+    );
+    --control-tree-glyph-bg: color-mix(in oklch, var(--accent) 2.4%, transparent);
+    --control-tree-action-opacity: 0.56;
+    --control-tree-tail-opacity: 0.82;
+  }
+
+  .control-tree-node[data-active="worktree"]:focus-within {
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--primary) 4.8%,
+      var(--background) 95.2%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--primary) 26%, transparent);
+    --control-tree-node-ring: color-mix(in oklch, var(--ring) 30%, transparent);
+    --control-tree-title-color: var(--foreground);
+    --control-tree-title-weight: 604;
+    --control-tree-subtitle-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 34%,
+      var(--foreground) 66%
+    );
+    --control-tree-meta-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 36%,
+      var(--foreground) 64%
+    );
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 32%, transparent);
+    --control-tree-metric-value-color: color-mix(
+      in oklch,
+      var(--muted-foreground) 34%,
+      var(--foreground) 66%
+    );
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 34%, transparent);
+    --control-tree-icon-color: color-mix(
+      in oklch,
+      var(--foreground) 56%,
+      var(--muted-foreground) 44%
+    );
+    --control-tree-glyph-bg: color-mix(in oklch, var(--accent) 2.4%, transparent);
+    --control-tree-action-opacity: 0.56;
+    --control-tree-tail-opacity: 0.82;
   }
 
   .control-tree-node[data-active='repo']::before {
-    opacity: 0.9;
-    background: color-mix(in oklch, var(--foreground) 18%, var(--muted-foreground) 82%);
+    opacity: 0;
+    background: transparent;
   }
 
   .control-tree-node[data-active='worktree']::before {
-    opacity: 1;
-    background: color-mix(in oklch, var(--primary) 70%, transparent);
+    opacity: 0;
+    background: transparent;
   }
 
   .control-tree-title {
     display: block;
     min-width: 0;
-    font-size: 0.875rem;
-    line-height: 1.2rem;
-    font-weight: 570;
-    letter-spacing: -0.01em;
-    color: var(--foreground);
+    font-size: var(--ui-text-tree-title-size);
+    line-height: var(--ui-text-tree-title-line-height);
+    font-weight: var(--control-tree-title-weight);
+    letter-spacing: -0.012em;
+    font-kerning: normal;
+    color: var(--control-tree-title-color);
   }
 
   .control-tree-subtitle {
-    font-size: 0.75rem;
-    line-height: 1.05rem;
-    letter-spacing: 0;
-    color: color-mix(
-      in oklch,
-      var(--muted-foreground) 82%,
-      var(--background) 18%
-    );
+    display: block;
+    margin-top: var(--control-tree-subtitle-offset-y);
+    font-size: var(--ui-text-tree-subtitle-size);
+    line-height: var(--ui-text-tree-subtitle-line-height);
+    font-weight: 460;
+    letter-spacing: 0.005em;
+    font-kerning: normal;
+    color: var(--control-tree-subtitle-color);
   }
 
   .control-tree-meta {
-    font-size: 0.71875rem;
-    line-height: 1rem;
-    letter-spacing: 0.015em;
+    font-size: var(--ui-text-tree-meta-size);
+    line-height: var(--ui-text-tree-meta-line-height);
+    letter-spacing: 0.01em;
+    font-kerning: normal;
     font-variant-numeric: tabular-nums;
-    color: color-mix(in oklch, var(--muted-foreground) 90%, transparent);
+    color: var(--control-tree-meta-color);
   }
 
   .control-tree-meta-row {
     display: flex;
+    margin-top: var(--control-tree-meta-offset-y);
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.28rem;
+    gap: 0.375rem;
+    row-gap: 0.125rem;
+  }
+
+  .control-tree-row {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: var(--control-tree-row-gap);
+  }
+
+  .control-tree-primary-content {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: var(--control-tree-row-gap);
+  }
+
+  .control-tree-text-stack {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .control-tree-meta-offset {
+    padding-inline-start: var(--control-tree-text-offset);
   }
 
   .control-tree-glyph {
     display: inline-flex;
+    margin-top: var(--control-tree-glyph-offset-y);
     align-items: center;
     justify-content: center;
     border-radius: 0.3125rem;
@@ -1512,11 +2197,11 @@
 
   .control-tree-node:hover .control-tree-glyph,
   .control-tree-node:focus-within .control-tree-glyph {
-    background: color-mix(in oklch, var(--accent) 3.2%, transparent);
+    background: var(--control-tree-glyph-bg);
   }
 
   .control-tree-separator {
-    color: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
+    color: var(--control-tree-separator-color);
   }
 
   .control-tree-count {
@@ -1540,25 +2225,22 @@
 
   .control-tree-metric {
     display: inline-flex;
-    align-items: baseline;
-    gap: 0.16rem;
+    align-items: center;
+    gap: 0.22rem;
     white-space: nowrap;
   }
 
   .control-tree-metric-label {
-    color: color-mix(in oklch, var(--muted-foreground) 66%, transparent);
-    font-size: 0.5625rem;
-    font-weight: 650;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    color: var(--control-tree-metric-label-color);
+    font-size: 0.59375rem;
+    font-weight: 540;
+    letter-spacing: 0.02em;
+    text-transform: none;
   }
 
   .control-tree-metric-value {
-    color: color-mix(
-      in oklch,
-      var(--muted-foreground) 82%,
-      var(--foreground) 18%
-    );
+    color: var(--control-tree-metric-value-color);
+    font-weight: 590;
     font-variant-numeric: tabular-nums;
   }
 
@@ -1585,7 +2267,7 @@
   }
 
   .control-tree-icon {
-    color: var(--muted-foreground);
+    color: var(--control-tree-icon-color);
     transition: color 160ms ease;
   }
 
@@ -1595,13 +2277,67 @@
     min-width: 0;
     flex-shrink: 0;
     align-items: flex-start;
-    gap: 0.3125rem;
+    align-self: flex-start;
+    gap: var(--control-tree-tail-gap);
+    padding-inline-start: var(--control-tree-tail-padding-start);
+    transform: translateY(var(--control-tree-tail-offset-y));
+  }
+
+  .control-tree-tail[data-role="action"] {
+    opacity: var(--control-tree-tail-opacity);
+    transition:
+      opacity 140ms ease,
+      transform 140ms ease;
+  }
+
+  .control-tree-section-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  .control-tree-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding-top: 0.375rem;
+  }
+
+  .control-tree-flat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
   }
 
   .control-tree-tail-divider {
     width: 1px;
     height: 0.625rem;
     background: color-mix(in oklch, var(--border) 72%, transparent);
+  }
+
+  .control-tree-disclosure {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    border: 1px solid var(--control-tree-disclosure-border);
+    background: var(--control-tree-disclosure-bg);
+    color: var(--control-tree-disclosure-color);
+    opacity: var(--control-tree-disclosure-opacity);
+    transition:
+      opacity 140ms ease,
+      border-color 140ms ease,
+      background-color 140ms ease,
+      color 140ms ease;
+  }
+
+  .control-tree-disclosure:hover,
+  .control-tree-disclosure:focus-visible {
+    opacity: 1;
+    border-color: color-mix(in oklch, var(--border) 24%, transparent);
+    background: color-mix(in oklch, var(--accent) 2.2%, transparent);
+    color: color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground) 12%);
+    outline: none;
   }
 
   .control-tree-branch-icon {
@@ -1620,57 +2356,13 @@
     color: color-mix(in oklch, var(--destructive) 88%, var(--foreground) 12%);
   }
 
-  .control-tree-node[data-active="repo"] .control-tree-title {
-    color: var(--foreground);
-    font-weight: 545;
-  }
-
-  .control-tree-node[data-active="repo"] .control-tree-subtitle,
-  .control-tree-node[data-active="repo"] .control-tree-meta {
-    color: color-mix(
-      in oklch,
-      var(--muted-foreground) 86%,
-      var(--foreground) 14%
-    );
-  }
-
-  .control-tree-node[data-active="repo"] .control-tree-icon {
-    color: color-mix(
-      in oklch,
-      var(--foreground) 18%,
-      var(--muted-foreground) 82%
-    );
-  }
-
   .control-tree-node[data-active="repo"] .control-tree-glyph {
-    background: color-mix(in oklch, var(--accent) 7%, transparent);
-  }
-
-  .control-tree-node[data-active="worktree"] .control-tree-title {
-    color: var(--foreground);
-    font-weight: 565;
-  }
-
-  .control-tree-node[data-active="worktree"] .control-tree-subtitle,
-  .control-tree-node[data-active="worktree"] .control-tree-meta {
-    color: color-mix(
-      in oklch,
-      var(--muted-foreground) 66%,
-      var(--foreground) 34%
-    );
-  }
-
-  .control-tree-node[data-active="worktree"] .control-tree-icon {
-    color: color-mix(
-      in oklch,
-      var(--foreground) 42%,
-      var(--muted-foreground) 58%
-    );
+    background: transparent;
   }
 
   .control-tree-node[data-active="worktree"] .control-tree-glyph {
-    background: color-mix(in oklch, var(--primary) 16%, transparent);
-    transform: translateY(-0.5px);
+    background: transparent;
+    transform: none;
   }
 
   .control-tree-node[data-active="worktree"] .control-tree-branch-icon {
@@ -1693,7 +2385,9 @@
     min-height: 2rem;
     min-width: 2rem;
     opacity: 0;
+    background: transparent;
     border: 1px solid transparent;
+    color: color-mix(in oklch, var(--muted-foreground) 58%, transparent);
     transition:
       opacity 140ms ease,
       border-color 140ms ease,
@@ -1703,17 +2397,33 @@
 
   .control-tree-node[data-active="repo"] .control-tree-action,
   .control-tree-node[data-active="worktree"] .control-tree-action {
-    opacity: 0.72;
+    opacity: var(--control-tree-action-opacity);
   }
 
   .control-tree-node:hover .control-tree-action,
   .control-tree-node:focus-within .control-tree-action {
+    border-color: color-mix(in oklch, var(--border) 18%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 72%, var(--foreground) 28%);
+  }
+
+  .control-tree-action:hover,
+  .control-tree-action:focus-visible {
     opacity: 1;
-    border-color: color-mix(in oklch, var(--border) 42%, transparent);
+    background: color-mix(in oklch, var(--accent) 2.4%, transparent);
+    border-color: color-mix(in oklch, var(--border) 26%, transparent);
+    color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);
   }
 
   .control-tree-guide {
     position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin-top: 0.375rem;
+    margin-right: 0.25rem;
+    margin-left: 0.875rem;
+    overflow: hidden;
+    padding-left: 0.5rem;
   }
 
   .control-tree-guide::before {
@@ -1730,18 +2440,18 @@
     display: inline-flex;
     align-items: center;
     gap: 0.22rem;
-    min-height: 1rem;
-    padding-inline: 0.32rem;
-    border: 1px solid color-mix(in oklch, var(--border) 48%, transparent);
-    border-radius: 999px;
-    background: color-mix(in oklch, var(--background) 94%, var(--muted) 6%);
+    min-height: auto;
+    padding-inline: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
     font-size: 0.625rem;
-    font-weight: 640;
+    font-weight: 620;
     line-height: 1;
     letter-spacing: 0.015em;
     text-transform: none;
     white-space: nowrap;
-    color: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
   }
 
   .control-tree-state::before {
@@ -1753,32 +2463,32 @@
   }
 
   .control-tree-state-live {
-    border-color: color-mix(in oklch, var(--control-live) 28%, var(--border) 72%);
-    background: color-mix(in oklch, var(--control-live) 10%, var(--background) 90%);
+    border-color: transparent;
+    background: transparent;
     color: color-mix(
       in oklch,
-      var(--control-live) 84%,
-      var(--muted-foreground) 16%
+      var(--control-live) 78%,
+      var(--muted-foreground) 22%
     );
   }
 
   .control-tree-state-wait {
-    border-color: color-mix(in oklch, var(--control-wait) 28%, var(--border) 72%);
-    background: color-mix(in oklch, var(--control-wait) 10%, var(--background) 90%);
+    border-color: transparent;
+    background: transparent;
     color: color-mix(
       in oklch,
-      var(--control-wait) 82%,
-      var(--muted-foreground) 18%
+      var(--control-wait) 76%,
+      var(--muted-foreground) 24%
     );
   }
 
   .control-tree-state-done {
-    border-color: color-mix(in oklch, var(--control-done) 28%, var(--border) 72%);
-    background: color-mix(in oklch, var(--control-done) 10%, var(--background) 90%);
+    border-color: transparent;
+    background: transparent;
     color: color-mix(
       in oklch,
-      var(--control-done) 82%,
-      var(--muted-foreground) 18%
+      var(--control-done) 76%,
+      var(--muted-foreground) 24%
     );
   }
 
@@ -1830,17 +2540,41 @@
     gap: 0.375rem;
     min-height: 1.25rem;
     padding-inline: 0.38rem;
-    border: 1px solid color-mix(in oklch, var(--border) 44%, transparent);
+    border: 1px solid color-mix(in oklch, var(--border) 28%, transparent);
     border-radius: 999px;
-    background: color-mix(in oklch, var(--background) 94%, var(--muted) 6%);
-    color: color-mix(in oklch, var(--muted-foreground) 78%, transparent);
+    background: color-mix(in oklch, var(--background) 96%, var(--muted) 4%);
+    color: color-mix(
+      in oklch,
+      var(--muted-foreground) 72%,
+      var(--foreground) 28%
+    );
     font-variant-numeric: tabular-nums;
+    transition:
+      border-color 140ms ease,
+      background-color 140ms ease,
+      color 140ms ease;
+  }
+
+  .control-tree-node[data-active="worktree"] .control-tree-tail[data-role="action"] .control-tree-sync {
+    border-color: color-mix(in oklch, var(--border) 26%, transparent);
+    background: color-mix(in oklch, var(--background) 97%, var(--muted) 3%);
+    color: color-mix(
+      in oklch,
+      var(--muted-foreground) 68%,
+      var(--foreground) 32%
+    );
+  }
+
+  .control-tree-node:hover .control-tree-tail[data-role="action"] .control-tree-sync,
+  .control-tree-node:focus-within .control-tree-tail[data-role="action"] .control-tree-sync {
+    border-color: color-mix(in oklch, var(--border) 38%, transparent);
+    background: color-mix(in oklch, var(--background) 94%, var(--muted) 6%);
   }
 
   .control-tree-sync[data-mode="publish"] {
-    border-color: color-mix(in oklch, var(--primary) 22%, var(--border) 78%);
-    background: color-mix(in oklch, var(--primary) 10%, var(--background) 90%);
-    color: color-mix(in oklch, var(--primary) 70%, var(--muted-foreground) 30%);
+    border-color: color-mix(in oklch, var(--primary) 16%, var(--border) 84%);
+    background: color-mix(in oklch, var(--primary) 7%, var(--background) 93%);
+    color: color-mix(in oklch, var(--primary) 60%, var(--muted-foreground) 40%);
   }
 
   .control-tree-sync-metric {
@@ -1865,9 +2599,20 @@
       color-mix(in oklch, var(--foreground) 5%, transparent);
   }
 
+  .control-menu-label {
+    font-size: var(--ui-text-meta-size);
+    line-height: var(--ui-text-meta-line-height);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
   .control-menu-item {
     border: 1px solid transparent;
     background: transparent;
+    font-size: var(--ui-text-panel-description-size);
+    line-height: var(--ui-text-panel-description-line-height);
+    font-weight: 500;
     text-align: left;
     transition:
       background-color 140ms ease,
@@ -1875,13 +2620,30 @@
       color 140ms ease;
   }
 
-  .control-menu-item:hover {
+  .control-menu-item:hover,
+  .control-menu-item:focus-visible {
     border-color: color-mix(
       in oklch,
       var(--primary) 12%,
       var(--control-border-soft) 88%
     );
     background: color-mix(in oklch, var(--accent) 10%, var(--background) 90%);
+    outline: none;
+  }
+
+  .control-menu-item-danger {
+    color: color-mix(in oklch, var(--destructive) 82%, var(--foreground) 18%);
+  }
+
+  .control-menu-item-danger:hover,
+  .control-menu-item-danger:focus-visible {
+    border-color: color-mix(
+      in oklch,
+      var(--destructive) 18%,
+      var(--control-border-soft) 82%
+    );
+    background: color-mix(in oklch, var(--destructive) 8%, var(--background) 92%);
+    color: color-mix(in oklch, var(--destructive) 86%, var(--foreground) 14%);
   }
 
   .settings-field-row {
