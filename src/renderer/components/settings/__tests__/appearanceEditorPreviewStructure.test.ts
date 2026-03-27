@@ -23,6 +23,8 @@ describe('appearance editor preview structure', () => {
     expect(appearanceSettingsSource).toContain('cursorColumn');
     expect(appearanceSettingsSource).toContain('minimapRows');
     expect(appearanceSettingsSource).toContain("decoration: 'inserted'");
+    expect(appearanceSettingsSource).toContain("decoration: 'removed'");
+    expect(appearanceSettingsSource).toContain('overviewMarkers');
     expect(appearanceSettingsSource).toContain('repeating-linear-gradient');
     expect(appearanceSettingsSource).toContain('src/renderer/theme/preview.ts');
     expect(appearanceSettingsSource).toContain('Selection, cursor, and active line states');

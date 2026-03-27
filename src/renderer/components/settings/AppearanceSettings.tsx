@@ -732,7 +732,8 @@ function EditorSamplePreview({
     segments: EditorSampleSegment[];
     isActiveLine?: boolean;
     cursorColumn?: number;
-    decoration?: 'inserted';
+    decoration?: 'inserted' | 'removed';
+    marker?: 'warning';
   };
   const gutterBackground = withAlpha(palette.foreground, palette.mode === 'dark' ? '03' : '04');
   const guideColor = withAlpha(palette.indentGuide, palette.mode === 'dark' ? '68' : '5c');
@@ -811,6 +812,7 @@ function EditorSamplePreview({
       lineNumber: 18,
       minimapWidth: 63,
       decoration: 'inserted',
+      marker: 'warning',
       segments: [
         { text: '    ', color: palette.punctuation },
         { text: 'scale', color: palette.variable },
@@ -843,16 +845,28 @@ function EditorSamplePreview({
     },
     {
       lineNumber: 20,
+      minimapWidth: 54,
+      decoration: 'removed',
+      segments: [
+        { text: '    ', color: palette.punctuation },
+        { text: 'stickyHeader', color: palette.variable },
+        { text: ': ', color: palette.punctuation },
+        { text: 'true', color: palette.constant },
+        { text: ',', color: palette.punctuation },
+      ],
+    },
+    {
+      lineNumber: 21,
       minimapWidth: 38,
       segments: [{ text: '  });', color: palette.punctuation }],
     },
     {
-      lineNumber: 21,
+      lineNumber: 22,
       minimapWidth: 0,
       segments: [],
     },
     {
-      lineNumber: 22,
+      lineNumber: 23,
       minimapWidth: 68,
       segments: [
         { text: '  return ', color: palette.keyword },
@@ -864,7 +878,7 @@ function EditorSamplePreview({
       ],
     },
     {
-      lineNumber: 23,
+      lineNumber: 24,
       minimapWidth: 16,
       segments: [{ text: '}', color: palette.punctuation }],
     },
@@ -875,10 +889,17 @@ function EditorSamplePreview({
       ? palette.accent
       : line.decoration === 'inserted'
         ? insertedMarkerColor
-        : line.segments[0]?.color === palette.comment
-          ? withAlpha(palette.comment, '88')
-          : withAlpha(line.segments[0]?.color ?? palette.foreground, '52'),
+        : line.decoration === 'removed'
+          ? withAlpha(palette.number, palette.mode === 'dark' ? '90' : '80')
+          : line.segments[0]?.color === palette.comment
+            ? withAlpha(palette.comment, '88')
+            : withAlpha(line.segments[0]?.color ?? palette.foreground, '52'),
   }));
+  const overviewMarkers = [
+    { top: '16%', height: '14%', color: palette.diffInsertedText },
+    { top: '49%', height: '18%', color: palette.selectionBackground },
+    { top: '71%', height: '12%', color: palette.diffRemovedText },
+  ];
 
   return (
     <div
@@ -936,7 +957,9 @@ function EditorSamplePreview({
                   ? palette.lineHighlight
                   : line.decoration === 'inserted'
                     ? palette.diffInsertedLine
-                    : 'transparent',
+                    : line.decoration === 'removed'
+                      ? palette.diffRemovedLine
+                      : 'transparent',
                 borderLeft: line.isActiveLine
                   ? `2px solid ${palette.accent}`
                   : '2px solid transparent',
@@ -953,12 +976,23 @@ function EditorSamplePreview({
                     className="h-4 w-0.5 rounded-full"
                     style={{ backgroundColor: insertedMarkerColor }}
                   />
+                ) : line.decoration === 'removed' ? (
+                  <span
+                    className="h-4 w-0.5 rounded-full"
+                    style={{ backgroundColor: palette.number }}
+                  />
                 ) : null}
               </div>
               <div
-                className="select-none pr-3 pt-0.5 text-right text-[0.82em]"
+                className="flex select-none items-start justify-end gap-1 pr-3 pt-0.5 text-right text-[0.82em]"
                 style={{ color: line.isActiveLine ? palette.foreground : palette.lineNumber }}
               >
+                {line.marker === 'warning' ? (
+                  <span
+                    className="mt-[0.2rem] h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: palette.number }}
+                  />
+                ) : null}
                 {line.lineNumber}
               </div>
               <div className="relative min-w-0 overflow-hidden py-0.5 whitespace-pre">
@@ -995,7 +1029,7 @@ function EditorSamplePreview({
         </div>
 
         <div
-          className="flex flex-col gap-1.5 border-l px-2 py-2"
+          className="relative flex flex-col gap-1.5 border-l px-2 py-2"
           style={{
             backgroundColor: withAlpha(palette.foreground, palette.mode === 'dark' ? '03' : '04'),
             borderColor: palette.indentGuide,
@@ -1020,6 +1054,19 @@ function EditorSamplePreview({
             className="mt-auto h-8 rounded-sm"
             style={{ backgroundColor: palette.selectionBackground }}
           />
+          <div className="pointer-events-none absolute inset-y-2 right-1.5 w-0.5">
+            {overviewMarkers.map((marker, index) => (
+              <span
+                key={`editor-sample-overview-${index + 1}`}
+                className="absolute inset-x-0 rounded-full"
+                style={{
+                  top: marker.top,
+                  height: marker.height,
+                  backgroundColor: marker.color,
+                }}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
