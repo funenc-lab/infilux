@@ -1,6 +1,47 @@
 import { describe, expect, it } from 'vitest';
-import { createCustomThemeFromPresetDocument } from '@/lib/appTheme';
+import { APP_COLOR_PRESET_OPTIONS, createCustomThemeFromPresetDocument } from '@/lib/appTheme';
 import { resolveEditorVisualPalette } from '../editorThemePalette';
+
+function parseHexColor(hex: string): { r: number; g: number; b: number } {
+  const match = hex
+    .trim()
+    .toLowerCase()
+    .match(/^#([0-9a-f]{6})$/);
+  if (!match) {
+    throw new Error(`Expected HEX color, received: ${hex}`);
+  }
+
+  const value = match[1];
+
+  return {
+    r: Number.parseInt(value.slice(0, 2), 16),
+    g: Number.parseInt(value.slice(2, 4), 16),
+    b: Number.parseInt(value.slice(4, 6), 16),
+  };
+}
+
+function getHexContrast(left: string, right: string): number {
+  const toRelativeLuminance = (value: string) => {
+    const { r, g, b } = parseHexColor(value);
+    const toLinear = (channel: number) => {
+      const normalized = channel / 255;
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    };
+
+    const red = toLinear(r);
+    const green = toLinear(g);
+    const blue = toLinear(b);
+
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+
+  const leftLuminance = toRelativeLuminance(left);
+  const rightLuminance = toRelativeLuminance(right);
+  const lighter = Math.max(leftLuminance, rightLuminance);
+  const darker = Math.min(leftLuminance, rightLuminance);
+
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 describe('resolveEditorVisualPalette', () => {
   it('maps the retired signal-red preset to the warm graphite editor palette', () => {
@@ -47,7 +88,7 @@ describe('resolveEditorVisualPalette', () => {
     expect(palette.support).toBe('#63a7a5');
   });
 
-  it('preserves midnight core editor identity in light mode', () => {
+  it('preserves the graphite black editor identity in light mode', () => {
     const palette = resolveEditorVisualPalette({
       theme: 'light',
       terminalTheme: 'Dracula',
@@ -56,11 +97,11 @@ describe('resolveEditorVisualPalette', () => {
       customTheme: null,
     });
 
-    expect(palette.background).toBe('#e7ecf8');
-    expect(palette.keyword).toBe('#425dc4');
-    expect(palette.constant).toBe('#5e58bd');
-    expect(palette.type).toBe('#3d7099');
-    expect(palette.support).toBe('#6d7bc4');
+    expect(palette.background).toBe('#f2f2f2');
+    expect(palette.keyword).toBe('#0033b3');
+    expect(palette.constant).toBe('#871094');
+    expect(palette.type).toBe('#8c3f00');
+    expect(palette.support).toBe('#c28a4b');
   });
 
   it('keeps paper console dark editor surfaces firm enough for console workflows', () => {
@@ -88,10 +129,10 @@ describe('resolveEditorVisualPalette', () => {
       customTheme: null,
     });
 
-    expect(palette.background).toBe('#181314');
+    expect(palette.background).toBe('#1b1816');
     expect(palette.keyword).toBe('#dc857c');
-    expect(palette.string).toBe('#caa098');
-    expect(palette.support).toBe('#8c756d');
+    expect(palette.string).toBe('#c4a19a');
+    expect(palette.support).toBe('#8b7a70');
   });
 
   it('falls back to warm graphite editor accents when the preset id is unknown', () => {
@@ -105,6 +146,45 @@ describe('resolveEditorVisualPalette', () => {
 
     expect(palette.accent).toBe('#c2875d');
     expect(palette.support).toBe('#6b8c72');
+  });
+
+  it('keeps graphite black editor gutters and guides readable in dark mode', () => {
+    const palette = resolveEditorVisualPalette({
+      theme: 'dark',
+      terminalTheme: 'Dracula',
+      colorPreset: 'midnight-oled',
+      customAccentColor: '',
+      customTheme: null,
+    });
+
+    expect(palette.lineNumber).toBe('#777d84');
+    expect(palette.indentGuide).toBe('#454a4e');
+    expect(palette.indentGuideActive).toBe('#5f666d');
+  });
+
+  it('enforces editor clarity thresholds across every preset', () => {
+    for (const option of APP_COLOR_PRESET_OPTIONS) {
+      for (const mode of ['light', 'dark'] as const) {
+        const palette = resolveEditorVisualPalette({
+          theme: mode,
+          terminalTheme: 'Dracula',
+          colorPreset: option.id,
+          customAccentColor: '',
+          customTheme: null,
+        });
+
+        expect(getHexContrast(palette.background, palette.foreground)).toBeGreaterThanOrEqual(6.75);
+        expect(getHexContrast(palette.background, palette.comment)).toBeGreaterThanOrEqual(2.9);
+        expect(getHexContrast(palette.background, palette.lineNumber)).toBeGreaterThanOrEqual(2.3);
+        expect(getHexContrast(palette.background, palette.indentGuide)).toBeGreaterThanOrEqual(
+          1.25
+        );
+        expect(
+          getHexContrast(palette.background, palette.indentGuideActive)
+        ).toBeGreaterThanOrEqual(1.7);
+        expect(getHexContrast(palette.background, palette.accent)).toBeGreaterThanOrEqual(2.6);
+      }
+    }
   });
 
   it('resolves custom theme oklch tokens through computed styles instead of falling back to the dark defaults', () => {
