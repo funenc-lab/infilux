@@ -1969,8 +1969,11 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                     enabledAgents.length > 0 && (
                       <div className="absolute left-0 top-full z-50 min-w-52 pt-2 text-left">
                         <div className="control-menu rounded-2xl p-2">
-                          <div className="mb-1 flex items-center justify-between px-1 py-1">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          <div className="mb-1 flex min-w-0 items-center justify-between gap-2 px-1 py-1">
+                            <span
+                              className="control-menu-label min-w-0 flex-1 truncate pr-2 text-muted-foreground"
+                              title={t('Start with Profile')}
+                            >
                               {t('Start with Profile')}
                             </span>
                             <Tooltip>

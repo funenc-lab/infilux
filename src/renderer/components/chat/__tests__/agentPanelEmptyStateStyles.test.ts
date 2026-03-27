@@ -21,4 +21,9 @@ describe('AgentPanel empty state styles', () => {
   it('uses the shared console menu item class for profile options', () => {
     expect(panelSource).toContain('control-menu-item');
   });
+
+  it('keeps the profile picker header label shrink-safe beside the settings button', () => {
+    expect(panelSource).toContain('mb-1 flex min-w-0 items-center justify-between gap-2 px-1 py-1');
+    expect(panelSource).toContain('control-menu-label min-w-0 flex-1 truncate pr-2');
+  });
 });
