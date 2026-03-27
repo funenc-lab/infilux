@@ -236,6 +236,34 @@ Users should still be able to answer at a glance:
 - what is currently active
 - what requires attention
 
+## Clarity and Readability Rule
+
+Clarity is a hard rule for every shipped theme, not a style preference.
+
+No preset, custom theme, synced theme, or editor palette may trade readability for mood, softness, or atmospheric realism.
+
+Required outcomes:
+
+- text must stay immediately readable in long sessions
+- muted text may soften hierarchy, but must not look foggy or low-confidence
+- app background, card, secondary surface, and border layers must remain distinguishable at a glance
+- focus accents, rings, and current-selection surfaces must read clearly without relying on guesswork
+- editor line numbers, indent guides, and active guides must remain visible enough to support navigation
+
+Forbidden outcomes:
+
+- dark themes collapsing into flat middle-gray surfaces
+- low-contrast borders that make panels feel blurred together
+- muted text that looks washed out instead of intentionally de-emphasized
+- focus states that disappear into nearby neutrals
+- editor chrome that looks elegant in screenshots but becomes vague during actual coding
+
+Implementation rule:
+
+- every preset change must be backed by automated readability checks
+- readability thresholds must be enforced in tests for both app theme tokens and editor palettes
+- when atmosphere conflicts with clarity, clarity wins
+
 ## Background Image Overlay Policy
 
 Background imagery is a surface treatment, not a theme source.
