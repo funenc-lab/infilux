@@ -1,21 +1,12 @@
 import type { TempWorkspaceItem } from '@shared/types';
 import { getDisplayPath, isWslUncPath } from '@shared/utils/path';
-import {
-  FolderGit2,
-  GitBranch,
-  PanelLeftClose,
-  Plus,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Terminal,
-  X,
-} from 'lucide-react';
+import { FolderGit2, GitBranch, PanelLeftClose, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { TempWorkspaceContextMenu } from '@/components/temp-workspace/TempWorkspaceContextMenu';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { SidebarEmptyState } from './SidebarEmptyState';
 
@@ -43,8 +34,12 @@ export function TemporaryWorkspacePanel({
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const safeItems = useMemo(() => sanitizeTempWorkspaceItems(items), [items]);
 
-  const sortedItems = useMemo(() => [...items].sort((a, b) => b.createdAt - a.createdAt), [items]);
+  const sortedItems = useMemo(
+    () => [...safeItems].sort((a, b) => b.createdAt - a.createdAt),
+    [safeItems]
+  );
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return sortedItems;
     const query = searchQuery.toLowerCase();
@@ -60,12 +55,7 @@ export function TemporaryWorkspacePanel({
   return (
     <aside className="control-sidebar flex h-full w-full flex-col border-r bg-background">
       <div className="control-sidebar-header drag-region">
-        <div className="control-sidebar-heading no-drag">
-          <div className="control-sidebar-heading-copy">
-            <span className="control-sidebar-title">{t('Temp Sessions')}</span>
-            <span className="control-sidebar-subtitle">{t('Disposable workspaces')}</span>
-          </div>
-        </div>
+        <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
           <button
             type="button"
@@ -234,46 +224,45 @@ function TemporaryWorkspaceItemRow({
         className="control-tree-node group flex w-full flex-col gap-0.5 px-2 py-1 text-left"
         data-active={isActive ? 'worktree' : 'false'}
         aria-current={isActive ? 'page' : undefined}
+        title={displayPath}
       >
-        <div className="relative z-10 flex w-full items-start gap-1.5">
-          <span className="control-tree-glyph mt-0.5 h-4 w-4 shrink-0">
+        <div className="control-tree-row">
+          <span className="control-tree-glyph h-4 w-4 shrink-0">
             <GitBranch className="control-tree-icon h-3.5 w-3.5" />
           </span>
-          <div className="min-w-0 flex-1">
+          <div className="control-tree-text-stack min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <span className="control-tree-title min-w-0 flex-1 truncate">{item.title}</span>
-              <span className="control-tree-flag control-tree-flag-main shrink-0">{t('Main')}</span>
+              {hasActivity ? (
+                <div className="control-tree-meta control-tree-meta-inline">
+                  {activity.agentCount > 0 ? (
+                    <span className="control-tree-metric">
+                      <span className="control-tree-metric-value">{activity.agentCount}</span>
+                      <span className="control-tree-metric-label">{t('agents')}</span>
+                    </span>
+                  ) : null}
+                  {activity.agentCount > 0 && activity.terminalCount > 0 ? (
+                    <span className="control-tree-separator">·</span>
+                  ) : null}
+                  {activity.terminalCount > 0 ? (
+                    <span className="control-tree-metric">
+                      <span className="control-tree-metric-value">{activity.terminalCount}</span>
+                      <span className="control-tree-metric-label">{t('terminals')}</span>
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <div
               className={cn(
-                'control-tree-subtitle mt-px overflow-hidden whitespace-nowrap text-ellipsis [text-align:left] [unicode-bidi:plaintext]',
+                'control-tree-subtitle overflow-hidden whitespace-nowrap text-ellipsis [text-align:left] [unicode-bidi:plaintext]',
                 useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
               )}
-              title={displayPath}
             >
               {displayPath}
             </div>
           </div>
         </div>
-        {hasActivity && (
-          <div className="control-tree-meta control-tree-meta-row relative z-10 mt-0.5 pl-[1.25rem]">
-            {activity.agentCount > 0 && (
-              <span className="control-tree-metric">
-                <Sparkles className="h-3 w-3" />
-                <span className="control-tree-metric-value">{activity.agentCount}</span>
-              </span>
-            )}
-            {activity.agentCount > 0 && activity.terminalCount > 0 && (
-              <span className="control-tree-separator">·</span>
-            )}
-            {activity.terminalCount > 0 && (
-              <span className="control-tree-metric">
-                <Terminal className="h-3 w-3" />
-                <span className="control-tree-metric-value">{activity.terminalCount}</span>
-              </span>
-            )}
-          </div>
-        )}
       </button>
 
       <TempWorkspaceContextMenu

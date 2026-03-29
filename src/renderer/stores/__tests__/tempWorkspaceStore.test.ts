@@ -114,6 +114,21 @@ describe('temp workspace store', () => {
     expect(env.useTempWorkspaceStore.getState().items).toEqual([]);
   });
 
+  it('filters malformed persisted items before exposing them to the renderer', async () => {
+    const validItem = {
+      id: 'temp-1',
+      path: '/tmp/session-1',
+      folderName: 'session-1',
+      title: 'Session 1',
+      createdAt: 1,
+    };
+    const env = await loadTempWorkspaceStore({
+      storedValue: JSON.stringify([validItem, { id: 'broken-no-path', title: 'Broken' }]),
+    });
+
+    expect(env.useTempWorkspaceStore.getState().items).toEqual([validItem]);
+  });
+
   it('starts empty when nothing is stored and keeps items for unknown file-list errors', async () => {
     const item = {
       id: 'temp-unknown',
@@ -155,6 +170,27 @@ describe('temp workspace store', () => {
     expect(env.localStorageMock.setItem).toHaveBeenLastCalledWith(
       'enso-temp-workspaces',
       JSON.stringify(replacement)
+    );
+  });
+
+  it('drops malformed items during setItems before persisting them', async () => {
+    const env = await loadTempWorkspaceStore();
+    const validItem = {
+      id: 'temp-2',
+      path: '/tmp/valid',
+      folderName: 'valid',
+      title: 'Valid',
+      createdAt: 2,
+    };
+
+    env.useTempWorkspaceStore
+      .getState()
+      .setItems([validItem, { id: 'broken', title: 'Broken' } as never]);
+
+    expect(env.useTempWorkspaceStore.getState().items).toEqual([validItem]);
+    expect(env.localStorageMock.setItem).toHaveBeenLastCalledWith(
+      'enso-temp-workspaces',
+      JSON.stringify([validItem])
     );
   });
 

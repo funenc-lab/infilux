@@ -1,18 +1,17 @@
-import { getDisplayPath, isWslUncPath } from '@shared/utils/path';
+import { isWslUncPath } from '@shared/utils/path';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import {
   ChevronRight,
   Clock,
   FolderGit2,
   FolderMinus,
-  MoreHorizontal,
   PanelLeftClose,
   Plus,
   Search,
   Settings2,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ALL_GROUP_ID,
   type RepositoryGroup,
@@ -48,16 +47,16 @@ import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
 import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
+import {
+  type RepositoryTreeItemRepository as Repository,
+  RepositoryTreeItem,
+} from './repository-sidebar/RepositoryTreeItem';
 import { SidebarEmptyState } from './SidebarEmptyState';
-
-interface Repository {
-  name: string;
-  path: string;
-  groupId?: string;
-}
+import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 
 interface RepositorySidebarProps {
   repositories: Repository[];
@@ -85,6 +84,8 @@ interface RepositorySidebarProps {
   isFileDragOver?: boolean;
   temporaryWorkspaceEnabled?: boolean;
   tempBasePath?: string;
+  tempWorkspaceCount?: number;
+  hasActiveTempWorkspace?: boolean;
 }
 
 export function RepositorySidebar({
@@ -112,6 +113,8 @@ export function RepositorySidebar({
   isFileDragOver,
   temporaryWorkspaceEnabled = false,
   tempBasePath = '',
+  tempWorkspaceCount = 0,
+  hasActiveTempWorkspace = false,
 }: RepositorySidebarProps) {
   const { t } = useI18n();
   const _settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
@@ -120,6 +123,7 @@ export function RepositorySidebar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const [menuPlacement, setMenuPlacement] = useState<'pointer' | 'anchor-end'>('pointer');
   const [menuRepo, setMenuRepo] = useState<Repository | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
@@ -235,10 +239,11 @@ export function RepositorySidebar({
     [onReorderRepositories]
   );
 
-  const handleContextMenu = (e: React.MouseEvent, repo: Repository) => {
+  const handleContextMenu = (e: MouseEvent, repo: Repository) => {
     e.preventDefault();
     e.stopPropagation();
     setMenuAnchor(null);
+    setMenuPlacement('pointer');
     setMenuPosition({ x: e.clientX, y: e.clientY });
     setMenuRepo(repo);
     setMenuOpen(true);
@@ -270,18 +275,6 @@ export function RepositorySidebar({
     setRepoToRemove(null);
   };
 
-  const allRepoPaths = useMemo(() => repositories.map((repo) => repo.path), [repositories]);
-  const { worktreesMap: allRepoWorktreesMap } = useWorktreeListMultiple(
-    useMemo(
-      () =>
-        allRepoPaths.map((repoPath) => ({
-          repoPath,
-          // Do not query unopened remote repos during startup/search; that would trigger SSH auth.
-          enabled: canLoadRepo(repoPath),
-        })),
-      [allRepoPaths, canLoadRepo]
-    )
-  );
   const activities = useWorktreeActivityStore((s) => s.activities);
   const activePathSet = useMemo(
     () =>
@@ -315,6 +308,20 @@ export function RepositorySidebar({
     };
   }, [searchQuery]);
 
+  const allRepoPaths = useMemo(() => repositories.map((repo) => repo.path), [repositories]);
+  const allRepoWorktreePrefetchInputs = useMemo(
+    () =>
+      buildTreeSidebarWorktreePrefetchInputs({
+        allRepoPaths,
+        hasActiveFilter: parsedSearch.hasActiveFilter,
+        canLoadRepo,
+      }),
+    [allRepoPaths, parsedSearch.hasActiveFilter, canLoadRepo]
+  );
+  const { worktreesMap: allRepoWorktreesMap } = useWorktreeListMultiple(
+    allRepoWorktreePrefetchInputs
+  );
+
   // Filter by group and search
   const hasSearchFilter = parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0;
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
@@ -329,7 +336,7 @@ export function RepositorySidebar({
         const normalizedRepoPath = normalizePath(repo.path);
         if (activePathSet.has(normalizedRepoPath)) return true;
 
-        const repoWorktrees = allRepoWorktreesMap[repo.path] || [];
+        const repoWorktrees = sanitizeGitWorktrees(allRepoWorktreesMap[repo.path] || []);
         return repoWorktrees.some((worktree) => activePathSet.has(normalizePath(worktree.path)));
       });
     }
@@ -389,107 +396,21 @@ export function RepositorySidebar({
     return sections;
   }, [showSections, groups, repositories, t]);
 
-  const renderRepoItem = (repo: Repository, originalIndex: number, sectionGroupId?: string) => {
-    const isSelected = selectedRepo === repo.path;
-    const displayRepoPath = getDisplayPath(repo.path);
-    const useLtrPathDisplay = isWslUncPath(displayRepoPath);
-    const repoWorktrees = allRepoWorktreesMap[repo.path] || [];
-    const activeWorktreeCount = repoWorktrees.filter((worktree) =>
-      activePathSet.has(normalizePath(worktree.path))
-    ).length;
-    return (
-      <div key={repo.path} className="relative">
-        {/* Drop indicator - top */}
-        {dropTargetIndex === originalIndex &&
-          draggedIndexRef.current !== null &&
-          draggedIndexRef.current > originalIndex && (
-            <div className="absolute -top-0.5 left-2 right-2 h-0.5 rounded-full bg-theme/75" />
-          )}
-        <div
-          draggable={!searchQuery}
-          onDragStart={(e) => handleDragStart(e, originalIndex, repo)}
-          onDragEnd={handleDragEnd}
-          onDragOver={(e) => handleDragOver(e, originalIndex, sectionGroupId)}
-          onDragLeave={handleDragLeave}
-          onDrop={(e) => handleDrop(e, originalIndex, sectionGroupId)}
-          onContextMenu={(e) => handleContextMenu(e, repo)}
-          className={cn(
-            'control-tree-node group relative flex w-full flex-col items-start gap-0.5 px-2 py-1 text-left transition-colors',
-            draggedIndexRef.current === originalIndex && 'opacity-50'
-          )}
-          data-active={isSelected ? 'repo' : 'false'}
-        >
-          <div className="relative z-10 flex w-full items-start gap-1.5">
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 items-start gap-1.5 text-left outline-none"
-              onClick={() => onSelectRepo(repo.path, { activateRemote: true })}
-              aria-current={isSelected ? 'page' : undefined}
-            >
-              <span className="control-tree-glyph mt-0.5 h-4 w-4 shrink-0">
-                <FolderGit2 className="control-tree-icon h-4 w-4" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="control-tree-title min-w-0 flex-1 truncate">{repo.name}</span>
-                  {(isSelected || activeWorktreeCount > 0) &&
-                    (repoWorktrees.length > 0 || activeWorktreeCount > 0) && (
-                      <span className="control-tree-meta control-tree-meta-row shrink-0">
-                        {repoWorktrees.length > 0 ? (
-                          <span className="control-tree-count">{repoWorktrees.length} trees</span>
-                        ) : null}
-                        {repoWorktrees.length > 0 && activeWorktreeCount > 0 ? (
-                          <span className="control-tree-separator">·</span>
-                        ) : null}
-                        {activeWorktreeCount > 0 ? (
-                          <span className="control-tree-count control-tree-count-live">
-                            {activeWorktreeCount} live
-                          </span>
-                        ) : null}
-                      </span>
-                    )}
-                </div>
-                <div
-                  className={cn(
-                    'control-tree-subtitle mt-px w-full overflow-hidden whitespace-nowrap text-ellipsis [text-align:left]',
-                    useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
-                  )}
-                  title={displayRepoPath}
-                >
-                  {displayRepoPath}
-                </div>
-              </div>
-            </button>
-            <button
-              type="button"
-              className="control-tree-action flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-theme/10 hover:text-foreground"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuAnchor(e.currentTarget);
-                const rect = e.currentTarget.getBoundingClientRect();
-                setMenuPosition({
-                  x: Math.max(8, Math.round(rect.right - 176)),
-                  y: Math.round(rect.bottom + 6),
-                });
-                setMenuRepo(repo);
-                setMenuOpen(true);
-              }}
-              aria-label={t('Repository actions')}
-              title={t('Repository actions')}
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-        {/* Drop indicator - bottom */}
-        {dropTargetIndex === originalIndex &&
-          draggedIndexRef.current !== null &&
-          draggedIndexRef.current < originalIndex && (
-            <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 rounded-full bg-theme/75" />
-          )}
-      </div>
-    );
-  };
+  const handleOpenRepoActions = useCallback(
+    (event: MouseEvent<HTMLButtonElement>, repo: Repository) => {
+      event.stopPropagation();
+      setMenuAnchor(event.currentTarget);
+      const rect = event.currentTarget.getBoundingClientRect();
+      setMenuPlacement('anchor-end');
+      setMenuPosition({
+        x: Math.round(rect.right),
+        y: Math.round(rect.bottom + 6),
+      });
+      setMenuRepo(repo);
+      setMenuOpen(true);
+    },
+    []
+  );
 
   return (
     <aside
@@ -500,31 +421,26 @@ export function RepositorySidebar({
     >
       {/* Header */}
       <div className="control-sidebar-header drag-region">
-        <div className="control-sidebar-heading no-drag">
-          <div className="control-sidebar-heading-copy">
-            <span className="control-sidebar-title">{t('Repositories')}</span>
-            <span className="control-sidebar-subtitle">
-              {activeGroup?.name ?? t('All repositories')}
-            </span>
-          </div>
-        </div>
+        <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          {onSwitchWorktreeByPath && (
-            <RunningProjectsPopover
-              onSelectWorktreeByPath={onSwitchWorktreeByPath}
-              onSwitchTab={onSwitchTab}
-            />
-          )}
-          {onCollapse && (
-            <button
-              type="button"
-              className="control-sidebar-toolbutton no-drag"
-              onClick={onCollapse}
-              title={t('Collapse')}
-            >
-              <PanelLeftClose className="h-3.5 w-3.5" />
-            </button>
-          )}
+          <div className="control-sidebar-toolbar-group">
+            {onSwitchWorktreeByPath && (
+              <RunningProjectsPopover
+                onSelectWorktreeByPath={onSwitchWorktreeByPath}
+                onSwitchTab={onSwitchTab}
+              />
+            )}
+            {onCollapse && (
+              <button
+                type="button"
+                className="control-sidebar-toolbutton no-drag"
+                onClick={onCollapse}
+                title={t('Collapse')}
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -547,8 +463,8 @@ export function RepositorySidebar({
           <input
             ref={searchInputRef}
             type="text"
-            aria-label={t('Search repositories')}
-            placeholder={`${t('Search repositories')} (:active)`}
+            aria-label={t('Search projects')}
+            placeholder={`${t('Search projects')} (:active)`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="control-sidebar-search-input"
@@ -573,30 +489,43 @@ export function RepositorySidebar({
       {/* Repository List */}
       <div className="flex-1 overflow-auto px-1.5 py-1.5">
         {temporaryWorkspaceEnabled && (
-          <div className="mb-1.5">
+          <div className="mb-2">
             <button
               type="button"
               onClick={() => onSelectRepo(TEMP_REPO_ID)}
               className="control-tree-node group relative flex w-full flex-col items-start gap-0.5 px-2 py-1 text-left transition-colors"
               data-active={selectedRepo === TEMP_REPO_ID ? 'repo' : 'false'}
+              data-selection-tone={hasActiveTempWorkspace ? 'context' : 'default'}
               aria-current={selectedRepo === TEMP_REPO_ID ? 'page' : undefined}
             >
-              <div className="relative z-10 flex w-full items-center gap-1.5">
+              <div className="control-tree-row relative z-10">
                 <span className="control-tree-glyph h-4 w-4 shrink-0">
                   <Clock className="control-tree-icon h-4 w-4" />
                 </span>
-                <span className="control-tree-title min-w-0 flex-1 truncate">
-                  {t('Temp Session')}
-                </span>
+                <div className="control-tree-text-stack">
+                  <span className="control-tree-title min-w-0 block truncate">
+                    {t('Temp Sessions')}
+                  </span>
+                  <span
+                    className={cn(
+                      'control-tree-subtitle overflow-hidden whitespace-nowrap text-ellipsis [unicode-bidi:plaintext]',
+                      tempBasePath && isWslUncPath(tempBasePath)
+                        ? '[direction:ltr]'
+                        : '[direction:rtl]'
+                    )}
+                  >
+                    {tempBasePath || t('Quick scratch sessions')}
+                  </span>
+                  {tempWorkspaceCount > 0 ? (
+                    <div className="control-tree-meta control-tree-meta-row">
+                      <span className="control-tree-metric">
+                        <span className="control-tree-metric-value">{tempWorkspaceCount}</span>
+                        <span className="control-tree-metric-label">sessions</span>
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              <span
-                className={cn(
-                  'control-tree-subtitle relative z-10 mt-px overflow-hidden whitespace-nowrap text-ellipsis pl-[1.375rem] [unicode-bidi:plaintext]',
-                  tempBasePath && isWslUncPath(tempBasePath) ? '[direction:ltr]' : '[direction:rtl]'
-                )}
-              >
-                {tempBasePath || t('Quick scratch sessions')}
-              </span>
             </button>
           </div>
         )}
@@ -606,7 +535,9 @@ export function RepositorySidebar({
               icon={<Search className="h-4.5 w-4.5" />}
               label={t('Filtered View')}
               title={t('No matches')}
-              description={t('Try a broader search or clear the current filter.')}
+              description={t(
+                'No projects match the current search. Try a broader term or clear the filter.'
+              )}
               meta={t('Filter: {{query}}', {
                 query: searchQuery.trim() || t('Search query'),
               })}
@@ -653,10 +584,9 @@ export function RepositorySidebar({
         ) : (
           <LayoutGroup>
             {showSections ? (
-              <div className="space-y-1.5">
+              <div className="control-tree-section-list">
                 {groupedSections.map((section) => {
                   const isCollapsed = !!collapsedGroups[section.groupId];
-                  const isUngrouped = section.groupId === UNGROUPED_SECTION_ID;
                   return (
                     <div key={section.groupId}>
                       {/* Section Header */}
@@ -674,16 +604,12 @@ export function RepositorySidebar({
                           )}
                         />
                         {section.emoji && (
-                          <span className="shrink-0 text-[12px]">{section.emoji}</span>
-                        )}
-                        {!isUngrouped && section.color && (
-                          <span
-                            className="h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: section.color }}
-                          />
+                          <span className="control-section-marker" aria-hidden="true">
+                            {section.emoji}
+                          </span>
                         )}
                         <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
-                        <span className="shrink-0 text-[10px] tracking-[0.08em] text-muted-foreground/65">
+                        <span className="control-section-count" aria-hidden="true">
                           {section.repos.length}
                         </span>
                       </button>
@@ -700,10 +626,30 @@ export function RepositorySidebar({
                             className="overflow-hidden"
                             id={`repository-section-${section.groupId}`}
                           >
-                            <div className="space-y-1 pt-0.5">
-                              {section.repos.map(({ repo, originalIndex }) =>
-                                renderRepoItem(repo, originalIndex, section.groupId)
-                              )}
+                            <div className="control-tree-section-body">
+                              {section.repos.map(({ repo, originalIndex }) => (
+                                <RepositoryTreeItem
+                                  key={repo.path}
+                                  repo={repo}
+                                  originalIndex={originalIndex}
+                                  sectionGroupId={section.groupId}
+                                  selectedRepo={selectedRepo}
+                                  allRepoWorktreesMap={allRepoWorktreesMap}
+                                  activePathSet={activePathSet}
+                                  searchQuery={searchQuery}
+                                  dropTargetIndex={dropTargetIndex}
+                                  draggedIndex={draggedIndexRef.current}
+                                  onDragStart={handleDragStart}
+                                  onDragEnd={handleDragEnd}
+                                  onDragOver={handleDragOver}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={handleDrop}
+                                  onContextMenu={handleContextMenu}
+                                  onSelectRepo={onSelectRepo}
+                                  onOpenActions={handleOpenRepoActions}
+                                  t={t}
+                                />
+                              ))}
                             </div>
                           </motion.div>
                         )}
@@ -713,10 +659,29 @@ export function RepositorySidebar({
                 })}
               </div>
             ) : (
-              <div className="space-y-1">
-                {filteredRepos.map(({ repo, originalIndex }) =>
-                  renderRepoItem(repo, originalIndex)
-                )}
+              <div className="control-tree-flat-list">
+                {filteredRepos.map(({ repo, originalIndex }) => (
+                  <RepositoryTreeItem
+                    key={repo.path}
+                    repo={repo}
+                    originalIndex={originalIndex}
+                    selectedRepo={selectedRepo}
+                    allRepoWorktreesMap={allRepoWorktreesMap}
+                    activePathSet={activePathSet}
+                    searchQuery={searchQuery}
+                    dropTargetIndex={dropTargetIndex}
+                    draggedIndex={draggedIndexRef.current}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onContextMenu={handleContextMenu}
+                    onSelectRepo={onSelectRepo}
+                    onOpenActions={handleOpenRepoActions}
+                    t={t}
+                  />
+                ))}
               </div>
             )}
           </LayoutGroup>
@@ -753,7 +718,11 @@ export function RepositorySidebar({
           <div
             ref={menuRef}
             className="control-menu fixed z-50 min-w-32 rounded-lg p-1"
-            style={{ left: menuPosition.x, top: menuPosition.y }}
+            style={{
+              left: menuPosition.x,
+              top: menuPosition.y,
+              transform: menuPlacement === 'anchor-end' ? 'translateX(-100%)' : undefined,
+            }}
             role="menu"
             aria-label={t('Repository actions')}
             onKeyDown={(e) => handleMenuNavigationKeyDown(e, () => setMenuOpen(false))}
@@ -778,7 +747,7 @@ export function RepositorySidebar({
 
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+              className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
               onClick={() => {
                 setMenuOpen(false);
                 if (menuRepo) {
@@ -796,7 +765,7 @@ export function RepositorySidebar({
 
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10"
+              className="control-menu-item control-menu-item-danger flex w-full items-center gap-2 rounded-md px-2 py-1.5"
               onClick={handleRemoveClick}
               role="menuitem"
             >

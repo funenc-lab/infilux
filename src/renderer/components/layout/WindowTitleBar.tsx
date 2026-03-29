@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/menu';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { AppResourceStatusPopover } from './AppResourceStatusPopover';
 import { BrandMark } from './BrandMark';
 import { WindowControls } from './WindowControls';
 
@@ -110,6 +111,8 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
             </MenuItem>
           </TitleBarMenuPopup>
         </Menu>
+
+        <AppResourceStatusPopover className={iconButtonClass} />
 
         <WindowControls />
       </div>

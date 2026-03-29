@@ -1,5 +1,6 @@
 import { Minus, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { useI18n } from '@/i18n';
 
 // Platform detection stays at module scope to avoid conditional hooks.
 const isMac = typeof window !== 'undefined' && window.electronAPI?.env?.platform === 'darwin';
@@ -9,7 +10,12 @@ const isMac = typeof window !== 'undefined' && window.electronAPI?.env?.platform
  * Only rendered on Windows/Linux where we use frameless windows
  */
 export function WindowControls() {
+  const { t } = useI18n();
   const [isMaximized, setIsMaximized] = useState(false);
+  const minimizeLabel = t('Minimize');
+  const restoreLabel = t('Restore');
+  const maximizeLabel = t('Maximize');
+  const closeLabel = t('Close');
 
   const handleMinimize = useCallback(() => {
     window.electronAPI.window.minimize();
@@ -42,8 +48,8 @@ export function WindowControls() {
         type="button"
         onClick={handleMinimize}
         className="control-window-button no-drag"
-        aria-label="Minimize"
-        title="Minimize"
+        aria-label={minimizeLabel}
+        title={minimizeLabel}
       >
         <Minus className="h-4 w-4 opacity-80" strokeWidth={1.5} />
       </button>
@@ -52,8 +58,8 @@ export function WindowControls() {
         type="button"
         onClick={handleMaximize}
         className="control-window-button no-drag"
-        aria-label={isMaximized ? 'Restore' : 'Maximize'}
-        title={isMaximized ? 'Restore' : 'Maximize'}
+        aria-label={isMaximized ? restoreLabel : maximizeLabel}
+        title={isMaximized ? restoreLabel : maximizeLabel}
       >
         {isMaximized ? (
           <svg
@@ -63,7 +69,7 @@ export function WindowControls() {
             stroke="currentColor"
             strokeWidth="1"
             role="img"
-            aria-label="Restore"
+            aria-label={restoreLabel}
           >
             <path d="M2 3h5v5H2z" />
             <path d="M3 3V2h5v5H7" />
@@ -78,8 +84,8 @@ export function WindowControls() {
         onClick={handleClose}
         className="control-window-button no-drag"
         data-tone="close"
-        aria-label="Close"
-        title="Close"
+        aria-label={closeLabel}
+        title={closeLabel}
       >
         <X className="h-4 w-4 opacity-80" strokeWidth={1.5} />
       </button>

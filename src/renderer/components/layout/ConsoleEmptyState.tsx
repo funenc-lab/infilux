@@ -77,8 +77,12 @@ export function ConsoleEmptyState({
     () => ({
       fontFamily: typography.fontFamily,
       fontSize: `${typography.fontSize}px`,
+      '--console-text-eyebrow-size': `${typography.eyebrowFontSize}px`,
+      '--console-text-title-size': `${isEmbedded ? typography.embeddedTitleFontSize : typography.panelTitleFontSize}px`,
+      '--console-text-body-size': `${isEmbedded ? typography.embeddedBodyFontSize : typography.panelBodyFontSize}px`,
+      '--console-text-detail-value-size': `${typography.detailValueFontSize}px`,
     }),
-    [typography.fontFamily, typography.fontSize]
+    [isEmbedded, typography]
   );
   const labelStyle = useMemo<CSSProperties>(
     () => ({
@@ -122,7 +126,7 @@ export function ConsoleEmptyState({
           </div>
           <div className="min-w-0 flex-1">
             <div
-              className="text-[0.79em] font-semibold uppercase tracking-[0.16em] text-muted-foreground"
+              className="text-[length:var(--console-text-eyebrow-size)] font-semibold uppercase tracking-[0.16em] text-muted-foreground"
               style={labelStyle}
             >
               {eyebrow}
@@ -145,10 +149,8 @@ export function ConsoleEmptyState({
         <div className="min-w-0">
           <h2
             className={cn(
-              'max-w-3xl text-balance font-semibold text-foreground',
-              isEmbedded
-                ? 'text-[1.18rem] tracking-[-0.03em] sm:text-[1.3rem]'
-                : 'text-[1.4rem] tracking-[-0.038em] sm:text-[1.72rem]'
+              'max-w-3xl text-balance text-[length:var(--console-text-title-size)] font-semibold text-foreground',
+              isEmbedded ? 'tracking-[-0.03em]' : 'tracking-[-0.038em]'
             )}
             style={titleStyle}
           >
@@ -156,8 +158,7 @@ export function ConsoleEmptyState({
           </h2>
           <p
             className={cn(
-              'mt-3 max-w-[60ch] text-muted-foreground',
-              isEmbedded ? 'text-[1em]' : 'text-[1.07em]'
+              'mt-3 max-w-[60ch] text-[length:var(--console-text-body-size)] text-muted-foreground'
             )}
             style={bodyStyle}
           >
@@ -175,13 +176,13 @@ export function ConsoleEmptyState({
                 className="control-panel-muted min-w-0 max-w-full flex-[1_1_11rem] rounded-xl px-3 py-2.5"
               >
                 <div
-                  className="text-[0.79em] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+                  className="text-[length:var(--console-text-eyebrow-size)] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
                   style={labelStyle}
                 >
                   {detail.label}
                 </div>
                 <div
-                  className="mt-1.5 whitespace-normal break-words text-[1.07em] text-foreground"
+                  className="mt-1.5 whitespace-normal break-words text-[length:var(--console-text-detail-value-size)] text-foreground"
                   style={bodyStyle}
                 >
                   {detail.value}
@@ -194,12 +195,15 @@ export function ConsoleEmptyState({
             {details.map((detail) => (
               <div key={detail.label} className="min-w-0">
                 <div
-                  className="text-[0.79em] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+                  className="text-[length:var(--console-text-eyebrow-size)] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
                   style={labelStyle}
                 >
                   {detail.label}
                 </div>
-                <div className="mt-1.5 text-[1.07em] text-foreground" style={bodyStyle}>
+                <div
+                  className="mt-1.5 text-[length:var(--console-text-detail-value-size)] text-foreground"
+                  style={bodyStyle}
+                >
                   {detail.value}
                 </div>
               </div>

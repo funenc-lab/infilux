@@ -21,6 +21,7 @@ describe('BrandMark', () => {
 
   it('keeps the title bar bound to the theme-aware brand mark component', () => {
     expect(windowTitleBarSource).toContain('BrandMark');
+    expect(windowTitleBarSource).toContain('AppResourceStatusPopover');
     expect(windowTitleBarSource).not.toContain('logo.svg');
     expect(windowTitleBarSource).not.toContain('<img');
   });

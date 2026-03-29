@@ -98,7 +98,7 @@ export function TempWorkspaceContextMenu({
         {activity.agentCount > 0 && activity.terminalCount > 0 && (
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
             onClick={() => {
               onClose();
               closeAgentSessions(path);
@@ -112,7 +112,7 @@ export function TempWorkspaceContextMenu({
         {activity.agentCount > 0 && (
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
             onClick={() => {
               onClose();
               closeAgentSessions(path);
@@ -126,7 +126,7 @@ export function TempWorkspaceContextMenu({
         {activity.terminalCount > 0 && (
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
             onClick={() => {
               onClose();
               closeTerminalSessions(path);
@@ -140,7 +140,7 @@ export function TempWorkspaceContextMenu({
         {hasActivity && <div className="my-1 h-px bg-border" />}
         <button
           type="button"
-          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+          className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
           onClick={() => {
             onClose();
             window.electronAPI.shell.openPath(path);
@@ -151,7 +151,7 @@ export function TempWorkspaceContextMenu({
         </button>
         <button
           type="button"
-          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+          className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
           onClick={() => {
             onClose();
             handleCopyPath();
@@ -163,7 +163,7 @@ export function TempWorkspaceContextMenu({
         <div className="my-1 h-px bg-border" />
         <button
           type="button"
-          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+          className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
           onClick={() => {
             onClose();
             onRename();
@@ -174,7 +174,7 @@ export function TempWorkspaceContextMenu({
         </button>
         <button
           type="button"
-          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+          className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-destructive hover:bg-destructive/10"
           onClick={() => {
             onClose();
             onDelete();

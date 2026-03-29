@@ -1,5 +1,6 @@
 import { fileUriToPath, toCustomProtocolFileUrl } from '@shared/utils/fileUrl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getRendererPlatform } from '@/lib/electronEnvironment';
 import { useSettingsStore } from '@/stores/settings';
 
 // Custom event name for cross-component refresh trigger
@@ -48,7 +49,7 @@ function resolveMediaUrl(path: string): string {
     return trimmed;
   }
   if (lower.startsWith('file://')) {
-    const filePath = fileUriToPath(trimmed, window.electronAPI.env.platform);
+    const filePath = fileUriToPath(trimmed, getRendererPlatform());
     if (filePath) {
       return toCustomProtocolFileUrl(filePath, 'local-image');
     }

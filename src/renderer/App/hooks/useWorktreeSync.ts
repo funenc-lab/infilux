@@ -1,5 +1,6 @@
 import type { GitWorktree } from '@shared/types';
 import { useEffect } from 'react';
+import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 
 export function useWorktreeSync(
   worktrees: GitWorktree[],
@@ -8,8 +9,10 @@ export function useWorktreeSync(
   setActiveWorktree: (worktree: GitWorktree | null) => void
 ) {
   useEffect(() => {
-    if (worktrees.length > 0 && activeWorktree) {
-      const found = worktrees.find((wt) => wt.path === activeWorktree.path);
+    const safeWorktrees = sanitizeGitWorktrees(worktrees);
+
+    if (safeWorktrees.length > 0 && activeWorktree) {
+      const found = safeWorktrees.find((wt) => wt.path === activeWorktree.path);
       if (found && found !== activeWorktree) {
         setActiveWorktree(found);
       } else if (!found && !worktreesFetching) {

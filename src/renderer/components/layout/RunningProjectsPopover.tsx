@@ -21,6 +21,7 @@ import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
+import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
@@ -47,6 +48,10 @@ type SelectableItem =
   | { type: 'project'; project: GroupedProject }
   | { type: 'agent'; session: Session }
   | { type: 'terminal'; terminal: TerminalSession };
+
+function getAgentSessionLabel(session: Session): string {
+  return session.terminalTitle || session.name || session.agentId;
+}
 
 export function RunningProjectsPopover({
   onSelectWorktreeByPath,
@@ -110,7 +115,7 @@ export function RunningProjectsPopover({
   const worktreeByPath = useMemo(() => {
     const map = new Map<string, GitWorktree>();
     for (const worktrees of Object.values(worktreesMap)) {
-      for (const wt of worktrees) {
+      for (const wt of sanitizeGitWorktrees(worktrees)) {
         map.set(wt.path, wt);
       }
     }
@@ -143,13 +148,17 @@ export function RunningProjectsPopover({
       if (project.repoName.toLowerCase().includes(query)) return true;
       if (project.branchName.toLowerCase().includes(query)) return true;
       if (project.displayPath.toLowerCase().includes(query)) return true;
-      if (project.agents.some((a) => (a.name || a.agentId).toLowerCase().includes(query)))
+      if (project.agents.some((a) => getAgentSessionLabel(a).toLowerCase().includes(query)))
         return true;
-      if (project.terminals.some((t) => (t.title || 'Terminal').toLowerCase().includes(query)))
+      if (
+        project.terminals.some((terminal) =>
+          (terminal.title || t('Terminal')).toLowerCase().includes(query)
+        )
+      )
         return true;
       return false;
     });
-  }, [groupedProjects, searchQuery]);
+  }, [groupedProjects, searchQuery, t]);
 
   const selectableItems = useMemo<SelectableItem[]>(() => {
     const items: SelectableItem[] = [];
@@ -288,26 +297,26 @@ export function RunningProjectsPopover({
 
   return (
     <>
-      <button
-        type="button"
-        className={cn(
-          'control-sidebar-toolbutton relative no-drag',
-          totalRunning > 0 && 'text-foreground'
-        )}
-        data-emphasis={totalRunning > 0 ? 'true' : 'false'}
-        aria-label={
-          totalRunning > 0 ? `${t('Running Projects')} (${totalRunning})` : t('Running Projects')
-        }
-        title={t('Running Projects')}
-        onClick={() => setOpen(true)}
-      >
-        <Activity className="h-4 w-4" />
+      <span className="control-toolbar-badge-anchor">
+        <button
+          type="button"
+          className="control-sidebar-toolbutton no-drag"
+          data-open={open ? 'true' : 'false'}
+          aria-pressed={open}
+          aria-label={
+            totalRunning > 0 ? `${t('Running Projects')} (${totalRunning})` : t('Running Projects')
+          }
+          title={t('Running Projects')}
+          onClick={() => setOpen(true)}
+        >
+          <Activity className="h-4 w-4" />
+        </button>
         {showBadge && totalRunning > 0 && (
-          <span className="control-badge control-badge-live absolute -right-1 -top-1 min-w-[18px] px-1">
+          <span className="control-badge control-badge-live control-toolbar-badge control-toolbar-badge-green">
             {totalRunning}
           </span>
         )}
-      </button>
+      </span>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogPopup className="sm:max-w-2xl p-0 overflow-visible" showCloseButton={false}>
@@ -321,12 +330,12 @@ export function RunningProjectsPopover({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="h-8 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
+                className="ui-type-panel-description h-8 w-full bg-transparent outline-none placeholder:text-muted-foreground/70"
               />
             </div>
             <div ref={listRef} className="max-h-[60vh] overflow-y-auto p-2">
               {filteredProjects.length === 0 ? (
-                <div className="py-6 text-center text-sm text-muted-foreground">
+                <div className="ui-type-panel-description py-6 text-center text-muted-foreground">
                   {searchQuery ? t('No matching results') : t('No running projects')}
                 </div>
               ) : (
@@ -342,25 +351,58 @@ export function RunningProjectsPopover({
                           type="button"
                           data-index={index}
                           className={cn(
-                            'control-tree-node flex w-full items-center gap-2 px-2 py-1.5 text-sm',
-                            isSelected && 'bg-theme/12 ring-1 ring-inset ring-theme/18'
+                            'control-tree-node group relative flex w-full flex-col gap-0.5 px-2 py-1 text-left',
+                            isSelected && 'ring-1 ring-inset ring-theme/12'
                           )}
                           onClick={() => handleSelectItem(item)}
                           onContextMenu={(e) => handleContextMenu(e, item.project)}
                           onMouseEnter={() => setSelectedIndex(index)}
-                          data-active={isSelected ? 'repo' : 'false'}
+                          data-active={isSelected ? 'worktree' : 'false'}
+                          title={item.project.displayPath}
                         >
-                          <span className="control-tree-glyph h-4 w-4 shrink-0">
-                            <FolderGit2 className="h-4 w-4 shrink-0 text-support" />
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-left">
-                            <span className="text-muted-foreground">{item.project.repoName}</span>
-                            <span className="mx-1 text-muted-foreground/50">/</span>
-                            <span>{item.project.branchName}</span>
-                          </span>
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {item.project.agents.length + item.project.terminals.length}
-                          </span>
+                          <div className="control-tree-row">
+                            <span className="control-tree-glyph h-4 w-4 shrink-0">
+                              <FolderGit2 className="control-tree-icon h-4 w-4" />
+                            </span>
+                            <div className="control-tree-text-stack min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="control-tree-title min-w-0 flex-1 truncate">
+                                  {item.project.branchName}
+                                </span>
+                                <div className="control-tree-meta control-tree-meta-inline ui-type-meta">
+                                  {item.project.agents.length > 0 ? (
+                                    <span className="control-tree-metric">
+                                      <span className="control-tree-metric-value">
+                                        {item.project.agents.length}
+                                      </span>
+                                      <span className="control-tree-metric-label">
+                                        {t('agents')}
+                                      </span>
+                                    </span>
+                                  ) : null}
+                                  {item.project.agents.length > 0 &&
+                                  item.project.terminals.length > 0 ? (
+                                    <span className="control-tree-separator">·</span>
+                                  ) : null}
+                                  {item.project.terminals.length > 0 ? (
+                                    <span className="control-tree-metric">
+                                      <span className="control-tree-metric-value">
+                                        {item.project.terminals.length}
+                                      </span>
+                                      <span className="control-tree-metric-label">
+                                        {t('terminals')}
+                                      </span>
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div className="control-tree-subtitle overflow-hidden whitespace-nowrap text-ellipsis [text-align:left] [unicode-bidi:plaintext]">
+                                {item.project.repoName}
+                                <span className="mx-1 text-current/45">·</span>
+                                {item.project.displayPath}
+                              </div>
+                            </div>
+                          </div>
                         </button>
                       );
                     }
@@ -372,7 +414,7 @@ export function RunningProjectsPopover({
                           type="button"
                           data-index={index}
                           className={cn(
-                            'flex w-full items-center gap-2 rounded-md px-2 py-1 pl-6 text-sm text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground',
+                            'ui-type-panel-description flex w-full items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground',
                             isSelected && 'bg-theme/10 text-foreground'
                           )}
                           onClick={() => handleSelectItem(item)}
@@ -380,10 +422,9 @@ export function RunningProjectsPopover({
                         >
                           <Bot className="h-3.5 w-3.5 shrink-0" />
                           <span className="min-w-0 flex-1 truncate text-left">
-                            {item.session.terminalTitle ||
-                              item.session.name ||
-                              item.session.agentId}
+                            {getAgentSessionLabel(item.session)}
                           </span>
+                          <span className="control-badge shrink-0">{t('Agent')}</span>
                         </button>
                       );
                     }
@@ -394,7 +435,7 @@ export function RunningProjectsPopover({
                         type="button"
                         data-index={index}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1 pl-6 text-sm text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground',
+                          'ui-type-panel-description flex w-full items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground',
                           isSelected && 'bg-theme/10 text-foreground'
                         )}
                         onClick={() => handleSelectItem(item)}
@@ -404,6 +445,7 @@ export function RunningProjectsPopover({
                         <span className="min-w-0 flex-1 truncate text-left">
                           {item.terminal.title || 'Terminal'}
                         </span>
+                        <span className="control-badge shrink-0">{t('Terminal')}</span>
                       </button>
                     );
                   })}
@@ -431,7 +473,7 @@ export function RunningProjectsPopover({
                   {menuProject.agents.length > 0 && menuProject.terminals.length > 0 && (
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+                      className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
                       onClick={() => {
                         setMenuOpen(false);
                         closeAgentSessions(menuProject.path);
@@ -446,7 +488,7 @@ export function RunningProjectsPopover({
                   {menuProject.agents.length > 0 && (
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+                      className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
                       onClick={() => {
                         setMenuOpen(false);
                         closeAgentSessions(menuProject.path);
@@ -461,7 +503,7 @@ export function RunningProjectsPopover({
                   {menuProject.terminals.length > 0 && (
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+                      className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
                       onClick={() => {
                         setMenuOpen(false);
                         closeTerminalSessions(menuProject.path);
@@ -477,7 +519,7 @@ export function RunningProjectsPopover({
 
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+                    className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
                     onClick={() => {
                       setMenuOpen(false);
                       window.electronAPI.shell.openPath(menuProject.path);
@@ -489,7 +531,7 @@ export function RunningProjectsPopover({
 
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+                    className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
                     onClick={() => handleCopyPath(menuProject.path)}
                   >
                     <Copy className="h-4 w-4" />

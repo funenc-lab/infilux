@@ -11,6 +11,7 @@ import { isRemoteVirtualPath, toRemoteVirtualPath } from '@shared/utils/remotePa
 import { buildRepositoryId } from '@shared/utils/workspace';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppOverlays } from './App/AppOverlays';
 import {
   ALL_GROUP_ID,
   panelTransition,
@@ -51,13 +52,9 @@ import { useAppKeyboardShortcuts } from './App/useAppKeyboardShortcuts';
 import { usePanelResize } from './App/usePanelResize';
 import { resolvePreferredWorktreeSelection } from './App/worktreeSelectionPolicy';
 import { DevToolsOverlay } from './components/DevToolsOverlay';
-import { FileSidebar } from './components/files';
+import { FileSidebar } from './components/files/FileSidebar';
 import { createInitialFileSidebarTrackingState } from './components/files/fileTreeTrackingState';
 import { shouldAutoExpandFileSidebar } from './components/files/fileTreeVisibilityPolicy';
-import { UnsavedPromptHost } from './components/files/UnsavedPromptHost';
-import { AddRepositoryDialog } from './components/git';
-import { CloneProgressFloat } from './components/git/CloneProgressFloat';
-import { ActionPanel } from './components/layout/ActionPanel';
 import { BackgroundLayer } from './components/layout/BackgroundLayer';
 import { MainContent } from './components/layout/MainContent';
 import { RepositorySidebar } from './components/layout/RepositorySidebar';
@@ -65,21 +62,7 @@ import { TemporaryWorkspacePanel } from './components/layout/TemporaryWorkspaceP
 import { TreeSidebar } from './components/layout/TreeSidebar';
 import { WindowTitleBar } from './components/layout/WindowTitleBar';
 import { WorktreePanel } from './components/layout/WorktreePanel';
-import { RemoteAuthPromptHost } from './components/remote/RemoteAuthPromptHost';
-import { DraggableSettingsWindow } from './components/settings/DraggableSettingsWindow';
-import { TempWorkspaceDialogs } from './components/temp-workspace/TempWorkspaceDialogs';
-import { UpdateNotification } from './components/UpdateNotification';
-import { Button } from './components/ui/button';
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPopup,
-  DialogTitle,
-} from './components/ui/dialog';
 import { addToast, toastManager } from './components/ui/toast';
-import { MergeEditor, MergeWorktreeDialog } from './components/worktree';
 import { useAutoFetchListener, useGitBranches, useGitInit } from './hooks/useGit';
 import { useWebInspector } from './hooks/useWebInspector';
 import {
@@ -92,7 +75,9 @@ import {
   useWorktreeResolveConflict,
 } from './hooks/useWorktree';
 import { useI18n } from './i18n';
+import { getRendererEnvironment } from './lib/electronEnvironment';
 import { buildOperationToastCopy, buildSourceControlWorkflowToastCopy } from './lib/feedbackCopy';
+import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from './lib/worktreeData';
 import { initCloneProgressListener } from './stores/cloneTasks';
 import { useEditorStore } from './stores/editor';
 import { useInitScriptStore } from './stores/initScript';
@@ -101,11 +86,12 @@ import { useTempWorkspaceStore } from './stores/tempWorkspace';
 import { useWorktreeStore } from './stores/worktree';
 import { initAgentActivityListener, useWorktreeActivityStore } from './stores/worktreeActivity';
 
-// Initialize global clone progress listener
-initCloneProgressListener();
-
 export default function App() {
   const { t } = useI18n();
+
+  useEffect(() => {
+    return initCloneProgressListener();
+  }, []);
 
   // Initialize agent activity listener for tree sidebar status display
   useEffect(() => {
@@ -313,9 +299,10 @@ export default function App() {
   const temporaryWorkspaceEnabled = useSettingsStore((s) => s.temporaryWorkspaceEnabled);
   const fileTreeDisplayMode = useSettingsStore((s) => s.fileTreeDisplayMode);
   const defaultTemporaryPath = useSettingsStore((s) => s.defaultTemporaryPath);
-  const isWindows = window.electronAPI?.env.platform === 'win32';
+  const rendererEnv = getRendererEnvironment();
+  const isWindows = rendererEnv.platform === 'win32';
   const pathSep = isWindows ? '\\' : '/';
-  const homeDir = window.electronAPI?.env.HOME || '';
+  const homeDir = rendererEnv.HOME;
   const effectiveTempBasePath = useMemo(
     () =>
       defaultTemporaryPath ||
@@ -357,6 +344,10 @@ export default function App() {
   const rehydrateTempWorkspaces = useTempWorkspaceStore((s) => s.rehydrate);
   const openTempRename = useTempWorkspaceStore((s) => s.openRename);
   const openTempDelete = useTempWorkspaceStore((s) => s.openDelete);
+  const safeTempWorkspaces = useMemo(
+    () => sanitizeTempWorkspaceItems(tempWorkspaces),
+    [tempWorkspaces]
+  );
 
   // Handle tab change and persist to worktree tab map
   const handleTabChange = useCallback(
@@ -486,6 +477,7 @@ export default function App() {
   } = useWorktreeList(worktreeRepoPath, {
     enabled: worktreeQueryEnabled,
   });
+  const safeWorktrees = useMemo(() => sanitizeGitWorktrees(worktrees), [worktrees]);
 
   // Get branches for selected repo
   const { data: branches = [], refetch: refetchBranches } = useGitBranches(worktreeRepoPath, {
@@ -550,14 +542,14 @@ export default function App() {
       if (worktreesFetching) return;
 
       if (!savedWorktreePath) {
-        const defaultWorktree = resolvePreferredWorktreeSelection(selectedRepo, worktrees);
+        const defaultWorktree = resolvePreferredWorktreeSelection(selectedRepo, safeWorktrees);
         if (defaultWorktree) {
           setActiveWorktree(defaultWorktree);
         }
         return;
       }
 
-      const matchedWorktree = worktrees.find((wt) => wt.path === savedWorktreePath);
+      const matchedWorktree = safeWorktrees.find((wt) => wt.path === savedWorktreePath);
       if (matchedWorktree) {
         setActiveWorktree(matchedWorktree);
         return;
@@ -577,7 +569,7 @@ export default function App() {
     activeWorktree,
     repoWorktreeMap,
     selectedRepoCanLoad,
-    worktrees,
+    safeWorktrees,
     worktreesFetched,
     worktreesFetching,
     setRepoWorktreeMap,
@@ -585,8 +577,8 @@ export default function App() {
   ]);
 
   const sortedWorktrees = useMemo(
-    () => getSortedWorktrees(selectedRepo, worktrees),
-    [getSortedWorktrees, selectedRepo, worktrees]
+    () => getSortedWorktrees(selectedRepo, safeWorktrees),
+    [getSortedWorktrees, selectedRepo, safeWorktrees]
   );
   const { shouldRender: shouldRenderFileSidebar, rootPath: fileSidebarRootPath } =
     resolveFileSidebarVisibility({
@@ -635,13 +627,13 @@ export default function App() {
   useOpenPathListener(true, repositories, saveRepositories, setSelectedRepoState);
   useClaudeIntegration(activeWorktree?.path ?? null, true);
   useCodeReviewContinue(activeWorktree, handleTabChange);
-  useWorktreeSync(worktrees, activeWorktree, worktreesFetching, setActiveWorktree);
+  useWorktreeSync(safeWorktrees, activeWorktree, worktreesFetching, setActiveWorktree);
 
   const handleReorderWorktrees = useCallback(
     (fromIndex: number, toIndex: number) => {
-      reorderWorktreesInState(selectedRepo, worktrees, fromIndex, toIndex);
+      reorderWorktreesInState(selectedRepo, safeWorktrees, fromIndex, toIndex);
     },
-    [selectedRepo, worktrees, reorderWorktreesInState]
+    [selectedRepo, safeWorktrees, reorderWorktreesInState]
   );
 
   // Remove repository from workspace
@@ -677,7 +669,7 @@ export default function App() {
       return;
     }
 
-    const isWorktreeInSelectedRepo = worktrees.some((wt) => wt.path === activeWorktree.path);
+    const isWorktreeInSelectedRepo = safeWorktrees.some((wt) => wt.path === activeWorktree.path);
     if (isWorktreeInSelectedRepo) {
       saveActiveWorktreeToMap(selectedRepo, activeWorktree);
     }
@@ -685,7 +677,7 @@ export default function App() {
     selectedRepo,
     activeWorktree,
     selectedRepoCanLoad,
-    worktrees,
+    safeWorktrees,
     worktreesFetched,
     worktreesFetching,
     saveActiveWorktreeToMap,
@@ -814,7 +806,7 @@ export default function App() {
 
   const handleRemoveTempWorkspace = useCallback(
     async (id: string) => {
-      const target = tempWorkspaces.find((item) => item.id === id);
+      const target = safeTempWorkspaces.find((item) => item.id === id);
       if (!target) return;
 
       const loadingCopy = buildOperationToastCopy(
@@ -864,7 +856,7 @@ export default function App() {
       clearWorktreeActivity(target.path);
 
       if (activeWorktree?.path === target.path) {
-        const remaining = tempWorkspaces.filter((item) => item.id !== id);
+        const remaining = safeTempWorkspaces.filter((item) => item.id !== id);
         if (remaining.length > 0) {
           await handleSelectTempWorkspace(remaining[0].path);
         } else {
@@ -896,7 +888,7 @@ export default function App() {
       clearWorktreeActivity,
       handleSelectTempWorkspace,
       removeTempWorkspace,
-      tempWorkspaces,
+      safeTempWorkspaces,
       t,
       effectiveTempBasePath,
       setActiveWorktree,
@@ -905,13 +897,13 @@ export default function App() {
 
   const handleSwitchWorktreePath = useCallback(
     async (worktreePath: string) => {
-      const tempMatch = tempWorkspaces.find((item) => item.path === worktreePath);
+      const tempMatch = safeTempWorkspaces.find((item) => item.path === worktreePath);
       if (tempMatch) {
         await handleSelectWorktree({ path: tempMatch.path } as GitWorktree, TEMP_REPO_ID);
         return;
       }
 
-      const worktree = worktrees.find((wt) => wt.path === worktreePath);
+      const worktree = safeWorktrees.find((wt) => wt.path === worktreePath);
       if (worktree) {
         handleSelectWorktree(worktree);
         return;
@@ -924,7 +916,10 @@ export default function App() {
 
         try {
           const repoWorktrees = await window.electronAPI.worktree.list(repo.path);
-          const found = repoWorktrees.find((wt) => wt.path === worktreePath);
+          const safeRepoWorktrees = sanitizeGitWorktrees(
+            Array.isArray(repoWorktrees) ? repoWorktrees : []
+          );
+          const found = safeRepoWorktrees.find((wt) => wt.path === worktreePath);
           if (found) {
             setSelectedRepoForWorktreeSelection(repo.path);
             setActiveWorktree(found);
@@ -939,8 +934,8 @@ export default function App() {
       }
     },
     [
-      tempWorkspaces,
-      worktrees,
+      safeTempWorkspaces,
+      safeWorktrees,
       repositories,
       isRemoteRepoPath,
       canLoadRepo,
@@ -966,9 +961,9 @@ export default function App() {
       id: buildRepositoryId(options?.kind ?? 'local', repoPath, {
         connectionId: options?.connectionId,
         platform:
-          window.electronAPI.env.platform === 'win32'
+          rendererEnv.platform === 'win32'
             ? 'win32'
-            : window.electronAPI.env.platform === 'darwin'
+            : rendererEnv.platform === 'darwin'
               ? 'darwin'
               : 'linux',
       }),
@@ -978,7 +973,7 @@ export default function App() {
       connectionId: options?.connectionId,
       groupId: groupId || undefined,
     }),
-    []
+    [rendererEnv.platform]
   );
 
   const findExistingRepository = useCallback(
@@ -1387,7 +1382,7 @@ export default function App() {
                   onSwitchTab={setActiveTab}
                   onSwitchWorktreeByPath={handleSwitchWorktreePath}
                   temporaryWorkspaceEnabled={effectiveTemporaryWorkspaceEnabled}
-                  tempWorkspaces={tempWorkspaces}
+                  tempWorkspaces={safeTempWorkspaces}
                   tempBasePath={tempBasePathDisplay}
                   onSelectTempWorkspace={handleSelectTempWorkspace}
                   onCreateTempWorkspace={handleCreateTempWorkspace}
@@ -1446,6 +1441,12 @@ export default function App() {
                     isFileDragOver={isFileDragOver}
                     temporaryWorkspaceEnabled={effectiveTemporaryWorkspaceEnabled}
                     tempBasePath={tempBasePathDisplay}
+                    tempWorkspaceCount={safeTempWorkspaces.length}
+                    hasActiveTempWorkspace={
+                      selectedRepo === TEMP_REPO_ID &&
+                      !!activeWorktree &&
+                      safeTempWorkspaces.some((item) => item.path === activeWorktree.path)
+                    }
                   />
                   {/* Resize handle */}
                   <div
@@ -1469,7 +1470,7 @@ export default function App() {
                 >
                   {isTempRepo ? (
                     <TemporaryWorkspacePanel
-                      items={tempWorkspaces}
+                      items={safeTempWorkspaces}
                       activePath={activeWorktree?.path ?? null}
                       onSelect={(item) => handleSelectTempWorkspace(item.path)}
                       onCreate={handleCreateTempWorkspace}
@@ -1562,143 +1563,70 @@ export default function App() {
           onToggleSettings={toggleSettings}
         />
 
-        <TempWorkspaceDialogs
-          onConfirmDelete={handleRemoveTempWorkspace}
-          onConfirmRename={renameTempWorkspace}
-        />
-
-        {/* Add Repository Dialog */}
-        <AddRepositoryDialog
-          open={addRepoDialogOpen}
-          onOpenChange={handleAddRepoDialogOpenChange}
-          groups={sortedGroups}
-          defaultGroupId={activeGroupId === ALL_GROUP_ID ? null : activeGroupId}
-          onAddLocal={handleAddLocalRepository}
-          onCloneComplete={handleCloneRepository}
-          onAddRemote={handleAddRemoteRepository}
-          onCreateGroup={handleCreateGroup}
+        <AppOverlays
+          onConfirmTempWorkspaceDelete={handleRemoveTempWorkspace}
+          onConfirmTempWorkspaceRename={renameTempWorkspace}
+          addRepositoryOpen={addRepoDialogOpen}
+          onAddRepositoryOpenChange={handleAddRepoDialogOpenChange}
+          addRepositoryGroups={sortedGroups}
+          addRepositoryDefaultGroupId={activeGroupId === ALL_GROUP_ID ? null : activeGroupId}
+          onAddLocalRepository={handleAddLocalRepository}
+          onCloneRepository={handleCloneRepository}
+          onAddRemoteRepository={handleAddRemoteRepository}
+          onCreateRepositoryGroup={handleCreateGroup}
           initialLocalPath={initialLocalPath ?? undefined}
           onClearInitialLocalPath={() => setInitialLocalPath(null)}
-        />
-
-        {/* Action Panel */}
-        <ActionPanel
-          open={actionPanelOpen}
-          onOpenChange={setActionPanelOpen}
+          actionPanelOpen={actionPanelOpen}
+          onActionPanelOpenChange={setActionPanelOpen}
           repositoryCollapsed={repositoryCollapsed}
           worktreeCollapsed={worktreeCollapsed}
-          projectPath={activeWorktree?.path || selectedRepo || undefined}
-          repositories={repositories}
-          selectedRepoPath={selectedRepo ?? undefined}
-          worktrees={worktrees}
-          activeWorktreePath={activeWorktree?.path}
-          onToggleRepository={() => setRepositoryCollapsed((prev) => !prev)}
-          onToggleWorktree={() => setWorktreeCollapsed((prev) => !prev)}
+          actionPanelProjectPath={activeWorktree?.path || selectedRepo || undefined}
+          actionPanelRepositories={repositories}
+          actionPanelSelectedRepoPath={selectedRepo ?? undefined}
+          actionPanelWorktrees={worktrees}
+          actionPanelActiveWorktreePath={activeWorktree?.path}
+          onToggleRepositoryPanel={() => setRepositoryCollapsed((prev) => !prev)}
+          onToggleWorktreePanel={() => setWorktreeCollapsed((prev) => !prev)}
           onOpenSettings={openSettings}
-          onSwitchRepo={(repoPath) => handleSelectRepo(repoPath, { activateRemote: true })}
+          onSwitchRepository={(repoPath) => handleSelectRepo(repoPath, { activateRemote: true })}
           onSwitchWorktree={handleSelectWorktree}
-        />
-
-        {/* Update Notification */}
-        <UpdateNotification autoUpdateEnabled={autoUpdateEnabled} />
-
-        {/* Unsaved Prompt Host */}
-        <UnsavedPromptHost />
-
-        {/* Remote SSH Auth Prompt Host */}
-        <RemoteAuthPromptHost />
-
-        {/* Close Confirmation Dialog */}
-        <Dialog
-          open={closeDialogOpen}
-          onOpenChange={(open) => {
-            setCloseDialogOpen(open);
-            if (!open) {
-              cancelCloseAndRespond();
-            }
-          }}
-        >
-          <DialogPopup className="sm:max-w-sm" showCloseButton={false}>
-            <DialogHeader>
-              <DialogTitle>{t('Exit app')}</DialogTitle>
-              <DialogDescription>{t('Are you sure you want to exit the app?')}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter variant="bare">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setCloseDialogOpen(false);
-                  cancelCloseAndRespond();
-                }}
-              >
-                {t('Cancel')}
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  setCloseDialogOpen(false);
-                  confirmCloseAndRespond();
-                }}
-              >
-                {t('Exit')}
-              </Button>
-            </DialogFooter>
-          </DialogPopup>
-        </Dialog>
-
-        {/* Merge Worktree Dialog */}
-        {mergeWorktree && (
-          <MergeWorktreeDialog
-            open={mergeDialogOpen}
-            onOpenChange={setMergeDialogOpen}
-            worktree={mergeWorktree}
-            branches={branches}
-            isLoading={mergeMutation.isPending}
-            onMerge={handleMerge}
-            onConflicts={handleMergeConflicts}
-            onSuccess={({ deletedWorktree }) => {
-              if (deletedWorktree && mergeWorktree) {
-                clearEditorWorktreeState(mergeWorktree.path);
-                if (activeWorktree?.path === mergeWorktree.path) {
-                  setActiveWorktree(null);
-                }
+          autoUpdateEnabled={autoUpdateEnabled}
+          closeDialogOpen={closeDialogOpen}
+          setCloseDialogOpen={setCloseDialogOpen}
+          onDismissCloseDialog={cancelCloseAndRespond}
+          onCancelClose={cancelCloseAndRespond}
+          onConfirmClose={confirmCloseAndRespond}
+          mergeWorktree={mergeWorktree}
+          mergeDialogOpen={mergeDialogOpen}
+          onMergeDialogOpenChange={setMergeDialogOpen}
+          mergeBranches={branches}
+          mergeLoading={mergeMutation.isPending}
+          onMerge={handleMerge}
+          onMergeConflicts={handleMergeConflicts}
+          onMergeSuccess={({ deletedWorktree }) => {
+            if (deletedWorktree && mergeWorktree) {
+              clearEditorWorktreeState(mergeWorktree.path);
+              if (activeWorktree?.path === mergeWorktree.path) {
+                setActiveWorktree(null);
               }
-              refetch();
-              refetchBranches();
-            }}
-          />
-        )}
-
-        {/* Merge Conflict Editor */}
-        {mergeConflicts?.conflicts && mergeConflicts.conflicts.length > 0 && (
-          <Dialog open={true} onOpenChange={() => {}}>
-            <DialogPopup className="h-[90vh] max-w-[95vw] p-0" showCloseButton={false}>
-              <MergeEditor
-                conflicts={mergeConflicts.conflicts}
-                workdir={selectedRepo || ''}
-                sourceBranch={mergeWorktree?.branch || undefined}
-                onResolve={handleResolveConflict}
-                onComplete={handleCompleteMerge}
-                onAbort={handleAbortMerge}
-                getConflictContent={getConflictContent}
-              />
-            </DialogPopup>
-          </Dialog>
-        )}
-
-        {/* Clone Progress Float - shows clone progress in bottom right corner */}
-        <CloneProgressFloat onCloneComplete={handleCloneRepository} />
-
-        {/* Draggable Settings Window (for draggable-modal mode) */}
-        {settingsDisplayMode === 'draggable-modal' && (
-          <DraggableSettingsWindow
-            open={settingsDialogOpen}
-            onOpenChange={setSettingsDialogOpen}
-            activeCategory={settingsCategory}
-            onCategoryChange={handleSettingsCategoryChange}
-            scrollToProvider={scrollToProvider}
-          />
-        )}
+            }
+            refetch();
+            refetchBranches();
+          }}
+          mergeConflicts={mergeConflicts}
+          mergeWorkdir={selectedRepo}
+          mergeSourceBranch={mergeWorktree?.branch || undefined}
+          onResolveConflict={handleResolveConflict}
+          onCompleteMerge={handleCompleteMerge}
+          onAbortMerge={handleAbortMerge}
+          getConflictContent={getConflictContent}
+          showDraggableSettingsWindow={settingsDisplayMode === 'draggable-modal'}
+          settingsWindowOpen={settingsDialogOpen}
+          onSettingsWindowOpenChange={setSettingsDialogOpen}
+          settingsCategory={settingsCategory}
+          onSettingsCategoryChange={handleSettingsCategoryChange}
+          scrollToProvider={scrollToProvider}
+        />
       </div>
     </div>
   );

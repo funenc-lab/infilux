@@ -1,5 +1,6 @@
 import { FileCode } from 'lucide-react';
-import { FilePanel, type FilePanelProps } from '@/components/files/FilePanel';
+import type { FilePanelProps } from '@/components/files/FilePanel';
+import { FilePanel } from '@/components/files/FilePanel';
 import { useI18n } from '@/i18n';
 import { ControlStateCard } from './ControlStateCard';
 

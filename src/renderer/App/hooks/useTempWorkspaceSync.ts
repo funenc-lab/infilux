@@ -11,6 +11,11 @@ export function useTempWorkspaceSync(
   setSelectedRepo: (repo: string | null) => void,
   setActiveWorktree: (worktree: GitWorktree | null) => void
 ) {
+  const safeTempWorkspaces = tempWorkspaces.filter(
+    (item): item is { path: string } =>
+      typeof item?.path === 'string' && item.path.trim().length > 0
+  );
+
   // Switch away from temp repo if disabled
   useEffect(() => {
     if (!temporaryWorkspaceEnabled && selectedRepo === TEMP_REPO_ID) {
@@ -21,9 +26,9 @@ export function useTempWorkspaceSync(
   // Clear active worktree if temp workspace was deleted
   useEffect(() => {
     if (selectedRepo !== TEMP_REPO_ID || !activeWorktree?.path) return;
-    const exists = tempWorkspaces.some((item) => item.path === activeWorktree.path);
+    const exists = safeTempWorkspaces.some((item) => item.path === activeWorktree.path);
     if (!exists) {
       setActiveWorktree(null);
     }
-  }, [selectedRepo, activeWorktree?.path, tempWorkspaces, setActiveWorktree]);
+  }, [selectedRepo, activeWorktree?.path, safeTempWorkspaces, setActiveWorktree]);
 }

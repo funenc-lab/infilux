@@ -1,29 +1,10 @@
-import { getDisplayPathBasename } from '@shared/utils/path';
-import { AnimatePresence, motion } from 'framer-motion';
-import {
-  Activity,
-  FileCode,
-  FolderOpen,
-  GitBranch,
-  KanbanSquare,
-  MessageSquare,
-  PanelLeft,
-  RectangleEllipsis,
-  Settings,
-  Sparkles,
-  Terminal,
-} from 'lucide-react';
+import { FileCode, GitBranch, KanbanSquare, Sparkles, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
 import { normalizePath } from '@/App/storage';
-import { OpenInMenu } from '@/components/app/OpenInMenu';
-import { RunningProjectsPopover } from '@/components/layout/RunningProjectsPopover';
 import type { SettingsCategory } from '@/components/settings/constants';
-import { getMainContentLiveStatus } from '@/components/ui/activityStatus';
-import { Button } from '@/components/ui/button';
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { useI18n } from '@/i18n';
-import { springFast } from '@/lib/motion';
+import { getRendererPlatform } from '@/lib/electronEnvironment';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useEditorStore } from '@/stores/editor';
@@ -31,92 +12,23 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
-import { ControlStateActionButton } from './ControlStateActionButton';
-import { ControlStateCard } from './ControlStateCard';
-import { DeferredAgentPanel } from './DeferredAgentPanel';
-import { DeferredCurrentFilePanel } from './DeferredCurrentFilePanel';
 import { DeferredDiffReviewModal } from './DeferredDiffReviewModal';
-import { DeferredFilePanel } from './DeferredFilePanel';
-import { DeferredSettingsContent } from './DeferredSettingsContent';
-import { DeferredSourceControlPanel } from './DeferredSourceControlPanel';
-import { DeferredTerminalPanel } from './DeferredTerminalPanel';
-import { DeferredTodoPanel } from './DeferredTodoPanel';
 import { updateRetainedFilePanelPaths } from './filePanelLruPolicy';
 import { getFileTabCountForWorktree as getFileTabCountForWorktreeState } from './filePanelWorktreeState';
+import { MainContentPanels } from './MainContentPanels';
+import { MainContentTopbar } from './MainContentTopbar';
 import { resolveMainContentContext } from './mainContentContextPolicy';
 import { shouldRenderTabPanel } from './mainContentMountPolicy';
 import { buildMainContentRenderPlan } from './mainContentRenderPlan';
 
 type LayoutMode = 'columns' | 'tree';
 
-function getPathLabel(path?: string | null): string | null {
-  if (!path) {
-    return null;
-  }
-
-  return getDisplayPathBasename(path) || path;
-}
-
-function getAgentLabel(agentId?: string | null): string | null {
-  if (!agentId) {
-    return null;
-  }
-
-  return agentId
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function ConsoleIdleState({
-  title,
-  description,
-  repoLabel,
-  worktreeCollapsed = false,
-  onExpandWorktree,
-}: {
-  title: string;
-  description: string;
-  repoLabel?: string | null;
-  worktreeCollapsed?: boolean;
-  onExpandWorktree?: (() => void) | undefined;
-}) {
-  const { t } = useI18n();
-  const hasRepoContext = Boolean(repoLabel);
-  const nextStep =
-    onExpandWorktree && worktreeCollapsed
-      ? t('Expand the worktree sidebar and choose a worktree')
-      : hasRepoContext
-        ? t('Choose a worktree in this repository')
-        : t('Add or select a repository, then choose a worktree');
-
-  return (
-    <ControlStateCard
-      icon={<Sparkles className="h-5 w-5" />}
-      eyebrow={t('Agent Console')}
-      title={title}
-      description={description}
-      metaLabel={t('Next Step')}
-      metaValue={nextStep}
-      actions={
-        onExpandWorktree && worktreeCollapsed ? (
-          <ControlStateActionButton onClick={onExpandWorktree}>
-            <GitBranch className="mr-2 h-4 w-4" />
-            {t('Choose Worktree')}
-          </ControlStateActionButton>
-        ) : null
-      }
-    />
-  );
-}
-
 interface MainContentProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   tabOrder?: TabId[];
   onTabReorder?: (fromIndex: number, toIndex: number) => void;
-  repoPath?: string; // repository path for session storage
+  repoPath?: string;
   worktreePath?: string;
   sourceControlRootPath?: string;
   reviewRootPath?: string;
@@ -169,42 +81,45 @@ export function MainContent({
   sourceControlEmptyDescription,
 }: MainContentProps) {
   const { t } = useI18n();
-  const settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
-  const setSettingsDisplayMode = useSettingsStore((s) => s.setSettingsDisplayMode);
-  const fileTreeDisplayMode = useSettingsStore((s) => s.fileTreeDisplayMode);
-  const todoEnabled = useSettingsStore((s) => s.todoEnabled);
-  const editorTabCount = useEditorStore((s) => s.tabs.length);
-  const editorCurrentWorktreePath = useEditorStore((s) => s.currentWorktreePath);
-  const editorWorktreeStates = useEditorStore((s) => s.worktreeStates);
-  const worktreeActivities = useWorktreeActivityStore((s) => s.activities);
-  const worktreeActivityStates = useWorktreeActivityStore((s) => s.activityStates);
+  const settingsDisplayMode = useSettingsStore((state) => state.settingsDisplayMode);
+  const setSettingsDisplayMode = useSettingsStore((state) => state.setSettingsDisplayMode);
+  const fileTreeDisplayMode = useSettingsStore((state) => state.fileTreeDisplayMode);
+  const todoEnabled = useSettingsStore((state) => state.todoEnabled);
+  const bgImageEnabled = useSettingsStore((state) => state.backgroundImageEnabled);
+  const editorTabCount = useEditorStore((state) => state.tabs.length);
+  const editorCurrentWorktreePath = useEditorStore((state) => state.currentWorktreePath);
+  const editorWorktreeStates = useEditorStore((state) => state.worktreeStates);
+  const worktreeActivities = useWorktreeActivityStore((state) => state.activities);
 
-  // Diff Review Modal state
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
-  // Subscribe to sessions and activeIds for reactivity
-  const sessions = useAgentSessionsStore((s) => s.sessions);
-  const activeIds = useAgentSessionsStore((s) => s.activeIds);
-  const runtimeStates = useAgentSessionsStore((s) => s.runtimeStates);
+  const sessions = useAgentSessionsStore((state) => state.sessions);
+  const activeIds = useAgentSessionsStore((state) => state.activeIds);
   const activeSessionId = useMemo(() => {
-    if (!repoPath || !worktreePath) return null;
+    if (!repoPath || !worktreePath) {
+      return null;
+    }
+
     const key = normalizePath(worktreePath);
     const activeId = activeIds[key];
     if (activeId) {
-      const session = sessions.find((s) => s.id === activeId);
-      if (session) return activeId;
+      const session = sessions.find((candidate) => candidate.id === activeId);
+      if (session) {
+        return activeId;
+      }
     }
-    const firstSession = sessions.find((s) => s.repoPath === repoPath && s.cwd === worktreePath);
-    return firstSession?.id ?? null;
-  }, [repoPath, worktreePath, sessions, activeIds]);
 
-  // Sync activeSessionId to terminalWrite store for global access (e.g., toast "Send to Session")
-  const setActiveSessionId = useTerminalWriteStore((s) => s.setActiveSessionId);
+    const firstSession = sessions.find(
+      (candidate) => candidate.repoPath === repoPath && candidate.cwd === worktreePath
+    );
+    return firstSession?.id ?? null;
+  }, [activeIds, repoPath, sessions, worktreePath]);
+
+  const setActiveSessionId = useTerminalWriteStore((state) => state.setActiveSessionId);
   useEffect(() => {
     setActiveSessionId(activeSessionId);
   }, [activeSessionId, setActiveSessionId]);
 
-  // Tab metadata configuration (excludes 'settings' as it's not shown in the tab bar)
   const tabConfigMap: Record<
     Exclude<TabId, 'settings'>,
     { icon: React.ElementType; label: string }
@@ -216,21 +131,15 @@ export function MainContent({
     todo: { icon: KanbanSquare, label: t('Todo') },
   };
 
-  // Generate tabs array based on tabOrder (filter out 'settings' tab and disabled features)
   const tabs = tabOrder
     .filter(
       (id): id is Exclude<TabId, 'settings'> => id !== 'settings' && (id !== 'todo' || todoEnabled)
     )
-    .map(
-      (id) =>
-        ({ id, ...tabConfigMap[id] }) as {
-          id: Exclude<TabId, 'settings'>;
-          icon: React.ElementType;
-          label: string;
-        }
-    );
+    .map((id) => ({
+      id,
+      ...tabConfigMap[id],
+    }));
 
-  // Drag reorder state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const dragImageRef = useRef<HTMLDivElement | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
@@ -262,15 +171,19 @@ export function MainContent({
     };
   }, []);
 
-  const handleDragStart = useCallback((e: React.DragEvent, index: number, label: string) => {
+  const handleDragStart = useCallback((event: React.DragEvent, index: number, label: string) => {
     setDraggedIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(index));
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index));
 
     const dragImage = dragImageRef.current;
     if (dragImage) {
       dragImage.textContent = label;
-      e.dataTransfer.setDragImage(dragImage, dragImage.offsetWidth / 2, dragImage.offsetHeight / 2);
+      event.dataTransfer.setDragImage(
+        dragImage,
+        dragImage.offsetWidth / 2,
+        dragImage.offsetHeight / 2
+      );
     }
   }, []);
 
@@ -280,44 +193,40 @@ export function MainContent({
   }, []);
 
   const handleDragOver = useCallback(
-    (e: React.DragEvent, index: number) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
+    (event: React.DragEvent, index: number) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
       if (draggedIndex !== null && draggedIndex !== index) {
-        setDropTargetIndex((prev) => (prev === index ? prev : index));
+        setDropTargetIndex((previousIndex) => (previousIndex === index ? previousIndex : index));
       }
     },
     [draggedIndex]
   );
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    const related = e.relatedTarget as Node | null;
-    if (related && e.currentTarget.contains(related)) {
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
+    const related = event.relatedTarget as Node | null;
+    if (related && event.currentTarget.contains(related)) {
       return;
     }
     setDropTargetIndex(null);
   }, []);
 
   const handleDrop = useCallback(
-    (e: React.DragEvent, toIndex: number) => {
-      e.preventDefault();
+    (event: React.DragEvent, toIndex: number) => {
+      event.preventDefault();
       const fromIndex = draggedIndex;
       if (fromIndex !== null && fromIndex !== toIndex && onTabReorder) {
         onTabReorder(fromIndex, toIndex);
       }
       setDropTargetIndex(null);
     },
-    [onTabReorder, draggedIndex]
+    [draggedIndex, onTabReorder]
   );
 
-  // Need extra padding for traffic lights when both panels are collapsed (macOS only)
-  const isMac = window.electronAPI.env.platform === 'darwin';
+  const isMac = getRendererPlatform() === 'darwin';
   const needsTrafficLightPadding = isMac && repositoryCollapsed && worktreeCollapsed;
 
-  // Remember the last valid repo/worktree pair to keep AgentPanel mounted
-  // without mixing a new repoPath with an old worktreePath.
   const lastValidContextRef = useRef<{ repoPath: string; worktreePath: string } | null>(null);
-
   useEffect(() => {
     if (repoPath && worktreePath) {
       lastValidContextRef.current = { repoPath, worktreePath };
@@ -341,6 +250,7 @@ export function MainContent({
     openInPath,
     lastValidContext: lastValidContextRef.current,
   });
+
   const getRepoPathForWorktree = useCallback(
     (targetWorktreePath: string) => {
       const matchingSession = sessions.find((session) => session.cwd === targetWorktreePath);
@@ -365,30 +275,33 @@ export function MainContent({
 
       return null;
     },
-    [sessions, repoPath, worktreePath, retainedChatContext]
+    [repoPath, retainedChatContext, sessions, worktreePath]
   );
+
   const hasAgentActivityForWorktree = useCallback(
-    (worktreePath: string) => {
-      const activity = worktreeActivities[worktreePath];
+    (targetWorktreePath: string) => {
+      const activity = worktreeActivities[targetWorktreePath];
       if (activity?.agentCount && activity.agentCount > 0) {
         return true;
       }
 
-      return sessions.some((session) => session.cwd === worktreePath && session.initialized);
+      return sessions.some((session) => session.cwd === targetWorktreePath && session.initialized);
     },
-    [worktreeActivities, sessions]
+    [sessions, worktreeActivities]
   );
+
   const hasTerminalActivityForWorktree = useCallback(
-    (worktreePath: string) => {
-      const activity = worktreeActivities[worktreePath];
+    (targetWorktreePath: string) => {
+      const activity = worktreeActivities[targetWorktreePath];
       return (activity?.terminalCount ?? 0) > 0;
     },
     [worktreeActivities]
   );
+
   const getFileTabCountForWorktree = useCallback(
-    (worktreePath: string) => {
+    (targetWorktreePath: string) => {
       return getFileTabCountForWorktreeState({
-        targetWorktreePath: worktreePath,
+        targetWorktreePath,
         currentWorktreePath: editorCurrentWorktreePath,
         currentTabCount: editorTabCount,
         worktreeStates: editorWorktreeStates,
@@ -396,6 +309,7 @@ export function MainContent({
     },
     [editorCurrentWorktreePath, editorTabCount, editorWorktreeStates]
   );
+
   const effectiveFileTabCount = useMemo(() => {
     if (!currentNormalizedWorktreePath) {
       return 0;
@@ -403,12 +317,14 @@ export function MainContent({
 
     return getFileTabCountForWorktree(currentNormalizedWorktreePath);
   }, [currentNormalizedWorktreePath, getFileTabCountForWorktree]);
+
   const hasCurrentChatActivity = currentWorktreePath
     ? hasAgentActivityForWorktree(currentWorktreePath)
     : false;
   const hasCurrentTerminalActivity = currentWorktreePath
     ? hasTerminalActivityForWorktree(currentWorktreePath)
     : false;
+
   const {
     shouldRenderCurrentChatPanel,
     shouldRenderCurrentTerminalPanel,
@@ -439,6 +355,7 @@ export function MainContent({
       effectiveFileTabCount,
     ]
   );
+
   const shouldRenderSourceControl = shouldRenderTabPanel('source-control', activeTab);
   const shouldRenderTodo = shouldRenderTabPanel('todo', activeTab);
   const shouldRenderSettings = shouldRenderTabPanel('settings', activeTab);
@@ -472,544 +389,81 @@ export function MainContent({
       })
     );
   }, [currentWorktreePath, getFileTabCountForWorktree]);
-  const activeSession = useMemo(
-    () => sessions.find((session) => session.id === activeSessionId) ?? null,
-    [activeSessionId, sessions]
-  );
-  const worktreeSessions = useMemo(() => {
-    if (!repoPath || !worktreePath) {
-      return [];
-    }
 
-    return sessions.filter(
-      (session) => session.repoPath === repoPath && session.cwd === worktreePath
-    );
-  }, [repoPath, sessions, worktreePath]);
-  const unreadSessionsCount = useMemo(
-    () =>
-      worktreeSessions.reduce(
-        (count, session) => count + (runtimeStates[session.id]?.outputState === 'unread' ? 1 : 0),
-        0
-      ),
-    [runtimeStates, worktreeSessions]
-  );
-  const outputtingSessionsCount = useMemo(
-    () =>
-      worktreeSessions.reduce(
-        (count, session) =>
-          count + (runtimeStates[session.id]?.outputState === 'outputting' ? 1 : 0),
-        0
-      ),
-    [runtimeStates, worktreeSessions]
-  );
-  const currentWorktreeActivity = (worktreePath && worktreeActivities[worktreePath]) || {
-    agentCount: 0,
-    terminalCount: 0,
-  };
-  const currentActivityState = (worktreePath && worktreeActivityStates[worktreePath]) || 'idle';
-  const repoLabel = getPathLabel(repoPath);
-  const worktreeLabel = getPathLabel(worktreePath);
-  const activeAgentLabel = activeSession?.name ?? getAgentLabel(activeSession?.agentId);
-  const hasRepoContext = Boolean(repoLabel);
-  const hasWorktreeContext = Boolean(worktreeLabel);
-  const hasAgentContext = Boolean(activeAgentLabel);
-  const hasStatusSummary =
-    hasActiveWorktree ||
-    worktreeSessions.length > 0 ||
-    currentWorktreeActivity.terminalCount > 0 ||
-    unreadSessionsCount > 0 ||
-    outputtingSessionsCount > 0 ||
-    currentActivityState !== 'idle';
-  const shouldShowTopbarMeta =
-    hasRepoContext || hasWorktreeContext || hasAgentContext || hasStatusSummary;
-  const liveStatus = useMemo(
-    () =>
-      getMainContentLiveStatus({
-        currentActivityState,
-        outputtingSessionsCount,
-        unreadSessionsCount,
-        hasActiveWorktree,
-      }),
-    [currentActivityState, hasActiveWorktree, outputtingSessionsCount, unreadSessionsCount]
-  );
-
-  // When background image is enabled, avoid stacking multiple semi-transparent bg-background layers
-  // Keep bg-background on <main> only (1 layer), remove from all inner elements to prevent double-stacking
-  const bgImageEnabled = useSettingsStore((s) => s.backgroundImageEnabled);
   const innerBg = bgImageEnabled ? '' : 'bg-background';
   const hasCollapsedPanels = repositoryCollapsed || worktreeCollapsed || fileSidebarCollapsed;
   const showOpenInToolbar = showOpenInMenu && activeTab === 'file' && Boolean(effectiveOpenInPath);
-  const headerButtonClass = 'control-topbar-action';
-  const liveStatusTone =
-    currentActivityState === 'waiting_input'
-      ? 'wait'
-      : outputtingSessionsCount > 0 || currentActivityState === 'running'
-        ? 'live'
-        : unreadSessionsCount > 0 || currentActivityState === 'completed'
-          ? 'done'
-          : 'idle';
 
   return (
     <main className={cn('flex min-w-0 flex-1 flex-col overflow-hidden bg-background')}>
-      <header
-        data-background={bgImageEnabled ? 'transparent' : 'surface'}
-        className={cn(
-          'control-topbar-header shrink-0 drag-region',
-          needsTrafficLightPadding && 'pl-[80px]'
-        )}
-      >
-        <div className="control-topbar no-drag">
-          <div className="control-topbar-main">
-            <div className="control-topbar-nav">
-              <AnimatePresence mode="popLayout">
-                {hasCollapsedPanels && (
-                  <motion.div
-                    key="toolbar-panels"
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: 'auto', opacity: 1 }}
-                    exit={{ width: 0, opacity: 0 }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    className="flex items-center gap-2 overflow-hidden"
-                  >
-                    {repositoryCollapsed && onSwitchWorktree && onSwitchTab && (
-                      <RunningProjectsPopover
-                        onSelectWorktreeByPath={onSwitchWorktree}
-                        onSwitchTab={onSwitchTab}
-                        showBadge={false}
-                      />
-                    )}
-                    <Menu>
-                      <MenuTrigger
-                        render={
-                          <button
-                            type="button"
-                            className={headerButtonClass}
-                            title={t('Panels')}
-                            aria-label={t('Panels')}
-                          >
-                            <PanelLeft className="h-4 w-4" />
-                          </button>
-                        }
-                      />
-                      <MenuPopup align="start" sideOffset={8} className="min-w-[190px]">
-                        {layoutMode === 'tree' ? (
-                          onExpandRepository ? (
-                            <MenuItem onClick={onExpandRepository}>
-                              <FolderOpen className="h-4 w-4" />
-                              {t('Expand Sidebar')}
-                            </MenuItem>
-                          ) : null
-                        ) : (
-                          <>
-                            {repositoryCollapsed && onExpandRepository ? (
-                              <MenuItem onClick={onExpandRepository}>
-                                <FolderOpen className="h-4 w-4" />
-                                {t('Expand Repository')}
-                              </MenuItem>
-                            ) : null}
-                            {worktreeCollapsed && onExpandWorktree ? (
-                              <MenuItem onClick={onExpandWorktree}>
-                                <GitBranch className="h-4 w-4" />
-                                {t('Expand Worktree')}
-                              </MenuItem>
-                            ) : null}
-                          </>
-                        )}
-                        {fileSidebarCollapsed && onExpandFileSidebar ? (
-                          <MenuItem onClick={onExpandFileSidebar}>
-                            <PanelLeft className="h-4 w-4" />
-                            {t('Expand File Sidebar')}
-                          </MenuItem>
-                        ) : null}
-                      </MenuPopup>
-                    </Menu>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+      <MainContentTopbar
+        bgImageEnabled={bgImageEnabled}
+        needsTrafficLightPadding={needsTrafficLightPadding}
+        hasCollapsedPanels={hasCollapsedPanels}
+        repositoryCollapsed={repositoryCollapsed}
+        worktreeCollapsed={worktreeCollapsed}
+        fileSidebarCollapsed={fileSidebarCollapsed}
+        layoutMode={layoutMode}
+        onExpandRepository={onExpandRepository}
+        onExpandWorktree={onExpandWorktree}
+        onExpandFileSidebar={onExpandFileSidebar}
+        onSwitchWorktree={onSwitchWorktree}
+        onSwitchTab={onSwitchTab}
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        onTabReorder={onTabReorder}
+        draggedIndex={draggedIndex}
+        dropTargetIndex={dropTargetIndex}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        isSettingsActive={isSettingsActive}
+        onToggleSettings={onToggleSettings}
+        activeSessionId={activeSessionId}
+        reviewRootPath={effectiveReviewRootPath ?? undefined}
+        onOpenReview={() => setIsReviewModalOpen(true)}
+        showOpenInToolbar={showOpenInToolbar}
+        openInPath={effectiveOpenInPath ?? undefined}
+      />
 
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <div className="control-topbar-tabs">
-                  {tabs.map((tab, index) => {
-                    const isDropTarget = dropTargetIndex === index;
-                    const isDragging = draggedIndex === index;
-                    const isActive = activeTab === tab.id;
-                    return (
-                      <div
-                        key={tab.id}
-                        draggable={!!onTabReorder}
-                        onDragStart={
-                          onTabReorder ? (e) => handleDragStart(e, index, tab.label) : undefined
-                        }
-                        onDragEnd={onTabReorder ? handleDragEnd : undefined}
-                        onDragOver={onTabReorder ? (e) => handleDragOver(e, index) : undefined}
-                        onDragLeave={onTabReorder ? handleDragLeave : undefined}
-                        onDrop={onTabReorder ? (e) => handleDrop(e, index) : undefined}
-                        aria-grabbed={isDragging}
-                        aria-disabled={!onTabReorder}
-                        className={cn(
-                          'relative flex items-center',
-                          isDragging && 'opacity-50',
-                          onTabReorder && 'cursor-grab active:cursor-grabbing'
-                        )}
-                      >
-                        {isDropTarget && !isDragging && (
-                          <motion.div
-                            layoutId="tab-drop-indicator"
-                            className="absolute inset-x-2 -top-1 h-0.5 rounded-full bg-primary"
-                            transition={springFast}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          data-active={isActive ? 'true' : 'false'}
-                          onClick={() => {
-                            if (tab.id === 'file' && fileSidebarCollapsed) {
-                              onExpandFileSidebar?.();
-                            }
-                            onTabChange(tab.id);
-                          }}
-                          className="control-topbar-tab"
-                        >
-                          {isActive && (
-                            <motion.div
-                              layoutId="main-tab-highlight"
-                              className="control-topbar-tab-surface"
-                              transition={springFast}
-                            />
-                          )}
-                          <span className="control-topbar-tab-icon">
-                            <tab.icon className="h-3.5 w-3.5" />
-                          </span>
-                          <span className="control-topbar-tab-label">{tab.label}</span>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
+      <MainContentPanels
+        activeTab={activeTab}
+        innerBg={innerBg}
+        repoPath={repoPath}
+        worktreePath={worktreePath}
+        currentRepoPath={currentRepoPath}
+        currentWorktreePath={currentWorktreePath}
+        retainedChatContext={retainedChatContext}
+        hasActiveWorktree={hasActiveWorktree}
+        worktreeCollapsed={worktreeCollapsed}
+        onExpandWorktree={onExpandWorktree}
+        onSwitchWorktree={onSwitchWorktree}
+        getRepoPathForWorktree={getRepoPathForWorktree}
+        shouldRenderCurrentChatPanel={shouldRenderCurrentChatPanel}
+        shouldRenderCurrentTerminalPanel={shouldRenderCurrentTerminalPanel}
+        shouldRenderCurrentFilePanel={shouldRenderCurrentFilePanel}
+        cachedChatPanelPaths={cachedChatPanelPaths}
+        cachedTerminalPanelPaths={cachedTerminalPanelPaths}
+        cachedFilePanelPaths={cachedFilePanelPaths}
+        fileTreeDisplayMode={fileTreeDisplayMode}
+        shouldRenderSourceControl={shouldRenderSourceControl}
+        sourceControlRootPath={effectiveSourceControlRootPath ?? undefined}
+        sourceControlEmptyTitle={sourceControlEmptyTitle}
+        sourceControlEmptyDescription={sourceControlEmptyDescription}
+        todoEnabled={todoEnabled}
+        shouldRenderTodo={shouldRenderTodo}
+        shouldRenderSettings={shouldRenderSettings}
+        settingsDisplayMode={settingsDisplayMode}
+        setSettingsDisplayMode={setSettingsDisplayMode}
+        settingsCategory={settingsCategory}
+        onCategoryChange={onCategoryChange}
+        scrollToProvider={scrollToProvider}
+        onTabChange={onTabChange}
+      />
 
-            <div className="control-topbar-actions-cluster">
-              <button
-                type="button"
-                data-active={isSettingsActive ? 'true' : 'false'}
-                aria-label={t('Settings')}
-                aria-pressed={isSettingsActive}
-                className={headerButtonClass}
-                onClick={onToggleSettings}
-                title={t('Settings')}
-              >
-                <Settings className="h-4 w-4" />
-              </button>
-              {activeSessionId && effectiveReviewRootPath && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsReviewModalOpen(true)}
-                  className="control-topbar-action h-8 rounded-lg border-0 px-3 text-[12px]"
-                  data-priority="primary"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  {t('Review')}
-                </Button>
-              )}
-              {showOpenInToolbar ? (
-                <OpenInMenu path={effectiveOpenInPath ?? undefined} activeTab={activeTab} />
-              ) : null}
-            </div>
-          </div>
-
-          {shouldShowTopbarMeta ? (
-            <div className="control-topbar-meta">
-              <div className="control-topbar-context min-w-0 flex-1 overflow-hidden">
-                {hasRepoContext ? (
-                  <div className="control-topbar-context-item min-w-0" data-emphasis="strong">
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="control-topbar-context-label">{t('Repository')}</span>
-                    <span className="control-topbar-context-value" title={repoLabel ?? undefined}>
-                      <strong>{repoLabel}</strong>
-                    </span>
-                  </div>
-                ) : null}
-                {hasRepoContext && hasWorktreeContext ? (
-                  <span className="control-topbar-separator">/</span>
-                ) : null}
-                {hasWorktreeContext ? (
-                  <div className="control-topbar-context-item min-w-0" data-emphasis="strong">
-                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="control-topbar-context-label">{t('Worktree')}</span>
-                    <span
-                      className="control-topbar-context-value"
-                      title={worktreeLabel ?? undefined}
-                    >
-                      {worktreeLabel}
-                    </span>
-                  </div>
-                ) : null}
-                {(hasRepoContext || hasWorktreeContext) && hasAgentContext ? (
-                  <span className="control-topbar-separator hidden md:inline">/</span>
-                ) : null}
-                {hasAgentContext ? (
-                  <div className="control-topbar-context-item hidden min-w-0 md:inline-flex">
-                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="control-topbar-context-label">{t('Agent')}</span>
-                    <span
-                      className="control-topbar-context-value"
-                      title={activeAgentLabel ?? undefined}
-                    >
-                      {activeAgentLabel}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="control-topbar-statuses shrink-0">
-                {hasStatusSummary ? (
-                  <span className="control-topbar-status" data-tone={liveStatusTone}>
-                    <Activity className="h-3.5 w-3.5" />
-                    {liveStatus.label}
-                  </span>
-                ) : null}
-                {worktreeSessions.length > 0 && (
-                  <span className="control-topbar-status">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {worktreeSessions.length}
-                  </span>
-                )}
-                {currentWorktreeActivity.terminalCount > 0 && (
-                  <span className="control-topbar-status">
-                    <Terminal className="h-3.5 w-3.5" />
-                    {currentWorktreeActivity.terminalCount}
-                  </span>
-                )}
-                {unreadSessionsCount > 0 && (
-                  <span className="control-topbar-status" data-tone="done">
-                    {unreadSessionsCount} unread
-                  </span>
-                )}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </header>
-
-      {/* Content */}
-      <div className="relative flex-1 overflow-hidden">
-        {/* Chat tab - ALWAYS keep AgentPanel mounted to preserve terminal sessions across repo switches */}
-        {shouldRenderCurrentChatPanel ? (
-          <div
-            className={cn(
-              'absolute inset-0',
-              innerBg,
-              activeTab === 'chat' ? 'z-10' : 'invisible pointer-events-none z-0'
-            )}
-          >
-            {/* Always render AgentPanel if we have any valid paths (current or previous) */}
-            {retainedChatContext ? (
-              <>
-                <DeferredAgentPanel
-                  repoPath={retainedChatContext.repoPath}
-                  cwd={retainedChatContext.worktreePath}
-                  isActive={activeTab === 'chat' && hasActiveWorktree}
-                  onSwitchWorktree={onSwitchWorktree}
-                  shouldLoad
-                />
-                {/* Show overlay when no worktree is actively selected */}
-                {!hasActiveWorktree && (
-                  <div className={cn('absolute inset-0 z-20', innerBg)}>
-                    <ConsoleIdleState
-                      title={t('AI Agent needs a worktree')}
-                      description={t(
-                        'Each worktree keeps its own agent sessions, context, and output.'
-                      )}
-                      repoLabel={repoLabel}
-                      worktreeCollapsed={worktreeCollapsed}
-                      onExpandWorktree={onExpandWorktree}
-                    />
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className={cn('h-full', innerBg)}>
-                <ConsoleIdleState
-                  title={t('AI Agent needs a worktree')}
-                  description={t(
-                    'Each worktree keeps its own agent sessions, context, and output.'
-                  )}
-                  repoLabel={repoLabel}
-                  worktreeCollapsed={worktreeCollapsed}
-                  onExpandWorktree={onExpandWorktree}
-                />
-              </div>
-            )}
-          </div>
-        ) : null}
-        {cachedChatPanelPaths.map((cachedWorktreePath) => {
-          const cachedRepoPath = getRepoPathForWorktree(cachedWorktreePath);
-          if (!cachedRepoPath) {
-            return null;
-          }
-
-          return (
-            <div
-              key={`chat:${cachedWorktreePath}`}
-              className={cn('absolute inset-0', innerBg, 'invisible pointer-events-none z-0')}
-            >
-              <DeferredAgentPanel
-                repoPath={cachedRepoPath}
-                cwd={cachedWorktreePath}
-                isActive={false}
-                onSwitchWorktree={onSwitchWorktree}
-                shouldLoad
-              />
-            </div>
-          );
-        })}
-        {/* Terminal tab - keep mounted to preserve shell sessions */}
-        {shouldRenderCurrentTerminalPanel ? (
-          <div
-            className={cn(
-              'absolute inset-0',
-              innerBg,
-              activeTab === 'terminal' ? 'z-10' : 'invisible pointer-events-none z-0'
-            )}
-          >
-            <DeferredTerminalPanel
-              repoPath={currentRepoPath ?? undefined}
-              cwd={currentWorktreePath ?? undefined}
-              isActive={activeTab === 'terminal' && hasActiveWorktree}
-              onExpandWorktree={onExpandWorktree}
-              shouldLoad={activeTab === 'terminal'}
-              worktreeCollapsed={worktreeCollapsed}
-            />
-          </div>
-        ) : null}
-        {cachedTerminalPanelPaths.map((cachedWorktreePath) => (
-          <div
-            key={`terminal:${cachedWorktreePath}`}
-            className={cn('absolute inset-0', innerBg, 'invisible pointer-events-none z-0')}
-          >
-            <DeferredTerminalPanel
-              repoPath={getRepoPathForWorktree(cachedWorktreePath) ?? undefined}
-              cwd={cachedWorktreePath}
-              isActive={false}
-              shouldLoad
-            />
-          </div>
-        ))}
-        {/* File tab - keep mounted to preserve editor state */}
-        {shouldRenderCurrentFilePanel ? (
-          <div
-            className={cn(
-              'absolute inset-0',
-              innerBg,
-              activeTab === 'file' ? 'z-10' : 'invisible pointer-events-none z-0'
-            )}
-          >
-            {fileTreeDisplayMode === 'current' ? (
-              <DeferredCurrentFilePanel
-                rootPath={currentWorktreePath ?? undefined}
-                isActive={activeTab === 'file'}
-                onExpandWorktree={onExpandWorktree}
-                shouldLoad={activeTab === 'file'}
-                worktreeCollapsed={worktreeCollapsed}
-              />
-            ) : (
-              <DeferredFilePanel
-                rootPath={currentWorktreePath ?? undefined}
-                isActive={activeTab === 'file'}
-                onExpandWorktree={onExpandWorktree}
-                shouldLoad={activeTab === 'file'}
-                worktreeCollapsed={worktreeCollapsed}
-              />
-            )}
-          </div>
-        ) : null}
-        {cachedFilePanelPaths.map((cachedWorktreePath) => (
-          <div
-            key={`${fileTreeDisplayMode}:${cachedWorktreePath}`}
-            className={cn('absolute inset-0', innerBg, 'invisible pointer-events-none z-0')}
-          >
-            {fileTreeDisplayMode === 'current' ? (
-              <DeferredCurrentFilePanel rootPath={cachedWorktreePath} isActive={false} shouldLoad />
-            ) : (
-              <DeferredFilePanel rootPath={cachedWorktreePath} isActive={false} shouldLoad />
-            )}
-          </div>
-        ))}
-        {shouldRenderSourceControl && (
-          <div
-            className={cn(
-              'absolute inset-0',
-              innerBg,
-              activeTab === 'source-control' ? 'z-10' : 'invisible pointer-events-none z-0'
-            )}
-          >
-            <DeferredSourceControlPanel
-              shouldLoad={shouldRenderSourceControl}
-              rootPath={effectiveSourceControlRootPath ?? undefined}
-              isActive={activeTab === 'source-control'}
-              onExpandWorktree={onExpandWorktree}
-              worktreeCollapsed={worktreeCollapsed}
-              emptyTitle={sourceControlEmptyTitle}
-              emptyDescription={sourceControlEmptyDescription}
-            />
-          </div>
-        )}
-        {/* Todo tab */}
-        {todoEnabled && shouldRenderTodo && (
-          <div
-            className={cn(
-              'absolute inset-0',
-              innerBg,
-              activeTab === 'todo' ? 'z-10' : 'invisible pointer-events-none z-0'
-            )}
-          >
-            <DeferredTodoPanel
-              shouldLoad={shouldRenderTodo}
-              repoPath={repoPath}
-              worktreePath={worktreePath}
-              isActive={activeTab === 'todo'}
-              onSwitchToAgent={() => onTabChange('chat')}
-            />
-          </div>
-        )}
-        {/* Settings tab */}
-        {settingsDisplayMode === 'tab' && shouldRenderSettings && (
-          <div
-            className={cn(
-              'absolute inset-0',
-              innerBg,
-              activeTab === 'settings' ? 'z-10' : 'invisible pointer-events-none z-0'
-            )}
-          >
-            <div className="h-full flex flex-col">
-              <div className="flex items-center justify-between border-b px-4 py-3">
-                <h1 className="text-lg font-medium">{t('Settings')}</h1>
-                <button
-                  type="button"
-                  onClick={() => setSettingsDisplayMode('draggable-modal')}
-                  className="flex h-6 items-center gap-1 rounded px-2 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-                  title={t('Switch to floating mode')}
-                >
-                  <RectangleEllipsis className="h-3.5 w-3.5" />
-                  {t('Switch to floating mode')}
-                </button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <DeferredSettingsContent
-                  shouldLoad={shouldRenderSettings}
-                  activeCategory={settingsCategory}
-                  onCategoryChange={onCategoryChange}
-                  scrollToProvider={scrollToProvider}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Diff Review Modal */}
       <DeferredDiffReviewModal
         shouldLoad={isReviewModalOpen}
         open={isReviewModalOpen}

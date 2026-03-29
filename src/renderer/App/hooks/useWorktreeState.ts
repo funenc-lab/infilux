@@ -1,5 +1,6 @@
 import type { GitWorktree } from '@shared/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import type { TabId } from '../constants';
 import {
   getStoredTabMap,
@@ -64,12 +65,13 @@ export function useWorktreeState() {
   const handleReorderWorktrees = useCallback(
     (selectedRepo: string | null, worktrees: GitWorktree[], fromIndex: number, toIndex: number) => {
       if (!selectedRepo) return;
+      const safeWorktrees = sanitizeGitWorktrees(worktrees);
 
       // Get current order for this repo
       const currentRepoOrder = worktreeOrderMap[selectedRepo] || {};
 
       // Sort worktrees by current display order to get the visual order
-      const sortedWorktrees = [...worktrees].sort((a, b) => {
+      const sortedWorktrees = [...safeWorktrees].sort((a, b) => {
         const orderA = currentRepoOrder[a.path] ?? Number.MAX_SAFE_INTEGER;
         const orderB = currentRepoOrder[b.path] ?? Number.MAX_SAFE_INTEGER;
         return orderA - orderB;
@@ -115,8 +117,9 @@ export function useWorktreeState() {
   // Get sorted worktrees by display order for a repo
   const getSortedWorktrees = useCallback(
     (selectedRepo: string | null, worktrees: GitWorktree[]) => {
-      if (!selectedRepo) return worktrees;
-      return [...worktrees].sort((a, b) => {
+      const safeWorktrees = sanitizeGitWorktrees(worktrees);
+      if (!selectedRepo) return safeWorktrees;
+      return [...safeWorktrees].sort((a, b) => {
         const repoOrder = worktreeOrderMap[selectedRepo] || {};
         const orderA = repoOrder[a.path] ?? Number.MAX_SAFE_INTEGER;
         const orderB = repoOrder[b.path] ?? Number.MAX_SAFE_INTEGER;

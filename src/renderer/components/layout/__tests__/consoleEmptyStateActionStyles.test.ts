@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { mainContentSource } from './mainContentSource';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const mainContentSource = readFileSync(resolve(currentDir, '../MainContent.tsx'), 'utf8');
 const editorAreaSource = readFileSync(resolve(currentDir, '../../files/EditorArea.tsx'), 'utf8');
 const sourceControlPanelSource = readFileSync(
   resolve(currentDir, '../../source-control/SourceControlPanel.tsx'),

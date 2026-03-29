@@ -1,5 +1,6 @@
 import type { TempWorkspaceItem } from '@shared/types';
 import { create } from 'zustand';
+import { sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
 
 const TEMP_WORKSPACES_KEY = 'enso-temp-workspaces';
 
@@ -8,14 +9,14 @@ function loadFromStorage(): TempWorkspaceItem[] {
     const saved = localStorage.getItem(TEMP_WORKSPACES_KEY);
     if (!saved) return [];
     const parsed = JSON.parse(saved) as TempWorkspaceItem[];
-    return Array.isArray(parsed) ? parsed : [];
+    return sanitizeTempWorkspaceItems(Array.isArray(parsed) ? parsed : []);
   } catch {
     return [];
   }
 }
 
 function saveToStorage(items: TempWorkspaceItem[]): void {
-  localStorage.setItem(TEMP_WORKSPACES_KEY, JSON.stringify(items));
+  localStorage.setItem(TEMP_WORKSPACES_KEY, JSON.stringify(sanitizeTempWorkspaceItems(items)));
 }
 
 interface TempWorkspaceState {
@@ -41,10 +42,11 @@ function getErrorCode(err: unknown): string | null {
 }
 
 async function fallbackRehydrateItems(items: TempWorkspaceItem[]): Promise<TempWorkspaceItem[]> {
+  const safeItems = sanitizeTempWorkspaceItems(items);
   const results = await Promise.allSettled(
-    items.map((item) => window.electronAPI.file.list(item.path))
+    safeItems.map((item) => window.electronAPI.file.list(item.path))
   );
-  return items.filter((_item, index) => {
+  return safeItems.filter((_item, index) => {
     const result = results[index];
     if (result.status === 'fulfilled') {
       return true;
@@ -55,11 +57,12 @@ async function fallbackRehydrateItems(items: TempWorkspaceItem[]): Promise<TempW
 }
 
 async function rehydrateItems(items: TempWorkspaceItem[]): Promise<TempWorkspaceItem[]> {
+  const safeItems = sanitizeTempWorkspaceItems(items);
   const tempWorkspaceApi = window.electronAPI.tempWorkspace;
   if (tempWorkspaceApi?.rehydrate) {
-    return tempWorkspaceApi.rehydrate(items);
+    return sanitizeTempWorkspaceItems(await tempWorkspaceApi.rehydrate(safeItems));
   }
-  return fallbackRehydrateItems(items);
+  return fallbackRehydrateItems(safeItems);
 }
 
 export const useTempWorkspaceStore = create<TempWorkspaceState>((set, get) => ({
@@ -67,21 +70,24 @@ export const useTempWorkspaceStore = create<TempWorkspaceState>((set, get) => ({
   renameTargetId: null,
   deleteTargetId: null,
   setItems: (items) => {
-    saveToStorage(items);
-    set({ items });
+    const safeItems = sanitizeTempWorkspaceItems(items);
+    saveToStorage(safeItems);
+    set({ items: safeItems });
   },
   addItem: (item) => {
-    const next = [...get().items, item];
+    const next = sanitizeTempWorkspaceItems([...get().items, item]);
     saveToStorage(next);
     set({ items: next });
   },
   removeItem: (id) => {
-    const next = get().items.filter((item) => item.id !== id);
+    const next = sanitizeTempWorkspaceItems(get().items.filter((item) => item.id !== id));
     saveToStorage(next);
     set({ items: next });
   },
   renameItem: (id, title) => {
-    const next = get().items.map((item) => (item.id === id ? { ...item, title } : item));
+    const next = sanitizeTempWorkspaceItems(
+      get().items.map((item) => (item.id === id ? { ...item, title } : item))
+    );
     saveToStorage(next);
     set({ items: next });
   },

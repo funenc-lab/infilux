@@ -17,6 +17,12 @@ export interface ConsoleTypographySettings {
 export interface ConsoleTypographyModel {
   fontFamily: string;
   fontSize: number;
+  eyebrowFontSize: number;
+  embeddedBodyFontSize: number;
+  panelBodyFontSize: number;
+  detailValueFontSize: number;
+  embeddedTitleFontSize: number;
+  panelTitleFontSize: number;
   bodyLineHeight: number;
   titleLineHeight: number;
   labelLineHeight: number;
@@ -75,10 +81,22 @@ export function buildConsoleTypographyModel({
   const titleLineHeight = Math.max(fontSize + 6, Math.round(bodyLineHeight * 0.9));
   const labelLineHeight = Math.max(12, Math.round(bodyLineHeight * 0.72));
   const buttonFontSize = Math.max(14, fontSize);
+  const eyebrowFontSize = Math.max(11, Math.round(fontSize * 0.79));
+  const embeddedBodyFontSize = fontSize;
+  const panelBodyFontSize = Math.max(fontSize, Math.round(fontSize * 1.07));
+  const detailValueFontSize = panelBodyFontSize;
+  const embeddedTitleFontSize = Math.max(fontSize + 3, Math.round(fontSize * 1.18));
+  const panelTitleFontSize = Math.max(fontSize + 5, Math.round(fontSize * 1.4));
 
   return {
     fontFamily,
     fontSize,
+    eyebrowFontSize,
+    embeddedBodyFontSize,
+    panelBodyFontSize,
+    detailValueFontSize,
+    embeddedTitleFontSize,
+    panelTitleFontSize,
     bodyLineHeight,
     titleLineHeight,
     labelLineHeight,

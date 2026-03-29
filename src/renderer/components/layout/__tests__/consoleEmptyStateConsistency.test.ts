@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { mainContentSource } from './mainContentSource';
+import { treeSidebarSource } from './treeSidebarSource';
+import { worktreePanelSource } from './worktreePanelSource';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const mainContentSource = readFileSync(resolve(currentDir, '../MainContent.tsx'), 'utf8');
 const controlStateCardSource = readFileSync(resolve(currentDir, '../ControlStateCard.tsx'), 'utf8');
-const treeSidebarSource = readFileSync(resolve(currentDir, '../TreeSidebar.tsx'), 'utf8');
-const worktreePanelSource = readFileSync(resolve(currentDir, '../WorktreePanel.tsx'), 'utf8');
+
 const temporaryWorkspacePanelSource = readFileSync(
   resolve(currentDir, '../TemporaryWorkspacePanel.tsx'),
   'utf8'

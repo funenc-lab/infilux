@@ -45,4 +45,14 @@ describe('worktreeSelectionPolicy', () => {
   it('returns null when no repo or worktrees are available', () => {
     expect(resolvePreferredWorktreeSelection(null, [])).toBeNull();
   });
+
+  it('ignores malformed worktree entries when recovering selection', () => {
+    const result = resolvePreferredWorktreeSelection('/repo', [
+      undefined,
+      { branch: 'broken' } as unknown as GitWorktree,
+      makeWorktree({ path: '/repo', isMainWorktree: true }),
+    ] as unknown as GitWorktree[]);
+
+    expect(result?.path).toBe('/repo');
+  });
 });

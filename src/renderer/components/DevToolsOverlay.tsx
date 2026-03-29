@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getRendererPlatform } from '@/lib/electronEnvironment';
 import { Z_INDEX } from '@/lib/z-index';
 
 /**
@@ -16,17 +17,18 @@ import { Z_INDEX } from '@/lib/z-index';
  */
 export function DevToolsOverlay() {
   const [isDevToolsOpen, setIsDevToolsOpen] = useState(false);
+  const isMac = getRendererPlatform() === 'darwin';
 
   useEffect(() => {
-    if (window.electronAPI?.env.platform !== 'darwin') return;
+    if (!isMac) return;
 
     const cleanup = window.electronAPI.window.onDevToolsStateChange((isOpen: boolean) => {
       setIsDevToolsOpen(isOpen);
     });
     return cleanup;
-  }, []);
+  }, [isMac]);
 
-  if (!isDevToolsOpen || window.electronAPI?.env.platform !== 'darwin') {
+  if (!isDevToolsOpen || !isMac) {
     return null;
   }
 

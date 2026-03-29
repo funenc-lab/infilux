@@ -305,7 +305,15 @@ describe('MainContent component render', () => {
 
     expect(markup).toContain('data-panel="file-current"');
     expect(markup).not.toContain('data-panel="file-legacy"');
-  });
+  }, 15000);
+
+  it('renders without an Electron env bridge when platform data is unavailable', async () => {
+    vi.stubGlobal('window', {});
+
+    const markup = await renderMainContent('file');
+
+    expect(markup).toContain('data-panel="file-legacy"');
+  }, 15000);
 
   it('retains the legacy file panel while inactive when the current worktree still has open tabs', async () => {
     settingsState.fileTreeDisplayMode = 'legacy';
@@ -474,6 +482,13 @@ describe('MainContent component render', () => {
     expect(switchedMarkup).toContain('data-panel="file-legacy"');
     expect(switchedMarkup).toContain('data-root-path=""');
     expect(switchedMarkup).not.toContain('data-root-path="/repo/old/worktrees/previous"');
+  });
+
+  it('does not render a standalone Ready status row for an idle selected worktree', async () => {
+    const markup = await renderMainContent('file');
+
+    expect(markup).not.toContain('>Ready<');
+    expect(markup).not.toContain('control-topbar-status');
   });
 
   it('uses the shared topbar action styling for the settings button', async () => {

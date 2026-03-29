@@ -1,6 +1,9 @@
+import { normalizeLocale, translate } from '@shared/i18n';
 import type { ErrorInfo, ReactNode } from 'react';
 import { Component } from 'react';
 import { getRendererDiagnosticsSnapshot } from '@/lib/runtimeDiagnostics';
+import { appErrorBoundaryI18nKeys } from '@/lib/uiTranslationKeys';
+import { useSettingsStore } from '@/stores/settings';
 import { formatErrorBoundaryMessage } from './errorBoundaryUtils';
 import { Button } from './ui/button';
 
@@ -50,6 +53,9 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
     await navigator.clipboard.writeText(payload).catch(() => {});
   };
 
+  private readonly t = (key: string) =>
+    translate(normalizeLocale(useSettingsStore.getState().language), key);
+
   override render(): ReactNode {
     if (!this.state.error) {
       return this.props.children;
@@ -59,9 +65,9 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
       <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
         <div className="control-panel w-full max-w-xl rounded-2xl p-6">
           <div className="space-y-3">
-            <h1 className="text-lg font-semibold">The app ran into an unexpected error.</h1>
+            <h1 className="text-lg font-semibold">{this.t(appErrorBoundaryI18nKeys.heading)}</h1>
             <p className="text-sm text-muted-foreground">
-              You can reload the renderer now. Diagnostic details can also be copied for debugging.
+              {this.t(appErrorBoundaryI18nKeys.description)}
             </p>
             <pre className="max-h-56 overflow-auto rounded-md border bg-muted/50 p-3 text-xs whitespace-pre-wrap break-words">
               {this.state.errorMessage}
@@ -69,10 +75,10 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
           </div>
           <div className="mt-4 flex gap-2">
             <Button type="button" onClick={this.handleReload}>
-              Reload App
+              {this.t(appErrorBoundaryI18nKeys.reload)}
             </Button>
             <Button type="button" variant="outline" onClick={() => void this.handleCopy()}>
-              Copy Diagnostics
+              {this.t(appErrorBoundaryI18nKeys.copyDiagnostics)}
             </Button>
           </div>
         </div>

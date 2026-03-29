@@ -9,13 +9,10 @@ import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import {
   ChevronRight,
   Clock,
-  Copy,
   EyeOff,
   FolderGit2,
   FolderMinus,
-  FolderOpen,
   GitBranch,
-  GitMerge,
   List,
   MoreHorizontal,
   PanelLeftClose,
@@ -23,9 +20,6 @@ import {
   RefreshCw,
   Search,
   Settings2,
-  Sparkles,
-  Terminal,
-  Trash2,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -47,7 +41,6 @@ import {
   saveGroupCollapsedState,
   saveRepositorySettings,
 } from '@/App/storage';
-import { GitSyncButton } from '@/components/git/GitSyncButton';
 import {
   CreateGroupDialog,
   GroupEditDialog,
@@ -56,8 +49,6 @@ import {
 } from '@/components/group';
 import { RepositoryManagerDialog } from '@/components/repository/RepositoryManagerDialog';
 import { RepositorySettingsDialog } from '@/components/repository/RepositorySettingsDialog';
-import { TempWorkspaceContextMenu } from '@/components/temp-workspace/TempWorkspaceContextMenu';
-import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -70,23 +61,21 @@ import {
 import { Button } from '@/components/ui/button';
 import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
-import { useGitSync } from '@/hooks/useGitSync';
-import { useWorktreeOutputState } from '@/hooks/useOutputState';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
-import {
-  buildClipboardToastCopy,
-  buildRemovalDialogCopy,
-  buildWorkspaceToastCopy,
-} from '@/lib/feedbackCopy';
+import { buildRemovalDialogCopy, buildWorkspaceToastCopy } from '@/lib/feedbackCopy';
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
 import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
+import { TempWorkspaceTreeItem } from './tree-sidebar/TempWorkspaceTreeItem';
+import { WorktreeTreeItem } from './tree-sidebar/WorktreeTreeItem';
 
 function getSidebarSectionId(prefix: string, value: string): string {
   return `${prefix}-${value.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
@@ -221,9 +210,13 @@ export function TreeSidebar({
     }
     return counts;
   }, [groups, repositories]);
-  const sortedTempWorkspaces = useMemo(
-    () => [...tempWorkspaces].sort((a, b) => b.createdAt - a.createdAt),
+  const safeTempWorkspaces = useMemo(
+    () => sanitizeTempWorkspaceItems(tempWorkspaces),
     [tempWorkspaces]
+  );
+  const sortedTempWorkspaces = useMemo(
+    () => [...safeTempWorkspaces].sort((a, b) => b.createdAt - a.createdAt),
+    [safeTempWorkspaces]
   );
 
   // Convert list to set for fast lookups
@@ -240,18 +233,6 @@ export function TreeSidebar({
       repoPath,
       enabled: canLoadRepo(repoPath),
     }))
-  );
-  const allRepoPaths = useMemo(() => repositories.map((repo) => repo.path), [repositories]);
-  const { worktreesMap: allRepoWorktreesMap } = useWorktreeListMultiple(
-    useMemo(
-      () =>
-        allRepoPaths.map((repoPath) => ({
-          repoPath,
-          // Keep startup passive for unopened remote repos; otherwise search can trigger SSH auth.
-          enabled: canLoadRepo(repoPath),
-        })),
-      [allRepoPaths, canLoadRepo]
-    )
   );
 
   // Repository context menu
@@ -338,7 +319,10 @@ export function TreeSidebar({
   const [dropWorktreeTargetIndex, setDropWorktreeTargetIndex] = useState<number | null>(null);
 
   // Get the main worktree path for git operations (from selected repo's worktrees)
-  const selectedRepoWorktrees = selectedRepo ? worktreesMap[selectedRepo] || [] : [];
+  const selectedRepoWorktrees = useMemo(
+    () => sanitizeGitWorktrees(selectedRepo ? worktreesMap[selectedRepo] || [] : []),
+    [selectedRepo, worktreesMap]
+  );
   const mainWorktree = selectedRepoWorktrees.find((wt) => wt.isMainWorktree);
   const workdir = mainWorktree?.path || selectedRepo || '';
 
@@ -356,24 +340,19 @@ export function TreeSidebar({
   );
 
   useEffect(() => {
-    const allWorktrees = Object.values(worktreesMap).flat();
+    const allWorktrees = sanitizeGitWorktrees(Object.values(worktreesMap).flat());
     if (allWorktrees.length === 0 || !shouldPoll) return;
 
-    const activePaths = allWorktrees
-      .filter((wt) => {
-        const activity = activities[wt.path];
-        return activity && (activity.agentCount > 0 || activity.terminalCount > 0);
-      })
-      .map((wt) => wt.path);
+    const loadedPaths = allWorktrees.map((wt) => wt.path);
 
-    if (activePaths.length === 0) return;
+    if (loadedPaths.length === 0) return;
 
-    fetchDiffStats(activePaths);
+    fetchDiffStats(loadedPaths);
     const interval = setInterval(() => {
-      fetchDiffStats(activePaths);
+      fetchDiffStats(loadedPaths);
     }, 10000);
     return () => clearInterval(interval);
-  }, [worktreesMap, activities, fetchDiffStats, shouldPoll]);
+  }, [worktreesMap, fetchDiffStats, shouldPoll]);
 
   // Auto-expand selected repo (only when selectedRepo changes externally, not from tree click)
   const prevSelectedRepoRef = useRef<string | null>(null);
@@ -664,6 +643,20 @@ export function TreeSidebar({
     };
   }, [searchQuery]);
 
+  const allRepoPaths = useMemo(() => repositories.map((repo) => repo.path), [repositories]);
+  const allRepoWorktreePrefetchInputs = useMemo(
+    () =>
+      buildTreeSidebarWorktreePrefetchInputs({
+        allRepoPaths,
+        hasActiveFilter: parsedSearch.hasActiveFilter,
+        canLoadRepo,
+      }),
+    [allRepoPaths, parsedSearch.hasActiveFilter, canLoadRepo]
+  );
+  const { worktreesMap: allRepoWorktreesMap } = useWorktreeListMultiple(
+    allRepoWorktreePrefetchInputs
+  );
+
   const hasSearchFilter = parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0;
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
   const filteredTempWorkspaces = useMemo(() => {
@@ -705,7 +698,7 @@ export function TreeSidebar({
         const normalizedRepoPath = normalizePath(repo.path);
         if (activePathSet.has(normalizedRepoPath)) return true;
 
-        const repoWorktrees = allRepoWorktreesMap[repo.path] || [];
+        const repoWorktrees = sanitizeGitWorktrees(allRepoWorktreesMap[repo.path] || []);
         return repoWorktrees.some((worktree) => activePathSet.has(normalizePath(worktree.path)));
       });
     }
@@ -714,7 +707,7 @@ export function TreeSidebar({
       const query = parsedSearch.textQuery;
       filtered = filtered.filter((repo) => {
         if (repo.name.toLowerCase().includes(query)) return true;
-        const repoWorktrees = worktreesMap[repo.path] || [];
+        const repoWorktrees = sanitizeGitWorktrees(worktreesMap[repo.path] || []);
         return repoWorktrees.some(
           (wt) =>
             wt.branch?.toLowerCase().includes(query) ||
@@ -789,7 +782,7 @@ export function TreeSidebar({
   // Filter worktrees for a specific repo
   const getFilteredWorktrees = useCallback(
     (repoPath: string) => {
-      const repoWorktrees = worktreesMap[repoPath] || [];
+      const repoWorktrees = sanitizeGitWorktrees(worktreesMap[repoPath] || []);
       return repoWorktrees.filter((wt) => {
         if (parsedSearch.hasActiveFilter) {
           const activity = activities[normalizePath(wt.path)] ?? activities[wt.path];
@@ -819,12 +812,13 @@ export function TreeSidebar({
     const repoLoading = repoCanLoad
       ? (loadingMap[repo.path] ?? (isExpanded && !worktreesMap[repo.path]))
       : false;
-    const repoWts = worktreesMap[repo.path] || [];
+    const repoWts = sanitizeGitWorktrees(worktreesMap[repo.path] || []);
     const displayRepoPath = getDisplayPath(repo.path);
     const useLtrPathDisplay = isWslUncPath(displayRepoPath);
     const activeWorktreeCount = repoWts.filter((wt) =>
       activePathSet.has(normalizePath(wt.path))
     ).length;
+    const hasRepoSummary = (repoCanLoad && repoWts.length > 0) || activeWorktreeCount > 0;
 
     return (
       <div key={repo.path} className="relative">
@@ -849,12 +843,13 @@ export function TreeSidebar({
               draggedRepoIndexRef.current === originalIndex && 'opacity-50'
             )}
             data-active={isSelected ? 'repo' : 'false'}
+            data-selection-tone={isSelected && activeWorktreeCount > 0 ? 'context' : 'default'}
           >
             {/* Row 1: Chevron + Icon + Name + Actions */}
-            <div className="relative z-10 flex w-full items-start gap-1.5">
+            <div className="control-tree-row relative z-10">
               <button
                 type="button"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
+                className="control-tree-disclosure h-6 w-6 shrink-0"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleRepoExpanded(repo.path);
@@ -868,65 +863,72 @@ export function TreeSidebar({
               >
                 <ChevronRight
                   className={cn(
-                    'h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ease-out',
+                    'h-3.5 w-3.5 transition-transform duration-150 ease-out',
                     isExpanded && 'rotate-90'
                   )}
                 />
               </button>
               <button
                 type="button"
-                className="flex min-w-0 flex-1 items-start gap-1.5 text-left outline-none"
+                className="control-tree-primary min-w-0 flex-1 text-left outline-none"
                 onClick={() => onSelectRepo(repo.path, { activateRemote: true })}
                 aria-current={isSelected ? 'page' : undefined}
               >
-                <span className="control-tree-glyph mt-0.5 h-4 w-4 shrink-0">
-                  <FolderGit2 className="control-tree-icon h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="control-tree-title min-w-0 flex-1 truncate text-left">
-                      {repo.name}
-                    </span>
-                    {(isSelected || isExpanded || activeWorktreeCount > 0) &&
-                    ((repoCanLoad && repoWts.length > 0) || activeWorktreeCount > 0) ? (
-                      <span className="control-tree-meta control-tree-meta-row shrink-0">
+                <div className="control-tree-primary-content">
+                  <span className="control-tree-glyph h-4 w-4 shrink-0">
+                    <FolderGit2 className="control-tree-icon h-4 w-4" />
+                  </span>
+                  <div className="control-tree-text-stack">
+                    <div className="flex items-center gap-1.5">
+                      <span className="control-tree-title min-w-0 flex-1 truncate text-left">
+                        {repo.name}
+                      </span>
+                    </div>
+                    <div
+                      className={cn(
+                        'control-tree-subtitle overflow-hidden whitespace-nowrap text-ellipsis [text-align:left]',
+                        useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
+                      )}
+                      title={displayRepoPath}
+                    >
+                      {displayRepoPath}
+                    </div>
+                    {hasRepoSummary ? (
+                      <div className="control-tree-meta control-tree-meta-row">
                         {repoWts.length > 0 ? (
-                          <span className="control-tree-count">{repoWts.length} trees</span>
+                          <span className="control-tree-metric">
+                            <span className="control-tree-metric-value">{repoWts.length}</span>
+                            <span className="control-tree-metric-label">trees</span>
+                          </span>
                         ) : null}
                         {repoWts.length > 0 && activeWorktreeCount > 0 ? (
                           <span className="control-tree-separator">·</span>
                         ) : null}
                         {activeWorktreeCount > 0 ? (
-                          <span className="control-tree-count control-tree-count-live">
-                            {activeWorktreeCount} live
+                          <span className="control-tree-metric">
+                            <span className="control-tree-metric-value">{activeWorktreeCount}</span>
+                            <span className="control-tree-metric-label">live</span>
                           </span>
                         ) : null}
-                      </span>
+                      </div>
                     ) : null}
-                  </div>
-                  <div
-                    className={cn(
-                      'control-tree-subtitle mt-px overflow-hidden whitespace-nowrap text-ellipsis [text-align:left]',
-                      useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
-                    )}
-                    title={displayRepoPath}
-                  >
-                    {displayRepoPath}
                   </div>
                 </div>
               </button>
-              <button
-                type="button"
-                className="control-tree-action flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-theme/10 hover:text-foreground"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openRepoMenu(repo, { anchor: e.currentTarget });
-                }}
-                aria-label={t('Repository actions')}
-                title={t('Repository actions')}
-              >
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </button>
+              <div className="control-tree-tail" data-role="action">
+                <button
+                  type="button"
+                  className="control-tree-action flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openRepoMenu(repo, { anchor: e.currentTarget });
+                  }}
+                  aria-label={t('Repository actions')}
+                  title={t('Repository actions')}
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           </div>
           {/* Drop indicator - bottom */}
@@ -939,17 +941,20 @@ export function TreeSidebar({
 
         {/* Worktrees under this repo */}
         {isExpanded ? (
-          <div
-            id={worktreeSectionId}
-            className="control-tree-guide ml-3.5 mr-1 mt-0.5 flex flex-col gap-y-0.5 overflow-hidden pl-1.5"
-          >
+          <div id={worktreeSectionId} className="control-tree-guide">
             {!repoCanLoad ? (
-              <div className="px-3 py-1.5 text-xs text-muted-foreground">
-                {t('Click to load worktrees')}
+              <div className="control-tree-inline-empty">
+                <span className="control-tree-inline-title">{t('Worktrees not loaded')}</span>
+                <span className="control-tree-inline-copy">
+                  {t('Select this repository to load and inspect its worktrees.')}
+                </span>
               </div>
             ) : repoError ? (
-              <div className="flex flex-col items-start gap-1.5 px-3 py-1.5 text-xs text-muted-foreground">
-                <span className="text-destructive">{t('Not a Git repository')}</span>
+              <div className="control-tree-inline-empty" data-tone="danger">
+                <span className="control-tree-inline-title">{t('Not a Git repository')}</span>
+                <span className="control-tree-inline-copy">
+                  {t('Initialize Git here to create and manage worktrees.')}
+                </span>
                 {onInitGit && isSelected && (
                   <Button
                     onClick={async () => {
@@ -966,26 +971,27 @@ export function TreeSidebar({
                 )}
               </div>
             ) : repoLoading ? (
-              <div className="space-y-1">
+              <div className="control-tree-flat-list">
                 {[0, 1].map((i) => (
-                  <div
-                    key={`skeleton-${i}`}
-                    className="mx-2 h-12 animate-pulse rounded-lg border border-theme/12 bg-theme/8"
-                  />
+                  <div key={`skeleton-${i}`} className="control-tree-skeleton" />
                 ))}
               </div>
             ) : repoWorktrees.length === 0 ? (
-              <div className="px-3 py-1.5 text-xs text-muted-foreground">
-                {hasSearchFilter
-                  ? t('No matching worktrees')
-                  : t('No worktrees. Create one to get started.')}
+              <div className="control-tree-inline-empty">
+                <span className="control-tree-inline-title">
+                  {hasSearchFilter ? t('No matching worktrees') : t('No worktrees yet')}
+                </span>
+                <span className="control-tree-inline-copy">
+                  {hasSearchFilter
+                    ? t('Try a broader search term or clear the current filter.')
+                    : t('Create one from repository actions when you are ready to branch out.')}
+                </span>
               </div>
             ) : (
               repoWorktrees.map((worktree, wtIndex) => (
                 <WorktreeTreeItem
                   key={worktree.path}
                   worktree={worktree}
-                  repoPath={repo.path}
                   branches={branches}
                   isActive={activeWorktree?.path === worktree.path}
                   onClick={() => {
@@ -1020,6 +1026,10 @@ export function TreeSidebar({
   };
 
   const tempWorkspacesSectionId = 'tree-temp-workspaces';
+  const hasActiveTempWorkspace =
+    selectedRepo === TEMP_REPO_ID &&
+    !!activeWorktree &&
+    safeTempWorkspaces.some((item) => item.path === activeWorktree.path);
 
   return (
     <aside
@@ -1032,41 +1042,45 @@ export function TreeSidebar({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          {/* Manage repositories button */}
-          <button
-            type="button"
-            className="control-sidebar-toolbutton no-drag"
-            onClick={() => setRepoManagerOpen(true)}
-            title={t('Repositories')}
-          >
-            <List className="h-3.5 w-3.5" />
-          </button>
-          {/* Refresh button */}
-          <button
-            type="button"
-            className="control-sidebar-toolbutton no-drag"
-            onClick={() => {
-              onRefresh();
-              refetchExpandedWorktrees();
-            }}
-            title={t('Refresh')}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-          <RunningProjectsPopover
-            onSelectWorktreeByPath={onSwitchWorktreeByPath || (() => {})}
-            onSwitchTab={onSwitchTab}
-          />
-          {onCollapse && (
+          <div className="control-sidebar-toolbar-group">
+            {/* Manage repositories button */}
             <button
               type="button"
               className="control-sidebar-toolbutton no-drag"
-              onClick={onCollapse}
-              title={t('Collapse')}
+              onClick={() => setRepoManagerOpen(true)}
+              title={t('Repositories')}
             >
-              <PanelLeftClose className="h-3.5 w-3.5" />
+              <List className="h-3.5 w-3.5" />
             </button>
-          )}
+            {/* Refresh button */}
+            <button
+              type="button"
+              className="control-sidebar-toolbutton no-drag"
+              onClick={() => {
+                onRefresh();
+                refetchExpandedWorktrees();
+              }}
+              title={t('Refresh')}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="control-sidebar-toolbar-group">
+            <RunningProjectsPopover
+              onSelectWorktreeByPath={onSwitchWorktreeByPath || (() => {})}
+              onSwitchTab={onSwitchTab}
+            />
+            {onCollapse && (
+              <button
+                type="button"
+                className="control-sidebar-toolbutton no-drag"
+                onClick={onCollapse}
+                title={t('Collapse')}
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1089,7 +1103,7 @@ export function TreeSidebar({
             ref={searchInputRef}
             type="text"
             aria-label={t('Search projects')}
-            placeholder={`${t('Search')} (:active)`}
+            placeholder={`${t('Search projects')} (:active)`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="control-sidebar-search-input"
@@ -1114,74 +1128,105 @@ export function TreeSidebar({
       {/* Tree List */}
       <div className="flex-1 overflow-auto px-1.5 py-1.5">
         {temporaryWorkspaceEnabled && (
-          <div className="mb-1.5">
+          <div className="mb-2">
             <div
-              className="control-tree-node group flex w-full items-start gap-1.5 px-2 py-1 text-left"
+              className="control-tree-node group flex w-full flex-col gap-0.5 px-2 py-1 text-left"
               data-active={selectedRepo === TEMP_REPO_ID ? 'repo' : 'false'}
+              data-selection-tone={hasActiveTempWorkspace ? 'context' : 'default'}
             >
-              <button
-                type="button"
-                onClick={() => {
-                  onSelectRepo(TEMP_REPO_ID);
-                  setTempExpanded((prev) => !prev);
-                }}
-                className="flex min-w-0 flex-1 flex-col gap-0.5 text-left outline-none"
-                aria-expanded={tempExpanded}
-                aria-controls={tempWorkspacesSectionId}
-                aria-current={selectedRepo === TEMP_REPO_ID ? 'page' : undefined}
-              >
-                <div className="relative z-10 flex w-full items-center gap-1">
-                  <span className="shrink-0 w-5 h-5 flex items-center justify-center">
-                    <ChevronRight
-                      className={cn(
-                        'h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ease-out',
-                        tempExpanded && 'rotate-90'
-                      )}
-                    />
-                  </span>
-                  <span className="control-tree-glyph h-4 w-4 shrink-0">
-                    <Clock className="control-tree-icon h-4 w-4" />
-                  </span>
-                  <span className="control-tree-title min-w-0 flex-1 truncate text-left">
-                    {t('Temp Session')}
-                  </span>
-                </div>
-                {tempBasePath ? (
-                  <span
-                    className={cn(
-                      'control-tree-subtitle relative z-10 mt-px pl-11 overflow-hidden whitespace-nowrap text-ellipsis [text-align:left] [unicode-bidi:plaintext]',
-                      isWslUncPath(tempBasePath) ? '[direction:ltr]' : '[direction:rtl]'
-                    )}
-                  >
-                    {tempBasePath}
-                  </span>
-                ) : (
-                  <span className="control-tree-subtitle relative z-10 mt-px pl-11">
-                    {t('Quick scratch sessions')}
-                  </span>
-                )}
-              </button>
-              {onCreateTempWorkspace ? (
+              <div className="control-tree-row relative z-10">
                 <button
                   type="button"
-                  className="control-tree-action mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-theme/10 hover:text-foreground"
-                  onClick={() => onCreateTempWorkspace()}
-                  aria-label={t('New Temp Session')}
-                  title={t('New Temp Session')}
+                  className="control-tree-disclosure h-6 w-6 shrink-0"
+                  onClick={() => setTempExpanded((prev) => !prev)}
+                  aria-expanded={tempExpanded}
+                  aria-controls={tempWorkspacesSectionId}
+                  aria-label={
+                    tempExpanded ? t('Collapse temp sessions') : t('Expand temp sessions')
+                  }
+                  title={tempExpanded ? t('Collapse') : t('Expand')}
                 >
-                  <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                  <ChevronRight
+                    className={cn(
+                      'h-3.5 w-3.5 transition-transform duration-150 ease-out',
+                      tempExpanded && 'rotate-90'
+                    )}
+                  />
                 </button>
-              ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectRepo(TEMP_REPO_ID);
+                    if (!tempExpanded) {
+                      setTempExpanded(true);
+                    }
+                  }}
+                  className="control-tree-primary min-w-0 flex-1 text-left outline-none"
+                  aria-current={selectedRepo === TEMP_REPO_ID ? 'page' : undefined}
+                >
+                  <div className="control-tree-primary-content">
+                    <span className="control-tree-glyph h-4 w-4 shrink-0">
+                      <Clock className="control-tree-icon h-4 w-4" />
+                    </span>
+                    <div className="control-tree-text-stack">
+                      <span className="control-tree-title min-w-0 block truncate text-left">
+                        {t('Temp Sessions')}
+                      </span>
+                      {tempBasePath ? (
+                        <span
+                          className={cn(
+                            'control-tree-subtitle overflow-hidden whitespace-nowrap text-ellipsis [text-align:left] [unicode-bidi:plaintext]',
+                            isWslUncPath(tempBasePath) ? '[direction:ltr]' : '[direction:rtl]'
+                          )}
+                        >
+                          {tempBasePath}
+                        </span>
+                      ) : (
+                        <span className="control-tree-subtitle text-left">
+                          {t('Quick scratch sessions')}
+                        </span>
+                      )}
+                      {sortedTempWorkspaces.length > 0 ? (
+                        <div className="control-tree-meta control-tree-meta-row">
+                          <span className="control-tree-metric">
+                            <span className="control-tree-metric-value">
+                              {sortedTempWorkspaces.length}
+                            </span>
+                            <span className="control-tree-metric-label">sessions</span>
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </button>
+                {onCreateTempWorkspace ? (
+                  <div className="control-tree-tail" data-role="action">
+                    <button
+                      type="button"
+                      className="control-tree-action flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                      onClick={() => onCreateTempWorkspace()}
+                      aria-label={t('New Temp Session')}
+                      title={t('New Temp Session')}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {tempExpanded ? (
-              <div
-                id={tempWorkspacesSectionId}
-                className="control-tree-guide ml-3.5 mr-1 mt-0.5 flex flex-col gap-y-0.5 overflow-hidden pl-1.5"
-              >
+              <div id={tempWorkspacesSectionId} className="control-tree-guide">
                 {filteredTempWorkspaces.length === 0 ? (
-                  <div className="px-2 py-2 text-xs text-muted-foreground">
-                    {hasSearchFilter ? t('No matching temp sessions') : t('No temp sessions')}
+                  <div className="control-tree-inline-empty">
+                    <span className="control-tree-inline-title">
+                      {hasSearchFilter ? t('No matching temp sessions') : t('No temp sessions')}
+                    </span>
+                    <span className="control-tree-inline-copy">
+                      {hasSearchFilter
+                        ? t('Try a broader search term or clear the current filter.')
+                        : t('Create one from the add action when you need a scratch workspace.')}
+                    </span>
                   </div>
                 ) : (
                   filteredTempWorkspaces.map((item) => (
@@ -1207,7 +1252,7 @@ export function TreeSidebar({
               label={t('Getting Started')}
               title={t('No repositories yet')}
               description={t(
-                'Add one to unlock worktrees, files, terminals, and agent sessions from this sidebar.'
+                'Add one to start switching context, browsing worktrees, and opening operational surfaces.'
               )}
               actions={
                 <Button
@@ -1217,7 +1262,7 @@ export function TreeSidebar({
                   }}
                   variant="default"
                   size="sm"
-                  className="control-action-button control-action-button-primary rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
+                  className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
                 >
                   <Plus className="h-4 w-4" />
                   {t('Add Repository')}
@@ -1232,7 +1277,7 @@ export function TreeSidebar({
               label={t('Filtered View')}
               title={t('No matches')}
               description={t(
-                'No repositories or temp sessions match the current search. Try a broader term or clear the filter.'
+                'No projects match the current search. Try a broader term or clear the filter.'
               )}
               meta={t('Filter: {{query}}', {
                 query: searchQuery.trim() || t('Search query'),
@@ -1255,10 +1300,9 @@ export function TreeSidebar({
         ) : (
           <LayoutGroup>
             {showSections ? (
-              <div className="space-y-1.5">
+              <div className="control-tree-section-list">
                 {groupedSections.map((section) => {
                   const isGroupCollapsed = !!collapsedGroups[section.groupId];
-                  const isUngrouped = section.groupId === UNGROUPED_SECTION_ID;
                   const sectionContentId = `tree-section-${section.groupId}`;
                   return (
                     <div key={section.groupId}>
@@ -1277,16 +1321,12 @@ export function TreeSidebar({
                           )}
                         />
                         {section.emoji && (
-                          <span className="shrink-0 text-[12px]">{section.emoji}</span>
-                        )}
-                        {!isUngrouped && section.color && (
-                          <span
-                            className="h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: section.color }}
-                          />
+                          <span className="control-section-marker" aria-hidden="true">
+                            {section.emoji}
+                          </span>
                         )}
                         <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
-                        <span className="shrink-0 text-[10px] tracking-[0.08em] text-muted-foreground/65">
+                        <span className="control-section-count" aria-hidden="true">
                           {section.repos.length}
                         </span>
                       </button>
@@ -1303,7 +1343,7 @@ export function TreeSidebar({
                             className="overflow-hidden"
                             id={sectionContentId}
                           >
-                            <div className="space-y-1 pt-0.5">
+                            <div className="control-tree-section-body">
                               {section.repos.map(({ repo, originalIndex }) => {
                                 return renderRepoItem(repo, originalIndex, section.groupId);
                               })}
@@ -1316,7 +1356,7 @@ export function TreeSidebar({
                 })}
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="control-tree-flat-list">
                 {filteredRepos.map(({ repo, originalIndex }) =>
                   renderRepoItem(repo, originalIndex)
                 )}
@@ -1364,7 +1404,7 @@ export function TreeSidebar({
             {/* New Worktree button */}
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+              className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
               onClick={() => {
                 setRepoMenuOpen(false);
                 // Switch to the right-clicked repo first, then wait for state update
@@ -1390,7 +1430,7 @@ export function TreeSidebar({
             {/* Repository Settings */}
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+              className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
               onClick={() => {
                 setRepoMenuOpen(false);
                 if (repoMenuTarget) {
@@ -1407,7 +1447,7 @@ export function TreeSidebar({
             {/* Hide Repository */}
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
+              className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
               onClick={() => {
                 setRepoMenuOpen(false);
                 if (repoMenuTarget) {
@@ -1463,7 +1503,7 @@ export function TreeSidebar({
             {/* Remove repository button */}
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10"
+              className="control-menu-item control-menu-item-danger flex w-full items-center gap-2 rounded-md px-2 py-1.5"
               onClick={handleRemoveRepoClick}
               role="menuitem"
             >
@@ -1636,560 +1676,5 @@ export function TreeSidebar({
         onDelete={onDeleteGroup}
       />
     </aside>
-  );
-}
-
-interface TempWorkspaceTreeItemProps {
-  item: TempWorkspaceItem;
-  isActive: boolean;
-  onSelect: () => void;
-  onRequestRename: () => void;
-  onRequestDelete: () => void;
-}
-
-function TempWorkspaceTreeItem({
-  item,
-  isActive,
-  onSelect,
-  onRequestRename,
-  onRequestDelete,
-}: TempWorkspaceTreeItemProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
-  const activities = useWorktreeActivityStore((s) => s.activities);
-  const activity = activities[item.path] || { agentCount: 0, terminalCount: 0 };
-  const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
-  const displayTempPath = getDisplayPath(item.path);
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setMenuPosition({ x: e.clientX, y: e.clientY });
-    setMenuOpen(true);
-  };
-
-  return (
-    <>
-      <div className="relative">
-        <button
-          type="button"
-          onClick={onSelect}
-          onContextMenu={handleContextMenu}
-          className="control-tree-node group flex w-full flex-col gap-0.5 px-2 py-1 text-left"
-          data-active={isActive ? 'worktree' : 'false'}
-          aria-current={isActive ? 'page' : undefined}
-        >
-          <div className="flex items-start gap-1.5">
-            <span className="control-tree-glyph mt-0.5 h-4 w-4 shrink-0">
-              <GitBranch className="control-tree-icon h-3.5 w-3.5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="control-tree-title min-w-0 flex-1 truncate">{item.title}</span>
-                {hasActivity ? (
-                  <span className="control-tree-meta control-tree-meta-row shrink-0">
-                    {activity.agentCount > 0 ? (
-                      <span className="control-tree-count">{activity.agentCount} agents</span>
-                    ) : null}
-                    {activity.agentCount > 0 && activity.terminalCount > 0 ? (
-                      <span className="control-tree-separator">·</span>
-                    ) : null}
-                    {activity.terminalCount > 0 ? (
-                      <span className="control-tree-count">{activity.terminalCount} terminals</span>
-                    ) : null}
-                  </span>
-                ) : null}
-              </div>
-              <div className="control-tree-subtitle truncate [unicode-bidi:plaintext]">
-                {displayTempPath}
-              </div>
-            </div>
-          </div>
-        </button>
-      </div>
-
-      <TempWorkspaceContextMenu
-        open={menuOpen}
-        position={menuPosition}
-        path={item.path}
-        onClose={() => setMenuOpen(false)}
-        onRename={onRequestRename}
-        onDelete={onRequestDelete}
-      />
-    </>
-  );
-}
-
-// Worktree item for tree view
-interface WorktreeTreeItemProps {
-  worktree: GitWorktree;
-  repoPath: string;
-  isActive: boolean;
-  onClick: () => void;
-  onDelete: () => void;
-  onMerge?: () => void;
-  draggable?: boolean;
-  onDragStart?: (e: React.DragEvent) => void;
-  onDragEnd?: () => void;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDragLeave?: () => void;
-  onDrop?: (e: React.DragEvent) => void;
-  showDropIndicator?: boolean;
-  dropDirection?: 'top' | 'bottom' | null;
-  branches?: GitBranchType[];
-}
-
-function WorktreeTreeItem({
-  worktree,
-  isActive,
-  onClick,
-  onDelete,
-  onMerge,
-  draggable,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  showDropIndicator,
-  dropDirection,
-  branches = [],
-}: WorktreeTreeItemProps) {
-  const { t } = useI18n();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
-  const menuRef = useRef<HTMLDivElement>(null);
-  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const menuWasOpenRef = useRef(false);
-  const isMain =
-    worktree.isMainWorktree || worktree.branch === 'main' || worktree.branch === 'master';
-  const branchDisplay = worktree.branch || t('Detached');
-  const isPrunable = worktree.prunable;
-  const displayWorktreePath = getDisplayPath(worktree.path);
-
-  // Check if branch is merged to main
-  const isMerged = useMemo(() => {
-    if (!worktree.branch || isMain) return false;
-    const branch = branches.find((b) => b.name === worktree.branch);
-    return branch?.merged === true;
-  }, [worktree.branch, isMain, branches]);
-
-  // Subscribe to activity store
-  const activities = useWorktreeActivityStore((s) => s.activities);
-  const diffStatsMap = useWorktreeActivityStore((s) => s.diffStats);
-  const activityStates = useWorktreeActivityStore((s) => s.activityStates);
-  const activity = activities[worktree.path] || {
-    agentCount: 0,
-    terminalCount: 0,
-  };
-  const diffStats = diffStatsMap[worktree.path] || {
-    insertions: 0,
-    deletions: 0,
-  };
-  const activityState = activityStates[worktree.path] || 'idle';
-  const closeAgentSessions = useWorktreeActivityStore((s) => s.closeAgentSessions);
-  const closeTerminalSessions = useWorktreeActivityStore((s) => s.closeTerminalSessions);
-  const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
-  const hasDiffStats = diffStats.insertions > 0 || diffStats.deletions > 0;
-
-  // Auto-clear completed state after 5 seconds when worktree is active
-  const COMPLETED_STATE_DURATION_MS = 5000;
-  useEffect(() => {
-    if (isActive && activityState === 'completed') {
-      const timer = setTimeout(() => {
-        // Use getState() to avoid stale closure and dependency array issues
-        useWorktreeActivityStore.getState().clearActivityState(worktree.path);
-      }, COMPLETED_STATE_DURATION_MS);
-      return () => clearTimeout(timer);
-    }
-  }, [isActive, activityState, worktree.path]);
-
-  // Check if any session in this worktree has outputting or unread state
-  const _outputState = useWorktreeOutputState(worktree.path);
-
-  // Git sync operations
-  const {
-    ahead: aheadCount,
-    behind: behindCount,
-    tracking,
-    currentBranch,
-    isSyncing,
-    handleSync,
-    handlePublish,
-  } = useGitSync({ workdir: worktree.path, enabled: isActive });
-
-  const handleCopyPath = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(displayWorktreePath);
-      const successCopy = buildClipboardToastCopy({ phase: 'success', subject: 'path' }, t);
-      toastManager.add({
-        title: successCopy.title,
-        description: successCopy.description,
-        type: 'success',
-        timeout: 2000,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const errorCopy = buildClipboardToastCopy(
-        { phase: 'error', subject: 'path', message: message || undefined },
-        t
-      );
-      toastManager.add({
-        title: errorCopy.title,
-        description: errorCopy.description,
-        type: 'error',
-        timeout: 3000,
-      });
-    }
-  }, [displayWorktreePath, t]);
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenuPosition({ x: e.clientX, y: e.clientY });
-    setMenuOpen(true);
-  };
-
-  // Adjust menu position if it overflows viewport
-  useEffect(() => {
-    if (menuOpen && menuRef.current) {
-      focusFirstMenuItem(menuRef.current);
-      const menu = menuRef.current;
-      const rect = menu.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const viewportWidth = window.innerWidth;
-
-      let { x, y } = menuPosition;
-
-      if (y + rect.height > viewportHeight - 8) {
-        y = Math.max(8, viewportHeight - rect.height - 8);
-      }
-
-      if (x + rect.width > viewportWidth - 8) {
-        x = Math.max(8, viewportWidth - rect.width - 8);
-      }
-
-      if (x !== menuPosition.x || y !== menuPosition.y) {
-        setMenuPosition({ x, y });
-      }
-    }
-  }, [menuOpen, menuPosition]);
-
-  useEffect(() => {
-    if (menuOpen) {
-      menuWasOpenRef.current = true;
-      return;
-    }
-
-    if (menuWasOpenRef.current) {
-      menuTriggerRef.current?.focus();
-      menuWasOpenRef.current = false;
-    }
-  }, [menuOpen]);
-
-  // Button content (without activity indicator - it's now outside)
-  const activityLabel =
-    activityState === 'running'
-      ? 'Running'
-      : activityState === 'waiting_input'
-        ? 'Waiting'
-        : activityState === 'completed'
-          ? 'Done'
-          : '';
-  const branchFlagLabel = isPrunable
-    ? t('Deleted')
-    : isMain
-      ? t('Main')
-      : isMerged
-        ? t('Merged')
-        : null;
-  const branchFlagClassName = isPrunable
-    ? 'control-tree-flag control-tree-flag-danger'
-    : isMain
-      ? 'control-tree-flag control-tree-flag-main'
-      : isMerged
-        ? 'control-tree-flag control-tree-flag-merged'
-        : '';
-  const hasSyncAction =
-    Boolean(!tracking && currentBranch && handlePublish) ||
-    Boolean(tracking && (aheadCount > 0 || behindCount > 0) && handleSync);
-  const buttonContent = (
-    <>
-      {/* Drop indicator - top */}
-      {showDropIndicator && dropDirection === 'top' && (
-        <div className="absolute -top-0.5 left-0 right-0 h-0.5 rounded-full bg-theme/75" />
-      )}
-      <div
-        draggable={draggable}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onContextMenu={handleContextMenu}
-        className={cn(
-          'control-tree-node relative flex w-full flex-col gap-0.5 px-2 py-1 text-left text-sm transition-colors cursor-pointer',
-          isPrunable && 'opacity-50'
-        )}
-        data-active={isActive ? 'worktree' : 'false'}
-      >
-        <div className="flex w-full items-start gap-1.5">
-          <span className="control-tree-glyph mt-0.5 h-4 w-4 shrink-0">
-            <GitBranch
-              className={cn(
-                'control-tree-icon h-3.5 w-3.5',
-                isPrunable && 'control-tree-branch-icon-deleted',
-                !isPrunable && isMain && 'control-tree-branch-icon-main',
-                !isPrunable && !isMain && isMerged && 'control-tree-branch-icon-merged',
-                !isPrunable && !isMain && !isMerged && 'control-tree-branch-icon'
-              )}
-            />
-          </span>
-          <button
-            ref={menuTriggerRef}
-            type="button"
-            onClick={onClick}
-            className="min-w-0 flex flex-1 flex-col items-start rounded-[inherit] text-left outline-none"
-            aria-current={isActive ? 'page' : undefined}
-          >
-            <div className="flex w-full items-center gap-1.5">
-              <span
-                className={cn(
-                  'control-tree-title min-w-0 flex-1 truncate',
-                  isPrunable && 'line-through'
-                )}
-              >
-                {branchDisplay}
-              </span>
-            </div>
-            <div className="control-tree-subtitle truncate [unicode-bidi:plaintext]">
-              {displayWorktreePath}
-            </div>
-
-            <div className="control-tree-meta control-tree-meta-row mt-0.5">
-              {activityState !== 'idle' && (
-                <span
-                  className={cn(
-                    'control-tree-state',
-                    activityState === 'running' && 'control-tree-state-live',
-                    activityState === 'waiting_input' && 'control-tree-state-wait',
-                    activityState === 'completed' && 'control-tree-state-done'
-                  )}
-                >
-                  {activityLabel}
-                </span>
-              )}
-              {activity.agentCount > 0 ? (
-                <span className="control-tree-metric">
-                  <span className="control-tree-metric-label">A</span>
-                  <span className="control-tree-metric-value">{activity.agentCount}</span>
-                </span>
-              ) : null}
-              {activity.agentCount > 0 && (activity.terminalCount > 0 || hasDiffStats) ? (
-                <span className="control-tree-separator">·</span>
-              ) : null}
-              {activity.terminalCount > 0 ? (
-                <span className="control-tree-metric">
-                  <span className="control-tree-metric-label">T</span>
-                  <span className="control-tree-metric-value">{activity.terminalCount}</span>
-                </span>
-              ) : null}
-              {activity.terminalCount > 0 && hasDiffStats ? (
-                <span className="control-tree-separator">·</span>
-              ) : null}
-              {hasDiffStats ? (
-                <span className="control-tree-metric">
-                  <span className="control-tree-metric-label">Δ</span>
-                  {diffStats.insertions > 0 ? (
-                    <span className="control-tree-diff-positive">+{diffStats.insertions}</span>
-                  ) : null}
-                  {diffStats.insertions > 0 && diffStats.deletions > 0 ? ' ' : ''}
-                  {diffStats.deletions > 0 ? (
-                    <span className="control-tree-diff-negative">-{diffStats.deletions}</span>
-                  ) : null}
-                </span>
-              ) : null}
-            </div>
-          </button>
-
-          <div className="control-tree-tail shrink-0 self-start pl-1">
-            {branchFlagLabel ? (
-              <span className={cn(branchFlagClassName, 'shrink-0')}>{branchFlagLabel}</span>
-            ) : null}
-            {branchFlagLabel && hasSyncAction ? (
-              <span className="control-tree-tail-divider" />
-            ) : null}
-            <GitSyncButton
-              ahead={aheadCount}
-              behind={behindCount}
-              tracking={tracking}
-              currentBranch={currentBranch}
-              isSyncing={isSyncing}
-              onSync={handleSync}
-              onPublish={handlePublish}
-              className="min-h-6 rounded-md px-1 py-0.5"
-            />
-          </div>
-        </div>
-      </div>
-      {/* Drop indicator - bottom */}
-      {showDropIndicator && dropDirection === 'bottom' && (
-        <div className="absolute -bottom-0.5 left-0 right-0 h-0.5 rounded-full bg-theme/75" />
-      )}
-    </>
-  );
-
-  return (
-    <>
-      {/* Flex container: activity indicator on left, button on right */}
-      <div className="flex items-center">
-        {/* Activity indicator area - same width as ChevronRight container in repo row */}
-        <span className="shrink-0 w-5 h-5 flex items-center justify-center">
-          <ActivityIndicator state={activityState} size="sm" />
-        </span>
-        <div className="relative min-w-0 flex-1 rounded-lg">{buttonContent}</div>
-      </div>
-
-      {/* Context Menu */}
-      {menuOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-50"
-            onClick={() => setMenuOpen(false)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenuOpen(false);
-            }}
-            role="presentation"
-          />
-          <div
-            ref={menuRef}
-            className="control-menu fixed z-50 min-w-40 rounded-lg p-1"
-            style={{ left: menuPosition.x, top: menuPosition.y }}
-            role="menu"
-            aria-label={t('Worktree actions')}
-            onKeyDown={(e) => handleMenuNavigationKeyDown(e, () => setMenuOpen(false))}
-          >
-            {/* Close All Sessions */}
-            {activity.agentCount > 0 && activity.terminalCount > 0 && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
-                onClick={() => {
-                  setMenuOpen(false);
-                  closeAgentSessions(worktree.path);
-                  closeTerminalSessions(worktree.path);
-                }}
-                role="menuitem"
-              >
-                <X className="h-4 w-4" />
-                {t('Close All Sessions')}
-              </button>
-            )}
-
-            {/* Close Agent Sessions */}
-            {activity.agentCount > 0 && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
-                onClick={() => {
-                  setMenuOpen(false);
-                  closeAgentSessions(worktree.path);
-                }}
-                role="menuitem"
-              >
-                <X className="h-4 w-4" />
-                <Sparkles className="h-4 w-4" />
-                {t('Close Agent Sessions')}
-              </button>
-            )}
-
-            {/* Close Terminal Sessions */}
-            {activity.terminalCount > 0 && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
-                onClick={() => {
-                  setMenuOpen(false);
-                  closeTerminalSessions(worktree.path);
-                }}
-                role="menuitem"
-              >
-                <X className="h-4 w-4" />
-                <Terminal className="h-4 w-4" />
-                {t('Close Terminal Sessions')}
-              </button>
-            )}
-
-            {/* Separator if there are activity options */}
-            {hasActivity && <div className="my-1 h-px bg-border" />}
-
-            {/* Open Folder */}
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
-              onClick={() => {
-                setMenuOpen(false);
-                window.electronAPI.shell.openPath(worktree.path);
-              }}
-              role="menuitem"
-            >
-              <FolderOpen className="h-4 w-4" />
-              {t('Open folder')}
-            </button>
-
-            {/* Copy Path */}
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
-              onClick={() => {
-                setMenuOpen(false);
-                handleCopyPath();
-              }}
-              role="menuitem"
-            >
-              <Copy className="h-4 w-4" />
-              {t('Copy Path')}
-            </button>
-
-            {/* Merge to Branch */}
-            {onMerge && !isMain && !isPrunable && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-theme/10"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onMerge();
-                }}
-                role="menuitem"
-              >
-                <GitMerge className="h-4 w-4" />
-                {t('Merge to Branch...')}
-              </button>
-            )}
-
-            {/* Separator before delete */}
-            <div className="my-1 h-px bg-border" />
-
-            {/* Delete Worktree */}
-            <button
-              type="button"
-              className={cn(
-                'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10',
-                isMain && 'pointer-events-none opacity-50'
-              )}
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete();
-              }}
-              disabled={isMain}
-              role="menuitem"
-            >
-              <Trash2 className="h-4 w-4" />
-              {isPrunable ? t('Clean up records') : t('Delete')}
-            </button>
-          </div>
-        </>
-      )}
-    </>
   );
 }

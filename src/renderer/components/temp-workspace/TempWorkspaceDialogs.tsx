@@ -31,7 +31,7 @@ export function TempWorkspaceDialogs({
   onConfirmRename,
 }: TempWorkspaceDialogsProps) {
   const { t } = useI18n();
-  const items = useTempWorkspaceStore((s) => s.items);
+  const items = useTempWorkspaceStore((s) => (Array.isArray(s.items) ? s.items : []));
   const renameTargetId = useTempWorkspaceStore((s) => s.renameTargetId);
   const deleteTargetId = useTempWorkspaceStore((s) => s.deleteTargetId);
   const openRename = useTempWorkspaceStore((s) => s.openRename);

@@ -31,6 +31,7 @@ import {
 } from '@/lib/claudeProvider';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
+import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { type TerminalKeybinding, useSettingsStore } from '@/stores/settings';
 
 // Format keybinding for display in ActionPanel
@@ -409,8 +410,9 @@ export function ActionPanel({
     }
 
     // Add "Switch Worktree" group
-    if (worktrees.length > 1 && onSwitchWorktree) {
-      const switchableWorktrees = worktrees.filter((wt) => wt.path !== activeWorktreePath);
+    const safeWorktrees = sanitizeGitWorktrees(worktrees);
+    if (safeWorktrees.length > 1 && onSwitchWorktree) {
+      const switchableWorktrees = safeWorktrees.filter((wt) => wt.path !== activeWorktreePath);
       if (switchableWorktrees.length > 0) {
         groups.push({
           label: t('Switch Worktree'),
@@ -570,7 +572,7 @@ export function ActionPanel({
             <input
               ref={inputRef}
               type="text"
-              className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              className="ui-type-panel-description w-full bg-transparent outline-none placeholder:text-muted-foreground"
               placeholder={t('Filter actions...')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -579,13 +581,13 @@ export function ActionPanel({
           <div className="border-t" />
           <div className="max-h-72 overflow-y-auto p-2">
             {flatFilteredItems.length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">
+              <div className="ui-type-panel-description py-6 text-center text-muted-foreground">
                 {t('No matching actions found')}
               </div>
             ) : (
               filteredGroups.map((group, groupIdx) => (
                 <div key={group.label} className={groupIdx > 0 ? 'mt-2' : ''}>
-                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                  <div className="control-menu-label px-2 py-1.5 text-muted-foreground">
                     {group.label}
                   </div>
                   {group.items.map((item) => {
@@ -598,7 +600,7 @@ export function ActionPanel({
                         data-action-index={currentIndex}
                         disabled={item.disabled}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none',
+                          'control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 outline-none',
                           currentIndex === selectedIndex
                             ? 'bg-accent text-accent-foreground'
                             : 'text-foreground hover:bg-accent/50',

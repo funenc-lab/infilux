@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { getRendererPlatform } from '@/lib/electronEnvironment';
 
 /**
  * Module-level singleton guard for macOS traffic lights (red/yellow/green buttons).
@@ -66,14 +67,14 @@ function initFullScreenListener() {
 }
 
 export function acquireTrafficLightsGuard() {
-  if (window.electronAPI?.env.platform !== 'darwin') return;
+  if (getRendererPlatform() !== 'darwin') return;
   initFullScreenListener();
   guardCount++;
   syncVisibility();
 }
 
 export function releaseTrafficLightsGuard() {
-  if (window.electronAPI?.env.platform !== 'darwin') return;
+  if (getRendererPlatform() !== 'darwin') return;
   guardCount = Math.max(0, guardCount - 1);
   syncVisibility();
 }
