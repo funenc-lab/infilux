@@ -46,6 +46,7 @@ import { getFileTabCountForWorktree as getFileTabCountForWorktreeState } from '.
 import { resolveMainContentContext } from './mainContentContextPolicy';
 import { shouldRenderTabPanel } from './mainContentMountPolicy';
 import { buildMainContentRenderPlan } from './mainContentRenderPlan';
+import { SubagentTranscriptPanel } from './SubagentTranscriptPanel';
 
 type LayoutMode = 'columns' | 'tree';
 
@@ -138,6 +139,8 @@ interface MainContentProps {
   showOpenInMenu?: boolean;
   sourceControlEmptyTitle?: string;
   sourceControlEmptyDescription?: string;
+  selectedSubagent?: import('@shared/types').LiveAgentSubagent | null;
+  onCloseSelectedSubagent?: () => void;
 }
 
 export function MainContent({
@@ -167,6 +170,8 @@ export function MainContent({
   showOpenInMenu = true,
   sourceControlEmptyTitle,
   sourceControlEmptyDescription,
+  selectedSubagent = null,
+  onCloseSelectedSubagent,
 }: MainContentProps) {
   const { t } = useI18n();
   const settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
@@ -814,6 +819,12 @@ export function MainContent({
                   onSwitchWorktree={onSwitchWorktree}
                   shouldLoad
                 />
+                {selectedSubagent && activeTab === 'chat' && hasActiveWorktree ? (
+                  <SubagentTranscriptPanel
+                    subagent={selectedSubagent}
+                    onClose={() => onCloseSelectedSubagent?.()}
+                  />
+                ) : null}
                 {/* Show overlay when no worktree is actively selected */}
                 {!hasActiveWorktree && (
                   <div className={cn('absolute inset-0 z-20', innerBg)}>

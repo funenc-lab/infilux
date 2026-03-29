@@ -473,6 +473,13 @@ const electronAPI = {
     list: (): Promise<AgentMetadata[]> => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LIST),
   },
 
+  agentSubagent: {
+    listLive: (request: import('@shared/types').ListLiveAgentSubagentsRequest = {}) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_LIST_LIVE, request),
+    getTranscript: (request: import('@shared/types').GetAgentSubagentTranscriptRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_GET_TRANSCRIPT, request),
+  },
+
   agentSession: {
     listRecoverable: () => ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_LIST_RECOVERABLE),
     restoreWorktreeSessions: (request: RestoreWorktreeSessionsRequest) =>

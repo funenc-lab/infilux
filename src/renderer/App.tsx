@@ -1,6 +1,7 @@
 import { DEFAULT_TEMPORARY_DIRNAME, DEFAULT_WORKSPACE_ROOT_DIRNAME } from '@shared/paths';
 import type {
   GitWorktree,
+  LiveAgentSubagent,
   RemoteConnectionStatus,
   WorktreeCreateOptions,
   WorktreeMergeOptions,
@@ -44,6 +45,7 @@ import {
   getRepositorySettings,
   getStoredBoolean,
   getStoredWorktreeMap,
+  normalizePath,
   STORAGE_KEYS,
   saveActiveGroupId,
 } from './App/storage';
@@ -93,6 +95,7 @@ import {
 } from './hooks/useWorktree';
 import { useI18n } from './i18n';
 import { buildOperationToastCopy, buildSourceControlWorkflowToastCopy } from './lib/feedbackCopy';
+import { useAgentSessionsStore } from './stores/agentSessions';
 import { initCloneProgressListener } from './stores/cloneTasks';
 import { useEditorStore } from './stores/editor';
 import { useInitScriptStore } from './stores/initScript';
@@ -211,6 +214,9 @@ export default function App() {
 
   const [activatedRemoteRepos, setActivatedRemoteRepos] = useState<Set<string>>(() => new Set());
   const [remoteStatuses, setRemoteStatuses] = useState<Record<string, RemoteConnectionStatus>>({});
+  const [selectedSubagentByWorktree, setSelectedSubagentByWorktree] = useState<
+    Record<string, LiveAgentSubagent | null>
+  >({});
 
   const repositoryByPath = useMemo(
     () => new Map(repositories.map((repo) => [repo.path, repo])),
@@ -811,6 +817,7 @@ export default function App() {
   const closeAgentSessions = useWorktreeActivityStore((s) => s.closeAgentSessions);
   const closeTerminalSessions = useWorktreeActivityStore((s) => s.closeTerminalSessions);
   const clearWorktreeActivity = useWorktreeActivityStore((s) => s.clearWorktree);
+  const setAgentActiveId = useAgentSessionsStore((state) => state.setActiveId);
 
   const handleRemoveTempWorkspace = useCallback(
     async (id: string) => {
@@ -1300,6 +1307,35 @@ export default function App() {
     return window.electronAPI.worktree.getConflictContent(selectedRepo, file);
   };
 
+  const handleOpenAgentThread = useCallback(
+    async (worktree: GitWorktree, sessionId: string) => {
+      await handleSelectWorktree(worktree);
+      setSelectedSubagentByWorktree((previous) => ({
+        ...previous,
+        [normalizePath(worktree.path)]: null,
+      }));
+      setAgentActiveId(worktree.path, sessionId);
+      handleTabChange('chat');
+    },
+    [handleSelectWorktree, setAgentActiveId, handleTabChange]
+  );
+
+  const handleOpenSubagentTranscript = useCallback(
+    async (worktree: GitWorktree, subagent: LiveAgentSubagent) => {
+      await handleSelectWorktree(worktree);
+      setSelectedSubagentByWorktree((previous) => ({
+        ...previous,
+        [normalizePath(worktree.path)]: subagent,
+      }));
+      handleTabChange('chat');
+    },
+    [handleSelectWorktree, handleTabChange]
+  );
+
+  const activeSelectedSubagent = activeWorktree
+    ? (selectedSubagentByWorktree[normalizePath(activeWorktree.path)] ?? null)
+    : null;
+
   useEffect(() => {
     const isSettingsOpen =
       (settingsDisplayMode === 'tab' && activeTab === 'settings') ||
@@ -1386,6 +1422,8 @@ export default function App() {
                   onMoveToGroup={handleMoveToGroup}
                   onSwitchTab={setActiveTab}
                   onSwitchWorktreeByPath={handleSwitchWorktreePath}
+                  onOpenAgentThread={handleOpenAgentThread}
+                  onOpenSubagentTranscript={handleOpenSubagentTranscript}
                   temporaryWorkspaceEnabled={effectiveTemporaryWorkspaceEnabled}
                   tempWorkspaces={tempWorkspaces}
                   tempBasePath={tempBasePathDisplay}
@@ -1499,6 +1537,8 @@ export default function App() {
                         refetch();
                         refetchBranches();
                       }}
+                      onOpenAgentThread={handleOpenAgentThread}
+                      onOpenSubagentTranscript={handleOpenSubagentTranscript}
                       width={worktreeWidth}
                       collapsed={false}
                       onCollapse={() => setWorktreeCollapsed(true)}
@@ -1560,6 +1600,17 @@ export default function App() {
           onCategoryChange={handleSettingsCategoryChange}
           scrollToProvider={scrollToProvider}
           onToggleSettings={toggleSettings}
+          selectedSubagent={activeSelectedSubagent}
+          onCloseSelectedSubagent={() => {
+            if (!activeWorktree) {
+              return;
+            }
+
+            setSelectedSubagentByWorktree((previous) => ({
+              ...previous,
+              [normalizePath(activeWorktree.path)]: null,
+            }));
+          }}
         />
 
         <TempWorkspaceDialogs

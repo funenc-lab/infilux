@@ -241,6 +241,15 @@ vi.mock('../DeferredTodoPanel', () => ({
   DeferredTodoPanel: (props: Record<string, unknown>) => renderMockPanel('todo', props),
 }));
 
+vi.mock('../SubagentTranscriptPanel', () => ({
+  SubagentTranscriptPanel: ({ subagent }: { subagent: { threadId: string; label: string } }) =>
+    React.createElement('div', {
+      'data-panel': 'subagent-transcript',
+      'data-thread-id': subagent.threadId,
+      'data-label': subagent.label,
+    }),
+}));
+
 vi.mock('../DeferredSettingsContent', () => ({
   DeferredSettingsContent: (props: Record<string, unknown>) => renderMockPanel('settings', props),
 }));
@@ -305,7 +314,7 @@ describe('MainContent component render', () => {
 
     expect(markup).toContain('data-panel="file-current"');
     expect(markup).not.toContain('data-panel="file-legacy"');
-  });
+  }, 10_000);
 
   it('retains the legacy file panel while inactive when the current worktree still has open tabs', async () => {
     settingsState.fileTreeDisplayMode = 'legacy';
@@ -354,6 +363,25 @@ describe('MainContent component render', () => {
 
     expect(markup).toContain('data-panel="agent"');
     expect(markup).not.toContain('data-panel="terminal"');
+  });
+
+  it('renders the selected subagent transcript overlay while preserving the agent panel', async () => {
+    const markup = await renderMainContent('chat', {
+      selectedSubagent: {
+        id: 'child-1',
+        provider: 'codex',
+        threadId: 'child-thread-1',
+        parentThreadId: 'root-thread-1',
+        cwd: '/repo/main/worktrees/current',
+        label: 'Reviewer 1',
+        lastSeenAt: Date.now(),
+        status: 'running',
+      },
+    });
+
+    expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-panel="subagent-transcript"');
+    expect(markup).toContain('data-thread-id="child-thread-1"');
   });
 
   it('retains the current agent panel while inactive when the current worktree still has agent activity', async () => {

@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { normalizePath } from '@/App/storage';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { getActivityStateMeta } from '@/components/ui/activityStatus';
@@ -38,6 +39,7 @@ import { GlowBorder, type GlowState, useGlowEffectEnabled } from '@/components/u
 import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
 import { useGitSync } from '@/hooks/useGitSync';
+import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useWorktreeOutputState } from '@/hooks/useOutputState';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
@@ -45,8 +47,11 @@ import { buildClipboardToastCopy, buildRemovalDialogCopy } from '@/lib/feedbackC
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import { buildActiveSessionMapByWorktree } from '@/lib/worktreeAgentSummary';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { WorktreeAgentSummary } from './WorktreeAgentSummary';
 
 interface WorktreePanelProps {
   worktrees: GitWorktree[];
@@ -68,6 +73,11 @@ interface WorktreePanelProps {
   onReorderWorktrees?: (fromIndex: number, toIndex: number) => void;
   onRefresh: () => void;
   onInitGit?: () => Promise<void>;
+  onOpenAgentThread?: (worktree: GitWorktree, sessionId: string) => void;
+  onOpenSubagentTranscript?: (
+    worktree: GitWorktree,
+    subagent: import('@shared/types').LiveAgentSubagent
+  ) => void;
   width?: number;
   collapsed?: boolean;
   onCollapse?: () => void;
@@ -92,6 +102,8 @@ export function WorktreePanel({
   onReorderWorktrees,
   onRefresh,
   onInitGit,
+  onOpenAgentThread,
+  onOpenSubagentTranscript,
   width: _width = 280,
   collapsed: _collapsed = false,
   onCollapse,
@@ -210,6 +222,15 @@ export function WorktreePanel({
 
   const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
   const activities = useWorktreeActivityStore((s) => s.activities);
+  const allSessions = useAgentSessionsStore((state) => state.sessions);
+  const activeIds = useAgentSessionsStore((state) => state.activeIds);
+  const activeSessionMap = useMemo(
+    () => buildActiveSessionMapByWorktree(allSessions, activeIds),
+    [allSessions, activeIds]
+  );
+  const liveSubagentMap = useLiveSubagents(
+    useMemo(() => worktrees.map((worktree) => worktree.path), [worktrees])
+  );
   const shouldPoll = useShouldPoll();
   const isRemoteReconnecting = remoteStatus?.phase === 'reconnecting';
   const isRemoteFailed = Boolean(
@@ -441,8 +462,18 @@ export function WorktreePanel({
                   key={worktree.path}
                   worktree={worktree}
                   branches={branches}
+                  activeSession={activeSessionMap.get(normalizePath(worktree.path))}
+                  liveSubagents={
+                    activeSessionMap.get(normalizePath(worktree.path))?.agentId.startsWith('codex')
+                      ? (liveSubagentMap.get(normalizePath(worktree.path)) ?? [])
+                      : []
+                  }
                   isActive={activeWorktree?.path === worktree.path}
                   onClick={() => onSelectWorktree(worktree)}
+                  onOpenAgentThread={(sessionId) => onOpenAgentThread?.(worktree, sessionId)}
+                  onOpenSubagentTranscript={(subagent) =>
+                    onOpenSubagentTranscript?.(worktree, subagent)
+                  }
                   onDelete={() => setWorktreeToDelete(worktree)}
                   onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
                   draggable={!searchQuery && !!onReorderWorktrees}
@@ -571,8 +602,12 @@ export function WorktreePanel({
 
 interface WorktreeItemProps {
   worktree: GitWorktree;
+  activeSession?: import('@/components/chat/SessionBar').Session;
+  liveSubagents?: import('@shared/types').LiveAgentSubagent[];
   isActive: boolean;
   onClick: () => void;
+  onOpenAgentThread?: (sessionId: string) => void;
+  onOpenSubagentTranscript?: (subagent: import('@shared/types').LiveAgentSubagent) => void;
   onDelete: () => void;
   onMerge?: () => void;
   // Drag reorder props
@@ -589,8 +624,12 @@ interface WorktreeItemProps {
 
 function WorktreeItem({
   worktree,
+  activeSession,
+  liveSubagents = [],
   isActive,
   onClick,
+  onOpenAgentThread,
+  onOpenSubagentTranscript,
   onDelete,
   onMerge,
   draggable,
@@ -863,6 +902,20 @@ function WorktreeItem({
       ) : (
         <div className="relative rounded-lg">{worktreeItemContent}</div>
       )}
+
+      <WorktreeAgentSummary
+        session={activeSession}
+        subagents={liveSubagents}
+        className="px-2 pb-1"
+        onSelectSession={(sessionId) => {
+          onClick();
+          onOpenAgentThread?.(sessionId);
+        }}
+        onSelectSubagent={(subagent) => {
+          onClick();
+          onOpenSubagentTranscript?.(subagent);
+        }}
+      />
 
       {/* Context Menu */}
       {menuOpen && (
