@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
 import { useI18n } from '@/i18n';
-import { EditorArea, type EditorAreaProps, type EditorAreaRef } from './EditorArea';
+import type { EditorAreaProps, EditorAreaRef } from './EditorArea';
+import { EditorArea } from './EditorArea';
 
 interface DeferredEditorAreaProps extends EditorAreaProps {
   shouldLoad?: boolean;

@@ -3,6 +3,11 @@ import { useCallback } from 'react';
 import { isUnsupportedBinaryFile } from '@/components/files/fileIcons';
 import { useEditorStore } from '@/stores/editor';
 
+function getParentDirectoryPath(path: string): string {
+  const lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return lastSeparatorIndex > 0 ? path.slice(0, lastSeparatorIndex) : path;
+}
+
 export function useEditor() {
   const {
     tabs,
@@ -69,8 +74,8 @@ export function useEditor() {
       await window.electronAPI.file.write(path, file.content, file.encoding);
       markFileSaved(path);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['file', 'list'] });
+    onSuccess: (_result, path) => {
+      queryClient.invalidateQueries({ queryKey: ['file', 'list', getParentDirectoryPath(path)] });
     },
   });
 

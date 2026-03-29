@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
+import { useI18n } from '@/i18n';
+import { breadcrumbMenuI18nKeys } from '@/lib/uiTranslationKeys';
 import { cn } from '@/lib/utils';
 import { resolveBreadcrumbGitRoot, resolveFileListPath } from './breadcrumbPathUtils';
 import { getFileIcon, getFileIconColor } from './fileIcons';
@@ -74,6 +76,7 @@ export function BreadcrumbTreeMenu({
   onNavigateToFile,
   activeTabPath,
 }: BreadcrumbTreeMenuProps) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -310,7 +313,9 @@ export function BreadcrumbTreeMenu({
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
         ) : tree.length === 0 ? (
-          <div className="py-2 text-center text-muted-foreground text-xs">Empty directory</div>
+          <div className="py-2 text-center text-muted-foreground text-xs">
+            {t(breadcrumbMenuI18nKeys.emptyDirectory)}
+          </div>
         ) : (
           <div className="py-1">{renderTree(tree, 0)}</div>
         )}

@@ -8,6 +8,7 @@ function resetEditorStore(): void {
     pendingCursor: null,
     currentCursorLine: null,
     worktreeStates: {},
+    worktreeOrder: [],
     currentWorktreePath: null,
   });
 }
@@ -298,11 +299,59 @@ describe('useEditorStore worktree state', () => {
     store.clearAllWorktreeStates();
     expect(useEditorStore.getState()).toMatchObject({
       worktreeStates: {},
+      worktreeOrder: [],
       currentWorktreePath: null,
       tabs: [],
       activeTabPath: null,
       pendingCursor: null,
       currentCursorLine: null,
     });
+  });
+
+  it('keeps the active worktree out of inactive snapshots and restores it without duplication', () => {
+    const store = useEditorStore.getState();
+
+    store.switchWorktree('/repo-a');
+    store.openFile({ path: '/repo-a/a.ts', content: 'a', isDirty: false });
+
+    store.switchWorktree('/repo-b');
+    expect(useEditorStore.getState().worktreeStates).toEqual({
+      '/repo-a': {
+        tabs: [expect.objectContaining({ path: '/repo-a/a.ts' })],
+        activeTabPath: '/repo-a/a.ts',
+      },
+    });
+
+    store.switchWorktree('/repo-a');
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(['/repo-a/a.ts']);
+    expect(useEditorStore.getState().worktreeStates['/repo-a']).toBeUndefined();
+    expect(useEditorStore.getState().worktreeOrder).toEqual(['/repo-b']);
+  });
+
+  it('evicts the least recently used inactive worktree snapshots when capacity is exceeded', () => {
+    const store = useEditorStore.getState();
+
+    store.switchWorktree('/repo-a');
+    store.openFile({ path: '/repo-a/a.ts', content: 'a', isDirty: false });
+
+    store.switchWorktree('/repo-b');
+    store.openFile({ path: '/repo-b/b.ts', content: 'b', isDirty: false });
+
+    store.switchWorktree('/repo-c');
+    store.openFile({ path: '/repo-c/c.ts', content: 'c', isDirty: false });
+
+    store.switchWorktree('/repo-d');
+    store.openFile({ path: '/repo-d/d.ts', content: 'd', isDirty: false });
+
+    store.switchWorktree('/repo-e');
+
+    expect(useEditorStore.getState().worktreeOrder).toEqual(['/repo-d', '/repo-c', '/repo-b']);
+    expect(Object.keys(useEditorStore.getState().worktreeStates)).toEqual([
+      '/repo-b',
+      '/repo-c',
+      '/repo-d',
+    ]);
+    expect(useEditorStore.getState().worktreeStates['/repo-a']).toBeUndefined();
   });
 });

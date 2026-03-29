@@ -53,7 +53,8 @@ import {
   resolveEditorPreviewPolicy,
   resolveNextPreviewMode,
 } from './editorPreviewPolicy';
-import { buildBulkReloadPlan } from './editorReloadPolicy';
+import { buildBulkReloadPlan, buildExternalReloadBatchPlan } from './editorReloadPolicy';
+import { runEditorReloadTask } from './editorReloadQueue';
 import { setupDoubleClickScope } from './editorScopeSelection';
 import { setEditorSelectionText } from './editorSelectionCache';
 import { ImagePreview } from './ImagePreview';
@@ -64,6 +65,7 @@ import { PdfPreview } from './PdfPreview';
 import { useEditorBlame } from './useEditorBlame';
 
 type Monaco = typeof monaco;
+const EXTERNAL_CHANGE_BATCH_MS = 48;
 
 export interface EditorAreaRef {
   getSelectedText: () => string;
@@ -433,8 +435,9 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
         setTimeout(async () => {
           reloadTimers.delete(tabPath);
           try {
-            const { content: latestContent, isBinary } =
-              await window.electronAPI.file.read(tabPath);
+            const { content: latestContent, isBinary } = await runEditorReloadTask(() =>
+              window.electronAPI.file.read(tabPath)
+            );
             if (isBinary) return;
 
             // Re-fetch latest tab state from store to avoid using stale closure values
@@ -471,14 +474,16 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
       );
     };
 
-    const unsubscribe = window.electronAPI.file.onChange(async (event) => {
-      // Skip delete events; handle both 'update' and 'create'.
-      // Claude CLI uses atomic writes (write to .tmp + rename), which @parcel/watcher
-      // reports as 'create' for the destination file rather than 'update'.
-      if (event.type === 'delete') return;
+    let flushTimer: number | null = null;
+    let pendingBulkReload = false;
+    let pendingChangedPaths: string[] = [];
 
-      // Bulk mode: agent modified too many files at once, reload all open tabs
-      if (event.path.endsWith('/.enso-bulk')) {
+    const flushPendingChanges = () => {
+      flushTimer = null;
+
+      if (pendingBulkReload) {
+        pendingBulkReload = false;
+        pendingChangedPaths = [];
         recordBulkReloadEvent(activeTabPathRef.current);
         const plan = buildBulkReloadPlan(tabsRef.current, activeTabPathRef.current);
         markTabsStale(plan.stalePaths);
@@ -491,13 +496,54 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
         return;
       }
 
-      // Check if the changed file is open in any tab
-      const changedTab = tabsRef.current.find((tab) => tab.path === event.path);
-      if (!changedTab) return;
-      scheduleReload(changedTab);
+      if (pendingChangedPaths.length === 0) {
+        return;
+      }
+
+      const plan = buildExternalReloadBatchPlan(tabsRef.current, pendingChangedPaths);
+      pendingChangedPaths = [];
+      for (const path of plan.reloadPaths) {
+        const tab = tabsRef.current.find((item) => item.path === path);
+        if (tab) {
+          scheduleReload(tab);
+        }
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (flushTimer !== null) {
+        return;
+      }
+
+      flushTimer = window.setTimeout(() => {
+        flushPendingChanges();
+      }, EXTERNAL_CHANGE_BATCH_MS);
+    };
+
+    const unsubscribe = window.electronAPI.file.onChange((event) => {
+      // Skip delete events; handle both 'update' and 'create'.
+      // Claude CLI uses atomic writes (write to .tmp + rename), which @parcel/watcher
+      // reports as 'create' for the destination file rather than 'update'.
+      if (event.type === 'delete') return;
+
+      // Bulk mode: agent modified too many files at once, reload all open tabs
+      if (event.path.endsWith('/.enso-bulk')) {
+        pendingBulkReload = true;
+        scheduleFlush();
+        return;
+      }
+
+      pendingChangedPaths.push(event.path);
+      scheduleFlush();
     });
 
     return () => {
+      if (flushTimer !== null) {
+        window.clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      pendingBulkReload = false;
+      pendingChangedPaths = [];
       unsubscribe();
       // Clear any pending debounce timers on cleanup
       for (const timer of reloadTimers.values()) clearTimeout(timer);

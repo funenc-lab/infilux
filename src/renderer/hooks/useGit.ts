@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { normalizePath } from '@/App/storage';
+import { onGitAutoFetchCompleted } from '@/lib/electronGit';
 import { useRepositoryStore } from '@/stores/repository';
 import { useSettingsStore } from '@/stores/settings';
 import { useShouldPoll } from './useWindowFocus';
+import { worktreeQueryKeys } from './worktreeQueryKeys';
 
 interface GitQueryOptions {
   enabled?: boolean;
@@ -206,7 +208,7 @@ export function useGitInit() {
       // Invalidate all git-related queries for this workdir
       queryClient.invalidateQueries({ queryKey: ['git', 'status', normalized] });
       queryClient.invalidateQueries({ queryKey: ['git', 'branches', normalized] });
-      queryClient.invalidateQueries({ queryKey: ['worktree', 'list', normalized] });
+      queryClient.invalidateQueries({ queryKey: worktreeQueryKeys.list(normalized) });
     },
   });
 }
@@ -219,12 +221,11 @@ export function useAutoFetchListener() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const cleanup = window.electronAPI.git.onAutoFetchCompleted(() => {
+    const cleanup = onGitAutoFetchCompleted(() => {
       // Invalidate all git status queries to refresh behind/ahead counts
       queryClient.invalidateQueries({ queryKey: ['git', 'status'] });
       queryClient.invalidateQueries({ queryKey: ['git', 'branches'] });
-      queryClient.invalidateQueries({ queryKey: ['worktree', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['worktree', 'listMultiple'] });
+      queryClient.invalidateQueries({ queryKey: worktreeQueryKeys.lists() });
     });
 
     return cleanup;

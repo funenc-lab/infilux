@@ -1,6 +1,7 @@
 import { fileUriToPath } from '@shared/utils/fileUrl';
 import { normalizePath } from '@shared/utils/path';
 import { useEffect, useRef } from 'react';
+import { getRendererPlatform } from '@/lib/electronEnvironment';
 
 interface UseFileDropOptions {
   /** Project working directory, used to convert absolute paths to relative */
@@ -100,7 +101,7 @@ function resolveDroppedPaths(dt: DataTransfer, cwd?: string): string[] {
         // Skip comments and empty lines per RFC 2483
         if (!trimmed || trimmed.startsWith('#')) continue;
         if (trimmed.startsWith('file://')) {
-          const decoded = fileUriToPath(trimmed, window.electronAPI.env.platform);
+          const decoded = fileUriToPath(trimmed, getRendererPlatform());
           if (decoded) {
             paths.push(decoded);
           }

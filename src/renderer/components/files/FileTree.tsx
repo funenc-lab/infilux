@@ -17,7 +17,7 @@ import {
   SquareMinus,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SidebarEmptyState } from '@/components/layout/SidebarEmptyState';
 import {
   AlertDialog,
@@ -37,9 +37,15 @@ import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { getFileIcon, getFileIconColor } from './fileIcons';
+import {
+  didExpansionChangeAffectSubtree,
+  didPathChangeAffectSubtree,
+  isPathInSubtree,
+} from './fileTreeRenderUtils';
 
 const DRAG_CONFIRM_STORAGE_KEY = 'file-tree-drag-confirm-disabled';
 const PASTE_CONFLICT_STORAGE_KEY = 'file-tree-paste-conflict-disabled';
+const INTERNAL_FILE_TREE_DRAG_TYPE = 'application/x-infilux-file-tree-node';
 
 interface FileOperation {
   type: 'move' | 'copy';
@@ -133,6 +139,16 @@ export function FileTree({
     [onSelectedPathChange]
   );
 
+  const handleNodeFileClick = useCallback(
+    (path: string, isDirectory: boolean) => {
+      setSelectedNode({ path, isDirectory });
+      if (!isDirectory) {
+        onFileClick(path);
+      }
+    },
+    [onFileClick, setSelectedNode]
+  );
+
   // Auto-scroll to selected node when selection changes
   useEffect(() => {
     if (selectedNode?.path) {
@@ -154,23 +170,18 @@ export function FileTree({
 
   // Auto-expand folder when dragging over it
   useEffect(() => {
-    // Clear any existing timer
     if (autoExpandTimerRef.current) {
       clearTimeout(autoExpandTimerRef.current);
       autoExpandTimerRef.current = null;
     }
 
-    // If dragging over a folder that's not expanded, set timer to expand it
     if (draggingOverFolderPath && !expandedPaths.has(draggingOverFolderPath)) {
-      console.log('[FileTree] Setting timer to auto-expand folder:', draggingOverFolderPath);
       autoExpandTimerRef.current = setTimeout(() => {
-        console.log('[FileTree] Auto-expanding folder:', draggingOverFolderPath);
         onToggleExpand(draggingOverFolderPath);
         autoExpandTimerRef.current = null;
       }, 300);
     }
 
-    // Cleanup on unmount
     return () => {
       if (autoExpandTimerRef.current) {
         clearTimeout(autoExpandTimerRef.current);
@@ -784,31 +795,31 @@ export function FileTree({
       e.preventDefault();
       e.stopPropagation();
 
-      console.log('[FileTree] DragEnter', {
-        types: e.dataTransfer.types,
-        hasFiles: e.dataTransfer.types.includes('Files'),
-      });
-
-      // Only handle external files (not internal drag)
-      if (e.dataTransfer.types.includes('Files') && !draggingNode) {
+      if (
+        e.dataTransfer.types.includes('Files') &&
+        !e.dataTransfer.types.includes(INTERNAL_FILE_TREE_DRAG_TYPE)
+      ) {
         dragCounterRef.current += 1;
         setIsDraggingOver(true);
-        // Highlight root folder when entering root area
         if (rootPath) {
           setDraggingOverFolderPath(rootPath);
         }
       }
     },
-    [draggingNode, rootPath]
+    [rootPath]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    // Set drop effect based on modifier keys (default to copy)
     if (e.dataTransfer.types.includes('Files')) {
       e.dataTransfer.dropEffect = e.altKey ? 'move' : 'copy';
+      return;
+    }
+
+    if (e.dataTransfer.types.includes(INTERNAL_FILE_TREE_DRAG_TYPE)) {
+      e.dataTransfer.dropEffect = 'move';
     }
   }, []);
 
@@ -830,45 +841,30 @@ export function FileTree({
       targetIsDirectory: boolean,
       dragNode: { path: string; name: string; isDirectory: boolean }
     ) => {
-      console.log('[FileTree] Internal drop:', {
-        from: dragNode.path,
-        to: targetPath,
-        targetIsDirectory,
-      });
-
-      // Don't allow dropping on self
       if (dragNode.path === targetPath) {
         setDraggingNode(null);
         return;
       }
 
-      // Don't allow dropping parent into child
       if (targetPath.startsWith(`${dragNode.path}/`)) {
-        console.warn('[FileTree] Cannot move parent into child');
         setDraggingNode(null);
         return;
       }
 
-      // Determine target directory
       let targetDir = targetPath;
       if (!targetIsDirectory) {
-        // If target is a file, use its parent directory
         targetDir = targetPath.substring(0, targetPath.lastIndexOf('/'));
       }
 
-      // Build new path
       const newPath = `${targetDir}/${dragNode.name}`;
 
-      // Don't do anything if already in the same location
       if (dragNode.path === newPath) {
         setDraggingNode(null);
         return;
       }
 
-      // Check if target already exists - show conflict dialog
       const exists = await window.electronAPI.file.exists(newPath);
       if (exists) {
-        console.log('[FileTree] Drag target exists, showing conflict dialog');
         setConflictData({
           targetPath,
           targetIsDirectory,
@@ -881,21 +877,15 @@ export function FileTree({
       }
 
       try {
-        // Use the file move API
         await window.electronAPI.file.move(dragNode.path, newPath);
-        console.log('[FileTree] Internal move completed');
-        // Record operation for undo
         addOperation({
           type: 'move',
           sourcePath: dragNode.path,
           targetPath: newPath,
           isDirectory: dragNode.isDirectory,
         });
-        // Small delay to ensure file system is updated before refresh
         await new Promise((resolve) => setTimeout(resolve, 500));
-        // Refresh the file tree
         await onRefresh();
-        console.log('[FileTree] Refresh completed after internal move');
       } catch (error) {
         console.error('[FileTree] Internal move failed:', error);
       }
@@ -910,7 +900,6 @@ export function FileTree({
     async (targetPath: string, targetIsDirectory: boolean) => {
       if (!draggingNode) return;
 
-      // Determine target directory
       let targetDir = targetPath;
       if (!targetIsDirectory) {
         targetDir = targetPath.substring(0, targetPath.lastIndexOf('/'));
@@ -918,20 +907,16 @@ export function FileTree({
 
       const newPath = `${targetDir}/${draggingNode.name}`;
 
-      // Don't do anything if already in the same location (skip confirmation dialog)
       if (draggingNode.path === newPath) {
         setDraggingNode(null);
         return;
       }
 
-      // Check if confirmation is disabled
       const confirmDisabled = localStorage.getItem(DRAG_CONFIRM_STORAGE_KEY) === 'true';
 
       if (confirmDisabled) {
-        // Execute directly without confirmation
         executeInternalDrop(targetPath, targetIsDirectory, draggingNode);
       } else {
-        // Show confirmation dialog - save draggingNode info and path details to pendingDragData
         setPendingDragData({
           targetPath,
           targetIsDirectory,
@@ -1059,53 +1044,31 @@ export function FileTree({
       e.preventDefault();
       e.stopPropagation();
 
-      console.log('[FileTree] Drop', {
-        filesCount: e.dataTransfer.files.length,
-        rootPath,
-        onExternalDrop: !!onExternalDrop,
-        hasDraggingNode: !!draggingNode,
-      });
-
       dragCounterRef.current = 0;
       setIsDraggingOver(false);
       setDraggingOverFolderPath(null);
 
-      // Handle internal drag drop to root
-      if (draggingNode && rootPath) {
-        console.log('[FileTree] Internal drop to root');
+      if (e.dataTransfer.types.includes(INTERNAL_FILE_TREE_DRAG_TYPE) && rootPath) {
         handleInternalDrop(rootPath, true);
         return;
       }
 
-      // Handle external files only if not dragging internal node
-      if (!draggingNode && onExternalDrop && rootPath && e.dataTransfer.files.length > 0) {
-        // Default to copy for external files (move only with Alt/Option key)
+      if (onExternalDrop && rootPath && e.dataTransfer.files.length > 0) {
         const operation = e.altKey ? 'move' : 'copy';
-        console.log('[FileTree] Executing drop operation:', operation);
         onExternalDrop(e.dataTransfer.files, rootPath, operation);
-      } else if (!onExternalDrop || !rootPath || !e.dataTransfer.files.length) {
-        console.warn('[FileTree] Drop ignored:', {
-          hasHandler: !!onExternalDrop,
-          hasRootPath: !!rootPath,
-          filesCount: e.dataTransfer.files.length,
-        });
       }
     },
-    [onExternalDrop, rootPath, draggingNode, handleInternalDrop]
+    [onExternalDrop, rootPath, handleInternalDrop]
   );
 
-  // Handle internal drag start
   const handleInternalDragStart = useCallback(
     (path: string, name: string, isDirectory: boolean) => {
-      console.log('[FileTree] Internal drag start:', { path, name, isDirectory });
       setDraggingNode({ path, name, isDirectory });
     },
     []
   );
 
-  // Handle internal drag end
   const handleInternalDragEnd = useCallback(() => {
-    console.log('[FileTree] Internal drag end');
     setDraggingNode(null);
   }, []);
 
@@ -1259,7 +1222,7 @@ export function FileTree({
         </div>
         {/* Tree nodes */}
         {tree.map((node) => (
-          <FileTreeNodeComponent
+          <MemoizedFileTreeNodeComponent
             key={node.path}
             node={node}
             depth={0}
@@ -1268,12 +1231,7 @@ export function FileTree({
             editingPath={editingPath}
             editValue={editValue}
             onToggleExpand={onToggleExpand}
-            onFileClick={(path, isDirectory) => {
-              setSelectedNode({ path, isDirectory });
-              if (!isDirectory) {
-                onFileClick(path);
-              }
-            }}
+            onFileClick={handleNodeFileClick}
             onCreateFile={onCreateFile}
             onCreateDirectory={onCreateDirectory}
             onStartRename={handleStartRename}
@@ -1287,7 +1245,6 @@ export function FileTree({
             onInternalDragStart={handleInternalDragStart}
             onInternalDragEnd={handleInternalDragEnd}
             onInternalDrop={handleInternalDrop}
-            draggingNode={draggingNode}
             draggingOverFolderPath={draggingOverFolderPath}
             onDraggingOverFolderChange={setDraggingOverFolderPath}
             clipboard={clipboard}
@@ -1451,7 +1408,6 @@ interface FileTreeNodeComponentProps {
   onInternalDragStart?: (path: string, name: string, isDirectory: boolean) => void;
   onInternalDragEnd?: () => void;
   onInternalDrop?: (targetPath: string, targetIsDirectory: boolean) => void;
-  draggingNode?: { path: string; name: string; isDirectory: boolean } | null;
   draggingOverFolderPath?: string | null;
   onDraggingOverFolderChange?: (path: string | null) => void;
   clipboard?: {
@@ -1518,7 +1474,6 @@ function FileTreeNodeComponent({
   onInternalDragStart,
   onInternalDragEnd,
   onInternalDrop,
-  draggingNode,
   draggingOverFolderPath,
   onDraggingOverFolderChange,
   clipboard,
@@ -1534,8 +1489,10 @@ function FileTreeNodeComponent({
   const [_isDraggingOver, setIsDraggingOver] = useState(false);
   const [isBeingDragged, setIsBeingDragged] = useState(false);
 
-  // 获取压缩后的节点信息
-  const { displayName, actualNode, compactedChain } = getCompactedNode(node, expandedPaths);
+  const { displayName, actualNode, compactedChain } = useMemo(
+    () => getCompactedNode(node, expandedPaths),
+    [node, expandedPaths]
+  );
   const isExpanded = expandedPaths.has(actualNode.path);
   const isSelected = selectedPath === actualNode.path;
 
@@ -1546,7 +1503,6 @@ function FileTreeNodeComponent({
   const Icon = getFileIcon(actualNode.name, actualNode.isDirectory, isExpanded);
   const iconColor = getFileIconColor(actualNode.name, actualNode.isDirectory);
 
-  // 编辑时自动聚焦输入框
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
@@ -1612,60 +1568,48 @@ function FileTreeNodeComponent({
       e.preventDefault();
       e.stopPropagation();
 
-      console.log(
-        '[FileTreeNode] DragEnter on:',
-        actualNode.path,
-        'isDirectory:',
-        actualNode.isDirectory
-      );
-
-      // Calculate which folder should be highlighted
       let targetFolderPath: string;
       if (actualNode.isDirectory) {
-        // Hovering over a folder - highlight that folder
         targetFolderPath = actualNode.path;
       } else {
-        // Hovering over a file - highlight its parent folder
         const lastSlash = actualNode.path.lastIndexOf('/');
         targetFolderPath =
           lastSlash > 0 ? actualNode.path.substring(0, lastSlash) : actualNode.path;
       }
 
-      console.log('[FileTreeNode] Calculated target folder:', targetFolderPath);
-
-      // Show visual feedback for both files and directories
-      if (e.dataTransfer.types.includes('Files') || draggingNode) {
+      if (
+        e.dataTransfer.types.includes('Files') ||
+        e.dataTransfer.types.includes(INTERNAL_FILE_TREE_DRAG_TYPE)
+      ) {
         setIsDraggingOver(true);
-        // Update parent's draggingOverFolderPath (this will trigger auto-expand in parent)
         if (onDraggingOverFolderChange) {
-          console.log('[FileTreeNode] Setting draggingOverFolderPath to:', targetFolderPath);
           onDraggingOverFolderChange(targetFolderPath);
         }
       }
     },
-    [actualNode.isDirectory, actualNode.path, draggingNode, onDraggingOverFolderChange]
+    [actualNode.isDirectory, actualNode.path, onDraggingOverFolderChange]
   );
 
   const handleNodeDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    // Allow drop on both files and directories (files will drop to parent folder)
     if (e.dataTransfer.types.includes('Files')) {
       e.dataTransfer.dropEffect = e.altKey ? 'move' : 'copy';
+      return;
+    }
+
+    if (e.dataTransfer.types.includes(INTERNAL_FILE_TREE_DRAG_TYPE)) {
+      e.dataTransfer.dropEffect = 'move';
     }
   }, []);
 
-  const handleNodeDragLeave = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+  const handleNodeDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-      console.log('[FileTreeNode] DragLeave on:', actualNode.path);
-      setIsDraggingOver(false);
-    },
-    [actualNode.path]
-  );
+    setIsDraggingOver(false);
+  }, []);
 
   const handleNodeDrop = useCallback(
     (e: React.DragEvent) => {
@@ -1673,35 +1617,25 @@ function FileTreeNodeComponent({
       e.stopPropagation();
       setIsDraggingOver(false);
 
-      console.log('[FileTreeNode] Drop on:', actualNode.path);
-
-      // Clear the folder highlighting
       if (onDraggingOverFolderChange) {
         onDraggingOverFolderChange(null);
       }
 
-      // Determine target directory
-      // If dropping on a file, use its parent directory
-      // If dropping on a directory, use the directory itself
       let targetDir: string;
       if (actualNode.isDirectory) {
         targetDir = actualNode.path;
       } else {
-        // Get parent directory of the file
         const lastSlash = actualNode.path.lastIndexOf('/');
         targetDir = lastSlash > 0 ? actualNode.path.substring(0, lastSlash) : actualNode.path;
       }
 
-      // Handle internal drag drop
-      if (draggingNode && onInternalDrop) {
-        onInternalDrop(targetDir, true); // Always treat as directory since we computed the folder
+      if (e.dataTransfer.types.includes(INTERNAL_FILE_TREE_DRAG_TYPE) && onInternalDrop) {
+        onInternalDrop(targetDir, true);
         return;
       }
 
-      // Handle external drag drop
       if (!onExternalDrop || !e.dataTransfer.files.length) return;
 
-      // Default to copy for external files (move only with Alt/Option key)
       const operation = e.altKey ? 'move' : 'copy';
       onExternalDrop(e.dataTransfer.files, targetDir, operation);
     },
@@ -1709,20 +1643,18 @@ function FileTreeNodeComponent({
       actualNode.isDirectory,
       actualNode.path,
       onExternalDrop,
-      draggingNode,
       onInternalDrop,
       onDraggingOverFolderChange,
     ]
   );
 
-  // Handle internal drag start
   const handleInternalDragStart = useCallback(
     (e: React.DragEvent) => {
       e.stopPropagation();
       setIsBeingDragged(true);
-      // Set drag data
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', actualNode.path);
+      e.dataTransfer.setData(INTERNAL_FILE_TREE_DRAG_TYPE, actualNode.path);
 
       if (onInternalDragStart) {
         onInternalDragStart(actualNode.path, actualNode.name, actualNode.isDirectory);
@@ -1731,7 +1663,6 @@ function FileTreeNodeComponent({
     [actualNode.path, actualNode.name, actualNode.isDirectory, onInternalDragStart]
   );
 
-  // Handle internal drag end
   const handleInternalDragEnd = useCallback(
     (e: React.DragEvent) => {
       e.stopPropagation();
@@ -1744,7 +1675,6 @@ function FileTreeNodeComponent({
     [onInternalDragEnd]
   );
 
-  // Check if this folder should be highlighted (only exact match)
   const shouldHighlightThisFolder =
     actualNode.isDirectory && draggingOverFolderPath === actualNode.path;
 
@@ -1906,7 +1836,6 @@ function FileTreeNodeComponent({
         </MenuPopup>
       </Menu>
 
-      {/* Children - 渲染 actualNode 的子节点 */}
       <AnimatePresence initial={false}>
         {actualNode.isDirectory && isExpanded && actualNode.children && (
           <motion.div
@@ -1918,7 +1847,7 @@ function FileTreeNodeComponent({
           >
             <div className="min-h-0">
               {actualNode.children.map((child) => (
-                <FileTreeNodeComponent
+                <MemoizedFileTreeNodeComponent
                   key={child.path}
                   node={child}
                   depth={depth + 1}
@@ -1941,7 +1870,6 @@ function FileTreeNodeComponent({
                   onInternalDragStart={onInternalDragStart}
                   onInternalDragEnd={onInternalDragEnd}
                   onInternalDrop={onInternalDrop}
-                  draggingNode={draggingNode}
                   draggingOverFolderPath={draggingOverFolderPath}
                   onDraggingOverFolderChange={onDraggingOverFolderChange}
                   clipboard={clipboard}
@@ -1958,3 +1886,57 @@ function FileTreeNodeComponent({
     </div>
   );
 }
+
+function areFileTreeNodePropsEqual(
+  previousProps: FileTreeNodeComponentProps,
+  nextProps: FileTreeNodeComponentProps
+): boolean {
+  if (previousProps.node !== nextProps.node || previousProps.depth !== nextProps.depth) {
+    return false;
+  }
+
+  const subtreePath = previousProps.node.path;
+
+  if (
+    didExpansionChangeAffectSubtree(
+      previousProps.expandedPaths,
+      nextProps.expandedPaths,
+      subtreePath
+    )
+  ) {
+    return false;
+  }
+
+  if (didPathChangeAffectSubtree(previousProps.selectedPath, nextProps.selectedPath, subtreePath)) {
+    return false;
+  }
+
+  if (didPathChangeAffectSubtree(previousProps.editingPath, nextProps.editingPath, subtreePath)) {
+    return false;
+  }
+
+  if (
+    previousProps.editValue !== nextProps.editValue &&
+    (isPathInSubtree(previousProps.editingPath, subtreePath) ||
+      isPathInSubtree(nextProps.editingPath, subtreePath))
+  ) {
+    return false;
+  }
+
+  if (previousProps.draggingOverFolderPath !== nextProps.draggingOverFolderPath) {
+    if (
+      previousProps.draggingOverFolderPath === subtreePath ||
+      nextProps.draggingOverFolderPath === subtreePath
+    ) {
+      return false;
+    }
+  }
+
+  if (previousProps.clipboard !== nextProps.clipboard) {
+    return false;
+  }
+
+  return true;
+}
+
+const MemoizedFileTreeNodeComponent = memo(FileTreeNodeComponent, areFileTreeNodePropsEqual);

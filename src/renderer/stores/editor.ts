@@ -27,6 +27,37 @@ interface WorktreeEditorState {
   activeTabPath: string | null;
 }
 
+const MAX_INACTIVE_WORKTREE_STATES = 3;
+
+function touchWorktreeOrder(worktreeOrder: string[], worktreePath: string): string[] {
+  return [worktreePath, ...worktreeOrder.filter((path) => path !== worktreePath)];
+}
+
+function pruneInactiveWorktreeStates(
+  worktreeStates: Record<string, WorktreeEditorState>,
+  worktreeOrder: string[],
+  maxStates: number = MAX_INACTIVE_WORKTREE_STATES
+): {
+  worktreeStates: Record<string, WorktreeEditorState>;
+  worktreeOrder: string[];
+} {
+  const nextWorktreeStates = { ...worktreeStates };
+  const nextWorktreeOrder = [...worktreeOrder];
+
+  while (nextWorktreeOrder.length > maxStates) {
+    const evictedWorktreePath = nextWorktreeOrder.pop();
+    if (!evictedWorktreePath) {
+      break;
+    }
+    delete nextWorktreeStates[evictedWorktreePath];
+  }
+
+  return {
+    worktreeStates: nextWorktreeStates,
+    worktreeOrder: nextWorktreeOrder,
+  };
+}
+
 interface EditorState {
   // Current active state
   tabs: EditorTab[];
@@ -36,6 +67,7 @@ interface EditorState {
 
   // Per-worktree state storage
   worktreeStates: Record<string, WorktreeEditorState>;
+  worktreeOrder: string[];
   currentWorktreePath: string | null;
 
   openFile: (file: Omit<EditorTab, 'title' | 'viewState'> & { title?: string }) => void;
@@ -68,6 +100,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   pendingCursor: null,
   currentCursorLine: null,
   worktreeStates: {},
+  worktreeOrder: [],
   currentWorktreePath: null,
 
   openFile: (file) =>
@@ -241,23 +274,37 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const state = get();
     const currentPath = state.currentWorktreePath;
 
-    // Save current worktree state (if we have one)
-    let newWorktreeStates = state.worktreeStates;
+    // Persist the current active worktree into the inactive snapshot map.
+    let nextWorktreeStates = state.worktreeStates;
+    let nextWorktreeOrder = state.worktreeOrder;
     if (currentPath) {
-      newWorktreeStates = {
-        ...newWorktreeStates,
+      nextWorktreeStates = {
+        ...nextWorktreeStates,
         [currentPath]: {
           tabs: state.tabs,
           activeTabPath: state.activeTabPath,
         },
       };
+      nextWorktreeOrder = touchWorktreeOrder(nextWorktreeOrder, currentPath);
     }
 
-    // Load new worktree state (or empty if none)
-    const savedState = worktreePath ? newWorktreeStates[worktreePath] : null;
+    // The active worktree should live only in the current `tabs` slice, not be
+    // duplicated in the inactive snapshot map.
+    let savedState: WorktreeEditorState | null = null;
+    if (worktreePath) {
+      savedState = nextWorktreeStates[worktreePath] ?? null;
+      if (savedState) {
+        const { [worktreePath]: _, ...restStates } = nextWorktreeStates;
+        nextWorktreeStates = restStates;
+        nextWorktreeOrder = nextWorktreeOrder.filter((path) => path !== worktreePath);
+      }
+    }
+
+    const prunedState = pruneInactiveWorktreeStates(nextWorktreeStates, nextWorktreeOrder);
 
     set({
-      worktreeStates: newWorktreeStates,
+      worktreeStates: prunedState.worktreeStates,
+      worktreeOrder: prunedState.worktreeOrder,
       currentWorktreePath: worktreePath,
       tabs: savedState?.tabs ?? [],
       activeTabPath: savedState?.activeTabPath ?? null,
@@ -269,6 +316,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clearAllWorktreeStates: () => {
     set({
       worktreeStates: {},
+      worktreeOrder: [],
       currentWorktreePath: null,
       tabs: [],
       activeTabPath: null,
@@ -280,7 +328,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clearWorktreeState: (worktreePath) => {
     set((state) => {
       const { [worktreePath]: _, ...rest } = state.worktreeStates;
-      return { worktreeStates: rest };
+      return {
+        worktreeStates: rest,
+        worktreeOrder: state.worktreeOrder.filter((path) => path !== worktreePath),
+      };
     });
   },
 }));

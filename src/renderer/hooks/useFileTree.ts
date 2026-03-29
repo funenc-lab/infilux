@@ -7,6 +7,14 @@ import {
   resolveFileListPath,
 } from '@/components/files/breadcrumbPathUtils';
 import { shouldRecoverRootFileList } from './fileTreeRootRecoveryPolicy';
+import {
+  cloneEntriesToNodes,
+  findNodeByPath,
+  mergeNodesPreservingState,
+  replaceNodeChildren,
+  setNodeLoadingState,
+} from './fileTreeStateUtils';
+import { buildFileTreeWatchRefreshPlan, type FileTreeWatchEvent } from './fileTreeWatchBatch';
 import { shouldRefreshFileTreeOnWatchResume, shouldWatchFileTree } from './fileTreeWatchPolicy';
 import { useShouldPoll } from './useWindowFocus';
 
@@ -22,6 +30,7 @@ interface FileTreeNode extends FileEntry {
 }
 
 const shouldLogFileTreeDiagnostics = import.meta.env.DEV;
+const FILE_TREE_WATCH_BATCH_MS = 48;
 
 function logFileTreeDiagnostics(
   stage: string,
@@ -158,25 +167,6 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     [queryClient, rootPath, shouldLogDiagnostics]
   );
 
-  // 递归更新树，设置整个子目录链的 children
-  const updateTreeWithChain = useCallback(
-    (nodes: FileTreeNode[], targetPath: string, chainChildren: FileTreeNode[]): FileTreeNode[] => {
-      return nodes.map((node) => {
-        if (node.path === targetPath) {
-          return { ...node, children: chainChildren, isLoading: false };
-        }
-        if (node.children) {
-          return {
-            ...node,
-            children: updateTreeWithChain(node.children, targetPath, chainChildren),
-          };
-        }
-        return node;
-      });
-    },
-    []
-  );
-
   // Update tree when root files change, then restore children for all expanded paths
   useEffect(() => {
     if (!rootFiles || !rootPath) return;
@@ -192,18 +182,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       expandedCount: expandedPathsRef.current.size,
     });
 
-    // Merge root-level nodes, preserving already-loaded children
-    const mergeNodes = (newNodes: FileEntry[], oldNodes: FileTreeNode[]): FileTreeNode[] => {
-      return newNodes.map((newNode) => {
-        const oldNode = oldNodes.find((o) => o.path === newNode.path);
-        if (oldNode?.children) {
-          return { ...newNode, children: oldNode.children };
-        }
-        return { ...newNode };
-      });
-    };
-
-    const merged = mergeNodes(rootFiles, treeRef.current);
+    const merged = mergeNodesPreservingState(rootFiles, treeRef.current);
     setTree(merged);
     treeRef.current = merged;
 
@@ -225,21 +204,23 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     let cancelled = false;
 
     const restoreChildren = async () => {
+      let restoredTree = merged;
+
       for (const expandedPath of sortedPaths) {
         if (cancelled) return;
         try {
           const children = await loadChildren(expandedPath);
           if (cancelled) return;
-          const childNodes = children.map((c) => ({ ...c })) as FileTreeNode[];
-          const updated = updateTreeWithChain(treeRef.current, expandedPath, childNodes);
-          treeRef.current = updated;
-          setTree(updated);
+          const childNodes = cloneEntriesToNodes(children) as FileTreeNode[];
+          restoredTree = replaceNodeChildren(restoredTree, expandedPath, childNodes);
         } catch {
           // Silently skip paths that fail to load (e.g. deleted directories)
         }
       }
       // Only mark as restored after all children loaded successfully without cancellation
       if (!cancelled) {
+        treeRef.current = restoredTree;
+        setTree(restoredTree);
         childrenRestoredRef.current = true;
       }
     };
@@ -248,7 +229,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     return () => {
       cancelled = true;
     };
-  }, [rootFiles, rootPath, loadChildren, updateTreeWithChain, shouldLogDiagnostics]);
+  }, [rootFiles, rootPath, loadChildren, shouldLogDiagnostics]);
 
   useEffect(() => {
     if (
@@ -355,96 +336,69 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         }
         setAndPersistExpandedPaths(newExpanded);
       } else {
-        // 展开时，自动加载单子目录链
-        const markLoading = (nodes: FileTreeNode[]): FileTreeNode[] => {
-          return nodes.map((node) => {
-            if (node.path === path && node.isDirectory && !node.children) {
-              return { ...node, isLoading: true };
-            }
-            if (node.children) {
-              return { ...node, children: markLoading(node.children) };
-            }
-            return node;
-          });
-        };
-
-        const clearLoading = (nodes: FileTreeNode[]): FileTreeNode[] => {
-          return nodes.map((node) => {
-            if (node.path === path && node.isLoading) {
-              return { ...node, isLoading: false };
-            }
-            if (node.children) {
-              return { ...node, children: clearLoading(node.children) };
-            }
-            return node;
-          });
-        };
-
-        // 检查是否需要加载
-        const needsLoad = (nodes: FileTreeNode[]): boolean => {
-          for (const node of nodes) {
-            if (node.path === path && node.isDirectory && !node.children) return true;
-            if (node.children && needsLoad(node.children)) return true;
-          }
-          return false;
-        };
+        const targetNode = findNodeByPath(treeRef.current, path);
+        const needsLoad = Boolean(targetNode?.isDirectory && !targetNode.children);
 
         newExpanded.add(path);
         expandedPathsRef.current = newExpanded; // Sync ref immediately
         setAndPersistExpandedPaths(newExpanded);
 
-        if (needsLoad(treeRef.current)) {
-          setTree((current) => markLoading(current));
+        if (needsLoad) {
+          setTree((current) => {
+            const nextTree = setNodeLoadingState(current, path, true) as FileTreeNode[];
+            treeRef.current = nextTree;
+            return nextTree;
+          });
 
           try {
-            // 加载整个单子目录链
             const children = await loadChildren(path);
             const allPaths = [path];
-            const finalChildren = children.map((c) => ({ ...c })) as FileTreeNode[];
+            const finalChildren = cloneEntriesToNodes(children) as FileTreeNode[];
 
-            // 如果只有一个子目录，继续加载链
             if (children.length === 1 && children[0].isDirectory) {
-              const loadChain = async (
-                dirPath: string,
-                _nodes: FileTreeNode[]
-              ): Promise<FileTreeNode[]> => {
+              const loadChain = async (dirPath: string): Promise<FileTreeNode[]> => {
                 const dirChildren = await loadChildren(dirPath);
                 allPaths.push(dirPath);
 
-                const childNodes = dirChildren.map((c) => ({ ...c })) as FileTreeNode[];
+                const childNodes = cloneEntriesToNodes(dirChildren) as FileTreeNode[];
 
                 if (dirChildren.length === 1 && dirChildren[0].isDirectory) {
-                  childNodes[0].children = await loadChain(dirChildren[0].path, childNodes);
+                  childNodes[0].children = await loadChain(dirChildren[0].path);
                 }
 
                 return childNodes;
               };
 
-              finalChildren[0].children = await loadChain(children[0].path, finalChildren);
+              finalChildren[0].children = await loadChain(children[0].path);
             }
 
-            // 更新展开状态
             const nextExpanded = new Set(expandedPathsRef.current);
             for (const p of allPaths) nextExpanded.add(p);
             expandedPathsRef.current = nextExpanded; // Sync ref immediately
             setAndPersistExpandedPaths(nextExpanded);
 
-            // 更新树
-            const newTree = updateTreeWithChain(treeRef.current, path, finalChildren);
+            const newTree = replaceNodeChildren(
+              treeRef.current,
+              path,
+              finalChildren
+            ) as FileTreeNode[];
             treeRef.current = newTree; // Sync ref immediately
             setTree(newTree);
           } catch (error) {
-            // Roll back expanded state on load failure
             const rolled = new Set(expandedPathsRef.current);
             rolled.delete(path);
             setAndPersistExpandedPaths(rolled);
-            setTree((current) => clearLoading(current));
+            setTree((current) => {
+              const nextTree = setNodeLoadingState(current, path, false) as FileTreeNode[];
+              treeRef.current = nextTree;
+              return nextTree;
+            });
             console.error('Failed to load directory children:', error);
           }
         }
       }
     },
-    [loadChildren, updateTreeWithChain, setAndPersistExpandedPaths]
+    [loadChildren, setAndPersistExpandedPaths]
   );
 
   // 递归更新树中某个目录的 children
@@ -467,26 +421,19 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         queryClient.setQueryData(['file', 'list', resolvedTargetPath], newChildren);
 
         setTree((current) => {
-          const updateNode = (nodes: FileTreeNode[]): FileTreeNode[] => {
-            return nodes.map((node) => {
-              if (node.path === targetPath && node.children) {
-                // 合并新数据，保留子目录已加载的 children
-                const mergedChildren = newChildren.map((newChild) => {
-                  const oldChild = node.children?.find((o) => o.path === newChild.path);
-                  if (oldChild?.children) {
-                    return { ...newChild, children: oldChild.children };
-                  }
-                  return { ...newChild };
-                });
-                return { ...node, children: mergedChildren as FileTreeNode[] };
-              }
-              if (node.children) {
-                return { ...node, children: updateNode(node.children) };
-              }
-              return node;
-            });
-          };
-          return updateNode(current);
+          const targetNode = findNodeByPath(current, targetPath);
+          const previousChildren = targetNode?.children ?? [];
+          const mergedChildren = mergeNodesPreservingState(
+            newChildren,
+            previousChildren
+          ) as FileTreeNode[];
+          const nextTree = replaceNodeChildren(
+            current,
+            targetPath,
+            mergedChildren
+          ) as FileTreeNode[];
+          treeRef.current = nextTree;
+          return nextTree;
         });
       } catch (error) {
         // Directory was deleted - remove from expanded paths and tree
@@ -521,21 +468,12 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   });
 
   const refresh = useCallback(async () => {
-    console.log('[useFileTree] Refresh started');
-    // Force invalidate all cached queries first
     queryClient.invalidateQueries({ queryKey: ['file', 'list'] });
-
-    // Refetch root directory first
     await queryClient.refetchQueries({ queryKey: ['file', 'list', rootPath] });
-    console.log('[useFileTree] Root refetched');
-
-    // Refetch all expanded directories in parallel
     const currentExpanded = Array.from(expandedPathsRef.current);
-    console.log('[useFileTree] Refetching expanded paths:', currentExpanded);
     await Promise.all(
       currentExpanded.filter((path) => path !== rootPath).map((path) => refreshNodeChildren(path))
     );
-    console.log('[useFileTree] Refresh completed');
   }, [queryClient, rootPath, refreshNodeChildren]);
 
   // File watch effect - only watch while the file tree is active and the window is not idle
@@ -552,25 +490,58 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       void refresh();
     }
 
-    const unsubscribe = window.electronAPI.file.onChange(async (event) => {
-      const parentPath = event.path.substring(0, event.path.lastIndexOf('/')) || rootPath;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingEvents: FileTreeWatchEvent[] = [];
+    let flushQueue = Promise.resolve();
 
-      if (parentPath !== rootPath) {
-        queryClient.removeQueries({ queryKey: ['file', 'list', parentPath] });
+    const flushPendingEvents = async () => {
+      flushTimer = null;
+      const queuedEvents = pendingEvents;
+      pendingEvents = [];
+      if (queuedEvents.length === 0) {
+        return;
       }
 
-      if (parentPath === rootPath) {
+      const refreshPlan = buildFileTreeWatchRefreshPlan({
+        rootPath,
+        expandedPaths: expandedPathsRef.current,
+        events: queuedEvents,
+      });
+
+      for (const invalidatePath of refreshPlan.invalidateQueryPaths) {
+        queryClient.removeQueries({ queryKey: ['file', 'list', invalidatePath] });
+      }
+
+      if (refreshPlan.shouldRefetchRoot) {
         await queryClient.refetchQueries({ queryKey: ['file', 'list', rootPath] });
-      } else if (expandedPathsRef.current.has(parentPath)) {
-        await refreshNodeChildren(parentPath);
       }
 
-      if (expandedPathsRef.current.has(event.path)) {
-        await refreshNodeChildren(event.path);
+      await Promise.all(refreshPlan.refreshNodePaths.map((path) => refreshNodeChildren(path)));
+    };
+
+    const scheduleFlush = () => {
+      if (flushTimer !== null) {
+        return;
       }
+
+      flushTimer = setTimeout(() => {
+        flushQueue = flushQueue.then(flushPendingEvents).catch((error) => {
+          console.error('[file-tree] Failed to process watch batch', error);
+        });
+      }, FILE_TREE_WATCH_BATCH_MS);
+    };
+
+    const unsubscribe = window.electronAPI.file.onChange((event) => {
+      pendingEvents.push(event);
+      scheduleFlush();
     });
 
     return () => {
+      if (flushTimer !== null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      pendingEvents = [];
       unsubscribe();
       window.electronAPI.file.watchStop(rootPath);
     };

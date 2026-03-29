@@ -5,6 +5,7 @@ import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from '@/components/ui/code-block';
 import { MermaidRenderer } from '@/components/ui/mermaid-renderer';
+import { getRendererPlatform } from '@/lib/electronEnvironment';
 import { toLocalFileBaseUrl } from '@/lib/localFileUrl';
 
 const URL_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
@@ -17,7 +18,7 @@ function getDirname(filePath: string): string {
 }
 
 function normalizePathnameForCompare(pathname: string): string {
-  const platform = window.electronAPI.env.platform;
+  const platform = getRendererPlatform();
   const normalized = pathname.replace(/\/+$/, '');
   if (platform === 'win32' || platform === 'darwin') return normalized.toLowerCase();
   return normalized;

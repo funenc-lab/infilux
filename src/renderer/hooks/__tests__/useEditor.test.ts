@@ -81,11 +81,11 @@ vi.mock('@tanstack/react-query', () => ({
   }),
   useMutation: <TResult, TVariables extends string>(options: {
     mutationFn: (variables: TVariables) => Promise<TResult>;
-    onSuccess?: () => void;
+    onSuccess?: (result: TResult, variables: TVariables) => void;
   }) => ({
     mutateAsync: async (variables: TVariables) => {
       const result = await options.mutationFn(variables);
-      options.onSuccess?.();
+      options.onSuccess?.(result, variables);
       return result;
     },
   }),
@@ -254,7 +254,7 @@ describe('useEditor', () => {
     expect(writeMock).toHaveBeenCalledWith('/repo/a.ts', 'after', 'utf8');
     expect(state.markFileSaved).toHaveBeenCalledWith('/repo/a.ts');
     expect(reactQueryMock.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ['file', 'list'],
+      queryKey: ['file', 'list', '/repo'],
     });
   });
 

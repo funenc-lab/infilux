@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBulkReloadPlan } from '../editorReloadPolicy';
+import { buildBulkReloadPlan, buildExternalReloadBatchPlan } from '../editorReloadPolicy';
 
 describe('buildBulkReloadPlan', () => {
   it('reloads only the active tab immediately and marks the rest as stale', () => {
@@ -55,5 +55,29 @@ describe('buildBulkReloadPlan', () => {
 
     expect(plan.immediateReloadPaths).toEqual(['/Repo/Active.ts']);
     expect(plan.stalePaths).toEqual(['/Repo/Other.ts']);
+  });
+});
+
+describe('buildExternalReloadBatchPlan', () => {
+  it('deduplicates repeated external changes and reloads each open path once', () => {
+    const plan = buildExternalReloadBatchPlan(
+      [
+        { path: '/Repo/A.ts', isDirty: false },
+        { path: '/Repo/B.ts', isDirty: true },
+        { path: '/Repo/C.ts', isDirty: false },
+      ],
+      ['/repo/a.ts', '/Repo/A.ts', '/repo/b.ts', '/repo/missing.ts', '/repo/c.ts', '/repo/c.ts']
+    );
+
+    expect(plan.reloadPaths).toEqual(['/Repo/A.ts', '/Repo/B.ts', '/Repo/C.ts']);
+  });
+
+  it('returns an empty plan when no changed path maps to an open tab', () => {
+    const plan = buildExternalReloadBatchPlan(
+      [{ path: '/Repo/A.ts', isDirty: false }],
+      ['/repo/missing.ts']
+    );
+
+    expect(plan.reloadPaths).toEqual([]);
   });
 });

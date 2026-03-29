@@ -10,10 +10,11 @@ export interface BulkReloadPlan {
   stalePaths: string[];
 }
 
-export function buildBulkReloadPlan(
-  tabs: ReloadableEditorTab[],
-  activeTabPath: string | null
-): BulkReloadPlan {
+export interface ExternalReloadBatchPlan {
+  reloadPaths: string[];
+}
+
+function buildCanonicalTabPathMap(tabs: ReloadableEditorTab[]): Map<string, string> {
   const canonicalTabPaths = new Map<string, string>();
   for (const tab of tabs) {
     const normalizedPath = normalizePath(tab.path);
@@ -21,6 +22,14 @@ export function buildBulkReloadPlan(
       canonicalTabPaths.set(normalizedPath, tab.path);
     }
   }
+  return canonicalTabPaths;
+}
+
+export function buildBulkReloadPlan(
+  tabs: ReloadableEditorTab[],
+  activeTabPath: string | null
+): BulkReloadPlan {
+  const canonicalTabPaths = buildCanonicalTabPathMap(tabs);
 
   const normalizedActiveTabPath = activeTabPath ? normalizePath(activeTabPath) : null;
   const immediateReloadPaths =
@@ -34,5 +43,31 @@ export function buildBulkReloadPlan(
   return {
     immediateReloadPaths,
     stalePaths,
+  };
+}
+
+export function buildExternalReloadBatchPlan(
+  tabs: ReloadableEditorTab[],
+  changedPaths: string[]
+): ExternalReloadBatchPlan {
+  const canonicalTabPaths = buildCanonicalTabPathMap(tabs);
+  const reloadPaths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const changedPath of changedPaths) {
+    const normalizedPath = normalizePath(changedPath);
+    if (seen.has(normalizedPath)) {
+      continue;
+    }
+
+    seen.add(normalizedPath);
+    const canonicalPath = canonicalTabPaths.get(normalizedPath);
+    if (canonicalPath) {
+      reloadPaths.push(canonicalPath);
+    }
+  }
+
+  return {
+    reloadPaths,
   };
 }
