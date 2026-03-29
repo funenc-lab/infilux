@@ -798,4 +798,50 @@ describe('SessionManager', () => {
     expect(sessionTestDoubles.remoteDataListeners.has('conn-4')).toBe(false);
     expect(sessionTestDoubles.remoteExitListeners.has('conn-4')).toBe(false);
   });
+
+  it('releases remote lifecycle subscriptions after the last session on a connection is removed', async () => {
+    createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method, payload) => {
+        if (method === 'session:attach' && payload && typeof payload === 'object') {
+          const sessionId = Reflect.get(payload, 'sessionId');
+          return {
+            session: makeRemoteDescriptor({
+              sessionId: String(sessionId),
+              cwd: '/workspace',
+            }),
+            replay: '',
+          };
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, {
+      sessionId: 'remote-a',
+      cwd: toRemoteVirtualPath('conn-6', '/workspace'),
+    });
+    await manager.attach(2, {
+      sessionId: 'remote-b',
+      cwd: toRemoteVirtualPath('conn-6', '/workspace'),
+    });
+
+    expect(sessionTestDoubles.remoteDisconnectListeners.has('conn-6')).toBe(true);
+    expect(sessionTestDoubles.remoteStatusListeners.has('conn-6')).toBe(true);
+
+    await manager.detach(1, 'remote-a');
+
+    expect(sessionTestDoubles.remoteDisconnectListeners.has('conn-6')).toBe(true);
+    expect(sessionTestDoubles.remoteStatusListeners.has('conn-6')).toBe(true);
+
+    await manager.detach(2, 'remote-b');
+
+    expect(sessionTestDoubles.remoteDataListeners.has('conn-6')).toBe(false);
+    expect(sessionTestDoubles.remoteExitListeners.has('conn-6')).toBe(false);
+    expect(sessionTestDoubles.remoteDisconnectListeners.has('conn-6')).toBe(false);
+    expect(sessionTestDoubles.remoteStatusListeners.has('conn-6')).toBe(false);
+  });
 });

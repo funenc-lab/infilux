@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
+import { inspect } from 'node:util';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { type Locale, normalizeLocale } from '@shared/i18n';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
@@ -854,6 +855,123 @@ app.whenReady().then(async () => {
     window.once('closed', () => {
       detachRendererRecoveryHandlers();
     });
+
+    if (isDev) {
+      const rawDebug = (
+        process as NodeJS.Process & {
+          _rawDebug?: (message: string) => void;
+        }
+      )._rawDebug;
+      const writeDevProbe = (label: string, payload: unknown) => {
+        const formatted =
+          typeof payload === 'string'
+            ? payload
+            : inspect(payload, {
+                depth: 5,
+                compact: false,
+                sorted: true,
+                breakLength: 120,
+              });
+        if (typeof rawDebug === 'function') {
+          rawDebug(`${label} ${formatted}`);
+          return;
+        }
+        console.error(`${label} ${formatted}`);
+      };
+
+      const captureRendererSnapshot = (stage: string) => {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) {
+          return;
+        }
+
+        void window.webContents
+          .executeJavaScript(
+            `(() => ({
+              href: window.location.href,
+              readyState: document.readyState,
+              bootstrapStage: window.__infiluxBootstrapStage ?? null,
+              rootHtmlLength: document.getElementById('root')?.innerHTML.length ?? 0,
+              rootText: document.getElementById('root')?.innerText?.slice(0, 200) ?? '',
+              bodyBg: getComputedStyle(document.body).backgroundColor,
+              bodyColor: getComputedStyle(document.body).color,
+              bodyChildCount: document.body?.childElementCount ?? 0,
+            }))()`,
+            true
+          )
+          .then((snapshot) => {
+            writeDevProbe('[renderer-snapshot]', {
+              stage,
+              windowId: window.id,
+              snapshot,
+            });
+          })
+          .catch((error) => {
+            writeDevProbe('[renderer-snapshot-error]', {
+              stage,
+              windowId: window.id,
+              error,
+            });
+          });
+      };
+
+      window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        writeDevProbe('[renderer-console]', {
+          windowId: window.id,
+          level,
+          message,
+          line,
+          sourceId,
+        });
+      });
+
+      const requestFilter = {
+        urls: ['http://localhost:*/*'],
+      };
+      const handleRequestCompleted = (details: Electron.OnCompletedListenerDetails) => {
+        if (
+          details.webContentsId !== window.webContents.id ||
+          (!details.url.includes('/index.tsx') &&
+            !details.url.includes('/@vite/client') &&
+            !details.url.includes('/@fs/'))
+        ) {
+          return;
+        }
+
+        writeDevProbe('[renderer-request-completed]', {
+          windowId: window.id,
+          method: details.method,
+          resourceType: details.resourceType,
+          statusCode: details.statusCode,
+          fromCache: details.fromCache,
+          url: details.url,
+        });
+      };
+      const handleRequestError = (details: Electron.OnErrorOccurredListenerDetails) => {
+        if (
+          details.webContentsId !== window.webContents.id ||
+          (!details.url.includes('/index.tsx') &&
+            !details.url.includes('/@vite/client') &&
+            !details.url.includes('/@fs/'))
+        ) {
+          return;
+        }
+
+        writeDevProbe('[renderer-request-error]', {
+          windowId: window.id,
+          error: details.error,
+          resourceType: details.resourceType,
+          url: details.url,
+        });
+      };
+      window.webContents.session.webRequest.onCompleted(requestFilter, handleRequestCompleted);
+      window.webContents.session.webRequest.onErrorOccurred(requestFilter, handleRequestError);
+
+      window.webContents.once('did-finish-load', () => {
+        captureRendererSnapshot('did-finish-load');
+        setTimeout(() => captureRendererSnapshot('post-load-1000ms'), 1000);
+        setTimeout(() => captureRendererSnapshot('post-load-3000ms'), 3000);
+      });
+    }
 
     // Snapshot listeners before the optimizer adds its own, only needed in production.
     const listenersBefore = app.isPackaged

@@ -21,6 +21,7 @@ const worktreeTestDoubles = vi.hoisted(() => {
   const handlers = new Map<string, Handler>();
   const serviceInstances = new Map<string, WorktreeServiceMock>();
   const serviceConstructCount = new Map<string, number>();
+  const existsSync = vi.fn((target: string) => target !== '/missing-repo');
 
   function createService(workdir: string): WorktreeServiceMock {
     return {
@@ -74,6 +75,8 @@ const worktreeTestDoubles = vi.hoisted(() => {
     serviceConstructCount.clear();
 
     getService.mockClear();
+    existsSync.mockReset();
+    existsSync.mockImplementation((target: string) => target !== '/missing-repo');
 
     updateClaudeWorkspaceFolders.mockReset();
     clearWorktrees.mockReset();
@@ -117,6 +120,7 @@ const worktreeTestDoubles = vi.hoisted(() => {
     handlers,
     serviceInstances,
     serviceConstructCount,
+    existsSync,
     getService,
     updateClaudeWorkspaceFolders,
     clearWorktrees,
@@ -129,6 +133,10 @@ const worktreeTestDoubles = vi.hoisted(() => {
     reset,
   };
 });
+
+vi.mock('node:fs', () => ({
+  existsSync: worktreeTestDoubles.existsSync,
+}));
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -248,6 +256,19 @@ describe('worktree IPC handlers', () => {
       }
     );
     expect(worktreeTestDoubles.getService).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty list for missing local repositories without constructing services', async () => {
+    const { registerWorktreeHandlers } = await import('../worktree');
+    registerWorktreeHandlers();
+
+    const listHandler = getHandler(IPC_CHANNELS.WORKTREE_LIST);
+
+    await expect(listHandler({}, '/missing-repo')).resolves.toEqual([]);
+    expect(worktreeTestDoubles.existsSync).toHaveBeenCalledWith('/missing-repo');
+    expect(worktreeTestDoubles.getService).not.toHaveBeenCalled();
+    expect(worktreeTestDoubles.clearWorktrees).not.toHaveBeenCalled();
+    expect(worktreeTestDoubles.registerWorktree).not.toHaveBeenCalled();
   });
 
   it('adds and removes local worktrees after stopping dependent resources', async () => {

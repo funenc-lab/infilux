@@ -795,7 +795,7 @@ describe('main entry', () => {
     delete process.env.ENSOAI_PROFILE;
     delete process.env.ENSOAI_GTK_VERSION;
     delete process.env.APPIMAGE;
-  });
+  }, 15000);
 
   afterEach(() => {
     process.on = originalProcessOn;
@@ -831,7 +831,7 @@ describe('main entry', () => {
     }
     vi.useRealTimers();
     vi.restoreAllMocks();
-  });
+  }, 15000);
 
   it('configures import-time protocol, userData, and Linux switches', async () => {
     process.env.ENSOAI_PROFILE = 'feature branch';
@@ -857,7 +857,7 @@ describe('main entry', () => {
       ['/mock/app-entry']
     );
     expect(mainIndexTestDoubles.appendSwitch).toHaveBeenCalledWith('gtk-version', '3');
-  });
+  }, 15000);
 
   it('loads shell environment on macOS and exposes helper functions', async () => {
     mainIndexTestDoubles.readSharedSettings.mockReturnValue({

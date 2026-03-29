@@ -206,12 +206,14 @@ export class SessionManager {
     }
 
     if (session.backend === 'remote' && session.connectionId) {
+      const connectionId = session.connectionId;
       await this.ensureRemoteSubscriptions(session.connectionId);
       await remoteConnectionManager
-        .call(session.connectionId, 'session:detach', { sessionId })
+        .call(connectionId, 'session:detach', { sessionId })
         .catch(() => {});
       if (session.attachedWindowIds.size === 0) {
         this.sessions.delete(sessionId);
+        this.cleanupRemoteResourcesIfUnused(connectionId);
       }
       return;
     }
@@ -231,12 +233,14 @@ export class SessionManager {
     }
 
     if (session.backend === 'remote' && session.connectionId) {
+      const connectionId = session.connectionId;
       const attachedWindowIds = new Set(session.attachedWindowIds);
       await this.ensureRemoteSubscriptions(session.connectionId);
       await remoteConnectionManager
-        .call(session.connectionId, 'session:kill', { sessionId })
+        .call(connectionId, 'session:kill', { sessionId })
         .catch(() => {});
       this.sessions.delete(sessionId);
+      this.cleanupRemoteResourcesIfUnused(connectionId);
       this.emitState(
         {
           sessionId,
@@ -723,10 +727,14 @@ export class SessionManager {
           (payload) => {
             const event = payload as SessionExitEvent;
             const session = this.sessions.get(event.sessionId);
+            const connectionId = session?.connectionId;
             const attachedWindowIds = session
               ? new Set(session.attachedWindowIds)
               : new Set<number>();
             this.sessions.delete(event.sessionId);
+            if (connectionId) {
+              this.cleanupRemoteResourcesIfUnused(connectionId);
+            }
             this.emitState(
               {
                 sessionId: event.sessionId,
@@ -922,6 +930,37 @@ export class SessionManager {
     }
   }
 
+  private cleanupRemoteResourcesIfUnused(connectionId: string): void {
+    const hasRemainingSessions = [...this.sessions.values()].some(
+      (session) => session.backend === 'remote' && session.connectionId === connectionId
+    );
+    if (hasRemainingSessions) {
+      return;
+    }
+
+    this.cleanupRemoteSubscription(connectionId);
+
+    const offDisconnect = this.remoteDisconnectSubscriptions.get(connectionId);
+    this.remoteDisconnectSubscriptions.delete(connectionId);
+    try {
+      offDisconnect?.();
+    } catch (error) {
+      console.warn('[session] Failed to dispose remote disconnect listener:', error);
+    }
+
+    const offStatus = this.remoteStatusSubscriptions.get(connectionId);
+    this.remoteStatusSubscriptions.delete(connectionId);
+    try {
+      offStatus?.();
+    } catch (error) {
+      console.warn('[session] Failed to dispose remote status listener:', error);
+    }
+
+    this.remoteSubscriptionPromises.delete(connectionId);
+    this.remoteSubscriptionVersions.delete(connectionId);
+    this.remoteRecoveryPromises.delete(connectionId);
+  }
+
   private appendReplayBuffer(session: ManagedSessionRecord, data: string): void {
     if (!data) {
       return;
@@ -993,7 +1032,11 @@ export class SessionManager {
     }
 
     const attachedWindowIds = new Set(session.attachedWindowIds);
+    const connectionId = session.connectionId;
     this.sessions.delete(session.sessionId);
+    if (connectionId) {
+      this.cleanupRemoteResourcesIfUnused(connectionId);
+    }
     this.emitState(
       {
         sessionId: session.sessionId,

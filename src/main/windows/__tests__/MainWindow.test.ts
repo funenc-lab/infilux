@@ -13,6 +13,10 @@ const mainWindowTestDoubles = vi.hoisted(() => {
   const shellOpenExternal = vi.fn();
   const ipcOn = vi.fn();
   const ipcRemoveListener = vi.fn();
+  const getAllDisplays = vi.fn(() => [{ workArea: { width: 1920, height: 1080, x: 0, y: 0 } }]);
+  const getPrimaryDisplay = vi.fn(() => ({
+    workArea: { width: 1920, height: 1080, x: 0, y: 0 },
+  }));
   const translate = vi.fn((locale: string, key: string) => `${locale}:${key}`);
   const getCurrentLocale = vi.fn(() => 'en');
   const detachWindowSessions = vi.fn(async () => undefined);
@@ -65,6 +69,8 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     shellOpenExternal.mockReset();
     ipcOn.mockReset();
     ipcRemoveListener.mockReset();
+    getAllDisplays.mockReset();
+    getPrimaryDisplay.mockReset();
     translate.mockReset();
     getCurrentLocale.mockReset();
     detachWindowSessions.mockReset();
@@ -74,6 +80,10 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     readFileSync.mockReturnValue('{}');
     getPath.mockImplementation((name: string) => `/mock/${name}`);
     getAppPath.mockReturnValue('/mock/app');
+    getAllDisplays.mockReturnValue([{ workArea: { width: 1920, height: 1080, x: 0, y: 0 } }]);
+    getPrimaryDisplay.mockReturnValue({
+      workArea: { width: 1920, height: 1080, x: 0, y: 0 },
+    });
     translate.mockImplementation((locale: string, key: string) => `${locale}:${key}`);
     getCurrentLocale.mockReturnValue('en');
     detachWindowSessions.mockResolvedValue(undefined);
@@ -96,6 +106,10 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     ipcMain: {
       on: ipcOn,
       removeListener: ipcRemoveListener,
+    },
+    screen: {
+      getAllDisplays,
+      getPrimaryDisplay,
     },
     Menu: {
       buildFromTemplate: vi.fn(() => ({
@@ -141,6 +155,7 @@ vi.mock('electron', () => ({
   dialog: mainWindowTestDoubles.dialog,
   ipcMain: mainWindowTestDoubles.ipcMain,
   Menu: mainWindowTestDoubles.Menu,
+  screen: mainWindowTestDoubles.screen,
   shell: mainWindowTestDoubles.shell,
 }));
 
@@ -194,5 +209,5 @@ describe('MainWindow', () => {
     expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
       icon: join(process.cwd(), 'build', 'icon.png'),
     });
-  });
+  }, 15000);
 });

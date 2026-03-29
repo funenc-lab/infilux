@@ -163,3 +163,4 @@ The project-standard package manager is `pnpm`. If `pnpm` is unavailable in the 
 - `src/renderer/stores/settings.ts` is a compatibility re-export. The modularized implementation lives under `src/renderer/stores/settings/`.
 - File, terminal, and source-control panels stay mounted during tab switches; hidden panels still retain runtime state.
 - Remote and local repository flows coexist in the same app. Design new features with that duality in mind.
+- Legacy `EnsoAI` / `enso-ai` identifiers remain only for explicit migration and compatibility paths such as legacy settings import, hook migration, or diagnostics overrides. Do not treat them as the current default app name, runtime state root, or log directory. The active runtime log path is the Infilux path returned by `app.getPath('logs')`, and managed log files use the `infilux-` prefix.

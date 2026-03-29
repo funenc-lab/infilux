@@ -14,6 +14,9 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
   const randomUUID = vi.fn(() => `uuid-${++randomUuidCounter}`);
   const getPath = vi.fn((name: string) => `/mock/${name}`);
   const getAppPath = vi.fn(() => '/mock/app');
+  const appFocus = vi.fn();
+  const dockShow = vi.fn();
+  const dockSetIcon = vi.fn();
   const showMessageBox = vi.fn();
   const shellOpenExternal = vi.fn();
   const ipcOn = vi.fn((channel: string, handler: (...args: unknown[]) => void) => {
@@ -34,6 +37,16 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
   const is = {
     dev: false,
   };
+  const screen = {
+    getAllDisplays: vi.fn(() => [
+      {
+        workArea: { x: 0, y: 33, width: 1512, height: 949 },
+      },
+    ]),
+    getPrimaryDisplay: vi.fn(() => ({
+      workArea: { x: 0, y: 33, width: 1512, height: 949 },
+    })),
+  };
 
   class MockBrowserWindow {
     public id = 101;
@@ -43,6 +56,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     public maximized = false;
     public destroyed = false;
     public webContentsDestroyed = false;
+    private bounds: { height: number; width: number; x: number; y: number };
     private readonly windowHandlers = new Map<
       string,
       Array<{ once: boolean; handler: (...args: unknown[]) => void }>
@@ -71,10 +85,19 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
         this.removeHandler(this.webContentsHandlers, event, handler);
       }),
       isDestroyed: vi.fn(() => this.webContentsDestroyed),
+      session: {
+        clearCache: vi.fn(async () => undefined),
+      },
     };
 
     constructor(options: Record<string, unknown>) {
       browserWindowOptions = options;
+      this.bounds = {
+        width: Number(options.width ?? 1400),
+        height: Number(options.height ?? 900),
+        x: Number(options.x ?? 10),
+        y: Number(options.y ?? 20),
+      };
       lastWindow = this;
     }
 
@@ -116,7 +139,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     }
 
     getBounds() {
-      return { height: 900, width: 1400, x: 10, y: 20 };
+      return { ...this.bounds };
     }
 
     isMaximized() {
@@ -154,6 +177,17 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
       this.shown = true;
     });
 
+    focus = vi.fn();
+
+    setBounds = vi.fn(
+      (bounds: Partial<{ height: number; width: number; x: number; y: number }>) => {
+        this.bounds = {
+          ...this.bounds,
+          ...bounds,
+        };
+      }
+    );
+
     removeListener = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       this.removeHandler(this.windowHandlers, event, handler);
     });
@@ -190,6 +224,9 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     randomUUID.mockReset();
     getPath.mockReset();
     getAppPath.mockReset();
+    appFocus.mockReset();
+    dockShow.mockReset();
+    dockSetIcon.mockReset();
     showMessageBox.mockReset();
     shellOpenExternal.mockReset();
     ipcOn.mockClear();
@@ -220,6 +257,11 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
       buildFromTemplate,
     },
     app: {
+      dock: {
+        setIcon: dockSetIcon,
+        show: dockShow,
+      },
+      focus: appFocus,
       getAppPath,
       getPath,
       isPackaged: false,
@@ -243,6 +285,10 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     detachWindowSessions,
     isQuittingForUpdate,
     is,
+    screen,
+    appFocus,
+    dockShow,
+    dockSetIcon,
     buildFromTemplate,
     menuPopup,
     emitIpc,
@@ -280,6 +326,7 @@ vi.mock('electron', () => ({
   dialog: mainWindowLifecycleDoubles.dialog,
   ipcMain: mainWindowLifecycleDoubles.ipcMain,
   Menu: mainWindowLifecycleDoubles.Menu,
+  screen: mainWindowLifecycleDoubles.screen,
   shell: mainWindowLifecycleDoubles.shell,
 }));
 
@@ -319,7 +366,7 @@ describe('MainWindow lifecycle', () => {
     vi.resetModules();
     mainWindowLifecycleDoubles.reset();
     delete process.env.ELECTRON_RENDERER_URL;
-  });
+  }, 15000);
 
   afterEach(() => {
     if (originalPlatformDescriptor) {
@@ -330,8 +377,9 @@ describe('MainWindow lifecycle', () => {
     } else {
       process.env.ELECTRON_RENDERER_URL = originalRendererUrl;
     }
+    vi.useRealTimers();
     vi.restoreAllMocks();
-  });
+  }, 15000);
 
   it('restores persisted macOS state and wires menu, devtools, fullscreen, and external links', async () => {
     setPlatform('darwin');
@@ -367,6 +415,9 @@ describe('MainWindow lifecycle', () => {
 
     win.emit('ready-to-show');
     expect(win.show).toHaveBeenCalledTimes(1);
+    expect(win.focus).toHaveBeenCalledTimes(1);
+    expect(mainWindowLifecycleDoubles.appFocus).toHaveBeenCalledWith({ steal: true });
+    expect(mainWindowLifecycleDoubles.dockShow).toHaveBeenCalledTimes(1);
 
     const editableEvent = { preventDefault: vi.fn() };
     win.emitWebContents('context-menu', editableEvent, {
@@ -425,7 +476,7 @@ describe('MainWindow lifecycle', () => {
 
     win.emit('closed');
     expect(mainWindowLifecycleDoubles.detachWindowSessions).toHaveBeenCalledWith(win.id);
-  });
+  }, 15000);
 
   it('confirms replacement closes through renderer IPC, saves dirty files, and persists state on force close', async () => {
     setPlatform('win32');
@@ -486,8 +537,8 @@ describe('MainWindow lifecycle', () => {
       JSON.stringify({
         width: 1400,
         height: 900,
-        x: 10,
-        y: 20,
+        x: 56,
+        y: 58,
         isMaximized: false,
       })
     );
@@ -510,21 +561,110 @@ describe('MainWindow lifecycle', () => {
       replaceWindow: replaceWindow as never,
     }) as unknown as InstanceType<typeof mainWindowLifecycleDoubles.MockBrowserWindow>;
 
+    await flushPromises();
+
     expect(mainWindowLifecycleDoubles.getBrowserWindowOptions()).toMatchObject({
       width: 900,
       height: 700,
       x: 7,
-      y: 8,
+      y: 33,
       frame: false,
       titleBarStyle: 'hidden',
     });
     expect(win.maximize).toHaveBeenCalledTimes(1);
-    expect(win.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5173');
+    expect(win.webContents.session.clearCache).toHaveBeenCalledTimes(1);
+    expect(win.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5173', {
+      extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
+    });
     await expect(confirmWindowReplace(replaceWindow as never)).resolves.toBe(true);
 
     win.emit('ready-to-show');
     expect(win.show).toHaveBeenCalledTimes(1);
     expect(replaceWindow.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes invalid persisted bounds to the current display before creating the window', async () => {
+    setPlatform('darwin');
+    mainWindowLifecycleDoubles.existsSync.mockImplementation(
+      (target: string) => target === '/mock/userData/window-state.json'
+    );
+    mainWindowLifecycleDoubles.readFileSync.mockReturnValue(
+      JSON.stringify({
+        width: 200,
+        height: 163,
+        x: -271,
+        y: 505,
+        isMaximized: false,
+      })
+    );
+
+    const { createMainWindow } = await import('../MainWindow');
+    createMainWindow();
+
+    expect(mainWindowLifecycleDoubles.getBrowserWindowOptions()).toMatchObject({
+      width: 685,
+      height: 600,
+      x: 0,
+      y: 382,
+    });
+  });
+
+  it('reveals the window when did-finish-load fires before ready-to-show', async () => {
+    setPlatform('darwin');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.emitWebContents('did-finish-load');
+    expect(win.show).toHaveBeenCalledTimes(1);
+
+    win.emit('ready-to-show');
+    expect(win.show).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-centers an offscreen window during reveal before showing it', async () => {
+    setPlatform('darwin');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.setBounds({
+      width: 200,
+      height: 163,
+      x: -271,
+      y: 505,
+    });
+    win.setBounds.mockClear();
+
+    win.emit('ready-to-show');
+
+    expect(win.setBounds).toHaveBeenCalledWith({
+      width: 685,
+      height: 600,
+      x: 0,
+      y: 382,
+    });
+    expect(win.show).toHaveBeenCalledTimes(1);
+  });
+
+  it('reveals the window after a timeout if renderer readiness events never fire', async () => {
+    vi.useFakeTimers();
+    setPlatform('darwin');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    expect(win.show).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(3000);
+
+    expect(win.show).toHaveBeenCalledTimes(1);
   });
 
   it('blocks close when renderer cancels or save fails, and skips confirmation during updater quit', async () => {

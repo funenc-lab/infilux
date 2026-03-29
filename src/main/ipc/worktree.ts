@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import {
   type ConflictResolution,
   IPC_CHANNELS,
@@ -36,6 +37,11 @@ export function registerWorktreeHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.WORKTREE_LIST, async (_, workdir: string) => {
     if (isRemoteVirtualPath(workdir)) {
       return remoteRepositoryBackend.listWorktrees(workdir);
+    }
+
+    if (!existsSync(workdir)) {
+      clearWorktreeService(workdir);
+      return [];
     }
 
     const service = getWorktreeService(workdir);

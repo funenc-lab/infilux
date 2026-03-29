@@ -5,10 +5,11 @@ import { is } from '@electron-toolkit/utils';
 import { translate } from '@shared/i18n';
 import type { AppCloseRequestPayload, AppCloseRequestReason } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron';
 import { getCurrentLocale } from '../services/i18n';
 import { sessionManager } from '../services/session/SessionManager';
 import { autoUpdaterService } from '../services/updater/AutoUpdater';
+import log from '../utils/logger';
 
 /** Default macOS traffic lights position (matches BrowserWindow trafficLightPosition) */
 const TRAFFIC_LIGHTS_DEFAULT_POSITION = { x: 16, y: 16 };
@@ -31,10 +32,20 @@ interface WindowState {
   isMaximized?: boolean;
 }
 
+interface WindowBounds {
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}
+
 const DEFAULT_STATE: WindowState = {
   width: 1400,
   height: 900,
 };
+const SHOW_WINDOW_FALLBACK_DELAY_MS = 3000;
+const MIN_WINDOW_WIDTH = 685;
+const MIN_WINDOW_HEIGHT = 600;
 
 function getStatePath(): string {
   return join(app.getPath('userData'), 'window-state.json');
@@ -65,6 +76,83 @@ function saveWindowState(win: BrowserWindow): void {
   } catch {}
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function rectsIntersect(a: WindowBounds, b: WindowBounds): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function roundBounds(bounds: WindowBounds): WindowBounds {
+  return {
+    width: Math.round(bounds.width),
+    height: Math.round(bounds.height),
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+  };
+}
+
+function normalizeWindowBounds(state: WindowState): WindowBounds {
+  const desiredBounds: WindowBounds = {
+    width: state.width,
+    height: state.height,
+    x: state.x ?? 0,
+    y: state.y ?? 0,
+  };
+  const displays = screen.getAllDisplays();
+  const fallbackDisplay = screen.getPrimaryDisplay();
+  const matchingDisplay =
+    displays.find((display) => rectsIntersect(display.workArea as WindowBounds, desiredBounds)) ??
+    fallbackDisplay;
+  const workArea = matchingDisplay.workArea as WindowBounds;
+  const width = Math.min(Math.max(state.width, MIN_WINDOW_WIDTH), workArea.width);
+  const height = Math.min(Math.max(state.height, MIN_WINDOW_HEIGHT), workArea.height);
+  const hasPersistedPosition = Number.isFinite(state.x) && Number.isFinite(state.y);
+
+  if (!hasPersistedPosition || !rectsIntersect(workArea, { ...desiredBounds, width, height })) {
+    return roundBounds({
+      width,
+      height,
+      x: workArea.x + (workArea.width - width) / 2,
+      y: workArea.y + (workArea.height - height) / 2,
+    });
+  }
+
+  return roundBounds({
+    width,
+    height,
+    x: clamp(state.x ?? workArea.x, workArea.x, workArea.x + workArea.width - width),
+    y: clamp(state.y ?? workArea.y, workArea.y, workArea.y + workArea.height - height),
+  });
+}
+
+function ensureWindowVisibleOnScreen(win: BrowserWindow, trigger: string): void {
+  if (win.isDestroyed()) {
+    return;
+  }
+
+  const currentBounds = win.getBounds();
+  const normalizedBounds = normalizeWindowBounds(currentBounds);
+  const boundsChanged =
+    currentBounds.width !== normalizedBounds.width ||
+    currentBounds.height !== normalizedBounds.height ||
+    currentBounds.x !== normalizedBounds.x ||
+    currentBounds.y !== normalizedBounds.y;
+
+  if (!boundsChanged) {
+    return;
+  }
+
+  console.error('[window] Adjusting window bounds to visible display', {
+    windowId: win.id,
+    trigger,
+    before: currentBounds,
+    after: normalizedBounds,
+  });
+  win.setBounds(normalizedBounds);
+}
+
 function resolveWindowIconPath(): string | undefined {
   if (process.platform === 'darwin') {
     return undefined;
@@ -81,6 +169,22 @@ interface CreateMainWindowOptions {
   initializeWindow?: (window: BrowserWindow) => Promise<void> | void;
   partition?: string;
   replaceWindow?: BrowserWindow | null;
+}
+
+async function loadDevRendererUrl(win: BrowserWindow, url: string): Promise<void> {
+  try {
+    await win.webContents.session.clearCache();
+  } catch (error) {
+    log.warn('[window] Failed to clear dev renderer cache before loading URL', {
+      windowId: win.id,
+      url,
+      error,
+    });
+  }
+
+  await win.loadURL(url, {
+    extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
+  });
 }
 
 interface WindowReplacementController {
@@ -123,16 +227,17 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
         }
     : null;
   const state = replacementState ?? loadWindowState();
+  const initialBounds = normalizeWindowBounds(state);
 
   const isMac = process.platform === 'darwin';
   const isWindows = process.platform === 'win32';
   const windowIconPath = resolveWindowIconPath();
 
   const win = new BrowserWindow({
-    width: state.width,
-    height: state.height,
-    x: state.x,
-    y: state.y,
+    width: initialBounds.width,
+    height: initialBounds.height,
+    x: initialBounds.x,
+    y: initialBounds.y,
     minWidth: 685,
     minHeight: 600,
     // macOS: hiddenInset 保留 traffic lights 按钮
@@ -155,6 +260,22 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
       preload: join(__dirname, '../preload/index.cjs'),
     },
   });
+
+  const initialBoundsAdjusted =
+    initialBounds.width !== state.width ||
+    initialBounds.height !== state.height ||
+    initialBounds.x !== (state.x ?? initialBounds.x) ||
+    initialBounds.y !== (state.y ?? initialBounds.y);
+  if (initialBoundsAdjusted) {
+    console.error('[window] Normalized initial bounds to visible display', {
+      windowId: win.id,
+      requestedBounds: state,
+      normalizedBounds: initialBounds,
+      isDev: is.dev,
+      isPackaged: app.isPackaged,
+      replaceWindow: Boolean(options.replaceWindow),
+    });
+  }
 
   void options.initializeWindow?.(win);
 
@@ -184,12 +305,60 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
     win.maximize();
   }
 
-  win.once('ready-to-show', () => {
+  let didRevealWindow = false;
+  let revealWindowFallbackTimer: NodeJS.Timeout | null = null;
+
+  const clearRevealWindowFallbacks = () => {
+    if (revealWindowFallbackTimer) {
+      clearTimeout(revealWindowFallbackTimer);
+      revealWindowFallbackTimer = null;
+    }
+  };
+
+  const revealWindow = () => {
+    if (didRevealWindow || win.isDestroyed()) {
+      return;
+    }
+
+    didRevealWindow = true;
+    clearRevealWindowFallbacks();
+    ensureWindowVisibleOnScreen(win, 'reveal');
     win.show();
+    win.focus();
+
+    if (process.platform === 'darwin') {
+      void app.dock?.show();
+      app.focus({ steal: true });
+    }
+
     if (options.replaceWindow) {
       forceReplaceClose(options.replaceWindow);
     }
+  };
+
+  win.once('show', () => {
+    ensureWindowVisibleOnScreen(win, 'show');
   });
+  win.once('move', () => {
+    ensureWindowVisibleOnScreen(win, 'move');
+  });
+  win.once('resize', () => {
+    ensureWindowVisibleOnScreen(win, 'resize');
+  });
+  win.once('ready-to-show', () => {
+    revealWindow();
+  });
+  win.webContents.once('did-finish-load', () => {
+    revealWindow();
+  });
+  revealWindowFallbackTimer = setTimeout(() => {
+    console.error('[window] reveal fallback timer fired', {
+      windowId: win.id,
+      timeoutMs: SHOW_WINDOW_FALLBACK_DELAY_MS,
+    });
+    revealWindow();
+  }, SHOW_WINDOW_FALLBACK_DELAY_MS);
+  win.once('closed', clearRevealWindowFallbacks);
 
   // DevTools state management for traffic lights adjustment.
   // When DevTools is docked on the left, move traffic lights to the right
@@ -413,9 +582,24 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
 
   // Load renderer
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    win.loadURL(process.env.ELECTRON_RENDERER_URL);
+    log.info('[window] Loading renderer URL', {
+      windowId: win.id,
+      url: process.env.ELECTRON_RENDERER_URL,
+    });
+    void loadDevRendererUrl(win, process.env.ELECTRON_RENDERER_URL).catch((error) => {
+      log.error('[window] Failed to load renderer URL', {
+        windowId: win.id,
+        url: process.env.ELECTRON_RENDERER_URL,
+        error,
+      });
+    });
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'));
+    const rendererFilePath = join(__dirname, '../renderer/index.html');
+    log.info('[window] Loading renderer file', {
+      windowId: win.id,
+      path: rendererFilePath,
+    });
+    win.loadFile(rendererFilePath);
   }
 
   win.on('closed', () => {
