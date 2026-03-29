@@ -43,3 +43,26 @@ export function useSessionOutputState(sessionId: string): GlowState {
     (s) => (s.runtimeStates[sessionId]?.outputState ?? 'idle') as GlowState
   );
 }
+
+/**
+ * Hook to determine whether a worktree has any unread task completion markers.
+ */
+export function useWorktreeTaskCompletionNotice(worktreePath: string): boolean {
+  return useAgentSessionsStore(
+    useShallow((s) => {
+      const normalizedCwd = normalizePath(worktreePath);
+      return s.sessions.some(
+        (session) =>
+          normalizePath(session.cwd) === normalizedCwd &&
+          s.runtimeStates[session.id]?.hasCompletedTaskUnread === true
+      );
+    })
+  );
+}
+
+/**
+ * Hook to determine whether a session has an unread task completion marker.
+ */
+export function useSessionTaskCompletionNotice(sessionId: string): boolean {
+  return useAgentSessionsStore((s) => s.runtimeStates[sessionId]?.hasCompletedTaskUnread === true);
+}

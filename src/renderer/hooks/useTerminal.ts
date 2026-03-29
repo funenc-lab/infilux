@@ -1,6 +1,7 @@
 import type { TerminalCreateOptions } from '@shared/types';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { useCallback, useEffect } from 'react';
+import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
 
@@ -37,7 +38,7 @@ export function useTerminal() {
       addSession({
         id,
         title: 'Terminal',
-        cwd: options?.cwd || window.electronAPI.env.HOME || '/',
+        cwd: options?.cwd || getRendererEnvironment().HOME || '/',
       });
       return id;
     },

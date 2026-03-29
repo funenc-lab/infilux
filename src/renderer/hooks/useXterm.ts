@@ -7,8 +7,14 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
+import {
+  subscribeToXtermVisibilityChange,
+  subscribeToXtermWindowFocus,
+  subscribeToXtermWindowResize,
+} from '@/lib/xtermWindowEvents';
 import { useNavigationStore } from '@/stores/navigation';
 import { useSettingsStore } from '@/stores/settings';
 import {
@@ -206,7 +212,7 @@ export function useXterm({
   const desiredSessionBinding = useMemo(
     () =>
       createXtermSessionBindingSnapshot({
-        cwd: cwd || window.electronAPI.env.HOME,
+        cwd: cwd || getRendererEnvironment().HOME,
         kind,
         persistOnDisconnect,
         sessionId: backendSessionId,
@@ -564,7 +570,7 @@ export function useXterm({
       }
 
       // Handle copy - paste is NOT intercepted to allow image paste in agents
-      const platform = window.electronAPI.env.platform;
+      const platform = getRendererEnvironment().platform;
       const isMac = platform === 'darwin';
       const modKey = isMac ? event.metaKey : event.ctrlKey;
 
@@ -646,7 +652,7 @@ export function useXterm({
     try {
       const createRequestId = ++createRequestIdRef.current;
       const createOptions = {
-        cwd: cwd || window.electronAPI.env.HOME,
+        cwd: cwd || getRendererEnvironment().HOME,
         // If command is provided (e.g., for agent), use shell/args directly
         // Otherwise, use shellConfig from settings
         ...(command ? { shell: command.shell, args: command.args } : { shellConfig }),
@@ -943,7 +949,7 @@ export function useXterm({
       };
     })();
 
-    window.addEventListener('resize', debouncedResize);
+    const unsubscribeWindowResize = subscribeToXtermWindowResize(debouncedResize);
 
     const observer = new ResizeObserver(debouncedResize);
     if (containerRef.current) {
@@ -960,7 +966,7 @@ export function useXterm({
     }
 
     return () => {
-      window.removeEventListener('resize', debouncedResize);
+      unsubscribeWindowResize();
       observer.disconnect();
       intersectionObserver.disconnect();
     };
@@ -998,8 +1004,7 @@ export function useXterm({
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    return subscribeToXtermVisibilityChange(handleVisibilityChange);
   }, [isActive, fitTerminal]);
 
   // Handle app focus/blur events (macOS app switching)
@@ -1015,8 +1020,7 @@ export function useXterm({
       }
     };
 
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+    return subscribeToXtermWindowFocus(handleFocus);
   }, [isActive, fitTerminal]);
 
   // Silent Reset: Proactively clear texture atlas every 30 mins to prevent long-term fragmentation

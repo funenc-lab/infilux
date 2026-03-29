@@ -1,21 +1,22 @@
 import type { AIProvider, PersistentAgentSessionRecord } from '@shared/types';
-import { getDisplayPathBasename } from '@shared/utils/path';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
-import { Bot, ChevronDown, Plus, Settings } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
-import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
-import { Button } from '@/components/ui/button';
 import { toastManager } from '@/components/ui/toast';
-import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
+import { getRendererEnvironment } from '@/lib/electronEnvironment';
+import {
+  onAgentStopNotification,
+  onAskUserQuestionNotification,
+  onNotificationClick,
+  showRendererNotification,
+} from '@/lib/electronNotification';
 import { buildChatNotificationCopy } from '@/lib/feedbackCopy';
 import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
-import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { initAgentStatusListener } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
@@ -23,8 +24,10 @@ import { BUILTIN_AGENT_IDS, useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { buildConsoleButtonStyle, buildConsoleTypographyModel } from '../layout/consoleTypography';
+import { AgentCloseSessionDialog } from './AgentCloseSessionDialog';
 import { AgentGroup } from './AgentGroup';
 import { AgentTerminal } from './AgentTerminal';
+import { AgentPanelEmptyState } from './agent-panel/AgentPanelEmptyState';
 import {
   probeRemoteAgentAvailability,
   resolvePersistedInstalledAgents,
@@ -56,21 +59,12 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = {
   opencode: { name: 'OpenCode', command: 'opencode' },
 };
 
-const EMPTY_STATE_ACTION_BUTTON_CLASS_NAME =
-  'control-action-button inline-flex min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl';
-const EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME =
-  'control-action-button-primary min-w-[14rem] px-5 text-[15px] font-semibold tracking-[-0.01em]';
-const EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME =
-  'control-action-button-secondary px-4 text-[15px] font-medium';
-const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME =
-  'control-menu-item mt-1 flex w-full items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium text-foreground whitespace-nowrap';
-
 function buildPersistentHostSessionKey(uiSessionId: string): string {
   return `enso-${uiSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
-  const isWindows = window.electronAPI.env.platform === 'win32';
+  const isWindows = getRendererEnvironment().platform === 'win32';
 
   return {
     uiSessionId: session.id,
@@ -158,6 +152,10 @@ function getAgentDisplayLabel(
   const customAgent = customAgents.find((agent) => agent.id === baseId);
   const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? baseId;
   return isHapi ? `${baseName} (Hapi)` : isHappy ? `${baseName} (Happy)` : baseName;
+}
+
+function buildSessionPanelDomId(sessionId: string): string {
+  return `agent-session-panel-${sessionId}`;
 }
 
 function createSession(
@@ -269,6 +267,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     fontSize,
     editorSettings,
   } = useSettingsStore();
+  const confirmBeforeClosingAgentSession = useSettingsStore(
+    (s) => s.confirmBeforeClosingAgentSession
+  );
   // 添加 ?? true 回退，兼容老用户可能没有 enabled 字段的情况
   const quickTerminalEnabled = useSettingsStore((s) => s.quickTerminal.enabled ?? true);
   const quickTerminalOpen = useSettingsStore((s) => s.quickTerminal.isOpen);
@@ -315,6 +316,11 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const upsertRecoveredSession = useAgentSessionsStore((s) => s.upsertRecoveredSession);
 
   const [hasRunningProcess, setHasRunningProcess] = useState(false);
+  const [pendingCloseSession, setPendingCloseSession] = useState<{
+    id: string;
+    groupId?: string;
+    name: string;
+  } | null>(null);
   const quickTerminalFocusLeaseRef = useRef<{
     release: (() => void) | null;
     sessionId: string | null;
@@ -510,7 +516,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       return;
     }
 
-    if (window.electronAPI.env.platform !== 'win32') {
+    if (getRendererEnvironment().platform !== 'win32') {
       void window.electronAPI.tmux
         .killSession(session.cwd, buildPersistentHostSessionKey(session.id))
         .catch(() => {});
@@ -650,8 +656,6 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     return unsubscribe;
   }, [cwd, groups, updateCurrentGroupState]);
 
-  // Empty state agent menu
-  const [showAgentMenu, setShowAgentMenu] = useState(false);
   const [installedAgents, setInstalledAgents] = useState<Set<string>>(new Set());
 
   // Build installed agents from persisted local detection or remote runtime probing.
@@ -1062,7 +1066,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     [removeSession, updateCurrentGroupState]
   );
 
-  const handleCloseSession = useCallback(
+  const handleCloseSessionNow = useCallback(
     (id: string, groupId?: string) => {
       const session = allSessions.find((s) => s.id === id);
       if (!session) return;
@@ -1073,6 +1077,42 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     },
     [allSessions, killBackendSession, removeSessionFromUi]
   );
+
+  const handleCloseSession = useCallback(
+    (id: string, groupId?: string) => {
+      const session = allSessions.find((s) => s.id === id);
+      if (!session) return;
+
+      if (!confirmBeforeClosingAgentSession) {
+        handleCloseSessionNow(id, groupId);
+        return;
+      }
+
+      setPendingCloseSession({
+        id,
+        groupId,
+        name: session.terminalTitle || session.name || session.agentId || 'Agent session',
+      });
+    },
+    [allSessions, confirmBeforeClosingAgentSession, handleCloseSessionNow]
+  );
+
+  const handleConfirmCloseSession = useCallback(() => {
+    if (!pendingCloseSession) return;
+
+    const { id, groupId } = pendingCloseSession;
+    setPendingCloseSession(null);
+    handleCloseSessionNow(id, groupId);
+  }, [handleCloseSessionNow, pendingCloseSession]);
+
+  useEffect(() => {
+    if (!pendingCloseSession) return;
+
+    const sessionStillExists = allSessions.some((session) => session.id === pendingCloseSession.id);
+    if (!sessionStillExists) {
+      setPendingCloseSession(null);
+    }
+  }, [allSessions, pendingCloseSession]);
 
   const handleSessionExit = useCallback(
     (id: string, groupId?: string) => {
@@ -1111,7 +1151,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
   // 监听通知点击，激活对应 session 并切换 worktree
   useEffect(() => {
-    const unsubscribe = window.electronAPI.notification.onClick((sessionId) => {
+    const unsubscribe = onNotificationClick((sessionId) => {
       const session = findSessionByNotificationId(sessionId);
       if (session && !pathsEqual(session.cwd, cwd) && onSwitchWorktree) {
         onSwitchWorktree(session.cwd);
@@ -1130,9 +1170,10 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
   // 监听 Claude stop hook 通知，精确更新 output state 并发送完成通知
   const setOutputState = useAgentSessionsStore((s) => s.setOutputState);
+  const markTaskCompletedUnread = useAgentSessionsStore((s) => s.markTaskCompletedUnread);
   const getActivityState = useWorktreeActivityStore((s) => s.getActivityState);
   useEffect(() => {
-    const unsubscribe = window.electronAPI.notification.onAgentStop(({ sessionId }) => {
+    const unsubscribe = onAgentStopNotification(({ sessionId, taskCompletionStatus }) => {
       const session = findSessionByNotificationId(sessionId);
       if (session) {
         // Check if user is currently viewing this session
@@ -1142,6 +1183,10 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
         // Update output state to idle (will become 'unread' if user is not viewing)
         setOutputState(session.id, 'idle', isViewingSession);
+
+        if (taskCompletionStatus === 'completed' && !isViewingSession) {
+          markTaskCompletedUnread(session.id);
+        }
 
         // Check if enhanced input is enabled and should auto popup
         // Auto popup requires:
@@ -1177,7 +1222,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           },
           t
         );
-        window.electronAPI.notification.show({
+        void showRendererNotification({
           title: notificationCopy.title,
           body: notificationCopy.body,
           sessionId: session.id,
@@ -1193,6 +1238,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     cwd,
     isActive,
     setOutputState,
+    markTaskCompletedUnread,
     getActivityState,
     claudeCodeIntegration,
     setEnhancedInputOpen,
@@ -1203,37 +1249,35 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
   // 监听 Claude AskUserQuestion 通知
   useEffect(() => {
-    const unsubscribe = window.electronAPI.notification.onAskUserQuestion(
-      ({ sessionId, toolInput }) => {
-        const session = findSessionByNotificationId(sessionId);
-        if (session) {
-          const agentName = AGENT_INFO[session.agentId]?.name || session.agentCommand;
+    const unsubscribe = onAskUserQuestionNotification(({ sessionId, toolInput }) => {
+      const session = findSessionByNotificationId(sessionId);
+      if (session) {
+        const agentName = AGENT_INFO[session.agentId]?.name || session.agentCommand;
 
-          // Extract first question text if available
-          let questionPreview = t('User response required');
-          if (toolInput && typeof toolInput === 'object' && 'questions' in toolInput) {
-            const questions = (toolInput as { questions: Array<{ question: string }> }).questions;
-            if (questions?.[0]?.question) {
-              questionPreview = questions[0].question;
-            }
+        // Extract first question text if available
+        let questionPreview = t('User response required');
+        if (toolInput && typeof toolInput === 'object' && 'questions' in toolInput) {
+          const questions = (toolInput as { questions: Array<{ question: string }> }).questions;
+          if (questions?.[0]?.question) {
+            questionPreview = questions[0].question;
           }
-
-          const notificationCopy = buildChatNotificationCopy(
-            {
-              action: 'waiting-input',
-              command: agentName,
-              preview: questionPreview,
-            },
-            t
-          );
-          window.electronAPI.notification.show({
-            title: notificationCopy.title,
-            body: notificationCopy.body,
-            sessionId: session.id,
-          });
         }
+
+        const notificationCopy = buildChatNotificationCopy(
+          {
+            action: 'waiting-input',
+            command: agentName,
+            preview: questionPreview,
+          },
+          t
+        );
+        void showRendererNotification({
+          title: notificationCopy.title,
+          body: notificationCopy.body,
+          sessionId: session.id,
+        });
       }
-    );
+    });
     return unsubscribe;
   }, [findSessionByNotificationId, t]);
 
@@ -1741,6 +1785,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return;
+      if (pendingCloseSession) return;
 
       if (matchesKeybinding(e, xtermKeybindings.newTab)) {
         e.preventDefault();
@@ -1785,6 +1830,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     isActive,
+    pendingCloseSession,
     groups,
     activeGroupId,
     xtermKeybindings,
@@ -1843,6 +1889,29 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     () => buildConsoleButtonStyle(emptyStateTypography),
     [emptyStateTypography]
   );
+  const emptyStateProfiles = useMemo(
+    () =>
+      [...enabledAgents]
+        .sort((a, b) => {
+          const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
+          const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
+          return bDefault - aDefault;
+        })
+        .map((agentId) => {
+          const isHapi = agentId.endsWith('-hapi');
+          const isHappy = agentId.endsWith('-happy');
+          const baseId = isHapi ? agentId.slice(0, -5) : isHappy ? agentId.slice(0, -6) : agentId;
+          const customAgent = customAgents.find((agent) => agent.id === baseId);
+
+          return {
+            agentId,
+            command: customAgent?.command ?? AGENT_INFO[baseId]?.command ?? 'claude',
+            isDefault: Boolean(agentSettings[agentId]?.isDefault),
+            name: getAgentDisplayLabel(agentId, customAgents),
+          };
+        }),
+    [agentSettings, customAgents, enabledAgents]
+  );
   const handleOpenAgentSettings = useCallback(() => {
     window.dispatchEvent(new CustomEvent('open-settings-agent'));
   }, []);
@@ -1893,171 +1962,20 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     >
       {/* Empty state overlay - shown when current worktree has no sessions */}
       {/* IMPORTANT: Don't use early return here - terminals must stay mounted to prevent PTY destruction */}
-      {showEmptyState && (
-        <div
-          className={cn(
-            'absolute inset-0 z-20 flex items-start justify-center px-6 pb-6 pt-12 sm:pt-16',
-            !bgImageEnabled && 'bg-background'
-          )}
-        >
-          <ConsoleEmptyState
-            className="max-w-[min(60rem,100%)]"
-            icon={<Bot className="h-5 w-5" />}
-            eyebrow={t('Agent Console')}
-            title={t('No agent sessions are attached to this worktree')}
-            description={t(
-              'Launch the default agent immediately or choose another profile to resume orchestration in this worktree.'
-            )}
-            chips={[{ label: getDisplayPathBasename(cwd), tone: 'strong' }]}
-            details={[
-              { label: t('Status'), value: emptyStateModel.statusLabel },
-              { label: t('Default Agent'), value: defaultAgentLabel },
-              { label: t('Profiles Ready'), value: String(enabledAgents.length) },
-              {
-                label: t('Next Step'),
-                value: emptyStateModel.nextStepLabel,
-              },
-            ]}
-            detailsLayout="compact"
-            actions={
-              <>
-                <div
-                  className="relative flex min-w-0 flex-wrap items-center gap-2"
-                  onMouseEnter={() => setShowAgentMenu(true)}
-                  onMouseLeave={() => setShowAgentMenu(false)}
-                >
-                  <Button
-                    variant="default"
-                    size="lg"
-                    onClick={() => {
-                      if (emptyStateModel.primaryActionIntent === 'open-agent-settings') {
-                        handleOpenAgentSettings();
-                      } else {
-                        handleNewSession();
-                      }
-                      setShowAgentMenu(false);
-                    }}
-                    className={cn(
-                      EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
-                      EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME,
-                      'rounded-xl'
-                    )}
-                    style={emptyStateButtonStyle}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {emptyStateModel.primaryActionLabel}
-                  </Button>
-                  {emptyStateModel.showProfilePicker ? (
-                    <Button
-                      variant="outline"
-                      size="lg"
-                      aria-label={t('Choose Profile')}
-                      onClick={() => setShowAgentMenu((current) => !current)}
-                      className={cn(
-                        EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
-                        EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME,
-                        'rounded-xl'
-                      )}
-                      style={emptyStateButtonStyle}
-                    >
-                      {t('Choose Profile')}
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                  {showAgentMenu &&
-                    emptyStateModel.showProfilePicker &&
-                    enabledAgents.length > 0 && (
-                      <div className="absolute left-0 top-full z-50 min-w-52 pt-2 text-left">
-                        <div className="control-menu rounded-2xl p-2">
-                          <div className="mb-1 flex min-w-0 items-center justify-between gap-2 px-1 py-1">
-                            <span
-                              className="control-menu-label min-w-0 flex-1 truncate pr-2 text-muted-foreground"
-                              title={t('Start with Profile')}
-                            >
-                              {t('Start with Profile')}
-                            </span>
-                            <Tooltip>
-                              <TooltipTrigger render={<span />}>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowAgentMenu(false);
-                                    handleOpenAgentSettings();
-                                  }}
-                                  className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:text-foreground"
-                                >
-                                  <Settings className="h-3.5 w-3.5" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipPopup side="right">{t('Agent profiles')}</TooltipPopup>
-                            </Tooltip>
-                          </div>
-                          {[...enabledAgents]
-                            .sort((a, b) => {
-                              const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
-                              const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
-                              return bDefault - aDefault;
-                            })
-                            .map((agentId) => {
-                              const isHapi = agentId.endsWith('-hapi');
-                              const isHappy = agentId.endsWith('-happy');
-                              const baseId = isHapi
-                                ? agentId.slice(0, -5)
-                                : isHappy
-                                  ? agentId.slice(0, -6)
-                                  : agentId;
-                              const customAgent = customAgents.find((a) => a.id === baseId);
-                              const name = getAgentDisplayLabel(agentId, customAgents);
-                              const isDefault = agentSettings[agentId]?.isDefault;
-
-                              return (
-                                <button
-                                  type="button"
-                                  key={agentId}
-                                  onClick={() => {
-                                    handleNewSessionWithAgent(
-                                      agentId,
-                                      customAgent?.command ??
-                                        AGENT_INFO[baseId]?.command ??
-                                        'claude'
-                                    );
-                                    setShowAgentMenu(false);
-                                  }}
-                                  className={EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME}
-                                >
-                                  <span className="min-w-0 flex-1 truncate">{name}</span>
-                                  {isDefault ? (
-                                    <span className="control-chip control-chip-strong shrink-0">
-                                      {t('Default')}
-                                    </span>
-                                  ) : null}
-                                </button>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    )}
-                </div>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={handleOpenAgentSettings}
-                  className={cn(
-                    EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
-                    EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME,
-                    'rounded-xl'
-                  )}
-                  style={emptyStateButtonStyle}
-                >
-                  <Settings className="h-4 w-4" />
-                  {t('Agent profiles')}
-                </Button>
-              </>
-            }
-          />
-        </div>
-      )}
+      {showEmptyState ? (
+        <AgentPanelEmptyState
+          bgImageEnabled={bgImageEnabled}
+          buttonStyle={emptyStateButtonStyle}
+          cwd={cwd}
+          defaultAgentLabel={defaultAgentLabel}
+          emptyStateModel={emptyStateModel}
+          enabledAgentCount={enabledAgents.length}
+          onOpenAgentSettings={handleOpenAgentSettings}
+          onStartDefaultSession={handleNewSession}
+          onStartSessionWithAgent={handleNewSessionWithAgent}
+          profiles={emptyStateProfiles}
+        />
+      ) : null}
       {/* Resize handles - only for current worktree */}
       {currentGroupState.groups.length > 1 &&
         currentGroupState.groups.map((group, index) => {
@@ -2122,6 +2040,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           return (
             <div
               key={sessionId}
+              id={buildSessionPanelDomId(sessionId)}
               className={
                 shouldShow ? 'absolute h-full' : 'absolute h-full opacity-0 pointer-events-none'
               }
@@ -2248,6 +2167,15 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           </div>
         );
       })}
+      <AgentCloseSessionDialog
+        pendingCloseSession={pendingCloseSession}
+        onConfirm={handleConfirmCloseSession}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingCloseSession(null);
+          }
+        }}
+      />
       {/* Quick Terminal Modal - 始终挂载以保持 terminal 运行状态 */}
       {quickTerminalEnabled && (
         <QuickTerminalModal

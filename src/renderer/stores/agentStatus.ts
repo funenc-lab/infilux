@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { onAgentStatusUpdateNotification } from '@/lib/electronNotification';
 
 export interface StatusData {
   model: {
@@ -74,7 +75,7 @@ export const useAgentStatusStore = create<AgentStatusStore>((set, get) => ({
  * Call this once on app startup
  */
 export function initAgentStatusListener(): () => void {
-  return window.electronAPI.notification.onAgentStatusUpdate((data) => {
+  return onAgentStatusUpdateNotification((data) => {
     const { sessionId, model, contextWindow, cost, workspace, version } = data;
 
     // Update status data - stored by sessionId, no need for session to exist

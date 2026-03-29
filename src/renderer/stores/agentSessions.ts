@@ -17,6 +17,7 @@ export interface SessionRuntimeState {
   outputState: OutputState;
   lastActivityAt: number;
   wasActiveWhenOutputting: boolean; // Track if user was viewing this session during output
+  hasCompletedTaskUnread?: boolean;
 }
 
 // Enhanced input state for each session (not persisted)
@@ -74,6 +75,9 @@ interface AgentSessionsState {
   setOutputState: (sessionId: string, outputState: OutputState, isActive?: boolean) => void;
   markAsRead: (sessionId: string) => void;
   markSessionActive: (sessionId: string) => void; // Call when user views a session
+  markTaskCompletedUnread: (sessionId: string) => void;
+  clearTaskCompletedUnread: (sessionId: string) => void;
+  clearTaskCompletedUnreadByWorktree: (cwd: string) => void;
   getOutputState: (sessionId: string) => OutputState;
   getRuntimeState: (sessionId: string) => SessionRuntimeState | undefined;
   clearRuntimeState: (sessionId: string) => void;
@@ -385,6 +389,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
                 outputState: 'outputting',
                 lastActivityAt: Date.now(),
                 wasActiveWhenOutputting: isActive,
+                hasCompletedTaskUnread: false,
               },
             },
           };
@@ -410,6 +415,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
                 outputState: shouldMarkUnread ? 'unread' : 'idle',
                 lastActivityAt: Date.now(),
                 wasActiveWhenOutputting: false,
+                hasCompletedTaskUnread: currentState?.hasCompletedTaskUnread ?? false,
               },
             },
           };
@@ -426,6 +432,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               outputState,
               lastActivityAt: Date.now(),
               wasActiveWhenOutputting: false,
+              hasCompletedTaskUnread: currentState?.hasCompletedTaskUnread ?? false,
             },
           },
         };
@@ -463,6 +470,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               [sessionId]: {
                 ...currentState,
                 wasActiveWhenOutputting: true,
+                hasCompletedTaskUnread: false,
               },
             },
           };
@@ -474,11 +482,87 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               [sessionId]: {
                 ...currentState,
                 outputState: 'idle',
+                hasCompletedTaskUnread: false,
+              },
+            },
+          };
+        }
+        if (currentState.hasCompletedTaskUnread) {
+          return {
+            runtimeStates: {
+              ...prev.runtimeStates,
+              [sessionId]: {
+                ...currentState,
+                hasCompletedTaskUnread: false,
               },
             },
           };
         }
         return prev;
+      }),
+
+    markTaskCompletedUnread: (sessionId) =>
+      set((prev) => {
+        const currentState = prev.runtimeStates[sessionId];
+        if (currentState?.hasCompletedTaskUnread) {
+          return prev;
+        }
+        return {
+          runtimeStates: {
+            ...prev.runtimeStates,
+            [sessionId]: {
+              outputState: currentState?.outputState ?? 'idle',
+              lastActivityAt: currentState?.lastActivityAt ?? Date.now(),
+              wasActiveWhenOutputting: currentState?.wasActiveWhenOutputting ?? false,
+              hasCompletedTaskUnread: true,
+            },
+          },
+        };
+      }),
+
+    clearTaskCompletedUnread: (sessionId) =>
+      set((prev) => {
+        const currentState = prev.runtimeStates[sessionId];
+        if (!currentState?.hasCompletedTaskUnread) {
+          return prev;
+        }
+        return {
+          runtimeStates: {
+            ...prev.runtimeStates,
+            [sessionId]: {
+              ...currentState,
+              hasCompletedTaskUnread: false,
+            },
+          },
+        };
+      }),
+
+    clearTaskCompletedUnreadByWorktree: (cwd) =>
+      set((prev) => {
+        const normalizedCwd = normalizePath(cwd);
+        let changed = false;
+        const nextRuntimeStates = { ...prev.runtimeStates };
+
+        for (const session of prev.sessions) {
+          if (normalizePath(session.cwd) !== normalizedCwd) {
+            continue;
+          }
+          const currentState = nextRuntimeStates[session.id];
+          if (!currentState?.hasCompletedTaskUnread) {
+            continue;
+          }
+          nextRuntimeStates[session.id] = {
+            ...currentState,
+            hasCompletedTaskUnread: false,
+          };
+          changed = true;
+        }
+
+        if (!changed) {
+          return prev;
+        }
+
+        return { runtimeStates: nextRuntimeStates };
       }),
 
     getOutputState: (sessionId) => {

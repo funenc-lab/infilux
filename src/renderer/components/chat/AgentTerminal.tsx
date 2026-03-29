@@ -9,6 +9,7 @@ import { useRepositoryRuntimeContext } from '@/hooks/useRepositoryRuntimeContext
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
 import { useI18n } from '@/i18n';
+import { showRendererNotification } from '@/lib/electronNotification';
 import { buildChatNotificationCopy } from '@/lib/feedbackCopy';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
@@ -421,7 +422,7 @@ export function AgentTerminal({
             },
             t
           );
-          window.electronAPI.notification.show({
+          void showRendererNotification({
             title: notificationCopy.title,
             body: notificationCopy.body,
             sessionId: terminalSessionId,

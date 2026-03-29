@@ -104,4 +104,45 @@ describe('agent session recovery store', () => {
       }),
     ]);
   });
+
+  it('tracks unread completed-task markers and clears them on view, worktree select, or next run', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-1',
+      sessionId: 'provider-1',
+      name: 'Claude',
+      agentId: 'claude',
+      agentCommand: 'claude',
+      initialized: true,
+      activated: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+
+    store.markTaskCompletedUnread('session-1');
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      hasCompletedTaskUnread: true,
+    });
+
+    store.markSessionActive('session-1');
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      hasCompletedTaskUnread: false,
+    });
+
+    store.markTaskCompletedUnread('session-1');
+    store.clearTaskCompletedUnreadByWorktree('/repo/worktree');
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      hasCompletedTaskUnread: false,
+    });
+
+    store.markTaskCompletedUnread('session-1');
+    store.setOutputState('session-1', 'outputting', false);
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      hasCompletedTaskUnread: false,
+      outputState: 'outputting',
+    });
+  });
 });

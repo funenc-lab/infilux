@@ -1,6 +1,8 @@
 import { Terminal } from 'lucide-react';
 import { useCallback, useRef } from 'react';
 import { useDraggable } from '@/hooks/useDraggable';
+import { useI18n } from '@/i18n';
+import { quickTerminalI18nKeys } from '@/lib/uiTranslationKeys';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -17,12 +19,13 @@ export function QuickTerminalButton({
   hasRunningProcess,
   onClick,
 }: QuickTerminalButtonProps) {
+  const { t } = useI18n();
   const buttonPosition = useSettingsStore((s) => s.quickTerminal.buttonPosition);
   const setButtonPosition = useSettingsStore((s) => s.setQuickTerminalButtonPosition);
 
   const BUTTON_SIZE = 44;
 
-  // 计算容器边界（相对于 viewport）
+  // Calculate container bounds relative to the viewport.
   const getContainerBounds = useCallback(() => {
     if (!containerRef.current) {
       return {
@@ -41,7 +44,7 @@ export function QuickTerminalButton({
     };
   }, [containerRef]);
 
-  // 使用 useRef 缓存默认位置
+  // Cache the default position.
   const defaultPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   if (!defaultPositionRef.current) {
@@ -67,7 +70,7 @@ export function QuickTerminalButton({
   });
 
   const handleClick = (e: React.MouseEvent) => {
-    // 如果发生了拖动，不触发点击
+    // Do not trigger click behavior after a drag gesture.
     if (hasDragged) {
       e.stopPropagation();
       e.preventDefault();
@@ -78,7 +81,7 @@ export function QuickTerminalButton({
 
   return (
     <button
-      aria-label="Quick Terminal"
+      aria-label={t(quickTerminalI18nKeys.buttonLabel)}
       aria-pressed={isOpen}
       type="button"
       onClick={handleClick}
@@ -86,10 +89,10 @@ export function QuickTerminalButton({
       className={cn(
         'control-floating-button fixed z-30 flex items-center justify-center rounded-full',
         'pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11',
-        // 拖动时状态
+        // Dragging state.
         isDragging && 'cursor-grabbing opacity-70 scale-95',
-        !isDragging && 'cursor-grab transition-all duration-200', // 只在非拖动时启用过渡
-        // 根据状态设置背景和文字颜色
+        !isDragging && 'cursor-grab transition-all duration-200', // Only animate when not dragging.
+        // Adjust background and foreground colors by state.
         isOpen
           ? 'border-primary/34 bg-primary/16 text-primary'
           : hasRunningProcess
@@ -102,7 +105,7 @@ export function QuickTerminalButton({
         width: `${BUTTON_SIZE}px`,
         height: `${BUTTON_SIZE}px`,
       }}
-      title="Quick Terminal (Ctrl+`)"
+      title={t(quickTerminalI18nKeys.shortcutTitle)}
     >
       <Terminal className="h-4 w-4" />
     </button>

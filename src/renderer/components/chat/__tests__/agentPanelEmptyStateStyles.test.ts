@@ -1,10 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { agentPanelSource } from './agentPanelSource';
 
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const panelSource = readFileSync(resolve(currentDir, '../AgentPanel.tsx'), 'utf8');
+const panelSource = agentPanelSource;
 
 describe('AgentPanel empty state styles', () => {
   it('uses shared console action button classes for the empty state controls', () => {

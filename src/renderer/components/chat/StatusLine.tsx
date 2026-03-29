@@ -155,7 +155,7 @@ function DirItem({ path, icon, label }: DirItemProps) {
         <div className="flex flex-col">
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
             onClick={handleOpenFolder}
           >
             <FolderOpen className="h-4 w-4" />
@@ -163,7 +163,7 @@ function DirItem({ path, icon, label }: DirItemProps) {
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
             onClick={handleCopyPath}
           >
             <Copy className="h-4 w-4" />
