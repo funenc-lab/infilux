@@ -5,9 +5,146 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: local-file: local-image:; media-src 'self' https: http: local-file: local-image: blob: data:; connect-src 'self' local-file: local-image: https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net">
     <title>Infilux</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bootstrap-bg: #151313;
+        --bootstrap-surface: rgba(255, 255, 255, 0.05);
+        --bootstrap-border: rgba(255, 255, 255, 0.1);
+        --bootstrap-text: rgba(255, 248, 240, 0.94);
+        --bootstrap-muted: rgba(255, 248, 240, 0.58);
+        --bootstrap-accent: #f2c572;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(circle at top, rgba(242, 197, 114, 0.16), transparent 36%),
+          linear-gradient(180deg, #191616 0%, var(--bootstrap-bg) 100%);
+      }
+
+      body {
+        color: var(--bootstrap-text);
+        font-family:
+          "SF Pro Display",
+          "Segoe UI",
+          sans-serif;
+      }
+
+      #root {
+        min-height: 100vh;
+      }
+
+      .bootstrap-shell {
+        box-sizing: border-box;
+        display: grid;
+        min-height: 100vh;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .bootstrap-card {
+        width: min(460px, 100%);
+        border: 1px solid var(--bootstrap-border);
+        border-radius: 22px;
+        background: var(--bootstrap-surface);
+        box-shadow:
+          0 30px 80px rgba(0, 0, 0, 0.45),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(18px);
+        padding: 28px 24px;
+      }
+
+      .bootstrap-header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .bootstrap-mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, rgba(242, 197, 114, 0.22), rgba(242, 197, 114, 0.08));
+        color: var(--bootstrap-accent);
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+
+      .bootstrap-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 620;
+        letter-spacing: 0.01em;
+      }
+
+      .bootstrap-subtitle {
+        margin: 4px 0 0;
+        color: var(--bootstrap-muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .bootstrap-progress {
+        position: relative;
+        overflow: hidden;
+        height: 6px;
+        margin-top: 22px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .bootstrap-progress::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 42%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(242, 197, 114, 0.2), var(--bootstrap-accent));
+        animation: bootstrap-slide 1.2s ease-in-out infinite;
+      }
+
+      .bootstrap-footnote {
+        margin: 14px 0 0;
+        color: var(--bootstrap-muted);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+      }
+
+      @keyframes bootstrap-slide {
+        0% {
+          transform: translateX(-110%);
+        }
+        100% {
+          transform: translateX(260%);
+        }
+      }
+    </style>
   </head>
   <body class="bg-background text-foreground antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <div class="bootstrap-shell">
+        <div class="bootstrap-card">
+          <div class="bootstrap-header">
+            <div class="bootstrap-mark">IF</div>
+            <div>
+              <h1 class="bootstrap-title">Starting Infilux</h1>
+              <p class="bootstrap-subtitle">
+                Loading workspace state, renderer modules, and development tools.
+              </p>
+            </div>
+          </div>
+          <div class="bootstrap-progress" aria-hidden="true"></div>
+          <p class="bootstrap-footnote">Preparing desktop workspace...</p>
+        </div>
+      </div>
+    </div>
     <script type="module" src="./index.tsx"></script>
   </body>
 </html>

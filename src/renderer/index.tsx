@@ -12,13 +12,29 @@ import {
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { RendererDiagnosticsProbe } from './components/RendererDiagnosticsProbe';
 import { ToastProvider } from './components/ui/toast';
+import { ensureRendererBridgeFallback } from './lib/electronBridgeFallback';
 import { getRendererDiagnosticsSnapshot } from './lib/runtimeDiagnostics';
 import './styles/globals.css';
+
+function setBootstrapStage(stage: string): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  (
+    window as Window & {
+      __infiluxBootstrapStage?: string;
+    }
+  ).__infiluxBootstrapStage = stage;
+}
 
 // Initialize renderer logging with conservative defaults
 // Starts with 'error' level to minimize IPC overhead until settings are loaded
 log.transports.ipc.level = 'error';
 Object.assign(console, log.functions);
+
+setBootstrapStage('module-evaluated');
+ensureRendererBridgeFallback();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -83,6 +99,7 @@ function installManagedLocalStorageSyncOnUnload(): void {
 
 async function hydrateManagedLocalStorageFromSharedSession(): Promise<void> {
   try {
+    setBootstrapStage('hydrating-local-storage');
     const [sessionState, legacyLocalStorageMigrated] = await Promise.all([
       window.electronAPI.sessionStorage.get(),
       window.electronAPI.sessionStorage.isLegacyLocalStorageMigrated(),
@@ -119,7 +136,10 @@ async function hydrateManagedLocalStorageFromSharedSession(): Promise<void> {
         sharedKeyCount: Object.keys(sharedSnapshot).length,
       });
     }
+
+    setBootstrapStage('hydration-complete');
   } catch (error) {
+    setBootstrapStage('hydration-failed');
     console.error('[renderer] Failed to hydrate managed localStorage from shared session state', {
       error,
       diagnostics: getRendererDiagnosticsSnapshot(),
@@ -132,12 +152,18 @@ installManagedLocalStorageSyncOnUnload();
 async function startApp(): Promise<void> {
   const root = document.getElementById('root');
   if (!root) {
+    setBootstrapStage('missing-root');
     return;
   }
 
+  setBootstrapStage('start-app-entered');
   await hydrateManagedLocalStorageFromSharedSession();
+  setBootstrapStage('importing-app');
+  const appImportStartedAt = performance.now();
   const { default: App } = await import('./App');
-
+  const appImportDurationMs = performance.now() - appImportStartedAt;
+  console.info(`[renderer-bootstrap] App module imported in ${Math.round(appImportDurationMs)}ms`);
+  setBootstrapStage('rendering-root');
   createRoot(root).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
@@ -150,9 +176,11 @@ async function startApp(): Promise<void> {
       </QueryClientProvider>
     </StrictMode>
   );
+  setBootstrapStage('render-dispatched');
 }
 
 startApp().catch((error) => {
+  setBootstrapStage('bootstrap-failed');
   console.error('[renderer] Failed to bootstrap app:', {
     error,
     diagnostics: getRendererDiagnosticsSnapshot(),
