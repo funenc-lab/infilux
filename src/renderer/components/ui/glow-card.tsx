@@ -16,6 +16,7 @@ interface GlowCardProps {
   children: ReactNode;
   className?: string;
   as?: 'div' | 'button';
+  id?: string;
   onClick?: () => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
@@ -23,6 +24,9 @@ interface GlowCardProps {
   tabIndex?: number;
   role?: string;
   title?: string;
+  'aria-selected'?: boolean;
+  'aria-controls'?: string;
+  'aria-label'?: string;
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: (e: React.DragEvent) => void;
@@ -42,6 +46,7 @@ export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
       children,
       className,
       as = 'div',
+      id,
       onClick,
       onDoubleClick,
       onContextMenu,
@@ -49,6 +54,9 @@ export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
       tabIndex,
       role,
       title,
+      'aria-selected': ariaSelected,
+      'aria-controls': ariaControls,
+      'aria-label': ariaLabel,
       draggable,
       onDragStart,
       onDragEnd,
@@ -63,6 +71,7 @@ export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
     return (
       <Component
         ref={ref as React.Ref<HTMLDivElement & HTMLButtonElement>}
+        id={id}
         className={cn('relative overflow-hidden', className)}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
@@ -71,6 +80,9 @@ export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
         tabIndex={tabIndex}
         role={role}
         title={title}
+        aria-selected={ariaSelected}
+        aria-controls={ariaControls}
+        aria-label={ariaLabel}
         draggable={draggable}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}

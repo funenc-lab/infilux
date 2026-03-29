@@ -21,11 +21,16 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { WorktreeAgentSummary } from '../WorktreeAgentSummary';
 
 interface WorktreeItemProps {
   worktree: GitWorktree;
+  activeSession?: import('@/components/chat/SessionBar').Session;
+  liveSubagents?: import('@shared/types').LiveAgentSubagent[];
   isActive: boolean;
   onClick: () => void;
+  onOpenAgentThread?: (sessionId: string) => void;
+  onOpenSubagentTranscript?: (subagent: import('@shared/types').LiveAgentSubagent) => void;
   onDelete: () => void;
   onMerge?: () => void;
   // Drag reorder props
@@ -42,8 +47,12 @@ interface WorktreeItemProps {
 
 export function WorktreeItem({
   worktree,
+  activeSession,
+  liveSubagents = [],
   isActive,
   onClick,
+  onOpenAgentThread,
+  onOpenSubagentTranscript,
   onDelete,
   onMerge,
   draggable,
@@ -355,6 +364,15 @@ export function WorktreeItem({
             </div>
           ) : null}
         </div>
+        {activeSession ? (
+          <WorktreeAgentSummary
+            className="pl-5 pt-1"
+            session={activeSession}
+            subagents={liveSubagents}
+            onSelectSession={onOpenAgentThread}
+            onSelectSubagent={onOpenSubagentTranscript}
+          />
+        ) : null}
       </div>
       {showDropIndicator && dropDirection === 'bottom' && (
         <div className="absolute -bottom-0.5 left-0 right-0 h-0.5 rounded-full bg-theme/75" />

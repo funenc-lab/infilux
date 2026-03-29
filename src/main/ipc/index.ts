@@ -8,6 +8,7 @@ import { webInspectorServer } from '../services/webInspector';
 import { cleanupExecInPtys, cleanupExecInPtysSync } from '../utils/shell';
 import { registerAgentHandlers } from './agent';
 import { registerAgentSessionHandlers } from './agentSession';
+import { registerAgentSubagentHandlers } from './agentSubagent';
 import { registerAppHandlers } from './app';
 import {
   registerClaudeCompletionsHandlers,
@@ -68,6 +69,7 @@ export function registerIpcHandlers(): void {
   registerSessionHandlers();
   registerSessionStorageHandlers();
   registerAgentHandlers();
+  registerAgentSubagentHandlers();
   registerAgentSessionHandlers();
   registerDialogHandlers();
   registerAppHandlers();

@@ -1,3 +1,4 @@
+import type { LiveAgentSubagent } from '@shared/types';
 import { getDisplayPathBasename } from '@shared/utils/path';
 import { GitBranch, RectangleEllipsis, Sparkles } from 'lucide-react';
 import type { TabId } from '@/App/constants';
@@ -13,6 +14,7 @@ import { DeferredSettingsContent } from './DeferredSettingsContent';
 import { DeferredSourceControlPanel } from './DeferredSourceControlPanel';
 import { DeferredTerminalPanel } from './DeferredTerminalPanel';
 import { DeferredTodoPanel } from './DeferredTodoPanel';
+import { SubagentTranscriptPanel } from './SubagentTranscriptPanel';
 
 type FileTreeDisplayMode = 'legacy' | 'current';
 type SettingsDisplayMode = 'tab' | 'draggable-modal';
@@ -55,6 +57,8 @@ export interface MainContentPanelsProps {
   onCategoryChange?: (category: SettingsCategory) => void;
   scrollToProvider?: boolean;
   onTabChange: (tab: TabId) => void;
+  selectedSubagent?: LiveAgentSubagent | null;
+  onCloseSelectedSubagent?: () => void;
 }
 
 function getPathLabel(path?: string | null): string | null {
@@ -140,6 +144,8 @@ export function MainContentPanels({
   onCategoryChange,
   scrollToProvider,
   onTabChange,
+  selectedSubagent = null,
+  onCloseSelectedSubagent,
 }: MainContentPanelsProps) {
   const { t } = useI18n();
   const repoLabel = getPathLabel(repoPath);
@@ -163,6 +169,12 @@ export function MainContentPanels({
                 onSwitchWorktree={onSwitchWorktree}
                 shouldLoad
               />
+              {selectedSubagent && activeTab === 'chat' && hasActiveWorktree ? (
+                <SubagentTranscriptPanel
+                  subagent={selectedSubagent}
+                  onClose={onCloseSelectedSubagent ?? (() => {})}
+                />
+              ) : null}
               {!hasActiveWorktree ? (
                 <div className={cn('absolute inset-0 z-20', innerBg)}>
                   <ConsoleIdleState

@@ -129,6 +129,8 @@ export const IPC_CHANNELS = {
 
   // Agent
   AGENT_LIST: 'agent:list',
+  AGENT_SUBAGENT_LIST_LIVE: 'agentSubagent:listLive',
+  AGENT_SUBAGENT_GET_TRANSCRIPT: 'agentSubagent:getTranscript',
   AGENT_SESSION_LIST_RECOVERABLE: 'agentSession:listRecoverable',
   AGENT_SESSION_RESTORE_WORKTREE: 'agentSession:restoreWorktree',
   AGENT_SESSION_RECONCILE: 'agentSession:reconcile',

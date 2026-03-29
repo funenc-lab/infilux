@@ -225,6 +225,7 @@ function getInitialState() {
     defaultWorktreePath: '',
     proxySettings: defaultProxySettings,
     autoCreateSessionOnActivate: false,
+    confirmBeforeClosingAgentSession: true,
 
     // Git Auto Operations
     gitAutoFetchEnabled: true,

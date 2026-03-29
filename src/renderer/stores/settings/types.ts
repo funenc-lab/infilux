@@ -420,6 +420,7 @@ export interface SettingsState {
   defaultWorktreePath: string; // Default path for creating worktrees
   proxySettings: ProxySettings;
   autoCreateSessionOnActivate: boolean; // Auto-create agent/terminal session when worktree becomes active
+  confirmBeforeClosingAgentSession: boolean;
   gitAutoFetchEnabled: boolean;
 
   // Git Clone Settings

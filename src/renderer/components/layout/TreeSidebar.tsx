@@ -61,6 +61,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
+import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
@@ -68,7 +69,9 @@ import { buildRemovalDialogCopy, buildWorkspaceToastCopy } from '@/lib/feedbackC
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
 import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import { buildActiveSessionMapByWorktree } from '@/lib/worktreeAgentSummary';
 import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
@@ -120,6 +123,11 @@ interface TreeSidebarProps {
   onMoveToGroup?: (repoPath: string, groupId: string | null) => void;
   onSwitchTab?: (tab: TabId) => void;
   onSwitchWorktreeByPath?: (path: string) => Promise<void> | void;
+  onOpenAgentThread?: (worktree: GitWorktree, sessionId: string) => void;
+  onOpenSubagentTranscript?: (
+    worktree: GitWorktree,
+    subagent: import('@shared/types').LiveAgentSubagent
+  ) => void;
   temporaryWorkspaceEnabled?: boolean;
   tempWorkspaces?: TempWorkspaceItem[];
   tempBasePath?: string;
@@ -169,6 +177,8 @@ export function TreeSidebar({
   onMoveToGroup,
   onSwitchTab,
   onSwitchWorktreeByPath,
+  onOpenAgentThread,
+  onOpenSubagentTranscript,
   temporaryWorkspaceEnabled = false,
   tempWorkspaces = [],
   tempBasePath = '',
@@ -218,6 +228,12 @@ export function TreeSidebar({
     () => [...safeTempWorkspaces].sort((a, b) => b.createdAt - a.createdAt),
     [safeTempWorkspaces]
   );
+  const allSessions = useAgentSessionsStore((state) => state.sessions);
+  const activeIds = useAgentSessionsStore((state) => state.activeIds);
+  const activeSessionMap = useMemo(
+    () => buildActiveSessionMapByWorktree(allSessions, activeIds),
+    [activeIds, allSessions]
+  );
 
   // Convert list to set for fast lookups
   const expandedRepos = useMemo(() => new Set(expandedRepoList), [expandedRepoList]);
@@ -234,6 +250,22 @@ export function TreeSidebar({
       enabled: canLoadRepo(repoPath),
     }))
   );
+  const allWorktreePaths = useMemo(() => {
+    const paths = new Set<string>();
+
+    for (const worktree of sanitizeGitWorktrees(_worktrees)) {
+      paths.add(normalizePath(worktree.path));
+    }
+
+    for (const repoWorktrees of Object.values(worktreesMap)) {
+      for (const worktree of sanitizeGitWorktrees(repoWorktrees ?? [])) {
+        paths.add(normalizePath(worktree.path));
+      }
+    }
+
+    return [...paths];
+  }, [_worktrees, worktreesMap]);
+  const liveSubagentMap = useLiveSubagents(allWorktreePaths);
 
   // Repository context menu
   const [repoMenuOpen, setRepoMenuOpen] = useState(false);
@@ -993,6 +1025,12 @@ export function TreeSidebar({
                   key={worktree.path}
                   worktree={worktree}
                   branches={branches}
+                  activeSession={activeSessionMap.get(normalizePath(worktree.path))}
+                  liveSubagents={
+                    activeSessionMap.get(normalizePath(worktree.path))?.agentId.startsWith('codex')
+                      ? (liveSubagentMap.get(normalizePath(worktree.path)) ?? [])
+                      : []
+                  }
                   isActive={activeWorktree?.path === worktree.path}
                   onClick={() => {
                     if (!isSelected) {
@@ -1000,6 +1038,10 @@ export function TreeSidebar({
                     }
                     onSelectWorktree(worktree);
                   }}
+                  onOpenAgentThread={(sessionId) => onOpenAgentThread?.(worktree, sessionId)}
+                  onOpenSubagentTranscript={(subagent) =>
+                    onOpenSubagentTranscript?.(worktree, subagent)
+                  }
                   onDelete={() => setWorktreeToDelete(worktree)}
                   onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
                   draggable={!searchQuery && !!onReorderWorktrees && isSelected}

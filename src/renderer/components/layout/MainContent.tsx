@@ -1,3 +1,4 @@
+import type { LiveAgentSubagent } from '@shared/types';
 import { FileCode, GitBranch, KanbanSquare, Sparkles, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
@@ -50,6 +51,8 @@ interface MainContentProps {
   showOpenInMenu?: boolean;
   sourceControlEmptyTitle?: string;
   sourceControlEmptyDescription?: string;
+  selectedSubagent?: LiveAgentSubagent | null;
+  onCloseSelectedSubagent?: () => void;
 }
 
 export function MainContent({
@@ -79,6 +82,8 @@ export function MainContent({
   showOpenInMenu = true,
   sourceControlEmptyTitle,
   sourceControlEmptyDescription,
+  selectedSubagent = null,
+  onCloseSelectedSubagent,
 }: MainContentProps) {
   const { t } = useI18n();
   const settingsDisplayMode = useSettingsStore((state) => state.settingsDisplayMode);
@@ -462,6 +467,8 @@ export function MainContent({
         onCategoryChange={onCategoryChange}
         scrollToProvider={scrollToProvider}
         onTabChange={onTabChange}
+        selectedSubagent={selectedSubagent}
+        onCloseSelectedSubagent={onCloseSelectedSubagent}
       />
 
       <DeferredDiffReviewModal

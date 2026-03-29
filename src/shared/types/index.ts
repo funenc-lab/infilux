@@ -1,5 +1,6 @@
 export * from './agent';
 export * from './agentSession';
+export * from './agentSubagent';
 export * from './ai';
 export * from './app';
 export * from './claude';
