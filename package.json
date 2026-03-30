@@ -2,7 +2,7 @@
   "name": "infilux",
   "version": "0.2.38",
   "description": "Infilux - Git Worktree Manager with AI Agent",
-  "main": "./out/main/index.js",
+  "main": "./out/main/index.cjs",
   "author": {
     "name": "Infilux Team",
     "email": "admin@j3n5en.com"
@@ -13,8 +13,8 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
-    "start": "electron-vite preview",
+    "preview": "electron-vite preview --entry out/main/index.cjs",
+    "start": "electron-vite preview --entry out/main/index.cjs",
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "pnpm build && electron-builder --mac",
     "build:mac:unsigned": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac -c.mac.identity=null -c.mac.notarize=false",

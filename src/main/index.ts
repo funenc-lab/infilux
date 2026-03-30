@@ -8,6 +8,7 @@ import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { IPC_CHANNELS, type ProxySettings } from '@shared/types';
 import { customProtocolUriToPath, type SupportedFileUrlPlatform } from '@shared/utils/fileUrl';
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, net, protocol } from 'electron';
+import { shellEnvSync } from 'shell-env';
 
 // Register custom protocol privileges
 protocol.registerSchemesAsPrivileged([
@@ -25,7 +26,6 @@ protocol.registerSchemesAsPrivileged([
 
 // Fix environment for packaged app (macOS GUI apps don't inherit shell env)
 if (process.platform === 'darwin') {
-  const { shellEnvSync } = await import('shell-env');
   try {
     Object.assign(process.env, shellEnvSync());
   } catch {
