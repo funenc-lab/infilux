@@ -654,6 +654,8 @@ describe('MainWindow lifecycle', () => {
   it('reveals the window after a timeout if renderer readiness events never fire', async () => {
     vi.useFakeTimers();
     setPlatform('darwin');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     const { createMainWindow } = await import('../MainWindow');
     const win = createMainWindow() as unknown as InstanceType<
@@ -665,6 +667,14 @@ describe('MainWindow lifecycle', () => {
     vi.advanceTimersByTime(3000);
 
     expect(win.show).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith('[window] reveal fallback timer fired', {
+      windowId: win.id,
+      timeoutMs: 3000,
+    });
+    expect(errorSpy).not.toHaveBeenCalledWith('[window] reveal fallback timer fired', {
+      windowId: win.id,
+      timeoutMs: 3000,
+    });
   });
 
   it('blocks close when renderer cancels or save fails, and skips confirmation during updater quit', async () => {

@@ -354,7 +354,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
     revealWindow();
   });
   revealWindowFallbackTimer = setTimeout(() => {
-    console.error('[window] reveal fallback timer fired', {
+    console.warn('[window] reveal fallback timer fired', {
       windowId: win.id,
       timeoutMs: SHOW_WINDOW_FALLBACK_DELAY_MS,
     });
