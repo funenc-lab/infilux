@@ -3,6 +3,7 @@ import { FolderOpen, GitBranch, MessageSquare, PanelLeft, Settings } from 'lucid
 import type { ElementType } from 'react';
 import type { TabId } from '@/App/constants';
 import { OpenInMenu } from '@/components/app/OpenInMenu';
+import { AppResourceStatusPopover } from '@/components/layout/AppResourceStatusPopover';
 import { RunningProjectsPopover } from '@/components/layout/RunningProjectsPopover';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
@@ -11,6 +12,8 @@ import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 type LayoutMode = 'columns' | 'tree';
+
+const isMac = typeof window !== 'undefined' && window.electronAPI?.env?.platform === 'darwin';
 
 export interface MainContentTopbarTab {
   id: Exclude<TabId, 'settings'>;
@@ -227,6 +230,7 @@ export function MainContentTopbar({
           </div>
 
           <div className="control-topbar-actions-cluster">
+            {isMac ? <AppResourceStatusPopover className={headerButtonClass} /> : null}
             <button
               type="button"
               data-active={isSettingsActive ? 'true' : 'false'}

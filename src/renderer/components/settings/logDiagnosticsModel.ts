@@ -1,4 +1,5 @@
 import type { LogDiagnostics } from '@shared/types';
+import type { TFunction } from '@/i18n';
 
 export interface LogDiagnosticsModel {
   currentLogPath: string;
@@ -9,16 +10,18 @@ export interface LogDiagnosticsModel {
 export function buildLogDiagnosticsModel({
   status,
   diagnostics,
+  t,
 }: {
   status: 'idle' | 'loading' | 'ready' | 'error';
   diagnostics: LogDiagnostics | null;
+  t: TFunction;
 }): LogDiagnosticsModel {
-  const currentLogPath = diagnostics?.path || 'Unavailable';
+  const currentLogPath = diagnostics?.path || t('Unavailable');
 
   if (status === 'loading' && !diagnostics) {
     return {
       currentLogPath,
-      output: 'Loading log diagnostics...',
+      output: t('Loading log diagnostics...'),
       isLoading: true,
     };
   }
@@ -26,7 +29,7 @@ export function buildLogDiagnosticsModel({
   if (status === 'error') {
     return {
       currentLogPath,
-      output: 'Log diagnostics unavailable',
+      output: t('Log diagnostics unavailable'),
       isLoading: false,
     };
   }
@@ -41,7 +44,7 @@ export function buildLogDiagnosticsModel({
 
   return {
     currentLogPath,
-    output: 'No recent log entries',
+    output: t('No recent log entries'),
     isLoading: false,
   };
 }

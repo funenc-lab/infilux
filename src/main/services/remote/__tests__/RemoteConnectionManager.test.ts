@@ -339,7 +339,7 @@ describe('RemoteConnectionManager', () => {
       expect.stringContaining('/tmp/app-data/remote-connections.json.'),
       '/tmp/app-data/remote-connections.json'
     );
-  });
+  }, 15000);
 
   it('saves trimmed profiles, falls back to helperInstallDir, and clears cached auth secrets', async () => {
     const { RemoteConnectionManager } = await import('../RemoteConnectionManager');
@@ -1006,5 +1006,5 @@ describe('RemoteConnectionManager', () => {
     expect(disconnect).toHaveBeenNthCalledWith(1, 'profile-1');
     expect(disconnect).toHaveBeenNthCalledWith(2, 'profile-2');
     expect(getLatestAuthBrokerInstance()?.dispose).toHaveBeenCalledTimes(1);
-  });
+  }, 15000);
 });

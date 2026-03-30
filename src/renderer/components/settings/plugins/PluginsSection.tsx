@@ -107,7 +107,7 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
           )}
           <Puzzle className="h-4 w-4 shrink-0" />
           <span className="text-sm font-medium">{t('Plugins')}</span>
-          <span className="text-xs text-muted-foreground">
+          <span className="ui-type-panel-description text-xs text-muted-foreground">
             ({enabledCount}/{plugins.length})
           </span>
         </button>
@@ -150,9 +150,9 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
       {expanded && (
         <div className="mt-3 space-y-2">
           {loading ? (
-            <p className="text-sm text-muted-foreground text-center py-4">{t('Loading...')}</p>
+            <p className="text-center text-muted-foreground text-sm py-4">{t('Loading...')}</p>
           ) : plugins.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
+            <p className="text-center text-muted-foreground text-sm py-4">
               {t('No plugins installed')}
             </p>
           ) : (

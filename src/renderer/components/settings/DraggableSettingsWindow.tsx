@@ -203,7 +203,9 @@ export function DraggableSettingsWindow({
             )}
             onMouseDown={handleMouseDown}
           >
-            <h2 className="min-w-0 truncate text-lg font-medium">{t('Settings')}</h2>
+            <h2 className="ui-type-panel-title min-w-0 truncate text-lg font-medium">
+              {t('Settings')}
+            </h2>
             <div className="no-drag flex shrink-0 items-center gap-2">
               <button
                 aria-label={t('Switch to TAB mode')}

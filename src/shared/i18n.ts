@@ -197,6 +197,9 @@ export const zhTranslations: Record<string, string> = {
   'Committed {{count}} files': '已提交 {{count}} 个文件',
   'Current Log File': '当前日志文件',
   'Recent Log Output': '最近日志输出',
+  'Loading log diagnostics...': '正在加载日志诊断...',
+  'Log diagnostics unavailable': '日志诊断不可用',
+  'No recent log entries': '最近没有日志记录',
   'Hash:': '哈希：',
   'Author:': '作者：',
   'Date:': '日期：',
@@ -2063,16 +2066,6 @@ export const zhTranslations: Record<string, string> = {
   'Imported {{count}} changed settings from EnsoAI.': '已从 EnsoAI 导入 {{count}} 项变更设置。',
   'Shell path (e.g. {{example}})': 'Shell 路径（例如 {{example}}）',
   'Arguments (e.g. {{example}})': '参数（例如 {{example}}）',
-  'Import from EnsoAI': '从 EnsoAI 导入',
-  'Preview and import settings from an EnsoAI settings.json file':
-    '预览并导入 EnsoAI settings.json 文件中的设置',
-  'Settings import': '设置导入',
-  'Detect the typical EnsoAI settings locations first, or choose a settings.json file manually and review the changed keys before applying them.':
-    '先检测常见的 EnsoAI 设置位置，或手动选择 settings.json 文件，并在应用前查看变更键。',
-  'Loading preview...': '正在加载预览...',
-  'Detect automatically': '自动检测',
-  'Choose settings file': '选择设置文件',
-  'Typical paths': '常见路径',
   'Directory unavailable': '目录不可用',
   'This directory is not readable or writable. Please choose another location.':
     '此目录不可读或不可写。请选择其他位置。',

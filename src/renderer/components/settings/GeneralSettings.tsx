@@ -697,6 +697,7 @@ export function GeneralSettings() {
   const logDiagnosticsModel = buildLogDiagnosticsModel({
     status: logDiagnosticsStatus,
     diagnostics: logDiagnostics,
+    t,
   });
 
   return (

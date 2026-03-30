@@ -39,104 +39,15 @@ function walkFiles(directory: string): string[] {
 }
 
 const rawLiteralBlacklist: Record<string, string[]> = {
-  'src/renderer/components/terminal/TerminalSearchBar.tsx': ['aria-label="Search terminal output"'],
-  'src/renderer/components/chat/QuickTerminalButton.tsx': ['title="Quick Terminal (Ctrl+`)'],
-  'src/renderer/components/AppErrorBoundary.tsx': [
-    '>The app ran into an unexpected error.<',
-    '>Reload App<',
+  'src/renderer/components/settings/logDiagnosticsModel.ts': [
+    "output: 'Loading log diagnostics...',",
+    "output: 'Log diagnostics unavailable',",
+    "output: 'No recent log entries',",
   ],
-  'src/renderer/components/files/BreadcrumbTreeMenu.tsx': ['>Empty directory<'],
-  'src/renderer/components/files/PdfPreview.tsx': ['加载 PDF...', '重试', '适应宽度'],
-  'src/renderer/components/ui/toast.tsx': ['aria-label="Close notification"'],
-  'src/renderer/components/layout/RunningProjectsPopover.tsx': ["t.title || 'Terminal'"],
-  'src/renderer/components/todo/KanbanBoard.tsx': ["todo: 'To Do'", "'in-progress': 'In Progress'"],
-  'src/renderer/components/todo/TaskCard.tsx': [
-    "return 'Just now';",
-    '${' + 'minutes}m ago',
-    '${' + 'hours}h ago',
-    '${' + 'days}d ago',
-  ],
-  'src/renderer/components/layout/tree-sidebar/TempWorkspaceTreeItem.tsx': [
-    '>agents<',
-    '>terminals<',
-  ],
-  'src/renderer/components/layout/tree-sidebar/WorktreeTreeItem.tsx': [
-    '>publish<',
-    '>agents<',
-    '>terminals<',
-  ],
-  'src/renderer/components/layout/worktree-panel/WorktreeItem.tsx': [
-    '>publish<',
-    '>agents<',
-    '>terminals<',
-  ],
-  'src/renderer/components/layout/WindowControls.tsx': [
-    'aria-label="Minimize"',
-    `? 'Restore' : 'Maximize'`,
-    'aria-label="Restore"',
-    'aria-label="Close"',
-    'title="Close"',
-  ],
-  'src/renderer/components/source-control/CommitHistoryList.tsx': [
-    '>Hash:<',
-    '>Author:<',
-    '>Date:<',
-    '>Message:<',
-  ],
-  'src/renderer/components/source-control/DiffReviewModal.tsx': [
-    "return 'Added';",
-    "return 'Deleted';",
-    "return 'Modified';",
-    "return 'Renamed';",
-    "return 'Copied';",
-    "return 'Unmerged';",
-    "return 'Unknown';",
-  ],
-  'src/renderer/components/ui/pagination.tsx': [
-    'aria-label="pagination"',
-    'aria-label="Go to previous page"',
-    '>Previous<',
-    'aria-label="Go to next page"',
-    '>Next<',
-    '>More pages<',
-  ],
-  'src/renderer/components/ui/breadcrumb.tsx': ['>More<'],
-  'src/renderer/components/ui/sheet.tsx': ['aria-label="Close"'],
-  'src/renderer/components/ui/dialog.tsx': ['aria-label="Close"'],
-  'src/renderer/components/ui/spinner.tsx': ['aria-label="Loading"'],
-  'src/renderer/components/ui/combobox.tsx': ['aria-label="Remove"'],
-  'src/renderer/components/app/OpenInMenu.tsx': [
-    '>Loading...<',
-    '>No Apps<',
-    '>Remote Only<',
-    '>Quick Open<',
-  ],
-  'src/renderer/components/ui/sidebar.tsx': [
-    '>Sidebar<',
-    '>Displays the mobile sidebar.<',
-    '>Toggle Sidebar<',
-    'aria-label="Toggle Sidebar"',
-    'title="Toggle Sidebar"',
-  ],
-  'src/renderer/components/settings/AppearanceSettings.tsx': [
-    '>Cover<',
-    '>Contain<',
-    '>Repeat<',
-    '>Center<',
-  ],
-  'src/renderer/components/settings/AgentSettings.tsx': ['placeholder="My Agent"', '>Agent<'],
-  'src/renderer/components/ui/mermaid-renderer.tsx': [
-    "setError(err instanceof Error ? err.message : 'Mermaid render failed');",
-    '>Mermaid 渲染错误<',
-    '>加载 Mermaid 图表...<',
-  ],
-  'src/renderer/components/settings/plugins/MarketplacesDialog.tsx': [
-    'placeholder="owner/repo or GitHub URL"',
-  ],
-  'src/renderer/components/settings/mcp/McpServerDialog.tsx': ['>URL *<'],
-  'src/renderer/components/settings/GeneralSettings.tsx': [
-    '>Current Log File<',
-    '>Recent Log Output<',
+  'src/renderer/index.html': [
+    '>Starting Infilux<',
+    'Loading workspace state, renderer modules, and development tools.',
+    '>Preparing desktop workspace...<',
   ],
 };
 
@@ -183,7 +94,10 @@ function collectLiteralTranslationKeys(source: string): string[] {
 
 describe('i18n coverage for current UI surfaces', () => {
   it('provides zh translations for literal translation keys in the hardened surfaces', () => {
-    const translationKeys = collectTranslationMapKeys(readRepoFile('src/shared/i18n.ts'));
+    const translationKeys = new Set([
+      ...collectTranslationMapKeys(readRepoFile('src/shared/i18n.ts')),
+      ...collectTranslationMapKeys(readRepoFile('src/renderer/i18n.ts')),
+    ]);
     const missing: Array<{ file: string; key: string }> = [];
 
     for (const relativePath of collectTranslationKeyFiles()) {

@@ -76,6 +76,7 @@ vi.mock('lucide-react', () => {
 
   return {
     Activity: icon('Activity'),
+    AlertCircle: icon('AlertCircle'),
     ChevronRight: icon('ChevronRight'),
     FileCode: icon('FileCode'),
     FolderOpen: icon('FolderOpen'),
@@ -84,6 +85,7 @@ vi.mock('lucide-react', () => {
     MessageSquare: icon('MessageSquare'),
     PanelLeft: icon('PanelLeft'),
     RectangleEllipsis: icon('RectangleEllipsis'),
+    RefreshCw: icon('RefreshCw'),
     Settings: icon('Settings'),
     Sparkles: icon('Sparkles'),
     Terminal: icon('Terminal'),

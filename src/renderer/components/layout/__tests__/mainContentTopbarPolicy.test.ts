@@ -34,4 +34,8 @@ describe('main content topbar policy', () => {
     expect(mainContentSource).not.toContain('text-[12px]');
     expect(openInMenuSource).not.toContain('text-[12px]');
   });
+
+  it('keeps the app runtime status entry available from the shared main topbar', () => {
+    expect(mainContentSource).toContain('AppResourceStatusPopover');
+  });
 });

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { buildLogDiagnosticsModel } from '../logDiagnosticsModel';
 
 describe('buildLogDiagnosticsModel', () => {
+  const t = (key: string) => key;
+
   it('returns the active log path and joined tail output when diagnostics exist', () => {
     const model = buildLogDiagnosticsModel({
       status: 'ready',
@@ -9,6 +11,7 @@ describe('buildLogDiagnosticsModel', () => {
         path: '/tmp/logs/infilux-2026-03-26.log',
         lines: ['[info] boot complete', '[warn] sample warning'],
       },
+      t,
     });
 
     expect(model.currentLogPath).toBe('/tmp/logs/infilux-2026-03-26.log');
@@ -23,6 +26,7 @@ describe('buildLogDiagnosticsModel', () => {
         path: '',
         lines: [],
       },
+      t,
     });
 
     expect(model.currentLogPath).toBe('Unavailable');

@@ -272,7 +272,9 @@ export function McpServerDialog({ open, onOpenChange, server, onSave }: McpServe
       <DialogPopup zIndexLevel="nested">
         <DialogHeader>
           <DialogTitle>{isEditing ? t('Edit MCP Server') : t('Add MCP Server')}</DialogTitle>
-          <DialogDescription>{t('Configure MCP server connection settings')}</DialogDescription>
+          <DialogDescription className="ui-type-panel-description">
+            {t('Configure MCP server connection settings')}
+          </DialogDescription>
         </DialogHeader>
 
         <DialogPanel className="space-y-4">
@@ -339,7 +341,9 @@ export function McpServerDialog({ open, onOpenChange, server, onSave }: McpServe
                       }
                       placeholder="-y @modelcontextprotocol/server-fetch"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">{t('Space separated')}</p>
+                    <p className="ui-type-meta mt-1 text-xs text-muted-foreground">
+                      {t('Space separated')}
+                    </p>
                   </Field>
                 </>
               ) : (
@@ -365,7 +369,9 @@ export function McpServerDialog({ open, onOpenChange, server, onSave }: McpServe
                   spellCheck={false}
                 />
                 {jsonError && <p className="text-xs text-destructive mt-1">{jsonError}</p>}
-                <p className="text-xs text-muted-foreground mt-1">{t('Paste MCP config JSON')}</p>
+                <p className="ui-type-meta mt-1 text-xs text-muted-foreground">
+                  {t('Paste MCP config JSON')}
+                </p>
               </Field>
             </TabsContent>
           </Tabs>

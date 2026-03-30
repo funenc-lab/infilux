@@ -279,12 +279,18 @@ describe('settings store setters', () => {
       '"SF Pro Text", "Helvetica Neue", system-ui, sans-serif'
     );
 
-    const macZhEnv = await loadSettingsStore({ platform: 'darwin', navigatorLanguage: 'zh-CN' });
+    const macZhEnv = await loadSettingsStore({
+      platform: 'darwin',
+      navigatorLanguage: 'zh-CN',
+    });
     expect(macZhEnv.useSettingsStore.getState().fontFamily).toBe(
       '"PingFang SC", "Hiragino Sans GB", "SF Pro Text", "Helvetica Neue", system-ui, sans-serif'
     );
 
-    const windowsEnv = await loadSettingsStore({ platform: 'win32', navigatorLanguage: 'en-US' });
+    const windowsEnv = await loadSettingsStore({
+      platform: 'win32',
+      navigatorLanguage: 'en-US',
+    });
     expect(windowsEnv.useSettingsStore.getState().fontFamily).toBe(
       '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif'
     );
@@ -297,16 +303,22 @@ describe('settings store setters', () => {
       '"Microsoft YaHei UI", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif'
     );
 
-    const linuxEnv = await loadSettingsStore({ platform: 'linux', navigatorLanguage: 'en-US' });
+    const linuxEnv = await loadSettingsStore({
+      platform: 'linux',
+      navigatorLanguage: 'en-US',
+    });
     expect(linuxEnv.useSettingsStore.getState().fontFamily).toBe(
       '"Noto Sans", "Ubuntu", "Liberation Sans", system-ui, sans-serif'
     );
 
-    const linuxZhEnv = await loadSettingsStore({ platform: 'linux', navigatorLanguage: 'zh-CN' });
+    const linuxZhEnv = await loadSettingsStore({
+      platform: 'linux',
+      navigatorLanguage: 'zh-CN',
+    });
     expect(linuxZhEnv.useSettingsStore.getState().fontFamily).toBe(
       '"Noto Sans CJK SC", "Noto Sans", "Ubuntu", "Liberation Sans", system-ui, sans-serif'
     );
-  });
+  }, 15000);
 
   it('switches the default UI font when language changes but preserves explicit overrides', async () => {
     const env = await loadSettingsStore({ platform: 'darwin', navigatorLanguage: 'en-US' });

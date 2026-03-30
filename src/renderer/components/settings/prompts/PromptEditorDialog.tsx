@@ -76,7 +76,9 @@ export function PromptEditorDialog({
       <DialogPopup className="max-w-2xl" zIndexLevel="nested">
         <DialogHeader>
           <DialogTitle>{isEditing ? t('Edit Prompt') : t('Add Prompt')}</DialogTitle>
-          <DialogDescription>{t('Create or edit a prompt preset for CLAUDE.md')}</DialogDescription>
+          <DialogDescription className="ui-type-panel-description">
+            {t('Create or edit a prompt preset for CLAUDE.md')}
+          </DialogDescription>
         </DialogHeader>
 
         <DialogPanel className="space-y-4">
@@ -97,7 +99,7 @@ export function PromptEditorDialog({
               className="w-full h-64 rounded-md border bg-background px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="# CLAUDE.md&#10;&#10;Your instructions here..."
             />
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="ui-type-meta mt-1 text-xs text-muted-foreground">
               {t('This content will be written to ~/.claude/CLAUDE.md')}
             </p>
           </Field>

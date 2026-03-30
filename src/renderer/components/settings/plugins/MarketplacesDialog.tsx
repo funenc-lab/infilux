@@ -200,7 +200,9 @@ export function MarketplacesDialog({ open, onOpenChange, repoPath }: Marketplace
       <DialogPopup className="max-w-lg" zIndexLevel="nested">
         <DialogHeader>
           <DialogTitle>{t('Plugin Marketplaces')}</DialogTitle>
-          <DialogDescription>{t('Manage plugin marketplace sources')}</DialogDescription>
+          <DialogDescription className="ui-type-panel-description">
+            {t('Manage plugin marketplace sources')}
+          </DialogDescription>
         </DialogHeader>
 
         <DialogPanel className="space-y-4">
@@ -230,7 +232,7 @@ export function MarketplacesDialog({ open, onOpenChange, repoPath }: Marketplace
 
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {marketplaces.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
+              <p className="ui-type-panel-description text-center text-muted-foreground text-sm py-4">
                 {t('No marketplaces configured')}
               </p>
             ) : (
@@ -240,8 +242,10 @@ export function MarketplacesDialog({ open, onOpenChange, repoPath }: Marketplace
                   className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/50"
                 >
                   <div className="min-w-0 flex-1">
-                    <span className="text-sm font-medium truncate block">{marketplace.name}</span>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="ui-type-block-title block truncate text-sm font-medium">
+                      {marketplace.name}
+                    </span>
+                    <div className="ui-type-meta flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="truncate">{marketplace.repo}</span>
                       <span className="shrink-0">·</span>
                       <span className="shrink-0">

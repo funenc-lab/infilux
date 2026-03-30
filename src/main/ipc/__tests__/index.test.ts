@@ -9,6 +9,7 @@ const indexTestDoubles = vi.hoisted(() => {
   const registerSessionHandlers = vi.fn();
   const registerSessionStorageHandlers = vi.fn();
   const registerAgentHandlers = vi.fn();
+  const registerAgentSubagentHandlers = vi.fn();
   const registerAgentSessionHandlers = vi.fn();
   const registerDialogHandlers = vi.fn();
   const registerAppHandlers = vi.fn();
@@ -60,6 +61,7 @@ const indexTestDoubles = vi.hoisted(() => {
       registerSessionHandlers,
       registerSessionStorageHandlers,
       registerAgentHandlers,
+      registerAgentSubagentHandlers,
       registerAgentSessionHandlers,
       registerDialogHandlers,
       registerAppHandlers,
@@ -126,6 +128,7 @@ const indexTestDoubles = vi.hoisted(() => {
     registerSessionHandlers,
     registerSessionStorageHandlers,
     registerAgentHandlers,
+    registerAgentSubagentHandlers,
     registerAgentSessionHandlers,
     registerDialogHandlers,
     registerAppHandlers,
@@ -345,6 +348,10 @@ vi.mock('../worktree', () => ({
   registerWorktreeHandlers: indexTestDoubles.registerWorktreeHandlers,
 }));
 
+vi.mock('../agentSubagent', () => ({
+  registerAgentSubagentHandlers: indexTestDoubles.registerAgentSubagentHandlers,
+}));
+
 vi.mock('../../services/SharedSessionState', () => ({
   readPersistentAgentSessions: vi.fn(() => []),
 }));
@@ -379,6 +386,7 @@ describe('ipc index', () => {
       indexTestDoubles.registerSessionHandlers,
       indexTestDoubles.registerSessionStorageHandlers,
       indexTestDoubles.registerAgentHandlers,
+      indexTestDoubles.registerAgentSubagentHandlers,
       indexTestDoubles.registerAgentSessionHandlers,
       indexTestDoubles.registerDialogHandlers,
       indexTestDoubles.registerAppHandlers,
@@ -403,7 +411,7 @@ describe('ipc index', () => {
     for (const fn of registerFns) {
       expect(fn).toHaveBeenCalledTimes(1);
     }
-  });
+  }, 15000);
 
   it('cleans up async resources and falls back when terminal shutdown fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

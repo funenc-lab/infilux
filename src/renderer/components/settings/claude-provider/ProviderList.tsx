@@ -123,7 +123,7 @@ function ProviderItem({
 
         <span
           className={cn(
-            'truncate text-sm font-medium',
+            'ui-type-block-title truncate text-sm font-medium',
             effectiveIsDisabled && 'text-muted-foreground line-through'
           )}
         >

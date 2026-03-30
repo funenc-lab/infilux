@@ -64,7 +64,7 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="sm:max-w-md p-0" showCloseButton={false}>
         <div className="border-b px-4 py-3">
-          <h3 className="text-sm font-medium">{t('Clone Tasks')}</h3>
+          <h3 className="ui-type-panel-title text-sm font-medium">{t('Clone Tasks')}</h3>
         </div>
 
         <div className="max-h-[50vh] overflow-y-auto p-2">
@@ -79,12 +79,12 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
                 <div key={task.id} className="control-panel-muted space-y-2 rounded-xl p-3">
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin text-info" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    <span className="ui-type-block-title min-w-0 flex-1 truncate text-sm font-medium">
                       {task.repoName}
                     </span>
                   </div>
                   <Progress value={task.progress?.progress || 0} className="h-1.5" />
-                  <div className="flex justify-between text-xs text-muted-foreground">
+                  <div className="ui-type-meta flex justify-between text-xs text-muted-foreground">
                     <span>{getProgressLabel(task)}</span>
                     <span>{task.progress?.progress || 0}%</span>
                   </div>
@@ -96,7 +96,7 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
                 <div key={task.id} className="control-panel-muted rounded-xl p-3">
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-success" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    <span className="ui-type-block-title min-w-0 flex-1 truncate text-sm font-medium">
                       {task.repoName}
                     </span>
                     <Button
@@ -127,7 +127,7 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
                 >
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    <span className="ui-type-block-title min-w-0 flex-1 truncate text-sm font-medium">
                       {task.repoName}
                     </span>
                     <Button
@@ -139,7 +139,7 @@ export function CloneTasksPopover({ open, onOpenChange, onCloneComplete }: Clone
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
-                  <p className="mt-1 text-xs text-destructive">{task.error}</p>
+                  <p className="ui-type-meta mt-1 text-xs text-destructive">{task.error}</p>
                 </div>
               ))}
             </div>

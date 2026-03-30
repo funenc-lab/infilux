@@ -78,7 +78,7 @@ export function SettingsDialog({
         disableNestedTransform
       >
         <div className="flex items-center border-b px-5 py-3.5">
-          <DialogTitle className="min-w-0 truncate text-lg font-medium">
+          <DialogTitle className="ui-type-panel-title min-w-0 truncate text-lg font-medium">
             {t('Settings')}
           </DialogTitle>
         </div>

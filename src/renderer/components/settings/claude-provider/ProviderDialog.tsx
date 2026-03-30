@@ -118,7 +118,9 @@ export function ProviderDialog({
       <DialogPopup zIndexLevel="nested">
         <DialogHeader>
           <DialogTitle>{isEditing ? t('Edit Provider') : t('Add Provider')}</DialogTitle>
-          <DialogDescription>{t('Configure Claude API provider settings')}</DialogDescription>
+          <DialogDescription className="ui-type-panel-description">
+            {t('Configure Claude API provider settings')}
+          </DialogDescription>
         </DialogHeader>
 
         <DialogPanel className="space-y-4">

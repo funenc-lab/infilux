@@ -178,7 +178,7 @@ export function MergeWorktreeDialog({
               <GitMerge className="h-5 w-5" />
               {t('Merge Worktree')}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="ui-type-panel-description">
               {t('Merge branch "{{branch}}" into another branch', {
                 branch: worktree.branch || 'unknown',
               })}
@@ -199,7 +199,9 @@ export function MergeWorktreeDialog({
                       <GitBranch className="mr-2 h-4 w-4" />
                       {branch.name}
                       {(branch.name === 'main' || branch.name === 'master') && (
-                        <span className="ml-2 text-xs text-muted-foreground">{t('Default')}</span>
+                        <span className="ui-type-meta ml-2 text-xs text-muted-foreground">
+                          {t('Default')}
+                        </span>
                       )}
                     </SelectItem>
                   ))}
@@ -225,7 +227,9 @@ export function MergeWorktreeDialog({
                     <SelectItem key={opt.value} value={opt.value}>
                       <div className="flex flex-col">
                         <span>{opt.label}</span>
-                        <span className="text-xs text-muted-foreground">{opt.description}</span>
+                        <span className="ui-type-meta text-xs text-muted-foreground">
+                          {opt.description}
+                        </span>
                       </div>
                     </SelectItem>
                   ))}
@@ -241,7 +245,7 @@ export function MergeWorktreeDialog({
               />
               <div className="flex flex-col">
                 <span>{t('Auto stash uncommitted changes')}</span>
-                <span className="text-xs text-muted-foreground">
+                <span className="ui-type-meta text-xs text-muted-foreground">
                   {t('Automatically stash and restore uncommitted changes')}
                 </span>
               </div>
@@ -249,7 +253,7 @@ export function MergeWorktreeDialog({
 
             {/* Cleanup Options */}
             <div className="space-y-3">
-              <span className="text-sm font-medium">{t('After merge')}</span>
+              <span className="ui-type-block-title text-sm font-medium">{t('After merge')}</span>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={deleteWorktree}
@@ -272,7 +276,7 @@ export function MergeWorktreeDialog({
                 />
                 {t('Delete branch')}
                 {deleteWorktree && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="ui-type-meta text-xs text-muted-foreground">
                     ({t('Included with worktree deletion')})
                   </span>
                 )}

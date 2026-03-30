@@ -204,7 +204,9 @@ export function PluginBrowserDialog({
       <DialogPopup className="max-w-2xl" zIndexLevel="nested">
         <DialogHeader>
           <DialogTitle>{t('Browse Plugins')}</DialogTitle>
-          <DialogDescription>{t('Browse and install plugins from marketplaces')}</DialogDescription>
+          <DialogDescription className="ui-type-panel-description">
+            {t('Browse and install plugins from marketplaces')}
+          </DialogDescription>
         </DialogHeader>
 
         <DialogPanel className="space-y-4">
@@ -244,7 +246,7 @@ export function PluginBrowserDialog({
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : filteredPlugins.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
+              <p className="ui-type-panel-description text-center text-muted-foreground text-sm py-8">
                 {searchQuery ? t('No plugins found') : t('No plugins available')}
               </p>
             ) : (
@@ -259,8 +261,12 @@ export function PluginBrowserDialog({
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{plugin.name}</span>
-                        <span className="text-xs text-muted-foreground">@{plugin.marketplace}</span>
+                        <span className="ui-type-block-title text-sm font-medium">
+                          {plugin.name}
+                        </span>
+                        <span className="ui-type-meta text-xs text-muted-foreground">
+                          @{plugin.marketplace}
+                        </span>
                         {plugin.installed && (
                           <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
                             {t('Installed')}
@@ -268,12 +274,14 @@ export function PluginBrowserDialog({
                         )}
                       </div>
                       {plugin.description && (
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="ui-type-meta text-xs text-muted-foreground truncate">
                           {plugin.description}
                         </p>
                       )}
                       {plugin.author?.name && (
-                        <p className="text-xs text-muted-foreground">by {plugin.author.name}</p>
+                        <p className="ui-type-meta text-xs text-muted-foreground">
+                          by {plugin.author.name}
+                        </p>
                       )}
                     </div>
                     <div className="ml-2">
