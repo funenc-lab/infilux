@@ -15,9 +15,9 @@ export function isGitWorktreeRecord(value: unknown): value is GitWorktree {
 }
 
 export function sanitizeGitWorktrees(
-  worktrees: readonly (GitWorktree | null | undefined)[]
+  worktrees: readonly (GitWorktree | null | undefined)[] | null | undefined
 ): GitWorktree[] {
-  return worktrees.filter(isGitWorktreeRecord);
+  return (Array.isArray(worktrees) ? worktrees : []).filter(isGitWorktreeRecord);
 }
 
 export function isTempWorkspaceItemRecord(value: unknown): value is TempWorkspaceItem {

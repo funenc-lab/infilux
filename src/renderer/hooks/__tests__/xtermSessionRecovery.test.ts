@@ -24,16 +24,36 @@ describe('resolveReusableBackendSessionId', () => {
 
   it('keeps the existing backend session id for local terminals', async () => {
     const getRemoteStatus = vi.fn();
+    const getLocalActivity = vi.fn().mockResolvedValue(true);
 
     await expect(
       resolveReusableBackendSessionId({
         backendSessionId: 'backend-1',
         cwd: '/repo',
         getRemoteStatus,
+        getLocalActivity,
       })
     ).resolves.toBe('backend-1');
 
     expect(getRemoteStatus).not.toHaveBeenCalled();
+    expect(getLocalActivity).toHaveBeenCalledWith('backend-1');
+  });
+
+  it('drops the existing backend session id for local terminals when the session is stale', async () => {
+    const getRemoteStatus = vi.fn();
+    const getLocalActivity = vi.fn().mockResolvedValue(false);
+
+    await expect(
+      resolveReusableBackendSessionId({
+        backendSessionId: 'backend-stale',
+        cwd: '/repo',
+        getRemoteStatus,
+        getLocalActivity,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(getRemoteStatus).not.toHaveBeenCalled();
+    expect(getLocalActivity).toHaveBeenCalledWith('backend-stale');
   });
 
   it('keeps the existing backend session id when cwd is missing', async () => {

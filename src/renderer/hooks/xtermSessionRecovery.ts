@@ -5,6 +5,7 @@ interface ResolveReusableBackendSessionIdParams {
   backendSessionId?: string;
   cwd?: string;
   getRemoteStatus: (connectionId: string) => Promise<Pick<RemoteConnectionStatus, 'connected'>>;
+  getLocalActivity?: (sessionId: string) => Promise<boolean>;
 }
 
 export interface XtermSessionBindingSnapshot {
@@ -74,13 +75,23 @@ export async function resolveReusableBackendSessionId({
   backendSessionId,
   cwd,
   getRemoteStatus,
+  getLocalActivity,
 }: ResolveReusableBackendSessionIdParams): Promise<string | undefined> {
   if (!backendSessionId) {
     return undefined;
   }
 
   if (!cwd || !isRemoteVirtualPath(cwd)) {
-    return backendSessionId;
+    if (!cwd || !getLocalActivity) {
+      return backendSessionId;
+    }
+
+    try {
+      const hasActivity = await getLocalActivity(backendSessionId);
+      return hasActivity ? backendSessionId : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   try {

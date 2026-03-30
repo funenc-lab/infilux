@@ -38,6 +38,12 @@ describe('worktreeData', () => {
     expect(result.map((item) => item.path)).toEqual(['/repo/main', '/repo/feature']);
   });
 
+  it('treats missing worktree lists as empty during async loading states', () => {
+    expect(sanitizeGitWorktrees(undefined)).toEqual([]);
+    expect(sanitizeGitWorktrees(null)).toEqual([]);
+    expect(sanitizeGitWorktrees({ worktrees: [] } as unknown as GitWorktree[])).toEqual([]);
+  });
+
   it('removes malformed temp workspace entries before sidebar filtering', () => {
     const result = sanitizeTempWorkspaceItems([
       makeTempWorkspace({ id: 'temp-1', path: '/tmp/a' }),

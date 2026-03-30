@@ -731,6 +731,7 @@ export function useXterm({
         backendSessionId,
         cwd: createOptions.cwd,
         getRemoteStatus: (connectionId) => window.electronAPI.remote.getStatus(connectionId),
+        getLocalActivity: (sessionId) => window.electronAPI.session.getActivity(sessionId),
       });
 
       if (reusableBackendSessionId) {
