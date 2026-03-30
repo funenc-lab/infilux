@@ -97,6 +97,9 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
     setAgentCount: (worktreePath, count) =>
       set((state) => {
         const current = state.activities[worktreePath] || defaultActivity;
+        if (current.agentCount === count) {
+          return state;
+        }
         return {
           activities: {
             ...state.activities,
@@ -130,6 +133,9 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
     setTerminalCount: (worktreePath, count) =>
       set((state) => {
         const current = state.activities[worktreePath] || defaultActivity;
+        if (current.terminalCount === count) {
+          return state;
+        }
         return {
           activities: {
             ...state.activities,
