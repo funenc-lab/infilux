@@ -5,7 +5,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import type { Rollup } from 'vite';
 
 const COMMON_JS_SHIM_BLOCK =
-  "// -- CommonJS Shims --\n" +
+  '// -- CommonJS Shims --\n' +
   "import __cjs_mod__ from 'node:module';\n" +
   'const __filename = import.meta.filename;\n' +
   'const __dirname = import.meta.dirname;\n' +
