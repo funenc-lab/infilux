@@ -21,12 +21,14 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
-import { WorktreeAgentSummary } from '../WorktreeAgentSummary';
+import { WorktreeAgentChildren } from '../WorktreeAgentChildren';
 
 interface WorktreeItemProps {
   worktree: GitWorktree;
   activeSession?: import('@/components/chat/SessionBar').Session;
   liveSubagents?: import('@shared/types').LiveAgentSubagent[];
+  selectedAgentSessionId?: string | null;
+  selectedSubagentThreadId?: string | null;
   isActive: boolean;
   onClick: () => void;
   onOpenAgentThread?: (sessionId: string) => void;
@@ -49,6 +51,8 @@ export function WorktreeItem({
   worktree,
   activeSession,
   liveSubagents = [],
+  selectedAgentSessionId = null,
+  selectedSubagentThreadId = null,
   isActive,
   onClick,
   onOpenAgentThread,
@@ -242,9 +246,10 @@ export function WorktreeItem({
       ? {
           key: 'agents',
           content: (
-            <span className="control-tree-metric">
+            <span className="control-tree-metric" title={`${activity.agentCount} ${t('agents')}`}>
+              <Sparkles className="control-tree-metric-icon" aria-hidden="true" />
               <span className="control-tree-metric-value">{activity.agentCount}</span>
-              <span className="control-tree-metric-label">{t('agents')}</span>
+              <span className="sr-only">{t('agents')}</span>
             </span>
           ),
         }
@@ -253,9 +258,13 @@ export function WorktreeItem({
       ? {
           key: 'terminals',
           content: (
-            <span className="control-tree-metric">
+            <span
+              className="control-tree-metric"
+              title={`${activity.terminalCount} ${t('terminals')}`}
+            >
+              <Terminal className="control-tree-metric-icon" aria-hidden="true" />
               <span className="control-tree-metric-value">{activity.terminalCount}</span>
-              <span className="control-tree-metric-label">{t('terminals')}</span>
+              <span className="sr-only">{t('terminals')}</span>
             </span>
           ),
         }
@@ -365,10 +374,12 @@ export function WorktreeItem({
           ) : null}
         </div>
         {activeSession ? (
-          <WorktreeAgentSummary
+          <WorktreeAgentChildren
             className="pl-5 pt-1"
             session={activeSession}
             subagents={liveSubagents}
+            selectedAgentSessionId={selectedAgentSessionId}
+            selectedSubagentThreadId={selectedSubagentThreadId}
             onSelectSession={onOpenAgentThread}
             onSelectSubagent={onOpenSubagentTranscript}
           />

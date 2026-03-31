@@ -5,7 +5,6 @@ import type {
   WorktreeCreateOptions,
 } from '@shared/types';
 import { getDisplayPath, getDisplayPathBasename, isWslUncPath } from '@shared/utils/path';
-import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import {
   ChevronRight,
   Clock,
@@ -61,42 +60,42 @@ import {
 import { Button } from '@/components/ui/button';
 import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
-import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
 import { buildRemovalDialogCopy, buildWorkspaceToastCopy } from '@/lib/feedbackCopy';
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
-import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
-import { buildActiveSessionMapByWorktree } from '@/lib/worktreeAgentSummary';
 import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
-import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
+import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummary';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 import { TempWorkspaceTreeItem } from './tree-sidebar/TempWorkspaceTreeItem';
 import { WorktreeTreeItem } from './tree-sidebar/WorktreeTreeItem';
+import { resolveTreeSidebarRepoSnapshot } from './treeSidebarRepoSnapshot';
 
 function getSidebarSectionId(prefix: string, value: string): string {
   return `${prefix}-${value.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
 }
 
-interface TreeSidebarProps {
+const EMPTY_WORKTREES: GitWorktree[] = [];
+export interface TreeSidebarProps {
   repositories: Repository[];
   selectedRepo: string | null;
   activeWorktree: GitWorktree | null;
   worktrees: GitWorktree[];
   branches: GitBranchType[];
   isLoading?: boolean;
+  isFetching?: boolean;
   isCreating?: boolean;
   error?: string | null;
   onSelectRepo: (repoPath: string, options?: { activateRemote?: boolean }) => void;
   canLoadRepo: (repoPath: string) => boolean;
   onActivateRemoteRepo: (repoPath: string) => void;
-  onSelectWorktree: (worktree: GitWorktree) => void;
+  onSelectWorktree: (worktree: GitWorktree, nextRepoPath?: string) => void;
   onAddRepository: () => void;
   onRemoveRepository?: (repoPath: string) => void;
   onCreateWorktree: (options: WorktreeCreateOptions) => Promise<void>;
@@ -128,6 +127,8 @@ interface TreeSidebarProps {
     worktree: GitWorktree,
     subagent: import('@shared/types').LiveAgentSubagent
   ) => void;
+  isChatActive?: boolean;
+  selectedSubagentByWorktree?: Record<string, import('@shared/types').LiveAgentSubagent | null>;
   temporaryWorkspaceEnabled?: boolean;
   tempWorkspaces?: TempWorkspaceItem[];
   tempBasePath?: string;
@@ -147,9 +148,10 @@ export function TreeSidebar({
   activeWorktree,
   worktrees: _worktrees,
   branches,
-  isLoading: _isLoading,
+  isLoading: selectedRepoLoading = false,
+  isFetching: selectedRepoFetching = false,
   isCreating,
-  error: _error,
+  error: selectedRepoError,
   onSelectRepo,
   canLoadRepo,
   onActivateRemoteRepo,
@@ -177,8 +179,10 @@ export function TreeSidebar({
   onMoveToGroup,
   onSwitchTab,
   onSwitchWorktreeByPath,
-  onOpenAgentThread,
-  onOpenSubagentTranscript,
+  onOpenAgentThread: _onOpenAgentThread,
+  onOpenSubagentTranscript: _onOpenSubagentTranscript,
+  isChatActive: _isChatActive = false,
+  selectedSubagentByWorktree: _selectedSubagentByWorktree = {},
   temporaryWorkspaceEnabled = false,
   tempWorkspaces = [],
   tempBasePath = '',
@@ -190,7 +194,6 @@ export function TreeSidebar({
   isFileDragOver,
 }: TreeSidebarProps) {
   const { t, tNode } = useI18n();
-  const _settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -228,15 +231,18 @@ export function TreeSidebar({
     () => [...safeTempWorkspaces].sort((a, b) => b.createdAt - a.createdAt),
     [safeTempWorkspaces]
   );
-  const allSessions = useAgentSessionsStore((state) => state.sessions);
-  const activeIds = useAgentSessionsStore((state) => state.activeIds);
-  const activeSessionMap = useMemo(
-    () => buildActiveSessionMapByWorktree(allSessions, activeIds),
-    [activeIds, allSessions]
-  );
+  const selectedSnapshotWorktrees = useMemo(() => sanitizeGitWorktrees(_worktrees), [_worktrees]);
 
   // Convert list to set for fast lookups
   const expandedRepos = useMemo(() => new Set(expandedRepoList), [expandedRepoList]);
+
+  useEffect(() => {
+    const validRepoPaths = new Set(repositories.map((repo) => repo.path));
+    setExpandedRepoList((prev) => {
+      const next = prev.filter((repoPath) => validRepoPaths.has(repoPath));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [repositories]);
 
   // Fetch worktrees for expanded repos only
   const {
@@ -250,22 +256,6 @@ export function TreeSidebar({
       enabled: canLoadRepo(repoPath),
     }))
   );
-  const allWorktreePaths = useMemo(() => {
-    const paths = new Set<string>();
-
-    for (const worktree of sanitizeGitWorktrees(_worktrees)) {
-      paths.add(normalizePath(worktree.path));
-    }
-
-    for (const repoWorktrees of Object.values(worktreesMap)) {
-      for (const worktree of sanitizeGitWorktrees(repoWorktrees ?? [])) {
-        paths.add(normalizePath(worktree.path));
-      }
-    }
-
-    return [...paths];
-  }, [_worktrees, worktreesMap]);
-  const liveSubagentMap = useLiveSubagents(allWorktreePaths);
 
   // Repository context menu
   const [repoMenuOpen, setRepoMenuOpen] = useState(false);
@@ -319,6 +309,8 @@ export function TreeSidebar({
       }, 100);
       return () => clearTimeout(timer);
     }
+
+    return undefined;
   }, [branches, waitingForBranchRefresh]);
 
   // Worktree delete dialog
@@ -350,11 +342,45 @@ export function TreeSidebar({
   const draggedWorktreeIndexRef = useRef<number | null>(null);
   const [dropWorktreeTargetIndex, setDropWorktreeTargetIndex] = useState<number | null>(null);
 
+  const selectedRepoSnapshot = useMemo(() => {
+    if (!selectedRepo || selectedRepo === TEMP_REPO_ID) {
+      return {
+        worktrees: EMPTY_WORKTREES,
+        isLoading: false,
+        error: null,
+      };
+    }
+
+    return resolveTreeSidebarRepoSnapshot({
+      repoPath: selectedRepo,
+      selectedRepo,
+      selectedWorktrees: selectedSnapshotWorktrees,
+      selectedActiveWorktreePath: activeWorktree?.path ?? null,
+      selectedIsLoading: selectedRepoLoading,
+      selectedIsFetching: selectedRepoFetching,
+      selectedError: selectedRepoError,
+      worktreesMap,
+      loadingMap,
+      errorsMap,
+      isExpanded: expandedRepos.has(selectedRepo),
+      canLoad: canLoadRepo(selectedRepo),
+    });
+  }, [
+    activeWorktree,
+    canLoadRepo,
+    errorsMap,
+    expandedRepos,
+    loadingMap,
+    selectedRepo,
+    selectedRepoError,
+    selectedRepoFetching,
+    selectedRepoLoading,
+    selectedSnapshotWorktrees,
+    worktreesMap,
+  ]);
+
   // Get the main worktree path for git operations (from selected repo's worktrees)
-  const selectedRepoWorktrees = useMemo(
-    () => sanitizeGitWorktrees(selectedRepo ? worktreesMap[selectedRepo] || [] : []),
-    [selectedRepo, worktreesMap]
-  );
+  const selectedRepoWorktrees = selectedRepoSnapshot.worktrees;
   const mainWorktree = selectedRepoWorktrees.find((wt) => wt.isMainWorktree);
   const workdir = mainWorktree?.path || selectedRepo || '';
 
@@ -376,8 +402,6 @@ export function TreeSidebar({
     if (allWorktrees.length === 0 || !shouldPoll) return;
 
     const loadedPaths = allWorktrees.map((wt) => wt.path);
-
-    if (loadedPaths.length === 0) return;
 
     fetchDiffStats(loadedPaths);
     const interval = setInterval(() => {
@@ -675,15 +699,59 @@ export function TreeSidebar({
     };
   }, [searchQuery]);
 
-  const allRepoPaths = useMemo(() => repositories.map((repo) => repo.path), [repositories]);
+  const repoIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [index, repo] of repositories.entries()) {
+      map.set(repo.path, index);
+    }
+    return map;
+  }, [repositories]);
+  const visibleRepos = useMemo(
+    () =>
+      repositories.filter((repo) => {
+        const settings = repoSettingsMap[normalizePath(repo.path)] || DEFAULT_REPOSITORY_SETTINGS;
+        return !settings.hidden;
+      }),
+    [repositories, repoSettingsMap]
+  );
+  const searchableRepos = useMemo(
+    () =>
+      activeGroupId === ALL_GROUP_ID
+        ? visibleRepos
+        : visibleRepos.filter((repo) => repo.groupId === activeGroupId),
+    [activeGroupId, visibleRepos]
+  );
+  const searchableRepoPaths = useMemo(
+    () => searchableRepos.map((repo) => repo.path),
+    [searchableRepos]
+  );
+  const activeRepoPaths = useMemo(
+    () => searchableRepoPaths.filter((repoPath) => activePathSet.has(normalizePath(repoPath))),
+    [activePathSet, searchableRepoPaths]
+  );
+  const loadedRepoPaths = useMemo(() => {
+    const paths = new Set(Object.keys(worktreesMap));
+    if (selectedRepo) {
+      paths.add(selectedRepo);
+    }
+    return [...paths];
+  }, [selectedRepo, worktreesMap]);
   const allRepoWorktreePrefetchInputs = useMemo(
     () =>
       buildTreeSidebarWorktreePrefetchInputs({
-        allRepoPaths,
+        allRepoPaths: searchableRepoPaths,
         hasActiveFilter: parsedSearch.hasActiveFilter,
         canLoadRepo,
+        activeRepoPaths,
+        loadedRepoPaths,
       }),
-    [allRepoPaths, parsedSearch.hasActiveFilter, canLoadRepo]
+    [
+      searchableRepoPaths,
+      parsedSearch.hasActiveFilter,
+      canLoadRepo,
+      activeRepoPaths,
+      loadedRepoPaths,
+    ]
   );
   const { worktreesMap: allRepoWorktreesMap } = useWorktreeListMultiple(
     allRepoWorktreePrefetchInputs
@@ -711,26 +779,26 @@ export function TreeSidebar({
       );
     });
   }, [activities, parsedSearch, sortedTempWorkspaces]);
+  const getSearchableRepoWorktrees = useCallback(
+    (repoPath: string) => {
+      if (repoPath === selectedRepo) {
+        return selectedSnapshotWorktrees;
+      }
+
+      return worktreesMap[repoPath] || allRepoWorktreesMap[repoPath] || EMPTY_WORKTREES;
+    },
+    [allRepoWorktreesMap, selectedRepo, selectedSnapshotWorktrees, worktreesMap]
+  );
 
   const filteredRepos = useMemo(() => {
-    let filtered = repositories;
-
-    // Filter hidden repositories using cached settings
-    filtered = filtered.filter((repo) => {
-      const settings = repoSettingsMap[normalizePath(repo.path)] || DEFAULT_REPOSITORY_SETTINGS;
-      return !settings.hidden;
-    });
-
-    if (activeGroupId !== ALL_GROUP_ID) {
-      filtered = filtered.filter((r) => r.groupId === activeGroupId);
-    }
+    let filtered = searchableRepos;
 
     if (parsedSearch.hasActiveFilter) {
       filtered = filtered.filter((repo) => {
         const normalizedRepoPath = normalizePath(repo.path);
         if (activePathSet.has(normalizedRepoPath)) return true;
 
-        const repoWorktrees = sanitizeGitWorktrees(allRepoWorktreesMap[repo.path] || []);
+        const repoWorktrees = getSearchableRepoWorktrees(repo.path);
         return repoWorktrees.some((worktree) => activePathSet.has(normalizePath(worktree.path)));
       });
     }
@@ -739,7 +807,7 @@ export function TreeSidebar({
       const query = parsedSearch.textQuery;
       filtered = filtered.filter((repo) => {
         if (repo.name.toLowerCase().includes(query)) return true;
-        const repoWorktrees = sanitizeGitWorktrees(worktreesMap[repo.path] || []);
+        const repoWorktrees = getSearchableRepoWorktrees(repo.path);
         return repoWorktrees.some(
           (wt) =>
             wt.branch?.toLowerCase().includes(query) ||
@@ -750,26 +818,12 @@ export function TreeSidebar({
 
     return filtered.map((repo) => ({
       repo,
-      originalIndex: repositories.indexOf(repo),
+      originalIndex: repoIndexMap.get(repo.path) ?? -1,
     }));
-  }, [
-    repositories,
-    worktreesMap,
-    allRepoWorktreesMap,
-    activeGroupId,
-    repoSettingsMap,
-    parsedSearch,
-    activePathSet,
-  ]);
+  }, [searchableRepos, parsedSearch, activePathSet, getSearchableRepoWorktrees, repoIndexMap]);
 
   const groupedSections = useMemo(() => {
     if (!showSections) return [];
-
-    // Use the same hidden filter as filteredRepos
-    const visibleRepos = repositories.filter((repo) => {
-      const settings = repoSettingsMap[normalizePath(repo.path)] || DEFAULT_REPOSITORY_SETTINGS;
-      return !settings.hidden;
-    });
 
     const sections: Array<{
       groupId: string;
@@ -783,7 +837,7 @@ export function TreeSidebar({
     for (const group of sortedGroups) {
       const groupRepos = visibleRepos
         .filter((r) => r.groupId === group.id)
-        .map((repo) => ({ repo, originalIndex: repositories.indexOf(repo) }));
+        .map((repo) => ({ repo, originalIndex: repoIndexMap.get(repo.path) ?? -1 }));
       if (groupRepos.length > 0) {
         sections.push({
           groupId: group.id,
@@ -797,7 +851,7 @@ export function TreeSidebar({
 
     const ungroupedRepos = visibleRepos
       .filter((r) => !r.groupId)
-      .map((repo) => ({ repo, originalIndex: repositories.indexOf(repo) }));
+      .map((repo) => ({ repo, originalIndex: repoIndexMap.get(repo.path) ?? -1 }));
     if (ungroupedRepos.length > 0) {
       sections.push({
         groupId: UNGROUPED_SECTION_ID,
@@ -809,12 +863,11 @@ export function TreeSidebar({
     }
 
     return sections;
-  }, [showSections, groups, repositories, repoSettingsMap, t]);
+  }, [showSections, groups, repoIndexMap, t, visibleRepos]);
 
   // Filter worktrees for a specific repo
   const getFilteredWorktrees = useCallback(
-    (repoPath: string) => {
-      const repoWorktrees = sanitizeGitWorktrees(worktreesMap[repoPath] || []);
+    (repoWorktrees: GitWorktree[]) => {
       return repoWorktrees.filter((wt) => {
         if (parsedSearch.hasActiveFilter) {
           const activity = activities[normalizePath(wt.path)] ?? activities[wt.path];
@@ -831,7 +884,7 @@ export function TreeSidebar({
         );
       });
     },
-    [worktreesMap, parsedSearch, activities]
+    [parsedSearch, activities]
   );
 
   const renderRepoItem = (repo: Repository, originalIndex: number, sectionGroupId?: string) => {
@@ -839,19 +892,31 @@ export function TreeSidebar({
     const isExpanded = expandedRepos.has(repo.path);
     const worktreeSectionId = getSidebarSectionId('tree-worktrees', repo.path);
     const repoCanLoad = canLoadRepo(repo.path);
-    const repoWorktrees = getFilteredWorktrees(repo.path);
-    const repoError = errorsMap[repo.path];
-    const repoLoading = repoCanLoad
-      ? (loadingMap[repo.path] ?? (isExpanded && !worktreesMap[repo.path]))
-      : false;
-    const repoWts = sanitizeGitWorktrees(worktreesMap[repo.path] || []);
+    const repoSnapshot = resolveTreeSidebarRepoSnapshot({
+      repoPath: repo.path,
+      selectedRepo,
+      selectedWorktrees: selectedSnapshotWorktrees,
+      selectedActiveWorktreePath: activeWorktree?.path ?? null,
+      selectedIsLoading: selectedRepoLoading,
+      selectedIsFetching: selectedRepoFetching,
+      selectedError: selectedRepoError,
+      worktreesMap,
+      loadingMap,
+      errorsMap,
+      isExpanded,
+      canLoad: repoCanLoad,
+    });
+    const repoWorktrees = isExpanded
+      ? getFilteredWorktrees(repoSnapshot.worktrees)
+      : EMPTY_WORKTREES;
+    const repoError = repoSnapshot.error;
+    const repoLoading = repoSnapshot.isLoading;
+    const repoWts = repoSnapshot.worktrees;
     const displayRepoPath = getDisplayPath(repo.path);
     const useLtrPathDisplay = isWslUncPath(displayRepoPath);
     const activeWorktreeCount = repoWts.filter((wt) =>
       activePathSet.has(normalizePath(wt.path))
     ).length;
-    const hasRepoSummary = (repoCanLoad && repoWts.length > 0) || activeWorktreeCount > 0;
-
     return (
       <div key={repo.path} className="relative">
         {/* Repository row */}
@@ -911,10 +976,14 @@ export function TreeSidebar({
                     <FolderGit2 className="control-tree-icon h-4 w-4" />
                   </span>
                   <div className="control-tree-text-stack">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       <span className="control-tree-title min-w-0 flex-1 truncate text-left">
                         {repo.name}
                       </span>
+                      <RepositoryTreeSummary
+                        worktreeCount={repoWts.length}
+                        activeWorktreeCount={activeWorktreeCount}
+                      />
                     </div>
                     <div
                       className={cn(
@@ -925,25 +994,6 @@ export function TreeSidebar({
                     >
                       {displayRepoPath}
                     </div>
-                    {hasRepoSummary ? (
-                      <div className="control-tree-meta control-tree-meta-row">
-                        {repoWts.length > 0 ? (
-                          <span className="control-tree-metric">
-                            <span className="control-tree-metric-value">{repoWts.length}</span>
-                            <span className="control-tree-metric-label">trees</span>
-                          </span>
-                        ) : null}
-                        {repoWts.length > 0 && activeWorktreeCount > 0 ? (
-                          <span className="control-tree-separator">·</span>
-                        ) : null}
-                        {activeWorktreeCount > 0 ? (
-                          <span className="control-tree-metric">
-                            <span className="control-tree-metric-value">{activeWorktreeCount}</span>
-                            <span className="control-tree-metric-label">live</span>
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               </button>
@@ -1020,46 +1070,34 @@ export function TreeSidebar({
                 </span>
               </div>
             ) : (
-              repoWorktrees.map((worktree, wtIndex) => (
-                <WorktreeTreeItem
-                  key={worktree.path}
-                  worktree={worktree}
-                  branches={branches}
-                  activeSession={activeSessionMap.get(normalizePath(worktree.path))}
-                  liveSubagents={
-                    activeSessionMap.get(normalizePath(worktree.path))?.agentId.startsWith('codex')
-                      ? (liveSubagentMap.get(normalizePath(worktree.path)) ?? [])
-                      : []
-                  }
-                  isActive={activeWorktree?.path === worktree.path}
-                  onClick={() => {
-                    if (!isSelected) {
-                      onSelectRepo(repo.path, { activateRemote: true });
+              repoWorktrees.map((worktree, wtIndex) => {
+                return (
+                  <WorktreeTreeItem
+                    key={worktree.path}
+                    worktree={worktree}
+                    branches={branches}
+                    isActive={activeWorktree?.path === worktree.path}
+                    onClick={() => onSelectWorktree(worktree, isSelected ? undefined : repo.path)}
+                    onDelete={() => setWorktreeToDelete(worktree)}
+                    onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
+                    draggable={!searchQuery && !!onReorderWorktrees && isSelected}
+                    onDragStart={(e) => handleWorktreeDragStart(e, wtIndex, worktree)}
+                    onDragEnd={handleWorktreeDragEnd}
+                    onDragOver={(e) => handleWorktreeDragOver(e, wtIndex)}
+                    onDragLeave={handleWorktreeDragLeave}
+                    onDrop={(e) => handleWorktreeDrop(e, wtIndex)}
+                    showDropIndicator={dropWorktreeTargetIndex === wtIndex}
+                    dropDirection={
+                      dropWorktreeTargetIndex === wtIndex &&
+                      draggedWorktreeIndexRef.current !== null
+                        ? draggedWorktreeIndexRef.current > wtIndex
+                          ? 'top'
+                          : 'bottom'
+                        : null
                     }
-                    onSelectWorktree(worktree);
-                  }}
-                  onOpenAgentThread={(sessionId) => onOpenAgentThread?.(worktree, sessionId)}
-                  onOpenSubagentTranscript={(subagent) =>
-                    onOpenSubagentTranscript?.(worktree, subagent)
-                  }
-                  onDelete={() => setWorktreeToDelete(worktree)}
-                  onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
-                  draggable={!searchQuery && !!onReorderWorktrees && isSelected}
-                  onDragStart={(e) => handleWorktreeDragStart(e, wtIndex, worktree)}
-                  onDragEnd={handleWorktreeDragEnd}
-                  onDragOver={(e) => handleWorktreeDragOver(e, wtIndex)}
-                  onDragLeave={handleWorktreeDragLeave}
-                  onDrop={(e) => handleWorktreeDrop(e, wtIndex)}
-                  showDropIndicator={dropWorktreeTargetIndex === wtIndex}
-                  dropDirection={
-                    dropWorktreeTargetIndex === wtIndex && draggedWorktreeIndexRef.current !== null
-                      ? draggedWorktreeIndexRef.current > wtIndex
-                        ? 'top'
-                        : 'bottom'
-                      : null
-                  }
-                />
-              ))
+                  />
+                );
+              })
             )}
           </div>
         ) : null}
@@ -1339,72 +1377,56 @@ export function TreeSidebar({
               }
             />
           </div>
-        ) : (
-          <LayoutGroup>
-            {showSections ? (
-              <div className="control-tree-section-list">
-                {groupedSections.map((section) => {
-                  const isGroupCollapsed = !!collapsedGroups[section.groupId];
-                  const sectionContentId = `tree-section-${section.groupId}`;
-                  return (
-                    <div key={section.groupId}>
-                      {/* Section Header */}
-                      <button
-                        type="button"
-                        onClick={() => toggleGroupCollapsed(section.groupId)}
-                        className="control-section-header select-none"
-                        aria-expanded={!isGroupCollapsed}
-                        aria-controls={sectionContentId}
-                      >
-                        <ChevronRight
-                          className={cn(
-                            'h-3 w-3 shrink-0 transition-transform duration-150',
-                            !isGroupCollapsed && 'rotate-90'
-                          )}
-                        />
-                        {section.emoji && (
-                          <span className="control-section-marker" aria-hidden="true">
-                            {section.emoji}
-                          </span>
-                        )}
-                        <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
-                        <span className="control-section-count" aria-hidden="true">
-                          {section.repos.length}
-                        </span>
-                      </button>
-                      {/* Section Content */}
-                      <AnimatePresence initial={false}>
-                        {!isGroupCollapsed && (
-                          <motion.div
-                            key={`group-content-${section.groupId}`}
-                            initial="initial"
-                            animate="animate"
-                            exit="exit"
-                            variants={heightVariants}
-                            transition={springStandard}
-                            className="overflow-hidden"
-                            id={sectionContentId}
-                          >
-                            <div className="control-tree-section-body">
-                              {section.repos.map(({ repo, originalIndex }) => {
-                                return renderRepoItem(repo, originalIndex, section.groupId);
-                              })}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+        ) : showSections ? (
+          <div className="control-tree-section-list">
+            {groupedSections.map((section) => {
+              const isGroupCollapsed = !!collapsedGroups[section.groupId];
+              const sectionContentId = `tree-section-${section.groupId}`;
+              return (
+                <div key={section.groupId}>
+                  {/* Section Header */}
+                  <button
+                    type="button"
+                    onClick={() => toggleGroupCollapsed(section.groupId)}
+                    className="control-section-header select-none"
+                    aria-expanded={!isGroupCollapsed}
+                    aria-controls={sectionContentId}
+                  >
+                    <ChevronRight
+                      className={cn(
+                        'h-3 w-3 shrink-0 transition-transform duration-150',
+                        !isGroupCollapsed && 'rotate-90'
+                      )}
+                    />
+                    {section.emoji && (
+                      <span className="control-section-marker" aria-hidden="true">
+                        {section.emoji}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
+                    <span className="control-section-count" aria-hidden="true">
+                      {section.repos.length}
+                    </span>
+                  </button>
+                  <div
+                    id={sectionContentId}
+                    className="control-tree-collapsible"
+                    data-expanded={!isGroupCollapsed}
+                  >
+                    <div className="control-tree-section-body">
+                      {section.repos.map(({ repo, originalIndex }) => {
+                        return renderRepoItem(repo, originalIndex, section.groupId);
+                      })}
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="control-tree-flat-list">
-                {filteredRepos.map(({ repo, originalIndex }) =>
-                  renderRepoItem(repo, originalIndex)
-                )}
-              </div>
-            )}
-          </LayoutGroup>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="control-tree-flat-list">
+            {filteredRepos.map(({ repo, originalIndex }) => renderRepoItem(repo, originalIndex))}
+          </div>
         )}
       </div>
 

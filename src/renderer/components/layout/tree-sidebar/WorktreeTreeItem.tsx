@@ -20,16 +20,11 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
-import { WorktreeAgentSummary } from '../WorktreeAgentSummary';
 
 interface WorktreeTreeItemProps {
   worktree: GitWorktree;
-  activeSession?: import('@/components/chat/SessionBar').Session;
-  liveSubagents?: import('@shared/types').LiveAgentSubagent[];
   isActive: boolean;
   onClick: () => void;
-  onOpenAgentThread?: (sessionId: string) => void;
-  onOpenSubagentTranscript?: (subagent: import('@shared/types').LiveAgentSubagent) => void;
   onDelete: () => void;
   onMerge?: () => void;
   draggable?: boolean;
@@ -45,12 +40,8 @@ interface WorktreeTreeItemProps {
 
 export function WorktreeTreeItem({
   worktree,
-  activeSession,
-  liveSubagents = [],
   isActive,
   onClick,
-  onOpenAgentThread,
-  onOpenSubagentTranscript,
   onDelete,
   onMerge,
   draggable,
@@ -110,9 +101,10 @@ export function WorktreeTreeItem({
       }, COMPLETED_STATE_DURATION_MS);
       return () => clearTimeout(timer);
     }
-  }, [isActive, activityState, worktree.path]);
 
-  const _outputState = useWorktreeOutputState(worktree.path);
+    return undefined;
+  }, [isActive, activityState, worktree.path]);
+  useWorktreeOutputState(worktree.path);
 
   const {
     ahead: aheadCount,
@@ -272,9 +264,10 @@ export function WorktreeTreeItem({
       ? {
           key: 'agents',
           content: (
-            <span className="control-tree-metric">
+            <span className="control-tree-metric" title={`${activity.agentCount} ${t('agents')}`}>
+              <Sparkles className="control-tree-metric-icon" aria-hidden="true" />
               <span className="control-tree-metric-value">{activity.agentCount}</span>
-              <span className="control-tree-metric-label">{t('agents')}</span>
+              <span className="sr-only">{t('agents')}</span>
             </span>
           ),
         }
@@ -283,9 +276,13 @@ export function WorktreeTreeItem({
       ? {
           key: 'terminals',
           content: (
-            <span className="control-tree-metric">
+            <span
+              className="control-tree-metric"
+              title={`${activity.terminalCount} ${t('terminals')}`}
+            >
+              <Terminal className="control-tree-metric-icon" aria-hidden="true" />
               <span className="control-tree-metric-value">{activity.terminalCount}</span>
-              <span className="control-tree-metric-label">{t('terminals')}</span>
+              <span className="sr-only">{t('terminals')}</span>
             </span>
           ),
         }
@@ -312,7 +309,7 @@ export function WorktreeTreeItem({
         onDrop={onDrop}
         onContextMenu={handleContextMenu}
         className={cn(
-          'control-tree-node relative flex w-full flex-col gap-0.5 px-2 py-1 text-left text-sm transition-colors cursor-pointer',
+          'control-tree-node relative flex w-full flex-col gap-1 px-2.5 py-1.5 text-left text-sm transition-colors cursor-pointer',
           isPrunable && 'opacity-50'
         )}
         data-active={isActive ? 'worktree' : 'false'}
@@ -375,15 +372,6 @@ export function WorktreeTreeItem({
             </div>
           ) : null}
         </div>
-        {activeSession ? (
-          <WorktreeAgentSummary
-            className="pl-5 pt-1"
-            session={activeSession}
-            subagents={liveSubagents}
-            onSelectSession={onOpenAgentThread}
-            onSelectSubagent={onOpenSubagentTranscript}
-          />
-        ) : null}
       </div>
       {showDropIndicator && dropDirection === 'bottom' && (
         <div className="absolute -bottom-0.5 left-0 right-0 h-0.5 rounded-full bg-theme/75" />
