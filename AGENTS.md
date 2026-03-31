@@ -29,10 +29,87 @@ Infilux/
 
 ## SUBSYSTEM GUIDES
 
+- Nearest-directory inheritance applies: use the closest `AGENTS.md` first, then inherit parent guides upward.
+
+### Core runtime layers
+
 - `src/main/AGENTS.md` — Main-process architecture, IPC, lifecycle, and service rules
-- `src/renderer/AGENTS.md` — Renderer architecture, state ownership, panels, and UI rules
 - `src/preload/AGENTS.md` — Context bridge and `window.electronAPI` extension rules
+- `src/renderer/AGENTS.md` — Renderer architecture, state ownership, panels, and UI rules
 - `src/shared/AGENTS.md` — Shared types, channel contracts, and cross-process utility rules
+
+### Main-process subdirectories
+
+- `src/main/ipc/AGENTS.md` — Handler boundaries, sender-scoped cleanup, and IPC module design
+- `src/main/services/AGENTS.md` — Service-layer ownership, domain separation, and extension rules
+- `src/main/services/agent/AGENTS.md` — Agent registry, transcript, and subagent tracking rules
+- `src/main/services/ai/AGENTS.md` — AI-assisted generator and review helper rules
+- `src/main/services/app/AGENTS.md` — App detection, path validation, and recent-project rules
+- `src/main/services/claude/AGENTS.md` — Claude provider, MCP, prompts, plugin, and bridge rules
+- `src/main/services/cli/AGENTS.md` — CLI detection and installation support rules
+- `src/main/services/files/AGENTS.md` — Privileged file access and watcher lifecycle rules
+- `src/main/services/git/AGENTS.md` — Git, worktree, encoding, and runtime helper rules
+- `src/main/services/hapi/AGENTS.md` — Hapi runtime, server, and tunnel manager rules
+- `src/main/services/proxy/AGENTS.md` — Proxy normalization and configuration rules
+- `src/main/services/remote/AGENTS.md` — Remote connection, auth, helper, and runtime asset rules
+- `src/main/services/repository/AGENTS.md` — Repository context resolution rules
+- `src/main/services/search/AGENTS.md` — Search execution and result-shaping rules
+- `src/main/services/session/AGENTS.md` — Session identity, attach, recovery, and persistence rules
+- `src/main/services/session/hosts/AGENTS.md` — Host-specific tmux and supervisor adapter rules
+- `src/main/services/settings/AGENTS.md` — Main-process settings compatibility and import rules
+- `src/main/services/terminal/AGENTS.md` — PTY lifecycle and shell detection rules
+- `src/main/services/todo/AGENTS.md` — Todo-domain privileged service rules
+- `src/main/services/updater/AGENTS.md` — Auto-update lifecycle and status rules
+- `src/main/services/webInspector/AGENTS.md` — Web inspector backend and server lifecycle rules
+- `src/main/utils/AGENTS.md` — Main-process utility ownership rules
+- `src/main/windows/AGENTS.md` — BrowserWindow creation and window-manager rules
+
+### Renderer subdirectories
+
+- `src/renderer/App/AGENTS.md` — App-shell orchestration, startup, and panel persistence rules
+- `src/renderer/App/hooks/AGENTS.md` — Shell-level orchestration hook rules
+- `src/renderer/assets/AGENTS.md` — Static renderer asset management rules
+- `src/renderer/components/AGENTS.md` — Feature component composition rules
+- `src/renderer/components/app/AGENTS.md` — App-scoped renderer widget rules
+- `src/renderer/components/chat/AGENTS.md` — Agent panel and chat session UI rules
+- `src/renderer/components/chat/agent-panel/AGENTS.md` — Agent-panel leaf subcomponent rules
+- `src/renderer/components/files/AGENTS.md` — File tree, Monaco, preview, and editor workflow rules
+- `src/renderer/components/git/AGENTS.md` — Git-focused dialog, history, and sync widget rules
+- `src/renderer/components/group/AGENTS.md` — Group editing and assignment UI rules
+- `src/renderer/components/layout/AGENTS.md` — Shell layout, deferred panels, and sidebar rules
+- `src/renderer/components/layout/repository-sidebar/AGENTS.md` — Repository sidebar row and summary rules
+- `src/renderer/components/layout/tree-sidebar/AGENTS.md` — Tree sidebar worktree and temp workspace row rules
+- `src/renderer/components/layout/worktree-panel/AGENTS.md` — Worktree panel row component rules
+- `src/renderer/components/remote/AGENTS.md` — Remote-specific prompt and UI rules
+- `src/renderer/components/repository/AGENTS.md` — Repository management dialog rules
+- `src/renderer/components/search/AGENTS.md` — Global search dialog and result presentation rules
+- `src/renderer/components/settings/AGENTS.md` — Settings shell and section composition rules
+- `src/renderer/components/settings/claude-provider/AGENTS.md` — Claude provider settings UI rules
+- `src/renderer/components/settings/mcp/AGENTS.md` — MCP server settings UI rules
+- `src/renderer/components/settings/plugins/AGENTS.md` — Plugin marketplace and browser UI rules
+- `src/renderer/components/settings/prompts/AGENTS.md` — Prompt preset and prompt editor UI rules
+- `src/renderer/components/source-control/AGENTS.md` — Source-control panel and diff workflow rules
+- `src/renderer/components/temp-workspace/AGENTS.md` — Temporary-workspace dialog and menu rules
+- `src/renderer/components/terminal/AGENTS.md` — Terminal panel and terminal view rules
+- `src/renderer/components/todo/AGENTS.md` — Todo board and task editor UI rules
+- `src/renderer/components/ui/AGENTS.md` — Shared renderer primitive and accessibility rules
+- `src/renderer/components/worktree/AGENTS.md` — Worktree dialog and worktree-specific UI rules
+- `src/renderer/data/AGENTS.md` — Static renderer dataset rules
+- `src/renderer/hooks/AGENTS.md` — Shared renderer hook ownership and cleanup rules
+- `src/renderer/lib/AGENTS.md` — Renderer-only utility and model rules
+- `src/renderer/stores/AGENTS.md` — Zustand store ownership and state-boundary rules
+- `src/renderer/stores/settings/AGENTS.md` — Settings schema, migration, hydration, and storage rules
+- `src/renderer/styles/AGENTS.md` — Global renderer style-layer rules
+- `src/renderer/utils/AGENTS.md` — Narrow renderer utility ownership rules
+- `src/renderer/views/AGENTS.md` — View-level composition rules
+
+### Shared contracts and helpers
+
+- `src/shared/types/AGENTS.md` — Shared domain-type and IPC contract rules
+- `src/shared/utils/AGENTS.md` — Shared pure utility and path-normalization rules
+
+### Design and product governance
+
 - `agents/design-context.md` — Persistent product style, brand direction, and visual decision principles
 - `agents/theme-palette-policy.md` — Theme hierarchy, semantic color guardrails, and terminal sync policy
 - `agents/accessibility-rules.md` — Keyboard, contrast, motion, and dense-UI accessibility expectations
