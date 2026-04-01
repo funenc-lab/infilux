@@ -62,7 +62,7 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command?.args[1]).toContain(
       "exec env -u TMUX tmux -L enso -f /dev/null new-session -A -s enso-ui-session-1 'claude --session-id session-1 --ide'"
     );
-    expect(plan.command?.args[1]).toContain("exec /bin/zsh -i -l -c");
+    expect(plan.command?.args[1]).toContain('exec /bin/zsh -i -l -c');
   });
 
   it('does not wrap local unix agent sessions in tmux when tmux persistence is disabled', () => {
@@ -95,6 +95,56 @@ describe('buildAgentLaunchPlan', () => {
   it('directly launches local unix agent commands and retains a shell fallback', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toEqual({
+      shell: 'codex',
+      args: [],
+    });
+    expect(plan.fallbackCommand).toEqual({
+      shell: '/bin/zsh',
+      args: ['-l', '-c', 'codex'],
+    });
+  });
+
+  it('resumes initialized codex sessions on local unix hosts', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'codex-session-9',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toEqual({
+      shell: 'codex',
+      args: ['resume', 'codex-session-9'],
+    });
+    expect(plan.fallbackCommand).toEqual({
+      shell: '/bin/zsh',
+      args: ['-l', '-c', 'codex resume codex-session-9'],
+    });
+  });
+
+  it('does not try to resume codex sessions before the first interactive run', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'codex-session-10',
+      initialized: false,
       environment: 'native',
       hapiGlobalInstalled: null,
       isRemoteExecution: false,

@@ -31,6 +31,31 @@ export interface AgentLaunchPlan {
   tmuxSessionName: string | null;
 }
 
+function buildSessionResumeArgs(params: {
+  agentCommand: string;
+  resumeSessionId?: string;
+  initialized?: boolean;
+}): string[] {
+  const { agentCommand, resumeSessionId, initialized } = params;
+  if (!resumeSessionId) {
+    return [];
+  }
+
+  if (agentCommand === 'cursor-agent') {
+    return ['--resume', resumeSessionId];
+  }
+
+  if (agentCommand === 'codex') {
+    return initialized ? ['resume', resumeSessionId] : [];
+  }
+
+  if (agentCommand.startsWith('claude')) {
+    return initialized ? ['--resume', resumeSessionId] : ['--session-id', resumeSessionId];
+  }
+
+  return [];
+}
+
 function quotePosixShell(input: string): string {
   return `'${input.replace(/'/g, "'\\''")}'`;
 }
@@ -169,18 +194,14 @@ export function buildAgentLaunchPlan({
   }
 
   const effectiveCommand = customPath || agentCommand;
-  const supportsSession = agentCommand.startsWith('claude') || agentCommand === 'cursor-agent';
   const supportIde = agentCommand.startsWith('claude');
   const isWindows = executionPlatform === 'win32';
 
-  const agentArgs: string[] = [];
-  if (supportsSession && resumeSessionId) {
-    if (agentCommand === 'cursor-agent' || initialized) {
-      agentArgs.push('--resume', resumeSessionId);
-    } else {
-      agentArgs.push('--session-id', resumeSessionId);
-    }
-  }
+  const agentArgs = buildSessionResumeArgs({
+    agentCommand,
+    resumeSessionId,
+    initialized,
+  });
 
   if (supportIde) {
     agentArgs.push('--ide');

@@ -33,23 +33,26 @@ const EMPTY_STATE_ACTION_BUTTON_CLASS_NAME =
 const EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME =
   'control-action-button-primary min-h-[3.75rem] flex-1 justify-start gap-3.5 px-5 py-3 text-left whitespace-normal';
 const EMPTY_STATE_PRIMARY_ACTION_ICON_CLASS_NAME =
-  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-black/8 ring-1 ring-white/12';
+  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-foreground/6 ring-1 ring-foreground/10';
 const EMPTY_STATE_PRIMARY_ACTION_CONTENT_CLASS_NAME =
   'flex min-w-0 flex-1 flex-col items-start gap-1';
-const EMPTY_STATE_PRIMARY_ACTION_META_CLASS_NAME =
-  'flex min-w-0 items-center gap-2 text-xs leading-none text-primary-foreground/78';
+const EMPTY_STATE_PRIMARY_ACTION_TITLE_ROW_CLASS_NAME = 'flex w-full items-center gap-2';
+const EMPTY_STATE_PRIMARY_ACTION_TITLE_CLASS_NAME =
+  'min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]';
 const EMPTY_STATE_PRIMARY_ACTION_META_BADGE_CLASS_NAME =
-  'inline-flex shrink-0 items-center rounded-full border border-white/12 bg-black/8 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-foreground/74';
+  'inline-flex shrink-0 items-center rounded-full border border-foreground/12 bg-foreground/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/72';
+const EMPTY_STATE_PRIMARY_ACTION_SUPPORTING_CLASS_NAME =
+  'min-w-0 truncate text-xs leading-none text-foreground/70';
 const EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME =
   'control-action-button-secondary min-h-[3.75rem] w-full justify-start gap-3 px-5 text-[15px] font-medium text-left sm:w-auto sm:min-w-[14rem]';
 const EMPTY_STATE_SECONDARY_ACTION_ICON_CLASS_NAME =
-  'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/38 text-foreground ring-1 ring-border/50';
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-foreground ring-1 ring-border/60';
 const EMPTY_STATE_ACTIONS_LAYOUT_CLASS_NAME =
   'flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-center';
 const EMPTY_STATE_SPLIT_ACTION_GROUP_CLASS_NAME =
   'flex w-full min-w-0 items-stretch overflow-hidden rounded-xl';
 const EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME =
-  'min-h-12 min-w-0 rounded-l-none border-l border-white/12 px-3 text-[15px]';
+  'control-action-button-primary min-h-12 min-w-0 rounded-l-none border-l border-foreground/12 px-3 text-[15px]';
 const EMPTY_STATE_SPLIT_ACTION_MENU_CLASS_NAME =
   'absolute left-0 right-0 top-full z-50 pt-2 text-left sm:left-auto sm:right-0 sm:min-w-52';
 const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME =
@@ -153,15 +156,19 @@ export function AgentPanelEmptyState({
                     <Plus className="h-4 w-4" />
                   </span>
                   <span className={EMPTY_STATE_PRIMARY_ACTION_CONTENT_CLASS_NAME}>
-                    <span className="w-full truncate text-[15px] font-semibold tracking-[-0.01em]">
-                      {emptyStateModel.primaryActionLabel}
-                    </span>
-                    {showPrimaryMeta ? (
-                      <span className={EMPTY_STATE_PRIMARY_ACTION_META_CLASS_NAME}>
+                    <span className={EMPTY_STATE_PRIMARY_ACTION_TITLE_ROW_CLASS_NAME}>
+                      <span className={EMPTY_STATE_PRIMARY_ACTION_TITLE_CLASS_NAME}>
+                        {emptyStateModel.primaryActionLabel}
+                      </span>
+                      {showPrimaryMeta ? (
                         <span className={EMPTY_STATE_PRIMARY_ACTION_META_BADGE_CLASS_NAME}>
                           {t('Default')}
                         </span>
-                        <span className="min-w-0 truncate">{defaultAgentLabel}</span>
+                      ) : null}
+                    </span>
+                    {showPrimaryMeta ? (
+                      <span className={EMPTY_STATE_PRIMARY_ACTION_SUPPORTING_CLASS_NAME}>
+                        {defaultAgentLabel}
                       </span>
                     ) : null}
                   </span>
@@ -176,8 +183,7 @@ export function AgentPanelEmptyState({
                     onClick={() => setShowAgentMenu((current) => !current)}
                     className={cn(
                       EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
-                      EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME,
-                      'hover:brightness-110'
+                      EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME
                     )}
                     style={buttonStyle}
                   >

@@ -1,6 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { agentPanelSource } from './agentPanelSource';
 
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.css'), 'utf8');
 const panelSource = agentPanelSource;
 
 describe('AgentPanel empty state styles', () => {
@@ -39,7 +44,22 @@ describe('AgentPanel empty state styles', () => {
       'min-h-[3.75rem] flex-1 justify-start gap-3.5 px-5 py-3 text-left whitespace-normal'
     );
     expect(panelSource).toContain('flex min-w-0 flex-1 flex-col items-start gap-1');
-    expect(panelSource).toContain('text-xs leading-none text-primary-foreground/78');
+    expect(panelSource).toContain('text-xs leading-none text-foreground/70');
+  });
+
+  it('keeps the default badge on the same line as the primary button title', () => {
+    expect(panelSource).toContain('flex w-full items-center gap-2');
+    expect(panelSource).toContain('flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]');
+    expect(panelSource).not.toContain(
+      '<span className={EMPTY_STATE_PRIMARY_ACTION_META_CLASS_NAME}>'
+    );
+  });
+
+  it('keeps the split toggle on the same primary control surface as the launch button', () => {
+    expect(panelSource).toContain(
+      'control-action-button-primary min-h-12 min-w-0 rounded-l-none border-l border-foreground/12 px-3 text-[15px]'
+    );
+    expect(panelSource).not.toContain('hover:brightness-110');
   });
 
   it('keeps the primary launch control visually balanced instead of stretching across the row', () => {
@@ -54,6 +74,26 @@ describe('AgentPanel empty state styles', () => {
     expect(panelSource).toContain(
       'absolute left-0 right-0 top-full z-50 pt-2 text-left sm:left-auto sm:right-0 sm:min-w-52'
     );
+  });
+
+  it('defines dark control-family surfaces for the shared empty-state action buttons', () => {
+    expect(globalsSource).toContain('.control-action-button {');
+    expect(globalsSource).toContain('background-color 140ms ease,');
+    expect(globalsSource).toContain('border-color 140ms ease,');
+    expect(globalsSource).toContain('.control-action-button-primary {');
+    expect(globalsSource).toContain('background: linear-gradient(');
+    expect(globalsSource).toContain(
+      'border-color: color-mix(in oklch, var(--primary) 28%, var(--border) 72%);'
+    );
+    expect(globalsSource).toContain('color: var(--foreground);');
+    expect(globalsSource).toContain('.control-action-button-secondary {');
+    expect(globalsSource).toContain(
+      'background: color-mix(in oklch, var(--background) 92%, var(--muted) 8%);'
+    );
+    expect(globalsSource).toContain(
+      'border-color: color-mix(in oklch, var(--border) 84%, transparent);'
+    );
+    expect(globalsSource).toContain('.control-action-button:active {');
   });
 
   it('keeps the profile picker header label shrink-safe beside the settings button', () => {
