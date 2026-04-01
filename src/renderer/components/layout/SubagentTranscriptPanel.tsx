@@ -1,8 +1,14 @@
 import type { AgentSubagentTranscriptEntry, LiveAgentSubagent } from '@shared/types';
 import { Bot, TerminalSquare, User, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSubagentTranscript } from '@/hooks/useSubagentTranscript';
 import { cn } from '@/lib/utils';
+import {
+  buildSubagentTranscriptWindow,
+  DEFAULT_SUBAGENT_TRANSCRIPT_VISIBLE_COUNT,
+  expandSubagentTranscriptWindow,
+} from './subagentTranscriptWindowPolicy';
 
 interface SubagentTranscriptPanelProps {
   subagent: LiveAgentSubagent;
@@ -59,7 +65,25 @@ function getEntryPresentation(entry: AgentSubagentTranscriptEntry): {
 
 export function SubagentTranscriptPanel({ subagent, onClose }: SubagentTranscriptPanelProps) {
   const { data, isLoading, error } = useSubagentTranscript(subagent);
-  const entries = data?.entries ?? [];
+  const allEntries = data?.entries ?? [];
+  const omittedEntryCount = data?.omittedEntryCount ?? 0;
+  const transcriptIdentity = data?.threadId ?? subagent.threadId;
+  const [visibleCount, setVisibleCount] = useState(DEFAULT_SUBAGENT_TRANSCRIPT_VISIBLE_COUNT);
+
+  useEffect(() => {
+    setVisibleCount((current) =>
+      transcriptIdentity ? DEFAULT_SUBAGENT_TRANSCRIPT_VISIBLE_COUNT : current
+    );
+  }, [transcriptIdentity]);
+
+  const windowState = useMemo(
+    () => buildSubagentTranscriptWindow(allEntries.length, visibleCount),
+    [allEntries.length, visibleCount]
+  );
+  const entries = useMemo(
+    () => allEntries.slice(windowState.startIndex, windowState.endIndex),
+    [allEntries, windowState.endIndex, windowState.startIndex]
+  );
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-background/96 backdrop-blur-sm">
@@ -107,6 +131,38 @@ export function SubagentTranscriptPanel({ subagent, onClose }: SubagentTranscrip
         {!isLoading && !error && entries.length === 0 ? (
           <div className="rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             No transcript entries were found for this subagent.
+          </div>
+        ) : null}
+
+        {!isLoading && !error && data?.truncated ? (
+          <div className="mb-3 rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Showing the latest transcript entries. Older entries were omitted to keep long sessions
+            responsive{omittedEntryCount > 0 ? ` (${omittedEntryCount} hidden).` : '.'}
+          </div>
+        ) : null}
+
+        {!isLoading && !error && windowState.hasHiddenOlder ? (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-panel/40 px-4 py-3">
+            <div className="text-sm text-muted-foreground">
+              Showing the latest {windowState.visibleCount} entries. {windowState.hiddenOlderCount}{' '}
+              older entries are hidden.
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setVisibleCount((current) =>
+                    expandSubagentTranscriptWindow(allEntries.length, current)
+                  )
+                }
+              >
+                Show older
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setVisibleCount(allEntries.length)}>
+                Show all
+              </Button>
+            </div>
           </div>
         ) : null}
 

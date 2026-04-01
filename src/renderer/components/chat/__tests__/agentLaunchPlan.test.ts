@@ -55,13 +55,14 @@ describe('buildAgentLaunchPlan', () => {
     });
 
     expect(plan.tmuxSessionName).toBe('enso-ui-session-1');
-    expect(plan.command).toEqual({
-      shell: '/bin/zsh',
-      args: [
-        '-lc',
-        "env -u TMUX tmux -L enso -f /dev/null new-session -A -s enso-ui-session-1 'claude --session-id session-1 --ide'",
-      ],
-    });
+    expect(plan.command?.shell).toBe('/bin/zsh');
+    expect(plan.command?.args[0]).toBe('-lc');
+    expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');
+    expect(plan.command?.args[1]).toContain('command -v claude >/dev/null 2>&1');
+    expect(plan.command?.args[1]).toContain(
+      "exec env -u TMUX tmux -L enso -f /dev/null new-session -A -s enso-ui-session-1 'claude --session-id session-1 --ide'"
+    );
+    expect(plan.command?.args[1]).toContain("exec /bin/zsh -i -l -c");
   });
 
   it('does not wrap local unix agent sessions in tmux when tmux persistence is disabled', () => {
@@ -82,8 +83,35 @@ describe('buildAgentLaunchPlan', () => {
 
     expect(plan.tmuxSessionName).toBeNull();
     expect(plan.command).toEqual({
+      shell: 'claude',
+      args: ['--session-id', 'session-1', '--ide'],
+    });
+    expect(plan.fallbackCommand).toEqual({
       shell: '/bin/zsh',
       args: ['-lc', 'claude --session-id session-1 --ide'],
+    });
+  });
+
+  it('directly launches local unix agent commands and retains a shell fallback', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toEqual({
+      shell: 'codex',
+      args: [],
+    });
+    expect(plan.fallbackCommand).toEqual({
+      shell: '/bin/zsh',
+      args: ['-l', '-c', 'codex'],
     });
   });
 

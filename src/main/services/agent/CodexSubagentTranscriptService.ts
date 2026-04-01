@@ -1,6 +1,8 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import readline from 'node:readline';
 import type {
   AgentSubagentTranscriptEntry,
   GetAgentSubagentTranscriptRequest,
@@ -8,6 +10,7 @@ import type {
 } from '@shared/types';
 
 const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
+const DEFAULT_MAX_TRANSCRIPT_ENTRIES = 200;
 
 interface CodexSessionMeta {
   threadId: string;
@@ -20,6 +23,8 @@ interface CodexSessionMeta {
 interface ParsedTranscriptEnvelope {
   meta: CodexSessionMeta;
   entries: AgentSubagentTranscriptEntry[];
+  truncated: boolean;
+  omittedEntryCount: number;
 }
 
 interface TranscriptMessageContentPart {
@@ -105,106 +110,181 @@ function summarizeToolArguments(argumentsText: unknown): string {
   return values.join(' · ').slice(0, 200);
 }
 
-export function parseCodexSubagentTranscriptLines(lines: string[]): ParsedTranscriptEnvelope {
-  let started = false;
-  let entryIndex = 0;
+interface ParseCodexSubagentTranscriptOptions {
+  maxEntries?: number;
+}
 
-  const meta: CodexSessionMeta = {
-    threadId: '',
+interface TranscriptCollector {
+  meta: CodexSessionMeta;
+  entries: AgentSubagentTranscriptEntry[];
+  started: boolean;
+  entryIndex: number;
+  omittedEntryCount: number;
+  maxEntries: number;
+}
+
+function createTranscriptCollector(
+  options: ParseCodexSubagentTranscriptOptions = {}
+): TranscriptCollector {
+  return {
+    meta: {
+      threadId: '',
+    },
+    entries: [],
+    started: false,
+    entryIndex: 0,
+    omittedEntryCount: 0,
+    maxEntries: Math.max(1, options.maxEntries ?? DEFAULT_MAX_TRANSCRIPT_ENTRIES),
   };
-  const entries: AgentSubagentTranscriptEntry[] = [];
+}
 
-  for (const rawLine of lines) {
-    if (!rawLine.trim()) {
-      continue;
-    }
+function pushTranscriptEntry(
+  collector: TranscriptCollector,
+  entry: Omit<AgentSubagentTranscriptEntry, 'id'>
+): void {
+  collector.entries.push({
+    ...entry,
+    id: `entry-${collector.entryIndex++}`,
+  });
 
-    const parsed = safeJsonParse(rawLine);
-    if (!parsed) {
-      continue;
-    }
+  if (collector.entries.length > collector.maxEntries) {
+    collector.entries.shift();
+    collector.omittedEntryCount += 1;
+  }
+}
 
-    if (parsed.type === 'session_meta' && parsed.payload && typeof parsed.payload === 'object') {
-      const payload = parsed.payload as Record<string, unknown>;
-      const source = payload.source as Record<string, unknown> | undefined;
-      const subagent = source?.subagent as Record<string, unknown> | undefined;
-      const threadSpawn = subagent?.thread_spawn as Record<string, unknown> | undefined;
-
-      meta.threadId = typeof payload.id === 'string' ? payload.id : meta.threadId;
-      meta.cwd = typeof payload.cwd === 'string' ? payload.cwd : meta.cwd;
-      meta.parentThreadId =
-        typeof threadSpawn?.parent_thread_id === 'string'
-          ? threadSpawn.parent_thread_id
-          : meta.parentThreadId;
-      meta.agentNickname =
-        typeof payload.agent_nickname === 'string' ? payload.agent_nickname : meta.agentNickname;
-      meta.agentType =
-        typeof payload.agent_role === 'string'
-          ? payload.agent_role
-          : typeof threadSpawn?.agent_role === 'string'
-            ? threadSpawn.agent_role
-            : meta.agentType;
-      continue;
-    }
-
-    if (parsed.type === 'event_msg' && parsed.payload && typeof parsed.payload === 'object') {
-      const payload = parsed.payload as Record<string, unknown>;
-      if (payload.type === 'task_started') {
-        started = true;
-      }
-      continue;
-    }
-
-    if (!started) {
-      continue;
-    }
-
-    if (parsed.type !== 'response_item' || !parsed.payload || typeof parsed.payload !== 'object') {
-      continue;
-    }
-
-    const payload = parsed.payload as Record<string, unknown>;
-    const timestamp = parseTimestamp(parsed.timestamp);
-
-    if (payload.type === 'message') {
-      const role = payload.role;
-      if (role !== 'assistant' && role !== 'developer' && role !== 'user') {
-        continue;
-      }
-
-      const text = extractMessageText(payload.content);
-      if (!text) {
-        continue;
-      }
-
-      entries.push({
-        id: `entry-${entryIndex++}`,
-        timestamp,
-        kind: 'message',
-        role,
-        text,
-        phase: typeof payload.phase === 'string' ? payload.phase : undefined,
-      });
-      continue;
-    }
-
-    if (payload.type === 'function_call') {
-      const toolName = typeof payload.name === 'string' ? payload.name : 'tool';
-      const summary = summarizeToolArguments(payload.arguments);
-      const text = summary ? `${toolName}: ${summary}` : toolName;
-
-      entries.push({
-        id: `entry-${entryIndex++}`,
-        timestamp,
-        kind: 'tool_call',
-        role: 'assistant',
-        text,
-        toolName,
-      });
-    }
+function consumeTranscriptLine(collector: TranscriptCollector, rawLine: string): void {
+  const trimmedLine = rawLine.trim();
+  if (!trimmedLine) {
+    return;
   }
 
-  return { meta, entries };
+  const parsed = safeJsonParse(trimmedLine);
+  if (!parsed) {
+    return;
+  }
+
+  if (parsed.type === 'session_meta' && parsed.payload && typeof parsed.payload === 'object') {
+    const payload = parsed.payload as Record<string, unknown>;
+    const source = payload.source as Record<string, unknown> | undefined;
+    const subagent = source?.subagent as Record<string, unknown> | undefined;
+    const threadSpawn = subagent?.thread_spawn as Record<string, unknown> | undefined;
+
+    collector.meta.threadId = typeof payload.id === 'string' ? payload.id : collector.meta.threadId;
+    collector.meta.cwd = typeof payload.cwd === 'string' ? payload.cwd : collector.meta.cwd;
+    collector.meta.parentThreadId =
+      typeof threadSpawn?.parent_thread_id === 'string'
+        ? threadSpawn.parent_thread_id
+        : collector.meta.parentThreadId;
+    collector.meta.agentNickname =
+      typeof payload.agent_nickname === 'string'
+        ? payload.agent_nickname
+        : collector.meta.agentNickname;
+    collector.meta.agentType =
+      typeof payload.agent_role === 'string'
+        ? payload.agent_role
+        : typeof threadSpawn?.agent_role === 'string'
+          ? threadSpawn.agent_role
+          : collector.meta.agentType;
+    return;
+  }
+
+  if (parsed.type === 'event_msg' && parsed.payload && typeof parsed.payload === 'object') {
+    const payload = parsed.payload as Record<string, unknown>;
+    if (payload.type === 'task_started') {
+      collector.started = true;
+    }
+    return;
+  }
+
+  if (!collector.started) {
+    return;
+  }
+
+  if (parsed.type !== 'response_item' || !parsed.payload || typeof parsed.payload !== 'object') {
+    return;
+  }
+
+  const payload = parsed.payload as Record<string, unknown>;
+  const timestamp = parseTimestamp(parsed.timestamp);
+
+  if (payload.type === 'message') {
+    const role = payload.role;
+    if (role !== 'assistant' && role !== 'developer' && role !== 'user') {
+      return;
+    }
+
+    const text = extractMessageText(payload.content);
+    if (!text) {
+      return;
+    }
+
+    pushTranscriptEntry(collector, {
+      timestamp,
+      kind: 'message',
+      role,
+      text,
+      phase: typeof payload.phase === 'string' ? payload.phase : undefined,
+    });
+    return;
+  }
+
+  if (payload.type === 'function_call') {
+    const toolName = typeof payload.name === 'string' ? payload.name : 'tool';
+    const summary = summarizeToolArguments(payload.arguments);
+    const text = summary ? `${toolName}: ${summary}` : toolName;
+
+    pushTranscriptEntry(collector, {
+      timestamp,
+      kind: 'tool_call',
+      role: 'assistant',
+      text,
+      toolName,
+    });
+  }
+}
+
+function finalizeCollector(collector: TranscriptCollector): ParsedTranscriptEnvelope {
+  return {
+    meta: collector.meta,
+    entries: collector.entries,
+    truncated: collector.omittedEntryCount > 0,
+    omittedEntryCount: collector.omittedEntryCount,
+  };
+}
+
+export function parseCodexSubagentTranscriptLines(
+  lines: string[],
+  options: ParseCodexSubagentTranscriptOptions = {}
+): ParsedTranscriptEnvelope {
+  const collector = createTranscriptCollector(options);
+
+  for (const rawLine of lines) {
+    consumeTranscriptLine(collector, rawLine);
+  }
+
+  return finalizeCollector(collector);
+}
+
+async function parseCodexSubagentTranscriptFile(
+  filePath: string,
+  options: ParseCodexSubagentTranscriptOptions = {}
+): Promise<ParsedTranscriptEnvelope> {
+  const collector = createTranscriptCollector(options);
+  const lineReader = readline.createInterface({
+    input: createReadStream(filePath, { encoding: 'utf8' }),
+    crlfDelay: Infinity,
+  });
+
+  try {
+    for await (const rawLine of lineReader) {
+      consumeTranscriptLine(collector, rawLine);
+    }
+  } finally {
+    lineReader.close();
+  }
+
+  return finalizeCollector(collector);
 }
 
 async function findCodexSessionFileByThreadId(
@@ -237,7 +317,10 @@ async function findCodexSessionFileByThreadId(
 }
 
 export class CodexSubagentTranscriptService {
-  constructor(private readonly sessionsDir = CODEX_SESSIONS_DIR) {}
+  constructor(
+    private readonly sessionsDir = CODEX_SESSIONS_DIR,
+    private readonly maxTranscriptEntries = DEFAULT_MAX_TRANSCRIPT_ENTRIES
+  ) {}
 
   async getTranscript(
     request: GetAgentSubagentTranscriptRequest
@@ -247,8 +330,9 @@ export class CodexSubagentTranscriptService {
       throw new Error(`Codex subagent transcript not found for thread ${request.threadId}`);
     }
 
-    const rawContent = await readFile(sessionFile, 'utf8');
-    const parsed = parseCodexSubagentTranscriptLines(rawContent.split('\n'));
+    const parsed = await parseCodexSubagentTranscriptFile(sessionFile, {
+      maxEntries: this.maxTranscriptEntries,
+    });
 
     return {
       provider: 'codex',
@@ -259,6 +343,8 @@ export class CodexSubagentTranscriptService {
       agentType: parsed.meta.agentType,
       agentNickname: parsed.meta.agentNickname,
       entries: parsed.entries,
+      truncated: parsed.truncated,
+      omittedEntryCount: parsed.omittedEntryCount,
       generatedAt: Date.now(),
     };
   }

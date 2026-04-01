@@ -18,8 +18,9 @@ import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
-import { initAgentStatusListener } from '@/stores/agentStatus';
+import { initAgentStatusListener, useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
+import { useEditorStore } from '@/stores/editor';
 import { BUILTIN_AGENT_IDS, useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
@@ -34,10 +35,12 @@ import {
   resolveRemoteInstalledAgents,
 } from './agentAvailability';
 import { buildAgentEmptyStateModel } from './agentEmptyStateModel';
+import { collectMountedAgentSessionIds } from './agentPanelMountPolicy';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
 import { QuickTerminalModal } from './QuickTerminalModal';
 import type { Session } from './SessionBar';
 import { StatusLine } from './StatusLine';
+import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
 
@@ -204,6 +207,23 @@ function createSession(
     repoPath,
     cwd,
     environment,
+  };
+}
+
+function createSessionWithOverrides(
+  repoPath: string,
+  cwd: string,
+  agentId: string,
+  customAgents: Array<{ id: string; name: string; command: string }>,
+  agentSettings: Record<
+    string,
+    { enabled: boolean; isDefault: boolean; customPath?: string; customArgs?: string }
+  >,
+  overrides: Partial<Session> = {}
+): Session {
+  return {
+    ...createSession(repoPath, cwd, agentId, customAgents, agentSettings),
+    ...overrides,
   };
 }
 
@@ -382,6 +402,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const setGroupState = useAgentSessionsStore((state) => state.setGroupState);
   const updateGroupState = useAgentSessionsStore((state) => state.updateGroupState);
   const removeGroupState = useAgentSessionsStore((state) => state.removeGroupState);
+  const editorTabs = useEditorStore((state) => state.tabs);
+  const editorCurrentWorktreePath = useEditorStore((state) => state.currentWorktreePath);
+  const editorWorktreeStates = useEditorStore((state) => state.worktreeStates);
 
   // Get current worktree's group state
   const currentGroupState = useMemo(() => {
@@ -510,6 +533,23 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       .filter((s) => s.repoPath === repoPath && pathsEqual(s.cwd, cwd))
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
   }, [allSessions, repoPath, cwd]);
+  const agentStatuses = useAgentStatusStore((state) => state.statuses);
+
+  const getOpenFilePathsForWorktree = useCallback(
+    (worktreePath: string): string[] => {
+      const tabsForWorktree =
+        editorCurrentWorktreePath !== null && pathsEqual(editorCurrentWorktreePath, worktreePath)
+          ? editorTabs
+          : (Object.entries(editorWorktreeStates).find(([savedWorktreePath]) =>
+              pathsEqual(savedWorktreePath, worktreePath)
+            )?.[1].tabs ?? []);
+
+      return Array.from(
+        new Set(tabsForWorktree.map((tab) => tab.path).filter((path) => path.length > 0))
+      );
+    },
+    [editorCurrentWorktreePath, editorTabs, editorWorktreeStates]
+  );
 
   const killBackendSession = useCallback((session?: Session) => {
     if (!session) {
@@ -940,18 +980,19 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
   // Handle new session in active group
   const handleNewSession = useCallback(
-    (targetGroupId?: string) => {
+    (targetGroupId?: string, sessionOverrides: Partial<Session> = {}) => {
       void (async () => {
         if (!(await ensureAgentLaunchable(defaultAgentId))) {
           return;
         }
 
-        const newSession = createSession(
+        const newSession = createSessionWithOverrides(
           repoPath,
           cwd,
           defaultAgentId,
           customAgents,
-          agentSettings
+          agentSettings,
+          sessionOverrides
         );
         addSession(newSession);
 
@@ -1008,6 +1049,136 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       setEnhancedInputOpen,
       ensureAgentLaunchable,
     ]
+  );
+
+  const handleNewSessionWithAgent = useCallback(
+    (
+      agentId: string,
+      _agentCommand: string,
+      targetGroupId?: string,
+      sessionOverrides: Partial<Session> = {}
+    ) => {
+      void (async () => {
+        if (!(await ensureAgentLaunchable(agentId))) {
+          return;
+        }
+
+        const newSession = createSessionWithOverrides(
+          repoPath,
+          cwd,
+          agentId,
+          customAgents,
+          agentSettings,
+          sessionOverrides
+        );
+        addSession(newSession);
+
+        const baseId = agentId.replace(/-hapi$/, '').replace(/-happy$/, '');
+        const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
+        if (
+          baseId === 'claude' &&
+          claudeCodeIntegration.enhancedInputEnabled &&
+          (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
+        ) {
+          setEnhancedInputOpen(newSession.id, true);
+        }
+
+        updateCurrentGroupState((state) => {
+          const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
+          if (!groupId) {
+            const newGroup: AgentGroupType = {
+              id: crypto.randomUUID(),
+              sessionIds: [newSession.id],
+              activeSessionId: newSession.id,
+            };
+            return {
+              groups: [newGroup],
+              activeGroupId: newGroup.id,
+              flexPercents: [100],
+            };
+          }
+
+          return {
+            ...state,
+            groups: state.groups.map((g) =>
+              g.id === groupId
+                ? {
+                    ...g,
+                    sessionIds: [...g.sessionIds, newSession.id],
+                    activeSessionId: newSession.id,
+                  }
+                : g
+            ),
+          };
+        });
+      })();
+    },
+    [
+      repoPath,
+      cwd,
+      customAgents,
+      agentSettings,
+      addSession,
+      updateCurrentGroupState,
+      ensureAgentLaunchable,
+      claudeCodeIntegration.enhancedInputEnabled,
+      claudeCodeIntegration.enhancedInputAutoPopup,
+      setEnhancedInputOpen,
+    ]
+  );
+
+  const handleStartFreshSession = useCallback(
+    (session: Session, groupId: string) => {
+      void (async () => {
+        const status = agentStatuses[session.id];
+        const openFiles = getOpenFilePathsForWorktree(session.cwd);
+        const contextWindow = status?.contextWindow;
+        const currentUsage = contextWindow?.currentUsage;
+        const contextUsagePercent =
+          currentUsage && contextWindow?.contextWindowSize
+            ? Math.round(
+                ((currentUsage.inputTokens +
+                  currentUsage.cacheCreationInputTokens +
+                  currentUsage.cacheReadInputTokens) /
+                  contextWindow.contextWindowSize) *
+                  100
+              )
+            : undefined;
+
+        let gitStatus: Awaited<ReturnType<typeof window.electronAPI.git.getStatus>> | null = null;
+        let diffStats: Awaited<ReturnType<typeof window.electronAPI.git.getDiffStats>> | null =
+          null;
+
+        const [gitStatusResult, diffStatsResult] = await Promise.allSettled([
+          window.electronAPI.git.getStatus(session.cwd),
+          window.electronAPI.git.getDiffStats(session.cwd),
+        ]);
+
+        if (gitStatusResult.status === 'fulfilled') {
+          gitStatus = gitStatusResult.value;
+        }
+
+        if (diffStatsResult.status === 'fulfilled') {
+          diffStats = diffStatsResult.value;
+        }
+
+        const handoffPrompt = buildSessionHandoffPrompt({
+          sessionName: session.name,
+          worktreePath: session.cwd,
+          projectPath: status?.workspace?.projectDir,
+          contextUsagePercent,
+          gitStatus,
+          diffStats,
+          openFiles,
+        });
+
+        handleNewSessionWithAgent(session.agentId, session.agentCommand, groupId, {
+          activated: true,
+          pendingCommand: handoffPrompt,
+        });
+      })();
+    },
+    [agentStatuses, getOpenFilePathsForWorktree, handleNewSessionWithAgent]
   );
 
   const removeSessionFromUi = useCallback(
@@ -1383,95 +1554,6 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     [groups, updateCurrentGroupState, updateSession]
   );
 
-  const handleNewSessionWithAgent = useCallback(
-    (agentId: string, _agentCommand: string, targetGroupId?: string) => {
-      void (async () => {
-        if (!(await ensureAgentLaunchable(agentId))) {
-          return;
-        }
-
-        const isHapi = agentId.endsWith('-hapi');
-        const isHappy = agentId.endsWith('-happy');
-        const baseId = isHapi ? agentId.slice(0, -5) : isHappy ? agentId.slice(0, -6) : agentId;
-        const customAgent = customAgents.find((a) => a.id === baseId);
-        const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? 'Agent';
-        const name = isHapi ? `${baseName} (Hapi)` : isHappy ? `${baseName} (Happy)` : baseName;
-        const environment = isHapi ? 'hapi' : isHappy ? 'happy' : 'native';
-        const resolvedCommand = customAgent?.command ?? AGENT_INFO[baseId]?.command ?? 'claude';
-        const agentConfig = agentSettings[baseId];
-        const customPath = agentConfig?.customPath;
-        const customArgs = agentConfig?.customArgs;
-
-        const id = crypto.randomUUID();
-        const newSession: Session = {
-          id,
-          sessionId: id,
-          name,
-          agentId,
-          agentCommand: resolvedCommand,
-          customPath,
-          customArgs,
-          initialized: false,
-          repoPath,
-          cwd,
-          environment,
-        };
-
-        addSession(newSession);
-
-        const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
-        if (
-          baseId === 'claude' &&
-          claudeCodeIntegration.enhancedInputEnabled &&
-          (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
-        ) {
-          setEnhancedInputOpen(newSession.id, true);
-        }
-
-        updateCurrentGroupState((state) => {
-          const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
-          if (!groupId) {
-            const newGroup: AgentGroupType = {
-              id: crypto.randomUUID(),
-              sessionIds: [newSession.id],
-              activeSessionId: newSession.id,
-            };
-            return {
-              groups: [newGroup],
-              activeGroupId: newGroup.id,
-              flexPercents: [100],
-            };
-          }
-
-          return {
-            ...state,
-            groups: state.groups.map((g) =>
-              g.id === groupId
-                ? {
-                    ...g,
-                    sessionIds: [...g.sessionIds, newSession.id],
-                    activeSessionId: newSession.id,
-                  }
-                : g
-            ),
-          };
-        });
-      })();
-    },
-    [
-      repoPath,
-      cwd,
-      customAgents,
-      agentSettings,
-      addSession,
-      updateCurrentGroupState,
-      claudeCodeIntegration.enhancedInputEnabled,
-      claudeCodeIntegration.enhancedInputAutoPopup,
-      setEnhancedInputOpen,
-      ensureAgentLaunchable,
-    ]
-  );
-
   // Handle group click
   const handleGroupClick = useCallback(
     (groupId: string) => {
@@ -1760,27 +1842,27 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     }
   }, [cwd, currentWorktreeSessions, worktreeGroupStates, setGroupState]);
 
-  // Maintain global session IDs - include ALL sessions across all repos
-  // This ensures terminals stay mounted when switching between repos
+  // Keep mounted terminals scoped to the current worktree.
+  // Worktree-level panel caching already preserves terminals across worktree switches.
   useEffect(() => {
-    const allSessionIds = allSessions.map((s) => s.id);
-    const allSessionIdSet = new Set(allSessionIds);
+    const mountedSessionIds = collectMountedAgentSessionIds(allSessions, repoPath, cwd);
+    const mountedSessionIdSet = new Set(mountedSessionIds);
 
     setGlobalSessionIds((prev) => {
       const next = new Set(prev);
-      // Add new sessions
-      for (const id of allSessionIds) {
+      for (const id of mountedSessionIds) {
         next.add(id);
       }
-      // Remove sessions that no longer exist
+
       for (const id of next) {
-        if (!allSessionIdSet.has(id)) {
+        if (!mountedSessionIdSet.has(id)) {
           next.delete(id);
         }
       }
+
       return next;
     });
-  }, [allSessions]);
+  }, [allSessions, cwd, repoPath]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2115,6 +2197,11 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         if (!position) return null;
 
         const isActiveGroup = group.id === activeGroupId;
+        const activeSession =
+          group.activeSessionId != null
+            ? (currentWorktreeSessions.find((session) => session.id === group.activeSessionId) ??
+              null)
+            : null;
         const sender =
           isActiveGroup && group.activeSessionId
             ? enhancedInputSenderRef.current.get(group.activeSessionId)
@@ -2162,7 +2249,16 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                     isActive={isActive}
                   />
                 )}
-              {statusLineEnabled && <StatusLine sessionId={group.activeSessionId} />}
+              {statusLineEnabled && (
+                <StatusLine
+                  sessionId={group.activeSessionId}
+                  onRequestFreshSession={
+                    activeSession
+                      ? () => handleStartFreshSession(activeSession, group.id)
+                      : undefined
+                  }
+                />
+              )}
             </GroupBottomBar>
           </div>
         );

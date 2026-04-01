@@ -25,9 +25,108 @@ export interface BuildAgentLaunchPlanParams {
 
 export interface AgentLaunchPlan {
   command?: AgentLaunchCommand;
+  fallbackCommand?: AgentLaunchCommand;
   env?: Record<string, string>;
   initialCommand?: string;
   tmuxSessionName: string | null;
+}
+
+function quotePosixShell(input: string): string {
+  return `'${input.replace(/'/g, "'\\''")}'`;
+}
+
+function buildInteractiveShellExecArgs(shellPath: string): string[] | null {
+  const shellName = shellPath.split('/').pop()?.toLowerCase() || '';
+
+  if (shellName.includes('bash') || shellName.includes('zsh')) {
+    return ['-i', '-l', '-c'];
+  }
+  if (shellName.includes('fish') || shellName.includes('nu')) {
+    return ['-i', '-l', '-c'];
+  }
+  if (shellName.includes('sh')) {
+    return ['-i', '-c'];
+  }
+
+  return null;
+}
+
+function buildLocalUnixFallbackProbeCommands(params: {
+  agentCommand: string;
+  effectiveCommand: string;
+  environment: 'native' | 'hapi' | 'happy';
+  tmuxSessionName: string | null;
+  hapiGlobalInstalled: boolean | null;
+}): string[] {
+  const commands = new Set<string>();
+  const add = (command: string | undefined) => {
+    if (!command || command.includes('/')) {
+      return;
+    }
+    commands.add(command);
+  };
+
+  if (params.tmuxSessionName) {
+    add('tmux');
+  }
+
+  if (params.environment === 'hapi') {
+    add(params.hapiGlobalInstalled === false ? 'npx' : 'hapi');
+  } else if (params.environment === 'happy') {
+    add('happy');
+  }
+
+  add(params.effectiveCommand);
+
+  if (params.agentCommand.startsWith('claude')) {
+    add('claude');
+  }
+
+  return [...commands];
+}
+
+function wrapWithLocalUnixFallback(params: {
+  finalCommand: string;
+  shellPath: string;
+  shellExecArgs: string[];
+  probeCommands: string[];
+}): AgentLaunchCommand {
+  const interactiveExecArgs = buildInteractiveShellExecArgs(params.shellPath);
+  if (interactiveExecArgs === null || params.probeCommands.length === 0) {
+    return {
+      shell: params.shellPath,
+      args: [...params.shellExecArgs, params.finalCommand],
+    };
+  }
+
+  const probeExpression = params.probeCommands
+    .map((command) => `command -v ${command} >/dev/null 2>&1`)
+    .join(' && ');
+  const fallbackCommand = `${params.shellPath} ${interactiveExecArgs.join(' ')} ${quotePosixShell(params.finalCommand)}`;
+  const bootstrapCommand = `if ${probeExpression}; then exec ${params.finalCommand}; else exec ${fallbackCommand}; fi`;
+
+  return {
+    shell: params.shellPath,
+    args: [...params.shellExecArgs, bootstrapCommand],
+  };
+}
+
+function shouldUseDirectLocalUnixLaunch(params: {
+  environment: 'native' | 'hapi' | 'happy';
+  isRemoteExecution: boolean;
+  isWindows: boolean;
+  tmuxSessionName: string | null;
+  customArgs?: string;
+  initialPrompt?: string;
+}): boolean {
+  return (
+    params.environment === 'native' &&
+    !params.isRemoteExecution &&
+    !params.isWindows &&
+    !params.tmuxSessionName &&
+    !params.customArgs &&
+    !params.initialPrompt
+  );
 }
 
 function escapeInitialPromptForWindows(input: string): string {
@@ -174,17 +273,54 @@ export function buildAgentLaunchPlan({
         shell: resolvedShell.shell,
         args: [...resolvedShell.execArgs, `& { ${finalCommand} }`],
       },
+      fallbackCommand: undefined,
       env: envVars,
       initialCommand: undefined,
       tmuxSessionName,
     };
   }
 
+  if (
+    shouldUseDirectLocalUnixLaunch({
+      environment,
+      isRemoteExecution,
+      isWindows,
+      tmuxSessionName,
+      customArgs,
+      initialPrompt,
+    })
+  ) {
+    return {
+      command: {
+        shell: effectiveCommand,
+        args: [...agentArgs],
+      },
+      fallbackCommand: {
+        shell: resolvedShell.shell,
+        args: [...resolvedShell.execArgs, finalCommand],
+      },
+      env: envVars,
+      initialCommand: undefined,
+      tmuxSessionName,
+    };
+  }
+
+  const probeCommands = buildLocalUnixFallbackProbeCommands({
+    agentCommand,
+    effectiveCommand,
+    environment,
+    tmuxSessionName,
+    hapiGlobalInstalled,
+  });
+
   return {
-    command: {
-      shell: resolvedShell.shell,
-      args: [...resolvedShell.execArgs, finalCommand],
-    },
+    command: wrapWithLocalUnixFallback({
+      finalCommand,
+      shellPath: resolvedShell.shell,
+      shellExecArgs: resolvedShell.execArgs,
+      probeCommands,
+    }),
+    fallbackCommand: undefined,
     env: envVars,
     initialCommand: undefined,
     tmuxSessionName,

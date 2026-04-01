@@ -11,6 +11,7 @@ import type {
 
 const CODEX_TUI_LOG_PATH = path.join(os.homedir(), '.codex', 'log', 'codex-tui.log');
 const DEFAULT_MAX_IDLE_MS = 45_000;
+const MAX_LOG_READ_WINDOW_BYTES = 8 * 1024 * 1024;
 
 interface CodexThreadContext {
   threadId: string;
@@ -49,6 +50,7 @@ interface ParsedCodexLogLine {
   timestampMs: number;
   rootThreadId: string;
   currentThreadId: string;
+  parentThreadId: string;
   toolName?: string;
   payload?: Record<string, unknown>;
 }
@@ -104,6 +106,7 @@ function parseCodexLogLine(line: string): ParsedCodexLogLine | null {
   const threadIds = sessionLoopMatches.map((match) => match[1]);
   const rootThreadId = threadIds[0];
   const currentThreadId = threadIds[threadIds.length - 1];
+  const parentThreadId = threadIds.length > 1 ? threadIds[threadIds.length - 2] : rootThreadId;
   const toolCallMarker = 'ToolCall: ';
   const toolCallIndex = line.indexOf(toolCallMarker);
 
@@ -112,6 +115,7 @@ function parseCodexLogLine(line: string): ParsedCodexLogLine | null {
       timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
       rootThreadId,
       currentThreadId,
+      parentThreadId,
     };
   }
 
@@ -123,6 +127,7 @@ function parseCodexLogLine(line: string): ParsedCodexLogLine | null {
       timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
       rootThreadId,
       currentThreadId,
+      parentThreadId,
     };
   }
 
@@ -137,6 +142,7 @@ function parseCodexLogLine(line: string): ParsedCodexLogLine | null {
     timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
     rootThreadId,
     currentThreadId,
+    parentThreadId,
     toolName,
     payload: safeJsonParse(payloadText),
   };
@@ -183,6 +189,7 @@ function attachPendingSpawn(
 
 function ensureSubagent(
   state: CodexSubagentTrackerState,
+  parentThreadId: string,
   rootThreadId: string,
   childThreadId: string,
   timestampMs: number
@@ -199,7 +206,7 @@ function ensureSubagent(
   const created: CodexTrackedSubagent = {
     id: childThreadId,
     threadId: childThreadId,
-    parentThreadId: rootThreadId,
+    parentThreadId,
     label: `${labelPrefix} ${sequence}`,
     agentType: pendingSpawn?.agentType,
     summary: pendingSpawn?.summary,
@@ -235,6 +242,31 @@ export function createEmptyCodexSubagentTrackerState(): CodexSubagentTrackerStat
     childSequencesByRoot: new Map(),
     subagentsByThread: new Map(),
   };
+}
+
+function resetTrackerStateContents(state: CodexSubagentTrackerState): void {
+  state.remainder = '';
+  state.threadContexts.clear();
+  state.pendingSpawnsByRoot.clear();
+  state.childSequencesByRoot.clear();
+  state.subagentsByThread.clear();
+}
+
+export function resolveCodexLogReadWindow(
+  offset: number,
+  size: number,
+  maxWindowBytes = MAX_LOG_READ_WINDOW_BYTES
+): { start: number; resetState: boolean } {
+  if (size <= offset) {
+    return { start: size, resetState: false };
+  }
+
+  const windowStart = Math.max(0, size - maxWindowBytes);
+  if (offset < windowStart) {
+    return { start: windowStart, resetState: true };
+  }
+
+  return { start: offset, resetState: false };
 }
 
 export function applyCodexLogLine(
@@ -286,6 +318,7 @@ export function applyCodexLogLine(
   if (parsed.currentThreadId !== parsed.rootThreadId) {
     const subagent = ensureSubagent(
       state,
+      parsed.parentThreadId,
       parsed.rootThreadId,
       parsed.currentThreadId,
       parsed.timestampMs
@@ -387,10 +420,15 @@ export class CodexSubagentTracker {
 
     if (fileStat.size < this.state.offset) {
       this.state.offset = 0;
-      this.state.remainder = '';
+      resetTrackerStateContents(this.state);
     }
 
-    const chunk = await readAppendedLogChunk(this.logPath, this.state.offset, fileStat.size);
+    const readWindow = resolveCodexLogReadWindow(this.state.offset, fileStat.size);
+    if (readWindow.resetState) {
+      resetTrackerStateContents(this.state);
+    }
+
+    const chunk = await readAppendedLogChunk(this.logPath, readWindow.start, fileStat.size);
     this.state.offset = fileStat.size;
 
     if (!chunk) {

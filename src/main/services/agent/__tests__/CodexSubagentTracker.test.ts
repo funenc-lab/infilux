@@ -3,6 +3,7 @@ import {
   applyCodexLogLine,
   buildLiveCodexSubagents,
   createEmptyCodexSubagentTrackerState,
+  resolveCodexLogReadWindow,
 } from '../CodexSubagentTracker';
 
 function applyLines(lines: string[]) {
@@ -14,6 +15,20 @@ function applyLines(lines: string[]) {
 }
 
 describe('CodexSubagentTracker', () => {
+  it('keeps incremental reads when the unread tail stays within the bounded window', () => {
+    expect(resolveCodexLogReadWindow(4_096, 6_144, 8_192)).toEqual({
+      start: 4_096,
+      resetState: false,
+    });
+  });
+
+  it('jumps to the recent tail and resets state when the unread gap exceeds the bounded window', () => {
+    expect(resolveCodexLogReadWindow(0, 1_024 * 1_024 * 1024, 8 * 1024 * 1024)).toEqual({
+      start: 1_065_353_216,
+      resetState: true,
+    });
+  });
+
   it('pairs spawn_agent calls with nested child threads and keeps live subagents by cwd', () => {
     const state = applyLines([
       '2026-03-29T09:00:00.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/repo/worktrees/feature-a"} thread_id=root-1',
@@ -39,6 +54,36 @@ describe('CodexSubagentTracker', () => {
         status: 'running',
       }),
     ]);
+  });
+
+  it('tracks the direct parent thread for nested subagents instead of flattening to root', () => {
+    const state = applyLines([
+      '2026-03-29T09:00:00.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/repo/worktrees/feature-a"} thread_id=root-1',
+      '2026-03-29T09:00:01.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: spawn_agent {"agent_type":"worker","message":"Parent task"} thread_id=root-1',
+      '2026-03-29T09:00:02.000Z  INFO session_loop{thread_id=root-1}:session_loop{thread_id=child-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/repo/worktrees/feature-a"} thread_id=child-1',
+      '2026-03-29T09:00:03.000Z  INFO session_loop{thread_id=root-1}:session_loop{thread_id=child-1}: codex_core::stream_events_utils: ToolCall: spawn_agent {"agent_type":"reviewer","message":"Nested task"} thread_id=child-1',
+      '2026-03-29T09:00:04.000Z  INFO session_loop{thread_id=root-1}:session_loop{thread_id=child-1}:session_loop{thread_id=child-2}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/repo/worktrees/feature-a"} thread_id=child-2',
+    ]);
+
+    expect(
+      buildLiveCodexSubagents(state, {
+        now: Date.parse('2026-03-29T09:00:10.000Z'),
+        maxIdleMs: 15_000,
+        cwds: ['/repo/worktrees/feature-a'],
+      })
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'child-1',
+          parentThreadId: 'root-1',
+        }),
+        expect.objectContaining({
+          id: 'child-2',
+          parentThreadId: 'child-1',
+          agentType: 'reviewer',
+        }),
+      ])
+    );
   });
 
   it('marks waiting subagents when the latest child tool is wait_agent', () => {

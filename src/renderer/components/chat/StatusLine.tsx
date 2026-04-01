@@ -1,5 +1,6 @@
 import { getDisplayPath } from '@shared/utils/path';
 import {
+  AlertTriangle,
   Bot,
   Clock,
   Coins,
@@ -15,16 +16,20 @@ import {
   Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { type StatusData, useAgentStatusStore } from '@/stores/agentStatus';
 import { type StatusLineFieldSettings, useSettingsStore } from '@/stores/settings';
+import { getSessionRolloverSignal } from './sessionRolloverSignal';
 
 interface StatusLineProps {
   sessionId: string | null;
   onHeightChange?: (height: number) => void;
+  onRequestFreshSession?: () => void;
 }
 
 function formatDuration(ms: number): string {
@@ -175,7 +180,7 @@ function DirItem({ path, icon, label }: DirItemProps) {
   );
 }
 
-export function StatusLine({ sessionId, onHeightChange }: StatusLineProps) {
+export function StatusLine({ sessionId, onHeightChange, onRequestFreshSession }: StatusLineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastReportedHeightRef = useRef<number | null>(null);
   const status = useAgentStatusStore((state) =>
@@ -183,6 +188,17 @@ export function StatusLine({ sessionId, onHeightChange }: StatusLineProps) {
   );
   const { claudeCodeIntegration } = useSettingsStore();
   const { statusLineEnabled, statusLineFields } = claudeCodeIntegration;
+  const { t } = useI18n();
+  const rolloverSignal = useMemo(() => {
+    if (!status?.contextWindow) {
+      return null;
+    }
+
+    return getSessionRolloverSignal({
+      contextWindowSize: status.contextWindow.contextWindowSize,
+      currentUsage: status.contextWindow.currentUsage,
+    });
+  }, [status?.contextWindow]);
 
   const items = useMemo(() => {
     if (!status || !statusLineEnabled) {
@@ -323,6 +339,7 @@ export function StatusLine({ sessionId, onHeightChange }: StatusLineProps) {
 
     return elements;
   }, [status, statusLineEnabled, statusLineFields]);
+  const hasVisibleContent = Boolean(items) || Boolean(rolloverSignal);
 
   useEffect(() => {
     if (!onHeightChange) return;
@@ -359,25 +376,58 @@ export function StatusLine({ sessionId, onHeightChange }: StatusLineProps) {
 
   // Report 0 height when not rendering
   useEffect(() => {
-    if ((!statusLineEnabled || !items) && onHeightChange) {
+    if ((!statusLineEnabled || !hasVisibleContent) && onHeightChange) {
       if (lastReportedHeightRef.current !== 0) {
         lastReportedHeightRef.current = 0;
         onHeightChange(0);
       }
     }
-  }, [statusLineEnabled, items, onHeightChange]);
+  }, [statusLineEnabled, hasVisibleContent, onHeightChange]);
 
   // Don't render if status line is disabled or no data
-  if (!statusLineEnabled || !items) {
+  if (!statusLineEnabled || !hasVisibleContent) {
     return null;
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="flex min-h-8 shrink-0 flex-wrap items-center justify-center gap-x-6 gap-y-1 border-t border-border bg-background px-4 py-1 text-base text-muted-foreground"
-    >
-      {items}
+    <div ref={containerRef} className="shrink-0 border-t border-border bg-background">
+      {rolloverSignal ? (
+        <div className="px-3 pt-3">
+          <Alert variant="warning">
+            <AlertTriangle />
+            <AlertTitle>
+              {rolloverSignal.level === 'critical'
+                ? t('Context window is almost full')
+                : t('Context window is getting full')}
+            </AlertTitle>
+            <AlertDescription>
+              <span>
+                {rolloverSignal.level === 'critical'
+                  ? t(
+                      'This session is using {{percent}}% of the available context. Start a fresh session before responses become less reliable.',
+                      { percent: rolloverSignal.percent }
+                    )
+                  : t(
+                      'This session is using {{percent}}% of the available context. Consider starting a fresh session soon.',
+                      { percent: rolloverSignal.percent }
+                    )}
+              </span>
+            </AlertDescription>
+            {onRequestFreshSession ? (
+              <AlertAction>
+                <Button variant="outline" size="sm" onClick={onRequestFreshSession}>
+                  {t('Start fresh session')}
+                </Button>
+              </AlertAction>
+            ) : null}
+          </Alert>
+        </div>
+      ) : null}
+      {items ? (
+        <div className="flex min-h-8 flex-wrap items-center justify-center gap-x-6 gap-y-1 px-4 py-1 text-base text-muted-foreground">
+          {items}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -48,5 +48,7 @@ export interface GetAgentSubagentTranscriptResult {
   agentType?: string;
   agentNickname?: string;
   entries: AgentSubagentTranscriptEntry[];
+  truncated?: boolean;
+  omittedEntryCount?: number;
   generatedAt: number;
 }
