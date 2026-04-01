@@ -1,5 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { recordRuntimeMemorySample, updateRendererDiagnostics } from '@/lib/runtimeDiagnostics';
+import {
+  getAppMemoryPressureBucket,
+  getRendererDiagnosticsSnapshot,
+  getRendererMemoryPressureBucket,
+  recordRuntimeMemorySample,
+  updateRendererDiagnostics,
+} from '@/lib/runtimeDiagnostics';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
@@ -14,6 +20,8 @@ export function RendererDiagnosticsProbe(): null {
   const editorTabCount = useEditorStore((state) => state.tabs.length);
   const activeEditorPath = useEditorStore((state) => state.activeTabPath);
   const loggedRuntimeMemoryErrorRef = useRef(false);
+  const lastLoggedRendererPressureBucketRef = useRef<number | null>(null);
+  const lastLoggedAppPressureBucketRef = useRef<number | null>(null);
 
   useEffect(() => {
     updateRendererDiagnostics({
@@ -42,6 +50,32 @@ export function RendererDiagnosticsProbe(): null {
           return;
         }
         recordRuntimeMemorySample(memorySnapshot);
+
+        const rendererPressureBucket = getRendererMemoryPressureBucket(memorySnapshot);
+        if (
+          rendererPressureBucket !== null &&
+          rendererPressureBucket >= 1 &&
+          rendererPressureBucket > (lastLoggedRendererPressureBucketRef.current ?? -1)
+        ) {
+          lastLoggedRendererPressureBucketRef.current = rendererPressureBucket;
+          console.warn('[renderer-diagnostics] Renderer memory pressure increased', {
+            diagnostics: getRendererDiagnosticsSnapshot(),
+            rendererPressureBucket,
+          });
+        }
+
+        const appPressureBucket = getAppMemoryPressureBucket(memorySnapshot);
+        if (
+          appPressureBucket !== null &&
+          appPressureBucket >= 4 &&
+          appPressureBucket > (lastLoggedAppPressureBucketRef.current ?? -1)
+        ) {
+          lastLoggedAppPressureBucketRef.current = appPressureBucket;
+          console.warn('[renderer-diagnostics] App memory pressure increased', {
+            appPressureBucket,
+            diagnostics: getRendererDiagnosticsSnapshot(),
+          });
+        }
       } catch (error) {
         if (!loggedRuntimeMemoryErrorRef.current) {
           console.warn('[renderer-diagnostics] Failed to sample runtime memory', error);

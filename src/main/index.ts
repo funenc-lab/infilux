@@ -1,4 +1,11 @@
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  createReadStream,
+  existsSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { extname, join } from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import { inspect } from 'node:util';
@@ -7,6 +14,11 @@ import { type Locale, normalizeLocale } from '@shared/i18n';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { IPC_CHANNELS, type ProxySettings } from '@shared/types';
 import { customProtocolUriToPath, type SupportedFileUrlPlatform } from '@shared/utils/fileUrl';
+import {
+  createStartupTimelineRecorder,
+  formatStartupTimelineEntry,
+  type StartupTimelineEntry,
+} from '@shared/utils/startupTimeline';
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, net, protocol } from 'electron';
 import { shellEnvSync } from 'shell-env';
 
@@ -91,6 +103,107 @@ const isDev = !app.isPackaged;
 const FORCE_EXIT_TIMEOUT_MS = 8000;
 const MAX_RENDERER_RECOVERY_ATTEMPTS = 2;
 const RENDERER_RECOVERY_WINDOW_MS = 30_000;
+const mainStartupTimeline = createStartupTimelineRecorder('main');
+const pendingMainStartupTimelineEntries: StartupTimelineEntry[] = [];
+let canLogMainStartupTimeline = false;
+
+function isIgnorableConsoleWriteError(error: unknown): boolean {
+  const nodeError = error as NodeJS.ErrnoException;
+  const message =
+    typeof nodeError?.message === 'string'
+      ? nodeError.message
+      : typeof error === 'string'
+        ? error
+        : '';
+  return (
+    nodeError?.code === 'EIO' ||
+    nodeError?.code === 'ERR_STREAM_DESTROYED' ||
+    message.includes('write EIO') ||
+    message.includes('stream destroyed')
+  );
+}
+
+function installConsoleStreamErrorGuards(): void {
+  const handleConsoleStreamError = (error: Error) => {
+    if (isIgnorableConsoleWriteError(error)) {
+      return;
+    }
+    throw error;
+  };
+
+  const installGuard = (
+    stream: NodeJS.WriteStream & {
+      __infiluxConsoleErrorGuardInstalled?: boolean;
+    }
+  ) => {
+    if (stream.__infiluxConsoleErrorGuardInstalled) {
+      return;
+    }
+    stream.on('error', handleConsoleStreamError);
+    stream.__infiluxConsoleErrorGuardInstalled = true;
+  };
+
+  installGuard(process.stdout);
+  installGuard(process.stderr);
+}
+
+installConsoleStreamErrorGuards();
+
+function writeUncaughtExceptionSnapshot(label: string, error: unknown): void {
+  if (!isDev) {
+    return;
+  }
+
+  try {
+    const nodeError = error as NodeJS.ErrnoException;
+    const payload = {
+      label,
+      timestamp: new Date().toISOString(),
+      ignored: isIgnorableConsoleWriteError(error),
+      type: typeof error,
+      constructorName:
+        error && typeof error === 'object' && 'constructor' in error
+          ? ((error.constructor as { name?: string }).name ?? null)
+          : null,
+      code: typeof nodeError?.code === 'string' ? nodeError.code : null,
+      errno: typeof nodeError?.errno === 'number' ? nodeError.errno : null,
+      syscall: typeof nodeError?.syscall === 'string' ? nodeError.syscall : null,
+      message: typeof nodeError?.message === 'string' ? nodeError.message : String(error),
+      keys: error && typeof error === 'object' ? Object.keys(error) : [],
+    };
+    appendFileSync('/tmp/infilux-uncaught-debug.log', `${JSON.stringify(payload)}\n`, 'utf8');
+  } catch {}
+}
+
+function runDeferredStartupTask(taskName: string, task: () => Promise<void>): void {
+  void task().catch((error) => {
+    console.error(`[startup] ${taskName} failed:`, error);
+  });
+}
+
+function recordMainStartupStage(stage: string): StartupTimelineEntry {
+  const entry = mainStartupTimeline.markStage(stage);
+  if (!canLogMainStartupTimeline) {
+    pendingMainStartupTimelineEntries.push(entry);
+    return entry;
+  }
+
+  log.info(formatStartupTimelineEntry(entry));
+  return entry;
+}
+
+function flushMainStartupTimeline(): void {
+  if (canLogMainStartupTimeline) {
+    return;
+  }
+
+  canLogMainStartupTimeline = true;
+  for (const entry of pendingMainStartupTimelineEntries.splice(0)) {
+    log.info(formatStartupTimelineEntry(entry));
+  }
+}
+
+recordMainStartupStage('module-evaluated');
 
 function isPrivateIpLiteral(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase();
@@ -544,21 +657,25 @@ async function init(): Promise<void> {
   const logLevel = (ensoSettings?.state?.logLevel as 'error' | 'warn' | 'info' | 'debug') ?? 'info';
   const logRetentionDays = (ensoSettings?.state?.logRetentionDays as number) ?? 7;
   initLogger(loggingEnabled, logLevel, logRetentionDays);
+  flushMainStartupTimeline();
   log.info('Infilux started');
-
-  // Check Git installation
-  const gitInstalled = await checkGitInstalled();
-  if (!gitInstalled) {
-    console.warn('Git is not installed. Some features may not work.');
-  }
-
-  await persistentAgentSessionRepository.initialize();
 
   // Register IPC handlers
   registerIpcHandlers();
 
   // Register Claude IDE Bridge IPC handlers (bridge starts when enabled in settings)
   registerClaudeBridgeIpcHandlers();
+
+  runDeferredStartupTask('git installation check', async () => {
+    const gitInstalled = await checkGitInstalled();
+    if (!gitInstalled) {
+      console.warn('Git is not installed. Some features may not work.');
+    }
+  });
+
+  runDeferredStartupTask('persistent agent session repository initialization', async () => {
+    await persistentAgentSessionRepository.initialize();
+  });
 }
 
 function openOrRestoreMainWindow(): BrowserWindow {
@@ -578,6 +695,8 @@ function openOrRestoreMainWindow(): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
+  recordMainStartupStage('app-ready');
+
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.infilux.app');
 
@@ -600,6 +719,7 @@ app.whenReady().then(async () => {
   migrateLegacySettingsIfNeeded();
   await migrateLegacyTodoIfNeeded();
   recoverSharedLocalStorageFromCurrentProfileIfNeeded();
+  recordMainStartupStage('pre-window-startup-complete');
 
   // Register protocol to handle local file:// URLs for markdown images
   protocol.handle('local-file', (request) => {
@@ -886,23 +1006,336 @@ app.whenReady().then(async () => {
 
         void window.webContents
           .executeJavaScript(
-            `(() => ({
-              href: window.location.href,
-              readyState: document.readyState,
-              bootstrapStage: window.__infiluxBootstrapStage ?? null,
-              rootHtmlLength: document.getElementById('root')?.innerHTML.length ?? 0,
-              rootText: document.getElementById('root')?.innerText?.slice(0, 200) ?? '',
-              bodyBg: getComputedStyle(document.body).backgroundColor,
-              bodyColor: getComputedStyle(document.body).color,
-              bodyChildCount: document.body?.childElementCount ?? 0,
-            }))()`,
+            `(async () => {
+              const root = document.getElementById('root');
+              const xtermNodes = Array.from(document.querySelectorAll('.xterm'));
+              const roundRect = (element) => {
+                if (!(element instanceof HTMLElement)) {
+                  return null;
+                }
+                const rect = element.getBoundingClientRect();
+                return {
+                  width: Number(rect.width.toFixed(2)),
+                  height: Number(rect.height.toFixed(2)),
+                  x: Number(rect.x.toFixed(2)),
+                  y: Number(rect.y.toFixed(2)),
+                };
+              };
+              const pickStyle = (element, properties) => {
+                if (!(element instanceof HTMLElement)) {
+                  return null;
+                }
+                const style = getComputedStyle(element);
+                return Object.fromEntries(
+                  properties.map((property) => [property, style.getPropertyValue(property).trim()])
+                );
+              };
+              const visibleXtermCount = xtermNodes.filter((node) => {
+                const element = node instanceof HTMLElement ? node : null;
+                if (!element) {
+                  return false;
+                }
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return (
+                  style.display !== 'none' &&
+                  style.visibility !== 'hidden' &&
+                  style.opacity !== '0' &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                );
+              }).length;
+              const visibleSidebarWorktreeNodes = Array.from(
+                document.querySelectorAll('.control-tree-node[data-node-kind="worktree"]')
+              ).filter((node) => {
+                if (!(node instanceof HTMLElement)) {
+                  return false;
+                }
+                const style = getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                return (
+                  style.display !== 'none' &&
+                  style.visibility !== 'hidden' &&
+                  style.opacity !== '0' &&
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  rect.left < window.innerWidth * 0.4
+                );
+              });
+              const activeWorktreeNode =
+                visibleSidebarWorktreeNodes.find(
+                  (node) => node.getAttribute('data-active') === 'worktree'
+                ) ??
+                visibleSidebarWorktreeNodes[0] ??
+                document.querySelector(
+                  '.control-tree-node[data-node-kind="worktree"][data-active="worktree"]'
+                ) ??
+                document.querySelector('.control-tree-node[data-node-kind="worktree"]');
+              const titleRow = activeWorktreeNode?.querySelector('.control-tree-title-row') ?? null;
+              const title = activeWorktreeNode?.querySelector('.control-tree-title') ?? null;
+              const inlineSignals =
+                activeWorktreeNode?.querySelector('.control-tree-inline-signals') ?? null;
+              const diffBadge =
+                activeWorktreeNode?.querySelector('.control-tree-diff-badge') ?? null;
+              const metaRow =
+                activeWorktreeNode?.querySelector('.control-tree-meta-row') ?? null;
+              const actionTail =
+                activeWorktreeNode?.querySelector('.control-tree-tail[data-role="action"]') ?? null;
+              const primaryButton =
+                activeWorktreeNode?.querySelector('.control-tree-primary') ?? null;
+              const inlineSignalsRect = roundRect(inlineSignals);
+              const inlineSignalLabels =
+                inlineSignals instanceof HTMLElement
+                  ? Array.from(inlineSignals.children)
+                      .map((child) => child.textContent?.replace(/\\s+/g, ' ').trim() ?? '')
+                      .filter(Boolean)
+                  : [];
+              const inlineSignalItems =
+                inlineSignals instanceof HTMLElement
+                  ? Array.from(inlineSignals.children).map((child) => {
+                      const element = child instanceof HTMLElement ? child : null;
+                      return {
+                        text: child.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+                        html:
+                          element?.innerHTML
+                            ?.replace(/\\s+/g, ' ')
+                            .trim()
+                            .slice(0, 240) ?? '',
+                        rect: roundRect(element),
+                        style: pickStyle(element, [
+                          'display',
+                          'visibility',
+                          'opacity',
+                          'color',
+                          'background-color',
+                          'border-color',
+                          'font-size',
+                          'line-height',
+                          'overflow',
+                        ]),
+                      };
+                    })
+                  : [];
+
+              let runtimeMetrics = null;
+              try {
+                runtimeMetrics = await window.electronAPI?.app?.getRuntimeMetrics?.();
+              } catch (error) {
+                runtimeMetrics = {
+                  error: error instanceof Error ? error.message : String(error),
+                };
+              }
+
+              return {
+                href: window.location.href,
+                readyState: document.readyState,
+                bootstrapStage: window.__infiluxBootstrapStage ?? null,
+                rootHtmlLength: root?.innerHTML.length ?? 0,
+                rootNodeCount: root?.querySelectorAll('*').length ?? 0,
+                rootText: root?.innerText?.slice(0, 200) ?? '',
+                bodyBg: getComputedStyle(document.body).backgroundColor,
+                bodyColor: getComputedStyle(document.body).color,
+                bodyChildCount: document.body?.childElementCount ?? 0,
+                xtermCount: xtermNodes.length,
+                visibleXtermCount,
+                worktreeProbe: activeWorktreeNode
+                  ? {
+                      nodeFound: true,
+                      branchText:
+                        title instanceof HTMLElement
+                          ? title.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+                          : '',
+                      nodeText:
+                        activeWorktreeNode instanceof HTMLElement
+                          ? activeWorktreeNode.innerText?.replace(/\\s+/g, ' ').trim() ?? ''
+                          : '',
+                      inlineSignalLabels,
+                      inlineSignalItems,
+                      titleIsTruncated:
+                        title instanceof HTMLElement
+                          ? title.scrollWidth > title.clientWidth + 1
+                          : false,
+                      metaIsOverflowing:
+                        metaRow instanceof HTMLElement
+                          ? metaRow.scrollWidth > metaRow.clientWidth + 1
+                          : false,
+                      rects: {
+                        node: roundRect(activeWorktreeNode),
+                        primaryButton: roundRect(primaryButton),
+                        titleRow: roundRect(titleRow),
+                        title: roundRect(title),
+                        inlineSignals: inlineSignalsRect,
+                        diffBadge: roundRect(diffBadge),
+                        metaRow: roundRect(metaRow),
+                        actionTail: roundRect(actionTail),
+                      },
+                      styles: {
+                        inlineSignals: pickStyle(inlineSignals, [
+                          'display',
+                          'width',
+                          'min-width',
+                          'max-width',
+                          'flex',
+                          'overflow',
+                          'white-space',
+                          'gap',
+                        ]),
+                        title: pickStyle(title, ['display', 'min-width', 'max-width', 'flex']),
+                        metaRow: pickStyle(metaRow, [
+                          'display',
+                          'flex-wrap',
+                          'overflow',
+                          'white-space',
+                        ]),
+                        actionTail: pickStyle(actionTail, [
+                          'display',
+                          'max-width',
+                          'padding-inline-start',
+                          'opacity',
+                          'pointer-events',
+                        ]),
+                      },
+                    }
+                  : {
+                      nodeFound: false,
+                    },
+                runtimeMetrics,
+              };
+            })()`,
             true
           )
-          .then((snapshot) => {
+          .then(async (snapshot) => {
+            let screenshotPath: string | null = null;
+            let nodeScreenshotPath: string | null = null;
+            let inlineSignalsScreenshotPath: string | null = null;
+            let screenshotError: string | null = null;
+
+            if (
+              snapshot &&
+              typeof snapshot === 'object' &&
+              'worktreeProbe' in snapshot &&
+              snapshot.worktreeProbe &&
+              typeof snapshot.worktreeProbe === 'object' &&
+              'nodeFound' in snapshot.worktreeProbe &&
+              snapshot.worktreeProbe.nodeFound
+            ) {
+              try {
+                // Capture the current window frame alongside layout metrics for dev-only UI diagnosis.
+                const image = await window.webContents.capturePage();
+                const safeStage = stage.replace(/[^a-zA-Z0-9._-]+/g, '-').toLowerCase();
+                screenshotPath = `/tmp/infilux-worktree-${window.id}-${safeStage}.png`;
+                writeFileSync(screenshotPath, image.toPNG());
+
+                const worktreeProbe = (snapshot as {
+                  worktreeProbe?: {
+                    rects?: {
+                      node?: {
+                        x?: number;
+                        y?: number;
+                        width?: number;
+                        height?: number;
+                      } | null;
+                      inlineSignals?: {
+                        x?: number;
+                        y?: number;
+                        width?: number;
+                        height?: number;
+                      } | null;
+                    } | null;
+                  } | null;
+                }).worktreeProbe;
+                const nodeRect = worktreeProbe?.rects?.node;
+                const inlineSignalsRect = worktreeProbe?.rects?.inlineSignals;
+
+                if (
+                  nodeRect &&
+                  typeof nodeRect.x === 'number' &&
+                  typeof nodeRect.y === 'number' &&
+                  typeof nodeRect.width === 'number' &&
+                  typeof nodeRect.height === 'number'
+                ) {
+                  const contentBounds = window.getContentBounds();
+                  const imageSize = image.getSize();
+                  const scaleX = imageSize.width / Math.max(contentBounds.width, 1);
+                  const scaleY = imageSize.height / Math.max(contentBounds.height, 1);
+                  const padding = 20;
+                  const cropX = Math.max(0, Math.floor((nodeRect.x - padding) * scaleX));
+                  const cropY = Math.max(0, Math.floor((nodeRect.y - padding) * scaleY));
+                  const cropWidth = Math.max(
+                    1,
+                    Math.min(
+                      imageSize.width - cropX,
+                      Math.ceil((nodeRect.width + padding * 2) * scaleX)
+                    )
+                  );
+                  const cropHeight = Math.max(
+                    1,
+                    Math.min(
+                      imageSize.height - cropY,
+                      Math.ceil((nodeRect.height + padding * 2) * scaleY)
+                    )
+                  );
+                  const nodeImage = image.crop({
+                    x: cropX,
+                    y: cropY,
+                    width: cropWidth,
+                    height: cropHeight,
+                  });
+                  nodeScreenshotPath = `/tmp/infilux-worktree-${window.id}-${safeStage}-node.png`;
+                  writeFileSync(nodeScreenshotPath, nodeImage.toPNG());
+                }
+
+                if (
+                  inlineSignalsRect &&
+                  typeof inlineSignalsRect.x === 'number' &&
+                  typeof inlineSignalsRect.y === 'number' &&
+                  typeof inlineSignalsRect.width === 'number' &&
+                  typeof inlineSignalsRect.height === 'number'
+                ) {
+                  const contentBounds = window.getContentBounds();
+                  const imageSize = image.getSize();
+                  const scaleX = imageSize.width / Math.max(contentBounds.width, 1);
+                  const scaleY = imageSize.height / Math.max(contentBounds.height, 1);
+                  const padding = 16;
+                  const cropX = Math.max(0, Math.floor((inlineSignalsRect.x - padding) * scaleX));
+                  const cropY = Math.max(0, Math.floor((inlineSignalsRect.y - padding) * scaleY));
+                  const cropWidth = Math.max(
+                    1,
+                    Math.min(
+                      imageSize.width - cropX,
+                      Math.ceil((inlineSignalsRect.width + padding * 2) * scaleX)
+                    )
+                  );
+                  const cropHeight = Math.max(
+                    1,
+                    Math.min(
+                      imageSize.height - cropY,
+                      Math.ceil((inlineSignalsRect.height + padding * 2) * scaleY)
+                    )
+                  );
+                  const inlineSignalsImage = image.crop({
+                    x: cropX,
+                    y: cropY,
+                    width: cropWidth,
+                    height: cropHeight,
+                  });
+                  inlineSignalsScreenshotPath =
+                    `/tmp/infilux-worktree-${window.id}-${safeStage}-signals.png`;
+                  writeFileSync(inlineSignalsScreenshotPath, inlineSignalsImage.toPNG());
+                }
+              } catch (error) {
+                screenshotError = error instanceof Error ? error.message : String(error);
+              }
+            }
+
             writeDevProbe('[renderer-snapshot]', {
               stage,
               windowId: window.id,
               snapshot,
+              screenshotError,
+              screenshotPath,
+              nodeScreenshotPath,
+              inlineSignalsScreenshotPath,
             });
           })
           .catch((error) => {
@@ -915,6 +1348,17 @@ app.whenReady().then(async () => {
       };
 
       window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        const shouldLogConsoleMessage =
+          level >= 2 ||
+          message.includes('[renderer-bootstrap]') ||
+          message.includes('[renderer-diagnostics]') ||
+          message.includes('Maximum update depth exceeded') ||
+          message.includes('TypeError');
+
+        if (!shouldLogConsoleMessage) {
+          return;
+        }
+
         writeDevProbe('[renderer-console]', {
           windowId: window.id,
           level,
@@ -926,25 +1370,6 @@ app.whenReady().then(async () => {
 
       const requestFilter = {
         urls: ['http://localhost:*/*'],
-      };
-      const handleRequestCompleted = (details: Electron.OnCompletedListenerDetails) => {
-        if (
-          details.webContentsId !== window.webContents.id ||
-          (!details.url.includes('/index.tsx') &&
-            !details.url.includes('/@vite/client') &&
-            !details.url.includes('/@fs/'))
-        ) {
-          return;
-        }
-
-        writeDevProbe('[renderer-request-completed]', {
-          windowId: window.id,
-          method: details.method,
-          resourceType: details.resourceType,
-          statusCode: details.statusCode,
-          fromCache: details.fromCache,
-          url: details.url,
-        });
       };
       const handleRequestError = (details: Electron.OnErrorOccurredListenerDetails) => {
         if (
@@ -963,13 +1388,15 @@ app.whenReady().then(async () => {
           url: details.url,
         });
       };
-      window.webContents.session.webRequest.onCompleted(requestFilter, handleRequestCompleted);
       window.webContents.session.webRequest.onErrorOccurred(requestFilter, handleRequestError);
 
       window.webContents.once('did-finish-load', () => {
         captureRendererSnapshot('did-finish-load');
         setTimeout(() => captureRendererSnapshot('post-load-1000ms'), 1000);
         setTimeout(() => captureRendererSnapshot('post-load-3000ms'), 3000);
+        for (const delayMs of [20_000, 60_000, 90_000]) {
+          setTimeout(() => captureRendererSnapshot(`post-load-${delayMs}ms`), delayMs);
+        }
       });
     }
 
@@ -1024,9 +1451,7 @@ app.whenReady().then(async () => {
   });
 
   await init();
-
-  // Auto-start Hapi server if enabled in settings
-  await autoStartHapi();
+  recordMainStartupStage('main-init-complete');
 
   setCurrentLocale(readStoredLanguage());
 
@@ -1035,6 +1460,7 @@ app.whenReady().then(async () => {
 
   // Set main window for Web Inspector server (for IPC communication)
   webInspectorServer.setMainWindow(mainWindow);
+  recordMainStartupStage('main-window-created');
 
   // Initialize Claude Provider Watcher (only when enableProviderWatcher is true)
   const appSettings = readSettings();
@@ -1052,8 +1478,14 @@ app.whenReady().then(async () => {
     }
   });
 
+  runDeferredStartupTask('Hapi auto-start', async () => {
+    await autoStartHapi();
+  });
+  recordMainStartupStage('hapi-auto-start-queued');
+
   // Initialize auto-updater
   await initAutoUpdater(mainWindow);
+  recordMainStartupStage('auto-updater-initialized');
 
   // Initialize git auto-fetch service
   gitAutoFetchService.init(mainWindow);
@@ -1157,10 +1589,18 @@ app.on('will-quit', (event) => {
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {
+  writeUncaughtExceptionSnapshot('uncaughtException', error);
+  if (isIgnorableConsoleWriteError(error)) {
+    return;
+  }
   console.error('Uncaught Exception:', error);
 });
 
 process.on('unhandledRejection', (reason) => {
+  writeUncaughtExceptionSnapshot('unhandledRejection', reason);
+  if (isIgnorableConsoleWriteError(reason)) {
+    return;
+  }
   console.error('Unhandled Rejection:', reason);
 });
 
@@ -1200,6 +1640,7 @@ export const __testables = {
   recoverSharedLocalStorageFromCurrentProfileIfNeeded,
   init,
   handleShutdownSignal,
+  isIgnorableConsoleWriteError,
   getAnyWindow,
   openOrRestoreMainWindow,
   resolveAppIconPath,

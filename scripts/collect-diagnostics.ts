@@ -2,7 +2,7 @@
 
 import { execFile } from 'node:child_process';
 import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { LOG_FILE_PREFIX } from '../src/shared/paths';
@@ -13,6 +13,7 @@ import {
   listManagedLogFiles,
   sanitizeDiagnosticsLines,
   sanitizeDiagnosticsText,
+  selectDiagnosticsLogFiles,
 } from '../src/shared/utils/diagnostics';
 
 const execFileAsync = promisify(execFile);
@@ -161,19 +162,44 @@ async function resolveLogDirectory(options: CliOptions): Promise<string | null> 
     return (await pathExists(options.logDir)) ? resolve(options.logDir) : null;
   }
 
-  const candidates = buildDefaultDiagnosticsPaths({
-    homeDir: homedir(),
-    platform: process.platform,
-    appName: options.appName,
-  }).logDirCandidates;
+  const homeDirs = Array.from(
+    new Set(
+      [homedir(), userInfo().homedir]
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+    )
+  );
+  const candidates = homeDirs.flatMap(
+    (homeDir) =>
+      buildDefaultDiagnosticsPaths({
+        homeDir,
+        platform: process.platform,
+        appName: options.appName,
+      }).logDirCandidates
+  );
+
+  let fallbackLogDir: string | null = null;
 
   for (const candidate of candidates) {
-    if (await pathExists(candidate)) {
+    if (!(await pathExists(candidate))) {
+      continue;
+    }
+
+    const logEntries = await readdir(candidate);
+    const managedLogFiles = listManagedLogFiles(logEntries, LOG_FILE_PREFIX);
+    if (managedLogFiles.length > 0) {
       return candidate;
+    }
+
+    if (
+      fallbackLogDir === null &&
+      selectDiagnosticsLogFiles(logEntries, LOG_FILE_PREFIX).length > 0
+    ) {
+      fallbackLogDir = candidate;
     }
   }
 
-  return null;
+  return fallbackLogDir;
 }
 
 async function writeSanitizedCopyIfExists(
@@ -252,12 +278,14 @@ async function collectDiagnostics(options: CliOptions): Promise<DiagnosticsManif
   const logDir = await resolveLogDirectory(options);
   if (logDir) {
     const logEntries = await readdir(logDir);
-    const managedLogFiles = listManagedLogFiles(logEntries, LOG_FILE_PREFIX);
-    const selectedLogFiles = managedLogFiles.slice(0, DEFAULT_LOG_COPY_LIMIT);
+    const selectedLogFiles = selectDiagnosticsLogFiles(logEntries, LOG_FILE_PREFIX).slice(
+      0,
+      DEFAULT_LOG_COPY_LIMIT
+    );
 
     await writeTextFile(
       join(outputDir, 'logs', 'inventory.json'),
-      `${JSON.stringify({ logDir, managedLogFiles }, null, 2)}\n`,
+      `${JSON.stringify({ logDir, selectedLogFiles }, null, 2)}\n`,
       copiedFiles
     );
 
@@ -281,7 +309,7 @@ async function collectDiagnostics(options: CliOptions): Promise<DiagnosticsManif
         copiedFiles
       );
     } else {
-      warnings.push(`No managed log files found in ${logDir}`);
+      warnings.push(`No supported log files found in ${logDir}`);
     }
   } else {
     warnings.push('No log directory could be resolved');

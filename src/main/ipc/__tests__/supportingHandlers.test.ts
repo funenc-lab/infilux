@@ -568,9 +568,15 @@ describe('supporting IPC handlers', () => {
     const { registerWebInspectorHandlers } = await import('../webInspector');
     registerWebInspectorHandlers();
 
-    expect(await getHandler('web-inspector:start')({})).toEqual({ running: true, port: 9229 });
-    await expect(getHandler('web-inspector:stop')({})).resolves.toBeUndefined();
-    expect(await getHandler('web-inspector:status')({})).toEqual({ running: true, port: 9229 });
+    expect(await getHandler(IPC_CHANNELS.WEB_INSPECTOR_START)({})).toEqual({
+      running: true,
+      port: 9229,
+    });
+    await expect(getHandler(IPC_CHANNELS.WEB_INSPECTOR_STOP)({})).resolves.toBeUndefined();
+    expect(await getHandler(IPC_CHANNELS.WEB_INSPECTOR_STATUS)({})).toEqual({
+      running: true,
+      port: 9229,
+    });
   });
 
   it('delegates updater handlers when the updater is enabled', async () => {

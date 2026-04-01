@@ -11,6 +11,10 @@ export interface TerminalCreateOptions {
   spawnCwd?: string;
   shell?: string;
   args?: string[];
+  /** Internal use: fallback process command if the primary spawn fails. */
+  fallbackShell?: string;
+  /** Internal use: fallback process arguments if the primary spawn fails. */
+  fallbackArgs?: string[];
   cols?: number;
   rows?: number;
   env?: Record<string, string>;

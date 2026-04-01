@@ -9,6 +9,112 @@ import log from 'electron-log/main.js';
 // Guard to ensure initialization happens only once
 let initialized = false;
 let lastRetentionDays: number | undefined;
+const CONSOLE_LOG_ENV = 'INFILUX_ENABLE_CONSOLE_LOG';
+
+interface ConsoleTransportLike {
+  (...args: unknown[]): unknown;
+  format: string;
+  level: unknown;
+  writeFn?: (...args: unknown[]) => unknown;
+  __infiluxOriginalWriteFn?: (...args: unknown[]) => unknown;
+  __infiluxOriginalTransport?: (...args: unknown[]) => unknown;
+}
+
+type ConsoleTransportRuntime = typeof log.transports.console & ConsoleTransportLike;
+
+interface ConsoleWriteStreamLike {
+  write: (...args: unknown[]) => unknown;
+  __infiluxOriginalWrite?: (...args: unknown[]) => unknown;
+}
+
+function isConsoleLoggingEnabled(): boolean {
+  return process.env[CONSOLE_LOG_ENV] === '1';
+}
+
+function isElectronMainProcess(): boolean {
+  return Boolean(process.versions.electron);
+}
+
+function isIgnorableConsoleWriteError(error: unknown): boolean {
+  const nodeError = error as NodeJS.ErrnoException;
+  return nodeError.code === 'EIO' || nodeError.code === 'ERR_STREAM_DESTROYED';
+}
+
+function createSafeConsoleTransportWrite(
+  originalWrite: (...args: unknown[]) => unknown
+): (...args: unknown[]) => unknown {
+  return (...args: unknown[]) => {
+    try {
+      return originalWrite(...args);
+    } catch (error) {
+      if (isIgnorableConsoleWriteError(error)) {
+        return;
+      }
+      throw error;
+    }
+  };
+}
+
+function applyConsoleStreamWritePolicy(stream: ConsoleWriteStreamLike): void {
+  const originalWrite = stream.__infiluxOriginalWrite ?? stream.write.bind(stream);
+  stream.__infiluxOriginalWrite = originalWrite;
+  stream.write = isConsoleLoggingEnabled()
+    ? (...args: unknown[]) => {
+        try {
+          return originalWrite(...args);
+        } catch (error) {
+          if (isIgnorableConsoleWriteError(error)) {
+            return true;
+          }
+          throw error;
+        }
+      }
+    : () => true;
+}
+
+function applyConsoleTransportWritePolicy(): void {
+  const consoleTransport = log.transports.console as ConsoleTransportRuntime;
+  const originalTransport = consoleTransport.__infiluxOriginalTransport ?? consoleTransport;
+  const originalWrite = consoleTransport.__infiluxOriginalWriteFn ?? consoleTransport.writeFn;
+  const invokeOriginalTransport =
+    typeof originalTransport === 'function' ? originalTransport : () => undefined;
+
+  if (typeof originalWrite !== 'function') {
+    return;
+  }
+
+  consoleTransport.__infiluxOriginalTransport = originalTransport;
+  consoleTransport.__infiluxOriginalWriteFn = originalWrite;
+
+  const nextTransport = Object.assign((...args: unknown[]) => {
+    if (!isConsoleLoggingEnabled()) {
+      return undefined;
+    }
+
+    try {
+      return invokeOriginalTransport(...args);
+    } catch (error) {
+      if (isIgnorableConsoleWriteError(error)) {
+        return undefined;
+      }
+      throw error;
+    }
+  }, consoleTransport) as ConsoleTransportRuntime;
+
+  nextTransport.__infiluxOriginalTransport = originalTransport;
+  nextTransport.__infiluxOriginalWriteFn = originalWrite;
+  nextTransport.writeFn = isConsoleLoggingEnabled()
+    ? createSafeConsoleTransportWrite(originalWrite)
+    : () => undefined;
+
+  log.transports.console = nextTransport;
+}
+
+if (isElectronMainProcess()) {
+  applyConsoleStreamWritePolicy(process.stdout as ConsoleWriteStreamLike);
+  applyConsoleStreamWritePolicy(process.stderr as ConsoleWriteStreamLike);
+}
+applyConsoleTransportWritePolicy();
 
 function getCurrentLogFilePath(): string {
   const fileTransport = log.transports.file as {
@@ -116,6 +222,11 @@ export function initLogger(
     // Configure log format
     log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
     log.transports.console.format = '[{h}:{i}:{s}.{ms}] [{level}] {text}';
+    // Keep main-process logs local to file/terminal output.
+    // Forwarding them into renderer devtools via IPC is noisy during window teardown
+    // and can emit disposed-frame errors after the renderer has already gone away.
+    log.transports.ipc.level = false;
+    applyConsoleTransportWritePolicy();
 
     // Initialize and hijack console methods - all console.log/warn/error become log
     log.initialize({ preload: true });
@@ -133,13 +244,15 @@ export function initLogger(
   }
 
   // Configure log levels based on settings (can be called multiple times)
+  const consoleLoggingEnabled = isConsoleLoggingEnabled();
+  applyConsoleTransportWritePolicy();
   if (enabled) {
     log.transports.file.level = level;
-    log.transports.console.level = level;
+    log.transports.console.level = consoleLoggingEnabled ? level : false;
   } else {
     // When disabled, only log errors
     log.transports.file.level = 'error';
-    log.transports.console.level = 'error';
+    log.transports.console.level = consoleLoggingEnabled ? 'error' : false;
   }
 }
 

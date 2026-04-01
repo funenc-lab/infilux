@@ -12,5 +12,13 @@
       "@shared/*": ["src/shared/*"]
     }
   },
-  "include": ["src/renderer/**/*", "src/shared/**/*"]
+  "include": [
+    "package.json",
+    "src/preload/index.ts",
+    "src/preload/sessionEventRouter.ts",
+    "src/preload/types.ts",
+    "src/renderer/**/*",
+    "src/renderer/**/*.json",
+    "src/shared/**/*"
+  ]
 }

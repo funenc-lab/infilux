@@ -35,6 +35,7 @@ const execAsync = promisify(exec);
 const MAX_GIT_STATUS_ENTRIES = 5000;
 const MAX_GIT_FILE_CHANGES = 5000;
 const GIT_STATUS_STREAM_TIMEOUT_MS = 15000;
+const DEFAULT_DIFF_STATS = Object.freeze({ insertions: 0, deletions: 0 });
 
 type PorcelainBranchInfo = {
   current: string | null;
@@ -51,6 +52,80 @@ type LimitedGitStatus = PorcelainBranchInfo & {
   conflicted: string[];
   truncated: boolean;
 };
+
+type DiffStats = {
+  insertions: number;
+  deletions: number;
+};
+
+function parseNumStatOutput(output: string): DiffStats {
+  let insertions = 0;
+  let deletions = 0;
+
+  for (const line of output.split(/\r?\n/)) {
+    if (!line.trim()) {
+      continue;
+    }
+
+    const [rawInsertions, rawDeletions] = line.split('\t');
+    if (!rawInsertions || !rawDeletions) {
+      continue;
+    }
+
+    if (rawInsertions !== '-') {
+      insertions += Number.parseInt(rawInsertions, 10) || 0;
+    }
+
+    if (rawDeletions !== '-') {
+      deletions += Number.parseInt(rawDeletions, 10) || 0;
+    }
+  }
+
+  return { insertions, deletions };
+}
+
+function mergeDiffStats(...stats: DiffStats[]): DiffStats {
+  return stats.reduce(
+    (accumulator, current) => ({
+      insertions: accumulator.insertions + current.insertions,
+      deletions: accumulator.deletions + current.deletions,
+    }),
+    { insertions: 0, deletions: 0 }
+  );
+}
+
+function bufferContainsBinaryContent(buffer: Buffer): boolean {
+  const inspectedLength = Math.min(buffer.length, 8000);
+  for (let index = 0; index < inspectedLength; index += 1) {
+    if (buffer[index] === 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function countBufferLines(buffer: Buffer): number {
+  if (buffer.length === 0) {
+    return 0;
+  }
+
+  let lineCount = 0;
+  for (let index = 0; index < buffer.length; index += 1) {
+    const byte = buffer[index];
+    if (byte === 10) {
+      lineCount += 1;
+      continue;
+    }
+
+    if (byte === 13 && buffer[index + 1] !== 10) {
+      lineCount += 1;
+    }
+  }
+
+  const lastByte = buffer[buffer.length - 1];
+  return lastByte === 10 || lastByte === 13 ? lineCount : lineCount + 1;
+}
 
 export class GitService {
   private git: SimpleGit;
@@ -835,23 +910,51 @@ export class GitService {
 
   async getDiffStats(): Promise<{ insertions: number; deletions: number }> {
     try {
-      // Get stats for both staged and unstaged changes
-      const output = await this.git.diff(['--shortstat', 'HEAD']);
-      // Output format: " 3 files changed, 10 insertions(+), 5 deletions(-)"
-      // or empty if no changes
-      if (!output.trim()) {
-        return { insertions: 0, deletions: 0 };
-      }
-      const insertionsMatch = output.match(/(\d+)\s+insertion/);
-      const deletionsMatch = output.match(/(\d+)\s+deletion/);
-      return {
-        insertions: insertionsMatch ? Number.parseInt(insertionsMatch[1], 10) : 0,
-        deletions: deletionsMatch ? Number.parseInt(deletionsMatch[1], 10) : 0,
-      };
+      const trackedStats = await this.getTrackedDiffStats();
+      const untrackedStats = await this.getUntrackedDiffStats();
+      return mergeDiffStats(trackedStats, untrackedStats);
     } catch {
-      // Repository might not have HEAD (empty repo) or other issues
-      return { insertions: 0, deletions: 0 };
+      return DEFAULT_DIFF_STATS;
     }
+  }
+
+  private async getTrackedDiffStats(): Promise<DiffStats> {
+    try {
+      const output = await this.git.diff(['--numstat', 'HEAD', '--']);
+      return parseNumStatOutput(output);
+    } catch {
+      const [stagedOutput, unstagedOutput] = await Promise.all([
+        this.git.diff(['--cached', '--numstat', '--']).catch(() => ''),
+        this.git.diff(['--numstat', '--']).catch(() => ''),
+      ]);
+
+      return mergeDiffStats(parseNumStatOutput(stagedOutput), parseNumStatOutput(unstagedOutput));
+    }
+  }
+
+  private async getUntrackedDiffStats(): Promise<DiffStats> {
+    const output = await this.git.raw(['ls-files', '--others', '--exclude-standard', '-z']);
+    const relativePaths = output.split('\0').filter(Boolean);
+
+    if (relativePaths.length === 0) {
+      return DEFAULT_DIFF_STATS;
+    }
+
+    let insertions = 0;
+    for (const relativePath of relativePaths) {
+      try {
+        const absolutePath = path.resolve(this.workdir, relativePath);
+        const content = await fs.readFile(absolutePath);
+        if (bufferContainsBinaryContent(content)) {
+          continue;
+        }
+        insertions += countBufferLines(content);
+      } catch {
+        // Ignore files that disappear or cannot be read during polling.
+      }
+    }
+
+    return { insertions, deletions: 0 };
   }
 
   // GitHub CLI methods

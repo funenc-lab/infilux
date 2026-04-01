@@ -792,7 +792,14 @@ export function registerFileHandlers(): void {
         );
       }
 
-      const conflicts = [];
+      const conflicts: Array<{
+        path: string;
+        name: string;
+        sourceSize: number;
+        targetSize: number;
+        sourceModified: number;
+        targetModified: number;
+      }> = [];
 
       for (const sourcePath of sources) {
         const sourceStats = await stat(sourcePath);

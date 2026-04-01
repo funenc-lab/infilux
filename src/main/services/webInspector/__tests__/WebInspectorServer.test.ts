@@ -1,3 +1,4 @@
+import { IPC_CHANNELS } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type RequestHandler = (req: FakeRequest, res: FakeResponse) => void;
@@ -179,7 +180,7 @@ describe('WebInspectorServer', () => {
     expect(primaryCallback).toHaveBeenCalledTimes(1);
     expect(primaryCallback).toHaveBeenCalledWith({ running: true, port: 18765 });
     expect(secondaryCallback).toHaveBeenCalledTimes(1);
-    expect(mainWindow.send).toHaveBeenCalledWith('web-inspector:status-change', {
+    expect(mainWindow.send).toHaveBeenCalledWith(IPC_CHANNELS.WEB_INSPECTOR_STATUS_CHANGED, {
       running: true,
       port: 18765,
     });
@@ -205,7 +206,7 @@ describe('WebInspectorServer', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toEqual([JSON.stringify({ success: true })]);
-    expect(mainWindow.send).toHaveBeenCalledWith('web-inspector:data', payload);
+    expect(mainWindow.send).toHaveBeenCalledWith(IPC_CHANNELS.WEB_INSPECTOR_DATA, payload);
 
     unsubscribeSecondary();
     await expect(server.stop()).resolves.toBeUndefined();
@@ -215,7 +216,7 @@ describe('WebInspectorServer', () => {
     expect(server.getStatus()).toEqual({ running: false, port: 18765 });
     expect(primaryCallback).toHaveBeenNthCalledWith(2, { running: false, port: 18765 });
     expect(secondaryCallback).toHaveBeenCalledTimes(1);
-    expect(mainWindow.send).toHaveBeenCalledWith('web-inspector:status-change', {
+    expect(mainWindow.send).toHaveBeenCalledWith(IPC_CHANNELS.WEB_INSPECTOR_STATUS_CHANGED, {
       running: false,
       port: 18765,
     });

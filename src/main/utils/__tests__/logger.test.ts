@@ -9,6 +9,7 @@ const loggerTestDoubles = vi.hoisted(() => {
   const logInfo = vi.fn();
   const logError = vi.fn();
   const initialize = vi.fn();
+  const consoleWriteFn = vi.fn();
 
   const log = {
     info: logInfo,
@@ -31,6 +32,11 @@ const loggerTestDoubles = vi.hoisted(() => {
       console: {
         format: '',
         level: 'error',
+        writeFn: consoleWriteFn,
+        __infiluxOriginalWriteFn: undefined as undefined | ((...args: unknown[]) => unknown),
+      },
+      ipc: {
+        level: 'silly',
       },
     },
   };
@@ -65,6 +71,10 @@ const loggerTestDoubles = vi.hoisted(() => {
     log.transports.file.getFile.mockReturnValue({ path: '/tmp/logs/infilux-2026-03-25.log' });
     log.transports.console.format = '';
     log.transports.console.level = 'error';
+    consoleWriteFn.mockReset();
+    log.transports.console.writeFn = consoleWriteFn;
+    log.transports.console.__infiluxOriginalWriteFn = undefined;
+    log.transports.ipc.level = 'silly';
   }
 
   return {
@@ -76,6 +86,7 @@ const loggerTestDoubles = vi.hoisted(() => {
     logInfo,
     logError,
     initialize,
+    consoleWriteFn,
     log,
     reset,
   };
@@ -101,14 +112,22 @@ vi.mock('electron-log/main.js', () => ({
 }));
 
 describe('logger utilities', () => {
+  const originalConsoleLogEnv = process.env.INFILUX_ENABLE_CONSOLE_LOG;
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     loggerTestDoubles.reset();
+    delete process.env.INFILUX_ENABLE_CONSOLE_LOG;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (typeof originalConsoleLogEnv === 'string') {
+      process.env.INFILUX_ENABLE_CONSOLE_LOG = originalConsoleLogEnv;
+    } else {
+      delete process.env.INFILUX_ENABLE_CONSOLE_LOG;
+    }
   });
 
   it('initializes logger once, rotates daily files, and cleans old logs', async () => {
@@ -136,8 +155,9 @@ describe('logger utilities', () => {
     expect(loggerTestDoubles.log.transports.file.maxSize).toBe(10 * 1024 * 1024);
     expect(loggerTestDoubles.log.transports.file.format).toContain('[{y}-{m}-{d}');
     expect(loggerTestDoubles.log.transports.console.format).toContain('[{h}:{i}:{s}.{ms}]');
+    expect(loggerTestDoubles.log.transports.ipc.level).toBe(false);
     expect(loggerTestDoubles.log.transports.file.level).toBe('debug');
-    expect(loggerTestDoubles.log.transports.console.level).toBe('debug');
+    expect(loggerTestDoubles.log.transports.console.level).toBe(false);
     expect(loggerTestDoubles.log.transports.file.resolvePathFn?.()).toBe(
       '/tmp/logs/infilux-2026-03-25.log'
     );
@@ -150,15 +170,29 @@ describe('logger utilities', () => {
     initLogger(false, 'info', 30);
     expect(loggerTestDoubles.initialize).toHaveBeenCalledTimes(1);
     expect(loggerTestDoubles.log.transports.file.level).toBe('error');
-    expect(loggerTestDoubles.log.transports.console.level).toBe('error');
+    expect(loggerTestDoubles.log.transports.console.level).toBe(false);
 
     initLogger(true, 'warn', 14);
     await vi.runAllTimersAsync();
     expect(loggerTestDoubles.readdir).toHaveBeenCalledTimes(2);
     expect(loggerTestDoubles.log.transports.file.level).toBe('warn');
-    expect(loggerTestDoubles.log.transports.console.level).toBe('warn');
+    expect(loggerTestDoubles.log.transports.console.level).toBe(false);
 
     vi.useRealTimers();
+  });
+
+  it('enables console transport only when the opt-in environment variable is set', async () => {
+    process.env.INFILUX_ENABLE_CONSOLE_LOG = '1';
+
+    const { initLogger } = await import('../logger');
+    initLogger(true, 'debug', 30);
+
+    expect(loggerTestDoubles.log.transports.file.level).toBe('debug');
+    expect(loggerTestDoubles.log.transports.console.level).toBe('debug');
+
+    initLogger(false, 'info', 30);
+    expect(loggerTestDoubles.log.transports.file.level).toBe('error');
+    expect(loggerTestDoubles.log.transports.console.level).toBe('error');
   });
 
   it('logs cleanup failures without crashing initialization', async () => {
@@ -175,6 +209,46 @@ describe('logger utilities', () => {
     );
 
     vi.useRealTimers();
+  });
+
+  it('swallows console transport EIO failures during logger initialization', async () => {
+    loggerTestDoubles.consoleWriteFn.mockImplementation(() => {
+      const error = new Error('broken pipe') as NodeJS.ErrnoException;
+      error.code = 'EIO';
+      throw error;
+    });
+
+    const { initLogger } = await import('../logger');
+    initLogger();
+
+    const wrappedWrite = loggerTestDoubles.log.transports.console.writeFn as unknown as (
+      message: unknown
+    ) => void;
+
+    expect(() => wrappedWrite('message')).not.toThrow();
+    expect(loggerTestDoubles.consoleWriteFn).not.toHaveBeenCalled();
+  });
+
+  it('applies the safe console transport policy before initLogger runs', async () => {
+    const { default: log } = await import('../logger');
+    const wrappedWrite = log.transports.console.writeFn as unknown as (message: unknown) => void;
+
+    wrappedWrite('message');
+    expect(loggerTestDoubles.consoleWriteFn).not.toHaveBeenCalled();
+  });
+
+  it('keeps console transport writable when the opt-in environment variable is set', async () => {
+    process.env.INFILUX_ENABLE_CONSOLE_LOG = '1';
+
+    const { initLogger } = await import('../logger');
+    initLogger();
+
+    const wrappedWrite = loggerTestDoubles.log.transports.console.writeFn as unknown as (
+      message: unknown
+    ) => void;
+
+    wrappedWrite('message');
+    expect(loggerTestDoubles.consoleWriteFn).toHaveBeenCalledWith('message');
   });
 
   it('returns current log diagnostics from the active log file', async () => {

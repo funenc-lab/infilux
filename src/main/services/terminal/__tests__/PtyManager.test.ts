@@ -310,6 +310,7 @@ describe('PtyManager utilities', () => {
         cwd: '/repo/.real',
         env: expect.objectContaining({
           CUSTOM_ENV: '1',
+          PATH: expect.stringContaining('/opt/homebrew/bin'),
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
           LANG: 'en_US.UTF-8',
@@ -448,6 +449,87 @@ describe('PtyManager utilities', () => {
     expect(waitSpy).toHaveBeenCalledTimes(2);
     expect(waitSpy).toHaveBeenCalledWith('one', 25);
     expect(waitSpy).toHaveBeenCalledWith('two', 25);
+  });
+
+  it('uses an explicit fallback command when direct executable launch fails', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    ptyManagerTestDoubles.spawn.mockImplementation((shell: string) => {
+      if (shell === 'codex') {
+        throw new Error('command not found');
+      }
+      const pty = {
+        pid: 3000,
+        write: vi.fn(),
+        resize: vi.fn(),
+        onData(listener: DataListener) {
+          const listeners = new Set([listener]);
+          return {
+            dispose() {
+              listeners.clear();
+            },
+          };
+        },
+        onExit(listener: ExitListener) {
+          const listeners = new Set([listener]);
+          return {
+            dispose() {
+              listeners.clear();
+            },
+          };
+        },
+        emitData() {},
+        emitExit() {},
+        dataListenerCount() {
+          return 0;
+        },
+        exitListenerCount() {
+          return 0;
+        },
+      } satisfies FakePty;
+      ptyManagerTestDoubles.ptys.push(pty);
+      return pty;
+    });
+
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+
+    manager.create(
+      {
+        cwd: '/repo/project',
+        kind: 'agent',
+        shell: 'codex',
+        args: ['--sandbox', 'workspace-write'],
+        fallbackShell: '/bin/zsh',
+        fallbackArgs: ['-l', '-c', 'codex --sandbox workspace-write'],
+      } as never,
+      vi.fn()
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[pty] Failed to spawn codex. Falling back to explicit command /bin/zsh'
+    );
+    expect(ptyManagerTestDoubles.spawn).toHaveBeenNthCalledWith(
+      1,
+      'codex',
+      ['--sandbox', 'workspace-write'],
+      expect.any(Object)
+    );
+    expect(ptyManagerTestDoubles.spawn).toHaveBeenNthCalledWith(
+      2,
+      '/bin/zsh',
+      ['-l', '-c', 'codex --sandbox workspace-write'],
+      expect.any(Object)
+    );
+    expect(infoSpy).toHaveBeenNthCalledWith(
+      1,
+      '[agent-startup][main][pty-1] spawn-start +0ms (0ms total)'
+    );
+    expect(infoSpy).toHaveBeenNthCalledWith(
+      2,
+      '[agent-startup][main][pty-1] spawned-fallback-explicit +0ms (0ms total)'
+    );
+    expect(manager).toBeTruthy();
   });
 
   it('resolves destroyAndWait on exit or timeout and does not call the original exit handler during cleanup', async () => {

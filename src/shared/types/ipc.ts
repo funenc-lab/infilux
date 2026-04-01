@@ -240,6 +240,13 @@ export const IPC_CHANNELS = {
   UPDATER_SET_AUTO_UPDATE_ENABLED: 'updater:setAutoUpdateEnabled',
   UPDATER_DOWNLOAD_UPDATE: 'updater:downloadUpdate',
 
+  // Web Inspector
+  WEB_INSPECTOR_START: 'web-inspector:start',
+  WEB_INSPECTOR_STOP: 'web-inspector:stop',
+  WEB_INSPECTOR_STATUS: 'web-inspector:status',
+  WEB_INSPECTOR_STATUS_CHANGED: 'web-inspector:status-change',
+  WEB_INSPECTOR_DATA: 'web-inspector:data',
+
   // MCP (Claude IDE Bridge)
   MCP_BRIDGE_SET_ENABLED: 'mcp:bridge:setEnabled',
   MCP_BRIDGE_GET_STATUS: 'mcp:bridge:getStatus',

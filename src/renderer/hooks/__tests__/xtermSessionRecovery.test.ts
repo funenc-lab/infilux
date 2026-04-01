@@ -56,6 +56,24 @@ describe('resolveReusableBackendSessionId', () => {
     expect(getLocalActivity).toHaveBeenCalledWith('backend-stale');
   });
 
+  it('keeps the existing backend session id for local persistent recovery when untracked attach is allowed', async () => {
+    const getRemoteStatus = vi.fn();
+    const getLocalActivity = vi.fn().mockResolvedValue(false);
+
+    await expect(
+      resolveReusableBackendSessionId({
+        backendSessionId: 'supervisor-session-1',
+        cwd: 'C:/repo',
+        getRemoteStatus,
+        getLocalActivity,
+        allowUntrackedLocalAttach: true,
+      })
+    ).resolves.toBe('supervisor-session-1');
+
+    expect(getRemoteStatus).not.toHaveBeenCalled();
+    expect(getLocalActivity).not.toHaveBeenCalled();
+  });
+
   it('keeps the existing backend session id when cwd is missing', async () => {
     const getRemoteStatus = vi.fn();
 

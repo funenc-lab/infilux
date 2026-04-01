@@ -211,21 +211,32 @@ describe('GitService', () => {
     });
   });
 
-  it('parses diff stats and falls back safely for empty output or git errors', async () => {
+  it('parses tracked and untracked diff stats and falls back safely for empty output or git errors', async () => {
     const diff = vi
       .fn()
-      .mockResolvedValueOnce(' 3 files changed, 10 insertions(+), 5 deletions(-)')
+      .mockResolvedValueOnce('10\t5\tsrc/app.ts\n')
       .mockResolvedValueOnce('')
-      .mockRejectedValueOnce(new Error('missing HEAD'));
+      .mockRejectedValueOnce(new Error('missing HEAD'))
+      .mockResolvedValueOnce('4\t0\tstaged.ts\n')
+      .mockResolvedValueOnce('0\t2\tunstaged.ts\n');
+    const raw = vi
+      .fn()
+      .mockResolvedValueOnce('notes.md\0')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('draft.md\0');
 
     gitServiceTestDoubles.createSimpleGit.mockReturnValue({
       diff,
+      raw,
     });
+    gitServiceTestDoubles.readFile
+      .mockResolvedValueOnce(Buffer.from('one\ntwo\nthree\n'))
+      .mockResolvedValueOnce(Buffer.from('alpha\nbeta\n'));
 
     const service = new GitService('/repo');
 
     await expect(service.getDiffStats()).resolves.toEqual({
-      insertions: 10,
+      insertions: 13,
       deletions: 5,
     });
     await expect(service.getDiffStats()).resolves.toEqual({
@@ -233,13 +244,18 @@ describe('GitService', () => {
       deletions: 0,
     });
     await expect(service.getDiffStats()).resolves.toEqual({
-      insertions: 0,
-      deletions: 0,
+      insertions: 6,
+      deletions: 2,
     });
 
-    expect(diff).toHaveBeenNthCalledWith(1, ['--shortstat', 'HEAD']);
-    expect(diff).toHaveBeenNthCalledWith(2, ['--shortstat', 'HEAD']);
-    expect(diff).toHaveBeenNthCalledWith(3, ['--shortstat', 'HEAD']);
+    expect(diff).toHaveBeenNthCalledWith(1, ['--numstat', 'HEAD', '--']);
+    expect(diff).toHaveBeenNthCalledWith(2, ['--numstat', 'HEAD', '--']);
+    expect(diff).toHaveBeenNthCalledWith(3, ['--numstat', 'HEAD', '--']);
+    expect(diff).toHaveBeenNthCalledWith(4, ['--cached', '--numstat', '--']);
+    expect(diff).toHaveBeenNthCalledWith(5, ['--numstat', '--']);
+    expect(raw).toHaveBeenNthCalledWith(1, ['ls-files', '--others', '--exclude-standard', '-z']);
+    expect(raw).toHaveBeenNthCalledWith(2, ['ls-files', '--others', '--exclude-standard', '-z']);
+    expect(raw).toHaveBeenNthCalledWith(3, ['ls-files', '--others', '--exclude-standard', '-z']);
   });
 
   it('validates clone targets and forwards clone progress updates', async () => {

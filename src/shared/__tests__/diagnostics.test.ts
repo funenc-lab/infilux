@@ -5,6 +5,7 @@ import {
   formatDiagnosticsDirectoryName,
   listManagedLogFiles,
   sanitizeDiagnosticsLines,
+  selectDiagnosticsLogFiles,
 } from '../utils/diagnostics';
 
 describe('shared diagnostics helpers', () => {
@@ -70,6 +71,19 @@ describe('shared diagnostics helpers', () => {
         'infilux-'
       )
     ).toEqual(['infilux-2026-03-25.old.log', 'infilux-2026-03-25.log', 'infilux-2026-03-24.log']);
+  });
+
+  it('falls back to main.log when managed log files are unavailable', () => {
+    expect(selectDiagnosticsLogFiles(['notes.txt', 'main.log'], 'infilux-')).toEqual(['main.log']);
+  });
+
+  it('prefers managed log files over main.log when both exist', () => {
+    expect(
+      selectDiagnosticsLogFiles(
+        ['main.log', 'infilux-2026-03-25.log', 'infilux-2026-03-24.log'],
+        'infilux-'
+      )
+    ).toEqual(['infilux-2026-03-25.log', 'infilux-2026-03-24.log']);
   });
 
   it('formats stable diagnostics output directory names', () => {

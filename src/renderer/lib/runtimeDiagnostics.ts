@@ -101,3 +101,24 @@ export function getRendererDiagnosticsSnapshot(): RendererDiagnosticsSnapshot {
 export function resetRendererDiagnostics(): void {
   snapshot = initialSnapshot();
 }
+
+const KB_PER_MB = 1024;
+const MEMORY_PRESSURE_BUCKET_MB = 256;
+
+function toPressureBucket(memoryKb: number | null | undefined): number | null {
+  if (memoryKb === null || memoryKb === undefined || memoryKb <= 0) {
+    return null;
+  }
+
+  return Math.floor(memoryKb / (MEMORY_PRESSURE_BUCKET_MB * KB_PER_MB));
+}
+
+export function getRendererMemoryPressureBucket(
+  memorySnapshot: RuntimeMemorySnapshot
+): number | null {
+  return toPressureBucket(memorySnapshot.rendererMemory?.privateKb ?? null);
+}
+
+export function getAppMemoryPressureBucket(memorySnapshot: RuntimeMemorySnapshot): number | null {
+  return toPressureBucket(memorySnapshot.totalAppWorkingSetSizeKb);
+}

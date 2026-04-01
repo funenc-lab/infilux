@@ -311,7 +311,12 @@ export function AgentTerminal({
     });
     tmuxSessionNameRef.current = plan.tmuxSessionName;
     return {
-      command: plan.command,
+      command: plan.command
+        ? {
+            ...plan.command,
+            fallbackCommand: plan.fallbackCommand,
+          }
+        : undefined,
       env: plan.env,
       initialCommand: plan.initialCommand,
     };

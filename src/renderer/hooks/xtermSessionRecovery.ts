@@ -6,6 +6,7 @@ interface ResolveReusableBackendSessionIdParams {
   cwd?: string;
   getRemoteStatus: (connectionId: string) => Promise<Pick<RemoteConnectionStatus, 'connected'>>;
   getLocalActivity?: (sessionId: string) => Promise<boolean>;
+  allowUntrackedLocalAttach?: boolean;
 }
 
 export interface XtermSessionBindingSnapshot {
@@ -76,12 +77,17 @@ export async function resolveReusableBackendSessionId({
   cwd,
   getRemoteStatus,
   getLocalActivity,
+  allowUntrackedLocalAttach = false,
 }: ResolveReusableBackendSessionIdParams): Promise<string | undefined> {
   if (!backendSessionId) {
     return undefined;
   }
 
   if (!cwd || !isRemoteVirtualPath(cwd)) {
+    if (allowUntrackedLocalAttach) {
+      return backendSessionId;
+    }
+
     if (!cwd || !getLocalActivity) {
       return backendSessionId;
     }

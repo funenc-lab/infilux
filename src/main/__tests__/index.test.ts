@@ -83,8 +83,8 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const shellEnvSync = vi.fn(() => ({
     SHELL_ENV_READY: '1',
   }));
-  const autoStartHapi = vi.fn(async () => undefined);
-  const cleanupAllResources = vi.fn(async () => undefined);
+  const autoStartHapi = vi.fn<() => Promise<void>>(async () => undefined);
+  const cleanupAllResources = vi.fn<() => Promise<void>>(async () => undefined);
   const cleanupAllResourcesSync = vi.fn();
   const registerIpcHandlers = vi.fn();
   const initClaudeProviderWatcher = vi.fn();
@@ -893,6 +893,23 @@ describe('main entry', () => {
     expect(__testables.readStoredLanguage()).toBe('en');
   });
 
+  it('treats terminal lifecycle write failures as ignorable runtime noise', async () => {
+    const { __testables } = await importMainModule({
+      platform: 'darwin',
+    });
+
+    const eioError = new Error('write failed') as NodeJS.ErrnoException;
+    eioError.code = 'EIO';
+    const destroyedError = new Error('stream destroyed') as NodeJS.ErrnoException;
+    destroyedError.code = 'ERR_STREAM_DESTROYED';
+    const messageOnlyError = new Error('write EIO');
+
+    expect(__testables.isIgnorableConsoleWriteError(eioError)).toBe(true);
+    expect(__testables.isIgnorableConsoleWriteError(destroyedError)).toBe(true);
+    expect(__testables.isIgnorableConsoleWriteError(messageOnlyError)).toBe(true);
+    expect(__testables.isIgnorableConsoleWriteError(new Error('boom'))).toBe(false);
+  });
+
   it('handles helper fallbacks and restores minimized windows through test helpers', async () => {
     const existingWindow = mainIndexTestDoubles.createWindow({ minimized: true });
     mainIndexTestDoubles.setWindows([existingWindow], null);
@@ -1138,6 +1155,52 @@ describe('main entry', () => {
     expect(mainIndexTestDoubles.autoUpdaterInit).not.toHaveBeenCalled();
   });
 
+  it('opens the main window without waiting for background startup tasks', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    let resolveGitCheck: (value: boolean) => void = () => {
+      throw new Error('Git check resolver was not initialized');
+    };
+    let resolveAutoStartHapi: () => void = () => {
+      throw new Error('Hapi startup resolver was not initialized');
+    };
+
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    mainIndexTestDoubles.checkGitInstalled.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveGitCheck = resolve;
+        })
+    );
+    mainIndexTestDoubles.autoStartHapi.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAutoStartHapi = resolve;
+        })
+    );
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'win32',
+    });
+
+    expect(mainIndexTestDoubles.registerIpcHandlers).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.autoStartHapi).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.webInspectorSetMainWindow).toHaveBeenCalledWith(mainWindow);
+
+    const gitCheckResolver = resolveGitCheck;
+    const autoStartHapiResolver = resolveAutoStartHapi;
+
+    if (!gitCheckResolver || !autoStartHapiResolver) {
+      throw new Error('Missing deferred startup resolvers');
+    }
+
+    gitCheckResolver(true);
+    autoStartHapiResolver();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
   it('runs the ready startup chain, flushes pending open paths, and updates language menus', async () => {
     const mainWindow = mainIndexTestDoubles.createWindow({ loading: true });
     const activatedWindow = mainIndexTestDoubles.createWindow({ loading: false });
@@ -1196,6 +1259,25 @@ describe('main entry', () => {
       expect.any(Function)
     );
     expect(mainWindow.webContents.send).not.toHaveBeenCalled();
+
+    const startupLogs = mainIndexTestDoubles.logInfo.mock.calls
+      .map(([message]) => message)
+      .filter(
+        (message): message is string =>
+          typeof message === 'string' && message.startsWith('[startup][main]')
+      );
+
+    expect(startupLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('module-evaluated'),
+        expect.stringContaining('app-ready'),
+        expect.stringContaining('pre-window-startup-complete'),
+        expect.stringContaining('main-init-complete'),
+        expect.stringContaining('main-window-created'),
+        expect.stringContaining('hapi-auto-start-queued'),
+        expect.stringContaining('auto-updater-initialized'),
+      ])
+    );
 
     mainWindow.setLoading(false);
     mainWindow.emitWebContentsEvent('did-finish-load');
@@ -1486,7 +1568,7 @@ describe('main entry', () => {
     const mainWindow = mainIndexTestDoubles.createWindow();
     mainIndexTestDoubles.setNextOpenWindow(mainWindow);
     mainIndexTestDoubles.cleanupAllResources.mockImplementation(
-      () => new Promise<undefined>(() => undefined)
+      () => new Promise<void>(() => undefined)
     );
 
     await importMainModule({

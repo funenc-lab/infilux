@@ -65,6 +65,22 @@ export function listManagedLogFiles(
     .sort((left, right) => right.localeCompare(left));
 }
 
+export function selectDiagnosticsLogFiles(
+  fileNames: string[],
+  prefix: string = LOG_FILE_PREFIX
+): string[] {
+  const managedLogFiles = listManagedLogFiles(fileNames, prefix);
+  if (managedLogFiles.length > 0) {
+    return managedLogFiles;
+  }
+
+  const fallbackLogFiles = fileNames
+    .filter((fileName) => fileName === 'main.log')
+    .sort((left, right) => right.localeCompare(left));
+
+  return fallbackLogFiles;
+}
+
 export function formatDiagnosticsDirectoryName(date: Date): string {
   const year = String(date.getUTCFullYear());
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');

@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
 import { useI18n } from '@/i18n';
-import { useSettingsStore } from '@/stores/settings';
 import { TerminalSearchBar, type TerminalSearchBarRef } from './TerminalSearchBar';
 
 interface ShellTerminalProps {
@@ -75,7 +74,6 @@ export function ShellTerminal({
   runtimeStateRef.current = runtimeState;
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
-  const _xtermKeybindings = useSettingsStore((state) => state.xtermKeybindings);
   const { showScrollToBottom, handleScrollToBottom } = useTerminalScrollToBottom(terminal);
 
   // Handle keyboard shortcuts

@@ -1,4 +1,5 @@
-import type { SessionKind, SessionRuntimeState } from '@shared/types';
+import type { SessionDescriptor, SessionKind, SessionRuntimeState } from '@shared/types';
+import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -44,6 +45,10 @@ export interface UseXtermOptions {
   command?: {
     shell: string;
     args: string[];
+    fallbackCommand?: {
+      shell: string;
+      args: string[];
+    };
   };
   env?: Record<string, string>;
   isActive?: boolean;
@@ -170,6 +175,10 @@ export function useXterm({
   const deadRecoveryAttemptKeyRef = useRef<string | null>(null);
   const isUnmountedRef = useRef(false);
   const createRequestIdRef = useRef(0);
+  const agentStartupLoggerRef = useRef<ReturnType<typeof createAgentStartupTimelineLogger> | null>(
+    null
+  );
+  const agentStartupFirstOutputLoggedRef = useRef(false);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const onDataRef = useRef(onData);
@@ -350,6 +359,17 @@ export function useXterm({
     if (!containerRef.current && !terminalRef.current) return;
 
     setIsLoading(true);
+    if (kind === 'agent') {
+      agentStartupFirstOutputLoggedRef.current = false;
+      agentStartupLoggerRef.current = createAgentStartupTimelineLogger({
+        source: 'renderer',
+        getLabel: () => ptyIdRef.current ?? backendSessionId ?? command?.shell ?? 'pending',
+        log: (message) => console.info(message),
+      });
+      agentStartupLoggerRef.current.markStage('init-terminal-start');
+    } else {
+      agentStartupLoggerRef.current = null;
+    }
 
     let terminal = terminalRef.current;
 
@@ -655,7 +675,14 @@ export function useXterm({
         cwd: cwd || getRendererEnvironment().HOME,
         // If command is provided (e.g., for agent), use shell/args directly
         // Otherwise, use shellConfig from settings
-        ...(command ? { shell: command.shell, args: command.args } : { shellConfig }),
+        ...(command
+          ? {
+              shell: command.shell,
+              args: command.args,
+              fallbackShell: command.fallbackCommand?.shell,
+              fallbackArgs: command.fallbackCommand?.args,
+            }
+          : { shellConfig }),
         cols: terminal.cols,
         rows: terminal.rows,
         env,
@@ -675,6 +702,10 @@ export function useXterm({
         sessionEventsCleanupRef.current?.();
         sessionEventsCleanupRef.current = window.electronAPI.session.subscribe(sessionId, {
           onData: (event) => {
+            if (!agentStartupFirstOutputLoggedRef.current) {
+              agentStartupFirstOutputLoggedRef.current = true;
+              agentStartupLoggerRef.current?.markStage('first-output');
+            }
             writeBufferRef.current += event.data;
 
             if (!isFlushPendingRef.current) {
@@ -708,30 +739,40 @@ export function useXterm({
         });
       };
 
-      const attachToSession = (sessionId: string) =>
-        window.electronAPI.session.attach({
+      const attachToSession = (sessionId: string) => {
+        agentStartupLoggerRef.current?.markStage('session-attach-start');
+        return window.electronAPI.session.attach({
           sessionId,
           cwd: createOptions.cwd,
         });
+      };
 
       const createAndAttachSession = async () => {
+        agentStartupLoggerRef.current?.markStage('session-create-start');
         const created = await window.electronAPI.session.create(createOptions);
+        agentStartupLoggerRef.current?.markStage('session-created');
         const createdSessionId = created.session.sessionId;
         setCurrentSessionId(createdSessionId);
         subscribeToSession(createdSessionId);
         if (isRemoteVirtualPath(createOptions.cwd)) {
           return created;
         }
-        return await attachToSession(createdSessionId);
+        const attached = await attachToSession(createdSessionId);
+        agentStartupLoggerRef.current?.markStage('session-attached');
+        return attached;
       };
 
-      let session = null;
+      let session: SessionDescriptor | null = null;
       let replay: string | undefined;
       const reusableBackendSessionId = await resolveReusableBackendSessionId({
         backendSessionId,
         cwd: createOptions.cwd,
         getRemoteStatus: (connectionId) => window.electronAPI.remote.getStatus(connectionId),
         getLocalActivity: (sessionId) => window.electronAPI.session.getActivity(sessionId),
+        allowUntrackedLocalAttach:
+          kind === 'agent' &&
+          persistOnDisconnect &&
+          getRendererEnvironment().platform === 'win32',
       });
 
       if (reusableBackendSessionId) {
@@ -739,9 +780,11 @@ export function useXterm({
           setCurrentSessionId(reusableBackendSessionId);
           subscribeToSession(reusableBackendSessionId);
           const result = await attachToSession(reusableBackendSessionId);
+          agentStartupLoggerRef.current?.markStage('session-attached');
           session = result.session;
           replay = result.replay;
         } catch (error) {
+          agentStartupLoggerRef.current?.markStage('attach-existing-failed');
           console.warn('[xterm] Failed to attach existing session, creating a new one:', error);
           sessionEventsCleanupRef.current?.();
           sessionEventsCleanupRef.current = null;
@@ -753,6 +796,10 @@ export function useXterm({
         const attached = await createAndAttachSession();
         session = attached.session;
         replay = attached.replay;
+      }
+
+      if (!session) {
+        throw new Error('Failed to initialize terminal session');
       }
 
       if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
@@ -783,6 +830,7 @@ export function useXterm({
 
       // Focus is handled by the isActive effect after loading ends.
     } catch (error) {
+      agentStartupLoggerRef.current?.markStage('init-terminal-failed');
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
       ptyIdRef.current = null;

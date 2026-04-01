@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { IPC_CHANNELS } from '@shared/types';
 import type { InspectPayload, WebInspectorStatus } from '@shared/types/webInspector';
 import type { BrowserWindow } from 'electron';
 
@@ -35,7 +36,7 @@ export class WebInspectorServer {
     }
     // Also send to renderer via IPC
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('web-inspector:status-change', status);
+      this.mainWindow.webContents.send(IPC_CHANNELS.WEB_INSPECTOR_STATUS_CHANGED, status);
     }
   }
 
@@ -146,7 +147,7 @@ export class WebInspectorServer {
   private handleInspectData(payload: InspectPayload) {
     // Send to renderer process via IPC
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('web-inspector:data', payload);
+      this.mainWindow.webContents.send(IPC_CHANNELS.WEB_INSPECTOR_DATA, payload);
     }
   }
 }

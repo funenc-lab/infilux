@@ -145,6 +145,8 @@ export function QuickTerminalModal({
         document.removeEventListener('mouseup', handleDragEnd);
       };
     }
+
+    return undefined;
   }, [isDragging, handleDragMove, handleDragEnd]);
 
   // Keep the modal close behavior aligned with the terminal tab shortcut.

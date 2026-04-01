@@ -1238,18 +1238,19 @@ const electronAPI = {
   // Web Inspector
   webInspector: {
     start: (): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('web-inspector:start'),
-    stop: (): Promise<void> => ipcRenderer.invoke('web-inspector:stop'),
-    status: (): Promise<WebInspectorStatus> => ipcRenderer.invoke('web-inspector:status'),
+      ipcRenderer.invoke(IPC_CHANNELS.WEB_INSPECTOR_START),
+    stop: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.WEB_INSPECTOR_STOP),
+    status: (): Promise<WebInspectorStatus> =>
+      ipcRenderer.invoke(IPC_CHANNELS.WEB_INSPECTOR_STATUS),
     onStatusChange: (callback: (status: WebInspectorStatus) => void): (() => void) => {
       const handler = (_: unknown, status: WebInspectorStatus) => callback(status);
-      ipcRenderer.on('web-inspector:status-change', handler);
-      return () => ipcRenderer.off('web-inspector:status-change', handler);
+      ipcRenderer.on(IPC_CHANNELS.WEB_INSPECTOR_STATUS_CHANGED, handler);
+      return () => ipcRenderer.off(IPC_CHANNELS.WEB_INSPECTOR_STATUS_CHANGED, handler);
     },
     onData: (callback: (data: InspectPayload) => void): (() => void) => {
       const handler = (_: unknown, data: InspectPayload) => callback(data);
-      ipcRenderer.on('web-inspector:data', handler);
-      return () => ipcRenderer.off('web-inspector:data', handler);
+      ipcRenderer.on(IPC_CHANNELS.WEB_INSPECTOR_DATA, handler);
+      return () => ipcRenderer.off(IPC_CHANNELS.WEB_INSPECTOR_DATA, handler);
     },
   },
 

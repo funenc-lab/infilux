@@ -378,8 +378,16 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.CLOUDFLARED_START, { mode: 'quick', port: 8080 }],
       },
       {
+        run: () => api.webInspector.start(),
+        expected: [IPC_CHANNELS.WEB_INSPECTOR_START],
+      },
+      {
+        run: () => api.webInspector.stop(),
+        expected: [IPC_CHANNELS.WEB_INSPECTOR_STOP],
+      },
+      {
         run: () => api.webInspector.status(),
-        expected: ['web-inspector:status'],
+        expected: [IPC_CHANNELS.WEB_INSPECTOR_STATUS],
       },
       {
         run: () => api.log.updateConfig({ enabled: true, level: 'debug' }),
@@ -637,14 +645,14 @@ describe('preload bridge', () => {
         expected: [{ running: true, installed: true }],
       },
       {
-        channel: 'web-inspector:status-change',
+        channel: IPC_CHANNELS.WEB_INSPECTOR_STATUS_CHANGED,
         register: (callback: (value: unknown) => void) =>
           api.webInspector.onStatusChange(callback as never),
         emitted: [{ running: true }],
         expected: [{ running: true }],
       },
       {
-        channel: 'web-inspector:data',
+        channel: IPC_CHANNELS.WEB_INSPECTOR_DATA,
         register: (callback: (value: unknown) => void) =>
           api.webInspector.onData(callback as never),
         emitted: [{ entries: [] }],

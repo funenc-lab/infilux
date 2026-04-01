@@ -1,16 +1,17 @@
+import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain } from 'electron';
 import { webInspectorServer } from '../services/webInspector';
 
 export function registerWebInspectorHandlers() {
-  ipcMain.handle('web-inspector:start', async () => {
+  ipcMain.handle(IPC_CHANNELS.WEB_INSPECTOR_START, async () => {
     return webInspectorServer.start();
   });
 
-  ipcMain.handle('web-inspector:stop', async () => {
+  ipcMain.handle(IPC_CHANNELS.WEB_INSPECTOR_STOP, async () => {
     await webInspectorServer.stop();
   });
 
-  ipcMain.handle('web-inspector:status', () => {
+  ipcMain.handle(IPC_CHANNELS.WEB_INSPECTOR_STATUS, () => {
     return webInspectorServer.getStatus();
   });
 }

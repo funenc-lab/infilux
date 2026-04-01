@@ -182,7 +182,7 @@ describe('ShellDetector', () => {
       } as never)
     ).toEqual({
       shell: '/bin/bash',
-      execArgs: ['-i', '-l', '-c'],
+      execArgs: ['-l', '-c'],
     });
     expect(
       shellDetector.resolveShellForCommand({
@@ -255,7 +255,7 @@ describe('ShellDetector', () => {
       } as never)
     ).toEqual({
       shell: '/bin/sh',
-      execArgs: ['-NoLogo', '-ExecutionPolicy', 'Bypass', '-Login', '-Command'],
+      execArgs: ['-c'],
     });
 
     expect(internals.inferExecArgs('/opt/custom/powershell.exe')).toEqual([
@@ -271,8 +271,8 @@ describe('ShellDetector', () => {
       '-Command',
     ]);
     expect(internals.inferExecArgs('/opt/custom/team-cmd-wrapper')).toEqual(['/c']);
-    expect(internals.inferExecArgs('/opt/custom/bash')).toEqual(['-i', '-l', '-c']);
-    expect(internals.inferExecArgs('/opt/custom/team-zsh-wrapper')).toEqual(['-i', '-l', '-c']);
+    expect(internals.inferExecArgs('/opt/custom/bash')).toEqual(['-l', '-c']);
+    expect(internals.inferExecArgs('/opt/custom/team-zsh-wrapper')).toEqual(['-l', '-c']);
     expect(internals.inferExecArgs('/opt/custom/fish')).toEqual(['-l', '-c']);
     expect(internals.inferExecArgs('/opt/custom/fish-wrapper')).toEqual(['-l', '-c']);
     expect(internals.inferExecArgs('/opt/custom/unknown')).toEqual(['-c']);

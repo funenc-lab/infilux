@@ -23,7 +23,7 @@ import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
-import { useSettingsStore } from '@/stores/settings';
+import { defaultGlobalKeybindings, useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 
@@ -71,7 +71,9 @@ export function RunningProjectsPopover({
   const menuRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const globalKeybindings = useSettingsStore((s) => s.globalKeybindings);
+  const runningProjectsKeybinding = useSettingsStore(
+    (s) => s.globalKeybindings?.runningProjects ?? defaultGlobalKeybindings.runningProjects
+  );
 
   const activities = useWorktreeActivityStore((s) => s.activities);
   const closeAgentSessions = useWorktreeActivityStore((s) => s.closeAgentSessions);
@@ -102,7 +104,7 @@ export function RunningProjectsPopover({
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (matchesKeybinding(e, globalKeybindings.runningProjects)) {
+      if (matchesKeybinding(e, runningProjectsKeybinding)) {
         e.preventDefault();
         setOpen((prev) => !prev);
       }
@@ -110,7 +112,7 @@ export function RunningProjectsPopover({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [globalKeybindings.runningProjects]);
+  }, [runningProjectsKeybinding]);
 
   const worktreeByPath = useMemo(() => {
     const map = new Map<string, GitWorktree>();

@@ -772,12 +772,61 @@ function parseCommitFiles(stdout) {
 }
 
 function parseDiffStats(stdout) {
-  const insertionsMatch = stdout.match(/(\d+)\s+insertion/);
-  const deletionsMatch = stdout.match(/(\d+)\s+deletion/);
-  return {
-    insertions: insertionsMatch ? Number.parseInt(insertionsMatch[1], 10) : 0,
-    deletions: deletionsMatch ? Number.parseInt(deletionsMatch[1], 10) : 0,
-  };
+  let insertions = 0;
+  let deletions = 0;
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [rawInsertions, rawDeletions] = line.split('\t');
+    if (!rawInsertions || !rawDeletions) continue;
+    if (rawInsertions !== '-') {
+      insertions += Number.parseInt(rawInsertions, 10) || 0;
+    }
+    if (rawDeletions !== '-') {
+      deletions += Number.parseInt(rawDeletions, 10) || 0;
+    }
+  }
+  return { insertions, deletions };
+}
+
+function mergeDiffStats(...stats) {
+  return stats.reduce(
+    (accumulator, current) => ({
+      insertions: accumulator.insertions + current.insertions,
+      deletions: accumulator.deletions + current.deletions,
+    }),
+    { insertions: 0, deletions: 0 }
+  );
+}
+
+function isProbablyBinaryContent(buffer) {
+  const inspectedLength = Math.min(buffer.length, 8000);
+  for (let index = 0; index < inspectedLength; index += 1) {
+    if (buffer[index] === 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function countBufferLines(buffer) {
+  if (!buffer || buffer.length === 0) {
+    return 0;
+  }
+
+  let lineCount = 0;
+  for (let index = 0; index < buffer.length; index += 1) {
+    const byte = buffer[index];
+    if (byte === 10) {
+      lineCount += 1;
+      continue;
+    }
+    if (byte === 13 && buffer[index + 1] !== 10) {
+      lineCount += 1;
+    }
+  }
+
+  const lastByte = buffer[buffer.length - 1];
+  return lastByte === 10 || lastByte === 13 ? lineCount : lineCount + 1;
 }
 
 function getGitDirPath(workdir) {
@@ -978,8 +1027,49 @@ async function gitCommitDiff(rootPath, hash, filePath) {
 }
 
 async function gitDiffStats(rootPath) {
-  const { stdout } = await execCommand('git', ['diff', '--shortstat'], { cwd: rootPath });
-  return parseDiffStats(stdout);
+  let trackedStats = { insertions: 0, deletions: 0 };
+
+  try {
+    const { stdout } = await execCommand('git', ['diff', '--numstat', 'HEAD', '--'], {
+      cwd: rootPath,
+    });
+    trackedStats = parseDiffStats(stdout);
+  } catch {
+    const [cachedResult, unstagedResult] = await Promise.all([
+      execCommand('git', ['diff', '--cached', '--numstat', '--'], { cwd: rootPath }).catch(() => ({
+        stdout: '',
+      })),
+      execCommand('git', ['diff', '--numstat', '--'], { cwd: rootPath }).catch(() => ({
+        stdout: '',
+      })),
+    ]);
+    trackedStats = mergeDiffStats(
+      parseDiffStats(cachedResult.stdout),
+      parseDiffStats(unstagedResult.stdout)
+    );
+  }
+
+  let untrackedInsertions = 0;
+  try {
+    const { stdout } = await execCommand(
+      'git',
+      ['ls-files', '--others', '--exclude-standard', '-z'],
+      { cwd: rootPath }
+    );
+    const relativePaths = stdout.split('\0').filter(Boolean);
+    for (const relativePath of relativePaths) {
+      try {
+        const absolutePath = path.resolve(rootPath, relativePath);
+        const content = fs.readFileSync(absolutePath);
+        if (isProbablyBinaryContent(content)) {
+          continue;
+        }
+        untrackedInsertions += countBufferLines(content);
+      } catch {}
+    }
+  } catch {}
+
+  return mergeDiffStats(trackedStats, { insertions: untrackedInsertions, deletions: 0 });
 }
 
 async function worktreeList(rootPath) {

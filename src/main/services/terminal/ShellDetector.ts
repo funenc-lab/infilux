@@ -74,14 +74,14 @@ const UNIX_SHELLS: ShellDefinition[] = [
     name: 'Zsh',
     paths: ['/bin/zsh', '/usr/bin/zsh', '/usr/local/bin/zsh', '/opt/homebrew/bin/zsh'],
     args: ['-i', '-l'],
-    execArgs: ['-i', '-l', '-c'],
+    execArgs: ['-l', '-c'],
   },
   {
     id: 'bash',
     name: 'Bash',
     paths: ['/bin/bash', '/usr/bin/bash', '/usr/local/bin/bash'],
     args: ['-i', '-l'],
-    execArgs: ['-i', '-l', '-c'],
+    execArgs: ['-l', '-c'],
   },
   {
     id: 'fish',
@@ -310,7 +310,12 @@ class ShellDetector {
     // Check all definitions for matching shell
     const allDefs = [...WINDOWS_SHELLS, ...UNIX_SHELLS];
     for (const def of allDefs) {
-      if (def.paths.some((p) => p.toLowerCase().includes(shellName))) {
+      if (
+        def.paths.some((p) => {
+          const candidateName = p.split(/[/\\]/).pop()?.toLowerCase() || '';
+          return candidateName === shellName;
+        })
+      ) {
         return def.execArgs;
       }
     }
@@ -323,7 +328,7 @@ class ShellDetector {
       return ['/c'];
     }
     if (shellName.includes('bash') || shellName.includes('zsh')) {
-      return ['-i', '-l', '-c'];
+      return ['-l', '-c'];
     }
     if (shellName.includes('fish') || shellName.includes('nu')) {
       return ['-l', '-c'];

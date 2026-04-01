@@ -1,5 +1,5 @@
 import type { RuntimeMemorySnapshot } from '@shared/types';
-import { Activity, AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, Gauge, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -67,7 +67,7 @@ export function AppResourceStatusPopover({ className }: AppResourceStatusPopover
         aria-label={t('App runtime status')}
         title={t('App runtime status')}
       >
-        <Activity className="h-3.5 w-3.5" />
+        <Gauge className="h-3.5 w-3.5" />
       </PopoverTrigger>
       <PopoverPopup align="end" sideOffset={8} className="w-[22rem] max-w-[calc(100vw-1rem)]">
         <div className="flex flex-col gap-4">

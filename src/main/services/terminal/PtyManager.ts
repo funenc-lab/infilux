@@ -2,7 +2,8 @@ import { execSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import type { TerminalCreateOptions } from '@shared/types';
+import type { SessionCreateOptions } from '@shared/types';
+import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
 import * as pty from 'node-pty';
 import pidtree from 'pidtree';
 import pidusage from 'pidusage';
@@ -322,7 +323,7 @@ export class PtyManager {
   }
 
   create(
-    options: TerminalCreateOptions,
+    options: SessionCreateOptions,
     onData: (data: string) => void,
     onExit?: (exitCode: number, signal?: number) => void,
     providedId?: string
@@ -373,26 +374,53 @@ export class PtyManager {
     }
 
     let ptyProcess: pty.IPty;
+    const startupLogger =
+      options.kind === 'agent'
+        ? createAgentStartupTimelineLogger({
+            source: 'main',
+            getLabel: () => id,
+            log: (message) => console.info(message),
+          })
+        : null;
+    const env = {
+      ...process.env,
+      ...getProxyEnvVars(),
+      ...options.env,
+      PATH: options.env?.PATH || getEnhancedPath(),
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      // Ensure proper locale for UTF-8 support (GUI apps may not inherit LANG)
+      LANG: process.env.LANG || 'en_US.UTF-8',
+      LC_ALL: process.env.LC_ALL || process.env.LANG || 'en_US.UTF-8',
+    } as Record<string, string>;
 
     try {
+      startupLogger?.markStage('spawn-start');
       ptyProcess = pty.spawn(shell, args, {
         name: 'xterm-256color',
         cols: options.cols || 80,
         rows: options.rows || 24,
         cwd: spawnCwd,
-        env: {
-          ...process.env,
-          ...getProxyEnvVars(),
-          ...options.env,
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor',
-          // Ensure proper locale for UTF-8 support (GUI apps may not inherit LANG)
-          LANG: process.env.LANG || 'en_US.UTF-8',
-          LC_ALL: process.env.LC_ALL || process.env.LANG || 'en_US.UTF-8',
-        } as Record<string, string>,
+        env,
       });
+      startupLogger?.markStage('spawned-primary');
     } catch (error) {
-      if (!isWindows) {
+      if (options.fallbackShell) {
+        const fallbackArgs = options.fallbackArgs || [];
+        console.warn(
+          `[pty] Failed to spawn ${shell}. Falling back to explicit command ${options.fallbackShell}`
+        );
+        ptyProcess = pty.spawn(options.fallbackShell, fallbackArgs, {
+          name: 'xterm-256color',
+          cols: options.cols || 80,
+          rows: options.rows || 24,
+          cwd: spawnCwd,
+          env,
+        });
+        shell = options.fallbackShell;
+        args = fallbackArgs;
+        startupLogger?.markStage('spawned-fallback-explicit');
+      } else if (!isWindows) {
         const fallbackShell = findFallbackShell();
         if (fallbackShell !== shell) {
           const fallbackArgs = adjustArgsForShell(fallbackShell, args);
@@ -402,19 +430,11 @@ export class PtyManager {
             cols: options.cols || 80,
             rows: options.rows || 24,
             cwd: spawnCwd,
-            env: {
-              ...process.env,
-              ...getProxyEnvVars(),
-              ...options.env,
-              TERM: 'xterm-256color',
-              COLORTERM: 'truecolor',
-              // Ensure proper locale for UTF-8 support (GUI apps may not inherit LANG)
-              LANG: process.env.LANG || 'en_US.UTF-8',
-              LC_ALL: process.env.LC_ALL || process.env.LANG || 'en_US.UTF-8',
-            } as Record<string, string>,
+            env,
           });
           shell = fallbackShell;
           args = fallbackArgs;
+          startupLogger?.markStage('spawned-fallback-shell');
         } else {
           throw error;
         }
