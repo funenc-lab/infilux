@@ -50,16 +50,25 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).toContain('control-tree-node relative flex w-full flex-col');
     expect(treeSidebarSource).toContain('const buttonContent = (');
     expect(treeSidebarSource).toContain(
-      '<div className="control-tree-guide-item">{buttonContent}</div>'
+      '<div className="control-tree-guide-item min-w-0">{buttonContent}</div>'
     );
     expect(treeSidebarSource).toContain('data-surface="row"');
     expect(worktreePanelSource).toContain('data-surface="row"');
     expect(treeSidebarSource).toContain('control-tree-row');
     expect(repositorySidebarSource).toContain('control-tree-row');
     expect(worktreePanelSource).toContain('control-tree-row');
-    expect(treeSidebarSource).toContain('control-tree-meta-inline');
+    expect(treeSidebarSource).toContain('control-tree-text-stack');
+    expect(treeSidebarSource).toContain('control-tree-title-row');
+    expect(treeSidebarSource).not.toContain('control-tree-signal-row');
+    expect(treeSidebarSource).toContain('control-tree-meta-row');
     expect(repositorySidebarSource).toContain('control-tree-meta-inline');
-    expect(worktreePanelSource).toContain('control-tree-meta-inline');
+    expect(worktreePanelSource).toContain('control-tree-text-stack');
+    expect(worktreePanelSource).toContain('control-tree-title-row');
+    expect(worktreePanelSource).not.toContain('control-tree-signal-row');
+    expect(worktreePanelSource).toContain('control-tree-meta-row');
+    expect(worktreePanelSource).toContain(
+      'control-tree-primary min-w-0 flex-1 text-left outline-none'
+    );
     expect(worktreePanelSource).not.toContain('pl-[1.625rem]');
     expect(worktreePanelSource).not.toContain(
       'control-panel-muted relative flex w-full flex-col items-start gap-2 rounded-xl p-3'
@@ -86,11 +95,17 @@ describe('sidebar design policy', () => {
   });
 
   it('keeps git diff polling available for loaded worktrees instead of activity-only rows', () => {
-    expect(treeSidebarSource).toContain('const loadedPaths = allWorktrees.map((wt) => wt.path);');
+    expect(treeSidebarSource).toContain('const diffStatPaths = useMemo(() => {');
+    expect(treeSidebarSource).toContain('const diffStatPathKey = useMemo(() => diffStatPaths.join');
+    expect(treeSidebarSource).toContain("const paths = diffStatPathKey.split('\\n');");
     expect(treeSidebarSource).not.toContain('const activePaths = allWorktrees');
     expect(worktreePanelSource).toContain(
-      'const loadedPaths = safeWorktrees.map((wt) => wt.path);'
+      'const diffStatPaths = useMemo(() => safeWorktrees.map((wt) => wt.path), [safeWorktrees]);'
     );
+    expect(worktreePanelSource).toContain(
+      'const diffStatPathKey = useMemo(() => diffStatPaths.join'
+    );
+    expect(worktreePanelSource).toContain("const paths = diffStatPathKey.split('\\n');");
     expect(worktreePanelSource).not.toContain('const activePaths = worktrees');
   });
 
@@ -101,37 +116,49 @@ describe('sidebar design policy', () => {
     expect(repositorySidebarSource).toContain('<RepositoryTreeSummary');
     expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">trees</span>');
     expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">live</span>');
-    expect(treeSidebarSource).not.toContain(
-      '{getDisplayPathBasename(worktree.path) || displayWorktreePath}'
+    expect(treeSidebarSource).toContain(
+      'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
-    expect(worktreePanelSource).not.toContain(
-      'const shortWorktreePath = getDisplayPathBasename(worktree.path) || displayWorktreePath;'
+    expect(treeSidebarSource).not.toContain('title={displayWorktreePath}');
+    expect(treeSidebarSource).not.toContain('{displayWorktreePath}');
+    expect(worktreePanelSource).toContain(
+      'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
+    expect(worktreePanelSource).not.toContain('title={displayWorktreePath}');
+    expect(worktreePanelSource).not.toContain('{displayWorktreePath}');
     expect(treeSidebarSource).not.toContain('pl-11');
     expect(repositorySidebarSource).not.toContain('pl-[1.375rem]');
   });
 
   it('prioritizes git decision signals ahead of runtime counters inside worktree rails', () => {
-    expect(treeSidebarSource.indexOf("key: 'diff'")).toBeGreaterThan(
+    expect(treeSidebarSource).toContain('control-tree-diff-badge');
+    expect(worktreePanelSource).toContain('control-tree-diff-badge');
+    expect(treeSidebarSource).toContain('control-tree-inline-signals');
+    expect(worktreePanelSource).toContain('control-tree-inline-signals');
+    expect(treeSidebarSource).not.toContain('control-tree-signal-row');
+    expect(worktreePanelSource).not.toContain('control-tree-signal-row');
+    expect(treeSidebarSource).toContain(
+      'const totalActivityCount = activity.agentCount + activity.terminalCount;'
+    );
+    expect(worktreePanelSource).toContain(
+      'const totalActivityCount = activity.agentCount + activity.terminalCount;'
+    );
+    expect(treeSidebarSource).toContain("key: 'diff'");
+    expect(worktreePanelSource).toContain("key: 'diff'");
+    expect(treeSidebarSource.indexOf("key: 'publish'")).toBeGreaterThan(
       treeSidebarSource.indexOf("key: 'state'")
     );
-    expect(treeSidebarSource.indexOf("key: 'publish'")).toBeGreaterThan(
-      treeSidebarSource.indexOf("key: 'diff'")
-    );
     expect(treeSidebarSource.indexOf("key: 'sync'")).toBeGreaterThan(
-      treeSidebarSource.indexOf("key: 'publish'")
+      treeSidebarSource.indexOf("key: 'diff'")
     );
     expect(treeSidebarSource.indexOf("key: 'agents'")).toBeGreaterThan(
       treeSidebarSource.indexOf("key: 'sync'")
     );
-    expect(worktreePanelSource.indexOf("key: 'diff'")).toBeGreaterThan(
+    expect(worktreePanelSource.indexOf("key: 'publish'")).toBeGreaterThan(
       worktreePanelSource.indexOf("key: 'state'")
     );
-    expect(worktreePanelSource.indexOf("key: 'publish'")).toBeGreaterThan(
-      worktreePanelSource.indexOf("key: 'diff'")
-    );
     expect(worktreePanelSource.indexOf("key: 'sync'")).toBeGreaterThan(
-      worktreePanelSource.indexOf("key: 'publish'")
+      worktreePanelSource.indexOf("key: 'diff'")
     );
     expect(worktreePanelSource.indexOf("key: 'agents'")).toBeGreaterThan(
       worktreePanelSource.indexOf("key: 'sync'")
@@ -141,6 +168,8 @@ describe('sidebar design policy', () => {
   it('keeps dense git rail copy compact instead of repeating diff and sync labels', () => {
     expect(treeSidebarSource).toContain('data-kind="diff"');
     expect(treeSidebarSource).toContain('data-kind="sync"');
+    expect(treeSidebarSource).toContain('control-tree-diff-badge');
+    expect(treeSidebarSource).toContain('control-tree-sync-inline');
     expect(treeSidebarSource).toContain('control-tree-metric-prefix');
     expect(treeSidebarSource).not.toContain(
       '<span className="control-tree-metric-label">diff</span>'
@@ -150,6 +179,8 @@ describe('sidebar design policy', () => {
     );
     expect(worktreePanelSource).toContain('data-kind="diff"');
     expect(worktreePanelSource).toContain('data-kind="sync"');
+    expect(worktreePanelSource).toContain('control-tree-diff-badge');
+    expect(worktreePanelSource).toContain('control-tree-sync-inline');
     expect(worktreePanelSource).not.toContain(
       '<span className="control-tree-metric-label">diff</span>'
     );
@@ -157,28 +188,45 @@ describe('sidebar design policy', () => {
       '<span className="control-tree-metric-label">sync</span>'
     );
     expect(globalsSource).toContain('.control-tree-metric-prefix {');
+    expect(globalsSource).toContain('.control-tree-diff-badge {');
+    expect(globalsSource).toContain('.control-tree-sync-inline {');
+    expect(globalsSource).toContain('.control-tree-title-row {');
+    expect(globalsSource).toContain('.control-tree-inline-item {');
+    expect(globalsSource).toContain('display: flex;');
+    expect(globalsSource).toContain('gap: 0.25rem;');
+    expect(globalsSource).toContain('font-variant-numeric: tabular-nums;');
+    expect(globalsSource).toContain('justify-content: flex-end;');
+    expect(globalsSource).toContain('container-type: inline-size;');
+    expect(globalsSource).toContain('@container (max-width: 18rem) {');
+    expect(globalsSource).toContain('max-width: none;');
+    expect(globalsSource).toContain('width: 0;');
+    expect(globalsSource).toContain('flex: 0 0 auto;');
+    expect(globalsSource).toContain('margin-left: auto;');
+    expect(globalsSource).toContain('overflow: visible;');
+    expect(treeSidebarSource).toContain('control-tree-diff-positive');
+    expect(treeSidebarSource).toContain('control-tree-diff-negative');
+    expect(worktreePanelSource).toContain('control-tree-diff-positive');
+    expect(worktreePanelSource).toContain('control-tree-diff-negative');
+    expect(globalsSource).toContain('white-space: nowrap;');
   });
 
-  it('centers single-line worktree rails instead of keeping the old two-line top bias', () => {
-    expect(treeSidebarSource).toContain('data-layout="inline"');
-    expect(worktreePanelSource).toContain('data-layout="inline"');
-    expect(globalsSource).toContain('.control-tree-node[data-layout="inline"] {');
-    expect(globalsSource).toContain('--control-tree-glyph-offset-y: 0;');
-    expect(globalsSource).toContain('--control-tree-tail-offset-y: 0;');
-    expect(globalsSource).toContain('--control-tree-row-gap: 0.5rem;');
-    expect(globalsSource).toContain('.control-tree-node[data-layout="inline"] .control-tree-row,');
-    expect(globalsSource).toContain(
-      '.control-tree-node[data-layout="inline"] .control-tree-primary-content {'
-    );
-    expect(globalsSource).toContain('.control-tree-node[data-layout="inline"] .control-tree-row {');
-    expect(globalsSource).toContain('min-height: 2.5rem;');
-    expect(globalsSource).toContain(
-      '.control-tree-node[data-layout="inline"] .control-tree-tail {'
-    );
+  it('keeps worktree rows focused on branch identity while holding diff in the same line', () => {
+    expect(treeSidebarSource).not.toContain('data-layout="inline"');
+    expect(worktreePanelSource).not.toContain('data-layout="inline"');
+    expect(treeSidebarSource).toContain('control-tree-title-row');
+    expect(worktreePanelSource).toContain('control-tree-title-row');
+    expect(treeSidebarSource).not.toContain('control-tree-signal-row');
+    expect(worktreePanelSource).not.toContain('control-tree-signal-row');
+    expect(treeSidebarSource).not.toContain('control-tree-subtitle min-w-0 flex-1');
+    expect(worktreePanelSource).not.toContain('control-tree-subtitle min-w-0 flex-1');
+    expect(treeSidebarSource).toContain('control-tree-meta-row');
+    expect(worktreePanelSource).toContain('control-tree-meta-row');
   });
 
   it('keeps worktree runtime presence inline as counters instead of a named agent child row', () => {
     expect(treeSidebarSource).toContain("key: 'agents'");
+    expect(treeSidebarSource).not.toContain("key: 'terminals'");
+    expect(treeSidebarSource).toContain('control-tree-inline-signals');
     expect(treeSidebarSource).not.toContain('<WorktreeAgentSummary');
     expect(treeSidebarSource).not.toContain('<WorktreeAgentChildren');
     expect(treeSidebarSource).not.toContain('useLiveSubagents(');
@@ -186,6 +234,9 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).not.toContain('session={activeSession}');
     expect(treeSidebarSource).not.toContain('subagents={liveSubagents}');
     expect(treeSidebarSource).not.toContain('className="pl-5"');
+    expect(worktreeTreeItemSource).toContain(
+      'const totalActivityCount = activity.agentCount + activity.terminalCount;'
+    );
     expect(worktreeTreeItemSource).toContain('control-tree-metric-icon');
     expect(worktreeTreeItemSource).not.toContain(
       '<span className="control-tree-metric-label">{t(\'agents\')}</span>'
@@ -194,6 +245,12 @@ describe('sidebar design policy', () => {
       '<span className="control-tree-metric-label">{t(\'terminals\')}</span>'
     );
     expect(worktreePanelItemSource).toContain('control-tree-metric-icon');
+    expect(worktreePanelItemSource).toContain(
+      'const totalActivityCount = activity.agentCount + activity.terminalCount;'
+    );
+    expect(worktreePanelSource).not.toContain("key: 'terminals'");
+    expect(worktreePanelSource).toContain('control-tree-inline-signals');
+    expect(worktreePanelSource).not.toContain('<WorktreeAgentChildren');
     expect(worktreePanelItemSource).not.toContain(
       '<span className="control-tree-metric-label">{t(\'agents\')}</span>'
     );
@@ -209,10 +266,10 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).toContain('clearTaskCompletedUnreadByWorktree(worktree.path);');
     expect(worktreePanelSource).toContain('clearTaskCompletedUnreadByWorktree(worktree.path);');
     expect(globalsSource).toContain('.control-task-completion-dot {');
-    expect(globalsSource).toContain(
+    expect(globalsSource).toContain('flex-shrink: 0;');
+    expect(globalsSource).not.toContain(
       '.control-tree-node[data-active="worktree"] .control-task-completion-dot {'
     );
-    expect(globalsSource).toContain('opacity: 0;');
   });
 
   it('keeps search and filtered-empty copy aligned across sidebar variants', () => {
@@ -232,11 +289,32 @@ describe('sidebar design policy', () => {
   });
 
   it('keeps selection styling restrained and removes worktree flags', () => {
-    expect(worktreePanelSource).not.toContain('control-tree-flag control-tree-flag-main');
-    expect(treeSidebarSource).not.toContain('control-tree-flag control-tree-flag-main');
+    expect(worktreePanelSource).toContain('control-tree-flag control-tree-flag-main');
+    expect(treeSidebarSource).toContain('control-tree-flag control-tree-flag-main');
     expect(temporaryWorkspacePanelSource).not.toContain('control-tree-flag control-tree-flag-main');
     expect(globalsSource).toContain('opacity: 0;');
     expect(globalsSource).toContain('background: transparent;');
+  });
+
+  it('keeps worktree action tails collapsed until hover or direct tail focus', () => {
+    expect(globalsSource).toContain('.control-tree-tail[data-role="action"] {');
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-node-kind="worktree"] .control-tree-tail[data-role="action"] {'
+    );
+    expect(globalsSource).toContain('max-width: 0;');
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-node-kind="worktree"]:hover .control-tree-tail[data-role="action"],'
+    );
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-node-kind="worktree"] .control-tree-tail[data-role="action"]:focus-within {'
+    );
+  });
+
+  it('keeps the active worktree card free of an inner rail so the guide owns hierarchy', () => {
+    expect(globalsSource).toContain(".control-tree-node[data-active='worktree']::before {");
+    expect(globalsSource).toMatch(
+      /\.control-tree-node\[data-active='worktree'\]::before\s*\{\s*opacity:\s*0;\s*background:\s*transparent;/
+    );
   });
 
   it('tones down the sidebar footer call-to-action surface', () => {
@@ -316,7 +394,7 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('color: var(--control-tree-title-color);');
   });
 
-  it('gives selected repo and worktree rows a structural rail instead of relying only on tint', () => {
+  it('keeps structural guides outside nested worktree cards instead of adding an inner active rail', () => {
     expect(globalsSource).toContain('--control-tree-rail-color: transparent;');
     expect(globalsSource).toContain('--control-tree-rail-opacity: 0;');
     expect(globalsSource).toContain('--control-tree-rail-width: 1px;');
@@ -325,6 +403,10 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('opacity: var(--control-tree-rail-opacity);');
     expect(globalsSource).toContain('--control-tree-rail-width: 1.5px;');
     expect(globalsSource).toContain('--control-tree-rail-width: 2px;');
+    expect(globalsSource).toContain('.control-tree-guide::before {');
+    expect(globalsSource).toMatch(
+      /\.control-tree-node\[data-active='worktree'\]::before\s*\{\s*opacity:\s*0;\s*background:\s*transparent;/
+    );
   });
 
   it('uses shared menu typography across sidebar and running-project context menus', () => {
@@ -436,6 +518,8 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('opacity: 0.36;');
     expect(globalsSource).toContain('--control-tree-tail-opacity: 0.18;');
     expect(globalsSource).toContain('--control-tree-tail-opacity: 0.24;');
+    expect(globalsSource).toContain('pointer-events: none;');
+    expect(globalsSource).toContain('pointer-events: auto;');
     expect(repositorySidebarSource).toContain(
       'control-tree-action flex h-6 w-6 shrink-0 items-center justify-center rounded-md'
     );
@@ -450,9 +534,11 @@ describe('sidebar design policy', () => {
       'control-tree-action mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md'
     );
     expect(treeSidebarSource).toContain('data-role="action"');
+    expect(treeSidebarSource).toContain('data-node-kind="worktree"');
+    expect(worktreePanelSource).toContain('data-node-kind="worktree"');
     expect(treeSidebarSource).toContain('data-kind="diff"');
     expect(treeSidebarSource).not.toContain('control-tree-separator control-tree-separator-diff');
-    expect(treeSidebarSource).toContain('control-tree-meta control-tree-meta-inline');
+    expect(treeSidebarSource).toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="false"] .control-tree-metric[data-kind="diff"] {'
     );
@@ -461,6 +547,10 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="worktree"] .control-tree-tail[data-role="action"] .control-tree-sync {'
     );
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-node-kind="worktree"] .control-tree-tail[data-role="action"] {'
+    );
+    expect(globalsSource).toContain('max-width: 0;');
     expect(globalsSource).toContain('min-height: 2.25rem;');
     expect(globalsSource).toContain('min-width: 2.25rem;');
     expect(globalsSource).toContain('min-height: 2rem;');
@@ -478,6 +568,8 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       'padding-inline-start: var(--control-tree-tail-padding-start);'
     );
+    expect(globalsSource).toContain('align-items: flex-start;');
+    expect(globalsSource).toContain('align-self: flex-start;');
     expect(globalsSource).toContain('transform: translateY(var(--control-tree-tail-offset-y));');
     expect(treeSidebarSource).not.toContain('self-start pl-1');
     expect(worktreePanelSource).not.toContain('self-start pl-1');
@@ -490,6 +582,7 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('.control-tree-row {');
     expect(globalsSource).toContain('.control-tree-primary-content {');
     expect(globalsSource).toContain('.control-tree-text-stack {');
+    expect(globalsSource).toContain('overflow: hidden;');
     expect(globalsSource).toContain('.control-tree-meta-offset {');
     expect(globalsSource).toContain('.control-tree-meta-inline {');
     expect(treeSidebarSource).toContain('control-tree-primary-content');
@@ -503,12 +596,12 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('.control-tree-collapsible {');
     expect(globalsSource).toContain('.control-tree-flat-list {');
     expect(globalsSource).toContain('.control-tree-guide {');
-    expect(globalsSource).toContain('margin-left: 0.375rem;');
-    expect(globalsSource).toContain('padding-left: 0.875rem;');
+    expect(globalsSource).toContain('margin-left: 0.5rem;');
+    expect(globalsSource).toContain('padding-left: 0.75rem;');
     expect(globalsSource).toContain('.control-tree-guide::before {');
-    expect(globalsSource).toContain('content: none;');
+    expect(globalsSource).toContain("content: '';");
     expect(globalsSource).toContain('.control-tree-guide-item {');
-    expect(globalsSource).toContain('.control-tree-guide-item::before {');
+    expect(globalsSource).not.toContain('.control-tree-guide-item::before {');
     expect(treeSidebarSource).toContain('className="control-tree-guide-item"');
     expect(treeSidebarSource).not.toContain('space-y-2');
     expect(treeSidebarSource).not.toContain('space-y-1 pt-1');
@@ -517,6 +610,13 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).not.toContain(
       'ml-3.5 mr-1 mt-0.5 flex flex-col gap-y-0.5 overflow-hidden pl-1.5'
     );
+  });
+
+  it('keeps secondary rail fragments on one line so sync metrics do not split apart', () => {
+    expect(globalsSource).toContain('.control-tree-meta-row {');
+    expect(globalsSource).toContain('flex-wrap: nowrap;');
+    expect(globalsSource).toContain('overflow: hidden;');
+    expect(globalsSource).toContain('white-space: nowrap;');
   });
 
   it('keeps tree loading and empty states inside the same flat tree language', () => {

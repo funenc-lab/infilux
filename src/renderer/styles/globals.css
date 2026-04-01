@@ -492,6 +492,7 @@
 
 @layer utilities {
   .control-sidebar {
+    container-type: inline-size;
     border-color: var(--control-border-soft);
     background: var(--sidebar);
     color: var(--sidebar-foreground);
@@ -1685,6 +1686,19 @@
       color 160ms ease;
   }
 
+  .control-tree-node[data-node-kind='worktree'] {
+    padding-block: 0.375rem;
+  }
+
+  .control-tree-node[data-node-kind='worktree'] .control-tree-row {
+    min-height: 2.25rem;
+    align-items: center;
+  }
+
+  .control-tree-node[data-node-kind='worktree'] .control-tree-primary-content-worktree {
+    align-items: center;
+  }
+
   .control-tree-primary:focus-visible {
     outline: none;
   }
@@ -2156,6 +2170,74 @@
     color: var(--control-tree-subtitle-color);
   }
 
+  .control-tree-title-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .control-tree-inline-signals {
+    display: inline-flex;
+    min-width: 0;
+    max-width: none;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    margin-left: auto;
+    padding-inline-start: 0.375rem;
+    overflow: visible;
+    white-space: nowrap;
+  }
+
+  .control-tree-inline-signals > * {
+    flex-shrink: 0;
+  }
+
+  .control-tree-inline-item {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+
+  .control-tree-diff-badge {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    gap: 0.1875rem;
+    font-size: 0.71875rem;
+    font-weight: 620;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .control-tree-diff-positive,
+  .control-tree-diff-negative {
+    white-space: nowrap;
+  }
+
+  .control-tree-sync-inline {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    gap: 0.125rem;
+    white-space: nowrap;
+  }
+
+  .control-tree-sync-inline-segment {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.125rem;
+    white-space: nowrap;
+  }
+
+  .control-tree-sync-inline .control-tree-separator {
+    margin-inline: 0.0625rem;
+  }
+
   .control-tree-meta {
     font-size: var(--ui-text-tree-meta-size);
     line-height: var(--ui-text-tree-meta-line-height);
@@ -2168,15 +2250,47 @@
   .control-tree-meta-row {
     display: flex;
     margin-top: var(--control-tree-meta-offset-y);
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 0.375rem;
-    row-gap: 0.125rem;
+    gap: 0.25rem;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  @container (max-width: 18rem) {
+    .control-tree-inline-signals {
+      gap: 0.15625rem;
+    }
+
+    .control-tree-node[data-node-kind='worktree']
+      .control-tree-inline-item[data-signal-priority='low'] {
+      display: none;
+    }
+
+    .control-tree-node[data-node-kind='worktree'] .control-tree-diff-badge,
+    .control-tree-node[data-node-kind='worktree'] .control-tree-sync-inline {
+      gap: 0.125rem;
+    }
+
+    .control-tree-node[data-node-kind='worktree'] .control-tree-flag {
+      min-height: 0.875rem;
+      padding-inline: 0.24rem;
+      font-size: 0.53125rem;
+      letter-spacing: 0.05em;
+    }
+  }
+
+  @container (max-width: 15rem) {
+    .control-tree-node[data-node-kind='worktree']
+      .control-tree-inline-item[data-signal-priority='medium'] {
+      display: none;
+    }
   }
 
   .control-tree-row {
     display: flex;
     width: 100%;
+    min-width: 0;
     align-items: flex-start;
     gap: var(--control-tree-row-gap);
   }
@@ -2184,13 +2298,16 @@
   .control-tree-primary-content {
     display: flex;
     width: 100%;
+    min-width: 0;
     align-items: flex-start;
     gap: var(--control-tree-row-gap);
   }
 
   .control-tree-text-stack {
     min-width: 0;
-    flex: 1 1 auto;
+    width: 0;
+    flex: 1 1 0%;
+    overflow: hidden;
   }
 
   .control-tree-meta-offset {
@@ -2240,13 +2357,14 @@
   .control-tree-metric {
     display: inline-flex;
     align-items: center;
-    gap: 0.22rem;
+    flex: none;
+    gap: 0.18rem;
     white-space: nowrap;
   }
 
   .control-tree-metric-icon {
-    width: 0.7rem;
-    height: 0.7rem;
+    width: 0.6875rem;
+    height: 0.6875rem;
     flex-shrink: 0;
     color: var(--control-tree-metric-label-color);
     stroke-width: 1.9;
@@ -2318,6 +2436,27 @@
     transition:
       opacity 140ms ease,
       transform 140ms ease;
+  }
+
+  .control-tree-node[data-node-kind="worktree"] .control-tree-tail[data-role="action"] {
+    max-width: 0;
+    overflow: hidden;
+    padding-inline-start: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      max-width 140ms ease,
+      padding-inline-start 140ms ease,
+      opacity 140ms ease,
+      transform 140ms ease;
+  }
+
+  .control-tree-node[data-node-kind="worktree"]:hover .control-tree-tail[data-role="action"],
+  .control-tree-node[data-node-kind="worktree"] .control-tree-tail[data-role="action"]:focus-within {
+    max-width: 6.5rem;
+    padding-inline-start: 0.25rem;
+    opacity: var(--control-tree-tail-opacity);
+    pointer-events: auto;
   }
 
   .control-tree-section-list {
@@ -2470,30 +2609,27 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-    margin-right: 0.25rem;
-    margin-left: 0.375rem;
+    gap: 0.375rem;
+    margin-top: 0.375rem;
+    margin-right: 0;
+    margin-left: 0.5rem;
     overflow: hidden;
-    padding-left: 0.875rem;
+    padding-left: 0.75rem;
   }
 
   .control-tree-guide::before {
-    content: none;
+    content: '';
+    position: absolute;
+    left: 0.3125rem;
+    top: 0.125rem;
+    bottom: 0.125rem;
+    width: 1px;
+    background: color-mix(in oklch, var(--border) 34%, transparent);
   }
 
   .control-tree-guide-item {
     position: relative;
-  }
-
-  .control-tree-guide-item::before {
-    content: '';
-    position: absolute;
-    left: -0.5rem;
-    top: 0.125rem;
-    bottom: 0.125rem;
-    width: 1px;
-    background: color-mix(in oklch, var(--border) 42%, transparent);
+    min-width: 0;
   }
 
   .control-tree-state {
@@ -2520,44 +2656,21 @@
 
   .control-tree-meta-inline {
     display: inline-flex;
+    max-width: 100%;
+    min-width: 0;
     align-items: center;
     gap: 0.375rem;
     flex-wrap: wrap;
   }
 
-  .control-tree-node[data-layout="inline"] {
-    --control-tree-glyph-offset-y: 0;
-    --control-tree-tail-offset-y: 0;
-    --control-tree-row-gap: 0.5rem;
-    --control-tree-tail-gap: 0.5rem;
-    --control-tree-tail-padding-start: 0.375rem;
-    border-radius: 0.75rem;
-  }
-
-  .control-tree-node[data-layout="inline"] .control-tree-row,
-  .control-tree-node[data-layout="inline"] .control-tree-primary-content {
-    align-items: center;
-  }
-
-  .control-tree-node[data-layout="inline"] .control-tree-row {
-    min-height: 2.5rem;
-  }
-
-  .control-tree-node[data-layout="inline"] .control-tree-tail {
-    align-self: center;
-  }
-
   .control-task-completion-dot {
     height: 0.375rem;
     width: 0.375rem;
+    flex-shrink: 0;
     border-radius: 999px;
     background: color-mix(in oklch, var(--control-done) 72%, var(--foreground) 28%);
     opacity: 1;
     transition: opacity 140ms ease;
-  }
-
-  .control-tree-node[data-active="worktree"] .control-task-completion-dot {
-    opacity: 0;
   }
 
   .control-tree-node[data-active="false"] .control-tree-metric[data-kind="diff"] {
@@ -2637,23 +2750,23 @@
   .control-tree-flag {
     display: inline-flex;
     align-items: center;
-    min-height: 1rem;
-    padding-inline: 0.34rem;
+    min-height: 0.9375rem;
+    padding-inline: 0.28rem;
     border: 1px solid color-mix(in oklch, var(--border) 48%, transparent);
     border-radius: 999px;
     background: color-mix(in oklch, var(--background) 94%, var(--muted) 6%);
-    font-size: 0.59375rem;
+    font-size: 0.5625rem;
     line-height: 1;
     font-weight: 650;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     white-space: nowrap;
   }
 
   .control-tree-flag-main {
-    border-color: color-mix(in oklch, var(--success) 24%, var(--border) 76%);
-    background: color-mix(in oklch, var(--success) 10%, var(--background) 90%);
-    color: color-mix(in oklch, var(--success) 86%, var(--foreground) 14%);
+    border-color: color-mix(in oklch, var(--success) 28%, var(--border) 72%);
+    background: color-mix(in oklch, var(--success) 22%, var(--background) 78%);
+    color: color-mix(in oklch, var(--success) 94%, var(--foreground) 6%);
   }
 
   .control-tree-flag-merged {
@@ -2671,9 +2784,9 @@
   .control-tree-sync {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
-    min-height: 1.25rem;
-    padding-inline: 0.38rem;
+    gap: 0.25rem;
+    min-height: 1.125rem;
+    padding-inline: 0.28rem;
     border: 1px solid color-mix(in oklch, var(--border) 28%, transparent);
     border-radius: 999px;
     background: color-mix(in oklch, var(--background) 96%, var(--muted) 4%);
@@ -2700,7 +2813,7 @@
   }
 
   .control-tree-node:hover .control-tree-tail[data-role="action"] .control-tree-sync,
-  .control-tree-node:focus-within .control-tree-tail[data-role="action"] .control-tree-sync {
+  .control-tree-node .control-tree-tail[data-role="action"]:focus-within .control-tree-sync {
     border-color: color-mix(in oklch, var(--border) 38%, transparent);
     background: color-mix(in oklch, var(--background) 94%, var(--muted) 6%);
   }
@@ -2714,7 +2827,7 @@
   .control-tree-sync-metric {
     display: inline-flex;
     align-items: center;
-    gap: 0.16rem;
+    gap: 0.125rem;
     white-space: nowrap;
   }
 

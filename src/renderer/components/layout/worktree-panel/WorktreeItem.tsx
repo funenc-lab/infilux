@@ -3,6 +3,7 @@ import { getDisplayPath } from '@shared/utils/path';
 import { Copy, FolderOpen, GitBranch, GitMerge, Sparkles, Terminal, Trash2, X } from 'lucide-react';
 import {
   Fragment,
+  memo,
   type ReactElement,
   useCallback,
   useEffect,
@@ -21,18 +22,21 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
-import { WorktreeAgentChildren } from '../WorktreeAgentChildren';
+
+const DEFAULT_ACTIVITY = Object.freeze({
+  agentCount: 0,
+  terminalCount: 0,
+});
+
+const DEFAULT_DIFF_STATS = Object.freeze({
+  insertions: 0,
+  deletions: 0,
+});
 
 interface WorktreeItemProps {
   worktree: GitWorktree;
-  activeSession?: import('@/components/chat/SessionBar').Session;
-  liveSubagents?: import('@shared/types').LiveAgentSubagent[];
-  selectedAgentSessionId?: string | null;
-  selectedSubagentThreadId?: string | null;
   isActive: boolean;
   onClick: () => void;
-  onOpenAgentThread?: (sessionId: string) => void;
-  onOpenSubagentTranscript?: (subagent: import('@shared/types').LiveAgentSubagent) => void;
   onDelete: () => void;
   onMerge?: () => void;
   // Drag reorder props
@@ -47,16 +51,29 @@ interface WorktreeItemProps {
   branches?: GitBranchType[];
 }
 
-export function WorktreeItem({
+function areWorktreeItemPropsEqual(previousProps: WorktreeItemProps, nextProps: WorktreeItemProps) {
+  const previousWorktree = previousProps.worktree;
+  const nextWorktree = nextProps.worktree;
+
+  return (
+    previousWorktree.path === nextWorktree.path &&
+    previousWorktree.head === nextWorktree.head &&
+    previousWorktree.branch === nextWorktree.branch &&
+    previousWorktree.isMainWorktree === nextWorktree.isMainWorktree &&
+    previousWorktree.isLocked === nextWorktree.isLocked &&
+    previousWorktree.prunable === nextWorktree.prunable &&
+    previousProps.isActive === nextProps.isActive &&
+    previousProps.draggable === nextProps.draggable &&
+    previousProps.showDropIndicator === nextProps.showDropIndicator &&
+    previousProps.dropDirection === nextProps.dropDirection &&
+    previousProps.branches === nextProps.branches
+  );
+}
+
+export const WorktreeItem = memo(function WorktreeItem({
   worktree,
-  activeSession,
-  liveSubagents = [],
-  selectedAgentSessionId = null,
-  selectedSubagentThreadId = null,
   isActive,
   onClick,
-  onOpenAgentThread,
-  onOpenSubagentTranscript,
   onDelete,
   onMerge,
   draggable,
@@ -92,18 +109,11 @@ export function WorktreeItem({
     return branch?.merged === true;
   }, [worktree.branch, isMain, branches]);
 
-  // Subscribe to activity store
-  const activities = useWorktreeActivityStore((s) => s.activities);
-  const diffStatsMap = useWorktreeActivityStore((s) => s.diffStats);
-  const activity = activities[worktree.path] || {
-    agentCount: 0,
-    terminalCount: 0,
-  };
-  const diffStats = diffStatsMap[worktree.path] || {
-    insertions: 0,
-    deletions: 0,
-  };
-  const activityStates = useWorktreeActivityStore((s) => s.activityStates);
+  const activity = useWorktreeActivityStore((s) => s.activities[worktree.path] ?? DEFAULT_ACTIVITY);
+  const diffStats = useWorktreeActivityStore(
+    (s) => s.diffStats[worktree.path] ?? DEFAULT_DIFF_STATS
+  );
+  const activityState = useWorktreeActivityStore((s) => s.activityStates[worktree.path] ?? 'idle');
   const closeAgentSessions = useWorktreeActivityStore((s) => s.closeAgentSessions);
   const closeTerminalSessions = useWorktreeActivityStore((s) => s.closeTerminalSessions);
   const clearTaskCompletedUnreadByWorktree = useAgentSessionsStore(
@@ -111,8 +121,15 @@ export function WorktreeItem({
   );
   const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
   const hasDiffStats = diffStats.insertions > 0 || diffStats.deletions > 0;
-  const activityState = activityStates[worktree.path] || 'idle';
   const hasCompletedTaskNotice = useWorktreeTaskCompletionNotice(worktree.path);
+  const totalActivityCount = activity.agentCount + activity.terminalCount;
+  const ActivityIcon = activity.agentCount > 0 ? Sparkles : Terminal;
+  const activitySummary = [
+    activity.agentCount > 0 ? `${activity.agentCount} ${t('agents')}` : null,
+    activity.terminalCount > 0 ? `${activity.terminalCount} ${t('terminals')}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   const handleCopyPath = useCallback(async () => {
     try {
@@ -194,22 +211,6 @@ export function WorktreeItem({
           ),
         }
       : null,
-    hasDiffStats
-      ? {
-          key: 'diff',
-          content: (
-            <span className="control-tree-metric" data-kind="diff">
-              {diffStats.insertions > 0 && (
-                <span className="control-tree-diff-positive">+{diffStats.insertions}</span>
-              )}
-              {diffStats.insertions > 0 && diffStats.deletions > 0 ? ' ' : ''}
-              {diffStats.deletions > 0 ? (
-                <span className="control-tree-diff-negative">-{diffStats.deletions}</span>
-              ) : null}
-            </span>
-          ),
-        }
-      : null,
     !tracking && currentBranch
       ? {
           key: 'publish',
@@ -220,56 +221,91 @@ export function WorktreeItem({
           ),
         }
       : null,
+  ].filter((item): item is { key: string; content: ReactElement } => item !== null);
+  const inlineItems = [
+    isMain
+      ? {
+          key: 'main',
+          priority: 'medium' as const,
+          content: <span className="control-tree-flag control-tree-flag-main">{t('Main')}</span>,
+        }
+      : !isPrunable && isMerged
+        ? {
+            key: 'merged',
+            priority: 'medium' as const,
+            content: (
+              <span className="control-tree-flag control-tree-flag-merged">{t('Merged')}</span>
+            ),
+          }
+        : null,
+    hasDiffStats
+      ? {
+          key: 'diff',
+          priority: 'critical' as const,
+          content: (
+            <span className="control-tree-diff-badge" data-kind="diff">
+              {diffStats.insertions > 0 ? (
+                <span className="control-tree-diff-positive">+{diffStats.insertions}</span>
+              ) : null}
+              {diffStats.deletions > 0 ? (
+                <span className="control-tree-diff-negative">-{diffStats.deletions}</span>
+              ) : null}
+            </span>
+          ),
+        }
+      : null,
     ahead > 0 || behind > 0
       ? {
           key: 'sync',
+          priority: 'critical' as const,
           content: (
-            <span className="control-tree-metric" data-kind="sync">
+            <span className="control-tree-sync-inline" data-kind="sync">
               {ahead > 0 ? (
-                <>
+                <span className="control-tree-sync-inline-segment">
                   <span className="control-tree-metric-prefix">^</span>
                   <span className="control-tree-metric-value">{ahead}</span>
-                </>
+                </span>
               ) : null}
               {ahead > 0 && behind > 0 ? <span className="control-tree-separator">/</span> : null}
               {behind > 0 ? (
-                <>
+                <span className="control-tree-sync-inline-segment">
                   <span className="control-tree-metric-prefix">v</span>
                   <span className="control-tree-metric-value">{behind}</span>
-                </>
+                </span>
               ) : null}
             </span>
           ),
         }
       : null,
-    activity.agentCount > 0
+    totalActivityCount > 0
       ? {
           key: 'agents',
+          priority: 'low' as const,
           content: (
-            <span className="control-tree-metric" title={`${activity.agentCount} ${t('agents')}`}>
-              <Sparkles className="control-tree-metric-icon" aria-hidden="true" />
-              <span className="control-tree-metric-value">{activity.agentCount}</span>
-              <span className="sr-only">{t('agents')}</span>
+            <span className="control-tree-metric" title={activitySummary}>
+              <ActivityIcon className="control-tree-metric-icon" aria-hidden="true" />
+              <span className="control-tree-metric-value">{totalActivityCount}</span>
+              <span className="sr-only">{activitySummary}</span>
             </span>
           ),
         }
       : null,
-    activity.terminalCount > 0
+    hasCompletedTaskNotice
       ? {
-          key: 'terminals',
-          content: (
-            <span
-              className="control-tree-metric"
-              title={`${activity.terminalCount} ${t('terminals')}`}
-            >
-              <Terminal className="control-tree-metric-icon" aria-hidden="true" />
-              <span className="control-tree-metric-value">{activity.terminalCount}</span>
-              <span className="sr-only">{t('terminals')}</span>
-            </span>
-          ),
+          key: 'completed',
+          priority: 'low' as const,
+          content: <span className="control-task-completion-dot" />,
         }
       : null,
-  ].filter((item): item is { key: string; content: ReactElement } => item !== null);
+  ].filter(
+    (
+      item
+    ): item is {
+      key: string;
+      priority: 'critical' | 'medium' | 'low';
+      content: ReactElement;
+    } => item !== null
+  );
   const hasSyncAction =
     Boolean(!tracking && currentBranch && handlePublish) ||
     Boolean(tracking && (ahead > 0 || behind > 0) && handleSync);
@@ -309,18 +345,18 @@ export function WorktreeItem({
           isPrunable && 'opacity-50'
         )}
         data-active={isActive ? 'worktree' : 'false'}
-        data-layout="inline"
+        data-node-kind="worktree"
       >
         <div className="control-tree-row">
           <button
             ref={menuTriggerRef}
             type="button"
             onClick={handleSelectWorktree}
-            className="control-tree-primary min-w-0 flex flex-1 items-center text-left outline-none"
+            className="control-tree-primary min-w-0 flex-1 text-left outline-none"
             data-surface="row"
             aria-current={isActive ? 'page' : undefined}
           >
-            <div className="control-tree-primary-content">
+            <div className="control-tree-primary-content control-tree-primary-content-worktree">
               <span className="control-tree-glyph h-4 w-4 shrink-0">
                 <GitBranch
                   className={cn(
@@ -333,25 +369,37 @@ export function WorktreeItem({
                 />
               </span>
               <div className="control-tree-text-stack">
-                <div className="flex w-full items-center gap-1.5">
+                <div className="control-tree-title-row">
                   <span
                     className={cn(
-                      'control-tree-title min-w-0 flex-1 truncate',
+                      'control-tree-title min-w-0 truncate',
                       isPrunable && 'line-through'
                     )}
                   >
                     {branchDisplay}
                   </span>
                 </div>
+                {metaItems.length > 0 ? (
+                  <div className="control-tree-meta control-tree-meta-row min-w-0">
+                    {metaItems.map((item, index) => (
+                      <Fragment key={item.key}>
+                        {index > 0 ? <span className="control-tree-separator">·</span> : null}
+                        {item.content}
+                      </Fragment>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-              {hasCompletedTaskNotice ? <span className="control-task-completion-dot" /> : null}
-              {metaItems.length > 0 ? (
-                <div className="control-tree-meta control-tree-meta-inline">
-                  {metaItems.map((item, index) => (
-                    <Fragment key={item.key}>
-                      {index > 0 ? <span className="control-tree-separator">·</span> : null}
+              {inlineItems.length > 0 ? (
+                <div className="control-tree-inline-signals">
+                  {inlineItems.map((item) => (
+                    <span
+                      key={item.key}
+                      className="control-tree-inline-item"
+                      data-signal-priority={item.priority}
+                    >
                       {item.content}
-                    </Fragment>
+                    </span>
                   ))}
                 </div>
               ) : null}
@@ -373,17 +421,6 @@ export function WorktreeItem({
             </div>
           ) : null}
         </div>
-        {activeSession ? (
-          <WorktreeAgentChildren
-            className="pl-5 pt-1"
-            session={activeSession}
-            subagents={liveSubagents}
-            selectedAgentSessionId={selectedAgentSessionId}
-            selectedSubagentThreadId={selectedSubagentThreadId}
-            onSelectSession={onOpenAgentThread}
-            onSelectSubagent={onOpenSubagentTranscript}
-          />
-        ) : null}
       </div>
       {showDropIndicator && dropDirection === 'bottom' && (
         <div className="absolute -bottom-0.5 left-0 right-0 h-0.5 rounded-full bg-theme/75" />
@@ -393,7 +430,7 @@ export function WorktreeItem({
 
   return (
     <>
-      <div className="relative rounded-lg">{worktreeItemContent}</div>
+      <div className="relative w-full min-w-0 rounded-lg">{worktreeItemContent}</div>
 
       {/* Context Menu */}
       {menuOpen && (
@@ -538,4 +575,4 @@ export function WorktreeItem({
       )}
     </>
   );
-}
+}, areWorktreeItemPropsEqual);
