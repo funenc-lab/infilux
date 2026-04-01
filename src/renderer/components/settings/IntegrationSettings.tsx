@@ -69,6 +69,8 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
       }, 100);
       return () => clearTimeout(timer);
     }
+
+    return undefined;
   }, [scrollToProvider]);
 
   const handleEnabledChange = (checked: boolean) => {

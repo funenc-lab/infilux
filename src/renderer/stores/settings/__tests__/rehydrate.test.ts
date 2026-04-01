@@ -157,7 +157,6 @@ describe('settings rehydrate', () => {
     expect(startWebInspector).toHaveBeenCalledTimes(1);
     expect(setAutoFetchEnabled).toHaveBeenCalledWith(true);
     expect(cleanupLegacyFields).toHaveBeenCalledTimes(1);
-    expect(matchMediaAddEventListener).toHaveBeenCalledTimes(1);
     expect(classListToggle).toHaveBeenCalledWith('dark', true);
   });
 
@@ -261,5 +260,74 @@ describe('settings rehydrate', () => {
     await Promise.resolve();
 
     expect(window.electronAPI.shell.detect).not.toHaveBeenCalled();
+  });
+
+  it('registers the system theme listener only once across repeated rehydrates', async () => {
+    const localStorageMock = createLocalStorageMock();
+    const matchMediaAddEventListener = vi.fn();
+
+    vi.stubGlobal('document', {
+      documentElement: {
+        lang: '',
+        classList: { toggle: vi.fn() },
+        style: { setProperty: vi.fn() },
+      },
+    });
+    vi.stubGlobal('localStorage', localStorageMock);
+    vi.stubGlobal('window', {
+      matchMedia: vi.fn(() => ({
+        matches: false,
+        addEventListener: matchMediaAddEventListener,
+      })),
+      electronAPI: {
+        settings: {
+          read: vi.fn().mockResolvedValue({
+            'enso-settings': {
+              state: {
+                language: 'en',
+                theme: 'system',
+                colorPreset: 'graphite-ink',
+                terminalTheme: 'Dracula',
+                terminalFontFamily: 'Fira Code',
+                terminalFontSize: 14,
+              },
+            },
+          }),
+          write: vi.fn(),
+        },
+        app: {
+          setLanguage: vi.fn(),
+          setProxy: vi.fn(),
+        },
+        webInspector: {
+          start: vi.fn().mockResolvedValue({ success: true }),
+          stop: vi.fn().mockResolvedValue(undefined),
+        },
+        git: {
+          setAutoFetchEnabled: vi.fn(),
+        },
+        shell: {
+          detect: vi.fn().mockResolvedValue([]),
+        },
+        env: {
+          platform: 'darwin',
+        },
+        updater: {
+          setAutoUpdateEnabled: vi.fn(),
+        },
+        log: {
+          updateConfig: vi.fn(),
+        },
+      },
+    });
+
+    const { useSettingsStore } = await import('../index');
+
+    await useSettingsStore.persist.rehydrate();
+    await Promise.resolve();
+    await useSettingsStore.persist.rehydrate();
+    await Promise.resolve();
+
+    expect(matchMediaAddEventListener).toHaveBeenCalledTimes(1);
   });
 });

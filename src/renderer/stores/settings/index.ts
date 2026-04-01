@@ -1,4 +1,3 @@
-import type { Locale } from '@shared/i18n';
 import { normalizeLocale } from '@shared/i18n';
 import type { CustomAgent, McpServer, PromptPreset } from '@shared/types';
 import { create } from 'zustand';
@@ -7,13 +6,9 @@ import {
   APP_THEME_PROTECTED_TOKEN_KEYS,
   createBlankCustomThemeDocument,
   createCustomThemeFromPresetDocument,
-  findCustomThemeBySelection,
   normalizeColorPreset,
-  resolveThemeVariables,
   sanitizeCustomAccentColor,
 } from '@/lib/appTheme';
-import { getTerminalThemeAccent, isTerminalThemeDark } from '@/lib/ghosttyTheme';
-import { updateRendererLogging } from '@/utils/logging';
 import {
   defaultAgentSettings,
   defaultBranchNameGeneratorSettings,
@@ -38,7 +33,13 @@ import {
   getDefaultShellConfig,
   getDefaultUIFontFamily,
 } from './defaults';
-import { cleanupLegacyFields, migrateSettings } from './migration';
+import { migrateSettings } from './migration';
+import {
+  beginSettingsRuntimeHydration,
+  deriveNextFontFamilyForLanguage,
+  finishSettingsRuntimeHydration,
+  initializeSettingsRuntime,
+} from './runtime';
 import { electronStorage } from './storage';
 import {
   DEFAULT_TERMINAL_SCROLLBACK,
@@ -59,105 +60,6 @@ const protectedThemeTokenKeys = new Set<string>(APP_THEME_PROTECTED_TOKEN_KEYS);
 export * from './defaults';
 // Re-export types and defaults for external use
 export * from './types';
-
-// Apply app typography settings to global UI CSS variables
-function applyAppTypography(fontFamily: string, fontSize: number): void {
-  const root = document.documentElement;
-  root.style.setProperty('--font-family-sans', fontFamily);
-  root.style.setProperty('--app-font-size-base', `${fontSize}px`);
-}
-
-// Apply terminal font settings to terminal-specific CSS variables
-function applyTerminalFont(fontFamily: string): void {
-  const root = document.documentElement;
-  root.style.setProperty('--font-family-mono', fontFamily);
-}
-
-function resolveThemeMode(theme: Theme, terminalTheme: string): 'light' | 'dark' {
-  switch (theme) {
-    case 'light':
-      return 'light';
-    case 'dark':
-      return 'dark';
-    case 'system':
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    case 'sync-terminal':
-      return isTerminalThemeDark(terminalTheme) ? 'dark' : 'light';
-  }
-}
-
-function applyColorPreset(
-  mode: 'light' | 'dark',
-  colorPreset: ColorPreset,
-  customAccentColor: string,
-  customTheme: CustomThemeDocument | null
-): void {
-  const root = document.documentElement;
-  const variables = resolveThemeVariables({
-    mode,
-    preset: colorPreset,
-    customAccentColor,
-    customTheme,
-  });
-
-  for (const [name, value] of Object.entries(variables)) {
-    root.style.setProperty(name, value);
-  }
-}
-
-// Apply app theme (dark/light mode)
-function applyAppTheme(
-  theme: Theme,
-  terminalTheme: string,
-  colorPreset: ColorPreset,
-  customAccentColor: string,
-  customTheme: CustomThemeDocument | null
-): void {
-  const root = document.documentElement;
-  const resolvedMode = resolveThemeMode(theme, terminalTheme);
-  const effectiveAccentColor =
-    theme === 'sync-terminal' && !customTheme
-      ? getTerminalThemeAccent(terminalTheme)
-      : customAccentColor;
-  root.classList.toggle('dark', resolvedMode === 'dark');
-  if ('dataset' in root && root.dataset) {
-    root.dataset.themeMode = resolvedMode;
-    root.dataset.themeSource = theme;
-    root.dataset.themePreset = colorPreset;
-  }
-  applyColorPreset(resolvedMode, colorPreset, effectiveAccentColor, customTheme);
-}
-
-// Apply initial settings on app load
-function applyInitialSettings(state: {
-  theme: Theme;
-  colorPreset: ColorPreset;
-  customAccentColor: string;
-  activeThemeSelection: SettingsState['activeThemeSelection'];
-  customThemes: CustomThemeDocument[];
-  fontFamily: string;
-  fontSize: number;
-  terminalTheme: string;
-  terminalFontFamily: string;
-  language: Locale;
-}): void {
-  const activeCustomTheme = findCustomThemeBySelection(
-    state.customThemes,
-    state.activeThemeSelection
-  );
-  applyAppTheme(
-    state.theme,
-    state.terminalTheme,
-    state.colorPreset,
-    sanitizeCustomAccentColor(state.customAccentColor),
-    activeCustomTheme
-  );
-  applyAppTypography(state.fontFamily, state.fontSize);
-  applyTerminalFont(state.terminalFontFamily);
-  const resolvedLanguage = normalizeLocale(state.language);
-  document.documentElement.lang = resolvedLanguage === 'zh' ? 'zh-CN' : 'en';
-  window.electronAPI.app.setLanguage(resolvedLanguage);
-}
 
 // Get initial state values
 function getInitialState() {
@@ -287,34 +189,16 @@ function getInitialState() {
   };
 }
 
-function getActiveCustomTheme(
-  state: Pick<SettingsState, 'activeThemeSelection' | 'customThemes'>
-): CustomThemeDocument | null {
-  return findCustomThemeBySelection(state.customThemes, state.activeThemeSelection);
-}
-
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       ...getInitialState(),
 
       // UI Setters
-      setTheme: (theme) => {
-        const { terminalTheme, colorPreset, customAccentColor } = get();
-        applyAppTheme(
-          theme,
-          terminalTheme,
-          colorPreset,
-          customAccentColor,
-          getActiveCustomTheme(get())
-        );
-        set({ theme });
-      },
+      setTheme: (theme) => set({ theme }),
 
       setColorPreset: (colorPreset) => {
         const normalizedPreset = normalizeColorPreset(colorPreset);
-        const { theme, terminalTheme, customAccentColor } = get();
-        applyAppTheme(theme, terminalTheme, normalizedPreset, customAccentColor, null);
         set({
           colorPreset: normalizedPreset,
           activeThemeSelection: {
@@ -325,17 +209,11 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       setCustomAccentColor: (customAccentColor) => {
-        const sanitizedAccentColor = sanitizeCustomAccentColor(customAccentColor);
-        const { theme, terminalTheme, colorPreset } = get();
-        const activeCustomTheme = getActiveCustomTheme(get());
-        applyAppTheme(theme, terminalTheme, colorPreset, sanitizedAccentColor, activeCustomTheme);
-        set({ customAccentColor: sanitizedAccentColor });
+        set({ customAccentColor: sanitizeCustomAccentColor(customAccentColor) });
       },
 
       setActivePresetTheme: (preset) => {
         const normalizedPreset = normalizeColorPreset(preset);
-        const { theme, terminalTheme, customAccentColor } = get();
-        applyAppTheme(theme, terminalTheme, normalizedPreset, customAccentColor, null);
         set({
           colorPreset: normalizedPreset,
           activeThemeSelection: {
@@ -347,18 +225,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       setActiveCustomTheme: (themeId) => {
         const state = get();
-        const customTheme = state.customThemes.find((entry) => entry.id === themeId) ?? null;
-        if (!customTheme) {
+        if (!state.customThemes.some((entry) => entry.id === themeId)) {
           return;
         }
-
-        applyAppTheme(
-          state.theme,
-          state.terminalTheme,
-          state.colorPreset,
-          state.customAccentColor,
-          customTheme
-        );
         set({
           activeThemeSelection: {
             kind: 'custom',
@@ -371,14 +240,6 @@ export const useSettingsStore = create<SettingsState>()(
         const nextTheme = createCustomThemeFromPresetDocument(normalizeColorPreset(preset));
         const state = get();
         const customThemes = [...state.customThemes, nextTheme];
-
-        applyAppTheme(
-          state.theme,
-          state.terminalTheme,
-          state.colorPreset,
-          state.customAccentColor,
-          nextTheme
-        );
         set({
           customThemes,
           activeThemeSelection: {
@@ -394,14 +255,6 @@ export const useSettingsStore = create<SettingsState>()(
         const nextTheme = createBlankCustomThemeDocument();
         const state = get();
         const customThemes = [...state.customThemes, nextTheme];
-
-        applyAppTheme(
-          state.theme,
-          state.terminalTheme,
-          state.colorPreset,
-          state.customAccentColor,
-          nextTheme
-        );
         set({
           customThemes,
           activeThemeSelection: {
@@ -443,15 +296,6 @@ export const useSettingsStore = create<SettingsState>()(
                 presetId: state.colorPreset,
               }
             : state.activeThemeSelection;
-        const nextCustomTheme = findCustomThemeBySelection(customThemes, nextSelection);
-
-        applyAppTheme(
-          state.theme,
-          state.terminalTheme,
-          state.colorPreset,
-          state.customAccentColor,
-          nextCustomTheme
-        );
         set({
           customThemes,
           activeThemeSelection: nextSelection,
@@ -484,22 +328,6 @@ export const useSettingsStore = create<SettingsState>()(
               }
             : theme
         );
-        const activeCustomTheme =
-          state.activeThemeSelection.kind === 'custom' &&
-          state.activeThemeSelection.customThemeId === themeId
-            ? (customThemes.find((theme) => theme.id === themeId) ?? null)
-            : getActiveCustomTheme({
-                activeThemeSelection: state.activeThemeSelection,
-                customThemes,
-              });
-
-        applyAppTheme(
-          state.theme,
-          state.terminalTheme,
-          state.colorPreset,
-          state.customAccentColor,
-          activeCustomTheme
-        );
         set({ customThemes });
       },
 
@@ -513,57 +341,31 @@ export const useSettingsStore = create<SettingsState>()(
       setLanguage: (language) => {
         const normalizedLanguage = normalizeLocale(language);
         const currentState = get();
-        const currentDefaultFontFamily = getDefaultUIFontFamily(currentState.language);
-        const nextDefaultFontFamily = getDefaultUIFontFamily(normalizedLanguage);
-        const nextFontFamily =
-          currentState.fontFamily === currentDefaultFontFamily
-            ? nextDefaultFontFamily
-            : currentState.fontFamily;
-
-        document.documentElement.lang = normalizedLanguage === 'zh' ? 'zh-CN' : 'en';
-        window.electronAPI.app.setLanguage(normalizedLanguage);
-        applyAppTypography(nextFontFamily, currentState.fontSize);
+        const nextFontFamily = deriveNextFontFamilyForLanguage(
+          currentState.language,
+          currentState.fontFamily,
+          normalizedLanguage
+        );
         set({
           language: normalizedLanguage,
           fontFamily: nextFontFamily,
         });
       },
 
-      setFontSize: (fontSize) => {
-        applyAppTypography(get().fontFamily, fontSize);
-        set({ fontSize });
-      },
-      setFontFamily: (fontFamily) => {
-        applyAppTypography(fontFamily, get().fontSize);
-        set({ fontFamily });
-      },
+      setFontSize: (fontSize) => set({ fontSize }),
+      setFontFamily: (fontFamily) => set({ fontFamily }),
 
       // Terminal Setters
       setTerminalFontSize: (terminalFontSize) => {
         set({ terminalFontSize });
       },
 
-      setTerminalFontFamily: (terminalFontFamily) => {
-        applyTerminalFont(terminalFontFamily);
-        set({ terminalFontFamily });
-      },
+      setTerminalFontFamily: (terminalFontFamily) => set({ terminalFontFamily }),
 
       setTerminalFontWeight: (terminalFontWeight) => set({ terminalFontWeight }),
       setTerminalFontWeightBold: (terminalFontWeightBold) => set({ terminalFontWeightBold }),
 
-      setTerminalTheme: (terminalTheme) => {
-        const { theme, colorPreset, customAccentColor } = get();
-        if (theme === 'sync-terminal') {
-          applyAppTheme(
-            theme,
-            terminalTheme,
-            colorPreset,
-            customAccentColor,
-            getActiveCustomTheme(get())
-          );
-        }
-        set({ terminalTheme });
-      },
+      setTerminalTheme: (terminalTheme) => set({ terminalTheme }),
 
       setTerminalRenderer: (terminalRenderer) => set({ terminalRenderer }),
       setTerminalScrollback: (terminalScrollback) =>
@@ -771,10 +573,7 @@ export const useSettingsStore = create<SettingsState>()(
         })),
 
       // App Setters
-      setAutoUpdateEnabled: (autoUpdateEnabled) => {
-        set({ autoUpdateEnabled });
-        window.electronAPI.updater.setAutoUpdateEnabled(autoUpdateEnabled);
-      },
+      setAutoUpdateEnabled: (autoUpdateEnabled) => set({ autoUpdateEnabled }),
 
       setHapiSettings: (settings) =>
         set((state) => ({
@@ -810,21 +609,15 @@ export const useSettingsStore = create<SettingsState>()(
 
       setDefaultWorktreePath: (defaultWorktreePath) => set({ defaultWorktreePath }),
 
-      setProxySettings: (settings) => {
+      setProxySettings: (settings) =>
         set((state) => ({
           proxySettings: { ...state.proxySettings, ...settings },
-        }));
-        const newSettings = { ...get().proxySettings, ...settings };
-        window.electronAPI.app.setProxy(newSettings);
-      },
+        })),
 
       setAutoCreateSessionOnActivate: (autoCreateSessionOnActivate) =>
         set({ autoCreateSessionOnActivate }),
 
-      setGitAutoFetchEnabled: (gitAutoFetchEnabled) => {
-        set({ gitAutoFetchEnabled });
-        window.electronAPI.git.setAutoFetchEnabled(gitAutoFetchEnabled);
-      },
+      setGitAutoFetchEnabled: (gitAutoFetchEnabled) => set({ gitAutoFetchEnabled }),
 
       // Git Clone Setters
       setGitClone: (settings) =>
@@ -1019,18 +812,7 @@ export const useSettingsStore = create<SettingsState>()(
         })),
 
       // Web Inspector Setter
-      setWebInspectorEnabled: async (enabled) => {
-        set({ webInspectorEnabled: enabled });
-        if (enabled) {
-          const result = await window.electronAPI.webInspector.start();
-          if (!result.success) {
-            console.error('[WebInspector] Failed to start:', result.error);
-            set({ webInspectorEnabled: false });
-          }
-        } else {
-          await window.electronAPI.webInspector.stop();
-        }
-      },
+      setWebInspectorEnabled: (enabled) => set({ webInspectorEnabled: enabled }),
 
       // Other Setters
       setHideGroups: (hideGroups) => set({ hideGroups }),
@@ -1046,37 +828,13 @@ export const useSettingsStore = create<SettingsState>()(
       setFileTreeAutoReveal: (fileTreeAutoReveal) => set({ fileTreeAutoReveal }),
 
       // Logging Setters
-      setLoggingEnabled: (loggingEnabled) => {
-        const { logLevel, logRetentionDays } = get();
-        set({ loggingEnabled });
-        window.electronAPI.log.updateConfig({
-          enabled: loggingEnabled,
-          level: logLevel,
-          retentionDays: logRetentionDays,
-        });
-        updateRendererLogging(loggingEnabled, logLevel);
-      },
+      setLoggingEnabled: (loggingEnabled) => set({ loggingEnabled }),
 
-      setLogLevel: (logLevel) => {
-        const { loggingEnabled, logRetentionDays } = get();
-        set({ logLevel });
-        window.electronAPI.log.updateConfig({
-          enabled: loggingEnabled,
-          level: logLevel,
-          retentionDays: logRetentionDays,
-        });
-        updateRendererLogging(loggingEnabled, logLevel);
-      },
+      setLogLevel: (logLevel) => set({ logLevel }),
 
       setLogRetentionDays: (logRetentionDays) => {
         const clampedDays = Math.min(30, Math.max(1, Math.floor(logRetentionDays)));
         set({ logRetentionDays: clampedDays });
-        const { loggingEnabled, logLevel } = get();
-        window.electronAPI.log.updateConfig({
-          enabled: loggingEnabled,
-          level: logLevel,
-          retentionDays: clampedDays,
-        });
       },
     }),
     {
@@ -1091,70 +849,14 @@ export const useSettingsStore = create<SettingsState>()(
       merge: (persistedState, currentState) => {
         return migrateSettings(persistedState as Partial<SettingsState>, currentState);
       },
-      onRehydrateStorage: () => (state) => {
-        const effectiveState = state ?? useSettingsStore.getState();
-        applyInitialSettings(effectiveState);
-
-        // Sync renderer logging configuration after settings are loaded
-        updateRendererLogging(effectiveState.loggingEnabled, effectiveState.logLevel);
-
-        // Listen for system theme changes
-        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        mediaQuery.addEventListener('change', () => {
-          const currentState = useSettingsStore.getState();
-          if (currentState.theme === 'system') {
-            applyAppTheme(
-              'system',
-              currentState.terminalTheme,
-              currentState.colorPreset,
-              currentState.customAccentColor,
-              getActiveCustomTheme(currentState)
-            );
-          }
-        });
-
-        if (state) {
-          // Apply proxy settings
-          if (state.proxySettings) {
-            window.electronAPI.app.setProxy(state.proxySettings);
-          }
-
-          // Auto-start Web Inspector server if it was enabled
-          if (state.webInspectorEnabled) {
-            window.electronAPI.webInspector.start().catch((error) => {
-              console.error('[WebInspector] Failed to auto-start:', error);
-            });
-          }
-
-          // Sync git auto-fetch setting to main process
-          if (state.gitAutoFetchEnabled) {
-            window.electronAPI.git.setAutoFetchEnabled(true);
-          }
-
-          // Clean up legacy fields (async)
-          cleanupLegacyFields().catch((err) => {
-            console.warn('Failed to cleanup legacy fields:', err);
-          });
-
-          // Auto-detect best shell on Windows for new users
-          const shellAutoDetectKey = 'enso-shell-auto-detected';
-          const executionPlatform = window.electronAPI?.env?.platform;
-          if (executionPlatform === 'win32' && !localStorage.getItem(shellAutoDetectKey)) {
-            localStorage.setItem(shellAutoDetectKey, 'true');
-            window.electronAPI.shell
-              .detect()
-              .then((shells) => {
-                const ps7 = shells.find((s) => s.id === 'powershell7' && s.available);
-                if (ps7) {
-                  useSettingsStore.getState().setShellConfig({ shellType: 'powershell7' });
-                }
-              })
-              .catch((err) => {
-                console.warn('Shell auto-detection failed:', err);
-              });
-          }
-        }
+      onRehydrateStorage: () => {
+        beginSettingsRuntimeHydration();
+        return (state) => {
+          finishSettingsRuntimeHydration(useSettingsStore, state);
+        };
       },
     }
   )
 );
+
+initializeSettingsRuntime(useSettingsStore);
