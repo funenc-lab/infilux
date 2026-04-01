@@ -8,7 +8,6 @@ import { getDisplayPath, getDisplayPathBasename } from '@shared/utils/path';
 import { LayoutGroup } from 'framer-motion';
 import { FolderOpen, GitBranch, PanelLeftClose, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { normalizePath } from '@/App/storage';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -20,19 +19,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
-import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
 import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
-import { buildActiveSessionMapByWorktree } from '@/lib/worktreeAgentSummary';
-import { sanitizeGitWorktrees } from '@/lib/worktreeData';
-import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { WorktreeItem } from './worktree-panel/WorktreeItem';
+import { resolveWorktreePanelSnapshot } from './worktreePanelSnapshot';
 
-interface WorktreePanelProps {
+export interface WorktreePanelProps {
   worktrees: GitWorktree[];
   activeWorktree: GitWorktree | null;
   branches: GitBranchType[];
@@ -57,6 +53,8 @@ interface WorktreePanelProps {
     worktree: GitWorktree,
     subagent: import('@shared/types').LiveAgentSubagent
   ) => void;
+  isChatActive?: boolean;
+  selectedSubagentByWorktree?: Record<string, import('@shared/types').LiveAgentSubagent | null>;
   width?: number;
   collapsed?: boolean;
   onCollapse?: () => void;
@@ -81,8 +79,10 @@ export function WorktreePanel({
   onReorderWorktrees,
   onRefresh,
   onInitGit,
-  onOpenAgentThread,
-  onOpenSubagentTranscript,
+  onOpenAgentThread: _onOpenAgentThread,
+  onOpenSubagentTranscript: _onOpenSubagentTranscript,
+  isChatActive: _isChatActive = false,
+  selectedSubagentByWorktree: _selectedSubagentByWorktree = {},
   width: _width = 280,
   collapsed: _collapsed = false,
   onCollapse,
@@ -172,7 +172,12 @@ export function WorktreePanel({
     },
     [onReorderWorktrees]
   );
-  const safeWorktrees = useMemo(() => sanitizeGitWorktrees(worktrees), [worktrees]);
+  const safeWorktrees = useMemo(
+    () => resolveWorktreePanelSnapshot({ worktrees, cachedWorktrees: [], activeWorktree }),
+    [worktrees, activeWorktree]
+  );
+  const diffStatPaths = useMemo(() => safeWorktrees.map((wt) => wt.path), [safeWorktrees]);
+  const diffStatPathKey = useMemo(() => diffStatPaths.join('\n'), [diffStatPaths]);
 
   // Keep track of original indices for drag reorder when filtering
   const filteredWorktreesWithIndex = safeWorktrees
@@ -201,15 +206,6 @@ export function WorktreePanel({
   const workdir = mainWorktree?.path || '';
 
   const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
-  const allSessions = useAgentSessionsStore((state) => state.sessions);
-  const activeIds = useAgentSessionsStore((state) => state.activeIds);
-  const activeSessionMap = useMemo(
-    () => buildActiveSessionMapByWorktree(allSessions, activeIds),
-    [activeIds, allSessions]
-  );
-  const liveSubagentMap = useLiveSubagents(
-    useMemo(() => worktrees.map((worktree) => worktree.path), [worktrees])
-  );
   const shouldPoll = useShouldPoll();
   const isRemoteReconnecting = remoteStatus?.phase === 'reconnecting';
   const isRemoteFailed = Boolean(
@@ -230,17 +226,15 @@ export function WorktreePanel({
       : t('Click the selected repository again to connect and load worktrees.');
 
   useEffect(() => {
-    if (safeWorktrees.length === 0 || !shouldPoll) return;
-    const loadedPaths = safeWorktrees.map((wt) => wt.path);
+    if (!diffStatPathKey || !shouldPoll) return;
+    const paths = diffStatPathKey.split('\n');
 
-    if (loadedPaths.length === 0) return;
-
-    fetchDiffStats(loadedPaths);
+    fetchDiffStats(paths);
     const interval = setInterval(() => {
-      fetchDiffStats(loadedPaths);
+      fetchDiffStats(paths);
     }, 10000);
     return () => clearInterval(interval);
-  }, [safeWorktrees, fetchDiffStats, shouldPoll]);
+  }, [diffStatPathKey, fetchDiffStats, shouldPoll]);
 
   return (
     <aside className="control-sidebar flex h-full w-full flex-col border-r bg-background">
@@ -437,41 +431,35 @@ export function WorktreePanel({
         ) : (
           <LayoutGroup>
             <div className="control-tree-flat-list">
-              {filteredWorktreesWithIndex.map(({ worktree, originalIndex }) => (
-                <WorktreeItem
-                  key={worktree.path}
-                  worktree={worktree}
-                  branches={branches}
-                  activeSession={activeSessionMap.get(normalizePath(worktree.path))}
-                  liveSubagents={
-                    activeSessionMap.get(normalizePath(worktree.path))?.agentId.startsWith('codex')
-                      ? (liveSubagentMap.get(normalizePath(worktree.path)) ?? [])
-                      : []
-                  }
-                  isActive={activeWorktree?.path === worktree.path}
-                  onClick={() => onSelectWorktree(worktree)}
-                  onOpenAgentThread={(sessionId) => onOpenAgentThread?.(worktree, sessionId)}
-                  onOpenSubagentTranscript={(subagent) =>
-                    onOpenSubagentTranscript?.(worktree, subagent)
-                  }
-                  onDelete={() => setWorktreeToDelete(worktree)}
-                  onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
-                  draggable={!searchQuery && !!onReorderWorktrees}
-                  onDragStart={(e) => handleDragStart(e, originalIndex, worktree)}
-                  onDragEnd={handleDragEnd}
-                  onDragOver={(e) => handleDragOver(e, originalIndex)}
-                  onDragLeave={handleDragLeave}
-                  onDrop={(e) => handleDrop(e, originalIndex)}
-                  showDropIndicator={dropTargetIndex === originalIndex}
-                  dropDirection={
-                    dropTargetIndex === originalIndex && draggedIndexRef.current !== null
-                      ? draggedIndexRef.current > originalIndex
-                        ? 'top'
-                        : 'bottom'
-                      : null
-                  }
-                />
-              ))}
+              {filteredWorktreesWithIndex.map(({ worktree, originalIndex }) =>
+                (() => {
+                  return (
+                    <WorktreeItem
+                      key={worktree.path}
+                      worktree={worktree}
+                      branches={branches}
+                      isActive={activeWorktree?.path === worktree.path}
+                      onClick={() => onSelectWorktree(worktree)}
+                      onDelete={() => setWorktreeToDelete(worktree)}
+                      onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
+                      draggable={!searchQuery && !!onReorderWorktrees}
+                      onDragStart={(e) => handleDragStart(e, originalIndex, worktree)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleDragOver(e, originalIndex)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, originalIndex)}
+                      showDropIndicator={dropTargetIndex === originalIndex}
+                      dropDirection={
+                        dropTargetIndex === originalIndex && draggedIndexRef.current !== null
+                          ? draggedIndexRef.current > originalIndex
+                            ? 'top'
+                            : 'bottom'
+                          : null
+                      }
+                    />
+                  );
+                })()
+              )}
             </div>
           </LayoutGroup>
         )}

@@ -2,6 +2,9 @@ import type { LiveAgentSubagent } from '@shared/types';
 import { describe, expect, it } from 'vitest';
 import {
   buildActiveSessionMapByWorktree,
+  buildVisibleWorktreeSubagentRows,
+  buildWorktreeSubagentTree,
+  collectExpandableSubagentThreadIds,
   getSubagentStatusPresentation,
   groupSubagentsByWorktree,
 } from '../worktreeAgentSummary';
@@ -64,6 +67,123 @@ describe('worktreeAgentSummary', () => {
 
     expect(map.get('/repo/worktrees/feature-a')).toEqual([items[0]]);
     expect(map.get('/repo/worktrees/feature-b')).toEqual([items[1]]);
+  });
+
+  it('builds a nested subagent tree from direct parent thread ids', () => {
+    const items: LiveAgentSubagent[] = [
+      {
+        id: 'child-1',
+        provider: 'codex',
+        threadId: 'child-1',
+        parentThreadId: 'root-1',
+        cwd: '/repo/worktrees/feature-a',
+        label: 'Worker 1',
+        lastSeenAt: 2,
+        status: 'running',
+      },
+      {
+        id: 'child-2',
+        provider: 'codex',
+        threadId: 'child-2',
+        parentThreadId: 'child-1',
+        cwd: '/repo/worktrees/feature-a',
+        label: 'Reviewer 1',
+        lastSeenAt: 3,
+        status: 'running',
+      },
+    ];
+
+    expect(buildWorktreeSubagentTree(items)).toEqual([
+      {
+        item: items[0],
+        children: [
+          {
+            item: items[1],
+            children: [],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('collects expandable thread ids for nodes that have nested children', () => {
+    const items: LiveAgentSubagent[] = [
+      {
+        id: 'child-1',
+        provider: 'codex',
+        threadId: 'child-1',
+        parentThreadId: 'root-1',
+        cwd: '/repo/worktrees/feature-a',
+        label: 'Worker 1',
+        lastSeenAt: 2,
+        status: 'running',
+      },
+      {
+        id: 'child-2',
+        provider: 'codex',
+        threadId: 'child-2',
+        parentThreadId: 'child-1',
+        cwd: '/repo/worktrees/feature-a',
+        label: 'Reviewer 1',
+        lastSeenAt: 3,
+        status: 'running',
+      },
+    ];
+
+    expect(collectExpandableSubagentThreadIds(buildWorktreeSubagentTree(items))).toEqual(
+      new Set(['child-1'])
+    );
+  });
+
+  it('hides descendant rows when a parent thread is collapsed', () => {
+    const items: LiveAgentSubagent[] = [
+      {
+        id: 'child-1',
+        provider: 'codex',
+        threadId: 'child-1',
+        parentThreadId: 'root-1',
+        cwd: '/repo/worktrees/feature-a',
+        label: 'Worker 1',
+        lastSeenAt: 2,
+        status: 'running',
+      },
+      {
+        id: 'child-2',
+        provider: 'codex',
+        threadId: 'child-2',
+        parentThreadId: 'child-1',
+        cwd: '/repo/worktrees/feature-a',
+        label: 'Reviewer 1',
+        lastSeenAt: 3,
+        status: 'running',
+      },
+    ];
+
+    const tree = buildWorktreeSubagentTree(items);
+
+    expect(buildVisibleWorktreeSubagentRows(tree, new Set())).toEqual([
+      expect.objectContaining({
+        threadId: 'child-1',
+        depth: 1,
+        hasChildren: true,
+        isExpanded: true,
+      }),
+      expect.objectContaining({
+        threadId: 'child-2',
+        depth: 2,
+        hasChildren: false,
+        isExpanded: false,
+      }),
+    ]);
+
+    expect(buildVisibleWorktreeSubagentRows(tree, new Set(['child-1']))).toEqual([
+      expect.objectContaining({
+        threadId: 'child-1',
+        depth: 1,
+        hasChildren: true,
+        isExpanded: false,
+      }),
+    ]);
   });
 
   it('returns readable status presentation tokens for each subagent state', () => {

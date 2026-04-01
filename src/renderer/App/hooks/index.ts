@@ -12,6 +12,7 @@ export { usePanelState } from './usePanelState';
 export { useRepositoryState } from './useRepositoryState';
 export { useSettingsEvents } from './useSettingsEvents';
 export { useSettingsState } from './useSettingsState';
+export { useTempWorkspaceActions } from './useTempWorkspaceActions';
 export { useTempWorkspaceSync } from './useTempWorkspaceSync';
 export { useTerminalNavigation } from './useTerminalNavigation';
 export { useWorktreeSelection } from './useWorktreeSelection';

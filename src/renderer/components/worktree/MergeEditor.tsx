@@ -337,6 +337,8 @@ export function MergeEditor({
       const timer = setTimeout(applyDecorations, 100);
       return () => clearTimeout(timer);
     }
+
+    return undefined;
   }, [isLoading, content, applyDecorations]);
 
   // Highlight current chunk
@@ -392,6 +394,8 @@ export function MergeEditor({
       const timer = setTimeout(highlightCurrentChunk, 50);
       return () => clearTimeout(timer);
     }
+
+    return undefined;
   }, [isLoading, conflictChunks, highlightCurrentChunk]);
 
   // Synchronized scrolling

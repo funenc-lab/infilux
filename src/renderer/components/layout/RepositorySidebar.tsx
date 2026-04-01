@@ -58,7 +58,7 @@ import {
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 
-interface RepositorySidebarProps {
+export interface RepositorySidebarProps {
   repositories: Repository[];
   selectedRepo: string | null;
   onSelectRepo: (repoPath: string, options?: { activateRemote?: boolean }) => void;
@@ -117,7 +117,6 @@ export function RepositorySidebar({
   hasActiveTempWorkspace = false,
 }: RepositorySidebarProps) {
   const { t } = useI18n();
-  const _settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -487,7 +486,7 @@ export function RepositorySidebar({
       </div>
 
       {/* Repository List */}
-      <div className="flex-1 overflow-auto px-1.5 py-1.5">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5">
         {temporaryWorkspaceEnabled && (
           <div className="mb-2">
             <button

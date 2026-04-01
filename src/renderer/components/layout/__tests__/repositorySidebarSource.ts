@@ -11,4 +11,5 @@ function readSource(relativePath: string): string {
 export const repositorySidebarSource = [
   readSource('../RepositorySidebar.tsx'),
   readSource('../repository-sidebar/RepositoryTreeItem.tsx'),
+  readSource('../repository-sidebar/RepositoryTreeSummary.tsx'),
 ].join('\n');

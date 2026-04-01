@@ -6,6 +6,7 @@ import { normalizePath } from '@/App/storage';
 import type { TFunction } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
+import { RepositoryTreeSummary } from './RepositoryTreeSummary';
 
 export interface RepositoryTreeItemRepository {
   name: string;
@@ -66,8 +67,6 @@ export function RepositoryTreeItem({
   const activeWorktreeCount = repoWorktrees.filter((worktree) =>
     activePathSet.has(normalizePath(worktree.path))
   ).length;
-  const hasRepoSummary = repoWorktrees.length > 0 || activeWorktreeCount > 0;
-
   return (
     <div key={repo.path} className="relative">
       {dropTargetIndex === originalIndex &&
@@ -103,8 +102,12 @@ export function RepositoryTreeItem({
                 <FolderGit2 className="control-tree-icon h-4 w-4" />
               </span>
               <div className="control-tree-text-stack">
-                <div className="flex items-center gap-1.5">
+                <div className="flex min-w-0 items-center gap-1.5">
                   <span className="control-tree-title min-w-0 flex-1 truncate">{repo.name}</span>
+                  <RepositoryTreeSummary
+                    worktreeCount={repoWorktrees.length}
+                    activeWorktreeCount={activeWorktreeCount}
+                  />
                 </div>
                 <div
                   className={cn(
@@ -115,25 +118,6 @@ export function RepositoryTreeItem({
                 >
                   {displayRepoPath}
                 </div>
-                {hasRepoSummary ? (
-                  <div className="control-tree-meta control-tree-meta-row">
-                    {repoWorktrees.length > 0 ? (
-                      <span className="control-tree-metric">
-                        <span className="control-tree-metric-value">{repoWorktrees.length}</span>
-                        <span className="control-tree-metric-label">trees</span>
-                      </span>
-                    ) : null}
-                    {repoWorktrees.length > 0 && activeWorktreeCount > 0 ? (
-                      <span className="control-tree-separator">·</span>
-                    ) : null}
-                    {activeWorktreeCount > 0 ? (
-                      <span className="control-tree-metric">
-                        <span className="control-tree-metric-value">{activeWorktreeCount}</span>
-                        <span className="control-tree-metric-label">live</span>
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
               </div>
             </div>
           </button>

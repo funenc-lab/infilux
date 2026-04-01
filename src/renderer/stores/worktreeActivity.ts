@@ -65,6 +65,43 @@ interface WorktreeActivityState {
 
 const defaultActivity: WorktreeActivity = { agentCount: 0, terminalCount: 0 };
 const defaultDiffStats: DiffStats = { insertions: 0, deletions: 0 };
+export const DIFF_STATS_FRESHNESS_MS = 4000;
+
+const diffStatsInFlight = new Map<string, Promise<DiffStats>>();
+const diffStatsLastFetchedAt = new Map<string, number>();
+
+function shouldReuseRecentDiffStats(worktreePath: string, now: number): boolean {
+  const lastFetchedAt = diffStatsLastFetchedAt.get(worktreePath);
+  return lastFetchedAt !== undefined && now - lastFetchedAt < DIFF_STATS_FRESHNESS_MS;
+}
+
+async function fetchDiffStatsForPath(worktreePath: string): Promise<DiffStats> {
+  const inFlight = diffStatsInFlight.get(worktreePath);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = window.electronAPI.git
+    .getDiffStats(worktreePath)
+    .catch(() => defaultDiffStats)
+    .then((stats) => {
+      diffStatsLastFetchedAt.set(worktreePath, Date.now());
+      return stats;
+    })
+    .finally(() => {
+      diffStatsInFlight.delete(worktreePath);
+    });
+
+  diffStatsInFlight.set(worktreePath, request);
+  return request;
+}
+
+function hasSameDiffStats(left: DiffStats | undefined, right: DiffStats) {
+  return (
+    (left?.insertions ?? defaultDiffStats.insertions) === right.insertions &&
+    (left?.deletions ?? defaultDiffStats.deletions) === right.deletions
+  );
+}
 
 export const useWorktreeActivityStore = create<WorktreeActivityState>()(
   subscribeWithSelector((set, get) => ({
@@ -153,24 +190,33 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
       })),
 
     fetchDiffStats: async (worktreePaths) => {
-      // Fetch diff stats for all worktrees in parallel
+      const now = Date.now();
+      const pathsToFetch = [...new Set(worktreePaths)].filter(
+        (path) => !shouldReuseRecentDiffStats(path, now)
+      );
+      if (pathsToFetch.length === 0) {
+        return;
+      }
+
       const results = await Promise.all(
-        worktreePaths.map(async (path) => {
-          try {
-            const stats = await window.electronAPI.git.getDiffStats(path);
-            return { path, stats };
-          } catch {
-            return { path, stats: defaultDiffStats };
-          }
+        pathsToFetch.map(async (path) => {
+          const stats = await fetchDiffStatsForPath(path);
+          return { path, stats };
         })
       );
-      // Batch update all stats at once
+
       set((state) => {
+        let didChange = false;
         const newDiffStats = { ...state.diffStats };
         for (const { path, stats } of results) {
+          if (hasSameDiffStats(state.diffStats[path], stats)) {
+            continue;
+          }
           newDiffStats[path] = stats;
+          didChange = true;
         }
-        return { diffStats: newDiffStats };
+
+        return didChange ? { diffStats: newDiffStats } : state;
       });
     },
 
@@ -236,6 +282,8 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
 
     clearWorktree: (worktreePath) =>
       set((state) => {
+        diffStatsInFlight.delete(worktreePath);
+        diffStatsLastFetchedAt.delete(worktreePath);
         // Clean up session mappings - agentSessions handles session cleanup
         const { [worktreePath]: _, ...restActivities } = state.activities;
         const { [worktreePath]: __, ...restActivityStates } = state.activityStates;

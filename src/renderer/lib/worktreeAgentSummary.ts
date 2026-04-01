@@ -56,6 +56,96 @@ export function groupSubagentsByWorktree(
   return grouped;
 }
 
+export interface WorktreeSubagentNode {
+  item: LiveAgentSubagent;
+  children: WorktreeSubagentNode[];
+}
+
+export interface VisibleWorktreeSubagentRow {
+  threadId: string;
+  item: LiveAgentSubagent;
+  depth: number;
+  hasChildren: boolean;
+  isExpanded: boolean;
+}
+
+export function buildWorktreeSubagentTree(items: LiveAgentSubagent[]): WorktreeSubagentNode[] {
+  const sortedItems = [...items].sort((left, right) => right.lastSeenAt - left.lastSeenAt);
+  const nodesByThreadId = new Map<string, WorktreeSubagentNode>();
+
+  for (const item of sortedItems) {
+    nodesByThreadId.set(item.threadId, {
+      item,
+      children: [],
+    });
+  }
+
+  const roots: WorktreeSubagentNode[] = [];
+
+  for (const item of sortedItems) {
+    const node = nodesByThreadId.get(item.threadId);
+    if (!node) {
+      continue;
+    }
+
+    const parentNode = nodesByThreadId.get(item.parentThreadId);
+    if (parentNode) {
+      parentNode.children.push(node);
+      continue;
+    }
+
+    roots.push(node);
+  }
+
+  return roots;
+}
+
+export function collectExpandableSubagentThreadIds(nodes: WorktreeSubagentNode[]): Set<string> {
+  const threadIds = new Set<string>();
+
+  const visit = (node: WorktreeSubagentNode) => {
+    if (node.children.length > 0) {
+      threadIds.add(node.item.threadId);
+      for (const child of node.children) {
+        visit(child);
+      }
+    }
+  };
+
+  for (const node of nodes) {
+    visit(node);
+  }
+
+  return threadIds;
+}
+
+export function buildVisibleWorktreeSubagentRows(
+  nodes: WorktreeSubagentNode[],
+  collapsedThreadIds: Set<string>,
+  depth = 1
+): VisibleWorktreeSubagentRow[] {
+  const rows: VisibleWorktreeSubagentRow[] = [];
+
+  for (const node of nodes) {
+    const hasChildren = node.children.length > 0;
+    const isExpanded = hasChildren ? !collapsedThreadIds.has(node.item.threadId) : false;
+
+    rows.push({
+      threadId: node.item.threadId,
+      item: node.item,
+      depth,
+      hasChildren,
+      isExpanded,
+    });
+
+    if (hasChildren && isExpanded) {
+      rows.push(...buildVisibleWorktreeSubagentRows(node.children, collapsedThreadIds, depth + 1));
+    }
+  }
+
+  return rows;
+}
+
 interface SubagentStatusPresentation {
   label: string;
   dotClassName: string;

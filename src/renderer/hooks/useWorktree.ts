@@ -1,6 +1,5 @@
 import type {
   ConflictResolution,
-  GitWorktree,
   WorktreeCreateOptions,
   WorktreeMergeCleanupOptions,
   WorktreeMergeOptions,
@@ -10,6 +9,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { useMemo } from 'react';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { useWorktreeStore } from '@/stores/worktree';
+import { buildWorktreeListMap, type WorktreeListRepoQuery } from './worktreeListCache';
 import { worktreeQueryKeys } from './worktreeQueryKeys';
 
 interface WorktreeListOptions {
@@ -70,10 +70,7 @@ export function useWorktreeListMultiple(repoInputs: WorktreeListMultipleInput[])
       queryKey: worktreeQueryKeys.list(repoPath),
       queryFn: async () => {
         const worktrees = await window.electronAPI.worktree.list(repoPath);
-        return {
-          repoPath,
-          worktrees: sanitizeGitWorktrees(Array.isArray(worktrees) ? worktrees : []),
-        };
+        return sanitizeGitWorktrees(Array.isArray(worktrees) ? worktrees : []);
       },
       enabled,
       retry: false,
@@ -82,17 +79,10 @@ export function useWorktreeListMultiple(repoInputs: WorktreeListMultipleInput[])
   });
 
   const worktreesMap = useMemo(() => {
-    const map: Record<string, GitWorktree[]> = {};
-    for (let i = 0; i < repoQueries.length; i++) {
-      if (!repoQueries[i]?.enabled) {
-        continue;
-      }
-      const query = queries[i];
-      if (query?.data) {
-        map[query.data.repoPath] = query.data.worktrees;
-      }
-    }
-    return map;
+    return buildWorktreeListMap(
+      repoQueries as WorktreeListRepoQuery[],
+      queries.map((query) => query?.data)
+    );
   }, [queries, repoQueries]);
 
   const errorsMap = useMemo(() => {

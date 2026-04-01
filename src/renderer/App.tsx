@@ -10,6 +10,7 @@ import type {
 import { getDisplayPath, getDisplayPathBasename } from '@shared/utils/path';
 import { isRemoteVirtualPath, toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { buildRepositoryId } from '@shared/utils/workspace';
+import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppOverlays } from './App/AppOverlays';
@@ -36,12 +37,19 @@ import {
   useRepositoryState,
   useSettingsEvents,
   useSettingsState,
+  useTempWorkspaceActions,
   useTempWorkspaceSync,
   useTerminalNavigation,
   useWorktreeSelection,
   useWorktreeState,
   useWorktreeSync,
 } from './App/hooks';
+import { resolveMainContentRepoPath } from './App/mainContentRepoPathPolicy';
+import {
+  markStartupBlockingKeyReady,
+  resolveInitialStartupBlockingKeys,
+  type StartupBlockingKey,
+} from './App/startupOverlayPolicy';
 import {
   getRepositorySettings,
   getStoredBoolean,
@@ -58,12 +66,15 @@ import { FileSidebar } from './components/files/FileSidebar';
 import { createInitialFileSidebarTrackingState } from './components/files/fileTreeTrackingState';
 import { shouldAutoExpandFileSidebar } from './components/files/fileTreeVisibilityPolicy';
 import { BackgroundLayer } from './components/layout/BackgroundLayer';
-import { MainContent } from './components/layout/MainContent';
-import { RepositorySidebar } from './components/layout/RepositorySidebar';
+import { DeferredMainContent } from './components/layout/DeferredMainContent';
+import { DeferredRepositorySidebar } from './components/layout/DeferredRepositorySidebar';
+import { DeferredTreeSidebar } from './components/layout/DeferredTreeSidebar';
+import { DeferredWorktreePanel } from './components/layout/DeferredWorktreePanel';
 import { TemporaryWorkspacePanel } from './components/layout/TemporaryWorkspacePanel';
-import { TreeSidebar } from './components/layout/TreeSidebar';
+import { resolveTreeSidebarSelectedWorktrees } from './components/layout/treeSidebarSelectedWorktrees';
 import { WindowTitleBar } from './components/layout/WindowTitleBar';
-import { WorktreePanel } from './components/layout/WorktreePanel';
+import { resolveWorktreePanelSnapshot } from './components/layout/worktreePanelSnapshot';
+import { StartupShell } from './components/StartupShell';
 import { addToast, toastManager } from './components/ui/toast';
 import { useAutoFetchListener, useGitBranches, useGitInit } from './hooks/useGit';
 import { useWebInspector } from './hooks/useWebInspector';
@@ -76,6 +87,7 @@ import {
   useWorktreeRemove,
   useWorktreeResolveConflict,
 } from './hooks/useWorktree';
+import { worktreeQueryKeys } from './hooks/worktreeQueryKeys';
 import { useI18n } from './i18n';
 import { getRendererEnvironment } from './lib/electronEnvironment';
 import { buildOperationToastCopy, buildSourceControlWorkflowToastCopy } from './lib/feedbackCopy';
@@ -91,6 +103,7 @@ import { initAgentActivityListener, useWorktreeActivityStore } from './stores/wo
 
 export default function App() {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     return initCloneProgressListener();
@@ -284,7 +297,8 @@ export default function App() {
     activeTab,
     setActiveTab,
     selectedRepo,
-    setSelectedRepoForWorktreeSelection
+    setSelectedRepoForWorktreeSelection,
+    saveActiveWorktreeToMap
   );
 
   const {
@@ -456,6 +470,24 @@ export default function App() {
   );
 
   const isTempRepo = selectedRepo === TEMP_REPO_ID;
+  const activeSelectedSubagent = activeWorktree
+    ? (selectedSubagentByWorktree[normalizePath(activeWorktree.path)] ?? null)
+    : null;
+  const [pendingStartupBlockingKeys, setPendingStartupBlockingKeys] = useState<
+    StartupBlockingKey[]
+  >(() =>
+    resolveInitialStartupBlockingKeys({
+      layoutMode,
+      repositoryCollapsed,
+      worktreeCollapsed,
+      isTempRepo,
+      activeTab,
+      hasActiveWorktree: Boolean(activeWorktree?.path),
+      hasSelectedSubagent: Boolean(activeSelectedSubagent),
+      settingsDisplayMode,
+    })
+  );
+  const showStartupOverlay = pendingStartupBlockingKeys.length > 0;
   const worktreeRepoPath = isTempRepo ? null : selectedRepo;
   const selectedRepoCanLoad = canLoadRepo(worktreeRepoPath);
   const selectedRepository = worktreeRepoPath ? repositoryByPath.get(worktreeRepoPath) : null;
@@ -505,6 +537,10 @@ export default function App() {
   useEffect(() => {
     rehydrateTempWorkspaces();
   }, [rehydrateTempWorkspaces]);
+
+  const handleStartupBlockingReady = useCallback((key: StartupBlockingKey) => {
+    setPendingStartupBlockingKeys((previous) => markStartupBlockingKeyReady(previous, key));
+  }, []);
 
   useEffect(() => {
     if (!inactiveSelectedRemoteRepo) {
@@ -587,13 +623,50 @@ export default function App() {
     () => getSortedWorktrees(selectedRepo, safeWorktrees),
     [getSortedWorktrees, selectedRepo, safeWorktrees]
   );
+  const mainContentRepoPath = useMemo(
+    () =>
+      resolveMainContentRepoPath({
+        selectedRepo,
+        activeWorktree,
+        selectedRepoWorktrees: safeWorktrees,
+        repoWorktreeMap,
+      }),
+    [selectedRepo, activeWorktree, safeWorktrees, repoWorktreeMap]
+  );
+  const cachedSelectedRepoWorktrees = useMemo(() => {
+    const cachedWorktrees = queryClient.getQueryData<GitWorktree[]>(
+      worktreeQueryKeys.list(worktreeRepoPath)
+    );
+    return getSortedWorktrees(selectedRepo, sanitizeGitWorktrees(cachedWorktrees));
+  }, [getSortedWorktrees, queryClient, selectedRepo, worktreeRepoPath]);
+  const visibleWorktrees = useMemo(
+    () =>
+      resolveWorktreePanelSnapshot({
+        worktrees: sortedWorktrees,
+        cachedWorktrees: cachedSelectedRepoWorktrees,
+        activeWorktree,
+      }),
+    [sortedWorktrees, cachedSelectedRepoWorktrees, activeWorktree]
+  );
+  const treeSidebarWorktrees = useMemo(
+    () =>
+      resolveTreeSidebarSelectedWorktrees({
+        worktrees: sortedWorktrees,
+        cachedWorktrees: cachedSelectedRepoWorktrees,
+      }),
+    [sortedWorktrees, cachedSelectedRepoWorktrees]
+  );
+  const shouldShowWorktreePanelLoading =
+    worktreeQueryEnabled &&
+    visibleWorktrees.length === 0 &&
+    (!worktreesFetched || worktreesFetching);
   const { shouldRender: shouldRenderFileSidebar, rootPath: fileSidebarRootPath } =
     resolveFileSidebarVisibility({
       fileTreeDisplayMode,
       activeWorktreePath: activeWorktree?.path ?? null,
       editorWorktreePath: currentEditorWorktreePath,
       activeFilePath: activeEditorTabPath,
-      candidateWorktreePaths: sortedWorktrees.map((worktree) => worktree.path),
+      candidateWorktreePaths: visibleWorktrees.map((worktree) => worktree.path),
     });
 
   useEffect(() => {
@@ -634,7 +707,15 @@ export default function App() {
   useOpenPathListener(true, repositories, saveRepositories, setSelectedRepoState);
   useClaudeIntegration(activeWorktree?.path ?? null, true);
   useCodeReviewContinue(activeWorktree, handleTabChange);
-  useWorktreeSync(safeWorktrees, activeWorktree, worktreesFetching, setActiveWorktree);
+  useWorktreeSync(
+    safeWorktrees,
+    activeWorktree,
+    selectedRepoCanLoad,
+    worktreesFetched,
+    worktreesFetching,
+    Boolean(worktreeError),
+    setActiveWorktree
+  );
 
   const handleReorderWorktrees = useCallback(
     (fromIndex: number, toIndex: number) => {
@@ -744,163 +825,24 @@ export default function App() {
     ]
   );
 
-  const handleSelectTempWorkspace = useCallback(
-    async (path: string) => {
-      await handleSelectWorktree({ path } as GitWorktree, TEMP_REPO_ID);
-    },
-    [handleSelectWorktree]
-  );
-
-  const handleCreateTempWorkspace = useCallback(async () => {
-    const loadingCopy = buildOperationToastCopy(
-      {
-        phase: 'loading',
-        kind: 'temp-session',
-        action: 'create',
-        label: t('Temp Session'),
-      },
-      t
-    );
-    const toastId = toastManager.add({
-      type: 'loading',
-      title: loadingCopy.title,
-      description: loadingCopy.description,
-      timeout: 0,
-    });
-
-    const result = await window.electronAPI.tempWorkspace.create(effectiveTempBasePath);
-    if (!result.ok) {
-      toastManager.close(toastId);
-      const errorCopy = buildOperationToastCopy(
-        {
-          phase: 'error',
-          kind: 'temp-session',
-          action: 'create',
-          message: result.message || t('Failed to create temp session'),
-        },
-        t
-      );
-      toastManager.add({
-        type: 'error',
-        title: errorCopy.title,
-        description: errorCopy.description,
-      });
-      return;
-    }
-
-    addTempWorkspace(result.item);
-    toastManager.close(toastId);
-    const successCopy = buildOperationToastCopy(
-      {
-        phase: 'success',
-        kind: 'temp-session',
-        action: 'create',
-        label: result.item.title,
-      },
-      t
-    );
-    toastManager.add({
-      type: 'success',
-      title: successCopy.title,
-      description: successCopy.description,
-    });
-    await handleSelectTempWorkspace(result.item.path);
-  }, [addTempWorkspace, effectiveTempBasePath, handleSelectTempWorkspace, t]);
-
   const closeAgentSessions = useWorktreeActivityStore((s) => s.closeAgentSessions);
   const closeTerminalSessions = useWorktreeActivityStore((s) => s.closeTerminalSessions);
   const clearWorktreeActivity = useWorktreeActivityStore((s) => s.clearWorktree);
-
-  const handleRemoveTempWorkspace = useCallback(
-    async (id: string) => {
-      const target = safeTempWorkspaces.find((item) => item.id === id);
-      if (!target) return;
-
-      const loadingCopy = buildOperationToastCopy(
-        {
-          phase: 'loading',
-          kind: 'temp-session',
-          action: 'delete',
-          label: target.title,
-        },
-        t
-      );
-      const toastId = toastManager.add({
-        type: 'loading',
-        title: loadingCopy.title,
-        description: loadingCopy.description,
-        timeout: 0,
-      });
-
-      closeAgentSessions(target.path);
-      closeTerminalSessions(target.path);
-
-      const result = await window.electronAPI.tempWorkspace.remove(
-        target.path,
-        effectiveTempBasePath
-      );
-      if (!result.ok) {
-        toastManager.close(toastId);
-        const errorCopy = buildOperationToastCopy(
-          {
-            phase: 'error',
-            kind: 'temp-session',
-            action: 'delete',
-            message: result.message || t('Failed to delete temp session'),
-          },
-          t
-        );
-        toastManager.add({
-          type: 'error',
-          title: errorCopy.title,
-          description: errorCopy.description,
-        });
-        return;
-      }
-
-      removeTempWorkspace(id);
-      clearEditorWorktreeState(target.path);
-      clearWorktreeActivity(target.path);
-
-      if (activeWorktree?.path === target.path) {
-        const remaining = safeTempWorkspaces.filter((item) => item.id !== id);
-        if (remaining.length > 0) {
-          await handleSelectTempWorkspace(remaining[0].path);
-        } else {
-          setActiveWorktree(null);
-        }
-      }
-
-      toastManager.close(toastId);
-      const successCopy = buildOperationToastCopy(
-        {
-          phase: 'success',
-          kind: 'temp-session',
-          action: 'delete',
-          label: target.title,
-        },
-        t
-      );
-      toastManager.add({
-        type: 'success',
-        title: successCopy.title,
-        description: successCopy.description,
-      });
-    },
-    [
-      activeWorktree?.path,
-      clearEditorWorktreeState,
-      closeAgentSessions,
-      closeTerminalSessions,
-      clearWorktreeActivity,
-      handleSelectTempWorkspace,
-      removeTempWorkspace,
+  const { handleSelectTempWorkspace, handleCreateTempWorkspace, handleRemoveTempWorkspace } =
+    useTempWorkspaceActions({
+      activeWorktreePath: activeWorktree?.path ?? null,
+      effectiveTempBasePath,
       safeTempWorkspaces,
       t,
-      effectiveTempBasePath,
+      addTempWorkspace,
+      removeTempWorkspace,
+      clearEditorWorktreeState,
+      clearWorktreeActivity,
+      closeAgentSessions,
+      closeTerminalSessions,
       setActiveWorktree,
-    ]
-  );
+      selectWorktree: handleSelectWorktree,
+    });
 
   const handleSwitchWorktreePath = useCallback(
     async (worktreePath: string) => {
@@ -1327,10 +1269,6 @@ export default function App() {
     [handleSelectWorktree, handleTabChange]
   );
 
-  const activeSelectedSubagent = activeWorktree
-    ? (selectedSubagentByWorktree[normalizePath(activeWorktree.path)] ?? null)
-    : null;
-
   useEffect(() => {
     const isSettingsOpen =
       (settingsDisplayMode === 'tab' && activeTab === 'settings') ||
@@ -1380,13 +1318,15 @@ export default function App() {
                 transition={panelTransition}
                 className="relative h-full shrink-0 overflow-hidden"
               >
-                <TreeSidebar
+                <DeferredTreeSidebar
+                  onReady={() => handleStartupBlockingReady('tree-sidebar')}
                   repositories={repositories}
                   selectedRepo={selectedRepo}
                   activeWorktree={activeWorktree}
-                  worktrees={sortedWorktrees}
+                  worktrees={treeSidebarWorktrees}
                   branches={branches}
-                  isLoading={worktreesLoading}
+                  isLoading={worktreesLoading || shouldShowWorktreePanelLoading}
+                  isFetching={worktreesFetching}
                   isCreating={createWorktreeMutation.isPending}
                   error={worktreeError}
                   onSelectRepo={handleSelectRepo}
@@ -1419,6 +1359,8 @@ export default function App() {
                   onSwitchWorktreeByPath={handleSwitchWorktreePath}
                   onOpenAgentThread={handleOpenAgentThread}
                   onOpenSubagentTranscript={handleOpenSubagentTranscript}
+                  isChatActive={activeTab === 'chat'}
+                  selectedSubagentByWorktree={selectedSubagentByWorktree}
                   temporaryWorkspaceEnabled={effectiveTemporaryWorkspaceEnabled}
                   tempWorkspaces={safeTempWorkspaces}
                   tempBasePath={tempBasePathDisplay}
@@ -1454,7 +1396,8 @@ export default function App() {
                   transition={panelTransition}
                   className="relative h-full shrink-0 overflow-hidden"
                 >
-                  <RepositorySidebar
+                  <DeferredRepositorySidebar
+                    onReady={() => handleStartupBlockingReady('repository-sidebar')}
                     repositories={repositories}
                     selectedRepo={selectedRepo}
                     onSelectRepo={handleSelectRepo}
@@ -1518,14 +1461,15 @@ export default function App() {
                       onCollapse={() => setWorktreeCollapsed(true)}
                     />
                   ) : (
-                    <WorktreePanel
-                      worktrees={sortedWorktrees}
+                    <DeferredWorktreePanel
+                      onReady={() => handleStartupBlockingReady('worktree-panel')}
+                      worktrees={visibleWorktrees}
                       activeWorktree={activeWorktree}
                       branches={branches}
                       projectName={selectedRepo ? getDisplayPathBasename(selectedRepo) : ''}
                       inactiveRemote={inactiveSelectedRemoteRepo}
                       remoteStatus={selectedRemoteStatus}
-                      isLoading={worktreesLoading}
+                      isLoading={worktreesLoading || shouldShowWorktreePanelLoading}
                       isCreating={createWorktreeMutation.isPending}
                       error={inactiveSelectedRemoteRepo ? null : worktreeError}
                       onSelectWorktree={handleSelectWorktree}
@@ -1540,6 +1484,8 @@ export default function App() {
                       }}
                       onOpenAgentThread={handleOpenAgentThread}
                       onOpenSubagentTranscript={handleOpenSubagentTranscript}
+                      isChatActive={activeTab === 'chat'}
+                      selectedSubagentByWorktree={selectedSubagentByWorktree}
                       width={worktreeWidth}
                       collapsed={false}
                       onCollapse={() => setWorktreeCollapsed(true)}
@@ -1571,12 +1517,13 @@ export default function App() {
           />
         )}
 
-        <MainContent
+        <DeferredMainContent
+          onStartupBlockingReady={handleStartupBlockingReady}
           activeTab={activeTab}
           onTabChange={handleTabChange}
           tabOrder={tabOrder}
           onTabReorder={handleReorderTabs}
-          repoPath={selectedRepo || undefined}
+          repoPath={mainContentRepoPath || undefined}
           worktreePath={activeWorktree?.path}
           repositoryCollapsed={repositoryCollapsed}
           worktreeCollapsed={layoutMode === 'tree' ? repositoryCollapsed : worktreeCollapsed}
@@ -1678,6 +1625,12 @@ export default function App() {
           onSettingsCategoryChange={handleSettingsCategoryChange}
           scrollToProvider={scrollToProvider}
         />
+
+        {showStartupOverlay ? (
+          <div className="absolute inset-0 z-50">
+            <StartupShell stage="rendering-root" />
+          </div>
+        ) : null}
       </div>
     </div>
   );

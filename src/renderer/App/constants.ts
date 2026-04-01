@@ -87,5 +87,5 @@ export const FILE_SIDEBAR_MAX = 500;
 export const FILE_SIDEBAR_DEFAULT = 256;
 
 // Tree layout constraints
-export const TREE_SIDEBAR_MIN = 200;
-export const TREE_SIDEBAR_DEFAULT = 280;
+export const TREE_SIDEBAR_MIN = 256;
+export const TREE_SIDEBAR_DEFAULT = 320;

@@ -30,4 +30,20 @@ describe('buildTreeSidebarWorktreePrefetchInputs', () => {
     ]);
     expect(canLoadRepo).toHaveBeenCalledTimes(2);
   });
+
+  it('skips repos that already have loaded worktrees or direct activity context', () => {
+    const canLoadRepo = vi.fn(() => true);
+
+    const result = buildTreeSidebarWorktreePrefetchInputs({
+      allRepoPaths: ['/repo/active', '/repo/loaded', '/repo/needs-prefetch'],
+      hasActiveFilter: true,
+      canLoadRepo,
+      activeRepoPaths: ['/repo/active'],
+      loadedRepoPaths: ['/repo/loaded'],
+    });
+
+    expect(result).toEqual([{ repoPath: '/repo/needs-prefetch', enabled: true }]);
+    expect(canLoadRepo).toHaveBeenCalledTimes(1);
+    expect(canLoadRepo).toHaveBeenCalledWith('/repo/needs-prefetch');
+  });
 });

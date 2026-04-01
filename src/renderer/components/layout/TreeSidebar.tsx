@@ -355,6 +355,7 @@ export function TreeSidebar({
       repoPath: selectedRepo,
       selectedRepo,
       selectedWorktrees: selectedSnapshotWorktrees,
+      selectedActiveWorktree: activeWorktree,
       selectedActiveWorktreePath: activeWorktree?.path ?? null,
       selectedIsLoading: selectedRepoLoading,
       selectedIsFetching: selectedRepoFetching,
@@ -396,19 +397,22 @@ export function TreeSidebar({
       ),
     [activities]
   );
+  const diffStatPaths = useMemo(() => {
+    const allWorktrees = sanitizeGitWorktrees(Object.values(worktreesMap).flat());
+    return [...new Set([...selectedSnapshotWorktrees, ...allWorktrees].map((wt) => wt.path))];
+  }, [selectedSnapshotWorktrees, worktreesMap]);
+  const diffStatPathKey = useMemo(() => diffStatPaths.join('\n'), [diffStatPaths]);
 
   useEffect(() => {
-    const allWorktrees = sanitizeGitWorktrees(Object.values(worktreesMap).flat());
-    if (allWorktrees.length === 0 || !shouldPoll) return;
+    if (!diffStatPathKey || !shouldPoll) return;
+    const paths = diffStatPathKey.split('\n');
 
-    const loadedPaths = allWorktrees.map((wt) => wt.path);
-
-    fetchDiffStats(loadedPaths);
+    fetchDiffStats(paths);
     const interval = setInterval(() => {
-      fetchDiffStats(loadedPaths);
+      fetchDiffStats(paths);
     }, 10000);
     return () => clearInterval(interval);
-  }, [worktreesMap, fetchDiffStats, shouldPoll]);
+  }, [diffStatPathKey, fetchDiffStats, shouldPoll]);
 
   // Auto-expand selected repo (only when selectedRepo changes externally, not from tree click)
   const prevSelectedRepoRef = useRef<string | null>(null);
@@ -1206,7 +1210,7 @@ export function TreeSidebar({
       </div>
 
       {/* Tree List */}
-      <div className="flex-1 overflow-auto px-1.5 py-1.5">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5">
         {temporaryWorkspaceEnabled && (
           <div className="mb-2">
             <div

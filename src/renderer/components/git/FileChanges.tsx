@@ -1,4 +1,4 @@
-import { FileEdit, FilePlus, FileQuestion, FileX, Minus, Plus } from 'lucide-react';
+import { Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -20,16 +20,6 @@ interface FileChangesProps {
   onStageFile?: (path: string) => void;
   onUnstageFile?: (path: string) => void;
 }
-
-const statusIcons: Record<FileStatus, React.ElementType> = {
-  M: FileEdit,
-  A: FilePlus,
-  D: FileX,
-  R: FileEdit,
-  C: FilePlus,
-  U: FileQuestion,
-  '?': FileQuestion,
-};
 
 export function FileChanges({
   title,
@@ -74,7 +64,6 @@ export function FileChanges({
         <div className="space-y-1">
           {files.map((file) => {
             const status = getFileStatus(file);
-            const _Icon = statusIcons[status];
             const isSelected = selectedFiles?.has(file);
 
             return (

@@ -1,23 +1,41 @@
 import type { GitWorktree } from '@shared/types';
 import { useEffect } from 'react';
-import { sanitizeGitWorktrees } from '@/lib/worktreeData';
+import { resolveWorktreeSyncAction } from '../worktreeSwitchPolicy';
 
 export function useWorktreeSync(
   worktrees: GitWorktree[],
   activeWorktree: GitWorktree | null,
+  selectedRepoCanLoad: boolean,
+  worktreesFetched: boolean,
   worktreesFetching: boolean,
+  hasWorktreeError: boolean,
   setActiveWorktree: (worktree: GitWorktree | null) => void
 ) {
   useEffect(() => {
-    const safeWorktrees = sanitizeGitWorktrees(worktrees);
+    const action = resolveWorktreeSyncAction({
+      worktrees,
+      activeWorktree,
+      selectedRepoCanLoad,
+      worktreesFetched,
+      worktreesFetching,
+      hasWorktreeError,
+    });
 
-    if (safeWorktrees.length > 0 && activeWorktree) {
-      const found = safeWorktrees.find((wt) => wt.path === activeWorktree.path);
-      if (found && found !== activeWorktree) {
-        setActiveWorktree(found);
-      } else if (!found && !worktreesFetching) {
-        setActiveWorktree(null);
-      }
+    if (action.type === 'replace') {
+      setActiveWorktree(action.worktree);
+      return;
     }
-  }, [worktrees, activeWorktree, worktreesFetching, setActiveWorktree]);
+
+    if (action.type === 'clear') {
+      setActiveWorktree(null);
+    }
+  }, [
+    worktrees,
+    activeWorktree,
+    selectedRepoCanLoad,
+    worktreesFetched,
+    worktreesFetching,
+    hasWorktreeError,
+    setActiveWorktree,
+  ]);
 }

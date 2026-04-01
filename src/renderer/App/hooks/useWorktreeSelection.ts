@@ -5,6 +5,7 @@ import { useCallback, useEffect } from 'react';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
 import { requestUnsavedChoice } from '@/stores/unsavedPrompt';
@@ -19,10 +20,12 @@ export function useWorktreeSelection(
   activeTab: TabId,
   setActiveTab: (tab: TabId) => void,
   selectedRepo: string | null,
-  setSelectedRepo: (repo: string) => void
+  setSelectedRepo: (repo: string) => void,
+  persistSelectedWorktree: (repoPath: string, worktree: GitWorktree) => void
 ) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const getAgentSessions = useAgentSessionsStore((s) => s.getSessions);
   const editorSettings = useSettingsStore((s) => s.editorSettings);
   const switchEditorWorktree = useEditorStore((s) => s.switchWorktree);
   const currentEditorWorktree = useEditorStore((s) => s.currentWorktreePath);
@@ -136,6 +139,11 @@ export function useWorktreeSelection(
         setSelectedRepo(nextRepoPath);
       }
 
+      const targetRepoPath = nextRepoPath ?? selectedRepo;
+      if (targetRepoPath) {
+        persistSelectedWorktree(targetRepoPath, worktree);
+      }
+
       // Save current worktree's tab state before switching
       if (activeWorktree?.path) {
         setWorktreeTabMap((prev) => ({
@@ -147,8 +155,13 @@ export function useWorktreeSelection(
       // Switch to new worktree
       setActiveWorktree(worktree);
 
-      // Restore the new worktree's tab state
-      const savedTab = worktreeTabMap[worktree.path] || 'chat';
+      const hasAgentSessions =
+        targetRepoPath !== null && targetRepoPath !== undefined
+          ? getAgentSessions(targetRepoPath, worktree.path).length > 0
+          : false;
+
+      // Show the agent empty state when the worktree has no session context yet.
+      const savedTab = hasAgentSessions ? (worktreeTabMap[worktree.path] ?? 'chat') : 'chat';
       setActiveTab(savedTab);
 
       // Refresh git data for the new worktree
@@ -161,8 +174,10 @@ export function useWorktreeSelection(
       editorSettings.autoSave,
       t,
       refreshGitData,
+      getAgentSessions,
       selectedRepo,
       setSelectedRepo,
+      persistSelectedWorktree,
       setActiveWorktree,
       setWorktreeTabMap,
       setActiveTab,
