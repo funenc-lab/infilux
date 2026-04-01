@@ -5,7 +5,6 @@ const IDLE_THRESHOLD_MS = 90 * 1000; // 90 秒无用户活动视为空闲
 let isWindowFocused = !document.hidden;
 let isIdle = false;
 let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
-let _lastUserActivityTs = Date.now();
 const listeners = new Set<() => void>();
 
 let cachedSnapshot = { isWindowFocused, isIdle };
@@ -22,8 +21,6 @@ function notifyListeners() {
 }
 
 function resetIdleTimer() {
-  _lastUserActivityTs = Date.now();
-
   if (idleTimeoutId) {
     clearTimeout(idleTimeoutId);
   }

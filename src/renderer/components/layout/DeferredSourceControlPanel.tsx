@@ -2,16 +2,19 @@ import { GitBranch } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { SourceControlPanelProps } from '@/components/source-control/SourceControlPanel';
 import { useI18n } from '@/i18n';
-import { ControlStateCard } from './ControlStateCard';
+import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { useDeferredReady } from './useDeferredReady';
 
 type SourceControlPanelComponent = React.ComponentType<SourceControlPanelProps>;
 
 interface DeferredSourceControlPanelProps extends SourceControlPanelProps {
   shouldLoad?: boolean;
+  onReady?: () => void;
 }
 
 export function DeferredSourceControlPanel({
   shouldLoad = true,
+  onReady,
   ...props
 }: DeferredSourceControlPanelProps) {
   const { t } = useI18n();
@@ -35,12 +38,14 @@ export function DeferredSourceControlPanel({
     };
   }, [shouldLoad, Component]);
 
+  useDeferredReady(Boolean(Component), onReady);
+
   if (Component) {
     return <Component {...props} />;
   }
 
   return (
-    <ControlStateCard
+    <DeferredPanelFallback
       icon={<GitBranch className="h-5 w-5" />}
       eyebrow={t('Version Control')}
       title={t('Loading version control')}

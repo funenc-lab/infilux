@@ -9,29 +9,21 @@ import {
   shouldHydrateManagedLocalStorageFromSharedSnapshot,
   shouldSyncManagedLocalStorageToSharedSession,
 } from './App/storage';
+import { createBootstrapStageReporter, prepareAppBootstrap, runAppBootstrap } from './bootstrap';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { RendererDiagnosticsProbe } from './components/RendererDiagnosticsProbe';
+import { StartupShell } from './components/StartupShell';
 import { ToastProvider } from './components/ui/toast';
 import { ensureRendererBridgeFallback } from './lib/electronBridgeFallback';
 import { getRendererDiagnosticsSnapshot } from './lib/runtimeDiagnostics';
 import './styles/globals.css';
 
-function setBootstrapStage(stage: string): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  (
-    window as Window & {
-      __infiluxBootstrapStage?: string;
-    }
-  ).__infiluxBootstrapStage = stage;
-}
-
 // Initialize renderer logging with conservative defaults
 // Starts with 'error' level to minimize IPC overhead until settings are loaded
 log.transports.ipc.level = 'error';
 Object.assign(console, log.functions);
+
+const setBootstrapStage = createBootstrapStageReporter();
 
 setBootstrapStage('module-evaluated');
 ensureRendererBridgeFallback();
@@ -156,27 +148,45 @@ async function startApp(): Promise<void> {
     return;
   }
 
+  const rootRenderer = createRoot(root);
   setBootstrapStage('start-app-entered');
-  await hydrateManagedLocalStorageFromSharedSession();
-  setBootstrapStage('importing-app');
-  const appImportStartedAt = performance.now();
-  const { default: App } = await import('./App');
-  const appImportDurationMs = performance.now() - appImportStartedAt;
-  console.info(`[renderer-bootstrap] App module imported in ${Math.round(appImportDurationMs)}ms`);
-  setBootstrapStage('rendering-root');
-  createRoot(root).render(
-    <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          <AppErrorBoundary>
-            <RendererDiagnosticsProbe />
-            <App />
-          </AppErrorBoundary>
-        </ToastProvider>
-      </QueryClientProvider>
-    </StrictMode>
-  );
-  setBootstrapStage('render-dispatched');
+  await runAppBootstrap({
+    renderStartupShell: () => {
+      setBootstrapStage('rendering-startup-shell');
+      rootRenderer.render(
+        <StrictMode>
+          <StartupShell />
+        </StrictMode>
+      );
+      setBootstrapStage('startup-shell-rendered');
+    },
+    bootstrap: async () => {
+      setBootstrapStage('importing-app');
+      return prepareAppBootstrap({
+        hydrate: hydrateManagedLocalStorageFromSharedSession,
+        loadApp: () => import('./App'),
+      });
+    },
+    renderApp: ({ appModule: { default: App }, appImportDurationMs }) => {
+      console.info(
+        `[renderer-bootstrap] App module imported in ${Math.round(appImportDurationMs)}ms`
+      );
+      setBootstrapStage('rendering-root');
+      rootRenderer.render(
+        <StrictMode>
+          <QueryClientProvider client={queryClient}>
+            <ToastProvider>
+              <AppErrorBoundary>
+                <RendererDiagnosticsProbe />
+                <App />
+              </AppErrorBoundary>
+            </ToastProvider>
+          </QueryClientProvider>
+        </StrictMode>
+      );
+      setBootstrapStage('render-dispatched');
+    },
+  });
 }
 
 startApp().catch((error) => {

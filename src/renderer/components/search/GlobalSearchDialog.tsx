@@ -15,9 +15,14 @@ import { Dialog, DialogBackdrop, DialogPortal, DialogViewport } from '@/componen
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Z_INDEX } from '@/lib/z-index';
-import { SearchPreviewPanel } from './SearchPreviewPanel';
 import { SearchResultList } from './SearchResultList';
 import { type SearchMode, useGlobalSearch } from './useGlobalSearch';
+
+type SearchPreviewPanelComponent = React.ComponentType<{
+  path: string | null;
+  line?: number;
+  query: string;
+}>;
 
 interface GlobalSearchDialogProps {
   open: boolean;
@@ -37,6 +42,8 @@ export function GlobalSearchDialog({
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dividerY, setDividerY] = useState(50);
+  const [PreviewPanelComponent, setPreviewPanelComponent] =
+    useState<SearchPreviewPanelComponent | null>(null);
 
   const {
     mode,
@@ -153,6 +160,24 @@ export function GlobalSearchDialog({
   const selectedItem = getSelectedItem();
   const previewPath = selectedItem?.path ?? null;
   const previewLine = selectedItem && 'line' in selectedItem ? selectedItem.line : undefined;
+
+  useEffect(() => {
+    if (!previewPath || PreviewPanelComponent) {
+      return;
+    }
+
+    let cancelled = false;
+    import('./SearchPreviewPanel').then((module) => {
+      if (cancelled) {
+        return;
+      }
+      setPreviewPanelComponent(() => module.SearchPreviewPanel as SearchPreviewPanelComponent);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewPath, PreviewPanelComponent]);
 
   const totalMatches = mode === 'files' ? fileResults.length : (contentResults?.totalMatches ?? 0);
   const totalFiles = mode === 'files' ? fileResults.length : (contentResults?.totalFiles ?? 0);
@@ -310,7 +335,13 @@ export function GlobalSearchDialog({
 
               {/* Preview Panel */}
               <div style={{ height: `${100 - dividerY}%` }} className="min-h-0 overflow-hidden">
-                <SearchPreviewPanel path={previewPath} line={previewLine} query={query} />
+                {PreviewPanelComponent ? (
+                  <PreviewPanelComponent path={previewPath} line={previewLine} query={query} />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                    {previewPath ? t('Loading preview...') : t('Select a result to preview')}
+                  </div>
+                )}
               </div>
             </div>
 

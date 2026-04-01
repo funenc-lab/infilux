@@ -30,6 +30,8 @@ type WorktreeActivityState = {
 
 type MainContentModule = typeof import('../MainContent');
 type MainContentProps = React.ComponentProps<MainContentModule['MainContent']>;
+type MainContentPanelsModule = typeof import('../MainContentPanels');
+type MainContentPanelsProps = React.ComponentProps<MainContentPanelsModule['MainContentPanels']>;
 
 const settingsState: SettingsState = {
   settingsDisplayMode: 'tab',
@@ -65,7 +67,9 @@ function renderMockPanel(
     'data-panel': panel,
     'data-active': String(props.isActive ?? false),
     'data-should-load': String(props.shouldLoad ?? false),
+    'data-show-fallback': String(props.showFallback ?? false),
     'data-root-path': typeof props.rootPath === 'string' ? props.rootPath : '',
+    'data-cwd': typeof props.cwd === 'string' ? props.cwd : '',
     ...extraAttributes,
   });
 }
@@ -80,6 +84,7 @@ vi.mock('lucide-react', () => {
     ChevronRight: icon('ChevronRight'),
     FileCode: icon('FileCode'),
     FolderOpen: icon('FolderOpen'),
+    Gauge: icon('Gauge'),
     GitBranch: icon('GitBranch'),
     KanbanSquare: icon('KanbanSquare'),
     MessageSquare: icon('MessageSquare'),
@@ -307,6 +312,56 @@ describe('MainContent component render', () => {
     );
   }
 
+  async function renderMainContentPanels(
+    overrides?: Partial<MainContentPanelsProps>
+  ): Promise<string> {
+    const { MainContentPanels } = await import('../MainContentPanels');
+    return renderToStaticMarkup(
+      React.createElement(MainContentPanels, {
+        activeTab: 'chat',
+        innerBg: 'bg-background',
+        repoPath: '/repo/main',
+        worktreePath: '/repo/main/worktrees/current',
+        currentRepoPath: '/repo/main',
+        currentWorktreePath: '/repo/main/worktrees/current',
+        retainedChatContext: {
+          repoPath: '/repo/main',
+          worktreePath: '/repo/main/worktrees/current',
+        },
+        hasActiveWorktree: true,
+        worktreeCollapsed: false,
+        onExpandWorktree: vi.fn(),
+        onSwitchWorktree: vi.fn(),
+        getRepoPathForWorktree: (targetPath: string) =>
+          targetPath === '/repo/main/worktrees/older' ? '/repo/main' : null,
+        shouldRenderCurrentChatPanel: true,
+        shouldRenderCurrentTerminalPanel: false,
+        shouldRenderCurrentFilePanel: false,
+        cachedChatPanelPaths: [],
+        cachedTerminalPanelPaths: [],
+        cachedFilePanelPaths: [],
+        fileTreeDisplayMode: 'legacy',
+        shouldRenderSourceControl: false,
+        sourceControlRootPath: undefined,
+        sourceControlEmptyTitle: undefined,
+        sourceControlEmptyDescription: undefined,
+        todoEnabled: false,
+        shouldRenderTodo: false,
+        shouldRenderSettings: false,
+        settingsDisplayMode: 'tab',
+        setSettingsDisplayMode: vi.fn(),
+        settingsCategory: undefined,
+        onCategoryChange: undefined,
+        scrollToProvider: false,
+        onTabChange: vi.fn(),
+        selectedSubagent: null,
+        onCloseSelectedSubagent: vi.fn(),
+        onStartupBlockingReady: vi.fn(),
+        ...overrides,
+      })
+    );
+  }
+
   it('renders the current-file panel when fileTreeDisplayMode is current', async () => {
     settingsState.fileTreeDisplayMode = 'current';
     editorState.tabs = [{ path: '/repo/main/worktrees/current/src/App.tsx' }];
@@ -334,6 +389,7 @@ describe('MainContent component render', () => {
     const markup = await renderMainContent('source-control');
 
     expect(markup).toContain('data-panel="file-legacy"');
+    expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="source-control"');
   });
 
@@ -375,7 +431,26 @@ describe('MainContent component render', () => {
     expect(markup).not.toContain('data-panel="terminal"');
   });
 
-  it('renders the selected subagent transcript overlay while preserving the agent panel', async () => {
+  it('keeps cached chat panels loaded for inactive worktrees so session views survive worktree switches', async () => {
+    const markup = await renderMainContentPanels({
+      cachedChatPanelPaths: ['/repo/main/worktrees/older'],
+    });
+
+    expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-cwd="/repo/main/worktrees/current"');
+    expect(markup).toContain('data-cwd="/repo/main/worktrees/older"');
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"[^>]*data-should-load="true"|<div data-panel="agent"[^>]*data-should-load="true"[^>]*data-cwd="\/repo\/main\/worktrees\/current"/
+    );
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-should-load="true"|<div data-panel="agent"[^>]*data-should-load="true"[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
+    );
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-show-fallback="false"|<div data-panel="agent"[^>]*data-show-fallback="false"[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
+    );
+  });
+
+  it('keeps the current agent panel mounted behind the selected subagent transcript', async () => {
     const markup = await renderMainContent('chat', {
       selectedSubagent: {
         id: 'child-1',
@@ -390,6 +465,8 @@ describe('MainContent component render', () => {
     });
 
     expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-active="false"');
+    expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="subagent-transcript"');
     expect(markup).toContain('data-thread-id="child-thread-1"');
   });
@@ -405,6 +482,7 @@ describe('MainContent component render', () => {
     const markup = await renderMainContent('source-control');
 
     expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="source-control"');
   });
 
@@ -433,6 +511,7 @@ describe('MainContent component render', () => {
     const markup = await renderMainContent('source-control');
 
     expect(markup).toContain('data-panel="terminal"');
+    expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="source-control"');
   });
 

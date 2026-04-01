@@ -128,6 +128,8 @@ export function useDraggable({
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
+
+    return undefined;
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
   // 窗口 resize 时重新验证位置

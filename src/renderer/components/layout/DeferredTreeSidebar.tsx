@@ -1,26 +1,26 @@
-import { FileCode } from 'lucide-react';
+import { GitBranch } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { CurrentFilePanelProps } from '@/components/files/CurrentFilePanel';
+import type { TreeSidebarProps } from '@/components/layout/TreeSidebar';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
 import { useDeferredReady } from './useDeferredReady';
 
-type CurrentFilePanelComponent = React.ComponentType<CurrentFilePanelProps>;
+type TreeSidebarComponent = React.ComponentType<TreeSidebarProps>;
 
-interface DeferredCurrentFilePanelProps extends CurrentFilePanelProps {
+interface DeferredTreeSidebarProps extends TreeSidebarProps {
   shouldLoad?: boolean;
   showFallback?: boolean;
   onReady?: () => void;
 }
 
-export function DeferredCurrentFilePanel({
+export function DeferredTreeSidebar({
   shouldLoad = true,
   showFallback = true,
   onReady,
   ...panelProps
-}: DeferredCurrentFilePanelProps) {
+}: DeferredTreeSidebarProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<CurrentFilePanelComponent | null>(null);
+  const [Component, setComponent] = useState<TreeSidebarComponent | null>(null);
 
   useEffect(() => {
     if (!shouldLoad || Component) {
@@ -28,11 +28,11 @@ export function DeferredCurrentFilePanel({
     }
 
     let cancelled = false;
-    import('@/components/files/CurrentFilePanel').then((module) => {
+    import('@/components/layout/TreeSidebar').then((module) => {
       if (cancelled) {
         return;
       }
-      setComponent(() => module.CurrentFilePanel as CurrentFilePanelComponent);
+      setComponent(() => module.TreeSidebar as TreeSidebarComponent);
     });
 
     return () => {
@@ -52,10 +52,10 @@ export function DeferredCurrentFilePanel({
 
   return (
     <DeferredPanelFallback
-      icon={<FileCode className="h-5 w-5" />}
-      eyebrow={t('File Explorer')}
-      title={t('Loading editor')}
-      description={t('Preparing active file workspace')}
+      icon={<GitBranch className="h-5 w-5" />}
+      eyebrow={t('Workspace Tree')}
+      title={t('Loading workspace tree')}
+      description={t('Preparing repositories, worktrees, and activity indicators')}
     />
   );
 }

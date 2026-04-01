@@ -112,6 +112,8 @@ export function useResizable({
         document.removeEventListener('mouseup', handleResizeEnd);
       };
     }
+
+    return undefined;
   }, [isResizing, handleResizeMove, handleResizeEnd]);
 
   const getResizeHandleProps = useCallback(

@@ -1,26 +1,26 @@
-import { FileCode } from 'lucide-react';
+import { GitBranch } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { CurrentFilePanelProps } from '@/components/files/CurrentFilePanel';
+import type { WorktreePanelProps } from '@/components/layout/WorktreePanel';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
 import { useDeferredReady } from './useDeferredReady';
 
-type CurrentFilePanelComponent = React.ComponentType<CurrentFilePanelProps>;
+type WorktreePanelComponent = React.ComponentType<WorktreePanelProps>;
 
-interface DeferredCurrentFilePanelProps extends CurrentFilePanelProps {
+interface DeferredWorktreePanelProps extends WorktreePanelProps {
   shouldLoad?: boolean;
   showFallback?: boolean;
   onReady?: () => void;
 }
 
-export function DeferredCurrentFilePanel({
+export function DeferredWorktreePanel({
   shouldLoad = true,
   showFallback = true,
   onReady,
   ...panelProps
-}: DeferredCurrentFilePanelProps) {
+}: DeferredWorktreePanelProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<CurrentFilePanelComponent | null>(null);
+  const [Component, setComponent] = useState<WorktreePanelComponent | null>(null);
 
   useEffect(() => {
     if (!shouldLoad || Component) {
@@ -28,11 +28,11 @@ export function DeferredCurrentFilePanel({
     }
 
     let cancelled = false;
-    import('@/components/files/CurrentFilePanel').then((module) => {
+    import('@/components/layout/WorktreePanel').then((module) => {
       if (cancelled) {
         return;
       }
-      setComponent(() => module.CurrentFilePanel as CurrentFilePanelComponent);
+      setComponent(() => module.WorktreePanel as WorktreePanelComponent);
     });
 
     return () => {
@@ -52,10 +52,10 @@ export function DeferredCurrentFilePanel({
 
   return (
     <DeferredPanelFallback
-      icon={<FileCode className="h-5 w-5" />}
-      eyebrow={t('File Explorer')}
-      title={t('Loading editor')}
-      description={t('Preparing active file workspace')}
+      icon={<GitBranch className="h-5 w-5" />}
+      eyebrow={t('Worktrees')}
+      title={t('Loading worktrees')}
+      description={t('Preparing branches, worktree status, and session context')}
     />
   );
 }

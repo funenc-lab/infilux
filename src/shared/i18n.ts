@@ -170,6 +170,13 @@ export const zhTranslations: Record<string, string> = {
   'Option as Meta': 'Option 作为 Meta',
   'Use Option key as Meta instead of composing special characters':
     '将 Option 键作为 Meta 键使用，而非输入特殊字符（如 π）',
+  'Context window is getting full': '上下文窗口正在接近上限',
+  'Context window is almost full': '上下文窗口几乎已满',
+  'This session is using {{percent}}% of the available context. Consider starting a fresh session soon.':
+    '当前会话已使用可用上下文的 {{percent}}%。建议尽快开启一个新会话。',
+  'This session is using {{percent}}% of the available context. Start a fresh session before responses become less reliable.':
+    '当前会话已使用可用上下文的 {{percent}}%。请在回复质量下降前开启一个新会话。',
+  'Start fresh session': '开启新会话',
   'Click to load worktrees': '点击加载 worktrees',
   'Click the selected repository again to connect and load worktrees.':
     '再次点击当前仓库以连接并加载 worktree。',
@@ -2153,6 +2160,14 @@ export const zhTranslations: Record<string, string> = {
   'Preparing preferences and configuration panels': '正在准备偏好设置与配置面板',
   'Loading tasks': '正在加载任务',
   'Preparing the kanban board': '正在准备看板',
+  'Loading repositories': '正在加载仓库',
+  'Preparing repository groups and recent workspace state': '正在准备仓库分组与最近工作区状态',
+  'Workspace Tree': '工作区树',
+  'Loading workspace tree': '正在加载工作区树',
+  'Preparing repositories, worktrees, and activity indicators': '正在准备仓库、工作区与活动指示器',
+  'Loading worktrees': '正在加载工作区',
+  'Preparing branches, worktree status, and session context':
+    '正在准备分支、工作区状态与会话上下文',
   'Disposable workspaces': '一次性工作区',
   'Try a broader search or clear the current filter.': '尝试更宽泛的搜索，或清除当前筛选。',
   'No temp sessions yet': '还没有临时会话',

@@ -1,8 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { DeferredCurrentFilePanel } from '../DeferredCurrentFilePanel';
-import { DeferredFilePanel } from '../DeferredFilePanel';
 
 vi.mock('lucide-react', () => ({
   FileCode: (props: Record<string, unknown>) => React.createElement('svg', props),
@@ -43,7 +41,9 @@ vi.mock('../ControlStateCard', () => ({
 }));
 
 describe('Deferred file panels', () => {
-  it('renders FilePanel immediately when shouldLoad is true', () => {
+  it('renders a loading placeholder before FilePanel resolves', async () => {
+    const { DeferredFilePanel } = await import('../DeferredFilePanel');
+
     const markup = renderToStaticMarkup(
       React.createElement(DeferredFilePanel, {
         shouldLoad: true,
@@ -52,11 +52,28 @@ describe('Deferred file panels', () => {
       })
     );
 
-    expect(markup).toContain('data-file-panel="/repo"');
-    expect(markup).not.toContain('Loading file explorer');
+    expect(markup).toContain('data-control-state-card="Loading file explorer"');
+    expect(markup).not.toContain('data-file-panel');
   });
 
-  it('renders CurrentFilePanel immediately when shouldLoad is true', () => {
+  it('suppresses the loading placeholder for FilePanel when fallback display is disabled', async () => {
+    const { DeferredFilePanel } = await import('../DeferredFilePanel');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(DeferredFilePanel, {
+        shouldLoad: true,
+        showFallback: false,
+        rootPath: '/repo',
+        isActive: false,
+      })
+    );
+
+    expect(markup).toBe('');
+  });
+
+  it('renders a loading placeholder before CurrentFilePanel resolves', async () => {
+    const { DeferredCurrentFilePanel } = await import('../DeferredCurrentFilePanel');
+
     const markup = renderToStaticMarkup(
       React.createElement(DeferredCurrentFilePanel, {
         shouldLoad: true,
@@ -65,7 +82,22 @@ describe('Deferred file panels', () => {
       })
     );
 
-    expect(markup).toContain('data-current-file-panel="/repo"');
-    expect(markup).not.toContain('Loading editor');
+    expect(markup).toContain('data-control-state-card="Loading editor"');
+    expect(markup).not.toContain('data-current-file-panel');
+  });
+
+  it('suppresses the loading placeholder for CurrentFilePanel when fallback display is disabled', async () => {
+    const { DeferredCurrentFilePanel } = await import('../DeferredCurrentFilePanel');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(DeferredCurrentFilePanel, {
+        shouldLoad: true,
+        showFallback: false,
+        rootPath: '/repo',
+        isActive: false,
+      })
+    );
+
+    expect(markup).toBe('');
   });
 });

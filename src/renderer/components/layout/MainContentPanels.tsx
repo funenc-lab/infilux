@@ -2,6 +2,7 @@ import type { LiveAgentSubagent } from '@shared/types';
 import { getDisplayPathBasename } from '@shared/utils/path';
 import { GitBranch, RectangleEllipsis, Sparkles } from 'lucide-react';
 import type { TabId } from '@/App/constants';
+import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -14,6 +15,7 @@ import { DeferredSettingsContent } from './DeferredSettingsContent';
 import { DeferredSourceControlPanel } from './DeferredSourceControlPanel';
 import { DeferredTerminalPanel } from './DeferredTerminalPanel';
 import { DeferredTodoPanel } from './DeferredTodoPanel';
+import { resolveMainContentChatPanelPlan } from './mainContentChatPanelPlan';
 import { SubagentTranscriptPanel } from './SubagentTranscriptPanel';
 
 type FileTreeDisplayMode = 'legacy' | 'current';
@@ -59,6 +61,7 @@ export interface MainContentPanelsProps {
   onTabChange: (tab: TabId) => void;
   selectedSubagent?: LiveAgentSubagent | null;
   onCloseSelectedSubagent?: () => void;
+  onStartupBlockingReady?: (key: StartupBlockingKey) => void;
 }
 
 function getPathLabel(path?: string | null): string | null {
@@ -146,13 +149,68 @@ export function MainContentPanels({
   onTabChange,
   selectedSubagent = null,
   onCloseSelectedSubagent,
+  onStartupBlockingReady,
 }: MainContentPanelsProps) {
   const { t } = useI18n();
   const repoLabel = getPathLabel(repoPath);
+  const showSubagentTranscript =
+    Boolean(selectedSubagent) && activeTab === 'chat' && hasActiveWorktree;
+  const chatPanelEntries = resolveMainContentChatPanelPlan({
+    activeTab,
+    cachedChatPanelPaths,
+    getRepoPathForWorktree,
+    hasActiveWorktree,
+    retainedChatContext,
+    shouldRenderCurrentChatPanel,
+    showSubagentTranscript,
+  });
 
   return (
     <div className="relative flex-1 overflow-hidden">
-      {shouldRenderCurrentChatPanel ? (
+      {chatPanelEntries.map((entry) => (
+        <div
+          key={`chat:${entry.worktreePath}`}
+          className={cn(
+            'absolute inset-0',
+            innerBg,
+            entry.isVisible ? 'z-10' : 'invisible pointer-events-none z-0'
+          )}
+        >
+          <DeferredAgentPanel
+            onReady={
+              entry.isCurrent && entry.isVisible
+                ? () => onStartupBlockingReady?.('chat-panel')
+                : undefined
+            }
+            repoPath={entry.repoPath}
+            cwd={entry.worktreePath}
+            isActive={entry.isActive}
+            onSwitchWorktree={onSwitchWorktree}
+            shouldLoad
+            showFallback={entry.showFallback}
+          />
+        </div>
+      ))}
+      {showSubagentTranscript ? (
+        <div className={cn('absolute inset-0 z-20', innerBg)}>
+          <SubagentTranscriptPanel
+            subagent={selectedSubagent as LiveAgentSubagent}
+            onClose={onCloseSelectedSubagent ?? (() => {})}
+          />
+        </div>
+      ) : null}
+      {shouldRenderCurrentChatPanel && retainedChatContext && !hasActiveWorktree ? (
+        <div className={cn('absolute inset-0 z-20', innerBg)}>
+          <ConsoleIdleState
+            title={t('AI Agent needs a worktree')}
+            description={t('Each worktree keeps its own agent sessions, context, and output.')}
+            repoLabel={repoLabel}
+            worktreeCollapsed={worktreeCollapsed}
+            onExpandWorktree={onExpandWorktree}
+          />
+        </div>
+      ) : null}
+      {shouldRenderCurrentChatPanel && !retainedChatContext ? (
         <div
           className={cn(
             'absolute inset-0',
@@ -160,69 +218,15 @@ export function MainContentPanels({
             activeTab === 'chat' ? 'z-10' : 'invisible pointer-events-none z-0'
           )}
         >
-          {retainedChatContext ? (
-            <>
-              <DeferredAgentPanel
-                repoPath={retainedChatContext.repoPath}
-                cwd={retainedChatContext.worktreePath}
-                isActive={activeTab === 'chat' && hasActiveWorktree}
-                onSwitchWorktree={onSwitchWorktree}
-                shouldLoad
-              />
-              {selectedSubagent && activeTab === 'chat' && hasActiveWorktree ? (
-                <SubagentTranscriptPanel
-                  subagent={selectedSubagent}
-                  onClose={onCloseSelectedSubagent ?? (() => {})}
-                />
-              ) : null}
-              {!hasActiveWorktree ? (
-                <div className={cn('absolute inset-0 z-20', innerBg)}>
-                  <ConsoleIdleState
-                    title={t('AI Agent needs a worktree')}
-                    description={t(
-                      'Each worktree keeps its own agent sessions, context, and output.'
-                    )}
-                    repoLabel={repoLabel}
-                    worktreeCollapsed={worktreeCollapsed}
-                    onExpandWorktree={onExpandWorktree}
-                  />
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className={cn('h-full', innerBg)}>
-              <ConsoleIdleState
-                title={t('AI Agent needs a worktree')}
-                description={t('Each worktree keeps its own agent sessions, context, and output.')}
-                repoLabel={repoLabel}
-                worktreeCollapsed={worktreeCollapsed}
-                onExpandWorktree={onExpandWorktree}
-              />
-            </div>
-          )}
+          <ConsoleIdleState
+            title={t('AI Agent needs a worktree')}
+            description={t('Each worktree keeps its own agent sessions, context, and output.')}
+            repoLabel={repoLabel}
+            worktreeCollapsed={worktreeCollapsed}
+            onExpandWorktree={onExpandWorktree}
+          />
         </div>
       ) : null}
-      {cachedChatPanelPaths.map((cachedWorktreePath) => {
-        const cachedRepoPath = getRepoPathForWorktree(cachedWorktreePath);
-        if (!cachedRepoPath) {
-          return null;
-        }
-
-        return (
-          <div
-            key={`chat:${cachedWorktreePath}`}
-            className={cn('absolute inset-0', innerBg, 'invisible pointer-events-none z-0')}
-          >
-            <DeferredAgentPanel
-              repoPath={cachedRepoPath}
-              cwd={cachedWorktreePath}
-              isActive={false}
-              onSwitchWorktree={onSwitchWorktree}
-              shouldLoad
-            />
-          </div>
-        );
-      })}
 
       {shouldRenderCurrentTerminalPanel ? (
         <div
@@ -233,11 +237,13 @@ export function MainContentPanels({
           )}
         >
           <DeferredTerminalPanel
+            onReady={() => onStartupBlockingReady?.('terminal-panel')}
             repoPath={currentRepoPath ?? undefined}
             cwd={currentWorktreePath ?? undefined}
             isActive={activeTab === 'terminal' && hasActiveWorktree}
             onExpandWorktree={onExpandWorktree}
             shouldLoad={activeTab === 'terminal'}
+            showFallback={activeTab === 'terminal'}
             worktreeCollapsed={worktreeCollapsed}
           />
         </div>
@@ -252,6 +258,7 @@ export function MainContentPanels({
             cwd={cachedWorktreePath}
             isActive={false}
             shouldLoad
+            showFallback={false}
           />
         </div>
       ))}
@@ -266,18 +273,22 @@ export function MainContentPanels({
         >
           {fileTreeDisplayMode === 'current' ? (
             <DeferredCurrentFilePanel
+              onReady={() => onStartupBlockingReady?.('file-panel')}
               rootPath={currentWorktreePath ?? undefined}
               isActive={activeTab === 'file'}
               onExpandWorktree={onExpandWorktree}
               shouldLoad={activeTab === 'file'}
+              showFallback={activeTab === 'file'}
               worktreeCollapsed={worktreeCollapsed}
             />
           ) : (
             <DeferredFilePanel
+              onReady={() => onStartupBlockingReady?.('file-panel')}
               rootPath={currentWorktreePath ?? undefined}
               isActive={activeTab === 'file'}
               onExpandWorktree={onExpandWorktree}
               shouldLoad={activeTab === 'file'}
+              showFallback={activeTab === 'file'}
               worktreeCollapsed={worktreeCollapsed}
             />
           )}
@@ -289,9 +300,19 @@ export function MainContentPanels({
           className={cn('absolute inset-0', innerBg, 'invisible pointer-events-none z-0')}
         >
           {fileTreeDisplayMode === 'current' ? (
-            <DeferredCurrentFilePanel rootPath={cachedWorktreePath} isActive={false} shouldLoad />
+            <DeferredCurrentFilePanel
+              rootPath={cachedWorktreePath}
+              isActive={false}
+              shouldLoad
+              showFallback={false}
+            />
           ) : (
-            <DeferredFilePanel rootPath={cachedWorktreePath} isActive={false} shouldLoad />
+            <DeferredFilePanel
+              rootPath={cachedWorktreePath}
+              isActive={false}
+              shouldLoad
+              showFallback={false}
+            />
           )}
         </div>
       ))}
@@ -304,6 +325,7 @@ export function MainContentPanels({
           )}
         >
           <DeferredSourceControlPanel
+            onReady={() => onStartupBlockingReady?.('source-control-panel')}
             shouldLoad={shouldRenderSourceControl}
             rootPath={sourceControlRootPath}
             isActive={activeTab === 'source-control'}
@@ -324,6 +346,7 @@ export function MainContentPanels({
           )}
         >
           <DeferredTodoPanel
+            onReady={() => onStartupBlockingReady?.('todo-panel')}
             shouldLoad={shouldRenderTodo}
             repoPath={repoPath}
             worktreePath={worktreePath}
@@ -356,6 +379,7 @@ export function MainContentPanels({
             </div>
             <div className="flex-1 overflow-hidden">
               <DeferredSettingsContent
+                onReady={() => onStartupBlockingReady?.('settings-panel')}
                 shouldLoad={shouldRenderSettings}
                 activeCategory={settingsCategory}
                 onCategoryChange={onCategoryChange}

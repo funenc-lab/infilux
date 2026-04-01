@@ -54,6 +54,8 @@ describe('DeferredEditorArea', () => {
       })
     );
 
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('role="status"');
     expect(markup).toContain('Loading editor');
     expect(markup).not.toContain('data-editor-area');
   });

@@ -11,6 +11,7 @@ interface ControlStateCardProps {
   description: string;
   metaLabel?: string;
   metaValue?: string;
+  footer?: ReactNode;
   actions?: ReactNode;
   className?: string;
   cardClassName?: string;
@@ -23,6 +24,7 @@ export function ControlStateCard({
   description,
   metaLabel,
   metaValue,
+  footer,
   actions,
   className,
   cardClassName,
@@ -112,6 +114,7 @@ export function ControlStateCard({
                 <span className="min-w-0 text-pretty text-foreground/80">{metaValue}</span>
               </div>
             ) : null}
+            {footer ? <div className="mt-5">{footer}</div> : null}
             {actions ? (
               <div className="mt-6 border-t border-border/70 pt-4">
                 <div className="flex flex-wrap items-center gap-3">{actions}</div>

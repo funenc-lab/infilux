@@ -45,8 +45,13 @@ export const DeferredEditorArea = forwardRef<EditorAreaRef, DeferredEditorAreaPr
 
     if (!EditorAreaComponent) {
       return (
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          {t('Loading editor')}
+        <div aria-busy="true" role="status" className="flex h-full flex-col gap-4 px-5 py-4">
+          <div className="h-5 w-40 animate-pulse rounded-md bg-muted/70" />
+          <div className="grid flex-1 gap-3">
+            <div className="h-10 animate-pulse rounded-lg bg-muted/50" />
+            <div className="flex-1 animate-pulse rounded-xl bg-muted/35" />
+          </div>
+          <span className="sr-only">{t('Loading editor')}</span>
         </div>
       );
     }

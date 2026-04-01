@@ -2,15 +2,23 @@ import { Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { AgentPanelProps } from '@/components/chat/AgentPanel';
 import { useI18n } from '@/i18n';
-import { ControlStateCard } from './ControlStateCard';
+import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { useDeferredReady } from './useDeferredReady';
 
 type AgentPanelComponent = React.ComponentType<AgentPanelProps>;
 
 interface DeferredAgentPanelProps extends AgentPanelProps {
   shouldLoad?: boolean;
+  showFallback?: boolean;
+  onReady?: () => void;
 }
 
-export function DeferredAgentPanel({ shouldLoad = true, ...props }: DeferredAgentPanelProps) {
+export function DeferredAgentPanel({
+  shouldLoad = true,
+  showFallback = true,
+  onReady,
+  ...props
+}: DeferredAgentPanelProps) {
   const { t } = useI18n();
   const [Component, setComponent] = useState<AgentPanelComponent | null>(null);
 
@@ -32,12 +40,18 @@ export function DeferredAgentPanel({ shouldLoad = true, ...props }: DeferredAgen
     };
   }, [shouldLoad, Component]);
 
+  useDeferredReady(Boolean(Component), onReady);
+
   if (Component) {
     return <Component {...props} />;
   }
 
+  if (!showFallback) {
+    return null;
+  }
+
   return (
-    <ControlStateCard
+    <DeferredPanelFallback
       icon={<Sparkles className="h-5 w-5" />}
       eyebrow={t('Agent Console')}
       title={t('Loading AI Agent')}

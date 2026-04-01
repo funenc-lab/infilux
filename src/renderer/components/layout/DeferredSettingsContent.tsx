@@ -2,16 +2,19 @@ import { Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { SettingsContentProps } from '@/components/settings/SettingsContent';
 import { useI18n } from '@/i18n';
-import { ControlStateCard } from './ControlStateCard';
+import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { useDeferredReady } from './useDeferredReady';
 
 type SettingsContentComponent = React.ComponentType<SettingsContentProps>;
 
 interface DeferredSettingsContentProps extends SettingsContentProps {
   shouldLoad?: boolean;
+  onReady?: () => void;
 }
 
 export function DeferredSettingsContent({
   shouldLoad = true,
+  onReady,
   ...props
 }: DeferredSettingsContentProps) {
   const { t } = useI18n();
@@ -35,12 +38,14 @@ export function DeferredSettingsContent({
     };
   }, [shouldLoad, Component]);
 
+  useDeferredReady(Boolean(Component), onReady);
+
   if (Component) {
     return <Component {...props} />;
   }
 
   return (
-    <ControlStateCard
+    <DeferredPanelFallback
       icon={<Settings className="h-5 w-5" />}
       eyebrow={t('Settings')}
       title={t('Loading settings')}

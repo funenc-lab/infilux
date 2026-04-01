@@ -2,6 +2,7 @@ import type { LiveAgentSubagent } from '@shared/types';
 import { FileCode, GitBranch, KanbanSquare, Sparkles, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
+import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
 import { normalizePath } from '@/App/storage';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { useI18n } from '@/i18n';
@@ -13,6 +14,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
+import { updateRetainedChatPanelPaths } from './chatPanelRetentionPolicy';
 import { DeferredDiffReviewModal } from './DeferredDiffReviewModal';
 import { updateRetainedFilePanelPaths } from './filePanelLruPolicy';
 import { getFileTabCountForWorktree as getFileTabCountForWorktreeState } from './filePanelWorktreeState';
@@ -24,7 +26,7 @@ import { buildMainContentRenderPlan } from './mainContentRenderPlan';
 
 type LayoutMode = 'columns' | 'tree';
 
-interface MainContentProps {
+export interface MainContentProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   tabOrder?: TabId[];
@@ -53,6 +55,7 @@ interface MainContentProps {
   sourceControlEmptyDescription?: string;
   selectedSubagent?: LiveAgentSubagent | null;
   onCloseSelectedSubagent?: () => void;
+  onStartupBlockingReady?: (key: StartupBlockingKey) => void;
 }
 
 export function MainContent({
@@ -84,6 +87,7 @@ export function MainContent({
   sourceControlEmptyDescription,
   selectedSubagent = null,
   onCloseSelectedSubagent,
+  onStartupBlockingReady,
 }: MainContentProps) {
   const { t } = useI18n();
   const settingsDisplayMode = useSettingsStore((state) => state.settingsDisplayMode);
@@ -367,7 +371,7 @@ export function MainContent({
 
   useEffect(() => {
     setRetainedChatPanelPaths((previousPaths) =>
-      updateRetainedActivityPanelPaths({
+      updateRetainedChatPanelPaths({
         previousPaths,
         activePath: currentWorktreePath,
         hasActivity: hasAgentActivityForWorktree,
@@ -469,6 +473,7 @@ export function MainContent({
         onTabChange={onTabChange}
         selectedSubagent={selectedSubagent}
         onCloseSelectedSubagent={onCloseSelectedSubagent}
+        onStartupBlockingReady={onStartupBlockingReady}
       />
 
       <DeferredDiffReviewModal

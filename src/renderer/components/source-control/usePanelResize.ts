@@ -46,6 +46,8 @@ export function usePanelResize(options: UsePanelResizeOptions = {}) {
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
+
+    return undefined;
   }, [isResizing, handleMouseMove, handleMouseUp]);
 
   return {

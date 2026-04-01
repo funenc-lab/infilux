@@ -1,26 +1,26 @@
-import { FileCode } from 'lucide-react';
+import { FolderGit2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { CurrentFilePanelProps } from '@/components/files/CurrentFilePanel';
+import type { RepositorySidebarProps } from '@/components/layout/RepositorySidebar';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
 import { useDeferredReady } from './useDeferredReady';
 
-type CurrentFilePanelComponent = React.ComponentType<CurrentFilePanelProps>;
+type RepositorySidebarComponent = React.ComponentType<RepositorySidebarProps>;
 
-interface DeferredCurrentFilePanelProps extends CurrentFilePanelProps {
+interface DeferredRepositorySidebarProps extends RepositorySidebarProps {
   shouldLoad?: boolean;
   showFallback?: boolean;
   onReady?: () => void;
 }
 
-export function DeferredCurrentFilePanel({
+export function DeferredRepositorySidebar({
   shouldLoad = true,
   showFallback = true,
   onReady,
   ...panelProps
-}: DeferredCurrentFilePanelProps) {
+}: DeferredRepositorySidebarProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<CurrentFilePanelComponent | null>(null);
+  const [Component, setComponent] = useState<RepositorySidebarComponent | null>(null);
 
   useEffect(() => {
     if (!shouldLoad || Component) {
@@ -28,11 +28,11 @@ export function DeferredCurrentFilePanel({
     }
 
     let cancelled = false;
-    import('@/components/files/CurrentFilePanel').then((module) => {
+    import('@/components/layout/RepositorySidebar').then((module) => {
       if (cancelled) {
         return;
       }
-      setComponent(() => module.CurrentFilePanel as CurrentFilePanelComponent);
+      setComponent(() => module.RepositorySidebar as RepositorySidebarComponent);
     });
 
     return () => {
@@ -52,10 +52,10 @@ export function DeferredCurrentFilePanel({
 
   return (
     <DeferredPanelFallback
-      icon={<FileCode className="h-5 w-5" />}
-      eyebrow={t('File Explorer')}
-      title={t('Loading editor')}
-      description={t('Preparing active file workspace')}
+      icon={<FolderGit2 className="h-5 w-5" />}
+      eyebrow={t('Repositories')}
+      title={t('Loading repositories')}
+      description={t('Preparing repository groups and recent workspace state')}
     />
   );
 }
