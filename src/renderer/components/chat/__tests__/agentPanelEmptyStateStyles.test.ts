@@ -4,6 +4,13 @@ import { agentPanelSource } from './agentPanelSource';
 const panelSource = agentPanelSource;
 
 describe('AgentPanel empty state styles', () => {
+  it('centers the empty state card within the agent panel surface', () => {
+    expect(panelSource).toContain(
+      'absolute inset-0 z-20 flex items-start justify-center px-6 pb-6 pt-24 sm:pt-28'
+    );
+    expect(panelSource).toContain('className="mx-auto max-w-[min(48rem,100%)]"');
+  });
+
   it('uses shared console action button classes for the empty state controls', () => {
     expect(panelSource).toContain('control-action-button');
     expect(panelSource).toContain('control-action-button-primary');
@@ -20,18 +27,27 @@ describe('AgentPanel empty state styles', () => {
   });
 
   it('merges the default launch action and profile picker into a split control', () => {
-    expect(panelSource).toContain('flex min-w-0 items-stretch overflow-hidden rounded-xl');
-    expect(panelSource).toContain("emptyStateModel.showProfilePicker ? 'rounded-r-none pr-4'");
+    expect(panelSource).toContain('flex w-full min-w-0 items-stretch overflow-hidden rounded-xl');
     expect(panelSource).toContain('EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME');
   });
 
   it('gives the primary action stronger hierarchy with a stacked label block and responsive action layout', () => {
     expect(panelSource).toContain(
-      'flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-stretch'
+      'flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-center'
     );
-    expect(panelSource).toContain('min-h-12 flex-1 justify-start gap-3 px-4 py-2 text-left');
+    expect(panelSource).toContain(
+      'min-h-[3.75rem] flex-1 justify-start gap-3.5 px-5 py-3 text-left whitespace-normal'
+    );
     expect(panelSource).toContain('flex min-w-0 flex-1 flex-col items-start gap-1');
     expect(panelSource).toContain('text-xs leading-none text-primary-foreground/78');
+  });
+
+  it('keeps the primary launch control visually balanced instead of stretching across the row', () => {
+    expect(panelSource).toContain('relative flex w-full items-stretch justify-center sm:w-auto');
+    expect(panelSource).toContain(
+      "emptyStateModel.showProfilePicker\n                      ? 'flex-1 rounded-r-none pr-4 sm:min-w-[18rem] sm:flex-none'"
+    );
+    expect(panelSource).toContain(": 'min-w-[16rem] sm:min-w-[18rem]'");
   });
 
   it('anchors the profile menu to the action group with responsive width handling', () => {

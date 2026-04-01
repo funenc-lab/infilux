@@ -16,6 +16,7 @@ import { remoteConnectionManager } from '../remote/RemoteConnectionManager';
 import { isRemoteVirtualPath, parseRemoteVirtualPath } from '../remote/RemotePath';
 import { PtyManager } from '../terminal/PtyManager';
 import { localSupervisorRuntime } from './LocalSupervisorRuntime';
+import { persistentAgentSessionService } from './PersistentAgentSessionService';
 
 interface ManagedSessionRecord extends SessionDescriptor {
   attachedWindowIds: Set<number>;
@@ -47,6 +48,13 @@ function getWindowId(target: BrowserWindow | WebContents | number): number {
 
 function now(): number {
   return Date.now();
+}
+
+function getPersistentUiSessionId(
+  metadata: Record<string, unknown> | undefined
+): string | undefined {
+  const uiSessionId = metadata?.uiSessionId;
+  return typeof uiSessionId === 'string' && uiSessionId.length > 0 ? uiSessionId : undefined;
 }
 
 export class SessionManager {
@@ -231,6 +239,8 @@ export class SessionManager {
     if (!session) {
       return;
     }
+
+    this.cleanupPersistentSessionRecord(session);
 
     if (session.backend === 'remote' && session.connectionId) {
       const connectionId = session.connectionId;
@@ -605,6 +615,8 @@ export class SessionManager {
       return;
     }
 
+    this.cleanupPersistentSessionRecord(session);
+
     const event: SessionExitEvent = {
       sessionId,
       exitCode,
@@ -731,6 +743,9 @@ export class SessionManager {
             const attachedWindowIds = session
               ? new Set(session.attachedWindowIds)
               : new Set<number>();
+            if (session) {
+              this.cleanupPersistentSessionRecord(session);
+            }
             this.sessions.delete(event.sessionId);
             if (connectionId) {
               this.cleanupRemoteResourcesIfUnused(connectionId);
@@ -1033,6 +1048,7 @@ export class SessionManager {
 
     const attachedWindowIds = new Set(session.attachedWindowIds);
     const connectionId = session.connectionId;
+    this.cleanupPersistentSessionRecord(session);
     this.sessions.delete(session.sessionId);
     if (connectionId) {
       this.cleanupRemoteResourcesIfUnused(connectionId);
@@ -1063,6 +1079,21 @@ export class SessionManager {
     }
     session.runtimeState = state;
     this.emitState({ sessionId, state });
+  }
+
+  private cleanupPersistentSessionRecord(session: ManagedSessionRecord): void {
+    if (session.kind !== 'agent') {
+      return;
+    }
+
+    const uiSessionId = getPersistentUiSessionId(session.metadata);
+    if (!uiSessionId) {
+      return;
+    }
+
+    void persistentAgentSessionService.abandonSession(uiSessionId).catch((error) => {
+      console.warn('[session] Failed to abandon persistent agent session record:', error);
+    });
   }
 
   private emitData(sessionId: string, data: string, windowIds?: Set<number>): void {

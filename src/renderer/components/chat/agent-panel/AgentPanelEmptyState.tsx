@@ -31,9 +31,9 @@ interface AgentPanelEmptyStateProps {
 const EMPTY_STATE_ACTION_BUTTON_CLASS_NAME =
   'control-action-button inline-flex min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl';
 const EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME =
-  'control-action-button-primary min-h-12 flex-1 justify-start gap-3 px-4 py-2 text-left whitespace-normal';
+  'control-action-button-primary min-h-[3.75rem] flex-1 justify-start gap-3.5 px-5 py-3 text-left whitespace-normal';
 const EMPTY_STATE_PRIMARY_ACTION_ICON_CLASS_NAME =
-  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/10 ring-1 ring-white/10';
+  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-black/8 ring-1 ring-white/12';
 const EMPTY_STATE_PRIMARY_ACTION_CONTENT_CLASS_NAME =
   'flex min-w-0 flex-1 flex-col items-start gap-1';
 const EMPTY_STATE_PRIMARY_ACTION_META_CLASS_NAME =
@@ -41,13 +41,13 @@ const EMPTY_STATE_PRIMARY_ACTION_META_CLASS_NAME =
 const EMPTY_STATE_PRIMARY_ACTION_META_BADGE_CLASS_NAME =
   'inline-flex shrink-0 items-center rounded-full border border-white/12 bg-black/8 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-foreground/74';
 const EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME =
-  'control-action-button-secondary min-h-12 justify-start gap-3 px-4 text-[15px] font-medium text-left sm:min-w-[13rem]';
+  'control-action-button-secondary min-h-[3.75rem] w-full justify-start gap-3 px-5 text-[15px] font-medium text-left sm:w-auto sm:min-w-[14rem]';
 const EMPTY_STATE_SECONDARY_ACTION_ICON_CLASS_NAME =
-  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/42 text-foreground';
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/38 text-foreground ring-1 ring-border/50';
 const EMPTY_STATE_ACTIONS_LAYOUT_CLASS_NAME =
-  'flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-stretch';
+  'flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-center';
 const EMPTY_STATE_SPLIT_ACTION_GROUP_CLASS_NAME =
-  'flex min-w-0 items-stretch overflow-hidden rounded-xl w-full sm:w-auto';
+  'flex w-full min-w-0 items-stretch overflow-hidden rounded-xl';
 const EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME =
   'min-h-12 min-w-0 rounded-l-none border-l border-white/12 px-3 text-[15px]';
 const EMPTY_STATE_SPLIT_ACTION_MENU_CLASS_NAME =
@@ -96,14 +96,14 @@ export function AgentPanelEmptyState({
   return (
     <div
       className={cn(
-        'absolute inset-0 z-20 flex items-start justify-center px-6 pb-6 pt-12 sm:pt-16',
+        'absolute inset-0 z-20 flex items-start justify-center px-6 pb-6 pt-24 sm:pt-28',
         !bgImageEnabled && 'bg-background'
       )}
     >
       <ConsoleEmptyState
-        className="max-w-[min(60rem,100%)]"
+        className="mx-auto max-w-[min(48rem,100%)]"
         icon={<Bot className="h-5 w-5" />}
-        eyebrow={t('Agent Console')}
+        eyebrow={t('No active sessions')}
         title={t('No agent sessions are attached to this worktree')}
         description={t(
           'Launch the default agent immediately or choose another profile to resume orchestration in this worktree.'
@@ -112,7 +112,6 @@ export function AgentPanelEmptyState({
         details={[
           { label: t('Status'), value: emptyStateModel.statusLabel },
           { label: t('Default Agent'), value: defaultAgentLabel },
-          { label: t('Profiles Ready'), value: String(enabledAgentCount) },
           {
             label: t('Next Step'),
             value: emptyStateModel.nextStepLabel,
@@ -123,7 +122,7 @@ export function AgentPanelEmptyState({
           <div className={EMPTY_STATE_ACTIONS_LAYOUT_CLASS_NAME}>
             <div
               ref={emptyStateAgentMenuRef}
-              className="relative flex min-w-0 flex-1 items-stretch"
+              className="relative flex w-full items-stretch justify-center sm:w-auto"
             >
               <div
                 className={cn(
@@ -144,7 +143,9 @@ export function AgentPanelEmptyState({
                   className={cn(
                     EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
                     EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME,
-                    emptyStateModel.showProfilePicker ? 'rounded-r-none pr-4' : 'min-w-[14rem]'
+                    emptyStateModel.showProfilePicker
+                      ? 'flex-1 rounded-r-none pr-4 sm:min-w-[18rem] sm:flex-none'
+                      : 'min-w-[16rem] sm:min-w-[18rem]'
                   )}
                   style={buttonStyle}
                 >

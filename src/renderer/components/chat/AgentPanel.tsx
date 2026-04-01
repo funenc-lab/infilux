@@ -6,6 +6,10 @@ import { normalizePath, pathsEqual } from '@/App/storage';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import {
+  isSessionPersistable,
+  isSessionPersistenceEnabledForHost,
+} from '@/lib/agentSessionPersistence';
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import {
   onAgentStopNotification,
@@ -68,6 +72,7 @@ function buildPersistentHostSessionKey(uiSessionId: string): string {
 
 function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
   const isWindows = getRendererEnvironment().platform === 'win32';
+  const createdAt = session.createdAt ?? Date.now();
 
   return {
     uiSessionId: session.id,
@@ -88,7 +93,7 @@ function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
       ? (session.backendSessionId ?? session.id)
       : buildPersistentHostSessionKey(session.id),
     recoveryPolicy: 'auto',
-    createdAt: Date.now(),
+    createdAt,
     updatedAt: Date.now(),
     lastKnownState: session.recoveryState ?? 'live',
   };
@@ -169,7 +174,8 @@ function createSession(
   agentSettings: Record<
     string,
     { enabled: boolean; isDefault: boolean; customPath?: string; customArgs?: string }
-  >
+  >,
+  persistenceEnabled: boolean
 ): Session {
   // Handle Hapi and Happy agent IDs
   // e.g., 'claude-hapi' -> base is 'claude', 'claude-happy' -> base is 'claude'
@@ -198,6 +204,7 @@ function createSession(
   return {
     id,
     sessionId: id, // Initialize sessionId with same value as id
+    createdAt: Date.now(),
     name: displayName,
     agentId,
     agentCommand: info.command,
@@ -207,6 +214,7 @@ function createSession(
     repoPath,
     cwd,
     environment,
+    persistenceEnabled,
   };
 }
 
@@ -219,10 +227,11 @@ function createSessionWithOverrides(
     string,
     { enabled: boolean; isDefault: boolean; customPath?: string; customArgs?: string }
   >,
+  persistenceEnabled: boolean,
   overrides: Partial<Session> = {}
 ): Session {
   return {
-    ...createSession(repoPath, cwd, agentId, customAgents, agentSettings),
+    ...createSession(repoPath, cwd, agentId, customAgents, agentSettings, persistenceEnabled),
     ...overrides,
   };
 }
@@ -386,10 +395,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const updateSession = useAgentSessionsStore((state) => state.updateSession);
   const setActiveId = useAgentSessionsStore((state) => state.setActiveId);
   const persistableSessions = useMemo(
-    () =>
-      allSessions.filter(
-        (session) => Boolean(session.activated) && !isRemoteVirtualPath(session.cwd)
-      ),
+    () => allSessions.filter((session) => isSessionPersistable(session)),
     [allSessions]
   );
 
@@ -418,6 +424,15 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const getCurrentActiveSessionId = useCallback(() => {
     return groups.find((group) => group.id === activeGroupId)?.activeSessionId ?? null;
   }, [groups, activeGroupId]);
+  const sessionPersistenceEnabled = useMemo(
+    () =>
+      isSessionPersistenceEnabledForHost({
+        cwd,
+        platform: getRendererEnvironment().platform,
+        tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
+      }),
+    [cwd, claudeCodeIntegration.tmuxEnabled]
+  );
 
   const pauseQuickTerminalFocusLock = useCallback(() => {
     if (quickTerminalFocusLeaseRef.current.release) return;
@@ -804,6 +819,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       const newSession: Session = {
         id: crypto.randomUUID(), // Generate new session ID
         sessionId: pendingContinueSessionId, // Use code review's sessionId for --resume
+        createdAt: Date.now(),
         name: 'Code Review',
         agentId: continueAgentId,
         agentCommand: info.command,
@@ -811,6 +827,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         cwd,
         initialized: true, // Mark as initialized to use --resume
         environment: 'native',
+        persistenceEnabled: sessionPersistenceEnabled,
       };
 
       addSession(newSession);
@@ -855,6 +872,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     addSession,
     updateCurrentGroupState,
     setActiveId,
+    sessionPersistenceEnabled,
     clearContinueRequest,
   ]);
 
@@ -992,6 +1010,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           defaultAgentId,
           customAgents,
           agentSettings,
+          sessionPersistenceEnabled,
           sessionOverrides
         );
         addSession(newSession);
@@ -1042,6 +1061,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       defaultAgentId,
       customAgents,
       agentSettings,
+      sessionPersistenceEnabled,
       addSession,
       updateCurrentGroupState,
       claudeCodeIntegration.enhancedInputEnabled,
@@ -1069,6 +1089,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           agentId,
           customAgents,
           agentSettings,
+          sessionPersistenceEnabled,
           sessionOverrides
         );
         addSession(newSession);
@@ -1118,6 +1139,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       cwd,
       customAgents,
       agentSettings,
+      sessionPersistenceEnabled,
       addSession,
       updateCurrentGroupState,
       ensureAgentLaunchable,
@@ -1632,7 +1654,8 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           cwd,
           defaultAgentId,
           customAgents,
-          agentSettings
+          agentSettings,
+          sessionPersistenceEnabled
         );
         addSession(newSession);
 
@@ -1668,6 +1691,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       defaultAgentId,
       customAgents,
       agentSettings,
+      sessionPersistenceEnabled,
       addSession,
       updateCurrentGroupState,
       ensureAgentLaunchable,
@@ -2147,6 +2171,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                 environment={session.environment || 'native'}
                 initialized={session.initialized}
                 activated={session.activated}
+                persistenceEnabled={session.persistenceEnabled}
                 isActive={isTerminalActive}
                 hasPendingCommand={!!session.pendingCommand}
                 initialPrompt={session.pendingCommand}

@@ -110,13 +110,10 @@ describe('PersistentAgentSessionService', () => {
         runtimeState: 'live',
         recoverable: true,
       }),
-      expect.objectContaining({
-        record: expect.objectContaining({ uiSessionId: 'session-2' }),
-        runtimeState: 'dead',
-        recoverable: false,
-        reason: 'session-dead',
-      }),
     ]);
+    expect(persistentAgentSessionServiceTestDoubles.deleteSession).toHaveBeenCalledWith(
+      'session-2'
+    );
   });
 
   it('reconciles host state and persists missing tmux sessions as missing-host-session', async () => {
@@ -144,17 +141,10 @@ describe('PersistentAgentSessionService', () => {
         lastKnownState: 'missing-host-session',
       })
     );
-    expect(result.items).toEqual([
-      expect.objectContaining({
-        record: expect.objectContaining({
-          uiSessionId: 'session-1',
-          lastKnownState: 'missing-host-session',
-        }),
-        runtimeState: 'missing-host-session',
-        recoverable: false,
-        reason: 'missing-host-session',
-      }),
-    ]);
+    expect(result.items).toEqual([]);
+    expect(persistentAgentSessionServiceTestDoubles.deleteSession).toHaveBeenCalledWith(
+      'session-1'
+    );
   });
 
   it('ignores remote virtual-path records during worktree restore', async () => {
@@ -207,6 +197,38 @@ describe('PersistentAgentSessionService', () => {
       })
     );
     expect(persistentAgentSessionServiceTestDoubles.upsertSession).not.toHaveBeenCalled();
+  });
+
+  it('matches local worktree paths after normalization on case-insensitive platforms', async () => {
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
+      makeRecord({
+        uiSessionId: 'session-1',
+        repoPath: '/Repo',
+        cwd: '/Repo/Worktree/',
+      }),
+    ]);
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession: vi.fn(async (record) => record.lastKnownState),
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+
+    try {
+      const result = await service.restoreWorktreeSessions({
+        repoPath: '/repo/',
+        cwd: '/repo/worktree',
+      });
+
+      expect(result.items).toEqual([
+        expect.objectContaining({
+          record: expect.objectContaining({ uiSessionId: 'session-1' }),
+          recoverable: true,
+        }),
+      ]);
+    } finally {
+      platform.mockRestore();
+    }
   });
 
   it('abandons persistent sessions by ui session id and exposes cached sessions synchronously', async () => {

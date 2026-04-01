@@ -51,6 +51,7 @@ export interface UseXtermOptions {
     };
   };
   env?: Record<string, string>;
+  metadata?: Record<string, unknown>;
   isActive?: boolean;
   initialCommand?: string;
   kind?: SessionKind;
@@ -138,6 +139,7 @@ export function useXterm({
   cwd,
   command,
   env,
+  metadata,
   isActive = true,
   initialCommand,
   kind = 'terminal',
@@ -686,6 +688,7 @@ export function useXterm({
         cols: terminal.cols,
         rows: terminal.rows,
         env,
+        metadata,
         initialCommand: initialCommandRef.current,
         kind,
         persistOnDisconnect,
@@ -770,9 +773,7 @@ export function useXterm({
         getRemoteStatus: (connectionId) => window.electronAPI.remote.getStatus(connectionId),
         getLocalActivity: (sessionId) => window.electronAPI.session.getActivity(sessionId),
         allowUntrackedLocalAttach:
-          kind === 'agent' &&
-          persistOnDisconnect &&
-          getRendererEnvironment().platform === 'win32',
+          kind === 'agent' && persistOnDisconnect && getRendererEnvironment().platform === 'win32',
       });
 
       if (reusableBackendSessionId) {
@@ -848,6 +849,7 @@ export function useXterm({
     shellConfig,
     commandKey,
     env,
+    metadata,
     terminalRenderer,
     kind,
     persistOnDisconnect,

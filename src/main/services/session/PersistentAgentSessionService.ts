@@ -5,6 +5,7 @@ import type {
   RestoreWorktreeSessionsResult,
 } from '@shared/types';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
+import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { SupervisorSessionHost } from './hosts/SupervisorSessionHost';
 import { TmuxSessionHost } from './hosts/TmuxSessionHost';
 import {
@@ -43,6 +44,22 @@ function defaultHostResolver(record: PersistentAgentSessionRecord): PersistentSe
 
 function supportsPersistentAgentRecovery(record: PersistentAgentSessionRecord): boolean {
   return !isRemoteVirtualPath(record.cwd) && !isRemoteVirtualPath(record.repoPath);
+}
+
+function getLocalWorkspacePlatform(): 'linux' | 'darwin' | 'win32' {
+  return process.platform === 'win32' || process.platform === 'darwin' ? process.platform : 'linux';
+}
+
+function matchesWorktreeRequest(
+  record: PersistentAgentSessionRecord,
+  request: RestoreWorktreeSessionsRequest
+): boolean {
+  const platform = getLocalWorkspacePlatform();
+  return (
+    normalizeWorkspaceKey(record.repoPath, platform) ===
+      normalizeWorkspaceKey(request.repoPath, platform) &&
+    normalizeWorkspaceKey(record.cwd, platform) === normalizeWorkspaceKey(request.cwd, platform)
+  );
 }
 
 type PersistentAgentSessionRepositoryPort = Pick<
@@ -101,11 +118,20 @@ export class PersistentAgentSessionService {
   async restoreWorktreeSessions(
     request: RestoreWorktreeSessionsRequest
   ): Promise<RestoreWorktreeSessionsResult> {
-    const items = (await this.listRecoverableSessions()).filter(
-      (item) => item.record.repoPath === request.repoPath && item.record.cwd === request.cwd
+    const items = (await this.listRecoverableSessions()).filter((item) =>
+      matchesWorktreeRequest(item.record, request)
     );
+    const staleUiSessionIds = items
+      .filter((item) => !item.recoverable)
+      .map((item) => item.record.uiSessionId);
 
-    return { items };
+    if (staleUiSessionIds.length > 0) {
+      await Promise.allSettled(
+        staleUiSessionIds.map((uiSessionId) => this.repository.deleteSession(uiSessionId))
+      );
+    }
+
+    return { items: items.filter((item) => item.recoverable) };
   }
 
   private async reconcileRecord(

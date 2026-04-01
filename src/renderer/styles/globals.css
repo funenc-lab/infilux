@@ -775,6 +775,22 @@
     background: color-mix(in oklch, var(--background) 94%, var(--muted) 6%);
   }
 
+  .control-session-tab {
+    border-color: color-mix(in oklch, var(--border) 74%, transparent);
+    background: color-mix(in oklch, var(--background) 90%, var(--muted) 10%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 2%, transparent),
+      0 8px 18px color-mix(in oklch, var(--foreground) 4%, transparent);
+  }
+
+  .control-session-tab[data-active="true"] {
+    border-color: color-mix(in oklch, var(--primary) 38%, var(--border) 62%);
+    background: color-mix(in oklch, var(--accent) 58%, var(--background) 42%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 12px 26px color-mix(in oklch, var(--primary) 12%, transparent);
+  }
+
   .control-floating {
     border: 1px solid color-mix(in oklch, var(--border) 74%, transparent);
     background: color-mix(in oklch, var(--surface-overlay) 94%, var(--background) 6%);
@@ -1546,8 +1562,121 @@
   }
 
   .control-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: 1px solid var(--control-border-soft);
     background: color-mix(in oklch, var(--background) 92%, var(--muted) 8%);
+    color: var(--muted-foreground);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 2%, transparent),
+      0 8px 18px color-mix(in oklch, var(--foreground) 4%, transparent);
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease,
+      transform 140ms ease;
+  }
+
+  .control-icon-button:hover {
+    border-color: color-mix(in oklch, var(--border) 84%, transparent);
+    background: color-mix(in oklch, var(--control-surface-muted) 52%, var(--background) 48%);
+    color: var(--foreground);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 3%, transparent),
+      0 12px 24px color-mix(in oklch, var(--foreground) 5%, transparent);
+  }
+
+  .control-icon-button:active {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 3%, transparent),
+      0 6px 14px color-mix(in oklch, var(--foreground) 4%, transparent);
+  }
+
+  .control-icon-button-primary {
+    border-color: color-mix(in oklch, var(--primary) 34%, var(--border) 66%);
+    background: color-mix(in oklch, var(--primary) 18%, var(--background) 82%);
+    color: color-mix(in oklch, var(--primary) 42%, var(--foreground) 58%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent),
+      0 14px 28px color-mix(in oklch, var(--primary) 16%, transparent);
+  }
+
+  .control-icon-button-primary:hover {
+    border-color: color-mix(in oklch, var(--primary) 42%, var(--border) 58%);
+    background: color-mix(in oklch, var(--primary) 24%, var(--background) 76%);
+    color: var(--foreground);
+  }
+
+  .control-icon-button-active {
+    border-color: color-mix(in oklch, var(--theme) 34%, var(--border) 66%);
+    background: color-mix(in oklch, var(--accent) 64%, var(--background) 36%);
+    color: var(--accent-foreground);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent),
+      0 14px 28px color-mix(in oklch, var(--theme) 12%, transparent);
+  }
+
+  .control-icon-button-live {
+    border-color: color-mix(in oklch, var(--control-live) 34%, var(--border) 66%);
+    background: color-mix(in oklch, var(--control-live) 16%, var(--background) 84%);
+    color: color-mix(in oklch, var(--control-live) 78%, var(--foreground) 22%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent),
+      0 12px 24px color-mix(in oklch, var(--control-live) 10%, transparent);
+  }
+
+  .control-input-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--control-border-soft);
+    border-radius: 0.7rem;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease,
+      transform 140ms ease;
+  }
+
+  .control-input-action:disabled {
+    pointer-events: none;
+    opacity: 0.42;
+    box-shadow: none;
+  }
+
+  .control-input-action-secondary {
+    background: color-mix(in oklch, var(--background) 92%, var(--muted) 8%);
+    color: var(--muted-foreground);
+  }
+
+  .control-input-action-secondary:hover {
+    border-color: color-mix(in oklch, var(--border) 82%, transparent);
+    background: color-mix(in oklch, var(--control-surface-muted) 52%, var(--background) 48%);
+    color: var(--foreground);
+  }
+
+  .control-input-action-primary {
+    border-color: color-mix(in oklch, var(--primary) 34%, var(--border) 66%);
+    background: color-mix(in oklch, var(--primary) 18%, var(--background) 82%);
+    color: color-mix(in oklch, var(--primary) 34%, var(--foreground) 66%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent),
+      0 12px 24px color-mix(in oklch, var(--primary) 16%, transparent);
+  }
+
+  .control-input-action-primary:hover {
+    border-color: color-mix(in oklch, var(--primary) 42%, var(--border) 58%);
+    background: color-mix(in oklch, var(--primary) 24%, var(--background) 76%);
+    color: var(--foreground);
+  }
+
+  .control-input-action-primary:active,
+  .control-input-action-secondary:active {
+    transform: translateY(1px);
   }
 
   .control-action-button {
@@ -2521,6 +2650,11 @@
       color 140ms ease;
   }
 
+  .control-tree-disclosure[data-hover-mode='inherit-row'] {
+    border-color: transparent;
+    background: transparent;
+  }
+
   .control-tree-disclosure:hover,
   .control-tree-disclosure:focus-visible {
     opacity: 1;
@@ -2528,6 +2662,13 @@
     background: color-mix(in oklch, var(--accent) 2.2%, transparent);
     color: color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground) 12%);
     outline: none;
+  }
+
+  .control-tree-disclosure[data-hover-mode='inherit-row']:hover {
+    opacity: var(--control-tree-disclosure-opacity);
+    border-color: transparent;
+    background: transparent;
+    color: var(--control-tree-disclosure-color);
   }
 
   .control-tree-branch-icon {

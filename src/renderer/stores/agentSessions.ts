@@ -5,6 +5,7 @@ import { normalizePath, pathsEqual } from '@/App/storage';
 import type { Session } from '@/components/chat/SessionBar';
 import type { AgentGroupState } from '@/components/chat/types';
 import { createInitialGroupState } from '@/components/chat/types';
+import { isSessionPersistable } from '@/lib/agentSessionPersistence';
 import { useAgentStatusStore } from './agentStatus';
 
 // Global storage key for all sessions across all repos
@@ -39,10 +40,6 @@ export interface AggregatedOutputState {
   total: number;
   outputting: number;
   unread: number;
-}
-
-function isPersistableSession(session: Session): boolean {
-  return Boolean(session.activated);
 }
 
 // Group states indexed by normalized worktree path
@@ -102,11 +99,20 @@ function loadFromStorage(): { sessions: Session[]; activeIds: Record<string, str
       const data = JSON.parse(saved);
       if (data.sessions?.length > 0) {
         // Migrate old sessions that don't have repoPath (backwards compatibility)
-        const migratedSessions = data.sessions.map((s: Session) => ({
-          ...s,
-          repoPath: s.repoPath || s.cwd,
-        }));
-        return { sessions: migratedSessions, activeIds: data.activeIds || {} };
+        const migratedSessions: Session[] = data.sessions
+          .map((s: Session) => ({
+            ...s,
+            repoPath: s.repoPath || s.cwd,
+          }))
+          .filter((session: Session) => isSessionPersistable(session));
+        const persistedSessionIds = new Set(migratedSessions.map((session) => session.id));
+        const sanitizedActiveIds: Record<string, string | null> = {};
+        for (const [cwd, id] of Object.entries(
+          (data.activeIds as Record<string, string | null>) || {}
+        )) {
+          sanitizedActiveIds[cwd] = id && persistedSessionIds.has(id) ? id : null;
+        }
+        return { sessions: migratedSessions, activeIds: sanitizedActiveIds };
       }
     }
   } catch {}
@@ -114,10 +120,8 @@ function loadFromStorage(): { sessions: Session[]; activeIds: Record<string, str
 }
 
 function saveToStorage(sessions: Session[], activeIds: Record<string, string | null>): void {
-  // Only persist sessions that are:
-  // 1. Using agents that support resumption (e.g., claude)
-  // 2. Activated (user has pressed Enter at least once)
-  const persistableSessions = sessions.filter((session) => isPersistableSession(session));
+  // Only persist sessions that are activated and backed by a recoverable host.
+  const persistableSessions = sessions.filter((session) => isSessionPersistable(session));
   const persistableIds = new Set(persistableSessions.map((s) => s.id));
   // Only keep activeIds that reference persistable sessions
   const persistableActiveIds: Record<string, string | null> = {};
@@ -314,6 +318,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           id: record.uiSessionId,
           sessionId: record.providerSessionId ?? record.uiSessionId,
           backendSessionId: record.backendSessionId,
+          createdAt: record.createdAt,
           name: record.displayName,
           agentId: record.agentId,
           agentCommand: record.agentCommand,
@@ -328,6 +333,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           terminalTitle: existing?.terminalTitle,
           userRenamed: existing?.userRenamed,
           pendingCommand: existing?.pendingCommand,
+          persistenceEnabled: true,
           recovered: true,
           recoveryState: record.lastKnownState,
         };

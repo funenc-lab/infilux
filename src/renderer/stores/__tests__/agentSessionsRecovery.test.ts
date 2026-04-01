@@ -63,7 +63,7 @@ describe('agent session recovery store', () => {
     vi.restoreAllMocks();
   });
 
-  it('persists activated non-Claude agent sessions', async () => {
+  it('persists only sessions whose recovery host is enabled', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
 
@@ -75,6 +75,7 @@ describe('agent session recovery store', () => {
       agentCommand: 'codex',
       initialized: true,
       activated: true,
+      persistenceEnabled: false,
       repoPath: '/repo',
       cwd: '/repo/worktree',
       environment: 'native',
@@ -82,7 +83,12 @@ describe('agent session recovery store', () => {
 
     const savedPayload = env.localStorageMock.setItem.mock.calls.at(-1)?.[1];
     expect(savedPayload).toBeTruthy();
-    expect(JSON.parse(savedPayload as string).sessions).toEqual([
+    expect(JSON.parse(savedPayload as string).sessions).toEqual([]);
+
+    store.updateSession('session-1', { persistenceEnabled: true });
+
+    const persistedPayload = env.localStorageMock.setItem.mock.calls.at(-1)?.[1];
+    expect(JSON.parse(persistedPayload as string).sessions).toEqual([
       expect.objectContaining({ id: 'session-1', agentCommand: 'codex' }),
     ]);
   });

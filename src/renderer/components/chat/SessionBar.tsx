@@ -38,14 +38,15 @@ const FLOATING_BAR_MARGIN_PX = 8;
 
 export interface Session {
   id: string; // Session's own unique ID
-  sessionId?: string; // Optional Claude session ID for --session-id/--resume (defaults to id if not set)
+  sessionId?: string; // Optional provider session ID for agent-level resume flows (defaults to id if not set)
   backendSessionId?: string; // Backend session host ID used by the unified session API
+  createdAt?: number; // Stable session creation time used for persistence metadata
   name: string;
   agentId: string; // which agent CLI to use (e.g., 'claude', 'codex', 'gemini', 'claude-hapi', 'claude-happy')
   agentCommand: string; // the CLI command to run (e.g., 'claude', 'codex')
   customPath?: string; // custom absolute path to the agent CLI (overrides agentCommand lookup)
   customArgs?: string; // additional arguments to pass to the agent
-  initialized: boolean; // true after first run, use --resume to restore
+  initialized: boolean; // true after the first interactive run, enabling provider resume when supported
   activated?: boolean; // true after user presses Enter, only activated sessions are persisted
   repoPath: string; // repository path this session belongs to
   cwd: string; // worktree path this session belongs to
@@ -54,6 +55,7 @@ export interface Session {
   terminalTitle?: string; // current terminal title from OSC escape sequence
   userRenamed?: boolean; // true when user has manually renamed this session
   pendingCommand?: string; // command to send after agent is ready (e.g., from todo task)
+  persistenceEnabled?: boolean; // whether this session should be restored across app restarts
   recovered?: boolean;
   recoveryState?: PersistentAgentRuntimeState;
 }
@@ -392,8 +394,9 @@ function SessionTab({
           aria-selected={isActive}
           aria-controls={panelId}
           aria-label={sessionLabel}
+          data-active={isActive ? 'true' : 'false'}
           className={cn(
-            'control-panel-muted group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer',
+            'control-session-tab control-panel-muted group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer',
             isActive
               ? 'border-primary/45 bg-accent/50 text-foreground shadow-none'
               : 'text-muted-foreground hover:text-foreground',
@@ -449,7 +452,7 @@ function SessionTab({
             className={cn(
               'flex h-5 w-5 items-center justify-center rounded-lg transition-colors',
               'hover:bg-destructive/12 hover:text-destructive',
-              !isActive && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+              !isActive && 'opacity-45 group-hover:opacity-100 group-focus-within:opacity-100'
             )}
           >
             <X className="h-3 w-3" />
@@ -479,8 +482,9 @@ function SessionTab({
         aria-selected={isActive}
         aria-controls={panelId}
         aria-label={sessionLabel}
+        data-active={isActive ? 'true' : 'false'}
         className={cn(
-          'control-panel-muted group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer',
+          'control-session-tab control-panel-muted group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer',
           isActive
             ? 'border-primary/45 bg-accent/50 text-foreground shadow-none'
             : 'text-muted-foreground hover:text-foreground',
@@ -540,7 +544,7 @@ function SessionTab({
           className={cn(
             'relative z-10 flex h-5 w-5 items-center justify-center rounded-lg transition-colors',
             'hover:bg-destructive/12 hover:text-destructive',
-            !isActive && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+            !isActive && 'opacity-45 group-hover:opacity-100 group-focus-within:opacity-100'
           )}
         >
           <X className="h-3 w-3" />
@@ -1162,7 +1166,7 @@ export function SessionBar({
                     type="button"
                     aria-label={t('Create default session')}
                     onClick={handleCreateDefaultSession}
-                    className="control-icon-button flex h-8 w-8 items-center justify-center rounded-l-lg rounded-r-none text-muted-foreground transition-colors hover:text-foreground"
+                    className="control-icon-button control-icon-button-primary flex h-8 w-8 items-center justify-center rounded-l-lg rounded-r-none transition-colors"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1172,7 +1176,12 @@ export function SessionBar({
                     aria-haspopup="menu"
                     aria-expanded={showAgentMenu}
                     onClick={handleToggleAgentMenu}
-                    className="control-icon-button -ml-px flex h-8 w-7 items-center justify-center rounded-l-none rounded-r-lg text-muted-foreground transition-colors hover:text-foreground"
+                    className={cn(
+                      'control-icon-button -ml-px flex h-8 w-7 items-center justify-center rounded-l-none rounded-r-lg transition-colors',
+                      showAgentMenu
+                        ? 'control-icon-button-active'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
                   >
                     <ChevronDown className="h-3.5 w-3.5" />
                   </button>
@@ -1267,7 +1276,12 @@ export function SessionBar({
                       aria-haspopup="menu"
                       aria-expanded={showProviderMenu}
                       onClick={handleToggleProviderMenu}
-                      className="control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+                      className={cn(
+                        'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+                        showProviderMenu
+                          ? 'control-icon-button-active'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
                       title={activeProvider?.name ?? t('Select Provider')}
                     >
                       <svg
@@ -1359,9 +1373,9 @@ export function SessionBar({
                         className={cn(
                           'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
                           quickTerminalOpen
-                            ? 'bg-accent text-accent-foreground'
+                            ? 'control-icon-button-active'
                             : quickTerminalHasProcess
-                              ? 'bg-accent text-accent-foreground'
+                              ? 'control-icon-button-live'
                               : 'text-muted-foreground hover:text-accent-foreground'
                         )}
                       >

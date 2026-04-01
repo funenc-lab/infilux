@@ -115,6 +115,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const supervisorOnData = vi.fn();
   const supervisorOnExit = vi.fn();
   const supervisorOnDisconnect = vi.fn();
+  const persistentAbandonSession = vi.fn();
   const remoteConnectionManager = {
     getStatus: vi.fn<(connectionId: string) => { connected: boolean; recoverable?: boolean }>(),
     call: vi.fn<(connectionId: string, method: string, payload: unknown) => Promise<unknown>>(),
@@ -181,6 +182,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     supervisorOnData,
     supervisorOnExit,
     supervisorOnDisconnect,
+    persistentAbandonSession,
     remoteConnectionManager,
   };
 });
@@ -209,6 +211,12 @@ vi.mock('../LocalSupervisorRuntime', () => ({
     onData: sessionTestDoubles.supervisorOnData,
     onExit: sessionTestDoubles.supervisorOnExit,
     onDisconnect: sessionTestDoubles.supervisorOnDisconnect,
+  },
+}));
+
+vi.mock('../PersistentAgentSessionService', () => ({
+  persistentAgentSessionService: {
+    abandonSession: sessionTestDoubles.persistentAbandonSession,
   },
 }));
 
@@ -296,6 +304,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.supervisorOnExit.mockReturnValue(() => {});
     sessionTestDoubles.supervisorOnDisconnect.mockReset();
     sessionTestDoubles.supervisorOnDisconnect.mockReturnValue(() => {});
+    sessionTestDoubles.persistentAbandonSession.mockReset();
+    sessionTestDoubles.persistentAbandonSession.mockResolvedValue([]);
   });
 
   it('buffers local output until attach completes and destroys the session when the last window detaches', async () => {
@@ -376,6 +386,24 @@ describe('SessionManager', () => {
       { sessionId, exitCode: 130, signal: 9 },
     ]);
     expect(manager.list(1)).toEqual([]);
+  });
+
+  it('abandons persistent ui session records when agent sessions exit', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, {
+      cwd: '/repo-a',
+      kind: 'agent',
+      metadata: {
+        uiSessionId: 'ui-session-1',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    pty.emitExit(sessionId, 0);
+
+    expect(sessionTestDoubles.persistentAbandonSession).toHaveBeenCalledWith('ui-session-1');
   });
 
   it('uses the supervisor runtime for persistent Windows agent sessions and restores them by backend session id', async () => {

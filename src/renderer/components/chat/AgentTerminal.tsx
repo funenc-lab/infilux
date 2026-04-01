@@ -20,7 +20,7 @@ import { buildAgentLaunchPlan } from './agentLaunchPlan';
 interface AgentTerminalProps {
   id?: string; // Terminal session ID (UI key)
   cwd?: string;
-  sessionId?: string; // Claude session ID for --session-id/--resume (falls back to id)
+  sessionId?: string; // Provider session ID for agent-level resume flows (falls back to id)
   backendSessionId?: string; // Unified backend session ID for attach/resume
   agentId?: string; // Agent ID (e.g., 'claude', 'codex', 'gemini')
   agentCommand?: string;
@@ -29,6 +29,7 @@ interface AgentTerminalProps {
   environment?: 'native' | 'hapi' | 'happy';
   initialized?: boolean;
   activated?: boolean;
+  persistenceEnabled?: boolean;
   isActive?: boolean;
   hasPendingCommand?: boolean; // Force terminal activation even when not visible
   initialPrompt?: string; // Initial prompt to pass as CLI argument (auto-execute)
@@ -75,6 +76,7 @@ export function AgentTerminal({
   environment = 'native',
   initialized,
   activated,
+  persistenceEnabled = false,
   isActive = false,
   hasPendingCommand = false,
   initialPrompt,
@@ -634,6 +636,12 @@ export function AgentTerminal({
     initialCommand,
     isActive: effectiveIsActive,
     kind: 'agent',
+    metadata:
+      persistenceEnabled && terminalSessionId
+        ? {
+            uiSessionId: terminalSessionId,
+          }
+        : undefined,
     persistOnDisconnect: true,
     onExit: handleExit,
     onData: handleData,

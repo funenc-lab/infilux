@@ -818,7 +818,7 @@ export function EnhancedInput({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="absolute top-1 right-1 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors z-10"
+            className="control-input-action control-input-action-secondary absolute top-2 right-2 z-10 h-7 w-7"
             aria-label={t('Close')}
           >
             <X className="h-3.5 w-3.5" />
@@ -855,7 +855,7 @@ export function EnhancedInput({
           </div>
 
           {/* Bottom bar: file chips (scrollable) + action buttons */}
-          <div className="flex items-center gap-1 px-2 pb-1.5">
+          <div className="flex items-center gap-2 px-2 pb-2">
             {/* File chips - scrollable */}
             {imagePaths.length > 0 && (
               <div className="flex-1 min-w-0 overflow-x-auto flex items-center gap-1 scrollbar-none">
@@ -884,12 +884,12 @@ export function EnhancedInput({
             )}
 
             {/* Action buttons - always right-aligned */}
-            <div className="flex items-center gap-0.5 shrink-0 ml-auto">
+            <div className="ml-auto flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 onClick={handleSelectFiles}
                 disabled={imagePaths.length >= MAX_IMAGES}
-                className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:pointer-events-none disabled:opacity-40"
+                className="control-input-action control-input-action-secondary h-8 w-8"
                 aria-label={t('Select Image')}
               >
                 <Paperclip className="h-3.5 w-3.5" />
@@ -900,10 +900,11 @@ export function EnhancedInput({
                   void handleSend();
                 }}
                 disabled={!content.trim() && imagePaths.length === 0}
-                className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:pointer-events-none disabled:opacity-40"
+                className="control-input-action control-input-action-primary h-8 gap-1.5 px-2.5 text-xs font-semibold tracking-[0.01em]"
                 aria-label={t('Send')}
               >
                 <Send className="h-3.5 w-3.5" />
+                <span>Send</span>
               </button>
             </div>
           </div>

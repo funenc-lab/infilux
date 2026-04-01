@@ -664,6 +664,15 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('var(--border) 24%');
     expect(globalsSource).toContain('var(--accent) 2.2%');
     expect(treeSidebarSource).toContain('className="control-tree-disclosure h-6 w-6 shrink-0"');
+    expect(treeSidebarSource).toContain('data-hover-mode="inherit-row"');
+    expect(globalsSource).toContain(".control-tree-disclosure[data-hover-mode='inherit-row'] {");
+    expect(globalsSource).toContain(
+      ".control-tree-disclosure[data-hover-mode='inherit-row']:hover {"
+    );
+    expect(globalsSource).toContain('opacity: var(--control-tree-disclosure-opacity);');
+    expect(globalsSource).toContain('border-color: transparent;');
+    expect(globalsSource).toContain('background: transparent;');
+    expect(globalsSource).toContain('color: var(--control-tree-disclosure-color);');
     expect(treeSidebarSource).not.toContain(
       'className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"'
     );

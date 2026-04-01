@@ -951,6 +951,7 @@ export function TreeSidebar({
               <button
                 type="button"
                 className="control-tree-disclosure h-6 w-6 shrink-0"
+                data-hover-mode="inherit-row"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleRepoExpanded(repo.path);
