@@ -1,3 +1,5 @@
+import { recoverPrefixedAbsolutePath } from '@shared/utils/path';
+
 export interface BreadcrumbSegment {
   name: string;
   path: string;
@@ -27,38 +29,6 @@ function usesCaseInsensitiveComparison(path: string): boolean {
 function normalizeComparisonPath(path: string): string {
   const trimmed = trimTrailingSeparators(path).replace(/\\/g, '/');
   return usesCaseInsensitiveComparison(path) ? trimmed.toLowerCase() : trimmed;
-}
-
-function recoverNestedAbsolutePath(
-  path: string | undefined,
-  rootPath: string | undefined
-): string | undefined {
-  if (!path) {
-    return path;
-  }
-
-  if (!rootPath) {
-    return path;
-  }
-
-  const normalizedPath = path.replace(/\\/g, '/');
-  const normalizedRoot = trimTrailingSeparators(rootPath).replace(/\\/g, '/');
-
-  if (!normalizedPath.startsWith(normalizedRoot)) {
-    return path;
-  }
-
-  const remainder = normalizedPath.slice(normalizedRoot.length);
-  if (remainder.startsWith('//')) {
-    return `/${remainder.replace(/^\/+/, '')}`;
-  }
-
-  const windowsAbsoluteMatch = remainder.match(/^[/\\]+([A-Za-z]:[/\\].*)$/);
-  if (windowsAbsoluteMatch?.[1]) {
-    return windowsAbsoluteMatch[1];
-  }
-
-  return path;
 }
 
 function isPathInsideRoot(path: string, rootPath: string): boolean {
@@ -91,7 +61,7 @@ export function buildBreadcrumbSegments(
     return [];
   }
 
-  const resolvedPath = recoverNestedAbsolutePath(activeTabPath, rootPath) ?? activeTabPath;
+  const resolvedPath = recoverPrefixedAbsolutePath(activeTabPath, rootPath) ?? activeTabPath;
 
   if (!isPathInsideRoot(resolvedPath, rootPath)) {
     return buildAbsoluteSegments(resolvedPath);
@@ -126,7 +96,7 @@ export function resolveFileListPath(
   targetPath: string | undefined,
   rootPath: string | undefined
 ): string | undefined {
-  return recoverNestedAbsolutePath(targetPath, rootPath) ?? targetPath;
+  return recoverPrefixedAbsolutePath(targetPath, rootPath) ?? targetPath;
 }
 
 export function resolveFileListGitRoot(

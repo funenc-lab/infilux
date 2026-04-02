@@ -10,6 +10,22 @@ import { isRemoteVirtualPath, parseRemoteVirtualPath } from './remotePath';
  * Keep this as the single source of truth for WSL UNC detection rules.
  */
 export const WSL_UNC_PREFIXES = ['//wsl.localhost/', '//wsl$/'] as const;
+const LIKELY_UNIX_ABSOLUTE_ROOT_SEGMENTS = new Set([
+  'Applications',
+  'Library',
+  'System',
+  'Users',
+  'Volumes',
+  'etc',
+  'home',
+  'mnt',
+  'opt',
+  'private',
+  'srv',
+  'tmp',
+  'usr',
+  'var',
+]);
 
 /**
  * Normalize path separators to forward slashes
@@ -18,6 +34,75 @@ export const WSL_UNC_PREFIXES = ['//wsl.localhost/', '//wsl$/'] as const;
  */
 export function normalizePath(p: string): string {
   return p.replace(/\\/g, '/');
+}
+
+function recoverPrefixedAbsoluteTail(normalizedTail: string): string | undefined {
+  const windowsAbsoluteMatch = normalizedTail.match(/^\/+([A-Za-z]:\/.*)$/);
+  if (windowsAbsoluteMatch?.[1]) {
+    return windowsAbsoluteMatch[1];
+  }
+
+  if (!normalizedTail.startsWith('//')) {
+    return undefined;
+  }
+
+  const candidatePath = `/${normalizedTail.replace(/^\/+/, '')}`;
+  const firstSegment = candidatePath.split('/').filter(Boolean)[0];
+  if (!firstSegment || !LIKELY_UNIX_ABSOLUTE_ROOT_SEGMENTS.has(firstSegment)) {
+    return undefined;
+  }
+
+  return candidatePath;
+}
+
+/**
+ * Recover an absolute path that was accidentally prefixed by another root path.
+ * This happens when a nested absolute path is persisted or reconstructed as
+ * "<root>//Users/..." or "<root>/C:/...".
+ * @param inputPath Possibly prefixed path
+ * @param rootPath Optional trusted root prefix used for precise recovery
+ * @returns Recovered absolute path when a known malformed shape is detected
+ */
+export function recoverPrefixedAbsolutePath(
+  inputPath: string | undefined,
+  rootPath?: string | undefined
+): string | undefined {
+  if (!inputPath) {
+    return inputPath;
+  }
+
+  const normalizedInputPath = normalizePath(inputPath);
+
+  if (rootPath) {
+    const normalizedRootPath = normalizePath(trimTrailingPathSeparators(rootPath));
+    if (
+      normalizedInputPath !== normalizedRootPath &&
+      normalizedInputPath.startsWith(normalizedRootPath)
+    ) {
+      const recoveredFromRoot = recoverPrefixedAbsoluteTail(
+        normalizedInputPath.slice(normalizedRootPath.length)
+      );
+      if (recoveredFromRoot) {
+        return recoveredFromRoot;
+      }
+    }
+  }
+
+  if (normalizedInputPath.startsWith('//')) {
+    return inputPath;
+  }
+
+  const nestedWindowsAbsoluteMatch = normalizedInputPath.match(/^.+\/([A-Za-z]:\/.*)$/);
+  if (nestedWindowsAbsoluteMatch?.[1]) {
+    return nestedWindowsAbsoluteMatch[1];
+  }
+
+  const nestedUnixPrefixIndex = normalizedInputPath.indexOf('//', 1);
+  if (nestedUnixPrefixIndex === -1) {
+    return inputPath;
+  }
+
+  return recoverPrefixedAbsoluteTail(normalizedInputPath.slice(nestedUnixPrefixIndex)) ?? inputPath;
 }
 
 /**

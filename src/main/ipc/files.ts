@@ -3,6 +3,7 @@ import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { type FileEntry, type FileReadResult, IPC_CHANNELS } from '@shared/types';
+import { recoverPrefixedAbsolutePath } from '@shared/utils/path';
 import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron';
 import iconv from 'iconv-lite';
 import { isBinaryFile } from 'isbinaryfile';
@@ -504,37 +505,46 @@ export function registerFileHandlers(): void {
         return remoteRepositoryBackend.listFiles(dirPath);
       }
 
+      const resolvedDirPath = recoverPrefixedAbsolutePath(dirPath, gitRoot) ?? dirPath;
+      const resolvedGitRoot = gitRoot
+        ? (recoverPrefixedAbsolutePath(gitRoot, gitRoot) ?? gitRoot)
+        : undefined;
+
       ensureFileOwnerCleanup(event.sender);
-      if (gitRoot) {
-        registerAllowedLocalFileRoot(gitRoot, event.sender.id);
+      if (resolvedGitRoot) {
+        registerAllowedLocalFileRoot(resolvedGitRoot, event.sender.id);
       }
 
       logFileListDiagnostics('local-list:start', {
         dirPath,
-        gitRoot,
+        resolvedDirPath,
+        gitRoot: resolvedGitRoot,
         senderId: event.sender.id,
       });
       emitFileListRuntimeDiagnostics('local-list:start', {
         dirPath,
-        gitRoot,
+        resolvedDirPath,
+        gitRoot: resolvedGitRoot,
         senderId: event.sender.id,
       });
 
       let entries: string[];
       try {
-        entries = await readdir(dirPath);
+        entries = await readdir(resolvedDirPath);
       } catch (error) {
         if (shouldReturnEmptyFileList(error)) {
           const nodeError = error as NodeJS.ErrnoException;
           logFileListDiagnostics('local-list:empty-on-error', {
             dirPath,
-            gitRoot,
+            resolvedDirPath,
+            gitRoot: resolvedGitRoot,
             code: nodeError.code,
             message: nodeError.message,
           });
           emitFileListRuntimeDiagnostics('local-list:empty-on-error', {
             dirPath,
-            gitRoot,
+            resolvedDirPath,
+            gitRoot: resolvedGitRoot,
             code: nodeError.code,
             message: nodeError.message,
           });
@@ -544,18 +554,20 @@ export function registerFileHandlers(): void {
       }
       logFileListDiagnostics('local-list:readdir-success', {
         dirPath,
-        gitRoot,
+        resolvedDirPath,
+        gitRoot: resolvedGitRoot,
         count: entries.length,
       });
       emitFileListRuntimeDiagnostics('local-list:readdir-success', {
         dirPath,
-        gitRoot,
+        resolvedDirPath,
+        gitRoot: resolvedGitRoot,
         count: entries.length,
       });
       const result: FileEntry[] = [];
 
       for (const name of entries) {
-        const fullPath = join(dirPath, name);
+        const fullPath = join(resolvedDirPath, name);
         try {
           const stats = await stat(fullPath);
           result.push({
@@ -571,16 +583,16 @@ export function registerFileHandlers(): void {
       }
 
       // 检查 gitignore
-      if (gitRoot) {
+      if (resolvedGitRoot) {
         try {
-          const git = createSimpleGit(gitRoot);
+          const git = createSimpleGit(resolvedGitRoot);
           const relativePaths = result.map((f) =>
-            normalizeGitRelativePath(relative(gitRoot, f.path))
+            normalizeGitRelativePath(relative(resolvedGitRoot, f.path))
           );
           const ignoredResult = await git.checkIgnore(relativePaths);
           const ignoredSet = new Set(ignoredResult.map((p) => normalizeGitRelativePath(p)));
           for (const file of result) {
-            const relPath = normalizeGitRelativePath(relative(gitRoot, file.path));
+            const relPath = normalizeGitRelativePath(relative(resolvedGitRoot, file.path));
             file.ignored = ignoredSet.has(relPath);
           }
         } catch {
@@ -598,12 +610,14 @@ export function registerFileHandlers(): void {
 
       logFileListDiagnostics('local-list:result', {
         dirPath,
-        gitRoot,
+        resolvedDirPath,
+        gitRoot: resolvedGitRoot,
         count: sortedResult.length,
       });
       emitFileListRuntimeDiagnostics('local-list:result', {
         dirPath,
-        gitRoot,
+        resolvedDirPath,
+        gitRoot: resolvedGitRoot,
         count: sortedResult.length,
       });
 

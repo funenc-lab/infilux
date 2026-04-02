@@ -441,6 +441,22 @@ describe('file handlers', () => {
     expect(fileHandlerTestDoubles.registerAllowedLocalFileRoot).toHaveBeenCalledWith('/repo', 3);
   });
 
+  it('recovers prefixed absolute local paths before listing directory contents', async () => {
+    const sender = createSender(4);
+    const listHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_LIST);
+
+    fileHandlerTestDoubles.readdir.mockResolvedValueOnce([]);
+
+    await listHandler?.(
+      { sender },
+      '/Users/tanzv/Development/Git/EnsoAI//Users/tanzv/Development/Git/penpad/apps'
+    );
+
+    expect(fileHandlerTestDoubles.readdir).toHaveBeenCalledWith(
+      '/Users/tanzv/Development/Git/penpad/apps'
+    );
+  });
+
   it('reveals local files, rejects remote reveal, copies local files, and rejects mixed copy', async () => {
     const revealHandler = fileHandlerTestDoubles.handlers.get(
       IPC_CHANNELS.FILE_REVEAL_IN_FILE_MANAGER

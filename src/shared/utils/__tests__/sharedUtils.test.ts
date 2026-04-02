@@ -12,6 +12,7 @@ import {
   isWslUncPath,
   joinPath,
   normalizePath,
+  recoverPrefixedAbsolutePath,
   trimTrailingPathSeparators,
 } from '../path';
 import {
@@ -53,6 +54,29 @@ describe('shared path utilities', () => {
     expect(getDisplayPath(remotePath)).toBe('C:/repo/file.ts');
     expect(getDisplayPath('/__enso_remote__/broken')).toBe('/__enso_remote__/broken');
     expect(getDisplayPathBasename(remotePath)).toBe('file.ts');
+  });
+
+  it('recovers absolute paths that were accidentally prefixed by a repository root', () => {
+    expect(
+      recoverPrefixedAbsolutePath(
+        '/Users/tanzv/Development/Git/EnsoAI//Users/tanzv/Development/Git/penpad/apps',
+        '/Users/tanzv/Development/Git/EnsoAI'
+      )
+    ).toBe('/Users/tanzv/Development/Git/penpad/apps');
+
+    expect(
+      recoverPrefixedAbsolutePath(
+        '/Users/tanzv/Development/Git/EnsoAI/C:/External/repo/src/index.ts',
+        '/Users/tanzv/Development/Git/EnsoAI'
+      )
+    ).toBe('C:/External/repo/src/index.ts');
+
+    expect(
+      recoverPrefixedAbsolutePath(
+        '/Users/tanzv/Development/Git/EnsoAI/src/renderer/App.tsx',
+        '/Users/tanzv/Development/Git/EnsoAI'
+      )
+    ).toBe('/Users/tanzv/Development/Git/EnsoAI/src/renderer/App.tsx');
   });
 });
 
