@@ -14,6 +14,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
   const randomUUID = vi.fn(() => `uuid-${++randomUuidCounter}`);
   const getPath = vi.fn((name: string) => `/mock/${name}`);
   const getAppPath = vi.fn(() => '/mock/app');
+  const nativeThemeShouldUseDarkColors = vi.fn(() => true);
   const appFocus = vi.fn();
   const dockShow = vi.fn();
   const dockSetIcon = vi.fn();
@@ -31,6 +32,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
   const getCurrentLocale = vi.fn(() => 'en');
   const detachWindowSessions = vi.fn(async () => undefined);
   const isQuittingForUpdate = vi.fn(() => false);
+  const readSharedSettings = vi.fn(() => ({}));
   const buildFromTemplate = vi.fn(() => ({
     popup: menuPopup,
   }));
@@ -224,6 +226,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     randomUUID.mockReset();
     getPath.mockReset();
     getAppPath.mockReset();
+    nativeThemeShouldUseDarkColors.mockReset();
     appFocus.mockReset();
     dockShow.mockReset();
     dockSetIcon.mockReset();
@@ -235,6 +238,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     getCurrentLocale.mockReset();
     detachWindowSessions.mockReset();
     isQuittingForUpdate.mockReset();
+    readSharedSettings.mockReset();
     buildFromTemplate.mockClear();
     menuPopup.mockClear();
     is.dev = false;
@@ -244,10 +248,12 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     randomUUID.mockImplementation(() => `uuid-${++randomUuidCounter}`);
     getPath.mockImplementation((name: string) => `/mock/${name}`);
     getAppPath.mockReturnValue('/mock/app');
+    nativeThemeShouldUseDarkColors.mockReturnValue(true);
     translate.mockImplementation((locale: string, key: string) => `${locale}:${key}`);
     getCurrentLocale.mockReturnValue('en');
     detachWindowSessions.mockResolvedValue(undefined);
     isQuittingForUpdate.mockReturnValue(false);
+    readSharedSettings.mockReturnValue({});
   }
 
   return {
@@ -269,6 +275,11 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     dialog: {
       showMessageBox,
     },
+    nativeTheme: {
+      get shouldUseDarkColors() {
+        return nativeThemeShouldUseDarkColors();
+      },
+    },
     shell: {
       openExternal: shellOpenExternal,
     },
@@ -284,6 +295,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     getCurrentLocale,
     detachWindowSessions,
     isQuittingForUpdate,
+    readSharedSettings,
     is,
     screen,
     appFocus,
@@ -326,6 +338,7 @@ vi.mock('electron', () => ({
   dialog: mainWindowLifecycleDoubles.dialog,
   ipcMain: mainWindowLifecycleDoubles.ipcMain,
   Menu: mainWindowLifecycleDoubles.Menu,
+  nativeTheme: mainWindowLifecycleDoubles.nativeTheme,
   screen: mainWindowLifecycleDoubles.screen,
   shell: mainWindowLifecycleDoubles.shell,
 }));
@@ -344,6 +357,10 @@ vi.mock('../../services/updater/AutoUpdater', () => ({
   autoUpdaterService: {
     isQuittingForUpdate: mainWindowLifecycleDoubles.isQuittingForUpdate,
   },
+}));
+
+vi.mock('../../services/SharedSessionState', () => ({
+  readSharedSettings: mainWindowLifecycleDoubles.readSharedSettings,
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -622,6 +639,35 @@ describe('MainWindow lifecycle', () => {
 
     win.emit('ready-to-show');
     expect(win.show).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes bootstrap theme query data to the static renderer file when persisted settings request light mode', async () => {
+    setPlatform('darwin');
+    mainWindowLifecycleDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'light',
+          terminalTheme: 'Dracula',
+        },
+      },
+    });
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    expect(mainWindowLifecycleDoubles.getBrowserWindowOptions()).toMatchObject({
+      backgroundColor: '#f5f7fb',
+    });
+    expect(win.loadFile).toHaveBeenCalledWith(
+      expect.stringContaining('/renderer/index.html'),
+      expect.objectContaining({
+        query: {
+          infiluxBootstrapTheme: expect.any(String),
+        },
+      })
+    );
   });
 
   it('re-centers an offscreen window during reveal before showing it', async () => {

@@ -105,13 +105,17 @@ async function loadElectronAPI(): Promise<ElectronAPI> {
 }
 
 describe('preload bridge', () => {
+  const originalArgv = [...process.argv];
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     preloadTestDoubles.reset();
+    process.argv = [...originalArgv];
   });
 
   afterEach(() => {
+    process.argv = [...originalArgv];
     vi.restoreAllMocks();
   });
 
@@ -125,6 +129,27 @@ describe('preload bridge', () => {
     expect(api.env.appVersion).toBeTypeOf('string');
     expect(api.utils.getPathForFile('file.bin' as never)).toBe('/resolved/file.bin');
     expect(preloadTestDoubles.getPathForFile).toHaveBeenCalledWith('file.bin');
+  });
+
+  it('exposes the bootstrap theme snapshot parsed from additional arguments', async () => {
+    process.argv = [
+      ...originalArgv,
+      `--infilux-bootstrap-theme=${encodeURIComponent(
+        JSON.stringify({
+          theme: 'system',
+          terminalTheme: 'Xcode WWDC',
+          systemShouldUseDarkColors: false,
+        })
+      )}`,
+    ];
+
+    const api = await loadElectronAPI();
+
+    expect(api.env.bootstrapTheme).toEqual({
+      theme: 'system',
+      terminalTheme: 'Xcode WWDC',
+      systemShouldUseDarkColors: false,
+    });
   });
 
   it('routes invoke-based APIs to the expected IPC channels', async () => {
@@ -632,6 +657,8 @@ describe('preload bridge', () => {
       }>;
     };
     const originalGetProcessMemoryInfo = processWithMemoryInfo.getProcessMemoryInfo;
+    const appGetResourceSnapshotChannel = 'app:getResourceSnapshot';
+    const appExecuteResourceActionChannel = 'app:executeResourceAction';
 
     Object.defineProperty(processWithMemoryInfo, 'getProcessMemoryInfo', {
       value: vi.fn().mockResolvedValue({
@@ -673,13 +700,10 @@ describe('preload bridge', () => {
         sessionId: 'session-1',
       });
 
-      expect(preloadTestDoubles.invoke).toHaveBeenNthCalledWith(
-        1,
-        IPC_CHANNELS.APP_GET_RESOURCE_SNAPSHOT
-      );
+      expect(preloadTestDoubles.invoke).toHaveBeenNthCalledWith(1, appGetResourceSnapshotChannel);
       expect(preloadTestDoubles.invoke).toHaveBeenNthCalledWith(
         2,
-        IPC_CHANNELS.APP_EXECUTE_RESOURCE_ACTION,
+        appExecuteResourceActionChannel,
         {
           kind: 'kill-session',
           resourceId: 'session:session-1',

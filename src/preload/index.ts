@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import 'electron-log/preload.js';
 import type { Locale } from '@shared/i18n';
+import { parseBootstrapThemeSnapshotFromArgv } from '@shared/utils/bootstrapTheme';
 import type {
   AgentCliInfo,
   AgentMetadata,
@@ -799,6 +800,7 @@ const electronAPI = {
     HOME: process.env.HOME || process.env.USERPROFILE || '',
     platform: process.platform as 'darwin' | 'win32' | 'linux',
     appVersion: pkg.version,
+    bootstrapTheme: parseBootstrapThemeSnapshotFromArgv(process.argv),
   },
 
   // Shell

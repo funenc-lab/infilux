@@ -9,6 +9,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
   const writeFileSync = vi.fn();
   const getPath = vi.fn((name: string) => `/mock/${name}`);
   const getAppPath = vi.fn(() => '/mock/app');
+  const nativeThemeShouldUseDarkColors = vi.fn(() => true);
   const showMessageBox = vi.fn();
   const shellOpenExternal = vi.fn();
   const ipcOn = vi.fn();
@@ -21,6 +22,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
   const getCurrentLocale = vi.fn(() => 'en');
   const detachWindowSessions = vi.fn(async () => undefined);
   const isQuittingForUpdate = vi.fn(() => false);
+  const readSharedSettings = vi.fn(() => ({}));
 
   class MockBrowserWindow {
     id = 1;
@@ -65,6 +67,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     writeFileSync.mockReset();
     getPath.mockReset();
     getAppPath.mockReset();
+    nativeThemeShouldUseDarkColors.mockReset();
     showMessageBox.mockReset();
     shellOpenExternal.mockReset();
     ipcOn.mockReset();
@@ -75,11 +78,13 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     getCurrentLocale.mockReset();
     detachWindowSessions.mockReset();
     isQuittingForUpdate.mockReset();
+    readSharedSettings.mockReset();
 
     existsSync.mockReturnValue(false);
     readFileSync.mockReturnValue('{}');
     getPath.mockImplementation((name: string) => `/mock/${name}`);
     getAppPath.mockReturnValue('/mock/app');
+    nativeThemeShouldUseDarkColors.mockReturnValue(true);
     getAllDisplays.mockReturnValue([{ workArea: { width: 1920, height: 1080, x: 0, y: 0 } }]);
     getPrimaryDisplay.mockReturnValue({
       workArea: { width: 1920, height: 1080, x: 0, y: 0 },
@@ -88,6 +93,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     getCurrentLocale.mockReturnValue('en');
     detachWindowSessions.mockResolvedValue(undefined);
     isQuittingForUpdate.mockReturnValue(false);
+    readSharedSettings.mockReturnValue({});
   }
 
   return {
@@ -99,6 +105,11 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     },
     dialog: {
       showMessageBox,
+    },
+    nativeTheme: {
+      get shouldUseDarkColors() {
+        return nativeThemeShouldUseDarkColors();
+      },
     },
     shell: {
       openExternal: shellOpenExternal,
@@ -124,6 +135,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     getCurrentLocale,
     detachWindowSessions,
     isQuittingForUpdate,
+    readSharedSettings,
     getBrowserWindowOptions: () => browserWindowOptions,
     reset,
   };
@@ -155,6 +167,7 @@ vi.mock('electron', () => ({
   dialog: mainWindowTestDoubles.dialog,
   ipcMain: mainWindowTestDoubles.ipcMain,
   Menu: mainWindowTestDoubles.Menu,
+  nativeTheme: mainWindowTestDoubles.nativeTheme,
   screen: mainWindowTestDoubles.screen,
   shell: mainWindowTestDoubles.shell,
 }));
@@ -173,6 +186,10 @@ vi.mock('../../services/updater/AutoUpdater', () => ({
   autoUpdaterService: {
     isQuittingForUpdate: mainWindowTestDoubles.isQuittingForUpdate,
   },
+}));
+
+vi.mock('../../services/SharedSessionState', () => ({
+  readSharedSettings: mainWindowTestDoubles.readSharedSettings,
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -210,4 +227,35 @@ describe('MainWindow', () => {
       icon: join(process.cwd(), 'build', 'icon.png'),
     });
   }, 15000);
+
+  it('uses a dark bootstrap background color before the renderer paints', async () => {
+    const { createMainWindow } = await import('../MainWindow');
+    createMainWindow();
+
+    expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
+      backgroundColor: '#0f1216',
+    });
+  });
+
+  it('passes the persisted bootstrap theme snapshot through BrowserWindow additional arguments', async () => {
+    mainWindowTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'light',
+          terminalTheme: 'Dracula',
+        },
+      },
+    });
+
+    const { createMainWindow } = await import('../MainWindow');
+    createMainWindow();
+
+    expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
+      webPreferences: {
+        additionalArguments: [
+          expect.stringContaining('--infilux-bootstrap-theme='),
+        ],
+      },
+    });
+  });
 });

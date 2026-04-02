@@ -5,8 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: local-file: local-image:; media-src 'self' https: http: local-file: local-image: blob: data:; connect-src 'self' local-file: local-image: https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net">
     <title>Infilux</title>
+    <script>
+      (() => {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const rawSnapshot = params.get("infiluxBootstrapTheme");
+          if (!rawSnapshot) {
+            return;
+          }
+
+          const snapshot = JSON.parse(decodeURIComponent(rawSnapshot));
+          const root = document.documentElement;
+          const theme = typeof snapshot?.theme === "string" ? snapshot.theme : null;
+          const systemShouldUseDarkColors = Boolean(snapshot?.systemShouldUseDarkColors);
+          let mode = null;
+
+          if (theme === "light") {
+            mode = "light";
+          } else if (theme === "dark") {
+            mode = "dark";
+          } else if (theme === "system") {
+            mode = systemShouldUseDarkColors ? "dark" : "light";
+          }
+
+          if (mode === "light") {
+            document.documentElement.classList.remove("dark");
+          } else if (mode === "dark") {
+            document.documentElement.classList.add("dark");
+          }
+
+          if (mode) {
+            root.dataset.themeMode = mode;
+          }
+          if (theme) {
+            root.dataset.themeSource = theme;
+          }
+        } catch {}
+      })();
+    </script>
     <style>
       :root {
+        color-scheme: light;
+        --bootstrap-bg: #f5f7fb;
+        --bootstrap-surface: rgba(255, 255, 255, 0.86);
+        --bootstrap-border: rgba(48, 65, 93, 0.1);
+        --bootstrap-text: rgba(20, 28, 41, 0.94);
+        --bootstrap-muted: rgba(88, 100, 120, 0.78);
+        --bootstrap-muted-soft: rgba(112, 130, 156, 0.2);
+        --bootstrap-accent: rgba(78, 113, 208, 0.92);
+        --bootstrap-accent-soft: rgba(78, 113, 208, 0.14);
+        --bootstrap-top-glow: rgba(255, 255, 255, 0.58);
+        --bootstrap-corner-glow: rgba(96, 126, 198, 0.16);
+        --bootstrap-shell-line: rgba(48, 65, 93, 0.12);
+        --bootstrap-panel-line: rgba(255, 255, 255, 0.8);
+        --bootstrap-icon-border: rgba(48, 65, 93, 0.1);
+        --bootstrap-icon-bg: rgba(255, 255, 255, 0.72);
+        --bootstrap-footer-line: rgba(48, 65, 93, 0.14);
+        --bootstrap-panel-shadow:
+          0 16px 40px rgba(94, 113, 145, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.74);
+      }
+
+      html.dark {
         color-scheme: dark;
         --bootstrap-bg: #0f1216;
         --bootstrap-surface: rgba(18, 22, 28, 0.34);
@@ -16,6 +76,14 @@
         --bootstrap-muted-soft: rgba(132, 145, 160, 0.32);
         --bootstrap-accent: rgba(163, 193, 255, 0.9);
         --bootstrap-accent-soft: rgba(163, 193, 255, 0.18);
+        --bootstrap-top-glow: rgba(255, 255, 255, 0.03);
+        --bootstrap-corner-glow: rgba(120, 140, 180, 0.12);
+        --bootstrap-shell-line: rgba(255, 255, 255, 0.14);
+        --bootstrap-panel-line: rgba(255, 255, 255, 0.16);
+        --bootstrap-icon-border: rgba(255, 255, 255, 0.08);
+        --bootstrap-icon-bg: rgba(255, 255, 255, 0.02);
+        --bootstrap-footer-line: rgba(255, 255, 255, 0.12);
+        --bootstrap-panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
       }
 
       html,
@@ -23,8 +91,8 @@
         margin: 0;
         min-height: 100%;
         background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 22%),
-          radial-gradient(circle at top left, rgba(120, 140, 180, 0.12), transparent 38%),
+          linear-gradient(180deg, var(--bootstrap-top-glow), transparent 22%),
+          radial-gradient(circle at top left, var(--bootstrap-corner-glow), transparent 38%),
           var(--bootstrap-bg);
       }
 
@@ -62,7 +130,7 @@
         background: linear-gradient(
           90deg,
           transparent 0%,
-          rgba(255, 255, 255, 0.14) 50%,
+          var(--bootstrap-shell-line) 50%,
           transparent 100%
         );
       }
@@ -73,7 +141,7 @@
         width: min(36rem, 100%);
         border: 1px solid var(--bootstrap-border);
         background: var(--bootstrap-surface);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        box-shadow: var(--bootstrap-panel-shadow);
         padding: 20px 20px 18px;
       }
 
@@ -87,7 +155,7 @@
         background: linear-gradient(
           90deg,
           transparent 0%,
-          rgba(255, 255, 255, 0.16) 50%,
+          var(--bootstrap-panel-line) 50%,
           transparent 100%
         );
       }
@@ -107,8 +175,8 @@
         align-items: center;
         justify-content: center;
         border-radius: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--bootstrap-icon-border);
+        background: var(--bootstrap-icon-bg);
       }
 
       .bootstrap-icon-halo {
@@ -169,7 +237,7 @@
         content: "";
         width: 40px;
         height: 1px;
-        background: rgba(255, 255, 255, 0.12);
+        background: var(--bootstrap-footer-line);
       }
 
       .bootstrap-progress {

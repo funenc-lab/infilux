@@ -21,4 +21,15 @@ describe('renderer index bootstrap shell', () => {
     expect(source).not.toContain('>IF<');
     expect(source).not.toContain('bootstrap-spinner');
   });
+
+  it('includes a bootstrap theme script and separate light and dark startup tokens', () => {
+    const source = readRendererIndexHtml();
+
+    expect(source).toContain('infiluxBootstrapTheme');
+    expect(source).toContain('window.location.search');
+    expect(source).toContain('document.documentElement.classList.remove("dark")');
+    expect(source).toContain('color-scheme: light;');
+    expect(source).toContain('html.dark {');
+    expect(source).toContain('color-scheme: dark;');
+  });
 });

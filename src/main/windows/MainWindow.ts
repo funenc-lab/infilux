@@ -6,9 +6,18 @@ import { is } from '@electron-toolkit/utils';
 import { translate } from '@shared/i18n';
 import type { AppCloseRequestPayload, AppCloseRequestReason } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron';
+import {
+  BOOTSTRAP_THEME_SEARCH_PARAM,
+  encodeBootstrapThemeArgument,
+  encodeBootstrapThemeSearchValue,
+  extractBootstrapThemeSnapshotFromSettingsData,
+  resolveStaticBootstrapThemeMode,
+  type BootstrapThemeSnapshot,
+} from '@shared/utils/bootstrapTheme';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
 import { getCurrentLocale } from '../services/i18n';
 import { sessionManager } from '../services/session/SessionManager';
+import { readSharedSettings } from '../services/SharedSessionState';
 import { autoUpdaterService } from '../services/updater/AutoUpdater';
 import log from '../utils/logger';
 
@@ -25,6 +34,8 @@ const TRAFFIC_LIGHTS_DEFAULT_POSITION = { x: 16, y: 16 };
  */
 const TRAFFIC_LIGHTS_DEVTOOLS_POSITION = { x: 240, y: 16 };
 const MAIN_BUNDLE_DIR = dirname(fileURLToPath(import.meta.url));
+const DARK_BOOTSTRAP_WINDOW_BACKGROUND_COLOR = '#0f1216';
+const LIGHT_BOOTSTRAP_WINDOW_BACKGROUND_COLOR = '#f5f7fb';
 
 interface WindowState {
   width: number;
@@ -167,13 +178,59 @@ function resolveWindowIconPath(): string | undefined {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+function resolveBootstrapThemeSnapshot(): BootstrapThemeSnapshot | null {
+  return extractBootstrapThemeSnapshotFromSettingsData(
+    readSharedSettings(),
+    nativeTheme.shouldUseDarkColors
+  );
+}
+
+function resolveBootstrapThemeArgument(
+  bootstrapThemeSnapshot: BootstrapThemeSnapshot | null
+): string[] | undefined {
+  if (!bootstrapThemeSnapshot) {
+    return undefined;
+  }
+
+  return [encodeBootstrapThemeArgument(bootstrapThemeSnapshot)];
+}
+
+function resolveBootstrapWindowBackgroundColor(
+  bootstrapThemeSnapshot: BootstrapThemeSnapshot | null
+): string {
+  const mode = resolveStaticBootstrapThemeMode(bootstrapThemeSnapshot);
+  return mode === 'light'
+    ? LIGHT_BOOTSTRAP_WINDOW_BACKGROUND_COLOR
+    : DARK_BOOTSTRAP_WINDOW_BACKGROUND_COLOR;
+}
+
+function appendBootstrapThemeToRendererUrl(
+  input: string,
+  bootstrapThemeSnapshot: BootstrapThemeSnapshot | null
+): string {
+  if (!bootstrapThemeSnapshot) {
+    return input;
+  }
+
+  const nextUrl = new URL(input);
+  nextUrl.searchParams.set(
+    BOOTSTRAP_THEME_SEARCH_PARAM,
+    encodeBootstrapThemeSearchValue(bootstrapThemeSnapshot)
+  );
+  return nextUrl.toString();
+}
+
 interface CreateMainWindowOptions {
   initializeWindow?: (window: BrowserWindow) => Promise<void> | void;
   partition?: string;
   replaceWindow?: BrowserWindow | null;
 }
 
-async function loadDevRendererUrl(win: BrowserWindow, url: string): Promise<void> {
+async function loadDevRendererUrl(
+  win: BrowserWindow,
+  url: string,
+  bootstrapThemeSnapshot: BootstrapThemeSnapshot | null
+): Promise<void> {
   try {
     await win.webContents.session.clearCache();
   } catch (error) {
@@ -184,7 +241,7 @@ async function loadDevRendererUrl(win: BrowserWindow, url: string): Promise<void
     });
   }
 
-  await win.loadURL(url, {
+  await win.loadURL(appendBootstrapThemeToRendererUrl(url, bootstrapThemeSnapshot), {
     extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
   });
 }
@@ -234,6 +291,8 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
   const isMac = process.platform === 'darwin';
   const isWindows = process.platform === 'win32';
   const windowIconPath = resolveWindowIconPath();
+  const bootstrapThemeSnapshot = resolveBootstrapThemeSnapshot();
+  const bootstrapThemeArguments = resolveBootstrapThemeArgument(bootstrapThemeSnapshot);
 
   const win = new BrowserWindow({
     width: initialBounds.width,
@@ -251,6 +310,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
     // Windows 启用 thickFrame 以支持窗口边缘拖拽调整大小
     ...(isWindows && { thickFrame: true }),
     ...(windowIconPath ? { icon: windowIconPath } : {}),
+    backgroundColor: resolveBootstrapWindowBackgroundColor(bootstrapThemeSnapshot),
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -259,6 +319,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
       webSecurity: true,
       allowRunningInsecureContent: false,
       partition: options.partition,
+      ...(bootstrapThemeArguments ? { additionalArguments: bootstrapThemeArguments } : {}),
       preload: join(MAIN_BUNDLE_DIR, '../preload/index.cjs'),
     },
   });
@@ -588,7 +649,11 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
       windowId: win.id,
       url: process.env.ELECTRON_RENDERER_URL,
     });
-    void loadDevRendererUrl(win, process.env.ELECTRON_RENDERER_URL).catch((error) => {
+    void loadDevRendererUrl(
+      win,
+      process.env.ELECTRON_RENDERER_URL,
+      bootstrapThemeSnapshot
+    ).catch((error) => {
       log.error('[window] Failed to load renderer URL', {
         windowId: win.id,
         url: process.env.ELECTRON_RENDERER_URL,
@@ -601,7 +666,15 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
       windowId: win.id,
       path: rendererFilePath,
     });
-    win.loadFile(rendererFilePath);
+    if (bootstrapThemeSnapshot) {
+      win.loadFile(rendererFilePath, {
+        query: {
+          [BOOTSTRAP_THEME_SEARCH_PARAM]: encodeBootstrapThemeSearchValue(bootstrapThemeSnapshot),
+        },
+      });
+    } else {
+      win.loadFile(rendererFilePath);
+    }
   }
 
   win.on('closed', () => {

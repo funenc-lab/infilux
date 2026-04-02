@@ -14,6 +14,7 @@ import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { RendererDiagnosticsProbe } from './components/RendererDiagnosticsProbe';
 import { StartupShell } from './components/StartupShell';
 import { ToastProvider } from './components/ui/toast';
+import { applyBootstrapTheme } from './lib/bootstrapTheme';
 import { ensureRendererBridgeFallback } from './lib/electronBridgeFallback';
 import { getRendererDiagnosticsSnapshot } from './lib/runtimeDiagnostics';
 import './styles/globals.css';
@@ -27,6 +28,7 @@ const setBootstrapStage = createBootstrapStageReporter();
 
 setBootstrapStage('module-evaluated');
 ensureRendererBridgeFallback();
+applyBootstrapTheme(window.electronAPI.env.bootstrapTheme);
 
 const queryClient = new QueryClient({
   defaultOptions: {

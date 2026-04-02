@@ -1,9 +1,12 @@
+import type { BootstrapThemeSnapshot } from '@shared/utils/bootstrapTheme';
+
 export type RendererPlatform = 'darwin' | 'win32' | 'linux';
 
 export interface RendererEnvironment {
   HOME: string;
   platform: RendererPlatform;
   appVersion: string;
+  bootstrapTheme?: BootstrapThemeSnapshot | null;
 }
 
 const DEFAULT_RENDERER_ENVIRONMENT: RendererEnvironment = {
@@ -35,6 +38,7 @@ export function getRendererEnvironment(): RendererEnvironment {
     HOME: env?.HOME ?? DEFAULT_RENDERER_ENVIRONMENT.HOME,
     platform: env?.platform ?? fallbackPlatform,
     appVersion: env?.appVersion ?? DEFAULT_RENDERER_ENVIRONMENT.appVersion,
+    bootstrapTheme: env?.bootstrapTheme ?? null,
   };
 }
 
