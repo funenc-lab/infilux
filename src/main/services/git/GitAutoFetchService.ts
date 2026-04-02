@@ -10,10 +10,29 @@ const FETCH_INTERVAL_MS = 3 * 60 * 1000;
 const MIN_FOCUS_INTERVAL_MS = 1 * 60 * 1000;
 // Debounce delay for HEAD file change notifications
 const HEAD_CHANGE_DEBOUNCE_MS = 300;
+const FETCH_TIMEOUT_MS = 30_000;
+
+async function withTimeout<T>(task: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null;
+
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
 
 class GitAutoFetchService {
   private mainWindow: BrowserWindow | null = null;
   private intervalId: NodeJS.Timeout | null = null;
+  private startupFetchTimeoutId: NodeJS.Timeout | null = null;
   private lastFetchTime = 0;
   private worktreePaths: Set<string> = new Set();
   private enabled = false;
@@ -48,6 +67,7 @@ class GitAutoFetchService {
 
   cleanup(): void {
     this.stop();
+    this.clearWorktrees();
     // Collect keys first to avoid modifying Map during iteration
     for (const path of [...this.headWatchers.keys()]) {
       this.unwatchHead(path);
@@ -56,6 +76,10 @@ class GitAutoFetchService {
       this.mainWindow.off('focus', this.onFocusHandler);
       this.onFocusHandler = null;
     }
+    this.mainWindow = null;
+    this.enabled = false;
+    this.fetching = false;
+    this.lastFetchTime = 0;
   }
 
   start(): void {
@@ -66,13 +90,20 @@ class GitAutoFetchService {
     }, FETCH_INTERVAL_MS);
 
     // 启动后延迟 5 秒执行首次 fetch
-    setTimeout(() => this.fetchAll(), 5000);
+    this.startupFetchTimeoutId = setTimeout(() => {
+      this.startupFetchTimeoutId = null;
+      void this.fetchAll();
+    }, 5000);
   }
 
   stop(): void {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+    }
+    if (this.startupFetchTimeoutId) {
+      clearTimeout(this.startupFetchTimeoutId);
+      this.startupFetchTimeoutId = null;
     }
   }
 
@@ -115,10 +146,7 @@ class GitAutoFetchService {
         if (!this.enabled) break;
         try {
           const git = new GitService(path);
-          await Promise.race([
-            git.fetch(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('fetch timeout')), 30000)),
-          ]);
+          await withTimeout(git.fetch(), FETCH_TIMEOUT_MS, 'fetch');
 
           if (!this.enabled) break;
 
@@ -127,12 +155,11 @@ class GitAutoFetchService {
           const submodulePromises = submodules
             .filter((s) => s.initialized)
             .map((s) =>
-              Promise.race([
-                git.fetchSubmodule(s.path),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
-              ]).catch((err) => {
-                console.debug(`Auto fetch submodule failed for ${s.path}:`, err);
-              })
+              withTimeout(git.fetchSubmodule(s.path), FETCH_TIMEOUT_MS, 'submodule fetch').catch(
+                (err) => {
+                  console.debug(`Auto fetch submodule failed for ${s.path}:`, err);
+                }
+              )
             );
           await Promise.all(submodulePromises);
         } catch (error) {

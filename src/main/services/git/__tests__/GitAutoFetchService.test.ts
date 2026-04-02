@@ -105,6 +105,14 @@ vi.mock('../GitService', () => ({
 }));
 
 describe('GitAutoFetchService', () => {
+  let activeService: { cleanup: () => void } | null = null;
+
+  async function loadGitAutoFetchService() {
+    const { gitAutoFetchService } = await import('../GitAutoFetchService');
+    activeService = gitAutoFetchService as unknown as { cleanup: () => void };
+    return gitAutoFetchService;
+  }
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -113,6 +121,8 @@ describe('GitAutoFetchService', () => {
   });
 
   afterEach(() => {
+    activeService?.cleanup();
+    activeService = null;
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -143,7 +153,7 @@ describe('GitAutoFetchService', () => {
       },
     };
 
-    const { gitAutoFetchService } = await import('../GitAutoFetchService');
+    const gitAutoFetchService = await loadGitAutoFetchService();
 
     gitAutoFetchService.init(window as never);
     gitAutoFetchService.init(window as never);
@@ -178,11 +188,13 @@ describe('GitAutoFetchService', () => {
 
     watcher.emitError();
     gitAutoFetchService.cleanup();
+    activeService = null;
 
     expect(window.off).toHaveBeenCalledWith('focus', focusListeners[0]);
     expect(watcher.close).toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith('GitAutoFetchService already initialized');
-  });
+    expect(vi.getTimerCount()).toBe(0);
+  }, 20_000);
 
   it('handles fetch failures, disabled state, and destroyed windows safely', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
@@ -219,7 +231,7 @@ describe('GitAutoFetchService', () => {
       },
     };
 
-    const { gitAutoFetchService } = await import('../GitAutoFetchService');
+    const gitAutoFetchService = await loadGitAutoFetchService();
 
     gitAutoFetchService.init(window as never);
     gitAutoFetchService.registerWorktree(worktreePath);
@@ -255,5 +267,66 @@ describe('GitAutoFetchService', () => {
     gitAutoFetchService.registerWorktree(worktreePath);
     service.clearWorktrees();
     expect(watcher.close).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancels the deferred startup fetch when cleanup runs before the timer fires', async () => {
+    const window = {
+      on: vi.fn(),
+      off: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        send: vi.fn(),
+      },
+    };
+
+    const gitAutoFetchService = await loadGitAutoFetchService();
+
+    gitAutoFetchService.init(window as never);
+    gitAutoFetchService.setEnabled(true);
+    gitAutoFetchService.registerWorktree('/repo-cleanup');
+    gitAutoFetchService.cleanup();
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(gitAutoFetchTestDoubles.fetch).not.toHaveBeenCalled();
+  });
+
+  it('drops stale worktree registrations across cleanup and reinit cycles', async () => {
+    const firstWindow = {
+      on: vi.fn(),
+      off: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        send: vi.fn(),
+      },
+    };
+    const secondWindow = {
+      on: vi.fn(),
+      off: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        send: vi.fn(),
+      },
+    };
+
+    const gitAutoFetchService = await loadGitAutoFetchService();
+
+    gitAutoFetchService.init(firstWindow as never);
+    gitAutoFetchService.registerWorktree('/repo-old');
+    gitAutoFetchService.cleanup();
+
+    gitAutoFetchService.init(secondWindow as never);
+    gitAutoFetchService.registerWorktree('/repo-new');
+    gitAutoFetchService.setEnabled(true);
+
+    const service = gitAutoFetchService as unknown as {
+      fetchAll: () => Promise<void>;
+    };
+
+    await service.fetchAll();
+    gitAutoFetchService.cleanup();
+
+    expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledTimes(1);
+    expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledWith('/repo-new');
   });
 });
