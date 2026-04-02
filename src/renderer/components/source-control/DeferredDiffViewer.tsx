@@ -1,8 +1,8 @@
 import { FileCode } from 'lucide-react';
 import { forwardRef, useEffect, useState } from 'react';
-import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { useI18n } from '@/i18n';
 import type { DiffViewerProps } from './DiffViewer';
+import { DiffViewerStateCard } from './DiffViewerStateCard';
 
 type DiffViewerComponent = React.ComponentType<DiffViewerProps>;
 
@@ -41,30 +41,26 @@ export const DeferredDiffViewer = forwardRef<unknown, DeferredDiffViewerProps>(
 
     if (!shouldLoad) {
       return (
-        <div className="flex h-full items-center justify-center p-5">
-          <ConsoleEmptyState
-            variant="embedded"
-            icon={<FileCode className="h-4.5 w-4.5" />}
-            eyebrow={t('Diff Viewer')}
-            title={t('Select a file to view changes')}
-            description={t('Choose a changed file to open the diff view')}
-            chips={[{ label: t('Awaiting Selection'), tone: 'wait' }]}
-          />
-        </div>
+        <DiffViewerStateCard
+          icon={<FileCode className="h-5 w-5" />}
+          eyebrow={t('Diff Viewer')}
+          title={t('Select a file to view changes')}
+          description={t('Choose a changed file to open the diff view')}
+          metaLabel={t('Next Step')}
+          metaValue={t('Choose a changed file in the changes list')}
+        />
       );
     }
 
     return (
-      <div className="flex h-full items-center justify-center p-5">
-        <ConsoleEmptyState
-          variant="embedded"
-          icon={<FileCode className="h-4.5 w-4.5" />}
-          eyebrow={t('Diff Viewer')}
-          title={t('Loading diff viewer')}
-          description={t('Preparing the diff runtime')}
-          chips={[{ label: t('Loading'), tone: 'wait' }]}
-        />
-      </div>
+      <DiffViewerStateCard
+        icon={<FileCode className="h-5 w-5" />}
+        eyebrow={t('Diff Viewer')}
+        title={t('Loading diff viewer')}
+        description={t('Preparing the diff runtime')}
+        metaLabel={t('Status')}
+        metaValue={t('Loading diff runtime')}
+      />
     );
   }
 );

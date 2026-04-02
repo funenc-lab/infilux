@@ -9,11 +9,14 @@ const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.
 const panelSource = agentPanelSource;
 
 describe('AgentPanel empty state styles', () => {
-  it('centers the empty state card within the agent panel surface', () => {
-    expect(panelSource).toContain(
-      'absolute inset-0 z-20 flex items-start justify-center px-6 pb-6 pt-24 sm:pt-28'
-    );
-    expect(panelSource).toContain('className="mx-auto max-w-[min(48rem,100%)]"');
+  it('renders the main agent empty state as a control-state card instead of a generic console card', () => {
+    expect(panelSource).toContain('<ControlStateCard');
+    expect(panelSource).not.toContain('<ConsoleEmptyState');
+    expect(panelSource).toContain("eyebrow={t('Agent Console')}");
+  });
+
+  it('allows the profile picker menu to escape the card without being clipped', () => {
+    expect(panelSource).toContain('cardClassName="max-w-[min(54rem,100%)] overflow-visible"');
   });
 
   it('uses shared console action button classes for the empty state controls', () => {
@@ -36,20 +39,38 @@ describe('AgentPanel empty state styles', () => {
     expect(panelSource).toContain('EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME');
   });
 
-  it('gives the primary action stronger hierarchy with a stacked label block and responsive action layout', () => {
+  it('keeps the primary action on the shared control-state button density instead of a hero CTA', () => {
+    expect(panelSource).toContain('ControlStateActionButton');
     expect(panelSource).toContain(
-      'flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-center'
+      'flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center'
     );
-    expect(panelSource).toContain(
-      'min-h-[3.75rem] flex-1 justify-start gap-3.5 px-5 py-3 text-left whitespace-normal'
+    expect(panelSource).toContain('w-full justify-start gap-2.5');
+    expect(panelSource).toContain('flex min-w-0 items-center gap-2');
+    expect(panelSource).not.toContain('min-h-[3.75rem]');
+    expect(panelSource).not.toContain('flex min-w-0 flex-1 flex-col items-start gap-1');
+    expect(panelSource).not.toContain(
+      'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-foreground/6 ring-1 ring-foreground/10'
     );
-    expect(panelSource).toContain('flex min-w-0 flex-1 flex-col items-start gap-1');
-    expect(panelSource).toContain('text-xs leading-none text-foreground/70');
+    expect(panelSource).not.toContain('text-xs leading-none text-foreground/70');
+  });
+
+  it('uses a single next-step meta line instead of path chips and compact detail tiles', () => {
+    expect(panelSource).toContain("metaLabel={t('Next Step')}");
+    expect(panelSource).toContain('metaValue={emptyStateModel.nextStepLabel}');
+    expect(panelSource).not.toContain('detailsLayout="compact"');
+    expect(panelSource).not.toContain('getDisplayPathBasename(cwd)');
+    expect(panelSource).not.toContain("label: t('Status'), value: emptyStateModel.statusLabel");
+  });
+
+  it('moves supporting status context into a quieter footer row', () => {
+    expect(panelSource).toContain('text-[0.76em] leading-5 text-muted-foreground/84');
+    expect(panelSource).toContain("{t('Status')}");
+    expect(panelSource).toContain("{t('Default Agent')}");
   });
 
   it('keeps the default badge on the same line as the primary button title', () => {
-    expect(panelSource).toContain('flex w-full items-center gap-2');
-    expect(panelSource).toContain('flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]');
+    expect(panelSource).toContain('flex min-w-0 items-center gap-2');
+    expect(panelSource).toContain('min-w-0 truncate');
     expect(panelSource).not.toContain(
       '<span className={EMPTY_STATE_PRIMARY_ACTION_META_CLASS_NAME}>'
     );
@@ -57,17 +78,27 @@ describe('AgentPanel empty state styles', () => {
 
   it('keeps the split toggle on the same primary control surface as the launch button', () => {
     expect(panelSource).toContain(
-      'control-action-button-primary min-h-12 min-w-0 rounded-l-none border-l border-foreground/12 px-3 text-[15px]'
+      'control-action-button control-action-button-primary min-w-0 rounded-l-none border-l border-foreground/12 px-3'
     );
     expect(panelSource).not.toContain('hover:brightness-110');
   });
 
-  it('keeps the primary launch control visually balanced instead of stretching across the row', () => {
-    expect(panelSource).toContain('relative flex w-full items-stretch justify-center sm:w-auto');
+  it('keeps the agent profiles action on the standard secondary button pattern', () => {
     expect(panelSource).toContain(
-      "emptyStateModel.showProfilePicker\n                      ? 'flex-1 rounded-r-none pr-4 sm:min-w-[18rem] sm:flex-none'"
+      'control-action-button control-action-button-secondary w-full justify-start gap-2.5 rounded-xl px-4 text-[15px] font-medium sm:w-auto sm:min-w-[11rem]'
     );
-    expect(panelSource).toContain(": 'min-w-[16rem] sm:min-w-[18rem]'");
+    expect(panelSource).toContain('<Settings className="h-4 w-4 text-muted-foreground" />');
+    expect(panelSource).not.toContain(
+      'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-foreground ring-1 ring-border/60'
+    );
+  });
+
+  it('keeps the primary launch control visually balanced instead of stretching across the row', () => {
+    expect(panelSource).toContain('relative flex w-full min-w-0 items-stretch sm:w-auto');
+    expect(panelSource).toContain(
+      "emptyStateModel.showProfilePicker\n                      ? 'w-full justify-start gap-2.5 rounded-r-none pr-3 sm:w-auto sm:min-w-[16rem]'"
+    );
+    expect(panelSource).toContain(": 'w-full justify-start gap-2.5 sm:w-auto sm:min-w-[16rem]'");
   });
 
   it('anchors the profile menu to the action group with responsive width handling', () => {

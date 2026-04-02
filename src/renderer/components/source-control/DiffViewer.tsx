@@ -17,7 +17,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CommentForm } from '@/components/files/EditorLineComment';
 import { ensureMonacoSetup, monaco } from '@/components/files/monacoSetup';
-import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { toastManager } from '@/components/ui/toast';
 import { useFileDiff } from '@/hooks/useSourceControl';
 import { useI18n } from '@/i18n';
@@ -32,6 +31,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useSourceControlStore } from '@/stores/sourceControl';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { buildMonacoThemeDefinition } from '../files/editorThemePalette';
+import { DiffViewerStateCard } from './DiffViewerStateCard';
 
 type DiffEditorInstance = ReturnType<typeof monaco.editor.createDiffEditor>;
 
@@ -1043,61 +1043,53 @@ export function DiffViewer({
 
   if (!file) {
     return (
-      <div className="flex h-full items-center justify-center p-5">
-        <ConsoleEmptyState
-          variant="embedded"
-          icon={<FileCode className="h-4.5 w-4.5" />}
-          eyebrow={t('Diff Viewer')}
-          title={t('View diff')}
-          description={t('Select file to view diff')}
-          chips={[{ label: t('Awaiting Selection'), tone: 'wait' }]}
-        />
-      </div>
+      <DiffViewerStateCard
+        icon={<FileCode className="h-5 w-5" />}
+        eyebrow={t('Diff Viewer')}
+        title={t('View diff')}
+        description={t('Select file to view diff')}
+        metaLabel={t('Next Step')}
+        metaValue={t('Choose a changed file in the changes list')}
+      />
     );
   }
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center p-5">
-        <ConsoleEmptyState
-          variant="embedded"
-          icon={<MessageSquare className="h-4.5 w-4.5" />}
-          eyebrow={t('Diff Viewer')}
-          title={t('Loading diff')}
-          description={t('Preparing the selected file diff')}
-          chips={[{ label: t('Loading'), tone: 'wait' }]}
-        />
-      </div>
+      <DiffViewerStateCard
+        icon={<MessageSquare className="h-5 w-5" />}
+        eyebrow={t('Diff Viewer')}
+        title={t('Loading diff')}
+        description={t('Preparing the selected file diff')}
+        metaLabel={t('Status')}
+        metaValue={t('Loading selected diff')}
+      />
     );
   }
 
   if (!diff) {
     return (
-      <div className="flex h-full items-center justify-center p-5">
-        <ConsoleEmptyState
-          variant="embedded"
-          icon={<FileX2 className="h-4.5 w-4.5" />}
-          eyebrow={t('Diff Viewer')}
-          title={t('Failed to load diff')}
-          description={t('Refresh the file selection or switch to another changed file')}
-          chips={[{ label: t('Unavailable'), tone: 'wait' }]}
-        />
-      </div>
+      <DiffViewerStateCard
+        icon={<FileX2 className="h-5 w-5" />}
+        eyebrow={t('Diff Viewer')}
+        title={t('Failed to load diff')}
+        description={t('Refresh the file selection or switch to another changed file')}
+        metaLabel={t('Next Step')}
+        metaValue={t('Refresh the file selection or choose another changed file')}
+      />
     );
   }
 
   if (diff.isBinary) {
     return (
-      <div className="flex h-full items-center justify-center p-5">
-        <ConsoleEmptyState
-          variant="embedded"
-          icon={<FileX2 className="h-4.5 w-4.5" />}
-          eyebrow={t('Diff Viewer')}
-          title={file.path}
-          description={t('Binary file not supported for diff preview')}
-          chips={[{ label: t('Binary File'), tone: 'wait' }]}
-        />
-      </div>
+      <DiffViewerStateCard
+        icon={<FileX2 className="h-5 w-5" />}
+        eyebrow={t('Diff Viewer')}
+        title={file.path}
+        description={t('Binary file not supported for diff preview')}
+        metaLabel={t('Status')}
+        metaValue={t('Binary preview unavailable')}
+      />
     );
   }
 

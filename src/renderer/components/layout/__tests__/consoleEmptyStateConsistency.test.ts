@@ -26,6 +26,23 @@ const currentFilePanelSource = readFileSync(
   resolve(currentDir, '../../files/CurrentFilePanel.tsx'),
   'utf8'
 );
+const editorAreaSource = readFileSync(resolve(currentDir, '../../files/EditorArea.tsx'), 'utf8');
+const deferredDiffViewerSource = readFileSync(
+  resolve(currentDir, '../../source-control/DeferredDiffViewer.tsx'),
+  'utf8'
+);
+const diffViewerSource = readFileSync(
+  resolve(currentDir, '../../source-control/DiffViewer.tsx'),
+  'utf8'
+);
+const deferredCommitDiffViewerSource = readFileSync(
+  resolve(currentDir, '../../source-control/DeferredCommitDiffViewer.tsx'),
+  'utf8'
+);
+const commitDiffViewerSource = readFileSync(
+  resolve(currentDir, '../../source-control/CommitDiffViewer.tsx'),
+  'utf8'
+);
 const fileTreeSource = readFileSync(resolve(currentDir, '../../files/FileTree.tsx'), 'utf8');
 
 describe('Console empty state consistency', () => {
@@ -63,5 +80,22 @@ describe('Console empty state consistency', () => {
     expect(worktreePanelSource).not.toContain('ConsoleEmptyState');
     expect(fileTreeSource).toContain('control-action-button-primary');
     expect(fileTreeSource).toContain('control-action-button-secondary');
+  });
+
+  it('keeps full editor and diff placeholders on the shared control-state shell', () => {
+    expect(editorAreaSource).toContain('ControlStateCard');
+    expect(editorAreaSource).toMatch(/<ControlStateCard[\s\S]*?title=\{idleStateModel\.title\}/m);
+    expect(editorAreaSource).not.toMatch(
+      /<ConsoleEmptyState[\s\S]*?title=\{idleStateModel\.title\}/m
+    );
+    expect(editorAreaSource).not.toContain('<ConsoleEmptyState');
+    expect(deferredDiffViewerSource).toContain('DiffViewerStateCard');
+    expect(diffViewerSource).toContain('DiffViewerStateCard');
+    expect(deferredCommitDiffViewerSource).toContain('DiffViewerStateCard');
+    expect(commitDiffViewerSource).toContain('DiffViewerStateCard');
+    expect(deferredDiffViewerSource).not.toContain('<ConsoleEmptyState');
+    expect(diffViewerSource).not.toContain('<ConsoleEmptyState');
+    expect(deferredCommitDiffViewerSource).not.toContain('<ConsoleEmptyState');
+    expect(commitDiffViewerSource).not.toContain('<ConsoleEmptyState');
   });
 });

@@ -1,7 +1,7 @@
-import { getDisplayPathBasename } from '@shared/utils/path';
 import { Bot, ChevronDown, Plus, Settings } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
+import { ControlStateActionButton } from '@/components/layout/ControlStateActionButton';
+import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
@@ -28,40 +28,32 @@ interface AgentPanelEmptyStateProps {
   profiles: AgentPanelEmptyStateProfileItem[];
 }
 
-const EMPTY_STATE_ACTION_BUTTON_CLASS_NAME =
-  'control-action-button inline-flex min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl';
-const EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME =
-  'control-action-button-primary min-h-[3.75rem] flex-1 justify-start gap-3.5 px-5 py-3 text-left whitespace-normal';
-const EMPTY_STATE_PRIMARY_ACTION_ICON_CLASS_NAME =
-  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-foreground/6 ring-1 ring-foreground/10';
-const EMPTY_STATE_PRIMARY_ACTION_CONTENT_CLASS_NAME =
-  'flex min-w-0 flex-1 flex-col items-start gap-1';
-const EMPTY_STATE_PRIMARY_ACTION_TITLE_ROW_CLASS_NAME = 'flex w-full items-center gap-2';
-const EMPTY_STATE_PRIMARY_ACTION_TITLE_CLASS_NAME =
-  'min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]';
+const EMPTY_STATE_PRIMARY_ACTION_LABEL_ROW_CLASS_NAME = 'flex min-w-0 items-center gap-2';
+const EMPTY_STATE_PRIMARY_ACTION_TITLE_CLASS_NAME = 'min-w-0 truncate';
 const EMPTY_STATE_PRIMARY_ACTION_META_BADGE_CLASS_NAME =
   'inline-flex shrink-0 items-center rounded-full border border-foreground/12 bg-foreground/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/72';
-const EMPTY_STATE_PRIMARY_ACTION_SUPPORTING_CLASS_NAME =
-  'min-w-0 truncate text-xs leading-none text-foreground/70';
 const EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME =
-  'control-action-button-secondary min-h-[3.75rem] w-full justify-start gap-3 px-5 text-[15px] font-medium text-left sm:w-auto sm:min-w-[14rem]';
-const EMPTY_STATE_SECONDARY_ACTION_ICON_CLASS_NAME =
-  'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-foreground ring-1 ring-border/60';
+  'control-action-button control-action-button-secondary w-full justify-start gap-2.5 rounded-xl px-4 text-[15px] font-medium sm:w-auto sm:min-w-[11rem]';
 const EMPTY_STATE_ACTIONS_LAYOUT_CLASS_NAME =
-  'flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-center';
+  'flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center';
 const EMPTY_STATE_SPLIT_ACTION_GROUP_CLASS_NAME =
   'flex w-full min-w-0 items-stretch overflow-hidden rounded-xl';
 const EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME =
-  'control-action-button-primary min-h-12 min-w-0 rounded-l-none border-l border-foreground/12 px-3 text-[15px]';
+  'control-action-button control-action-button-primary min-w-0 rounded-l-none border-l border-foreground/12 px-3';
 const EMPTY_STATE_SPLIT_ACTION_MENU_CLASS_NAME =
   'absolute left-0 right-0 top-full z-50 pt-2 text-left sm:left-auto sm:right-0 sm:min-w-52';
 const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME =
   'control-menu-item mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-foreground whitespace-nowrap';
+const EMPTY_STATE_CONTEXT_FOOTER_CLASS_NAME =
+  'flex min-w-0 flex-wrap gap-x-5 gap-y-2 text-[0.76em] leading-5 text-muted-foreground/84';
+const EMPTY_STATE_CONTEXT_ITEM_CLASS_NAME = 'flex min-w-0 items-start gap-2';
+const EMPTY_STATE_CONTEXT_LABEL_CLASS_NAME =
+  'shrink-0 font-semibold uppercase tracking-[0.14em] text-muted-foreground/66';
+const EMPTY_STATE_CONTEXT_VALUE_CLASS_NAME = 'min-w-0 text-pretty text-foreground/80';
 
 export function AgentPanelEmptyState({
   bgImageEnabled,
   buttonStyle,
-  cwd,
   defaultAgentLabel,
   emptyStateModel,
   enabledAgentCount,
@@ -75,6 +67,13 @@ export function AgentPanelEmptyState({
   const emptyStateAgentMenuRef = useRef<HTMLDivElement>(null);
   const showPrimaryMeta =
     emptyStateModel.primaryActionIntent === 'start-default-agent' && enabledAgentCount > 0;
+  const requiresAgentConfiguration = emptyStateModel.primaryActionIntent === 'open-agent-settings';
+  const emptyStateTitle = requiresAgentConfiguration
+    ? t('No runnable agent profiles are available')
+    : t('No agent sessions are attached to this worktree');
+  const emptyStateDescription = requiresAgentConfiguration
+    ? t('Configure or detect an agent profile before starting a session in this worktree.')
+    : t('Start the default agent now, or choose another profile for this worktree.');
 
   useEffect(() => {
     if (!showAgentMenu) {
@@ -97,44 +96,43 @@ export function AgentPanelEmptyState({
   }, [showAgentMenu]);
 
   return (
-    <div
-      className={cn(
-        'absolute inset-0 z-20 flex items-start justify-center px-6 pb-6 pt-24 sm:pt-28',
-        !bgImageEnabled && 'bg-background'
-      )}
-    >
-      <ConsoleEmptyState
-        className="mx-auto max-w-[min(48rem,100%)]"
+    <div className={cn('absolute inset-0 z-20', !bgImageEnabled && 'bg-background')}>
+      <ControlStateCard
+        cardClassName="max-w-[min(54rem,100%)] overflow-visible"
         icon={<Bot className="h-5 w-5" />}
-        eyebrow={t('No active sessions')}
-        title={t('No agent sessions are attached to this worktree')}
-        description={t(
-          'Launch the default agent immediately or choose another profile to resume orchestration in this worktree.'
-        )}
-        chips={[{ label: getDisplayPathBasename(cwd), tone: 'strong' }]}
-        details={[
-          { label: t('Status'), value: emptyStateModel.statusLabel },
-          { label: t('Default Agent'), value: defaultAgentLabel },
-          {
-            label: t('Next Step'),
-            value: emptyStateModel.nextStepLabel,
-          },
-        ]}
-        detailsLayout="compact"
+        eyebrow={t('Agent Console')}
+        title={emptyStateTitle}
+        description={emptyStateDescription}
+        metaLabel={t('Next Step')}
+        metaValue={emptyStateModel.nextStepLabel}
+        footer={
+          <div className={EMPTY_STATE_CONTEXT_FOOTER_CLASS_NAME}>
+            <div className={EMPTY_STATE_CONTEXT_ITEM_CLASS_NAME}>
+              <span className={EMPTY_STATE_CONTEXT_LABEL_CLASS_NAME}>{t('Status')}</span>
+              <span className={EMPTY_STATE_CONTEXT_VALUE_CLASS_NAME}>
+                {emptyStateModel.statusLabel}
+              </span>
+            </div>
+            {showPrimaryMeta ? (
+              <div className={EMPTY_STATE_CONTEXT_ITEM_CLASS_NAME}>
+                <span className={EMPTY_STATE_CONTEXT_LABEL_CLASS_NAME}>{t('Default Agent')}</span>
+                <span className={EMPTY_STATE_CONTEXT_VALUE_CLASS_NAME}>{defaultAgentLabel}</span>
+              </div>
+            ) : null}
+          </div>
+        }
         actions={
           <div className={EMPTY_STATE_ACTIONS_LAYOUT_CLASS_NAME}>
             <div
               ref={emptyStateAgentMenuRef}
-              className="relative flex w-full items-stretch justify-center sm:w-auto"
+              className="relative flex w-full min-w-0 items-stretch sm:w-auto"
             >
               <div
                 className={cn(
                   emptyStateModel.showProfilePicker && EMPTY_STATE_SPLIT_ACTION_GROUP_CLASS_NAME
                 )}
               >
-                <Button
-                  variant="default"
-                  size="lg"
+                <ControlStateActionButton
                   onClick={() => {
                     if (emptyStateModel.primaryActionIntent === 'open-agent-settings') {
                       onOpenAgentSettings();
@@ -144,19 +142,15 @@ export function AgentPanelEmptyState({
                     setShowAgentMenu(false);
                   }}
                   className={cn(
-                    EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
-                    EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME,
                     emptyStateModel.showProfilePicker
-                      ? 'flex-1 rounded-r-none pr-4 sm:min-w-[18rem] sm:flex-none'
-                      : 'min-w-[16rem] sm:min-w-[18rem]'
+                      ? 'w-full justify-start gap-2.5 rounded-r-none pr-3 sm:w-auto sm:min-w-[16rem]'
+                      : 'w-full justify-start gap-2.5 sm:w-auto sm:min-w-[16rem]'
                   )}
                   style={buttonStyle}
                 >
-                  <span className={EMPTY_STATE_PRIMARY_ACTION_ICON_CLASS_NAME}>
-                    <Plus className="h-4 w-4" />
-                  </span>
-                  <span className={EMPTY_STATE_PRIMARY_ACTION_CONTENT_CLASS_NAME}>
-                    <span className={EMPTY_STATE_PRIMARY_ACTION_TITLE_ROW_CLASS_NAME}>
+                  <Plus className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className={EMPTY_STATE_PRIMARY_ACTION_LABEL_ROW_CLASS_NAME}>
                       <span className={EMPTY_STATE_PRIMARY_ACTION_TITLE_CLASS_NAME}>
                         {emptyStateModel.primaryActionLabel}
                       </span>
@@ -166,13 +160,8 @@ export function AgentPanelEmptyState({
                         </span>
                       ) : null}
                     </span>
-                    {showPrimaryMeta ? (
-                      <span className={EMPTY_STATE_PRIMARY_ACTION_SUPPORTING_CLASS_NAME}>
-                        {defaultAgentLabel}
-                      </span>
-                    ) : null}
                   </span>
-                </Button>
+                </ControlStateActionButton>
                 {emptyStateModel.showProfilePicker ? (
                   <Button
                     variant="default"
@@ -181,10 +170,7 @@ export function AgentPanelEmptyState({
                     aria-haspopup="menu"
                     aria-expanded={showAgentMenu}
                     onClick={() => setShowAgentMenu((current) => !current)}
-                    className={cn(
-                      EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
-                      EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME
-                    )}
+                    className={cn(EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME, 'text-[15px]')}
                     style={buttonStyle}
                   >
                     <ChevronDown
@@ -250,16 +236,10 @@ export function AgentPanelEmptyState({
               variant="outline"
               size="lg"
               onClick={onOpenAgentSettings}
-              className={cn(
-                EMPTY_STATE_ACTION_BUTTON_CLASS_NAME,
-                EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME,
-                'rounded-xl'
-              )}
+              className={EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME}
               style={buttonStyle}
             >
-              <span className={EMPTY_STATE_SECONDARY_ACTION_ICON_CLASS_NAME}>
-                <Settings className="h-4 w-4" />
-              </span>
+              <Settings className="h-4 w-4 text-muted-foreground" />
               <span className="truncate">{t('Agent profiles')}</span>
             </Button>
           </div>

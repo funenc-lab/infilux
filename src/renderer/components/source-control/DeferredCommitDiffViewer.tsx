@@ -1,8 +1,8 @@
 import { FileCode } from 'lucide-react';
 import { forwardRef, useEffect, useState } from 'react';
-import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { useI18n } from '@/i18n';
 import type { CommitDiffViewerProps } from './CommitDiffViewer';
+import { DiffViewerStateCard } from './DiffViewerStateCard';
 
 type CommitDiffViewerComponent = React.ComponentType<CommitDiffViewerProps>;
 
@@ -40,30 +40,26 @@ export const DeferredCommitDiffViewer = forwardRef<unknown, DeferredCommitDiffVi
 
     if (!shouldLoad) {
       return (
-        <div className="flex h-full items-center justify-center p-5">
-          <ConsoleEmptyState
-            variant="embedded"
-            icon={<FileCode className="h-4.5 w-4.5" />}
-            eyebrow={t('Commit Diff')}
-            title={t('Select a file to view changes')}
-            description={t('Choose a commit file to open the diff view')}
-            chips={[{ label: t('Awaiting Selection'), tone: 'wait' }]}
-          />
-        </div>
+        <DiffViewerStateCard
+          icon={<FileCode className="h-5 w-5" />}
+          eyebrow={t('Commit Diff')}
+          title={t('Select a file to view changes')}
+          description={t('Choose a commit file to open the diff view')}
+          metaLabel={t('Next Step')}
+          metaValue={t('Choose a file from the commit list')}
+        />
       );
     }
 
     return (
-      <div className="flex h-full items-center justify-center p-5">
-        <ConsoleEmptyState
-          variant="embedded"
-          icon={<FileCode className="h-4.5 w-4.5" />}
-          eyebrow={t('Commit Diff')}
-          title={t('Loading commit diff')}
-          description={t('Preparing the commit diff runtime')}
-          chips={[{ label: t('Loading'), tone: 'wait' }]}
-        />
-      </div>
+      <DiffViewerStateCard
+        icon={<FileCode className="h-5 w-5" />}
+        eyebrow={t('Commit Diff')}
+        title={t('Loading commit diff')}
+        description={t('Preparing the commit diff runtime')}
+        metaLabel={t('Status')}
+        metaValue={t('Loading commit diff')}
+      />
     );
   }
 );

@@ -11,8 +11,8 @@ import {
   useState,
 } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { ControlStateActionButton } from '@/components/layout/ControlStateActionButton';
+import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import {
   buildConsoleButtonStyle,
   buildConsoleTypographyModel,
@@ -44,6 +44,7 @@ import { setupDefinitionNavigation } from './editorDefinitionProvider';
 import {
   buildIdleEditorStateModel,
   buildUnsupportedEditorStateModel,
+  type EditorEmptyStateDetail,
 } from './editorEmptyStateModel';
 import { bindingToMonacoChord } from './editorKeybinding';
 import { buildRetainedEditorModelPaths, recordRecentEditorModelPath } from './editorModelRetention';
@@ -66,6 +67,30 @@ import { useEditorBlame } from './useEditorBlame';
 
 type Monaco = typeof monaco;
 const EXTERNAL_CHANGE_BATCH_MS = 48;
+
+function getPrimaryEditorStateDetail(details: EditorEmptyStateDetail[]) {
+  return details.at(-1) ?? null;
+}
+
+function renderEditorStateFooter(details: EditorEmptyStateDetail[]) {
+  const footerDetails = details.slice(0, -1);
+  if (footerDetails.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex min-w-0 flex-wrap gap-x-5 gap-y-2 text-[0.76em] leading-5 text-muted-foreground/84">
+      {footerDetails.map((detail) => (
+        <div key={`${detail.label}:${detail.value}`} className="flex min-w-0 items-start gap-2">
+          <span className="shrink-0 font-semibold uppercase tracking-[0.14em] text-muted-foreground/66">
+            {detail.label}
+          </span>
+          <span className="min-w-0 text-pretty text-foreground/80">{detail.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export interface EditorAreaRef {
   getSelectedText: () => string;
@@ -314,6 +339,23 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
           })
         : null,
     [activeTab, getRelativePath, t]
+  );
+  const idlePrimaryDetail = useMemo(
+    () => getPrimaryEditorStateDetail(idleStateModel.details),
+    [idleStateModel.details]
+  );
+  const idleStateFooter = useMemo(
+    () => renderEditorStateFooter(idleStateModel.details),
+    [idleStateModel.details]
+  );
+  const unsupportedPrimaryDetail = useMemo(
+    () =>
+      unsupportedStateModel ? getPrimaryEditorStateDetail(unsupportedStateModel.details) : null,
+    [unsupportedStateModel]
+  );
+  const unsupportedStateFooter = useMemo(
+    () => (unsupportedStateModel ? renderEditorStateFooter(unsupportedStateModel.details) : null),
+    [unsupportedStateModel]
   );
 
   // Wrap onSave to refresh blame after save
@@ -1418,31 +1460,22 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
               }}
             >
               {activeTab.isUnsupported ? (
-                <div className="flex h-full items-start justify-center px-6 pb-6 pt-12 sm:pt-16">
-                  <ConsoleEmptyState
-                    className="max-w-[min(60rem,100%)]"
-                    icon={<FileX className="h-5 w-5" />}
-                    eyebrow={unsupportedStateModel?.eyebrow ?? t('Preview Unavailable')}
-                    title={
-                      unsupportedStateModel?.title ??
-                      t('This file cannot be rendered in the editor')
-                    }
-                    description={
-                      unsupportedStateModel?.description ??
-                      t(
-                        'Use another application to inspect this file, or switch to a supported file to keep editing in place.'
-                      )
-                    }
-                    chips={[
-                      {
-                        label: unsupportedStateModel?.chipLabel ?? t('Unsupported File'),
-                        tone: unsupportedStateModel?.chipTone ?? 'wait',
-                      },
-                    ]}
-                    details={unsupportedStateModel?.details ?? []}
-                    detailsLayout="compact"
-                  />
-                </div>
+                <ControlStateCard
+                  icon={<FileX className="h-5 w-5" />}
+                  eyebrow={unsupportedStateModel?.eyebrow ?? t('Preview Unavailable')}
+                  title={
+                    unsupportedStateModel?.title ?? t('This file cannot be rendered in the editor')
+                  }
+                  description={
+                    unsupportedStateModel?.description ??
+                    t(
+                      'Use another application to inspect this file, or switch to a supported file to keep editing in place.'
+                    )
+                  }
+                  metaLabel={unsupportedPrimaryDetail?.label}
+                  metaValue={unsupportedPrimaryDetail?.value}
+                  footer={unsupportedStateFooter}
+                />
               ) : isImage ? (
                 <ImagePreview path={activeTab.path} />
               ) : isPdf ? (
@@ -1543,28 +1576,22 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
             )}
           </>
         ) : (
-          <div className="flex h-full flex-1 items-start justify-center px-6 pb-6 pt-12 sm:pt-16">
-            <ConsoleEmptyState
-              className="max-w-[min(60rem,100%)]"
-              icon={<FileCode className="h-5 w-5" />}
-              eyebrow={idleStateModel.eyebrow}
-              title={idleStateModel.title}
-              description={idleStateModel.description}
-              chips={[{ label: idleStateModel.chipLabel, tone: idleStateModel.chipTone }]}
-              details={idleStateModel.details}
-              detailsLayout="compact"
-              actions={
-                onToggleFileTree && isFileTreeCollapsed ? (
-                  <ControlStateActionButton
-                    onClick={onToggleFileTree}
-                    style={emptyStateButtonStyle}
-                  >
-                    {t('Show File Tree')}
-                  </ControlStateActionButton>
-                ) : null
-              }
-            />
-          </div>
+          <ControlStateCard
+            icon={<FileCode className="h-5 w-5" />}
+            eyebrow={idleStateModel.eyebrow}
+            title={idleStateModel.title}
+            description={idleStateModel.description}
+            metaLabel={idlePrimaryDetail?.label}
+            metaValue={idlePrimaryDetail?.value}
+            footer={idleStateFooter}
+            actions={
+              onToggleFileTree && isFileTreeCollapsed ? (
+                <ControlStateActionButton onClick={onToggleFileTree} style={emptyStateButtonStyle}>
+                  {t('Show File Tree')}
+                </ControlStateActionButton>
+              ) : null
+            }
+          />
         )}
       </div>
     </div>
