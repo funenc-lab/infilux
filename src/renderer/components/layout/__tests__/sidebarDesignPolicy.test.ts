@@ -624,6 +624,11 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('.control-tree-inline-title {');
     expect(globalsSource).toContain('.control-tree-inline-copy {');
     expect(globalsSource).toContain('.control-tree-skeleton {');
+    expect(globalsSource).toContain('border: 1px solid');
+    expect(globalsSource).toContain('background: linear-gradient(');
+    expect(globalsSource).toContain('180deg,');
+    expect(globalsSource).toContain('box-shadow:');
+    expect(globalsSource).toContain('inset 0 1px 0');
     expect(treeSidebarSource).toContain('className="control-tree-inline-empty"');
     expect(treeSidebarSource).toContain('className="control-tree-skeleton"');
     expect(treeSidebarSource).not.toContain(

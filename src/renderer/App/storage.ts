@@ -29,6 +29,8 @@ export const STORAGE_KEYS = {
   REPOSITORY_GROUPS: 'enso-repository-groups',
   ACTIVE_GROUP: 'enso-active-group',
   GROUP_COLLAPSED_STATE: 'enso-group-collapsed-state',
+  TREE_SIDEBAR_EXPANDED_REPOS: 'enso-tree-sidebar-expanded-repos',
+  TREE_SIDEBAR_TEMP_EXPANDED: 'enso-tree-sidebar-temp-expanded',
   TODO_BOARDS: 'enso-todo-boards',
   FILE_TREE_EXPANDED_PREFIX: 'enso-file-tree-expanded',
   SC_REPO_LIST_EXPANDED: 'enso-sc-repo-list-expanded',
@@ -56,6 +58,8 @@ const LEGACY_LOCAL_STORAGE_IMPORT_KEYS = new Set<string>([
   STORAGE_KEYS.REPOSITORY_GROUPS,
   STORAGE_KEYS.ACTIVE_GROUP,
   STORAGE_KEYS.GROUP_COLLAPSED_STATE,
+  STORAGE_KEYS.TREE_SIDEBAR_EXPANDED_REPOS,
+  STORAGE_KEYS.TREE_SIDEBAR_TEMP_EXPANDED,
   STORAGE_KEYS.SC_REPO_LIST_EXPANDED,
   STORAGE_KEYS.SC_CHANGES_EXPANDED,
   STORAGE_KEYS.SC_HISTORY_EXPANDED,
@@ -466,6 +470,41 @@ export const getStoredGroupCollapsedState = (): Record<string, boolean> => {
 
 export const saveGroupCollapsedState = (state: Record<string, boolean>): void => {
   localStorage.setItem(STORAGE_KEYS.GROUP_COLLAPSED_STATE, JSON.stringify(state));
+};
+
+export const getStoredTreeSidebarExpandedRepos = (): string[] => {
+  const saved = localStorage.getItem(STORAGE_KEYS.TREE_SIDEBAR_EXPANDED_REPOS);
+  if (!saved) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return [
+      ...new Set(
+        parsed.filter((value): value is string => typeof value === 'string').map(normalizePath)
+      ),
+    ];
+  } catch {
+    return [];
+  }
+};
+
+export const saveTreeSidebarExpandedRepos = (repoPaths: string[]): void => {
+  localStorage.setItem(
+    STORAGE_KEYS.TREE_SIDEBAR_EXPANDED_REPOS,
+    JSON.stringify([...new Set(repoPaths.map(normalizePath))])
+  );
+};
+
+export const getStoredTreeSidebarTempExpanded = (): boolean =>
+  getStoredBoolean(STORAGE_KEYS.TREE_SIDEBAR_TEMP_EXPANDED, true);
+
+export const saveTreeSidebarTempExpanded = (expanded: boolean): void => {
+  localStorage.setItem(STORAGE_KEYS.TREE_SIDEBAR_TEMP_EXPANDED, String(expanded));
 };
 
 // File tree expanded paths helpers (per-worktree, keyed by rootPath)

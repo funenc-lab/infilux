@@ -317,6 +317,31 @@ describe('storage helpers', () => {
     expect(persistedEnv.getStoredGroupCollapsedState()).toEqual({ 'group-9': true });
   });
 
+  it('loads and saves tree sidebar expanded repositories and temp workspace section state', async () => {
+    const env = await loadStorageModule({
+      initialStorage: {
+        [envKey('TREE_SIDEBAR_EXPANDED_REPOS')]: JSON.stringify(['/Repo/A', '/Repo/B/']),
+        [envKey('TREE_SIDEBAR_TEMP_EXPANDED')]: 'false',
+      },
+      platform: 'MacIntel',
+    });
+
+    expect(env.getStoredTreeSidebarExpandedRepos()).toEqual(['/repo/a', '/repo/b']);
+    expect(env.getStoredTreeSidebarTempExpanded()).toBe(false);
+
+    env.saveTreeSidebarExpandedRepos(['/Repo/C/', '/Repo/D']);
+    env.saveTreeSidebarTempExpanded(true);
+
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      env.STORAGE_KEYS.TREE_SIDEBAR_EXPANDED_REPOS,
+      JSON.stringify(['/repo/c', '/repo/d'])
+    );
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      env.STORAGE_KEYS.TREE_SIDEBAR_TEMP_EXPANDED,
+      'true'
+    );
+  });
+
   it('loads and saves file tree expanded paths while tolerating storage failures', async () => {
     const env = await loadStorageModule({
       platform: 'MacIntel',
@@ -476,6 +501,8 @@ function envKey(key: keyof typeof import('../storage').STORAGE_KEYS): string {
     REPOSITORY_GROUPS: 'enso-repository-groups',
     ACTIVE_GROUP: 'enso-active-group',
     GROUP_COLLAPSED_STATE: 'enso-group-collapsed-state',
+    TREE_SIDEBAR_EXPANDED_REPOS: 'enso-tree-sidebar-expanded-repos',
+    TREE_SIDEBAR_TEMP_EXPANDED: 'enso-tree-sidebar-temp-expanded',
     TODO_BOARDS: 'enso-todo-boards',
     FILE_TREE_EXPANDED_PREFIX: 'enso-file-tree-expanded',
     SC_REPO_LIST_EXPANDED: 'enso-sc-repo-list-expanded',

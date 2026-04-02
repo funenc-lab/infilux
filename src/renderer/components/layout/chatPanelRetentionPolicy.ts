@@ -1,5 +1,7 @@
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
 
+export const MAX_RETAINED_CHAT_PANEL_PATHS = 4;
+
 interface UpdateRetainedChatPanelPathsOptions {
   previousPaths: string[];
   activePath?: string | null;
@@ -15,6 +17,6 @@ export function updateRetainedChatPanelPaths({
     previousPaths,
     activePath,
     hasActivity,
-    maxPaths: Number.MAX_SAFE_INTEGER,
+    maxPaths: MAX_RETAINED_CHAT_PANEL_PATHS,
   });
 }

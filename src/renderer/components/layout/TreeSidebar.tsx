@@ -35,10 +35,14 @@ import {
   getRepositorySettings,
   getStoredGroupCollapsedState,
   getStoredRepositorySettings,
+  getStoredTreeSidebarExpandedRepos,
+  getStoredTreeSidebarTempExpanded,
   normalizePath,
   type RepositorySettings,
   saveGroupCollapsedState,
   saveRepositorySettings,
+  saveTreeSidebarExpandedRepos,
+  saveTreeSidebarTempExpanded,
 } from '@/App/storage';
 import {
   CreateGroupDialog,
@@ -197,8 +201,10 @@ export function TreeSidebar({
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [tempExpanded, setTempExpanded] = useState(true);
-  const [expandedRepoList, setExpandedRepoList] = useState<string[]>([]);
+  const [tempExpanded, setTempExpanded] = useState(() => getStoredTreeSidebarTempExpanded());
+  const [expandedRepoList, setExpandedRepoList] = useState<string[]>(() =>
+    getStoredTreeSidebarExpandedRepos()
+  );
 
   const [createGroupDialogOpen, setCreateGroupDialogOpen] = useState(false);
   const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
@@ -235,14 +241,32 @@ export function TreeSidebar({
 
   // Convert list to set for fast lookups
   const expandedRepos = useMemo(() => new Set(expandedRepoList), [expandedRepoList]);
+  const expandedRepoPaths = useMemo(
+    () =>
+      repositories
+        .filter((repo) => expandedRepos.has(normalizePath(repo.path)))
+        .map((repo) => repo.path),
+    [expandedRepos, repositories]
+  );
 
   useEffect(() => {
-    const validRepoPaths = new Set(repositories.map((repo) => repo.path));
+    const validRepoPaths = new Set(repositories.map((repo) => normalizePath(repo.path)));
     setExpandedRepoList((prev) => {
       const next = prev.filter((repoPath) => validRepoPaths.has(repoPath));
-      return next.length === prev.length ? prev : next;
+      return next.length === prev.length &&
+        next.every((repoPath, index) => repoPath === prev[index])
+        ? prev
+        : next;
     });
   }, [repositories]);
+
+  useEffect(() => {
+    saveTreeSidebarExpandedRepos(expandedRepoList);
+  }, [expandedRepoList]);
+
+  useEffect(() => {
+    saveTreeSidebarTempExpanded(tempExpanded);
+  }, [tempExpanded]);
 
   // Fetch worktrees for expanded repos only
   const {
@@ -251,7 +275,7 @@ export function TreeSidebar({
     loadingMap,
     refetchAll: refetchExpandedWorktrees,
   } = useWorktreeListMultiple(
-    expandedRepoList.map((repoPath) => ({
+    expandedRepoPaths.map((repoPath) => ({
       repoPath,
       enabled: canLoadRepo(repoPath),
     }))
@@ -363,7 +387,7 @@ export function TreeSidebar({
       worktreesMap,
       loadingMap,
       errorsMap,
-      isExpanded: expandedRepos.has(selectedRepo),
+      isExpanded: expandedRepos.has(normalizePath(selectedRepo)),
       canLoad: canLoadRepo(selectedRepo),
     });
   }, [
@@ -423,13 +447,16 @@ export function TreeSidebar({
         prevSelectedRepoRef.current = selectedRepo;
         return;
       }
+      const normalizedSelectedRepo = normalizePath(selectedRepo);
       // Skip auto-expand if user explicitly clicked the tree
       if (
         !skipAutoExpandRef.current &&
-        !expandedRepos.has(selectedRepo) &&
+        !expandedRepos.has(normalizedSelectedRepo) &&
         canLoadRepo(selectedRepo)
       ) {
-        setExpandedRepoList((prev) => [...prev, selectedRepo]);
+        setExpandedRepoList((prev) =>
+          prev.includes(normalizedSelectedRepo) ? prev : [...prev, normalizedSelectedRepo]
+        );
       }
       skipAutoExpandRef.current = false;
     }
@@ -438,15 +465,16 @@ export function TreeSidebar({
 
   const toggleRepoExpanded = useCallback(
     (repoPath: string) => {
-      const isExpanded = expandedRepos.has(repoPath);
+      const normalizedRepoPath = normalizePath(repoPath);
+      const isExpanded = expandedRepos.has(normalizedRepoPath);
       if (!isExpanded) {
         onActivateRemoteRepo(repoPath);
       }
       setExpandedRepoList((prev) => {
         if (isExpanded) {
-          return prev.filter((p) => p !== repoPath);
+          return prev.filter((p) => p !== normalizedRepoPath);
         }
-        return [...prev, repoPath];
+        return prev.includes(normalizedRepoPath) ? prev : [...prev, normalizedRepoPath];
       });
     },
     [expandedRepos, onActivateRemoteRepo]
@@ -893,7 +921,7 @@ export function TreeSidebar({
 
   const renderRepoItem = (repo: Repository, originalIndex: number, sectionGroupId?: string) => {
     const isSelected = selectedRepo === repo.path;
-    const isExpanded = expandedRepos.has(repo.path);
+    const isExpanded = expandedRepos.has(normalizePath(repo.path));
     const worktreeSectionId = getSidebarSectionId('tree-worktrees', repo.path);
     const repoCanLoad = canLoadRepo(repo.path);
     const repoSnapshot = resolveTreeSidebarRepoSnapshot({

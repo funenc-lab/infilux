@@ -56,8 +56,12 @@ vi.mock('@/App/storage', async () => {
   return {
     ...actual,
     getStoredGroupCollapsedState: () => ({}),
+    getStoredTreeSidebarExpandedRepos: () => ['/repo-a'],
+    getStoredTreeSidebarTempExpanded: () => false,
     getStoredRepositorySettings: () => ({}),
     saveGroupCollapsedState: vi.fn(),
+    saveTreeSidebarExpandedRepos: vi.fn(),
+    saveTreeSidebarTempExpanded: vi.fn(),
     saveRepositorySettings: vi.fn(),
     getRepositorySettings: vi.fn(() => ({ hidden: false })),
   };
@@ -254,5 +258,65 @@ describe('TreeSidebar render smoke', () => {
 
     expect(markup).toContain('data-running-projects="true"');
     expect(markup).not.toContain('data-sidebar-empty="No matches"');
+  });
+
+  it('restores persisted repository expansion state on first render', async () => {
+    const { TreeSidebar } = await import('../TreeSidebar');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(TreeSidebar, {
+        repositories: [
+          {
+            id: 'repo-a',
+            name: 'Repo A',
+            path: '/repo-a',
+            groupId: undefined,
+          },
+        ],
+        selectedRepo: '/repo-a',
+        activeWorktree: {
+          path: '/repo-a',
+          head: 'abc123',
+          branch: 'main',
+          isMainWorktree: true,
+          isLocked: false,
+          prunable: false,
+        },
+        worktrees: [
+          {
+            path: '/repo-a',
+            head: 'abc123',
+            branch: 'main',
+            isMainWorktree: true,
+            isLocked: false,
+            prunable: false,
+          },
+        ],
+        branches: [],
+        onSelectRepo: vi.fn(),
+        canLoadRepo: () => true,
+        onActivateRemoteRepo: vi.fn(),
+        onSelectWorktree: vi.fn(),
+        onAddRepository: vi.fn(),
+        onCreateWorktree: vi.fn(async () => {}),
+        onRemoveWorktree: vi.fn(),
+        onRefresh: vi.fn(),
+        groups: [],
+        activeGroupId: ALL_GROUP_ID,
+        onSwitchGroup: vi.fn(),
+        onCreateGroup: vi.fn(() => ({
+          id: 'group',
+          name: 'Group',
+          emoji: 'G',
+          color: '#000000',
+          order: 0,
+        })),
+        onUpdateGroup: vi.fn(),
+        onDeleteGroup: vi.fn(),
+      })
+    );
+
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('data-worktree-item="/repo-a"');
   });
 });
