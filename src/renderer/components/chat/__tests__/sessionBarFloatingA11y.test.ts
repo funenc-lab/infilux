@@ -22,11 +22,23 @@ describe('SessionBar floating accessibility and structure', () => {
     expect(sessionBarSource).toContain('clearTaskCompletedUnread(session.id);');
   });
 
+  it('exposes the full session title on hover for truncated tabs', () => {
+    expect(sessionBarSource.match(/title=\{sessionLabel\}/g)?.length).toBe(2);
+    expect(sessionBarSource.match(/aria-label=\{sessionLabel\}/g)?.length).toBe(2);
+  });
+
   it('provides explicit labels for secondary actions', () => {
     expect(sessionBarSource).toContain("aria-label={t('Create default session')}");
     expect(sessionBarSource).toContain("aria-label={t('Choose session agent')}");
     expect(sessionBarSource).toContain("aria-label={t('Agent profiles')}");
     expect(sessionBarSource).toContain("aria-label={t('Quick Terminal')}");
+  });
+
+  it('keeps session tab color treatment on shared control-session-tab styles instead of local accent fills', () => {
+    expect(sessionBarSource).toContain('control-session-tab');
+    expect(sessionBarSource).not.toContain('bg-accent/50');
+    expect(sessionBarSource).not.toContain('border-primary/45');
+    expect(sessionBarSource).not.toContain('control-panel-muted group flex h-8 items-center gap-2');
   });
 
   it('keeps a dedicated toolbar wrapper for the floating control surface', () => {

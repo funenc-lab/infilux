@@ -38,10 +38,10 @@ import {
   resolvePersistedInstalledAgents,
   resolveRemoteInstalledAgents,
 } from './agentAvailability';
-import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { buildAgentEmptyStateModel } from './agentEmptyStateModel';
 import { collectMountedAgentSessionIds } from './agentPanelMountPolicy';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
+import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
 import { QuickTerminalModal } from './QuickTerminalModal';
 import type { Session } from './SessionBar';

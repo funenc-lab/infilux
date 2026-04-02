@@ -17,6 +17,8 @@ describe('Agent panel control hierarchy', () => {
   });
 
   it('uses differentiated button classes for primary, active, and tab states', () => {
+    expect(sessionBarSource).toContain('SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME');
+    expect(sessionBarSource).toContain('SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME');
     expect(sessionBarSource).toContain('control-icon-button-primary');
     expect(sessionBarSource).toContain('control-icon-button-active');
     expect(sessionBarSource).toContain('control-session-tab');

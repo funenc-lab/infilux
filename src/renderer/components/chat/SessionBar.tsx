@@ -310,6 +310,19 @@ function buildSessionPanelId(sessionId: string): string {
 }
 
 const MAX_TAB_TEXT_WIDTH = 120;
+const SESSION_BAR_TAB_CLASS_NAME =
+  'control-session-tab group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer';
+const SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME =
+  'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors';
+const SESSION_BAR_MENU_BUTTON_CLASS_NAME =
+  'control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors';
+const SESSION_BAR_SPLIT_ACTION_GROUP_CLASS_NAME = 'flex items-center overflow-hidden rounded-lg';
+const SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME =
+  'control-icon-button control-icon-button-primary flex shrink-0 items-center justify-center transition-colors';
+const SESSION_BAR_SPLIT_PRIMARY_ACTION_BUTTON_CLASS_NAME =
+  `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} h-8 w-8 rounded-l-lg rounded-r-none border-r-0`;
+const SESSION_BAR_SPLIT_TOGGLE_ACTION_BUTTON_CLASS_NAME =
+  `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} -ml-px h-8 w-7 rounded-l-none rounded-r-lg border-l border-foreground/12`;
 
 /** Text that scrolls horizontally when overflowing */
 function MarqueeText({ children, className }: { children: string; className?: string }) {
@@ -394,12 +407,11 @@ function SessionTab({
           aria-selected={isActive}
           aria-controls={panelId}
           aria-label={sessionLabel}
+          title={sessionLabel}
           data-active={isActive ? 'true' : 'false'}
           className={cn(
-            'control-session-tab control-panel-muted group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer',
-            isActive
-              ? 'border-primary/45 bg-accent/50 text-foreground shadow-none'
-              : 'text-muted-foreground hover:text-foreground',
+            SESSION_BAR_TAB_CLASS_NAME,
+            isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
             isDragging && 'opacity-50'
           )}
           draggable
@@ -482,12 +494,11 @@ function SessionTab({
         aria-selected={isActive}
         aria-controls={panelId}
         aria-label={sessionLabel}
+        title={sessionLabel}
         data-active={isActive ? 'true' : 'false'}
         className={cn(
-          'control-session-tab control-panel-muted group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer',
-          isActive
-            ? 'border-primary/45 bg-accent/50 text-foreground shadow-none'
-            : 'text-muted-foreground hover:text-foreground',
+          SESSION_BAR_TAB_CLASS_NAME,
+          isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
           isDragging && 'opacity-50'
         )}
         draggable
@@ -1161,12 +1172,12 @@ export function SessionBar({
               <div className="control-divider mx-1 h-5 w-px" />
 
               <div ref={agentMenuRef} className="relative">
-                <div className="flex items-center">
+                <div className={SESSION_BAR_SPLIT_ACTION_GROUP_CLASS_NAME}>
                   <button
                     type="button"
                     aria-label={t('Create default session')}
                     onClick={handleCreateDefaultSession}
-                    className="control-icon-button control-icon-button-primary flex h-8 w-8 items-center justify-center rounded-l-lg rounded-r-none transition-colors"
+                    className={SESSION_BAR_SPLIT_PRIMARY_ACTION_BUTTON_CLASS_NAME}
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1177,10 +1188,8 @@ export function SessionBar({
                     aria-expanded={showAgentMenu}
                     onClick={handleToggleAgentMenu}
                     className={cn(
-                      'control-icon-button -ml-px flex h-8 w-7 items-center justify-center rounded-l-none rounded-r-lg transition-colors',
-                      showAgentMenu
-                        ? 'control-icon-button-active'
-                        : 'text-muted-foreground hover:text-foreground'
+                      SESSION_BAR_SPLIT_TOGGLE_ACTION_BUTTON_CLASS_NAME,
+                      showAgentMenu && 'control-icon-button-active'
                     )}
                   >
                     <ChevronDown className="h-3.5 w-3.5" />
@@ -1214,7 +1223,7 @@ export function SessionBar({
                                 setShowAgentMenu(false);
                                 window.dispatchEvent(new CustomEvent('open-settings-agent'));
                               }}
-                              className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+                              className={SESSION_BAR_MENU_BUTTON_CLASS_NAME}
                             >
                               <Settings className="h-3.5 w-3.5" />
                             </button>
@@ -1249,7 +1258,7 @@ export function SessionBar({
                               type="button"
                               key={agentId}
                               onClick={() => handleSelectAgent(agentId)}
-                              className="control-menu-item mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 whitespace-nowrap text-foreground"
+                              className="control-menu-item mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-foreground"
                             >
                               <span className="min-w-0 flex-1 truncate">{name}</span>
                               {isDefault ? (
@@ -1277,10 +1286,8 @@ export function SessionBar({
                       aria-expanded={showProviderMenu}
                       onClick={handleToggleProviderMenu}
                       className={cn(
-                        'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
-                        showProviderMenu
-                          ? 'control-icon-button-active'
-                          : 'text-muted-foreground hover:text-foreground'
+                        SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME,
+                        showProviderMenu && 'control-icon-button-active'
                       )}
                       title={activeProvider?.name ?? t('Select Provider')}
                     >
@@ -1325,7 +1332,7 @@ export function SessionBar({
                                     setShowProviderMenu(false);
                                     window.dispatchEvent(new CustomEvent('open-settings-provider'));
                                   }}
-                                  className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+                                  className={SESSION_BAR_MENU_BUTTON_CLASS_NAME}
                                 >
                                   <Settings className="h-3.5 w-3.5" />
                                 </button>
@@ -1371,12 +1378,12 @@ export function SessionBar({
                         aria-label={t('Quick Terminal')}
                         onClick={onToggleQuickTerminal}
                         className={cn(
-                          'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+                          SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME,
                           quickTerminalOpen
                             ? 'control-icon-button-active'
                             : quickTerminalHasProcess
                               ? 'control-icon-button-live'
-                              : 'text-muted-foreground hover:text-accent-foreground'
+                              : undefined
                         )}
                       >
                         <Terminal className="h-3.5 w-3.5" />

@@ -404,6 +404,63 @@ describe('preload bridge', () => {
     }
   });
 
+  it('routes agent session bridge APIs to the expected IPC channels', async () => {
+    const api = await loadElectronAPI();
+
+    const restoreRequest = {
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    };
+    const persistentRecord = {
+      uiSessionId: 'session-1',
+      backendSessionId: 'backend-1',
+      providerSessionId: 'provider-1',
+      agentId: 'claude',
+      agentCommand: 'claude',
+      environment: 'native',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      displayName: 'Claude',
+      activated: true,
+      initialized: true,
+      hostKind: 'tmux',
+      hostSessionKey: 'enso-session-1',
+      recoveryPolicy: 'auto',
+      createdAt: 1,
+      updatedAt: 2,
+      lastKnownState: 'live',
+    } as const;
+
+    await api.agentSession.listRecoverable();
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.AGENT_SESSION_LIST_RECOVERABLE
+    );
+
+    await api.agentSession.restoreWorktreeSessions(restoreRequest);
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.AGENT_SESSION_RESTORE_WORKTREE,
+      restoreRequest
+    );
+
+    await api.agentSession.reconcile('session-1');
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.AGENT_SESSION_RECONCILE,
+      'session-1'
+    );
+
+    await api.agentSession.markPersistent(persistentRecord);
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT,
+      persistentRecord
+    );
+
+    await api.agentSession.abandon('session-1');
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.AGENT_SESSION_ABANDON,
+      'session-1'
+    );
+  });
+
   it('routes send-based APIs and native shell APIs correctly', async () => {
     const api = await loadElectronAPI();
 
