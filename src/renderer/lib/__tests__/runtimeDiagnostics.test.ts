@@ -122,13 +122,21 @@ describe('runtimeDiagnostics', () => {
     });
   });
 
-  it('stores null runtime metrics when renderer details are unavailable and initializes the peak', () => {
+  it('falls back to renderer metric memory when process memory info is unavailable and initializes the peak', () => {
     const sample: RuntimeMemorySnapshot = {
       capturedAt: 300,
       processCount: 1,
-      rendererProcessId: null,
+      rendererProcessId: 42,
       rendererMemory: null,
-      rendererMetric: null,
+      rendererMetric: {
+        pid: 42,
+        type: 'Tab',
+        name: null,
+        serviceName: null,
+        workingSetSizeKb: 65536,
+        peakWorkingSetSizeKb: 70000,
+        privateBytesKb: 49152,
+      },
       browserMetric: null,
       gpuMetric: null,
       totalAppWorkingSetSizeKb: 64000,
@@ -139,14 +147,71 @@ describe('runtimeDiagnostics', () => {
 
     expect(result).toMatchObject({
       lastMemorySampleAt: 300,
-      rendererMemoryPrivateKb: null,
+      rendererMemoryPrivateKb: 49152,
       rendererMemorySharedKb: null,
-      rendererMemoryResidentSetKb: null,
-      rendererWorkingSetSizeKb: null,
-      rendererPeakWorkingSetSizeKb: null,
+      rendererMemoryResidentSetKb: 65536,
+      rendererWorkingSetSizeKb: 65536,
+      rendererPeakWorkingSetSizeKb: 70000,
       appProcessCount: 1,
       appTotalWorkingSetSizeKb: 64000,
       peakAppTotalWorkingSetSizeKb: 64000,
+    });
+  });
+
+  it('replaces fallback renderer memory with explicit process memory when later samples recover', () => {
+    recordRuntimeMemorySample({
+      capturedAt: 400,
+      processCount: 2,
+      rendererProcessId: 7,
+      rendererMemory: null,
+      rendererMetric: {
+        pid: 7,
+        type: 'Tab',
+        name: null,
+        serviceName: null,
+        workingSetSizeKb: 70000,
+        peakWorkingSetSizeKb: 71000,
+        privateBytesKb: 50000,
+      },
+      browserMetric: null,
+      gpuMetric: null,
+      totalAppWorkingSetSizeKb: 100000,
+      totalAppPrivateBytesKb: 50000,
+    });
+
+    recordRuntimeMemorySample({
+      capturedAt: 500,
+      processCount: 2,
+      rendererProcessId: 7,
+      rendererMemory: {
+        privateKb: 52000,
+        sharedKb: 6000,
+        residentSetKb: 76000,
+      },
+      rendererMetric: {
+        pid: 7,
+        type: 'Tab',
+        name: null,
+        serviceName: null,
+        workingSetSizeKb: 73000,
+        peakWorkingSetSizeKb: 74000,
+        privateBytesKb: 51000,
+      },
+      browserMetric: null,
+      gpuMetric: null,
+      totalAppWorkingSetSizeKb: 110000,
+      totalAppPrivateBytesKb: 56000,
+    });
+
+    expect(getRendererDiagnosticsSnapshot()).toMatchObject({
+      lastMemorySampleAt: 500,
+      rendererMemoryPrivateKb: 52000,
+      rendererMemorySharedKb: 6000,
+      rendererMemoryResidentSetKb: 76000,
+      rendererWorkingSetSizeKb: 73000,
+      rendererPeakWorkingSetSizeKb: 74000,
+      appTotalWorkingSetSizeKb: 110000,
+      peakAppTotalWorkingSetSizeKb: 110000,
     });
   });
 });

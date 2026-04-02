@@ -24,14 +24,23 @@ function createMemorySnapshot(
 }
 
 describe('runtimeDiagnostics memory pressure buckets', () => {
-  it('returns null when renderer private memory is unavailable', () => {
+  it('falls back to renderer metric private bytes when process memory info is unavailable', () => {
     expect(
       getRendererMemoryPressureBucket(
         createMemorySnapshot({
           rendererMemory: null,
+          rendererMetric: {
+            pid: 123,
+            type: 'Tab',
+            name: null,
+            serviceName: null,
+            workingSetSizeKb: 420 * 1024,
+            peakWorkingSetSizeKb: 480 * 1024,
+            privateBytesKb: 300 * 1024,
+          },
         })
       )
-    ).toBeNull();
+    ).toBe(1);
   });
 
   it('buckets renderer private memory in 256 MB increments', () => {
@@ -68,5 +77,24 @@ describe('runtimeDiagnostics memory pressure buckets', () => {
         })
       )
     ).toBe(2);
+  });
+
+  it('returns null when both process memory info and renderer metric private bytes are unavailable', () => {
+    expect(
+      getRendererMemoryPressureBucket(
+        createMemorySnapshot({
+          rendererMemory: null,
+          rendererMetric: {
+            pid: 123,
+            type: 'Tab',
+            name: null,
+            serviceName: null,
+            workingSetSizeKb: 420 * 1024,
+            peakWorkingSetSizeKb: 480 * 1024,
+            privateBytesKb: null,
+          },
+        })
+      )
+    ).toBeNull();
   });
 });

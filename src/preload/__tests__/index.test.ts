@@ -11,7 +11,9 @@ const preloadTestDoubles = vi.hoisted(() => {
   const exposeInMainWorld = vi.fn((key: string, value: unknown) => {
     exposed.set(key, value);
   });
-  const invoke = vi.fn(async (channel: string, ...args: unknown[]) => ({ channel, args }));
+  const invoke = vi.fn(
+    async (channel: string, ...args: unknown[]): Promise<unknown> => ({ channel, args })
+  );
   const on = vi.fn((channel: string, listener: Listener) => {
     listeners.set(channel, listener);
   });
@@ -464,6 +466,77 @@ describe('preload bridge', () => {
       lineEnd: 2,
     });
     expect(preloadTestDoubles.openPath).toHaveBeenCalledWith('/repo/a.ts');
+  });
+
+  it('hydrates runtime metrics from renderer memory on each call and falls back when unavailable', async () => {
+    const api = await loadElectronAPI();
+    const processWithMemoryInfo = process as NodeJS.Process & {
+      getProcessMemoryInfo?: () => Promise<{
+        private: number;
+        shared: number;
+        residentSet?: number;
+      }>;
+    };
+    const originalGetProcessMemoryInfo = processWithMemoryInfo.getProcessMemoryInfo;
+    const getProcessMemoryInfo = vi
+      .fn()
+      .mockResolvedValueOnce({ private: 4096, shared: 1024, residentSet: 6144 })
+      .mockRejectedValueOnce(new Error('renderer memory unavailable'));
+
+    Object.defineProperty(processWithMemoryInfo, 'getProcessMemoryInfo', {
+      value: getProcessMemoryInfo,
+      configurable: true,
+    });
+
+    preloadTestDoubles.invoke
+      .mockResolvedValueOnce({
+        capturedAt: 1,
+        processCount: 2,
+        rendererProcessId: 10,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 20480,
+        totalAppPrivateBytesKb: 10240,
+      })
+      .mockResolvedValueOnce({
+        capturedAt: 2,
+        processCount: 2,
+        rendererProcessId: 10,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 22528,
+        totalAppPrivateBytesKb: 11264,
+      });
+
+    try {
+      const first = await api.app.getRuntimeMetrics();
+      const second = await api.app.getRuntimeMetrics();
+
+      expect(preloadTestDoubles.invoke).toHaveBeenNthCalledWith(
+        1,
+        IPC_CHANNELS.APP_GET_RUNTIME_METRICS
+      );
+      expect(preloadTestDoubles.invoke).toHaveBeenNthCalledWith(
+        2,
+        IPC_CHANNELS.APP_GET_RUNTIME_METRICS
+      );
+      expect(first.rendererMemory).toEqual({
+        privateKb: 4096,
+        sharedKb: 1024,
+        residentSetKb: 6144,
+      });
+      expect(second.rendererMemory).toBeNull();
+      expect(getProcessMemoryInfo).toHaveBeenCalledTimes(2);
+    } finally {
+      Object.defineProperty(processWithMemoryInfo, 'getProcessMemoryInfo', {
+        value: originalGetProcessMemoryInfo,
+        configurable: true,
+      });
+    }
   });
 
   it('registers event listeners, forwards payloads, and unsubscribes correctly', async () => {

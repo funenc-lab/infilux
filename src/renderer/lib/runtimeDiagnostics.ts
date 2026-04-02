@@ -68,6 +68,22 @@ export function recordBulkReloadEvent(path: string | null): RendererDiagnosticsS
   return snapshot;
 }
 
+function resolveRendererPrivateMemoryKb(memorySnapshot: RuntimeMemorySnapshot): number | null {
+  return (
+    memorySnapshot.rendererMemory?.privateKb ??
+    memorySnapshot.rendererMetric?.privateBytesKb ??
+    null
+  );
+}
+
+function resolveRendererResidentSetKb(memorySnapshot: RuntimeMemorySnapshot): number | null {
+  return (
+    memorySnapshot.rendererMemory?.residentSetKb ??
+    memorySnapshot.rendererMetric?.workingSetSizeKb ??
+    null
+  );
+}
+
 export function recordRuntimeMemorySample(
   memorySnapshot: RuntimeMemorySnapshot
 ): RendererDiagnosticsSnapshot {
@@ -78,9 +94,9 @@ export function recordRuntimeMemorySample(
   snapshot = {
     ...snapshot,
     lastMemorySampleAt: memorySnapshot.capturedAt,
-    rendererMemoryPrivateKb: memorySnapshot.rendererMemory?.privateKb ?? null,
+    rendererMemoryPrivateKb: resolveRendererPrivateMemoryKb(memorySnapshot),
     rendererMemorySharedKb: memorySnapshot.rendererMemory?.sharedKb ?? null,
-    rendererMemoryResidentSetKb: memorySnapshot.rendererMemory?.residentSetKb ?? null,
+    rendererMemoryResidentSetKb: resolveRendererResidentSetKb(memorySnapshot),
     rendererWorkingSetSizeKb,
     rendererPeakWorkingSetSizeKb,
     appProcessCount: memorySnapshot.processCount,
@@ -116,7 +132,7 @@ function toPressureBucket(memoryKb: number | null | undefined): number | null {
 export function getRendererMemoryPressureBucket(
   memorySnapshot: RuntimeMemorySnapshot
 ): number | null {
-  return toPressureBucket(memorySnapshot.rendererMemory?.privateKb ?? null);
+  return toPressureBucket(resolveRendererPrivateMemoryKb(memorySnapshot));
 }
 
 export function getAppMemoryPressureBucket(memorySnapshot: RuntimeMemorySnapshot): number | null {
