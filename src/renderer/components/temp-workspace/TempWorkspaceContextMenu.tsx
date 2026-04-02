@@ -3,7 +3,17 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
+import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+
+const TEMP_WORKSPACE_CONTEXT_MENU_CLASS_NAME = 'control-menu fixed z-50 min-w-40 rounded-2xl p-2';
+const TEMP_WORKSPACE_CONTEXT_MENU_ITEM_CLASS_NAME =
+  'control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm';
+const TEMP_WORKSPACE_CONTEXT_MENU_DANGER_ITEM_CLASS_NAME = cn(
+  TEMP_WORKSPACE_CONTEXT_MENU_ITEM_CLASS_NAME,
+  'control-menu-item-danger'
+);
+const TEMP_WORKSPACE_CONTEXT_MENU_DIVIDER_CLASS_NAME = 'control-divider my-1 h-px';
 
 interface TempWorkspaceContextMenuProps {
   open: boolean;
@@ -92,13 +102,13 @@ export function TempWorkspaceContextMenu({
       />
       <div
         ref={menuRef}
-        className="control-menu fixed z-50 min-w-40 rounded-lg p-1"
+        className={TEMP_WORKSPACE_CONTEXT_MENU_CLASS_NAME}
         style={{ left: menuPosition.x, top: menuPosition.y }}
       >
         {activity.agentCount > 0 && activity.terminalCount > 0 && (
           <button
             type="button"
-            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
+            className={TEMP_WORKSPACE_CONTEXT_MENU_ITEM_CLASS_NAME}
             onClick={() => {
               onClose();
               closeAgentSessions(path);
@@ -112,7 +122,7 @@ export function TempWorkspaceContextMenu({
         {activity.agentCount > 0 && (
           <button
             type="button"
-            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
+            className={TEMP_WORKSPACE_CONTEXT_MENU_ITEM_CLASS_NAME}
             onClick={() => {
               onClose();
               closeAgentSessions(path);
@@ -126,7 +136,7 @@ export function TempWorkspaceContextMenu({
         {activity.terminalCount > 0 && (
           <button
             type="button"
-            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
+            className={TEMP_WORKSPACE_CONTEXT_MENU_ITEM_CLASS_NAME}
             onClick={() => {
               onClose();
               closeTerminalSessions(path);
@@ -137,10 +147,10 @@ export function TempWorkspaceContextMenu({
             {t('Close Terminal Sessions')}
           </button>
         )}
-        {hasActivity && <div className="my-1 h-px bg-border" />}
+        {hasActivity && <div className={TEMP_WORKSPACE_CONTEXT_MENU_DIVIDER_CLASS_NAME} />}
         <button
           type="button"
-          className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
+          className={TEMP_WORKSPACE_CONTEXT_MENU_ITEM_CLASS_NAME}
           onClick={() => {
             onClose();
             window.electronAPI.shell.openPath(path);
@@ -151,7 +161,7 @@ export function TempWorkspaceContextMenu({
         </button>
         <button
           type="button"
-          className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
+          className={TEMP_WORKSPACE_CONTEXT_MENU_ITEM_CLASS_NAME}
           onClick={() => {
             onClose();
             handleCopyPath();
@@ -160,10 +170,10 @@ export function TempWorkspaceContextMenu({
           <Copy className="h-4 w-4" />
           {t('Copy Path')}
         </button>
-        <div className="my-1 h-px bg-border" />
+        <div className={TEMP_WORKSPACE_CONTEXT_MENU_DIVIDER_CLASS_NAME} />
         <button
           type="button"
-          className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
+          className={TEMP_WORKSPACE_CONTEXT_MENU_ITEM_CLASS_NAME}
           onClick={() => {
             onClose();
             onRename();
@@ -174,7 +184,7 @@ export function TempWorkspaceContextMenu({
         </button>
         <button
           type="button"
-          className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-destructive hover:bg-destructive/10"
+          className={TEMP_WORKSPACE_CONTEXT_MENU_DANGER_ITEM_CLASS_NAME}
           onClick={() => {
             onClose();
             onDelete();

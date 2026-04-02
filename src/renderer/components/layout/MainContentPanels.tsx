@@ -370,7 +370,7 @@ export function MainContentPanels({
               <button
                 type="button"
                 onClick={() => setSettingsDisplayMode('draggable-modal')}
-                className="flex h-6 items-center gap-1 rounded px-2 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                className="control-topbar-action h-6 gap-1 rounded-md px-2 text-xs"
                 title={t('Switch to floating mode')}
               >
                 <RectangleEllipsis className="h-3.5 w-3.5" />

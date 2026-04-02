@@ -32,6 +32,11 @@ interface GlobalSearchDialogProps {
   onOpenFile: (path: string, line?: number, column?: number, matchLength?: number) => void;
 }
 
+const GLOBAL_SEARCH_ICON_BUTTON_CLASS_NAME =
+  'control-icon-button flex h-6 w-6 items-center justify-center rounded-md';
+const GLOBAL_SEARCH_MODE_TAB_CLASS_NAME =
+  'control-menu-item flex items-center gap-1 rounded-md px-2 py-1 text-xs';
+
 export function GlobalSearchDialog({
   open,
   onOpenChange,
@@ -214,7 +219,7 @@ export function GlobalSearchDialog({
                 {query && (
                   <button
                     type="button"
-                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    className={GLOBAL_SEARCH_ICON_BUTTON_CLASS_NAME}
                     onClick={() => setQuery('')}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -225,8 +230,8 @@ export function GlobalSearchDialog({
                 <button
                   type="button"
                   className={cn(
-                    'flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                    options.caseSensitive && 'bg-primary/20 text-primary'
+                    GLOBAL_SEARCH_ICON_BUTTON_CLASS_NAME,
+                    options.caseSensitive && 'control-icon-button-active'
                   )}
                   onClick={() => setOptions({ caseSensitive: !options.caseSensitive })}
                   title={t('Match case')}
@@ -236,8 +241,8 @@ export function GlobalSearchDialog({
                 <button
                   type="button"
                   className={cn(
-                    'flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                    options.wholeWord && 'bg-primary/20 text-primary'
+                    GLOBAL_SEARCH_ICON_BUTTON_CLASS_NAME,
+                    options.wholeWord && 'control-icon-button-active'
                   )}
                   onClick={() => setOptions({ wholeWord: !options.wholeWord })}
                   title={t('Match whole word')}
@@ -247,8 +252,8 @@ export function GlobalSearchDialog({
                 <button
                   type="button"
                   className={cn(
-                    'flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                    options.regex && 'bg-primary/20 text-primary'
+                    GLOBAL_SEARCH_ICON_BUTTON_CLASS_NAME,
+                    options.regex && 'control-icon-button-active'
                   )}
                   onClick={() => setOptions({ regex: !options.regex })}
                   title={t('Use regular expression')}
@@ -258,8 +263,8 @@ export function GlobalSearchDialog({
                 <button
                   type="button"
                   className={cn(
-                    'flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                    options.useGitignore && 'bg-primary/20 text-primary'
+                    GLOBAL_SEARCH_ICON_BUTTON_CLASS_NAME,
+                    options.useGitignore && 'control-icon-button-active'
                   )}
                   onClick={() => setOptions({ useGitignore: !options.useGitignore })}
                   title={t('Use .gitignore')}
@@ -273,10 +278,10 @@ export function GlobalSearchDialog({
                 <button
                   type="button"
                   className={cn(
-                    'flex items-center gap-1 rounded px-2 py-1',
+                    GLOBAL_SEARCH_MODE_TAB_CLASS_NAME,
                     mode === 'files'
-                      ? 'bg-primary/20 text-primary'
-                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground'
                   )}
                   onClick={() => setMode('files')}
                 >
@@ -286,10 +291,10 @@ export function GlobalSearchDialog({
                 <button
                   type="button"
                   className={cn(
-                    'flex items-center gap-1 rounded px-2 py-1',
+                    GLOBAL_SEARCH_MODE_TAB_CLASS_NAME,
                     mode === 'content'
-                      ? 'bg-primary/20 text-primary'
-                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground'
                   )}
                   onClick={() => setMode('content')}
                 >

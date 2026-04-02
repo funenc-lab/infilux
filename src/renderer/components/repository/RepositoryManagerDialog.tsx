@@ -39,6 +39,11 @@ interface RepositoryManagerDialogProps {
   onSettingsChange?: () => void;
 }
 
+const REPOSITORY_MANAGER_ROW_CLASS_NAME =
+  'control-menu-item flex items-center gap-2 rounded-md px-2 py-1.5';
+const REPOSITORY_MANAGER_ICON_BUTTON_CLASS_NAME =
+  'control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-md';
+
 export function RepositoryManagerDialog({
   open,
   onOpenChange,
@@ -127,8 +132,7 @@ export function RepositoryManagerDialog({
                   <div
                     key={repo.path}
                     className={cn(
-                      'flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors',
-                      'hover:bg-accent/50',
+                      REPOSITORY_MANAGER_ROW_CLASS_NAME,
                       isHidden && 'opacity-50'
                     )}
                   >
@@ -143,8 +147,8 @@ export function RepositoryManagerDialog({
                     <button
                       type="button"
                       className={cn(
-                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors',
-                        'hover:bg-accent text-muted-foreground hover:text-foreground'
+                        REPOSITORY_MANAGER_ICON_BUTTON_CLASS_NAME,
+                        'text-muted-foreground'
                       )}
                       onClick={() => toggleVisibility(repo.path)}
                       title={isHidden ? t('Show Repository') : t('Hide Repository')}
@@ -155,8 +159,8 @@ export function RepositoryManagerDialog({
                       <button
                         type="button"
                         className={cn(
-                          'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors',
-                          'hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
+                          REPOSITORY_MANAGER_ICON_BUTTON_CLASS_NAME,
+                          'text-muted-foreground hover:text-destructive'
                         )}
                         onClick={() => setRepoToRemove(repo)}
                         title={t('Remove repository')}

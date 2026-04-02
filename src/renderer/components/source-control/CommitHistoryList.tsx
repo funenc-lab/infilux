@@ -44,6 +44,15 @@ const RESET_MODE_LABELS: Record<ResetMode, string> = {
   hard: 'Hard Reset',
 };
 
+const COMMIT_HISTORY_CONTEXT_MENU_CLASS_NAME = 'control-menu fixed z-50 min-w-40 rounded-2xl p-2';
+const COMMIT_HISTORY_CONTEXT_MENU_ITEM_CLASS_NAME =
+  'control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm';
+const COMMIT_HISTORY_CONTEXT_MENU_DANGER_ITEM_CLASS_NAME = cn(
+  COMMIT_HISTORY_CONTEXT_MENU_ITEM_CLASS_NAME,
+  'control-menu-item-danger'
+);
+const COMMIT_HISTORY_CONTEXT_MENU_DIVIDER_CLASS_NAME = 'control-divider my-1 h-px';
+
 export function CommitHistoryList({
   commits,
   selectedHash,
@@ -428,12 +437,12 @@ export function CommitHistoryList({
             />
             <div
               ref={contextMenuRef}
-              className="control-menu fixed z-50 min-w-40 rounded-lg p-1"
+              className={COMMIT_HISTORY_CONTEXT_MENU_CLASS_NAME}
               style={{ left: contextMenu.position.x, top: contextMenu.position.y }}
             >
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                className={COMMIT_HISTORY_CONTEXT_MENU_ITEM_CLASS_NAME}
                 onClick={handleCopyCommitId}
               >
                 <Copy className="h-4 w-4" />
@@ -441,10 +450,10 @@ export function CommitHistoryList({
               </button>
               {workdir && (
                 <>
-                  <div className="my-1 h-px bg-border" />
+                  <div className={COMMIT_HISTORY_CONTEXT_MENU_DIVIDER_CLASS_NAME} />
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                    className={COMMIT_HISTORY_CONTEXT_MENU_ITEM_CLASS_NAME}
                     onClick={handleRevert}
                   >
                     <Undo2 className="h-4 w-4" />
@@ -452,7 +461,7 @@ export function CommitHistoryList({
                   </button>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+                    className={COMMIT_HISTORY_CONTEXT_MENU_DANGER_ITEM_CLASS_NAME}
                     onClick={handleResetClick}
                   >
                     <RotateCcw className="h-4 w-4" />

@@ -18,6 +18,9 @@ interface SearchResultListProps {
   query: string;
 }
 
+const SEARCH_RESULT_OPTION_CLASS_NAME =
+  'control-menu-item flex h-7 cursor-pointer items-center gap-2 rounded px-2 text-sm';
+
 // Highlight matching text
 function HighlightText({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>;
@@ -122,8 +125,8 @@ export function SearchResultList({
               role="option"
               aria-selected={index === selectedIndex}
               className={cn(
-                'flex h-7 cursor-pointer items-center gap-2 rounded px-2 text-sm',
-                index === selectedIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+                SEARCH_RESULT_OPTION_CLASS_NAME,
+                index === selectedIndex ? 'bg-accent text-accent-foreground' : null
               )}
               tabIndex={-1}
               onClick={() => handleItemClick(index)}
@@ -165,8 +168,8 @@ export function SearchResultList({
             role="option"
             aria-selected={index === selectedIndex}
             className={cn(
-              'flex h-7 cursor-pointer items-center gap-2 rounded px-2 text-sm',
-              index === selectedIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+              SEARCH_RESULT_OPTION_CLASS_NAME,
+              index === selectedIndex ? 'bg-accent text-accent-foreground' : null
             )}
             tabIndex={-1}
             onClick={() => handleItemClick(index)}

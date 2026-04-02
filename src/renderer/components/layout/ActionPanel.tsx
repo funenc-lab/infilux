@@ -216,6 +216,9 @@ interface ActionPanelProps {
   onSwitchWorktree?: (worktree: GitWorktree) => void;
 }
 
+const ACTION_PANEL_MENU_ITEM_CLASS_NAME =
+  'control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 outline-none';
+
 interface ActionItem {
   id: string;
   label: string;
@@ -600,10 +603,10 @@ export function ActionPanel({
                         data-action-index={currentIndex}
                         disabled={item.disabled}
                         className={cn(
-                          'control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 outline-none',
+                          ACTION_PANEL_MENU_ITEM_CLASS_NAME,
                           currentIndex === selectedIndex
                             ? 'bg-accent text-accent-foreground'
-                            : 'text-foreground hover:bg-accent/50',
+                            : 'text-foreground',
                           item.disabled && 'cursor-not-allowed opacity-60'
                         )}
                         onClick={() => !item.disabled && executeAction(item)}

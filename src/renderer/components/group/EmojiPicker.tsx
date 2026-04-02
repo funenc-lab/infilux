@@ -3,13 +3,17 @@ import { Smile, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/i18n';
-import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 
 interface EmojiPickerProps {
   value: string;
   onChange: (emoji: string) => void;
 }
+
+const EMOJI_PICKER_TRIGGER_CLASS_NAME =
+  'control-action-button control-action-button-secondary flex h-9 items-center gap-2 rounded-md px-3 text-sm';
+const EMOJI_PICKER_CLEAR_BUTTON_CLASS_NAME =
+  'control-icon-button flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground';
 
 export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
   const { t } = useI18n();
@@ -46,10 +50,7 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
           ref={triggerRef}
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className={cn(
-            'flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition-colors',
-            'hover:bg-accent/50'
-          )}
+          className={EMOJI_PICKER_TRIGGER_CLASS_NAME}
         >
           {value ? (
             <span className="text-lg">{value}</span>
@@ -62,7 +63,7 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
           <button
             type="button"
             onClick={() => onChange('')}
-            className="flex h-9 w-9 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent/50 transition-colors"
+            className={EMOJI_PICKER_CLEAR_BUTTON_CLASS_NAME}
             title={t('Clear')}
           >
             <X className="h-4 w-4" />

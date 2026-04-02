@@ -109,7 +109,9 @@ describe('AgentPanel empty state styles', () => {
     expect(globalsSource).toContain('background-color 140ms ease,');
     expect(globalsSource).toContain('border-color 140ms ease,');
     expect(globalsSource).toContain('.control-action-button-primary {');
-    expect(globalsSource).toContain('background: linear-gradient(');
+    expect(globalsSource).toContain(
+      'background: color-mix(in oklch, var(--primary) 16%, var(--background) 84%);'
+    );
     expect(globalsSource).toContain(
       'border-color: color-mix(in oklch, var(--primary) 28%, var(--border) 72%);'
     );
@@ -122,6 +124,10 @@ describe('AgentPanel empty state styles', () => {
       'border-color: color-mix(in oklch, var(--border) 84%, transparent);'
     );
     expect(globalsSource).toContain('.control-action-button:active {');
+    expect(globalsSource).toContain('transform: none;');
+    expect(globalsSource).not.toContain(
+      '.control-action-button-primary {\n    border-color: color-mix(in oklch, var(--primary) 28%, var(--border) 72%);\n    background: linear-gradient('
+    );
   });
 
   it('keeps the profile picker header label shrink-safe beside the settings button', () => {
