@@ -1149,6 +1149,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     }
 
     const target = findAutoSessionRolloverTarget({
+      mode: claudeCodeIntegration.autoSessionRollover,
       groupState: currentGroupState,
       sessions: currentWorktreeSessions,
       statuses: agentStatuses,
@@ -1165,6 +1166,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     currentGroupState,
     currentWorktreeSessions,
     agentStatuses,
+    claudeCodeIntegration.autoSessionRollover,
     handleStartFreshSession,
   ]);
 

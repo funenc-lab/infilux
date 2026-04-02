@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const sessionBarSource = readFileSync(resolve(currentDir, '../SessionBar.tsx'), 'utf8');
+const sessionBarSource = [
+  readFileSync(resolve(currentDir, '../SessionBar.tsx'), 'utf8'),
+  readFileSync(resolve(currentDir, '../controlButtonStyles.ts'), 'utf8'),
+].join('\n');
 
 describe('SessionBar floating accessibility and structure', () => {
   it('keeps the floating session bar persistence model', () => {
@@ -48,6 +51,7 @@ describe('SessionBar floating accessibility and structure', () => {
 
   it('uses a control-strip affordance for the collapsed entry instead of an AI sparkle icon', () => {
     expect(sessionBarSource).toContain("title={t('Expand session controls')}");
+    expect(sessionBarSource).toContain('SESSION_BAR_COLLAPSED_BUTTON_CLASS_NAME');
     expect(sessionBarSource).toContain(
       '<RectangleEllipsis className="h-4 w-4 text-muted-foreground" />'
     );

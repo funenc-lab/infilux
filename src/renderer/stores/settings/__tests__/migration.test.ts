@@ -59,6 +59,7 @@ function createCurrentState(): SettingsState {
       providers: [],
       enhancedInputEnabled: false,
       enhancedInputAutoPopup: 'manual',
+      autoSessionRollover: 'manual',
     },
     agentDetectionStatus: {
       enabledAgent: { installed: true, version: '1.0.0', detectedAt: 1 },
@@ -234,6 +235,21 @@ describe('migrateSettings', () => {
       currentState
     );
     expect(inconsistent.claudeCodeIntegration.enhancedInputAutoPopup).toBe('always');
+  });
+
+  it('falls back to manual auto session rollover when the persisted mode is invalid', () => {
+    const currentState = createCurrentState();
+
+    const result = migrateSettings(
+      {
+        claudeCodeIntegration: {
+          autoSessionRollover: 'always' as never,
+        } as never,
+      },
+      currentState
+    );
+
+    expect(result.claudeCodeIntegration.autoSessionRollover).toBe('manual');
   });
 
   it('accepts the graphite red preset as a persisted preset value', () => {

@@ -74,6 +74,7 @@ function makeGroupState(overrides: Partial<AgentGroupState> = {}): AgentGroupSta
 describe('autoSessionRolloverPolicy', () => {
   it('returns the active critical session as the automatic rollover target', () => {
     const target = findAutoSessionRolloverTarget({
+      mode: 'critical',
       groupState: makeGroupState(),
       sessions: [makeSession()],
       statuses: {
@@ -93,6 +94,7 @@ describe('autoSessionRolloverPolicy', () => {
 
   it('ignores sessions that only reached the warning threshold', () => {
     const target = findAutoSessionRolloverTarget({
+      mode: 'critical',
       groupState: makeGroupState(),
       sessions: [makeSession()],
       statuses: {
@@ -106,6 +108,7 @@ describe('autoSessionRolloverPolicy', () => {
 
   it('does not target a session that has already been auto-rolled over', () => {
     const target = findAutoSessionRolloverTarget({
+      mode: 'critical',
       groupState: makeGroupState(),
       sessions: [makeSession()],
       statuses: {
@@ -119,6 +122,7 @@ describe('autoSessionRolloverPolicy', () => {
 
   it('only considers the active group session for automatic rollover', () => {
     const target = findAutoSessionRolloverTarget({
+      mode: 'critical',
       groupState: {
         groups: [
           {
@@ -139,6 +143,20 @@ describe('autoSessionRolloverPolicy', () => {
       statuses: {
         'session-1': makeStatus(70),
         'session-2': makeStatus(99),
+      },
+      handledSessionIds: new Set<string>(),
+    });
+
+    expect(target).toBeNull();
+  });
+
+  it('disables automatic rollover when the mode remains manual', () => {
+    const target = findAutoSessionRolloverTarget({
+      mode: 'manual',
+      groupState: makeGroupState(),
+      sessions: [makeSession()],
+      statuses: {
+        'session-1': makeStatus(99),
       },
       handledSessionIds: new Set<string>(),
     });

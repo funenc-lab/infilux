@@ -3,6 +3,18 @@ import type { RefObject } from 'react';
 import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
+import {
+  CHAT_ACTION_BUTTON_PRIMARY_CLASS_NAME,
+  CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME,
+  CHAT_MENU_ITEM_BASE_CLASS_NAME,
+} from './controlButtonStyles';
+
+const AGENT_GROUP_EMPTY_STATE_ACTIONS_CLASS_NAME = 'flex flex-wrap items-center gap-2';
+const AGENT_GROUP_EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME = `${CHAT_ACTION_BUTTON_PRIMARY_CLASS_NAME} min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]`;
+const AGENT_GROUP_EMPTY_STATE_TOGGLE_ACTION_CLASS_NAME = `${CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME} h-9 rounded-xl px-3`;
+const AGENT_GROUP_EMPTY_STATE_MENU_CONTAINER_CLASS_NAME =
+  'absolute left-1/2 top-full z-50 min-w-40 -translate-x-1/2 pt-2';
+const AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 rounded-lg px-3 py-2 text-foreground`;
 
 interface AgentGroupEmptyStateProps {
   menuRef: RefObject<HTMLDivElement | null>;
@@ -51,7 +63,7 @@ export function AgentGroupEmptyState({
       detailsLayout="compact"
       actions={
         <div ref={menuRef} className="relative">
-          <div className="flex items-center gap-2">
+          <div className={AGENT_GROUP_EMPTY_STATE_ACTIONS_CLASS_NAME}>
             <Button
               variant="default"
               size="sm"
@@ -59,7 +71,7 @@ export function AgentGroupEmptyState({
                 event.stopPropagation();
                 onSessionNew();
               }}
-              className="control-action-button control-action-button-primary min-w-0 rounded-xl px-4 text-sm font-semibold tracking-[-0.01em]"
+              className={AGENT_GROUP_EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME}
             >
               <Plus className="h-4 w-4" />
               {t('New Session')}
@@ -74,7 +86,7 @@ export function AgentGroupEmptyState({
                 event.stopPropagation();
                 onToggleAgentMenu();
               }}
-              className="control-action-button control-action-button-secondary h-9 rounded-xl px-3"
+              className={AGENT_GROUP_EMPTY_STATE_TOGGLE_ACTION_CLASS_NAME}
             >
               <ChevronDown className="h-4 w-4" />
             </Button>
@@ -83,10 +95,10 @@ export function AgentGroupEmptyState({
             <div
               role="menu"
               aria-label={t('Select Agent')}
-              className="absolute left-1/2 top-full z-50 min-w-40 -translate-x-1/2 pt-2"
+              className={AGENT_GROUP_EMPTY_STATE_MENU_CONTAINER_CLASS_NAME}
             >
-              <div className="control-menu rounded-lg p-1">
-                <div className="control-menu-label px-2 py-1 text-muted-foreground">
+              <div className="control-menu rounded-2xl p-2">
+                <div className="control-menu-label px-1 py-1 text-muted-foreground">
                   {t('Select Agent')}
                 </div>
                 {[...enabledAgents]
@@ -123,7 +135,7 @@ export function AgentGroupEmptyState({
                             customAgent?.command ?? agentInfo[baseId]?.command ?? 'claude'
                           );
                         }}
-                        className="control-menu-item flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-foreground hover:bg-accent hover:text-accent-foreground"
+                        className={AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME}
                       >
                         <span className="min-w-0 flex-1 truncate">{name}</span>
                         {isDefault ? (

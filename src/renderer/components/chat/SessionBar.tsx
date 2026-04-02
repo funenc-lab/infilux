@@ -31,6 +31,13 @@ import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { resolvePersistedInstalledAgents, resolveRemoteInstalledAgents } from './agentAvailability';
+import {
+  CHAT_MENU_ICON_BUTTON_CLASS_NAME,
+  CHAT_MENU_ITEM_BASE_CLASS_NAME,
+  CHAT_MENU_UTILITY_ICON_BUTTON_CLASS_NAME,
+  CHAT_PRIMARY_ICON_BUTTON_CLASS_NAME,
+  CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME,
+} from './controlButtonStyles';
 
 const STORAGE_KEY = 'enso-session-bar';
 const EDGE_THRESHOLD = 20; // pixels from edge
@@ -150,6 +157,8 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = {
   cursor: { name: 'Cursor', command: 'cursor-agent' },
   opencode: { name: 'OpenCode', command: 'opencode' },
 };
+const SESSION_BAR_PROVIDER_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 rounded-xl px-3 py-2 text-sm text-foreground`;
+const SESSION_BAR_MENU_UTILITY_BUTTON_CLASS_NAME = `${CHAT_MENU_UTILITY_ICON_BUTTON_CLASS_NAME} rounded-md`;
 
 // Session tab with glow effect
 interface SessionTabProps {
@@ -220,7 +229,7 @@ const ProviderMenuItem = React.memo(function ProviderMenuItem({
       const isCurrentlyEnabled = provider.enabled !== false;
       setClaudeProviderEnabled(provider.id, !isCurrentlyEnabled);
 
-      // 禁用当前激活的 Provider 时，自动切换到下一个可用的 Provider
+      // Automatically switch away from the active provider when it becomes disabled.
       if (isCurrentlyEnabled && activeProviderId === provider.id) {
         const nextEnabledProvider = providers.find(
           (p) => p.id !== provider.id && p.enabled !== false
@@ -235,17 +244,14 @@ const ProviderMenuItem = React.memo(function ProviderMenuItem({
 
   return (
     <div
-      className={cn(
-        'control-panel-muted mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors hover:text-foreground',
-        effectiveIsDisabled && 'opacity-50'
-      )}
+      className={cn(SESSION_BAR_PROVIDER_MENU_ITEM_CLASS_NAME, effectiveIsDisabled && 'opacity-50')}
     >
       <button
         type="button"
         onClick={handleSwitch}
         disabled={isPending || effectiveIsDisabled}
         className={cn(
-          'flex flex-1 items-center gap-2 whitespace-nowrap text-left',
+          'flex min-w-0 flex-1 items-center gap-2 text-left',
           isPending && 'cursor-not-allowed'
         )}
       >
@@ -254,17 +260,18 @@ const ProviderMenuItem = React.memo(function ProviderMenuItem({
         ) : (
           <Circle className="h-4 w-4 shrink-0" />
         )}
-        <span className={cn(effectiveIsDisabled && 'line-through')}>{provider.name}</span>
+        <span className={cn('min-w-0 truncate', effectiveIsDisabled && 'line-through')}>
+          {provider.name}
+        </span>
       </button>
 
-      {/* 禁用/启用按钮 */}
       {enableProviderDisableFeature && (
         <Tooltip>
           <TooltipTrigger render={<span />}>
             <button
               type="button"
               onClick={handleToggleEnabled}
-              className="shrink-0 rounded p-0.5 opacity-60 hover:opacity-100"
+              className={cn(SESSION_BAR_MENU_UTILITY_BUTTON_CLASS_NAME, 'opacity-80')}
             >
               {isDisabled ? <Check className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
             </button>
@@ -312,17 +319,13 @@ function buildSessionPanelId(sessionId: string): string {
 const MAX_TAB_TEXT_WIDTH = 120;
 const SESSION_BAR_TAB_CLASS_NAME =
   'control-session-tab group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer';
-const SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME =
-  'control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors';
-const SESSION_BAR_MENU_BUTTON_CLASS_NAME =
-  'control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors';
+const SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME = `${CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME} h-8 w-8 rounded-lg`;
+const SESSION_BAR_MENU_BUTTON_CLASS_NAME = `${CHAT_MENU_ICON_BUTTON_CLASS_NAME} rounded-lg`;
+const SESSION_BAR_COLLAPSED_BUTTON_CLASS_NAME = `${CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME} h-10 w-10 rounded-xl text-muted-foreground`;
 const SESSION_BAR_SPLIT_ACTION_GROUP_CLASS_NAME = 'flex items-center overflow-hidden rounded-lg';
-const SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME =
-  'control-icon-button control-icon-button-primary flex shrink-0 items-center justify-center transition-colors';
-const SESSION_BAR_SPLIT_PRIMARY_ACTION_BUTTON_CLASS_NAME =
-  `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} h-8 w-8 rounded-l-lg rounded-r-none border-r-0`;
-const SESSION_BAR_SPLIT_TOGGLE_ACTION_BUTTON_CLASS_NAME =
-  `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} -ml-px h-8 w-7 rounded-l-none rounded-r-lg border-l border-foreground/12`;
+const SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME = CHAT_PRIMARY_ICON_BUTTON_CLASS_NAME;
+const SESSION_BAR_SPLIT_PRIMARY_ACTION_BUTTON_CLASS_NAME = `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} h-8 w-8 rounded-l-lg rounded-r-none border-r-0`;
+const SESSION_BAR_SPLIT_TOGGLE_ACTION_BUTTON_CLASS_NAME = `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} -ml-px h-8 w-7 rounded-l-none rounded-r-lg border-l border-foreground/12`;
 
 /** Text that scrolls horizontally when overflowing */
 function MarqueeText({ children, className }: { children: string; className?: string }) {
@@ -1102,7 +1105,7 @@ export function SessionBar({
           <div
             title={t('Expand session controls')}
             className={cn(
-              'control-toolbar flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground',
+              SESSION_BAR_COLLAPSED_BUTTON_CLASS_NAME,
               state.edge === 'left' && 'rounded-l-md',
               state.edge === 'right' && 'rounded-r-md'
             )}

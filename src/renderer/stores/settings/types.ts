@@ -244,6 +244,8 @@ export interface StatusLineFieldSettings {
   version: boolean; // Claude version
 }
 
+export type AutoSessionRolloverMode = 'manual' | 'critical';
+
 // Claude Code integration settings
 export interface ClaudeCodeIntegrationSettings {
   enabled: boolean;
@@ -260,6 +262,7 @@ export interface ClaudeCodeIntegrationSettings {
   providers: import('@shared/types').ClaudeProvider[];
   enhancedInputEnabled: boolean; // Enable enhanced input panel for Claude Code
   enhancedInputAutoPopup: 'always' | 'hideWhileRunning' | 'manual'; // Enhanced input auto popup mode
+  autoSessionRollover: AutoSessionRolloverMode; // Automatic fresh session rollover policy
 }
 
 // Commit message generator settings

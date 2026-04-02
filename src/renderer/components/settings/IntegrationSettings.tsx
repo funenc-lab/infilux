@@ -306,6 +306,33 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
             />
           </div>
 
+          <div className="settings-field-row">
+            <span className="text-sm font-medium">{t('Automatic Session Rollover')}</span>
+            <div className="space-y-1.5">
+              <Select
+                value={claudeCodeIntegration.autoSessionRollover}
+                onValueChange={(value) =>
+                  setClaudeCodeIntegration({
+                    autoSessionRollover: value as 'manual' | 'critical',
+                  })
+                }
+              >
+                <SelectTrigger className="w-52">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="manual">{t('Manual only')}</SelectItem>
+                  <SelectItem value="critical">{t('Auto on critical context')}</SelectItem>
+                </SelectPopup>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'Choose whether a fresh session should start automatically when context usage becomes critical.'
+                )}
+              </p>
+            </div>
+          </div>
+
           {/* Status Line Fields */}
           {claudeCodeIntegration.statusLineEnabled && (
             <div className="ml-4 space-y-2 border-l-2 border-muted pl-4">

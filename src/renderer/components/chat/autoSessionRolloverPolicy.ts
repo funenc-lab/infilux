@@ -1,4 +1,5 @@
 import type { StatusData } from '@/stores/agentStatus';
+import type { AutoSessionRolloverMode } from '@/stores/settings/types';
 import type { Session } from './SessionBar';
 import { getSessionRolloverSignal } from './sessionRolloverSignal';
 import type { AgentGroupState } from './types';
@@ -10,6 +11,7 @@ export interface AutoSessionRolloverTarget {
 }
 
 interface FindAutoSessionRolloverTargetOptions {
+  mode: AutoSessionRolloverMode;
   groupState: AgentGroupState;
   sessions: Session[];
   statuses: Record<string, StatusData>;
@@ -27,11 +29,16 @@ function resolveActiveGroup(groupState: AgentGroupState) {
 }
 
 export function findAutoSessionRolloverTarget({
+  mode,
   groupState,
   sessions,
   statuses,
   handledSessionIds,
 }: FindAutoSessionRolloverTargetOptions): AutoSessionRolloverTarget | null {
+  if (mode !== 'critical') {
+    return null;
+  }
+
   const activeGroup = resolveActiveGroup(groupState);
   const activeSessionId = activeGroup?.activeSessionId;
   if (!activeGroup || !activeSessionId || handledSessionIds.has(activeSessionId)) {

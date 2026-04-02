@@ -5,7 +5,10 @@ import { describe, expect, it } from 'vitest';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const agentPanelComponentSource = readFileSync(resolve(currentDir, '../AgentPanel.tsx'), 'utf8');
-const sessionBarSource = readFileSync(resolve(currentDir, '../SessionBar.tsx'), 'utf8');
+const sessionBarSource = [
+  readFileSync(resolve(currentDir, '../SessionBar.tsx'), 'utf8'),
+  readFileSync(resolve(currentDir, '../controlButtonStyles.ts'), 'utf8'),
+].join('\n');
 const enhancedInputSource = readFileSync(resolve(currentDir, '../EnhancedInput.tsx'), 'utf8');
 
 describe('Agent panel control hierarchy', () => {

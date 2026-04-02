@@ -164,6 +164,7 @@ export const defaultClaudeCodeIntegrationSettings: ClaudeCodeIntegrationSettings
   providers: [],
   enhancedInputEnabled: false, // Disable enhanced input by default
   enhancedInputAutoPopup: 'hideWhileRunning', // Hide while running by default
+  autoSessionRollover: 'manual',
 };
 
 // Default commit message generator settings

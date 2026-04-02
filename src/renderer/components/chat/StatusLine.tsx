@@ -24,6 +24,11 @@ import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { type StatusData, useAgentStatusStore } from '@/stores/agentStatus';
 import { type StatusLineFieldSettings, useSettingsStore } from '@/stores/settings';
+import {
+  CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME,
+  CHAT_MENU_ITEM_BASE_CLASS_NAME,
+  CHAT_PANEL_TRIGGER_CLASS_NAME,
+} from './controlButtonStyles';
 import { getSessionRolloverSignal } from './sessionRolloverSignal';
 
 interface StatusLineProps {
@@ -31,6 +36,10 @@ interface StatusLineProps {
   onHeightChange?: (height: number) => void;
   onRequestFreshSession?: () => void;
 }
+
+const STATUS_LINE_DIR_TRIGGER_CLASS_NAME = `${CHAT_PANEL_TRIGGER_CLASS_NAME} rounded-lg px-2 py-1`;
+const STATUS_LINE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} rounded-md px-2 py-1.5`;
+const STATUS_LINE_ALERT_ACTION_CLASS_NAME = `${CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME} h-8 rounded-lg px-3 text-sm`;
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -149,10 +158,7 @@ function DirItem({ path, icon, label }: DirItemProps) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded px-1 hover:bg-accent/50"
-        title={displayPath}
-      >
+      <PopoverTrigger className={STATUS_LINE_DIR_TRIGGER_CLASS_NAME} title={displayPath}>
         <Icon className="h-5 w-5" />
         <span>{label}</span>
       </PopoverTrigger>
@@ -160,7 +166,7 @@ function DirItem({ path, icon, label }: DirItemProps) {
         <div className="flex flex-col">
           <button
             type="button"
-            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
+            className={STATUS_LINE_MENU_ITEM_CLASS_NAME}
             onClick={handleOpenFolder}
           >
             <FolderOpen className="h-4 w-4" />
@@ -168,7 +174,7 @@ function DirItem({ path, icon, label }: DirItemProps) {
           </button>
           <button
             type="button"
-            className="control-menu-item flex w-full items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/50"
+            className={STATUS_LINE_MENU_ITEM_CLASS_NAME}
             onClick={handleCopyPath}
           >
             <Copy className="h-4 w-4" />
@@ -415,7 +421,12 @@ export function StatusLine({ sessionId, onHeightChange, onRequestFreshSession }:
             </AlertDescription>
             {onRequestFreshSession ? (
               <AlertAction>
-                <Button variant="outline" size="sm" onClick={onRequestFreshSession}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onRequestFreshSession}
+                  className={STATUS_LINE_ALERT_ACTION_CLASS_NAME}
+                >
                   {t('Start fresh session')}
                 </Button>
               </AlertAction>

@@ -7,6 +7,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { AgentEmptyStateModel } from '../agentEmptyStateModel';
+import {
+  CHAT_ACTION_BUTTON_PRIMARY_CLASS_NAME,
+  CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME,
+  CHAT_MENU_ICON_BUTTON_CLASS_NAME,
+  CHAT_MENU_ITEM_BASE_CLASS_NAME,
+} from '../controlButtonStyles';
 
 export interface AgentPanelEmptyStateProfileItem {
   agentId: string;
@@ -29,18 +35,15 @@ interface AgentPanelEmptyStateProps {
 }
 
 const EMPTY_STATE_PRIMARY_ACTION_LABEL_CLASS_NAME = 'min-w-0 flex-1 truncate';
-const EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME =
-  'control-action-button control-action-button-secondary w-full justify-start gap-2.5 rounded-xl px-4 text-[15px] font-medium sm:w-auto sm:min-w-[11rem]';
+const EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME = `${CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME} w-full justify-start gap-2.5 rounded-xl px-4 text-[15px] font-medium sm:w-auto sm:min-w-[11rem]`;
 const EMPTY_STATE_ACTIONS_LAYOUT_CLASS_NAME =
   'flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center';
 const EMPTY_STATE_SPLIT_ACTION_GROUP_CLASS_NAME =
   'flex w-full min-w-0 items-stretch overflow-hidden rounded-xl';
-const EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME =
-  'control-action-button control-action-button-primary min-w-0 rounded-l-none border-l border-foreground/12 px-3';
+const EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME = `${CHAT_ACTION_BUTTON_PRIMARY_CLASS_NAME} rounded-l-none border-l border-foreground/12 px-3`;
 const EMPTY_STATE_SPLIT_ACTION_MENU_CLASS_NAME =
   'absolute left-0 right-0 top-full z-50 pt-2 text-left sm:left-auto sm:right-0 sm:min-w-52';
-const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME =
-  'control-menu-item mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-foreground';
+const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 rounded-lg px-3 py-2 text-foreground`;
 const EMPTY_STATE_CONTEXT_FOOTER_CLASS_NAME =
   'flex min-w-0 flex-wrap gap-x-5 gap-y-2 text-[0.76em] leading-5 text-muted-foreground/84';
 const EMPTY_STATE_CONTEXT_ITEM_CLASS_NAME = 'flex min-w-0 items-start gap-2';
@@ -193,7 +196,7 @@ export function AgentPanelEmptyState({
                               setShowAgentMenu(false);
                               onOpenAgentSettings();
                             }}
-                            className="control-icon-button flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:text-foreground"
+                            className={cn(CHAT_MENU_ICON_BUTTON_CLASS_NAME, 'rounded-xl')}
                           >
                             <Settings className="h-3.5 w-3.5" />
                           </button>

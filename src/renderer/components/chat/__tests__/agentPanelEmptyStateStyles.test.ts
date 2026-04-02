@@ -74,15 +74,15 @@ describe('AgentPanel empty state styles', () => {
   });
 
   it('keeps the split toggle on the same primary control surface as the launch button', () => {
-    expect(panelSource).toContain(
-      'control-action-button control-action-button-primary min-w-0 rounded-l-none border-l border-foreground/12 px-3'
-    );
+    expect(panelSource).toContain('CHAT_ACTION_BUTTON_PRIMARY_CLASS_NAME');
+    expect(panelSource).toContain('rounded-l-none border-l border-foreground/12 px-3');
     expect(panelSource).not.toContain('hover:brightness-110');
   });
 
   it('keeps the agent profiles action on the standard secondary button pattern', () => {
+    expect(panelSource).toContain('CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME');
     expect(panelSource).toContain(
-      'control-action-button control-action-button-secondary w-full justify-start gap-2.5 rounded-xl px-4 text-[15px] font-medium sm:w-auto sm:min-w-[11rem]'
+      'w-full justify-start gap-2.5 rounded-xl px-4 text-[15px] font-medium sm:w-auto sm:min-w-[11rem]'
     );
     expect(panelSource).toContain('<Settings className="h-4 w-4 text-muted-foreground" />');
     expect(panelSource).not.toContain(
@@ -127,5 +127,12 @@ describe('AgentPanel empty state styles', () => {
   it('keeps the profile picker header label shrink-safe beside the settings button', () => {
     expect(panelSource).toContain('mb-1 flex min-w-0 items-center justify-between gap-2 px-1 py-1');
     expect(panelSource).toContain('control-menu-label min-w-0 flex-1 truncate pr-2');
+  });
+
+  it('reuses shared chat control button helpers instead of owning every button class locally', () => {
+    expect(panelSource).toContain("from '../controlButtonStyles'");
+    expect(panelSource).toContain('CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME');
+    expect(panelSource).toContain('CHAT_MENU_ICON_BUTTON_CLASS_NAME');
+    expect(panelSource).toContain('CHAT_MENU_ITEM_BASE_CLASS_NAME');
   });
 });

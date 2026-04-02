@@ -498,6 +498,10 @@ function migrateClaudeCodeIntegration(
     merged.enhancedInputAutoPopup = 'always';
   }
 
+  if (merged.autoSessionRollover !== 'manual' && merged.autoSessionRollover !== 'critical') {
+    merged.autoSessionRollover = currentState.claudeCodeIntegration.autoSessionRollover;
+  }
+
   return merged;
 }
 
