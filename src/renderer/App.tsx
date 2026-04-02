@@ -37,6 +37,7 @@ import {
   useRepositoryState,
   useSettingsEvents,
   useSettingsState,
+  useStartupAgentSessionRecovery,
   useTempWorkspaceActions,
   useTempWorkspaceSync,
   useTerminalNavigation,
@@ -517,6 +518,10 @@ export default function App() {
     enabled: worktreeQueryEnabled,
   });
   const safeWorktrees = useMemo(() => sanitizeGitWorktrees(worktrees), [worktrees]);
+  const validatedSelectedWorktreePaths = useMemo(
+    () => safeWorktrees.map((worktree) => worktree.path),
+    [safeWorktrees]
+  );
 
   // Get branches for selected repo
   const { data: branches = [], refetch: refetchBranches } = useGitBranches(worktreeRepoPath, {
@@ -618,6 +623,15 @@ export default function App() {
     setRepoWorktreeMap,
     setActiveWorktree,
   ]);
+
+  useStartupAgentSessionRecovery({
+    selectedRepo,
+    activeWorktree,
+    selectedRepoCanLoad,
+    worktreesFetched,
+    worktreesFetching,
+    availableWorktreePaths: validatedSelectedWorktreePaths,
+  });
 
   const sortedWorktrees = useMemo(
     () => getSortedWorktrees(selectedRepo, safeWorktrees),

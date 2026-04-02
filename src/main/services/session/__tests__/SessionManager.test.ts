@@ -388,12 +388,13 @@ describe('SessionManager', () => {
     expect(manager.list(1)).toEqual([]);
   });
 
-  it('abandons persistent ui session records when agent sessions exit', async () => {
+  it('abandons persistent ui session records when non-persistent agent sessions exit', async () => {
     createWindow(1);
     const manager = new SessionManager();
     const opened = await manager.create(1, {
       cwd: '/repo-a',
       kind: 'agent',
+      persistOnDisconnect: false,
       metadata: {
         uiSessionId: 'ui-session-1',
       },
@@ -404,6 +405,31 @@ describe('SessionManager', () => {
     pty.emitExit(sessionId, 0);
 
     expect(sessionTestDoubles.persistentAbandonSession).toHaveBeenCalledWith('ui-session-1');
+  });
+
+  it('keeps persistent ui session records for local unix agent exits so tmux recovery survives app restart', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: '/repo-a',
+        kind: 'agent',
+        persistOnDisconnect: true,
+        metadata: {
+          uiSessionId: 'ui-session-1',
+        },
+      });
+      const sessionId = opened.session.sessionId;
+      const pty = sessionTestDoubles.ptyInstances[0];
+
+      pty.emitExit(sessionId, 0);
+
+      expect(sessionTestDoubles.persistentAbandonSession).not.toHaveBeenCalled();
+    } finally {
+      platform.mockRestore();
+    }
   });
 
   it('uses the supervisor runtime for persistent Windows agent sessions and restores them by backend session id', async () => {

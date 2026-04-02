@@ -57,6 +57,18 @@ function getPersistentUiSessionId(
   return typeof uiSessionId === 'string' && uiSessionId.length > 0 ? uiSessionId : undefined;
 }
 
+function shouldAbandonPersistentRecordOnLocalExit(session: ManagedSessionRecord): boolean {
+  if (session.kind !== 'agent') {
+    return false;
+  }
+
+  if (!session.persistOnDisconnect) {
+    return true;
+  }
+
+  return process.platform === 'win32';
+}
+
 export class SessionManager {
   readonly localPtyManager = new PtyManager();
 
@@ -1082,7 +1094,7 @@ export class SessionManager {
   }
 
   private cleanupPersistentSessionRecord(session: ManagedSessionRecord): void {
-    if (session.kind !== 'agent') {
+    if (!shouldAbandonPersistentRecordOnLocalExit(session)) {
       return;
     }
 
