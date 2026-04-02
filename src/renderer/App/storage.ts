@@ -311,12 +311,15 @@ const getPlatform = (): string => {
 
 // Normalize path for comparison (handles case-insensitivity and trailing slashes)
 export const normalizePath = (path: string): string => {
+  const platform = getPlatform();
+  if (platform === 'darwin') {
+    return normalizeWorkspaceKey(path, 'darwin');
+  }
+
   // Remove trailing slashes/backslashes
   let normalized = path.replace(/[\\/]+$/, '');
-  // On Windows and macOS, normalize to lowercase for case-insensitive comparison
-  // Linux is case-sensitive, so we don't lowercase there
-  const platform = getPlatform();
-  if (platform === 'win32' || platform === 'darwin') {
+  // On Windows, normalize to lowercase for case-insensitive comparison.
+  if (platform === 'win32') {
     normalized = normalized.toLowerCase();
   }
   return normalized;

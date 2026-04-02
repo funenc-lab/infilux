@@ -111,6 +111,27 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('treats /var and /private/var worktree paths as the same recovered worktree on darwin', async () => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        repoPath: '/var/folders/demo/repo-main',
+        cwd: '/var/folders/demo/repo-feature',
+      })
+    );
+
+    expect(store.getSessions('/var/folders/demo/repo-main', '/private/var/folders/demo/repo-feature'))
+      .toEqual([
+        expect.objectContaining({
+          id: 'session-1',
+          cwd: '/var/folders/demo/repo-feature',
+        }),
+      ]);
+  });
+
   it('preserves local session ui metadata when a recovered record refreshes an existing session', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();

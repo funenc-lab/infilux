@@ -14,6 +14,16 @@ function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, '/');
 }
 
+function normalizeDarwinPathAlias(value: string): string {
+  const darwinAliasPrefixes = ['/private/var', '/private/tmp', '/private/etc'] as const;
+  for (const prefix of darwinAliasPrefixes) {
+    if (value === prefix || value.startsWith(`${prefix}/`)) {
+      return value.slice('/private'.length) || '/';
+    }
+  }
+  return value;
+}
+
 function trimTrailingSlash(value: string): string {
   if (/^[A-Za-z]:\/$/.test(value)) {
     return value;
@@ -25,7 +35,10 @@ export function normalizeWorkspacePath(
   inputPath: string,
   platform: WorkspacePlatform = 'linux'
 ): string {
-  const normalized = trimTrailingSlash(normalizeSlashes(inputPath));
+  const slashNormalized = normalizeSlashes(inputPath);
+  const aliasNormalized =
+    platform === 'darwin' ? normalizeDarwinPathAlias(slashNormalized) : slashNormalized;
+  const normalized = trimTrailingSlash(aliasNormalized);
   if (platform === 'win32') {
     return normalized.replace(/^([a-z]):/, (_, drive: string) => `${drive.toUpperCase()}:`);
   }

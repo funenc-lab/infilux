@@ -106,6 +106,9 @@ describe('shared workspace utilities', () => {
     expect(normalizeWorkspacePath('c:\\', 'win32')).toBe('C:/');
     expect(normalizeWorkspaceKey('C:/Repo', 'win32')).toBe('c:/repo');
     expect(normalizeWorkspaceKey('/Users/Test/Repo/', 'darwin')).toBe('/users/test/repo');
+    expect(normalizeWorkspaceKey('/private/var/folders/demo/worktree/', 'darwin')).toBe(
+      '/var/folders/demo/worktree'
+    );
     expect(normalizeWorkspaceKey('/srv/repo/', 'linux')).toBe('/srv/repo');
   });
 

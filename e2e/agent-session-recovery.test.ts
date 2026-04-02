@@ -81,6 +81,7 @@ async function assertSessionIsRecoveredAfterWorktreeSelection(
   page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
   scenario: AgentSessionRecoveryScenario
 ): Promise<void> {
+  await installRecoveryProbe(page);
   console.info('[e2e] verifying recovered tab is absent before selection');
   const sessionTab = page.getByRole('tab', { name: scenario.sessionDisplayName });
   expect(await sessionTab.count()).toBe(0);
@@ -116,6 +117,16 @@ async function collectRecoveryDiagnostics(
 ): Promise<string> {
   const diagnostics = await page.evaluate(
     async ({ repoPath, worktreePath, sessionDisplayName }) => {
+      const probe = (window as typeof window & {
+        __agentRecoveryProbe?: {
+          calls: Array<{ repoPath: string; cwd: string }>;
+          results: Array<{
+            count: number;
+            items: Array<{ uiSessionId: string; recoverable: boolean; reason: string | null }>;
+          }>;
+          errors: string[];
+        };
+      }).__agentRecoveryProbe;
       const selectedRepo = localStorage.getItem('enso-selected-repo');
       const recoverable = await window.electronAPI.agentSession.listRecoverable();
       const restoreResult = await window.electronAPI.agentSession.restoreWorktreeSessions({
@@ -148,6 +159,7 @@ async function collectRecoveryDiagnostics(
           recoverable: item.recoverable,
           reason: item.reason ?? null,
         })),
+        automaticRestoreProbe: probe ?? null,
         sessionTabPresent: tabTexts.includes(sessionDisplayName),
         tabTexts,
         bodyText: document.body.innerText.slice(0, 2000),
@@ -161,4 +173,57 @@ async function collectRecoveryDiagnostics(
   );
 
   return JSON.stringify(diagnostics, null, 2);
+}
+
+async function installRecoveryProbe(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<void> {
+  await page.evaluate(() => {
+    type RecoveryProbe = {
+      calls: Array<{ repoPath: string; cwd: string }>;
+      results: Array<{
+        count: number;
+        items: Array<{ uiSessionId: string; recoverable: boolean; reason: string | null }>;
+      }>;
+      errors: string[];
+      installed: boolean;
+    };
+
+    const windowWithProbe = window as typeof window & {
+      __agentRecoveryProbe?: RecoveryProbe;
+    };
+
+    if (windowWithProbe.__agentRecoveryProbe?.installed) {
+      return;
+    }
+
+    const originalRestore = window.electronAPI.agentSession.restoreWorktreeSessions;
+    const probe: RecoveryProbe = {
+      calls: [],
+      results: [],
+      errors: [],
+      installed: true,
+    };
+
+    windowWithProbe.__agentRecoveryProbe = probe;
+    window.electronAPI.agentSession.restoreWorktreeSessions = async (request) => {
+      probe.calls.push({ repoPath: request.repoPath, cwd: request.cwd });
+
+      try {
+        const result = await originalRestore(request);
+        probe.results.push({
+          count: result.items.length,
+          items: result.items.map((item) => ({
+            uiSessionId: item.record.uiSessionId,
+            recoverable: item.recoverable,
+            reason: item.reason ?? null,
+          })),
+        });
+        return result;
+      } catch (error) {
+        probe.errors.push(error instanceof Error ? error.message : String(error));
+        throw error;
+      }
+    };
+  });
 }

@@ -87,12 +87,7 @@ export class PersistentAgentSessionService {
     const sessions = (await this.listSessions()).filter(supportsPersistentAgentRecovery);
     const reconciled = await Promise.all(sessions.map((record) => this.reconcileRecord(record)));
 
-    return reconciled.map((record) => ({
-      record,
-      runtimeState: record.lastKnownState,
-      recoverable: isRecoverableState(record.lastKnownState),
-      reason: buildRecoveryReason(record.lastKnownState),
-    }));
+    return reconciled.map((record) => this.toRecoveryItem(record));
   }
 
   async upsertSession(
@@ -118,9 +113,7 @@ export class PersistentAgentSessionService {
   async restoreWorktreeSessions(
     request: RestoreWorktreeSessionsRequest
   ): Promise<RestoreWorktreeSessionsResult> {
-    const items = (await this.listRecoverableSessions()).filter((item) =>
-      matchesWorktreeRequest(item.record, request)
-    );
+    const items = await this.listRecoverableWorktreeSessions(request);
     const staleUiSessionIds = items
       .filter((item) => !item.recoverable)
       .map((item) => item.record.uiSessionId);
@@ -132,6 +125,19 @@ export class PersistentAgentSessionService {
     }
 
     return { items: items.filter((item) => item.recoverable) };
+  }
+
+  private async listRecoverableWorktreeSessions(
+    request: RestoreWorktreeSessionsRequest
+  ): Promise<RestoreWorktreeSessionsResult['items']> {
+    const candidateRecords = (await this.listSessions()).filter(
+      (record) => supportsPersistentAgentRecovery(record) && matchesWorktreeRequest(record, request)
+    );
+    const reconciled = await Promise.all(
+      candidateRecords.map((record) => this.reconcileRecord(record))
+    );
+
+    return reconciled.map((record) => this.toRecoveryItem(record));
   }
 
   private async reconcileRecord(
@@ -150,6 +156,15 @@ export class PersistentAgentSessionService {
     };
     await this.repository.upsertSession(nextRecord);
     return nextRecord;
+  }
+
+  private toRecoveryItem(record: PersistentAgentSessionRecord) {
+    return {
+      record,
+      runtimeState: record.lastKnownState,
+      recoverable: isRecoverableState(record.lastKnownState),
+      reason: buildRecoveryReason(record.lastKnownState),
+    };
   }
 }
 

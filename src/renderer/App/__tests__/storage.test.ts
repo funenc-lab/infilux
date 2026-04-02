@@ -139,9 +139,15 @@ describe('storage helpers', () => {
   it('normalizes paths, workspace keys, and repository ids using platform rules', async () => {
     const macEnv = await loadStorageModule({ platform: 'MacIntel' });
     expect(macEnv.normalizePath('/Repo/Main///')).toBe('/repo/main');
+    expect(macEnv.normalizePath('/private/var/folders/demo/worktree/')).toBe(
+      '/var/folders/demo/worktree'
+    );
     expect(macEnv.cleanPath('/Repo/Main///')).toBe('/Repo/Main');
     expect(macEnv.normalizeWorkspacePathKey('/Repo/Main///')).toBe('/repo/main');
     expect(macEnv.pathsEqual('/Repo/Main/', '/repo/main')).toBe(true);
+    expect(
+      macEnv.pathsEqual('/private/var/folders/demo/worktree', '/var/folders/demo/worktree')
+    ).toBe(true);
     expect(
       macEnv.ensureRepositoryId({
         path: '/Repo/Main',

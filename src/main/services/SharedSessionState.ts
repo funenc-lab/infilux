@@ -248,7 +248,7 @@ export function getSharedStatePaths(): {
   localStorageMarkerPath: string;
 } {
   return {
-    root: getSharedRoot(),
+    root: getSharedRootPath(),
     settingsPath: getSettingsPath(),
     sessionPath: getSessionPath(),
     settingsMarkerPath: getMigrationMarkerPath(SETTINGS_MIGRATION_MARKER),
@@ -262,7 +262,7 @@ export function isLegacySettingsMigrated(): boolean {
 }
 
 export function markLegacySettingsMigrated(): void {
-  ensureDir(getSharedRoot());
+  ensureDir(getSharedRootPath());
   writeFileSync(getMigrationMarkerPath(SETTINGS_MIGRATION_MARKER), String(now()), 'utf-8');
 }
 
@@ -271,7 +271,7 @@ export function isLegacyTodoMigrated(): boolean {
 }
 
 export function markLegacyTodoMigrated(): void {
-  ensureDir(getSharedRoot());
+  ensureDir(getSharedRootPath());
   writeFileSync(getMigrationMarkerPath(TODO_MIGRATION_MARKER), String(now()), 'utf-8');
 }
 
@@ -280,7 +280,7 @@ export function isLegacyLocalStorageMigrated(): boolean {
 }
 
 export function markLegacyLocalStorageMigrated(): void {
-  ensureDir(getSharedRoot());
+  ensureDir(getSharedRootPath());
   writeFileSync(getMigrationMarkerPath(LOCAL_STORAGE_MIGRATION_MARKER), String(now()), 'utf-8');
 }
 

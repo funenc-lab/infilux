@@ -116,6 +116,57 @@ describe('PersistentAgentSessionService', () => {
     );
   });
 
+  it('only probes records that match the requested worktree during restore', async () => {
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
+      makeRecord({
+        uiSessionId: 'session-1',
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+      }),
+      makeRecord({
+        uiSessionId: 'session-2',
+        repoPath: '/repo',
+        cwd: '/repo/other-worktree',
+        hostSessionKey: 'enso-session-2',
+      }),
+      makeRecord({
+        uiSessionId: 'session-3',
+        repoPath: '/another-repo',
+        cwd: '/another-repo/worktree',
+        hostSessionKey: 'enso-session-3',
+      }),
+    ]);
+    const probeSession = vi.fn(
+      async (record: PersistentAgentSessionRecord) => record.lastKnownState
+    );
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession,
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+
+    const result = await service.restoreWorktreeSessions({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    });
+
+    expect(probeSession).toHaveBeenCalledTimes(1);
+    expect(probeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'session-1',
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+      })
+    );
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        record: expect.objectContaining({ uiSessionId: 'session-1' }),
+        runtimeState: 'live',
+        recoverable: true,
+      }),
+    ]);
+  });
+
   it('reconciles host state and persists missing tmux sessions as missing-host-session', async () => {
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([makeRecord()]);
     const probeSession = vi.fn<() => Promise<'live' | 'missing-host-session'>>(
@@ -218,6 +269,38 @@ describe('PersistentAgentSessionService', () => {
       const result = await service.restoreWorktreeSessions({
         repoPath: '/repo/',
         cwd: '/repo/worktree',
+      });
+
+      expect(result.items).toEqual([
+        expect.objectContaining({
+          record: expect.objectContaining({ uiSessionId: 'session-1' }),
+          recoverable: true,
+        }),
+      ]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('matches darwin worktree paths across /var and /private/var aliases', async () => {
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
+      makeRecord({
+        uiSessionId: 'session-1',
+        repoPath: '/var/folders/demo/repo-main',
+        cwd: '/var/folders/demo/repo-feature',
+      }),
+    ]);
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession: vi.fn(async (record) => record.lastKnownState),
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+
+    try {
+      const result = await service.restoreWorktreeSessions({
+        repoPath: '/private/var/folders/demo/repo-main',
+        cwd: '/private/var/folders/demo/repo-feature',
       });
 
       expect(result.items).toEqual([
