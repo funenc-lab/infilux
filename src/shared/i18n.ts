@@ -490,6 +490,11 @@ export const zhTranslations: Record<string, string> = {
   Select: '选择',
   'Select Agent': '选择 Agent',
   'Agent profiles': 'Agent 配置',
+  'No runnable agent profiles are available': '当前没有可运行的 Agent 配置。',
+  'Configure or detect an agent profile before starting a session in this worktree.':
+    '请先配置或检测 Agent 配置，再在此 worktree 中启动会话。',
+  'Start the default agent now, or choose another profile for this worktree.':
+    '立即启动默认 Agent，或为此 worktree 选择另一个配置。',
   'Select all': '全选',
   'Select base branch': '请选择基于哪个分支创建',
   'Select branch': '选择分支...',
@@ -618,6 +623,9 @@ export const zhTranslations: Record<string, string> = {
   'View more': '查看更多',
   'Waiting {{seconds}} seconds': '{{seconds}} 秒',
   Workspace: '工作区',
+  'Loading workspace': '正在加载工作区',
+  'Preparing main surfaces, navigation state, and active context':
+    '正在准备主界面、导航状态和当前上下文',
   'Workspace clean': '工作区干净',
   'Workspace is not a Git repository': '当前目录还不是 Git 仓库，初始化后即可使用 Git 功能',
   'Workspace panel shortcuts': '工作区面板快捷键',
@@ -637,7 +645,17 @@ export const zhTranslations: Record<string, string> = {
   'Tmux Session': 'Tmux 会话',
   'Wrap Claude agent in tmux for session persistence and recovery':
     '将 Claude agent 包装在 tmux 中以实现会话持久化与恢复',
+  'Wrap local agent sessions in tmux for session persistence and recovery':
+    '将本地 Agent 会话包装在 tmux 中以实现会话持久化与恢复',
+  'Local session recovery is disabled.': '本地会话恢复当前已禁用。',
+  'Local agent sessions started without tmux will not restore after app restart. Enable recovery before starting the next session.':
+    '未通过 tmux 启动的本地 Agent 会话在应用重启后不会恢复。请在启动下一个会话前开启恢复能力。',
+  'Enable Recovery': '开启恢复',
+  'Recovery now applies to new local sessions. Restart current sessions to make them recoverable after app restart.':
+    '恢复能力现在只会应用到新建的本地会话。请重启当前会话，使其在应用重启后也能恢复。',
   'tmux is not installed. Please install tmux first.': 'tmux 未安装，请先安装 tmux。',
+  'New sessions use the default agent. Long-press the plus to pick another enabled agent. Local session recovery depends on the tmux setting.':
+    '新会话会使用默认 Agent。长按加号可选择其他已启用的 Agent，本地会话恢复能力取决于 tmux 设置。',
   'Yes, remove': '移除',
   'You have {{count}} changed files': '{{count}} 个文件已更改',
   'You have no worktrees yet': '暂无 Worktree',
@@ -1044,6 +1062,11 @@ export const zhTranslations: Record<string, string> = {
   // Integration settings
   Integration: '集成',
   'Claude Integration': 'Claude 集成',
+  'Automatic Session Rollover': '自动会话切换',
+  'Manual only': '仅手动',
+  'Auto on critical context': '上下文临界时自动切换',
+  'Choose whether a fresh session should start automatically when context usage becomes critical.':
+    '选择当上下文使用接近临界时，是否应自动启动一个新会话。',
   'Claude Code Integration': 'Claude Code 集成',
   'Connect to Claude Code CLI for enhanced IDE features':
     '连接 Claude Code CLI 以获得增强的 IDE 功能',
@@ -2210,10 +2233,17 @@ export const zhTranslations: Record<string, string> = {
   'Exit edit mode': '退出编辑模式',
   'Edit file': '编辑文件',
   'Choose a file from the commit list to inspect its diff': '从提交列表中选择一个文件以查看其差异',
+  'Loading selected diff': '正在加载所选差异',
+  'Choose a file from the commit list': '从提交列表中选择一个文件',
   'Too many changes, showing first {{count}}.': '变更过多，仅显示前 {{count}} 项。',
+  'Choose a changed file in the changes list': '在变更列表中选择一个已修改文件',
   'Choose a changed file to open the diff view': '选择一个已变更文件以打开差异视图',
   'Loading diff viewer': '正在加载差异查看器',
   'Preparing the diff runtime': '正在准备差异运行时',
+  'Loading diff runtime': '正在加载差异运行时',
+  'Refresh the file selection or choose another changed file':
+    '刷新文件选择，或改选另一个已修改文件',
+  'Binary preview unavailable': '二进制预览不可用',
   'Editor Workspace': '编辑器工作区',
   'Choose a file from the tree to load it into the editor, preview supported content, and keep your current worktree context visible.':
     '从文件树中选择一个文件，将其加载到编辑器中、预览支持的内容，并保持当前 worktree 上下文可见。',
