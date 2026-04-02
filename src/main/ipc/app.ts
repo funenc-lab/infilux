@@ -56,7 +56,7 @@ export function registerAppHandlers() {
   ipcMain.handle(
     IPC_CHANNELS.APP_EXECUTE_RESOURCE_ACTION,
     async (event, action: AppResourceActionRequest) => {
-      return await appResourceManager.executeAction(action, event.sender);
+      return await appResourceManager.executeAction(action, event.sender, event.sender);
     }
   );
 

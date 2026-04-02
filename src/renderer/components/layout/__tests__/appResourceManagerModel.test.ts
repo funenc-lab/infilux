@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAppResourceActionConfirmation,
+  buildAppResourceManagerBulkActions,
   buildAppResourceManagerSections,
 } from '../appResourceManagerModel';
 
@@ -144,5 +145,129 @@ describe('appResourceManagerModel', () => {
         'This will forcibly terminate Utility (PID 404). Unsaved work in that process may be lost.',
       confirmLabel: 'Force Terminate',
     });
+  });
+
+  it('builds an enabled bulk reclaim action for idle local sessions', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'session:session-local-idle',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'session-local-idle',
+          sessionKind: 'terminal',
+          backend: 'local',
+          cwd: '/repo/idle',
+          createdAt: 10,
+          pid: 4444,
+          isActive: false,
+          runtimeState: 'live',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'session:session-remote-idle',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'session-remote-idle',
+          sessionKind: 'agent',
+          backend: 'remote',
+          cwd: '/__remote__/repo',
+          createdAt: 20,
+          pid: 5555,
+          isActive: false,
+          runtimeState: 'live',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+      ],
+    };
+
+    expect(buildAppResourceManagerBulkActions(snapshot as never, t)).toEqual([
+      {
+        key: 'batch:idle-sessions:reclaim',
+        label: 'Reclaim Idle Sessions',
+        description: '1 idle local session can be reclaimed.',
+        disabled: false,
+        request: {
+          kind: 'reclaim-idle-sessions',
+          resourceId: 'batch:idle-sessions',
+        },
+      },
+    ]);
+  });
+
+  it('disables the bulk reclaim action when no idle local sessions are available', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'session:session-local-active',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'session-local-active',
+          sessionKind: 'terminal',
+          backend: 'local',
+          cwd: '/repo/active',
+          createdAt: 10,
+          pid: 4444,
+          isActive: true,
+          runtimeState: 'live',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'session:session-local-unknown',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'session-local-unknown',
+          sessionKind: 'agent',
+          backend: 'local',
+          cwd: '/repo/unknown',
+          createdAt: 20,
+          pid: 5555,
+          isActive: null,
+          runtimeState: 'reconnecting',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+      ],
+    };
+
+    expect(buildAppResourceManagerBulkActions(snapshot as never, t)).toEqual([
+      {
+        key: 'batch:idle-sessions:reclaim',
+        label: 'Reclaim Idle Sessions',
+        description: 'No idle local sessions are ready to reclaim.',
+        disabled: true,
+        request: {
+          kind: 'reclaim-idle-sessions',
+          resourceId: 'batch:idle-sessions',
+        },
+      },
+    ]);
   });
 });

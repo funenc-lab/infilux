@@ -179,6 +179,23 @@ function toServiceResource(
   };
 }
 
+function isReclaimableIdleLocalSession(
+  session: SessionDescriptor,
+  processInfo: SessionProcessInfo | null
+): boolean {
+  return session.backend === 'local' && processInfo?.isActive === false;
+}
+
+function formatIdleSessionReclaimMessage(reclaimedCount: number): string {
+  if (reclaimedCount === 0) {
+    return 'No idle local sessions to reclaim.';
+  }
+
+  return reclaimedCount === 1
+    ? 'Reclaimed 1 idle local session.'
+    : `Reclaimed ${reclaimedCount} idle local sessions.`;
+}
+
 export class AppResourceManager {
   constructor(private readonly dependencies: AppResourceManagerDependencies) {}
 
@@ -235,7 +252,8 @@ export class AppResourceManager {
 
   async executeAction(
     action: AppResourceActionRequest,
-    sender: ResourceSender
+    sender: ResourceSender,
+    sessionTarget?: SessionTarget
   ): Promise<AppResourceActionResult> {
     switch (action.kind) {
       case 'reload-renderer':
@@ -280,6 +298,31 @@ export class AppResourceManager {
           resourceId: action.resourceId,
           kind: action.kind,
           message: 'Process terminated.',
+        };
+      }
+      case 'reclaim-idle-sessions': {
+        const sessions = await this.dependencies.listSessions(sessionTarget);
+        const reclaimableSessionIds: string[] = [];
+
+        for (const session of sessions) {
+          const processInfo = await this.dependencies.getSessionProcessInfo(session.sessionId);
+          if (!isReclaimableIdleLocalSession(session, processInfo)) {
+            continue;
+          }
+
+          reclaimableSessionIds.push(session.sessionId);
+        }
+
+        for (const sessionId of reclaimableSessionIds) {
+          await this.dependencies.killSession(sessionId);
+        }
+
+        return {
+          ok: true,
+          resourceId: action.resourceId,
+          kind: action.kind,
+          message: formatIdleSessionReclaimMessage(reclaimableSessionIds.length),
+          reclaimedCount: reclaimableSessionIds.length,
         };
       }
     }

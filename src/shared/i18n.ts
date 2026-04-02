@@ -1926,7 +1926,7 @@ export const zhTranslations: Record<string, string> = {
   'Core processes': '核心进程',
   'Browser process': 'Browser 进程',
   'GPU process': 'GPU 进程',
-  '{{memory}} · PID {{pid}}': '{{memory}} · PID {{pid}}',
+  '{{memory}} · PID {{pid}}': '{{memory}} · \u8fdb\u7a0b ID {{pid}}',
   'Loading merge editor': '正在加载合并编辑器',
   'The selected agent is not available on the remote host. Install it remotely and try again.':
     '所选 Agent 在远程主机上不可用。请先在远程主机安装后再重试。',
@@ -2249,6 +2249,69 @@ export const zhTranslations: Record<string, string> = {
   '{{command}} waiting for input': '{{command}} 正在等待输入',
   'Repository hidden': '仓库已隐藏',
   'Relative path copied to clipboard': '相对路径已复制到剪贴板',
+  'Runtime Console': '\u8fd0\u884c\u65f6\u63a7\u5236\u53f0',
+  'Resource Manager': '\u8d44\u6e90\u7ba1\u7406',
+  'Inspect runtime pressure and reclaim safe targets for this window.':
+    '\u67e5\u770b\u5f53\u524d\u7a97\u53e3\u7684\u8fd0\u884c\u538b\u529b\uff0c\u5e76\u56de\u6536\u53ef\u5b89\u5168\u5904\u7406\u7684\u76ee\u6807\u3002',
+  'Unable to load resources.': '\u65e0\u6cd5\u52a0\u8f7d\u8d44\u6e90\u3002',
+  'Unable to execute action.': '\u65e0\u6cd5\u6267\u884c\u64cd\u4f5c\u3002',
+  'Loading resources...': '\u6b63\u5728\u52a0\u8f7d\u8d44\u6e90...',
+  'Resource action failed': '\u8d44\u6e90\u64cd\u4f5c\u5931\u8d25',
+  Sessions: '\u4f1a\u8bdd',
+  Services: '\u670d\u52a1',
+  'Reload Renderer': '\u91cd\u65b0\u52a0\u8f7d Renderer',
+  'Kill Session': '\u7ed3\u675f\u4f1a\u8bdd',
+  'Stop Service': '\u505c\u6b62\u670d\u52a1',
+  'Force Terminate': '\u5f3a\u5236\u7ec8\u6b62',
+  'Renderer process': 'Renderer \u8fdb\u7a0b',
+  'Utility process': 'Utility \u8fdb\u7a0b',
+  '{{type}} process': '{{type}} \u8fdb\u7a0b',
+  'Hapi Server': 'Hapi \u670d\u52a1',
+  'Hapi Runner': 'Hapi Runner \u670d\u52a1',
+  Cloudflared: 'Cloudflared \u670d\u52a1',
+  ready: '\u5c31\u7eea',
+  running: '\u8fd0\u884c\u4e2d',
+  unavailable: '\u4e0d\u53ef\u7528',
+  'Working set': '\u5de5\u4f5c\u96c6',
+  'Private memory': '\u79c1\u6709\u5185\u5b58',
+  'Working directory': '\u5de5\u4f5c\u76ee\u5f55',
+  Backend: '\u540e\u7aef',
+  PID: '\u8fdb\u7a0b ID',
+  Port: '\u7aef\u53e3',
+  URL: '\u94fe\u63a5\u5730\u5740',
+  '{{type}} · PID {{pid}}': '{{type}} · \u8fdb\u7a0b ID {{pid}}',
+  '{{kind}} session': '{{kind}} \u4f1a\u8bdd',
+  '{{backend}} backend': '{{backend}} \u540e\u7aef',
+  '{{backend}} backend · PID {{pid}}': '{{backend}} \u540e\u7aef · \u8fdb\u7a0b ID {{pid}}',
+  '{{service}} status': '{{service}} \u72b6\u6001',
+  'PID {{pid}}': '\u8fdb\u7a0b ID {{pid}}',
+  'Electron runtime': 'Electron \u8fd0\u884c\u65f6',
+  'Support services': '\u652f\u6491\u670d\u52a1',
+  'No idle local sessions are ready to reclaim.':
+    '\u5f53\u524d\u6ca1\u6709\u53ef\u56de\u6536\u7684\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u3002',
+  '1 idle local session can be reclaimed.':
+    '1 \u4e2a\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u53ef\u56de\u6536\u3002',
+  '{{count}} idle local sessions can be reclaimed.':
+    '{{count}} \u4e2a\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u53ef\u56de\u6536\u3002',
+  'Reclaim Idle Sessions': '\u56de\u6536\u7a7a\u95f2\u4f1a\u8bdd',
+  'Force terminate process?': '\u5f3a\u5236\u7ec8\u6b62\u8fdb\u7a0b\uff1f',
+  'This will forcibly terminate {{type}} (PID {{pid}}). Unsaved work in that process may be lost.':
+    '\u8fd9\u5c06\u5f3a\u5236\u7ec8\u6b62 {{type}}\uff08\u8fdb\u7a0b ID {{pid}}\uff09\u3002\u8be5\u8fdb\u7a0b\u4e2d\u7684\u672a\u4fdd\u5b58\u5de5\u4f5c\u53ef\u80fd\u4f1a\u4e22\u5931\u3002',
+  'Reload renderer?': '\u91cd\u65b0\u52a0\u8f7d Renderer\uff1f',
+  'This will reload the current renderer. Unsaved in-memory UI state may be lost.':
+    '\u8fd9\u5c06\u91cd\u65b0\u52a0\u8f7d\u5f53\u524d Renderer\u3002\u672a\u4fdd\u5b58\u7684\u5185\u5b58\u6001 UI \u72b6\u6001\u53ef\u80fd\u4f1a\u4e22\u5931\u3002',
+  'Kill session?': '\u7ed3\u675f\u4f1a\u8bdd\uff1f',
+  'This will terminate the selected session and its child processes.':
+    '\u8fd9\u5c06\u7ec8\u6b62\u6240\u9009\u4f1a\u8bdd\u53ca\u5176\u5b50\u8fdb\u7a0b\u3002',
+  'Stop service?': '\u505c\u6b62\u670d\u52a1\uff1f',
+  'This will stop the selected background service for the current app window.':
+    '\u8fd9\u5c06\u505c\u6b62\u5f53\u524d\u5e94\u7528\u7a97\u53e3\u6240\u9009\u7684\u540e\u53f0\u670d\u52a1\u3002',
+  'Reclaim idle sessions?': '\u56de\u6536\u7a7a\u95f2\u4f1a\u8bdd\uff1f',
+  'This will terminate idle local sessions that belong to the current app window.':
+    '\u8fd9\u5c06\u7ec8\u6b62\u5c5e\u4e8e\u5f53\u524d\u5e94\u7528\u7a97\u53e3\u7684\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u3002',
+  'Confirm action': '\u786e\u8ba4\u64cd\u4f5c',
+  'Review this action before continuing.':
+    '\u7ee7\u7eed\u524d\u8bf7\u5148\u786e\u8ba4\u6b64\u64cd\u4f5c\u3002',
 };
 
 export function normalizeLocale(input?: string): Locale {

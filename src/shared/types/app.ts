@@ -66,12 +66,14 @@ export type AppResourceActionKind =
   | 'reload-renderer'
   | 'kill-session'
   | 'stop-service'
-  | 'terminate-process';
+  | 'terminate-process'
+  | 'reclaim-idle-sessions';
+export type AppResourceItemActionKind = Exclude<AppResourceActionKind, 'reclaim-idle-sessions'>;
 export type AppResourceActionDangerLevel = 'safe' | 'danger';
 export type AppServiceResourceKind = 'hapi-server' | 'hapi-runner' | 'cloudflared';
 
 export interface AppResourceActionDescriptor {
-  kind: AppResourceActionKind;
+  kind: AppResourceItemActionKind;
   dangerLevel: AppResourceActionDangerLevel;
 }
 
@@ -145,6 +147,10 @@ export type AppResourceActionRequest =
       kind: 'terminate-process';
       resourceId: string;
       pid: number;
+    }
+  | {
+      kind: 'reclaim-idle-sessions';
+      resourceId: 'batch:idle-sessions';
     };
 
 export interface AppResourceActionResult {
@@ -152,4 +158,5 @@ export interface AppResourceActionResult {
   resourceId: string;
   kind: AppResourceActionKind;
   message: string;
+  reclaimedCount?: number;
 }

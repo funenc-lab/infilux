@@ -19,10 +19,16 @@ import {
   SheetPopup,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { useWindowFocus } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import {
+  type AppResourceAutoRefreshController,
+  createAppResourceAutoRefreshController,
+} from './appResourceAutoRefresh';
+import {
   buildAppResourceActionConfirmation,
+  buildAppResourceManagerBulkActions,
   buildAppResourceManagerSections,
 } from './appResourceManagerModel';
 import { buildAppResourceStatusSections } from './appResourceStatusModel';
@@ -35,6 +41,8 @@ interface PendingConfirmationState {
   action: AppResourceActionRequest;
   resource: AppResourceItem;
 }
+
+type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 function getStatusBadgeVariant(status: AppResourceItem['status']) {
   switch (status) {
@@ -51,8 +59,33 @@ function getStatusBadgeVariant(status: AppResourceItem['status']) {
   }
 }
 
+function getHeaderStats(snapshot: AppResourceSnapshot | null, translate: Translate) {
+  if (!snapshot) {
+    return [];
+  }
+
+  return [
+    {
+      key: 'runtime',
+      label: translate('Processes'),
+      value: snapshot.resources.filter((resource) => resource.group === 'runtime').length,
+    },
+    {
+      key: 'sessions',
+      label: translate('Sessions'),
+      value: snapshot.resources.filter((resource) => resource.group === 'sessions').length,
+    },
+    {
+      key: 'services',
+      label: translate('Services'),
+      value: snapshot.resources.filter((resource) => resource.group === 'services').length,
+    },
+  ];
+}
+
 export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps) {
   const { t } = useI18n();
+  const { isWindowFocused } = useWindowFocus();
   const [loading, setLoading] = useState(false);
   const [snapshot, setSnapshot] = useState<AppResourceSnapshot | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -61,29 +94,47 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
     null
   );
   const requestSequenceRef = useRef(0);
+  const inFlightLoadRef = useRef<Promise<void> | null>(null);
+  const autoRefreshControllerRef = useRef<AppResourceAutoRefreshController | null>(null);
+
+  if (autoRefreshControllerRef.current === null) {
+    autoRefreshControllerRef.current = createAppResourceAutoRefreshController();
+  }
 
   const loadSnapshot = useCallback(async () => {
+    if (inFlightLoadRef.current) {
+      return inFlightLoadRef.current;
+    }
+
     const requestId = requestSequenceRef.current + 1;
     requestSequenceRef.current = requestId;
     setLoading(true);
     setErrorMessage(null);
 
-    try {
-      const nextSnapshot = await window.electronAPI.app.getResourceSnapshot();
-      if (requestSequenceRef.current !== requestId) {
-        return;
+    const loadPromise = (async () => {
+      try {
+        const nextSnapshot = await window.electronAPI.app.getResourceSnapshot();
+        if (requestSequenceRef.current !== requestId) {
+          return;
+        }
+        setSnapshot(nextSnapshot);
+      } catch (error) {
+        if (requestSequenceRef.current !== requestId) {
+          return;
+        }
+        setErrorMessage(error instanceof Error ? error.message : t('Unable to load resources.'));
+      } finally {
+        if (requestSequenceRef.current === requestId) {
+          setLoading(false);
+        }
+        if (inFlightLoadRef.current === loadPromise) {
+          inFlightLoadRef.current = null;
+        }
       }
-      setSnapshot(nextSnapshot);
-    } catch (error) {
-      if (requestSequenceRef.current !== requestId) {
-        return;
-      }
-      setErrorMessage(error instanceof Error ? error.message : t('Unable to load resources.'));
-    } finally {
-      if (requestSequenceRef.current === requestId) {
-        setLoading(false);
-      }
-    }
+    })();
+
+    inFlightLoadRef.current = loadPromise;
+    return loadPromise;
   }, [t]);
 
   useEffect(() => {
@@ -94,6 +145,24 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
     void loadSnapshot();
   }, [loadSnapshot, open]);
 
+  useEffect(() => {
+    return () => {
+      autoRefreshControllerRef.current?.dispose();
+    };
+  }, []);
+
+  const isAutoRefreshEnabled =
+    open && isWindowFocused && pendingActionKey === null && pendingConfirmation === null;
+
+  useEffect(() => {
+    autoRefreshControllerRef.current?.sync({
+      enabled: isAutoRefreshEnabled,
+      onRefresh: () => {
+        void loadSnapshot();
+      },
+    });
+  }, [isAutoRefreshEnabled, loadSnapshot]);
+
   const summarySections = useMemo(
     () => (snapshot ? buildAppResourceStatusSections(snapshot.runtime, t) : []),
     [snapshot, t]
@@ -102,6 +171,11 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
     () => (snapshot ? buildAppResourceManagerSections(snapshot, t) : []),
     [snapshot, t]
   );
+  const bulkActions = useMemo(
+    () => (snapshot ? buildAppResourceManagerBulkActions(snapshot, t) : []),
+    [snapshot, t]
+  );
+  const headerStats = useMemo(() => getHeaderStats(snapshot, t), [snapshot, t]);
 
   const runAction = useCallback(
     async (action: AppResourceActionRequest) => {
@@ -144,39 +218,79 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
     <>
       <SheetPopup
         side="right"
-        className="w-[min(48rem,calc(100vw-1rem))] max-w-[48rem] bg-background"
+        className="w-[min(48rem,calc(100vw-1rem))] max-w-[48rem] border-s border-border/70 bg-[color:var(--theme-popover-base)] shadow-[0_24px_64px_color-mix(in_oklch,var(--foreground)_18%,transparent)]"
       >
-        <SheetHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 space-y-1">
-              <SheetTitle>{t('Resource Manager')}</SheetTitle>
-              <SheetDescription>
-                {t('Review runtime resources and reclaim safe targets for this window.')}
-              </SheetDescription>
+        <SheetHeader className="border-b border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--control-surface-muted)_62%,var(--background)_38%)_0%,color-mix(in_oklch,var(--control-surface)_36%,transparent)_100%)]">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="ui-type-label text-muted-foreground/72">{t('Runtime Console')}</span>
+              {headerStats.map((stat) => (
+                <span key={stat.key} className="control-chip">
+                  <span className="text-foreground/90">{stat.value}</span>
+                  <span>{stat.label}</span>
+                </span>
+              ))}
             </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="shrink-0"
-              onClick={() => void loadSnapshot()}
-              aria-label={t('Refresh')}
-              title={t('Refresh')}
-              disabled={loading}
-            >
-              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            </Button>
+
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <SheetTitle className="ui-type-title-lg">{t('Resource Manager')}</SheetTitle>
+                <SheetDescription className="max-w-[42rem] text-muted-foreground/84">
+                  {t('Inspect runtime pressure and reclaim safe targets for this window.')}
+                </SheetDescription>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {bulkActions.map((action) => {
+                  const isPending =
+                    pendingActionKey === `${action.request.resourceId}:${action.request.kind}`;
+
+                  return (
+                    <Button
+                      key={action.key}
+                      variant={action.disabled ? 'outline' : 'secondary'}
+                      size="sm"
+                      className="min-w-[11rem]"
+                      onClick={() => void runAction(action.request)}
+                      disabled={action.disabled || isPending || loading}
+                      title={action.description}
+                    >
+                      {action.label}
+                    </Button>
+                  );
+                })}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0"
+                  onClick={() => void loadSnapshot()}
+                  aria-label={t('Refresh')}
+                  title={t('Refresh')}
+                  disabled={loading}
+                >
+                  <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+                </Button>
+              </div>
+            </div>
+
+            {bulkActions[0] ? (
+              <div className="control-panel-muted rounded-xl px-3 py-2.5">
+                <p className="ui-type-meta text-muted-foreground/82">
+                  {bulkActions[0].description}
+                </p>
+              </div>
+            ) : null}
           </div>
         </SheetHeader>
 
-        <SheetPanel scrollFade className="space-y-4">
+        <SheetPanel scrollFade className="space-y-5 pb-4">
           {loading && !snapshot ? (
-            <div className="ui-type-panel-description rounded-lg border border-border/70 bg-muted/35 px-3 py-4 text-center text-muted-foreground">
+            <div className="control-panel-muted ui-type-panel-description rounded-xl px-4 py-5 text-center text-muted-foreground">
               {t('Loading resources...')}
             </div>
           ) : null}
 
           {errorMessage ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-3">
+            <div className="rounded-xl border border-destructive/30 bg-destructive/8 px-4 py-3.5">
               <div className="ui-type-block-title flex items-center gap-2 text-destructive">
                 <AlertCircle className="h-4 w-4" />
                 <span>{t('Resource action failed')}</span>
@@ -187,20 +301,26 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
 
           {snapshot ? (
             <>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 xl:grid-cols-3">
                 {summarySections.map((section) => (
                   <section
                     key={section.key}
-                    className="rounded-lg border border-border/70 bg-muted/20 px-3 py-3"
+                    className="control-panel-muted rounded-[1.1rem] px-4 py-3.5"
                   >
-                    <div className="ui-type-block-title mb-2">{section.title}</div>
-                    <dl className="space-y-2">
-                      {section.metrics.map((metric) => (
-                        <div key={metric.key} className="flex items-start justify-between gap-3">
-                          <dt className="ui-type-meta min-w-0 text-muted-foreground">
+                    <div className="ui-type-label text-muted-foreground/72">{section.title}</div>
+                    <dl className="mt-3 grid gap-2">
+                      {section.metrics.map((metric, index) => (
+                        <div
+                          key={metric.key}
+                          className={cn(
+                            'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-border/50',
+                            index === 0 ? 'pt-0' : 'border-t pt-2'
+                          )}
+                        >
+                          <dt className="ui-type-meta min-w-0 text-muted-foreground/78">
                             {metric.label}
                           </dt>
-                          <dd className="ui-type-meta shrink-0 text-right text-foreground">
+                          <dd className="ui-type-meta shrink-0 text-right font-medium text-foreground">
                             {metric.value}
                           </dd>
                         </div>
@@ -212,32 +332,37 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
 
               <div className="space-y-4">
                 {resourceSections.map((section) => (
-                  <section key={section.key} className="space-y-3">
-                    <div className="ui-type-block-title">{section.title}</div>
+                  <section key={section.key} className="space-y-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="ui-type-label text-muted-foreground/74">{section.title}</div>
+                      <div className="h-px flex-1 bg-border/55" />
+                      <span className="control-chip">{section.items.length}</span>
+                    </div>
                     <div className="space-y-3">
                       {section.items.map((item) => (
                         <article
                           key={item.id}
-                          className="rounded-xl border border-border/70 bg-muted/12 px-4 py-4"
+                          className="control-panel rounded-[1.15rem] px-4 py-4 md:px-5"
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0 space-y-1">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0 flex-1 space-y-1.5">
                               <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="ui-type-block-title min-w-0">{item.title}</h3>
+                                <h3 className="ui-type-title-md min-w-0">{item.title}</h3>
                                 <Badge
                                   size="sm"
                                   variant={getStatusBadgeVariant(item.resource.status)}
+                                  className="uppercase tracking-[0.08em]"
                                 >
                                   {item.status}
                                 </Badge>
                               </div>
-                              <p className="ui-type-meta break-words text-muted-foreground">
+                              <p className="ui-type-meta break-words text-muted-foreground/80">
                                 {item.subtitle}
                               </p>
                             </div>
 
                             {item.actions.length > 0 ? (
-                              <div className="flex flex-wrap items-center justify-end gap-2">
+                              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                                 {item.actions.map((action) => {
                                   const isPending =
                                     pendingActionKey ===
@@ -261,7 +386,7 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
                                       variant={
                                         action.dangerLevel === 'danger'
                                           ? 'destructive-outline'
-                                          : 'outline'
+                                          : 'ghost'
                                       }
                                       onClick={handleClick}
                                       disabled={isPending}
@@ -275,13 +400,13 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
                           </div>
 
                           {item.metrics.length > 0 ? (
-                            <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                            <dl className="mt-4 grid gap-x-6 gap-y-3 border-t border-border/55 pt-4 sm:grid-cols-2">
                               {item.metrics.map((metric) => (
-                                <div key={metric.key} className="rounded-lg bg-muted/30 px-3 py-2">
-                                  <dt className="ui-type-meta text-muted-foreground">
+                                <div key={metric.key} className="min-w-0">
+                                  <dt className="ui-type-meta text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground/62">
                                     {metric.label}
                                   </dt>
-                                  <dd className="ui-type-meta mt-1 break-words text-foreground">
+                                  <dd className="ui-type-body-sm mt-1 break-words text-foreground/92">
                                     {metric.value}
                                   </dd>
                                 </div>

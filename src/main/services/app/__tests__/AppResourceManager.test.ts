@@ -340,4 +340,112 @@ describe('AppResourceManager', () => {
     ).resolves.toMatchObject({ ok: false });
     expect(terminateProcess).toHaveBeenCalledTimes(1);
   });
+
+  it('reclaims only idle local sessions for the current sender', async () => {
+    const { AppResourceManager } = await import('../AppResourceManager');
+
+    const listSessions = vi.fn(
+      async (): Promise<SessionDescriptor[]> => [
+        {
+          sessionId: 'session-local-idle',
+          backend: 'local',
+          kind: 'terminal',
+          cwd: '/repo/idle',
+          persistOnDisconnect: false,
+          createdAt: 10,
+        },
+        {
+          sessionId: 'session-local-active',
+          backend: 'local',
+          kind: 'terminal',
+          cwd: '/repo/active',
+          persistOnDisconnect: false,
+          createdAt: 20,
+        },
+        {
+          sessionId: 'session-local-unknown',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/unknown',
+          persistOnDisconnect: true,
+          createdAt: 30,
+        },
+        {
+          sessionId: 'session-remote-idle',
+          backend: 'remote',
+          kind: 'agent',
+          cwd: '/__remote__/repo',
+          persistOnDisconnect: true,
+          createdAt: 40,
+        },
+      ]
+    );
+    const getSessionProcessInfo = vi.fn(async (sessionId: string) => {
+      switch (sessionId) {
+        case 'session-local-idle':
+          return { pid: 4001, isActive: false };
+        case 'session-local-active':
+          return { pid: 4002, isActive: true };
+        case 'session-local-unknown':
+          return { pid: 4003, isActive: null };
+        case 'session-remote-idle':
+          return { pid: 4004, isActive: false };
+        default:
+          return null;
+      }
+    });
+    const killSession = vi.fn(async () => undefined);
+    const sender = {
+      getOSProcessId: () => 303,
+      reload: vi.fn(),
+    };
+    const sessionTarget = 73;
+
+    const manager = new AppResourceManager({
+      getAppMetrics: () => [],
+      buildRuntimeSnapshot: vi.fn(() => ({
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      })),
+      listSessions,
+      getSessionProcessInfo,
+      killSession,
+      getHapiStatus: () => ({ running: false }),
+      stopHapi: vi.fn(async () => ({ running: false })),
+      getHapiRunnerStatus: () => ({ running: false }),
+      stopHapiRunner: vi.fn(async () => ({ running: false })),
+      getCloudflaredStatus: () => ({ installed: true, running: false }),
+      stopCloudflared: vi.fn(async () => ({ installed: true, running: false })),
+      terminateProcess: vi.fn(),
+    });
+
+    await expect(
+      manager.executeAction(
+        {
+          kind: 'reclaim-idle-sessions',
+          resourceId: 'batch:idle-sessions',
+        },
+        sender,
+        sessionTarget
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: 'reclaim-idle-sessions',
+      resourceId: 'batch:idle-sessions',
+      reclaimedCount: 1,
+      message: 'Reclaimed 1 idle local session.',
+    });
+
+    expect(listSessions).toHaveBeenCalledWith(sessionTarget);
+    expect(getSessionProcessInfo).toHaveBeenCalledTimes(4);
+    expect(killSession).toHaveBeenCalledTimes(1);
+    expect(killSession).toHaveBeenCalledWith('session-local-idle');
+  });
 });

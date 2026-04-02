@@ -24,6 +24,14 @@ export interface AppResourceManagerMetricViewModel {
   value: string;
 }
 
+export interface AppResourceManagerBulkActionViewModel {
+  key: string;
+  label: string;
+  description: string;
+  disabled: boolean;
+  request: Extract<AppResourceActionRequest, { kind: 'reclaim-idle-sessions' }>;
+}
+
 export interface AppResourceManagerItemViewModel {
   id: string;
   title: string;
@@ -291,6 +299,20 @@ function sortItems(resources: AppResourceItem[]): AppResourceItem[] {
   });
 }
 
+function countReclaimableIdleLocalSessions(snapshot: AppResourceSnapshot): number {
+  return snapshot.resources.reduce((count, resource) => {
+    if (resource.kind !== 'session') {
+      return count;
+    }
+
+    if (resource.backend !== 'local' || resource.isActive !== false) {
+      return count;
+    }
+
+    return count + 1;
+  }, 0);
+}
+
 export function buildAppResourceManagerSections(
   snapshot: AppResourceSnapshot,
   translate: Translate
@@ -310,6 +332,34 @@ export function buildAppResourceManagerSections(
       ),
     }))
     .filter((section) => section.items.length > 0);
+}
+
+export function buildAppResourceManagerBulkActions(
+  snapshot: AppResourceSnapshot,
+  translate: Translate
+): AppResourceManagerBulkActionViewModel[] {
+  const reclaimableCount = countReclaimableIdleLocalSessions(snapshot);
+  const description =
+    reclaimableCount === 0
+      ? translate('No idle local sessions are ready to reclaim.')
+      : reclaimableCount === 1
+        ? translate('1 idle local session can be reclaimed.')
+        : translate('{{count}} idle local sessions can be reclaimed.', {
+            count: reclaimableCount,
+          });
+
+  return [
+    {
+      key: 'batch:idle-sessions:reclaim',
+      label: translate('Reclaim Idle Sessions'),
+      description,
+      disabled: reclaimableCount === 0,
+      request: {
+        kind: 'reclaim-idle-sessions',
+        resourceId: 'batch:idle-sessions',
+      },
+    },
+  ];
 }
 
 export function buildAppResourceActionConfirmation(
@@ -351,6 +401,14 @@ export function buildAppResourceActionConfirmation(
           'This will stop the selected background service for the current app window.'
         ),
         confirmLabel: translate('Stop Service'),
+      };
+    case 'reclaim-idle-sessions':
+      return {
+        title: translate('Reclaim idle sessions?'),
+        description: translate(
+          'This will terminate idle local sessions that belong to the current app window.'
+        ),
+        confirmLabel: translate('Reclaim Idle Sessions'),
       };
   }
 }
