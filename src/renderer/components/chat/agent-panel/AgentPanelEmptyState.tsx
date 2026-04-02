@@ -28,10 +28,7 @@ interface AgentPanelEmptyStateProps {
   profiles: AgentPanelEmptyStateProfileItem[];
 }
 
-const EMPTY_STATE_PRIMARY_ACTION_LABEL_ROW_CLASS_NAME = 'flex min-w-0 items-center gap-2';
-const EMPTY_STATE_PRIMARY_ACTION_TITLE_CLASS_NAME = 'min-w-0 truncate';
-const EMPTY_STATE_PRIMARY_ACTION_META_BADGE_CLASS_NAME =
-  'inline-flex shrink-0 items-center rounded-full border border-foreground/12 bg-foreground/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/72';
+const EMPTY_STATE_PRIMARY_ACTION_LABEL_CLASS_NAME = 'min-w-0 flex-1 truncate';
 const EMPTY_STATE_SECONDARY_ACTION_CLASS_NAME =
   'control-action-button control-action-button-secondary w-full justify-start gap-2.5 rounded-xl px-4 text-[15px] font-medium sm:w-auto sm:min-w-[11rem]';
 const EMPTY_STATE_ACTIONS_LAYOUT_CLASS_NAME =
@@ -43,7 +40,7 @@ const EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME =
 const EMPTY_STATE_SPLIT_ACTION_MENU_CLASS_NAME =
   'absolute left-0 right-0 top-full z-50 pt-2 text-left sm:left-auto sm:right-0 sm:min-w-52';
 const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME =
-  'control-menu-item mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-foreground whitespace-nowrap';
+  'control-menu-item mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-foreground';
 const EMPTY_STATE_CONTEXT_FOOTER_CLASS_NAME =
   'flex min-w-0 flex-wrap gap-x-5 gap-y-2 text-[0.76em] leading-5 text-muted-foreground/84';
 const EMPTY_STATE_CONTEXT_ITEM_CLASS_NAME = 'flex min-w-0 items-start gap-2';
@@ -149,17 +146,11 @@ export function AgentPanelEmptyState({
                   style={buttonStyle}
                 >
                   <Plus className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className={EMPTY_STATE_PRIMARY_ACTION_LABEL_ROW_CLASS_NAME}>
-                      <span className={EMPTY_STATE_PRIMARY_ACTION_TITLE_CLASS_NAME}>
-                        {emptyStateModel.primaryActionLabel}
-                      </span>
-                      {showPrimaryMeta ? (
-                        <span className={EMPTY_STATE_PRIMARY_ACTION_META_BADGE_CLASS_NAME}>
-                          {t('Default')}
-                        </span>
-                      ) : null}
-                    </span>
+                  <span
+                    className={EMPTY_STATE_PRIMARY_ACTION_LABEL_CLASS_NAME}
+                    title={emptyStateModel.primaryActionLabel}
+                  >
+                    {emptyStateModel.primaryActionLabel}
                   </span>
                 </ControlStateActionButton>
                 {emptyStateModel.showProfilePicker ? (

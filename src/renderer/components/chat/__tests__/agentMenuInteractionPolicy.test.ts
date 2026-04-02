@@ -36,4 +36,11 @@ describe('agent menu interaction policy', () => {
     expect(agentPanelSource).not.toContain('onMouseEnter={() => setShowAgentMenu(true)}');
     expect(agentPanelSource).not.toContain('onMouseLeave={() => setShowAgentMenu(false)}');
   });
+
+  it('keeps empty-state profile menu items shrink-safe so default chips do not overflow', () => {
+    expect(agentGroupEmptyStateSource).toContain('flex w-full min-w-0 items-center gap-2');
+    expect(agentPanelSource).toContain('flex w-full min-w-0 items-center gap-2');
+    expect(agentGroupEmptyStateSource).not.toContain('whitespace-nowrap text-foreground');
+    expect(agentPanelSource).not.toContain('text-foreground whitespace-nowrap');
+  });
 });

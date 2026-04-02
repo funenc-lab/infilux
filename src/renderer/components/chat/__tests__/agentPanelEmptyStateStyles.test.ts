@@ -45,7 +45,7 @@ describe('AgentPanel empty state styles', () => {
       'flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center'
     );
     expect(panelSource).toContain('w-full justify-start gap-2.5');
-    expect(panelSource).toContain('flex min-w-0 items-center gap-2');
+    expect(panelSource).toContain('min-w-0 flex-1 truncate');
     expect(panelSource).not.toContain('min-h-[3.75rem]');
     expect(panelSource).not.toContain('flex min-w-0 flex-1 flex-col items-start gap-1');
     expect(panelSource).not.toContain(
@@ -68,12 +68,9 @@ describe('AgentPanel empty state styles', () => {
     expect(panelSource).toContain("{t('Default Agent')}");
   });
 
-  it('keeps the default badge on the same line as the primary button title', () => {
-    expect(panelSource).toContain('flex min-w-0 items-center gap-2');
-    expect(panelSource).toContain('min-w-0 truncate');
-    expect(panelSource).not.toContain(
-      '<span className={EMPTY_STATE_PRIMARY_ACTION_META_CLASS_NAME}>'
-    );
+  it('keeps default-agent status out of the primary button label to avoid badge overflow', () => {
+    expect(panelSource).not.toContain('EMPTY_STATE_PRIMARY_ACTION_META_BADGE_CLASS_NAME');
+    expect(panelSource).toContain("{t('Default Agent')}");
   });
 
   it('keeps the split toggle on the same primary control surface as the launch button', () => {
