@@ -45,8 +45,10 @@ import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
 import { QuickTerminalModal } from './QuickTerminalModal';
 import type { Session } from './SessionBar';
+import { SessionPersistenceNotice } from './SessionPersistenceNotice';
 import { StatusLine } from './StatusLine';
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
+import { shouldShowSessionPersistenceNotice } from './sessionPersistenceNoticePolicy';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
 
@@ -283,6 +285,8 @@ const GroupBottomBar = memo(function GroupBottomBar({
 
 export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }: AgentPanelProps) {
   const { t } = useI18n();
+  const platform = getRendererEnvironment().platform;
+  const isWindows = platform === 'win32';
   const panelRef = useRef<HTMLDivElement>(null); // 容器引用
   const {
     agentSettings,
@@ -298,6 +302,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     fontSize,
     editorSettings,
   } = useSettingsStore();
+  const setClaudeCodeIntegration = useSettingsStore((state) => state.setClaudeCodeIntegration);
   const confirmBeforeClosingAgentSession = useSettingsStore(
     (s) => s.confirmBeforeClosingAgentSession
   );
@@ -308,6 +313,8 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const { getQuickTerminalSession, setQuickTerminalSession, removeQuickTerminalSession } =
     useTerminalStore();
   const currentQuickTerminalSession = getQuickTerminalSession(cwd);
+  const [tmuxInstalled, setTmuxInstalled] = useState<boolean | null>(null);
+  const [isEnablingSessionPersistence, setIsEnablingSessionPersistence] = useState(false);
 
   // 用于强制重新创建 QuickTerminalModal 的 key
   // 当功能被禁用再启用时递增，确保创建全新的 terminal
@@ -431,11 +438,90 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     () =>
       isSessionPersistenceEnabledForHost({
         cwd,
-        platform: getRendererEnvironment().platform,
+        platform,
         tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
       }),
-    [cwd, claudeCodeIntegration.tmuxEnabled]
+    [cwd, platform, claudeCodeIntegration.tmuxEnabled]
   );
+  const showSessionPersistenceNotice = useMemo(
+    () =>
+      shouldShowSessionPersistenceNotice({
+        isRemoteRepo,
+        platform,
+        tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
+        tmuxInstalled,
+      }),
+    [claudeCodeIntegration.tmuxEnabled, isRemoteRepo, platform, tmuxInstalled]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (isRemoteRepo || isWindows || claudeCodeIntegration.tmuxEnabled) {
+      setTmuxInstalled(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void window.electronAPI.tmux
+      .check(repoPath, false)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        setTmuxInstalled(result.installed);
+      })
+      .catch((error) => {
+        console.error('[AgentPanel] Failed to check tmux availability', error);
+        if (!cancelled) {
+          setTmuxInstalled(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [claudeCodeIntegration.tmuxEnabled, isRemoteRepo, isWindows, repoPath]);
+
+  const handleEnableSessionPersistence = useCallback(() => {
+    setIsEnablingSessionPersistence(true);
+
+    void window.electronAPI.tmux
+      .check(repoPath, true)
+      .then((result) => {
+        if (!result.installed) {
+          setTmuxInstalled(false);
+          toastManager.add({
+            type: 'error',
+            title: t('Tmux Session'),
+            description: t('tmux is not installed. Please install tmux first.'),
+          });
+          return;
+        }
+
+        setTmuxInstalled(true);
+        setClaudeCodeIntegration({ tmuxEnabled: true });
+        toastManager.add({
+          type: 'success',
+          title: t('Tmux Session'),
+          description: t(
+            'Recovery now applies to new local sessions. Restart current sessions to make them recoverable after app restart.'
+          ),
+        });
+      })
+      .catch((error) => {
+        toastManager.add({
+          type: 'error',
+          title: t('Tmux Session'),
+          description: error instanceof Error ? error.message : t('Unable to execute action.'),
+        });
+      })
+      .finally(() => {
+        setIsEnablingSessionPersistence(false);
+      });
+  }, [repoPath, setClaudeCodeIntegration, t]);
 
   const pauseQuickTerminalFocusLock = useCallback(() => {
     if (quickTerminalFocusLeaseRef.current.release) return;
@@ -2033,6 +2119,12 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       className="relative h-full w-full"
       style={{ backgroundColor: terminalBgColor }}
     >
+      {showSessionPersistenceNotice ? (
+        <SessionPersistenceNotice
+          isPending={isEnablingSessionPersistence}
+          onEnableRecovery={handleEnableSessionPersistence}
+        />
+      ) : null}
       {/* Empty state overlay - shown when current worktree has no sessions */}
       {/* IMPORTANT: Don't use early return here - terminals must stay mounted to prevent PTY destruction */}
       {showEmptyState ? (

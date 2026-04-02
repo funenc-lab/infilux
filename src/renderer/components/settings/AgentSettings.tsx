@@ -401,7 +401,7 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
 
       <p className="text-xs text-muted-foreground">
         {t(
-          'New sessions use the default agent. Long-press the plus to pick another enabled agent. Only Claude supports session persistence for now.'
+          'New sessions use the default agent. Long-press the plus to pick another enabled agent. Local session recovery depends on the tmux setting.'
         )}
       </p>
 

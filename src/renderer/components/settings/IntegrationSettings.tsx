@@ -527,7 +527,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <div className="space-y-0.5">
                   <span className="text-sm font-medium">{t('Tmux Session')}</span>
                   <p className="text-xs text-muted-foreground">
-                    {t('Wrap Claude agent in tmux for session persistence and recovery')}
+                    {t('Wrap local agent sessions in tmux for session persistence and recovery')}
                   </p>
                 </div>
                 <Switch
