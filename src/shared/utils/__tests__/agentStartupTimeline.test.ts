@@ -17,9 +17,7 @@ describe('agentStartupTimeline', () => {
       },
     });
 
-    expect(output).toBe(
-      '[agent-startup][renderer][session-1] first-output +20ms (50ms total)'
-    );
+    expect(output).toBe('[agent-startup][renderer][session-1] first-output +20ms (50ms total)');
   });
 
   it('records stage durations and resolves labels lazily', () => {

@@ -1226,24 +1226,26 @@ app.whenReady().then(async () => {
                 screenshotPath = `/tmp/infilux-worktree-${window.id}-${safeStage}.png`;
                 writeFileSync(screenshotPath, image.toPNG());
 
-                const worktreeProbe = (snapshot as {
-                  worktreeProbe?: {
-                    rects?: {
-                      node?: {
-                        x?: number;
-                        y?: number;
-                        width?: number;
-                        height?: number;
-                      } | null;
-                      inlineSignals?: {
-                        x?: number;
-                        y?: number;
-                        width?: number;
-                        height?: number;
+                const worktreeProbe = (
+                  snapshot as {
+                    worktreeProbe?: {
+                      rects?: {
+                        node?: {
+                          x?: number;
+                          y?: number;
+                          width?: number;
+                          height?: number;
+                        } | null;
+                        inlineSignals?: {
+                          x?: number;
+                          y?: number;
+                          width?: number;
+                          height?: number;
+                        } | null;
                       } | null;
                     } | null;
-                  } | null;
-                }).worktreeProbe;
+                  }
+                ).worktreeProbe;
                 const nodeRect = worktreeProbe?.rects?.node;
                 const inlineSignalsRect = worktreeProbe?.rects?.inlineSignals;
 
@@ -1319,8 +1321,7 @@ app.whenReady().then(async () => {
                     width: cropWidth,
                     height: cropHeight,
                   });
-                  inlineSignalsScreenshotPath =
-                    `/tmp/infilux-worktree-${window.id}-${safeStage}-signals.png`;
+                  inlineSignalsScreenshotPath = `/tmp/infilux-worktree-${window.id}-${safeStage}-signals.png`;
                   writeFileSync(inlineSignalsScreenshotPath, inlineSignalsImage.toPNG());
                 }
               } catch (error) {
