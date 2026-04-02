@@ -11,7 +11,7 @@ import { useAgentStatusStore } from './agentStatus';
 // Global storage key for all sessions across all repos
 export const SESSIONS_STORAGE_KEY = 'enso-agent-sessions';
 
-// Runtime output state for each session (not persisted)
+// Runtime output state for each session
 export type OutputState = 'idle' | 'outputting' | 'unread';
 
 export interface SessionRuntimeState {
@@ -21,7 +21,7 @@ export interface SessionRuntimeState {
   hasCompletedTaskUnread?: boolean;
 }
 
-// Enhanced input state for each session (not persisted)
+// Enhanced input state for each session
 export interface EnhancedInputState {
   open: boolean;
   content: string;
@@ -45,12 +45,20 @@ export interface AggregatedOutputState {
 // Group states indexed by normalized worktree path
 type WorktreeGroupStates = Record<string, AgentGroupState>;
 
+interface PersistedAgentSessionsSnapshot {
+  sessions: Session[];
+  activeIds: Record<string, string | null>;
+  groupStates: WorktreeGroupStates;
+  runtimeStates: Record<string, SessionRuntimeState>;
+  enhancedInputStates: Record<string, EnhancedInputState>;
+}
+
 interface AgentSessionsState {
   sessions: Session[];
   activeIds: Record<string, string | null>; // key = cwd (worktree path)
-  groupStates: WorktreeGroupStates; // Group states per worktree (not persisted)
-  runtimeStates: Record<string, SessionRuntimeState>; // Runtime output states (not persisted)
-  enhancedInputStates: Record<string, EnhancedInputState>; // Enhanced input states per session (not persisted)
+  groupStates: WorktreeGroupStates; // Group states per worktree
+  runtimeStates: Record<string, SessionRuntimeState>; // Runtime output states (persisted after sanitization)
+  enhancedInputStates: Record<string, EnhancedInputState>; // Enhanced input states per session
 
   // Actions
   addSession: (session: Session) => void;
@@ -92,14 +100,158 @@ interface AgentSessionsState {
   getAggregatedGlobal: () => AggregatedOutputState;
 }
 
-function loadFromStorage(): { sessions: Session[]; activeIds: Record<string, string | null> } {
+function buildEqualFlexPercents(groupCount: number): number[] {
+  if (groupCount <= 0) {
+    return [];
+  }
+  if (groupCount === 1) {
+    return [100];
+  }
+  const base = 100 / groupCount;
+  return Array.from({ length: groupCount }, () => base);
+}
+
+function sanitizeGroupState(
+  state: AgentGroupState | undefined,
+  validSessionIds: Set<string>
+): AgentGroupState {
+  if (!state) {
+    return createInitialGroupState();
+  }
+
+  const groups = state.groups
+    .map((group) => {
+      const sessionIds = group.sessionIds.filter((sessionId) => validSessionIds.has(sessionId));
+      if (sessionIds.length === 0) {
+        return null;
+      }
+      return {
+        ...group,
+        sessionIds,
+        activeSessionId: sessionIds.includes(group.activeSessionId || '')
+          ? group.activeSessionId
+          : (sessionIds[0] ?? null),
+      };
+    })
+    .filter((group): group is AgentGroupState['groups'][number] => group !== null);
+
+  if (groups.length === 0) {
+    return createInitialGroupState();
+  }
+
+  const activeGroupId = groups.some((group) => group.id === state.activeGroupId)
+    ? state.activeGroupId
+    : (groups[0]?.id ?? null);
+  const flexPercents =
+    state.flexPercents.length === groups.length
+      ? [...state.flexPercents]
+      : buildEqualFlexPercents(groups.length);
+
+  return {
+    groups,
+    activeGroupId,
+    flexPercents,
+  };
+}
+
+function sanitizePersistedGroupStates(
+  groupStates: unknown,
+  sessions: Session[]
+): WorktreeGroupStates {
+  if (!groupStates || typeof groupStates !== 'object') {
+    return {};
+  }
+
+  const sessionIdsByWorktree = new Map<string, Set<string>>();
+  for (const session of sessions) {
+    const key = normalizePath(session.cwd);
+    const ids = sessionIdsByWorktree.get(key) ?? new Set<string>();
+    ids.add(session.id);
+    sessionIdsByWorktree.set(key, ids);
+  }
+
+  const sanitized: WorktreeGroupStates = {};
+  for (const [cwd, ids] of sessionIdsByWorktree.entries()) {
+    const nextState = sanitizeGroupState(
+      (groupStates as Record<string, AgentGroupState | undefined>)[cwd],
+      ids
+    );
+    if (nextState.groups.length > 0) {
+      sanitized[cwd] = nextState;
+    }
+  }
+  return sanitized;
+}
+
+function sanitizePersistedRuntimeStates(
+  runtimeStates: unknown,
+  persistedSessionIds: Set<string>
+): Record<string, SessionRuntimeState> {
+  if (!runtimeStates || typeof runtimeStates !== 'object') {
+    return {};
+  }
+
+  const sanitized: Record<string, SessionRuntimeState> = {};
+  for (const sessionId of persistedSessionIds) {
+    const current = (runtimeStates as Record<string, SessionRuntimeState | undefined>)[sessionId];
+    if (!current) {
+      continue;
+    }
+    const outputState =
+      current.outputState === 'unread' || current.outputState === 'outputting' ? 'unread' : 'idle';
+    const hasCompletedTaskUnread = Boolean(current.hasCompletedTaskUnread);
+    if (outputState === 'idle' && !hasCompletedTaskUnread) {
+      continue;
+    }
+    sanitized[sessionId] = {
+      outputState,
+      lastActivityAt: typeof current.lastActivityAt === 'number' ? current.lastActivityAt : 0,
+      wasActiveWhenOutputting: false,
+      hasCompletedTaskUnread,
+    };
+  }
+  return sanitized;
+}
+
+function sanitizePersistedEnhancedInputStates(
+  enhancedInputStates: unknown,
+  persistedSessionIds: Set<string>
+): Record<string, EnhancedInputState> {
+  if (!enhancedInputStates || typeof enhancedInputStates !== 'object') {
+    return {};
+  }
+
+  const sanitized: Record<string, EnhancedInputState> = {};
+  for (const sessionId of persistedSessionIds) {
+    const current = (enhancedInputStates as Record<string, EnhancedInputState | undefined>)[
+      sessionId
+    ];
+    if (!current) {
+      continue;
+    }
+    const nextState: EnhancedInputState = {
+      open: Boolean(current.open),
+      content: typeof current.content === 'string' ? current.content : '',
+      imagePaths: Array.isArray(current.imagePaths)
+        ? current.imagePaths.filter((path): path is string => typeof path === 'string')
+        : [],
+    };
+    if (nextState.open || nextState.content.length > 0 || nextState.imagePaths.length > 0) {
+      sanitized[sessionId] = nextState;
+    }
+  }
+  return sanitized;
+}
+
+function loadFromStorage(): PersistedAgentSessionsSnapshot {
   try {
     const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
     if (saved) {
-      const data = JSON.parse(saved);
-      if (data.sessions?.length > 0) {
+      const data = JSON.parse(saved) as Partial<PersistedAgentSessionsSnapshot>;
+      const persistedSessions = Array.isArray(data.sessions) ? data.sessions : [];
+      if (persistedSessions.length > 0) {
         // Migrate old sessions that don't have repoPath (backwards compatibility)
-        const migratedSessions: Session[] = data.sessions
+        const migratedSessions: Session[] = persistedSessions
           .map((s: Session) => ({
             ...s,
             repoPath: s.repoPath || s.cwd,
@@ -112,14 +264,35 @@ function loadFromStorage(): { sessions: Session[]; activeIds: Record<string, str
         )) {
           sanitizedActiveIds[cwd] = id && persistedSessionIds.has(id) ? id : null;
         }
-        return { sessions: migratedSessions, activeIds: sanitizedActiveIds };
+        return {
+          sessions: migratedSessions,
+          activeIds: sanitizedActiveIds,
+          groupStates: sanitizePersistedGroupStates(data.groupStates, migratedSessions),
+          runtimeStates: sanitizePersistedRuntimeStates(data.runtimeStates, persistedSessionIds),
+          enhancedInputStates: sanitizePersistedEnhancedInputStates(
+            data.enhancedInputStates,
+            persistedSessionIds
+          ),
+        };
       }
     }
   } catch {}
-  return { sessions: [], activeIds: {} };
+  return {
+    sessions: [],
+    activeIds: {},
+    groupStates: {},
+    runtimeStates: {},
+    enhancedInputStates: {},
+  };
 }
 
-function saveToStorage(sessions: Session[], activeIds: Record<string, string | null>): void {
+function saveToStorage(
+  sessions: Session[],
+  activeIds: Record<string, string | null>,
+  groupStates: WorktreeGroupStates,
+  runtimeStates: Record<string, SessionRuntimeState>,
+  enhancedInputStates: Record<string, EnhancedInputState>
+): void {
   // Only persist sessions that are activated and backed by a recoverable host.
   const persistableSessions = sessions.filter((session) => isSessionPersistable(session));
   const persistableIds = new Set(persistableSessions.map((s) => s.id));
@@ -130,7 +303,16 @@ function saveToStorage(sessions: Session[], activeIds: Record<string, string | n
   }
   localStorage.setItem(
     SESSIONS_STORAGE_KEY,
-    JSON.stringify({ sessions: persistableSessions, activeIds: persistableActiveIds })
+    JSON.stringify({
+      sessions: persistableSessions,
+      activeIds: persistableActiveIds,
+      groupStates: sanitizePersistedGroupStates(groupStates, persistableSessions),
+      runtimeStates: sanitizePersistedRuntimeStates(runtimeStates, persistableIds),
+      enhancedInputStates: sanitizePersistedEnhancedInputStates(
+        enhancedInputStates,
+        persistableIds
+      ),
+    } satisfies PersistedAgentSessionsSnapshot)
   );
 }
 
@@ -179,9 +361,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
   subscribeWithSelector((set, get) => ({
     sessions: initialState.sessions,
     activeIds: initialState.activeIds,
-    groupStates: {}, // Not persisted - will be recreated from sessions on mount
-    runtimeStates: {}, // Not persisted - runtime output states
-    enhancedInputStates: {}, // Not persisted - enhanced input states per session
+    groupStates: initialState.groupStates,
+    runtimeStates: initialState.runtimeStates,
+    enhancedInputStates: initialState.enhancedInputStates,
 
     addSession: (session) =>
       set((state) => {
@@ -581,6 +763,27 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
 
     clearRuntimeState: (sessionId) =>
       set((prev) => {
+        const currentState = prev.runtimeStates[sessionId];
+        if (!currentState) {
+          return prev;
+        }
+        const hasRecoverableUnread =
+          currentState.outputState === 'outputting' ||
+          currentState.outputState === 'unread' ||
+          currentState.hasCompletedTaskUnread === true;
+        if (hasRecoverableUnread) {
+          return {
+            runtimeStates: {
+              ...prev.runtimeStates,
+              [sessionId]: {
+                outputState: currentState.outputState === 'idle' ? 'idle' : 'unread',
+                lastActivityAt: currentState.lastActivityAt,
+                wasActiveWhenOutputting: false,
+                hasCompletedTaskUnread: currentState.hasCompletedTaskUnread ?? false,
+              },
+            },
+          };
+        }
         const newStates = { ...prev.runtimeStates };
         delete newStates[sessionId];
         return { runtimeStates: newStates };
@@ -678,9 +881,22 @@ export function useActiveSessionId(cwd: string | undefined | null): string | nul
 
 // Subscribe to state changes and persist to localStorage
 useAgentSessionsStore.subscribe(
-  (state) => ({ sessions: state.sessions, activeIds: state.activeIds }),
-  ({ sessions, activeIds }) => {
-    saveToStorage(sessions, activeIds);
+  (state) => ({
+    sessions: state.sessions,
+    activeIds: state.activeIds,
+    groupStates: state.groupStates,
+    runtimeStates: state.runtimeStates,
+    enhancedInputStates: state.enhancedInputStates,
+  }),
+  ({ sessions, activeIds, groupStates, runtimeStates, enhancedInputStates }) => {
+    saveToStorage(sessions, activeIds, groupStates, runtimeStates, enhancedInputStates);
   },
-  { equalityFn: (a, b) => a.sessions === b.sessions && a.activeIds === b.activeIds }
+  {
+    equalityFn: (a, b) =>
+      a.sessions === b.sessions &&
+      a.activeIds === b.activeIds &&
+      a.groupStates === b.groupStates &&
+      a.runtimeStates === b.runtimeStates &&
+      a.enhancedInputStates === b.enhancedInputStates,
+  }
 );

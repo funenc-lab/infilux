@@ -2,6 +2,7 @@ import type { GitWorktree } from '@shared/types';
 import { useQueryClient } from '@tanstack/react-query';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect } from 'react';
+import { restoreWorktreeAgentSessions } from '@/components/chat/agentSessionRecovery';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
@@ -26,6 +27,8 @@ export function useWorktreeSelection(
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const getAgentSessions = useAgentSessionsStore((s) => s.getSessions);
+  const upsertRecoveredSession = useAgentSessionsStore((s) => s.upsertRecoveredSession);
+  const updateGroupState = useAgentSessionsStore((s) => s.updateGroupState);
   const editorSettings = useSettingsStore((s) => s.editorSettings);
   const switchEditorWorktree = useEditorStore((s) => s.switchWorktree);
   const currentEditorWorktree = useEditorStore((s) => s.currentWorktreePath);
@@ -155,6 +158,18 @@ export function useWorktreeSelection(
       // Switch to new worktree
       setActiveWorktree(worktree);
 
+      if (targetRepoPath) {
+        void restoreWorktreeAgentSessions({
+          repoPath: targetRepoPath,
+          cwd: worktree.path,
+          restoreWorktreeSessions: window.electronAPI.agentSession.restoreWorktreeSessions,
+          upsertRecoveredSession,
+          updateGroupState,
+        }).catch((error) => {
+          console.error('[useWorktreeSelection] Failed to prewarm agent sessions', error);
+        });
+      }
+
       const hasAgentSessions =
         targetRepoPath !== null && targetRepoPath !== undefined
           ? getAgentSessions(targetRepoPath, worktree.path).length > 0
@@ -178,6 +193,8 @@ export function useWorktreeSelection(
       selectedRepo,
       setSelectedRepo,
       persistSelectedWorktree,
+      upsertRecoveredSession,
+      updateGroupState,
       setActiveWorktree,
       setWorktreeTabMap,
       setActiveTab,

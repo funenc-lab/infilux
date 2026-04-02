@@ -38,8 +38,10 @@ import {
   resolvePersistedInstalledAgents,
   resolveRemoteInstalledAgents,
 } from './agentAvailability';
+import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { buildAgentEmptyStateModel } from './agentEmptyStateModel';
 import { collectMountedAgentSessionIds } from './agentPanelMountPolicy';
+import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
 import { QuickTerminalModal } from './QuickTerminalModal';
 import type { Session } from './SessionBar';
@@ -350,6 +352,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     groupId?: string;
     name: string;
   } | null>(null);
+  const autoRolledOverSessionIdsRef = useRef<Set<string>>(new Set());
   const quickTerminalFocusLeaseRef = useRef<{
     release: (() => void) | null;
     sessionId: string | null;
@@ -550,6 +553,15 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   }, [allSessions, repoPath, cwd]);
   const agentStatuses = useAgentStatusStore((state) => state.statuses);
 
+  useEffect(() => {
+    const currentSessionIds = new Set(currentWorktreeSessions.map((session) => session.id));
+    for (const handledSessionId of autoRolledOverSessionIdsRef.current) {
+      if (!currentSessionIds.has(handledSessionId)) {
+        autoRolledOverSessionIdsRef.current.delete(handledSessionId);
+      }
+    }
+  }, [currentWorktreeSessions]);
+
   const getOpenFilePathsForWorktree = useCallback(
     (worktreePath: string): string[] => {
       const tabsForWorktree =
@@ -598,88 +610,16 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   }, [persistableSessions]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const restoreSessions = async () => {
-      if (isRemoteVirtualPath(cwd)) {
-        return;
-      }
-      const result = await window.electronAPI.agentSession.restoreWorktreeSessions({
-        repoPath,
-        cwd,
-      });
-      if (cancelled) {
-        return;
-      }
-
-      const recoverableItems = result.items.filter(
-        (
-          item: Awaited<
-            ReturnType<typeof window.electronAPI.agentSession.restoreWorktreeSessions>
-          >['items'][number]
-        ) => item.recoverable
-      );
-      if (recoverableItems.length === 0) {
-        return;
-      }
-
-      const restoredIds: string[] = [];
-      for (const item of recoverableItems) {
-        upsertRecoveredSession(item.record);
-        restoredIds.push(item.record.uiSessionId);
-      }
-
-      updateCurrentGroupState((state) => {
-        if (restoredIds.length === 0) {
-          return state;
-        }
-
-        if (state.groups.length === 0) {
-          return {
-            groups: [
-              {
-                id: crypto.randomUUID(),
-                sessionIds: restoredIds,
-                activeSessionId: restoredIds[0] ?? null,
-              },
-            ],
-            activeGroupId: null,
-            flexPercents: [100],
-          };
-        }
-
-        const existingSessionIds = new Set(state.groups.flatMap((group) => group.sessionIds));
-        const missingIds = restoredIds.filter((id) => !existingSessionIds.has(id));
-        if (missingIds.length === 0) {
-          return state;
-        }
-
-        const targetGroupId = state.activeGroupId || state.groups[0]?.id;
-        if (!targetGroupId) {
-          return state;
-        }
-
-        return {
-          ...state,
-          groups: state.groups.map((group) =>
-            group.id === targetGroupId
-              ? {
-                  ...group,
-                  sessionIds: [...group.sessionIds, ...missingIds],
-                  activeSessionId: group.activeSessionId ?? missingIds[0] ?? null,
-                }
-              : group
-          ),
-        };
-      });
-    };
-
-    void restoreSessions();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cwd, repoPath, updateCurrentGroupState, upsertRecoveredSession]);
+    void restoreWorktreeAgentSessions({
+      repoPath,
+      cwd,
+      restoreWorktreeSessions: window.electronAPI.agentSession.restoreWorktreeSessions,
+      upsertRecoveredSession,
+      updateGroupState,
+    }).catch((error) => {
+      console.error('[AgentPanel] Failed to restore worktree sessions', error);
+    });
+  }, [cwd, repoPath, updateGroupState, upsertRecoveredSession]);
 
   // Sync activeIds from store to group state when changed externally (e.g., from RunningProjectsPopover)
   useEffect(() => {
@@ -1202,6 +1142,31 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     },
     [agentStatuses, getOpenFilePathsForWorktree, handleNewSessionWithAgent]
   );
+
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
+    const target = findAutoSessionRolloverTarget({
+      groupState: currentGroupState,
+      sessions: currentWorktreeSessions,
+      statuses: agentStatuses,
+      handledSessionIds: autoRolledOverSessionIdsRef.current,
+    });
+    if (!target) {
+      return;
+    }
+
+    autoRolledOverSessionIdsRef.current.add(target.session.id);
+    handleStartFreshSession(target.session, target.groupId);
+  }, [
+    isActive,
+    currentGroupState,
+    currentWorktreeSessions,
+    agentStatuses,
+    handleStartFreshSession,
+  ]);
 
   const removeSessionFromUi = useCallback(
     (id: string, groupId?: string) => {

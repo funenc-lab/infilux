@@ -2,12 +2,16 @@ import type { GitWorktree } from '@shared/types';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetWorktreeAgentSessionRecoveryCacheForTests } from '@/components/chat/agentSessionRecovery';
 import { useWorktreeSelection } from '../useWorktreeSelection';
 
 const invalidateQueries = vi.fn();
 const switchEditorWorktree = vi.fn();
 const gitFetch = vi.fn(() => Promise.resolve());
+const restoreWorktreeSessions = vi.fn(() => Promise.resolve({ items: [] }));
 const getSessions = vi.fn((): Array<{ id: string; repoPath: string; cwd: string }> => []);
+const upsertRecoveredSession = vi.fn();
+const updateGroupState = vi.fn();
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
@@ -44,9 +48,17 @@ vi.mock('@/stores/editor', () => ({
 }));
 
 vi.mock('@/stores/agentSessions', () => ({
-  useAgentSessionsStore: (selector: (state: { getSessions: typeof getSessions }) => unknown) =>
+  useAgentSessionsStore: (
+    selector: (state: {
+      getSessions: typeof getSessions;
+      upsertRecoveredSession: typeof upsertRecoveredSession;
+      updateGroupState: typeof updateGroupState;
+    }) => unknown
+  ) =>
     selector({
       getSessions,
+      upsertRecoveredSession,
+      updateGroupState,
     }),
 }));
 
@@ -87,13 +99,20 @@ describe('useWorktreeSelection', () => {
     invalidateQueries.mockClear();
     switchEditorWorktree.mockClear();
     gitFetch.mockClear();
+    restoreWorktreeSessions.mockClear();
     getSessions.mockReset();
     getSessions.mockReturnValue([]);
+    upsertRecoveredSession.mockClear();
+    updateGroupState.mockClear();
+    resetWorktreeAgentSessionRecoveryCacheForTests();
 
     vi.stubGlobal('window', {
       electronAPI: {
         git: {
           fetch: gitFetch,
+        },
+        agentSession: {
+          restoreWorktreeSessions,
         },
       },
     });
@@ -210,5 +229,42 @@ describe('useWorktreeSelection', () => {
     await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
 
     expect(setActiveTab).toHaveBeenCalledWith('terminal');
+  });
+
+  it('prewarms recoverable agent sessions when selecting a worktree before chat mounts', async () => {
+    const setActiveWorktree = vi.fn();
+    const setWorktreeTabMap = vi.fn();
+    const setActiveTab = vi.fn();
+    const setSelectedRepo = vi.fn();
+    const persistSelectedWorktree = vi.fn();
+    const currentWorktreePathRef = { current: null as string | null };
+    const activeWorktree = makeWorktree('/repo-a/.worktrees/current');
+    const nextWorktree = makeWorktree('/repo-b/.worktrees/recovered');
+
+    renderToStaticMarkup(
+      React.createElement(HookHarness, {
+        args: [
+          activeWorktree,
+          setActiveWorktree,
+          currentWorktreePathRef,
+          { [nextWorktree.path]: 'terminal' },
+          setWorktreeTabMap,
+          'file',
+          setActiveTab,
+          '/repo-a',
+          setSelectedRepo,
+          persistSelectedWorktree,
+        ],
+      })
+    );
+
+    expect(capturedHandleSelectWorktree).not.toBeNull();
+
+    await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
+
+    expect(restoreWorktreeSessions).toHaveBeenCalledWith({
+      repoPath: '/repo-b',
+      cwd: nextWorktree.path,
+    });
   });
 });
