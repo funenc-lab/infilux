@@ -131,10 +131,7 @@ export function RepositoryManagerDialog({
                 return (
                   <div
                     key={repo.path}
-                    className={cn(
-                      REPOSITORY_MANAGER_ROW_CLASS_NAME,
-                      isHidden && 'opacity-50'
-                    )}
+                    className={cn(REPOSITORY_MANAGER_ROW_CLASS_NAME, isHidden && 'opacity-50')}
                   >
                     <button
                       type="button"

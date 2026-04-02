@@ -24,10 +24,9 @@ describe('bootstrap theme shared helpers', () => {
   });
 
   it('round-trips a bootstrap theme snapshot through the additional argument format', async () => {
-    const {
-      encodeBootstrapThemeArgument,
-      parseBootstrapThemeSnapshotFromArgv,
-    } = await import('../bootstrapTheme');
+    const { encodeBootstrapThemeArgument, parseBootstrapThemeSnapshotFromArgv } = await import(
+      '../bootstrapTheme'
+    );
 
     const snapshot = {
       theme: 'system' as const,
@@ -35,16 +34,15 @@ describe('bootstrap theme shared helpers', () => {
       systemShouldUseDarkColors: true,
     };
 
-    expect(parseBootstrapThemeSnapshotFromArgv(['electron', encodeBootstrapThemeArgument(snapshot)])).toEqual(
-      snapshot
-    );
+    expect(
+      parseBootstrapThemeSnapshotFromArgv(['electron', encodeBootstrapThemeArgument(snapshot)])
+    ).toEqual(snapshot);
   });
 
   it('round-trips a bootstrap theme snapshot through the search parameter format', async () => {
-    const {
-      encodeBootstrapThemeSearchValue,
-      parseBootstrapThemeSnapshotFromSearch,
-    } = await import('../bootstrapTheme');
+    const { encodeBootstrapThemeSearchValue, parseBootstrapThemeSnapshotFromSearch } = await import(
+      '../bootstrapTheme'
+    );
 
     const snapshot = {
       theme: 'system' as const,

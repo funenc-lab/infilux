@@ -1,7 +1,6 @@
 import { Buffer } from 'node:buffer';
 import 'electron-log/preload.js';
 import type { Locale } from '@shared/i18n';
-import { parseBootstrapThemeSnapshotFromArgv } from '@shared/utils/bootstrapTheme';
 import type {
   AgentCliInfo,
   AgentMetadata,
@@ -81,6 +80,7 @@ import type {
 import { IPC_CHANNELS } from '@shared/types';
 import type { AgentStopNotificationData } from '@shared/types/agent';
 import type { InspectPayload, WebInspectorStatus } from '@shared/types/webInspector';
+import { parseBootstrapThemeSnapshotFromArgv } from '@shared/utils/bootstrapTheme';
 import { contextBridge, ipcRenderer, shell, webUtils } from 'electron';
 import pkg from '../../package.json';
 import { createSessionEventRouter } from './sessionEventRouter';

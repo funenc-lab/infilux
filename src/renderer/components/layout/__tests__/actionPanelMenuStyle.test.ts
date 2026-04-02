@@ -15,7 +15,7 @@ describe('ActionPanel menu style policy', () => {
   });
 
   it('keeps unselected actions on shared menu hover behavior instead of local accent overrides', () => {
-    expect(actionPanelSource).toContain("currentIndex === selectedIndex");
+    expect(actionPanelSource).toContain('currentIndex === selectedIndex');
     expect(actionPanelSource).toContain("? 'bg-accent text-accent-foreground'");
     expect(actionPanelSource).toContain(": 'text-foreground'");
     expect(actionPanelSource).not.toContain(": 'text-foreground hover:bg-accent/50'");

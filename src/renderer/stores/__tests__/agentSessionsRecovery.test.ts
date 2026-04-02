@@ -123,13 +123,14 @@ describe('agent session recovery store', () => {
       })
     );
 
-    expect(store.getSessions('/var/folders/demo/repo-main', '/private/var/folders/demo/repo-feature'))
-      .toEqual([
-        expect.objectContaining({
-          id: 'session-1',
-          cwd: '/var/folders/demo/repo-feature',
-        }),
-      ]);
+    expect(
+      store.getSessions('/var/folders/demo/repo-main', '/private/var/folders/demo/repo-feature')
+    ).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        cwd: '/var/folders/demo/repo-feature',
+      }),
+    ]);
   });
 
   it('preserves local session ui metadata when a recovered record refreshes an existing session', async () => {

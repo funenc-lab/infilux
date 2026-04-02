@@ -7,7 +7,10 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.css'), 'utf8');
 const treeSidebarSource = readFileSync(resolve(currentDir, '../TreeSidebar.tsx'), 'utf8');
 const worktreePanelSource = readFileSync(resolve(currentDir, '../WorktreePanel.tsx'), 'utf8');
-const repositorySidebarSource = readFileSync(resolve(currentDir, '../RepositorySidebar.tsx'), 'utf8');
+const repositorySidebarSource = readFileSync(
+  resolve(currentDir, '../RepositorySidebar.tsx'),
+  'utf8'
+);
 const temporaryWorkspacePanelSource = readFileSync(
   resolve(currentDir, '../TemporaryWorkspacePanel.tsx'),
   'utf8'

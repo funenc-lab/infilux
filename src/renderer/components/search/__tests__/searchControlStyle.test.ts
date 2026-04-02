@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const globalSearchDialogSource = readFileSync(resolve(currentDir, '../GlobalSearchDialog.tsx'), 'utf8');
+const globalSearchDialogSource = readFileSync(
+  resolve(currentDir, '../GlobalSearchDialog.tsx'),
+  'utf8'
+);
 const searchResultListSource = readFileSync(resolve(currentDir, '../SearchResultList.tsx'), 'utf8');
 
 describe('Search control style policy', () => {

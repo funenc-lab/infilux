@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const mainContentPanelsSource = readFileSync(resolve(currentDir, '../MainContentPanels.tsx'), 'utf8');
+const mainContentPanelsSource = readFileSync(
+  resolve(currentDir, '../MainContentPanels.tsx'),
+  'utf8'
+);
 
 describe('MainContentPanels control style policy', () => {
   it('uses the shared topbar action class for the settings display-mode switch', () => {

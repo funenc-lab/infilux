@@ -55,7 +55,10 @@ describe.sequential('electron agent session recovery', () => {
       console.info('[e2e] asserting recovered session after worktree selection');
       await assertSessionIsRecoveredAfterWorktreeSelection(secondLaunch.page, scenario);
     } catch (error) {
-      const recoveryDiagnostics = await collectRecoveryDiagnostics(secondLaunch.page, scenario).catch(
+      const recoveryDiagnostics = await collectRecoveryDiagnostics(
+        secondLaunch.page,
+        scenario
+      ).catch(
         (diagnosticError) =>
           `Failed to collect recovery diagnostics: ${
             diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError)
@@ -117,16 +120,18 @@ async function collectRecoveryDiagnostics(
 ): Promise<string> {
   const diagnostics = await page.evaluate(
     async ({ repoPath, worktreePath, sessionDisplayName }) => {
-      const probe = (window as typeof window & {
-        __agentRecoveryProbe?: {
-          calls: Array<{ repoPath: string; cwd: string }>;
-          results: Array<{
-            count: number;
-            items: Array<{ uiSessionId: string; recoverable: boolean; reason: string | null }>;
-          }>;
-          errors: string[];
-        };
-      }).__agentRecoveryProbe;
+      const probe = (
+        window as typeof window & {
+          __agentRecoveryProbe?: {
+            calls: Array<{ repoPath: string; cwd: string }>;
+            results: Array<{
+              count: number;
+              items: Array<{ uiSessionId: string; recoverable: boolean; reason: string | null }>;
+            }>;
+            errors: string[];
+          };
+        }
+      ).__agentRecoveryProbe;
       const selectedRepo = localStorage.getItem('enso-selected-repo');
       const recoverable = await window.electronAPI.agentSession.listRecoverable();
       const restoreResult = await window.electronAPI.agentSession.restoreWorktreeSessions({

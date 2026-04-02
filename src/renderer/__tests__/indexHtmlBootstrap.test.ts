@@ -9,7 +9,7 @@ function readRendererIndexHtml(): string {
 describe('renderer index bootstrap shell', () => {
   it('matches the startup shell messaging and structure before React bootstraps', () => {
     const source = readRendererIndexHtml();
-    const bootstrapShellBlock = source.match(/\.bootstrap-shell \{[\s\S]*?\n      \}/)?.[0] ?? '';
+    const bootstrapShellBlock = source.match(/\.bootstrap-shell \{[\s\S]*?\n {6}\}/)?.[0] ?? '';
 
     expect(source).toContain('data-startup-shell="static-bootstrap"');
     expect(source).toContain('data-startup-layout="status-dock"');

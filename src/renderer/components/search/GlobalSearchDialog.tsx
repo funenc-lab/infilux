@@ -279,9 +279,7 @@ export function GlobalSearchDialog({
                   type="button"
                   className={cn(
                     GLOBAL_SEARCH_MODE_TAB_CLASS_NAME,
-                    mode === 'files'
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-muted-foreground'
+                    mode === 'files' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'
                   )}
                   onClick={() => setMode('files')}
                 >

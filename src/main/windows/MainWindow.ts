@@ -8,16 +8,16 @@ import type { AppCloseRequestPayload, AppCloseRequestReason } from '@shared/type
 import { IPC_CHANNELS } from '@shared/types';
 import {
   BOOTSTRAP_THEME_SEARCH_PARAM,
+  type BootstrapThemeSnapshot,
   encodeBootstrapThemeArgument,
   encodeBootstrapThemeSearchValue,
   extractBootstrapThemeSnapshotFromSettingsData,
   resolveStaticBootstrapThemeMode,
-  type BootstrapThemeSnapshot,
 } from '@shared/utils/bootstrapTheme';
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
 import { getCurrentLocale } from '../services/i18n';
-import { sessionManager } from '../services/session/SessionManager';
 import { readSharedSettings } from '../services/SharedSessionState';
+import { sessionManager } from '../services/session/SessionManager';
 import { autoUpdaterService } from '../services/updater/AutoUpdater';
 import log from '../utils/logger';
 
@@ -649,17 +649,15 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
       windowId: win.id,
       url: process.env.ELECTRON_RENDERER_URL,
     });
-    void loadDevRendererUrl(
-      win,
-      process.env.ELECTRON_RENDERER_URL,
-      bootstrapThemeSnapshot
-    ).catch((error) => {
-      log.error('[window] Failed to load renderer URL', {
-        windowId: win.id,
-        url: process.env.ELECTRON_RENDERER_URL,
-        error,
-      });
-    });
+    void loadDevRendererUrl(win, process.env.ELECTRON_RENDERER_URL, bootstrapThemeSnapshot).catch(
+      (error) => {
+        log.error('[window] Failed to load renderer URL', {
+          windowId: win.id,
+          url: process.env.ELECTRON_RENDERER_URL,
+          error,
+        });
+      }
+    );
   } else {
     const rendererFilePath = join(MAIN_BUNDLE_DIR, '../renderer/index.html');
     log.info('[window] Loading renderer file', {

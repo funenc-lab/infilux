@@ -252,9 +252,7 @@ describe('MainWindow', () => {
 
     expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
       webPreferences: {
-        additionalArguments: [
-          expect.stringContaining('--infilux-bootstrap-theme='),
-        ],
+        additionalArguments: [expect.stringContaining('--infilux-bootstrap-theme=')],
       },
     });
   });
