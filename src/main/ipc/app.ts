@@ -1,7 +1,8 @@
-import type { ProxySettings } from '@shared/types';
+import type { AppResourceActionRequest, ProxySettings } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { app, ipcMain } from 'electron';
 import { appDetector } from '../services/app/AppDetector';
+import { appResourceManager } from '../services/app/AppResourceManager';
 import { validateLocalPath } from '../services/app/PathValidator';
 import { getRecentProjects } from '../services/app/RecentProjectsService';
 import { applyProxy, testProxy } from '../services/proxy/ProxyConfig';
@@ -47,6 +48,17 @@ export function registerAppHandlers() {
       rendererProcessId: rendererProcessId > 0 ? rendererProcessId : null,
     });
   });
+
+  ipcMain.handle(IPC_CHANNELS.APP_GET_RESOURCE_SNAPSHOT, async (event) => {
+    return await appResourceManager.getSnapshot(event.sender, event.sender);
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.APP_EXECUTE_RESOURCE_ACTION,
+    async (event, action: AppResourceActionRequest) => {
+      return await appResourceManager.executeAction(action, event.sender);
+    }
+  );
 
   ipcMain.handle(IPC_CHANNELS.APP_RECENT_PROJECTS, async () => {
     return await getRecentProjects();

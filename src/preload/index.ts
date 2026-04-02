@@ -5,6 +5,9 @@ import type {
   AgentCliInfo,
   AgentMetadata,
   AppCloseRequestPayload,
+  AppResourceActionRequest,
+  AppResourceActionResult,
+  AppResourceSnapshot,
   CloneProgress,
   CloneResult,
   CommitFileChange,
@@ -559,6 +562,30 @@ const electronAPI = {
         return snapshot;
       }
     },
+    getResourceSnapshot: async (): Promise<AppResourceSnapshot> => {
+      const snapshot = (await ipcRenderer.invoke(
+        IPC_CHANNELS.APP_GET_RESOURCE_SNAPSHOT
+      )) as AppResourceSnapshot;
+
+      try {
+        const rendererMemory = await process.getProcessMemoryInfo();
+        return {
+          ...snapshot,
+          runtime: {
+            ...snapshot.runtime,
+            rendererMemory: {
+              privateKb: rendererMemory.private,
+              sharedKb: rendererMemory.shared,
+              residentSetKb: rendererMemory.residentSet ?? null,
+            },
+          },
+        };
+      } catch {
+        return snapshot;
+      }
+    },
+    executeResourceAction: (action: AppResourceActionRequest): Promise<AppResourceActionResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_EXECUTE_RESOURCE_ACTION, action),
   },
 
   // Dialog

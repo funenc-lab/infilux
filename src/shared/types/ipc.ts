@@ -154,6 +154,8 @@ export const IPC_CHANNELS = {
   APP_SET_PROXY: 'app:setProxy',
   APP_TEST_PROXY: 'app:testProxy',
   APP_GET_RUNTIME_METRICS: 'app:getRuntimeMetrics',
+  APP_GET_RESOURCE_SNAPSHOT: 'app:getResourceSnapshot',
+  APP_EXECUTE_RESOURCE_ACTION: 'app:executeResourceAction',
 
   // Window Controls (for frameless window)
   WINDOW_MINIMIZE: 'window:minimize',

@@ -596,6 +596,115 @@ describe('preload bridge', () => {
     }
   });
 
+  it('hydrates resource snapshots and routes resource actions through the app bridge', async () => {
+    const api = await loadElectronAPI();
+    const resourceApi = api.app as typeof api.app & {
+      getResourceSnapshot: () => Promise<{
+        capturedAt: number;
+        runtime: {
+          capturedAt: number;
+          processCount: number;
+          rendererProcessId: number | null;
+          rendererMemory: {
+            privateKb: number;
+            sharedKb: number;
+            residentSetKb: number | null;
+          } | null;
+          rendererMetric: null;
+          browserMetric: null;
+          gpuMetric: null;
+          totalAppWorkingSetSizeKb: number;
+          totalAppPrivateBytesKb: number;
+        };
+        resources: unknown[];
+      }>;
+      executeResourceAction: (action: {
+        kind: 'kill-session';
+        resourceId: string;
+        sessionId: string;
+      }) => Promise<unknown>;
+    };
+    const processWithMemoryInfo = process as NodeJS.Process & {
+      getProcessMemoryInfo?: () => Promise<{
+        private: number;
+        shared: number;
+        residentSet?: number;
+      }>;
+    };
+    const originalGetProcessMemoryInfo = processWithMemoryInfo.getProcessMemoryInfo;
+
+    Object.defineProperty(processWithMemoryInfo, 'getProcessMemoryInfo', {
+      value: vi.fn().mockResolvedValue({
+        private: 5120,
+        shared: 2048,
+        residentSet: 7168,
+      }),
+      configurable: true,
+    });
+
+    preloadTestDoubles.invoke
+      .mockResolvedValueOnce({
+        capturedAt: 2,
+        runtime: {
+          capturedAt: 2,
+          processCount: 3,
+          rendererProcessId: 55,
+          rendererMemory: null,
+          rendererMetric: null,
+          browserMetric: null,
+          gpuMetric: null,
+          totalAppWorkingSetSizeKb: 30720,
+          totalAppPrivateBytesKb: 12288,
+        },
+        resources: [],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        kind: 'kill-session',
+        resourceId: 'session:session-1',
+        message: 'done',
+      });
+
+    try {
+      const snapshot = await resourceApi.getResourceSnapshot();
+      const actionResult = await resourceApi.executeResourceAction({
+        kind: 'kill-session',
+        resourceId: 'session:session-1',
+        sessionId: 'session-1',
+      });
+
+      expect(preloadTestDoubles.invoke).toHaveBeenNthCalledWith(
+        1,
+        IPC_CHANNELS.APP_GET_RESOURCE_SNAPSHOT
+      );
+      expect(preloadTestDoubles.invoke).toHaveBeenNthCalledWith(
+        2,
+        IPC_CHANNELS.APP_EXECUTE_RESOURCE_ACTION,
+        {
+          kind: 'kill-session',
+          resourceId: 'session:session-1',
+          sessionId: 'session-1',
+        }
+      );
+      expect(snapshot.runtime.rendererMemory).toEqual({
+        privateKb: 5120,
+        sharedKb: 2048,
+        residentSetKb: 7168,
+      });
+      expect(actionResult).toEqual({
+        ok: true,
+        kind: 'kill-session',
+        resourceId: 'session:session-1',
+        message: 'done',
+      });
+    } finally {
+      Object.defineProperty(processWithMemoryInfo, 'getProcessMemoryInfo', {
+        value: originalGetProcessMemoryInfo,
+        configurable: true,
+      });
+    }
+  });
+
   it('registers event listeners, forwards payloads, and unsubscribes correctly', async () => {
     const api = await loadElectronAPI();
 

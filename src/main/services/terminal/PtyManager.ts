@@ -712,4 +712,33 @@ export class PtyManager {
 
     return result;
   }
+
+  async getProcessInfo(
+    id: string
+  ): Promise<{ pid: number | null; isActive: boolean | null } | null> {
+    const session = this.sessions.get(id);
+    if (!session) {
+      return null;
+    }
+
+    const pid = session.pty.pid ?? null;
+    if (pid === null) {
+      return {
+        pid: null,
+        isActive: null,
+      };
+    }
+
+    try {
+      return {
+        pid,
+        isActive: await this.getProcessActivity(id),
+      };
+    } catch {
+      return {
+        pid,
+        isActive: null,
+      };
+    }
+  }
 }
