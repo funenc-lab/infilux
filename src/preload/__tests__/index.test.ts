@@ -127,6 +127,7 @@ describe('preload bridge', () => {
     expect(api.env.HOME).toBeTypeOf('string');
     expect(api.env.platform).toBe(process.platform);
     expect(api.env.appVersion).toBeTypeOf('string');
+    expect(api.env.runtimeChannel).toBe('test');
     expect(api.utils.getPathForFile('file.bin' as never)).toBe('/resolved/file.bin');
     expect(preloadTestDoubles.getPathForFile).toHaveBeenCalledWith('file.bin');
   });
@@ -150,6 +151,14 @@ describe('preload bridge', () => {
       terminalTheme: 'Xcode WWDC',
       systemShouldUseDarkColors: false,
     });
+  });
+
+  it('prefers the runtime channel passed through BrowserWindow additional arguments', async () => {
+    process.argv = [...originalArgv, '--infilux-runtime-channel=dev'];
+
+    const api = await loadElectronAPI();
+
+    expect(api.env.runtimeChannel).toBe('dev');
   });
 
   it('routes invoke-based APIs to the expected IPC channels', async () => {

@@ -1,4 +1,5 @@
 import type { BootstrapThemeSnapshot } from '@shared/utils/bootstrapTheme';
+import type { AppRuntimeChannel } from '@shared/utils/runtimeIdentity';
 
 export type RendererPlatform = 'darwin' | 'win32' | 'linux';
 
@@ -7,12 +8,14 @@ export interface RendererEnvironment {
   platform: RendererPlatform;
   appVersion: string;
   bootstrapTheme?: BootstrapThemeSnapshot | null;
+  runtimeChannel: AppRuntimeChannel;
 }
 
 const DEFAULT_RENDERER_ENVIRONMENT: RendererEnvironment = {
   HOME: '',
   platform: 'linux',
   appVersion: '0.0.0',
+  runtimeChannel: 'prod',
 };
 
 function resolvePlatformFromNavigator(): RendererPlatform {
@@ -39,6 +42,7 @@ export function getRendererEnvironment(): RendererEnvironment {
     platform: env?.platform ?? fallbackPlatform,
     appVersion: env?.appVersion ?? DEFAULT_RENDERER_ENVIRONMENT.appVersion,
     bootstrapTheme: env?.bootstrapTheme ?? null,
+    runtimeChannel: env?.runtimeChannel ?? DEFAULT_RENDERER_ENVIRONMENT.runtimeChannel,
   };
 }
 

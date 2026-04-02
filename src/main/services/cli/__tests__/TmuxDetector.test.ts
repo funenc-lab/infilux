@@ -1,3 +1,4 @@
+import { buildAppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const tmuxDetectorTestDoubles = vi.hoisted(() => {
@@ -25,6 +26,7 @@ vi.mock('node:child_process', () => ({
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+const testRuntimeIdentity = buildAppRuntimeIdentity('test');
 
 function setPlatform(value: NodeJS.Platform) {
   Object.defineProperty(process, 'platform', {
@@ -100,17 +102,17 @@ describe('TmuxDetector', () => {
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       2,
-      'tmux -L enso kill-session -t enso-session',
+      `tmux -L ${testRuntimeIdentity.tmuxServerName} kill-session -t enso-session`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       4,
-      'tmux -L enso kill-server',
+      `tmux -L ${testRuntimeIdentity.tmuxServerName} kill-server`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.spawnSync).toHaveBeenCalledWith(
       'tmux',
-      ['-L', 'enso', 'kill-server'],
+      ['-L', testRuntimeIdentity.tmuxServerName, 'kill-server'],
       {
         timeout: 3000,
         stdio: 'ignore',
@@ -147,12 +149,12 @@ describe('TmuxDetector', () => {
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       1,
-      'tmux -L enso has-session -t enso-live',
+      `tmux -L ${testRuntimeIdentity.tmuxServerName} has-session -t enso-live`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       2,
-      'tmux -L enso has-session -t enso-missing',
+      `tmux -L ${testRuntimeIdentity.tmuxServerName} has-session -t enso-missing`,
       { timeout: 5000 }
     );
   });

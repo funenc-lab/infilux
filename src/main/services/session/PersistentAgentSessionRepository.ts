@@ -2,10 +2,10 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import sqlite3 from 'sqlite3';
+import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
 import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSessionState';
 
 const BUSY_TIMEOUT_MS = 3000;
-const DATABASE_FILENAME = 'persistent-agent-sessions.db';
 
 interface PersistentAgentSessionRow {
   ui_session_id: string;
@@ -156,7 +156,7 @@ function compareByUpdatedAtDesc(
 }
 
 function getDatabasePath(): string {
-  return join(getSharedRootPath(), DATABASE_FILENAME);
+  return join(getSharedRootPath(), getAppRuntimeIdentity().persistentAgentSessionDatabaseFilename);
 }
 
 export class PersistentAgentSessionRepository {

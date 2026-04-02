@@ -108,6 +108,7 @@ export function AgentTerminal({
   const { data: runtimeContext } = useRepositoryRuntimeContext(cwd);
   const isRemoteExecution = runtimeContext?.kind === 'remote';
   const executionPlatform = window.electronAPI?.env?.platform;
+  const runtimeChannel = window.electronAPI?.env?.runtimeChannel ?? 'prod';
 
   // Track if hapi is globally installed (cached in main process)
   const [hapiGlobalInstalled, setHapiGlobalInstalled] = useState<boolean | null>(null);
@@ -310,6 +311,7 @@ export function AgentTerminal({
       tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
       resolvedShell,
       terminalSessionId,
+      runtimeChannel,
     });
     tmuxSessionNameRef.current = plan.tmuxSessionName;
     return {
@@ -337,6 +339,7 @@ export function AgentTerminal({
     claudeCodeIntegration.tmuxEnabled,
     resolvedShell,
     terminalSessionId,
+    runtimeChannel,
   ]);
 
   // Handle exit with auto-close logic

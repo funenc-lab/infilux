@@ -1,4 +1,5 @@
 import type { PersistentAgentSessionRecord } from '@shared/types';
+import { buildAppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type SessionRow = {
@@ -238,6 +239,8 @@ const repositoryTestDoubles = vi.hoisted(() => {
   };
 });
 
+const testRuntimeIdentity = buildAppRuntimeIdentity('test');
+
 vi.mock('electron', () => ({
   app: {
     getPath: repositoryTestDoubles.appGetPath,
@@ -322,7 +325,7 @@ describe('PersistentAgentSessionRepository', () => {
     await repository.initialize();
 
     expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
-      '/tmp/home/.infilux/persistent-agent-sessions.db',
+      `/tmp/home/.infilux/${testRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
       repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
       expect.any(Function)
     );
@@ -346,7 +349,7 @@ describe('PersistentAgentSessionRepository', () => {
     await repository.initialize();
 
     expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
-      '/tmp/override-home/.infilux/persistent-agent-sessions.db',
+      `/tmp/override-home/.infilux/${testRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
       repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
       expect.any(Function)
     );

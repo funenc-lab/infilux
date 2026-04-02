@@ -14,6 +14,7 @@ import { type Locale, normalizeLocale } from '@shared/i18n';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { IPC_CHANNELS, type ProxySettings } from '@shared/types';
 import { customProtocolUriToPath, type SupportedFileUrlPlatform } from '@shared/utils/fileUrl';
+import { resolveAppRuntimeChannel } from '@shared/utils/runtimeIdentity';
 import {
   createStartupTimelineRecorder,
   formatStartupTimelineEntry,
@@ -100,6 +101,12 @@ let cleanupWindowHandlers: (() => void) | null = null;
 let isQuittingCleanupRunning = false;
 
 const isDev = !app.isPackaged;
+process.env.INFILUX_RUNTIME_CHANNEL = resolveAppRuntimeChannel({
+  explicitChannel: process.env.INFILUX_RUNTIME_CHANNEL,
+  nodeEnv: process.env.NODE_ENV,
+  vitest: process.env.VITEST,
+  isPackaged: app.isPackaged,
+});
 const FORCE_EXIT_TIMEOUT_MS = 8000;
 const MAX_RENDERER_RECOVERY_ATTEMPTS = 2;
 const RENDERER_RECOVERY_WINDOW_MS = 30_000;

@@ -1,5 +1,6 @@
 import type { AIProvider, PersistentAgentSessionRecord } from '@shared/types';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
+import { buildPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
@@ -71,7 +72,7 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = {
 };
 
 function buildPersistentHostSessionKey(uiSessionId: string): string {
-  return `enso-${uiSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return buildPersistentAgentHostSessionKey(uiSessionId, getRendererEnvironment().runtimeChannel);
 }
 
 function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {

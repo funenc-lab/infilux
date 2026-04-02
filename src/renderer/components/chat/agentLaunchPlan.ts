@@ -1,3 +1,9 @@
+import {
+  buildAppRuntimeIdentity,
+  buildPersistentAgentHostSessionKey,
+  type AppRuntimeChannel,
+} from '@shared/utils/runtimeIdentity';
+
 export interface AgentLaunchCommand {
   shell: string;
   args: string[];
@@ -21,6 +27,7 @@ export interface BuildAgentLaunchPlanParams {
     execArgs: string[];
   } | null;
   terminalSessionId?: string;
+  runtimeChannel?: AppRuntimeChannel;
 }
 
 export interface AgentLaunchPlan {
@@ -168,15 +175,20 @@ function escapeInitialPromptForUnix(input: string): string {
   return input.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
 
-function buildTmuxAttachCommand(baseCommand: string, tmuxSessionName: string): string {
+function buildTmuxAttachCommand(
+  baseCommand: string,
+  tmuxServerName: string,
+  tmuxSessionName: string
+): string {
   const quotedBaseCommand = quotePosixShell(baseCommand);
   const createSessionCommand =
-    `env -u TMUX tmux -L enso -f /dev/null new-session -d -s ${tmuxSessionName} ` +
+    `env -u TMUX tmux -L ${tmuxServerName} -f /dev/null new-session -d -s ${tmuxSessionName} ` +
     `${quotedBaseCommand} >/dev/null 2>&1 || true`;
   const hideStatusCommand =
-    `env -u TMUX tmux -L enso set-option -t ${tmuxSessionName} status off ` +
+    `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} status off ` +
     '>/dev/null 2>&1 || true';
-  const attachSessionCommand = `exec env -u TMUX tmux -L enso attach-session -t ${tmuxSessionName}`;
+  const attachSessionCommand =
+    `exec env -u TMUX tmux -L ${tmuxServerName} attach-session -t ${tmuxSessionName}`;
 
   return `${createSessionCommand}; ${hideStatusCommand}; ${attachSessionCommand}`;
 }
@@ -196,6 +208,7 @@ export function buildAgentLaunchPlan({
   tmuxEnabled = false,
   resolvedShell,
   terminalSessionId,
+  runtimeChannel = 'prod',
 }: BuildAgentLaunchPlanParams): AgentLaunchPlan {
   if (!isRemoteExecution && !resolvedShell) {
     return {
@@ -259,13 +272,18 @@ export function buildAgentLaunchPlan({
 
   const shouldUseTmux =
     tmuxEnabled && !isRemoteExecution && !isWindows && Boolean(terminalSessionId);
+  const runtimeIdentity = buildAppRuntimeIdentity(runtimeChannel);
   const tmuxSessionName = shouldUseTmux
-    ? `enso-${terminalSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_')
+    ? buildPersistentAgentHostSessionKey(terminalSessionId ?? '', runtimeChannel)
     : null;
 
   let finalCommand = baseCommand;
   if (tmuxSessionName) {
-    finalCommand = buildTmuxAttachCommand(baseCommand, tmuxSessionName);
+    finalCommand = buildTmuxAttachCommand(
+      baseCommand,
+      runtimeIdentity.tmuxServerName,
+      tmuxSessionName
+    );
   }
 
   if (isRemoteExecution) {

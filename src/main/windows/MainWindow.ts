@@ -14,12 +14,14 @@ import {
   extractBootstrapThemeSnapshotFromSettingsData,
   resolveStaticBootstrapThemeMode,
 } from '@shared/utils/bootstrapTheme';
+import { encodeRuntimeChannelArgument } from '@shared/utils/runtimeIdentity';
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
 import { getCurrentLocale } from '../services/i18n';
 import { readSharedSettings } from '../services/SharedSessionState';
 import { sessionManager } from '../services/session/SessionManager';
 import { autoUpdaterService } from '../services/updater/AutoUpdater';
 import log from '../utils/logger';
+import { getAppRuntimeChannel } from '../utils/runtimeIdentity';
 
 /** Default macOS traffic lights position (matches BrowserWindow trafficLightPosition) */
 const TRAFFIC_LIGHTS_DEFAULT_POSITION = { x: 16, y: 16 };
@@ -195,6 +197,15 @@ function resolveBootstrapThemeArgument(
   return [encodeBootstrapThemeArgument(bootstrapThemeSnapshot)];
 }
 
+function resolveRendererAdditionalArguments(
+  bootstrapThemeSnapshot: BootstrapThemeSnapshot | null
+): string[] {
+  const runtimeChannelArgument = encodeRuntimeChannelArgument(getAppRuntimeChannel());
+  const bootstrapThemeArguments = resolveBootstrapThemeArgument(bootstrapThemeSnapshot) ?? [];
+
+  return [runtimeChannelArgument, ...bootstrapThemeArguments];
+}
+
 function resolveBootstrapWindowBackgroundColor(
   bootstrapThemeSnapshot: BootstrapThemeSnapshot | null
 ): string {
@@ -292,7 +303,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
   const isWindows = process.platform === 'win32';
   const windowIconPath = resolveWindowIconPath();
   const bootstrapThemeSnapshot = resolveBootstrapThemeSnapshot();
-  const bootstrapThemeArguments = resolveBootstrapThemeArgument(bootstrapThemeSnapshot);
+  const rendererAdditionalArguments = resolveRendererAdditionalArguments(bootstrapThemeSnapshot);
 
   const win = new BrowserWindow({
     width: initialBounds.width,
@@ -319,7 +330,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
       webSecurity: true,
       allowRunningInsecureContent: false,
       partition: options.partition,
-      ...(bootstrapThemeArguments ? { additionalArguments: bootstrapThemeArguments } : {}),
+      additionalArguments: rendererAdditionalArguments,
       preload: join(MAIN_BUNDLE_DIR, '../preload/index.cjs'),
     },
   });

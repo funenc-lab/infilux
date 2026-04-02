@@ -81,6 +81,7 @@ import { IPC_CHANNELS } from '@shared/types';
 import type { AgentStopNotificationData } from '@shared/types/agent';
 import type { InspectPayload, WebInspectorStatus } from '@shared/types/webInspector';
 import { parseBootstrapThemeSnapshotFromArgv } from '@shared/utils/bootstrapTheme';
+import { parseRuntimeChannelFromArgv, resolveAppRuntimeChannel } from '@shared/utils/runtimeIdentity';
 import { contextBridge, ipcRenderer, shell, webUtils } from 'electron';
 import pkg from '../../package.json';
 import { createSessionEventRouter } from './sessionEventRouter';
@@ -801,6 +802,13 @@ const electronAPI = {
     platform: process.platform as 'darwin' | 'win32' | 'linux',
     appVersion: pkg.version,
     bootstrapTheme: parseBootstrapThemeSnapshotFromArgv(process.argv),
+    runtimeChannel:
+      parseRuntimeChannelFromArgv(process.argv) ??
+      resolveAppRuntimeChannel({
+        explicitChannel: process.env.INFILUX_RUNTIME_CHANNEL,
+        nodeEnv: process.env.NODE_ENV,
+        vitest: process.env.VITEST,
+      }),
   },
 
   // Shell
