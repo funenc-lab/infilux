@@ -69,7 +69,7 @@
     "lucide-react": "^0.562.0",
     "match-sorter": "^8.2.0",
     "monaco-editor": "^0.55.1",
-    "node-pty": "^1.1.0",
+    "node-pty": "1.2.0-beta.12",
     "pidtree": "^0.6.0",
     "pidusage": "^4.0.1",
     "react": "^19.1.4",

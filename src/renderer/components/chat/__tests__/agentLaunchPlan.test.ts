@@ -60,7 +60,13 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain('command -v claude >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain(
-      "exec env -u TMUX tmux -L enso -f /dev/null new-session -A -s enso-ui-session-1 'claude --session-id session-1 --ide'"
+      "env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true"
+    );
+    expect(plan.command?.args[1]).toContain(
+      'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 status off >/dev/null 2>&1 || true'
+    );
+    expect(plan.command?.args[1]).toContain(
+      'exec env -u TMUX tmux -L enso attach-session -t enso-ui-session-1'
     );
     expect(plan.command?.args[1]).toContain('exec /bin/zsh -i -l -c');
   });
@@ -163,6 +169,25 @@ describe('buildAgentLaunchPlan', () => {
       shell: '/bin/zsh',
       args: ['-l', '-c', 'codex'],
     });
+  });
+
+  it('keeps a login shell alive for local unix codex commands that need shell wrapping', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: '--dangerously-bypass-approvals-and-sandbox',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toBeUndefined();
+    expect(plan.fallbackCommand).toBeUndefined();
+    expect(plan.initialCommand).toBe('codex --dangerously-bypass-approvals-and-sandbox');
   });
 
   it('returns an empty plan when hapi availability is still unknown', () => {

@@ -168,6 +168,19 @@ function escapeInitialPromptForUnix(input: string): string {
   return input.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
 
+function buildTmuxAttachCommand(baseCommand: string, tmuxSessionName: string): string {
+  const quotedBaseCommand = quotePosixShell(baseCommand);
+  const createSessionCommand =
+    `env -u TMUX tmux -L enso -f /dev/null new-session -d -s ${tmuxSessionName} ` +
+    `${quotedBaseCommand} >/dev/null 2>&1 || true`;
+  const hideStatusCommand =
+    `env -u TMUX tmux -L enso set-option -t ${tmuxSessionName} status off ` +
+    '>/dev/null 2>&1 || true';
+  const attachSessionCommand = `exec env -u TMUX tmux -L enso attach-session -t ${tmuxSessionName}`;
+
+  return `${createSessionCommand}; ${hideStatusCommand}; ${attachSessionCommand}`;
+}
+
 export function buildAgentLaunchPlan({
   agentCommand,
   customPath,
@@ -252,8 +265,7 @@ export function buildAgentLaunchPlan({
 
   let finalCommand = baseCommand;
   if (tmuxSessionName) {
-    const escaped = baseCommand.replace(/'/g, "'\\''");
-    finalCommand = `env -u TMUX tmux -L enso -f /dev/null new-session -A -s ${tmuxSessionName} '${escaped}'`;
+    finalCommand = buildTmuxAttachCommand(baseCommand, tmuxSessionName);
   }
 
   if (isRemoteExecution) {
@@ -322,6 +334,16 @@ export function buildAgentLaunchPlan({
       },
       env: envVars,
       initialCommand: undefined,
+      tmuxSessionName,
+    };
+  }
+
+  if (agentCommand === 'codex' && environment === 'native' && !isRemoteExecution && !isWindows) {
+    return {
+      command: undefined,
+      fallbackCommand: undefined,
+      env: envVars,
+      initialCommand: finalCommand,
       tmuxSessionName,
     };
   }
