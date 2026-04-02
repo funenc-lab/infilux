@@ -127,9 +127,7 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
         if (requestSequenceRef.current === requestId) {
           setLoading(false);
         }
-        if (inFlightLoadRef.current === loadPromise) {
-          inFlightLoadRef.current = null;
-        }
+        inFlightLoadRef.current = null;
       }
     })();
 

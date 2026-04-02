@@ -1,6 +1,6 @@
 export const APP_RESOURCE_AUTO_REFRESH_INTERVAL_MS = 2_000;
 
-type TimerHandle = ReturnType<typeof setInterval>;
+type TimerHandle = ReturnType<typeof globalThis.setInterval> | number;
 
 interface AppResourceAutoRefreshControllerOptions {
   intervalMs?: number;
