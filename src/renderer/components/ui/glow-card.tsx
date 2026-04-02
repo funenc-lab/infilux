@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import { forwardRef, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -16,6 +17,7 @@ interface GlowCardProps {
   children: ReactNode;
   className?: string;
   as?: 'div' | 'button';
+  animated?: boolean;
   id?: string;
   onClick?: () => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
@@ -46,6 +48,7 @@ export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
       children,
       className,
       as = 'div',
+      animated = false,
       id,
       onClick,
       onDoubleClick,
@@ -91,9 +94,9 @@ export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
         onDrop={onDrop}
       >
         {/* Quiet state layer */}
-        {state === 'running' && <RunningGlow />}
-        {state === 'waiting_input' && <WaitingInputGlow />}
-        {state === 'completed' && <CompletedGlow />}
+        {state === 'running' && <RunningGlow animated={animated} />}
+        {state === 'waiting_input' && <WaitingInputGlow animated={animated} />}
+        {state === 'completed' && <CompletedGlow animated={animated} />}
 
         {/* Content rendered directly to preserve flex layout, z-index applied via relative positioning */}
         {children}
@@ -176,9 +179,9 @@ export function GlowBorder({
   return (
     <div className={cn('relative', className)}>
       {/* Quiet state layer */}
-      {state === 'running' && <RunningGlow />}
-      {state === 'waiting_input' && <WaitingInputGlow />}
-      {state === 'completed' && <CompletedGlow />}
+      {state === 'running' && <RunningGlow animated={false} />}
+      {state === 'waiting_input' && <WaitingInputGlow animated={false} />}
+      {state === 'completed' && <CompletedGlow animated={false} />}
 
       {/* Content - above glow background */}
       <div className="relative z-10">{children}</div>
@@ -189,8 +192,24 @@ export function GlowBorder({
 /**
  * Running state frame
  */
-function RunningGlow() {
-  return (
+function RunningGlow({ animated }: { animated: boolean }) {
+  return animated ? (
+    <motion.div
+      className="absolute inset-0 rounded-[inherit] border pointer-events-none"
+      style={{
+        borderColor: 'color-mix(in oklch, var(--control-live) 42%, transparent)',
+        background: 'color-mix(in oklch, var(--control-live) 8%, var(--background) 92%)',
+      }}
+      animate={{
+        opacity: [0.68, 0.92, 0.68],
+      }}
+      transition={{
+        duration: 2.4,
+        repeat: Number.POSITIVE_INFINITY,
+        ease: 'easeOut',
+      }}
+    />
+  ) : (
     <div
       className="absolute inset-0 rounded-[inherit] border pointer-events-none"
       style={{
@@ -204,8 +223,24 @@ function RunningGlow() {
 /**
  * Waiting state frame
  */
-function WaitingInputGlow() {
-  return (
+function WaitingInputGlow({ animated }: { animated: boolean }) {
+  return animated ? (
+    <motion.div
+      className="absolute inset-0 rounded-[inherit] border pointer-events-none"
+      style={{
+        borderColor: 'color-mix(in oklch, var(--control-wait) 46%, transparent)',
+        background: 'color-mix(in oklch, var(--control-wait) 10%, var(--background) 90%)',
+      }}
+      animate={{
+        opacity: [0.72, 1, 0.72],
+      }}
+      transition={{
+        duration: 2.8,
+        repeat: Number.POSITIVE_INFINITY,
+        ease: 'easeOut',
+      }}
+    />
+  ) : (
     <div
       className="absolute inset-0 rounded-[inherit] border pointer-events-none"
       style={{
@@ -219,8 +254,24 @@ function WaitingInputGlow() {
 /**
  * Completed state frame
  */
-function CompletedGlow() {
-  return (
+function CompletedGlow({ animated }: { animated: boolean }) {
+  return animated ? (
+    <motion.div
+      className="absolute inset-0 rounded-[inherit] border pointer-events-none"
+      style={{
+        borderColor: 'color-mix(in oklch, var(--control-done) 40%, transparent)',
+        background: 'color-mix(in oklch, var(--control-done) 9%, var(--background) 91%)',
+      }}
+      animate={{
+        opacity: [0.72, 0.9, 0.72],
+      }}
+      transition={{
+        duration: 2.6,
+        repeat: Number.POSITIVE_INFINITY,
+        ease: 'easeOut',
+      }}
+    />
+  ) : (
     <div
       className="absolute inset-0 rounded-[inherit] border pointer-events-none"
       style={{

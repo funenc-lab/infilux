@@ -18,16 +18,49 @@ describe('SessionBar floating accessibility and structure', () => {
 
   it('exposes session tabs as a semantic tablist', () => {
     expect(sessionBarSource).toContain('role="tablist"');
-    expect(sessionBarSource).toContain('role="tab"');
-    expect(sessionBarSource).toContain('aria-selected={isActive}');
-    expect(sessionBarSource).toContain('aria-controls={panelId}');
+    expect(
+      sessionBarSource.includes('role="tab"') || sessionBarSource.includes("role: 'tab' as const")
+    ).toBe(true);
+    expect(
+      sessionBarSource.includes('aria-selected={isActive}') ||
+        sessionBarSource.includes("'aria-selected': isActive")
+    ).toBe(true);
+    expect(
+      sessionBarSource.includes('aria-controls={panelId}') ||
+        sessionBarSource.includes("'aria-controls': panelId")
+    ).toBe(true);
     expect(sessionBarSource).toContain('control-session-completion-dot');
     expect(sessionBarSource).toContain('clearTaskCompletedUnread(session.id);');
   });
 
   it('exposes the full session title on hover for truncated tabs', () => {
-    expect(sessionBarSource.match(/title=\{sessionLabel\}/g)?.length).toBe(2);
-    expect(sessionBarSource.match(/aria-label=\{sessionLabel\}/g)?.length).toBe(2);
+    expect(sessionBarSource).toContain('const sessionHoverTitle = getSessionHoverTitle(session);');
+    const hoverTitleBindings =
+      (sessionBarSource.match(/title=\{sessionHoverTitle\}/g)?.length ?? 0) +
+      (sessionBarSource.match(/title:\s*sessionHoverTitle/g)?.length ?? 0);
+    const ariaLabelBindings =
+      (sessionBarSource.match(/aria-label=\{sessionLabel\}/g)?.length ?? 0) +
+      (sessionBarSource.match(/'aria-label':\s*sessionLabel/g)?.length ?? 0);
+
+    expect(hoverTitleBindings).toBeGreaterThanOrEqual(1);
+    expect(ariaLabelBindings).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders session hover copy through shared tooltip popups instead of relying only on native titles', () => {
+    expect(
+      sessionBarSource.match(/<TooltipPopup[^>]*>\s*\{sessionHoverTitle\}\s*<\/TooltipPopup>/g)
+        ?.length
+    ).toBe(1);
+  });
+
+  it('keeps the session tab glow card on the animated running-state treatment', () => {
+    expect(sessionBarSource).toContain(
+      '<GlowCard state={outputState} animated as="div" {...tabProps}>'
+    );
+  });
+
+  it('keeps session tab execution animation independent from the beta glow toggle', () => {
+    expect(sessionBarSource).not.toContain('useGlowEffectEnabled');
   });
 
   it('provides explicit labels for secondary actions', () => {

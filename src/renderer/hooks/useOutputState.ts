@@ -1,7 +1,22 @@
 import { useShallow } from 'zustand/shallow';
 import { normalizePath } from '@/App/storage';
 import type { GlowState } from '@/components/ui/glow-card';
-import { computeHighestOutputState, useAgentSessionsStore } from '@/stores/agentSessions';
+import {
+  computeHighestOutputState,
+  type OutputState,
+  useAgentSessionsStore,
+} from '@/stores/agentSessions';
+
+export function mapOutputStateToGlowState(outputState: OutputState): GlowState {
+  switch (outputState) {
+    case 'outputting':
+      return 'running';
+    case 'unread':
+      return 'completed';
+    default:
+      return 'idle';
+  }
+}
 
 /**
  * Hook to get aggregated output state for a repository
@@ -14,7 +29,7 @@ export function useRepoOutputState(repoPath: string): GlowState {
       const repoSessions = s.sessions.filter(
         (session) => normalizePath(session.repoPath) === normalizedRepoPath
       );
-      return computeHighestOutputState(repoSessions, s.runtimeStates) as GlowState;
+      return mapOutputStateToGlowState(computeHighestOutputState(repoSessions, s.runtimeStates));
     })
   );
 }
@@ -30,7 +45,9 @@ export function useWorktreeOutputState(worktreePath: string): GlowState {
       const worktreeSessions = s.sessions.filter(
         (session) => normalizePath(session.cwd) === normalizedCwd
       );
-      return computeHighestOutputState(worktreeSessions, s.runtimeStates) as GlowState;
+      return mapOutputStateToGlowState(
+        computeHighestOutputState(worktreeSessions, s.runtimeStates)
+      );
     })
   );
 }
@@ -39,8 +56,8 @@ export function useWorktreeOutputState(worktreePath: string): GlowState {
  * Hook to get output state for a single session
  */
 export function useSessionOutputState(sessionId: string): GlowState {
-  return useAgentSessionsStore(
-    (s) => (s.runtimeStates[sessionId]?.outputState ?? 'idle') as GlowState
+  return useAgentSessionsStore((s) =>
+    mapOutputStateToGlowState(s.runtimeStates[sessionId]?.outputState ?? 'idle')
   );
 }
 

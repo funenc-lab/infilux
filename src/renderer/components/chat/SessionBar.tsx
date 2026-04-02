@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getActivityStateMeta } from '@/components/ui/activityStatus';
-import { GlowCard, useGlowEffectEnabled } from '@/components/ui/glow-card';
+import { GlowCard } from '@/components/ui/glow-card';
 import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSessionOutputState, useSessionTaskCompletionNotice } from '@/hooks/useOutputState';
@@ -38,6 +38,7 @@ import {
   CHAT_PRIMARY_ICON_BUTTON_CLASS_NAME,
   CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME,
 } from './controlButtonStyles';
+import { getSessionDisplayName, getSessionHoverTitle } from './sessionBarLabels';
 
 const STORAGE_KEY = 'enso-session-bar';
 const EDGE_THRESHOLD = 20; // pixels from edge
@@ -285,29 +286,6 @@ const ProviderMenuItem = React.memo(function ProviderMenuItem({
   );
 });
 
-/** Pick the best display name for a session tab */
-function getSessionDisplayName(session: {
-  terminalTitle?: string;
-  name: string;
-  userRenamed?: boolean;
-}): string {
-  if (session.userRenamed) return session.name;
-  const title = session.terminalTitle;
-  if (!title) return session.name;
-  // Skip raw process paths (e.g. "Administrator: C:\...\pwsh.exe")
-  if (/[/\\](pwsh|powershell|cmd|bash|zsh|sh|fish|nu|wsl)(\.exe)?["']?\s*$/i.test(title)) {
-    return session.name;
-  }
-  if (/^(Administrator|root)\s*:/i.test(title)) {
-    return session.name;
-  }
-  // Skip command-line titles (e.g. "npm view ...", "node scripts/...")
-  if (/^(npm|npx|node|python|py|pnpm|yarn|bun|deno|cargo|go|java|ruby)\s/i.test(title)) {
-    return session.name;
-  }
-  return title;
-}
-
 function buildSessionTabId(sessionId: string): string {
   return `agent-session-tab-${sessionId}`;
 }
@@ -386,187 +364,119 @@ function SessionTab({
   const outputState = useSessionOutputState(session.id);
   const hasCompletedTaskNotice = useSessionTaskCompletionNotice(session.id);
   const clearTaskCompletedUnread = useAgentSessionsStore((s) => s.clearTaskCompletedUnread);
-  const glowEnabled = useGlowEffectEnabled();
   const stateMeta = getActivityStateMeta(outputState);
   const sessionLabel = getSessionDisplayName(session);
+  const sessionHoverTitle = getSessionHoverTitle(session);
   const closeLabel = `Close ${sessionLabel}`;
   const handleSelect = useCallback(() => {
     clearTaskCompletedUnread(session.id);
     onSelect();
   }, [clearTaskCompletedUnread, onSelect, session.id]);
-
-  // When the glow effect is disabled, render a quieter tab treatment.
-  if (!glowEnabled) {
-    return (
-      <div className="relative flex items-center">
-        {/* Drop indicator - left side */}
-        {dropTargetIndex === index && draggedTabIndex !== null && draggedTabIndex > index && (
-          <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full" />
+  const tabProps = {
+    id: tabId,
+    role: 'tab' as const,
+    tabIndex: isActive ? 0 : -1,
+    'aria-selected': isActive,
+    'aria-controls': panelId,
+    'aria-label': sessionLabel,
+    title: sessionHoverTitle,
+    'data-active': isActive ? 'true' : 'false',
+    className: cn(
+      SESSION_BAR_TAB_CLASS_NAME,
+      isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+      isDragging && 'opacity-50'
+    ),
+    draggable: true,
+    onDragStart,
+    onDragEnd,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+    onClick: handleSelect,
+    onDoubleClick: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onStartEdit();
+    },
+    onKeyDown: (e: React.KeyboardEvent) => {
+      onTabKeyDown(e);
+      if (e.defaultPrevented) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleSelect();
+      }
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      onStartEdit();
+    },
+  };
+  const foregroundClassName = 'relative z-10';
+  const tabContent = (
+    <>
+      <span
+        className={cn(
+          foregroundClassName,
+          'h-1.5 w-1.5 shrink-0 rounded-full',
+          stateMeta.dotClassName
         )}
-        <div
-          id={tabId}
-          role="tab"
-          tabIndex={isActive ? 0 : -1}
-          aria-selected={isActive}
-          aria-controls={panelId}
-          aria-label={sessionLabel}
-          title={sessionLabel}
-          data-active={isActive ? 'true' : 'false'}
+      />
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          value={editingName}
+          onChange={(e) => onEditingNameChange(e.target.value)}
+          onBlur={onFinishEdit}
+          onKeyDown={onEditKeyDown}
+          onClick={(e) => e.stopPropagation()}
           className={cn(
-            SESSION_BAR_TAB_CLASS_NAME,
-            isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-            isDragging && 'opacity-50'
+            foregroundClassName,
+            'control-input h-6 w-24 rounded-md border-0 px-2 text-sm text-foreground outline-none'
           )}
-          draggable
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          onClick={handleSelect}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            onStartEdit();
-          }}
-          onKeyDown={(e) => {
-            onTabKeyDown(e);
-            if (e.defaultPrevented) return;
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              handleSelect();
-            }
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            onStartEdit();
-          }}
-        >
-          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', stateMeta.dotClassName)} />
-          {isEditing ? (
-            <input
-              ref={inputRef}
-              type="text"
-              value={editingName}
-              onChange={(e) => onEditingNameChange(e.target.value)}
-              onBlur={onFinishEdit}
-              onKeyDown={onEditKeyDown}
-              onClick={(e) => e.stopPropagation()}
-              className="control-input h-6 w-24 rounded-md border-0 px-2 text-sm text-foreground outline-none"
-            />
-          ) : (
-            <MarqueeText>{sessionLabel}</MarqueeText>
-          )}
-          {hasCompletedTaskNotice ? <span className="control-session-completion-dot" /> : null}
-          <button
-            type="button"
-            aria-label={closeLabel}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-            className={cn(
-              'flex h-5 w-5 items-center justify-center rounded-lg transition-colors',
-              'hover:bg-destructive/12 hover:text-destructive',
-              !isActive && 'opacity-45 group-hover:opacity-100 group-focus-within:opacity-100'
-            )}
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </div>
-        {/* Drop indicator - right side */}
-        {dropTargetIndex === index && draggedTabIndex !== null && draggedTabIndex < index && (
-          <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full" />
+        />
+      ) : (
+        <MarqueeText className={foregroundClassName}>{sessionLabel}</MarqueeText>
+      )}
+      {hasCompletedTaskNotice ? (
+        <span className={cn(foregroundClassName, 'control-session-completion-dot')} />
+      ) : null}
+      <button
+        type="button"
+        aria-label={closeLabel}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        className={cn(
+          foregroundClassName,
+          'flex h-5 w-5 items-center justify-center rounded-lg transition-colors',
+          'hover:bg-destructive/12 hover:text-destructive',
+          !isActive && 'opacity-45 group-hover:opacity-100 group-focus-within:opacity-100'
         )}
-      </div>
-    );
-  }
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </>
+  );
+  const tabElement = (
+    <GlowCard state={outputState} animated as="div" {...tabProps}>
+      {tabContent}
+    </GlowCard>
+  );
 
-  // When the glow effect is enabled, preserve the richer state framing.
   return (
     <div className="relative flex items-center">
       {/* Drop indicator - left side */}
       {dropTargetIndex === index && draggedTabIndex !== null && draggedTabIndex > index && (
-        <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full" />
+        <div className="absolute -left-1 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary" />
       )}
-      <GlowCard
-        state={outputState}
-        as="div"
-        id={tabId}
-        role="tab"
-        tabIndex={isActive ? 0 : -1}
-        aria-selected={isActive}
-        aria-controls={panelId}
-        aria-label={sessionLabel}
-        title={sessionLabel}
-        data-active={isActive ? 'true' : 'false'}
-        className={cn(
-          SESSION_BAR_TAB_CLASS_NAME,
-          isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-          isDragging && 'opacity-50'
-        )}
-        draggable
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onClick={handleSelect}
-        onDoubleClick={(e: React.MouseEvent) => {
-          e.stopPropagation();
-          onStartEdit();
-        }}
-        onKeyDown={(e: React.KeyboardEvent) => {
-          onTabKeyDown(e);
-          if (e.defaultPrevented) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            handleSelect();
-          }
-        }}
-        onContextMenu={(e: React.MouseEvent) => {
-          e.preventDefault();
-          onStartEdit();
-        }}
-      >
-        <span
-          className={cn('relative z-10 h-1.5 w-1.5 shrink-0 rounded-full', stateMeta.dotClassName)}
-        />
-        {isEditing ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={editingName}
-            onChange={(e) => onEditingNameChange(e.target.value)}
-            onBlur={onFinishEdit}
-            onKeyDown={onEditKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            className="control-input relative z-10 h-6 w-24 rounded-md border-0 px-2 text-sm text-foreground outline-none"
-          />
-        ) : (
-          <MarqueeText className="relative z-10">{sessionLabel}</MarqueeText>
-        )}
-        {hasCompletedTaskNotice ? (
-          <span className="relative z-10 control-session-completion-dot" />
-        ) : null}
-        <button
-          type="button"
-          aria-label={closeLabel}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          className={cn(
-            'relative z-10 flex h-5 w-5 items-center justify-center rounded-lg transition-colors',
-            'hover:bg-destructive/12 hover:text-destructive',
-            !isActive && 'opacity-45 group-hover:opacity-100 group-focus-within:opacity-100'
-          )}
-        >
-          <X className="h-3 w-3" />
-        </button>
-      </GlowCard>
+      <Tooltip>
+        <TooltipTrigger render={tabElement as React.ReactElement<Record<string, unknown>>} />
+        <TooltipPopup>{sessionHoverTitle}</TooltipPopup>
+      </Tooltip>
       {/* Drop indicator - right side */}
       {dropTargetIndex === index && draggedTabIndex !== null && draggedTabIndex < index && (
-        <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full" />
+        <div className="absolute -right-1 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary" />
       )}
     </div>
   );
