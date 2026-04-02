@@ -1,10 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { RUNTIME_STATE_DIRNAME } from '@shared/paths';
 import type { PersistentAgentSessionRecord } from '@shared/types';
-import { app } from 'electron';
 import sqlite3 from 'sqlite3';
-import { readPersistentAgentSessions } from '../SharedSessionState';
+import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSessionState';
 
 const BUSY_TIMEOUT_MS = 3000;
 const DATABASE_FILENAME = 'persistent-agent-sessions.db';
@@ -158,7 +156,7 @@ function compareByUpdatedAtDesc(
 }
 
 function getDatabasePath(): string {
-  return join(app.getPath('home'), RUNTIME_STATE_DIRNAME, DATABASE_FILENAME);
+  return join(getSharedRootPath(), DATABASE_FILENAME);
 }
 
 export class PersistentAgentSessionRepository {

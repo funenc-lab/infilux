@@ -32,7 +32,7 @@ function now(): number {
   return Date.now();
 }
 
-function getSharedRoot(): string {
+export function getSharedRootPath(): string {
   return join(
     process.env.HOME || process.env.USERPROFILE || app.getPath('home'),
     RUNTIME_STATE_DIRNAME
@@ -40,19 +40,19 @@ function getSharedRoot(): string {
 }
 
 function getSettingsPath(): string {
-  return join(getSharedRoot(), SETTINGS_FILENAME);
+  return join(getSharedRootPath(), SETTINGS_FILENAME);
 }
 
 function getSessionPath(): string {
-  return join(getSharedRoot(), SESSION_STATE_FILENAME);
+  return join(getSharedRootPath(), SESSION_STATE_FILENAME);
 }
 
 function getMigrationMarkerPath(marker: string): string {
-  return join(getSharedRoot(), marker);
+  return join(getSharedRootPath(), marker);
 }
 
 function atomicWriteJson(targetPath: string, data: unknown): void {
-  ensureDir(getSharedRoot());
+  ensureDir(getSharedRootPath());
   const tempPath = `${targetPath}.tmp`;
   writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
   renameSync(tempPath, targetPath);

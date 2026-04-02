@@ -296,9 +296,13 @@ describe('PersistentAgentSessionRepository', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('initializes sqlite storage and migrates legacy JSON records when the table is empty', async () => {
+    vi.stubEnv('HOME', '/tmp/home');
+    vi.stubEnv('USERPROFILE', '');
+
     repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([
       makeRecord(),
       makeRecord({
@@ -317,7 +321,6 @@ describe('PersistentAgentSessionRepository', () => {
 
     await repository.initialize();
 
-    expect(repositoryTestDoubles.appGetPath).toHaveBeenCalledWith('home');
     expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
       '/tmp/home/.infilux/persistent-agent-sessions.db',
       repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
@@ -329,6 +332,24 @@ describe('PersistentAgentSessionRepository', () => {
       expect.objectContaining({ uiSessionId: 'session-2' }),
       expect.objectContaining({ uiSessionId: 'session-1' }),
     ]);
+  });
+
+  it('prefers HOME overrides for the persistent session database path', async () => {
+    vi.stubEnv('HOME', '/tmp/override-home');
+    vi.stubEnv('USERPROFILE', '');
+
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+
+    await repository.initialize();
+
+    expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
+      '/tmp/override-home/.infilux/persistent-agent-sessions.db',
+      repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
+      expect.any(Function)
+    );
   });
 
   it('supports upsert, list, delete, and close over sqlite-backed records', async () => {
@@ -374,6 +395,43 @@ describe('PersistentAgentSessionRepository', () => {
     ]);
 
     await expect(repository.close()).resolves.toBeUndefined();
+  });
+
+  it('restores sqlite-backed persistent sessions after a repository restart', async () => {
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+
+    const firstLaunchRepository = new PersistentAgentSessionRepository();
+    await firstLaunchRepository.initialize();
+    await firstLaunchRepository.upsertSession(
+      makeRecord({
+        uiSessionId: 'session-restart',
+        displayName: 'Recovered After Restart',
+        updatedAt: 123,
+      })
+    );
+    await firstLaunchRepository.close();
+
+    repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([]);
+
+    const secondLaunchRepository = new PersistentAgentSessionRepository();
+    await secondLaunchRepository.initialize();
+
+    await expect(secondLaunchRepository.listSessions()).resolves.toEqual([
+      expect.objectContaining({
+        uiSessionId: 'session-restart',
+        displayName: 'Recovered After Restart',
+        updatedAt: 123,
+      }),
+    ]);
+    expect(secondLaunchRepository.listCachedSessions()).toEqual([
+      expect.objectContaining({
+        uiSessionId: 'session-restart',
+        displayName: 'Recovered After Restart',
+        updatedAt: 123,
+      }),
+    ]);
   });
 
   it('surfaces open, schema, query, and close failures', async () => {
