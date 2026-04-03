@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { useSettingsStore } from '@/stores/settings';
 import type { TabId } from '../constants';
+import { resolveWorktreeTabForPersistence } from '../settingsWorktreeTabPolicy';
 
 export function useSettingsState(
   activeTab: TabId,
   previousTab: TabId | null,
   setActiveTab: (tab: TabId) => void,
-  setPreviousTab: (tab: TabId | null) => void
+  setPreviousTab: (tab: TabId | null) => void,
+  persistCurrentWorktreeTab: (tab: TabId) => void
 ) {
   const [settingsCategory, setSettingsCategory] = useState<SettingsCategory>(() => {
     try {
@@ -39,6 +41,15 @@ export function useSettingsState(
 
   const settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
   const prevSettingsDisplayModeRef = useRef<typeof settingsDisplayMode | null>(null);
+  const persistResolvedWorktreeTab = useCallback(() => {
+    persistCurrentWorktreeTab(
+      resolveWorktreeTabForPersistence({
+        activeTab,
+        previousTab,
+        settingsDisplayMode,
+      })
+    );
+  }, [activeTab, previousTab, settingsDisplayMode, persistCurrentWorktreeTab]);
 
   // Persist settings category
   useEffect(() => {
@@ -70,13 +81,35 @@ export function useSettingsState(
         setActiveTab('settings');
       }
     } else {
-      setSettingsDialogOpen((prev) => !prev);
+      const nextOpen = !settingsDialogOpen;
+      setSettingsDialogOpen(nextOpen);
+      if (!nextOpen) {
+        persistResolvedWorktreeTab();
+      }
     }
-  }, [settingsDisplayMode, activeTab, previousTab, setActiveTab, setPreviousTab]);
+  }, [
+    settingsDisplayMode,
+    activeTab,
+    previousTab,
+    settingsDialogOpen,
+    persistResolvedWorktreeTab,
+    setActiveTab,
+    setPreviousTab,
+  ]);
 
   const handleSettingsCategoryChange = useCallback((category: SettingsCategory) => {
     setSettingsCategory(category);
   }, []);
+
+  const handleSettingsDialogOpenChange = useCallback(
+    (open: boolean) => {
+      setSettingsDialogOpen(open);
+      if (!open && settingsDisplayMode === 'draggable-modal') {
+        persistResolvedWorktreeTab();
+      }
+    },
+    [persistResolvedWorktreeTab, settingsDisplayMode]
+  );
 
   // Clean up settings state when display mode changes
   useEffect(() => {
@@ -95,12 +128,25 @@ export function useSettingsState(
       }
     } else {
       if (activeTab === 'settings') {
-        setActiveTab(previousTab || 'chat');
+        const restoredTab = resolveWorktreeTabForPersistence({
+          activeTab,
+          previousTab,
+          settingsDisplayMode,
+        });
+        setActiveTab(restoredTab);
         setPreviousTab(null);
+        persistCurrentWorktreeTab(restoredTab);
       }
       setSettingsDialogOpen(true);
     }
-  }, [settingsDisplayMode, activeTab, previousTab, setActiveTab, setPreviousTab]);
+  }, [
+    settingsDisplayMode,
+    activeTab,
+    previousTab,
+    persistCurrentWorktreeTab,
+    setActiveTab,
+    setPreviousTab,
+  ]);
 
   return {
     settingsCategory,
@@ -115,5 +161,6 @@ export function useSettingsState(
     openSettings,
     toggleSettings,
     handleSettingsCategoryChange,
+    handleSettingsDialogOpenChange,
   };
 }

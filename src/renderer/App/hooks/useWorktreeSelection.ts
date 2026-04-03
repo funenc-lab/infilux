@@ -11,6 +11,10 @@ import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
 import { requestUnsavedChoice } from '@/stores/unsavedPrompt';
 import type { TabId } from '../constants';
+import {
+  resolveWorktreeTabForPersistence,
+  resolveWorktreeTabForRestore,
+} from '../settingsWorktreeTabPolicy';
 
 export function useWorktreeSelection(
   activeWorktree: GitWorktree | null,
@@ -19,6 +23,7 @@ export function useWorktreeSelection(
   worktreeTabMap: Record<string, TabId>,
   setWorktreeTabMap: (fn: (prev: Record<string, TabId>) => Record<string, TabId>) => void,
   activeTab: TabId,
+  previousTab: TabId | null,
   setActiveTab: (tab: TabId) => void,
   selectedRepo: string | null,
   setSelectedRepo: (repo: string) => void,
@@ -30,6 +35,7 @@ export function useWorktreeSelection(
   const upsertRecoveredSession = useAgentSessionsStore((s) => s.upsertRecoveredSession);
   const updateGroupState = useAgentSessionsStore((s) => s.updateGroupState);
   const editorSettings = useSettingsStore((s) => s.editorSettings);
+  const settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
   const switchEditorWorktree = useEditorStore((s) => s.switchWorktree);
   const currentEditorWorktree = useEditorStore((s) => s.currentWorktreePath);
 
@@ -149,9 +155,14 @@ export function useWorktreeSelection(
 
       // Save current worktree's tab state before switching
       if (activeWorktree?.path) {
+        const persistedTab = resolveWorktreeTabForPersistence({
+          activeTab,
+          previousTab,
+          settingsDisplayMode,
+        });
         setWorktreeTabMap((prev) => ({
           ...prev,
-          [activeWorktree.path]: activeTab,
+          [activeWorktree.path]: persistedTab,
         }));
       }
 
@@ -176,7 +187,12 @@ export function useWorktreeSelection(
           : false;
 
       // Show the agent empty state when the worktree has no session context yet.
-      const savedTab = hasAgentSessions ? (worktreeTabMap[worktree.path] ?? 'chat') : 'chat';
+      const savedTab = hasAgentSessions
+        ? resolveWorktreeTabForRestore({
+            savedTab: worktreeTabMap[worktree.path],
+            settingsDisplayMode,
+          })
+        : 'chat';
       setActiveTab(savedTab);
 
       // Refresh git data for the new worktree
@@ -185,8 +201,10 @@ export function useWorktreeSelection(
     [
       activeWorktree,
       activeTab,
+      previousTab,
       worktreeTabMap,
       editorSettings.autoSave,
+      settingsDisplayMode,
       t,
       refreshGitData,
       getAgentSessions,

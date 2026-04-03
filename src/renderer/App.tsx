@@ -47,6 +47,10 @@ import {
 } from './App/hooks';
 import { resolveMainContentRepoPath } from './App/mainContentRepoPathPolicy';
 import {
+  resolveWorktreeTabForPersistence,
+  resolveWorktreeTabForRestore,
+} from './App/settingsWorktreeTabPolicy';
+import {
   markStartupBlockingKeyReady,
   resolveInitialStartupBlockingKeys,
   type StartupBlockingKey,
@@ -120,12 +124,6 @@ export default function App() {
 
   const repoState = useRepositoryState();
   const wtState = useWorktreeState();
-  const settingsState = useSettingsState(
-    wtState.activeTab,
-    wtState.previousTab,
-    wtState.setActiveTab,
-    wtState.setPreviousTab
-  );
   const panelState = usePanelState();
 
   const {
@@ -149,6 +147,7 @@ export default function App() {
     repoWorktreeMap,
     tabOrder,
     activeTab,
+    previousTab,
     activeWorktree,
     currentWorktreePathRef,
     setWorktreeTabMap,
@@ -162,6 +161,34 @@ export default function App() {
     saveActiveWorktreeToMap,
   } = wtState;
 
+  const persistCurrentWorktreeTab = useCallback(
+    (tab: TabId) => {
+      if (!activeWorktree?.path) {
+        return;
+      }
+
+      setWorktreeTabMap((prev) => {
+        if (prev[activeWorktree.path] === tab) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [activeWorktree.path]: tab,
+        };
+      });
+    },
+    [activeWorktree?.path, setWorktreeTabMap]
+  );
+
+  const settingsState = useSettingsState(
+    activeTab,
+    previousTab,
+    setActiveTab,
+    setPreviousTab,
+    persistCurrentWorktreeTab
+  );
+
   const {
     settingsCategory,
     scrollToProvider,
@@ -171,10 +198,10 @@ export default function App() {
     setSettingsCategory,
     setScrollToProvider,
     setPendingProviderAction,
-    setSettingsDialogOpen,
     openSettings,
     toggleSettings,
     handleSettingsCategoryChange,
+    handleSettingsDialogOpenChange,
   } = settingsState;
 
   const {
@@ -296,6 +323,7 @@ export default function App() {
     worktreeTabMap,
     setWorktreeTabMap,
     activeTab,
+    previousTab,
     setActiveTab,
     selectedRepo,
     setSelectedRepoForWorktreeSelection,
@@ -342,6 +370,15 @@ export default function App() {
     return display;
   }, [effectiveTempBasePath]);
   const effectiveTemporaryWorkspaceEnabled = temporaryWorkspaceEnabled;
+  const currentWorktreeTabToPersist = useMemo(
+    () =>
+      resolveWorktreeTabForPersistence({
+        activeTab,
+        previousTab,
+        settingsDisplayMode,
+      }),
+    [activeTab, previousTab, settingsDisplayMode]
+  );
 
   // Panel resize hook
   const {
@@ -791,7 +828,7 @@ export default function App() {
       if (activeWorktree?.path) {
         setWorktreeTabMap((prev) => ({
           ...prev,
-          [activeWorktree.path]: activeTab,
+          [activeWorktree.path]: currentWorktreeTabToPersist,
         }));
       }
 
@@ -816,7 +853,10 @@ export default function App() {
       if (savedWorktreePath) {
         // Set temporary worktree with just the path; full object syncs after worktrees load.
         setActiveWorktree({ path: savedWorktreePath } as GitWorktree);
-        const savedTab = worktreeTabMap[savedWorktreePath] || 'chat';
+        const savedTab = resolveWorktreeTabForRestore({
+          savedTab: worktreeTabMap[savedWorktreePath],
+          settingsDisplayMode,
+        });
         setActiveTab(savedTab);
         return;
       }
@@ -825,12 +865,13 @@ export default function App() {
       setActiveTab('chat');
     },
     [
-      activeTab,
       activeWorktree,
       activateRemoteRepo,
       activatedRemoteRepos,
+      currentWorktreeTabToPersist,
       isRemoteRepoPath,
       repoWorktreeMap,
+      settingsDisplayMode,
       setActiveTab,
       setActiveWorktree,
       setSelectedRepoState,
@@ -886,7 +927,10 @@ export default function App() {
           if (found) {
             setSelectedRepoForWorktreeSelection(repo.path);
             setActiveWorktree(found);
-            const savedTab = worktreeTabMap[found.path] || 'chat';
+            const savedTab = resolveWorktreeTabForRestore({
+              savedTab: worktreeTabMap[found.path],
+              settingsDisplayMode,
+            });
             setActiveTab(savedTab);
 
             // Refresh git data for the switched worktree
@@ -902,6 +946,7 @@ export default function App() {
       repositories,
       isRemoteRepoPath,
       canLoadRepo,
+      settingsDisplayMode,
       worktreeTabMap,
       handleSelectWorktree,
       refreshGitData,
@@ -1634,7 +1679,7 @@ export default function App() {
           getConflictContent={getConflictContent}
           showDraggableSettingsWindow={settingsDisplayMode === 'draggable-modal'}
           settingsWindowOpen={settingsDialogOpen}
-          onSettingsWindowOpenChange={setSettingsDialogOpen}
+          onSettingsWindowOpenChange={handleSettingsDialogOpenChange}
           settingsCategory={settingsCategory}
           onSettingsCategoryChange={handleSettingsCategoryChange}
           scrollToProvider={scrollToProvider}
