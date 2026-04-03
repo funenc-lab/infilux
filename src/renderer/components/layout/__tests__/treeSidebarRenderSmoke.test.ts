@@ -319,4 +319,62 @@ describe('TreeSidebar render smoke', () => {
     expect(markup).toContain('aria-expanded="true"');
     expect(markup).toContain('data-worktree-item="/repo-a"');
   });
+
+  it('does not show search-empty copy when the active group is empty without a search filter', async () => {
+    const { TreeSidebar } = await import('../TreeSidebar');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(TreeSidebar, {
+        repositories: [
+          {
+            id: 'repo-a',
+            name: 'Repo A',
+            path: '/repo-a',
+            groupId: 'group-a',
+          },
+        ],
+        selectedRepo: null,
+        activeWorktree: null,
+        worktrees: [],
+        branches: [],
+        onSelectRepo: vi.fn(),
+        canLoadRepo: () => true,
+        onActivateRemoteRepo: vi.fn(),
+        onSelectWorktree: vi.fn(),
+        onAddRepository: vi.fn(),
+        onCreateWorktree: vi.fn(async () => {}),
+        onRemoveWorktree: vi.fn(),
+        onRefresh: vi.fn(),
+        groups: [
+          {
+            id: 'group-a',
+            name: 'Group A',
+            emoji: 'A',
+            color: '#111111',
+            order: 0,
+          },
+          {
+            id: 'group-b',
+            name: 'Group B',
+            emoji: 'B',
+            color: '#222222',
+            order: 1,
+          },
+        ],
+        activeGroupId: 'group-b',
+        onSwitchGroup: vi.fn(),
+        onCreateGroup: vi.fn(() => ({
+          id: 'group-c',
+          name: 'Group C',
+          emoji: 'C',
+          color: '#333333',
+          order: 2,
+        })),
+        onUpdateGroup: vi.fn(),
+        onDeleteGroup: vi.fn(),
+      })
+    );
+
+    expect(markup).not.toContain('data-sidebar-empty="No matches"');
+  });
 });

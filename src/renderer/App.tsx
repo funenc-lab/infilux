@@ -717,7 +717,7 @@ export default function App() {
     shouldRenderFileSidebar,
   ]);
 
-  useGroupSync(hideGroups, activeGroupId, setActiveGroupId, saveActiveGroupId);
+  useGroupSync(hideGroups, activeGroupId, groups, setActiveGroupId, saveActiveGroupId);
   useOpenPathListener(true, repositories, saveRepositories, setSelectedRepoState);
   useClaudeIntegration(activeWorktree?.path ?? null, true);
   useCodeReviewContinue(activeWorktree, handleTabChange);

@@ -1,16 +1,24 @@
 import { useEffect } from 'react';
-import { ALL_GROUP_ID } from '../constants';
+import type { RepositoryGroup } from '../constants';
+import { resolveActiveGroupId } from './activeGroupPolicy';
 
 export function useGroupSync(
   hideGroups: boolean,
   activeGroupId: string,
+  groups: RepositoryGroup[],
   setActiveGroupId: (id: string) => void,
   saveActiveGroupId: (id: string) => void
 ) {
   useEffect(() => {
-    if (hideGroups && activeGroupId !== ALL_GROUP_ID) {
-      setActiveGroupId(ALL_GROUP_ID);
-      saveActiveGroupId(ALL_GROUP_ID);
+    const nextActiveGroupId = resolveActiveGroupId({
+      hideGroups,
+      activeGroupId,
+      groups,
+    });
+
+    if (nextActiveGroupId !== activeGroupId) {
+      setActiveGroupId(nextActiveGroupId);
+      saveActiveGroupId(nextActiveGroupId);
     }
-  }, [hideGroups, activeGroupId, setActiveGroupId, saveActiveGroupId]);
+  }, [hideGroups, activeGroupId, groups, setActiveGroupId, saveActiveGroupId]);
 }

@@ -853,6 +853,8 @@ export function TreeSidebar({
       originalIndex: repoIndexMap.get(repo.path) ?? -1,
     }));
   }, [searchableRepos, parsedSearch, activePathSet, getSearchableRepoWorktrees, repoIndexMap]);
+  const showSearchEmptyState =
+    hasSearchFilter && filteredRepos.length === 0 && filteredTempWorkspaces.length === 0;
 
   const groupedSections = useMemo(() => {
     if (!showSections) return [];
@@ -1383,7 +1385,7 @@ export function TreeSidebar({
               }
             />
           </div>
-        ) : filteredRepos.length === 0 && filteredTempWorkspaces.length === 0 ? (
+        ) : showSearchEmptyState ? (
           <div className="flex h-full items-start justify-start px-2 py-3">
             <SidebarEmptyState
               icon={<Search className="h-4.5 w-4.5" />}

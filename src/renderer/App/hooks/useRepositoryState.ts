@@ -2,6 +2,7 @@ import { getDisplayPathBasename } from '@shared/utils/path';
 import { buildRepositoryId } from '@shared/utils/workspace';
 import { useCallback, useEffect, useState } from 'react';
 import { normalizeHexColor } from '@/lib/colors';
+import { resolveActiveGroupId } from './activeGroupPolicy';
 import {
   ALL_GROUP_ID,
   DEFAULT_GROUP_COLOR,
@@ -31,8 +32,18 @@ export function useRepositoryState() {
     migrateRepositoryGroups();
 
     const savedGroups = getStoredGroups();
+    const storedActiveGroupId = getActiveGroupId();
+    const nextActiveGroupId = resolveActiveGroupId({
+      hideGroups: false,
+      activeGroupId: storedActiveGroupId,
+      groups: savedGroups,
+    });
+
     setGroups(savedGroups);
-    setActiveGroupId(getActiveGroupId());
+    setActiveGroupId(nextActiveGroupId);
+    if (nextActiveGroupId !== storedActiveGroupId) {
+      saveActiveGroupId(nextActiveGroupId);
+    }
 
     const validGroupIds = new Set(savedGroups.map((g) => g.id));
 
