@@ -35,14 +35,12 @@ describe('SessionBar floating accessibility and structure', () => {
 
   it('exposes the full session title on hover for truncated tabs', () => {
     expect(sessionBarSource).toContain('const sessionHoverTitle = getSessionHoverTitle(session);');
-    const hoverTitleBindings =
-      (sessionBarSource.match(/title=\{sessionHoverTitle\}/g)?.length ?? 0) +
-      (sessionBarSource.match(/title:\s*sessionHoverTitle/g)?.length ?? 0);
     const ariaLabelBindings =
       (sessionBarSource.match(/aria-label=\{sessionLabel\}/g)?.length ?? 0) +
       (sessionBarSource.match(/'aria-label':\s*sessionLabel/g)?.length ?? 0);
 
-    expect(hoverTitleBindings).toBeGreaterThanOrEqual(1);
+    expect(sessionBarSource).not.toContain('title={sessionHoverTitle}');
+    expect(sessionBarSource).not.toContain('title: sessionHoverTitle');
     expect(ariaLabelBindings).toBeGreaterThanOrEqual(1);
   });
 
@@ -53,8 +51,9 @@ describe('SessionBar floating accessibility and structure', () => {
     ).toBe(1);
   });
 
-  it('keeps the session tab glow card on the animated running-state treatment', () => {
-    expect(sessionBarSource).toContain(
+  it('keeps the session tab glow card as a static state frame while the indicator carries motion', () => {
+    expect(sessionBarSource).toContain('<GlowCard state={outputState} as="div" {...tabProps}>');
+    expect(sessionBarSource).not.toContain(
       '<GlowCard state={outputState} animated as="div" {...tabProps}>'
     );
   });

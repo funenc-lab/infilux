@@ -1,3 +1,5 @@
+import { normalizeSessionTitleText } from './sessionTitleText';
+
 export interface SessionTitleFromFirstInput {
   line: string;
   currentName: string;
@@ -6,14 +8,10 @@ export interface SessionTitleFromFirstInput {
   userRenamed?: boolean;
 }
 
-function normalizeSessionTitleCandidate(line: string): string {
-  return line.replace(/\s+/g, ' ').trim();
-}
-
 export function resolveSessionTitleFromFirstInput(
   input: SessionTitleFromFirstInput
 ): string | null {
-  const candidate = normalizeSessionTitleCandidate(input.line);
+  const candidate = normalizeSessionTitleText(input.line);
   if (!candidate) return null;
 
   if (candidate.startsWith('/')) {

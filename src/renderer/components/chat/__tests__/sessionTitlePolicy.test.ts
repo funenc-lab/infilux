@@ -10,6 +10,14 @@ describe('sessionTitlePolicy', () => {
         defaultName: 'Codex',
       })
     ).toBe('Fix SessionBar hover title');
+
+    expect(
+      resolveSessionTitleFromFirstInput({
+        line: '  ›   Fix   SessionBar   hover title  ',
+        currentName: 'Codex',
+        defaultName: 'Codex',
+      })
+    ).toBe('Fix SessionBar hover title');
   });
 
   it('keeps the existing title when the session was renamed or already promoted', () => {

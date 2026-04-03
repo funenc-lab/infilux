@@ -381,7 +381,6 @@ function SessionTab({
     'aria-selected': isActive,
     'aria-controls': panelId,
     'aria-label': sessionLabel,
-    title: sessionHoverTitle,
     'data-active': isActive ? 'true' : 'false',
     className: cn(
       SESSION_BAR_TAB_CLASS_NAME,
@@ -469,7 +468,7 @@ function SessionTab({
     </>
   );
   const tabElement = (
-    <GlowCard state={outputState} animated as="div" {...tabProps}>
+    <GlowCard state={outputState} as="div" {...tabProps}>
       {tabContent}
     </GlowCard>
   );

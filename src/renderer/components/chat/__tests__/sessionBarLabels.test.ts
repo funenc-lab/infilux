@@ -16,6 +16,19 @@ describe('sessionBarLabels', () => {
         terminalTitle: 'Build dashboard',
       })
     ).toBe('Build dashboard');
+
+    expect(
+      getSessionDisplayName({
+        name: '› Review auth flow',
+      })
+    ).toBe('Review auth flow');
+
+    expect(
+      getSessionDisplayName({
+        name: 'Claude',
+        terminalTitle: '› Build dashboard',
+      })
+    ).toBe('Build dashboard');
   });
 
   it('prefers the effective session title for hover copy when terminal titles are generic', () => {
@@ -39,6 +52,13 @@ describe('sessionBarLabels', () => {
       getSessionHoverTitle({
         name: 'Claude',
         terminalTitle: 'Build dashboard',
+      })
+    ).toBe('Build dashboard');
+
+    expect(
+      getSessionHoverTitle({
+        name: 'Claude',
+        terminalTitle: '› Build dashboard',
       })
     ).toBe('Build dashboard');
   });
