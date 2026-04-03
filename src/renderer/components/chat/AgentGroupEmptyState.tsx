@@ -14,7 +14,7 @@ const AGENT_GROUP_EMPTY_STATE_PRIMARY_ACTION_CLASS_NAME = `${CHAT_ACTION_BUTTON_
 const AGENT_GROUP_EMPTY_STATE_TOGGLE_ACTION_CLASS_NAME = `${CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME} h-9 rounded-xl px-3`;
 const AGENT_GROUP_EMPTY_STATE_MENU_CONTAINER_CLASS_NAME =
   'absolute left-1/2 top-full z-50 min-w-40 -translate-x-1/2 pt-2';
-const AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 rounded-lg px-3 py-2 text-foreground`;
+const AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-foreground`;
 
 interface AgentGroupEmptyStateProps {
   menuRef: RefObject<HTMLDivElement | null>;

@@ -1,3 +1,5 @@
+/* @vitest-environment jsdom */
+
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -58,6 +60,24 @@ const worktreeActivityState: WorktreeActivityState = {
   activityStates: {},
 };
 
+function setWindowElectronEnv(
+  env?: Partial<{
+    platform: 'darwin' | 'win32' | 'linux';
+  }>
+) {
+  if (env) {
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        env,
+      },
+    });
+    return;
+  }
+
+  Reflect.deleteProperty(window, 'electronAPI');
+}
+
 function renderMockPanel(
   panel: string,
   props: Record<string, unknown>,
@@ -94,6 +114,7 @@ vi.mock('lucide-react', () => {
     Settings: icon('Settings'),
     Sparkles: icon('Sparkles'),
     Terminal: icon('Terminal'),
+    XIcon: icon('XIcon'),
   };
 });
 
@@ -284,12 +305,8 @@ describe('MainContent component render', () => {
     worktreeActivityState.activities = {};
     worktreeActivityState.activityStates = {};
 
-    vi.stubGlobal('window', {
-      electronAPI: {
-        env: {
-          platform: 'darwin',
-        },
-      },
+    setWindowElectronEnv({
+      platform: 'darwin',
     });
   });
 
@@ -374,7 +391,7 @@ describe('MainContent component render', () => {
   }, 15000);
 
   it('renders without an Electron env bridge when platform data is unavailable', async () => {
-    vi.stubGlobal('window', {});
+    setWindowElectronEnv();
 
     const markup = await renderMainContent('file');
 

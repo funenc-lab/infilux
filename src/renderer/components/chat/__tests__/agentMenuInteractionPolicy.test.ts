@@ -10,6 +10,10 @@ const agentGroupEmptyStateSource = readFileSync(
   resolve(currentDir, '../AgentGroupEmptyState.tsx'),
   'utf8'
 );
+const controlButtonStylesSource = readFileSync(
+  resolve(currentDir, '../controlButtonStyles.ts'),
+  'utf8'
+);
 
 describe('agent menu interaction policy', () => {
   it('uses click-triggered empty-state profile menus in AgentGroup', () => {
@@ -38,7 +42,13 @@ describe('agent menu interaction policy', () => {
   });
 
   it('keeps empty-state profile menu items shrink-safe so default chips do not overflow', () => {
-    expect(agentGroupEmptyStateSource).toContain('flex w-full min-w-0 items-center gap-2');
+    expect(controlButtonStylesSource).toContain(
+      'control-menu-item flex w-full min-w-0 items-center gap-2'
+    );
+    expect(agentGroupEmptyStateSource).toContain('CHAT_MENU_ITEM_BASE_CLASS_NAME');
+    expect(agentGroupEmptyStateSource).toContain(
+      'className={AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME}'
+    );
     expect(agentPanelSource).toContain('flex w-full min-w-0 items-center gap-2');
     expect(agentGroupEmptyStateSource).not.toContain('whitespace-nowrap text-foreground');
     expect(agentPanelSource).not.toContain('text-foreground whitespace-nowrap');

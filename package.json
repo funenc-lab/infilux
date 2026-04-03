@@ -103,6 +103,7 @@
     "electron-builder": "^26.4.0",
     "electron-vite": "^5.0.0",
     "husky": "^9.1.7",
+    "jsdom": "^29.0.1",
     "lint-staged": "^16.2.7",
     "playwright": "^1.59.1",
     "postcss": "^8.5.6",

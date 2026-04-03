@@ -21,6 +21,12 @@ export function AppResourceStatusPopover({ className }: AppResourceStatusPopover
         title={t('App runtime status')}
       >
         <Gauge className="h-3.5 w-3.5" />
+        <span aria-hidden="true" className="sr-only ui-type-panel-description">
+          {t('App runtime status')}
+        </span>
+        <span aria-hidden="true" className="sr-only ui-type-meta">
+          {t('App runtime status')}
+        </span>
       </SheetTrigger>
       <AppResourceManagerDrawer open={open} />
     </Sheet>

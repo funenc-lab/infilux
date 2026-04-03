@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react';
 
-const IDLE_THRESHOLD_MS = 90 * 1000; // 90 秒无用户活动视为空闲
+const IDLE_THRESHOLD_MS = 90 * 1000; // Treat 90 seconds without input as idle.
+const hasDomEnvironment = typeof window !== 'undefined' && typeof document !== 'undefined';
 
-let isWindowFocused = !document.hidden;
+let isWindowFocused = hasDomEnvironment ? !document.hidden : true;
 let isIdle = false;
 let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
@@ -30,7 +31,7 @@ function resetIdleTimer() {
     notifyListeners();
   }
 
-  // 只在窗口聚焦时启动空闲检测
+  // Start idle detection only while the window is focused.
   if (isWindowFocused) {
     idleTimeoutId = setTimeout(() => {
       isIdle = true;
@@ -48,10 +49,10 @@ function handleVisibilityChange() {
   isWindowFocused = !document.hidden;
 
   if (isWindowFocused && !wasFocused) {
-    // 窗口重新获得焦点，重置空闲状态
+    // Reset idle state when focus returns.
     resetIdleTimer();
   } else if (!isWindowFocused && wasFocused) {
-    // 窗口失焦，立即进入空闲状态
+    // Mark the window idle immediately when focus leaves.
     if (idleTimeoutId) {
       clearTimeout(idleTimeoutId);
       idleTimeoutId = null;
@@ -80,12 +81,12 @@ function handleWindowBlur() {
   }
 }
 
-if (typeof window !== 'undefined') {
+if (hasDomEnvironment) {
   document.addEventListener('visibilitychange', handleVisibilityChange);
   window.addEventListener('focus', handleWindowFocus);
   window.addEventListener('blur', handleWindowBlur);
 
-  // 监听用户活动事件
+  // Track user activity signals that should reset idle state.
   const userActivityEvents = ['mousemove', 'keydown', 'mousedown', 'wheel', 'touchstart'];
   for (const event of userActivityEvents) {
     window.addEventListener(event, handleUserActivity, { passive: true });

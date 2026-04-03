@@ -52,7 +52,10 @@ describe('Deferred file panels', () => {
       })
     );
 
-    expect(markup).toContain('data-control-state-card="Loading file explorer"');
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('Loading file explorer');
+    expect(markup).toContain('Preparing file tree and editor workspace');
     expect(markup).not.toContain('data-file-panel');
   });
 
@@ -82,7 +85,10 @@ describe('Deferred file panels', () => {
       })
     );
 
-    expect(markup).toContain('data-control-state-card="Loading editor"');
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('Loading editor');
+    expect(markup).toContain('Preparing active file workspace');
     expect(markup).not.toContain('data-current-file-panel');
   });
 

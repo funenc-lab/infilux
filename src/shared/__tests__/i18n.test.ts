@@ -54,6 +54,8 @@ describe('shared i18n helpers', () => {
       'Runtime Console',
       'Resource Manager',
       'Inspect runtime pressure and reclaim safe targets for this window.',
+      'Open runtime activity and resource controls',
+      'Monitor sessions, terminals, and runtime pressure',
       'Unable to load resources.',
       'Unable to execute action.',
       'Loading resources...',

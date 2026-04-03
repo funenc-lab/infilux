@@ -15,42 +15,45 @@ const worktreePanelItemSource = readFileSync(
 const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.css'), 'utf8');
 
 describe('worktree sidebar cleanup policy', () => {
-  it('keeps worktree identity readable with branch, path, and meta rail separation', () => {
+  it('keeps worktree rows focused on branch identity while retaining the path for row actions', () => {
     expect(worktreeTreeItemSource).toContain('const metaItems = [');
+    expect(worktreeTreeItemSource).toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(worktreeTreeItemSource).toContain(
-      "'control-tree-subtitle truncate [unicode-bidi:plaintext] [text-align:left]'"
+      'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
-    expect(worktreeTreeItemSource).toContain('title={displayWorktreePath}');
-    expect(worktreeTreeItemSource).toContain('{displayWorktreePath}');
+    expect(worktreeTreeItemSource).not.toContain('title={displayWorktreePath}');
+    expect(worktreeTreeItemSource).not.toContain('{displayWorktreePath}');
     expect(worktreePanelItemSource).toContain('const metaItems = [');
+    expect(worktreePanelItemSource).toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(worktreePanelItemSource).toContain(
-      "'control-tree-subtitle truncate [unicode-bidi:plaintext] [text-align:left]'"
+      'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
-    expect(worktreePanelItemSource).toContain('title={displayWorktreePath}');
-    expect(worktreePanelItemSource).toContain('{displayWorktreePath}');
+    expect(worktreePanelItemSource).not.toContain('title={displayWorktreePath}');
+    expect(worktreePanelItemSource).not.toContain('{displayWorktreePath}');
   });
 
-  it('keeps worktree tails structurally visible instead of hover-collapsing the sync action', () => {
+  it('keeps worktree tails collapsed until hover or focus to preserve row density', () => {
     expect(globalsSource).toContain('.control-tree-tail[data-role="action"] {');
-    expect(globalsSource).not.toContain(
+    expect(globalsSource).toContain(
       '.control-tree-node[data-node-kind="worktree"] .control-tree-tail[data-role="action"] {'
     );
-    expect(globalsSource).not.toContain('max-width: 0;');
-    expect(globalsSource).not.toContain(
+    expect(globalsSource).toContain('max-width: 0;');
+    expect(globalsSource).toContain('pointer-events: none;');
+    expect(globalsSource).toContain(
       '.control-tree-node[data-node-kind="worktree"]:hover .control-tree-tail[data-role="action"],'
     );
+    expect(globalsSource).toContain('max-width: 6.5rem;');
   });
 
   it('keeps nested worktree groups on a single guide instead of per-row rails', () => {
     expect(globalsSource).toContain('.control-tree-guide::before {');
-    expect(globalsSource).not.toContain('content: none;');
     expect(globalsSource).not.toContain('.control-tree-guide-item::before {');
   });
 
-  it('allows worktree meta rails to wrap instead of forcing crowded one-line fragments', () => {
+  it('keeps worktree meta rails dense and single-line instead of wrapping into stacked fragments', () => {
     expect(globalsSource).toContain('.control-tree-meta-row {');
-    expect(globalsSource).toContain('flex-wrap: wrap;');
-    expect(globalsSource).toContain('white-space: normal;');
-    expect(globalsSource).toContain('overflow: visible;');
+    expect(globalsSource).toContain('flex-wrap: nowrap;');
+    expect(globalsSource).toContain('white-space: nowrap;');
+    expect(globalsSource).toContain('overflow: hidden;');
   });
 });

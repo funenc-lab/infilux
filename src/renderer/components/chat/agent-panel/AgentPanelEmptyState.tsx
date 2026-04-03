@@ -43,7 +43,7 @@ const EMPTY_STATE_SPLIT_ACTION_GROUP_CLASS_NAME =
 const EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME = `${CHAT_ACTION_BUTTON_PRIMARY_CLASS_NAME} rounded-l-none border-l border-foreground/12 px-3`;
 const EMPTY_STATE_SPLIT_ACTION_MENU_CLASS_NAME =
   'absolute left-0 right-0 top-full z-50 pt-2 text-left sm:left-auto sm:right-0 sm:min-w-52';
-const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 rounded-lg px-3 py-2 text-foreground`;
+const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-foreground`;
 const EMPTY_STATE_CONTEXT_FOOTER_CLASS_NAME =
   'flex min-w-0 flex-wrap gap-x-5 gap-y-2 text-[0.76em] leading-5 text-muted-foreground/84';
 const EMPTY_STATE_CONTEXT_ITEM_CLASS_NAME = 'flex min-w-0 items-start gap-2';

@@ -2283,6 +2283,10 @@ export const zhTranslations: Record<string, string> = {
   'Resource Manager': '\u8d44\u6e90\u7ba1\u7406',
   'Inspect runtime pressure and reclaim safe targets for this window.':
     '\u67e5\u770b\u5f53\u524d\u7a97\u53e3\u7684\u8fd0\u884c\u538b\u529b\uff0c\u5e76\u56de\u6536\u53ef\u5b89\u5168\u5904\u7406\u7684\u76ee\u6807\u3002',
+  'Open runtime activity and resource controls':
+    '\u6253\u5f00\u8fd0\u884c\u65f6\u6d3b\u52a8\u4e0e\u8d44\u6e90\u63a7\u5236',
+  'Monitor sessions, terminals, and runtime pressure':
+    '\u76d1\u63a7\u4f1a\u8bdd\u3001\u7ec8\u7aef\u4e0e\u8fd0\u884c\u65f6\u538b\u529b',
   'Unable to load resources.': '\u65e0\u6cd5\u52a0\u8f7d\u8d44\u6e90\u3002',
   'Unable to execute action.': '\u65e0\u6cd5\u6267\u884c\u64cd\u4f5c\u3002',
   'Loading resources...': '\u6b63\u5728\u52a0\u8f7d\u8d44\u6e90...',

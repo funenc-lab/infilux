@@ -66,7 +66,10 @@ describe('Deferred sidebar panels', () => {
       })
     );
 
-    expect(markup).toContain('data-control-state-card="Loading repositories"');
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('Loading repositories');
+    expect(markup).toContain('Preparing repository groups and recent workspace state');
     expect(markup).not.toContain('data-repository-sidebar');
   });
 
@@ -97,7 +100,10 @@ describe('Deferred sidebar panels', () => {
       })
     );
 
-    expect(markup).toContain('data-control-state-card="Loading workspace tree"');
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('Loading workspace tree');
+    expect(markup).toContain('Preparing repositories, worktrees, and activity indicators');
     expect(markup).not.toContain('data-tree-sidebar');
   });
 
@@ -117,7 +123,10 @@ describe('Deferred sidebar panels', () => {
       })
     );
 
-    expect(markup).toContain('data-control-state-card="Loading worktrees"');
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('Loading worktrees');
+    expect(markup).toContain('Preparing branches, worktree status, and session context');
     expect(markup).not.toContain('data-worktree-panel');
   });
 });

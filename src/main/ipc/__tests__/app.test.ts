@@ -151,6 +151,10 @@ describe('app IPC handlers', () => {
       kind: 'kill-session',
       message: 'done',
     });
-    expect(appHandlerTestDoubles.executeResourceAction).toHaveBeenCalledWith(action, event.sender);
+    expect(appHandlerTestDoubles.executeResourceAction).toHaveBeenCalledWith(
+      action,
+      event.sender,
+      event.sender
+    );
   });
 });

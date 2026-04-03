@@ -18,6 +18,10 @@ const runningProjectsPopoverSource = readFileSync(
   resolve(currentDir, '../RunningProjectsPopover.tsx'),
   'utf8'
 );
+const appResourceManagerDrawerSource = readFileSync(
+  resolve(currentDir, '../AppResourceManagerDrawer.tsx'),
+  'utf8'
+);
 const appResourceStatusPopoverSource = readFileSync(
   resolve(currentDir, '../AppResourceStatusPopover.tsx'),
   'utf8'
@@ -72,10 +76,13 @@ describe('overlay typography policy', () => {
     expect(settingsDialogSource).toContain('ui-type-panel-title');
     expect(draggableSettingsWindowSource).toContain('ui-type-panel-title');
     expect(runningProjectsPopoverSource).toContain('ui-type-panel-description');
-    expect(appResourceStatusPopoverSource).toContain('ui-type-panel-description');
+    expect(appResourceManagerDrawerSource).toContain('ui-type-panel-description');
     expect(actionPanelSource).toContain('ui-type-panel-description');
     expect(runningProjectsPopoverSource).toContain('ui-type-meta');
-    expect(appResourceStatusPopoverSource).toContain('ui-type-meta');
+    expect(appResourceManagerDrawerSource).toContain('ui-type-meta');
+    expect(appResourceManagerDrawerSource).toContain('ui-type-block-title');
+    expect(appResourceStatusPopoverSource).toContain('sr-only ui-type-panel-description');
+    expect(appResourceStatusPopoverSource).toContain('sr-only ui-type-meta');
     expect(cloneTasksPopoverSource).toContain('ui-type-panel-title');
     expect(cloneTasksPopoverSource).toContain('ui-type-block-title');
     expect(cloneTasksPopoverSource).toContain('ui-type-meta');
