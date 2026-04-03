@@ -77,4 +77,10 @@ describe('build workflow macOS signing policy', () => {
     expect(workflowSource).toContain(`Upload macOS (${macArchPlaceholder}) release assets`);
     expect(workflowSource).toContain(ghReleaseUploadArrayLiteral);
   });
+
+  it('collects release asset paths with a Bash 3 compatible loop', () => {
+    expect(workflowSource).toContain('files=()');
+    expect(workflowSource).toContain('while IFS= read -r file; do');
+    expect(workflowSource).not.toContain('mapfile -t files');
+  });
 });

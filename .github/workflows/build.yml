@@ -335,7 +335,10 @@ jobs:
           TAG="${{ github.ref_name }}"
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""
 
-          mapfile -t files < <(find dist -maxdepth 1 -type f \
+          files=()
+          while IFS= read -r file; do
+            files+=("$file")
+          done < <(find dist -maxdepth 1 -type f \
             \( -name '*.dmg' -o -name '*.dmg.blockmap' -o -name '*-mac.zip' -o -name '*-mac.zip.blockmap' \) \
             | sort)
 
@@ -416,7 +419,10 @@ jobs:
           TAG="${{ github.ref_name }}"
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""
 
-          mapfile -t files < <(find dist -maxdepth 1 -type f \
+          files=()
+          while IFS= read -r file; do
+            files+=("$file")
+          done < <(find dist -maxdepth 1 -type f \
             \( -name '*.exe' -o -name '*.exe.blockmap' -o -name 'latest.yml' \) \
             | sort)
 
@@ -488,7 +494,10 @@ jobs:
           TAG="${{ github.ref_name }}"
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""
 
-          mapfile -t files < <(find dist -maxdepth 1 -type f \
+          files=()
+          while IFS= read -r file; do
+            files+=("$file")
+          done < <(find dist -maxdepth 1 -type f \
             \( -name '*.AppImage' -o -name '*.deb' -o -name 'latest-linux.yml' \) \
             | sort)
 
