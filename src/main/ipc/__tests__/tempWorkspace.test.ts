@@ -9,11 +9,10 @@ const FIXED_NOW = new Date(2026, 2, 25, 9, 2, 3);
 
 function formatExpectedTimestamp(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0');
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-  ].join('') + `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  return (
+    [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join('') +
+    `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  );
 }
 
 const tempWorkspaceTestDoubles = vi.hoisted(() => {
