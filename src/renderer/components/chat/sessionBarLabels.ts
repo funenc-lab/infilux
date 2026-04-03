@@ -27,5 +27,10 @@ export function getSessionDisplayName(session: SessionBarLabelInput): string {
 
 export function getSessionHoverTitle(session: SessionBarLabelInput): string {
   const title = session.terminalTitle?.trim();
-  return title && title.length > 0 ? title : session.name;
+  if (!title) return session.name;
+
+  return getSessionDisplayName({
+    ...session,
+    terminalTitle: title,
+  });
 }

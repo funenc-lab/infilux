@@ -50,6 +50,7 @@ import { SessionPersistenceNotice } from './SessionPersistenceNotice';
 import { StatusLine } from './StatusLine';
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
 import { shouldShowSessionPersistenceNotice } from './sessionPersistenceNoticePolicy';
+import { resolveSessionTitleFromFirstInput } from './sessionTitlePolicy';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
 
@@ -105,8 +106,7 @@ function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
 }
 
 /**
- * Whether the session uses Cursor CLI. Session name from terminal title / first line
- * is only applied for Cursor to avoid affecting other agents (Claude Code, etc.).
+ * Whether the session uses Cursor CLI. Terminal-title sync only applies to Cursor.
  */
 function isCursorAgent(agentId: string): boolean {
   const baseId = agentId.replace(/-(hapi|happy)$/, '');
@@ -119,7 +119,7 @@ function isCursorAgent(agentId: string): boolean {
  * Session name priority (highest → lowest):
  *   1. User manual rename (via context menu) — sets `name`, clears `terminalTitle`
  *   2. Terminal title from OSC escape sequence (`terminalTitle`) — updates `name` when still default (Cursor only)
- *   3. First user input line (`onActivatedWithFirstLine`) — sets `name` only when still default & no terminalTitle (Cursor only)
+ *   3. First meaningful user input line (`onActivatedWithFirstLine`) — sets `name` when still default & no terminalTitle
  *   4. Default agent display name (this function) — e.g. "Claude", "Claude (Hapi)"
  *
  * Display in SessionBar: `session.terminalTitle || session.name`
@@ -1590,10 +1590,19 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const handleActivatedWithFirstLine = useCallback(
     (id: string, line: string) => {
       const session = allSessions.find((s) => s.id === id);
-      if (!session || !line.trim() || !isCursorAgent(session.agentId)) return;
+      if (!session) return;
+
       const defaultName = getDefaultSessionName(session.agentId);
-      if (session.name !== defaultName || session.terminalTitle) return;
-      updateSession(id, { name: line.trim() });
+      const nextTitle = resolveSessionTitleFromFirstInput({
+        line,
+        currentName: session.name,
+        defaultName,
+        terminalTitle: session.terminalTitle,
+        userRenamed: session.userRenamed,
+      });
+      if (!nextTitle) return;
+
+      updateSession(id, { name: nextTitle });
     },
     [allSessions, updateSession]
   );

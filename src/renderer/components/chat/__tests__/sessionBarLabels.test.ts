@@ -18,13 +18,29 @@ describe('sessionBarLabels', () => {
     ).toBe('Build dashboard');
   });
 
-  it('prefers the current terminal title for hover copy', () => {
+  it('prefers the effective session title for hover copy when terminal titles are generic', () => {
+    expect(
+      getSessionHoverTitle({
+        name: 'Fix dashboard filters',
+        terminalTitle: 'npm run dev',
+      })
+    ).toBe('Fix dashboard filters');
+
+    expect(
+      getSessionHoverTitle({
+        name: 'Review auth flow',
+        terminalTitle: '/bin/zsh',
+      })
+    ).toBe('Review auth flow');
+  });
+
+  it('keeps meaningful terminal titles for hover copy', () => {
     expect(
       getSessionHoverTitle({
         name: 'Claude',
-        terminalTitle: 'npm run dev',
+        terminalTitle: 'Build dashboard',
       })
-    ).toBe('npm run dev');
+    ).toBe('Build dashboard');
   });
 
   it('falls back to the session name when the title is missing', () => {

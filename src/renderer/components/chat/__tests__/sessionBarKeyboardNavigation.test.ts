@@ -15,7 +15,7 @@ describe('SessionBar keyboard navigation', () => {
   });
 
   it('keeps only the active tab in the regular tab order', () => {
-    expect(sessionBarSource).toContain('tabIndex={isActive ? 0 : -1}');
+    expect(sessionBarSource).toContain('tabIndex: isActive ? 0 : -1');
   });
 
   it('links keyboard navigation to session ids and focus restoration', () => {

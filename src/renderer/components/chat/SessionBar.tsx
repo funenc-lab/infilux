@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { getActivityStateMeta } from '@/components/ui/activityStatus';
 import { GlowCard } from '@/components/ui/glow-card';
 import { toastManager } from '@/components/ui/toast';
@@ -297,6 +298,7 @@ function buildSessionPanelId(sessionId: string): string {
 const MAX_TAB_TEXT_WIDTH = 120;
 const SESSION_BAR_TAB_CLASS_NAME =
   'control-session-tab group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer';
+const SESSION_TAB_STATUS_INDICATOR_CLASS_NAME = 'relative z-10 rounded-[0.25rem]';
 const SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME = `${CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME} h-8 w-8 rounded-lg`;
 const SESSION_BAR_MENU_BUTTON_CLASS_NAME = `${CHAT_MENU_ICON_BUTTON_CLASS_NAME} rounded-lg`;
 const SESSION_BAR_COLLAPSED_BUTTON_CLASS_NAME = `${CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME} h-10 w-10 rounded-xl text-muted-foreground`;
@@ -383,7 +385,7 @@ function SessionTab({
     'data-active': isActive ? 'true' : 'false',
     className: cn(
       SESSION_BAR_TAB_CLASS_NAME,
-      isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+      isActive ? 'text-foreground' : 'text-foreground/80 hover:text-foreground',
       isDragging && 'opacity-50'
     ),
     draggable: true,
@@ -413,13 +415,21 @@ function SessionTab({
   const foregroundClassName = 'relative z-10';
   const tabContent = (
     <>
-      <span
-        className={cn(
-          foregroundClassName,
-          'h-1.5 w-1.5 shrink-0 rounded-full',
-          stateMeta.dotClassName
-        )}
-      />
+      {outputState === 'idle' ? (
+        <span
+          className={cn(
+            SESSION_TAB_STATUS_INDICATOR_CLASS_NAME,
+            'h-1.5 w-1.5 shrink-0',
+            stateMeta.dotClassName
+          )}
+        />
+      ) : (
+        <ActivityIndicator
+          state={outputState}
+          size="sm"
+          className={SESSION_TAB_STATUS_INDICATOR_CLASS_NAME}
+        />
+      )}
       {isEditing ? (
         <input
           ref={inputRef}

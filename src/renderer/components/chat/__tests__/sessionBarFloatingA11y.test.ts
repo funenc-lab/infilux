@@ -59,6 +59,12 @@ describe('SessionBar floating accessibility and structure', () => {
     );
   });
 
+  it('renders the session tab execution indicator through the shared animated primitive', () => {
+    expect(sessionBarSource).toContain("from '@/components/ui/activity-indicator'");
+    expect(sessionBarSource).toContain('<ActivityIndicator');
+    expect(sessionBarSource).toContain('state={outputState}');
+  });
+
   it('keeps session tab execution animation independent from the beta glow toggle', () => {
     expect(sessionBarSource).not.toContain('useGlowEffectEnabled');
   });
@@ -75,6 +81,13 @@ describe('SessionBar floating accessibility and structure', () => {
     expect(sessionBarSource).not.toContain('bg-accent/50');
     expect(sessionBarSource).not.toContain('border-primary/45');
     expect(sessionBarSource).not.toContain('control-panel-muted group flex h-8 items-center gap-2');
+  });
+
+  it('keeps inactive session tabs above the muted contrast floor', () => {
+    expect(sessionBarSource).toContain("isActive ? 'text-foreground' : 'text-foreground/80");
+    expect(sessionBarSource).not.toContain(
+      "isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'"
+    );
   });
 
   it('keeps a dedicated toolbar wrapper for the floating control surface', () => {

@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { forwardRef, type ReactNode } from 'react';
+import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -12,86 +12,26 @@ export function useGlowEffectEnabled(): boolean {
   return useSettingsStore((s) => s.glowEffectEnabled);
 }
 
-interface GlowCardProps {
+interface GlowCardProps extends HTMLAttributes<HTMLElement> {
   state: GlowState;
   children: ReactNode;
-  className?: string;
   as?: 'div' | 'button';
   animated?: boolean;
-  id?: string;
-  onClick?: () => void;
-  onDoubleClick?: (e: React.MouseEvent) => void;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  onKeyDown?: (e: React.KeyboardEvent) => void;
-  tabIndex?: number;
-  role?: string;
-  title?: string;
-  'aria-selected'?: boolean;
-  'aria-controls'?: string;
-  'aria-label'?: string;
-  draggable?: boolean;
-  onDragStart?: (e: React.DragEvent) => void;
-  onDragEnd?: (e: React.DragEvent) => void;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDragLeave?: (e: React.DragEvent) => void;
-  onDrop?: (e: React.DragEvent) => void;
 }
 
 /**
  * GlowCard keeps the legacy API but renders a quieter state treatment that
  * matches the console visual system.
  */
-export const GlowCard = forwardRef<HTMLDivElement, GlowCardProps>(
-  (
-    {
-      state,
-      children,
-      className,
-      as = 'div',
-      animated = false,
-      id,
-      onClick,
-      onDoubleClick,
-      onContextMenu,
-      onKeyDown,
-      tabIndex,
-      role,
-      title,
-      'aria-selected': ariaSelected,
-      'aria-controls': ariaControls,
-      'aria-label': ariaLabel,
-      draggable,
-      onDragStart,
-      onDragEnd,
-      onDragOver,
-      onDragLeave,
-      onDrop,
-    },
-    ref
-  ) => {
+export const GlowCard = forwardRef<HTMLElement, GlowCardProps>(
+  ({ state, children, className, as = 'div', animated = false, ...restProps }, ref) => {
     const Component = as === 'button' ? 'button' : 'div';
 
     return (
       <Component
         ref={ref as React.Ref<HTMLDivElement & HTMLButtonElement>}
-        id={id}
         className={cn('relative overflow-hidden', className)}
-        onClick={onClick}
-        onDoubleClick={onDoubleClick}
-        onContextMenu={onContextMenu}
-        onKeyDown={onKeyDown}
-        tabIndex={tabIndex}
-        role={role}
-        title={title}
-        aria-selected={ariaSelected}
-        aria-controls={ariaControls}
-        aria-label={ariaLabel}
-        draggable={draggable}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
+        {...restProps}
       >
         {/* Quiet state layer */}
         {state === 'running' && <RunningGlow animated={animated} />}
