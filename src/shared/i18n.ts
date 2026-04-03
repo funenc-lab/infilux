@@ -217,6 +217,7 @@ export const zhTranslations: Record<string, string> = {
   Copied: '已复制',
   'Copied to clipboard': '已复制到剪贴板',
   Copy: '复制',
+  'Copy latest output block': 'Copy latest output block',
   'Go to previous page': '转到上一页',
   Previous: '上一页',
   'Go to next page': '转到下一页',

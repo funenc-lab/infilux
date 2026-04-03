@@ -12,6 +12,12 @@ import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
 import {
+  buildTerminalSearchDecorations,
+  createEmptyTerminalSearchState,
+  createTerminalSearchState,
+  type TerminalSearchState,
+} from '@/lib/terminalSearchState';
+import {
   subscribeToXtermVisibilityChange,
   subscribeToXtermWindowFocus,
   subscribeToXtermWindowResize,
@@ -41,6 +47,28 @@ const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 // Maximum length for session name derived from terminal current line
 const SESSION_NAME_MAX_LENGTH = 36;
+
+interface InternalTerminalSearchDecorations {
+  matchBackground?: string;
+  matchBorder?: string;
+  matchOverviewRuler: string;
+  activeMatchBackground?: string;
+  activeMatchBorder?: string;
+  activeMatchColorOverviewRuler: string;
+}
+
+interface InternalTerminalSearchOptions {
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regex?: boolean;
+  incremental?: boolean;
+  decorations?: InternalTerminalSearchDecorations;
+}
+
+interface InternalTerminalSearchResultChange {
+  resultIndex: number;
+  resultCount: number;
+}
 
 export interface UseXtermOptions {
   backendSessionId?: string;
@@ -95,6 +123,7 @@ export interface UseXtermResult {
     term: string,
     options?: { caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean }
   ) => boolean;
+  searchState: TerminalSearchState;
   /** Clear search decorations */
   clearSearch: () => void;
   /** Clear terminal display */
@@ -209,6 +238,9 @@ export function useXterm({
   const [isLoading, setIsLoading] = useState(false);
   const [runtimeState, setRuntimeState] = useState<SessionRuntimeState>('live');
   const [wheelHandlerAttachmentEpoch, setWheelHandlerAttachmentEpoch] = useState(0);
+  const [searchState, setSearchState] = useState<TerminalSearchState>(
+    createEmptyTerminalSearchState()
+  );
   const runtimeStateRef = useRef<SessionRuntimeState>('live');
   runtimeStateRef.current = runtimeState;
   const initialCommandRef = useRef(initialCommand);
@@ -238,6 +270,22 @@ export function useXterm({
   const writeBufferRef = useRef('');
   const isFlushPendingRef = useRef(false);
   const wheelCarryRef = useRef(0);
+  const searchDecorations = useMemo(
+    () => buildTerminalSearchDecorations(settings.theme),
+    [settings.theme]
+  );
+
+  const buildSearchOptions = useCallback(
+    (options?: {
+      caseSensitive?: boolean;
+      wholeWord?: boolean;
+      regex?: boolean;
+    }): InternalTerminalSearchOptions => ({
+      ...options,
+      decorations: searchDecorations,
+    }),
+    [searchDecorations]
+  );
 
   const write = useCallback((data: string) => {
     if (ptyIdRef.current && runtimeStateRef.current === 'live') {
@@ -269,9 +317,9 @@ export function useXterm({
         regex?: boolean;
       }
     ) => {
-      return searchAddonRef.current?.findNext(term, options) ?? false;
+      return searchAddonRef.current?.findNext(term, buildSearchOptions(options)) ?? false;
     },
-    []
+    [buildSearchOptions]
   );
 
   const findPrevious = useCallback(
@@ -283,13 +331,14 @@ export function useXterm({
         regex?: boolean;
       }
     ) => {
-      return searchAddonRef.current?.findPrevious(term, options) ?? false;
+      return searchAddonRef.current?.findPrevious(term, buildSearchOptions(options)) ?? false;
     },
-    []
+    [buildSearchOptions]
   );
 
   const clearSearch = useCallback(() => {
     searchAddonRef.current?.clearDecorations();
+    setSearchState(createEmptyTerminalSearchState());
   }, []);
 
   const clear = useCallback(() => {
@@ -346,6 +395,7 @@ export function useXterm({
     deadRecoveryAttemptKeyRef.current = null;
     hasReceivedDataRef.current = false;
     wheelCarryRef.current = 0;
+    setSearchState(createEmptyTerminalSearchState());
     sessionEventsCleanupRef.current?.();
     sessionEventsCleanupRef.current = null;
     writeBufferRef.current = '';
@@ -577,6 +627,10 @@ export function useXterm({
         if (ptyIdRef.current && runtimeStateRef.current === 'live') {
           window.electronAPI.session.write(ptyIdRef.current, data);
         }
+      });
+
+      searchAddon.onDidChangeResults((result: InternalTerminalSearchResultChange) => {
+        setSearchState(createTerminalSearchState(result));
       });
 
       terminalRef.current = terminal;
@@ -1189,6 +1243,7 @@ export function useXterm({
     terminal: terminalRef.current,
     findNext,
     findPrevious,
+    searchState,
     clearSearch,
     clear,
     refreshRenderer,

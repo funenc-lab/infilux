@@ -56,6 +56,7 @@ export function ShellTerminal({
     settings,
     findNext,
     findPrevious,
+    searchState,
     clearSearch,
     terminal,
     clear,
@@ -179,6 +180,7 @@ export function ShellTerminal({
         onFindNext={findNext}
         onFindPrevious={findPrevious}
         onClearSearch={clearSearch}
+        searchState={searchState}
         theme={settings.theme}
       />
       {showScrollToBottom && (

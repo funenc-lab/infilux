@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { getTerminalSearchStatusLabel, type TerminalSearchState } from '@/lib/terminalSearchState';
 import { cn } from '@/lib/utils';
 
 interface SearchOptions {
@@ -14,6 +15,7 @@ interface TerminalSearchBarProps {
   onFindNext: (term: string, options?: SearchOptions) => boolean;
   onFindPrevious: (term: string, options?: SearchOptions) => boolean;
   onClearSearch: () => void;
+  searchState: TerminalSearchState;
   theme?: {
     background?: string;
     foreground?: string;
@@ -26,7 +28,7 @@ export interface TerminalSearchBarRef {
 
 export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearchBarProps>(
   function TerminalSearchBar(
-    { isOpen, onClose, onFindNext, onFindPrevious, onClearSearch, theme },
+    { isOpen, onClose, onFindNext, onFindPrevious, onClearSearch, searchState, theme },
     ref
   ) {
     const inputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +36,6 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
     const [caseSensitive, setCaseSensitive] = useState(false);
     const [wholeWord, setWholeWord] = useState(false);
     const [regex, setRegex] = useState(false);
-    const [hasResults, setHasResults] = useState<boolean | null>(null);
 
     // Expose focus method to parent
     useImperativeHandle(ref, () => ({
@@ -56,22 +57,20 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
     useEffect(() => {
       if (!isOpen) {
         onClearSearch();
-        setHasResults(null);
       }
     }, [isOpen, onClearSearch]);
 
     const handleSearch = useCallback(
       (direction: 'next' | 'prev') => {
         if (!searchTerm) {
-          setHasResults(null);
           return;
         }
         const options = { caseSensitive, wholeWord, regex };
-        const found =
-          direction === 'next'
-            ? onFindNext(searchTerm, options)
-            : onFindPrevious(searchTerm, options);
-        setHasResults(found);
+        if (direction === 'next') {
+          onFindNext(searchTerm, options);
+          return;
+        }
+        onFindPrevious(searchTerm, options);
       },
       [searchTerm, caseSensitive, wholeWord, regex, onFindNext, onFindPrevious]
     );
@@ -94,11 +93,9 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
         const value = e.target.value;
         setSearchTerm(value);
         if (value) {
-          const found = onFindNext(value, { caseSensitive, wholeWord, regex });
-          setHasResults(found);
+          onFindNext(value, { caseSensitive, wholeWord, regex });
         } else {
           onClearSearch();
-          setHasResults(null);
         }
       },
       [caseSensitive, wholeWord, regex, onFindNext, onClearSearch]
@@ -111,6 +108,8 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
     const borderColor = `color-mix(in oklab, ${fgColor} 22%, transparent)`;
     const activeToggleBackground = `color-mix(in oklab, ${fgColor} 16%, transparent)`;
     const activeToggleColor = `color-mix(in oklab, ${fgColor} 92%, var(--foreground) 8%)`;
+    const searchStatusLabel = getTerminalSearchStatusLabel(searchTerm, searchState);
+    const hasNoResults = Boolean(searchTerm.trim()) && searchStatusLabel === '0';
 
     return (
       <div
@@ -130,9 +129,17 @@ export const TerminalSearchBar = forwardRef<TerminalSearchBarRef, TerminalSearch
           placeholder="Search..."
           className="w-40 bg-transparent text-sm outline-none placeholder:opacity-50"
           style={{
-            color: hasResults === false && searchTerm ? 'var(--destructive)' : fgColor,
+            color: hasNoResults ? 'var(--destructive)' : fgColor,
           }}
         />
+        {searchStatusLabel && (
+          <span
+            className="min-w-8 text-right text-[11px] tabular-nums opacity-70"
+            style={{ color: hasNoResults ? 'var(--destructive)' : fgColor }}
+          >
+            {searchStatusLabel}
+          </span>
+        )}
 
         {/* Case sensitive toggle */}
         <button

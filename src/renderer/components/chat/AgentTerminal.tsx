@@ -18,6 +18,8 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { buildAgentLaunchPlan } from './agentLaunchPlan';
+import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
+import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
 
 interface AgentTerminalProps {
@@ -217,6 +219,9 @@ export function AgentTerminal({
     };
   }, [agentCommand, cwd, isRemoteExecution]);
   const outputBufferRef = useRef('');
+  const currentOutputBlockRef = useRef('');
+  const latestCompletedOutputBlockRef = useRef('');
+  const previousOutputBlockScopeKeyRef = useRef<string | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const hasInitializedRef = useRef(false);
   const hasActivatedRef = useRef(false);
@@ -292,6 +297,13 @@ export function AgentTerminal({
     },
     [terminalSessionId, setOutputState, agentId, claudeCodeIntegration, onEnhancedInputOpenChange]
   );
+
+  const getLatestCopyableOutputBlock = useCallback(() => {
+    return (
+      resolveCopyableAgentOutputBlock(currentOutputBlockRef.current) ??
+      resolveCopyableAgentOutputBlock(latestCompletedOutputBlockRef.current)
+    );
+  }, []);
 
   // Mark session as active when user is viewing it
   useEffect(() => {
@@ -458,6 +470,7 @@ export function AgentTerminal({
       if (outputBufferRef.current.length > 1000) {
         outputBufferRef.current = outputBufferRef.current.slice(-500);
       }
+      currentOutputBlockRef.current = appendRecentAgentOutput(currentOutputBlockRef.current, data);
 
       if (
         claudeWorkspaceTrusted === true &&
@@ -592,6 +605,12 @@ export function AgentTerminal({
         !event.altKey &&
         !event.isComposing
       ) {
+        const completedOutputBlock = resolveCopyableAgentOutputBlock(currentOutputBlockRef.current);
+        if (completedOutputBlock) {
+          latestCompletedOutputBlockRef.current = currentOutputBlockRef.current;
+        }
+        currentOutputBlockRef.current = '';
+
         // First Enter activates the session; optionally pass current line for session name.
         if (!hasActivatedRef.current && !activated) {
           hasActivatedRef.current = true;
@@ -739,6 +758,7 @@ export function AgentTerminal({
     settings,
     findNext,
     findPrevious,
+    searchState,
     clearSearch,
     terminal,
     clear,
@@ -816,6 +836,17 @@ export function AgentTerminal({
     return () => unregister(terminalSessionId);
   }, [terminalSessionId, write, terminal, register, unregister]);
 
+  useEffect(() => {
+    const nextOutputBlockScopeKey = backendSessionId ?? terminalSessionId ?? '';
+    if (previousOutputBlockScopeKeyRef.current === nextOutputBlockScopeKey) {
+      return;
+    }
+
+    previousOutputBlockScopeKeyRef.current = nextOutputBlockScopeKey;
+    currentOutputBlockRef.current = '';
+    latestCompletedOutputBlockRef.current = '';
+  }, [backendSessionId, terminalSessionId]);
+
   // Handle Cmd+F / Ctrl+F
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -837,18 +868,13 @@ export function AgentTerminal({
     async (e: MouseEvent) => {
       e.preventDefault();
       onFocus?.();
-
-      const menuItems = [
-        { id: 'split', label: t('Split Agent') },
-        ...(canMerge ? [{ id: 'merge', label: t('Merge Agent') }] : []),
-        { id: 'separator-0', label: '', type: 'separator' as const },
-        { id: 'clear', label: t('Clear terminal') },
-        { id: 'refresh', label: t('Refresh terminal') },
-        { id: 'separator-1', label: '', type: 'separator' as const },
-        { id: 'copy', label: t('Copy'), disabled: !terminal?.hasSelection() },
-        { id: 'paste', label: t('Paste') },
-        { id: 'selectAll', label: t('Select all') },
-      ];
+      const latestOutputBlock = getLatestCopyableOutputBlock();
+      const menuItems = buildAgentTerminalContextMenuItems({
+        canMerge,
+        hasSelection: terminal?.hasSelection() ?? false,
+        hasLatestOutputBlock: Boolean(latestOutputBlock),
+        t,
+      });
 
       const selectedId = await window.electronAPI.contextMenu.show(menuItems);
 
@@ -863,6 +889,8 @@ export function AgentTerminal({
           break;
         case 'clear':
           clear();
+          currentOutputBlockRef.current = '';
+          latestCompletedOutputBlockRef.current = '';
           break;
         case 'refresh':
           refreshRenderer();
@@ -871,6 +899,11 @@ export function AgentTerminal({
           if (terminal?.hasSelection()) {
             const selection = terminal.getSelection();
             navigator.clipboard.writeText(selection);
+          }
+          break;
+        case 'copyLatestOutputBlock':
+          if (latestOutputBlock) {
+            navigator.clipboard.writeText(latestOutputBlock);
           }
           break;
         case 'paste':
@@ -883,7 +916,17 @@ export function AgentTerminal({
           break;
       }
     },
-    [terminal, clear, refreshRenderer, t, onSplit, canMerge, onMerge, onFocus]
+    [
+      terminal,
+      clear,
+      refreshRenderer,
+      t,
+      onSplit,
+      canMerge,
+      onMerge,
+      onFocus,
+      getLatestCopyableOutputBlock,
+    ]
   );
 
   useEffect(() => {
@@ -990,6 +1033,7 @@ export function AgentTerminal({
         onFindNext={findNext}
         onFindPrevious={findPrevious}
         onClearSearch={clearSearch}
+        searchState={searchState}
         theme={settings.theme}
       />
       {showScrollToBottom && (
