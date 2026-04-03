@@ -2,7 +2,6 @@ import { getDisplayPathBasename } from '@shared/utils/path';
 import { buildRepositoryId } from '@shared/utils/workspace';
 import { useCallback, useEffect, useState } from 'react';
 import { normalizeHexColor } from '@/lib/colors';
-import { resolveActiveGroupId } from './activeGroupPolicy';
 import {
   ALL_GROUP_ID,
   DEFAULT_GROUP_COLOR,
@@ -20,6 +19,7 @@ import {
   saveActiveGroupId,
   saveGroups,
 } from '../storage';
+import { resolveActiveGroupId } from './activeGroupPolicy';
 
 export function useRepositoryState() {
   const [repositories, setRepositories] = useState<Repository[]>([]);
