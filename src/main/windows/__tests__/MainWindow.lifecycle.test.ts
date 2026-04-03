@@ -36,6 +36,11 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
   const buildFromTemplate = vi.fn(() => ({
     popup: menuPopup,
   }));
+  const logInfo = vi.fn();
+  const logWarn = vi.fn();
+  const logError = vi.fn();
+  const loadUrlImpl = vi.fn(async (_url?: string, _options?: Record<string, unknown>) => undefined);
+  const clearCache = vi.fn(async () => undefined);
   const is = {
     dev: false,
   };
@@ -88,7 +93,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
       }),
       isDestroyed: vi.fn(() => this.webContentsDestroyed),
       session: {
-        clearCache: vi.fn(async () => undefined),
+        clearCache,
       },
     };
 
@@ -160,7 +165,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
       this.addHandler(this.windowHandlers, event, handler, false);
     });
 
-    loadURL = vi.fn();
+    loadURL = vi.fn((url: string, options?: Record<string, unknown>) => loadUrlImpl(url, options));
     loadFile = vi.fn();
 
     isDestroyed() {
@@ -241,6 +246,11 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     readSharedSettings.mockReset();
     buildFromTemplate.mockClear();
     menuPopup.mockClear();
+    logInfo.mockReset();
+    logWarn.mockReset();
+    logError.mockReset();
+    loadUrlImpl.mockReset();
+    clearCache.mockReset();
     is.dev = false;
 
     existsSync.mockReturnValue(false);
@@ -254,6 +264,8 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     detachWindowSessions.mockResolvedValue(undefined);
     isQuittingForUpdate.mockReturnValue(false);
     readSharedSettings.mockReturnValue({});
+    loadUrlImpl.mockResolvedValue(undefined);
+    clearCache.mockResolvedValue(undefined);
   }
 
   return {
@@ -303,6 +315,11 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     dockSetIcon,
     buildFromTemplate,
     menuPopup,
+    logInfo,
+    logWarn,
+    logError,
+    loadUrlImpl,
+    clearCache,
     emitIpc,
     getBrowserWindowOptions: () => browserWindowOptions,
     getLastWindow: () => lastWindow,
@@ -361,6 +378,14 @@ vi.mock('../../services/updater/AutoUpdater', () => ({
 
 vi.mock('../../services/SharedSessionState', () => ({
   readSharedSettings: mainWindowLifecycleDoubles.readSharedSettings,
+}));
+
+vi.mock('../../utils/logger', () => ({
+  default: {
+    info: mainWindowLifecycleDoubles.logInfo,
+    warn: mainWindowLifecycleDoubles.logWarn,
+    error: mainWindowLifecycleDoubles.logError,
+  },
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -697,6 +722,89 @@ describe('MainWindow lifecycle', () => {
     expect(win.show).toHaveBeenCalledTimes(1);
   });
 
+  it('re-centers an offscreen window when the show event fires', async () => {
+    setPlatform('darwin');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.setBounds({
+      width: 200,
+      height: 163,
+      x: -271,
+      y: 505,
+    });
+    win.setBounds.mockClear();
+
+    win.emit('show');
+
+    expect(win.setBounds).toHaveBeenCalledWith({
+      width: 685,
+      height: 600,
+      x: 0,
+      y: 382,
+    });
+  });
+
+  it('skips visibility correction events after the window is destroyed', async () => {
+    setPlatform('darwin');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.destroyed = true;
+    win.setBounds.mockClear();
+
+    win.emit('show');
+
+    expect(win.setBounds).not.toHaveBeenCalled();
+  });
+
+  it('re-centers an offscreen window when move and resize events fire', async () => {
+    setPlatform('darwin');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.setBounds({
+      width: 200,
+      height: 163,
+      x: -271,
+      y: 505,
+    });
+    win.setBounds.mockClear();
+
+    win.emit('move');
+    expect(win.setBounds).toHaveBeenCalledWith({
+      width: 685,
+      height: 600,
+      x: 0,
+      y: 382,
+    });
+
+    win.setBounds({
+      width: 200,
+      height: 163,
+      x: -271,
+      y: 505,
+    });
+    win.setBounds.mockClear();
+
+    win.emit('resize');
+    expect(win.setBounds).toHaveBeenCalledWith({
+      width: 685,
+      height: 600,
+      x: 0,
+      y: 382,
+    });
+  });
+
   it('reveals the window after a timeout if renderer readiness events never fire', async () => {
     vi.useFakeTimers();
     setPlatform('darwin');
@@ -721,6 +829,112 @@ describe('MainWindow lifecycle', () => {
       windowId: win.id,
       timeoutMs: 3000,
     });
+  });
+
+  it('forces a confirmed quit-app close after renderer approval', async () => {
+    setPlatform('win32');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    const closeEvent = { preventDefault: vi.fn() };
+    win.emit('close', closeEvent);
+
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(win.webContents.send).toHaveBeenCalledWith(IPC_CHANNELS.APP_CLOSE_REQUEST, {
+      requestId: 'uuid-1',
+      reason: 'quit-app',
+    });
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1',
+      { confirmed: true, dirtyPaths: [] }
+    );
+    await flushPromises();
+
+    expect(win.hide).toHaveBeenCalledTimes(1);
+    expect(win.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not force-close again after confirmation if the window was destroyed meanwhile', async () => {
+    setPlatform('win32');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    const closeEvent = { preventDefault: vi.fn() };
+    win.emit('close', closeEvent);
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
+
+    win.destroyed = true;
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1',
+      { confirmed: true, dirtyPaths: [] }
+    );
+    await flushPromises();
+
+    expect(win.hide).not.toHaveBeenCalled();
+    expect(win.close).not.toHaveBeenCalled();
+  });
+
+  it('swallows window state persistence errors during a forced close', async () => {
+    setPlatform('win32');
+    mainWindowLifecycleDoubles.writeFileSync.mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+
+    const { createMainWindow, forceReplaceClose } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    forceReplaceClose(win as never);
+
+    const closeEvent = { preventDefault: vi.fn() };
+    expect(() => win.emit('close', closeEvent)).not.toThrow();
+    expect(closeEvent.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('ignores additional close requests while a close flow is already in progress', async () => {
+    setPlatform('win32');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    const firstCloseEvent = { preventDefault: vi.fn() };
+    const secondCloseEvent = { preventDefault: vi.fn() };
+
+    win.emit('close', firstCloseEvent);
+    win.emit('close', secondCloseEvent);
+
+    expect(firstCloseEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(secondCloseEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(
+      win.webContents.send.mock.calls.filter(
+        ([channel]) => channel === IPC_CHANNELS.APP_CLOSE_REQUEST
+      )
+    ).toHaveLength(1);
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1',
+      { confirmed: false, dirtyPaths: [] }
+    );
+    await flushPromises();
+
+    expect(win.hide).not.toHaveBeenCalled();
+    expect(win.close).not.toHaveBeenCalled();
   });
 
   it('blocks close when renderer cancels or save fails, and skips confirmation during updater quit', async () => {
@@ -786,5 +1000,323 @@ describe('MainWindow lifecycle', () => {
     win.emit('close', updaterCloseEvent);
     expect(updaterCloseEvent.preventDefault).not.toHaveBeenCalled();
     expect(mainWindowLifecycleDoubles.writeFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels replacement close when the dirty-file prompt is dismissed', async () => {
+    setPlatform('win32');
+    mainWindowLifecycleDoubles.dialog.showMessageBox.mockResolvedValue({ response: 2 });
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    const confirmPromise = confirmWindowReplace(win as never);
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1',
+      { confirmed: true, dirtyPaths: ['/tmp/example.ts'] }
+    );
+    await flushPromises();
+
+    await expect(confirmPromise).resolves.toBe(false);
+    expect(
+      win.webContents.send.mock.calls.filter(
+        ([channel]) => channel === IPC_CHANNELS.APP_CLOSE_SAVE_REQUEST
+      )
+    ).toHaveLength(0);
+  });
+
+  it('falls back to the full dirty path when a filename cannot be derived', async () => {
+    setPlatform('win32');
+    mainWindowLifecycleDoubles.translate.mockImplementation(
+      (locale: string, key: string, params?: Record<string, unknown>) =>
+        params ? `${locale}:${key}:${JSON.stringify(params)}` : `${locale}:${key}`
+    );
+    mainWindowLifecycleDoubles.dialog.showMessageBox.mockResolvedValue({ response: 2 });
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    const confirmPromise = confirmWindowReplace(win as never);
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1',
+      { confirmed: true, dirtyPaths: ['/tmp/'] }
+    );
+    await flushPromises();
+
+    await expect(confirmPromise).resolves.toBe(false);
+    expect(mainWindowLifecycleDoubles.dialog.showMessageBox).toHaveBeenCalledWith(
+      win,
+      expect.objectContaining({
+        message: 'en:Do you want to save the changes you made to {{file}}?:{"file":"/tmp/"}',
+      })
+    );
+  });
+
+  it('logs dev renderer URL load failures', async () => {
+    setPlatform('linux');
+    mainWindowLifecycleDoubles.is.dev = true;
+    process.env.ELECTRON_RENDERER_URL = 'http://127.0.0.1:5173';
+    const loadError = new Error('renderer load failed');
+    mainWindowLifecycleDoubles.loadUrlImpl.mockRejectedValueOnce(loadError);
+
+    const { createMainWindow } = await import('../MainWindow');
+    createMainWindow();
+    await flushPromises();
+
+    expect(mainWindowLifecycleDoubles.logError).toHaveBeenCalledWith(
+      '[window] Failed to load renderer URL',
+      {
+        windowId: 101,
+        url: 'http://127.0.0.1:5173',
+        error: loadError,
+      }
+    );
+  });
+
+  it('appends bootstrap theme query data to the dev renderer URL and warns when cache clearing fails', async () => {
+    setPlatform('linux');
+    mainWindowLifecycleDoubles.is.dev = true;
+    process.env.ELECTRON_RENDERER_URL = 'http://127.0.0.1:5173/?foo=bar';
+    mainWindowLifecycleDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'light',
+          terminalTheme: 'Dracula',
+        },
+      },
+    });
+    const cacheError = new Error('cache clear failed');
+    mainWindowLifecycleDoubles.clearCache.mockRejectedValueOnce(cacheError);
+
+    const { createMainWindow } = await import('../MainWindow');
+    createMainWindow();
+    await flushPromises();
+
+    expect(mainWindowLifecycleDoubles.logWarn).toHaveBeenCalledWith(
+      '[window] Failed to clear dev renderer cache before loading URL',
+      {
+        windowId: 101,
+        url: 'http://127.0.0.1:5173/?foo=bar',
+        error: cacheError,
+      }
+    );
+    expect(mainWindowLifecycleDoubles.loadUrlImpl).toHaveBeenCalledWith(
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:5173\/\?foo=bar&infiluxBootstrapTheme=/),
+      {
+        extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
+      }
+    );
+  });
+
+  it('ignores mismatched save responses and falls back to the unknown save error detail', async () => {
+    setPlatform('win32');
+    mainWindowLifecycleDoubles.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 });
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    let settled = false;
+    const confirmPromise = confirmWindowReplace(win as never).finally(() => {
+      settled = true;
+    });
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1',
+      { confirmed: true, dirtyPaths: ['/tmp/example.ts'] }
+    );
+    await flushPromises();
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_SAVE_RESPONSE,
+      { sender: {} },
+      'uuid-1:/tmp/example.ts',
+      { ok: false }
+    );
+    await flushPromises();
+    expect(settled).toBe(false);
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_SAVE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1:/tmp/other.ts',
+      { ok: false }
+    );
+    await flushPromises();
+    expect(settled).toBe(false);
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_SAVE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1:/tmp/example.ts',
+      { ok: false }
+    );
+
+    await expect(confirmPromise).resolves.toBe(false);
+    expect(mainWindowLifecycleDoubles.dialog.showMessageBox).toHaveBeenLastCalledWith(
+      win,
+      expect.objectContaining({
+        type: 'error',
+        detail: 'en:Unknown error',
+      })
+    );
+  });
+
+  it('ignores mismatched close responses and defaults missing dirty paths to an empty list', async () => {
+    setPlatform('win32');
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    let settled = false;
+    const confirmPromise = confirmWindowReplace(win as never).finally(() => {
+      settled = true;
+    });
+
+    mainWindowLifecycleDoubles.emitIpc(IPC_CHANNELS.APP_CLOSE_RESPONSE, { sender: {} }, 'uuid-1', {
+      confirmed: true,
+      dirtyPaths: [],
+    });
+    await flushPromises();
+    expect(settled).toBe(false);
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-2',
+      { confirmed: true, dirtyPaths: [] }
+    );
+    await flushPromises();
+    expect(settled).toBe(false);
+
+    mainWindowLifecycleDoubles.emitIpc(
+      IPC_CHANNELS.APP_CLOSE_RESPONSE,
+      { sender: win.webContents },
+      'uuid-1',
+      { confirmed: true, dirtyPaths: undefined as unknown as string[] }
+    );
+
+    await expect(confirmPromise).resolves.toBe(true);
+  });
+
+  it('returns false when replacement confirmation starts after the webContents is destroyed', async () => {
+    setPlatform('win32');
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.webContentsDestroyed = true;
+
+    await expect(confirmWindowReplace(win as never)).resolves.toBe(false);
+    expect(
+      win.webContents.send.mock.calls.filter(
+        ([channel]) => channel === IPC_CHANNELS.APP_CLOSE_REQUEST
+      )
+    ).toHaveLength(0);
+  });
+
+  it('returns false when replacement confirmation starts after the window is destroyed', async () => {
+    setPlatform('win32');
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.destroyed = true;
+
+    await expect(confirmWindowReplace(win as never)).resolves.toBe(false);
+    expect(
+      win.webContents.send.mock.calls.filter(
+        ([channel]) => channel === IPC_CHANNELS.APP_CLOSE_REQUEST
+      )
+    ).toHaveLength(0);
+  });
+
+  it('ignores forced replacement close requests after the window is destroyed', async () => {
+    setPlatform('win32');
+
+    const { createMainWindow, forceReplaceClose } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.destroyed = true;
+    forceReplaceClose(win as never);
+
+    expect(win.hide).not.toHaveBeenCalled();
+    expect(win.close).not.toHaveBeenCalled();
+  });
+
+  it('tolerates webContents listener cleanup failures while awaiting replacement confirmation', async () => {
+    setPlatform('win32');
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+    win.webContents.removeListener.mockImplementationOnce(() => {
+      throw new Error('listener cleanup failed');
+    });
+
+    const confirmPromise = confirmWindowReplace(win as never);
+    win.emit('closed');
+
+    await expect(confirmPromise).resolves.toBe(false);
+  });
+
+  it('ignores duplicate window-gone notifications after replacement confirmation has already settled', async () => {
+    setPlatform('win32');
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    const confirmPromise = confirmWindowReplace(win as never);
+
+    const closedHandler = win.once.mock.calls.filter(([event]) => event === 'closed').at(-1)?.[1] as
+      | (() => void)
+      | undefined;
+
+    expect(closedHandler).toBeTypeOf('function');
+
+    closedHandler?.();
+    closedHandler?.();
+
+    await expect(confirmPromise).resolves.toBe(false);
+  });
+
+  it('returns true immediately when updater shutdown bypasses replacement confirmation', async () => {
+    setPlatform('win32');
+    mainWindowLifecycleDoubles.isQuittingForUpdate.mockReturnValue(true);
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    await expect(confirmWindowReplace(win as never)).resolves.toBe(true);
+    expect(
+      win.webContents.send.mock.calls.filter(
+        ([channel]) => channel === IPC_CHANNELS.APP_CLOSE_REQUEST
+      )
+    ).toHaveLength(0);
   });
 });

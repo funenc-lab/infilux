@@ -10,6 +10,9 @@ type ProtocolHandler = (request: {
     get: (name: string) => string | null;
   };
 }) => Promise<Response> | Response;
+type ProcessWithRawDebug = NodeJS.Process & {
+  _rawDebug?: (message: string) => void;
+};
 
 type MockWindow = ReturnType<typeof mainIndexTestDoubles.createWindow>;
 
@@ -26,6 +29,9 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   let windows: MockWindow[] = [];
   let focusedWindow: MockWindow | null = null;
   let nextOpenWindow: MockWindow | null = null;
+  let nextWindowId = 1;
+  let nextWebContentsId = 100;
+  let appIsPackaged = false;
 
   const setAppUserModelId = vi.fn();
   const watchWindowShortcuts = vi.fn();
@@ -60,6 +66,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const ipcHandle = vi.fn();
   const setApplicationMenu = vi.fn();
   const netFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+  const appendFileSync = vi.fn();
   const createReadStream = vi.fn(() => ({
     on: vi.fn((event: string, listener: Listener) => {
       readStreamListeners.set(event, listener);
@@ -80,6 +87,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     isDirectory: () => false,
     size: 64,
   }));
+  const writeFileSync = vi.fn();
   const shellEnvSync = vi.fn(() => ({
     SHELL_ENV_READY: '1',
   }));
@@ -102,6 +110,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const setCurrentLocale = vi.fn();
   const buildAppMenu = vi.fn(() => ({ label: 'menu' }));
   const getSharedStatePaths = vi.fn(() => ({ settingsPath: '/shared/settings.json' }));
+  const getSharedRootPath = vi.fn(() => '/shared');
   const isLegacySettingsMigrated = vi.fn(() => true);
   const isLegacyTodoMigrated = vi.fn(() => true);
   const markLegacySettingsMigrated = vi.fn();
@@ -128,6 +137,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const logInfo = vi.fn();
   const initLogger = vi.fn();
   const autoUpdaterInit = vi.fn();
+  const persistentAgentSessionRepositoryInitialize = vi.fn(async () => undefined);
   const customProtocolUriToPath = vi.fn((_url: string) => '/mock/image.png');
   const trayInit = vi.fn();
   const trayRefreshMenu = vi.fn();
@@ -183,57 +193,182 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     return database;
   });
 
-  function createWindow(options?: { loading?: boolean; minimized?: boolean; zoomLevel?: number }) {
-    const listeners = new Map<string, Listener[]>();
-    const onceListeners = new Map<string, Listener>();
+  function appendListener(map: Map<string, Listener[]>, event: string, listener: Listener): void {
+    const current = map.get(event) ?? [];
+    current.push(listener);
+    map.set(event, current);
+  }
+
+  function removeRegisteredListener(
+    map: Map<string, Listener[]>,
+    event: string,
+    listener: Listener
+  ): void {
+    const current = map.get(event) ?? [];
+    map.set(
+      event,
+      current.filter((candidate) => candidate !== listener)
+    );
+  }
+
+  function createMockImage(label: string = 'image') {
+    return {
+      toPNG: vi.fn(() => Buffer.from(label)),
+      getSize: vi.fn(() => ({
+        width: 1200,
+        height: 800,
+      })),
+      crop: vi.fn(
+        ({ x, y, width, height }: { x: number; y: number; width: number; height: number }) =>
+          createMockImage(`${label}:${x},${y},${width},${height}`)
+      ),
+    };
+  }
+
+  function emitRegisteredListeners(
+    listeners: Map<string, Listener[]>,
+    onceListeners: Map<string, Listener[]>,
+    event: string,
+    args: unknown[]
+  ): void {
+    const pendingOnceListeners = [...(onceListeners.get(event) ?? [])];
+    if (pendingOnceListeners.length > 0) {
+      onceListeners.delete(event);
+      for (const listener of pendingOnceListeners) {
+        listener(...args);
+      }
+    }
+
+    for (const listener of listeners.get(event) ?? []) {
+      listener(...args);
+    }
+  }
+
+  function createWindow(options?: {
+    focused?: boolean;
+    loading?: boolean;
+    minimized?: boolean;
+    url?: string;
+    visible?: boolean;
+    zoomLevel?: number;
+  }) {
+    const windowListeners = new Map<string, Listener[]>();
+    const windowOnceListeners = new Map<string, Listener[]>();
+    const webContentsListeners = new Map<string, Listener[]>();
+    const webContentsOnceListeners = new Map<string, Listener[]>();
+    const requestErrorListeners: Listener[] = [];
+    const windowId = nextWindowId;
+    const webContentsId = nextWebContentsId;
+    nextWindowId += 1;
+    nextWebContentsId += 1;
+
+    let destroyed = false;
     let loading = options?.loading ?? false;
     let minimized = options?.minimized ?? false;
+    let url = options?.url ?? 'http://localhost:5173/';
+    let visible = options?.visible ?? true;
+    let focused = options?.focused ?? true;
     let zoomLevel = options?.zoomLevel ?? 0;
 
-    return {
-      focus: vi.fn(),
+    const window = {
+      id: windowId,
+      focus: vi.fn(() => {
+        focused = true;
+        focusedWindow = window;
+      }),
+      isDestroyed: vi.fn(() => destroyed),
+      isFocused: vi.fn(() => focused),
       isMinimized: vi.fn(() => minimized),
+      isVisible: vi.fn(() => visible),
+      getContentBounds: vi.fn(() => ({
+        x: 0,
+        y: 0,
+        width: 1200,
+        height: 800,
+      })),
+      on: vi.fn((event: string, listener: Listener) => {
+        appendListener(windowListeners, event, listener);
+      }),
+      once: vi.fn((event: string, listener: Listener) => {
+        appendListener(windowOnceListeners, event, listener);
+      }),
+      removeListener: vi.fn((event: string, listener: Listener) => {
+        removeRegisteredListener(windowListeners, event, listener);
+        removeRegisteredListener(windowOnceListeners, event, listener);
+      }),
       restore: vi.fn(() => {
         minimized = false;
       }),
       webContents: {
-        isLoading: vi.fn(() => loading),
-        send: vi.fn(),
-        once: vi.fn((event: string, listener: Listener) => {
-          onceListeners.set(event, listener);
-        }),
-        on: vi.fn((event: string, listener: Listener) => {
-          const current = listeners.get(event) ?? [];
-          current.push(listener);
-          listeners.set(event, current);
-        }),
-        listeners: vi.fn((event: string) => listeners.get(event) ?? []),
-        removeListener: vi.fn((event: string, listener: Listener) => {
-          const current = listeners.get(event) ?? [];
-          listeners.set(
-            event,
-            current.filter((candidate) => candidate !== listener)
-          );
-        }),
+        id: webContentsId,
+        capturePage: vi.fn(async () => createMockImage('capture-page')),
+        executeJavaScript: vi.fn<() => Promise<Record<string, unknown>>>(async () => ({
+          worktreeProbe: {
+            nodeFound: false,
+          },
+        })),
+        getURL: vi.fn(() => url),
         getZoomLevel: vi.fn(() => zoomLevel),
+        isDestroyed: vi.fn(() => destroyed),
+        isLoading: vi.fn(() => loading),
+        listeners: vi.fn((event: string) => webContentsListeners.get(event) ?? []),
+        on: vi.fn((event: string, listener: Listener) => {
+          appendListener(webContentsListeners, event, listener);
+        }),
+        once: vi.fn((event: string, listener: Listener) => {
+          appendListener(webContentsOnceListeners, event, listener);
+        }),
+        reload: vi.fn(),
+        removeListener: vi.fn((event: string, listener: Listener) => {
+          removeRegisteredListener(webContentsListeners, event, listener);
+          removeRegisteredListener(webContentsOnceListeners, event, listener);
+        }),
+        send: vi.fn(),
+        session: {
+          webRequest: {
+            onErrorOccurred: vi.fn((_filter: { urls: string[] }, listener: Listener) => {
+              requestErrorListeners.push(listener);
+            }),
+          },
+        },
         setZoomLevel: vi.fn((value: number) => {
           zoomLevel = value;
         }),
       },
+      emitRequestError(details: {
+        error: string;
+        resourceType: string;
+        url: string;
+        webContentsId: number;
+      }) {
+        for (const listener of requestErrorListeners) {
+          listener(details);
+        }
+      },
       emitWebContentsEvent(event: string, ...args: unknown[]) {
-        const onceListener = onceListeners.get(event);
-        if (onceListener) {
-          onceListeners.delete(event);
-          onceListener(...args);
+        emitRegisteredListeners(webContentsListeners, webContentsOnceListeners, event, args);
+      },
+      emitWindowEvent(event: string, ...args: unknown[]) {
+        if (event === 'closed') {
+          destroyed = true;
         }
-        for (const listener of listeners.get(event) ?? []) {
-          listener(...args);
-        }
+        emitRegisteredListeners(windowListeners, windowOnceListeners, event, args);
+      },
+      setFocused(value: boolean) {
+        focused = value;
       },
       setLoading(value: boolean) {
         loading = value;
       },
+      setUrl(value: string) {
+        url = value;
+      },
+      setVisible(value: boolean) {
+        visible = value;
+      },
     };
+
+    return window;
   }
 
   function reset() {
@@ -247,6 +382,9 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     windows = [];
     focusedWindow = null;
     nextOpenWindow = null;
+    nextWindowId = 1;
+    nextWebContentsId = 100;
+    appIsPackaged = false;
     ready = false;
     readyPromise = new Promise<void>((resolve) => {
       resolveReady = () => {
@@ -276,11 +414,13 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       ipcHandle,
       setApplicationMenu,
       netFetch,
+      appendFileSync,
       createReadStream,
       mkdirSync,
       existsSync,
       readFileSync,
       statSync,
+      writeFileSync,
       shellEnvSync,
       autoStartHapi,
       cleanupAllResources,
@@ -301,6 +441,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       setCurrentLocale,
       buildAppMenu,
       getSharedStatePaths,
+      getSharedRootPath,
       isLegacySettingsMigrated,
       isLegacyTodoMigrated,
       markLegacySettingsMigrated,
@@ -317,6 +458,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       logInfo,
       initLogger,
       autoUpdaterInit,
+      persistentAgentSessionRepositoryInitialize,
       customProtocolUriToPath,
       trayInit,
       trayRefreshMenu,
@@ -341,6 +483,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     isReady.mockImplementation(() => ready);
     whenReady.mockImplementation(() => readyPromise);
     netFetch.mockImplementation(async () => new Response('ok', { status: 200 }));
+    appendFileSync.mockReset();
     mkdirSync.mockReset();
     existsSync.mockReturnValue(false);
     readFileSync.mockImplementation((_path: string, encoding?: BufferEncoding) => {
@@ -353,6 +496,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       isDirectory: () => false,
       size: 64,
     });
+    writeFileSync.mockReset();
     shellEnvSync.mockReturnValue({
       SHELL_ENV_READY: '1',
     });
@@ -365,6 +509,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     checkGitInstalled.mockResolvedValue(true);
     buildAppMenu.mockReturnValue({ label: 'menu' });
     getSharedStatePaths.mockReturnValue({ settingsPath: '/shared/settings.json' });
+    getSharedRootPath.mockReturnValue('/shared');
     isLegacySettingsMigrated.mockReturnValue(true);
     isLegacyTodoMigrated.mockReturnValue(true);
     readSharedSessionState.mockReturnValue({ version: 1 });
@@ -373,6 +518,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     readPersistentAgentSessions.mockReturnValue([]);
     todoInitialize.mockResolvedValue(undefined);
     todoExportAllTasks.mockResolvedValue([{ id: 'board-1' }]);
+    persistentAgentSessionRepositoryInitialize.mockResolvedValue(undefined);
     customProtocolUriToPath.mockImplementation((_url: string) => '/mock/image.png');
     trayInit.mockReset();
     trayRefreshMenu.mockReset();
@@ -472,11 +618,13 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     ipcHandle,
     setApplicationMenu,
     netFetch,
+    appendFileSync,
     createReadStream,
     mkdirSync,
     existsSync,
     readFileSync,
     statSync,
+    writeFileSync,
     shellEnvSync,
     autoStartHapi,
     cleanupAllResources,
@@ -497,6 +645,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     setCurrentLocale,
     buildAppMenu,
     getSharedStatePaths,
+    getSharedRootPath,
     isLegacySettingsMigrated,
     isLegacyTodoMigrated,
     markLegacySettingsMigrated,
@@ -513,6 +662,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     logInfo,
     initLogger,
     autoUpdaterInit,
+    persistentAgentSessionRepositoryInitialize,
     customProtocolUriToPath,
     trayInit,
     trayRefreshMenu,
@@ -524,6 +674,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     sqliteDatabaseRun,
     sqliteDatabaseClose,
     sqliteDatabase,
+    createMockImage,
     protocolHandlers,
     processListeners,
     BrowserWindowMock,
@@ -535,7 +686,11 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     resolveWhenReady,
     emitApp,
     emitNativeTheme,
+    getAppIsPackaged: () => appIsPackaged,
     getNativeThemeShouldUseDarkColors: () => nativeThemeShouldUseDarkColors,
+    setAppIsPackaged: (value: boolean) => {
+      appIsPackaged = value;
+    },
     setNativeThemeShouldUseDarkColors: (value: boolean) => {
       nativeThemeShouldUseDarkColors = value;
     },
@@ -544,11 +699,13 @@ const mainIndexTestDoubles = vi.hoisted(() => {
 });
 
 vi.mock('node:fs', () => ({
+  appendFileSync: mainIndexTestDoubles.appendFileSync,
   createReadStream: mainIndexTestDoubles.createReadStream,
   mkdirSync: mainIndexTestDoubles.mkdirSync,
   existsSync: mainIndexTestDoubles.existsSync,
   readFileSync: mainIndexTestDoubles.readFileSync,
   statSync: mainIndexTestDoubles.statSync,
+  writeFileSync: mainIndexTestDoubles.writeFileSync,
 }));
 
 vi.mock('shell-env', () => ({
@@ -577,7 +734,9 @@ vi.mock('electron', () => ({
     on: mainIndexTestDoubles.appOn,
     whenReady: mainIndexTestDoubles.whenReady,
     isReady: mainIndexTestDoubles.isReady,
-    isPackaged: false,
+    get isPackaged() {
+      return mainIndexTestDoubles.getAppIsPackaged();
+    },
     quit: mainIndexTestDoubles.quit,
     exit: mainIndexTestDoubles.exit,
     requestSingleInstanceLock: mainIndexTestDoubles.requestSingleInstanceLock,
@@ -667,6 +826,7 @@ vi.mock('../services/MenuBuilder', () => ({
 
 vi.mock('../services/SharedSessionState', () => ({
   getSharedStatePaths: mainIndexTestDoubles.getSharedStatePaths,
+  getSharedRootPath: mainIndexTestDoubles.getSharedRootPath,
   isLegacySettingsMigrated: mainIndexTestDoubles.isLegacySettingsMigrated,
   isLegacyTodoMigrated: mainIndexTestDoubles.isLegacyTodoMigrated,
   markLegacySettingsMigrated: mainIndexTestDoubles.markLegacySettingsMigrated,
@@ -676,6 +836,12 @@ vi.mock('../services/SharedSessionState', () => ({
   readPersistentAgentSessions: mainIndexTestDoubles.readPersistentAgentSessions,
   writeSharedSessionState: mainIndexTestDoubles.writeSharedSessionState,
   writeSharedSettings: mainIndexTestDoubles.writeSharedSettings,
+}));
+
+vi.mock('../services/session/PersistentAgentSessionRepository', () => ({
+  persistentAgentSessionRepository: {
+    initialize: mainIndexTestDoubles.persistentAgentSessionRepositoryInitialize,
+  },
 }));
 
 vi.mock('../services/settings/legacyImport', () => ({
@@ -740,12 +906,17 @@ vi.mock('../windows/WindowManager', () => ({
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
 const originalDefaultAppDescriptor = Object.getOwnPropertyDescriptor(process, 'defaultApp');
 const originalResourcesPathDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath');
+const originalRawDebugDescriptor = Object.getOwnPropertyDescriptor(process, '_rawDebug');
 const originalProcessOn = process.on;
 const originalArgv = [...process.argv];
 const originalShellEnvReady = process.env.SHELL_ENV_READY;
 const originalProfile = process.env.ENSOAI_PROFILE;
 const originalGtkVersion = process.env.ENSOAI_GTK_VERSION;
 const originalAppImage = process.env.APPIMAGE;
+const originalEnableRemoteDebugging = process.env.INFILUX_ENABLE_REMOTE_DEBUGGING;
+const originalRuntimeChannel = process.env.INFILUX_RUNTIME_CHANNEL;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalVitest = process.env.VITEST;
 
 function setPlatform(platform: NodeJS.Platform) {
   Object.defineProperty(process, 'platform', {
@@ -787,6 +958,50 @@ async function importMainModule(options?: {
   return module;
 }
 
+async function flushMicrotasks(iterations: number = 10): Promise<void> {
+  for (let index = 0; index < iterations; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+function installRawDebugSpy() {
+  const rawDebugSpy = vi.fn();
+  Object.defineProperty(process as ProcessWithRawDebug, '_rawDebug', {
+    value: rawDebugSpy,
+    configurable: true,
+    writable: true,
+  });
+  return rawDebugSpy;
+}
+
+async function bootstrapReadyWindow(window: MockWindow): Promise<void> {
+  mainIndexTestDoubles.setNextOpenWindow(window);
+  await importMainModule({
+    autoReady: true,
+    platform: 'win32',
+  });
+}
+
+async function bootstrapPackagedWindow(
+  window: MockWindow,
+  options?: {
+    platform?: NodeJS.Platform;
+  }
+): Promise<void> {
+  mainIndexTestDoubles.setAppIsPackaged(true);
+  mainIndexTestDoubles.setNextOpenWindow(window);
+  await importMainModule({
+    autoReady: true,
+    platform: options?.platform ?? 'win32',
+  });
+  await mainIndexTestDoubles.emitApp('browser-window-created', {}, window);
+}
+
+async function bootstrapWindowWithRendererDiagnostics(window: MockWindow): Promise<void> {
+  await bootstrapReadyWindow(window);
+  await mainIndexTestDoubles.emitApp('browser-window-created', {}, window);
+}
+
 describe('main entry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -795,6 +1010,10 @@ describe('main entry', () => {
     delete process.env.ENSOAI_PROFILE;
     delete process.env.ENSOAI_GTK_VERSION;
     delete process.env.APPIMAGE;
+    delete process.env.INFILUX_ENABLE_REMOTE_DEBUGGING;
+    delete process.env.INFILUX_RUNTIME_CHANNEL;
+    process.env.NODE_ENV = originalNodeEnv;
+    process.env.VITEST = originalVitest;
   }, 15000);
 
   afterEach(() => {
@@ -808,6 +1027,11 @@ describe('main entry', () => {
     }
     if (originalResourcesPathDescriptor) {
       Object.defineProperty(process, 'resourcesPath', originalResourcesPathDescriptor);
+    }
+    if (originalRawDebugDescriptor) {
+      Object.defineProperty(process, '_rawDebug', originalRawDebugDescriptor);
+    } else {
+      delete (process as ProcessWithRawDebug)._rawDebug;
     }
     if (originalShellEnvReady === undefined) {
       delete process.env.SHELL_ENV_READY;
@@ -829,11 +1053,31 @@ describe('main entry', () => {
     } else {
       process.env.APPIMAGE = originalAppImage;
     }
+    if (originalEnableRemoteDebugging === undefined) {
+      delete process.env.INFILUX_ENABLE_REMOTE_DEBUGGING;
+    } else {
+      process.env.INFILUX_ENABLE_REMOTE_DEBUGGING = originalEnableRemoteDebugging;
+    }
+    if (originalRuntimeChannel === undefined) {
+      delete process.env.INFILUX_RUNTIME_CHANNEL;
+    } else {
+      process.env.INFILUX_RUNTIME_CHANNEL = originalRuntimeChannel;
+    }
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalVitest === undefined) {
+      delete process.env.VITEST;
+    } else {
+      process.env.VITEST = originalVitest;
+    }
     vi.useRealTimers();
     vi.restoreAllMocks();
   }, 15000);
 
-  it('configures import-time protocol, userData, and Linux switches', async () => {
+  it('configures import-time protocol, userData, and Linux switches without enabling remote debugging by default', async () => {
     process.env.ENSOAI_PROFILE = 'feature branch';
 
     await importMainModule({
@@ -851,13 +1095,64 @@ describe('main entry', () => {
       'userData',
       join('/mock/appData', 'Infilux-feature-branch')
     );
+    expect(mainIndexTestDoubles.setPath).toHaveBeenCalledWith(
+      'sessionData',
+      join('/mock/appData', 'Infilux-feature-branch', 'session-data')
+    );
     expect(mainIndexTestDoubles.setAsDefaultProtocolClient).toHaveBeenCalledWith(
       'infilux',
       process.execPath,
       ['/mock/app-entry']
     );
     expect(mainIndexTestDoubles.appendSwitch).toHaveBeenCalledWith('gtk-version', '3');
+    expect(mainIndexTestDoubles.appendSwitch).not.toHaveBeenCalledWith(
+      'remote-debugging-port',
+      '9222'
+    );
   }, 15000);
+
+  it('enables the remote debugging port only when explicitly requested in development', async () => {
+    process.env.INFILUX_ENABLE_REMOTE_DEBUGGING = 'true';
+
+    await importMainModule({
+      defaultApp: true,
+      platform: 'linux',
+      argv: ['/mock/electron', '/mock/app-entry'],
+    });
+
+    expect(mainIndexTestDoubles.appendSwitch).toHaveBeenCalledWith('remote-debugging-port', '9222');
+  });
+
+  it('falls back to the default dev profile when the sanitized profile name is empty', async () => {
+    process.env.ENSOAI_PROFILE = ' !!! ';
+
+    const { __testables } = await importMainModule({
+      defaultApp: true,
+      platform: 'linux',
+      argv: ['/mock/electron', '/mock/app-entry'],
+    });
+
+    expect(mainIndexTestDoubles.setPath).toHaveBeenCalledWith(
+      'userData',
+      join('/mock/appData', 'Infilux-dev')
+    );
+    expect(__testables.sanitizeProfileName(' !!! ')).toBe('');
+  });
+
+  it('ignores inherited prod runtime channels during development startup', async () => {
+    process.env.INFILUX_RUNTIME_CHANNEL = 'prod';
+    delete process.env.NODE_ENV;
+    delete process.env.VITEST;
+
+    const { __testables } = await importMainModule({
+      defaultApp: true,
+      platform: 'linux',
+      argv: ['/mock/electron', '/mock/app-entry'],
+    });
+
+    expect(__testables.resolveStartupRuntimeChannel()).toBe('dev');
+    expect(process.env.INFILUX_RUNTIME_CHANNEL).toBe('dev');
+  });
 
   it('loads shell environment on macOS and exposes helper functions', async () => {
     mainIndexTestDoubles.readSharedSettings.mockReturnValue({
@@ -1134,6 +1429,9 @@ describe('main entry', () => {
     expect(warnSpy).toHaveBeenCalledWith('Git is not installed. Some features may not work.');
     expect(mainIndexTestDoubles.registerIpcHandlers).toHaveBeenCalledTimes(1);
     expect(mainIndexTestDoubles.registerClaudeBridgeIpcHandlers).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.persistentAgentSessionRepositoryInitialize).toHaveBeenCalledTimes(
+      1
+    );
     expect(mainIndexTestDoubles.autoUpdaterInit).toHaveBeenCalledWith(
       window,
       false,
@@ -1410,6 +1708,22 @@ describe('main entry', () => {
     expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledTimes(2);
   });
 
+  it('quits when all windows close and the tray is not initialized', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'linux',
+    });
+
+    mainIndexTestDoubles.trayIsInitialized.mockReturnValue(false);
+    await mainIndexTestDoubles.emitApp('window-all-closed');
+
+    expect(mainIndexTestDoubles.webInspectorSetMainWindow).toHaveBeenLastCalledWith(null);
+    expect(mainIndexTestDoubles.quit).toHaveBeenCalledTimes(1);
+  });
+
   it('resolves packaged app icons from the resources root before the build fallback', async () => {
     mainIndexTestDoubles.existsSync.mockImplementation(
       (target: string) => target === join('/mock/resources', 'icon-mac.png')
@@ -1419,16 +1733,445 @@ describe('main entry', () => {
       platform: 'darwin',
     });
 
-    const electronModule = await import('electron');
-    Object.assign(electronModule.app, {
-      isPackaged: true,
-    });
+    mainIndexTestDoubles.setAppIsPackaged(true);
     Object.defineProperty(process, 'resourcesPath', {
       value: '/mock/resources',
       configurable: true,
     });
 
     expect(module.__testables.resolveAppIconPath()).toBe(join('/mock/resources', 'icon-mac.png'));
+  });
+
+  it('warns in production when shortcut guards are not installed by the optimizer', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+
+    await bootstrapPackagedWindow(mainWindow);
+
+    expect(mainIndexTestDoubles.watchWindowShortcuts).toHaveBeenCalledWith(mainWindow);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[ctrl-r-passthrough] watchWindowShortcuts did not add any before-input-event listener'
+    );
+  });
+
+  it('lets Ctrl+R bypass production shortcut guards while preserving other optimizer handlers', async () => {
+    const shortcutGuard = vi.fn();
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+
+    mainIndexTestDoubles.watchWindowShortcuts.mockImplementation((window: MockWindow) => {
+      window.webContents.on('before-input-event', shortcutGuard);
+    });
+
+    await bootstrapPackagedWindow(mainWindow);
+
+    const ctrlREvent = {
+      preventDefault: vi.fn(),
+    };
+    mainWindow.emitWebContentsEvent('before-input-event', ctrlREvent, {
+      alt: false,
+      code: 'KeyR',
+      control: true,
+      key: 'r',
+      meta: false,
+      shift: false,
+    });
+
+    expect(shortcutGuard).not.toHaveBeenCalled();
+    expect(ctrlREvent.preventDefault).not.toHaveBeenCalled();
+
+    const otherShortcutEvent = {
+      preventDefault: vi.fn(),
+    };
+    mainWindow.emitWebContentsEvent('before-input-event', otherShortcutEvent, {
+      alt: false,
+      code: 'KeyP',
+      control: true,
+      key: 'p',
+      meta: false,
+      shift: false,
+    });
+
+    expect(shortcutGuard).toHaveBeenCalledTimes(1);
+    expect(otherShortcutEvent.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('intercepts Ctrl+- before it reaches the renderer on Windows', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({
+      loading: false,
+      zoomLevel: 1,
+    });
+    await bootstrapReadyWindow(mainWindow);
+    await mainIndexTestDoubles.emitApp('browser-window-created', {}, mainWindow);
+
+    const zoomEvent = {
+      preventDefault: vi.fn(),
+    };
+    mainWindow.emitWebContentsEvent('before-input-event', zoomEvent, {
+      control: true,
+      key: '-',
+      meta: false,
+    });
+
+    expect(zoomEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(mainWindow.webContents.setZoomLevel).toHaveBeenCalledWith(0.5);
+  });
+
+  it('intercepts Cmd+- before it reaches the renderer on macOS', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({
+      loading: false,
+      zoomLevel: 1,
+    });
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    await importMainModule({
+      autoReady: true,
+      platform: 'darwin',
+    });
+    await mainIndexTestDoubles.emitApp('browser-window-created', {}, mainWindow);
+
+    const zoomEvent = {
+      preventDefault: vi.fn(),
+    };
+    mainWindow.emitWebContentsEvent('before-input-event', zoomEvent, {
+      control: false,
+      key: '-',
+      meta: true,
+    });
+
+    expect(zoomEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(mainWindow.webContents.setZoomLevel).toHaveBeenCalledWith(0.5);
+  });
+
+  it('exposes a menu callback that opens a new local window', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'win32',
+    });
+
+    const menuOptions = mainIndexTestDoubles.buildAppMenu.mock.calls.at(0)?.at(0) as
+      | { onNewWindow: () => void }
+      | undefined;
+
+    if (!menuOptions) {
+      throw new Error('Missing buildAppMenu call');
+    }
+
+    menuOptions.onNewWindow();
+
+    expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs only actionable renderer console diagnostics', async () => {
+    const rawDebugSpy = installRawDebugSpy();
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+
+    mainWindow.emitWebContentsEvent(
+      'console-message',
+      {},
+      1,
+      'routine info',
+      10,
+      'http://localhost:5173/src/App.tsx'
+    );
+    mainWindow.emitWebContentsEvent(
+      'console-message',
+      {},
+      1,
+      '[renderer-bootstrap] mounted',
+      11,
+      'http://localhost:5173/src/bootstrap.tsx'
+    );
+    mainWindow.emitWebContentsEvent(
+      'console-message',
+      {},
+      1,
+      'Maximum update depth exceeded',
+      12,
+      'http://localhost:5173/src/App.tsx'
+    );
+    mainWindow.emitWebContentsEvent(
+      'console-message',
+      {},
+      1,
+      'TypeError: failed to render',
+      13,
+      'http://localhost:5173/src/App.tsx'
+    );
+    mainWindow.emitWebContentsEvent(
+      'console-message',
+      {},
+      2,
+      'warning from renderer',
+      14,
+      'http://localhost:5173/src/App.tsx'
+    );
+
+    const consoleLogs = rawDebugSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.startsWith('[renderer-console]'));
+
+    expect(consoleLogs).toHaveLength(4);
+    expect(consoleLogs.some((message) => message.includes('routine info'))).toBe(false);
+    expect(consoleLogs.some((message) => message.includes('[renderer-bootstrap] mounted'))).toBe(
+      true
+    );
+    expect(consoleLogs.some((message) => message.includes('Maximum update depth exceeded'))).toBe(
+      true
+    );
+    expect(consoleLogs.some((message) => message.includes('TypeError: failed to render'))).toBe(
+      true
+    );
+    expect(consoleLogs.some((message) => message.includes('warning from renderer'))).toBe(true);
+  });
+
+  it('falls back to console.error when raw debug output is unavailable', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    Object.defineProperty(process as ProcessWithRawDebug, '_rawDebug', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+
+    mainWindow.emitWebContentsEvent(
+      'console-message',
+      {},
+      2,
+      'warning from renderer',
+      14,
+      'http://localhost:5173/src/App.tsx'
+    );
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[renderer-console]'));
+  });
+
+  it('logs only tracked renderer request errors for the same window', async () => {
+    const rawDebugSpy = installRawDebugSpy();
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+
+    mainWindow.emitRequestError({
+      error: 'ERR_ABORTED',
+      resourceType: 'script',
+      url: 'http://localhost:5173/src/index.tsx',
+      webContentsId: mainWindow.webContents.id + 1,
+    });
+    mainWindow.emitRequestError({
+      error: 'ERR_ABORTED',
+      resourceType: 'script',
+      url: 'http://localhost:5173/assets/app.js',
+      webContentsId: mainWindow.webContents.id,
+    });
+    mainWindow.emitRequestError({
+      error: 'ERR_ABORTED',
+      resourceType: 'script',
+      url: 'http://localhost:5173/src/index.tsx',
+      webContentsId: mainWindow.webContents.id,
+    });
+    mainWindow.emitRequestError({
+      error: 'ERR_ABORTED',
+      resourceType: 'script',
+      url: 'http://localhost:5173/@vite/client',
+      webContentsId: mainWindow.webContents.id,
+    });
+    mainWindow.emitRequestError({
+      error: 'ERR_FILE_NOT_FOUND',
+      resourceType: 'script',
+      url: 'http://localhost:5173/@fs/Users/demo/project/src/App.tsx',
+      webContentsId: mainWindow.webContents.id,
+    });
+
+    const requestLogs = rawDebugSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.startsWith('[renderer-request-error]'));
+
+    expect(requestLogs).toHaveLength(3);
+    expect(requestLogs.some((message) => message.includes('/assets/app.js'))).toBe(false);
+    expect(requestLogs.some((message) => message.includes('/src/index.tsx'))).toBe(true);
+    expect(requestLogs.some((message) => message.includes('/@vite/client'))).toBe(true);
+    expect(
+      requestLogs.some((message) => message.includes('/@fs/Users/demo/project/src/App.tsx'))
+    ).toBe(true);
+  });
+
+  it('captures renderer snapshots on load and scheduled follow-up checkpoints', async () => {
+    vi.useFakeTimers();
+
+    const rawDebugSpy = installRawDebugSpy();
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+    rawDebugSpy.mockClear();
+
+    mainWindow.emitWebContentsEvent('did-finish-load');
+    await flushMicrotasks(20);
+
+    expect(mainWindow.webContents.executeJavaScript).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(90_000);
+    await flushMicrotasks(20);
+
+    const snapshotLogs = rawDebugSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.startsWith('[renderer-snapshot]'));
+
+    expect(mainWindow.webContents.executeJavaScript).toHaveBeenCalledTimes(6);
+    expect(snapshotLogs).toHaveLength(6);
+    expect(snapshotLogs.some((message) => message.includes('did-finish-load'))).toBe(true);
+    expect(snapshotLogs.some((message) => message.includes('post-load-1000ms'))).toBe(true);
+    expect(snapshotLogs.some((message) => message.includes('post-load-3000ms'))).toBe(true);
+    expect(snapshotLogs.some((message) => message.includes('post-load-20000ms'))).toBe(true);
+    expect(snapshotLogs.some((message) => message.includes('post-load-60000ms'))).toBe(true);
+    expect(snapshotLogs.some((message) => message.includes('post-load-90000ms'))).toBe(true);
+  });
+
+  it('skips renderer snapshots once the window is already destroyed', async () => {
+    vi.useFakeTimers();
+
+    const rawDebugSpy = installRawDebugSpy();
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+    rawDebugSpy.mockClear();
+    mainWindow.webContents.executeJavaScript.mockClear();
+
+    mainWindow.emitWindowEvent('closed');
+    mainWindow.emitWebContentsEvent('did-finish-load');
+    await flushMicrotasks(20);
+    await vi.advanceTimersByTimeAsync(90_000);
+    await flushMicrotasks(20);
+
+    expect(mainWindow.webContents.executeJavaScript).not.toHaveBeenCalled();
+    expect(rawDebugSpy).not.toHaveBeenCalled();
+  });
+
+  it('writes full and cropped renderer screenshots when the worktree probe is present', async () => {
+    vi.useFakeTimers();
+
+    const rawDebugSpy = installRawDebugSpy();
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    const fullScreenshot = mainIndexTestDoubles.createMockImage('full-window');
+    const nodeScreenshot = mainIndexTestDoubles.createMockImage('worktree-node');
+    const inlineSignalsScreenshot = mainIndexTestDoubles.createMockImage('inline-signals');
+    fullScreenshot.crop
+      .mockReturnValueOnce(nodeScreenshot)
+      .mockReturnValueOnce(inlineSignalsScreenshot);
+    mainWindow.webContents.executeJavaScript.mockResolvedValue({
+      worktreeProbe: {
+        nodeFound: true,
+        rects: {
+          inlineSignals: {
+            x: 32,
+            y: 48,
+            width: 80,
+            height: 24,
+          },
+          node: {
+            x: 12,
+            y: 24,
+            width: 240,
+            height: 64,
+          },
+        },
+      },
+    });
+    mainWindow.webContents.capturePage.mockResolvedValue(fullScreenshot);
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+    rawDebugSpy.mockClear();
+    mainIndexTestDoubles.writeFileSync.mockClear();
+
+    mainWindow.emitWebContentsEvent('did-finish-load');
+    await flushMicrotasks(20);
+
+    expect(mainIndexTestDoubles.writeFileSync).toHaveBeenCalledTimes(3);
+    expect(mainIndexTestDoubles.writeFileSync).toHaveBeenNthCalledWith(
+      1,
+      '/tmp/infilux-worktree-1-did-finish-load.png',
+      Buffer.from('full-window')
+    );
+    expect(mainIndexTestDoubles.writeFileSync).toHaveBeenNthCalledWith(
+      2,
+      '/tmp/infilux-worktree-1-did-finish-load-node.png',
+      Buffer.from('worktree-node')
+    );
+    expect(mainIndexTestDoubles.writeFileSync).toHaveBeenNthCalledWith(
+      3,
+      '/tmp/infilux-worktree-1-did-finish-load-signals.png',
+      Buffer.from('inline-signals')
+    );
+
+    const snapshotLog = rawDebugSpy.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.startsWith('[renderer-snapshot]'));
+
+    expect(snapshotLog).toContain('/tmp/infilux-worktree-1-did-finish-load.png');
+    expect(snapshotLog).toContain('/tmp/infilux-worktree-1-did-finish-load-node.png');
+    expect(snapshotLog).toContain('/tmp/infilux-worktree-1-did-finish-load-signals.png');
+  });
+
+  it('records renderer screenshot failures in the diagnostic payload', async () => {
+    vi.useFakeTimers();
+
+    const rawDebugSpy = installRawDebugSpy();
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    mainWindow.webContents.executeJavaScript.mockResolvedValue({
+      worktreeProbe: {
+        nodeFound: true,
+        rects: {
+          node: {
+            x: 12,
+            y: 24,
+            width: 240,
+            height: 64,
+          },
+        },
+      },
+    });
+    mainWindow.webContents.capturePage.mockRejectedValueOnce(new Error('capture failed'));
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+    rawDebugSpy.mockClear();
+    mainIndexTestDoubles.writeFileSync.mockClear();
+
+    mainWindow.emitWebContentsEvent('did-finish-load');
+    await flushMicrotasks(20);
+
+    expect(mainIndexTestDoubles.writeFileSync).not.toHaveBeenCalled();
+
+    const snapshotLog = rawDebugSpy.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.startsWith('[renderer-snapshot]'));
+
+    expect(snapshotLog).toContain('screenshotError');
+    expect(snapshotLog).toContain('capture failed');
+  });
+
+  it('records renderer snapshot evaluation failures separately from screenshot failures', async () => {
+    vi.useFakeTimers();
+
+    const rawDebugSpy = installRawDebugSpy();
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    mainWindow.webContents.executeJavaScript.mockRejectedValueOnce(new Error('snapshot failed'));
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+    rawDebugSpy.mockClear();
+
+    mainWindow.emitWebContentsEvent('did-finish-load');
+    await flushMicrotasks(20);
+
+    const snapshotErrorLog = rawDebugSpy.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.startsWith('[renderer-snapshot-error]'));
+
+    expect(snapshotErrorLog).toContain('snapshot failed');
   });
 
   it('serves local-file requests and remote local-image proxy requests safely', async () => {
@@ -1533,6 +2276,80 @@ describe('main entry', () => {
     expect(imageResponse.headers.get('content-type')).toBe('image/png');
   });
 
+  it('records uncaught exceptions and suppresses console noise for ignorable stream write errors', async () => {
+    await importMainModule({
+      platform: 'win32',
+    });
+
+    const uncaughtHandler = mainIndexTestDoubles.processListeners.get('uncaughtException');
+    if (!uncaughtHandler) {
+      throw new Error('Expected uncaughtException handler to be registered');
+    }
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ignorableError = new Error('write EIO') as NodeJS.ErrnoException;
+    ignorableError.code = 'EIO';
+
+    uncaughtHandler(ignorableError);
+
+    expect(errorSpy).not.toHaveBeenCalledWith('Uncaught Exception:', ignorableError);
+  });
+
+  it('records uncaught exceptions and logs non-ignorable failures', async () => {
+    await importMainModule({
+      platform: 'win32',
+    });
+
+    const uncaughtHandler = mainIndexTestDoubles.processListeners.get('uncaughtException');
+    if (!uncaughtHandler) {
+      throw new Error('Expected uncaughtException handler to be registered');
+    }
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failure = new Error('boom');
+
+    uncaughtHandler(failure);
+
+    expect(errorSpy).toHaveBeenCalledWith('Uncaught Exception:', failure);
+  });
+
+  it('records unhandled rejections and logs non-ignorable failures', async () => {
+    await importMainModule({
+      platform: 'win32',
+    });
+
+    const rejectionHandler = mainIndexTestDoubles.processListeners.get('unhandledRejection');
+    if (!rejectionHandler) {
+      throw new Error('Expected unhandledRejection handler to be registered');
+    }
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const rejection = new Error('boom');
+
+    rejectionHandler(rejection);
+
+    expect(errorSpy).toHaveBeenCalledWith('Unhandled Rejection:', rejection);
+  });
+
+  it('records unhandled rejections and suppresses console noise for ignorable stream write errors', async () => {
+    await importMainModule({
+      platform: 'win32',
+    });
+
+    const rejectionHandler = mainIndexTestDoubles.processListeners.get('unhandledRejection');
+    if (!rejectionHandler) {
+      throw new Error('Expected unhandledRejection handler to be registered');
+    }
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ignorableError = new Error('stream destroyed') as NodeJS.ErrnoException;
+    ignorableError.code = 'ERR_STREAM_DESTROYED';
+
+    rejectionHandler(ignorableError);
+
+    expect(errorSpy).not.toHaveBeenCalledWith('Unhandled Rejection:', ignorableError);
+  });
+
   it('cleans up resources on will-quit and handles shutdown signals', async () => {
     const mainWindow = mainIndexTestDoubles.createWindow();
     mainIndexTestDoubles.setNextOpenWindow(mainWindow);
@@ -1584,6 +2401,63 @@ describe('main entry', () => {
     await vi.advanceTimersByTimeAsync(8000);
 
     expect(mainIndexTestDoubles.cleanupAllResourcesSync).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('ignores repeated will-quit cleanup requests while shutdown is already running', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow();
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    mainIndexTestDoubles.cleanupAllResources.mockImplementation(
+      () => new Promise<void>(() => undefined)
+    );
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'win32',
+    });
+
+    const firstQuitEvent = {
+      preventDefault: vi.fn(),
+    };
+    const secondQuitEvent = {
+      preventDefault: vi.fn(),
+    };
+
+    await mainIndexTestDoubles.emitApp('will-quit', firstQuitEvent);
+    await mainIndexTestDoubles.emitApp('will-quit', secondQuitEvent);
+
+    expect(firstQuitEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(secondQuitEvent.preventDefault).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.cleanupAllResources).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs synchronous cleanup failures before forcing exit on timeout', async () => {
+    vi.useFakeTimers();
+
+    const mainWindow = mainIndexTestDoubles.createWindow();
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    mainIndexTestDoubles.cleanupAllResources.mockImplementation(
+      () => new Promise<void>(() => undefined)
+    );
+    const syncCleanupError = new Error('sync cleanup failed');
+    mainIndexTestDoubles.cleanupAllResourcesSync.mockImplementationOnce(() => {
+      throw syncCleanupError;
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'win32',
+    });
+
+    const quitEvent = {
+      preventDefault: vi.fn(),
+    };
+
+    await mainIndexTestDoubles.emitApp('will-quit', quitEvent);
+    await vi.advanceTimersByTimeAsync(8000);
+
+    expect(errorSpy).toHaveBeenCalledWith('[app] Sync cleanup error:', syncCleanupError);
     expect(mainIndexTestDoubles.exit).toHaveBeenCalledWith(0);
   });
 });
