@@ -34,4 +34,12 @@ describe('build workflow macOS signing policy', () => {
       'gh release edit "$TAG" --draft=false --notes-file release-notes.md --latest'
     );
   });
+
+  it('creates a draft release before uploading remote runtime assets', () => {
+    expect(workflowSource).toContain('Upload remote runtime bundle to Release');
+    expect(workflowSource).toContain(
+      'gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""'
+    );
+    expect(workflowSource).toContain('gh release upload "$TAG" dist/remote-runtime/* --clobber');
+  });
 });
