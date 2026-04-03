@@ -40,6 +40,50 @@ describe('ActivityIndicator', () => {
     expect(completedMarkup).not.toContain('bg-blue-500');
   });
 
+  it('renders a looping square-segment indicator for active execution states', () => {
+    const runningMarkup = renderToStaticMarkup(
+      React.createElement(ActivityIndicator, { state: 'running' })
+    );
+    const waitingMarkup = renderToStaticMarkup(
+      React.createElement(ActivityIndicator, { state: 'waiting_input' })
+    );
+    const completedMarkup = renderToStaticMarkup(
+      React.createElement(ActivityIndicator, { state: 'completed' })
+    );
+
+    expect(runningMarkup).toContain('data-slot="activity-indicator"');
+    expect(runningMarkup).toContain('data-animated="true"');
+    expect(runningMarkup).toContain('data-pattern="sequence"');
+    expect(runningMarkup).toContain('rounded-[0.2rem]');
+    expect(runningMarkup).not.toContain('rounded-full');
+    expect(runningMarkup.match(/data-slot="activity-indicator-block"/g)?.length).toBe(2);
+
+    expect(waitingMarkup).toContain('data-animated="true"');
+    expect(waitingMarkup).toContain('data-pattern="pulse"');
+    expect(waitingMarkup.match(/data-slot="activity-indicator-block"/g)?.length).toBe(1);
+
+    expect(completedMarkup).toContain('data-animated="false"');
+    expect(completedMarkup).toContain('data-pattern="static"');
+    expect(completedMarkup.match(/data-slot="activity-indicator-block"/g)?.length).toBe(1);
+  });
+
+  it('renders execution states as compact signal bars instead of dot-like blocks', () => {
+    const runningMarkup = renderToStaticMarkup(
+      React.createElement(ActivityIndicator, { state: 'running' })
+    );
+    const waitingMarkup = renderToStaticMarkup(
+      React.createElement(ActivityIndicator, { state: 'waiting_input' })
+    );
+    const completedMarkup = renderToStaticMarkup(
+      React.createElement(ActivityIndicator, { state: 'completed' })
+    );
+
+    expect(runningMarkup.match(/h-2 w-3/g)?.length).toBe(2);
+    expect(waitingMarkup).toContain('h-2 w-2.5');
+    expect(completedMarkup).toContain('h-2 w-2.5');
+    expect(runningMarkup).not.toContain('h-2 w-2 bg-[color:var(--control-live)]');
+  });
+
   it('does not render anything for idle state', () => {
     expect(renderToStaticMarkup(React.createElement(ActivityIndicator, { state: 'idle' }))).toBe(
       ''
