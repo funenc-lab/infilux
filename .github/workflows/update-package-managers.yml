@@ -35,13 +35,13 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
 
           echo "Downloading ARM64 DMG..."
-          curl -sLO "https://github.com/J3n5en/EnsoAI/releases/download/${TAG}/EnsoAI-${VERSION}-arm64.dmg"
-          ARM64_SHA=$(shasum -a 256 "EnsoAI-${VERSION}-arm64.dmg" | cut -d' ' -f1)
+          curl -sLO "https://github.com/funenc-lab/infilux/releases/download/${TAG}/Infilux-${VERSION}-arm64.dmg"
+          ARM64_SHA=$(shasum -a 256 "Infilux-${VERSION}-arm64.dmg" | cut -d' ' -f1)
           echo "ARM64 SHA256: $ARM64_SHA"
 
           echo "Downloading x64 DMG..."
-          curl -sLO "https://github.com/J3n5en/EnsoAI/releases/download/${TAG}/EnsoAI-${VERSION}.dmg"
-          X64_SHA=$(shasum -a 256 "EnsoAI-${VERSION}.dmg" | cut -d' ' -f1)
+          curl -sLO "https://github.com/funenc-lab/infilux/releases/download/${TAG}/Infilux-${VERSION}.dmg"
+          X64_SHA=$(shasum -a 256 "Infilux-${VERSION}.dmg" | cut -d' ' -f1)
           echo "x64 SHA256: $X64_SHA"
 
           echo "arm64=$ARM64_SHA" >> $GITHUB_OUTPUT
@@ -67,28 +67,28 @@ jobs:
                    intel: "X64_SHA_PLACEHOLDER"
 
             on_arm do
-              url "https://github.com/J3n5en/EnsoAI/releases/download/v#{version}/EnsoAI-#{version}-arm64.dmg"
+              url "https://github.com/funenc-lab/infilux/releases/download/v#{version}/Infilux-#{version}-arm64.dmg"
             end
             on_intel do
-              url "https://github.com/J3n5en/EnsoAI/releases/download/v#{version}/EnsoAI-#{version}.dmg"
+              url "https://github.com/funenc-lab/infilux/releases/download/v#{version}/Infilux-#{version}.dmg"
             end
 
-            name "EnsoAI"
+            name "Infilux"
             desc "Git Worktree Manager with AI Agent"
-            homepage "https://github.com/J3n5en/EnsoAI"
+            homepage "https://github.com/funenc-lab/infilux"
 
             livecheck do
               url :url
               strategy :github_latest
             end
 
-            app "EnsoAI.app"
+            app "Infilux.app"
 
             zap trash: [
-              "~/Library/Application Support/EnsoAI",
-              "~/Library/Preferences/com.ensoai.app.plist",
-              "~/Library/Caches/com.ensoai.app",
-              "~/Library/Saved Application State/com.ensoai.app.savedState",
+              "~/Library/Application Support/Infilux",
+              "~/Library/Preferences/com.infilux.app.plist",
+              "~/Library/Caches/com.infilux.app",
+              "~/Library/Saved Application State/com.infilux.app.savedState",
             ]
           end
           EOF
@@ -128,8 +128,8 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
 
           echo "Downloading Setup exe..."
-          curl -sLO "https://github.com/J3n5en/EnsoAI/releases/download/${TAG}/EnsoAI-Setup-${VERSION}.exe"
-          HASH=$(sha256sum "EnsoAI-Setup-${VERSION}.exe" | cut -d' ' -f1)
+          curl -sLO "https://github.com/funenc-lab/infilux/releases/download/${TAG}/Infilux Setup ${VERSION}.exe"
+          HASH=$(sha256sum "Infilux Setup ${VERSION}.exe" | cut -d' ' -f1)
           echo "SHA256: $HASH"
           echo "hash=$HASH" >> $GITHUB_OUTPUT
 
@@ -151,11 +151,11 @@ jobs:
             '{
               version: $version,
               description: "Git Worktree Manager with AI Agent",
-              homepage: "https://github.com/J3n5en/EnsoAI",
+              homepage: "https://github.com/funenc-lab/infilux",
               license: "MIT",
               architecture: {
                 "64bit": {
-                  url: "https://github.com/J3n5en/EnsoAI/releases/download/v\($version)/EnsoAI-Setup-\($version).exe#/setup.exe",
+                  url: "https://github.com/funenc-lab/infilux/releases/download/v\($version)/Infilux Setup \($version).exe#/setup.exe",
                   hash: $hash
                 }
               },
@@ -167,9 +167,9 @@ jobs:
               post_install: [
                 "Remove-Item \"$dir\\setup.exe\" -Force"
               ],
-              bin: "EnsoAI.exe",
+              bin: "Infilux.exe",
               shortcuts: [
-                ["EnsoAI.exe", "EnsoAI"]
+                ["Infilux.exe", "Infilux"]
               ],
               uninstaller: {
                 script: [
@@ -178,12 +178,12 @@ jobs:
                 ]
               },
               checkver: {
-                github: "https://github.com/J3n5en/EnsoAI"
+                github: "https://github.com/funenc-lab/infilux"
               },
               autoupdate: {
                 architecture: {
                   "64bit": {
-                    url: "https://github.com/J3n5en/EnsoAI/releases/download/v$version/EnsoAI-Setup-$version.exe#/setup.exe"
+                    url: "https://github.com/funenc-lab/infilux/releases/download/v$version/Infilux Setup $version.exe#/setup.exe"
                   }
                 }
               }
@@ -218,8 +218,8 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
-          curl -sLO "https://github.com/J3n5en/EnsoAI/releases/download/${TAG}/EnsoAI-Setup-${VERSION}.exe"
-          HASH=$(sha256sum "EnsoAI-Setup-${VERSION}.exe" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')
+          curl -sLO "https://github.com/funenc-lab/infilux/releases/download/${TAG}/Infilux Setup ${VERSION}.exe"
+          HASH=$(sha256sum "Infilux Setup ${VERSION}.exe" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')
           echo "hash=$HASH" >> $GITHUB_OUTPUT
 
       - name: Checkout winget-pkgs fork
@@ -260,7 +260,7 @@ jobs:
           UpgradeBehavior: install
           Installers:
             - Architecture: x64
-              InstallerUrl: https://github.com/J3n5en/EnsoAI/releases/download/${TAG}/EnsoAI-Setup-${VERSION}.exe
+              InstallerUrl: https://github.com/funenc-lab/infilux/releases/download/${TAG}/Infilux Setup ${VERSION}.exe
               InstallerSha256: ${HASH}
               InstallerSwitches:
                 Silent: /S
@@ -278,14 +278,14 @@ jobs:
           PackageLocale: en-US
           Publisher: J3n5en
           PublisherUrl: https://github.com/J3n5en
-          PublisherSupportUrl: https://github.com/J3n5en/EnsoAI/issues
-          Author: EnsoAI Team
-          PackageName: EnsoAI
-          PackageUrl: https://github.com/J3n5en/EnsoAI
+          PublisherSupportUrl: https://github.com/funenc-lab/infilux/issues
+          Author: Infilux Team
+          PackageName: Infilux
+          PackageUrl: https://github.com/funenc-lab/infilux
           License: MIT
-          LicenseUrl: https://github.com/J3n5en/EnsoAI/blob/main/LICENSE
+          LicenseUrl: https://github.com/funenc-lab/infilux/blob/main/LICENSE
           ShortDescription: Git Worktree Manager with AI Agent
-          Description: EnsoAI is a desktop application that combines Git Worktree management with AI coding agents. It provides a unified workspace where you can manage multiple git worktrees while leveraging AI assistants like Claude, Codex, and Gemini to help with your development tasks.
+          Description: Infilux is a desktop application that combines Git Worktree management with AI coding agents. It provides a unified workspace where you can manage multiple git worktrees while leveraging AI assistants like Claude, Codex, and Gemini to help with your development tasks.
           Tags:
             - ai
             - claude
@@ -297,7 +297,7 @@ jobs:
             - git-worktree
             - productivity
             - worktree
-          ReleaseNotesUrl: https://github.com/J3n5en/EnsoAI/releases/tag/${TAG}
+          ReleaseNotesUrl: https://github.com/funenc-lab/infilux/releases/tag/${TAG}
           ManifestType: defaultLocale
           ManifestVersion: 1.12.0
           EOF
@@ -363,7 +363,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
           echo "Downloading source tarball..."
-          curl -sLO "https://github.com/J3n5en/EnsoAI/archive/refs/tags/${TAG}.tar.gz"
+          curl -sLO "https://github.com/funenc-lab/infilux/archive/refs/tags/${TAG}.tar.gz"
           SHA=$(sha256sum "${TAG}.tar.gz" | cut -d' ' -f1)
           echo "SHA256: $SHA"
           echo "sha256=$SHA" >> $GITHUB_OUTPUT
@@ -379,7 +379,7 @@ jobs:
           pkgrel=1
           pkgdesc="Multiple AI Agents, Parallel Workflow - Git worktree manager with AI integration"
           arch=('x86_64')
-          url="https://github.com/J3n5en/EnsoAI"
+          url="https://github.com/funenc-lab/infilux"
           license=('MIT')
           depends=('electron39')
           makedepends=('nodejs>=20' 'pnpm>=10' 'git' 'libxcrypt-compat')
@@ -392,20 +392,20 @@ jobs:
           sha256sums=('SHA256_PLACEHOLDER')
 
           prepare() {
-              cd "$srcdir/EnsoAI-$pkgver"
-              sed -i '/"name":/a\  "homepage": "https://github.com/J3n5en/EnsoAI",' package.json
+              cd "$srcdir/infilux-$pkgver"
+              sed -i '/"name":/a\  "homepage": "https://github.com/funenc-lab/infilux",' package.json
               export ELECTRON_SKIP_BINARY_DOWNLOAD=1
               pnpm install --frozen-lockfile
           }
 
           build() {
-              cd "$srcdir/EnsoAI-$pkgver"
+              cd "$srcdir/infilux-$pkgver"
               export NODE_ENV=production
               pnpm build:linux
           }
 
           package() {
-              cd "$srcdir/EnsoAI-$pkgver"
+              cd "$srcdir/infilux-$pkgver"
               install -dm755 "$pkgdir/usr/lib/$pkgname"
               if [ -d "dist/linux-unpacked/resources" ]; then
                   cp -r dist/linux-unpacked/resources "$pkgdir/usr/lib/$pkgname/"
@@ -419,14 +419,14 @@ jobs:
               install -dm755 "$pkgdir/usr/share/applications"
               cat > "$pkgdir/usr/share/applications/$pkgname.desktop" << EOF
           [Desktop Entry]
-          Name=EnsoAI
+          Name=Infilux
           Comment=Multiple AI Agents, Parallel Workflow
           Exec=$pkgname %U
           Icon=$pkgname
           Type=Application
           Categories=Development;Utility;IDE;
           Terminal=false
-          StartupWMClass=EnsoAI
+          StartupWMClass=Infilux
           StartupWMClass=enso-ai
           EOF
               if [ -f "build/icon.png" ]; then
