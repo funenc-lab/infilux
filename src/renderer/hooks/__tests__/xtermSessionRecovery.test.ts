@@ -4,6 +4,7 @@ import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
   resolveReusableBackendSessionId,
+  shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
   shouldRetryDeadSessionRecovery,
 } from '../xtermSessionRecovery';
@@ -265,7 +266,7 @@ describe('shouldRetryDeadSessionRecovery', () => {
       persistOnDisconnect: false,
     });
 
-    expect(buildXtermRecoveryAttemptKey(snapshot)).toBe('/repo::terminal::ephemeral::no-session');
+    expect(buildXtermRecoveryAttemptKey(snapshot)).toBe('/repo::terminal::ephemeral');
   });
 
   it('retries once for each unique binding snapshot', () => {
@@ -282,7 +283,7 @@ describe('shouldRetryDeadSessionRecovery', () => {
     );
   });
 
-  it('allows retry again when the bound session changes', () => {
+  it('does not allow another dead-session retry when only the backend session id changes', () => {
     const previous = createXtermSessionBindingSnapshot({
       cwd: '/repo',
       kind: 'agent',
@@ -296,6 +297,35 @@ describe('shouldRetryDeadSessionRecovery', () => {
       sessionId: 'session-2',
     });
 
-    expect(shouldRetryDeadSessionRecovery(buildXtermRecoveryAttemptKey(previous), next)).toBe(true);
+    expect(shouldRetryDeadSessionRecovery(buildXtermRecoveryAttemptKey(previous), next)).toBe(
+      false
+    );
+  });
+});
+
+describe('shouldRearmDeadSessionRecovery', () => {
+  it('does not rearm retries when the restarted session exits before any output arrives', () => {
+    expect(
+      shouldRearmDeadSessionRecovery({
+        hasReceivedData: false,
+      })
+    ).toBe(false);
+  });
+
+  it('rearms retries after the restarted session produces output', () => {
+    expect(
+      shouldRearmDeadSessionRecovery({
+        hasReceivedData: true,
+      })
+    ).toBe(true);
+  });
+
+  it('treats replay as recovered output that can rearm later retries', () => {
+    expect(
+      shouldRearmDeadSessionRecovery({
+        hasReceivedData: false,
+        replay: 'restored prompt',
+      })
+    ).toBe(true);
   });
 });

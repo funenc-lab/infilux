@@ -57,11 +57,13 @@ export function shouldRebindXtermSession(
 }
 
 export function buildXtermRecoveryAttemptKey(snapshot: XtermSessionBindingSnapshot): string {
+  // Dead-session retries should be scoped to the logical terminal binding.
+  // Backend session ids can change on each retry, which would otherwise cause
+  // an infinite retry loop for a single failed recovery flow.
   return [
     snapshot.cwd,
     snapshot.kind,
     snapshot.persistOnDisconnect ? 'persistent' : 'ephemeral',
-    snapshot.sessionId ?? 'no-session',
   ].join('::');
 }
 
@@ -70,6 +72,16 @@ export function shouldRetryDeadSessionRecovery(
   snapshot: XtermSessionBindingSnapshot
 ): boolean {
   return buildXtermRecoveryAttemptKey(snapshot) !== lastAttemptKey;
+}
+
+export function shouldRearmDeadSessionRecovery({
+  hasReceivedData,
+  replay,
+}: {
+  hasReceivedData: boolean;
+  replay?: string;
+}): boolean {
+  return hasReceivedData || Boolean(replay && replay.length > 0);
 }
 
 export async function resolveReusableBackendSessionId({

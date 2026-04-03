@@ -4,10 +4,7 @@ import { join } from 'node:path';
 import pidtree from 'pidtree';
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright';
 import { encodeRuntimeChannelArgument } from '../../src/shared/utils/runtimeIdentity';
-import {
-  AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL,
-  type AgentSessionRecoveryScenario,
-} from './agentSessionRecoveryScenario';
+import { AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL } from './agentSessionRecoveryScenario';
 
 const PROJECT_ROOT = process.cwd();
 const ELECTRON_BUILD_ENTRY = join(PROJECT_ROOT, 'out', 'main', 'index.cjs');
@@ -18,6 +15,16 @@ const FORCE_KILL_SIGNAL = 'SIGKILL';
 type ElectronAppLike = Pick<ElectronApplication, 'evaluate' | 'waitForEvent' | 'process'>;
 type KillProcess = (pid: number, signal?: NodeJS.Signals | number) => void;
 type ResolveProcessTreePids = (pid: number) => Promise<number[]>;
+
+export interface ElectronLaunchScenario {
+  homeDir: string;
+  profileName: string;
+}
+
+export interface RepositoryWorktreeScenario {
+  repoName: string;
+  worktreeBranch: string;
+}
 
 export interface LaunchedElectronApp {
   app: ElectronApplication;
@@ -39,7 +46,7 @@ export function ensureElectronBuildExists(): void {
 }
 
 export async function launchInfiluxForScenario(
-  scenario: AgentSessionRecoveryScenario
+  scenario: ElectronLaunchScenario
 ): Promise<LaunchedElectronApp> {
   const consoleMessages: string[] = [];
   const app = await electron.launch({
@@ -230,9 +237,22 @@ export async function quitElectronApplication(
   }
 }
 
+export async function seedRendererLocalStorageAndReload(
+  page: Page,
+  snapshot: Record<string, string>
+): Promise<void> {
+  await page.waitForLoadState('domcontentloaded');
+  await page.evaluate((entries) => {
+    for (const [key, value] of Object.entries(entries)) {
+      localStorage.setItem(key, value);
+    }
+  }, snapshot);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+}
+
 export async function waitForRepositoryAndWorktree(
   page: Page,
-  scenario: AgentSessionRecoveryScenario
+  scenario: RepositoryWorktreeScenario
 ): Promise<void> {
   await page.waitForLoadState('domcontentloaded');
 

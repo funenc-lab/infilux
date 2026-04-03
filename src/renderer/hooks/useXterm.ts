@@ -22,9 +22,11 @@ import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
   resolveReusableBackendSessionId,
+  shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
   shouldRetryDeadSessionRecovery,
 } from './xtermSessionRecovery';
+import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
 
 // Regex to match file paths with optional line:column
@@ -233,6 +235,7 @@ export function useXterm({
   // rAF write buffer for smooth rendering
   const writeBufferRef = useRef('');
   const isFlushPendingRef = useRef(false);
+  const wheelCarryRef = useRef(0);
 
   const write = useCallback((data: string) => {
     if (ptyIdRef.current && runtimeStateRef.current === 'live') {
@@ -339,6 +342,8 @@ export function useXterm({
     createRequestIdRef.current += 1;
     activeSessionBindingRef.current = null;
     deadRecoveryAttemptKeyRef.current = null;
+    hasReceivedDataRef.current = false;
+    wheelCarryRef.current = 0;
     sessionEventsCleanupRef.current?.();
     sessionEventsCleanupRef.current = null;
     writeBufferRef.current = '';
@@ -671,6 +676,32 @@ export function useXterm({
       return true;
     });
 
+    // Prevent xterm from falling back to ArrowUp/ArrowDown when agent TUIs
+    // run in the alternate buffer without explicit wheel mouse tracking.
+    terminal.attachCustomWheelEventHandler((event) => {
+      const decision = resolveAgentWheelPolicy({
+        kind,
+        activeBufferType: terminal.buffer.active.type,
+        mouseTrackingMode: terminal.modes.mouseTrackingMode,
+        deltaMode: event.deltaMode,
+        deltaY: event.deltaY,
+        carryY: wheelCarryRef.current,
+      });
+
+      wheelCarryRef.current = decision.carryY;
+      if (decision.action === 'delegate') {
+        return true;
+      }
+
+      if (decision.sequence && decision.repeat > 0) {
+        write(decision.sequence.repeat(decision.repeat));
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    });
+
     try {
       const createRequestId = ++createRequestIdRef.current;
       const createOptions = {
@@ -705,6 +736,14 @@ export function useXterm({
         sessionEventsCleanupRef.current?.();
         sessionEventsCleanupRef.current = window.electronAPI.session.subscribe(sessionId, {
           onData: (event) => {
+            hasReceivedDataRef.current = true;
+            if (
+              shouldRearmDeadSessionRecovery({
+                hasReceivedData: hasReceivedDataRef.current,
+              })
+            ) {
+              deadRecoveryAttemptKeyRef.current = null;
+            }
             if (!agentStartupFirstOutputLoggedRef.current) {
               agentStartupFirstOutputLoggedRef.current = true;
               agentStartupLoggerRef.current?.markStage('first-output');
@@ -825,6 +864,15 @@ export function useXterm({
       setIsLoading(false);
 
       if (replay) {
+        hasReceivedDataRef.current = true;
+        if (
+          shouldRearmDeadSessionRecovery({
+            hasReceivedData: hasReceivedDataRef.current,
+            replay,
+          })
+        ) {
+          deadRecoveryAttemptKeyRef.current = null;
+        }
         terminal.write(replay);
         onDataRef.current?.(replay);
       }
@@ -931,6 +979,7 @@ export function useXterm({
       createRequestIdRef.current += 1;
       activeSessionBindingRef.current = null;
       deadRecoveryAttemptKeyRef.current = null;
+      wheelCarryRef.current = 0;
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
       terminalInputCleanupRef.current?.dispose();
