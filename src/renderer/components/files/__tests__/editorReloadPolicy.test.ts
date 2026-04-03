@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildBulkReloadPlan, buildExternalReloadBatchPlan } from '../editorReloadPolicy';
 
+beforeEach(() => {
+  vi.stubGlobal('navigator', { platform: 'MacIntel' });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('buildBulkReloadPlan', () => {
-  beforeEach(() => {
-    vi.stubGlobal('navigator', { platform: 'MacIntel' });
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it('reloads only the active tab immediately and marks the rest as stale', () => {
     const plan = buildBulkReloadPlan(
       [

@@ -20,15 +20,15 @@ function createSubagent(overrides: Partial<LiveAgentSubagent> = {}): LiveAgentSu
   };
 }
 
+beforeEach(() => {
+  vi.stubGlobal('navigator', { platform: 'MacIntel' });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('buildLiveSubagentCwds', () => {
-  beforeEach(() => {
-    vi.stubGlobal('navigator', { platform: 'MacIntel' });
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it('normalizes, deduplicates, and sorts cwd inputs by value', () => {
     expect(
       buildLiveSubagentCwds([
