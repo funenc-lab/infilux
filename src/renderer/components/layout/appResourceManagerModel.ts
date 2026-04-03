@@ -398,7 +398,7 @@ export function buildAppResourceActionConfirmation(
       return {
         title: translate('Stop service?'),
         description: translate(
-          'This will stop the selected background service for the current app window.'
+          'This will stop the selected background service for the current app runtime.'
         ),
         confirmLabel: translate('Stop Service'),
       };
@@ -406,7 +406,7 @@ export function buildAppResourceActionConfirmation(
       return {
         title: translate('Reclaim idle sessions?'),
         description: translate(
-          'This will terminate idle local sessions that belong to the current app window.'
+          'This will terminate idle local sessions attached to the current app window.'
         ),
         confirmLabel: translate('Reclaim Idle Sessions'),
       };

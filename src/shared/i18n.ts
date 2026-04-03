@@ -2281,6 +2281,8 @@ export const zhTranslations: Record<string, string> = {
   'Relative path copied to clipboard': '相对路径已复制到剪贴板',
   'Runtime Console': '\u8fd0\u884c\u65f6\u63a7\u5236\u53f0',
   'Resource Manager': '\u8d44\u6e90\u7ba1\u7406',
+  'Inspect app runtime pressure and manage available resource actions.':
+    '\u67e5\u770b\u5e94\u7528\u8fd0\u884c\u65f6\u538b\u529b\u5e76\u7ba1\u7406\u53ef\u7528\u7684\u8d44\u6e90\u64cd\u4f5c\u3002',
   'Inspect runtime pressure and reclaim safe targets for this window.':
     '\u67e5\u770b\u5f53\u524d\u7a97\u53e3\u7684\u8fd0\u884c\u538b\u529b\uff0c\u5e76\u56de\u6536\u53ef\u5b89\u5168\u5904\u7406\u7684\u76ee\u6807\u3002',
   'Open runtime activity and resource controls':
@@ -2305,6 +2307,9 @@ export const zhTranslations: Record<string, string> = {
   Cloudflared: 'Cloudflared \u670d\u52a1',
   ready: '\u5c31\u7eea',
   running: '\u8fd0\u884c\u4e2d',
+  reconnecting: '\u91cd\u8fde\u4e2d',
+  stopped: '\u5df2\u505c\u6b62',
+  error: '\u9519\u8bef',
   unavailable: '\u4e0d\u53ef\u7528',
   'Working set': '\u5de5\u4f5c\u96c6',
   'Private memory': '\u79c1\u6709\u5185\u5b58',
@@ -2338,9 +2343,13 @@ export const zhTranslations: Record<string, string> = {
   'This will terminate the selected session and its child processes.':
     '\u8fd9\u5c06\u7ec8\u6b62\u6240\u9009\u4f1a\u8bdd\u53ca\u5176\u5b50\u8fdb\u7a0b\u3002',
   'Stop service?': '\u505c\u6b62\u670d\u52a1\uff1f',
+  'This will stop the selected background service for the current app runtime.':
+    '\u8fd9\u5c06\u505c\u6b62\u5f53\u524d\u5e94\u7528\u8fd0\u884c\u65f6\u4e2d\u6240\u9009\u7684\u540e\u53f0\u670d\u52a1\u3002',
   'This will stop the selected background service for the current app window.':
     '\u8fd9\u5c06\u505c\u6b62\u5f53\u524d\u5e94\u7528\u7a97\u53e3\u6240\u9009\u7684\u540e\u53f0\u670d\u52a1\u3002',
   'Reclaim idle sessions?': '\u56de\u6536\u7a7a\u95f2\u4f1a\u8bdd\uff1f',
+  'This will terminate idle local sessions attached to the current app window.':
+    '\u8fd9\u5c06\u7ec8\u6b62\u9644\u7740\u5728\u5f53\u524d\u5e94\u7528\u7a97\u53e3\u4e0a\u7684\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u3002',
   'This will terminate idle local sessions that belong to the current app window.':
     '\u8fd9\u5c06\u7ec8\u6b62\u5c5e\u4e8e\u5f53\u524d\u5e94\u7528\u7a97\u53e3\u7684\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u3002',
   'Confirm action': '\u786e\u8ba4\u64cd\u4f5c',

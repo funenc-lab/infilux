@@ -50,6 +50,8 @@ function getStatusBadgeVariant(status: AppResourceItem['status']) {
       return 'success';
     case 'running':
       return 'info';
+    case 'reconnecting':
+      return 'warning';
     case 'error':
       return 'error';
     case 'unavailable':
@@ -234,7 +236,7 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
               <div className="min-w-0 space-y-1">
                 <SheetTitle className="ui-type-title-lg">{t('Resource Manager')}</SheetTitle>
                 <SheetDescription className="max-w-[42rem] text-muted-foreground/84">
-                  {t('Inspect runtime pressure and reclaim safe targets for this window.')}
+                  {t('Inspect app runtime pressure and manage available resource actions.')}
                 </SheetDescription>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">

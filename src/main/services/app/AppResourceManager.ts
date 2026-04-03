@@ -179,6 +179,23 @@ function toServiceResource(
   };
 }
 
+function resolveSessionRuntimeState(session: SessionDescriptor) {
+  return session.runtimeState ?? 'live';
+}
+
+function toSessionStatus(
+  runtimeState: ReturnType<typeof resolveSessionRuntimeState>
+): AppResourceStatus {
+  switch (runtimeState) {
+    case 'reconnecting':
+      return 'reconnecting';
+    case 'dead':
+      return 'stopped';
+    default:
+      return 'running';
+  }
+}
+
 function isReclaimableIdleLocalSession(
   session: SessionDescriptor,
   processInfo: SessionProcessInfo | null
@@ -215,11 +232,12 @@ export class AppResourceManager {
     const sessionResources = await Promise.all(
       sessions.map(async (session): Promise<AppSessionResource> => {
         const processInfo = await this.dependencies.getSessionProcessInfo(session.sessionId);
+        const runtimeState = resolveSessionRuntimeState(session);
         return {
           id: `session:${session.sessionId}`,
           kind: 'session',
           group: 'sessions',
-          status: 'running',
+          status: toSessionStatus(runtimeState),
           sessionId: session.sessionId,
           sessionKind: session.kind,
           backend: session.backend,
@@ -228,7 +246,7 @@ export class AppResourceManager {
           persistOnDisconnect: session.persistOnDisconnect,
           pid: processInfo?.pid ?? null,
           isActive: processInfo?.isActive ?? null,
-          runtimeState: null,
+          runtimeState,
           metadata: session.metadata,
           availableActions: [safeAction('kill-session')],
         };

@@ -39,6 +39,7 @@ export interface SessionDescriptor {
   cwd: string;
   persistOnDisconnect: boolean;
   createdAt: number;
+  runtimeState?: SessionRuntimeState;
   metadata?: Record<string, unknown>;
 }
 

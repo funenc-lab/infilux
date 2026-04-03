@@ -202,6 +202,105 @@ describe('AppResourceManager', () => {
     });
   });
 
+  it('preserves session runtime state and maps non-live sessions to degraded resource statuses', async () => {
+    const { AppResourceManager } = await import('../AppResourceManager');
+
+    const manager = new AppResourceManager({
+      getAppMetrics: () => [],
+      buildRuntimeSnapshot: vi.fn(() => ({
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      })),
+      listSessions: vi.fn(
+        async () =>
+          [
+            {
+              sessionId: 'session-live',
+              backend: 'local',
+              kind: 'terminal',
+              cwd: '/repo/live',
+              persistOnDisconnect: false,
+              createdAt: 10,
+              runtimeState: 'live',
+            },
+            {
+              sessionId: 'session-reconnecting',
+              backend: 'remote',
+              kind: 'agent',
+              cwd: '/__remote__/repo',
+              persistOnDisconnect: true,
+              createdAt: 20,
+              runtimeState: 'reconnecting',
+            },
+            {
+              sessionId: 'session-dead',
+              backend: 'local',
+              kind: 'terminal',
+              cwd: '/repo/dead',
+              persistOnDisconnect: false,
+              createdAt: 30,
+              runtimeState: 'dead',
+            },
+          ] as unknown as SessionDescriptor[]
+      ),
+      getSessionProcessInfo: vi.fn(async (sessionId: string) => {
+        switch (sessionId) {
+          case 'session-live':
+            return { pid: 4101, isActive: true };
+          case 'session-reconnecting':
+            return { pid: null, isActive: null };
+          case 'session-dead':
+            return { pid: null, isActive: null };
+          default:
+            return null;
+        }
+      }),
+      killSession: vi.fn(async () => undefined),
+      getHapiStatus: () => ({ running: false }),
+      stopHapi: vi.fn(async () => ({ running: false })),
+      getHapiRunnerStatus: () => ({ running: false }),
+      stopHapiRunner: vi.fn(async () => ({ running: false })),
+      getCloudflaredStatus: () => ({ installed: true, running: false }),
+      stopCloudflared: vi.fn(async () => ({ installed: true, running: false })),
+      terminateProcess: vi.fn(),
+    });
+
+    const snapshot = await manager.getSnapshot({
+      getOSProcessId: () => 303,
+      reload: vi.fn(),
+    });
+
+    expect(snapshot.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'session:session-live',
+          kind: 'session',
+          status: 'running',
+          runtimeState: 'live',
+        }),
+        expect.objectContaining({
+          id: 'session:session-reconnecting',
+          kind: 'session',
+          status: 'reconnecting',
+          runtimeState: 'reconnecting',
+        }),
+        expect.objectContaining({
+          id: 'session:session-dead',
+          kind: 'session',
+          status: 'stopped',
+          runtimeState: 'dead',
+        }),
+      ])
+    );
+  });
+
   it('executes safe recovery actions and blocks protected process termination', async () => {
     const { AppResourceManager } = await import('../AppResourceManager');
 

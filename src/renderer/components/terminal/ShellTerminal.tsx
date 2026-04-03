@@ -1,8 +1,10 @@
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
 import { useI18n } from '@/i18n';
+import { resolveTerminalRuntimeOverlayState } from '@/lib/terminalRuntimeOverlay';
 import { TerminalSearchBar, type TerminalSearchBarRef } from './TerminalSearchBar';
 
 interface ShellTerminalProps {
@@ -34,6 +36,7 @@ export function ShellTerminal({
 }: ShellTerminalProps) {
   const { t } = useI18n();
   const runtimeStateRef = useRef<'live' | 'reconnecting' | 'dead'>('live');
+  const isRemoteExecution = Boolean(cwd && isRemoteVirtualPath(cwd));
 
   // Handle Shift+Enter for newline (send LF character)
   const handleCustomKey = useCallback((event: KeyboardEvent, ptyId: string) => {
@@ -72,6 +75,11 @@ export function ShellTerminal({
     onCustomKey: handleCustomKey,
   });
   runtimeStateRef.current = runtimeState;
+  const terminalOverlayState = resolveTerminalRuntimeOverlayState({
+    isLoading,
+    isRemoteExecution,
+    runtimeState,
+  });
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
   const { showScrollToBottom, handleScrollToBottom } = useTerminalScrollToBottom(terminal);
@@ -197,16 +205,16 @@ export function ShellTerminal({
           </div>
         </div>
       )}
-      {runtimeState !== 'live' && !isLoading && (
+      {terminalOverlayState && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/72">
           <div className="control-floating rounded-lg px-4 py-3 text-center">
             <div className="text-sm font-medium">
-              {runtimeState === 'reconnecting'
+              {terminalOverlayState === 'reconnecting'
                 ? t('Remote terminal reconnecting...')
                 : t('Remote terminal disconnected')}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              {runtimeState === 'reconnecting'
+              {terminalOverlayState === 'reconnecting'
                 ? t('Remote terminal input is temporarily disabled while reconnecting.')
                 : t('Remote terminal has disconnected. Reconnect the remote host to continue.')}
             </div>

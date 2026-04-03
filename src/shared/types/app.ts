@@ -61,7 +61,13 @@ export interface RuntimeMemorySnapshot {
 }
 
 export type AppResourceGroup = 'runtime' | 'sessions' | 'services';
-export type AppResourceStatus = 'running' | 'ready' | 'stopped' | 'error' | 'unavailable';
+export type AppResourceStatus =
+  | 'running'
+  | 'ready'
+  | 'reconnecting'
+  | 'stopped'
+  | 'error'
+  | 'unavailable';
 export type AppResourceActionKind =
   | 'reload-renderer'
   | 'kill-session'

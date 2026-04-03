@@ -1174,6 +1174,7 @@ export class SessionManager {
       cwd: session.cwd,
       persistOnDisconnect: session.persistOnDisconnect,
       createdAt: session.createdAt,
+      runtimeState: session.runtimeState ?? 'live',
       metadata: session.metadata,
     };
   }
