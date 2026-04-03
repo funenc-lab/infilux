@@ -7,10 +7,7 @@ export const DOM_DELTA_PAGE = 2;
 export const PAGE_UP_SEQUENCE = '\x1b[5~';
 export const PAGE_DOWN_SEQUENCE = '\x1b[6~';
 
-const PIXEL_PAGE_THRESHOLD = 96;
-const LINE_PAGE_THRESHOLD = 3;
-const PAGE_THRESHOLD = 1;
-const MAX_PAGE_TURNS_PER_EVENT = 3;
+const TRACKPAD_PIXEL_DELTA_THRESHOLD = 50;
 
 export type XtermBufferType = 'normal' | 'alternate';
 export type XtermMouseTrackingMode = 'none' | 'x10' | 'vt200' | 'drag' | 'any';
@@ -22,6 +19,8 @@ interface AgentWheelPolicyInput {
   deltaMode: number;
   deltaY: number;
   carryY: number;
+  cellHeightPx?: number;
+  devicePixelRatio?: number;
 }
 
 type AgentWheelPolicyDecision =
@@ -36,29 +35,66 @@ type AgentWheelPolicyDecision =
       sequence: string | null;
     };
 
-function getWheelThreshold(deltaMode: number): number {
-  switch (deltaMode) {
-    case DOM_DELTA_LINE:
-      return LINE_PAGE_THRESHOLD;
-    case DOM_DELTA_PAGE:
-      return PAGE_THRESHOLD;
-    default:
-      return PIXEL_PAGE_THRESHOLD;
+function normalizePixelWheelDelta(
+  deltaY: number,
+  carryY: number,
+  cellHeightPx?: number,
+  devicePixelRatio?: number
+): { steps: number; carryY: number } | null {
+  if (
+    !cellHeightPx ||
+    !devicePixelRatio ||
+    !Number.isFinite(cellHeightPx) ||
+    !Number.isFinite(devicePixelRatio) ||
+    cellHeightPx <= 0 ||
+    devicePixelRatio <= 0
+  ) {
+    return null;
   }
+
+  let amount = deltaY / (cellHeightPx / devicePixelRatio);
+  if (Math.abs(deltaY) < TRACKPAD_PIXEL_DELTA_THRESHOLD) {
+    amount *= 0.3;
+  }
+
+  const totalAmount = carryY + amount;
+  const steps = Math.trunc(totalAmount);
+
+  return {
+    steps,
+    carryY: totalAmount - steps,
+  };
 }
 
-function clampPageTurns(pageTurns: number): number {
-  if (pageTurns > MAX_PAGE_TURNS_PER_EVENT) {
-    return MAX_PAGE_TURNS_PER_EVENT;
+function normalizeWheelDelta(
+  input: AgentWheelPolicyInput
+): { steps: number; carryY: number } | null {
+  const { deltaMode, deltaY, carryY, cellHeightPx, devicePixelRatio } = input;
+
+  switch (deltaMode) {
+    case DOM_DELTA_PIXEL:
+      return normalizePixelWheelDelta(deltaY, carryY, cellHeightPx, devicePixelRatio);
+    case DOM_DELTA_PAGE: {
+      const totalAmount = carryY + deltaY;
+      const steps = Math.trunc(totalAmount);
+      return {
+        steps,
+        carryY: totalAmount - steps,
+      };
+    }
+    default: {
+      const totalAmount = carryY + deltaY;
+      const steps = Math.trunc(totalAmount);
+      return {
+        steps,
+        carryY: totalAmount - steps,
+      };
+    }
   }
-  if (pageTurns < -MAX_PAGE_TURNS_PER_EVENT) {
-    return -MAX_PAGE_TURNS_PER_EVENT;
-  }
-  return pageTurns;
 }
 
 export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWheelPolicyDecision {
-  const { kind, activeBufferType, mouseTrackingMode, deltaMode, deltaY, carryY } = input;
+  const { kind, activeBufferType, mouseTrackingMode, deltaY } = input;
 
   const shouldRemapWheel =
     kind === 'agent' && activeBufferType === 'alternate' && mouseTrackingMode === 'none';
@@ -73,22 +109,26 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
   if (deltaY === 0) {
     return {
       action: 'consume',
-      carryY,
+      carryY: input.carryY,
       repeat: 0,
       sequence: null,
     };
   }
 
-  const threshold = getWheelThreshold(deltaMode);
-  const totalDelta = carryY + deltaY;
-  const rawPageTurns = Math.trunc(totalDelta / threshold);
-  const pageTurns = clampPageTurns(rawPageTurns);
-  const nextCarryY = totalDelta - pageTurns * threshold;
+  const normalizedWheelDelta = normalizeWheelDelta(input);
+  if (!normalizedWheelDelta) {
+    return {
+      action: 'delegate',
+      carryY: 0,
+    };
+  }
 
-  if (pageTurns === 0) {
+  const { steps, carryY } = normalizedWheelDelta;
+
+  if (steps === 0) {
     return {
       action: 'consume',
-      carryY: nextCarryY,
+      carryY,
       repeat: 0,
       sequence: null,
     };
@@ -96,8 +136,8 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
 
   return {
     action: 'consume',
-    carryY: nextCarryY,
-    repeat: Math.abs(pageTurns),
-    sequence: pageTurns < 0 ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE,
+    carryY,
+    repeat: 1,
+    sequence: steps < 0 ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE,
   };
 }

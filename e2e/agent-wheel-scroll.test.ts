@@ -35,7 +35,7 @@ describe.sequential('electron agent wheel scroll handling', () => {
     await runCleanupTasks();
   });
 
-  it('sends page navigation sequences instead of arrow-history sequences for alternate-buffer agent sessions', async () => {
+  it('sends page navigation sequences for alternate-buffer agent sessions', async () => {
     const scenario = await createAgentWheelProbeScenario();
     cleanupTasks.push(scenario.cleanup);
 
@@ -48,6 +48,46 @@ describe.sequential('electron agent wheel scroll handling', () => {
       await waitForProbeMarker(scenario.probeLogPath, 'READY');
       await dispatchWheel(launch.page, scenario, -480);
       await waitForProbeMarker(scenario.probeLogPath, 'PAGE_UP');
+
+      const log = await readProbeLog(scenario.probeLogPath);
+      expect(log).toContain('PAGE_UP');
+      expect(log).not.toContain('ARROW_UP');
+    } catch (error) {
+      const probeLog = await readProbeLog(scenario.probeLogPath).catch((probeError) => {
+        return `Failed to read probe log: ${
+          probeError instanceof Error ? probeError.message : String(probeError)
+        }`;
+      });
+      throw new Error(
+        [
+          error instanceof Error ? error.message : String(error),
+          'Probe log:',
+          probeLog,
+          'Renderer diagnostics:',
+          formatElectronDiagnostics(launch),
+        ].join('\n\n')
+      );
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
+  it('maps repeated small upward wheel deltas to page-up navigation for alternate-buffer agent sessions', async () => {
+    const scenario = await createAgentWheelProbeScenario();
+    cleanupTasks.push(scenario.cleanup);
+
+    const launch = await launchInfiluxForScenario(scenario);
+
+    try {
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario);
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      await dispatchSmallWheelUntilMarker(launch.page, scenario, {
+        deltaY: -15,
+        marker: 'PAGE_UP',
+        maxAttempts: 12,
+      });
 
       const log = await readProbeLog(scenario.probeLogPath);
       expect(log).toContain('PAGE_UP');
@@ -92,6 +132,31 @@ async function openSeededSession(
   const terminal = page.locator(`#${scenario.sessionPanelId} .xterm`).first();
   await terminal.waitFor({ state: 'visible', timeout: 30000 });
   await terminal.click();
+}
+
+async function dispatchSmallWheelUntilMarker(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  scenario: AgentWheelProbeScenario,
+  options: {
+    deltaY: number;
+    marker: string;
+    maxAttempts: number;
+  }
+): Promise<void> {
+  const { deltaY, marker, maxAttempts } = options;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await dispatchWheel(page, scenario, deltaY);
+
+    try {
+      await waitForProbeMarker(scenario.probeLogPath, marker, 250);
+      return;
+    } catch {
+      // Continue dispatching modest wheel deltas until the accumulated carry yields a step.
+    }
+  }
+
+  await waitForProbeMarker(scenario.probeLogPath, marker);
 }
 
 async function dispatchWheel(

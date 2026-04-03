@@ -26,6 +26,7 @@ import {
   shouldRebindXtermSession,
   shouldRetryDeadSessionRecovery,
 } from './xtermSessionRecovery';
+import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
 
@@ -207,6 +208,7 @@ export function useXterm({
   const hasReceivedDataRef = useRef(false);
   const [isLoading, setIsLoading] = useState(false);
   const [runtimeState, setRuntimeState] = useState<SessionRuntimeState>('live');
+  const [wheelHandlerAttachmentEpoch, setWheelHandlerAttachmentEpoch] = useState(0);
   const runtimeStateRef = useRef<SessionRuntimeState>('live');
   runtimeStateRef.current = runtimeState;
   const initialCommandRef = useRef(initialCommand);
@@ -360,6 +362,40 @@ export function useXterm({
       terminal.reset();
     }
   }, []);
+
+  const handleTerminalWheelEvent = useCallback(
+    (event: WheelEvent) => {
+      const terminal = terminalRef.current;
+      if (!terminal) {
+        return true;
+      }
+
+      const decision = resolveAgentWheelPolicy({
+        kind,
+        activeBufferType: terminal.buffer.active.type,
+        mouseTrackingMode: terminal.modes.mouseTrackingMode,
+        deltaMode: event.deltaMode,
+        deltaY: event.deltaY,
+        carryY: wheelCarryRef.current,
+        cellHeightPx: terminal.dimensions?.device.cell.height,
+        devicePixelRatio: window.devicePixelRatio || 1,
+      });
+
+      wheelCarryRef.current = decision.carryY;
+      if (decision.action === 'delegate') {
+        return true;
+      }
+
+      if (decision.sequence && decision.repeat > 0) {
+        write(decision.sequence.repeat(decision.repeat));
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    },
+    [kind, write]
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
   const initTerminal = useCallback(async () => {
@@ -546,8 +582,10 @@ export function useXterm({
       terminalRef.current = terminal;
       fitAddonRef.current = fitAddon;
       searchAddonRef.current = searchAddon;
+      setWheelHandlerAttachmentEpoch((current) => current + 1);
     } else {
       await resetSessionBinding(terminal, true);
+      setWheelHandlerAttachmentEpoch((current) => current + 1);
     }
 
     // Custom key handler
@@ -674,32 +712,6 @@ export function useXterm({
         return onCustomKeyRef.current(event, ptyIdRef.current, getCurrentLine);
       }
       return true;
-    });
-
-    // Prevent xterm from falling back to ArrowUp/ArrowDown when agent TUIs
-    // run in the alternate buffer without explicit wheel mouse tracking.
-    terminal.attachCustomWheelEventHandler((event) => {
-      const decision = resolveAgentWheelPolicy({
-        kind,
-        activeBufferType: terminal.buffer.active.type,
-        mouseTrackingMode: terminal.modes.mouseTrackingMode,
-        deltaMode: event.deltaMode,
-        deltaY: event.deltaY,
-        carryY: wheelCarryRef.current,
-      });
-
-      wheelCarryRef.current = decision.carryY;
-      if (decision.action === 'delegate') {
-        return true;
-      }
-
-      if (decision.sequence && decision.repeat > 0) {
-        write(decision.sequence.repeat(decision.repeat));
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      return false;
     });
 
     try {
@@ -957,6 +969,20 @@ export function useXterm({
       });
     });
   }, [desiredSessionBinding, initTerminal, initialCommand, isActive, runtimeState]);
+
+  useEffect(() => {
+    if (wheelHandlerAttachmentEpoch === 0) {
+      return;
+    }
+
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    // Re-attach after terminal creation and restored-session resets.
+    attachPersistentCustomWheelEventHandler(terminal, handleTerminalWheelEvent);
+  }, [wheelHandlerAttachmentEpoch, handleTerminalWheelEvent]);
 
   // Handle dynamic renderer switching
   useEffect(() => {
