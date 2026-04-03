@@ -1,5 +1,5 @@
 import type { LiveAgentSubagent } from '@shared/types';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   areLiveSubagentListsEqual,
   buildLiveSubagentCwds,
@@ -21,6 +21,14 @@ function createSubagent(overrides: Partial<LiveAgentSubagent> = {}): LiveAgentSu
 }
 
 describe('buildLiveSubagentCwds', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('normalizes, deduplicates, and sorts cwd inputs by value', () => {
     expect(
       buildLiveSubagentCwds([

@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDisplayPathRelativeToRoot } from '../editorPathDisplay';
 
 describe('editorPathDisplay', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('returns a root-relative path for files inside the active root', () => {
     expect(
       getDisplayPathRelativeToRoot(

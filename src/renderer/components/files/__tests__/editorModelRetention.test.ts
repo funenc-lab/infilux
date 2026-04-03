@@ -1,28 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildRetainedEditorModelPaths,
   recordRecentEditorModelPath,
 } from '../editorModelRetention';
 
-const originalNavigatorPlatformDescriptor = Object.getOwnPropertyDescriptor(
-  globalThis.navigator,
-  'platform'
-);
-
 describe('editorModelRetention', () => {
   beforeEach(() => {
-    Object.defineProperty(globalThis.navigator, 'platform', {
-      configurable: true,
-      value: 'MacIntel',
-    });
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
   });
 
   afterEach(() => {
-    if (originalNavigatorPlatformDescriptor) {
-      Object.defineProperty(globalThis.navigator, 'platform', originalNavigatorPlatformDescriptor);
-      return;
-    }
-    Reflect.deleteProperty(globalThis.navigator, 'platform');
+    vi.unstubAllGlobals();
   });
 
   it('moves the current path to the end of the recent history and trims overflow', () => {

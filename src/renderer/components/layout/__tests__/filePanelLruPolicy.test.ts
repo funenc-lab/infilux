@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_RETAINED_FILE_PANEL_PATHS, updateRetainedFilePanelPaths } from '../filePanelLruPolicy';
 
 describe('filePanelLruPolicy', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('moves the active worktree to the front and caps retained paths', () => {
     const tabCounts = new Map([
       ['/repo/a', 1],

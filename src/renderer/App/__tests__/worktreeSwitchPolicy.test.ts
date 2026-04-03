@@ -1,5 +1,5 @@
 import type { GitWorktree } from '@shared/types';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveWorktreeSyncAction } from '../worktreeSwitchPolicy';
 
 function makeWorktree(overrides: Partial<GitWorktree>): GitWorktree {
@@ -15,6 +15,14 @@ function makeWorktree(overrides: Partial<GitWorktree>): GitWorktree {
 }
 
 describe('worktreeSwitchPolicy', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('retains the active worktree while the next repository has not fetched yet', () => {
     const activeWorktree = makeWorktree({ path: '/repo-b/.worktrees/feature-b' });
 

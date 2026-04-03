@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectMountedAgentSessionIds } from '../agentPanelMountPolicy';
 
 describe('collectMountedAgentSessionIds', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('only keeps sessions from the current worktree', () => {
     expect(
       collectMountedAgentSessionIds(

@@ -824,7 +824,7 @@ describe('SessionManager', () => {
     const localC = await manager.create(1, { cwd: '/Elsewhere' });
     const pty = sessionTestDoubles.ptyInstances[0];
 
-    await manager.killByWorkdir('/repo');
+    await manager.killByWorkdir('/Repo');
 
     expect(pty?.destroy).toHaveBeenCalledWith(localA.session.sessionId);
     expect(pty?.destroy).toHaveBeenCalledWith(localB.session.sessionId);

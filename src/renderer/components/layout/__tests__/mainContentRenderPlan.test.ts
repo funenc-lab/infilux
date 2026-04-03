@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildMainContentRenderPlan } from '../mainContentRenderPlan';
 
 describe('mainContentRenderPlan', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('keeps active current panels rendered and excludes the current worktree from cached panels', () => {
     expect(
       buildMainContentRenderPlan({

@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_RETAINED_ACTIVITY_PANEL_PATHS,
   updateRetainedActivityPanelPaths,
 } from '../activityPanelLruPolicy';
 
 describe('activityPanelLruPolicy', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('moves the latest active worktree to the front and caps retained paths', () => {
     const activePaths = new Set(['/repo/a', '/repo/b', '/repo/c']);
 

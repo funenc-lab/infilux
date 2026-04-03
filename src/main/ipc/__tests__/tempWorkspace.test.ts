@@ -5,6 +5,17 @@ type FsDirStat = {
   isSymbolicLink: () => boolean;
 };
 
+const FIXED_NOW = new Date(2026, 2, 25, 9, 2, 3);
+
+function formatExpectedTimestamp(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join('') + `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
 const tempWorkspaceTestDoubles = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const randomUUID = vi.fn(() => 'uuid-1');
@@ -88,7 +99,7 @@ describe('temp workspace handlers', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-25T01:02:03.000Z'));
+    vi.setSystemTime(FIXED_NOW);
     vi.spyOn(Math, 'random').mockReturnValue(0.123456789);
     tempWorkspaceTestDoubles.handlers.clear();
     vi.clearAllMocks();
@@ -153,15 +164,18 @@ describe('temp workspace handlers', () => {
 
     const createHandler = tempWorkspaceTestDoubles.handlers.get(IPC_CHANNELS.TEMP_WORKSPACE_CREATE);
     const result = await createHandler?.({}, undefined);
+    const expectedTimestamp = formatExpectedTimestamp(FIXED_NOW);
+    const expectedCreatedAt = FIXED_NOW.getTime();
+    const expectedFolderName = `${expectedTimestamp}-2`;
 
     expect(result).toEqual({
       ok: true,
       item: {
-        id: '1774400523000-4fzzzx',
-        path: '/Users/tester/infilux/temporary/20260325-090203-2',
-        folderName: '20260325-090203-2',
-        title: '20260325-090203-2',
-        createdAt: 1774400523000,
+        id: `${expectedCreatedAt}-4fzzzx`,
+        path: `/Users/tester/infilux/temporary/${expectedFolderName}`,
+        folderName: expectedFolderName,
+        title: expectedFolderName,
+        createdAt: expectedCreatedAt,
       },
     });
     expect(tempWorkspaceTestDoubles.gitInit).toHaveBeenCalledTimes(1);
@@ -196,6 +210,7 @@ describe('temp workspace handlers', () => {
 
     const createHandler = tempWorkspaceTestDoubles.handlers.get(IPC_CHANNELS.TEMP_WORKSPACE_CREATE);
     const result = await createHandler?.({}, '/tmp/custom-base');
+    const expectedTimestamp = formatExpectedTimestamp(FIXED_NOW);
 
     expect(result).toEqual({
       ok: false,
@@ -203,7 +218,7 @@ describe('temp workspace handlers', () => {
       message: 'git init failed',
     });
     expect(tempWorkspaceTestDoubles.rm.mock.calls).toContainEqual([
-      '/tmp/custom-base/20260325-090203',
+      `/tmp/custom-base/${expectedTimestamp}`,
       expect.objectContaining({
         recursive: true,
         force: true,
