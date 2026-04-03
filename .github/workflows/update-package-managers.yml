@@ -1,18 +1,12 @@
-name: Update Package Managers
+name: Legacy Package Manager Sync (Manual)
 
+# This workflow is intentionally manual.
+# It maintains legacy external package-manager channels and is not part of build.yml.
 on:
-  release:
-    types: [published]
-  workflow_call:
-    inputs:
-      tag:
-        description: 'Tag name (e.g. v0.1.18)'
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name (e.g. v0.1.18)'
+        description: 'Tag name for manual legacy channel maintenance (for example v0.2.41)'
         required: true
 
 permissions:
@@ -26,13 +20,7 @@ jobs:
       - name: Set Version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-          elif [ -n "${{ inputs.tag }}" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${{ github.event.release.tag_name }}"
-          fi
+          TAG="${{ github.event.inputs.tag }}"
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -125,13 +113,7 @@ jobs:
       - name: Set Version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-          elif [ -n "${{ inputs.tag }}" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${{ github.event.release.tag_name }}"
-          fi
+          TAG="${{ github.event.inputs.tag }}"
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -223,13 +205,7 @@ jobs:
       - name: Set Version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-          elif [ -n "${{ inputs.tag }}" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${{ github.event.release.tag_name }}"
-          fi
+          TAG="${{ github.event.inputs.tag }}"
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -373,13 +349,7 @@ jobs:
       - name: Set Version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-          elif [ -n "${{ inputs.tag }}" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${{ github.event.release.tag_name }}"
-          fi
+          TAG="${{ github.event.inputs.tag }}"
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
