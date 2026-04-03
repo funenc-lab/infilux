@@ -6,6 +6,8 @@ import type {
   SessionStorageDocument,
   SessionTodoTask,
 } from '@shared/types';
+import { resolveAppRuntimeChannel } from '@shared/utils/runtimeIdentity';
+import { sanitizeRuntimeProfileName } from '@shared/utils/runtimeProfile';
 import { app } from 'electron';
 
 const STORAGE_VERSION = 2;
@@ -32,11 +34,31 @@ function now(): number {
   return Date.now();
 }
 
+function getCurrentRuntimeChannel() {
+  return resolveAppRuntimeChannel({
+    explicitChannel: process.env.INFILUX_RUNTIME_CHANNEL,
+    nodeEnv: process.env.NODE_ENV,
+    vitest: process.env.VITEST,
+  });
+}
+
+function getSharedRuntimeRootDirName(): string {
+  const runtimeChannel = getCurrentRuntimeChannel();
+
+  return runtimeChannel === 'dev' ? `${RUNTIME_STATE_DIRNAME}-dev` : RUNTIME_STATE_DIRNAME;
+}
+
 export function getSharedRootPath(): string {
-  return join(
-    process.env.HOME || process.env.USERPROFILE || app.getPath('home'),
-    RUNTIME_STATE_DIRNAME
-  );
+  const homeDir = process.env.HOME || process.env.USERPROFILE || app.getPath('home');
+  const runtimeRoot = join(homeDir, getSharedRuntimeRootDirName());
+  const runtimeChannel = getCurrentRuntimeChannel();
+
+  if (runtimeChannel !== 'dev') {
+    return runtimeRoot;
+  }
+
+  const profile = sanitizeRuntimeProfileName(process.env.ENSOAI_PROFILE || '') || 'dev';
+  return join(runtimeRoot, profile);
 }
 
 function getSettingsPath(): string {

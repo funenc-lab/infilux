@@ -21,9 +21,7 @@ describe('agent session recovery copy', () => {
   });
 
   it('does not claim that only Claude supports session persistence', () => {
-    expect(agentSettingsSource).toContain(
-      'Local session recovery depends on the tmux setting.'
-    );
+    expect(agentSettingsSource).toContain('Local session recovery depends on the tmux setting.');
     expect(agentSettingsSource).not.toContain('Only Claude supports session persistence for now.');
   });
 });

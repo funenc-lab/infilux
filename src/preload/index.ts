@@ -81,7 +81,10 @@ import { IPC_CHANNELS } from '@shared/types';
 import type { AgentStopNotificationData } from '@shared/types/agent';
 import type { InspectPayload, WebInspectorStatus } from '@shared/types/webInspector';
 import { parseBootstrapThemeSnapshotFromArgv } from '@shared/utils/bootstrapTheme';
-import { parseRuntimeChannelFromArgv, resolveAppRuntimeChannel } from '@shared/utils/runtimeIdentity';
+import {
+  parseRuntimeChannelFromArgv,
+  resolveAppRuntimeChannel,
+} from '@shared/utils/runtimeIdentity';
 import { contextBridge, ipcRenderer, shell, webUtils } from 'electron';
 import pkg from '../../package.json';
 import { createSessionEventRouter } from './sessionEventRouter';

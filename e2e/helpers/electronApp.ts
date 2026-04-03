@@ -3,7 +3,11 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import pidtree from 'pidtree';
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright';
-import type { AgentSessionRecoveryScenario } from './agentSessionRecoveryScenario';
+import { encodeRuntimeChannelArgument } from '../../src/shared/utils/runtimeIdentity';
+import {
+  AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL,
+  type AgentSessionRecoveryScenario,
+} from './agentSessionRecoveryScenario';
 
 const PROJECT_ROOT = process.cwd();
 const ELECTRON_BUILD_ENTRY = join(PROJECT_ROOT, 'out', 'main', 'index.cjs');
@@ -39,12 +43,13 @@ export async function launchInfiluxForScenario(
 ): Promise<LaunchedElectronApp> {
   const consoleMessages: string[] = [];
   const app = await electron.launch({
-    args: [PROJECT_ROOT],
+    args: [PROJECT_ROOT, encodeRuntimeChannelArgument(AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL)],
     env: {
       ...process.env,
       HOME: scenario.homeDir,
       USERPROFILE: scenario.homeDir,
       ENSOAI_PROFILE: scenario.profileName,
+      INFILUX_RUNTIME_CHANNEL: AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL,
       ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
     },
   });

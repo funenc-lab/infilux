@@ -1,7 +1,7 @@
 import {
+  type AppRuntimeChannel,
   buildAppRuntimeIdentity,
   resolveAppRuntimeChannel,
-  type AppRuntimeChannel,
 } from '@shared/utils/runtimeIdentity';
 
 export function getAppRuntimeChannel(): AppRuntimeChannel {

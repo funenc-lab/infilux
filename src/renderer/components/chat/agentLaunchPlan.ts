@@ -1,7 +1,7 @@
 import {
+  type AppRuntimeChannel,
   buildAppRuntimeIdentity,
   buildPersistentAgentHostSessionKey,
-  type AppRuntimeChannel,
 } from '@shared/utils/runtimeIdentity';
 
 export interface AgentLaunchCommand {
@@ -187,8 +187,7 @@ function buildTmuxAttachCommand(
   const hideStatusCommand =
     `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} status off ` +
     '>/dev/null 2>&1 || true';
-  const attachSessionCommand =
-    `exec env -u TMUX tmux -L ${tmuxServerName} attach-session -t ${tmuxSessionName}`;
+  const attachSessionCommand = `exec env -u TMUX tmux -L ${tmuxServerName} attach-session -t ${tmuxSessionName}`;
 
   return `${createSessionCommand}; ${hideStatusCommand}; ${attachSessionCommand}`;
 }

@@ -8,8 +8,14 @@ import {
   SESSION_STATE_FILENAME,
   SETTINGS_FILENAME,
 } from '../../src/shared/paths';
+import {
+  type AppRuntimeChannel,
+  buildAppRuntimeIdentity,
+  buildPersistentAgentHostSessionKey,
+} from '../../src/shared/utils/runtimeIdentity';
+import { sanitizeRuntimeProfileName } from '../../src/shared/utils/runtimeProfile';
 
-const TMUX_SOCKET_ARGS = ['-L', 'enso', '-f', '/dev/null'] as const;
+export const AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL: AppRuntimeChannel = 'dev';
 
 interface CommandOptions {
   cwd?: string;
@@ -43,8 +49,21 @@ function buildLocalRepositoryId(repoPath: string): string {
   return `local:${normalizePathForRepositoryId(repoPath)}`;
 }
 
-function sanitizeTmuxSessionName(uiSessionId: string): string {
-  return `enso-${uiSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+function getScenarioRuntimeIdentity() {
+  return buildAppRuntimeIdentity(AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL);
+}
+
+function getTmuxSocketArgs(): string[] {
+  return ['-L', getScenarioRuntimeIdentity().tmuxServerName, '-f', '/dev/null'];
+}
+
+function buildRecoveryRuntimeRoot(homeDir: string, profileName: string): string {
+  const effectiveProfileName = sanitizeRuntimeProfileName(profileName) || 'dev';
+  return join(homeDir, `${RUNTIME_STATE_DIRNAME}-dev`, effectiveProfileName);
+}
+
+function buildTmuxSessionName(uiSessionId: string): string {
+  return buildPersistentAgentHostSessionKey(uiSessionId, AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL);
 }
 
 function shellQuote(value: string): string {
@@ -83,13 +102,13 @@ async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
 }
 
 function ensureTmuxSessionMissing(sessionName: string): void {
-  runCommand('tmux', [...TMUX_SOCKET_ARGS, 'kill-session', '-t', sessionName], {
+  runCommand('tmux', [...getTmuxSocketArgs(), 'kill-session', '-t', sessionName], {
     allowFailure: true,
   });
 }
 
 function assertTmuxSessionExists(sessionName: string): void {
-  runCommand('tmux', [...TMUX_SOCKET_ARGS, 'has-session', '-t', sessionName]);
+  runCommand('tmux', [...getTmuxSocketArgs(), 'has-session', '-t', sessionName]);
 }
 
 async function createGitRepositoryFixture(repoPath: string, worktreePath: string): Promise<void> {
@@ -127,7 +146,7 @@ async function createTmuxRecoverySession(options: {
 
   ensureTmuxSessionMissing(options.sessionName);
   runCommand('tmux', [
-    ...TMUX_SOCKET_ARGS,
+    ...getTmuxSocketArgs(),
     'new-session',
     '-d',
     '-s',
@@ -164,11 +183,11 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
   const repoName = 'repo-main';
   const worktreeBranch = 'feature-recovery';
   const uiSessionId = `ui-recovery-${randomUUID()}`;
-  const tmuxSessionName = sanitizeTmuxSessionName(uiSessionId);
+  const profileName = sanitizeRuntimeProfileName(`e2e-${uiSessionId}`) || 'e2e';
+  const tmuxSessionName = buildTmuxSessionName(uiSessionId);
   const sessionDisplayName = 'Recovered Session';
   const tmuxGreeting = 'Recovered from tmux';
-  const profileName = `e2e-${uiSessionId}`;
-  const runtimeRoot = join(homeDir, RUNTIME_STATE_DIRNAME);
+  const runtimeRoot = buildRecoveryRuntimeRoot(homeDir, profileName);
   const settingsPath = join(runtimeRoot, SETTINGS_FILENAME);
   const sessionStatePath = join(runtimeRoot, SESSION_STATE_FILENAME);
 

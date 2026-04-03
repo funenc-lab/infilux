@@ -106,16 +106,37 @@ async function loadElectronAPI(): Promise<ElectronAPI> {
 
 describe('preload bridge', () => {
   const originalArgv = [...process.argv];
+  const originalRuntimeChannel = process.env.INFILUX_RUNTIME_CHANNEL;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalVitest = process.env.VITEST;
 
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     preloadTestDoubles.reset();
     process.argv = [...originalArgv];
+    delete process.env.INFILUX_RUNTIME_CHANNEL;
+    process.env.NODE_ENV = 'test';
+    process.env.VITEST = 'true';
   });
 
   afterEach(() => {
     process.argv = [...originalArgv];
+    if (originalRuntimeChannel === undefined) {
+      delete process.env.INFILUX_RUNTIME_CHANNEL;
+    } else {
+      process.env.INFILUX_RUNTIME_CHANNEL = originalRuntimeChannel;
+    }
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalVitest === undefined) {
+      delete process.env.VITEST;
+    } else {
+      process.env.VITEST = originalVitest;
+    }
     vi.restoreAllMocks();
   });
 

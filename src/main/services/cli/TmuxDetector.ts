@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { execInPty } from '../../utils/shell';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
+import { execInPty } from '../../utils/shell';
 
 const isWindows = process.platform === 'win32';
 

@@ -295,6 +295,8 @@ describe('PersistentAgentSessionRepository', () => {
     vi.resetModules();
     vi.clearAllMocks();
     repositoryTestDoubles.reset();
+    vi.stubEnv('INFILUX_RUNTIME_CHANNEL', 'test');
+    vi.stubEnv('ENSOAI_PROFILE', '');
   });
 
   afterEach(() => {
@@ -350,6 +352,27 @@ describe('PersistentAgentSessionRepository', () => {
 
     expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
       `/tmp/override-home/.infilux/${testRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
+      repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
+      expect.any(Function)
+    );
+  });
+
+  it('isolates the persistent session database under the development shared-state profile', async () => {
+    const devRuntimeIdentity = buildAppRuntimeIdentity('dev');
+    vi.stubEnv('HOME', '/tmp/dev-home');
+    vi.stubEnv('USERPROFILE', '');
+    vi.stubEnv('INFILUX_RUNTIME_CHANNEL', 'dev');
+    vi.stubEnv('ENSOAI_PROFILE', 'sessionbar dot check');
+
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+
+    await repository.initialize();
+
+    expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
+      `/tmp/dev-home/.infilux-dev/sessionbar-dot-check/${devRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
       repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
       expect.any(Function)
     );

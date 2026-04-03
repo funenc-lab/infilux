@@ -2,6 +2,7 @@ import {
   appendFileSync,
   createReadStream,
   existsSync,
+  mkdirSync,
   readFileSync,
   statSync,
   writeFileSync,
@@ -14,7 +15,12 @@ import { type Locale, normalizeLocale } from '@shared/i18n';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { IPC_CHANNELS, type ProxySettings } from '@shared/types';
 import { customProtocolUriToPath, type SupportedFileUrlPlatform } from '@shared/utils/fileUrl';
-import { resolveAppRuntimeChannel } from '@shared/utils/runtimeIdentity';
+import {
+  type AppRuntimeChannel,
+  parseRuntimeChannelFromArgv,
+  resolveAppRuntimeChannel,
+} from '@shared/utils/runtimeIdentity';
+import { sanitizeRuntimeProfileName } from '@shared/utils/runtimeProfile';
 import {
   createStartupTimelineRecorder,
   formatStartupTimelineEntry,
@@ -101,12 +107,38 @@ let cleanupWindowHandlers: (() => void) | null = null;
 let isQuittingCleanupRunning = false;
 
 const isDev = !app.isPackaged;
-process.env.INFILUX_RUNTIME_CHANNEL = resolveAppRuntimeChannel({
-  explicitChannel: process.env.INFILUX_RUNTIME_CHANNEL,
-  nodeEnv: process.env.NODE_ENV,
-  vitest: process.env.VITEST,
-  isPackaged: app.isPackaged,
-});
+
+// In dev mode, use an isolated userData dir before any Chromium-backed service initializes.
+// This prevents dev sessions from inheriting the packaged profile and keeps sessionData writes scoped.
+if (isDev) {
+  const profile = sanitizeRuntimeProfileName(process.env.ENSOAI_PROFILE || '') || 'dev';
+  const isolatedUserDataPath = join(app.getPath('appData'), `${app.getName()}-${profile}`);
+  const isolatedSessionDataPath = join(isolatedUserDataPath, 'session-data');
+  mkdirSync(isolatedUserDataPath, { recursive: true });
+  mkdirSync(isolatedSessionDataPath, { recursive: true });
+  app.setPath('userData', isolatedUserDataPath);
+  app.setPath('sessionData', isolatedSessionDataPath);
+}
+
+function resolveStartupRuntimeChannel(): AppRuntimeChannel {
+  const runtimeChannelFromArgv = parseRuntimeChannelFromArgv(process.argv);
+  if (runtimeChannelFromArgv) {
+    return runtimeChannelFromArgv;
+  }
+
+  return resolveAppRuntimeChannel({
+    explicitChannel: app.isPackaged ? process.env.INFILUX_RUNTIME_CHANNEL : undefined,
+    nodeEnv: process.env.NODE_ENV,
+    vitest: process.env.VITEST,
+    isPackaged: app.isPackaged,
+  });
+}
+
+if (isDev && process.env.INFILUX_ENABLE_REMOTE_DEBUGGING === 'true') {
+  // Enable CDP only for explicit local debugging sessions.
+  app.commandLine.appendSwitch('remote-debugging-port', '9222');
+}
+process.env.INFILUX_RUNTIME_CHANNEL = resolveStartupRuntimeChannel();
 const FORCE_EXIT_TIMEOUT_MS = 8000;
 const MAX_RENDERER_RECOVERY_ATTEMPTS = 2;
 const RENDERER_RECOVERY_WINDOW_MS = 30_000;
@@ -256,12 +288,6 @@ function isAllowedRemoteImageUrl(input: string): boolean {
   }
 }
 
-function sanitizeProfileName(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return '';
-  return trimmed.replace(/[^a-zA-Z0-9._-]+/g, '-');
-}
-
 function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
   let recoveryAttemptCount = 0;
   let recoveryWindowStartedAt = 0;
@@ -392,13 +418,6 @@ function syncDockIconWithAppearance(): void {
   if (dockIconPath) {
     app.dock?.setIcon(dockIconPath);
   }
-}
-
-// In dev mode, use an isolated userData dir to avoid clashing with the packaged app.
-// This prevents Chromium/Electron profile locking from causing an "empty" localStorage in later instances.
-if (isDev) {
-  const profile = sanitizeProfileName(process.env.ENSOAI_PROFILE || '') || 'dev';
-  app.setPath('userData', join(app.getPath('appData'), `${app.getName()}-${profile}`));
 }
 
 // Register URL scheme handler (must be done before app is ready)
@@ -1636,7 +1655,8 @@ function getAnyWindow(): BrowserWindow | null {
 export const __testables = {
   isPrivateIpLiteral,
   isAllowedRemoteImageUrl,
-  sanitizeProfileName,
+  sanitizeProfileName: sanitizeRuntimeProfileName,
+  resolveStartupRuntimeChannel,
   parseInfiluxUrl,
   sendOpenPath,
   sanitizePath,

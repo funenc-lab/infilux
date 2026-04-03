@@ -26,6 +26,9 @@ vi.mock('node:child_process', () => ({
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+const originalRuntimeChannel = process.env.INFILUX_RUNTIME_CHANNEL;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalVitest = process.env.VITEST;
 const testRuntimeIdentity = buildAppRuntimeIdentity('test');
 
 function setPlatform(value: NodeJS.Platform) {
@@ -40,11 +43,29 @@ describe('TmuxDetector', () => {
     vi.resetModules();
     vi.clearAllMocks();
     tmuxDetectorTestDoubles.reset();
+    process.env.INFILUX_RUNTIME_CHANNEL = 'test';
+    process.env.NODE_ENV = 'test';
+    process.env.VITEST = 'true';
   });
 
   afterEach(() => {
     if (originalPlatformDescriptor) {
       Object.defineProperty(process, 'platform', originalPlatformDescriptor);
+    }
+    if (originalRuntimeChannel === undefined) {
+      delete process.env.INFILUX_RUNTIME_CHANNEL;
+    } else {
+      process.env.INFILUX_RUNTIME_CHANNEL = originalRuntimeChannel;
+    }
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalVitest === undefined) {
+      delete process.env.VITEST;
+    } else {
+      process.env.VITEST = originalVitest;
     }
     vi.restoreAllMocks();
   });

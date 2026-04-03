@@ -60,6 +60,8 @@ vi.mock('electron', () => ({
 
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
+const originalRuntimeChannel = process.env.INFILUX_RUNTIME_CHANNEL;
+const originalProfile = process.env.ENSOAI_PROFILE;
 
 describe('SharedSessionState', () => {
   beforeEach(() => {
@@ -68,6 +70,8 @@ describe('SharedSessionState', () => {
     sharedSessionStateTestDoubles.reset();
     process.env.HOME = '/Users/tester';
     delete process.env.USERPROFILE;
+    delete process.env.INFILUX_RUNTIME_CHANNEL;
+    delete process.env.ENSOAI_PROFILE;
   });
 
   afterEach(() => {
@@ -80,6 +84,16 @@ describe('SharedSessionState', () => {
       delete process.env.USERPROFILE;
     } else {
       process.env.USERPROFILE = originalUserProfile;
+    }
+    if (originalRuntimeChannel === undefined) {
+      delete process.env.INFILUX_RUNTIME_CHANNEL;
+    } else {
+      process.env.INFILUX_RUNTIME_CHANNEL = originalRuntimeChannel;
+    }
+    if (originalProfile === undefined) {
+      delete process.env.ENSOAI_PROFILE;
+    } else {
+      process.env.ENSOAI_PROFILE = originalProfile;
     }
     vi.restoreAllMocks();
   });
@@ -370,5 +384,38 @@ describe('SharedSessionState', () => {
     );
 
     nowSpy.mockRestore();
+  });
+
+  it('isolates shared state roots for development profiles', async () => {
+    process.env.INFILUX_RUNTIME_CHANNEL = 'dev';
+    process.env.ENSOAI_PROFILE = 'feature branch';
+
+    const sharedState = await import('../SharedSessionState');
+
+    expect(sharedState.getSharedStatePaths()).toEqual({
+      root: '/Users/tester/.infilux-dev/feature-branch',
+      settingsPath: '/Users/tester/.infilux-dev/feature-branch/settings.json',
+      sessionPath: '/Users/tester/.infilux-dev/feature-branch/session-state.json',
+      settingsMarkerPath: '/Users/tester/.infilux-dev/feature-branch/.local-settings-migrated',
+      todoMarkerPath: '/Users/tester/.infilux-dev/feature-branch/.local-todo-migrated',
+      localStorageMarkerPath:
+        '/Users/tester/.infilux-dev/feature-branch/.local-localstorage-migrated',
+    });
+  });
+
+  it('falls back to the default development profile when the sanitized profile is empty', async () => {
+    process.env.INFILUX_RUNTIME_CHANNEL = 'dev';
+    process.env.ENSOAI_PROFILE = ' !!! ';
+
+    const sharedState = await import('../SharedSessionState');
+
+    expect(sharedState.getSharedStatePaths()).toEqual({
+      root: '/Users/tester/.infilux-dev/dev',
+      settingsPath: '/Users/tester/.infilux-dev/dev/settings.json',
+      sessionPath: '/Users/tester/.infilux-dev/dev/session-state.json',
+      settingsMarkerPath: '/Users/tester/.infilux-dev/dev/.local-settings-migrated',
+      todoMarkerPath: '/Users/tester/.infilux-dev/dev/.local-todo-migrated',
+      localStorageMarkerPath: '/Users/tester/.infilux-dev/dev/.local-localstorage-migrated',
+    });
   });
 });
