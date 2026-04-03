@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { IPC_CHANNELS } from '@shared/types';
+import { type ClaudeIdeBridgeStatus, IPC_CHANNELS } from '@shared/types';
 import { BrowserWindow, ipcMain } from 'electron';
 import { type RawData, type WebSocket, WebSocketServer } from 'ws';
 import {
@@ -18,6 +18,7 @@ import {
   removeStatusLineHook,
   removeStopHook,
 } from './ClaudeHookManager';
+import { matchesClaudeIdeWorkspace, resolveClaudeIdeBridgeStatus } from './claudeIdeBridgeStatus';
 import { MCP_TOOLS } from './mcpTools';
 import { checkTaskCompletion, readLastAssistantMessages } from './sessionLogReader';
 
@@ -125,6 +126,49 @@ function deleteLockFile(port: number): void {
   } catch {
     // Ignore errors
   }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function listLiveIdeLocksForWorkspace(workspacePath: string): number {
+  const ideDir = getIdeDir();
+  if (!fs.existsSync(ideDir)) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const entry of fs.readdirSync(ideDir)) {
+    if (!entry.endsWith('.lock')) {
+      continue;
+    }
+
+    const lockPath = path.join(ideDir, entry);
+    try {
+      const raw = fs.readFileSync(lockPath, 'utf8');
+      const payload = JSON.parse(raw) as Partial<LockFilePayload>;
+      if (typeof payload.pid !== 'number' || !isProcessAlive(payload.pid)) {
+        continue;
+      }
+
+      const workspaceFolders = Array.isArray(payload.workspaceFolders)
+        ? payload.workspaceFolders.filter((item): item is string => typeof item === 'string')
+        : [];
+      if (workspaceFolders.some((folder) => matchesClaudeIdeWorkspace(workspacePath, folder))) {
+        count += 1;
+      }
+    } catch {
+      // Ignore invalid or unreadable lock files.
+    }
+  }
+
+  return count;
 }
 
 function safeJsonParse(s: string): JsonRpcRequest | null {
@@ -701,11 +745,21 @@ export async function setClaudeBridgeEnabled(
   }
 }
 
-export function getClaudeBridgeStatus(): { enabled: boolean; port: number | null } {
-  return {
-    enabled: bridgeInstance !== null,
-    port: bridgeInstance?.port ?? null,
-  };
+export function getClaudeBridgeStatus(workspacePath?: string): ClaudeIdeBridgeStatus {
+  const enabled = bridgeInstance !== null;
+  const port = bridgeInstance?.port ?? null;
+  const workspaceFolders = bridgeInstance?.workspaceFolders ?? [];
+  const matchingWorkspaceLockCount = workspacePath
+    ? listLiveIdeLocksForWorkspace(workspacePath)
+    : 0;
+
+  return resolveClaudeIdeBridgeStatus({
+    enabled,
+    port,
+    workspaceFolders,
+    workspacePath,
+    matchingWorkspaceLockCount,
+  });
 }
 
 export function setBridgeOptions(options: ClaudeIdeBridgeOptions): void {
@@ -766,8 +820,8 @@ export function registerClaudeBridgeIpcHandlers(): void {
     }
   );
 
-  ipcMain.handle(IPC_CHANNELS.MCP_BRIDGE_GET_STATUS, () => {
-    return getClaudeBridgeStatus();
+  ipcMain.handle(IPC_CHANNELS.MCP_BRIDGE_GET_STATUS, (_, workspacePath?: string) => {
+    return getClaudeBridgeStatus(workspacePath);
   });
 
   ipcMain.handle(IPC_CHANNELS.MCP_STOP_HOOK_SET, (_, enabled: boolean) => {

@@ -1,6 +1,7 @@
 import type { McpServer } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain } from 'electron';
+import { ensureClaudeWorkspaceTrusted } from '../services/claude/ClaudeWorkspaceTrust';
 import {
   deleteMcpServer,
   readMcpServers,
@@ -39,6 +40,14 @@ import {
 import { resolveRepositoryRuntimeContext } from '../services/repository/RepositoryContextResolver';
 
 export function registerClaudeConfigHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_PROJECT_TRUST_ENSURE, async (_, workspacePath: string) => {
+    if (resolveRepositoryRuntimeContext(workspacePath).kind === 'remote') {
+      return false;
+    }
+
+    return ensureClaudeWorkspaceTrusted(workspacePath);
+  });
+
   // MCP Management
   ipcMain.handle(IPC_CHANNELS.CLAUDE_MCP_READ, async (_, repoPath?: string) => {
     const context = resolveRepositoryRuntimeContext(repoPath);

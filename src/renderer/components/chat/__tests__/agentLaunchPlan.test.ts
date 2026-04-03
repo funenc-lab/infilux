@@ -38,6 +38,31 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.initialCommand).not.toContain('tmux -L enso');
   });
 
+  it('skips the Claude IDE flag when IDE integration is unavailable', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      resumeSessionId: 'session-1',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      enableIdeIntegration: false,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-lc'],
+      },
+    });
+
+    expect(plan.command).toEqual({
+      shell: 'claude',
+      args: ['--session-id', 'session-1'],
+    });
+    expect(plan.fallbackCommand).toEqual({
+      shell: '/bin/zsh',
+      args: ['-lc', 'claude --session-id session-1'],
+    });
+  });
+
   it('keeps tmux wrapping for local unix agent sessions', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'claude',
@@ -59,6 +84,12 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command?.args[0]).toBe('-lc');
     expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain('command -v claude >/dev/null 2>&1');
+    expect(plan.command?.args[1]).toContain(
+      "then env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+    );
+    expect(plan.command?.args[1]).not.toContain(
+      "then exec env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+    );
     expect(plan.command?.args[1]).toContain(
       "env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true"
     );
@@ -233,6 +264,7 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.env).toEqual({ CLI_API_TOKEN: 'token-123' });
     expect(plan.command?.shell).toBe('/bin/bash');
     expect(plan.command?.args[0]).toBe('-lc');
+    expect(plan.command?.args[1]).toContain('then exec npx -y @twsxtd/hapi');
     expect(plan.command?.args[1]).toContain('npx -y @twsxtd/hapi');
     expect(plan.command?.args[1]).toContain('--session-id session-2');
     expect(plan.command?.args[1]).toContain('--ide');

@@ -266,6 +266,7 @@ export const IPC_CHANNELS = {
   CLAUDE_PROVIDER_SETTINGS_CHANGED: 'claude:provider:settingsChanged',
 
   // Claude MCP Management
+  CLAUDE_PROJECT_TRUST_ENSURE: 'claude:projectTrust:ensure',
   CLAUDE_MCP_READ: 'claude:mcp:read',
   CLAUDE_MCP_SYNC: 'claude:mcp:sync',
   CLAUDE_MCP_UPSERT: 'claude:mcp:upsert',

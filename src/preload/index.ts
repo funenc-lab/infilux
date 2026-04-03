@@ -983,8 +983,8 @@ const electronAPI = {
   mcp: {
     setEnabled: (enabled: boolean, workspaceFolders?: string[]): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.MCP_BRIDGE_SET_ENABLED, enabled, workspaceFolders),
-    getStatus: (): Promise<{ enabled: boolean; port: number | null }> =>
-      ipcRenderer.invoke(IPC_CHANNELS.MCP_BRIDGE_GET_STATUS),
+    getStatus: (workspacePath?: string): Promise<import('@shared/types').ClaudeIdeBridgeStatus> =>
+      ipcRenderer.invoke(IPC_CHANNELS.MCP_BRIDGE_GET_STATUS, workspacePath),
     sendSelectionChanged: (params: {
       text: string;
       filePath: string;
@@ -1039,6 +1039,10 @@ const electronAPI = {
 
   // Claude Config (MCP, Prompts, Plugins)
   claudeConfig: {
+    projectTrust: {
+      ensureWorkspaceTrusted: (workspacePath: string): Promise<boolean> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_PROJECT_TRUST_ENSURE, workspacePath),
+    },
     // MCP Management
     mcp: {
       read: (repoPath?: string): Promise<Record<string, McpServerConfig>> =>

@@ -21,6 +21,7 @@ export interface BuildAgentLaunchPlanParams {
   hapiCliApiToken?: string;
   isRemoteExecution: boolean;
   executionPlatform?: string;
+  enableIdeIntegration?: boolean;
   tmuxEnabled?: boolean;
   resolvedShell: {
     shell: string;
@@ -135,7 +136,15 @@ function wrapWithLocalUnixFallback(params: {
     .map((command) => `command -v ${command} >/dev/null 2>&1`)
     .join(' && ');
   const fallbackCommand = `${params.shellPath} ${interactiveExecArgs.join(' ')} ${quotePosixShell(params.finalCommand)}`;
-  const bootstrapCommand = `if ${probeExpression}; then exec ${params.finalCommand}; else exec ${fallbackCommand}; fi`;
+  const requiresInlineExecution =
+    params.finalCommand.includes(';') ||
+    params.finalCommand.includes('\n') ||
+    params.finalCommand.includes('&&') ||
+    params.finalCommand.includes('||');
+  const primaryCommand = requiresInlineExecution
+    ? params.finalCommand
+    : `exec ${params.finalCommand}`;
+  const bootstrapCommand = `if ${probeExpression}; then ${primaryCommand}; else exec ${fallbackCommand}; fi`;
 
   return {
     shell: params.shellPath,
@@ -204,6 +213,7 @@ export function buildAgentLaunchPlan({
   hapiCliApiToken,
   isRemoteExecution,
   executionPlatform,
+  enableIdeIntegration = agentCommand.startsWith('claude'),
   tmuxEnabled = false,
   resolvedShell,
   terminalSessionId,
@@ -219,7 +229,7 @@ export function buildAgentLaunchPlan({
   }
 
   const effectiveCommand = customPath || agentCommand;
-  const supportIde = agentCommand.startsWith('claude');
+  const supportIde = agentCommand.startsWith('claude') && enableIdeIntegration;
   const isWindows = executionPlatform === 'win32';
 
   const agentArgs = buildSessionResumeArgs({

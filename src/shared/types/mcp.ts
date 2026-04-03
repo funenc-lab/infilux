@@ -74,6 +74,24 @@ export interface McpHttpServer {
  */
 export type McpServer = McpStdioServer | McpHttpServer;
 
+export type ClaudeIdeBridgeLaunchReason =
+  | 'ready'
+  | 'bridge-disabled'
+  | 'no-workspace'
+  | 'workspace-mismatch'
+  | 'ambiguous-locks'
+  | 'no-live-lock';
+
+export interface ClaudeIdeBridgeStatus {
+  enabled: boolean;
+  port: number | null;
+  workspaceFolders: string[];
+  hasMatchingWorkspace: boolean;
+  matchingWorkspaceLockCount: number;
+  canUseIde: boolean;
+  reason: ClaudeIdeBridgeLaunchReason;
+}
+
 /**
  * 判断是否为 HTTP/SSE 类型服务器
  */

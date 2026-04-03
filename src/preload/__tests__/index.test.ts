@@ -382,6 +382,10 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.CLAUDE_PROVIDER_APPLY, '/repo', { provider: 'claude' }],
       },
       {
+        run: () => api.claudeConfig.projectTrust.ensureWorkspaceTrusted('/repo/worktree'),
+        expected: [IPC_CHANNELS.CLAUDE_PROJECT_TRUST_ENSURE, '/repo/worktree'],
+      },
+      {
         run: () => api.claudeConfig.mcp.upsert('/repo', { id: 'server-1' } as never),
         expected: [IPC_CHANNELS.CLAUDE_MCP_UPSERT, '/repo', { id: 'server-1' }],
       },

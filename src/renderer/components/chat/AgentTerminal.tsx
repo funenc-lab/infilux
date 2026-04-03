@@ -1,3 +1,4 @@
+import type { ClaudeIdeBridgeStatus } from '@shared/types';
 import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -11,11 +12,13 @@ import { useXterm } from '@/hooks/useXterm';
 import { useI18n } from '@/i18n';
 import { showRendererNotification } from '@/lib/electronNotification';
 import { buildChatNotificationCopy } from '@/lib/feedbackCopy';
+import { resolveTerminalRuntimeOverlayState } from '@/lib/terminalRuntimeOverlay';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { buildAgentLaunchPlan } from './agentLaunchPlan';
+import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
 
 interface AgentTerminalProps {
   id?: string; // Terminal session ID (UI key)
@@ -112,6 +115,8 @@ export function AgentTerminal({
 
   // Track if hapi is globally installed (cached in main process)
   const [hapiGlobalInstalled, setHapiGlobalInstalled] = useState<boolean | null>(null);
+  const [claudeIdeStatus, setClaudeIdeStatus] = useState<ClaudeIdeBridgeStatus | null>(null);
+  const [claudeWorkspaceTrusted, setClaudeWorkspaceTrusted] = useState<boolean | null>(null);
 
   // Resolved shell for command execution
   const [resolvedShell, setResolvedShell] = useState<{
@@ -136,10 +141,86 @@ export function AgentTerminal({
       });
     }
   }, [cwd, environment]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!agentCommand.startsWith('claude')) {
+      setClaudeIdeStatus(null);
+      return;
+    }
+
+    if (!claudeCodeIntegration.enabled) {
+      setClaudeIdeStatus({
+        enabled: false,
+        port: null,
+        workspaceFolders: [],
+        hasMatchingWorkspace: false,
+        matchingWorkspaceLockCount: 0,
+        canUseIde: false,
+        reason: 'bridge-disabled',
+      });
+      return;
+    }
+
+    setClaudeIdeStatus(null);
+    window.electronAPI.mcp
+      .getStatus(cwd)
+      .then((status) => {
+        if (!cancelled) {
+          setClaudeIdeStatus(status);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClaudeIdeStatus({
+            enabled: false,
+            port: null,
+            workspaceFolders: [],
+            hasMatchingWorkspace: false,
+            matchingWorkspaceLockCount: 0,
+            canUseIde: false,
+            reason: 'bridge-disabled',
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agentCommand, claudeCodeIntegration.enabled, cwd]);
+  useEffect(() => {
+    let cancelled = false;
+    hasAutoConfirmedTrustPromptRef.current = false;
+
+    if (!agentCommand.startsWith('claude') || isRemoteExecution || !cwd) {
+      setClaudeWorkspaceTrusted(true);
+      return;
+    }
+
+    setClaudeWorkspaceTrusted(null);
+    window.electronAPI.claudeConfig.projectTrust
+      .ensureWorkspaceTrusted(cwd)
+      .then((trusted) => {
+        if (!cancelled) {
+          setClaudeWorkspaceTrusted(trusted);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClaudeWorkspaceTrusted(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agentCommand, cwd, isRemoteExecution]);
   const outputBufferRef = useRef('');
   const startTimeRef = useRef<number | null>(null);
   const hasInitializedRef = useRef(false);
   const hasActivatedRef = useRef(false);
+  const hasAutoConfirmedTrustPromptRef = useRef(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enterDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Delay after Enter before arming idle monitor.
   const isWaitingForIdleRef = useRef(false); // Wait for idle notification; enabled after substantial output.
@@ -148,6 +229,7 @@ export function AgentTerminal({
   const currentTitleRef = useRef<string>(''); // Terminal title from OSC escape sequence.
   const tmuxSessionNameRef = useRef<string | null>(null); // Tmux session name for cleanup.
   const runtimeStateRef = useRef<'live' | 'reconnecting' | 'dead'>('live');
+  const trustPromptSubmitRef = useRef<(data: string) => void>(() => {});
 
   // Output state tracking for global store
   const outputStateRef = useRef<OutputState>('idle');
@@ -308,6 +390,7 @@ export function AgentTerminal({
       hapiCliApiToken: hapiSettings.cliApiToken,
       isRemoteExecution,
       executionPlatform,
+      enableIdeIntegration: claudeIdeStatus?.canUseIde ?? false,
       tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
       resolvedShell,
       terminalSessionId,
@@ -326,6 +409,7 @@ export function AgentTerminal({
     };
   }, [
     agentCommand,
+    claudeIdeStatus?.canUseIde,
     customPath,
     customArgs,
     initialPrompt,
@@ -373,6 +457,16 @@ export function AgentTerminal({
       outputBufferRef.current += data;
       if (outputBufferRef.current.length > 1000) {
         outputBufferRef.current = outputBufferRef.current.slice(-500);
+      }
+
+      if (
+        claudeWorkspaceTrusted === true &&
+        agentCommand.startsWith('claude') &&
+        !hasAutoConfirmedTrustPromptRef.current &&
+        isClaudeWorkspaceTrustPrompt(outputBufferRef.current)
+      ) {
+        hasAutoConfirmedTrustPromptRef.current = true;
+        trustPromptSubmitRef.current('\r');
       }
 
       // Track output volume since last Enter
@@ -443,6 +537,7 @@ export function AgentTerminal({
     [
       initialized,
       onInitialized,
+      claudeWorkspaceTrusted,
       agentCommand,
       cwd,
       agentNotificationEnabled,
@@ -602,6 +697,20 @@ export function AgentTerminal({
 
   // Wait for shell config and hapi check to complete before activating terminal
   const effectiveIsActive = useMemo(() => {
+    if (
+      agentCommand.startsWith('claude') &&
+      claudeCodeIntegration.enabled &&
+      claudeIdeStatus === null
+    ) {
+      return false;
+    }
+    if (
+      agentCommand.startsWith('claude') &&
+      !isRemoteExecution &&
+      claudeWorkspaceTrusted === null
+    ) {
+      return false;
+    }
     if (!isRemoteExecution && !resolvedShell) {
       return false;
     }
@@ -614,6 +723,10 @@ export function AgentTerminal({
     environment,
     hapiGlobalInstalled,
     isActive,
+    agentCommand,
+    claudeCodeIntegration.enabled,
+    claudeIdeStatus,
+    claudeWorkspaceTrusted,
     isRemoteExecution,
     resolvedShell,
     hasPendingCommand,
@@ -655,7 +768,13 @@ export function AgentTerminal({
     onMerge,
     canMerge,
   });
+  trustPromptSubmitRef.current = write;
   runtimeStateRef.current = runtimeState;
+  const terminalOverlayState = resolveTerminalRuntimeOverlayState({
+    isLoading,
+    isRemoteExecution,
+    runtimeState,
+  });
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
 
@@ -885,6 +1004,12 @@ export function AgentTerminal({
         </button>
       )}
       {(isLoading ||
+        (agentCommand.startsWith('claude') &&
+          !isRemoteExecution &&
+          claudeWorkspaceTrusted === null) ||
+        (agentCommand.startsWith('claude') &&
+          claudeCodeIntegration.enabled &&
+          claudeIdeStatus === null) ||
         (!isRemoteExecution && !resolvedShell) ||
         (environment === 'hapi' && hapiGlobalInstalled === null)) && (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -899,16 +1024,16 @@ export function AgentTerminal({
           </div>
         </div>
       )}
-      {runtimeState !== 'live' && !isLoading && (
+      {terminalOverlayState && (
         <div className="absolute inset-0 flex items-center justify-center bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px]">
           <div className="control-floating-muted rounded-xl px-4 py-3 text-center">
             <div className="text-sm font-medium">
-              {runtimeState === 'reconnecting'
+              {terminalOverlayState === 'reconnecting'
                 ? t('Remote terminal reconnecting...')
                 : t('Remote terminal disconnected')}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              {runtimeState === 'reconnecting'
+              {terminalOverlayState === 'reconnecting'
                 ? t('Remote terminal input is temporarily disabled while reconnecting.')
                 : t('Remote terminal has disconnected. Reconnect the remote host to continue.')}
             </div>

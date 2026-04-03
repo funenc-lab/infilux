@@ -19,6 +19,7 @@ const claudeConfigTestDoubles = vi.hoisted(() => {
   const readClaudeMd = vi.fn();
   const writeClaudeMd = vi.fn();
   const backupClaudeMd = vi.fn();
+  const ensureClaudeWorkspaceTrusted = vi.fn();
 
   const getPlugins = vi.fn();
   const setPluginEnabled = vi.fn();
@@ -72,6 +73,8 @@ const claudeConfigTestDoubles = vi.hoisted(() => {
     writeClaudeMd.mockResolvedValue(true);
     backupClaudeMd.mockReset();
     backupClaudeMd.mockResolvedValue('/tmp/local-claude.md.bak');
+    ensureClaudeWorkspaceTrusted.mockReset();
+    ensureClaudeWorkspaceTrusted.mockResolvedValue(true);
 
     getPlugins.mockReset();
     getPlugins.mockResolvedValue([{ id: 'local-plugin' }]);
@@ -133,6 +136,7 @@ const claudeConfigTestDoubles = vi.hoisted(() => {
     readClaudeMd,
     writeClaudeMd,
     backupClaudeMd,
+    ensureClaudeWorkspaceTrusted,
     getPlugins,
     setPluginEnabled,
     getAvailablePlugins,
@@ -192,6 +196,10 @@ vi.mock('../../services/claude/PromptsManager', () => ({
   backupClaudeMd: claudeConfigTestDoubles.backupClaudeMd,
   readClaudeMd: claudeConfigTestDoubles.readClaudeMd,
   writeClaudeMd: claudeConfigTestDoubles.writeClaudeMd,
+}));
+
+vi.mock('../../services/claude/ClaudeWorkspaceTrust', () => ({
+  ensureClaudeWorkspaceTrusted: claudeConfigTestDoubles.ensureClaudeWorkspaceTrusted,
 }));
 
 vi.mock('../../services/remote/RemoteEnvironmentService', () => ({
@@ -261,6 +269,9 @@ describe('Claude config IPC handlers', () => {
     expect(await getHandler(IPC_CHANNELS.CLAUDE_PROMPTS_BACKUP)({})).toBe(
       '/tmp/local-claude.md.bak'
     );
+    expect(await getHandler(IPC_CHANNELS.CLAUDE_PROJECT_TRUST_ENSURE)({}, '/repo/worktree')).toBe(
+      true
+    );
 
     expect(await getHandler(IPC_CHANNELS.CLAUDE_PLUGINS_LIST)({})).toEqual([
       { id: 'local-plugin' },
@@ -300,6 +311,9 @@ describe('Claude config IPC handlers', () => {
     expect(claudeConfigTestDoubles.deleteMcpServer).toHaveBeenCalledWith('alpha');
     expect(claudeConfigTestDoubles.readClaudeMd).toHaveBeenCalledTimes(1);
     expect(claudeConfigTestDoubles.writeClaudeMd).toHaveBeenCalledWith('# next');
+    expect(claudeConfigTestDoubles.ensureClaudeWorkspaceTrusted).toHaveBeenCalledWith(
+      '/repo/worktree'
+    );
     expect(claudeConfigTestDoubles.getPlugins).toHaveBeenCalledTimes(1);
     expect(claudeConfigTestDoubles.setPluginEnabled).toHaveBeenCalledWith('plugin-1', true);
     expect(claudeConfigTestDoubles.getAvailablePlugins).toHaveBeenCalledWith('market');
@@ -355,6 +369,9 @@ describe('Claude config IPC handlers', () => {
     ).toBe(true);
     expect(await getHandler(IPC_CHANNELS.CLAUDE_PROMPTS_BACKUP)({}, '/__remote__/repo')).toBe(
       '/tmp/remote-claude.md.bak'
+    );
+    expect(await getHandler(IPC_CHANNELS.CLAUDE_PROJECT_TRUST_ENSURE)({}, '/__remote__/repo')).toBe(
+      false
     );
 
     expect(await getHandler(IPC_CHANNELS.CLAUDE_PLUGINS_LIST)({}, '/__remote__/repo')).toEqual([
@@ -443,6 +460,7 @@ describe('Claude config IPC handlers', () => {
       '/__remote__/repo',
       '# remote next'
     );
+    expect(claudeConfigTestDoubles.ensureClaudeWorkspaceTrusted).not.toHaveBeenCalled();
     expect(claudeConfigTestDoubles.setRepositoryRemotePluginEnabled).toHaveBeenCalledWith(
       '/__remote__/repo',
       'plugin-1',
