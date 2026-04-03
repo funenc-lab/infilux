@@ -196,9 +196,12 @@ function buildTmuxAttachCommand(
   const hideStatusCommand =
     `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} status off ` +
     '>/dev/null 2>&1 || true';
+  const enableMouseCommand =
+    `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} mouse on ` +
+    '>/dev/null 2>&1 || true';
   const attachSessionCommand = `exec env -u TMUX tmux -L ${tmuxServerName} attach-session -t ${tmuxSessionName}`;
 
-  return `${createSessionCommand}; ${hideStatusCommand}; ${attachSessionCommand}`;
+  return `${createSessionCommand}; ${hideStatusCommand}; ${enableMouseCommand}; ${attachSessionCommand}`;
 }
 
 export function buildAgentLaunchPlan({

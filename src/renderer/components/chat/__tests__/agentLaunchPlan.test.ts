@@ -97,6 +97,9 @@ describe('buildAgentLaunchPlan', () => {
       'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 status off >/dev/null 2>&1 || true'
     );
     expect(plan.command?.args[1]).toContain(
+      'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 mouse on >/dev/null 2>&1 || true'
+    );
+    expect(plan.command?.args[1]).toContain(
       'exec env -u TMUX tmux -L enso attach-session -t enso-ui-session-1'
     );
     expect(plan.command?.args[1]).toContain('exec /bin/zsh -i -l -c');
