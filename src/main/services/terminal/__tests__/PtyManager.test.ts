@@ -609,6 +609,45 @@ describe('PtyManager utilities', () => {
     await expect(manager.getProcessActivity('missing')).resolves.toBe(false);
   });
 
+  it('reports process liveness in getProcessInfo and protects unexpected probe failures', async () => {
+    const { PtyManager } = await import('../PtyManager');
+    const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => true as never);
+    const manager = new PtyManager();
+
+    manager.create({ cwd: '/repo' }, vi.fn(), undefined, 'alive');
+    const alivePty = ptyManagerTestDoubles.ptys[0];
+    if (!alivePty) {
+      throw new Error('Missing PTY instance for alive probe');
+    }
+
+    await expect(manager.getProcessInfo('alive')).resolves.toEqual({
+      pid: alivePty.pid,
+      isActive: false,
+      isAlive: true,
+    });
+    expect(processKillSpy).toHaveBeenCalledWith(alivePty.pid, 0);
+
+    processKillSpy.mockImplementationOnce(() => {
+      const error = new Error('missing') as NodeJS.ErrnoException;
+      error.code = 'ESRCH';
+      throw error;
+    });
+    await expect(manager.getProcessInfo('alive')).resolves.toEqual({
+      pid: alivePty.pid,
+      isActive: false,
+      isAlive: false,
+    });
+
+    processKillSpy.mockImplementationOnce(() => {
+      throw new Error('kill failed');
+    });
+    await expect(manager.getProcessInfo('alive')).resolves.toEqual({
+      pid: alivePty.pid,
+      isActive: false,
+      isAlive: null,
+    });
+  });
+
   it('reads Windows registry values, expands PATH variables, and builds Windows initial commands', async () => {
     setPlatform('win32');
     vi.resetModules();

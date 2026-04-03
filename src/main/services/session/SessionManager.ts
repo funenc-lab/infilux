@@ -28,6 +28,12 @@ interface ManagedSessionRecord extends SessionDescriptor {
   pendingExit?: SessionExitEvent;
 }
 
+interface SessionRuntimeInfo {
+  pid: number | null;
+  isActive: boolean | null;
+  isAlive: boolean | null;
+}
+
 const MAX_SESSION_REPLAY_CHARS = 65_536;
 
 function getWindowId(target: BrowserWindow | WebContents | number): number {
@@ -406,6 +412,35 @@ export class SessionManager {
     }
 
     return this.localPtyManager.getProcessActivity(sessionId);
+  }
+
+  async getSessionRuntimeInfo(sessionId: string): Promise<SessionRuntimeInfo | null> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    if (session.backend === 'remote') {
+      return {
+        pid: null,
+        isActive: null,
+        isAlive: null,
+      };
+    }
+
+    if (session.localRuntime === 'supervisor') {
+      const [isActive, isAlive] = await Promise.all([
+        Promise.resolve(localSupervisorRuntime.getSessionActivity(sessionId)).catch(() => null),
+        Promise.resolve(localSupervisorRuntime.hasSession(sessionId)).catch(() => null),
+      ]);
+      return {
+        pid: null,
+        isActive,
+        isAlive,
+      };
+    }
+
+    return this.localPtyManager.getProcessInfo(sessionId);
   }
 
   async detachWindowSessions(windowId: number): Promise<void> {

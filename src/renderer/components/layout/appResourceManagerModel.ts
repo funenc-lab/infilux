@@ -29,7 +29,7 @@ export interface AppResourceManagerBulkActionViewModel {
   label: string;
   description: string;
   disabled: boolean;
-  request: Extract<AppResourceActionRequest, { kind: 'reclaim-idle-sessions' }>;
+  request: Extract<AppResourceActionRequest, { kind: 'reclaim-stale-sessions' }>;
 }
 
 export interface AppResourceManagerItemViewModel {
@@ -299,13 +299,13 @@ function sortItems(resources: AppResourceItem[]): AppResourceItem[] {
   });
 }
 
-function countReclaimableIdleLocalSessions(snapshot: AppResourceSnapshot): number {
+function countReclaimableStaleSessions(snapshot: AppResourceSnapshot): number {
   return snapshot.resources.reduce((count, resource) => {
     if (resource.kind !== 'session') {
       return count;
     }
 
-    if (resource.backend !== 'local' || resource.isActive !== false) {
+    if (!resource.reclaimable) {
       return count;
     }
 
@@ -338,25 +338,25 @@ export function buildAppResourceManagerBulkActions(
   snapshot: AppResourceSnapshot,
   translate: Translate
 ): AppResourceManagerBulkActionViewModel[] {
-  const reclaimableCount = countReclaimableIdleLocalSessions(snapshot);
+  const reclaimableCount = countReclaimableStaleSessions(snapshot);
   const description =
     reclaimableCount === 0
-      ? translate('No idle local sessions are ready to reclaim.')
+      ? translate('No stale sessions are ready to reclaim.')
       : reclaimableCount === 1
-        ? translate('1 idle local session can be reclaimed.')
-        : translate('{{count}} idle local sessions can be reclaimed.', {
+        ? translate('1 stale session can be reclaimed.')
+        : translate('{{count}} stale sessions can be reclaimed.', {
             count: reclaimableCount,
           });
 
   return [
     {
-      key: 'batch:idle-sessions:reclaim',
-      label: translate('Reclaim Idle Sessions'),
+      key: 'batch:stale-sessions:reclaim',
+      label: translate('Reclaim Stale Sessions'),
       description,
       disabled: reclaimableCount === 0,
       request: {
-        kind: 'reclaim-idle-sessions',
-        resourceId: 'batch:idle-sessions',
+        kind: 'reclaim-stale-sessions',
+        resourceId: 'batch:stale-sessions',
       },
     },
   ];
@@ -402,13 +402,13 @@ export function buildAppResourceActionConfirmation(
         ),
         confirmLabel: translate('Stop Service'),
       };
-    case 'reclaim-idle-sessions':
+    case 'reclaim-stale-sessions':
       return {
-        title: translate('Reclaim idle sessions?'),
+        title: translate('Reclaim stale sessions?'),
         description: translate(
-          'This will terminate idle local sessions attached to the current app window.'
+          'This will remove stale session records whose underlying runtime is no longer alive.'
         ),
-        confirmLabel: translate('Reclaim Idle Sessions'),
+        confirmLabel: translate('Reclaim Stale Sessions'),
       };
   }
 }

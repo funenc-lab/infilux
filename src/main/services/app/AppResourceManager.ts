@@ -26,6 +26,7 @@ type SessionTarget = BrowserWindow | WebContents | number;
 interface SessionProcessInfo {
   pid: number | null;
   isActive: boolean | null;
+  isAlive: boolean | null;
 }
 
 interface AppResourceManagerDependencies {
@@ -37,7 +38,7 @@ interface AppResourceManagerDependencies {
     capturedAt?: number;
   }) => RuntimeMemorySnapshot;
   listSessions: (target?: SessionTarget) => SessionDescriptor[] | Promise<SessionDescriptor[]>;
-  getSessionProcessInfo: (sessionId: string) => Promise<SessionProcessInfo | null>;
+  getSessionRuntimeInfo: (sessionId: string) => Promise<SessionProcessInfo | null>;
   killSession: (sessionId: string) => Promise<void>;
   getHapiStatus: () => {
     running: boolean;
@@ -196,21 +197,21 @@ function toSessionStatus(
   }
 }
 
-function isReclaimableIdleLocalSession(
+function isReclaimableStaleSession(
   session: SessionDescriptor,
   processInfo: SessionProcessInfo | null
 ): boolean {
-  return session.backend === 'local' && processInfo?.isActive === false;
+  return session.backend === 'local' && processInfo?.isAlive === false;
 }
 
-function formatIdleSessionReclaimMessage(reclaimedCount: number): string {
+function formatStaleSessionReclaimMessage(reclaimedCount: number): string {
   if (reclaimedCount === 0) {
-    return 'No idle local sessions to reclaim.';
+    return 'No stale sessions to reclaim.';
   }
 
   return reclaimedCount === 1
-    ? 'Reclaimed 1 idle local session.'
-    : `Reclaimed ${reclaimedCount} idle local sessions.`;
+    ? 'Reclaimed 1 stale session.'
+    : `Reclaimed ${reclaimedCount} stale sessions.`;
 }
 
 export class AppResourceManager {
@@ -231,7 +232,7 @@ export class AppResourceManager {
     const sessions = await this.dependencies.listSessions(sessionTarget);
     const sessionResources = await Promise.all(
       sessions.map(async (session): Promise<AppSessionResource> => {
-        const processInfo = await this.dependencies.getSessionProcessInfo(session.sessionId);
+        const processInfo = await this.dependencies.getSessionRuntimeInfo(session.sessionId);
         const runtimeState = resolveSessionRuntimeState(session);
         return {
           id: `session:${session.sessionId}`,
@@ -246,6 +247,8 @@ export class AppResourceManager {
           persistOnDisconnect: session.persistOnDisconnect,
           pid: processInfo?.pid ?? null,
           isActive: processInfo?.isActive ?? null,
+          isAlive: processInfo?.isAlive ?? null,
+          reclaimable: isReclaimableStaleSession(session, processInfo),
           runtimeState,
           metadata: session.metadata,
           availableActions: [safeAction('kill-session')],
@@ -318,13 +321,13 @@ export class AppResourceManager {
           message: 'Process terminated.',
         };
       }
-      case 'reclaim-idle-sessions': {
+      case 'reclaim-stale-sessions': {
         const sessions = await this.dependencies.listSessions(sessionTarget);
         const reclaimableSessionIds: string[] = [];
 
         for (const session of sessions) {
-          const processInfo = await this.dependencies.getSessionProcessInfo(session.sessionId);
-          if (!isReclaimableIdleLocalSession(session, processInfo)) {
+          const processInfo = await this.dependencies.getSessionRuntimeInfo(session.sessionId);
+          if (!isReclaimableStaleSession(session, processInfo)) {
             continue;
           }
 
@@ -339,7 +342,7 @@ export class AppResourceManager {
           ok: true,
           resourceId: action.resourceId,
           kind: action.kind,
-          message: formatIdleSessionReclaimMessage(reclaimableSessionIds.length),
+          message: formatStaleSessionReclaimMessage(reclaimableSessionIds.length),
           reclaimedCount: reclaimableSessionIds.length,
         };
       }
@@ -365,7 +368,7 @@ export const appResourceManager = new AppResourceManager({
   getAppMetrics: () => app.getAppMetrics(),
   buildRuntimeSnapshot: buildRuntimeMemorySnapshot,
   listSessions: (target) => (target === undefined ? [] : sessionManager.list(target)),
-  getSessionProcessInfo: (sessionId) => sessionManager.localPtyManager.getProcessInfo(sessionId),
+  getSessionRuntimeInfo: (sessionId) => sessionManager.getSessionRuntimeInfo(sessionId),
   killSession: (sessionId) => sessionManager.kill(sessionId),
   getHapiStatus: () => hapiServerManager.getStatus(),
   stopHapi: () => hapiServerManager.stop(),

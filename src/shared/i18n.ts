@@ -2326,13 +2326,12 @@ export const zhTranslations: Record<string, string> = {
   'PID {{pid}}': '\u8fdb\u7a0b ID {{pid}}',
   'Electron runtime': 'Electron \u8fd0\u884c\u65f6',
   'Support services': '\u652f\u6491\u670d\u52a1',
-  'No idle local sessions are ready to reclaim.':
-    '\u5f53\u524d\u6ca1\u6709\u53ef\u56de\u6536\u7684\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u3002',
-  '1 idle local session can be reclaimed.':
-    '1 \u4e2a\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u53ef\u56de\u6536\u3002',
-  '{{count}} idle local sessions can be reclaimed.':
-    '{{count}} \u4e2a\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u53ef\u56de\u6536\u3002',
-  'Reclaim Idle Sessions': '\u56de\u6536\u7a7a\u95f2\u4f1a\u8bdd',
+  'No stale sessions are ready to reclaim.':
+    '\u5f53\u524d\u6ca1\u6709\u53ef\u56de\u6536\u7684\u5931\u6548\u4f1a\u8bdd\u3002',
+  '1 stale session can be reclaimed.': '1 \u4e2a\u5931\u6548\u4f1a\u8bdd\u53ef\u56de\u6536\u3002',
+  '{{count}} stale sessions can be reclaimed.':
+    '{{count}} \u4e2a\u5931\u6548\u4f1a\u8bdd\u53ef\u56de\u6536\u3002',
+  'Reclaim Stale Sessions': '\u56de\u6536\u5931\u6548\u4f1a\u8bdd',
   'Force terminate process?': '\u5f3a\u5236\u7ec8\u6b62\u8fdb\u7a0b\uff1f',
   'This will forcibly terminate {{type}} (PID {{pid}}). Unsaved work in that process may be lost.':
     '\u8fd9\u5c06\u5f3a\u5236\u7ec8\u6b62 {{type}}\uff08\u8fdb\u7a0b ID {{pid}}\uff09\u3002\u8be5\u8fdb\u7a0b\u4e2d\u7684\u672a\u4fdd\u5b58\u5de5\u4f5c\u53ef\u80fd\u4f1a\u4e22\u5931\u3002',
@@ -2347,11 +2346,9 @@ export const zhTranslations: Record<string, string> = {
     '\u8fd9\u5c06\u505c\u6b62\u5f53\u524d\u5e94\u7528\u8fd0\u884c\u65f6\u4e2d\u6240\u9009\u7684\u540e\u53f0\u670d\u52a1\u3002',
   'This will stop the selected background service for the current app window.':
     '\u8fd9\u5c06\u505c\u6b62\u5f53\u524d\u5e94\u7528\u7a97\u53e3\u6240\u9009\u7684\u540e\u53f0\u670d\u52a1\u3002',
-  'Reclaim idle sessions?': '\u56de\u6536\u7a7a\u95f2\u4f1a\u8bdd\uff1f',
-  'This will terminate idle local sessions attached to the current app window.':
-    '\u8fd9\u5c06\u7ec8\u6b62\u9644\u7740\u5728\u5f53\u524d\u5e94\u7528\u7a97\u53e3\u4e0a\u7684\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u3002',
-  'This will terminate idle local sessions that belong to the current app window.':
-    '\u8fd9\u5c06\u7ec8\u6b62\u5c5e\u4e8e\u5f53\u524d\u5e94\u7528\u7a97\u53e3\u7684\u7a7a\u95f2\u672c\u5730\u4f1a\u8bdd\u3002',
+  'Reclaim stale sessions?': '\u56de\u6536\u5931\u6548\u4f1a\u8bdd\uff1f',
+  'This will remove stale session records whose underlying runtime is no longer alive.':
+    '\u8fd9\u5c06\u79fb\u9664\u5e95\u5c42\u8fd0\u884c\u65f6\u5df2\u4e0d\u5b58\u5728\u7684\u5931\u6548\u4f1a\u8bdd\u8bb0\u5f55\u3002',
   'Confirm action': '\u786e\u8ba4\u64cd\u4f5c',
   'Review this action before continuing.':
     '\u7ee7\u7eed\u524d\u8bf7\u5148\u786e\u8ba4\u6b64\u64cd\u4f5c\u3002',

@@ -74,6 +74,8 @@ describe('appResourceManagerModel', () => {
           createdAt: 10,
           pid: 4444,
           isActive: true,
+          isAlive: true,
+          reclaimable: false,
           runtimeState: 'live',
           availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
         },
@@ -147,7 +149,43 @@ describe('appResourceManagerModel', () => {
     });
   });
 
-  it('builds an enabled bulk reclaim action for idle local sessions', () => {
+  it('builds confirmation copy for stale session reclaim', () => {
+    const resource = {
+      id: 'session:session-stale',
+      kind: 'session',
+      group: 'sessions',
+      status: 'stopped',
+      sessionId: 'session-stale',
+      sessionKind: 'terminal',
+      backend: 'local',
+      cwd: '/repo/stale',
+      createdAt: 10,
+      pid: 4444,
+      isActive: false,
+      isAlive: false,
+      reclaimable: true,
+      runtimeState: 'dead',
+      availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+    };
+
+    const confirmation = buildAppResourceActionConfirmation(
+      {
+        kind: 'reclaim-stale-sessions',
+        resourceId: 'batch:stale-sessions',
+      },
+      resource as never,
+      t
+    );
+
+    expect(confirmation).toEqual({
+      title: 'Reclaim stale sessions?',
+      description:
+        'This will remove stale session records whose underlying runtime is no longer alive.',
+      confirmLabel: 'Reclaim Stale Sessions',
+    });
+  });
+
+  it('builds an enabled bulk reclaim action for stale sessions only', () => {
     const snapshot = {
       capturedAt: 100,
       runtime: {
@@ -163,17 +201,36 @@ describe('appResourceManagerModel', () => {
       },
       resources: [
         {
-          id: 'session:session-local-idle',
+          id: 'session:session-local-idle-alive',
           kind: 'session',
           group: 'sessions',
           status: 'running',
-          sessionId: 'session-local-idle',
+          sessionId: 'session-local-idle-alive',
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/idle',
           createdAt: 10,
           pid: 4444,
           isActive: false,
+          isAlive: true,
+          reclaimable: false,
+          runtimeState: 'live',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'session:session-local-stale',
+          kind: 'session',
+          group: 'sessions',
+          status: 'stopped',
+          sessionId: 'session-local-stale',
+          sessionKind: 'terminal',
+          backend: 'local',
+          cwd: '/repo/stale',
+          createdAt: 15,
+          pid: 4445,
+          isActive: false,
+          isAlive: false,
+          reclaimable: true,
           runtimeState: 'live',
           availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
         },
@@ -189,6 +246,8 @@ describe('appResourceManagerModel', () => {
           createdAt: 20,
           pid: 5555,
           isActive: false,
+          isAlive: null,
+          reclaimable: false,
           runtimeState: 'live',
           availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
         },
@@ -197,19 +256,19 @@ describe('appResourceManagerModel', () => {
 
     expect(buildAppResourceManagerBulkActions(snapshot as never, t)).toEqual([
       {
-        key: 'batch:idle-sessions:reclaim',
-        label: 'Reclaim Idle Sessions',
-        description: '1 idle local session can be reclaimed.',
+        key: 'batch:stale-sessions:reclaim',
+        label: 'Reclaim Stale Sessions',
+        description: '1 stale session can be reclaimed.',
         disabled: false,
         request: {
-          kind: 'reclaim-idle-sessions',
-          resourceId: 'batch:idle-sessions',
+          kind: 'reclaim-stale-sessions',
+          resourceId: 'batch:stale-sessions',
         },
       },
     ]);
   });
 
-  it('disables the bulk reclaim action when no idle local sessions are available', () => {
+  it('disables the bulk reclaim action when no stale sessions are available', () => {
     const snapshot = {
       capturedAt: 100,
       runtime: {
@@ -235,7 +294,9 @@ describe('appResourceManagerModel', () => {
           cwd: '/repo/active',
           createdAt: 10,
           pid: 4444,
-          isActive: true,
+          isActive: false,
+          isAlive: true,
+          reclaimable: false,
           runtimeState: 'live',
           availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
         },
@@ -251,6 +312,8 @@ describe('appResourceManagerModel', () => {
           createdAt: 20,
           pid: 5555,
           isActive: null,
+          isAlive: null,
+          reclaimable: false,
           runtimeState: 'reconnecting',
           availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
         },
@@ -259,13 +322,13 @@ describe('appResourceManagerModel', () => {
 
     expect(buildAppResourceManagerBulkActions(snapshot as never, t)).toEqual([
       {
-        key: 'batch:idle-sessions:reclaim',
-        label: 'Reclaim Idle Sessions',
-        description: 'No idle local sessions are ready to reclaim.',
+        key: 'batch:stale-sessions:reclaim',
+        label: 'Reclaim Stale Sessions',
+        description: 'No stale sessions are ready to reclaim.',
         disabled: true,
         request: {
-          kind: 'reclaim-idle-sessions',
-          resourceId: 'batch:idle-sessions',
+          kind: 'reclaim-stale-sessions',
+          resourceId: 'batch:stale-sessions',
         },
       },
     ]);

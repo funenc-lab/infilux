@@ -73,8 +73,8 @@ export type AppResourceActionKind =
   | 'kill-session'
   | 'stop-service'
   | 'terminate-process'
-  | 'reclaim-idle-sessions';
-export type AppResourceItemActionKind = Exclude<AppResourceActionKind, 'reclaim-idle-sessions'>;
+  | 'reclaim-stale-sessions';
+export type AppResourceItemActionKind = Exclude<AppResourceActionKind, 'reclaim-stale-sessions'>;
 export type AppResourceActionDangerLevel = 'safe' | 'danger';
 export type AppServiceResourceKind = 'hapi-server' | 'hapi-runner' | 'cloudflared';
 
@@ -112,6 +112,8 @@ export interface AppSessionResource extends AppResourceBase {
   persistOnDisconnect: boolean;
   pid: number | null;
   isActive: boolean | null;
+  isAlive: boolean | null;
+  reclaimable: boolean;
   runtimeState?: SessionRuntimeState | null;
   metadata?: Record<string, unknown>;
 }
@@ -155,8 +157,8 @@ export type AppResourceActionRequest =
       pid: number;
     }
   | {
-      kind: 'reclaim-idle-sessions';
-      resourceId: 'batch:idle-sessions';
+      kind: 'reclaim-stale-sessions';
+      resourceId: 'batch:stale-sessions';
     };
 
 export interface AppResourceActionResult {

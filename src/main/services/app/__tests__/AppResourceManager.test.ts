@@ -20,6 +20,7 @@ vi.mock('../../session/SessionManager', () => ({
   sessionManager: {
     list: vi.fn(() => []),
     kill: vi.fn(async () => undefined),
+    getSessionRuntimeInfo: vi.fn(async () => null),
     localPtyManager: {
       getProcessInfo: vi.fn(async () => null),
     },
@@ -109,8 +110,8 @@ describe('AppResourceManager', () => {
         },
       ]
     );
-    const getSessionProcessInfo = vi.fn(async (sessionId: string) =>
-      sessionId === 'session-local' ? { pid: 4444, isActive: true } : null
+    const getSessionRuntimeInfo = vi.fn(async (sessionId: string) =>
+      sessionId === 'session-local' ? { pid: 4444, isActive: true, isAlive: true } : null
     );
 
     const manager = new AppResourceManager({
@@ -127,7 +128,7 @@ describe('AppResourceManager', () => {
       ],
       buildRuntimeSnapshot,
       listSessions,
-      getSessionProcessInfo,
+      getSessionRuntimeInfo,
       killSession: vi.fn(async () => undefined),
       getHapiStatus: () => ({ running: true, ready: true, pid: 5001, port: 3006 }),
       stopHapi: vi.fn(async () => ({ running: false })),
@@ -160,7 +161,7 @@ describe('AppResourceManager', () => {
       rendererProcessId: 303,
     });
     expect(listSessions).toHaveBeenCalledWith(sessionTarget);
-    expect(getSessionProcessInfo).toHaveBeenCalledWith('session-local');
+    expect(getSessionRuntimeInfo).toHaveBeenCalledWith('session-local');
 
     const browserProcess = snapshot.resources.find((resource) => resource.id === 'process:101');
     const currentRenderer = snapshot.resources.find((resource) => resource.id === 'process:303');
@@ -192,6 +193,8 @@ describe('AppResourceManager', () => {
       kind: 'session',
       pid: 4444,
       isActive: true,
+      isAlive: true,
+      reclaimable: false,
       availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
     });
     expect(hapiService).toMatchObject({
@@ -250,14 +253,14 @@ describe('AppResourceManager', () => {
             },
           ] as unknown as SessionDescriptor[]
       ),
-      getSessionProcessInfo: vi.fn(async (sessionId: string) => {
+      getSessionRuntimeInfo: vi.fn(async (sessionId: string) => {
         switch (sessionId) {
           case 'session-live':
-            return { pid: 4101, isActive: true };
+            return { pid: 4101, isActive: true, isAlive: true };
           case 'session-reconnecting':
-            return { pid: null, isActive: null };
+            return { pid: null, isActive: null, isAlive: null };
           case 'session-dead':
-            return { pid: null, isActive: null };
+            return { pid: null, isActive: null, isAlive: false };
           default:
             return null;
         }
@@ -284,18 +287,24 @@ describe('AppResourceManager', () => {
           kind: 'session',
           status: 'running',
           runtimeState: 'live',
+          isAlive: true,
+          reclaimable: false,
         }),
         expect.objectContaining({
           id: 'session:session-reconnecting',
           kind: 'session',
           status: 'reconnecting',
           runtimeState: 'reconnecting',
+          isAlive: null,
+          reclaimable: false,
         }),
         expect.objectContaining({
           id: 'session:session-dead',
           kind: 'session',
           status: 'stopped',
           runtimeState: 'dead',
+          isAlive: false,
+          reclaimable: true,
         }),
       ])
     );
@@ -330,7 +339,7 @@ describe('AppResourceManager', () => {
         totalAppPrivateBytesKb: 22016,
       })),
       listSessions: vi.fn(async () => []),
-      getSessionProcessInfo: vi.fn(async () => null),
+      getSessionRuntimeInfo: vi.fn(async () => null),
       killSession,
       getHapiStatus: () => ({ running: true, ready: true, pid: 5001, port: 3006 }),
       stopHapi,
@@ -440,24 +449,24 @@ describe('AppResourceManager', () => {
     expect(terminateProcess).toHaveBeenCalledTimes(1);
   });
 
-  it('reclaims only idle local sessions for the current sender', async () => {
+  it('reclaims only stale sessions for the current sender', async () => {
     const { AppResourceManager } = await import('../AppResourceManager');
 
     const listSessions = vi.fn(
       async (): Promise<SessionDescriptor[]> => [
         {
-          sessionId: 'session-local-idle',
+          sessionId: 'session-local-stale',
           backend: 'local',
           kind: 'terminal',
-          cwd: '/repo/idle',
+          cwd: '/repo/stale',
           persistOnDisconnect: false,
           createdAt: 10,
         },
         {
-          sessionId: 'session-local-active',
+          sessionId: 'session-local-idle-but-alive',
           backend: 'local',
           kind: 'terminal',
-          cwd: '/repo/active',
+          cwd: '/repo/idle-but-alive',
           persistOnDisconnect: false,
           createdAt: 20,
         },
@@ -479,16 +488,16 @@ describe('AppResourceManager', () => {
         },
       ]
     );
-    const getSessionProcessInfo = vi.fn(async (sessionId: string) => {
+    const getSessionRuntimeInfo = vi.fn(async (sessionId: string) => {
       switch (sessionId) {
-        case 'session-local-idle':
-          return { pid: 4001, isActive: false };
-        case 'session-local-active':
-          return { pid: 4002, isActive: true };
+        case 'session-local-stale':
+          return { pid: 4001, isActive: false, isAlive: false };
+        case 'session-local-idle-but-alive':
+          return { pid: 4002, isActive: false, isAlive: true };
         case 'session-local-unknown':
-          return { pid: 4003, isActive: null };
+          return { pid: 4003, isActive: null, isAlive: null };
         case 'session-remote-idle':
-          return { pid: 4004, isActive: false };
+          return { pid: 4004, isActive: false, isAlive: false };
         default:
           return null;
       }
@@ -514,7 +523,7 @@ describe('AppResourceManager', () => {
         totalAppPrivateBytesKb: 0,
       })),
       listSessions,
-      getSessionProcessInfo,
+      getSessionRuntimeInfo,
       killSession,
       getHapiStatus: () => ({ running: false }),
       stopHapi: vi.fn(async () => ({ running: false })),
@@ -528,23 +537,23 @@ describe('AppResourceManager', () => {
     await expect(
       manager.executeAction(
         {
-          kind: 'reclaim-idle-sessions',
-          resourceId: 'batch:idle-sessions',
+          kind: 'reclaim-stale-sessions',
+          resourceId: 'batch:stale-sessions',
         },
         sender,
         sessionTarget
       )
     ).resolves.toMatchObject({
       ok: true,
-      kind: 'reclaim-idle-sessions',
-      resourceId: 'batch:idle-sessions',
+      kind: 'reclaim-stale-sessions',
+      resourceId: 'batch:stale-sessions',
       reclaimedCount: 1,
-      message: 'Reclaimed 1 idle local session.',
+      message: 'Reclaimed 1 stale session.',
     });
 
     expect(listSessions).toHaveBeenCalledWith(sessionTarget);
-    expect(getSessionProcessInfo).toHaveBeenCalledTimes(4);
+    expect(getSessionRuntimeInfo).toHaveBeenCalledTimes(4);
     expect(killSession).toHaveBeenCalledTimes(1);
-    expect(killSession).toHaveBeenCalledWith('session-local-idle');
+    expect(killSession).toHaveBeenCalledWith('session-local-stale');
   });
 });

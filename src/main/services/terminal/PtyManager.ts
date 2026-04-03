@@ -715,7 +715,7 @@ export class PtyManager {
 
   async getProcessInfo(
     id: string
-  ): Promise<{ pid: number | null; isActive: boolean | null } | null> {
+  ): Promise<{ pid: number | null; isActive: boolean | null; isAlive: boolean | null } | null> {
     const session = this.sessions.get(id);
     if (!session) {
       return null;
@@ -726,19 +726,27 @@ export class PtyManager {
       return {
         pid: null,
         isActive: null,
+        isAlive: null,
       };
     }
 
-    try {
-      return {
-        pid,
-        isActive: await this.getProcessActivity(id),
-      };
-    } catch {
-      return {
-        pid,
-        isActive: null,
-      };
+    const cachedActivity = this.activityCache.get(id)?.lastValue ?? false;
+    return {
+      pid,
+      isActive: cachedActivity,
+      isAlive: probeProcessLiveness(pid),
+    };
+  }
+}
+
+function probeProcessLiveness(pid: number): boolean | null {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+      return false;
     }
+    return null;
   }
 }

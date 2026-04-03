@@ -59,6 +59,10 @@ const sessionTestDoubles = vi.hoisted(() => {
     readonly write = vi.fn();
     readonly resize = vi.fn();
     readonly getProcessActivity = vi.fn(async () => false);
+    readonly getProcessInfo = vi.fn(async (sessionId: string) => {
+      const session = this.callbacks.has(sessionId);
+      return session ? { pid: 3001, isActive: false, isAlive: true } : null;
+    });
     readonly destroyAll = vi.fn();
     readonly destroyAllAndWait = vi.fn(async () => {});
 
@@ -112,6 +116,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const supervisorWriteSession = vi.fn();
   const supervisorResizeSession = vi.fn();
   const supervisorGetSessionActivity = vi.fn();
+  const supervisorHasSession = vi.fn();
   const supervisorOnData = vi.fn();
   const supervisorOnExit = vi.fn();
   const supervisorOnDisconnect = vi.fn();
@@ -179,6 +184,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     supervisorWriteSession,
     supervisorResizeSession,
     supervisorGetSessionActivity,
+    supervisorHasSession,
     supervisorOnData,
     supervisorOnExit,
     supervisorOnDisconnect,
@@ -208,6 +214,7 @@ vi.mock('../LocalSupervisorRuntime', () => ({
     writeSession: sessionTestDoubles.supervisorWriteSession,
     resizeSession: sessionTestDoubles.supervisorResizeSession,
     getSessionActivity: sessionTestDoubles.supervisorGetSessionActivity,
+    hasSession: sessionTestDoubles.supervisorHasSession,
     onData: sessionTestDoubles.supervisorOnData,
     onExit: sessionTestDoubles.supervisorOnExit,
     onDisconnect: sessionTestDoubles.supervisorOnDisconnect,
@@ -300,6 +307,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.supervisorResizeSession.mockReset();
     sessionTestDoubles.supervisorGetSessionActivity.mockReset();
     sessionTestDoubles.supervisorGetSessionActivity.mockResolvedValue(false);
+    sessionTestDoubles.supervisorHasSession.mockReset();
+    sessionTestDoubles.supervisorHasSession.mockResolvedValue(true);
     sessionTestDoubles.supervisorOnData.mockReset();
     sessionTestDoubles.supervisorOnData.mockReturnValue(() => {});
     sessionTestDoubles.supervisorOnExit.mockReset();
@@ -368,6 +377,75 @@ describe('SessionManager', () => {
 
     expect(pty.destroyAll).toHaveBeenCalledTimes(1);
     expect(pty.destroyAllAndWait).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports unified runtime info for PTY, supervisor, remote, and missing sessions', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+
+    const localOpened = await manager.create(1, { cwd: '/repo', kind: 'terminal' });
+    const pty = sessionTestDoubles.ptyInstances[0];
+    pty.getProcessInfo.mockResolvedValueOnce({
+      pid: 4101,
+      isActive: false,
+      isAlive: true,
+    });
+
+    await expect(manager.getSessionRuntimeInfo(localOpened.session.sessionId)).resolves.toEqual({
+      pid: 4101,
+      isActive: false,
+      isAlive: true,
+    });
+
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    sessionTestDoubles.supervisorCreateSession.mockResolvedValueOnce({
+      session: {
+        sessionId: 'supervisor-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: 'C:/repo',
+        persistOnDisconnect: true,
+        createdAt: 501,
+      },
+    });
+    sessionTestDoubles.supervisorGetSessionActivity.mockResolvedValueOnce(true);
+    sessionTestDoubles.supervisorHasSession.mockResolvedValueOnce(false);
+
+    try {
+      const supervisorOpened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+
+      await expect(
+        manager.getSessionRuntimeInfo(supervisorOpened.session.sessionId)
+      ).resolves.toEqual({
+        pid: null,
+        isActive: true,
+        isAlive: false,
+      });
+    } finally {
+      platform.mockRestore();
+    }
+
+    sessionTestDoubles.remoteConnectionManager.call.mockResolvedValueOnce({
+      session: makeRemoteDescriptor({
+        sessionId: 'remote-runtime',
+      }),
+      replay: '',
+    });
+    await manager.attach(1, {
+      sessionId: 'remote-runtime',
+      cwd: toRemoteVirtualPath('conn-1', '/workspace'),
+    });
+
+    await expect(manager.getSessionRuntimeInfo('remote-runtime')).resolves.toEqual({
+      pid: null,
+      isActive: null,
+      isAlive: null,
+    });
+    await expect(manager.getSessionRuntimeInfo('missing-session')).resolves.toBeNull();
   });
 
   it('emits pending local exits after attach activation completes', async () => {
