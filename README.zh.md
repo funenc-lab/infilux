@@ -84,9 +84,28 @@ Infilux 是此前以 **EnsoAI** 对外发布的同一个项目的延续版本。
 
 ## 安装
 
-### 包管理器（推荐）
+### 安装方式
 
-> Infilux 是当前产品名称。部分包管理渠道在仓库迁移完成前仍沿用旧的 `ensoai` 标识。
+> Infilux 是当前产品名。GitHub Releases 是当前唯一的主发布源；部分包管理器渠道仍使用历史 `ensoai` 或 `J3n5en.EnsoAI` 标识，并且是手工维护，发布时间可能落后于最新 GitHub Release。
+
+### 主下载渠道
+
+从 [GitHub Releases](https://github.com/funenc-lab/infilux/releases/latest) 下载适合你平台的安装包：
+
+| 平台 | 文件 |
+|------|------|
+| macOS (Apple Silicon) | `Infilux-x.x.x-arm64.dmg` |
+| macOS (Intel) | `Infilux-x.x.x.dmg` |
+| Windows (安装版) | `Infilux Setup x.x.x.exe` |
+| Windows (便携版) | `Infilux-x.x.x-portable.exe` |
+| Linux (AppImage) | `Infilux-x.x.x.AppImage` |
+| Linux (deb) | `infilux_x.x.x_amd64.deb` |
+
+发布自动化、质量门禁与本地修复路径见 [`docs/release-process.md`](docs/release-process.md)。
+
+### 旧包管理器渠道
+
+这些渠道不属于 GitHub Releases 主发布门禁的一部分，仍保留历史标识，并在需要时手工维护。
 
 **macOS (Homebrew)**
 
@@ -105,21 +124,8 @@ scoop install ensoai
 **Windows (Winget)**
 
 ```powershell
-winget install J3n5en.Infilux
+winget install J3n5en.EnsoAI
 ```
-
-### 手动下载
-
-从 [GitHub Releases](https://github.com/funenc-lab/infilux/releases/latest) 下载适合你平台的安装包：
-
-| 平台 | 文件 |
-|------|------|
-| macOS (Apple Silicon) | `Infilux-x.x.x-arm64.dmg` |
-| macOS (Intel) | `Infilux-x.x.x.dmg` |
-| Windows (安装版) | `Infilux-Setup-x.x.x.exe` |
-| Windows (便携版) | `Infilux-x.x.x-portable.exe` |
-| Linux (AppImage) | `Infilux-x.x.x.AppImage` |
-| Linux (deb) | `infilux_x.x.x_amd64.deb` |
 
 ### 从源码构建
 

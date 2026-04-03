@@ -86,9 +86,28 @@ When there is a naming mismatch, treat **Infilux** as the current official name 
 
 ## Installation
 
-### Package Managers (Recommended)
+### Install Options
 
-> Infilux is the active product name. Some package channels still use legacy `ensoai` identifiers until the repository migration is completed.
+> Infilux is the active product name. GitHub Releases is the canonical distribution source. Some package-manager channels are still maintained manually under legacy `ensoai` or `J3n5en.EnsoAI` identifiers and may lag behind the latest GitHub release.
+
+### Primary Download
+
+Download the installer for your platform from [GitHub Releases](https://github.com/funenc-lab/infilux/releases/latest):
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `Infilux-x.x.x-arm64.dmg` |
+| macOS (Intel) | `Infilux-x.x.x.dmg` |
+| Windows (Installer) | `Infilux Setup x.x.x.exe` |
+| Windows (Portable) | `Infilux-x.x.x-portable.exe` |
+| Linux (AppImage) | `Infilux-x.x.x.AppImage` |
+| Linux (deb) | `infilux_x.x.x_amd64.deb` |
+
+For release automation details, quality gates, and the local repair path, see [`docs/release-process.md`](docs/release-process.md).
+
+### Legacy Package Manager Channels
+
+These channels are not part of the primary GitHub Releases gate. They keep historical identifiers and are updated manually when maintained.
 
 **macOS (Homebrew)**
 
@@ -107,21 +126,8 @@ scoop install ensoai
 **Windows (Winget)**
 
 ```powershell
-winget install J3n5en.Infilux
+winget install J3n5en.EnsoAI
 ```
-
-### Manual Download
-
-Download the installer for your platform from [GitHub Releases](https://github.com/funenc-lab/infilux/releases/latest):
-
-| Platform | File |
-|----------|------|
-| macOS (Apple Silicon) | `Infilux-x.x.x-arm64.dmg` |
-| macOS (Intel) | `Infilux-x.x.x.dmg` |
-| Windows (Installer) | `Infilux-Setup-x.x.x.exe` |
-| Windows (Portable) | `Infilux-x.x.x-portable.exe` |
-| Linux (AppImage) | `Infilux-x.x.x.AppImage` |
-| Linux (deb) | `infilux_x.x.x_amd64.deb` |
 
 ### Build from Source
 
