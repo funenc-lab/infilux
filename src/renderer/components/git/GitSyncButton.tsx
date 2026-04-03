@@ -42,7 +42,7 @@ export function GitSyncButton({
         disabled={isSyncing}
         aria-label={t('Publish branch to remote')}
         className={cn(
-          'control-tree-sync inline-flex shrink-0 items-center gap-0.75 rounded-sm px-0.5 py-0 text-[9px] font-medium tracking-[0.03em] transition-colors hover:bg-primary/7 hover:text-primary disabled:opacity-50',
+          'control-tree-sync inline-flex shrink-0 items-center gap-0.75 whitespace-nowrap rounded-sm px-0.5 py-0 text-[9px] font-medium tracking-[0.03em] transition-colors hover:bg-primary/7 hover:text-primary disabled:opacity-50',
           className
         )}
         title={t('Publish branch to remote')}
