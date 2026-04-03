@@ -5,44 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: local-file: local-image:; media-src 'self' https: http: local-file: local-image: blob: data:; connect-src 'self' local-file: local-image: https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net">
     <title>Infilux</title>
-    <script>
-      (() => {
-        try {
-          const params = new URLSearchParams(window.location.search);
-          const rawSnapshot = params.get("infiluxBootstrapTheme");
-          if (!rawSnapshot) {
-            return;
-          }
-
-          const snapshot = JSON.parse(decodeURIComponent(rawSnapshot));
-          const root = document.documentElement;
-          const theme = typeof snapshot?.theme === "string" ? snapshot.theme : null;
-          const systemShouldUseDarkColors = Boolean(snapshot?.systemShouldUseDarkColors);
-          let mode = null;
-
-          if (theme === "light") {
-            mode = "light";
-          } else if (theme === "dark") {
-            mode = "dark";
-          } else if (theme === "system") {
-            mode = systemShouldUseDarkColors ? "dark" : "light";
-          }
-
-          if (mode === "light") {
-            document.documentElement.classList.remove("dark");
-          } else if (mode === "dark") {
-            document.documentElement.classList.add("dark");
-          }
-
-          if (mode) {
-            root.dataset.themeMode = mode;
-          }
-          if (theme) {
-            root.dataset.themeSource = theme;
-          }
-        } catch {}
-      })();
-    </script>
+    <script src="./bootstrap-head.js"></script>
     <style>
       :root {
         color-scheme: light;
@@ -292,11 +255,11 @@
             <div
               class="bootstrap-copy"
               data-startup-eyebrow="Infilux"
-              data-startup-title="Restoring workspace"
+              data-startup-title=""
             >
               <p class="bootstrap-eyebrow">Infilux</p>
-              <h1 class="bootstrap-title">Restoring workspace</h1>
-              <p class="bootstrap-description">Loading settings and repository context.</p>
+              <h1 class="bootstrap-title"></h1>
+              <p class="bootstrap-description"></p>
             </div>
           </div>
           <div class="bootstrap-footer">
@@ -305,6 +268,7 @@
         </div>
       </div>
     </div>
+    <script src="./bootstrap-body.js"></script>
     <script type="module" src="./index.tsx"></script>
   </body>
 </html>

@@ -1,6 +1,7 @@
+import { translate } from '@shared/i18n';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StartupShell } from '../StartupShell';
 import { resolveStartupShellContent } from '../startupShellContent';
 
@@ -31,6 +32,10 @@ vi.mock('@/components/layout/DeferredPanelFallback', () => ({
 }));
 
 describe('StartupShell', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders the startup copy for early bootstrap feedback', () => {
     const markup = renderToStaticMarkup(createElement(StartupShell));
 
@@ -51,6 +56,21 @@ describe('StartupShell', () => {
 
     expect(markup).toContain('Loading shell');
     expect(markup).toContain('Preparing runtime modules and workspace services.');
+  });
+
+  it('renders localized startup copy from the bootstrap locale before settings hydration', () => {
+    vi.stubGlobal('window', {
+      electronAPI: {
+        env: {
+          bootstrapLocale: 'zh',
+        },
+      },
+    });
+
+    const markup = renderToStaticMarkup(createElement(StartupShell));
+
+    expect(markup).toContain(translate('zh', 'Restoring workspace'));
+    expect(markup).toContain(translate('zh', 'Loading settings and repository context.'));
   });
 
   it('resolves failure copy for bootstrap errors', () => {

@@ -1,5 +1,7 @@
+import type { Locale } from '@shared/i18n';
 import { useEffect, useState } from 'react';
 import { DeferredPanelFallback } from '@/components/layout/DeferredPanelFallback';
+import { resolveBootstrapLocale } from '@/lib/bootstrapLocale';
 import { resolveStartupShellContent } from './startupShellContent';
 
 const STARTUP_STAGE_EVENT = 'infilux-bootstrap-stage-change';
@@ -19,10 +21,14 @@ function readBootstrapStageFromWindow(): string | null {
 }
 
 interface StartupShellProps {
+  locale?: Locale;
   stage?: string | null;
 }
 
-export function StartupShell({ stage: controlledStage }: StartupShellProps) {
+export function StartupShell({
+  stage: controlledStage,
+  locale: controlledLocale,
+}: StartupShellProps) {
   const [liveStage, setLiveStage] = useState<string | null>(
     () => controlledStage ?? readBootstrapStageFromWindow()
   );
@@ -51,7 +57,10 @@ export function StartupShell({ stage: controlledStage }: StartupShellProps) {
     };
   }, [controlledStage]);
 
-  const copy = resolveStartupShellContent(controlledStage ?? liveStage);
+  const copy = resolveStartupShellContent(
+    controlledStage ?? liveStage,
+    controlledLocale ?? resolveBootstrapLocale()
+  );
 
   return (
     <div className="relative flex min-h-screen items-start justify-start overflow-hidden bg-background text-foreground">

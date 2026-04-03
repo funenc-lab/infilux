@@ -313,6 +313,28 @@ describe('MainWindow', () => {
     });
   });
 
+  it('passes the persisted bootstrap locale through BrowserWindow additional arguments', async () => {
+    mainWindowTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          language: 'zh-CN',
+        },
+      },
+    });
+
+    const { createMainWindow } = await import('../MainWindow');
+    createMainWindow();
+
+    expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
+      webPreferences: {
+        additionalArguments: expect.arrayContaining([
+          '--infilux-runtime-channel=prod',
+          '--infilux-bootstrap-locale=zh',
+        ]),
+      },
+    });
+  });
+
   it('passes the test runtime channel through BrowserWindow additional arguments when no explicit override is present', async () => {
     delete process.env.INFILUX_RUNTIME_CHANNEL;
     process.env.NODE_ENV = 'test';

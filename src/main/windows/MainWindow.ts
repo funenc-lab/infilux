@@ -3,9 +3,13 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { is } from '@electron-toolkit/utils';
-import { translate } from '@shared/i18n';
+import { type Locale, translate } from '@shared/i18n';
 import type { AppCloseRequestPayload, AppCloseRequestReason } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
+import {
+  encodeBootstrapLocaleArgument,
+  extractBootstrapLocaleFromSettingsData,
+} from '@shared/utils/bootstrapLocale';
 import {
   BOOTSTRAP_THEME_SEARCH_PARAM,
   type BootstrapThemeSnapshot,
@@ -197,13 +201,27 @@ function resolveBootstrapThemeArgument(
   return [encodeBootstrapThemeArgument(bootstrapThemeSnapshot)];
 }
 
+function resolveBootstrapLocaleArgument(bootstrapLocale: Locale | null): string[] | undefined {
+  if (!bootstrapLocale) {
+    return undefined;
+  }
+
+  return [encodeBootstrapLocaleArgument(bootstrapLocale)];
+}
+
+function resolveBootstrapLocale(): Locale | null {
+  return extractBootstrapLocaleFromSettingsData(readSharedSettings());
+}
+
 function resolveRendererAdditionalArguments(
-  bootstrapThemeSnapshot: BootstrapThemeSnapshot | null
+  bootstrapThemeSnapshot: BootstrapThemeSnapshot | null,
+  bootstrapLocale: Locale | null
 ): string[] {
   const runtimeChannelArgument = encodeRuntimeChannelArgument(getAppRuntimeChannel());
+  const bootstrapLocaleArguments = resolveBootstrapLocaleArgument(bootstrapLocale) ?? [];
   const bootstrapThemeArguments = resolveBootstrapThemeArgument(bootstrapThemeSnapshot) ?? [];
 
-  return [runtimeChannelArgument, ...bootstrapThemeArguments];
+  return [runtimeChannelArgument, ...bootstrapLocaleArguments, ...bootstrapThemeArguments];
 }
 
 function resolveBootstrapWindowBackgroundColor(
@@ -303,7 +321,11 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
   const isWindows = process.platform === 'win32';
   const windowIconPath = resolveWindowIconPath();
   const bootstrapThemeSnapshot = resolveBootstrapThemeSnapshot();
-  const rendererAdditionalArguments = resolveRendererAdditionalArguments(bootstrapThemeSnapshot);
+  const bootstrapLocale = resolveBootstrapLocale();
+  const rendererAdditionalArguments = resolveRendererAdditionalArguments(
+    bootstrapThemeSnapshot,
+    bootstrapLocale
+  );
 
   const win = new BrowserWindow({
     width: initialBounds.width,

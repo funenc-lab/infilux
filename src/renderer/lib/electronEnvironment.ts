@@ -1,3 +1,4 @@
+import type { Locale } from '@shared/i18n';
 import type { BootstrapThemeSnapshot } from '@shared/utils/bootstrapTheme';
 import type { AppRuntimeChannel } from '@shared/utils/runtimeIdentity';
 
@@ -7,6 +8,7 @@ export interface RendererEnvironment {
   HOME: string;
   platform: RendererPlatform;
   appVersion: string;
+  bootstrapLocale?: Locale | null;
   bootstrapTheme?: BootstrapThemeSnapshot | null;
   runtimeChannel: AppRuntimeChannel;
 }
@@ -15,6 +17,7 @@ const DEFAULT_RENDERER_ENVIRONMENT: RendererEnvironment = {
   HOME: '',
   platform: 'linux',
   appVersion: '0.0.0',
+  bootstrapLocale: null,
   runtimeChannel: 'prod',
 };
 
@@ -41,6 +44,7 @@ export function getRendererEnvironment(): RendererEnvironment {
     HOME: env?.HOME ?? DEFAULT_RENDERER_ENVIRONMENT.HOME,
     platform: env?.platform ?? fallbackPlatform,
     appVersion: env?.appVersion ?? DEFAULT_RENDERER_ENVIRONMENT.appVersion,
+    bootstrapLocale: env?.bootstrapLocale ?? DEFAULT_RENDERER_ENVIRONMENT.bootstrapLocale,
     bootstrapTheme: env?.bootstrapTheme ?? null,
     runtimeChannel: env?.runtimeChannel ?? DEFAULT_RENDERER_ENVIRONMENT.runtimeChannel,
   };

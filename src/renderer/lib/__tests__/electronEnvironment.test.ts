@@ -14,6 +14,7 @@ describe('electronEnvironment', () => {
       HOME: '',
       platform: 'darwin',
       appVersion: '0.0.0',
+      bootstrapLocale: null,
       bootstrapTheme: null,
       runtimeChannel: 'prod',
     });
@@ -26,6 +27,7 @@ describe('electronEnvironment', () => {
           HOME: '/Users/tester',
           platform: 'linux',
           appVersion: '1.2.3',
+          bootstrapLocale: 'zh',
           runtimeChannel: 'dev',
         },
       },
@@ -35,6 +37,7 @@ describe('electronEnvironment', () => {
       HOME: '/Users/tester',
       platform: 'linux',
       appVersion: '1.2.3',
+      bootstrapLocale: 'zh',
       bootstrapTheme: null,
       runtimeChannel: 'dev',
     });

@@ -11,9 +11,10 @@ import { extname, join } from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import { inspect } from 'node:util';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
-import { type Locale, normalizeLocale } from '@shared/i18n';
+import type { Locale } from '@shared/i18n';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { IPC_CHANNELS, type ProxySettings } from '@shared/types';
+import { extractBootstrapLocaleFromSettingsData } from '@shared/utils/bootstrapLocale';
 import { customProtocolUriToPath, type SupportedFileUrlPlatform } from '@shared/utils/fileUrl';
 import {
   type AppRuntimeChannel,
@@ -522,17 +523,10 @@ if (!gotTheLock) {
 
 function readStoredLanguage(): Locale {
   try {
-    const data = readSharedSettings();
-    const persisted = data['enso-settings'];
-    if (persisted && typeof persisted === 'object') {
-      const state = (persisted as { state?: Record<string, unknown> }).state;
-      const language = state?.language;
-      return normalizeLocale(typeof language === 'string' ? language : undefined);
-    }
+    return extractBootstrapLocaleFromSettingsData(readSharedSettings()) ?? 'en';
   } catch {
-    // Fall back to English if settings are missing or invalid
+    return 'en';
   }
-  return 'en';
 }
 
 // Linux: avoid GTK3/GTK4 mixed symbols crash by forcing GTK3 unless explicitly overridden.

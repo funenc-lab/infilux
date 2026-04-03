@@ -174,6 +174,14 @@ describe('preload bridge', () => {
     });
   });
 
+  it('exposes the bootstrap locale parsed from additional arguments', async () => {
+    process.argv = [...originalArgv, '--infilux-bootstrap-locale=zh-CN'];
+
+    const api = await loadElectronAPI();
+
+    expect(api.env.bootstrapLocale).toBe('zh');
+  });
+
   it('prefers the runtime channel passed through BrowserWindow additional arguments', async () => {
     process.argv = [...originalArgv, '--infilux-runtime-channel=dev'];
 

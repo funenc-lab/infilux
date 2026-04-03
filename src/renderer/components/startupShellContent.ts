@@ -1,9 +1,16 @@
+import { type Locale, translate } from '@shared/i18n';
+
 export interface StartupShellCopy {
   description: string;
   title: string;
 }
 
-export function resolveStartupShellContent(stage: string | null | undefined): StartupShellCopy {
+interface StartupShellCopyTemplate {
+  description: string;
+  title: string;
+}
+
+function resolveStartupShellTemplate(stage: string | null | undefined): StartupShellCopyTemplate {
   switch (stage) {
     case 'importing-app':
       return {
@@ -32,4 +39,15 @@ export function resolveStartupShellContent(stage: string | null | undefined): St
         description: 'Loading settings and repository context.',
       };
   }
+}
+
+export function resolveStartupShellContent(
+  stage: string | null | undefined,
+  locale: Locale = 'en'
+): StartupShellCopy {
+  const template = resolveStartupShellTemplate(stage);
+  return {
+    title: translate(locale, template.title),
+    description: translate(locale, template.description),
+  };
 }

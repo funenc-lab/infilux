@@ -2346,6 +2346,18 @@ export const zhTranslations: Record<string, string> = {
   'Confirm action': '\u786e\u8ba4\u64cd\u4f5c',
   'Review this action before continuing.':
     '\u7ee7\u7eed\u524d\u8bf7\u5148\u786e\u8ba4\u6b64\u64cd\u4f5c\u3002',
+  'Loading shell': '\u6b63\u5728\u52a0\u8f7d\u754c\u9762',
+  'Preparing runtime modules and workspace services.':
+    '\u6b63\u5728\u51c6\u5907\u8fd0\u884c\u65f6\u6a21\u5757\u548c\u5de5\u4f5c\u533a\u670d\u52a1\u3002',
+  'Restoring workspace': '\u6b63\u5728\u6062\u590d\u5de5\u4f5c\u533a',
+  'Loading settings and repository context.':
+    '\u6b63\u5728\u52a0\u8f7d\u8bbe\u7f6e\u548c\u4ed3\u5e93\u4e0a\u4e0b\u6587\u3002',
+  'Opening workspace': '\u6b63\u5728\u6253\u5f00\u5de5\u4f5c\u533a',
+  'Restoring active context and preparing panels.':
+    '\u6b63\u5728\u6062\u590d\u5f53\u524d\u4e0a\u4e0b\u6587\u5e76\u51c6\u5907\u9762\u677f\u3002',
+  'Startup failed': '\u542f\u52a8\u5931\u8d25',
+  'The workspace did not finish loading. Check renderer logs and restart.':
+    '\u5de5\u4f5c\u533a\u672a\u80fd\u5b8c\u6210\u52a0\u8f7d\u3002\u8bf7\u68c0\u67e5 renderer \u65e5\u5fd7\u5e76\u91cd\u542f\u3002',
 };
 
 export function normalizeLocale(input?: string): Locale {

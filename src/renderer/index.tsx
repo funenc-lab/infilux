@@ -14,6 +14,7 @@ import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { RendererDiagnosticsProbe } from './components/RendererDiagnosticsProbe';
 import { StartupShell } from './components/StartupShell';
 import { ToastProvider } from './components/ui/toast';
+import { applyBootstrapLocaleToDocument, resolveBootstrapLocale } from './lib/bootstrapLocale';
 import { applyBootstrapTheme } from './lib/bootstrapTheme';
 import { ensureRendererBridgeFallback } from './lib/electronBridgeFallback';
 import { getRendererDiagnosticsSnapshot } from './lib/runtimeDiagnostics';
@@ -28,6 +29,8 @@ const setBootstrapStage = createBootstrapStageReporter();
 
 setBootstrapStage('module-evaluated');
 ensureRendererBridgeFallback();
+const bootstrapLocale = resolveBootstrapLocale();
+applyBootstrapLocaleToDocument(bootstrapLocale);
 applyBootstrapTheme(window.electronAPI.env.bootstrapTheme);
 
 const queryClient = new QueryClient({
@@ -157,7 +160,7 @@ async function startApp(): Promise<void> {
       setBootstrapStage('rendering-startup-shell');
       rootRenderer.render(
         <StrictMode>
-          <StartupShell />
+          <StartupShell locale={bootstrapLocale} />
         </StrictMode>
       );
       setBootstrapStage('startup-shell-rendered');
