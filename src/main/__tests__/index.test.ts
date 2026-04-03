@@ -1540,6 +1540,9 @@ describe('main entry', () => {
     expect(mainIndexTestDoubles.setCurrentLocale).toHaveBeenCalledWith('zh');
     expect(mainIndexTestDoubles.registerWindowHandlers).toHaveBeenCalledTimes(1);
     expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledWith({
+      bootstrapMainStage: 'main-init-complete',
+    });
     expect(mainIndexTestDoubles.webInspectorSetMainWindow).toHaveBeenCalledWith(mainWindow);
     expect(mainIndexTestDoubles.initClaudeProviderWatcher).toHaveBeenCalledWith(mainWindow, false);
     expect(mainIndexTestDoubles.autoUpdaterInit).toHaveBeenCalledWith(

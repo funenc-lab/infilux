@@ -12,6 +12,7 @@ describe('renderer bootstrap scripts', () => {
 
     expect(source).toContain('window.location.search');
     expect(source).toContain('bootstrapLocale');
+    expect(source).toContain('bootstrapMainStage');
     expect(source).toContain('document.documentElement.lang');
     expect(source).toContain('classList.remove');
     expect(source).toContain('classList.add');
@@ -23,7 +24,8 @@ describe('renderer bootstrap scripts', () => {
     expect(source).toContain('.bootstrap-title');
     expect(source).toContain('.bootstrap-description');
     expect(source).toContain('data-startup-title');
-    expect(source).toContain('Restoring workspace');
-    expect(source).toContain('Loading settings and repository context.');
+    expect(source).toContain('bootstrapMainStage');
+    expect(source).toContain('Opening desktop window');
+    expect(source).toContain('--bootstrap-progress-value');
   });
 });

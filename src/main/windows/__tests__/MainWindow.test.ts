@@ -335,6 +335,20 @@ describe('MainWindow', () => {
     });
   });
 
+  it('passes the bootstrap main stage through BrowserWindow additional arguments', async () => {
+    const { createMainWindow } = await import('../MainWindow');
+    createMainWindow({ bootstrapMainStage: 'main-init-complete' });
+
+    expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
+      webPreferences: {
+        additionalArguments: expect.arrayContaining([
+          '--infilux-runtime-channel=prod',
+          '--infilux-bootstrap-main-stage=main-init-complete',
+        ]),
+      },
+    });
+  });
+
   it('passes the test runtime channel through BrowserWindow additional arguments when no explicit override is present', async () => {
     delete process.env.INFILUX_RUNTIME_CHANNEL;
     process.env.NODE_ENV = 'test';

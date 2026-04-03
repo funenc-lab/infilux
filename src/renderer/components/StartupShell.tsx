@@ -21,13 +21,23 @@ function readBootstrapStageFromWindow(): string | null {
 }
 
 interface StartupShellProps {
+  description?: string;
   locale?: Locale;
+  progressLabel?: string;
+  progressMax?: number;
+  progressValue?: number;
   stage?: string | null;
+  title?: string;
 }
 
 export function StartupShell({
+  description: controlledDescription,
   stage: controlledStage,
   locale: controlledLocale,
+  progressLabel: controlledProgressLabel,
+  progressMax: controlledProgressMax,
+  progressValue: controlledProgressValue,
+  title: controlledTitle,
 }: StartupShellProps) {
   const [liveStage, setLiveStage] = useState<string | null>(
     () => controlledStage ?? readBootstrapStageFromWindow()
@@ -52,6 +62,7 @@ export function StartupShell({
     };
 
     window.addEventListener(STARTUP_STAGE_EVENT, handleStageChange);
+    setLiveStage(readBootstrapStageFromWindow());
     return () => {
       window.removeEventListener(STARTUP_STAGE_EVENT, handleStageChange);
     };
@@ -61,6 +72,11 @@ export function StartupShell({
     controlledStage ?? liveStage,
     controlledLocale ?? resolveBootstrapLocale()
   );
+  const title = controlledTitle ?? copy.title;
+  const description = controlledDescription ?? copy.description;
+  const progressLabel = controlledProgressLabel ?? copy.progressLabel;
+  const progressMax = controlledProgressMax ?? copy.progressMax;
+  const progressValue = controlledProgressValue ?? copy.progressValue;
 
   return (
     <div className="relative flex min-h-screen items-start justify-start overflow-hidden bg-background text-foreground">
@@ -75,8 +91,11 @@ export function StartupShell({
           </div>
         }
         eyebrow="Infilux"
-        title={copy.title}
-        description={copy.description}
+        title={title}
+        description={description}
+        progressLabel={progressLabel}
+        progressMax={progressMax}
+        progressValue={progressValue}
         className="relative min-h-screen w-full"
       />
     </div>

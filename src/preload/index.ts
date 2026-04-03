@@ -81,6 +81,7 @@ import { IPC_CHANNELS } from '@shared/types';
 import type { AgentStopNotificationData } from '@shared/types/agent';
 import type { InspectPayload, WebInspectorStatus } from '@shared/types/webInspector';
 import { parseBootstrapLocaleFromArgv } from '@shared/utils/bootstrapLocale';
+import { parseBootstrapMainStageFromArgv } from '@shared/utils/bootstrapMainStage';
 import { parseBootstrapThemeSnapshotFromArgv } from '@shared/utils/bootstrapTheme';
 import {
   parseRuntimeChannelFromArgv,
@@ -806,6 +807,7 @@ const electronAPI = {
     platform: process.platform as 'darwin' | 'win32' | 'linux',
     appVersion: pkg.version,
     bootstrapLocale: parseBootstrapLocaleFromArgv(process.argv),
+    bootstrapMainStage: parseBootstrapMainStageFromArgv(process.argv),
     bootstrapTheme: parseBootstrapThemeSnapshotFromArgv(process.argv),
     runtimeChannel:
       parseRuntimeChannelFromArgv(process.argv) ??

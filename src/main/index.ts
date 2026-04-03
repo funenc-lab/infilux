@@ -15,6 +15,7 @@ import type { Locale } from '@shared/i18n';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
 import { IPC_CHANNELS, type ProxySettings } from '@shared/types';
 import { extractBootstrapLocaleFromSettingsData } from '@shared/utils/bootstrapLocale';
+import type { BootstrapMainStage } from '@shared/utils/bootstrapMainStage';
 import { customProtocolUriToPath, type SupportedFileUrlPlatform } from '@shared/utils/fileUrl';
 import {
   type AppRuntimeChannel,
@@ -146,6 +147,7 @@ const RENDERER_RECOVERY_WINDOW_MS = 30_000;
 const mainStartupTimeline = createStartupTimelineRecorder('main');
 const pendingMainStartupTimelineEntries: StartupTimelineEntry[] = [];
 let canLogMainStartupTimeline = false;
+let currentMainStartupStage: BootstrapMainStage = 'module-evaluated';
 
 function isIgnorableConsoleWriteError(error: unknown): boolean {
   const nodeError = error as NodeJS.ErrnoException;
@@ -221,7 +223,8 @@ function runDeferredStartupTask(taskName: string, task: () => Promise<void>): vo
   });
 }
 
-function recordMainStartupStage(stage: string): StartupTimelineEntry {
+function recordMainStartupStage(stage: BootstrapMainStage): StartupTimelineEntry {
+  currentMainStartupStage = stage;
   const entry = mainStartupTimeline.markStage(stage);
   if (!canLogMainStartupTimeline) {
     pendingMainStartupTimelineEntries.push(entry);
@@ -708,7 +711,7 @@ function openOrRestoreMainWindow(): BrowserWindow {
     return existingWindow;
   }
 
-  const window = openLocalWindow();
+  const window = openLocalWindow({ bootstrapMainStage: currentMainStartupStage });
   mainWindow = window;
   webInspectorServer.setMainWindow(window);
   return window;
@@ -1477,7 +1480,7 @@ app.whenReady().then(async () => {
   setCurrentLocale(readStoredLanguage());
 
   cleanupWindowHandlers = registerWindowHandlers();
-  mainWindow = openLocalWindow();
+  mainWindow = openLocalWindow({ bootstrapMainStage: currentMainStartupStage });
 
   // Set main window for Web Inspector server (for IPC communication)
   webInspectorServer.setMainWindow(mainWindow);
@@ -1512,7 +1515,7 @@ app.whenReady().then(async () => {
   gitAutoFetchService.init(mainWindow);
 
   const handleNewWindow = () => {
-    openLocalWindow();
+    openLocalWindow({ bootstrapMainStage: currentMainStartupStage });
   };
 
   // Build and set application menu

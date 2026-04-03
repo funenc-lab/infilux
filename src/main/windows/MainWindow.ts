@@ -11,6 +11,10 @@ import {
   extractBootstrapLocaleFromSettingsData,
 } from '@shared/utils/bootstrapLocale';
 import {
+  type BootstrapMainStage,
+  encodeBootstrapMainStageArgument,
+} from '@shared/utils/bootstrapMainStage';
+import {
   BOOTSTRAP_THEME_SEARCH_PARAM,
   type BootstrapThemeSnapshot,
   encodeBootstrapThemeArgument,
@@ -213,15 +217,32 @@ function resolveBootstrapLocale(): Locale | null {
   return extractBootstrapLocaleFromSettingsData(readSharedSettings());
 }
 
+function resolveBootstrapMainStageArgument(
+  bootstrapMainStage: BootstrapMainStage | null | undefined
+): string[] | undefined {
+  if (!bootstrapMainStage) {
+    return undefined;
+  }
+
+  return [encodeBootstrapMainStageArgument(bootstrapMainStage)];
+}
+
 function resolveRendererAdditionalArguments(
   bootstrapThemeSnapshot: BootstrapThemeSnapshot | null,
-  bootstrapLocale: Locale | null
+  bootstrapLocale: Locale | null,
+  bootstrapMainStage: BootstrapMainStage | null | undefined
 ): string[] {
   const runtimeChannelArgument = encodeRuntimeChannelArgument(getAppRuntimeChannel());
   const bootstrapLocaleArguments = resolveBootstrapLocaleArgument(bootstrapLocale) ?? [];
+  const bootstrapMainStageArguments = resolveBootstrapMainStageArgument(bootstrapMainStage) ?? [];
   const bootstrapThemeArguments = resolveBootstrapThemeArgument(bootstrapThemeSnapshot) ?? [];
 
-  return [runtimeChannelArgument, ...bootstrapLocaleArguments, ...bootstrapThemeArguments];
+  return [
+    runtimeChannelArgument,
+    ...bootstrapLocaleArguments,
+    ...bootstrapMainStageArguments,
+    ...bootstrapThemeArguments,
+  ];
 }
 
 function resolveBootstrapWindowBackgroundColor(
@@ -250,6 +271,7 @@ function appendBootstrapThemeToRendererUrl(
 }
 
 interface CreateMainWindowOptions {
+  bootstrapMainStage?: BootstrapMainStage | null;
   initializeWindow?: (window: BrowserWindow) => Promise<void> | void;
   partition?: string;
   replaceWindow?: BrowserWindow | null;
@@ -324,7 +346,8 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
   const bootstrapLocale = resolveBootstrapLocale();
   const rendererAdditionalArguments = resolveRendererAdditionalArguments(
     bootstrapThemeSnapshot,
-    bootstrapLocale
+    bootstrapLocale,
+    options.bootstrapMainStage
   );
 
   const win = new BrowserWindow({

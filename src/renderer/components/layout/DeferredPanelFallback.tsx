@@ -10,6 +10,9 @@ export interface DeferredPanelFallbackProps {
   eyebrow: string;
   title: string;
   description: string;
+  progressLabel?: string;
+  progressMax?: number;
+  progressValue?: number;
   footer?: ReactNode;
   className?: string;
   cardClassName?: string;
@@ -21,11 +24,28 @@ export function DeferredPanelFallback({
   eyebrow,
   title,
   description,
+  progressLabel,
+  progressMax,
+  progressValue,
   footer,
   className,
   cardClassName,
   variant = 'embedded',
 }: DeferredPanelFallbackProps) {
+  const hasProgress =
+    typeof progressValue === 'number' && typeof progressMax === 'number' && progressMax > 0;
+  const normalizedProgressValue = hasProgress
+    ? Math.min(Math.max(progressValue, 0), progressMax)
+    : null;
+  const progressPercent =
+    hasProgress && normalizedProgressValue !== null
+      ? (normalizedProgressValue / progressMax) * 100
+      : 0;
+  const progressText =
+    hasProgress && normalizedProgressValue !== null
+      ? `${progressLabel ?? title} (${normalizedProgressValue} of ${progressMax})`
+      : null;
+
   const fullscreenFooter = (
     <div className="flex items-center gap-3 text-[0.76em] text-muted-foreground/78">
       <Spinner
@@ -38,14 +58,38 @@ export function DeferredPanelFallback({
     </div>
   );
 
-  const startupFooter = (
-    <div className="flex max-w-[20rem] items-center gap-4 text-[0.72rem] uppercase tracking-[0.16em] text-muted-foreground/68">
-      <div className="h-px w-10 bg-border/72" />
-      <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted/54">
-        <div className="h-full w-2/5 rounded-full bg-primary/72 motion-safe:animate-pulse motion-reduce:animate-none" />
+  const startupFooter =
+    hasProgress && normalizedProgressValue !== null ? (
+      <div className="max-w-[22rem]">
+        <div className="flex items-center justify-between gap-4 text-[0.72rem] uppercase tracking-[0.16em] text-muted-foreground/68">
+          <span className="min-w-0 flex-1 truncate">{progressLabel ?? title}</span>
+          <span className="shrink-0">
+            {normalizedProgressValue}/{progressMax}
+          </span>
+        </div>
+        <div
+          role="progressbar"
+          aria-label={progressLabel ?? title}
+          aria-valuemin={0}
+          aria-valuemax={progressMax}
+          aria-valuenow={normalizedProgressValue}
+          aria-valuetext={progressText ?? undefined}
+          className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted/54"
+        >
+          <div
+            className="h-full rounded-full bg-primary/72"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
       </div>
-    </div>
-  );
+    ) : (
+      <div className="flex max-w-[20rem] items-center gap-4 text-[0.72rem] uppercase tracking-[0.16em] text-muted-foreground/68">
+        <div className="h-px w-10 bg-border/72" />
+        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted/54">
+          <div className="h-full w-2/5 rounded-full bg-primary/72 motion-safe:animate-pulse motion-reduce:animate-none" />
+        </div>
+      </div>
+    );
 
   if (variant === 'embedded') {
     return (

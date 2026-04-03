@@ -53,6 +53,8 @@ import {
 import {
   markStartupBlockingKeyReady,
   resolveInitialStartupBlockingKeys,
+  resolveStartupBlockingCopy,
+  resolveStartupProgress,
   type StartupBlockingKey,
 } from './App/startupOverlayPolicy';
 import {
@@ -525,6 +527,23 @@ export default function App() {
       settingsDisplayMode,
     })
   );
+  const startupBlockingKeyCountRef = useRef(Math.max(pendingStartupBlockingKeys.length, 1));
+  const startupProgress = useMemo(
+    () =>
+      resolveStartupProgress({
+        pendingKeys: pendingStartupBlockingKeys,
+        totalKeys: startupBlockingKeyCountRef.current,
+      }),
+    [pendingStartupBlockingKeys]
+  );
+  const startupBlockingCopy = startupProgress.currentKey
+    ? resolveStartupBlockingCopy(startupProgress.currentKey)
+    : null;
+  const startupOverlayTitle = t(startupBlockingCopy?.title ?? 'Opening workspace');
+  const startupOverlayDescription = t(
+    startupBlockingCopy?.description ?? 'Restoring active context and preparing panels.'
+  );
+  const startupOverlayProgressLabel = t(startupBlockingCopy?.title ?? 'Opening workspace');
   const showStartupOverlay = pendingStartupBlockingKeys.length > 0;
   const worktreeRepoPath = isTempRepo ? null : selectedRepo;
   const selectedRepoCanLoad = canLoadRepo(worktreeRepoPath);
@@ -1687,7 +1706,13 @@ export default function App() {
 
         {showStartupOverlay ? (
           <div className="absolute inset-0 z-50">
-            <StartupShell stage="rendering-root" />
+            <StartupShell
+              title={startupOverlayTitle}
+              description={startupOverlayDescription}
+              progressLabel={startupOverlayProgressLabel}
+              progressValue={startupProgress.currentStep}
+              progressMax={startupProgress.totalSteps}
+            />
           </div>
         ) : null}
       </div>

@@ -84,4 +84,33 @@ describe('startupOverlayPolicy', () => {
 
     expect(markStartupBlockingKeyReady(pendingKeys, 'worktree-panel')).toBe(pendingKeys);
   });
+
+  it('derives startup progress from the current blocking queue', async () => {
+    const policyModule = (await import('../startupOverlayPolicy')) as Record<string, unknown>;
+    const resolveStartupProgress = policyModule.resolveStartupProgress;
+
+    expect(resolveStartupProgress).toBeTypeOf('function');
+
+    expect(
+      (
+        resolveStartupProgress as (args: {
+          pendingKeys: StartupBlockingKey[];
+          totalKeys: number;
+        }) => {
+          completedCount: number;
+          currentKey: StartupBlockingKey | null;
+          currentStep: number;
+          totalSteps: number;
+        }
+      )({
+        pendingKeys: ['worktree-panel', 'file-panel'],
+        totalKeys: 3,
+      })
+    ).toEqual({
+      completedCount: 1,
+      currentKey: 'worktree-panel',
+      currentStep: 2,
+      totalSteps: 3,
+    });
+  });
 });

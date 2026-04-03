@@ -24,6 +24,7 @@
         --bootstrap-icon-border: rgba(48, 65, 93, 0.1);
         --bootstrap-icon-bg: rgba(255, 255, 255, 0.72);
         --bootstrap-footer-line: rgba(48, 65, 93, 0.14);
+        --bootstrap-progress-value: 25%;
         --bootstrap-panel-shadow:
           0 16px 40px rgba(94, 113, 145, 0.08),
           inset 0 1px 0 rgba(255, 255, 255, 0.74);
@@ -46,6 +47,7 @@
         --bootstrap-icon-border: rgba(255, 255, 255, 0.08);
         --bootstrap-icon-bg: rgba(255, 255, 255, 0.02);
         --bootstrap-footer-line: rgba(255, 255, 255, 0.12);
+        --bootstrap-progress-value: 25%;
         --bootstrap-panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
       }
 
@@ -217,7 +219,7 @@
         content: "";
         position: absolute;
         inset: 0 auto 0 0;
-        width: 40%;
+        width: var(--bootstrap-progress-value, 25%);
         border-radius: inherit;
         background: var(--bootstrap-accent);
         animation: bootstrap-pulse 1.4s ease-in-out infinite;

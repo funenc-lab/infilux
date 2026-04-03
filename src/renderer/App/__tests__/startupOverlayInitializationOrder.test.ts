@@ -18,4 +18,10 @@ describe('App startup overlay initialization order', () => {
     expect(pendingStartupBlockingKeysIndex).toBeGreaterThanOrEqual(0);
     expect(activeSelectedSubagentIndex).toBeLessThan(pendingStartupBlockingKeysIndex);
   });
+
+  it('does not hardcode the startup overlay to the rendering-root stage', () => {
+    const source = readAppSource();
+
+    expect(source).not.toContain('<StartupShell stage="rendering-root" />');
+  });
 });

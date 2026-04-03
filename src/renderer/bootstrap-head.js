@@ -1,5 +1,16 @@
 (() => {
   try {
+    const bootstrapMainStage =
+      typeof window.electronAPI?.env?.bootstrapMainStage === 'string'
+        ? window.electronAPI.env.bootstrapMainStage
+        : null;
+
+    if (bootstrapMainStage) {
+      document.documentElement.dataset.bootstrapMainStage = bootstrapMainStage;
+    }
+  } catch {}
+
+  try {
     const params = new URLSearchParams(window.location.search);
     const rawSnapshot = params.get('infiluxBootstrapTheme');
     if (rawSnapshot) {

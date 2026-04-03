@@ -182,6 +182,14 @@ describe('preload bridge', () => {
     expect(api.env.bootstrapLocale).toBe('zh');
   });
 
+  it('exposes the bootstrap main stage parsed from additional arguments', async () => {
+    process.argv = [...originalArgv, '--infilux-bootstrap-main-stage=main-init-complete'];
+
+    const api = await loadElectronAPI();
+
+    expect(api.env.bootstrapMainStage).toBe('main-init-complete');
+  });
+
   it('prefers the runtime channel passed through BrowserWindow additional arguments', async () => {
     process.argv = [...originalArgv, '--infilux-runtime-channel=dev'];
 

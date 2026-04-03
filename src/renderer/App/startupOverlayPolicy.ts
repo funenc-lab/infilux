@@ -11,6 +11,18 @@ export type StartupBlockingKey =
   | 'tree-sidebar'
   | 'worktree-panel';
 
+export interface StartupBlockingCopy {
+  description: string;
+  title: string;
+}
+
+export interface StartupProgressState {
+  completedCount: number;
+  currentKey: StartupBlockingKey | null;
+  currentStep: number;
+  totalSteps: number;
+}
+
 interface ResolveInitialStartupBlockingKeysOptions {
   layoutMode: 'columns' | 'tree';
   repositoryCollapsed: boolean;
@@ -21,6 +33,50 @@ interface ResolveInitialStartupBlockingKeysOptions {
   hasSelectedSubagent: boolean;
   settingsDisplayMode: 'tab' | 'draggable-modal';
 }
+
+interface ResolveStartupProgressOptions {
+  pendingKeys: StartupBlockingKey[];
+  totalKeys: number;
+}
+
+const STARTUP_BLOCKING_COPY: Record<StartupBlockingKey, StartupBlockingCopy> = {
+  'chat-panel': {
+    title: 'Loading AI Agent',
+    description: 'Preparing agent sessions and terminal workspace',
+  },
+  'file-panel': {
+    title: 'Loading editor',
+    description: 'Preparing active file workspace',
+  },
+  'repository-sidebar': {
+    title: 'Loading repositories',
+    description: 'Preparing repository groups and recent workspace state',
+  },
+  'settings-panel': {
+    title: 'Loading settings',
+    description: 'Preparing preferences and configuration panels',
+  },
+  'source-control-panel': {
+    title: 'Loading version control',
+    description: 'Preparing repository status and diff tools',
+  },
+  'terminal-panel': {
+    title: 'Loading terminal',
+    description: 'Preparing shell sessions and terminal workspace',
+  },
+  'todo-panel': {
+    title: 'Loading tasks',
+    description: 'Preparing the kanban board',
+  },
+  'tree-sidebar': {
+    title: 'Loading workspace tree',
+    description: 'Preparing repositories, worktrees, and activity indicators',
+  },
+  'worktree-panel': {
+    title: 'Loading worktrees',
+    description: 'Preparing branches, worktree status, and session context',
+  },
+};
 
 export function resolveInitialStartupBlockingKeys({
   layoutMode,
@@ -76,6 +132,28 @@ export function resolveInitialStartupBlockingKeys({
   }
 
   return keys;
+}
+
+export function resolveStartupBlockingCopy(key: StartupBlockingKey): StartupBlockingCopy {
+  return STARTUP_BLOCKING_COPY[key];
+}
+
+export function resolveStartupProgress({
+  pendingKeys,
+  totalKeys,
+}: ResolveStartupProgressOptions): StartupProgressState {
+  const totalSteps = Math.max(totalKeys, pendingKeys.length, 1);
+  const currentKey = pendingKeys[0] ?? null;
+  const completedCount = Math.min(Math.max(totalSteps - pendingKeys.length, 0), totalSteps);
+  const currentStep =
+    pendingKeys.length === 0 ? totalSteps : Math.min(completedCount + 1, totalSteps);
+
+  return {
+    completedCount,
+    currentKey,
+    currentStep,
+    totalSteps,
+  };
 }
 
 export function markStartupBlockingKeyReady(
