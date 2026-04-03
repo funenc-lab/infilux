@@ -11,6 +11,11 @@ const appleSigningIdentity = `APPLE_SIGNING_IDENTITY: ${expressionOpen} secrets.
 const allowUnsignedMacosRelease = `REPO_ALLOW_UNSIGNED_MACOS_RELEASE: ${expressionOpen} vars.ALLOW_UNSIGNED_MACOS_RELEASE ${expressionClose}`;
 const fallbackAllowedLiteral = ['fallback_allowed=', '$', '{allow_unsigned}'].join('');
 const macArchPlaceholder = '$' + '{{ matrix.arch }}';
+const ghReleaseUploadArrayLiteral = [
+  'gh release upload "$TAG" "',
+  '$',
+  '{files[@]}" --clobber',
+].join('');
 
 describe('build workflow macOS signing policy', () => {
   it('reuses the penpad-style Apple signing secret names and unsigned release override', () => {
@@ -59,5 +64,17 @@ describe('build workflow macOS signing policy', () => {
       'gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""'
     );
     expect(workflowSource).toContain('gh release upload "$TAG" dist/remote-runtime/* --clobber');
+  });
+
+  it('uploads platform release assets to the current tag instead of publishing to the app version release', () => {
+    expect(workflowSource).toContain('npx electron-builder --win --x64 --publish never');
+    expect(workflowSource).toContain('npx electron-builder --linux --x64 --publish never');
+    expect(workflowSource).toContain(
+      `npx electron-builder --mac --${macArchPlaceholder} --publish never`
+    );
+    expect(workflowSource).toContain('Upload Windows release assets');
+    expect(workflowSource).toContain('Upload Linux release assets');
+    expect(workflowSource).toContain(`Upload macOS (${macArchPlaceholder}) release assets`);
+    expect(workflowSource).toContain(ghReleaseUploadArrayLiteral);
   });
 });

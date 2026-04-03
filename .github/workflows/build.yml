@@ -308,7 +308,7 @@ jobs:
 
       - name: Build macOS (${{ matrix.arch }}) signed
         if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.macos_identity.outputs.ready == 'true' }}
-        run: npx electron-builder --mac --${{ matrix.arch }}
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -319,10 +319,33 @@ jobs:
 
       - name: Build macOS (${{ matrix.arch }}) unsigned
         if: ${{ steps.macos_signing.outputs.ready != 'true' || steps.macos_identity.outputs.ready != 'true' }}
-        run: npx electron-builder --mac --${{ matrix.arch }} -c.mac.identity=null -c.mac.notarize=false
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never -c.mac.identity=null -c.mac.notarize=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload macOS (${{ matrix.arch }}) release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.ref_name }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""
+
+          mapfile -t files < <(find dist -maxdepth 1 -type f \
+            \( -name '*.dmg' -o -name '*.dmg.blockmap' -o -name '*-mac.zip' -o -name '*-mac.zip.blockmap' \) \
+            | sort)
+
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "No macOS release assets found in dist/"
+            exit 1
+          fi
+
+          printf 'Uploading macOS release assets:\n%s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
 
       - name: Upload latest-mac.yml
         uses: actions/upload-artifact@v4
@@ -378,9 +401,32 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Windows
-        run: npx electron-builder --win --x64
+        run: npx electron-builder --win --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.ref_name }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""
+
+          mapfile -t files < <(find dist -maxdepth 1 -type f \
+            \( -name '*.exe' -o -name '*.exe.blockmap' -o -name 'latest.yml' \) \
+            | sort)
+
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "No Windows release assets found in dist/"
+            exit 1
+          fi
+
+          printf 'Uploading Windows release assets:\n%s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
 
   build-linux:
     needs: build-app
@@ -428,9 +474,31 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Linux
-        run: npx electron-builder --linux --x64
+        run: npx electron-builder --linux --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.ref_name }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""
+
+          mapfile -t files < <(find dist -maxdepth 1 -type f \
+            \( -name '*.AppImage' -o -name '*.deb' -o -name 'latest-linux.yml' \) \
+            | sort)
+
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "No Linux release assets found in dist/"
+            exit 1
+          fi
+
+          printf 'Uploading Linux release assets:\n%s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
 
   build-remote-runtime-linux:
     needs: release-preflight
