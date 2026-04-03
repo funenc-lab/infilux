@@ -7,7 +7,9 @@ const expressionClose = '}}';
 const appleApiIssuer = `APPLE_API_ISSUER: ${expressionOpen} secrets.APPLE_API_ISSUER ${expressionClose}`;
 const appleApiKey = `APPLE_API_KEY: ${expressionOpen} secrets.APPLE_API_KEY ${expressionClose}`;
 const appleApiKeyP8 = `APPLE_API_KEY_P8: ${expressionOpen} secrets.APPLE_API_KEY_P8 ${expressionClose}`;
+const appleSigningIdentity = `APPLE_SIGNING_IDENTITY: ${expressionOpen} secrets.APPLE_SIGNING_IDENTITY ${expressionClose}`;
 const allowUnsignedMacosRelease = `REPO_ALLOW_UNSIGNED_MACOS_RELEASE: ${expressionOpen} vars.ALLOW_UNSIGNED_MACOS_RELEASE ${expressionClose}`;
+const fallbackAllowedLiteral = ['fallback_allowed=', '$', '{allow_unsigned}'].join('');
 const macArchPlaceholder = '$' + '{{ matrix.arch }}';
 
 describe('build workflow macOS signing policy', () => {
@@ -16,13 +18,29 @@ describe('build workflow macOS signing policy', () => {
     expect(workflowSource).toContain(appleApiIssuer);
     expect(workflowSource).toContain(appleApiKey);
     expect(workflowSource).toContain(appleApiKeyP8);
+    expect(workflowSource).toContain(appleSigningIdentity);
     expect(workflowSource).toContain(allowUnsignedMacosRelease);
   });
 
-  it('supports unsigned macOS fallback when signing prerequisites are missing', () => {
+  it('supports unsigned macOS fallback when signing prerequisites are missing or invalid', () => {
+    expect(workflowSource).toContain('Validate Apple signing identity');
+    expect(workflowSource).toContain("grep -F 'Developer ID Application:'");
+    expect(workflowSource).toContain('Apple signing configuration is invalid');
+    expect(workflowSource).toContain(fallbackAllowedLiteral);
+    expect(workflowSource).toContain(
+      `ALLOW_UNSIGNED_MACOS: ${expressionOpen} steps.macos_signing.outputs.fallback_allowed ${expressionClose}`
+    );
     expect(workflowSource).toContain(`Build macOS (${macArchPlaceholder}) unsigned`);
     expect(workflowSource).toContain("CSC_IDENTITY_AUTO_DISCOVERY: 'false'");
     expect(workflowSource).toContain('-c.mac.identity=null -c.mac.notarize=false');
+  });
+
+  it('requires an explicit Apple signing identity for signed macOS builds', () => {
+    expect(workflowSource).toContain('missing+=("APPLE_SIGNING_IDENTITY")');
+    expect(workflowSource).toContain(
+      `CSC_NAME: ${expressionOpen} secrets.APPLE_SIGNING_IDENTITY ${expressionClose}`
+    );
+    expect(workflowSource).toContain("steps.macos_identity.outputs.ready == 'true'");
   });
 
   it('prevents prerelease tags from being marked as the latest release', () => {

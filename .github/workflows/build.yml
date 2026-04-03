@@ -153,6 +153,7 @@ jobs:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           WORKFLOW_ALLOW_UNSIGNED_MACOS: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_unsigned_macos || 'false' }}
           REPO_ALLOW_UNSIGNED_MACOS_RELEASE: ${{ vars.ALLOW_UNSIGNED_MACOS_RELEASE }}
           IS_TAG_BUILD: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
@@ -173,17 +174,20 @@ jobs:
           [[ -n "${APPLE_API_KEY}" ]] || missing+=("APPLE_API_KEY")
           [[ -n "${APPLE_API_ISSUER}" ]] || missing+=("APPLE_API_ISSUER")
           [[ -n "${APPLE_API_KEY_P8}" ]] || missing+=("APPLE_API_KEY_P8")
+          [[ -n "${APPLE_SIGNING_IDENTITY}" ]] || missing+=("APPLE_SIGNING_IDENTITY")
 
           if [[ "${#missing[@]}" -eq 0 ]]; then
             echo "ready=true" >> "${GITHUB_OUTPUT}"
             echo "missing=" >> "${GITHUB_OUTPUT}"
             echo "unsigned_allowed=false" >> "${GITHUB_OUTPUT}"
+            echo "fallback_allowed=${allow_unsigned}" >> "${GITHUB_OUTPUT}"
             echo "macOS signing is enabled for this build."
           elif [[ "${allow_unsigned}" == "true" ]]; then
             missing_csv="$(IFS=,; echo "${missing[*]}")"
             echo "ready=false" >> "${GITHUB_OUTPUT}"
             echo "missing=${missing_csv}" >> "${GITHUB_OUTPUT}"
             echo "unsigned_allowed=true" >> "${GITHUB_OUTPUT}"
+            echo "fallback_allowed=true" >> "${GITHUB_OUTPUT}"
             echo "macOS signing is disabled because these secrets are missing: ${missing_csv}"
           else
             missing_csv="$(IFS=,; echo "${missing[*]}")"
@@ -254,10 +258,56 @@ jobs:
             -s \
             -k "${keychain_password}" \
             "${keychain_path}"
-          security find-identity -v -p codesigning "${keychain_path}"
+          echo "APPLE_KEYCHAIN_PATH=${keychain_path}" >> "${GITHUB_ENV}"
+
+      - name: Validate Apple signing identity
+        id: macos_identity
+        if: ${{ steps.macos_signing.outputs.ready == 'true' }}
+        env:
+          APPLE_KEYCHAIN_PATH: ${{ env.APPLE_KEYCHAIN_PATH }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ALLOW_UNSIGNED_MACOS: ${{ steps.macos_signing.outputs.fallback_allowed }}
+        run: |
+          set -euo pipefail
+
+          identity_output="$(security find-identity -v -p codesigning "${APPLE_KEYCHAIN_PATH}")"
+          echo "${identity_output}"
+
+          developer_identities="$(printf '%s\n' "${identity_output}" | grep -F 'Developer ID Application:' || true)"
+          matched_identity="$(printf '%s\n' "${developer_identities}" | grep -F "${APPLE_SIGNING_IDENTITY}" || true)"
+
+          if [[ -n "${matched_identity}" ]]; then
+            echo "ready=true" >> "${GITHUB_OUTPUT}"
+            echo "unsigned_allowed=false" >> "${GITHUB_OUTPUT}"
+            echo "invalid_reason=" >> "${GITHUB_OUTPUT}"
+            echo "Using Apple signing identity: ${APPLE_SIGNING_IDENTITY}"
+          else
+            reason="Imported Apple certificate does not provide the configured Developer ID Application identity (${APPLE_SIGNING_IDENTITY})."
+
+            if [[ -z "${developer_identities}" ]]; then
+              reason="Imported Apple certificate does not provide any Developer ID Application identity."
+            fi
+
+            if [[ "${ALLOW_UNSIGNED_MACOS}" == "true" ]]; then
+              echo "ready=false" >> "${GITHUB_OUTPUT}"
+              echo "unsigned_allowed=true" >> "${GITHUB_OUTPUT}"
+              echo "invalid_reason=${reason}" >> "${GITHUB_OUTPUT}"
+              echo "macOS signing will fall back to unsigned output: ${reason}"
+            else
+              echo "::error title=Signed macOS release is required::${reason}"
+              exit 1
+            fi
+          fi
+
+      - name: Announce unsigned macOS signing fallback
+        if: ${{ steps.macos_identity.outputs.unsigned_allowed == 'true' }}
+        env:
+          SIGNING_INVALID_REASON: ${{ steps.macos_identity.outputs.invalid_reason }}
+        run: |
+          echo "::notice title=Unsigned macOS build::Apple signing configuration is invalid (${SIGNING_INVALID_REASON}). This workflow is continuing with unsigned macOS output."
 
       - name: Build macOS (${{ matrix.arch }}) signed
-        if: ${{ steps.macos_signing.outputs.ready == 'true' }}
+        if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.macos_identity.outputs.ready == 'true' }}
         run: npx electron-builder --mac --${{ matrix.arch }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -265,9 +315,10 @@ jobs:
           APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
           APPLE_API_KEY_ID: ${{ env.APPLE_API_KEY_ID }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Build macOS (${{ matrix.arch }}) unsigned
-        if: ${{ steps.macos_signing.outputs.ready != 'true' }}
+        if: ${{ steps.macos_signing.outputs.ready != 'true' || steps.macos_identity.outputs.ready != 'true' }}
         run: npx electron-builder --mac --${{ matrix.arch }} -c.mac.identity=null -c.mac.notarize=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
