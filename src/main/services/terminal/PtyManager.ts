@@ -199,6 +199,54 @@ function adjustArgsForShell(shell: string, args: string[]): string[] {
   return args;
 }
 
+function resolveTerminalCapabilityEnv(
+  options: Pick<SessionCreateOptions, 'env' | 'kind'>
+): Record<string, string> {
+  const colorEnv: Record<string, string> = {
+    TERM: 'xterm-256color',
+  };
+
+  if (options.kind !== 'agent') {
+    colorEnv.COLORTERM = 'truecolor';
+    return colorEnv;
+  }
+
+  const explicitColorTerm = options.env?.COLORTERM;
+  if (typeof explicitColorTerm === 'string' && explicitColorTerm.trim().length > 0) {
+    colorEnv.COLORTERM = explicitColorTerm;
+  }
+
+  return colorEnv;
+}
+
+function shouldAdvertiseTruecolor(options: Pick<SessionCreateOptions, 'env' | 'kind'>): boolean {
+  if (options.kind !== 'agent') {
+    return true;
+  }
+
+  const explicitColorTerm = options.env?.COLORTERM;
+  return typeof explicitColorTerm === 'string' && explicitColorTerm.trim().length > 0;
+}
+
+function hasExplicitEnvOverride(env: SessionCreateOptions['env'], key: string): boolean {
+  return Boolean(env && Object.hasOwn(env, key));
+}
+
+function sanitizeAgentPresentationEnv(
+  env: Record<string, string>,
+  options: Pick<SessionCreateOptions, 'env' | 'kind'>
+): void {
+  if (options.kind !== 'agent') {
+    return;
+  }
+
+  for (const key of ['NO_COLOR', 'COLOR', 'CLICOLOR', 'CLICOLOR_FORCE']) {
+    if (!hasExplicitEnvOverride(options.env, key)) {
+      delete env[key];
+    }
+  }
+}
+
 /**
  * Find a login shell with appropriate args for running commands.
  * Returns shell path and args that will load user environment (nvm, homebrew, etc.)
@@ -387,12 +435,16 @@ export class PtyManager {
       ...getProxyEnvVars(),
       ...options.env,
       PATH: options.env?.PATH || getEnhancedPath(),
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
+      ...resolveTerminalCapabilityEnv(options),
       // Ensure proper locale for UTF-8 support (GUI apps may not inherit LANG)
       LANG: process.env.LANG || 'en_US.UTF-8',
       LC_ALL: process.env.LC_ALL || process.env.LANG || 'en_US.UTF-8',
     } as Record<string, string>;
+
+    if (!shouldAdvertiseTruecolor(options)) {
+      delete env.COLORTERM;
+    }
+    sanitizeAgentPresentationEnv(env, options);
 
     try {
       startupLogger?.markStage('spawn-start');

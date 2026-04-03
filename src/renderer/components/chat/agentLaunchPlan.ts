@@ -184,24 +184,25 @@ function escapeInitialPromptForUnix(input: string): string {
   return input.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
 
+function buildTmuxSessionCommand(baseCommand: string): string {
+  return `env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE ${baseCommand}`.trim();
+}
+
 function buildTmuxAttachCommand(
   baseCommand: string,
   tmuxServerName: string,
   tmuxSessionName: string
 ): string {
-  const quotedBaseCommand = quotePosixShell(baseCommand);
+  const quotedBaseCommand = quotePosixShell(buildTmuxSessionCommand(baseCommand));
   const createSessionCommand =
     `env -u TMUX tmux -L ${tmuxServerName} -f /dev/null new-session -d -s ${tmuxSessionName} ` +
     `${quotedBaseCommand} >/dev/null 2>&1 || true`;
   const hideStatusCommand =
     `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} status off ` +
     '>/dev/null 2>&1 || true';
-  const enableMouseCommand =
-    `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} mouse on ` +
-    '>/dev/null 2>&1 || true';
   const attachSessionCommand = `exec env -u TMUX tmux -L ${tmuxServerName} attach-session -t ${tmuxSessionName}`;
 
-  return `${createSessionCommand}; ${hideStatusCommand}; ${enableMouseCommand}; ${attachSessionCommand}`;
+  return `${createSessionCommand}; ${hideStatusCommand}; ${attachSessionCommand}`;
 }
 
 export function buildAgentLaunchPlan({

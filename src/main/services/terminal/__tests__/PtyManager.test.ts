@@ -532,6 +532,59 @@ describe('PtyManager utilities', () => {
     expect(manager).toBeTruthy();
   });
 
+  it('does not advertise truecolor for agent sessions by default', async () => {
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+
+    manager.create(
+      {
+        cwd: '/repo/agent',
+        kind: 'agent',
+        shell: '/bin/zsh',
+        args: ['-l'],
+      },
+      vi.fn()
+    );
+
+    const spawnEnv = ptyManagerTestDoubles.spawn.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(spawnEnv).toBeDefined();
+    expect(spawnEnv).toMatchObject({
+      TERM: 'xterm-256color',
+      LANG: 'en_US.UTF-8',
+      LC_ALL: 'en_US.UTF-8',
+    });
+    expect(spawnEnv).not.toHaveProperty('COLORTERM');
+  });
+
+  it('clears inherited no-color environment flags for agent sessions', async () => {
+    process.env.NO_COLOR = '1';
+    process.env.COLOR = '0';
+
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+
+    manager.create(
+      {
+        cwd: '/repo/agent',
+        kind: 'agent',
+        shell: '/bin/zsh',
+        args: ['-l'],
+      },
+      vi.fn()
+    );
+
+    const spawnEnv = ptyManagerTestDoubles.spawn.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(spawnEnv).toBeDefined();
+    expect(spawnEnv).not.toHaveProperty('NO_COLOR');
+    expect(spawnEnv).not.toHaveProperty('COLOR');
+  });
+
   it('resolves destroyAndWait on exit or timeout and does not call the original exit handler during cleanup', async () => {
     const { PtyManager } = await import('../PtyManager');
     const manager = new PtyManager();

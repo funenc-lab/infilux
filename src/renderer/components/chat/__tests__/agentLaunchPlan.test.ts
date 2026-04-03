@@ -85,18 +85,18 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain('command -v claude >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain(
-      "then env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+      "then env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
     );
     expect(plan.command?.args[1]).not.toContain(
       "then exec env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
     );
     expect(plan.command?.args[1]).toContain(
-      "env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true"
+      "env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true"
     );
     expect(plan.command?.args[1]).toContain(
       'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 status off >/dev/null 2>&1 || true'
     );
-    expect(plan.command?.args[1]).toContain(
+    expect(plan.command?.args[1]).not.toContain(
       'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 mouse on >/dev/null 2>&1 || true'
     );
     expect(plan.command?.args[1]).toContain(
