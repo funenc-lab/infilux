@@ -238,6 +238,8 @@ function makeRemoteDescriptor(overrides: Partial<SessionDescriptor> = {}): Sessi
     cwd: '/workspace',
     persistOnDisconnect: true,
     createdAt: 1,
+    runtimeState: 'live',
+    metadata: undefined,
     ...overrides,
   };
 }
