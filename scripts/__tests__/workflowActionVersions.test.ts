@@ -3,17 +3,18 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const workflowsDirectory = '.github/workflows';
+const packageManagerPlaceholder = '$' + '{PACKAGE_MANAGER}';
+const githubRunIdPlaceholder = '$' + '{GITHUB_RUN_ID}';
 const trackedActions = {
   'actions/cache': 'v5',
   'actions/checkout': 'v6',
-  'actions/download-artifact': 'v8',
   'actions/setup-node': 'v6',
   'actions/upload-artifact': 'v7',
-  'pnpm/action-setup': 'v5',
 } as const;
+const forbiddenActions = ['actions/download-artifact', 'pnpm/action-setup'] as const;
 
 const actionVersionPattern =
-  /uses:\s+(actions\/cache|actions\/checkout|actions\/download-artifact|actions\/setup-node|actions\/upload-artifact|pnpm\/action-setup)@([^\s]+)/g;
+  /uses:\s+(actions\/cache|actions\/checkout|actions\/setup-node|actions\/upload-artifact)@([^\s]+)/g;
 
 type TrackedActionName = keyof typeof trackedActions;
 
@@ -65,5 +66,17 @@ describe('workflow action runtime policy', () => {
         ).toEqual([expectedVersion]);
       }
     }
+  });
+
+  it('avoids helper actions that still emit deprecation warnings in the build workflow', () => {
+    const buildWorkflowSource = readFileSync(join(workflowsDirectory, 'build.yml'), 'utf8');
+
+    for (const actionName of forbiddenActions) {
+      expect(buildWorkflowSource).not.toContain(`uses: ${actionName}@`);
+    }
+
+    expect(buildWorkflowSource).toContain(`corepack install -g "${packageManagerPlaceholder}"`);
+    expect(buildWorkflowSource).toContain(`gh run download "${githubRunIdPlaceholder}"`);
+    expect(buildWorkflowSource).toContain("-p 'latest-mac-*'");
   });
 });
