@@ -625,6 +625,33 @@ describe('MainWindow lifecycle', () => {
     expect(replaceWindow.close).toHaveBeenCalledTimes(1);
   });
 
+  it('falls back to an alternate loopback host when the initial dev renderer URL is refused', async () => {
+    setPlatform('linux');
+    mainWindowLifecycleDoubles.is.dev = true;
+    process.env.ELECTRON_RENDERER_URL = 'http://localhost:5173';
+    mainWindowLifecycleDoubles.loadUrlImpl.mockImplementation(async (url?: string) => {
+      if (url?.startsWith('http://localhost:5173')) {
+        throw new Error("ERR_CONNECTION_REFUSED (-102) loading 'http://localhost:5173'");
+      }
+    });
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    await flushPromises();
+
+    expect(win.webContents.session.clearCache).toHaveBeenCalledTimes(1);
+    expect(win.loadURL).toHaveBeenNthCalledWith(1, 'http://localhost:5173', {
+      extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
+    });
+    expect(win.loadURL).toHaveBeenNthCalledWith(2, 'http://127.0.0.1:5173', {
+      extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
+    });
+    expect(mainWindowLifecycleDoubles.logError).not.toHaveBeenCalled();
+  });
+
   it('normalizes invalid persisted bounds to the current display before creating the window', async () => {
     setPlatform('darwin');
     mainWindowLifecycleDoubles.existsSync.mockImplementation(

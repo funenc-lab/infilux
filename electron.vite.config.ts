@@ -81,6 +81,10 @@ export default defineConfig({
         '@shared': path.resolve(__dirname, 'src/shared'),
       },
     },
+    server: {
+      host: '127.0.0.1',
+      strictPort: true,
+    },
     build: {
       rollupOptions: {
         input: {

@@ -46,6 +46,7 @@ const TRAFFIC_LIGHTS_DEVTOOLS_POSITION = { x: 240, y: 16 };
 const MAIN_BUNDLE_DIR = dirname(fileURLToPath(import.meta.url));
 const DARK_BOOTSTRAP_WINDOW_BACKGROUND_COLOR = '#0f1216';
 const LIGHT_BOOTSTRAP_WINDOW_BACKGROUND_COLOR = '#f5f7fb';
+const LOOPBACK_DEV_RENDERER_HOSTS = ['localhost', '127.0.0.1', '::1'] as const;
 
 interface WindowState {
   width: number;
@@ -270,6 +271,67 @@ function appendBootstrapThemeToRendererUrl(
   return nextUrl.toString();
 }
 
+function normalizeLoopbackHostname(hostname: string): string {
+  return hostname.trim().replace(/^\[|\]$/g, '').toLowerCase();
+}
+
+function isLoopbackDevRendererUrl(input: string): boolean {
+  try {
+    const parsed = new URL(input);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    return LOOPBACK_DEV_RENDERER_HOSTS.includes(
+      normalizeLoopbackHostname(parsed.hostname) as (typeof LOOPBACK_DEV_RENDERER_HOSTS)[number]
+    );
+  } catch {
+    return false;
+  }
+}
+
+function formatDevRendererUrl(reference: string, nextUrl: URL): string {
+  const shouldKeepBareOrigin =
+    (reference.startsWith('http://') || reference.startsWith('https://')) &&
+    !reference.slice(reference.indexOf('//') + 2).includes('/') &&
+    !nextUrl.search &&
+    !nextUrl.hash &&
+    nextUrl.pathname === '/';
+
+  if (shouldKeepBareOrigin) {
+    return `${nextUrl.protocol}//${nextUrl.host}`;
+  }
+
+  return nextUrl.toString();
+}
+
+function resolveDevRendererUrlCandidates(input: string): string[] {
+  if (!isLoopbackDevRendererUrl(input)) {
+    return [input];
+  }
+
+  const parsed = new URL(input);
+  const originalHost = normalizeLoopbackHostname(parsed.hostname);
+  const candidates = [
+    input,
+    ...LOOPBACK_DEV_RENDERER_HOSTS.filter((host) => host !== originalHost).map((host) => {
+      const nextUrl = new URL(parsed.toString());
+      nextUrl.hostname = host;
+      return formatDevRendererUrl(input, nextUrl);
+    }),
+  ];
+
+  return [...new Set(candidates)];
+}
+
+function shouldRetryDevRendererUrlWithAlternateLoopbackHost(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.message.includes('ERR_CONNECTION_REFUSED') || error.message.includes('ECONNREFUSED');
+  }
+
+  return false;
+}
+
 interface CreateMainWindowOptions {
   bootstrapMainStage?: BootstrapMainStage | null;
   initializeWindow?: (window: BrowserWindow) => Promise<void> | void;
@@ -292,9 +354,35 @@ async function loadDevRendererUrl(
     });
   }
 
-  await win.loadURL(appendBootstrapThemeToRendererUrl(url, bootstrapThemeSnapshot), {
-    extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
-  });
+  const candidateUrls = resolveDevRendererUrlCandidates(url);
+  let lastError: unknown = null;
+
+  for (const [index, candidateUrl] of candidateUrls.entries()) {
+    try {
+      await win.loadURL(appendBootstrapThemeToRendererUrl(candidateUrl, bootstrapThemeSnapshot), {
+        extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      const nextCandidateUrl = candidateUrls[index + 1];
+      if (
+        !nextCandidateUrl ||
+        !shouldRetryDevRendererUrlWithAlternateLoopbackHost(error)
+      ) {
+        throw error;
+      }
+
+      log.warn('[window] Dev renderer URL refused, retrying alternate loopback host', {
+        windowId: win.id,
+        attemptedUrl: candidateUrl,
+        nextUrl: nextCandidateUrl,
+        error,
+      });
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Failed to load dev renderer URL');
 }
 
 interface WindowReplacementController {
