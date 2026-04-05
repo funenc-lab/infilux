@@ -21,6 +21,7 @@ export function useSettingsState(
         'keybindings',
         'agent',
         'ai',
+        'input',
         'integration',
         'hapi',
         'remote',

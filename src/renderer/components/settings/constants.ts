@@ -8,6 +8,7 @@ export type SettingsCategory =
   | 'keybindings'
   | 'agent'
   | 'ai'
+  | 'input'
   | 'integration'
   | 'hapi'
   | 'remote'

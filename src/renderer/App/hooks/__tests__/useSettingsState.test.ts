@@ -23,11 +23,15 @@ vi.mock('@/stores/settings', () => ({
 
 let capturedHandleSettingsDialogOpenChange: ((open: boolean) => void) | null = null;
 let capturedToggleSettings: (() => void) | null = null;
+let capturedSettingsCategory: string | null = null;
 
 function HookHarness({ args }: { args: Parameters<typeof useSettingsState> }) {
-  const { handleSettingsDialogOpenChange, toggleSettings } = useSettingsState(...args);
+  const { handleSettingsDialogOpenChange, toggleSettings, settingsCategory } = useSettingsState(
+    ...args
+  );
   capturedHandleSettingsDialogOpenChange = handleSettingsDialogOpenChange;
   capturedToggleSettings = toggleSettings;
+  capturedSettingsCategory = settingsCategory;
   return React.createElement('div');
 }
 
@@ -54,7 +58,9 @@ describe('useSettingsState', () => {
   beforeEach(() => {
     capturedHandleSettingsDialogOpenChange = null;
     capturedToggleSettings = null;
+    capturedSettingsCategory = null;
     settingsStoreState.settingsDisplayMode = 'draggable-modal';
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -130,6 +136,15 @@ describe('useSettingsState', () => {
     });
 
     expect(persistCurrentWorktreeTab).toHaveBeenCalledWith('terminal');
+    mounted.unmount();
+  });
+
+  it('accepts the dedicated input settings category from persisted local storage', () => {
+    localStorage.setItem('enso-settings-active-category', 'input');
+
+    const mounted = mountHookHarness(['chat', null, vi.fn(), vi.fn(), vi.fn()]);
+
+    expect(capturedSettingsCategory).toBe('input');
     mounted.unmount();
   });
 });

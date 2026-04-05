@@ -6,6 +6,7 @@ import {
   Keyboard,
   Link,
   Palette,
+  Paperclip,
   Server,
   Settings,
   Share2,
@@ -21,6 +22,7 @@ import type { SettingsCategory } from './constants';
 import { EditorSettings } from './EditorSettings';
 import { GeneralSettings } from './GeneralSettings';
 import { HapiSettings } from './HapiSettings';
+import { InputSettings } from './InputSettings';
 import { IntegrationSettings } from './IntegrationSettings';
 import { KeybindingsSettings } from './KeybindingsSettings';
 import { RemoteSettings } from './RemoteSettings';
@@ -54,6 +56,7 @@ export function SettingsShell({
         { id: 'keybindings', icon: Keyboard, label: t('Keybindings') },
         { id: 'agent', icon: Bot, label: t('Agent') },
         { id: 'ai', icon: Sparkles, label: t('AI') },
+        { id: 'input', icon: Paperclip, label: t('Advanced Features') },
         { id: 'integration', icon: Link, label: t('Claude Integration') },
         { id: 'hapi', icon: Share2, label: t('Remote Sharing') },
         { id: 'remote', icon: Server, label: t('Remote Connection') },
@@ -121,6 +124,7 @@ export function SettingsShell({
         {activeCategory === 'keybindings' && <KeybindingsSettings />}
         {activeCategory === 'agent' && <AgentSettings repoPath={repoPath} />}
         {activeCategory === 'ai' && <AISettings />}
+        {activeCategory === 'input' && <InputSettings />}
         {activeCategory === 'integration' && (
           <IntegrationSettings repoPath={repoPath} scrollToProvider={scrollToProvider} />
         )}
