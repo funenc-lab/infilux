@@ -127,6 +127,9 @@ export const IPC_CHANNELS = {
   SESSION_EXIT: 'session:exit',
   SESSION_STATE: 'session:state',
 
+  // Agent Input
+  AGENT_INPUT_DISPATCH: 'agentInput:dispatch',
+
   // Agent
   AGENT_LIST: 'agent:list',
   AGENT_SUBAGENT_LIST_LIVE: 'agentSubagent:listLive',

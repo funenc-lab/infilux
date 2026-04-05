@@ -7,6 +7,7 @@ import { autoUpdaterService } from '../services/updater/AutoUpdater';
 import { webInspectorServer } from '../services/webInspector';
 import { cleanupExecInPtys, cleanupExecInPtysSync } from '../utils/shell';
 import { registerAgentHandlers } from './agent';
+import { registerAgentInputHandlers } from './agentInput';
 import { registerAgentSessionHandlers } from './agentSession';
 import { registerAgentSubagentHandlers } from './agentSubagent';
 import { registerAppHandlers } from './app';
@@ -67,6 +68,7 @@ export function registerIpcHandlers(): void {
   registerWorktreeHandlers();
   registerFileHandlers();
   registerSessionHandlers();
+  registerAgentInputHandlers();
   registerSessionStorageHandlers();
   registerAgentHandlers();
   registerAgentSubagentHandlers();

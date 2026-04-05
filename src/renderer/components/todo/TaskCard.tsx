@@ -134,7 +134,7 @@ export function TaskCard({
           // Initialize enhanced input state (closed)
           enhancedInputStates: {
             ...state.enhancedInputStates,
-            [id]: { open: false, content: '', imagePaths: [] },
+            [id]: { open: false, content: '', attachments: [] },
           },
         };
       });

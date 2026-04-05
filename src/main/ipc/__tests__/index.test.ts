@@ -7,6 +7,7 @@ const indexTestDoubles = vi.hoisted(() => {
   const registerWorktreeHandlers = vi.fn();
   const registerFileHandlers = vi.fn();
   const registerSessionHandlers = vi.fn();
+  const registerAgentInputHandlers = vi.fn();
   const registerSessionStorageHandlers = vi.fn();
   const registerAgentHandlers = vi.fn();
   const registerAgentSubagentHandlers = vi.fn();
@@ -59,6 +60,7 @@ const indexTestDoubles = vi.hoisted(() => {
       registerWorktreeHandlers,
       registerFileHandlers,
       registerSessionHandlers,
+      registerAgentInputHandlers,
       registerSessionStorageHandlers,
       registerAgentHandlers,
       registerAgentSubagentHandlers,
@@ -126,6 +128,7 @@ const indexTestDoubles = vi.hoisted(() => {
     registerWorktreeHandlers,
     registerFileHandlers,
     registerSessionHandlers,
+    registerAgentInputHandlers,
     registerSessionStorageHandlers,
     registerAgentHandlers,
     registerAgentSubagentHandlers,
@@ -229,6 +232,10 @@ vi.mock('../../utils/shell', () => ({
 
 vi.mock('../agent', () => ({
   registerAgentHandlers: indexTestDoubles.registerAgentHandlers,
+}));
+
+vi.mock('../agentInput', () => ({
+  registerAgentInputHandlers: indexTestDoubles.registerAgentInputHandlers,
 }));
 
 vi.mock('../agentSession', () => ({
@@ -384,6 +391,7 @@ describe('ipc index', () => {
       indexTestDoubles.registerWorktreeHandlers,
       indexTestDoubles.registerFileHandlers,
       indexTestDoubles.registerSessionHandlers,
+      indexTestDoubles.registerAgentInputHandlers,
       indexTestDoubles.registerSessionStorageHandlers,
       indexTestDoubles.registerAgentHandlers,
       indexTestDoubles.registerAgentSubagentHandlers,

@@ -258,6 +258,24 @@ describe('preload bridge', () => {
       },
       {
         run: () =>
+          api.agentInput.dispatch({
+            sessionId: 'session-1',
+            text: 'Insert this',
+            submit: true,
+            submitDelayMs: 120,
+          }),
+        expected: [
+          IPC_CHANNELS.AGENT_INPUT_DISPATCH,
+          {
+            sessionId: 'session-1',
+            text: 'Insert this',
+            submit: true,
+            submitDelayMs: 120,
+          },
+        ],
+      },
+      {
+        run: () =>
           api.worktree.continueMerge('/repo', 'merge commit', { deleteSource: true } as never),
         expected: [
           IPC_CHANNELS.WORKTREE_MERGE_CONTINUE,

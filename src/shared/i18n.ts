@@ -156,7 +156,9 @@ export const zhTranslations: Record<string, string> = {
   'Choose how the settings window is displayed': '选择设置窗口的显示方式',
   'Choose workspace first': '请先选择一个工作区',
   'Choose Worktree': '选择 Worktree',
+  'Collapse attachments': '\u6536\u8d77\u9644\u4ef6',
   'Clear terminal': '清除终端',
+  'Clear all': '\u6e05\u7a7a\u5168\u90e8',
   'Split Terminal': '分屏',
   'Split Agent': '分屏',
   'Merge Terminal': '合并分屏',
@@ -777,6 +779,7 @@ export const zhTranslations: Record<string, string> = {
   'Next Session': '下一个 Session',
   'Next Tab': '下一个标签',
   'Not a Git repository': '不是 Git 仓库',
+  'Open attachments': '\u6253\u5f00\u9644\u4ef6',
   'Open in Terminal': '在终端中打开',
   'Press a shortcut...': '按下快捷键...',
   'Previous change': '上一处差异',
@@ -788,6 +791,10 @@ export const zhTranslations: Record<string, string> = {
   'Pull successful': '拉取成功',
   'Pull failed': '拉取失败',
   'Pulled {{count}} commits from remote': '从远程拉取了 {{count}} 个提交',
+  'Add files': '\u6dfb\u52a0\u6587\u4ef6',
+  'Send attachments': '\u53d1\u9001\u9644\u4ef6',
+  'Remove {{name}}': '\u79fb\u9664 {{name}}',
+  '{{count}} attachments': '{{count}} \u4e2a\u9644\u4ef6',
   'Pulled {{count}} commit(s) on {{branch}}': '在 {{branch}} 上拉取了 {{count}} 个提交',
   'Pushed {{count}} commit(s) on {{branch}}': '在 {{branch}} 上推送了 {{count}} 个提交',
   'Pulled {{pulled}} commit(s), pushed {{pushed}} commit(s) on {{branch}}':
@@ -1069,8 +1076,16 @@ export const zhTranslations: Record<string, string> = {
   'Choose whether a fresh session should start automatically when context usage becomes critical.':
     '选择当上下文使用接近临界时，是否应自动启动一个新会话。',
   'Claude Code Integration': 'Claude Code 集成',
+  'Advanced Features': '高级特性',
   'Connect to Claude Code CLI for enhanced IDE features':
     '连接 Claude Code CLI 以获得增强的 IDE 功能',
+  'Configure enhanced drafts and attachment routing for agent sessions':
+    '配置 Agent 会话的增强草稿输入与附件路由行为',
+  'Configure fallback composer controls for providers without native terminal input':
+    '为不支持原生终端输入的 Provider 配置回退编辑器',
+  'Claude and Codex now use native terminal input': 'Claude 和 Codex 现已使用原生终端输入',
+  'Paste, drop, and tray insertion write directly into the terminal input buffer. Press Enter in the terminal when you are ready to send.':
+    '粘贴、拖拽和托盘插入都会直接写入终端输入缓冲区；准备好后请在终端内按 Enter 发送。',
   'Enable Integration': '启动 Claude-Infilux 集成',
   'Start WebSocket server for Claude Code connection': '启动 WebSocket 服务器以连接 Claude Code',
   'Debounce Time': '防抖时间',
@@ -1082,16 +1097,25 @@ export const zhTranslations: Record<string, string> = {
   'Use Claude Stop hook for precise agent completion notifications':
     '使用 Claude Stop hook 获取精确的 Agent 完成通知',
   'Enhanced Input': '增强输入',
+  'Fallback Composer': '回退编辑器',
+  'Insert attachments': '插入附件',
   'Enable enhanced input panel with multi-line editing and image support':
     '启用增强输入面板，支持多行编辑和图片',
+  'Enable the fallback composer for providers without native terminal input':
+    '为不支持原生终端输入的 Provider 启用回退编辑器',
   'Display Mode': '显示模式',
   'Always Show': '始终显示',
   'Hide While Running': '运行时隐藏',
   Manual: '手动打开',
   'Only open via Ctrl+G shortcut, Esc to close': '仅通过 Ctrl+G 手动打开，Esc 关闭',
+  'Only open the fallback composer via Ctrl+G, Esc to close':
+    '仅通过 Ctrl+G 打开回退编辑器，Esc 关闭',
   'Panel stays visible, remains open after sending': '面板始终显示，发送后不关闭',
+  'Composer stays visible and remains open after sending': '编辑器保持显示，并在发送后继续打开',
   'Auto-hide when agent is running, show when idle (requires Stop Hook)':
     'Agent 运行时自动隐藏，空闲时显示（依赖 Stop Hook）',
+  'Auto-hide the fallback composer when the agent is running, show it again when idle (requires Stop Hook)':
+    '当 Agent 运行时自动隐藏回退编辑器，空闲时重新显示（需要 Stop Hook）',
   'Requires Enhanced Notification': '需开启增强通知',
   'Feature Dependency': '功能依赖提示',
   '"Hide While Running" mode requires "Enhanced Notification". Display mode will be switched to "Always Show".':

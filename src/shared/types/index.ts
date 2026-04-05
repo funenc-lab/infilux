@@ -1,4 +1,5 @@
 export * from './agent';
+export * from './agentInput';
 export * from './agentSession';
 export * from './agentSubagent';
 export * from './ai';

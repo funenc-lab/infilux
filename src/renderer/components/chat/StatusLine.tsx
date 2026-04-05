@@ -1,4 +1,5 @@
 import { getDisplayPath } from '@shared/utils/path';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import {
   AlertTriangle,
   Bot,
@@ -11,6 +12,7 @@ import {
   FolderRoot,
   GitCommitHorizontal,
   Hash,
+  LoaderCircle,
   PieChart,
   Tag,
   Zap,
@@ -22,14 +24,24 @@ import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
+import { cn } from '@/lib/utils';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { type StatusData, useAgentStatusStore } from '@/stores/agentStatus';
 import { type StatusLineFieldSettings, useSettingsStore } from '@/stores/settings';
+import {
+  resolveAgentInputAvailability,
+  resolveAgentInputUnavailableReason,
+} from './agentInputAvailability';
 import {
   CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME,
   CHAT_MENU_ITEM_BASE_CLASS_NAME,
   CHAT_PANEL_TRIGGER_CLASS_NAME,
 } from './controlButtonStyles';
 import { getSessionRolloverSignal } from './sessionRolloverSignal';
+import {
+  getStatusLineInputAvailabilityPresentation,
+  type StatusLineInputAvailabilityIconName,
+} from './statusLineInputAvailability';
 
 interface StatusLineProps {
   sessionId: string | null;
@@ -40,6 +52,14 @@ interface StatusLineProps {
 const STATUS_LINE_DIR_TRIGGER_CLASS_NAME = `${CHAT_PANEL_TRIGGER_CLASS_NAME} rounded-lg px-2 py-1`;
 const STATUS_LINE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} rounded-md px-2 py-1.5`;
 const STATUS_LINE_ALERT_ACTION_CLASS_NAME = `${CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME} h-8 rounded-lg px-3 text-sm`;
+const STATUS_LINE_INPUT_AVAILABILITY_ICON_MAP: Record<
+  StatusLineInputAvailabilityIconName,
+  typeof AlertTriangle
+> = {
+  'alert-triangle': AlertTriangle,
+  clock: Clock,
+  'loader-circle': LoaderCircle,
+};
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -192,9 +212,32 @@ export function StatusLine({ sessionId, onHeightChange, onRequestFreshSession }:
   const status = useAgentStatusStore((state) =>
     sessionId ? state.statuses[sessionId] : undefined
   );
+  const session = useAgentSessionsStore((state) =>
+    sessionId ? state.sessions.find((item) => item.id === sessionId) : undefined
+  );
   const { claudeCodeIntegration } = useSettingsStore();
   const { statusLineEnabled, statusLineFields } = claudeCodeIntegration;
   const { t } = useI18n();
+  const inputAvailability = useMemo(
+    () =>
+      resolveAgentInputAvailability({
+        backendSessionId: session?.backendSessionId,
+        runtimeState: session?.recoveryState,
+      }),
+    [session?.backendSessionId, session?.recoveryState]
+  );
+  const inputAvailabilityReason = useMemo(() => {
+    if (!session) {
+      return undefined;
+    }
+
+    return resolveAgentInputUnavailableReason({
+      agentCommand: session.agentCommand || 'claude',
+      availability: inputAvailability,
+      isRemoteExecution: isRemoteVirtualPath(session.cwd),
+      t,
+    });
+  }, [inputAvailability, session, t]);
   const rolloverSignal = useMemo(() => {
     if (!status?.contextWindow) {
       return null;
@@ -207,12 +250,39 @@ export function StatusLine({ sessionId, onHeightChange, onRequestFreshSession }:
   }, [status?.contextWindow]);
 
   const items = useMemo(() => {
-    if (!status || !statusLineEnabled) {
+    if (!statusLineEnabled) {
       return null;
     }
 
     const elements: React.ReactNode[] = [];
     const fields = statusLineFields as StatusLineFieldSettings;
+
+    if (session && inputAvailability !== 'ready') {
+      const inputAvailabilityPresentation =
+        getStatusLineInputAvailabilityPresentation(inputAvailability);
+      const InputAvailabilityIcon =
+        STATUS_LINE_INPUT_AVAILABILITY_ICON_MAP[inputAvailabilityPresentation.iconName];
+
+      elements.push(
+        <div
+          key="inputAvailability"
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 whitespace-nowrap',
+            inputAvailabilityPresentation.itemClassName
+          )}
+          title={inputAvailabilityReason}
+        >
+          <InputAvailabilityIcon
+            className={cn('h-5 w-5', inputAvailabilityPresentation.iconClassName)}
+          />
+          <span>{t(inputAvailabilityPresentation.labelKey)}</span>
+        </div>
+      );
+    }
+
+    if (!status) {
+      return elements.length > 0 ? elements : null;
+    }
 
     // Model
     if (fields.model && status.model?.displayName) {
@@ -344,7 +414,15 @@ export function StatusLine({ sessionId, onHeightChange, onRequestFreshSession }:
     }
 
     return elements;
-  }, [status, statusLineEnabled, statusLineFields]);
+  }, [
+    inputAvailability,
+    inputAvailabilityReason,
+    session,
+    status,
+    statusLineEnabled,
+    statusLineFields,
+    t,
+  ]);
   const hasVisibleContent = Boolean(items) || Boolean(rolloverSignal);
 
   useEffect(() => {

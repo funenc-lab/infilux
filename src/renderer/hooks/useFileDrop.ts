@@ -7,9 +7,14 @@ interface UseFileDropOptions {
   /** Project working directory, used to convert absolute paths to relative */
   cwd?: string;
   /** Callback when file paths are resolved from a drop event */
-  onDrop: (paths: string[]) => void;
+  onDrop: (files: DroppedFileDescriptor[]) => void;
   /** Whether the hook is enabled (default: true) */
   enabled?: boolean;
+}
+
+export interface DroppedFileDescriptor {
+  path: string;
+  sizeBytes?: number;
 }
 
 /**
@@ -53,7 +58,7 @@ export function useFileDrop<T extends HTMLElement>({
       e.preventDefault();
       e.stopPropagation();
 
-      const resolved = resolveDroppedPaths(e.dataTransfer!, cwd);
+      const resolved = resolveDroppedFiles(e.dataTransfer!, cwd);
       if (resolved.length > 0) {
         onDropRef.current(resolved);
       }
@@ -75,8 +80,8 @@ export function useFileDrop<T extends HTMLElement>({
  * 1. Native file drops (dataTransfer.files + Electron webUtils)
  * 2. URI list drops (text/uri-list from VS Code, etc.)
  */
-function resolveDroppedPaths(dt: DataTransfer, cwd?: string): string[] {
-  const paths: string[] = [];
+function resolveDroppedFiles(dt: DataTransfer, cwd?: string): DroppedFileDescriptor[] {
+  const files: DroppedFileDescriptor[] = [];
 
   // 1. Try native files first (Finder / Explorer)
   if (dt.files.length > 0) {
@@ -84,7 +89,10 @@ function resolveDroppedPaths(dt: DataTransfer, cwd?: string): string[] {
       try {
         const filePath = window.electronAPI.utils.getPathForFile(dt.files[i]);
         if (filePath) {
-          paths.push(filePath);
+          files.push({
+            path: filePath,
+            sizeBytes: dt.files[i]?.size,
+          });
         }
       } catch {
         // getPathForFile may fail for non-native files
@@ -93,7 +101,7 @@ function resolveDroppedPaths(dt: DataTransfer, cwd?: string): string[] {
   }
 
   // 2. Fallback: parse text/uri-list (VS Code, other IDEs)
-  if (paths.length === 0) {
+  if (files.length === 0) {
     const uriList = dt.getData('text/uri-list');
     if (uriList) {
       for (const line of uriList.split(/\r?\n/)) {
@@ -103,7 +111,7 @@ function resolveDroppedPaths(dt: DataTransfer, cwd?: string): string[] {
         if (trimmed.startsWith('file://')) {
           const decoded = fileUriToPath(trimmed, getRendererPlatform());
           if (decoded) {
-            paths.push(decoded);
+            files.push({ path: decoded });
           }
         }
       }
@@ -113,14 +121,20 @@ function resolveDroppedPaths(dt: DataTransfer, cwd?: string): string[] {
   // Convert to relative path if inside cwd, otherwise keep absolute path
   // Normalize separators for cross-platform compatibility
   const normalizedCwd = cwd ? normalizePath(cwd) : '';
-  return paths.map((p) => {
-    const normalizedPath = normalizePath(p);
+  return files.map((file) => {
+    const normalizedPath = normalizePath(file.path);
     if (normalizedCwd && normalizedPath.startsWith(`${normalizedCwd}/`)) {
       // File is inside current repo, use relative path
-      return normalizedPath.substring(normalizedCwd.length + 1);
+      return {
+        path: normalizedPath.substring(normalizedCwd.length + 1),
+        sizeBytes: file.sizeBytes,
+      };
     }
 
     // File is outside current repo, use absolute path
-    return normalizedPath;
+    return {
+      path: normalizedPath,
+      sizeBytes: file.sizeBytes,
+    };
   });
 }

@@ -34,12 +34,18 @@ import { AgentCloseSessionDialog } from './AgentCloseSessionDialog';
 import { AgentGroup } from './AgentGroup';
 import { AgentTerminal } from './AgentTerminal';
 import { AgentPanelEmptyState } from './agent-panel/AgentPanelEmptyState';
+import type { AgentAttachmentItem } from './agentAttachmentTrayModel';
 import {
   probeRemoteAgentAvailability,
   resolvePersistedInstalledAgents,
   resolveRemoteInstalledAgents,
 } from './agentAvailability';
 import { buildAgentEmptyStateModel } from './agentEmptyStateModel';
+import {
+  resolveAgentInputAvailability,
+  resolveAgentInputUnavailableReason,
+} from './agentInputAvailability';
+import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import { collectMountedAgentSessionIds } from './agentPanelMountPolicy';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
@@ -1125,6 +1131,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
         if (
           baseId === 'claude' &&
+          !supportsAgentNativeTerminalInput(agentId) &&
           claudeCodeIntegration.enhancedInputEnabled &&
           (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
         ) {
@@ -1412,7 +1419,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
   // Enhanced input sender ref (unchanged)
   const enhancedInputSenderRef = useRef<
-    Map<string, (content: string, imagePaths: string[]) => void>
+    Map<string, (content: string, attachments: AgentAttachmentItem[]) => boolean>
   >(new Map());
 
   // 监听 Claude stop hook 通知，精确更新 output state 并发送完成通知
@@ -1445,6 +1452,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         const activityState = getActivityState(session.cwd);
         const shouldAutoPopup =
           session.agentId === 'claude' &&
+          !supportsAgentNativeTerminalInput(session.agentId) &&
           claudeCodeIntegration.enhancedInputEnabled &&
           (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning') &&
           claudeCodeIntegration.stopHookEnabled &&
@@ -2263,6 +2271,10 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                   if (session.backendSessionId === backendSessionId) return;
                   updateSession(sessionId, { backendSessionId });
                 }}
+                onRuntimeStateChange={(runtimeState) => {
+                  if (session.recoveryState === runtimeState) return;
+                  updateSession(sessionId, { recoveryState: runtimeState });
+                }}
                 onSplit={() => groupId && handleSplit(groupId)}
                 canMerge={info ? info.groupIndex > 0 : false}
                 onMerge={() => groupId && handleMerge(groupId)}
@@ -2296,6 +2308,28 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
             ? (currentWorktreeSessions.find((session) => session.id === group.activeSessionId) ??
               null)
             : null;
+        const activeSessionAvailability = resolveAgentInputAvailability({
+          backendSessionId: activeSession?.backendSessionId,
+          runtimeState: activeSession?.recoveryState,
+        });
+        const canSendToActiveSession = activeSessionAvailability === 'ready';
+        const activeSessionSendLabel =
+          activeSessionAvailability === 'awaiting-session'
+            ? t('Awaiting Session')
+            : activeSessionAvailability === 'reconnecting'
+              ? t('Reconnecting')
+              : activeSessionAvailability === 'disconnected'
+                ? t('Disconnected')
+                : t('Send');
+        const activeSessionSendHint =
+          activeSession == null
+            ? undefined
+            : resolveAgentInputUnavailableReason({
+                agentCommand: activeSession.agentCommand || 'claude',
+                availability: activeSessionAvailability,
+                isRemoteExecution: isRemoteVirtualPath(activeSession.cwd),
+                t,
+              });
         const sender =
           isActiveGroup && group.activeSessionId
             ? enhancedInputSenderRef.current.get(group.activeSessionId)
@@ -2334,11 +2368,15 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
             <GroupBottomBar groupId={group.id} onHeightChange={setStatusLineHeightsByGroupId}>
               {isActiveGroup &&
                 claudeCodeIntegration.enhancedInputEnabled &&
-                group.activeSessionId != null && (
+                activeSession != null &&
+                !supportsAgentNativeTerminalInput(activeSession.agentId) && (
                   <EnhancedInputContainer
-                    sessionId={group.activeSessionId}
-                    onSend={(content, imagePaths) => {
-                      sender?.(content, imagePaths);
+                    sessionId={activeSession.id}
+                    canSend={canSendToActiveSession}
+                    sendLabel={activeSessionSendLabel}
+                    sendHint={activeSessionSendHint}
+                    onSend={(content, attachments) => {
+                      return sender?.(content, attachments) ?? false;
                     }}
                     isActive={isActive}
                   />

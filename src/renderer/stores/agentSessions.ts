@@ -2,6 +2,10 @@ import type { PersistentAgentSessionRecord } from '@shared/types';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { normalizePath, pathsEqual } from '@/App/storage';
+import {
+  type AgentAttachmentItem,
+  mergeAgentAttachments,
+} from '@/components/chat/agentAttachmentTrayModel';
 import type { Session } from '@/components/chat/SessionBar';
 import type { AgentGroupState } from '@/components/chat/types';
 import { createInitialGroupState } from '@/components/chat/types';
@@ -25,14 +29,24 @@ export interface SessionRuntimeState {
 export interface EnhancedInputState {
   open: boolean;
   content: string;
-  imagePaths: string[];
+  attachments: AgentAttachmentItem[];
+}
+
+export interface AttachmentTrayState {
+  attachments: AgentAttachmentItem[];
+  isImporting: boolean;
 }
 
 // Default state object (cached and frozen to prevent accidental mutation)
 const DEFAULT_ENHANCED_INPUT_STATE: EnhancedInputState = Object.freeze({
   open: false,
   content: '',
-  imagePaths: [],
+  attachments: [],
+});
+
+const DEFAULT_ATTACHMENT_TRAY_STATE: AttachmentTrayState = Object.freeze({
+  attachments: [],
+  isImporting: false,
 });
 
 // Aggregated state for UI display
@@ -59,6 +73,7 @@ interface AgentSessionsState {
   groupStates: WorktreeGroupStates; // Group states per worktree
   runtimeStates: Record<string, SessionRuntimeState>; // Runtime output states (persisted after sanitization)
   enhancedInputStates: Record<string, EnhancedInputState>; // Enhanced input states per session
+  attachmentTrayStates: Record<string, AttachmentTrayState>; // Runtime-only tray states per session
 
   // Actions
   addSession: (session: Session) => void;
@@ -91,8 +106,15 @@ interface AgentSessionsState {
   getEnhancedInputState: (sessionId: string) => EnhancedInputState;
   setEnhancedInputOpen: (sessionId: string, open: boolean) => void;
   setEnhancedInputContent: (sessionId: string, content: string) => void;
-  setEnhancedInputImages: (sessionId: string, imagePaths: string[]) => void;
+  setEnhancedInputAttachments: (sessionId: string, attachments: AgentAttachmentItem[]) => void;
   clearEnhancedInput: (sessionId: string, keepOpen?: boolean) => void; // Clear content after sending
+
+  // Attachment tray runtime state actions
+  getAttachmentTrayState: (sessionId: string) => AttachmentTrayState;
+  setAttachmentTrayAttachments: (sessionId: string, attachments: AgentAttachmentItem[]) => void;
+  appendAttachmentTrayAttachments: (sessionId: string, attachments: AgentAttachmentItem[]) => void;
+  setAttachmentTrayImporting: (sessionId: string, isImporting: boolean) => void;
+  clearAttachmentTray: (sessionId: string) => void;
 
   // Aggregated state selectors
   getAggregatedByWorktree: (cwd: string) => AggregatedOutputState;
@@ -229,14 +251,24 @@ function sanitizePersistedEnhancedInputStates(
     if (!current) {
       continue;
     }
+    const currentRecord = current as
+      | (EnhancedInputState & {
+          imagePaths?: unknown;
+        })
+      | undefined;
+    const attachmentPaths = Array.isArray(currentRecord?.attachments)
+      ? currentRecord.attachments
+          .map((attachment) => attachment?.path)
+          .filter((path): path is string => typeof path === 'string')
+      : Array.isArray(currentRecord?.imagePaths)
+        ? currentRecord.imagePaths.filter((path): path is string => typeof path === 'string')
+        : [];
     const nextState: EnhancedInputState = {
       open: Boolean(current.open),
       content: typeof current.content === 'string' ? current.content : '',
-      imagePaths: Array.isArray(current.imagePaths)
-        ? current.imagePaths.filter((path): path is string => typeof path === 'string')
-        : [],
+      attachments: mergeAgentAttachments([], attachmentPaths),
     };
-    if (nextState.open || nextState.content.length > 0 || nextState.imagePaths.length > 0) {
+    if (nextState.open || nextState.content.length > 0 || nextState.attachments.length > 0) {
       sanitized[sessionId] = nextState;
     }
   }
@@ -364,6 +396,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
     groupStates: initialState.groupStates,
     runtimeStates: initialState.runtimeStates,
     enhancedInputStates: initialState.enhancedInputStates,
+    attachmentTrayStates: {},
 
     addSession: (session) =>
       set((state) => {
@@ -384,7 +417,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           // Initialize enhanced input state for new session to ensure auto-popup works
           enhancedInputStates: {
             ...state.enhancedInputStates,
-            [session.id]: { open: false, content: '', imagePaths: [] },
+            [session.id]: { open: false, content: '', attachments: [] },
           },
         };
       }),
@@ -417,11 +450,14 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         // Clean up enhanced input states
         const newEnhancedInputStates = { ...state.enhancedInputStates };
         delete newEnhancedInputStates[id];
+        const newAttachmentTrayStates = { ...state.attachmentTrayStates };
+        delete newAttachmentTrayStates[id];
         return {
           sessions: newSessions,
           activeIds: newActiveIds,
           runtimeStates: newRuntimeStates,
           enhancedInputStates: newEnhancedInputStates,
+          attachmentTrayStates: newAttachmentTrayStates,
         };
       }),
 
@@ -835,13 +871,13 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         };
       }),
 
-    setEnhancedInputImages: (sessionId, imagePaths) =>
+    setEnhancedInputAttachments: (sessionId, attachments) =>
       set((prev) => {
         const current = prev.enhancedInputStates[sessionId] ?? DEFAULT_ENHANCED_INPUT_STATE;
         return {
           enhancedInputStates: {
             ...prev.enhancedInputStates,
-            [sessionId]: { ...current, imagePaths },
+            [sessionId]: { ...current, attachments },
           },
         };
       }),
@@ -853,7 +889,61 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         return {
           enhancedInputStates: {
             ...prev.enhancedInputStates,
-            [sessionId]: { open: keepOpen, content: '', imagePaths: [] },
+            [sessionId]: { open: keepOpen, content: '', attachments: [] },
+          },
+        };
+      }),
+
+    getAttachmentTrayState: (sessionId) => {
+      return get().attachmentTrayStates[sessionId] ?? DEFAULT_ATTACHMENT_TRAY_STATE;
+    },
+
+    setAttachmentTrayAttachments: (sessionId, attachments) =>
+      set((prev) => {
+        const current = prev.attachmentTrayStates[sessionId] ?? DEFAULT_ATTACHMENT_TRAY_STATE;
+        return {
+          attachmentTrayStates: {
+            ...prev.attachmentTrayStates,
+            [sessionId]: { ...current, attachments },
+          },
+        };
+      }),
+
+    appendAttachmentTrayAttachments: (sessionId, attachments) =>
+      set((prev) => {
+        const current = prev.attachmentTrayStates[sessionId] ?? DEFAULT_ATTACHMENT_TRAY_STATE;
+        const mergedAttachments = mergeAgentAttachments(
+          current.attachments,
+          attachments.map((attachment) => attachment.path)
+        );
+        return {
+          attachmentTrayStates: {
+            ...prev.attachmentTrayStates,
+            [sessionId]: { ...current, attachments: mergedAttachments },
+          },
+        };
+      }),
+
+    setAttachmentTrayImporting: (sessionId, isImporting) =>
+      set((prev) => {
+        const current = prev.attachmentTrayStates[sessionId] ?? DEFAULT_ATTACHMENT_TRAY_STATE;
+        return {
+          attachmentTrayStates: {
+            ...prev.attachmentTrayStates,
+            [sessionId]: { ...current, isImporting },
+          },
+        };
+      }),
+
+    clearAttachmentTray: (sessionId) =>
+      set((prev) => {
+        if (!prev.attachmentTrayStates[sessionId]) {
+          return prev;
+        }
+        return {
+          attachmentTrayStates: {
+            ...prev.attachmentTrayStates,
+            [sessionId]: DEFAULT_ATTACHMENT_TRAY_STATE,
           },
         };
       }),

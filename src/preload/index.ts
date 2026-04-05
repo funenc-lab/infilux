@@ -3,6 +3,7 @@ import 'electron-log/preload.js';
 import type { Locale } from '@shared/i18n';
 import type {
   AgentCliInfo,
+  AgentInputDispatchRequest,
   AgentMetadata,
   AppCloseRequestPayload,
   AppResourceActionRequest,
@@ -476,6 +477,11 @@ const electronAPI = {
         onState?: (event: SessionStateEvent) => void;
       }
     ): (() => void) => sessionEventRouter.subscribe(sessionId, handlers),
+  },
+
+  agentInput: {
+    dispatch: (request: AgentInputDispatchRequest): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_INPUT_DISPATCH, request),
   },
 
   // Agent

@@ -1,15 +1,21 @@
 import { TEMP_INPUT_FILE_PREFIX } from '@shared/paths';
 import type { ClaudeSlashCompletionItem, ClaudeSlashCompletionsSnapshot } from '@shared/types';
 import type { FileSearchResult } from '@shared/types/search';
-import { Paperclip, Send, X } from 'lucide-react';
+import { FileImage, FileText, Paperclip, Send, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog, DialogPopup } from '@/components/ui/dialog';
 import { toastManager } from '@/components/ui/toast';
+import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
-import { buildChatInputToastCopy } from '@/lib/feedbackCopy';
+import { buildChatInputToastCopy, buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { isFocusLocked, lockFocus, unlockFocus } from '@/lib/focusLock';
 import { toLocalFileUrl } from '@/lib/localFileUrl';
 import { cn } from '@/lib/utils';
+import {
+  DRAFT_ATTACHMENT_MAX_BYTES,
+  resolveAgentAttachmentTargetsFromFiles,
+} from './agentAttachmentInput';
+import { type AgentAttachmentItem, mergeAgentAttachments } from './agentAttachmentTrayModel';
 
 function getFileName(filePath: string): string {
   const sep = filePath.includes('\\') ? '\\' : '/';
@@ -19,16 +25,23 @@ function getFileName(filePath: string): string {
 interface EnhancedInputProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSend: (content: string, imagePaths: string[]) => void;
+  onSend: (content: string, attachments: AgentAttachmentItem[]) => boolean;
+  canSend?: boolean;
+  sendLabel?: string;
+  sendHint?: string;
   sessionId?: string;
   /** Current content for the textarea (store-controlled) */
   content: string;
-  /** Current image paths (store-controlled) */
-  imagePaths: string[];
+  /** Current attachment items (store-controlled) */
+  attachments: AgentAttachmentItem[];
   /** Callback when content changes (store-controlled) */
   onContentChange: (content: string) => void;
-  /** Callback when image paths change (store-controlled) */
-  onImagesChange: (imagePaths: string[]) => void;
+  /** Callback when attachment items change (store-controlled) */
+  onAttachmentsChange: (attachments: AgentAttachmentItem[]) => void;
+  /** Route oversized attachments to the tray instead of the draft input */
+  onRouteToTray: (attachments: AgentAttachmentItem[]) => void;
+  /** Notifies parent when large attachment routing is in progress */
+  onTrayImportStateChange?: (isImporting: boolean) => void;
   /** Keep panel open after sending (for 'always' mode) */
   keepOpenAfterSend?: boolean;
   /** Whether the parent panel is active (used to trigger focus on tab switch) */
@@ -38,25 +51,29 @@ interface EnhancedInputProps {
   repoPath?: string;
 }
 
-const MAX_IMAGES = 5;
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 const DEFAULT_MIN_H = 32;
 
 export function EnhancedInput({
   open,
   onOpenChange,
   onSend,
+  canSend = true,
+  sendLabel,
+  sendHint,
   sessionId,
   content,
-  imagePaths,
+  attachments,
   onContentChange,
-  onImagesChange,
+  onAttachmentsChange,
+  onRouteToTray,
+  onTrayImportStateChange,
   keepOpenAfterSend = false,
   isActive = false,
   cwd,
   repoPath,
 }: EnhancedInputProps) {
   const { t } = useI18n();
+  const resolvedSendLabel = sendLabel ?? t('Send');
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -244,6 +261,10 @@ export function EnhancedInput({
 
   const executeSlash = useCallback(
     (item: ClaudeSlashCompletionItem) => {
+      if (!canSend) {
+        return;
+      }
+
       const ta = textareaRef.current;
       const cursor = ta ? ta.selectionStart : content.length;
       const text = content;
@@ -266,12 +287,21 @@ export function EnhancedInput({
         });
       }
 
-      onSend(newContent, imagePaths);
-      if (!keepOpenAfterSend) {
+      const didSend = onSend(newContent, attachments);
+      if (didSend && !keepOpenAfterSend) {
         onOpenChange(false);
       }
     },
-    [content, imagePaths, keepOpenAfterSend, onOpenChange, onSend, findSlashTokenStart, repoPath]
+    [
+      attachments,
+      canSend,
+      content,
+      keepOpenAfterSend,
+      onOpenChange,
+      onSend,
+      findSlashTokenStart,
+      repoPath,
+    ]
   );
 
   // Scroll highlighted mention into view
@@ -308,11 +338,11 @@ export function EnhancedInput({
     window.addEventListener('mouseup', onUp);
   }, []);
 
-  const removeImagePath = useCallback(
-    (index: number) => {
-      onImagesChange(imagePaths.filter((_, i) => i !== index));
+  const removeAttachment = useCallback(
+    (attachmentId: string) => {
+      onAttachmentsChange(attachments.filter((attachment) => attachment.id !== attachmentId));
     },
-    [imagePaths, onImagesChange]
+    [attachments, onAttachmentsChange]
   );
 
   // Auto-resize textarea, respecting manual min height from drag
@@ -376,8 +406,12 @@ export function EnhancedInput({
   // Draft is now preserved in store - no reset on close
 
   const handleSend = useCallback(async () => {
+    if (!canSend) {
+      return;
+    }
+
     const trimmed = content.trim();
-    if (!trimmed && imagePaths.length === 0) return;
+    if (!trimmed && attachments.length === 0) return;
     try {
       // Auto-learn: if the message starts with `/xxx`, record it for future completion suggestions.
       if (trimmed.startsWith('/')) {
@@ -390,9 +424,9 @@ export function EnhancedInput({
         }
       }
 
-      onSend(trimmed, imagePaths);
+      const didSend = onSend(trimmed, attachments);
       // Only close panel if not in 'always open' mode
-      if (!keepOpenAfterSend) {
+      if (didSend && !keepOpenAfterSend) {
         onOpenChange(false);
       }
     } catch (error) {
@@ -407,9 +441,9 @@ export function EnhancedInput({
         description: errorCopy.description,
       });
     }
-  }, [content, imagePaths, onSend, keepOpenAfterSend, onOpenChange, repoPath, t]);
+  }, [canSend, content, attachments, onSend, keepOpenAfterSend, onOpenChange, repoPath, t]);
 
-  const getImageExtension = useCallback((file: File): string => {
+  const getAttachmentTempExtension = useCallback((file: File): string => {
     const mime = file.type.toLowerCase();
     const mimeMap: Record<string, string> = {
       'image/png': 'png',
@@ -524,48 +558,39 @@ export function EnhancedInput({
     ]
   );
 
-  const saveImageToTemp = useCallback(
+  const saveAttachmentToTemp = useCallback(
     async (file: File): Promise<string | null> => {
       try {
-        // Check file size
-        if (file.size > MAX_IMAGE_SIZE) {
-          const warningCopy = buildChatInputToastCopy(
-            { action: 'image-size', phase: 'warning', sizeMb: 10 },
-            t
-          );
-          toastManager.add({
-            type: 'warning',
-            title: warningCopy.title,
-            description: warningCopy.description,
-          });
-          return null;
-        }
-
-        // Read file as ArrayBuffer
         const arrayBuffer = await file.arrayBuffer();
         const buffer = new Uint8Array(arrayBuffer);
-
-        // Generate unique filename
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(2, 8);
-        const extension = getImageExtension(file);
+        const extension = getAttachmentTempExtension(file);
         const filename = `${TEMP_INPUT_FILE_PREFIX}-${timestamp}-${random}.${extension}`;
-
-        // Save to temp directory via electron API
         const result = await window.electronAPI.file.saveToTemp(filename, buffer);
 
         if (result.success && result.path) {
           return result.path;
         }
 
-        const errorCopy = buildChatInputToastCopy(
-          {
-            action: 'image-save',
-            phase: 'error',
-            message: result.error || undefined,
-          },
-          t
-        );
+        const errorMessage = result.error || undefined;
+        const errorCopy = file.type.startsWith('image/')
+          ? buildChatInputToastCopy(
+              {
+                action: 'image-save',
+                phase: 'error',
+                message: errorMessage,
+              },
+              t
+            )
+          : buildFileWorkflowToastCopy(
+              {
+                action: 'file-save',
+                phase: 'error',
+                message: errorMessage,
+              },
+              t
+            );
         toastManager.add({
           type: 'error',
           title: errorCopy.title,
@@ -575,10 +600,9 @@ export function EnhancedInput({
         return null;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const errorCopy = buildChatInputToastCopy(
-          { action: 'image-save', phase: 'error', message },
-          t
-        );
+        const errorCopy = file.type.startsWith('image/')
+          ? buildChatInputToastCopy({ action: 'image-save', phase: 'error', message }, t)
+          : buildFileWorkflowToastCopy({ action: 'file-save', phase: 'error', message }, t);
         toastManager.add({
           type: 'error',
           title: errorCopy.title,
@@ -587,42 +611,58 @@ export function EnhancedInput({
         return null;
       }
     },
-    [t, getImageExtension]
+    [getAttachmentTempExtension, t]
   );
 
-  const addImageFiles = useCallback(
-    async (files: File[]) => {
-      const imageFiles = files.filter((f) => f.type.startsWith('image/'));
-      if (imageFiles.length === 0) return;
+  const appendDraftAttachments = useCallback(
+    (nextAttachments: AgentAttachmentItem[]) => {
+      if (nextAttachments.length === 0) {
+        return;
+      }
+      onAttachmentsChange(
+        mergeAgentAttachments(
+          attachments,
+          nextAttachments.map((attachment) => attachment.path)
+        )
+      );
+    },
+    [attachments, onAttachmentsChange]
+  );
 
-      // Check limit
-      if (imagePaths.length + imageFiles.length > MAX_IMAGES) {
-        const warningCopy = buildChatInputToastCopy(
-          { action: 'image-count', phase: 'warning', count: MAX_IMAGES },
-          t
-        );
-        toastManager.add({
-          type: 'warning',
-          title: warningCopy.title,
-          description: warningCopy.description,
-        });
+  const resolveAttachmentTargets = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) {
         return;
       }
 
-      // Save to temp (keep order)
-      const nextPaths = [...imagePaths];
-      const results = await Promise.all(imageFiles.map((file) => saveImageToTemp(file)));
-      for (const path of results) {
-        if (path) {
-          nextPaths.push(path);
-        }
+      const shouldShowTrayImporting = files.some((file) => file.size > DRAFT_ATTACHMENT_MAX_BYTES);
+      if (shouldShowTrayImporting) {
+        onTrayImportStateChange?.(true);
       }
 
-      if (nextPaths.length !== imagePaths.length) {
-        onImagesChange(nextPaths);
+      try {
+        const targets = await resolveAgentAttachmentTargetsFromFiles(files, {
+          resolveFilePath: (file) => {
+            try {
+              return window.electronAPI.utils.getPathForFile(file) || null;
+            } catch {
+              return null;
+            }
+          },
+          saveFileToTemp: saveAttachmentToTemp,
+        });
+
+        appendDraftAttachments(targets.draftAttachments);
+        if (targets.trayAttachments.length > 0) {
+          onRouteToTray(targets.trayAttachments);
+        }
+      } finally {
+        if (shouldShowTrayImporting) {
+          onTrayImportStateChange?.(false);
+        }
       }
     },
-    [imagePaths, saveImageToTemp, t, onImagesChange]
+    [appendDraftAttachments, onRouteToTray, onTrayImportStateChange, saveAttachmentToTemp]
   );
 
   const handlePaste = useCallback(
@@ -630,23 +670,24 @@ export function EnhancedInput({
       const items = e.clipboardData?.items;
       if (!items) return;
 
-      const imageFiles: File[] = [];
+      const files: File[] = [];
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) {
-            imageFiles.push(file);
-          }
+        if (item.kind !== 'file') {
+          continue;
+        }
+        const file = item.getAsFile();
+        if (file) {
+          files.push(file);
         }
       }
 
-      if (imageFiles.length > 0) {
+      if (files.length > 0) {
         e.preventDefault();
-        await addImageFiles(imageFiles);
+        await resolveAttachmentTargets(files);
       }
     },
-    [addImageFiles]
+    [resolveAttachmentTargets]
   );
 
   const handleDrop = useCallback(
@@ -654,9 +695,9 @@ export function EnhancedInput({
       e.preventDefault();
       const files = Array.from(e.dataTransfer.files);
 
-      await addImageFiles(files);
+      await resolveAttachmentTargets(files);
     },
-    [addImageFiles]
+    [resolveAttachmentTargets]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -668,14 +709,14 @@ export function EnhancedInput({
       const files = e.target.files;
       if (!files) return;
 
-      await addImageFiles(Array.from(files));
+      await resolveAttachmentTargets(Array.from(files));
 
       // Reset input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     },
-    [addImageFiles]
+    [resolveAttachmentTargets]
   );
 
   const handleSelectFiles = useCallback(() => {
@@ -764,7 +805,7 @@ export function EnhancedInput({
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono">{item.label}</span>
                   <span className="text-muted-foreground text-xs shrink-0">
-                    {item.kind === 'command' ? '命令' : '技能'}
+                    {t(item.kind === 'command' ? 'Command' : 'Skill')}
                   </span>
                 </div>
                 {item.description && (
@@ -807,7 +848,6 @@ export function EnhancedInput({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
           multiple
           className="hidden"
           onChange={handleFileSelect}
@@ -857,23 +897,36 @@ export function EnhancedInput({
           {/* Bottom bar: file chips (scrollable) + action buttons */}
           <div className="flex items-center gap-2 px-2 pb-2">
             {/* File chips - scrollable */}
-            {imagePaths.length > 0 && (
+            {attachments.length > 0 && (
               <div className="flex-1 min-w-0 overflow-x-auto flex items-center gap-1 scrollbar-none">
-                {imagePaths.map((path, index) => (
+                {attachments.map((attachment) => (
                   <span
-                    key={path}
+                    key={attachment.id}
                     className="inline-flex items-center shrink-0 max-w-[160px] h-5 rounded border border-border bg-muted/50 text-xs"
                   >
+                    <span className="flex shrink-0 items-center px-1 text-muted-foreground">
+                      {attachment.kind === 'image' ? (
+                        <FileImage className="h-3 w-3" />
+                      ) : (
+                        <FileText className="h-3 w-3" />
+                      )}
+                    </span>
+                    {attachment.kind === 'image' ? (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewPath(attachment.path)}
+                        className="truncate px-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {attachment.name}
+                      </button>
+                    ) : (
+                      <span className="truncate px-1.5 text-muted-foreground">
+                        {attachment.name}
+                      </span>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setPreviewPath(path)}
-                      className="truncate px-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {getFileName(path)}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeImagePath(index)}
+                      onClick={() => removeAttachment(attachment.id)}
                       className="shrink-0 h-full px-0.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors rounded-r"
                     >
                       <X className="h-3 w-3" />
@@ -888,24 +941,45 @@ export function EnhancedInput({
               <button
                 type="button"
                 onClick={handleSelectFiles}
-                disabled={imagePaths.length >= MAX_IMAGES}
                 className="control-input-action control-input-action-secondary h-8 w-8"
-                aria-label={t('Select Image')}
+                aria-label={t('Add files')}
               >
                 <Paperclip className="h-3.5 w-3.5" />
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void handleSend();
-                }}
-                disabled={!content.trim() && imagePaths.length === 0}
-                className="control-input-action control-input-action-primary h-8 gap-1.5 px-2.5 text-xs font-semibold tracking-[0.01em]"
-                aria-label={t('Send')}
-              >
-                <Send className="h-3.5 w-3.5" />
-                <span>Send</span>
-              </button>
+              {sendHint ? (
+                <Tooltip>
+                  <TooltipTrigger render={<span className="inline-flex" />}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleSend();
+                      }}
+                      disabled={!canSend || (!content.trim() && attachments.length === 0)}
+                      className="control-input-action control-input-action-primary h-8 gap-1.5 px-2.5 text-xs font-semibold tracking-[0.01em]"
+                      aria-label={resolvedSendLabel}
+                      title={!canSend ? resolvedSendLabel : undefined}
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      <span>{resolvedSendLabel}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipPopup>{sendHint}</TooltipPopup>
+                </Tooltip>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSend();
+                  }}
+                  disabled={!canSend || (!content.trim() && attachments.length === 0)}
+                  className="control-input-action control-input-action-primary h-8 gap-1.5 px-2.5 text-xs font-semibold tracking-[0.01em]"
+                  aria-label={resolvedSendLabel}
+                  title={!canSend ? resolvedSendLabel : undefined}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  <span>{resolvedSendLabel}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

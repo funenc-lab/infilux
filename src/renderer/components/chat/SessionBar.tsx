@@ -40,6 +40,7 @@ import {
   CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME,
 } from './controlButtonStyles';
 import { getSessionDisplayName, getSessionHoverTitle } from './sessionBarLabels';
+import { supportsClaudeProviderSwitcher } from './sessionBarProviderPolicy';
 
 const STORAGE_KEY = 'enso-session-bar';
 const EDGE_THRESHOLD = 20; // pixels from edge
@@ -530,20 +531,31 @@ export function SessionBar({
   const enableProviderDisableFeature = useSettingsStore(
     (s) => s.claudeCodeIntegration.enableProviderDisableFeature ?? true
   );
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId) ?? null,
+    [activeSessionId, sessions]
+  );
+  const showClaudeProviderSwitcher = useMemo(
+    () => showProviderSwitcher && supportsClaudeProviderSwitcher(activeSession),
+    [activeSession, showProviderSwitcher]
+  );
 
   const { data: claudeData } = useQuery({
     queryKey: ['claude-settings', repoPath ?? null],
     queryFn: () => window.electronAPI.claudeProvider.readSettings(repoPath),
-    enabled: !state.collapsed,
+    enabled: !state.collapsed && showClaudeProviderSwitcher,
     staleTime: 30000,
   });
 
   // Resolve the currently active provider from the extracted config.
   const activeProvider = useMemo(() => {
+    if (!showClaudeProviderSwitcher) {
+      return null;
+    }
     const currentConfig = claudeData?.extracted;
     if (!currentConfig) return null;
     return providers.find((p) => isClaudeProviderMatch(p, currentConfig)) ?? null;
-  }, [providers, claudeData?.extracted]);
+  }, [providers, claudeData?.extracted, showClaudeProviderSwitcher]);
 
   // Provider switching mutation.
   const applyProvider = useMutation({
@@ -972,6 +984,12 @@ export function SessionBar({
   );
 
   useEffect(() => {
+    if (!showClaudeProviderSwitcher && showProviderMenu) {
+      setShowProviderMenu(false);
+    }
+  }, [showClaudeProviderSwitcher, showProviderMenu]);
+
+  useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -1000,7 +1018,7 @@ export function SessionBar({
         role={state.collapsed ? 'button' : undefined}
         tabIndex={state.collapsed ? 0 : undefined}
         className={cn(
-          'absolute pointer-events-auto',
+          'absolute max-w-[calc(100%-1rem)] pointer-events-auto',
           !dragging && 'transition-all duration-300',
           state.collapsed ? 'cursor-pointer' : dragging ? 'cursor-grabbing' : ''
         )}
@@ -1035,7 +1053,7 @@ export function SessionBar({
           <div
             role="toolbar"
             aria-label={t('Agent session controls')}
-            className="control-toolbar flex max-w-[calc(100vw-1rem)] min-w-0 items-center gap-1 rounded-2xl px-2 py-1.5 sm:max-w-[calc(100vw-2rem)]"
+            className="control-toolbar flex w-full max-w-full min-w-0 items-center gap-1 rounded-2xl px-2 py-1.5"
           >
             <div
               role="group"
@@ -1053,7 +1071,7 @@ export function SessionBar({
               <div
                 role="tablist"
                 aria-label={t('Agent sessions')}
-                className="flex items-center gap-1"
+                className="flex min-w-max items-center gap-1"
               >
                 {sessions.map((session, index) => (
                   <SessionTab
@@ -1196,7 +1214,7 @@ export function SessionBar({
                 )}
               </div>
 
-              {!state.collapsed && showProviderSwitcher && (
+              {!state.collapsed && showClaudeProviderSwitcher && (
                 <>
                   <div className="control-divider mx-1 h-4 w-px" />
 

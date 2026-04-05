@@ -1,11 +1,15 @@
 import { memo } from 'react';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
+import type { AgentAttachmentItem } from './agentAttachmentTrayModel';
 import { EnhancedInput } from './EnhancedInput';
 
 interface EnhancedInputContainerProps {
   sessionId: string;
-  onSend: (content: string, imagePaths: string[]) => void;
+  onSend: (content: string, attachments: AgentAttachmentItem[]) => boolean;
+  canSend?: boolean;
+  sendLabel?: string;
+  sendHint?: string;
   /** Whether the parent panel is active (used to trigger focus on tab switch) */
   isActive?: boolean;
 }
@@ -17,13 +21,24 @@ interface EnhancedInputContainerProps {
 export const EnhancedInputContainer = memo(function EnhancedInputContainer({
   sessionId,
   onSend,
+  canSend = true,
+  sendLabel,
+  sendHint,
   isActive = false,
 }: EnhancedInputContainerProps) {
   // Subscribe to only this session's enhanced input state
   const enhancedInputState = useAgentSessionsStore((state) => state.enhancedInputStates[sessionId]);
   const setEnhancedInputOpen = useAgentSessionsStore((state) => state.setEnhancedInputOpen);
   const setEnhancedInputContent = useAgentSessionsStore((state) => state.setEnhancedInputContent);
-  const setEnhancedInputImages = useAgentSessionsStore((state) => state.setEnhancedInputImages);
+  const setEnhancedInputAttachments = useAgentSessionsStore(
+    (state) => state.setEnhancedInputAttachments
+  );
+  const appendAttachmentTrayAttachments = useAgentSessionsStore(
+    (state) => state.appendAttachmentTrayAttachments
+  );
+  const setAttachmentTrayImporting = useAgentSessionsStore(
+    (state) => state.setAttachmentTrayImporting
+  );
   const clearEnhancedInput = useAgentSessionsStore((state) => state.clearEnhancedInput);
 
   // Get enhanced input mode setting
@@ -41,7 +56,7 @@ export const EnhancedInputContainer = memo(function EnhancedInputContainer({
   // Default state if not found
   const open = enhancedInputState?.open ?? false;
   const content = enhancedInputState?.content ?? '';
-  const imagePaths = enhancedInputState?.imagePaths ?? [];
+  const attachments = enhancedInputState?.attachments ?? [];
 
   if (!open) return null;
 
@@ -53,16 +68,28 @@ export const EnhancedInputContainer = memo(function EnhancedInputContainer({
           setEnhancedInputOpen(sessionId, false);
         }
       }}
-      onSend={(sendContent, sendImagePaths) => {
+      onSend={(sendContent, sendAttachments) => {
         console.log('[EnhancedInput] Sending message');
-        onSend(sendContent, sendImagePaths);
-        clearEnhancedInput(sessionId, keepOpenAfterSend);
+        const didSend = onSend(sendContent, sendAttachments);
+        if (didSend) {
+          clearEnhancedInput(sessionId, keepOpenAfterSend);
+        }
+        return didSend;
       }}
+      canSend={canSend}
+      sendLabel={sendLabel}
+      sendHint={sendHint}
       sessionId={sessionId}
       content={content}
-      imagePaths={imagePaths}
+      attachments={attachments}
       onContentChange={(newContent) => setEnhancedInputContent(sessionId, newContent)}
-      onImagesChange={(newImagePaths) => setEnhancedInputImages(sessionId, newImagePaths)}
+      onAttachmentsChange={(newAttachments) =>
+        setEnhancedInputAttachments(sessionId, newAttachments)
+      }
+      onRouteToTray={(trayAttachments) =>
+        appendAttachmentTrayAttachments(sessionId, trayAttachments)
+      }
+      onTrayImportStateChange={(isImporting) => setAttachmentTrayImporting(sessionId, isImporting)}
       keepOpenAfterSend={keepOpenAfterSend}
       isActive={isActive}
       cwd={cwd}

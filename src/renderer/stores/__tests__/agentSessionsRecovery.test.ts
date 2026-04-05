@@ -111,6 +111,21 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('returns a stable default attachment tray state for missing sessions', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    const firstSnapshot = store.getAttachmentTrayState('missing-session');
+    const secondSnapshot = store.getAttachmentTrayState('missing-session');
+
+    expect(firstSnapshot).toBe(secondSnapshot);
+    expect(firstSnapshot.attachments).toBe(secondSnapshot.attachments);
+    expect(firstSnapshot).toEqual({
+      attachments: [],
+      isImporting: false,
+    });
+  });
+
   it('treats /var and /private/var worktree paths as the same recovered worktree on darwin', async () => {
     vi.stubGlobal('navigator', { platform: 'MacIntel' });
     const env = await loadAgentSessionsStore();
@@ -279,12 +294,19 @@ describe('agent session recovery store', () => {
     expect(state.getEnhancedInputState('session-1')).toEqual({
       open: true,
       content: 'Draft follow-up',
-      imagePaths: ['/tmp/mock.png'],
+      attachments: [
+        {
+          id: '/tmp/mock.png',
+          kind: 'image',
+          name: 'mock.png',
+          path: '/tmp/mock.png',
+        },
+      ],
     });
     expect(state.getEnhancedInputState('session-stale')).toEqual({
       open: false,
       content: '',
-      imagePaths: [],
+      attachments: [],
     });
   });
 
@@ -319,7 +341,14 @@ describe('agent session recovery store', () => {
     });
     store.setEnhancedInputOpen('session-1', true);
     store.setEnhancedInputContent('session-1', 'Draft follow-up');
-    store.setEnhancedInputImages('session-1', ['/tmp/mock.png']);
+    store.setEnhancedInputAttachments('session-1', [
+      {
+        id: '/tmp/mock.png',
+        kind: 'image',
+        name: 'mock.png',
+        path: '/tmp/mock.png',
+      },
+    ]);
     store.setOutputState('session-1', 'unread', false);
     store.markTaskCompletedUnread('session-1');
 
@@ -351,7 +380,14 @@ describe('agent session recovery store', () => {
           'session-1': {
             open: true,
             content: 'Draft follow-up',
-            imagePaths: ['/tmp/mock.png'],
+            attachments: [
+              {
+                id: '/tmp/mock.png',
+                kind: 'image',
+                name: 'mock.png',
+                path: '/tmp/mock.png',
+              },
+            ],
           },
         },
       })

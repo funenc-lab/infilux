@@ -443,6 +443,15 @@ export class SessionManager {
     return this.localPtyManager.getProcessInfo(sessionId);
   }
 
+  getSessionDescriptor(sessionId: string): SessionDescriptor | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    return this.toDescriptor(session);
+  }
+
   async detachWindowSessions(windowId: number): Promise<void> {
     const ids = [...this.sessions.values()]
       .filter((session) => session.attachedWindowIds.has(windowId))
