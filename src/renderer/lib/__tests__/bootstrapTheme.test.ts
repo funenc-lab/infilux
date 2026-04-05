@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bootstrapThemeTestDoubles = vi.hoisted(() => {
-  const isTerminalThemeDark = vi.fn(() => true);
   return {
-    isTerminalThemeDark,
+    isTerminalThemeDark: vi.fn(() => true),
   };
 });
 
@@ -18,17 +17,18 @@ describe('bootstrapTheme', () => {
     bootstrapThemeTestDoubles.isTerminalThemeDark.mockReturnValue(true);
   });
 
-  it('resolves sync-terminal bootstrap mode from the terminal theme luminance', async () => {
-    bootstrapThemeTestDoubles.isTerminalThemeDark.mockReturnValue(false);
+  it('resolves system bootstrap mode from the system preference only', async () => {
     const { resolveBootstrapThemeMode } = await import('../bootstrapTheme');
 
     expect(
       resolveBootstrapThemeMode({
-        theme: 'sync-terminal',
+        theme: 'system',
         terminalTheme: 'Xcode WWDC',
-        systemShouldUseDarkColors: true,
+        systemShouldUseDarkColors: false,
       })
     ).toBe('light');
+
+    expect(bootstrapThemeTestDoubles.isTerminalThemeDark).not.toHaveBeenCalled();
   });
 
   it('applies the resolved bootstrap theme mode to the root element', async () => {

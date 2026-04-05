@@ -1,6 +1,6 @@
 import type { Theme } from '@/stores/settings';
 
-export type SelectableThemeMode = Exclude<Theme, 'sync-terminal'>;
+export type SelectableThemeMode = Theme;
 
 export interface AppearanceThemeModeOption {
   value: SelectableThemeMode;
@@ -16,9 +16,11 @@ export interface AppearanceThemeModel {
 
 export function buildAppearanceThemeModel({
   theme,
+  terminalAccentSync,
   t,
 }: {
   theme: Theme;
+  terminalAccentSync: boolean;
   t: (key: string) => string;
 }): AppearanceThemeModel {
   return {
@@ -39,7 +41,7 @@ export function buildAppearanceThemeModel({
         description: t('Follow system theme'),
       },
     ],
-    activeMode: theme === 'sync-terminal' ? 'system' : theme,
-    terminalSyncEnabled: theme === 'sync-terminal',
+    activeMode: theme,
+    terminalSyncEnabled: terminalAccentSync,
   };
 }

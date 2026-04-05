@@ -170,10 +170,10 @@ describe('settings store setters', () => {
     store.setTheme('system');
     expect(env.classListToggle).toHaveBeenCalledWith('dark', true);
 
-    store.setTheme('sync-terminal');
+    store.setTerminalAccentSync(true);
     expect(env.getTerminalThemeAccent).toHaveBeenCalledWith('Dracula');
     expect(env.resolveThemeVariables).toHaveBeenLastCalledWith({
-      mode: 'light',
+      mode: 'dark',
       preset: 'graphite-ink',
       customAccentColor: '#ff79c6',
       customTheme: null,
@@ -188,6 +188,8 @@ describe('settings store setters', () => {
       customTheme: null,
     });
 
+    vi.clearAllMocks();
+    store.setTerminalAccentSync(false);
     vi.clearAllMocks();
     store.setTheme('dark');
     vi.clearAllMocks();
@@ -271,6 +273,30 @@ describe('settings store setters', () => {
 
     await store.setWebInspectorEnabled(false);
     expect(env.webInspectorStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the app mode stable when terminal accent sync reacts to terminal theme changes', async () => {
+    const env = await loadSettingsStore({
+      matchDark: false,
+      terminalAccent: (theme: string) => (theme === 'Nord' ? '#88c0d0' : '#ff79c6'),
+      isDarkTerminalTheme: () => true,
+    });
+    const store = env.useSettingsStore.getState();
+
+    store.setTheme('system');
+    store.setTerminalAccentSync(true);
+    vi.clearAllMocks();
+
+    store.setTerminalTheme('Nord');
+
+    expect(env.getTerminalThemeAccent).toHaveBeenCalledWith('Nord');
+    expect(env.resolveThemeVariables).toHaveBeenCalledWith({
+      mode: 'light',
+      preset: 'graphite-ink',
+      customAccentColor: '#88c0d0',
+      customTheme: null,
+    });
+    expect(env.classListToggle).toHaveBeenCalledWith('dark', false);
   });
 
   it('chooses a platform-aware default UI font family', async () => {
@@ -575,5 +601,381 @@ describe('settings store setters', () => {
     }
 
     expect(Object.hasOwn(persisted, '_backgroundRefreshKey')).toBe(false);
+  });
+
+  it('manages custom themes and remaining presentation setters without leaking protected tokens', async () => {
+    const env = await loadSettingsStore();
+    const store = env.useSettingsStore.getState();
+
+    store.setLayoutMode('columns');
+    store.setFileTreeDisplayMode('current');
+    store.setRepositoryListDisplayMode('tabs');
+    store.setActivePresetTheme('warm-graphite');
+    store.setActiveCustomTheme('missing-theme');
+
+    const presetThemeId = store.createCustomThemeFromPreset('warm-graphite');
+    const blankThemeId = store.createBlankCustomTheme();
+
+    let state = env.useSettingsStore.getState();
+    const blankThemeBefore = state.customThemes.find((theme) => theme.id === blankThemeId);
+    expect(blankThemeBefore).toBeDefined();
+
+    if (!blankThemeBefore) {
+      throw new Error('Expected blank custom theme to exist');
+    }
+
+    const blankLightSuccess = blankThemeBefore.tokens.light.success;
+
+    store.setActiveCustomTheme(presetThemeId);
+    store.renameCustomTheme(presetThemeId, '  Aurora Variant  ');
+    store.renameCustomTheme(blankThemeId, '   ');
+    store.updateCustomThemeTokens(presetThemeId, 'dark', {
+      primary: '#112233',
+      success: '#abcdef',
+    });
+    store.updateCustomThemeTokens(blankThemeId, 'light', {
+      success: '#000000',
+    });
+
+    state = env.useSettingsStore.getState();
+    const presetTheme = state.customThemes.find((theme) => theme.id === presetThemeId);
+    const blankTheme = state.customThemes.find((theme) => theme.id === blankThemeId);
+
+    expect(state.layoutMode).toBe('columns');
+    expect(state.fileTreeDisplayMode).toBe('current');
+    expect(state.repositoryListDisplayMode).toBe('tabs');
+    expect(state.activeThemeSelection).toEqual({
+      kind: 'custom',
+      customThemeId: presetThemeId,
+    });
+    expect(presetTheme).toMatchObject({
+      id: presetThemeId,
+      name: 'Aurora Variant',
+    });
+    expect(presetTheme?.tokens.dark.primary).toBe('#112233');
+    expect(presetTheme?.tokens.dark.success).not.toBe('#abcdef');
+    expect(blankTheme?.name).toBe('Untitled Theme');
+    expect(blankTheme?.tokens.light.success).toBe(blankLightSuccess);
+
+    store.deleteCustomTheme(blankThemeId);
+    state = env.useSettingsStore.getState();
+    expect(state.customThemes.map((theme) => theme.id)).toEqual([presetThemeId]);
+
+    store.deleteCustomTheme(presetThemeId);
+    store.setBackgroundImageEnabled(true);
+    store.setBackgroundImagePath('/tmp/background.png');
+    store.setBackgroundUrlPath('https://example.com/background.png');
+    store.setBackgroundFolderPath('/tmp/backgrounds');
+    store.setBackgroundSourceType('folder');
+    store.setBackgroundRandomEnabled(true);
+    store.setBackgroundBlur(8);
+    store.setBackgroundBlur(Number.NaN);
+    store.setBackgroundSaturation(1.5);
+    store.setBackgroundSaturation(Number.NaN);
+    store.setBackgroundSizeMode('contain');
+    store.setSettingsDisplayMode('draggable-modal');
+    store.setSettingsModalPosition({ x: 120, y: 240 });
+    store.setHideGroups(true);
+    store.toggleHiddenOpenInApp('com.example.finder');
+    store.toggleHiddenOpenInApp('com.example.finder');
+    store.setOpenInMenuFilterEnabled(true);
+    store.setFileTreeAutoReveal(false);
+
+    state = env.useSettingsStore.getState();
+    expect(state.customThemes).toEqual([]);
+    expect(state.activeThemeSelection).toEqual({
+      kind: 'preset',
+      presetId: 'warm-graphite',
+    });
+    expect(state.backgroundImageEnabled).toBe(true);
+    expect(state.backgroundImagePath).toBe('/tmp/background.png');
+    expect(state.backgroundUrlPath).toBe('https://example.com/background.png');
+    expect(state.backgroundFolderPath).toBe('/tmp/backgrounds');
+    expect(state.backgroundSourceType).toBe('folder');
+    expect(state.backgroundRandomEnabled).toBe(true);
+    expect(state.backgroundBlur).toBe(8);
+    expect(state.backgroundSaturation).toBe(1.5);
+    expect(state.backgroundSizeMode).toBe('contain');
+    expect(state.settingsDisplayMode).toBe('draggable-modal');
+    expect(state.settingsModalPosition).toEqual({ x: 120, y: 240 });
+    expect(state.hideGroups).toBe(true);
+    expect(state.hiddenOpenInApps).toEqual([]);
+    expect(state.openInMenuFilterEnabled).toBe(true);
+    expect(state.fileTreeAutoReveal).toBe(false);
+  });
+
+  it('updates remaining terminal, editor, and collection setters with stable merges', async () => {
+    const env = await loadSettingsStore();
+    const store = env.useSettingsStore.getState();
+    const builtinAgentId = Object.keys(store.agentSettings)[0];
+
+    expect(builtinAgentId).toBeTruthy();
+
+    if (!builtinAgentId) {
+      throw new Error('Expected at least one builtin agent');
+    }
+
+    store.setTerminalFontWeight('600');
+    store.setTerminalFontWeightBold('700');
+    store.setTerminalRenderer('webgl');
+    store.setTerminalScrollback(Number.NaN);
+    store.setTerminalScrollback(25000);
+    store.setTerminalOptionIsMeta(false);
+    store.setCopyOnSelection(true);
+
+    const initialState = env.useSettingsStore.getState();
+    store.setXtermKeybindings({
+      ...initialState.xtermKeybindings,
+      clear: { key: 'x', ctrl: true },
+    });
+    store.setMainTabKeybindings({
+      ...initialState.mainTabKeybindings,
+      switchToAgent: { key: '8', ctrl: true },
+    });
+    store.setSourceControlKeybindings({
+      ...initialState.sourceControlKeybindings,
+      prevDiff: { key: 'p', alt: true },
+    });
+    store.setSearchKeybindings({
+      ...initialState.searchKeybindings,
+      searchFiles: { key: 'f', shift: true },
+    });
+    store.setEditorKeybindings({
+      ...initialState.editorKeybindings,
+      gotoSymbol: { key: 'o', ctrl: true },
+    });
+    store.setGlobalKeybindings({
+      ...initialState.globalKeybindings,
+      runningProjects: { key: 'r', meta: true },
+    });
+    store.setWorkspaceKeybindings({
+      ...initialState.workspaceKeybindings,
+      toggleWorktree: { key: 'w', ctrl: true },
+    });
+    store.setEditorSettings({
+      minimapEnabled: true,
+      tabSize: 8,
+    });
+    store.setAgentCustomConfig(builtinAgentId, {
+      customPath: '',
+      customArgs: '',
+    });
+    store.setShellConfig({
+      shellType: 'zsh',
+      customShellPath: '/bin/zsh',
+      customShellArgs: ['-l'],
+    });
+    store.setAgentNotificationEnabled(false);
+    store.setAgentNotificationDelay(12);
+    store.setAgentNotificationEnterDelay(18);
+    store.setClaudeCodeIntegration({
+      enabled: false,
+      statusLineEnabled: true,
+    });
+    store.setCommitMessageGenerator({
+      timeout: 45,
+    });
+    store.setCodeReview({
+      enabled: false,
+    });
+    store.setBranchNameGenerator({
+      enabled: true,
+      prompt: 'branch-v2',
+    });
+    store.setTodoPolish({
+      timeout: 75,
+    });
+    store.setHapiSettings({
+      enabled: true,
+      webappPort: 4567,
+    });
+
+    const profileA = {
+      id: 'profile-a',
+      name: 'Profile A',
+      sshTarget: 'root@alpha.example.com',
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const profileB = {
+      id: 'profile-b',
+      name: 'Profile B',
+      sshTarget: 'root@beta.example.com',
+      createdAt: 2,
+      updatedAt: 2,
+    };
+    store.setRemoteProfiles([profileA, profileB]);
+    store.upsertRemoteProfile({
+      ...profileB,
+      name: 'Profile B Updated',
+      updatedAt: 3,
+    });
+    store.setDefaultWorktreePath('/tmp/worktrees');
+    store.setAutoCreateSessionOnActivate(true);
+    store.setGitClone({
+      baseDir: '/tmp/repos',
+      useOrganizedStructure: false,
+    });
+    store.setTodoEnabled(true);
+    store.setGlowEffectEnabled(true);
+    store.setTemporaryWorkspaceEnabled(true);
+    store.setDefaultTemporaryPath('/tmp/temporary-workspaces');
+    store.setAutoCreateSessionOnTempActivate(true);
+
+    for (const agentId of Object.keys(env.useSettingsStore.getState().agentSettings)) {
+      store.setAgentEnabled(agentId, false);
+    }
+
+    store.addCustomAgent({
+      id: 'custom-agent-a',
+      name: 'Custom Agent A',
+      command: 'agent-a',
+    });
+    store.addCustomAgent({
+      id: 'custom-agent-b',
+      name: 'Custom Agent B',
+      command: 'agent-b',
+    });
+    store.updateCustomAgent('custom-agent-b', {
+      description: 'Backup agent',
+    });
+    store.setAgentDefault('custom-agent-a');
+    store.removeCustomAgent('custom-agent-a');
+
+    store.addMcpServer({
+      id: 'server-a',
+      name: 'Server A',
+      transportType: 'stdio',
+      command: 'node',
+      args: ['a.js'],
+      enabled: true,
+    });
+    store.addMcpServer({
+      id: 'server-b',
+      name: 'Server B',
+      transportType: 'stdio',
+      command: 'node',
+      args: ['b.js'],
+      enabled: true,
+    });
+    store.updateMcpServer('server-b', {
+      description: 'Updated B',
+    });
+    store.setMcpServerEnabled('server-b', false);
+
+    store.addPromptPreset({
+      id: 'preset-a',
+      name: 'Preset A',
+      content: 'Hello A',
+      enabled: false,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    store.addPromptPreset({
+      id: 'preset-b',
+      name: 'Preset B',
+      content: 'Hello B',
+      enabled: false,
+      createdAt: 2,
+      updatedAt: 2,
+    });
+    store.updatePromptPreset('preset-b', {
+      content: 'Updated B',
+    });
+    store.setPromptPresetEnabled('preset-b');
+
+    const state = env.useSettingsStore.getState();
+    expect(state.terminalFontWeight).toBe('600');
+    expect(state.terminalFontWeightBold).toBe('700');
+    expect(state.terminalRenderer).toBe('webgl');
+    expect(state.terminalScrollback).toBe(20000);
+    expect(state.terminalOptionIsMeta).toBe(false);
+    expect(state.copyOnSelection).toBe(true);
+    expect(state.xtermKeybindings.clear).toMatchObject({ key: 'x', ctrl: true });
+    expect(state.mainTabKeybindings.switchToAgent).toMatchObject({ key: '8', ctrl: true });
+    expect(state.sourceControlKeybindings.prevDiff).toMatchObject({ key: 'p', alt: true });
+    expect(state.searchKeybindings.searchFiles).toMatchObject({ key: 'f', shift: true });
+    expect(state.editorKeybindings.gotoSymbol).toMatchObject({ key: 'o', ctrl: true });
+    expect(state.globalKeybindings.runningProjects).toMatchObject({ key: 'r', meta: true });
+    expect(state.workspaceKeybindings.toggleWorktree).toMatchObject({ key: 'w', ctrl: true });
+    expect(state.editorSettings).toMatchObject({
+      minimapEnabled: true,
+      tabSize: 8,
+    });
+    expect(state.agentSettings[builtinAgentId]).toMatchObject({
+      customPath: undefined,
+      customArgs: undefined,
+    });
+    expect(state.shellConfig).toEqual({
+      shellType: 'zsh',
+      customShellPath: '/bin/zsh',
+      customShellArgs: ['-l'],
+    });
+    expect(state.agentNotificationEnabled).toBe(false);
+    expect(state.agentNotificationDelay).toBe(12);
+    expect(state.agentNotificationEnterDelay).toBe(18);
+    expect(state.claudeCodeIntegration).toMatchObject({
+      enabled: false,
+      statusLineEnabled: true,
+    });
+    expect(state.commitMessageGenerator.timeout).toBe(45);
+    expect(state.codeReview.enabled).toBe(false);
+    expect(state.branchNameGenerator).toMatchObject({
+      enabled: true,
+      prompt: 'branch-v2',
+    });
+    expect(state.todoPolish.timeout).toBe(75);
+    expect(state.hapiSettings).toMatchObject({
+      enabled: true,
+      webappPort: 4567,
+    });
+    expect(state.remoteSettings.profiles).toEqual([
+      profileA,
+      {
+        ...profileB,
+        name: 'Profile B Updated',
+        updatedAt: 3,
+      },
+    ]);
+    expect(state.defaultWorktreePath).toBe('/tmp/worktrees');
+    expect(state.autoCreateSessionOnActivate).toBe(true);
+    expect(state.gitClone).toMatchObject({
+      baseDir: '/tmp/repos',
+      useOrganizedStructure: false,
+    });
+    expect(state.todoEnabled).toBe(true);
+    expect(state.glowEffectEnabled).toBe(true);
+    expect(state.temporaryWorkspaceEnabled).toBe(true);
+    expect(state.defaultTemporaryPath).toBe('/tmp/temporary-workspaces');
+    expect(state.autoCreateSessionOnTempActivate).toBe(true);
+    expect(state.customAgents).toEqual([
+      expect.objectContaining({
+        id: 'custom-agent-b',
+        description: 'Backup agent',
+      }),
+    ]);
+    expect(state.agentSettings['custom-agent-b']?.isDefault).toBe(true);
+    expect(state.mcpServers).toEqual([
+      expect.objectContaining({
+        id: 'server-a',
+        enabled: true,
+      }),
+      expect.objectContaining({
+        id: 'server-b',
+        description: 'Updated B',
+        enabled: false,
+      }),
+    ]);
+    expect(state.promptPresets).toEqual([
+      expect.objectContaining({
+        id: 'preset-a',
+        enabled: false,
+      }),
+      expect.objectContaining({
+        id: 'preset-b',
+        content: 'Updated B',
+        enabled: true,
+      }),
+    ]);
   });
 });

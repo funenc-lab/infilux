@@ -50,7 +50,7 @@ export function MermaidRenderer({ code, className }: MermaidRendererProps) {
       ? window.matchMedia('(prefers-color-scheme: dark)').matches
         ? 'dark'
         : 'light'
-      : theme === 'dark' || theme === 'sync-terminal'
+      : theme === 'dark'
         ? 'dark'
         : 'light';
 

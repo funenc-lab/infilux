@@ -3,7 +3,6 @@ import {
   normalizeColorPreset,
   sanitizeCustomAccentColor,
 } from '@/lib/appTheme';
-import { isTerminalThemeDark } from '@/lib/ghosttyTheme';
 import type { ColorPreset, CustomThemeDocument, Theme } from '@/stores/settings';
 
 export interface MonacoThemeRule {
@@ -527,7 +526,7 @@ function resolveEditorSemanticDiff(
   };
 }
 
-export function resolveEditorThemeMode(theme: Theme, terminalTheme: string): 'light' | 'dark' {
+export function resolveEditorThemeMode(theme: Theme): 'light' | 'dark' {
   switch (theme) {
     case 'light':
       return 'light';
@@ -539,19 +538,17 @@ export function resolveEditorThemeMode(theme: Theme, terminalTheme: string): 'li
         window.matchMedia('(prefers-color-scheme: dark)').matches
         ? 'dark'
         : 'light';
-    case 'sync-terminal':
-      return isTerminalThemeDark(terminalTheme) ? 'dark' : 'light';
   }
 }
 
 export function resolveEditorVisualPalette({
   theme,
-  terminalTheme,
+  terminalTheme: _terminalTheme,
   colorPreset,
   customAccentColor,
   customTheme,
 }: Omit<BuildMonacoThemeOptions, 'backgroundImageEnabled'>): ResolvedEditorVisualPalette {
-  const mode = resolveEditorThemeMode(theme, terminalTheme);
+  const mode = resolveEditorThemeMode(theme);
   const normalizedPreset = normalizeColorPreset(colorPreset);
   const palette = customTheme
     ? deriveCustomThemeEditorPalette(customTheme, mode)

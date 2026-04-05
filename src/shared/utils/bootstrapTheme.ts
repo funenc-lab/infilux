@@ -1,4 +1,4 @@
-export type BootstrapThemeSource = 'light' | 'dark' | 'system' | 'sync-terminal';
+export type BootstrapThemeSource = 'light' | 'dark' | 'system';
 export type BootstrapThemeMode = 'light' | 'dark';
 
 export interface BootstrapThemeSnapshot {
@@ -10,18 +10,17 @@ export interface BootstrapThemeSnapshot {
 const BOOTSTRAP_THEME_ARGUMENT_PREFIX = '--infilux-bootstrap-theme=';
 export const BOOTSTRAP_THEME_SEARCH_PARAM = 'infiluxBootstrapTheme';
 const DEFAULT_TERMINAL_THEME = 'Dracula';
-const VALID_THEME_SOURCES = new Set<BootstrapThemeSource>([
-  'light',
-  'dark',
-  'system',
-  'sync-terminal',
-]);
+const VALID_THEME_SOURCES = new Set<BootstrapThemeSource>(['light', 'dark', 'system']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
 function normalizeThemeSource(value: unknown): BootstrapThemeSource | null {
+  if (value === 'sync-terminal') {
+    return 'system';
+  }
+
   return typeof value === 'string' && VALID_THEME_SOURCES.has(value as BootstrapThemeSource)
     ? (value as BootstrapThemeSource)
     : null;
@@ -149,7 +148,5 @@ export function resolveStaticBootstrapThemeMode(
       return 'dark';
     case 'system':
       return snapshot.systemShouldUseDarkColors ? 'dark' : 'light';
-    case 'sync-terminal':
-      return null;
   }
 }

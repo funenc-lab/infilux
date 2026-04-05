@@ -10,6 +10,7 @@ function createCurrentState(): SettingsState {
   return {
     colorPreset: 'graphite-ink',
     customAccentColor: '',
+    terminalAccentSync: false,
     backgroundOpacity: 0.85,
     backgroundBlur: 0,
     backgroundBrightness: 1,
@@ -157,6 +158,12 @@ function createCurrentState(): SettingsState {
 }
 
 describe('migrateSettings', () => {
+  it('returns the current state unchanged when no persisted settings exist', () => {
+    const currentState = createCurrentState();
+
+    expect(migrateSettings(undefined, currentState)).toBe(currentState);
+  });
+
   it('clamps persisted background values, migrates url source path, and upgrades legacy canvas renderer', () => {
     const result = migrateSettings(
       {
@@ -211,6 +218,26 @@ describe('migrateSettings', () => {
     });
   });
 
+  it('filters agent detection status using persisted agent settings when provided', () => {
+    const result = migrateSettings(
+      {
+        agentDetectionStatus: {
+          enabledAgent: { installed: true, version: '3.0.0', detectedAt: 20 },
+          disabledAgent: { installed: true, version: '3.0.0', detectedAt: 21 },
+        },
+        agentSettings: {
+          enabledAgent: { enabled: false, isDefault: false },
+          disabledAgent: { enabled: true, isDefault: false },
+        },
+      } as unknown as Partial<SettingsState>,
+      createCurrentState()
+    );
+
+    expect(result.agentDetectionStatus).toEqual({
+      disabledAgent: { installed: true, version: '3.0.0', detectedAt: 21 },
+    });
+  });
+
   it('migrates legacy enhanced input auto-popup booleans and repairs inconsistent stop hook state', () => {
     const currentState = createCurrentState();
 
@@ -250,6 +277,71 @@ describe('migrateSettings', () => {
     );
 
     expect(result.claudeCodeIntegration.autoSessionRollover).toBe('manual');
+  });
+
+  it('migrates legacy sync-terminal theme values into system mode with terminal accent sync', () => {
+    const result = migrateSettings(
+      {
+        theme: 'sync-terminal' as never,
+      },
+      createCurrentState()
+    );
+
+    expect(result.theme).toBe('system');
+    expect(result.terminalAccentSync).toBe(true);
+  });
+
+  it('preserves valid theme sizing typography accent and remote profile fields', () => {
+    const currentState = createCurrentState();
+    currentState.remoteSettings.profiles = [
+      {
+        id: 'existing-profile',
+        name: 'Existing Profile',
+        sshTarget: 'root@existing.example.com',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ];
+
+    const result = migrateSettings(
+      {
+        theme: 'dark',
+        backgroundSizeMode: 'contain',
+        customAccentColor: '#ABCDEF',
+        fontFamily: '"Custom Sans", sans-serif',
+        remoteSettings: {
+          profiles: [
+            {
+              id: 'profile-a',
+              name: 'Profile A',
+              sshTarget: 'root@example.com',
+              runtimeInstallDir: '/runtime',
+              helperInstallDir: '/helper',
+              createdAt: 10,
+              updatedAt: 11,
+              platform: 'linux',
+            } as never,
+          ],
+        },
+      } as unknown as Partial<SettingsState>,
+      currentState
+    );
+
+    expect(result.theme).toBe('dark');
+    expect(result.backgroundSizeMode).toBe('contain');
+    expect(result.customAccentColor).toBe('#abcdef');
+    expect(result.fontFamily).toBe('"Custom Sans", sans-serif');
+    expect(result.remoteSettings.profiles).toEqual([
+      {
+        id: 'profile-a',
+        name: 'Profile A',
+        sshTarget: 'root@example.com',
+        runtimeInstallDir: '/runtime',
+        helperInstallDir: '/helper',
+        createdAt: 10,
+        updatedAt: 11,
+      },
+    ]);
   });
 
   it('accepts the graphite red preset as a persisted preset value', () => {
@@ -311,6 +403,58 @@ describe('migrateSettings', () => {
     expect(result.activeThemeSelection).toEqual({
       kind: 'preset',
       presetId: 'midnight-oled',
+    });
+  });
+
+  it('falls back to the current preset when a custom selection has no valid custom theme', () => {
+    const result = migrateSettings(
+      {
+        activeThemeSelection: {
+          kind: 'custom',
+          customThemeId: 'missing-theme',
+        } as never,
+        customThemes: [
+          {
+            id: '',
+            name: 'Invalid Theme',
+          },
+        ] as never,
+      },
+      createCurrentState()
+    );
+
+    expect(result.customThemes).toEqual([]);
+    expect(result.activeThemeSelection).toEqual({
+      kind: 'preset',
+      presetId: 'graphite-ink',
+    });
+  });
+
+  it('keeps an explicit custom theme selection when the referenced theme survives sanitization', () => {
+    const result = migrateSettings(
+      {
+        customThemes: [
+          {
+            id: 'exact-theme',
+            name: 'Exact Theme',
+            sourceType: 'preset',
+            sourcePresetId: 'tide-blue',
+            createdAt: 10,
+            updatedAt: 11,
+            tokens: {},
+          },
+        ] as never,
+        activeThemeSelection: {
+          kind: 'custom',
+          customThemeId: 'exact-theme',
+        } as never,
+      },
+      createCurrentState()
+    );
+
+    expect(result.activeThemeSelection).toEqual({
+      kind: 'custom',
+      customThemeId: 'exact-theme',
     });
   });
 
@@ -387,6 +531,51 @@ describe('migrateSettings', () => {
       kind: 'custom',
       customThemeId: 'preset-theme',
     });
+  });
+
+  it('prefers persisted xterm keybindings directly and keeps explicit false auto-popup manual', () => {
+    const currentState = createCurrentState();
+    const persisted: Partial<SettingsState> = {
+      xtermKeybindings: {
+        ...currentState.xtermKeybindings,
+        newTab: key('n'),
+      },
+      claudeCodeIntegration: {
+        ...currentState.claudeCodeIntegration,
+        enhancedInputAutoPopup: false as never,
+      },
+    };
+
+    const result = migrateSettings(persisted, currentState);
+
+    expect(result.xtermKeybindings).toMatchObject({
+      newTab: key('n'),
+      closeTab: key('w'),
+      clear: key('k'),
+    });
+    expect(result.claudeCodeIntegration.enhancedInputAutoPopup).toBe('manual');
+  });
+
+  it('keeps current remote profiles when persisted remote settings omit the profile list', () => {
+    const currentState = createCurrentState();
+    currentState.remoteSettings.profiles = [
+      {
+        id: 'existing-profile',
+        name: 'Existing Profile',
+        sshTarget: 'root@existing.example.com',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ];
+
+    const result = migrateSettings(
+      {
+        remoteSettings: {} as SettingsState['remoteSettings'],
+      },
+      currentState
+    );
+
+    expect(result.remoteSettings.profiles).toEqual(currentState.remoteSettings.profiles);
   });
 });
 

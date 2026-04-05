@@ -13,7 +13,7 @@ import type {
 } from '@shared/types';
 
 // Theme types
-export type Theme = 'light' | 'dark' | 'system' | 'sync-terminal';
+export type Theme = 'light' | 'dark' | 'system';
 export type ColorPreset =
   | 'graphite-ink'
   | 'graphite-red'
@@ -364,6 +364,7 @@ export interface GitCloneSettings {
 export interface SettingsState {
   // UI Settings
   theme: Theme;
+  terminalAccentSync: boolean;
   colorPreset: ColorPreset;
   customAccentColor: string;
   activeThemeSelection: ThemeSelection;
@@ -483,6 +484,7 @@ export interface SettingsState {
 
   // Setters - UI
   setTheme: (theme: Theme) => void;
+  setTerminalAccentSync: (enabled: boolean) => void;
   setColorPreset: (preset: ColorPreset) => void;
   setCustomAccentColor: (color: string) => void;
   setActivePresetTheme: (preset: ColorPreset) => void;

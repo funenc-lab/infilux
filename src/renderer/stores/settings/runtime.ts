@@ -5,7 +5,7 @@ import {
   resolveThemeVariables,
   sanitizeCustomAccentColor,
 } from '@/lib/appTheme';
-import { getTerminalThemeAccent, isTerminalThemeDark } from '@/lib/ghosttyTheme';
+import { getTerminalThemeAccent } from '@/lib/ghosttyTheme';
 import { updateRendererLogging } from '@/utils/logging';
 import { getDefaultUIFontFamily } from './defaults';
 import { cleanupLegacyFields } from './migration';
@@ -34,7 +34,7 @@ function applyTerminalFont(fontFamily: string): void {
   root.style.setProperty('--font-family-mono', fontFamily);
 }
 
-function resolveThemeMode(theme: Theme, terminalTheme: string): 'light' | 'dark' {
+function resolveThemeMode(theme: Theme): 'light' | 'dark' {
   switch (theme) {
     case 'light':
       return 'light';
@@ -42,8 +42,6 @@ function resolveThemeMode(theme: Theme, terminalTheme: string): 'light' | 'dark'
       return 'dark';
     case 'system':
       return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    case 'sync-terminal':
-      return isTerminalThemeDark(terminalTheme) ? 'dark' : 'light';
   }
 }
 
@@ -68,10 +66,10 @@ function applyColorPreset(
 
 function applyThemeState(state: SettingsState): void {
   const root = document.documentElement;
-  const resolvedMode = resolveThemeMode(state.theme, state.terminalTheme);
+  const resolvedMode = resolveThemeMode(state.theme);
   const customTheme = getActiveCustomTheme(state);
   const effectiveAccentColor =
-    state.theme === 'sync-terminal' && !customTheme
+    state.terminalAccentSync && !customTheme
       ? getTerminalThemeAccent(state.terminalTheme)
       : sanitizeCustomAccentColor(state.customAccentColor);
 
@@ -147,7 +145,9 @@ function syncSettingsRuntime(
 ): void {
   const shouldApplyTheme =
     currentState.theme !== previousState.theme ||
-    currentState.terminalTheme !== previousState.terminalTheme ||
+    currentState.terminalAccentSync !== previousState.terminalAccentSync ||
+    (currentState.terminalAccentSync &&
+      currentState.terminalTheme !== previousState.terminalTheme) ||
     currentState.colorPreset !== previousState.colorPreset ||
     currentState.customAccentColor !== previousState.customAccentColor ||
     currentState.activeThemeSelection !== previousState.activeThemeSelection ||

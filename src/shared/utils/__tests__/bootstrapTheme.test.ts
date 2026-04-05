@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import {
+  BOOTSTRAP_THEME_SEARCH_PARAM,
+  encodeBootstrapThemeArgument,
+  encodeBootstrapThemeSearchValue,
+  extractBootstrapThemeSnapshotFromSettingsData,
+  parseBootstrapThemeSnapshotFromArgv,
+  parseBootstrapThemeSnapshotFromSearch,
+  resolveStaticBootstrapThemeMode,
+} from '../bootstrapTheme';
+
+const BOOTSTRAP_THEME_ARGUMENT_PREFIX = '--infilux-bootstrap-theme=';
 
 describe('bootstrap theme shared helpers', () => {
-  it('extracts a bootstrap theme snapshot from persisted settings data', async () => {
-    const { extractBootstrapThemeSnapshotFromSettingsData } = await import('../bootstrapTheme');
-
+  it('extracts a bootstrap theme snapshot from persisted settings data', () => {
     expect(
       extractBootstrapThemeSnapshotFromSettingsData(
         {
@@ -23,11 +32,42 @@ describe('bootstrap theme shared helpers', () => {
     });
   });
 
-  it('round-trips a bootstrap theme snapshot through the additional argument format', async () => {
-    const { encodeBootstrapThemeArgument, parseBootstrapThemeSnapshotFromArgv } = await import(
-      '../bootstrapTheme'
-    );
+  it('returns null for malformed persisted settings payloads and invalid theme values', () => {
+    const invalidPayloads = [
+      null,
+      {},
+      { 'enso-settings': null },
+      { 'enso-settings': {} },
+      { 'enso-settings': { state: null } },
+      { 'enso-settings': { state: { theme: 'unknown' } } },
+    ];
 
+    for (const payload of invalidPayloads) {
+      expect(extractBootstrapThemeSnapshotFromSettingsData(payload, true)).toBeNull();
+    }
+  });
+
+  it('falls back to the default terminal theme when settings data contains blank terminal theme', () => {
+    expect(
+      extractBootstrapThemeSnapshotFromSettingsData(
+        {
+          'enso-settings': {
+            state: {
+              theme: 'dark',
+              terminalTheme: '   ',
+            },
+          },
+        },
+        true
+      )
+    ).toEqual({
+      theme: 'dark',
+      terminalTheme: 'Dracula',
+      systemShouldUseDarkColors: true,
+    });
+  });
+
+  it('round-trips a bootstrap theme snapshot through the additional argument format', () => {
     const snapshot = {
       theme: 'system' as const,
       terminalTheme: 'Xcode WWDC',
@@ -39,11 +79,52 @@ describe('bootstrap theme shared helpers', () => {
     ).toEqual(snapshot);
   });
 
-  it('round-trips a bootstrap theme snapshot through the search parameter format', async () => {
-    const { encodeBootstrapThemeSearchValue, parseBootstrapThemeSnapshotFromSearch } = await import(
-      '../bootstrapTheme'
-    );
+  it('rejects missing and malformed argv snapshots while defaulting blank terminal themes', () => {
+    expect(parseBootstrapThemeSnapshotFromArgv(['electron'])).toBeNull();
+    expect(
+      parseBootstrapThemeSnapshotFromArgv([
+        'electron',
+        `${BOOTSTRAP_THEME_ARGUMENT_PREFIX}%7Binvalid`,
+      ])
+    ).toBeNull();
+    expect(
+      parseBootstrapThemeSnapshotFromArgv([
+        'electron',
+        `${BOOTSTRAP_THEME_ARGUMENT_PREFIX}${encodeURIComponent('null')}`,
+      ])
+    ).toBeNull();
+    expect(
+      parseBootstrapThemeSnapshotFromArgv([
+        'electron',
+        `${BOOTSTRAP_THEME_ARGUMENT_PREFIX}${encodeURIComponent(
+          JSON.stringify({
+            theme: 'unknown',
+            terminalTheme: 'Midnight',
+            systemShouldUseDarkColors: false,
+          })
+        )}`,
+      ])
+    ).toBeNull();
 
+    expect(
+      parseBootstrapThemeSnapshotFromArgv([
+        'electron',
+        `${BOOTSTRAP_THEME_ARGUMENT_PREFIX}${encodeURIComponent(
+          JSON.stringify({
+            theme: 'dark',
+            terminalTheme: '   ',
+            systemShouldUseDarkColors: 1,
+          })
+        )}`,
+      ])
+    ).toEqual({
+      theme: 'dark',
+      terminalTheme: 'Dracula',
+      systemShouldUseDarkColors: true,
+    });
+  });
+
+  it('round-trips a bootstrap theme snapshot through the search parameter format', () => {
     const snapshot = {
       theme: 'system' as const,
       terminalTheme: 'Xcode WWDC',
@@ -52,13 +133,71 @@ describe('bootstrap theme shared helpers', () => {
 
     expect(
       parseBootstrapThemeSnapshotFromSearch(
-        `?infiluxBootstrapTheme=${encodeBootstrapThemeSearchValue(snapshot)}`
+        `?${BOOTSTRAP_THEME_SEARCH_PARAM}=${encodeBootstrapThemeSearchValue(snapshot)}`
       )
     ).toEqual(snapshot);
   });
 
-  it('resolves a static bootstrap mode only when terminal luminance is not required', async () => {
-    const { resolveStaticBootstrapThemeMode } = await import('../bootstrapTheme');
+  it('rejects missing and malformed search snapshots while defaulting blank terminal themes', () => {
+    expect(parseBootstrapThemeSnapshotFromSearch('?other=value')).toBeNull();
+    expect(
+      parseBootstrapThemeSnapshotFromSearch(`?${BOOTSTRAP_THEME_SEARCH_PARAM}=%7Binvalid`)
+    ).toBeNull();
+    expect(
+      parseBootstrapThemeSnapshotFromSearch(
+        `?${BOOTSTRAP_THEME_SEARCH_PARAM}=${encodeURIComponent('null')}`
+      )
+    ).toBeNull();
+    expect(
+      parseBootstrapThemeSnapshotFromSearch(
+        `?${BOOTSTRAP_THEME_SEARCH_PARAM}=${encodeURIComponent(
+          JSON.stringify({
+            theme: 'unknown',
+            terminalTheme: 'Midnight',
+            systemShouldUseDarkColors: false,
+          })
+        )}`
+      )
+    ).toBeNull();
+
+    expect(
+      parseBootstrapThemeSnapshotFromSearch(
+        `?${BOOTSTRAP_THEME_SEARCH_PARAM}=${encodeURIComponent(
+          JSON.stringify({
+            theme: 'dark',
+            terminalTheme: '',
+            systemShouldUseDarkColors: 1,
+          })
+        )}`
+      )
+    ).toEqual({
+      theme: 'dark',
+      terminalTheme: 'Dracula',
+      systemShouldUseDarkColors: true,
+    });
+  });
+
+  it('normalizes legacy sync-terminal snapshots into system mode', () => {
+    expect(
+      parseBootstrapThemeSnapshotFromArgv([
+        'electron',
+        `${BOOTSTRAP_THEME_ARGUMENT_PREFIX}${encodeURIComponent(
+          JSON.stringify({
+            theme: 'sync-terminal',
+            terminalTheme: 'Dracula',
+            systemShouldUseDarkColors: true,
+          })
+        )}`,
+      ])
+    ).toEqual({
+      theme: 'system',
+      terminalTheme: 'Dracula',
+      systemShouldUseDarkColors: true,
+    });
+  });
+
+  it('resolves static bootstrap modes for all supported snapshot states', () => {
+    expect(resolveStaticBootstrapThemeMode(null)).toBeNull();
 
     expect(
       resolveStaticBootstrapThemeMode({
@@ -70,6 +209,14 @@ describe('bootstrap theme shared helpers', () => {
 
     expect(
       resolveStaticBootstrapThemeMode({
+        theme: 'dark',
+        terminalTheme: 'Dracula',
+        systemShouldUseDarkColors: false,
+      })
+    ).toBe('dark');
+
+    expect(
+      resolveStaticBootstrapThemeMode({
         theme: 'system',
         terminalTheme: 'Dracula',
         systemShouldUseDarkColors: true,
@@ -78,10 +225,10 @@ describe('bootstrap theme shared helpers', () => {
 
     expect(
       resolveStaticBootstrapThemeMode({
-        theme: 'sync-terminal',
+        theme: 'system',
         terminalTheme: 'Dracula',
-        systemShouldUseDarkColors: true,
+        systemShouldUseDarkColors: false,
       })
-    ).toBeNull();
+    ).toBe('light');
   });
 });

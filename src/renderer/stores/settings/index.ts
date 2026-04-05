@@ -68,6 +68,7 @@ function getInitialState() {
   return {
     // UI Settings
     theme: 'system' as Theme,
+    terminalAccentSync: false,
     colorPreset: 'graphite-ink' as ColorPreset,
     customAccentColor: '',
     activeThemeSelection: { kind: 'preset' as const, presetId: 'graphite-ink' as ColorPreset },
@@ -196,6 +197,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       // UI Setters
       setTheme: (theme) => set({ theme }),
+      setTerminalAccentSync: (terminalAccentSync) => set({ terminalAccentSync }),
 
       setColorPreset: (colorPreset) => {
         const normalizedPreset = normalizeColorPreset(colorPreset);

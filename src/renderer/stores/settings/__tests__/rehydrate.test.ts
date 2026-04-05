@@ -90,6 +90,7 @@ describe('settings rehydrate', () => {
                 theme: 'sync-terminal',
                 colorPreset: 'graphite-ink',
                 customAccentColor: '#ff7a00',
+                terminalAccentSync: false,
                 terminalTheme: 'Dracula',
                 terminalFontFamily: 'Fira Code',
                 terminalFontSize: 16,
@@ -133,7 +134,7 @@ describe('settings rehydrate', () => {
 
     expect(getTerminalThemeAccent).toHaveBeenCalledWith('Dracula');
     expect(resolveThemeVariables).toHaveBeenCalledWith({
-      mode: 'dark',
+      mode: 'light',
       preset: 'graphite-ink',
       customAccentColor: '#ff79c6',
       customTheme: null,
@@ -157,7 +158,9 @@ describe('settings rehydrate', () => {
     expect(startWebInspector).toHaveBeenCalledTimes(1);
     expect(setAutoFetchEnabled).toHaveBeenCalledWith(true);
     expect(cleanupLegacyFields).toHaveBeenCalledTimes(1);
-    expect(classListToggle).toHaveBeenCalledWith('dark', true);
+    expect(classListToggle).toHaveBeenCalledWith('dark', false);
+    expect(useSettingsStore.getState().theme).toBe('system');
+    expect(useSettingsStore.getState().terminalAccentSync).toBe(true);
   });
 
   it('auto-detects powershell7 only once on Windows first rehydrate', async () => {

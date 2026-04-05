@@ -88,13 +88,12 @@ export function CodeBlock({ code, language, className }: CodeBlockProps) {
   const theme = useSettingsStore((s) => s.theme);
   const [html, setHtml] = useState<string | null>(null);
 
-  // 解析实际主题（处理 system 和 sync-terminal）
   const resolvedTheme =
     theme === 'system'
       ? window.matchMedia('(prefers-color-scheme: dark)').matches
         ? 'dark'
         : 'light'
-      : theme === 'dark' || theme === 'sync-terminal'
+      : theme === 'dark'
         ? 'dark'
         : 'light';
 
@@ -140,7 +139,6 @@ export function CodeBlock({ code, language, className }: CodeBlockProps) {
     };
   }, [code, language, resolvedTheme]);
 
-  // 未高亮时显示普通代码
   if (!html) {
     return (
       <pre

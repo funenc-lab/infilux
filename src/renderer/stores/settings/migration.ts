@@ -11,6 +11,8 @@ import type {
   XtermKeybindings,
 } from './types';
 
+type LegacyTheme = SettingsState['theme'] | 'sync-terminal';
+
 const COLOR_PRESETS: ColorPreset[] = [
   'graphite-ink',
   'graphite-red',
@@ -88,6 +90,13 @@ function sanitizeColorPreset(value: unknown, fallback: ColorPreset): ColorPreset
 
 function sanitizeCustomAccentColor(value: unknown): string {
   return typeof value === 'string' && CUSTOM_ACCENT_PATTERN.test(value) ? value.toLowerCase() : '';
+}
+
+function sanitizeTheme(
+  value: unknown,
+  fallback: SettingsState['theme']
+): SettingsState['theme'] | null {
+  return value === 'light' || value === 'dark' || value === 'system' ? value : fallback;
 }
 
 function sanitizeThemeTokenSet(value: unknown, fallback: ThemeTokenSet): ThemeTokenSet {
@@ -178,6 +187,19 @@ export function migrateSettings(
   const sanitizedLanguage = normalizeLocale(persisted.language);
   const sanitizedColorPreset = sanitizeColorPreset(persisted.colorPreset, currentState.colorPreset);
   const sanitizedCustomAccentColor = sanitizeCustomAccentColor(persisted.customAccentColor);
+  const persistedTheme = persisted.theme as LegacyTheme | undefined;
+  const sanitizedTheme =
+    persistedTheme === 'sync-terminal'
+      ? 'system'
+      : (sanitizeTheme(persistedTheme, currentState.theme) ?? currentState.theme);
+  const sanitizedTerminalAccentSync =
+    persistedTheme === 'sync-terminal'
+      ? true
+      : sanitizeBoolean(
+          (persisted as Partial<SettingsState> & { terminalAccentSync?: unknown })
+            .terminalAccentSync,
+          currentState.terminalAccentSync
+        );
   const sanitizedCustomThemes = sanitizeCustomThemes(persisted.customThemes);
   const persistedActiveThemeSelection = persisted.activeThemeSelection;
   const sanitizedCustomThemeId =
@@ -309,6 +331,8 @@ export function migrateSettings(
   return {
     ...currentState,
     ...persisted,
+    theme: sanitizedTheme,
+    terminalAccentSync: sanitizedTerminalAccentSync,
     language: sanitizedLanguage,
     fontFamily: sanitizedFontFamily,
     colorPreset: sanitizedColorPreset,

@@ -45,7 +45,6 @@ import {
   getTerminalThemeAccent,
   getThemeNames,
   getXtermTheme,
-  isTerminalThemeDark,
   type XtermTheme,
 } from '@/lib/ghosttyTheme';
 import { cn } from '@/lib/utils';
@@ -63,17 +62,13 @@ import { buildAppearanceColorPresetModel } from './appearanceColorPresetModel';
 import { buildAppearanceThemeModel } from './appearanceThemeModel';
 import { filterTerminalThemeNames, localizeTerminalThemeName } from './terminalThemeLocalization';
 
-function resolveAppearancePreviewMode(theme: Theme, terminalTheme: string): ResolvedThemeMode {
+function resolveAppearancePreviewMode(theme: Theme): ResolvedThemeMode {
   if (theme === 'light') {
     return 'light';
   }
 
   if (theme === 'dark') {
     return 'dark';
-  }
-
-  if (theme === 'sync-terminal') {
-    return isTerminalThemeDark(terminalTheme) ? 'dark' : 'light';
   }
 
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
@@ -84,28 +79,26 @@ function resolveAppearancePreviewMode(theme: Theme, terminalTheme: string): Reso
 }
 
 function resolveAppearanceAccentColor(
-  theme: Theme,
+  terminalAccentSync: boolean,
   terminalTheme: string,
   customAccentColor: string
 ): string {
-  return theme === 'sync-terminal' ? getTerminalThemeAccent(terminalTheme) : customAccentColor;
+  return terminalAccentSync ? getTerminalThemeAccent(terminalTheme) : customAccentColor;
 }
 
 function applyAppearancePreview({
   theme,
-  terminalTheme,
   colorPreset,
   accentColor,
   customTheme,
 }: {
   theme: Theme;
-  terminalTheme: string;
   colorPreset: ColorPreset;
   accentColor: string;
   customTheme?: CustomThemeDocument | null;
 }) {
   const root = document.documentElement;
-  const mode = resolveAppearancePreviewMode(theme, terminalTheme);
+  const mode = resolveAppearancePreviewMode(theme);
   const variables = resolveThemeVariables({
     mode,
     preset: colorPreset,
@@ -184,6 +177,7 @@ function ThemeModeBrowserCard({
   description,
   icon: Icon,
   mode,
+  terminalAccentSync,
   terminalTheme,
   colorPreset,
   customAccentColor,
@@ -194,7 +188,8 @@ function ThemeModeBrowserCard({
   label: string;
   description: string;
   icon: React.ElementType;
-  mode: Exclude<Theme, 'sync-terminal'>;
+  mode: Theme;
+  terminalAccentSync: boolean;
   terminalTheme: string;
   colorPreset: ColorPreset;
   customAccentColor: string;
@@ -202,13 +197,10 @@ function ThemeModeBrowserCard({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const resolvedMode = React.useMemo(
-    () => resolveAppearancePreviewMode(mode, terminalTheme),
-    [mode, terminalTheme]
-  );
+  const resolvedMode = React.useMemo(() => resolveAppearancePreviewMode(mode), [mode]);
   const resolvedAccentColor = React.useMemo(
-    () => resolveAppearanceAccentColor(mode, terminalTheme, customAccentColor),
-    [customAccentColor, mode, terminalTheme]
+    () => resolveAppearanceAccentColor(terminalAccentSync, terminalTheme, customAccentColor),
+    [customAccentColor, terminalAccentSync, terminalTheme]
   );
   const palette = React.useMemo(
     () =>
@@ -1311,6 +1303,8 @@ export function AppearanceSettings() {
   const {
     theme,
     setTheme,
+    terminalAccentSync,
+    setTerminalAccentSync,
     colorPreset,
     customAccentColor,
     setCustomAccentColor,
@@ -1371,7 +1365,10 @@ export function AppearanceSettings() {
   const { t } = useI18n();
   const [tokenEditorMode, setTokenEditorMode] = React.useState<ResolvedThemeMode>('dark');
   const [editingCustomThemeId, setEditingCustomThemeId] = React.useState<string | null>(null);
-  const themeModel = React.useMemo(() => buildAppearanceThemeModel({ theme, t }), [theme, t]);
+  const themeModel = React.useMemo(
+    () => buildAppearanceThemeModel({ theme, terminalAccentSync, t }),
+    [terminalAccentSync, theme, t]
+  );
   const activeCustomTheme = React.useMemo(
     () => findCustomThemeBySelection(customThemes, activeThemeSelection),
     [activeThemeSelection, customThemes]
@@ -1380,15 +1377,12 @@ export function AppearanceSettings() {
     () => customThemes.find((candidate) => candidate.id === editingCustomThemeId) ?? null,
     [customThemes, editingCustomThemeId]
   );
-  const activeAppearanceMode = React.useMemo(
-    () => resolveAppearancePreviewMode(theme, terminalTheme),
-    [terminalTheme, theme]
-  );
+  const activeAppearanceMode = React.useMemo(() => resolveAppearancePreviewMode(theme), [theme]);
   const uiFontPresetOptions = React.useMemo(
     () => getRecommendedUIFontPresets(language),
     [language]
   );
-  const themeModeIcons: Record<Exclude<Theme, 'sync-terminal'>, React.ElementType> = {
+  const themeModeIcons: Record<Theme, React.ElementType> = {
     light: Sun,
     dark: Moon,
     system: Monitor,
@@ -1520,32 +1514,33 @@ export function AppearanceSettings() {
   const selectedPreset = colorPresetModel.selectedPreset;
   const colorInputValue = customAccentColor || selectedPreset.themeHex;
   const presetCardAccentColor = React.useMemo(
-    () => resolveAppearanceAccentColor(theme, terminalTheme, customAccentColor),
-    [customAccentColor, terminalTheme, theme]
+    () => resolveAppearanceAccentColor(terminalAccentSync, terminalTheme, customAccentColor),
+    [customAccentColor, terminalAccentSync, terminalTheme]
   );
   const activeAccentColor = React.useMemo(() => {
     if (activeCustomTheme) {
       return activeCustomTheme.tokens[activeAppearanceMode].primary;
     }
 
-    return resolveAppearanceAccentColor(theme, terminalTheme, customAccentColor);
-  }, [activeAppearanceMode, activeCustomTheme, customAccentColor, terminalTheme, theme]);
+    return resolveAppearanceAccentColor(terminalAccentSync, terminalTheme, customAccentColor);
+  }, [
+    activeAppearanceMode,
+    activeCustomTheme,
+    customAccentColor,
+    terminalAccentSync,
+    terminalTheme,
+  ]);
   const activePreset = React.useMemo(
     () => getColorPresetOption(activePresetId) ?? selectedPreset,
     [activePresetId, selectedPreset]
   );
   const activeModeLabel = React.useMemo(() => {
-    if (theme === 'sync-terminal') {
-      return t('Sync terminal theme');
-    }
-
     return themeModel.modeOptions.find((option) => option.value === theme)?.label ?? t('System');
   }, [t, theme, themeModel.modeOptions]);
 
   React.useEffect(() => {
     applyAppearancePreview({
       theme,
-      terminalTheme,
       colorPreset: activePresetId,
       accentColor: activeAccentColor,
       customTheme: activeCustomTheme,
@@ -1554,13 +1549,12 @@ export function AppearanceSettings() {
     return () => {
       applyAppearancePreview({
         theme,
-        terminalTheme,
         colorPreset: activePresetId,
         accentColor: activeAccentColor,
         customTheme: activeCustomTheme,
       });
     };
-  }, [activeCustomTheme, activeAccentColor, activePresetId, terminalTheme, theme]);
+  }, [activeCustomTheme, activeAccentColor, activePresetId, theme]);
 
   // Get preview theme synchronously
   const terminalPreviewTheme = React.useMemo(() => {
@@ -1725,6 +1719,7 @@ export function AppearanceSettings() {
                     description={option.description}
                     icon={OptionIcon}
                     mode={option.value}
+                    terminalAccentSync={terminalAccentSync}
                     terminalTheme={terminalTheme}
                     colorPreset={activePresetId}
                     customAccentColor={customAccentColor}
@@ -1758,9 +1753,7 @@ export function AppearanceSettings() {
                 </div>
                 <Switch
                   checked={themeModel.terminalSyncEnabled}
-                  onCheckedChange={(checked) =>
-                    setTheme(checked ? 'sync-terminal' : themeModel.activeMode)
-                  }
+                  onCheckedChange={setTerminalAccentSync}
                 />
               </div>
 

@@ -1,5 +1,4 @@
 import type { BootstrapThemeMode, BootstrapThemeSnapshot } from '@shared/utils/bootstrapTheme';
-import { isTerminalThemeDark } from './ghosttyTheme';
 
 export function resolveBootstrapThemeMode(
   snapshot: BootstrapThemeSnapshot | null | undefined
@@ -15,8 +14,6 @@ export function resolveBootstrapThemeMode(
       return 'dark';
     case 'system':
       return snapshot.systemShouldUseDarkColors ? 'dark' : 'light';
-    case 'sync-terminal':
-      return isTerminalThemeDark(snapshot.terminalTheme) ? 'dark' : 'light';
   }
 }
 
