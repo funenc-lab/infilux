@@ -2,6 +2,7 @@ import { IPC_CHANNELS } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type FsDirStat = {
+  isDirectory: () => boolean;
   isSymbolicLink: () => boolean;
 };
 
@@ -19,12 +20,24 @@ const tempWorkspaceTestDoubles = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const randomUUID = vi.fn(() => 'uuid-1');
   const homedir = vi.fn(() => '/Users/tester');
-  const access = vi.fn(async () => undefined);
-  const lstat = vi.fn(async () => ({ isSymbolicLink: () => false }) as FsDirStat);
-  const mkdir = vi.fn(async () => undefined);
+  const access = vi.fn<(targetPath: string, mode?: number) => Promise<void>>(async () => undefined);
+  const lstat = vi.fn<(targetPath: string) => Promise<FsDirStat>>(
+    async (_targetPath: string) =>
+      ({
+        isDirectory: () => true,
+        isSymbolicLink: () => false,
+      }) as FsDirStat
+  );
+  const mkdir = vi.fn<(targetPath: string, options?: { recursive?: boolean }) => Promise<void>>(
+    async () => undefined
+  );
   const realpath = vi.fn(async (input: string) => input);
-  const rm = vi.fn(async () => undefined);
-  const writeFile = vi.fn(async () => undefined);
+  const rm = vi.fn<
+    (targetPath: string, options?: { recursive?: boolean; force?: boolean }) => Promise<void>
+  >(async () => undefined);
+  const writeFile = vi.fn<
+    (targetPath: string, content: string, options?: { encoding?: string }) => Promise<void>
+  >(async () => undefined);
   const gitInit = vi.fn(async () => undefined);
   const stopWatchersInDirectory = vi.fn(async () => undefined);
   const killByWorkdir = vi.fn(async () => undefined);
@@ -109,7 +122,10 @@ describe('temp workspace handlers', () => {
     tempWorkspaceTestDoubles.access.mockReset();
     tempWorkspaceTestDoubles.access.mockResolvedValue(undefined);
     tempWorkspaceTestDoubles.lstat.mockReset();
-    tempWorkspaceTestDoubles.lstat.mockResolvedValue({ isSymbolicLink: () => false } as FsDirStat);
+    tempWorkspaceTestDoubles.lstat.mockResolvedValue({
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    } as FsDirStat);
     tempWorkspaceTestDoubles.mkdir.mockReset();
     tempWorkspaceTestDoubles.mkdir.mockResolvedValue(undefined);
     tempWorkspaceTestDoubles.realpath.mockReset();
@@ -152,6 +168,89 @@ describe('temp workspace handlers', () => {
     );
   });
 
+  it('expands the home directory when checking the default temp workspace root path', async () => {
+    const { registerTempWorkspaceHandlers } = await import('../tempWorkspace');
+    registerTempWorkspaceHandlers();
+
+    const checkHandler = tempWorkspaceTestDoubles.handlers.get(
+      IPC_CHANNELS.TEMP_WORKSPACE_CHECK_PATH
+    );
+
+    const result = await checkHandler?.({}, '~');
+
+    expect(result).toEqual({ ok: true });
+    expect(tempWorkspaceTestDoubles.mkdir).toHaveBeenCalledWith('/Users/tester', {
+      recursive: true,
+    });
+  });
+
+  it('rehydrates only directory-backed temp workspaces and skips broken entries', async () => {
+    tempWorkspaceTestDoubles.realpath.mockImplementation(async (input: string) => {
+      if (input === '/Users/tester/keep') {
+        return '/resolved/keep';
+      }
+      if (input === '/Users/tester/file') {
+        return '/resolved/file';
+      }
+      throw new Error('missing');
+    });
+    tempWorkspaceTestDoubles.lstat.mockImplementation(async (targetPath: string) => {
+      if (targetPath === '/resolved/keep') {
+        return {
+          isDirectory: () => true,
+          isSymbolicLink: () => false,
+        } satisfies FsDirStat;
+      }
+      if (targetPath === '/resolved/file') {
+        return {
+          isDirectory: () => false,
+          isSymbolicLink: () => false,
+        } satisfies FsDirStat;
+      }
+      throw new Error('lstat failed');
+    });
+
+    const { registerTempWorkspaceHandlers } = await import('../tempWorkspace');
+    registerTempWorkspaceHandlers();
+
+    const rehydrateHandler = tempWorkspaceTestDoubles.handlers.get(
+      IPC_CHANNELS.TEMP_WORKSPACE_REHYDRATE
+    );
+    const result = await rehydrateHandler?.({}, [
+      {
+        id: 'keep',
+        path: '/Users/tester/keep',
+        folderName: 'keep',
+        title: 'Keep',
+        createdAt: 1,
+      },
+      {
+        id: 'file',
+        path: '/Users/tester/file',
+        folderName: 'file',
+        title: 'File',
+        createdAt: 2,
+      },
+      {
+        id: 'missing',
+        path: '/Users/tester/missing',
+        folderName: 'missing',
+        title: 'Missing',
+        createdAt: 3,
+      },
+    ]);
+
+    expect(result).toEqual([
+      {
+        id: 'keep',
+        path: '/resolved/keep',
+        folderName: 'keep',
+        title: 'Keep',
+        createdAt: 1,
+      },
+    ]);
+  });
+
   it('creates a temp workspace, retries name collisions and initializes git', async () => {
     tempWorkspaceTestDoubles.mkdir
       .mockResolvedValueOnce(undefined)
@@ -178,6 +277,68 @@ describe('temp workspace handlers', () => {
       },
     });
     expect(tempWorkspaceTestDoubles.gitInit).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to a random suffix when timestamp-based folder names keep colliding', async () => {
+    let createAttempts = 0;
+    tempWorkspaceTestDoubles.mkdir.mockImplementation(
+      async (_targetPath: string, options?: { recursive?: boolean }) => {
+        if (options?.recursive) {
+          return;
+        }
+        createAttempts += 1;
+        if (createAttempts <= 50) {
+          throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+        }
+      }
+    );
+
+    const { registerTempWorkspaceHandlers } = await import('../tempWorkspace');
+    registerTempWorkspaceHandlers();
+
+    const createHandler = tempWorkspaceTestDoubles.handlers.get(IPC_CHANNELS.TEMP_WORKSPACE_CREATE);
+    const result = await createHandler?.({}, '/tmp/custom-base');
+    const expectedTimestamp = formatExpectedTimestamp(FIXED_NOW);
+    const expectedCreatedAt = FIXED_NOW.getTime();
+    const expectedFolderName = `${expectedTimestamp}-4fzz`;
+
+    expect(result).toEqual({
+      ok: true,
+      item: {
+        id: `${expectedCreatedAt}-4fzzzx`,
+        path: `/tmp/custom-base/${expectedFolderName}`,
+        folderName: expectedFolderName,
+        title: expectedFolderName,
+        createdAt: expectedCreatedAt,
+      },
+    });
+    expect(createAttempts).toBe(51);
+  });
+
+  it('returns mapped create errors when workspace directory creation fails unexpectedly', async () => {
+    tempWorkspaceTestDoubles.mkdir.mockImplementation(
+      async (_targetPath: string, options?: { recursive?: boolean }) => {
+        if (options?.recursive) {
+          return;
+        }
+        throw {
+          code: 'EIO',
+          message: 'mkdir failed',
+        };
+      }
+    );
+
+    const { registerTempWorkspaceHandlers } = await import('../tempWorkspace');
+    registerTempWorkspaceHandlers();
+
+    const createHandler = tempWorkspaceTestDoubles.handlers.get(IPC_CHANNELS.TEMP_WORKSPACE_CREATE);
+    const result = await createHandler?.({}, '/tmp/custom-base');
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'EIO',
+      message: 'mkdir failed',
+    });
   });
 
   it('returns the base path validation error when the temp root is not writable', async () => {
@@ -297,6 +458,7 @@ describe('temp workspace handlers', () => {
 
   it('rejects symlink paths during removal', async () => {
     tempWorkspaceTestDoubles.lstat.mockResolvedValueOnce({
+      isDirectory: () => true,
       isSymbolicLink: () => true,
     } satisfies FsDirStat);
 
@@ -311,6 +473,26 @@ describe('temp workspace handlers', () => {
       code: 'INVALID_PATH',
       message: 'Symlink paths are not allowed',
     });
+  });
+
+  it('returns a mapped remove error when dependency cleanup fails', async () => {
+    tempWorkspaceTestDoubles.stopWatchersInDirectory.mockRejectedValueOnce({
+      code: 'EPIPE',
+      message: 'cleanup failed',
+    });
+
+    const { registerTempWorkspaceHandlers } = await import('../tempWorkspace');
+    registerTempWorkspaceHandlers();
+
+    const removeHandler = tempWorkspaceTestDoubles.handlers.get(IPC_CHANNELS.TEMP_WORKSPACE_REMOVE);
+    const result = await removeHandler?.({}, '/Users/tester/infilux/temporary/session-error');
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'EPIPE',
+      message: 'cleanup failed',
+    });
+    expect(tempWorkspaceTestDoubles.unregisterAuthorizedWorkdir).not.toHaveBeenCalled();
   });
 
   it('retries transient remove errors before succeeding', async () => {

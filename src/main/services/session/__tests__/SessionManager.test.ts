@@ -237,6 +237,27 @@ function getWindowSendCalls(id: number) {
   return sessionTestDoubles.windowRegistry.get(id)?.webContents.send.mock.calls ?? [];
 }
 
+type SessionRecordView = {
+  sessionId: string;
+  backend: 'local' | 'remote';
+  connectionId?: string;
+  attachedWindowIds: Set<number>;
+  streamState?: 'buffering' | 'attaching' | 'live';
+  runtimeState?: 'live' | 'reconnecting' | 'dead';
+  replayBuffer?: string;
+};
+
+function getManagedSessions(manager: SessionManager) {
+  return Reflect.get(manager, 'sessions') as Map<string, SessionRecordView>;
+}
+
+function getPrivateMethod<Args extends unknown[], Return>(
+  manager: SessionManager,
+  name: string
+): (...args: Args) => Return {
+  return Reflect.get(manager, name).bind(manager) as (...args: Args) => Return;
+}
+
 function makeRemoteDescriptor(overrides: Partial<SessionDescriptor> = {}): SessionDescriptor {
   return {
     sessionId: 'remote-1',
@@ -379,6 +400,38 @@ describe('SessionManager', () => {
     expect(pty.destroyAllAndWait).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts BrowserWindow targets and safely handles missing sessions or unresolved web contents', async () => {
+    const window = createWindow(3);
+    const manager = new SessionManager();
+
+    const opened = await manager.create(
+      window as unknown as Parameters<SessionManager['create']>[0],
+      {
+        cwd: '/repo',
+      }
+    );
+    expect(opened.session.sessionId).toBe('local-1');
+
+    const orphanTarget = {
+      send: vi.fn(),
+      isDestroyed: () => false,
+    } as unknown as Parameters<SessionManager['create']>[0];
+    await expect(manager.create(orphanTarget, { cwd: '/repo-orphan' })).rejects.toThrow(
+      'Window not found for session'
+    );
+
+    await expect(manager.attach(3, { sessionId: 'missing-session' })).rejects.toThrow(
+      'Session not found: missing-session'
+    );
+
+    await expect(manager.detach(3, 'missing-session')).resolves.toBeUndefined();
+    await expect(manager.kill('missing-session')).resolves.toBeUndefined();
+    expect(manager.write('missing-session', 'pwd\n')).toBeUndefined();
+    expect(manager.resize('missing-session', 120, 40)).toBeUndefined();
+    await expect(manager.getActivity('missing-session')).resolves.toBe(false);
+    await expect(manager.getSessionRuntimeInfo('missing-session')).resolves.toBeNull();
+  });
+
   it('reports unified runtime info for PTY, supervisor, remote, and missing sessions', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -448,6 +501,57 @@ describe('SessionManager', () => {
     await expect(manager.getSessionRuntimeInfo('missing-session')).resolves.toBeNull();
   });
 
+  it('returns a session descriptor for active sessions and null for missing or removed sessions', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-descriptor', kind: 'terminal' });
+
+    expect(manager.getSessionDescriptor(opened.session.sessionId)).toEqual(
+      expect.objectContaining({
+        sessionId: opened.session.sessionId,
+        backend: 'local',
+        cwd: '/repo-descriptor',
+        kind: 'terminal',
+      })
+    );
+    expect(manager.getSessionDescriptor('missing-session')).toBeNull();
+
+    await manager.kill(opened.session.sessionId);
+
+    expect(manager.getSessionDescriptor(opened.session.sessionId)).toBeNull();
+  });
+
+  it('returns local sessions to buffering when attach activation runs without attached windows', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-buffering' });
+    const sessionId = opened.session.sessionId;
+
+    await manager.attach(1, { sessionId });
+
+    const session = getManagedSessions(manager).get(sessionId);
+    expect(session).toBeDefined();
+
+    session?.attachedWindowIds.clear();
+    await vi.runAllTimersAsync();
+
+    expect(session?.streamState).toBe('buffering');
+  });
+
+  it('no-ops when delayed local attach activation runs after the session is gone', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const activateLocalStreamAfterAttach = getPrivateMethod<[string, number], void>(
+      manager,
+      'activateLocalStreamAfterAttach'
+    );
+
+    activateLocalStreamAfterAttach('missing-local-session', 0);
+    await vi.runAllTimersAsync();
+
+    expect(manager.list(1)).toEqual([]);
+  });
+
   it('emits pending local exits after attach activation completes', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -466,6 +570,75 @@ describe('SessionManager', () => {
       { sessionId, exitCode: 130, signal: 9 },
     ]);
     expect(manager.list(1)).toEqual([]);
+  });
+
+  it('keeps local sessions alive while another window remains attached', async () => {
+    createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-shared' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(2, { sessionId });
+    await manager.detach(1, sessionId);
+
+    expect(pty.destroy).not.toHaveBeenCalledWith(sessionId);
+    expect(manager.list(2)).toEqual([
+      expect.objectContaining({
+        sessionId,
+      }),
+    ]);
+  });
+
+  it('streams local data immediately after activation and emits exits for live PTY sessions', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-live' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+
+    pty.emitData(sessionId, 'after attach');
+    pty.emitExit(sessionId, 0);
+
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_DATA,
+      { sessionId, data: 'after attach' },
+    ]);
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_EXIT,
+      { sessionId, exitCode: 0, signal: undefined },
+    ]);
+    expect(manager.list(1)).toEqual([]);
+  });
+
+  it('ignores empty local output and late PTY data after a session has already been removed', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-ignore' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+
+    pty.emitData(sessionId, '');
+    expect(
+      getWindowSendCalls(1).filter(
+        (call) => call[0] === IPC_CHANNELS.SESSION_DATA && call[1]?.sessionId === sessionId
+      )
+    ).toEqual([]);
+
+    pty.destroy.mockImplementation(() => {});
+    await manager.kill(sessionId);
+    const sendCountAfterKill = getWindowSendCalls(1).length;
+
+    pty.emitData(sessionId, 'late output');
+
+    expect(getWindowSendCalls(1)).toHaveLength(sendCountAfterKill);
   });
 
   it('abandons persistent ui session records when non-persistent agent sessions exit', async () => {
@@ -602,6 +775,122 @@ describe('SessionManager', () => {
           kind: 'agent',
         }),
       ]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('forwards supervisor runtime data and exit events through the registered callbacks', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+
+      const onData = sessionTestDoubles.supervisorOnData.mock.calls[0]?.[0] as
+        | ((event: { sessionId: string; data: string }) => void)
+        | undefined;
+      const onExit = sessionTestDoubles.supervisorOnExit.mock.calls[0]?.[0] as
+        | ((event: { sessionId: string; exitCode: number; signal?: number }) => void)
+        | undefined;
+
+      onData?.({ sessionId: opened.session.sessionId, data: 'supervisor output' });
+      onExit?.({ sessionId: opened.session.sessionId, exitCode: 23, signal: 9 });
+
+      expect(getWindowSendCalls(1)).toContainEqual([
+        IPC_CHANNELS.SESSION_DATA,
+        { sessionId: opened.session.sessionId, data: 'supervisor output' },
+      ]);
+      expect(getWindowSendCalls(1)).toContainEqual([
+        IPC_CHANNELS.SESSION_EXIT,
+        { sessionId: opened.session.sessionId, exitCode: 23, signal: 9 },
+      ]);
+      expect(manager.list(1)).toEqual([]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('ignores supervisor runtime data for unknown sessions', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+
+    try {
+      await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+
+      const onData = sessionTestDoubles.supervisorOnData.mock.calls[0]?.[0] as
+        | ((event: { sessionId: string; data: string }) => void)
+        | undefined;
+
+      onData?.({ sessionId: 'missing-supervisor-session', data: 'ignored' });
+
+      expect(getWindowSendCalls(1)).toEqual([]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('ignores supervisor runtime exit callbacks for sessions that no longer exist', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+
+    try {
+      await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+
+      const onExit = sessionTestDoubles.supervisorOnExit.mock.calls[0]?.[0] as
+        | ((event: { sessionId: string; exitCode: number; signal?: number }) => void)
+        | undefined;
+
+      onExit?.({ sessionId: 'missing-supervisor-session', exitCode: 9 });
+
+      expect(getWindowSendCalls(1)).toEqual([]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('kills supervisor-backed sessions and falls back to false when supervisor activity checks fail', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+
+      sessionTestDoubles.supervisorGetSessionActivity.mockRejectedValueOnce(
+        new Error('activity failed')
+      );
+
+      await expect(manager.getActivity(opened.session.sessionId)).resolves.toBe(false);
+      await manager.kill(opened.session.sessionId);
+
+      expect(sessionTestDoubles.supervisorKillSession).toHaveBeenCalledWith(
+        opened.session.sessionId
+      );
+      expect(getWindowSendCalls(1)).toContainEqual([
+        IPC_CHANNELS.SESSION_EXIT,
+        { sessionId: opened.session.sessionId, exitCode: 0 },
+      ]);
+      expect(manager.list(1)).toEqual([]);
     } finally {
       platform.mockRestore();
     }
@@ -748,6 +1037,239 @@ describe('SessionManager', () => {
     expect(manager.list(2)).toEqual([]);
   });
 
+  it('ignores empty remote data payloads and unknown remote exit events', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-ignore', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-ignore',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockResolvedValueOnce({
+      session: remoteDescriptor,
+      replay: 'boot',
+    });
+
+    await manager.attach(1, {
+      sessionId: 'remote-ignore',
+      cwd: remotePath,
+    });
+
+    const sendCountBefore = getWindowSendCalls(1).length;
+
+    sessionTestDoubles.remoteDataListeners.get('conn-ignore')?.({
+      sessionId: 'remote-ignore',
+      data: '',
+    });
+    sessionTestDoubles.remoteExitListeners.get('conn-ignore')?.({
+      sessionId: 'missing-remote-session',
+      exitCode: 9,
+    });
+
+    expect(getWindowSendCalls(1)).toHaveLength(sendCountBefore);
+    expect(manager.list(1)).toEqual([
+      expect.objectContaining({
+        sessionId: 'remote-ignore',
+      }),
+    ]);
+  });
+
+  it('reuses a pending remote subscription setup across concurrent attach calls', async () => {
+    createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+    let resolveDataListener: (() => void) | undefined;
+
+    sessionTestDoubles.remoteConnectionManager.addEventListener
+      .mockImplementationOnce(
+        async (connectionId: string, event: string, listener: (payload: unknown) => void) => {
+          if (event === 'remote:session:data') {
+            sessionTestDoubles.remoteDataListeners.set(connectionId, listener);
+          }
+          await new Promise<void>((resolve) => {
+            resolveDataListener = resolve;
+          });
+          return vi.fn();
+        }
+      )
+      .mockImplementationOnce(
+        async (connectionId: string, event: string, listener: (payload: unknown) => void) => {
+          if (event === 'remote:session:exit') {
+            sessionTestDoubles.remoteExitListeners.set(connectionId, listener);
+          }
+          return vi.fn();
+        }
+      );
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method, payload) => {
+        if (method === 'session:attach') {
+          return {
+            session: makeRemoteDescriptor({
+              sessionId: String(Reflect.get(payload as object, 'sessionId')),
+              cwd: '/workspace',
+            }),
+            replay: '',
+          };
+        }
+        return undefined;
+      }
+    );
+
+    const attachOne = manager.attach(1, {
+      sessionId: 'remote-pending-a',
+      cwd: toRemoteVirtualPath('conn-pending', '/workspace'),
+    });
+    await Promise.resolve();
+    const attachTwo = manager.attach(2, {
+      sessionId: 'remote-pending-b',
+      cwd: toRemoteVirtualPath('conn-pending', '/workspace'),
+    });
+    await Promise.resolve();
+
+    resolveDataListener?.();
+
+    await expect(Promise.all([attachOne, attachTwo])).resolves.toEqual([
+      {
+        session: expect.objectContaining({
+          sessionId: 'remote-pending-a',
+        }),
+        replay: '',
+      },
+      {
+        session: expect.objectContaining({
+          sessionId: 'remote-pending-b',
+        }),
+        replay: '',
+      },
+    ]);
+    expect(sessionTestDoubles.remoteConnectionManager.addEventListener).toHaveBeenCalledTimes(2);
+    expect(sessionTestDoubles.remoteConnectionManager.onDidDisconnect).toHaveBeenCalledTimes(1);
+    expect(sessionTestDoubles.remoteConnectionManager.onDidStatusChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans up stale remote subscriptions when setup finishes after the connection is gone', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const offData = vi.fn();
+    const offExit = vi.fn();
+
+    sessionTestDoubles.remoteConnectionManager.getStatus.mockReturnValue({
+      connected: false,
+      recoverable: true,
+    });
+    sessionTestDoubles.remoteConnectionManager.addEventListener
+      .mockImplementationOnce(async () => offData)
+      .mockImplementationOnce(async () => offExit);
+    sessionTestDoubles.remoteConnectionManager.call.mockResolvedValueOnce({
+      session: makeRemoteDescriptor({
+        sessionId: 'remote-stale-subscription',
+        cwd: '/workspace',
+      }),
+      replay: '',
+    });
+
+    await manager.attach(1, {
+      sessionId: 'remote-stale-subscription',
+      cwd: toRemoteVirtualPath('conn-stale', '/workspace'),
+    });
+
+    expect(offData).toHaveBeenCalledTimes(1);
+    expect(offExit).toHaveBeenCalledTimes(1);
+
+    sessionTestDoubles.remoteDisconnectListeners.get('conn-stale')?.();
+  });
+
+  it('suppresses stale remote subscription cleanup failures when setup is discarded', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+
+    sessionTestDoubles.remoteConnectionManager.getStatus.mockReturnValue({
+      connected: false,
+      recoverable: true,
+    });
+    sessionTestDoubles.remoteConnectionManager.addEventListener
+      .mockImplementationOnce(async () =>
+        vi.fn(() => {
+          throw new Error('stale data cleanup failed');
+        })
+      )
+      .mockImplementationOnce(async () =>
+        vi.fn(() => {
+          throw new Error('stale exit cleanup failed');
+        })
+      );
+    sessionTestDoubles.remoteConnectionManager.call.mockResolvedValueOnce({
+      session: makeRemoteDescriptor({
+        sessionId: 'remote-stale-throwing-subscription',
+        cwd: '/workspace',
+      }),
+      replay: '',
+    });
+
+    await expect(
+      manager.attach(1, {
+        sessionId: 'remote-stale-throwing-subscription',
+        cwd: toRemoteVirtualPath('conn-stale-throwing', '/workspace'),
+      })
+    ).resolves.toEqual({
+      session: expect.objectContaining({
+        sessionId: 'remote-stale-throwing-subscription',
+      }),
+      replay: '',
+    });
+  });
+
+  it('cleans up the remote data listener when exit listener subscription setup fails', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-subscribe-fail', '/workspace');
+    const offData = vi.fn();
+
+    sessionTestDoubles.remoteConnectionManager.addEventListener
+      .mockImplementationOnce(async (connectionId, event, listener) => {
+        if (event === 'remote:session:data') {
+          sessionTestDoubles.remoteDataListeners.set(connectionId, listener);
+        }
+        return offData;
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error('exit listener failed');
+      });
+
+    await expect(
+      manager.attach(1, {
+        sessionId: 'remote-subscribe-fail',
+        cwd: remotePath,
+      })
+    ).rejects.toThrow('exit listener failed');
+
+    expect(offData).toHaveBeenCalledTimes(1);
+  });
+
+  it('suppresses data listener disposal failures when exit listener setup fails', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+
+    sessionTestDoubles.remoteConnectionManager.addEventListener
+      .mockImplementationOnce(async () =>
+        vi.fn(() => {
+          throw new Error('dispose data failed');
+        })
+      )
+      .mockImplementationOnce(async () => {
+        throw new Error('exit listener failed');
+      });
+
+    await expect(
+      manager.attach(1, {
+        sessionId: 'remote-subscribe-cleanup-fail',
+        cwd: toRemoteVirtualPath('conn-subscribe-cleanup-fail', '/workspace'),
+      })
+    ).rejects.toThrow('exit listener failed');
+  });
+
   it('falls back when remote write, resize, activity, and detach operations fail', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -805,6 +1327,207 @@ describe('SessionManager', () => {
 
     await manager.detach(1, 'remote-5');
     expect(manager.list(1)).toEqual([]);
+  });
+
+  it('falls back to cached remote replay when a reattach attempt fails after the connection drops', async () => {
+    createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-7', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-7',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call
+      .mockResolvedValueOnce({
+        session: remoteDescriptor,
+        replay: 'cached replay',
+      })
+      .mockRejectedValueOnce(new Error('attach failed'));
+
+    await manager.attach(1, {
+      sessionId: 'remote-7',
+      cwd: remotePath,
+    });
+
+    sessionTestDoubles.remoteConnectionManager.getStatus
+      .mockReturnValueOnce({
+        connected: true,
+        recoverable: true,
+      })
+      .mockReturnValue({
+        connected: false,
+        recoverable: false,
+      });
+
+    const result = await manager.attach(2, {
+      sessionId: 'remote-7',
+    });
+
+    expect(result).toEqual({
+      session: expect.objectContaining({
+        sessionId: 'remote-7',
+        runtimeState: 'dead',
+      }),
+      replay: 'cached replay',
+    });
+    expect(getWindowSendCalls(2)).toContainEqual([
+      IPC_CHANNELS.SESSION_STATE,
+      { sessionId: 'remote-7', state: 'dead' },
+    ]);
+  });
+
+  it('rethrows remote attach failures when the connection is still reported as healthy', async () => {
+    createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-healthy-fail', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-healthy-fail',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call
+      .mockResolvedValueOnce({
+        session: remoteDescriptor,
+        replay: 'cached replay',
+      })
+      .mockRejectedValueOnce(new Error('attach failed while connected'));
+
+    await manager.attach(1, {
+      sessionId: 'remote-healthy-fail',
+      cwd: remotePath,
+    });
+
+    sessionTestDoubles.remoteConnectionManager.getStatus.mockReturnValue({
+      connected: true,
+      recoverable: true,
+    });
+
+    await expect(
+      manager.attach(2, {
+        sessionId: 'remote-healthy-fail',
+      })
+    ).rejects.toThrow('attach failed while connected');
+  });
+
+  it('emits dead state when supervisor-backed write and resize operations fail', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+
+      sessionTestDoubles.supervisorWriteSession.mockRejectedValueOnce(new Error('write failed'));
+      sessionTestDoubles.supervisorResizeSession.mockRejectedValueOnce(new Error('resize failed'));
+
+      manager.write(opened.session.sessionId, 'dir\r');
+      manager.resize(opened.session.sessionId, 120, 40);
+      await flushAsyncWork();
+
+      const deadStates = getWindowSendCalls(1).filter(
+        (call) =>
+          call[0] === IPC_CHANNELS.SESSION_STATE &&
+          call[1]?.sessionId === opened.session.sessionId &&
+          call[1]?.state === 'dead'
+      );
+      expect(deadStates).toHaveLength(2);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('warns when abandoning a persistent agent session record fails', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      sessionTestDoubles.persistentAbandonSession.mockRejectedValueOnce(
+        new Error('abandon failed')
+      );
+
+      const opened = await manager.create(1, {
+        cwd: '/repo-a',
+        kind: 'agent',
+        persistOnDisconnect: false,
+        metadata: {
+          uiSessionId: 'ui-session-1',
+        },
+      });
+      const pty = sessionTestDoubles.ptyInstances[0];
+
+      pty.emitExit(opened.session.sessionId, 0);
+      await flushAsyncWork();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[session] Failed to abandon persistent agent session record:',
+        expect.any(Error)
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('warns when remote recovery cannot re-subscribe after a disconnect', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const remotePath = toRemoteVirtualPath('conn-recover-warn', '/workspace');
+
+    try {
+      sessionTestDoubles.remoteConnectionManager.call.mockResolvedValueOnce({
+        session: makeRemoteDescriptor({
+          sessionId: 'remote-recover-warn',
+          cwd: '/workspace',
+        }),
+        replay: '',
+      });
+
+      await manager.attach(1, {
+        sessionId: 'remote-recover-warn',
+        cwd: remotePath,
+      });
+
+      sessionTestDoubles.remoteDisconnectListeners.get('conn-recover-warn')?.();
+      sessionTestDoubles.remoteConnectionManager.addEventListener.mockRejectedValueOnce(
+        new Error('re-subscribe failed')
+      );
+
+      sessionTestDoubles.remoteStatusListeners.get('conn-recover-warn')?.({
+        connected: true,
+        recoverable: true,
+      });
+      await (Reflect.get(manager, 'remoteRecoveryPromises') as Map<string, Promise<void>>).get(
+        'conn-recover-warn'
+      );
+      await flushAsyncWork();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[session] Failed to recover remote sessions:',
+        expect.any(Error)
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('no-ops when processing a remote status change for a connection with no sessions', async () => {
+    const manager = new SessionManager();
+    const processRemoteStatusChange = getPrivateMethod<
+      [string, { connected: boolean; recoverable?: boolean; phase?: string }],
+      Promise<void>
+    >(manager, 'processRemoteStatusChange');
+
+    await expect(
+      processRemoteStatusChange('missing-connection', { connected: true, recoverable: true })
+    ).resolves.toBeUndefined();
   });
 
   it('replays remote deltas across reconnect and removes dead sessions missing from resume list', async () => {
@@ -893,6 +1616,441 @@ describe('SessionManager', () => {
     ]);
   });
 
+  it('skips stale remote sessions before resume starts when the tracked record changed', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const processRemoteStatusChange = getPrivateMethod<
+      [string, { connected: boolean; recoverable?: boolean; phase?: string }],
+      Promise<void>
+    >(manager, 'processRemoteStatusChange');
+    const remotePath = toRemoteVirtualPath('conn-stale-before-resume', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-stale-before-resume',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: 'boot' };
+        }
+        if (method === 'session:list') {
+          const sessions = getManagedSessions(manager);
+          const current = sessions.get('remote-stale-before-resume');
+          if (current) {
+            sessions.set('remote-stale-before-resume', {
+              ...current,
+              attachedWindowIds: new Set(current.attachedWindowIds),
+            });
+          }
+          return [remoteDescriptor];
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, {
+      sessionId: 'remote-stale-before-resume',
+      cwd: remotePath,
+    });
+
+    await processRemoteStatusChange('conn-stale-before-resume', {
+      connected: true,
+      recoverable: true,
+    });
+
+    expect(
+      sessionTestDoubles.remoteConnectionManager.call.mock.calls.filter(
+        ([, method]) => method === 'session:resume'
+      )
+    ).toHaveLength(0);
+  });
+
+  it('skips stale remote sessions after resume settles when the record was removed in the meantime', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const processRemoteStatusChange = getPrivateMethod<
+      [string, { connected: boolean; recoverable?: boolean; phase?: string }],
+      Promise<void>
+    >(manager, 'processRemoteStatusChange');
+    const remotePath = toRemoteVirtualPath('conn-stale-after-resume', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-stale-after-resume',
+      cwd: '/workspace',
+    });
+    let resolveResume: ((value: SessionAttachResult) => void) | undefined;
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: 'boot' };
+        }
+        if (method === 'session:list') {
+          return [remoteDescriptor];
+        }
+        if (method === 'session:resume') {
+          return new Promise<SessionAttachResult>((resolve) => {
+            resolveResume = resolve;
+          });
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, {
+      sessionId: 'remote-stale-after-resume',
+      cwd: remotePath,
+    });
+
+    const recoveryPromise = processRemoteStatusChange('conn-stale-after-resume', {
+      connected: true,
+      recoverable: true,
+    });
+    await flushAsyncWork();
+    getManagedSessions(manager).delete('remote-stale-after-resume');
+    resolveResume?.({
+      session: remoteDescriptor,
+      replay: 'boot resumed',
+    });
+
+    await recoveryPromise;
+
+    expect(manager.list(1)).toEqual([]);
+  });
+
+  it('skips stale remote sessions after resume failures when the record was already removed', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const processRemoteStatusChange = getPrivateMethod<
+      [string, { connected: boolean; recoverable?: boolean; phase?: string }],
+      Promise<void>
+    >(manager, 'processRemoteStatusChange');
+    const remotePath = toRemoteVirtualPath('conn-stale-resume-fail', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-stale-resume-fail',
+      cwd: '/workspace',
+    });
+    let rejectResume: ((reason?: unknown) => void) | undefined;
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: 'boot' };
+        }
+        if (method === 'session:list') {
+          return [remoteDescriptor];
+        }
+        if (method === 'session:resume') {
+          return new Promise<never>((_, reject) => {
+            rejectResume = reject;
+          });
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, {
+      sessionId: 'remote-stale-resume-fail',
+      cwd: remotePath,
+    });
+
+    const recoveryPromise = processRemoteStatusChange('conn-stale-resume-fail', {
+      connected: true,
+      recoverable: true,
+    });
+    await flushAsyncWork();
+    getManagedSessions(manager).delete('remote-stale-resume-fail');
+    rejectResume?.(new Error('resume failed after removal'));
+
+    await recoveryPromise;
+
+    expect(manager.list(1)).toEqual([]);
+  });
+
+  it('keeps remote sessions in reconnecting state when resume inventory cannot be fetched', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-list-fail', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-list-fail',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: 'boot' };
+        }
+        if (method === 'session:list') {
+          throw new Error('list failed');
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, {
+      sessionId: 'remote-list-fail',
+      cwd: remotePath,
+    });
+
+    sessionTestDoubles.remoteStatusListeners.get('conn-list-fail')?.({
+      connected: true,
+      recoverable: true,
+    });
+    await flushAsyncWork();
+
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_STATE,
+      { sessionId: 'remote-list-fail', state: 'reconnecting' },
+    ]);
+    expect(manager.list(1)).toEqual([
+      expect.objectContaining({
+        sessionId: 'remote-list-fail',
+        runtimeState: 'reconnecting',
+      }),
+    ]);
+  });
+
+  it('marks remote sessions reconnecting when resume fails after the connection drops again', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-resume-fail', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-resume-fail',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: 'boot' };
+        }
+        if (method === 'session:list') {
+          return [remoteDescriptor];
+        }
+        if (method === 'session:resume') {
+          throw new Error('resume failed');
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, {
+      sessionId: 'remote-resume-fail',
+      cwd: remotePath,
+    });
+
+    sessionTestDoubles.remoteConnectionManager.getStatus.mockReturnValue({
+      connected: false,
+      recoverable: true,
+    });
+
+    sessionTestDoubles.remoteStatusListeners.get('conn-resume-fail')?.({
+      connected: true,
+      recoverable: true,
+    });
+    await flushAsyncWork();
+
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_STATE,
+      { sessionId: 'remote-resume-fail', state: 'reconnecting' },
+    ]);
+    expect(manager.list(1)).toEqual([
+      expect.objectContaining({
+        sessionId: 'remote-resume-fail',
+        runtimeState: 'reconnecting',
+      }),
+    ]);
+  });
+
+  it('forwards remote exit events and removes the session from all attached windows', async () => {
+    createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-exit', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-exit',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return {
+            session: remoteDescriptor,
+            replay: 'boot',
+          };
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, { sessionId: 'remote-exit', cwd: remotePath });
+    await manager.attach(2, { sessionId: 'remote-exit' });
+
+    sessionTestDoubles.remoteExitListeners.get('conn-exit')?.({
+      sessionId: 'remote-exit',
+      exitCode: 17,
+      signal: 15,
+    });
+
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_STATE,
+      { sessionId: 'remote-exit', state: 'dead' },
+    ]);
+    expect(getWindowSendCalls(2)).toContainEqual([
+      IPC_CHANNELS.SESSION_EXIT,
+      { sessionId: 'remote-exit', exitCode: 17, signal: 15 },
+    ]);
+    expect(manager.list(1)).toEqual([]);
+    expect(manager.list(2)).toEqual([]);
+  });
+
+  it('marks remote sessions dead on non-recoverable status changes and skips destroyed windows', async () => {
+    const _firstWindow = createWindow(1);
+    const secondWindow = createWindow(2);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-dead-status', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-dead-status',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: '' };
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, {
+      sessionId: 'remote-dead-status',
+      cwd: remotePath,
+    });
+    await manager.attach(2, {
+      sessionId: 'remote-dead-status',
+    });
+
+    secondWindow.isDestroyed = () => true;
+    secondWindow.webContents.isDestroyed = () => true;
+
+    sessionTestDoubles.remoteStatusListeners.get('conn-dead-status')?.({
+      connected: false,
+      recoverable: false,
+    });
+    await flushAsyncWork();
+
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_STATE,
+      { sessionId: 'remote-dead-status', state: 'dead' },
+    ]);
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_EXIT,
+      { sessionId: 'remote-dead-status', exitCode: 1 },
+    ]);
+    expect(getWindowSendCalls(2)).toEqual([]);
+    expect(manager.list(1)).toEqual([]);
+  });
+
+  it('skips disconnected-state processing when remote records change before iteration and ignores stale dead markers', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const processRemoteStatusChange = getPrivateMethod<
+      [string, { connected: boolean; recoverable?: boolean; phase?: string }],
+      Promise<void>
+    >(manager, 'processRemoteStatusChange');
+    const markRemoteSessionDead = getPrivateMethod<[SessionRecordView], void>(
+      manager,
+      'markRemoteSessionDead'
+    );
+    const remotePath = toRemoteVirtualPath('conn-stale-disconnected', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-stale-disconnected',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockResolvedValueOnce({
+      session: remoteDescriptor,
+      replay: '',
+    });
+
+    await manager.attach(1, {
+      sessionId: 'remote-stale-disconnected',
+      cwd: remotePath,
+    });
+
+    const sessions = getManagedSessions(manager);
+    const current = sessions.get('remote-stale-disconnected');
+    expect(current).toBeDefined();
+
+    const originalGet = sessions.get.bind(sessions);
+    Object.defineProperty(sessions, 'get', {
+      value(sessionId: string) {
+        if (sessionId === 'remote-stale-disconnected') {
+          sessions.delete(sessionId);
+          return undefined;
+        }
+        return originalGet(sessionId);
+      },
+      configurable: true,
+    });
+
+    await processRemoteStatusChange('conn-stale-disconnected', {
+      connected: false,
+      recoverable: false,
+    });
+
+    Object.defineProperty(sessions, 'get', {
+      value: originalGet,
+      configurable: true,
+    });
+
+    sessions.set('remote-stale-disconnected', {
+      ...(current as SessionRecordView),
+      attachedWindowIds: new Set(current?.attachedWindowIds),
+    });
+    markRemoteSessionDead(current as SessionRecordView);
+
+    expect(manager.list(1)).toEqual([
+      expect.objectContaining({
+        sessionId: 'remote-stale-disconnected',
+      }),
+    ]);
+  });
+
+  it('skips destroyed webContents and warns when a window send throws during event delivery', async () => {
+    const windowOne = createWindow(1);
+    const windowTwo = createWindow(2);
+    const manager = new SessionManager();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const opened = await manager.create(1, { cwd: '/repo-a' });
+      await manager.attach(2, { sessionId: opened.session.sessionId });
+
+      windowOne.webContents.send = vi.fn(() => {
+        throw new Error('send failed');
+      });
+      windowTwo.webContents.isDestroyed = () => true;
+
+      await manager.kill(opened.session.sessionId);
+
+      expect(windowOne.webContents.send).toHaveBeenCalledWith(IPC_CHANNELS.SESSION_EXIT, {
+        sessionId: opened.session.sessionId,
+        exitCode: 0,
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[session] Failed to emit session event to window:',
+        expect.any(Error)
+      );
+      expect(getWindowSendCalls(2)).toEqual([]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('kills matching local sessions by workdir and cleans remote listeners on disconnect', async () => {
     createWindow(1);
     createWindow(2);
@@ -977,5 +2135,141 @@ describe('SessionManager', () => {
     expect(sessionTestDoubles.remoteExitListeners.has('conn-6')).toBe(false);
     expect(sessionTestDoubles.remoteDisconnectListeners.has('conn-6')).toBe(false);
     expect(sessionTestDoubles.remoteStatusListeners.has('conn-6')).toBe(false);
+  });
+
+  it('warns when remote lifecycle subscription cleanup fails after the last session detaches', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      sessionTestDoubles.remoteConnectionManager.onDidDisconnect.mockImplementationOnce(() =>
+        vi.fn(() => {
+          throw new Error('disconnect cleanup failed');
+        })
+      );
+      sessionTestDoubles.remoteConnectionManager.onDidStatusChange.mockImplementationOnce(() =>
+        vi.fn(() => {
+          throw new Error('status cleanup failed');
+        })
+      );
+      sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+        async (_connectionId, method) => {
+          if (method === 'session:attach') {
+            return {
+              session: makeRemoteDescriptor({
+                sessionId: 'remote-cleanup',
+                cwd: '/workspace',
+              }),
+              replay: '',
+            };
+          }
+          return undefined;
+        }
+      );
+
+      await manager.attach(1, {
+        sessionId: 'remote-cleanup',
+        cwd: toRemoteVirtualPath('conn-8', '/workspace'),
+      });
+      await manager.detach(1, 'remote-cleanup');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[session] Failed to dispose remote disconnect listener:',
+        expect.any(Error)
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[session] Failed to dispose remote status listener:',
+        expect.any(Error)
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('warns when remote subscription cleanup cannot dispose data or exit listeners', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      sessionTestDoubles.remoteConnectionManager.addEventListener
+        .mockImplementationOnce(async () =>
+          vi.fn(() => {
+            throw new Error('data cleanup failed');
+          })
+        )
+        .mockImplementationOnce(async () =>
+          vi.fn(() => {
+            throw new Error('exit cleanup failed');
+          })
+        );
+      sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+        async (_connectionId, method) => {
+          if (method === 'session:attach') {
+            return {
+              session: makeRemoteDescriptor({
+                sessionId: 'remote-off-cleanup',
+                cwd: '/workspace',
+              }),
+              replay: '',
+            };
+          }
+          return undefined;
+        }
+      );
+
+      await manager.attach(1, {
+        sessionId: 'remote-off-cleanup',
+        cwd: toRemoteVirtualPath('conn-off-cleanup', '/workspace'),
+      });
+      await manager.detach(1, 'remote-off-cleanup');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[session] Failed to dispose remote data listener:',
+        expect.any(Error)
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[session] Failed to dispose remote exit listener:',
+        expect.any(Error)
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('handles replay helper edge cases and ignores runtime state updates for non-remote sessions', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const getReplayDelta = getPrivateMethod<[string | undefined, string], string>(
+      manager,
+      'getReplayDelta'
+    );
+    const getReplayOverlap = getPrivateMethod<[string, string], number>(
+      manager,
+      'getReplayOverlap'
+    );
+    const setSessionRuntimeState = getPrivateMethod<
+      [string, 'live' | 'reconnecting' | 'dead'],
+      void
+    >(manager, 'setSessionRuntimeState');
+
+    expect(getReplayDelta(undefined, 'alpha')).toBe('alpha');
+    expect(getReplayDelta('alpha', '')).toBe('');
+    expect(getReplayOverlap('', 'alpha')).toBe(0);
+    expect(getReplayOverlap('xxababab', 'ababaca')).toBe(4);
+    expect(getReplayOverlap('ababaa', 'ababa')).toBe(1);
+    expect(getReplayOverlap('ababa', 'ababa')).toBe(5);
+
+    const opened = await manager.create(1, { cwd: '/repo-helper' });
+    setSessionRuntimeState(opened.session.sessionId, 'dead');
+    setSessionRuntimeState('missing-session', 'dead');
+
+    expect(manager.list(1)).toEqual([
+      expect.objectContaining({
+        sessionId: opened.session.sessionId,
+        runtimeState: 'live',
+      }),
+    ]);
   });
 });

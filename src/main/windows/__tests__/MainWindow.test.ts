@@ -9,6 +9,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
   const writeFileSync = vi.fn();
   const getPath = vi.fn((name: string) => `/mock/${name}`);
   const getAppPath = vi.fn(() => '/mock/app');
+  const appFocus = vi.fn();
   const nativeThemeShouldUseDarkColors = vi.fn(() => true);
   const showMessageBox = vi.fn();
   const shellOpenExternal = vi.fn();
@@ -69,6 +70,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     writeFileSync.mockReset();
     getPath.mockReset();
     getAppPath.mockReset();
+    appFocus.mockReset();
     nativeThemeShouldUseDarkColors.mockReset();
     showMessageBox.mockReset();
     shellOpenExternal.mockReset();
@@ -101,6 +103,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
   return {
     MockBrowserWindow,
     app: {
+      focus: appFocus,
       getAppPath,
       getPath,
       isPackaged: false,
@@ -218,6 +221,7 @@ function restoreEnvVar(name: 'INFILUX_RUNTIME_CHANNEL' | 'NODE_ENV' | 'VITEST', 
 
 describe('MainWindow', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.resetModules();
     mainWindowTestDoubles.reset();
     delete process.env.INFILUX_RUNTIME_CHANNEL;
@@ -238,6 +242,8 @@ describe('MainWindow', () => {
     restoreEnvVar('NODE_ENV', originalNodeEnv);
     restoreEnvVar('VITEST', originalVitestEnv);
     mainWindowTestDoubles.app.isPackaged = false;
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 

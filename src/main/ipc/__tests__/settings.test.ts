@@ -55,6 +55,7 @@ vi.mock('../claudeProvider', () => ({
 describe('main settings handlers', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock('../../services/settings/legacyImport');
     vi.useFakeTimers();
     settingsTestDoubles.handlers.clear();
     settingsTestDoubles.setBeforeQuitHandler(undefined);
@@ -160,6 +161,14 @@ describe('main settings handlers', () => {
     expect(readSettings()).toBeNull();
   });
 
+  it('returns true when flushSettings is called without pending dirty state', async () => {
+    const { flushSettings } = await import('../settings');
+
+    expect(flushSettings()).toBe(true);
+    expect(settingsTestDoubles.writeSharedSettings).not.toHaveBeenCalled();
+    expect(settingsTestDoubles.writeSharedSettingsToSession).not.toHaveBeenCalled();
+  });
+
   it('registers the settings read handler and returns cached settings from shared state', async () => {
     settingsTestDoubles.readSharedSettings.mockReturnValue({
       'enso-settings': {
@@ -189,6 +198,72 @@ describe('main settings handlers', () => {
       },
     });
     expect(settingsTestDoubles.readSharedSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats non-boolean nested provider watcher values as undefined and skips toggling', async () => {
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
+
+    await expect(
+      writeHandler?.(
+        {},
+        {
+          'enso-settings': {
+            state: {
+              claudeCodeIntegration: {
+                enableProviderWatcher: 'invalid',
+              },
+            },
+          },
+        }
+      )
+    ).resolves.toBe(true);
+
+    expect(settingsTestDoubles.toggleClaudeProviderWatcher).not.toHaveBeenCalled();
+  });
+
+  it('returns false when preparing a settings write throws before timers are scheduled', async () => {
+    settingsTestDoubles.toggleClaudeProviderWatcher.mockImplementationOnce(() => {
+      throw new Error('watcher toggle failed');
+    });
+
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
+
+    await expect(
+      writeHandler?.({}, { claudeCodeIntegration: { enableProviderWatcher: false } })
+    ).resolves.toBe(false);
+
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(settingsTestDoubles.writeSharedSettings).not.toHaveBeenCalled();
+    expect(settingsTestDoubles.writeSharedSettingsToSession).not.toHaveBeenCalled();
+  });
+
+  it('flushes from the max-wait timer callback when repeated writes keep resetting debounce', async () => {
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
+
+    for (let seq = 1; seq <= 11; seq += 1) {
+      await writeHandler?.({}, { seq, claudeCodeIntegration: { enableProviderWatcher: true } });
+      await vi.advanceTimersByTimeAsync(460);
+    }
+
+    expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledTimes(1);
+    expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledWith({
+      seq: 11,
+      claudeCodeIntegration: { enableProviderWatcher: true },
+    });
+    expect(settingsTestDoubles.writeSharedSettingsToSession).toHaveBeenCalledWith({
+      seq: 11,
+      claudeCodeIntegration: { enableProviderWatcher: true },
+    });
   });
 
   it('returns a legacy import preview and reports file read failures', async () => {
@@ -376,6 +451,194 @@ describe('main settings handlers', () => {
           language: 'en',
         },
       },
+    });
+  });
+
+  it('clears pending write timers when an imported settings payload is persisted immediately', async () => {
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'system',
+        },
+      },
+    });
+    settingsTestDoubles.readFileSync.mockReturnValue(
+      JSON.stringify({
+        'enso-settings': {
+          state: {
+            theme: 'dark',
+          },
+        },
+      })
+    );
+
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
+    const applyImportHandler = settingsTestDoubles.handlers.get(
+      IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_APPLY
+    );
+
+    await writeHandler?.(
+      {},
+      { pending: true, claudeCodeIntegration: { enableProviderWatcher: true } }
+    );
+    expect(settingsTestDoubles.writeSharedSettings).not.toHaveBeenCalled();
+
+    await expect(applyImportHandler?.({}, '/tmp/import-now.json')).resolves.toEqual({
+      imported: true,
+      sourcePath: '/tmp/import-now.json',
+      diffCount: 1,
+      legacyLocalStorageSnapshot: undefined,
+    });
+
+    expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledTimes(1);
+    expect(settingsTestDoubles.writeSharedSettings).toHaveBeenLastCalledWith({
+      pending: true,
+      claudeCodeIntegration: {
+        enableProviderWatcher: true,
+      },
+      'enso-settings': {
+        state: {
+          theme: 'dark',
+        },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('merges legacy LevelDB and session-state localStorage snapshots during preview', async () => {
+    vi.doMock('../../services/settings/legacyImport', async () => {
+      const actual = await vi.importActual<typeof import('../../services/settings/legacyImport')>(
+        '../../services/settings/legacyImport'
+      );
+
+      return {
+        ...actual,
+        readLegacyImportLocalStorageSnapshot: vi.fn(() => ({
+          'enso-selected-repo': '/repo/session',
+        })),
+        readLegacyElectronLocalStorageSnapshot: vi.fn(() => ({
+          'enso-repositories':
+            '[{"path":"/repo/leveldb","name":"leveldb","id":"local:/repo/leveldb"}]',
+        })),
+      };
+    });
+
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'system',
+        },
+      },
+    });
+    settingsTestDoubles.readFileSync.mockReturnValue(
+      JSON.stringify({
+        'enso-settings': {
+          state: {
+            theme: 'dark',
+          },
+        },
+      })
+    );
+
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const previewHandler = settingsTestDoubles.handlers.get(
+      IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_PREVIEW
+    );
+
+    await expect(previewHandler?.({}, '/tmp/legacy-merged.json')).resolves.toEqual({
+      sourcePath: '/tmp/legacy-merged.json',
+      importable: true,
+      diffCount: 3,
+      diffs: [
+        {
+          path: 'theme',
+          currentValue: '"system"',
+          importedValue: '"dark"',
+        },
+        {
+          path: 'localStorage.enso-repositories',
+          currentValue: 'Not set',
+          importedValue:
+            '"[{\\"path\\":\\"/repo/leveldb\\",\\"name\\":\\"leveldb\\",\\"id\\":\\"local:/repo/leveldb\\"}]"',
+        },
+        {
+          path: 'localStorage.enso-selected-repo',
+          currentValue: 'Not set',
+          importedValue: '"/repo/session"',
+        },
+      ],
+      truncated: false,
+      error: undefined,
+    });
+  });
+
+  it('falls back to the LevelDB localStorage snapshot when no session-state snapshot exists', async () => {
+    vi.doMock('../../services/settings/legacyImport', async () => {
+      const actual = await vi.importActual<typeof import('../../services/settings/legacyImport')>(
+        '../../services/settings/legacyImport'
+      );
+
+      return {
+        ...actual,
+        readLegacyImportLocalStorageSnapshot: vi.fn(() => null),
+        readLegacyElectronLocalStorageSnapshot: vi.fn(() => ({
+          'enso-repositories':
+            '[{"path":"/repo/leveldb-only","name":"leveldb-only","id":"local:/repo/leveldb-only"}]',
+        })),
+      };
+    });
+
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'system',
+        },
+      },
+    });
+    settingsTestDoubles.readFileSync.mockReturnValue(
+      JSON.stringify({
+        'enso-settings': {
+          state: {
+            theme: 'dark',
+          },
+        },
+      })
+    );
+
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const previewHandler = settingsTestDoubles.handlers.get(
+      IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_PREVIEW
+    );
+
+    await expect(previewHandler?.({}, '/tmp/legacy-leveldb-only.json')).resolves.toEqual({
+      sourcePath: '/tmp/legacy-leveldb-only.json',
+      importable: true,
+      diffCount: 2,
+      diffs: [
+        {
+          path: 'theme',
+          currentValue: '"system"',
+          importedValue: '"dark"',
+        },
+        {
+          path: 'localStorage.enso-repositories',
+          currentValue: 'Not set',
+          importedValue:
+            '"[{\\"path\\":\\"/repo/leveldb-only\\",\\"name\\":\\"leveldb-only\\",\\"id\\":\\"local:/repo/leveldb-only\\"}]"',
+        },
+      ],
+      truncated: false,
+      error: undefined,
     });
   });
 
@@ -623,5 +886,52 @@ describe('main settings handlers', () => {
       diffCount: 0,
       error: 'Failed to read the selected settings file.',
     });
+  });
+
+  it('returns a non-importable response when the preview is importable but the payload builder returns null', async () => {
+    vi.doMock('../../services/settings/legacyImport', async () => {
+      const actual = await vi.importActual<typeof import('../../services/settings/legacyImport')>(
+        '../../services/settings/legacyImport'
+      );
+
+      return {
+        ...actual,
+        buildLegacySettingsImportPayload: vi.fn(() => null),
+      };
+    });
+
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'system',
+        },
+      },
+    });
+    settingsTestDoubles.readFileSync.mockReturnValue(
+      JSON.stringify({
+        'enso-settings': {
+          state: {
+            theme: 'dark',
+          },
+        },
+      })
+    );
+
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const applyImportHandler = settingsTestDoubles.handlers.get(
+      IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_APPLY
+    );
+
+    await expect(applyImportHandler?.({}, '/tmp/payload-null.json')).resolves.toEqual({
+      imported: false,
+      sourcePath: '/tmp/payload-null.json',
+      diffCount: 0,
+      error: 'Selected file does not contain persisted EnsoAI settings.',
+    });
+
+    expect(settingsTestDoubles.writeSharedSettings).not.toHaveBeenCalled();
+    expect(settingsTestDoubles.writeSharedSettingsToSession).not.toHaveBeenCalled();
   });
 });

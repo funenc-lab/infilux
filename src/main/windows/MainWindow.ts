@@ -272,7 +272,10 @@ function appendBootstrapThemeToRendererUrl(
 }
 
 function normalizeLoopbackHostname(hostname: string): string {
-  return hostname.trim().replace(/^\[|\]$/g, '').toLowerCase();
+  return hostname
+    .trim()
+    .replace(/^\[|\]$/g, '')
+    .toLowerCase();
 }
 
 function isLoopbackDevRendererUrl(input: string): boolean {
@@ -326,7 +329,9 @@ function resolveDevRendererUrlCandidates(input: string): string[] {
 
 function shouldRetryDevRendererUrlWithAlternateLoopbackHost(error: unknown): boolean {
   if (error instanceof Error) {
-    return error.message.includes('ERR_CONNECTION_REFUSED') || error.message.includes('ECONNREFUSED');
+    return (
+      error.message.includes('ERR_CONNECTION_REFUSED') || error.message.includes('ECONNREFUSED')
+    );
   }
 
   return false;
@@ -366,10 +371,7 @@ async function loadDevRendererUrl(
     } catch (error) {
       lastError = error;
       const nextCandidateUrl = candidateUrls[index + 1];
-      if (
-        !nextCandidateUrl ||
-        !shouldRetryDevRendererUrlWithAlternateLoopbackHost(error)
-      ) {
+      if (!nextCandidateUrl || !shouldRetryDevRendererUrlWithAlternateLoopbackHost(error)) {
         throw error;
       }
 

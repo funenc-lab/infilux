@@ -83,13 +83,21 @@ describe('shared path utilities', () => {
 describe('shared remote path utilities', () => {
   it('encodes and parses remote virtual paths', () => {
     const virtualPath = toRemoteVirtualPath('conn:alpha', 'C:\\repo\\src\\main.ts');
+    const posixVirtualPath = toRemoteVirtualPath('conn beta', '/srv/repo/src/main.ts');
 
     expect(isRemoteVirtualPath(virtualPath)).toBe(true);
+    expect(isRemoteVirtualPath('/repo/file.ts')).toBe(false);
     expect(parseRemoteVirtualPath(virtualPath)).toEqual({
       connectionId: 'conn:alpha',
       remotePath: 'C:/repo/src/main.ts',
     });
+    expect(posixVirtualPath).toBe('/__enso_remote__/conn%20beta/srv/repo/src/main.ts');
+    expect(parseRemoteVirtualPath(posixVirtualPath)).toEqual({
+      connectionId: 'conn beta',
+      remotePath: '/srv/repo/src/main.ts',
+    });
     expect(normalizeRemotePath('C:\\repo\\src\\')).toBe('C:/repo/src');
+    expect(normalizeRemotePath('')).toBe('/');
   });
 
   it('rejects malformed remote virtual paths', () => {

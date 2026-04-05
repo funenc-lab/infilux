@@ -25,4 +25,11 @@ describe('SessionBar viewport bounds', () => {
     expect(sessionBarSource).toContain('observer.observe(container)');
     expect(sessionBarSource).toContain('observer.observe(bar)');
   });
+
+  it('caps the floating toolbar against the local container instead of viewport width', () => {
+    expect(sessionBarSource).toContain('max-w-[calc(100%-1rem)]');
+    expect(sessionBarSource).toContain('w-full max-w-full');
+    expect(sessionBarSource).not.toContain('max-w-[calc(100vw-1rem)]');
+    expect(sessionBarSource).not.toContain('sm:max-w-[calc(100vw-2rem)]');
+  });
 });

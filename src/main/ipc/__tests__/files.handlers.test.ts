@@ -74,6 +74,7 @@ const fileHandlerTestDoubles = vi.hoisted(() => {
     return `/__remote__/${connectionId}${path}`;
   });
   const createRemoteError = vi.fn((message: string) => new Error(message));
+  const pathResolve = vi.fn<(...paths: string[]) => string>();
 
   return {
     handlers,
@@ -114,6 +115,7 @@ const fileHandlerTestDoubles = vi.hoisted(() => {
     remoteParseRemoteVirtualPath,
     remoteToRemoteVirtualPath,
     createRemoteError,
+    pathResolve,
   };
 });
 
@@ -151,6 +153,18 @@ vi.mock('node:fs/promises', () => ({
   stat: fileHandlerTestDoubles.stat,
   writeFile: fileHandlerTestDoubles.writeFile,
 }));
+
+vi.mock('node:path', async () => {
+  const actual = await vi.importActual<typeof import('node:path')>('node:path');
+  fileHandlerTestDoubles.pathResolve.mockImplementation((...paths: string[]) =>
+    actual.resolve(...paths)
+  );
+
+  return {
+    ...actual,
+    resolve: (...paths: string[]) => fileHandlerTestDoubles.pathResolve(...paths),
+  };
+});
 
 vi.mock('iconv-lite', () => ({
   default: {
@@ -311,6 +325,32 @@ describe('file handlers', () => {
     });
   });
 
+  it('returns an unknown error when temp file saving throws a non-Error value', async () => {
+    const sender = createSender(9);
+    const saveHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_SAVE_TO_TEMP);
+    fileHandlerTestDoubles.writeFile.mockRejectedValueOnce('disk unavailable');
+
+    await expect(saveHandler?.({ sender }, 'image.png', new Uint8Array([8]))).resolves.toEqual({
+      success: false,
+      error: 'Unknown error',
+    });
+  });
+
+  it('rejects temp saves when the resolved path escapes the allowed temp root', async () => {
+    const sender = createSender(3);
+    const saveHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_SAVE_TO_TEMP);
+
+    fileHandlerTestDoubles.pathResolve
+      .mockImplementationOnce(() => '/tmp/escaped/image.png')
+      .mockImplementationOnce(() => '/tmp/infilux-input');
+
+    await expect(saveHandler?.({ sender }, 'image.png', new Uint8Array([9]))).resolves.toEqual({
+      success: false,
+      error: 'Invalid filename',
+    });
+    expect(fileHandlerTestDoubles.writeFile).not.toHaveBeenCalled();
+  });
+
   it('reads local files as binary, falls back to utf-8 on decode failure, and delegates remote reads', async () => {
     const readHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_READ);
     const remoteResult = { content: 'remote', encoding: 'utf-8', detectedEncoding: 'utf-8' };
@@ -341,6 +381,38 @@ describe('file handlers', () => {
     );
   });
 
+  it('returns decoded local text when encoding detection and decode both succeed', async () => {
+    const readHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_READ);
+    const utf8BomBuffer = Buffer.from([0xef, 0xbb, 0xbf, 0x61]);
+
+    fileHandlerTestDoubles.readFile.mockResolvedValueOnce(utf8BomBuffer);
+    fileHandlerTestDoubles.iconvDecode.mockReturnValueOnce('decoded text');
+
+    await expect(readHandler?.({}, '/repo/success.txt')).resolves.toEqual({
+      content: 'decoded text',
+      encoding: 'utf-8',
+      detectedEncoding: 'utf-8',
+      confidence: 1,
+    });
+    expect(fileHandlerTestDoubles.iconvDecode).toHaveBeenCalledWith(utf8BomBuffer, 'utf-8');
+  });
+
+  it('continues reading text files when binary detection fails unexpectedly', async () => {
+    const readHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_READ);
+    const utf8BomBuffer = Buffer.from([0xef, 0xbb, 0xbf, 0x62]);
+
+    fileHandlerTestDoubles.isBinaryFile.mockRejectedValueOnce(new Error('detect failed'));
+    fileHandlerTestDoubles.readFile.mockResolvedValueOnce(utf8BomBuffer);
+    fileHandlerTestDoubles.iconvDecode.mockReturnValueOnce('still decoded');
+
+    await expect(readHandler?.({}, '/repo/detect-failure.txt')).resolves.toEqual({
+      content: 'still decoded',
+      encoding: 'utf-8',
+      detectedEncoding: 'utf-8',
+      confidence: 1,
+    });
+  });
+
   it('writes and creates local files with expected encodings and delegates remote operations', async () => {
     const writeHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_WRITE);
     const createHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_CREATE);
@@ -349,6 +421,13 @@ describe('file handlers', () => {
     expect(fileHandlerTestDoubles.iconvEncode).toHaveBeenCalledWith('hello', 'utf-16le');
     expect(fileHandlerTestDoubles.writeFile).toHaveBeenCalledWith(
       '/repo/file.txt',
+      Buffer.from('encoded')
+    );
+
+    await writeHandler?.({}, '/repo/default.txt', 'plain text');
+    expect(fileHandlerTestDoubles.iconvEncode).toHaveBeenCalledWith('plain text', 'utf-8');
+    expect(fileHandlerTestDoubles.writeFile).toHaveBeenCalledWith(
+      '/repo/default.txt',
       Buffer.from('encoded')
     );
 
@@ -365,6 +444,16 @@ describe('file handlers', () => {
       flag: 'wx',
     });
 
+    await createHandler?.({}, '/repo/new/replaceable.txt', 'replaceable', { overwrite: true });
+    expect(fileHandlerTestDoubles.writeFile).toHaveBeenCalledWith(
+      '/repo/new/replaceable.txt',
+      'replaceable',
+      {
+        encoding: 'utf-8',
+        flag: 'w',
+      }
+    );
+
     await createHandler?.({}, '/__remote__/conn/workspace/new.txt', 'remote-seed', {
       overwrite: true,
     });
@@ -372,6 +461,60 @@ describe('file handlers', () => {
       '/__remote__/conn/workspace/new.txt',
       'remote-seed',
       { overwrite: true }
+    );
+  });
+
+  it('creates directories, renames, moves, and deletes local and remote paths', async () => {
+    const createDirHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_CREATE_DIR);
+    const renameHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_RENAME);
+    const moveHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_MOVE);
+    const deleteHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_DELETE);
+
+    await createDirHandler?.({}, '/repo/new-dir');
+    expect(fileHandlerTestDoubles.mkdir).toHaveBeenCalledWith('/repo/new-dir', { recursive: true });
+
+    await createDirHandler?.({}, '/__remote__/conn/workspace/new-dir');
+    expect(fileHandlerTestDoubles.remoteCreateDirectory).toHaveBeenCalledWith(
+      '/__remote__/conn/workspace/new-dir'
+    );
+
+    await renameHandler?.({}, '/repo/from.txt', '/repo/to.txt');
+    expect(fileHandlerTestDoubles.rename).toHaveBeenCalledWith('/repo/from.txt', '/repo/to.txt');
+
+    await renameHandler?.({}, '/__remote__/conn/workspace/from.txt', '/repo/to.txt');
+    expect(fileHandlerTestDoubles.remoteRename).toHaveBeenCalledWith(
+      '/__remote__/conn/workspace/from.txt',
+      '/repo/to.txt'
+    );
+
+    await moveHandler?.({}, '/repo/move-from.txt', '/repo/move-to.txt');
+    expect(fileHandlerTestDoubles.rename).toHaveBeenCalledWith(
+      '/repo/move-from.txt',
+      '/repo/move-to.txt'
+    );
+
+    await moveHandler?.({}, '/repo/move-local.txt', '/__remote__/conn/workspace/move-remote.txt');
+    expect(fileHandlerTestDoubles.remoteMove).toHaveBeenCalledWith(
+      '/repo/move-local.txt',
+      '/__remote__/conn/workspace/move-remote.txt'
+    );
+
+    await deleteHandler?.({}, '/repo/delete-me', { recursive: false });
+    expect(fileHandlerTestDoubles.rm).toHaveBeenCalledWith('/repo/delete-me', {
+      recursive: false,
+      force: false,
+    });
+
+    await deleteHandler?.({}, '/repo/delete-default.txt');
+    expect(fileHandlerTestDoubles.rm).toHaveBeenCalledWith('/repo/delete-default.txt', {
+      recursive: true,
+      force: false,
+    });
+
+    await deleteHandler?.({}, '/__remote__/conn/workspace/delete-me', { recursive: true });
+    expect(fileHandlerTestDoubles.remoteDelete).toHaveBeenCalledWith(
+      '/__remote__/conn/workspace/delete-me',
+      { recursive: true }
     );
   });
 
@@ -455,6 +598,98 @@ describe('file handlers', () => {
     expect(fileHandlerTestDoubles.readdir).toHaveBeenCalledWith(
       '/Users/tanzv/Development/Git/penpad/apps'
     );
+  });
+
+  it('recovers prefixed absolute directory and git root paths before listing local files', async () => {
+    const sender = createSender(8);
+    const listHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_LIST);
+
+    fileHandlerTestDoubles.readdir.mockResolvedValueOnce([]);
+
+    await listHandler?.(
+      { sender },
+      '/Users/tanzv/Development/Git/root//Users/tanzv/Development/Git/project/src',
+      '/Users/tanzv/Development/Git/root//Users/tanzv/Development/Git/project'
+    );
+
+    expect(fileHandlerTestDoubles.readdir).toHaveBeenCalledWith(
+      '/Users/tanzv/Development/Git/project/src'
+    );
+    expect(fileHandlerTestDoubles.createSimpleGit).toHaveBeenCalledWith(
+      '/Users/tanzv/Development/Git/project'
+    );
+    expect(fileHandlerTestDoubles.registerAllowedLocalFileRoot).toHaveBeenCalledWith(
+      '/Users/tanzv/Development/Git/project',
+      8
+    );
+  });
+
+  it('delegates remote file lists and returns an empty local list for missing directories', async () => {
+    const sender = createSender(5);
+    const listHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_LIST);
+    const remoteEntries = [
+      {
+        name: 'remote.ts',
+        path: '/__remote__/conn/workspace/remote.ts',
+        isDirectory: false,
+        size: 10,
+        modifiedAt: 20,
+      },
+    ];
+
+    fileHandlerTestDoubles.remoteListFiles.mockResolvedValueOnce(remoteEntries);
+    await expect(
+      listHandler?.({ sender }, '/__remote__/conn/workspace', '/__remote__/conn/workspace')
+    ).resolves.toEqual(remoteEntries);
+
+    const missingDirError = Object.assign(new Error('missing dir'), { code: 'ENOENT' });
+    fileHandlerTestDoubles.readdir.mockRejectedValueOnce(missingDirError);
+
+    await expect(listHandler?.({ sender }, '/repo/missing', '/repo')).resolves.toEqual([]);
+  });
+
+  it('rethrows local file list errors that should not map to an empty result', async () => {
+    const sender = createSender(6);
+    const listHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_LIST);
+    const permissionError = Object.assign(new Error('denied'), { code: 'EACCES' });
+
+    fileHandlerTestDoubles.readdir.mockRejectedValueOnce(permissionError);
+
+    await expect(listHandler?.({ sender }, '/repo/protected', '/repo')).rejects.toThrow('denied');
+  });
+
+  it('returns local file list results even when gitignore checks fail', async () => {
+    const sender = createSender(7);
+    const listHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_LIST);
+
+    fileHandlerTestDoubles.readdir.mockResolvedValueOnce(['b.ts', 'dir']);
+    fileHandlerTestDoubles.stat.mockImplementation(async (path: string) => {
+      if (path.endsWith('/b.ts')) {
+        return makeStats({ isFile: true, size: 10, mtimeMs: 100 });
+      }
+      if (path.endsWith('/dir')) {
+        return makeStats({ isDirectory: true, size: 0, mtimeMs: 200 });
+      }
+      throw new Error(`unexpected stat: ${path}`);
+    });
+    fileHandlerTestDoubles.checkIgnore.mockRejectedValueOnce(new Error('git unavailable'));
+
+    await expect(listHandler?.({ sender }, '/repo', '/repo')).resolves.toEqual([
+      {
+        name: 'dir',
+        path: '/repo/dir',
+        isDirectory: true,
+        size: 0,
+        modifiedAt: 200,
+      },
+      {
+        name: 'b.ts',
+        path: '/repo/b.ts',
+        isDirectory: false,
+        size: 10,
+        modifiedAt: 100,
+      },
+    ]);
   });
 
   it('reveals local files, rejects remote reveal, copies local files, and rejects mixed copy', async () => {
@@ -631,6 +866,61 @@ describe('file handlers', () => {
     ).rejects.toThrow('Batch copy between local and remote files is not supported');
   });
 
+  it('batch copies directories and supports rename conflict targets for local entries', async () => {
+    const batchCopyHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_BATCH_COPY);
+
+    fileHandlerTestDoubles.stat.mockImplementation(async (targetPath: string) => {
+      if (targetPath === '/repo/dir-source') {
+        return makeStats({ isDirectory: true });
+      }
+      if (targetPath === '/repo/plain.txt') {
+        return makeStats({ isFile: true });
+      }
+      throw new Error(`unexpected stat: ${targetPath}`);
+    });
+    fileHandlerTestDoubles.readdir.mockReset();
+    fileHandlerTestDoubles.readdir.mockResolvedValueOnce([
+      {
+        name: 'nested.txt',
+        isDirectory: () => false,
+      } as never,
+    ]);
+
+    await expect(
+      batchCopyHandler?.({}, ['/repo/dir-source', '/repo/plain.txt'], '/target', [
+        { path: '/repo/plain.txt', action: 'rename', newName: 'plain-renamed.txt' },
+      ])
+    ).resolves.toEqual({
+      success: ['/repo/dir-source', '/repo/plain.txt'],
+      failed: [],
+    });
+
+    expect(fileHandlerTestDoubles.mkdir).toHaveBeenCalledWith('/target/dir-source', {
+      recursive: true,
+    });
+    expect(fileHandlerTestDoubles.copyFile).toHaveBeenCalledWith(
+      '/repo/dir-source/nested.txt',
+      '/target/dir-source/nested.txt'
+    );
+    expect(fileHandlerTestDoubles.copyFile).toHaveBeenCalledWith(
+      '/repo/plain.txt',
+      '/target/plain-renamed.txt'
+    );
+  });
+
+  it('reports unknown batch copy failures when a non-Error value is thrown', async () => {
+    const batchCopyHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_BATCH_COPY);
+
+    fileHandlerTestDoubles.stat.mockImplementationOnce(async () => {
+      throw 'copy exploded';
+    });
+
+    await expect(batchCopyHandler?.({}, ['/repo/non-error.txt'], '/target', [])).resolves.toEqual({
+      success: [],
+      failed: [{ path: '/repo/non-error.txt', error: 'Unknown error' }],
+    });
+  });
+
   it('batch moves with replace cleanup, rename fallback, remote delegation, and mixed rejection', async () => {
     const batchMoveHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_BATCH_MOVE);
 
@@ -693,6 +983,103 @@ describe('file handlers', () => {
     await expect(
       batchMoveHandler?.({}, ['/repo/local.txt'], '/__remote__/conn/target', [])
     ).rejects.toThrow('Batch move between local and remote files is not supported');
+  });
+
+  it('reports batch move failures when rename fallback cannot copy the source', async () => {
+    const batchMoveHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_BATCH_MOVE);
+
+    fileHandlerTestDoubles.rename.mockImplementationOnce(async () => {
+      throw new Error('cross-device link');
+    });
+    fileHandlerTestDoubles.stat.mockImplementationOnce(async () => {
+      throw new Error('missing source');
+    });
+
+    await expect(batchMoveHandler?.({}, ['/repo/broken.txt'], '/target', [])).resolves.toEqual({
+      success: [],
+      failed: [{ path: '/repo/broken.txt', error: 'missing source' }],
+    });
+  });
+
+  it('reports unknown batch move failures when a non-Error value is thrown', async () => {
+    const batchMoveHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_BATCH_MOVE);
+
+    fileHandlerTestDoubles.rename.mockImplementationOnce(async () => {
+      throw 'move exploded';
+    });
+    fileHandlerTestDoubles.stat.mockImplementationOnce(async () => {
+      throw 'still exploded';
+    });
+
+    await expect(
+      batchMoveHandler?.({}, ['/repo/non-error-move.txt'], '/target', [])
+    ).resolves.toEqual({
+      success: [],
+      failed: [{ path: '/repo/non-error-move.txt', error: 'Unknown error' }],
+    });
+  });
+
+  it('batch moves renamed files, ignores replace cleanup misses, and falls back to directory copy', async () => {
+    const batchMoveHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_BATCH_MOVE);
+
+    fileHandlerTestDoubles.rename.mockImplementation(async (fromPath: string) => {
+      if (fromPath === '/repo/dir-fallback') {
+        throw new Error('cross-device link');
+      }
+    });
+    fileHandlerTestDoubles.rm.mockImplementation(async (targetPath: string) => {
+      if (targetPath === '/target/replace-missing.txt') {
+        throw new Error('target missing');
+      }
+    });
+    fileHandlerTestDoubles.stat.mockImplementation(async (targetPath: string) => {
+      if (targetPath === '/repo/dir-fallback') {
+        return makeStats({ isDirectory: true });
+      }
+      throw new Error(`unexpected stat: ${targetPath}`);
+    });
+    fileHandlerTestDoubles.readdir.mockReset();
+    fileHandlerTestDoubles.readdir.mockResolvedValueOnce([
+      {
+        name: 'nested.txt',
+        isDirectory: () => false,
+      } as never,
+    ]);
+
+    await expect(
+      batchMoveHandler?.(
+        {},
+        ['/repo/rename-me.txt', '/repo/replace-missing.txt', '/repo/dir-fallback'],
+        '/target',
+        [
+          { path: '/repo/rename-me.txt', action: 'rename', newName: 'renamed.txt' },
+          { path: '/repo/replace-missing.txt', action: 'replace' },
+        ]
+      )
+    ).resolves.toEqual({
+      success: ['/repo/rename-me.txt', '/repo/replace-missing.txt', '/repo/dir-fallback'],
+      failed: [],
+    });
+
+    expect(fileHandlerTestDoubles.rename).toHaveBeenCalledWith(
+      '/repo/rename-me.txt',
+      '/target/renamed.txt'
+    );
+    expect(fileHandlerTestDoubles.rm).toHaveBeenCalledWith('/target/replace-missing.txt', {
+      recursive: true,
+      force: true,
+    });
+    expect(fileHandlerTestDoubles.mkdir).toHaveBeenCalledWith('/target/dir-fallback', {
+      recursive: true,
+    });
+    expect(fileHandlerTestDoubles.copyFile).toHaveBeenCalledWith(
+      '/repo/dir-fallback/nested.txt',
+      '/target/dir-fallback/nested.txt'
+    );
+    expect(fileHandlerTestDoubles.rm).toHaveBeenCalledWith('/repo/dir-fallback', {
+      recursive: true,
+      force: true,
+    });
   });
 
   it('cleans up temp files asynchronously and synchronously without throwing on failures', async () => {

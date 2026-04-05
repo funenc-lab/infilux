@@ -26,6 +26,7 @@ describe('WindowManager', () => {
     const win = openLocalWindow();
 
     expect(windowManagerTestDoubles.createMainWindow).toHaveBeenCalledWith({
+      bootstrapMainStage: null,
       replaceWindow: null,
     });
     expect(win).toEqual({ id: 101 });
@@ -41,6 +42,7 @@ describe('WindowManager', () => {
     openLocalWindow({ replaceWindow: replaceWindow as never });
 
     expect(windowManagerTestDoubles.createMainWindow).toHaveBeenCalledWith({
+      bootstrapMainStage: null,
       replaceWindow,
     });
   });

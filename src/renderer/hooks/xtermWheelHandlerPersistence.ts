@@ -1,4 +1,4 @@
-import { Terminal } from '@xterm/xterm';
+import type { Terminal } from '@xterm/xterm';
 
 const ORIGINAL_RESET_SYMBOL = Symbol('xterm-original-reset');
 

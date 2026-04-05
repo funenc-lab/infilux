@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import {
+  encodeBootstrapMainStageArgument,
+  parseBootstrapMainStageFromArgv,
+} from '../bootstrapMainStage';
+
+const BOOTSTRAP_MAIN_STAGE_ARGUMENT_PREFIX = '--infilux-bootstrap-main-stage=';
 
 describe('bootstrap main stage shared helpers', () => {
-  it('round-trips a bootstrap main stage through the additional argument format', async () => {
-    const { encodeBootstrapMainStageArgument, parseBootstrapMainStageFromArgv } = await import(
-      '../bootstrapMainStage'
-    );
-
+  it('round-trips a bootstrap main stage through the additional argument format', () => {
     expect(
       parseBootstrapMainStageFromArgv([
         'electron',
@@ -14,11 +16,19 @@ describe('bootstrap main stage shared helpers', () => {
     ).toBe('main-init-complete');
   });
 
-  it('returns null for unknown bootstrap main stages', async () => {
-    const { parseBootstrapMainStageFromArgv } = await import('../bootstrapMainStage');
-
+  it('returns null for missing, unknown, and malformed bootstrap main stage arguments', () => {
+    expect(parseBootstrapMainStageFromArgv(['electron'])).toBeNull();
     expect(
-      parseBootstrapMainStageFromArgv(['electron', '--infilux-bootstrap-main-stage=invalid'])
+      parseBootstrapMainStageFromArgv([
+        'electron',
+        `${BOOTSTRAP_MAIN_STAGE_ARGUMENT_PREFIX}invalid`,
+      ])
+    ).toBeNull();
+    expect(
+      parseBootstrapMainStageFromArgv([
+        'electron',
+        `${BOOTSTRAP_MAIN_STAGE_ARGUMENT_PREFIX}invalid%ZZstage`,
+      ])
     ).toBeNull();
   });
 });
