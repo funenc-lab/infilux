@@ -25,6 +25,7 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
   const getProxyEnvVars = vi.fn();
   const detectShell = vi.fn();
   const resolveShellConfig = vi.fn();
+  const resolveShellForCommand = vi.fn();
   const pidtree = vi.fn();
   const pidusage = vi.fn();
   const ptys: FakePty[] = [];
@@ -82,6 +83,7 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
     getProxyEnvVars.mockReset();
     detectShell.mockReset();
     resolveShellConfig.mockReset();
+    resolveShellForCommand.mockReset();
     pidtree.mockReset();
     pidusage.mockReset();
     ptys.length = 0;
@@ -90,6 +92,7 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
     getProxyEnvVars.mockReturnValue({ HTTPS_PROXY: 'http://proxy.local:7890' });
     detectShell.mockReturnValue('/bin/zsh');
     resolveShellConfig.mockReturnValue({ shell: '/bin/bash', args: ['-l'] });
+    resolveShellForCommand.mockReturnValue({ shell: '/bin/bash', execArgs: ['-l', '-c'] });
     pidtree.mockResolvedValue([1001, 1002]);
     pidusage.mockResolvedValue({
       1001: { cpu: 0.5 },
@@ -130,6 +133,7 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
     getProxyEnvVars,
     detectShell,
     resolveShellConfig,
+    resolveShellForCommand,
     pidtree,
     pidusage,
     ptys,
@@ -174,6 +178,7 @@ vi.mock('../ShellDetector', () => ({
   detectShell: ptyManagerTestDoubles.detectShell,
   shellDetector: {
     resolveShellConfig: ptyManagerTestDoubles.resolveShellConfig,
+    resolveShellForCommand: ptyManagerTestDoubles.resolveShellForCommand,
   },
 }));
 
@@ -449,6 +454,38 @@ describe('PtyManager utilities', () => {
     expect(waitSpy).toHaveBeenCalledTimes(2);
     expect(waitSpy).toHaveBeenCalledWith('one', 25);
     expect(waitSpy).toHaveBeenCalledWith('two', 25);
+  });
+
+  it('uses command execution args instead of interactive shell args for shell-config initial commands', async () => {
+    ptyManagerTestDoubles.resolveShellConfig.mockReturnValue({
+      shell: '/bin/zsh',
+      args: ['-i', '-l'],
+    });
+    ptyManagerTestDoubles.resolveShellForCommand.mockReturnValue({
+      shell: '/bin/zsh',
+      execArgs: ['-l', '-c'],
+    });
+
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+
+    manager.create(
+      {
+        cwd: '/repo/project',
+        shellConfig: { shellType: 'zsh' } as never,
+        initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+      },
+      vi.fn()
+    );
+
+    expect(ptyManagerTestDoubles.resolveShellForCommand).toHaveBeenCalledWith({
+      shellType: 'zsh',
+    });
+    expect(ptyManagerTestDoubles.spawn).toHaveBeenCalledWith(
+      '/bin/zsh',
+      ['-l', '-c', 'codex --dangerously-bypass-approvals-and-sandbox; exec /bin/zsh'],
+      expect.any(Object)
+    );
   });
 
   it('uses an explicit fallback command when direct executable launch fails', async () => {

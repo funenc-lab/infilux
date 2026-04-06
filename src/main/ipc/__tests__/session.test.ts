@@ -171,6 +171,31 @@ describe('session IPC handlers', () => {
     expect(sessionTestDoubles.destroyAllLocalAndWait).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves shell-config launch options for agent startup sessions', async () => {
+    const event = createEvent();
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shellConfig: { shellType: 'zsh' },
+      initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+      persistOnDisconnect: true,
+    });
+
+    expect(sessionTestDoubles.create).toHaveBeenCalledWith(event.sender, {
+      cwd: '/repo',
+      kind: 'agent',
+      shellConfig: { shellType: 'zsh' },
+      initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+      persistOnDisconnect: true,
+    });
+  });
+
   it('bridges legacy terminal handlers through session creation and attach replay', async () => {
     const event = createEvent();
 

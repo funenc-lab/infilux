@@ -383,6 +383,7 @@ export class PtyManager {
     const home = process.env.HOME || process.env.USERPROFILE || homedir();
     const cwd = options.cwd || home;
     const spawnCwd = options.spawnCwd || cwd;
+    const initialCommand = options.initialCommand?.trim();
 
     let shell: string;
     let args: string[];
@@ -391,9 +392,15 @@ export class PtyManager {
       shell = options.shell;
       args = options.args || [];
     } else if (options.shellConfig) {
-      const resolved = shellDetector.resolveShellConfig(options.shellConfig);
-      shell = resolved.shell;
-      args = resolved.args;
+      if (initialCommand) {
+        const resolved = shellDetector.resolveShellForCommand(options.shellConfig);
+        shell = resolved.shell;
+        args = resolved.execArgs;
+      } else {
+        const resolved = shellDetector.resolveShellConfig(options.shellConfig);
+        shell = resolved.shell;
+        args = resolved.args;
+      }
     } else {
       shell = detectShell();
       args = options.args || [];
@@ -406,7 +413,6 @@ export class PtyManager {
       args = adjustArgsForShell(shell, args);
     }
 
-    const initialCommand = options.initialCommand?.trim();
     if (initialCommand) {
       if (isWindows) {
         const isPowerShell =
