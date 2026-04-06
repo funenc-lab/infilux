@@ -48,7 +48,7 @@ jobs:
           echo "x64=$X64_SHA" >> $GITHUB_OUTPUT
 
       - name: Checkout Homebrew Tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: J3n5en/homebrew-ensoai
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -134,7 +134,7 @@ jobs:
           echo "hash=$HASH" >> $GITHUB_OUTPUT
 
       - name: Checkout Scoop Bucket
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: J3n5en/scoop-ensoai
           token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
@@ -223,7 +223,7 @@ jobs:
           echo "hash=$HASH" >> $GITHUB_OUTPUT
 
       - name: Checkout winget-pkgs fork
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: J3n5en/winget-pkgs
           token: ${{ secrets.WINGET_TOKEN }}
