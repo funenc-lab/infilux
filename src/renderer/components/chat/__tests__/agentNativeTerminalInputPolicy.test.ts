@@ -22,6 +22,12 @@ describe('agent native terminal input policy', () => {
     );
   });
 
+  it('blocks direct attachment insertion only when the current session is outputting, not when another worktree session is running', () => {
+    expect(agentTerminalSource).toContain('canInsertAgentTerminalAttachments');
+    expect(agentTerminalSource).toContain('outputState: outputStateRef.current');
+    expect(agentTerminalSource).not.toContain("getActivityState(cwd) === 'running'");
+  });
+
   it('shows explicit reconnecting and disconnected tray labels when native terminal input is unavailable', () => {
     expect(agentTerminalSource).toContain('resolveAgentInputAvailability');
     expect(agentTerminalSource).toContain("agentInputAvailability === 'reconnecting'");

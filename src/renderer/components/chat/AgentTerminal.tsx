@@ -22,7 +22,6 @@ import { resolveTerminalRuntimeOverlayState } from '@/lib/terminalRuntimeOverlay
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
-import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { AgentAttachmentTray } from './AgentAttachmentTray';
 import {
   partitionResolvedAgentAttachments,
@@ -42,6 +41,7 @@ import {
 } from './agentInputAvailability';
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import { buildAgentLaunchPlan } from './agentLaunchPlan';
+import { canInsertAgentTerminalAttachments } from './agentTerminalAttachmentInsertPolicy';
 import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
 import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
@@ -333,8 +333,6 @@ export function AgentTerminal({
   const [localEnhancedInputOpen, setLocalEnhancedInputOpen] = useState(false);
   const [attachmentTrayExpanded, setAttachmentTrayExpanded] = useState(false);
   const isExternallyControlled = externalEnhancedInputOpen !== undefined;
-  const setActivityState = useWorktreeActivityStore((s) => s.setActivityState);
-  const getActivityState = useWorktreeActivityStore((s) => s.getActivityState);
   const enhancedInputOpen = isExternallyControlled
     ? externalEnhancedInputOpen
     : localEnhancedInputOpen;
@@ -379,13 +377,19 @@ export function AgentTerminal({
 
   const insertTerminalAttachmentText = useCallback(
     (nextAttachments: AgentAttachmentItem[]) => {
-      if (!inputDispatchSessionId || nextAttachments.length === 0) {
+      const sessionId = inputDispatchSessionId;
+      if (!sessionId) {
         return false;
       }
-      if (runtimeStateRef.current !== 'live') {
-        return false;
-      }
-      if (cwd && getActivityState(cwd) === 'running') {
+
+      if (
+        !canInsertAgentTerminalAttachments({
+          sessionId,
+          attachmentCount: nextAttachments.length,
+          runtimeState: runtimeStateRef.current,
+          outputState: outputStateRef.current,
+        })
+      ) {
         return false;
       }
 
@@ -396,7 +400,7 @@ export function AgentTerminal({
 
       void window.electronAPI.agentInput
         .dispatch({
-          sessionId: inputDispatchSessionId,
+          sessionId,
           agentId,
           text: insertText,
         })
@@ -406,7 +410,7 @@ export function AgentTerminal({
       terminalFocusRef.current?.();
       return true;
     },
-    [cwd, getActivityState, inputDispatchSessionId, agentId]
+    [inputDispatchSessionId, agentId]
   );
 
   const handleResolvedAttachmentTargets = useCallback(
@@ -999,13 +1003,10 @@ export function AgentTerminal({
       startActivityPolling,
       terminalSessionId,
       glowEffectEnabled,
-      cwd,
-      setActivityState,
       agentId,
       claudeCodeIntegration.enhancedInputEnabled,
       enhancedInputOpen,
       setEnhancedInputOpen,
-      getActivityState,
       usesNativeTerminalInput,
       // Note: terminal is excluded as it's defined after this callback
       // and accessed via try-catch for safety
