@@ -278,7 +278,18 @@ jobs:
             -s \
             -k "${keychain_password}" \
             "${keychain_path}"
-          security find-identity -v -p codesigning "${keychain_path}"
+          identities="$(security find-identity -v -p codesigning "${keychain_path}")"
+          echo "${identities}"
+
+          resolved_identity="$(printf '%s\n' "${identities}" | sed -n 's/.*"\\(Developer ID Application:.*\\)"/\\1/p' | head -n 1)"
+
+          if [[ -z "${resolved_identity}" ]]; then
+            echo "::error title=Developer ID Application certificate is required::No Developer ID Application signing identity was found in the imported certificate."
+            exit 1
+          fi
+
+          echo "APPLE_SIGNING_IDENTITY_RESOLVED=${resolved_identity}" >> "${GITHUB_ENV}"
+          echo "Resolved Apple signing identity: ${resolved_identity}"
 
       - name: Build macOS (${{ matrix.arch }}) signed
         if: ${{ steps.macos_signing.outputs.ready == 'true' }}
@@ -288,7 +299,8 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
           APPLE_API_KEY_ID: ${{ env.APPLE_API_KEY_ID }}
-          CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CSC_NAME: ${{ env.APPLE_SIGNING_IDENTITY_RESOLVED }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Build macOS (${{ matrix.arch }}) unsigned
         if: ${{ steps.macos_signing.outputs.ready != 'true' }}

@@ -33,6 +33,13 @@ describe('build workflow macOS signing policy', () => {
     );
   });
 
+  it('resolves the Developer ID Application identity from the imported certificate', () => {
+    expect(workflowSource).toContain('Developer ID Application:');
+    expect(workflowSource).toContain('APPLE_SIGNING_IDENTITY_RESOLVED');
+    expect(workflowSource).toContain('CSC_NAME: ${{ env.APPLE_SIGNING_IDENTITY_RESOLVED }}');
+    expect(workflowSource).not.toContain('CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}');
+  });
+
   it('prevents prerelease tags from being marked as the latest release', () => {
     expect(workflowSource).toContain('if [[ "$TAG" == *-* ]]; then');
     expect(workflowSource).toContain(
