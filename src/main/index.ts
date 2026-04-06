@@ -293,6 +293,7 @@ function isAllowedRemoteImageUrl(input: string): boolean {
 }
 
 function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
+  const webContents = window.webContents;
   let recoveryAttemptCount = 0;
   let recoveryWindowStartedAt = 0;
 
@@ -379,14 +380,18 @@ function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
     }
   };
 
-  window.webContents.on('render-process-gone', handleRenderProcessGone);
+  webContents.on('render-process-gone', handleRenderProcessGone);
   window.on('unresponsive', handleUnresponsive);
-  window.webContents.on('did-fail-load', handleDidFailLoad);
+  webContents.on('did-fail-load', handleDidFailLoad);
 
   return () => {
-    window.webContents.removeListener('render-process-gone', handleRenderProcessGone);
-    window.removeListener('unresponsive', handleUnresponsive);
-    window.webContents.removeListener('did-fail-load', handleDidFailLoad);
+    if (!window.isDestroyed()) {
+      window.removeListener('unresponsive', handleUnresponsive);
+    }
+    if (!webContents.isDestroyed()) {
+      webContents.removeListener('render-process-gone', handleRenderProcessGone);
+      webContents.removeListener('did-fail-load', handleDidFailLoad);
+    }
   };
 }
 

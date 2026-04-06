@@ -2055,6 +2055,22 @@ describe('main entry', () => {
     expect(rawDebugSpy).not.toHaveBeenCalled();
   });
 
+  it('skips renderer recovery listener cleanup once the window webContents is destroyed', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    mainWindow.webContents.removeListener.mockImplementation(() => {
+      if (mainWindow.webContents.isDestroyed()) {
+        throw new TypeError('Object has been destroyed');
+      }
+    });
+
+    await bootstrapWindowWithRendererDiagnostics(mainWindow);
+
+    expect(() => {
+      mainWindow.emitWindowEvent('closed');
+    }).not.toThrow();
+    expect(mainWindow.webContents.removeListener).not.toHaveBeenCalled();
+  });
+
   it('writes full and cropped renderer screenshots when the worktree probe is present', async () => {
     vi.useFakeTimers();
 
