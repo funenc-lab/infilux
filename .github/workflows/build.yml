@@ -161,11 +161,16 @@ jobs:
 
           missing=()
           allow_unsigned="false"
+          force_unsigned="false"
 
-          if [[ "${IS_TAG_BUILD}" != "true" ]]; then
+          if [[ "${WORKFLOW_ALLOW_UNSIGNED_MACOS}" == "true" ]]; then
             allow_unsigned="true"
-          elif [[ "${WORKFLOW_ALLOW_UNSIGNED_MACOS}" == "true" || "${REPO_ALLOW_UNSIGNED_MACOS_RELEASE}" == "true" ]]; then
+            force_unsigned="true"
+          elif [[ "${IS_TAG_BUILD}" != "true" ]]; then
             allow_unsigned="true"
+          elif [[ "${REPO_ALLOW_UNSIGNED_MACOS_RELEASE}" == "true" ]]; then
+            allow_unsigned="true"
+            force_unsigned="true"
           fi
 
           [[ -n "${APPLE_CERTIFICATE}" ]] || missing+=("APPLE_CERTIFICATE")
@@ -174,16 +179,24 @@ jobs:
           [[ -n "${APPLE_API_ISSUER}" ]] || missing+=("APPLE_API_ISSUER")
           [[ -n "${APPLE_API_KEY_P8}" ]] || missing+=("APPLE_API_KEY_P8")
 
-          if [[ "${#missing[@]}" -eq 0 ]]; then
+          if [[ "${force_unsigned}" == "true" ]]; then
+            echo "ready=false" >> "${GITHUB_OUTPUT}"
+            echo "missing=override" >> "${GITHUB_OUTPUT}"
+            echo "unsigned_allowed=true" >> "${GITHUB_OUTPUT}"
+            echo "unsigned_reason=override" >> "${GITHUB_OUTPUT}"
+            echo "macOS signing is being skipped because unsigned output was explicitly requested."
+          elif [[ "${#missing[@]}" -eq 0 ]]; then
             echo "ready=true" >> "${GITHUB_OUTPUT}"
             echo "missing=" >> "${GITHUB_OUTPUT}"
             echo "unsigned_allowed=false" >> "${GITHUB_OUTPUT}"
+            echo "unsigned_reason=" >> "${GITHUB_OUTPUT}"
             echo "macOS signing is enabled for this build."
           elif [[ "${allow_unsigned}" == "true" ]]; then
             missing_csv="$(IFS=,; echo "${missing[*]}")"
             echo "ready=false" >> "${GITHUB_OUTPUT}"
             echo "missing=${missing_csv}" >> "${GITHUB_OUTPUT}"
             echo "unsigned_allowed=true" >> "${GITHUB_OUTPUT}"
+            echo "unsigned_reason=missing-secrets" >> "${GITHUB_OUTPUT}"
             echo "macOS signing is disabled because these secrets are missing: ${missing_csv}"
           else
             missing_csv="$(IFS=,; echo "${missing[*]}")"
@@ -195,8 +208,13 @@ jobs:
         if: ${{ steps.macos_signing.outputs.unsigned_allowed == 'true' }}
         env:
           SIGNING_MISSING: ${{ steps.macos_signing.outputs.missing }}
+          SIGNING_REASON: ${{ steps.macos_signing.outputs.unsigned_reason }}
         run: |
-          echo "::notice title=Unsigned macOS build::Apple signing secrets are missing (${SIGNING_MISSING}). This workflow is continuing with unsigned macOS output."
+          if [[ "${SIGNING_REASON}" == "override" ]]; then
+            echo "::notice title=Unsigned macOS build::Unsigned macOS output was explicitly requested. Apple signing and notarization are being skipped."
+          else
+            echo "::notice title=Unsigned macOS build::Apple signing secrets are missing (${SIGNING_MISSING}). This workflow is continuing with unsigned macOS output."
+          fi
 
       - name: Prepare Apple notarization key
         if: ${{ steps.macos_signing.outputs.ready == 'true' }}

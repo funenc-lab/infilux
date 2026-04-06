@@ -25,6 +25,14 @@ describe('build workflow macOS signing policy', () => {
     expect(workflowSource).toContain('-c.mac.identity=null -c.mac.notarize=false');
   });
 
+  it('allows explicitly forcing unsigned macOS release builds even when signing secrets exist', () => {
+    expect(workflowSource).toContain('force_unsigned="true"');
+    expect(workflowSource).toContain('if [[ "${force_unsigned}" == "true" ]]; then');
+    expect(workflowSource).toContain(
+      'macOS signing is being skipped because unsigned output was explicitly requested.'
+    );
+  });
+
   it('prevents prerelease tags from being marked as the latest release', () => {
     expect(workflowSource).toContain('if [[ "$TAG" == *-* ]]; then');
     expect(workflowSource).toContain(
