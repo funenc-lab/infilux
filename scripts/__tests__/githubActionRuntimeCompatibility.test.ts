@@ -27,6 +27,7 @@ describe('github action runtime compatibility policy', () => {
   });
 
   it('uses corepack-managed pnpm instead of the deprecated pnpm action', () => {
+    expect(buildWorkflowSource).toContain('corepack enable');
     expect(buildWorkflowSource).toContain('corepack prepare pnpm@10.26.2 --activate');
     expect(buildWorkflowSource).not.toContain('uses: pnpm/action-setup@v4');
   });
