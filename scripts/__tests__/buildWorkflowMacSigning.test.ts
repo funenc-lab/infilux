@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const workflowSource = readFileSync('.github/workflows/build.yml', 'utf8');
+const workflowSource = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
 const expressionOpen = '$' + '{{';
 const expressionClose = '}}';
 const appleApiIssuer = `APPLE_API_ISSUER: ${expressionOpen} secrets.APPLE_API_ISSUER ${expressionClose}`;
@@ -38,6 +38,12 @@ describe('build workflow macOS signing policy', () => {
     expect(workflowSource).toContain('APPLE_SIGNING_IDENTITY_RESOLVED');
     expect(workflowSource).toContain('CSC_NAME: ${{ env.APPLE_SIGNING_IDENTITY_RESOLVED }}');
     expect(workflowSource).not.toContain('CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}');
+  });
+
+  it('keeps both macOS architectures running and surfaces discovered identities when signing fails', () => {
+    expect(workflowSource).toContain('build-mac:');
+    expect(workflowSource).toContain('fail-fast: false');
+    expect(workflowSource).toContain('Found identities:');
   });
 
   it('prevents prerelease tags from being marked as the latest release', () => {

@@ -100,6 +100,7 @@ jobs:
   build-mac:
     needs: build-app
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: arm64
@@ -282,9 +283,15 @@ jobs:
           echo "${identities}"
 
           resolved_identity="$(printf '%s\n' "${identities}" | sed -n 's/.*"\\(Developer ID Application:.*\\)"/\\1/p' | head -n 1)"
+          identity_summary="$(printf '%s\n' "${identities}" | tr '\n' ';' | tr -s ' ')"
+          identity_summary="${identity_summary# }"
+          identity_summary="${identity_summary% }"
+          identity_summary="${identity_summary//%/%25}"
+          identity_summary="${identity_summary//$'\r'/%0D}"
+          identity_summary="${identity_summary//$'\n'/%0A}"
 
           if [[ -z "${resolved_identity}" ]]; then
-            echo "::error title=Developer ID Application certificate is required::No Developer ID Application signing identity was found in the imported certificate."
+            echo "::error title=Developer ID Application certificate is required::No Developer ID Application signing identity was found in the imported certificate. Found identities: ${identity_summary}"
             exit 1
           fi
 
