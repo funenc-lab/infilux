@@ -47,6 +47,7 @@ const MAIN_BUNDLE_DIR = dirname(fileURLToPath(import.meta.url));
 const DARK_BOOTSTRAP_WINDOW_BACKGROUND_COLOR = '#0f1216';
 const LIGHT_BOOTSTRAP_WINDOW_BACKGROUND_COLOR = '#f5f7fb';
 const LOOPBACK_DEV_RENDERER_HOSTS = ['localhost', '127.0.0.1', '::1'] as const;
+const DEV_RENDERER_LOAD_RETRY_DELAYS_MS = [250, 500, 1000, 2000] as const;
 
 interface WindowState {
   width: number;
@@ -337,6 +338,22 @@ function shouldRetryDevRendererUrlWithAlternateLoopbackHost(error: unknown): boo
   return false;
 }
 
+function shouldRetryDevRendererUrlAfterDelay(error: unknown): boolean {
+  if (error instanceof Error) {
+    return (
+      error.message.includes('ERR_CONNECTION_REFUSED') ||
+      error.message.includes('ECONNREFUSED') ||
+      error.message.includes('ERR_ABORTED')
+    );
+  }
+
+  return false;
+}
+
+async function waitForDevRendererRetry(delayMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 interface CreateMainWindowOptions {
   bootstrapMainStage?: BootstrapMainStage | null;
   initializeWindow?: (window: BrowserWindow) => Promise<void> | void;
@@ -362,26 +379,52 @@ async function loadDevRendererUrl(
   const candidateUrls = resolveDevRendererUrlCandidates(url);
   let lastError: unknown = null;
 
-  for (const [index, candidateUrl] of candidateUrls.entries()) {
-    try {
-      await win.loadURL(appendBootstrapThemeToRendererUrl(candidateUrl, bootstrapThemeSnapshot), {
-        extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
-      });
-      return;
-    } catch (error) {
-      lastError = error;
-      const nextCandidateUrl = candidateUrls[index + 1];
-      if (!nextCandidateUrl || !shouldRetryDevRendererUrlWithAlternateLoopbackHost(error)) {
-        throw error;
-      }
+  for (
+    let retryIndex = 0;
+    retryIndex <= DEV_RENDERER_LOAD_RETRY_DELAYS_MS.length;
+    retryIndex += 1
+  ) {
+    for (const [index, candidateUrl] of candidateUrls.entries()) {
+      try {
+        await win.loadURL(appendBootstrapThemeToRendererUrl(candidateUrl, bootstrapThemeSnapshot), {
+          extraHeaders: 'pragma: no-cache\ncache-control: no-cache\n',
+        });
+        return;
+      } catch (error) {
+        lastError = error;
+        const nextCandidateUrl = candidateUrls[index + 1];
+        if (!nextCandidateUrl || !shouldRetryDevRendererUrlWithAlternateLoopbackHost(error)) {
+          break;
+        }
 
-      log.warn('[window] Dev renderer URL refused, retrying alternate loopback host', {
-        windowId: win.id,
-        attemptedUrl: candidateUrl,
-        nextUrl: nextCandidateUrl,
-        error,
-      });
+        log.warn('[window] Dev renderer URL refused, retrying alternate loopback host', {
+          windowId: win.id,
+          attemptedUrl: candidateUrl,
+          nextUrl: nextCandidateUrl,
+          error,
+        });
+      }
     }
+
+    const retryDelayMs = DEV_RENDERER_LOAD_RETRY_DELAYS_MS[retryIndex];
+    if (
+      retryDelayMs === undefined ||
+      !shouldRetryDevRendererUrlAfterDelay(lastError) ||
+      win.isDestroyed() ||
+      win.webContents.isDestroyed()
+    ) {
+      break;
+    }
+
+    log.warn('[window] Dev renderer URL not ready, retrying after delay', {
+      windowId: win.id,
+      url,
+      attempt: retryIndex + 1,
+      retryDelayMs,
+      error: lastError,
+    });
+
+    await waitForDevRendererRetry(retryDelayMs);
   }
 
   throw lastError instanceof Error ? lastError : new Error('Failed to load dev renderer URL');

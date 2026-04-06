@@ -652,6 +652,48 @@ describe('MainWindow lifecycle', () => {
     expect(mainWindowLifecycleDoubles.logError).not.toHaveBeenCalled();
   });
 
+  it('retries the dev renderer URL after connection refusals until the server is ready', async () => {
+    vi.useFakeTimers();
+    setPlatform('linux');
+    mainWindowLifecycleDoubles.is.dev = true;
+    process.env.ELECTRON_RENDERER_URL = 'http://dev-renderer.test:5173';
+    const loadError = new Error(
+      "ERR_CONNECTION_REFUSED (-102) loading 'http://dev-renderer.test:5173'"
+    );
+    mainWindowLifecycleDoubles.loadUrlImpl
+      .mockRejectedValueOnce(loadError)
+      .mockRejectedValueOnce(loadError)
+      .mockResolvedValueOnce(undefined);
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    await flushPromises();
+    expect(win.loadURL).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await flushPromises();
+    expect(win.loadURL).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+    expect(win.loadURL).toHaveBeenCalledTimes(3);
+
+    expect(mainWindowLifecycleDoubles.logWarn).toHaveBeenCalledWith(
+      '[window] Dev renderer URL not ready, retrying after delay',
+      expect.objectContaining({
+        windowId: 101,
+        url: 'http://dev-renderer.test:5173',
+        attempt: 1,
+        retryDelayMs: 250,
+        error: loadError,
+      })
+    );
+    expect(mainWindowLifecycleDoubles.logError).not.toHaveBeenCalled();
+  });
+
   it('normalizes invalid persisted bounds to the current display before creating the window', async () => {
     setPlatform('darwin');
     mainWindowLifecycleDoubles.existsSync.mockImplementation(
