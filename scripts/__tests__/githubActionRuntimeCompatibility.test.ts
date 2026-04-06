@@ -22,8 +22,12 @@ describe('github action runtime compatibility policy', () => {
   it('uses Node 24 compatible setup-node and cache actions in the build workflow', () => {
     expect(buildWorkflowSource).toContain('uses: actions/setup-node@v6');
     expect(buildWorkflowSource).toContain('uses: actions/cache@v5');
+    expect(buildWorkflowSource).toContain('uses: actions/upload-artifact@v6');
+    expect(buildWorkflowSource).toContain('uses: actions/download-artifact@v8');
     expect(buildWorkflowSource).not.toContain('uses: actions/setup-node@v4');
     expect(buildWorkflowSource).not.toContain('uses: actions/cache@v4');
+    expect(buildWorkflowSource).not.toContain('uses: actions/upload-artifact@v4');
+    expect(buildWorkflowSource).not.toContain('uses: actions/download-artifact@v4');
   });
 
   it('uses corepack-managed pnpm instead of the deprecated pnpm action', () => {

@@ -91,7 +91,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Upload build output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: app-build
           path: out/
@@ -112,7 +112,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download build output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: app-build
           path: out/
@@ -298,7 +298,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Upload latest-mac.yml
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: latest-mac-${{ matrix.arch }}
           path: dist/latest-mac.yml
@@ -312,7 +312,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download build output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: app-build
           path: out/
@@ -365,7 +365,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download build output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: app-build
           path: out/
@@ -450,7 +450,7 @@ jobs:
         run: node scripts/build-remote-runtime-bundle.mjs --arch=${{ matrix.arch }}
 
       - name: Upload remote runtime artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: remote-runtime-linux-${{ matrix.arch }}
           path: dist/remote-runtime/*
@@ -477,7 +477,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download latest-mac.yml artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: latest-mac-*
           path: mac-yml-artifacts
