@@ -2180,6 +2180,124 @@ async function killTmuxSession({ name }) {
   return { success: true };
 }
 
+function findTmuxPaneForSession(stdout) {
+  const lines = String(stdout || '').split(/\r?\n/);
+  let fallbackPaneId = null;
+  let fallbackInMode = false;
+
+  for (const line of lines) {
+    const [paneId = '', paneActive = '0', paneInMode = '0'] = line.split('\t');
+    if (!paneId) {
+      continue;
+    }
+
+    if (!fallbackPaneId) {
+      fallbackPaneId = paneId;
+      fallbackInMode = paneInMode === '1';
+    }
+
+    if (paneActive === '1') {
+      return {
+        paneId,
+        inMode: paneInMode === '1',
+      };
+    }
+  }
+
+  if (!fallbackPaneId) {
+    return null;
+  }
+
+  return {
+    paneId: fallbackPaneId,
+    inMode: fallbackInMode,
+  };
+}
+
+async function scrollTmuxClient({ sessionName, direction, amount, serverName }) {
+  const normalizedSessionName =
+    typeof sessionName === 'string' && sessionName.length > 0 ? sessionName : '';
+  const normalizedAmount = Number.isFinite(amount) ? Math.max(0, Math.trunc(amount)) : 0;
+  const normalizedServerName =
+    typeof serverName === 'string' && serverName.length > 0 ? serverName : 'enso';
+
+  if (!normalizedSessionName || normalizedAmount === 0) {
+    return { applied: false, sessionName: normalizedSessionName };
+  }
+
+  try {
+    const stdout = await execInConfiguredShell(
+      'tmux -L ' +
+        shellQuote(normalizedServerName) +
+        ' list-panes -t ' +
+        shellQuote(normalizedSessionName) +
+        ' -F ' +
+        shellQuote('#{pane_id}\t#{pane_active}\t#{pane_in_mode}'),
+      {
+        timeout: 5000,
+      }
+    );
+    const pane = findTmuxPaneForSession(stdout);
+    if (!pane) {
+      return { applied: false, sessionName: normalizedSessionName };
+    }
+
+    if (direction === 'up') {
+      await execInConfiguredShell(
+        'tmux -L ' +
+          shellQuote(normalizedServerName) +
+          ' copy-mode -eH -t ' +
+          shellQuote(pane.paneId),
+        {
+          timeout: 5000,
+        }
+      );
+
+      await execInConfiguredShell(
+        'tmux -L ' +
+          shellQuote(normalizedServerName) +
+          ' send-keys -X -N ' +
+          normalizedAmount +
+          ' -t ' +
+          shellQuote(pane.paneId) +
+          ' scroll-up',
+        {
+          timeout: 5000,
+        }
+      );
+    } else {
+      if (!pane.inMode) {
+        return {
+          applied: false,
+          sessionName: normalizedSessionName,
+          paneId: pane.paneId,
+        };
+      }
+
+      await execInConfiguredShell(
+        'tmux -L ' +
+          shellQuote(normalizedServerName) +
+          ' send-keys -X -N ' +
+          normalizedAmount +
+          ' -t ' +
+          shellQuote(pane.paneId) +
+          ' scroll-down-and-cancel',
+        {
+          timeout: 5000,
+        }
+      );
+    }
+
+    return {
+      applied: true,
+      sessionName: normalizedSessionName,
+      paneId: pane.paneId,
+    };
+  } catch {
+    return { applied: false, sessionName: normalizedSessionName };
+  }
+}
+
 function getClaudeDir() {
   return path.join(os.homedir(), '.claude');
 }
@@ -3191,6 +3309,8 @@ const handlers = {
   'happy:checkGlobal': ({ forceRefresh }) => checkHappyGlobal({ forceRefresh }),
   'tmux:check': ({ forceRefresh }) => checkTmux({ forceRefresh }),
   'tmux:killSession': ({ name }) => killTmuxSession({ name }),
+  'tmux:scrollClient': ({ sessionName, direction, amount, serverName }) =>
+    scrollTmuxClient({ sessionName, direction, amount, serverName }),
   'claude:plugins:list': () => listClaudePlugins(),
   'claude:plugins:setEnabled': ({ pluginId, enabled }) => setClaudePluginEnabled(pluginId, enabled),
   'claude:plugins:available': ({ marketplace }) => listAvailableClaudePlugins(marketplace),

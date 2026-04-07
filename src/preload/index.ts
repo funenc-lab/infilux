@@ -68,6 +68,9 @@ import type {
   TempWorkspaceCreateResult,
   TempWorkspaceItem,
   TempWorkspaceRemoveResult,
+  TmuxCheckResult,
+  TmuxScrollClientRequest,
+  TmuxScrollClientResult,
   TerminalCreateOptions,
   TerminalResizeOptions,
   ValidateLocalPathResult,
@@ -502,6 +505,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_RESTORE_WORKTREE, request),
     reconcile: (uiSessionId: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_RECONCILE, uiSessionId),
+    resolveProviderSession: (request: import('@shared/types').ResolveAgentProviderSessionRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER, request),
     markPersistent: (record: PersistentAgentSessionRecord) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT, record),
     abandon: (uiSessionId: string) =>
@@ -736,10 +741,15 @@ const electronAPI = {
     check: (
       repoPath: string | undefined,
       forceRefresh?: boolean
-    ): Promise<{ installed: boolean; version?: string; error?: string }> =>
+    ): Promise<TmuxCheckResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.TMUX_CHECK, repoPath, forceRefresh),
     killSession: (repoPath: string | undefined, name: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.TMUX_KILL_SESSION, repoPath, name),
+    scrollClient: (
+      repoPath: string | undefined,
+      request: TmuxScrollClientRequest
+    ): Promise<TmuxScrollClientResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.TMUX_SCROLL_CLIENT, repoPath, request),
   },
 
   // Settings
@@ -1316,6 +1326,8 @@ const electronAPI = {
     getPath: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.LOG_GET_PATH),
     getDiagnostics: (lineCount?: number): Promise<LogDiagnostics> =>
       ipcRenderer.invoke(IPC_CHANNELS.LOG_GET_DIAGNOSTICS, lineCount),
+    recordAgentStartup: (message: string): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP, { message }),
   },
 
   // Utilities

@@ -367,6 +367,23 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.TMUX_CHECK, '/repo', true],
       },
       {
+        run: () =>
+          api.tmux.scrollClient('/repo', {
+            sessionName: 'enso-ui-session-1',
+            direction: 'up',
+            amount: 3,
+          }),
+        expected: [
+          IPC_CHANNELS.TMUX_SCROLL_CLIENT,
+          '/repo',
+          {
+            sessionName: 'enso-ui-session-1',
+            direction: 'up',
+            amount: 3,
+          },
+        ],
+      },
+      {
         run: () => api.settings.previewLegacyImportFromTypicalPaths(),
         expected: [IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW],
       },
@@ -488,6 +505,13 @@ describe('preload bridge', () => {
         run: () => api.log.updateConfig({ enabled: true, level: 'debug' }),
         expected: [IPC_CHANNELS.LOG_UPDATE_CONFIG, { enabled: true, level: 'debug' }],
       },
+      {
+        run: () => api.log.recordAgentStartup('[agent-startup][renderer][pty-1] first-output'),
+        expected: [
+          IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP,
+          { message: '[agent-startup][renderer][pty-1] first-output' },
+        ],
+      },
       { run: () => api.log.getPath(), expected: [IPC_CHANNELS.LOG_GET_PATH] },
     ];
 
@@ -539,6 +563,22 @@ describe('preload bridge', () => {
     expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
       IPC_CHANNELS.AGENT_SESSION_RECONCILE,
       'session-1'
+    );
+
+    await api.agentSession.resolveProviderSession({
+      agentCommand: 'codex',
+      cwd: '/repo/worktree',
+      createdAt: 1,
+      observedAt: 2,
+    });
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER,
+      {
+        agentCommand: 'codex',
+        cwd: '/repo/worktree',
+        createdAt: 1,
+        observedAt: 2,
+      }
     );
 
     await api.agentSession.markPersistent(persistentRecord);

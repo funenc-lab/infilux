@@ -1,6 +1,11 @@
-import type { PersistentAgentSessionRecord, RestoreWorktreeSessionsRequest } from '@shared/types';
+import type {
+  PersistentAgentSessionRecord,
+  ResolveAgentProviderSessionRequest,
+  RestoreWorktreeSessionsRequest,
+} from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain } from 'electron';
+import { agentProviderSessionService } from '../services/agent/AgentProviderSessionService';
 import { persistentAgentSessionService } from '../services/session/PersistentAgentSessionService';
 
 export function registerAgentSessionHandlers(): void {
@@ -18,6 +23,13 @@ export function registerAgentSessionHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_RECONCILE, async (_, uiSessionId: string) => {
     return persistentAgentSessionService.reconcileSession(uiSessionId);
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER,
+    async (_, request: ResolveAgentProviderSessionRequest) => {
+      return agentProviderSessionService.resolveProviderSession(request);
+    }
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT,

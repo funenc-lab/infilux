@@ -480,10 +480,18 @@ describe('supporting IPC handlers', () => {
       path: '/tmp/logs/app.log',
       lines: ['[info] hello', '[error] world'],
     });
+    await expect(
+      getHandler(IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP)({}, {
+        message: '[agent-startup][renderer][pty-9] first-output +12ms (12ms total)',
+      })
+    ).resolves.toBeUndefined();
 
     expect(handlerTestDoubles.initLogger).toHaveBeenCalledWith(true, 'debug', 14);
     expect(handlerTestDoubles.logInfo).toHaveBeenCalledWith(
       'Logging config updated: enabled=true, level=debug, retentionDays=14'
+    );
+    expect(handlerTestDoubles.logInfo).toHaveBeenCalledWith(
+      '[agent-startup][renderer][pty-9] first-output +12ms (12ms total)'
     );
     expect(handlerTestDoubles.getLogDiagnostics).toHaveBeenCalledWith(50);
 

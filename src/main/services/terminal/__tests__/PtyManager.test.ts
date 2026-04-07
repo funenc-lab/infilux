@@ -28,6 +28,7 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
   const resolveShellForCommand = vi.fn();
   const pidtree = vi.fn();
   const pidusage = vi.fn();
+  const logInfo = vi.fn();
   const ptys: FakePty[] = [];
 
   function createPty(pid = 1000 + ptys.length): FakePty {
@@ -86,6 +87,7 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
     resolveShellForCommand.mockReset();
     pidtree.mockReset();
     pidusage.mockReset();
+    logInfo.mockReset();
     ptys.length = 0;
 
     homedir.mockReturnValue('/Users/tester');
@@ -136,6 +138,7 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
     resolveShellForCommand,
     pidtree,
     pidusage,
+    logInfo,
     ptys,
     reset,
   };
@@ -188,6 +191,12 @@ vi.mock('pidtree', () => ({
 
 vi.mock('pidusage', () => ({
   default: ptyManagerTestDoubles.pidusage,
+}));
+
+vi.mock('../../../utils/logger', () => ({
+  default: {
+    info: ptyManagerTestDoubles.logInfo,
+  },
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -489,7 +498,6 @@ describe('PtyManager utilities', () => {
   });
 
   it('uses an explicit fallback command when direct executable launch fails', async () => {
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     ptyManagerTestDoubles.spawn.mockImplementation((shell: string) => {
       if (shell === 'codex') {
@@ -558,11 +566,11 @@ describe('PtyManager utilities', () => {
       ['-l', '-c', 'codex --sandbox workspace-write'],
       expect.any(Object)
     );
-    expect(infoSpy).toHaveBeenNthCalledWith(
+    expect(ptyManagerTestDoubles.logInfo).toHaveBeenNthCalledWith(
       1,
       '[agent-startup][main][pty-1] spawn-start +0ms (0ms total)'
     );
-    expect(infoSpy).toHaveBeenNthCalledWith(
+    expect(ptyManagerTestDoubles.logInfo).toHaveBeenNthCalledWith(
       2,
       '[agent-startup][main][pty-1] spawned-fallback-explicit +0ms (0ms total)'
     );

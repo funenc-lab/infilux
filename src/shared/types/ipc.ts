@@ -137,6 +137,7 @@ export const IPC_CHANNELS = {
   AGENT_SESSION_LIST_RECOVERABLE: 'agentSession:listRecoverable',
   AGENT_SESSION_RESTORE_WORKTREE: 'agentSession:restoreWorktree',
   AGENT_SESSION_RECONCILE: 'agentSession:reconcile',
+  AGENT_SESSION_RESOLVE_PROVIDER: 'agentSession:resolveProvider',
   AGENT_SESSION_ABANDON: 'agentSession:abandon',
   AGENT_SESSION_MARK_PERSISTENT: 'agentSession:markPersistent',
   AGENT_STOP_NOTIFICATION: 'agent:stop:notification',
@@ -217,6 +218,7 @@ export const IPC_CHANNELS = {
   // Tmux
   TMUX_CHECK: 'tmux:check',
   TMUX_KILL_SESSION: 'tmux:killSession',
+  TMUX_SCROLL_CLIENT: 'tmux:scrollClient',
 
   // CLI Installer
   CLI_INSTALL_STATUS: 'cli:install:status',
@@ -339,6 +341,7 @@ export const IPC_CHANNELS = {
   LOG_OPEN_FOLDER: 'log:open-folder',
   LOG_GET_PATH: 'log:get-path',
   LOG_GET_DIAGNOSTICS: 'log:get-diagnostics',
+  LOG_RECORD_AGENT_STARTUP: 'log:record-agent-startup',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

@@ -42,3 +42,14 @@ export interface RestoreWorktreeSessionsRequest {
 export interface RestoreWorktreeSessionsResult {
   items: AgentSessionRestoreItem[];
 }
+
+export interface ResolveAgentProviderSessionRequest {
+  agentCommand: string;
+  cwd: string;
+  createdAt: number;
+  observedAt: number;
+}
+
+export interface ResolveAgentProviderSessionResult {
+  providerSessionId: string | null;
+}

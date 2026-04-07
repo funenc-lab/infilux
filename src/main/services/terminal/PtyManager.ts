@@ -7,6 +7,7 @@ import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTime
 import * as pty from 'node-pty';
 import pidtree from 'pidtree';
 import pidusage from 'pidusage';
+import log from '../../utils/logger';
 import { killProcessTree } from '../../utils/processUtils';
 import { getProxyEnvVars } from '../proxy/ProxyConfig';
 import { detectShell, shellDetector } from './ShellDetector';
@@ -433,7 +434,7 @@ export class PtyManager {
         ? createAgentStartupTimelineLogger({
             source: 'main',
             getLabel: () => id,
-            log: (message) => console.info(message),
+            log: (message) => log.info(message),
           })
         : null;
     const env = {

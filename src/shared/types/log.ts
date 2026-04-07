@@ -4,6 +4,10 @@ export interface LogConfigUpdate {
   retentionDays?: number;
 }
 
+export interface LogAgentStartupRecordRequest {
+  message: string;
+}
+
 export interface LogDiagnostics {
   path: string;
   lines: string[];

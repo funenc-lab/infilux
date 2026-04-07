@@ -13,6 +13,7 @@ const auxTestDoubles = vi.hoisted(() => {
 
   const tmuxCheck = vi.fn();
   const tmuxKillSession = vi.fn();
+  const tmuxScrollClient = vi.fn();
   const tmuxKillServer = vi.fn();
   const tmuxKillServerSync = vi.fn();
   const remoteCall = vi.fn();
@@ -61,6 +62,8 @@ const auxTestDoubles = vi.hoisted(() => {
     tmuxCheck.mockResolvedValue({ installed: true });
     tmuxKillSession.mockReset();
     tmuxKillSession.mockResolvedValue({ killed: true });
+    tmuxScrollClient.mockReset();
+    tmuxScrollClient.mockResolvedValue({ applied: true, paneId: '%0' });
     tmuxKillServer.mockReset();
     tmuxKillServer.mockResolvedValue(undefined);
     tmuxKillServerSync.mockReset();
@@ -122,6 +125,7 @@ const auxTestDoubles = vi.hoisted(() => {
     isLegacyLocalStorageMigrated,
     tmuxCheck,
     tmuxKillSession,
+    tmuxScrollClient,
     tmuxKillServer,
     tmuxKillServerSync,
     remoteCall,
@@ -179,6 +183,7 @@ vi.mock('../../services/cli/TmuxDetector', () => ({
   tmuxDetector: {
     check: auxTestDoubles.tmuxCheck,
     killSession: auxTestDoubles.tmuxKillSession,
+    scrollClient: auxTestDoubles.tmuxScrollClient,
     killServer: auxTestDoubles.tmuxKillServer,
     killServerSync: auxTestDoubles.tmuxKillServerSync,
   },
@@ -271,6 +276,16 @@ describe('auxiliary IPC handlers', () => {
     expect(await getHandler(IPC_CHANNELS.TMUX_KILL_SESSION)({}, '/repo', 'enso')).toEqual({
       killed: true,
     });
+    expect(
+      await getHandler(IPC_CHANNELS.TMUX_SCROLL_CLIENT)({}, '/repo', {
+        sessionName: 'enso-ui-session-1',
+        direction: 'up',
+        amount: 4,
+      })
+    ).toEqual({
+      applied: true,
+      paneId: '%0',
+    });
 
     expect(await getHandler(IPC_CHANNELS.TMUX_CHECK)({}, '/__remote__/repo', false)).toEqual({
       remote: true,
@@ -280,18 +295,43 @@ describe('auxiliary IPC handlers', () => {
     ).toEqual({
       remote: true,
     });
+    expect(
+      await getHandler(IPC_CHANNELS.TMUX_SCROLL_CLIENT)({}, '/__remote__/repo', {
+        sessionName: 'enso-ui-session-1',
+        direction: 'down',
+        amount: 2,
+      })
+    ).toEqual({
+      remote: true,
+    });
 
     await cleanupTmux();
     cleanupTmuxSync();
 
     expect(auxTestDoubles.tmuxCheck).toHaveBeenCalledWith(true);
     expect(auxTestDoubles.tmuxKillSession).toHaveBeenCalledWith('enso');
+    expect(auxTestDoubles.tmuxScrollClient).toHaveBeenCalledWith({
+      sessionName: 'enso-ui-session-1',
+      direction: 'up',
+      amount: 4,
+    });
     expect(auxTestDoubles.remoteCall).toHaveBeenNthCalledWith(1, 'conn-1', 'tmux:check', {
       forceRefresh: false,
     });
     expect(auxTestDoubles.remoteCall).toHaveBeenNthCalledWith(2, 'conn-1', 'tmux:killSession', {
       name: 'enso',
     });
+    expect(auxTestDoubles.remoteCall).toHaveBeenNthCalledWith(
+      3,
+      'conn-1',
+      'tmux:scrollClient',
+      expect.objectContaining({
+        sessionName: 'enso-ui-session-1',
+        direction: 'down',
+        amount: 2,
+        serverName: expect.any(String),
+      })
+    );
     expect(auxTestDoubles.tmuxKillServer).toHaveBeenCalledTimes(1);
     expect(auxTestDoubles.tmuxKillServerSync).toHaveBeenCalledTimes(1);
   });

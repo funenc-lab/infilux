@@ -1,8 +1,9 @@
-import { IPC_CHANNELS } from '@shared/types';
+import { IPC_CHANNELS, type TmuxScrollClientRequest } from '@shared/types';
 import { ipcMain } from 'electron';
 import { tmuxDetector } from '../services/cli/TmuxDetector';
 import { remoteConnectionManager } from '../services/remote/RemoteConnectionManager';
 import { resolveRepositoryRuntimeContext } from '../services/repository/RepositoryContextResolver';
+import { getAppRuntimeIdentity } from '../utils/runtimeIdentity';
 
 export function registerTmuxHandlers(): void {
   ipcMain.handle(
@@ -28,6 +29,20 @@ export function registerTmuxHandlers(): void {
         });
       }
       return await tmuxDetector.killSession(name);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.TMUX_SCROLL_CLIENT,
+    async (_, repoPath: string | undefined, request: TmuxScrollClientRequest) => {
+      const context = resolveRepositoryRuntimeContext(repoPath);
+      if (context.kind === 'remote' && context.connectionId) {
+        return await remoteConnectionManager.call(context.connectionId, 'tmux:scrollClient', {
+          ...request,
+          serverName: getAppRuntimeIdentity().tmuxServerName,
+        });
+      }
+      return await tmuxDetector.scrollClient(request);
     }
   );
 }
