@@ -57,6 +57,12 @@ import { StatusLine } from './StatusLine';
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
 import { shouldShowSessionPersistenceNotice } from './sessionPersistenceNoticePolicy';
 import { resolveSessionTitleFromFirstInput } from './sessionTitlePolicy';
+import {
+  getDefaultSessionName,
+  getMeaningfulTerminalTitle,
+  getStoredSessionName,
+  normalizeSessionTitleText,
+} from './sessionTitleText';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
 
@@ -97,7 +103,7 @@ function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
     environment: session.environment || 'native',
     repoPath: session.repoPath,
     cwd: session.cwd,
-    displayName: session.name,
+    displayName: getStoredSessionName(session.name, session.agentId),
     activated: Boolean(session.activated),
     initialized: session.initialized,
     hostKind: isWindows ? 'supervisor' : 'tmux',
@@ -117,29 +123,6 @@ function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
 function isCursorAgent(agentId: string): boolean {
   const baseId = agentId.replace(/-(hapi|happy)$/, '');
   return baseId === 'cursor';
-}
-
-/**
- * Default display name for a session (before any title from CLI or first input).
- *
- * Session name priority (highest → lowest):
- *   1. User manual rename (via context menu) — sets `name`, clears `terminalTitle`
- *   2. Terminal title from OSC escape sequence (`terminalTitle`) — updates `name` when still default (Cursor only)
- *   3. First meaningful user input line (`onActivatedWithFirstLine`) — sets `name` when still default & no terminalTitle
- *   4. Default agent display name (this function) — e.g. "Claude", "Claude (Hapi)"
- *
- * Display in SessionBar: `session.terminalTitle || session.name`
- */
-function getDefaultSessionName(agentId: string): string {
-  const isHapi = agentId.endsWith('-hapi');
-  const isHappy = agentId.endsWith('-happy');
-  const baseId = isHapi
-    ? agentId.slice(0, -'-hapi'.length)
-    : isHappy
-      ? agentId.slice(0, -'-happy'.length)
-      : agentId;
-  const baseName = AGENT_INFO[baseId]?.name ?? 'Agent';
-  return isHapi ? `${baseName} (Hapi)` : isHappy ? `${baseName} (Happy)` : baseName;
 }
 
 function getDefaultAgentId(
@@ -410,6 +393,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const addSession = useAgentSessionsStore((state) => state.addSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const updateSession = useAgentSessionsStore((state) => state.updateSession);
+  const markSessionExited = useAgentSessionsStore((state) => state.markSessionExited);
   const setActiveId = useAgentSessionsStore((state) => state.setActiveId);
   const persistableSessions = useMemo(
     () => allSessions.filter((session) => isSessionPersistable(session)),
@@ -1369,10 +1353,10 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   }, [allSessions, pendingCloseSession]);
 
   const handleSessionExit = useCallback(
-    (id: string, groupId?: string) => {
-      removeSessionFromUi(id, groupId);
+    (id: string, _groupId?: string) => {
+      markSessionExited(id);
     },
-    [removeSessionFromUi]
+    [markSessionExited]
   );
 
   // Handle session selection
@@ -2225,7 +2209,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
               key={sessionId}
               id={buildSessionPanelDomId(sessionId)}
               className={
-                shouldShow ? 'absolute h-full' : 'absolute h-full opacity-0 pointer-events-none'
+                shouldShow
+                  ? 'absolute top-0 h-full'
+                  : 'absolute top-0 h-full opacity-0 pointer-events-none'
               }
               style={{
                 left: `${left}%`,
@@ -2238,6 +2224,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
               )}
               <AgentTerminal
                 id={session.id}
+                createdAt={session.createdAt}
                 cwd={session.cwd}
                 sessionId={session.sessionId || session.id}
                 backendSessionId={session.backendSessionId}
@@ -2258,18 +2245,25 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                 onExit={() => handleSessionExit(sessionId, groupId || undefined)}
                 onTerminalTitleChange={(title) => {
                   if (session.userRenamed) return;
+                  const nextTerminalTitle = getMeaningfulTerminalTitle(title);
+                  const defaultName = getDefaultSessionName(session.agentId);
+                  const currentName = normalizeSessionTitleText(session.name);
                   const syncName =
-                    title &&
+                    nextTerminalTitle &&
                     isCursorAgent(session.agentId) &&
-                    session.name === getDefaultSessionName(session.agentId);
+                    (!currentName || currentName === normalizeSessionTitleText(defaultName));
                   updateSession(sessionId, {
-                    terminalTitle: title,
-                    ...(syncName ? { name: title } : {}),
+                    terminalTitle: nextTerminalTitle,
+                    ...(syncName ? { name: nextTerminalTitle } : {}),
                   });
                 }}
                 onBackendSessionIdChange={(backendSessionId) => {
                   if (session.backendSessionId === backendSessionId) return;
                   updateSession(sessionId, { backendSessionId });
+                }}
+                onProviderSessionIdChange={(providerSessionId) => {
+                  if (session.sessionId === providerSessionId) return;
+                  updateSession(sessionId, { sessionId: providerSessionId });
                 }}
                 onRuntimeStateChange={(runtimeState) => {
                   if (session.recoveryState === runtimeState) return;

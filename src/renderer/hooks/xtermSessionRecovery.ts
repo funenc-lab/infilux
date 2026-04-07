@@ -74,6 +74,22 @@ export function shouldRetryDeadSessionRecovery(
   return buildXtermRecoveryAttemptKey(snapshot) !== lastAttemptKey;
 }
 
+export function shouldAttemptDeadSessionRecovery({
+  allowDeadSessionRecovery,
+  lastAttemptKey,
+  snapshot,
+}: {
+  allowDeadSessionRecovery: boolean;
+  lastAttemptKey: string | null;
+  snapshot: XtermSessionBindingSnapshot;
+}): boolean {
+  if (!allowDeadSessionRecovery) {
+    return false;
+  }
+
+  return shouldRetryDeadSessionRecovery(lastAttemptKey, snapshot);
+}
+
 export function shouldRearmDeadSessionRecovery({
   hasReceivedData,
   replay,

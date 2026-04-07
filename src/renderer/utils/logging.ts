@@ -12,3 +12,13 @@ export function updateRendererLogging(
   // When disabled, only send errors; when enabled, use configured level
   log.transports.ipc.level = enabled ? level : 'error';
 }
+
+export function recordAgentStartup(message: string): void {
+  if (!message.trim()) {
+    return;
+  }
+
+  void window.electronAPI.log
+    ?.recordAgentStartup?.(message)
+    .catch((error) => console.warn('[logging] Failed to record agent startup timeline', error));
+}

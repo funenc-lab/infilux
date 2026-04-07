@@ -57,4 +57,24 @@ describe('sessionTitlePolicy', () => {
       })
     ).toBeNull();
   });
+
+  it('still promotes the first input when the terminal title is only placeholder chrome', () => {
+    expect(
+      resolveSessionTitleFromFirstInput({
+        line: 'Recover session title after restart',
+        currentName: 'Codex',
+        defaultName: 'Codex',
+        terminalTitle: '›',
+      })
+    ).toBe('Recover session title after restart');
+
+    expect(
+      resolveSessionTitleFromFirstInput({
+        line: 'Recover session title after restart',
+        currentName: 'Codex',
+        defaultName: 'Codex',
+        terminalTitle: '   ',
+      })
+    ).toBe('Recover session title after restart');
+  });
 });

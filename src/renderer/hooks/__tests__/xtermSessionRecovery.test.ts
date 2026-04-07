@@ -4,6 +4,7 @@ import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
   resolveReusableBackendSessionId,
+  shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
   shouldRetryDeadSessionRecovery,
@@ -300,6 +301,42 @@ describe('shouldRetryDeadSessionRecovery', () => {
     expect(shouldRetryDeadSessionRecovery(buildXtermRecoveryAttemptKey(previous), next)).toBe(
       false
     );
+  });
+});
+
+describe('shouldAttemptDeadSessionRecovery', () => {
+  it('does not retry when dead-session recovery is disabled for the binding', () => {
+    const snapshot = createXtermSessionBindingSnapshot({
+      cwd: '/repo',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      sessionId: 'session-1',
+    });
+
+    expect(
+      shouldAttemptDeadSessionRecovery({
+        allowDeadSessionRecovery: false,
+        lastAttemptKey: null,
+        snapshot,
+      })
+    ).toBe(false);
+  });
+
+  it('reuses the default retry policy when dead-session recovery is enabled', () => {
+    const snapshot = createXtermSessionBindingSnapshot({
+      cwd: '/repo',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      sessionId: 'session-1',
+    });
+
+    expect(
+      shouldAttemptDeadSessionRecovery({
+        allowDeadSessionRecovery: true,
+        lastAttemptKey: null,
+        snapshot,
+      })
+    ).toBe(true);
   });
 });
 

@@ -24,14 +24,23 @@ import {
 } from '@/lib/xtermWindowEvents';
 import { useNavigationStore } from '@/stores/navigation';
 import { useSettingsStore } from '@/stores/settings';
+import { recordAgentStartup } from '@/utils/logging';
+import {
+  copyTerminalSelectionToClipboard,
+  getTerminalSelectionText,
+  shouldHandleTerminalCopyEvent,
+  writeClipboardText,
+} from './xtermClipboard';
 import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
   resolveReusableBackendSessionId,
+  shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
-  shouldRetryDeadSessionRecovery,
 } from './xtermSessionRecovery';
+import { attachAgentTranscriptMode } from './xtermAgentTranscriptPolicy';
+import { buildXtermTerminalOptions } from './xtermTerminalOptions';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
@@ -87,6 +96,7 @@ export interface UseXtermOptions {
   initialCommand?: string;
   kind?: SessionKind;
   persistOnDisconnect?: boolean;
+  retryOnDeadSession?: boolean;
   onExit?: () => void;
   onData?: (data: string) => void;
   onCustomKey?: (
@@ -176,6 +186,7 @@ export function useXterm({
   initialCommand,
   kind = 'terminal',
   persistOnDisconnect = false,
+  retryOnDeadSession = true,
   onExit,
   onData,
   onCustomKey,
@@ -200,9 +211,11 @@ export function useXterm({
   const ptyIdRef = useRef<string | null>(null);
   const sessionEventsCleanupRef = useRef<(() => void) | null>(null);
   const terminalInputCleanupRef = useRef<{ dispose: () => void } | null>(null);
+  const transcriptModeCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<{ dispose: () => void } | null>(null);
   const copyOnSelectionHandlerRef = useRef<(() => void) | null>(null);
+  const copyEventHandlerRef = useRef<((event: ClipboardEvent) => void) | null>(null);
   const activeSessionBindingRef = useRef<ReturnType<
     typeof createXtermSessionBindingSnapshot
   > | null>(null);
@@ -436,15 +449,20 @@ export function useXterm({
         return true;
       }
 
-      if (decision.sequence && decision.repeat > 0) {
-        write(decision.sequence.repeat(decision.repeat));
+      if (typeof decision.scrollLines === 'number') {
+        if (decision.scrollLines !== 0) {
+          terminal.scrollLines(decision.scrollLines);
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
       }
 
       event.preventDefault();
       event.stopPropagation();
       return false;
     },
-    [kind, write]
+    [kind]
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
@@ -457,7 +475,7 @@ export function useXterm({
       agentStartupLoggerRef.current = createAgentStartupTimelineLogger({
         source: 'renderer',
         getLabel: () => ptyIdRef.current ?? backendSessionId ?? command?.shell ?? 'pending',
-        log: (message) => console.info(message),
+        log: (message) => recordAgentStartup(message),
       });
       agentStartupLoggerRef.current.markStage('init-terminal-start');
     } else {
@@ -467,21 +485,15 @@ export function useXterm({
     let terminal = terminalRef.current;
 
     if (!terminal) {
-      const nextTerminal = new Terminal({
-        cursorBlink: true,
-        cursorStyle: 'bar',
-        fontSize: settings.fontSize,
-        fontFamily: settings.fontFamily,
-        fontWeight: settings.fontWeight,
-        fontWeightBold: settings.fontWeightBold,
-        theme: settings.theme,
-        scrollback: settings.scrollback,
-        macOptionIsMeta: settings.optionIsMeta,
-        allowProposedApi: true,
-        allowTransparency: settings.backgroundImageEnabled,
-        rescaleOverlappingGlyphs: true,
-      });
+      const nextTerminal = new Terminal(
+        buildXtermTerminalOptions({
+          platform: getRendererEnvironment().platform,
+          settings,
+        })
+      );
       terminal = nextTerminal;
+      transcriptModeCleanupRef.current?.dispose();
+      transcriptModeCleanupRef.current = attachAgentTranscriptMode(nextTerminal, kind);
 
       const fitAddon = new FitAddon();
       const searchAddon = new SearchAddon();
@@ -615,13 +627,37 @@ export function useXterm({
         setTimeout(() => {
           const currentTerminal = terminalRef.current;
           if (!currentTerminal) return;
-          if (currentTerminal.hasSelection()) {
-            navigator.clipboard.writeText(currentTerminal.getSelection()).catch(() => {});
-          }
+          void copyTerminalSelectionToClipboard(currentTerminal).catch(() => {});
         }, 0);
       };
+      const handleCopyEvent = (event: ClipboardEvent) => {
+        const currentTerminal = terminalRef.current;
+        const selectionText = getTerminalSelectionText(currentTerminal);
+        if (
+          !shouldHandleTerminalCopyEvent({
+            container,
+            eventTarget: event.target,
+            activeElement: document.activeElement,
+            domSelectionText: document.getSelection()?.toString() ?? '',
+            selectionText,
+          })
+        ) {
+          return;
+        }
+        if (!selectionText) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.clipboardData?.setData('text/plain', selectionText);
+        void writeClipboardText(selectionText).catch(() => {});
+      };
+
       terminal.element?.addEventListener('mouseup', handleCopyOnSelection);
+      window.addEventListener('copy', handleCopyEvent);
       copyOnSelectionHandlerRef.current = handleCopyOnSelection;
+      copyEventHandlerRef.current = handleCopyEvent;
 
       terminalInputCleanupRef.current = terminal.onData((data) => {
         if (ptyIdRef.current && runtimeStateRef.current === 'live') {
@@ -702,8 +738,8 @@ export function useXterm({
 
         // Copy: Cmd+C (mac) or Ctrl+C (win/linux)
         if (event.key === 'c' || event.key === 'C') {
-          if (terminal.hasSelection()) {
-            navigator.clipboard.writeText(terminal.getSelection());
+          if (getTerminalSelectionText(terminal)) {
+            void copyTerminalSelectionToClipboard(terminal).catch(() => {});
             return false;
           }
           // On Windows/Linux, let Ctrl+C pass through as SIGINT when no selection
@@ -1012,7 +1048,13 @@ export function useXterm({
       return;
     }
 
-    if (!shouldRetryDeadSessionRecovery(deadRecoveryAttemptKeyRef.current, desiredSessionBinding)) {
+    if (
+      !shouldAttemptDeadSessionRecovery({
+        allowDeadSessionRecovery: retryOnDeadSession,
+        lastAttemptKey: deadRecoveryAttemptKeyRef.current,
+        snapshot: desiredSessionBinding,
+      })
+    ) {
       return;
     }
     deadRecoveryAttemptKeyRef.current = buildXtermRecoveryAttemptKey(desiredSessionBinding);
@@ -1022,7 +1064,14 @@ export function useXterm({
         void initTerminal();
       });
     });
-  }, [desiredSessionBinding, initTerminal, initialCommand, isActive, runtimeState]);
+  }, [
+    desiredSessionBinding,
+    initTerminal,
+    initialCommand,
+    isActive,
+    retryOnDeadSession,
+    runtimeState,
+  ]);
 
   useEffect(() => {
     if (wheelHandlerAttachmentEpoch === 0) {
@@ -1064,6 +1113,8 @@ export function useXterm({
       sessionEventsCleanupRef.current = null;
       terminalInputCleanupRef.current?.dispose();
       terminalInputCleanupRef.current = null;
+      transcriptModeCleanupRef.current?.dispose();
+      transcriptModeCleanupRef.current = null;
       if (ptyIdRef.current) {
         window.electronAPI.session.detach(ptyIdRef.current).catch(() => {});
         ptyIdRef.current = null;
@@ -1075,6 +1126,10 @@ export function useXterm({
           copyOnSelectionHandlerRef.current
         );
         copyOnSelectionHandlerRef.current = null;
+      }
+      if (copyEventHandlerRef.current) {
+        window.removeEventListener('copy', copyEventHandlerRef.current);
+        copyEventHandlerRef.current = null;
       }
       // Dispose addons before terminal to prevent async callback errors
       linkProviderDisposableRef.current?.dispose();

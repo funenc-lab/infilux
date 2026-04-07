@@ -3,6 +3,7 @@ import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
+import { copyTerminalSelectionToClipboard, readClipboardText } from '@/hooks/xtermClipboard';
 import { useI18n } from '@/i18n';
 import { resolveTerminalRuntimeOverlayState } from '@/lib/terminalRuntimeOverlay';
 import { TerminalSearchBar, type TerminalSearchBarRef } from './TerminalSearchBar';
@@ -135,13 +136,10 @@ export function ShellTerminal({
           refreshRenderer();
           break;
         case 'copy':
-          if (terminal?.hasSelection()) {
-            const selection = terminal.getSelection();
-            navigator.clipboard.writeText(selection);
-          }
+          void copyTerminalSelectionToClipboard(terminal).catch(() => {});
           break;
         case 'paste':
-          navigator.clipboard.readText().then((text) => {
+          void readClipboardText().then((text) => {
             terminal?.paste(text);
           });
           break;

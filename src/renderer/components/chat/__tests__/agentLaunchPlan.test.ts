@@ -96,6 +96,9 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command?.args[1]).toContain(
       'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 status off >/dev/null 2>&1 || true'
     );
+    expect(plan.command?.args[1]).toContain(
+      'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 mouse off >/dev/null 2>&1 || true'
+    );
     expect(plan.command?.args[1]).not.toContain(
       'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 mouse on >/dev/null 2>&1 || true'
     );
@@ -177,6 +180,32 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.fallbackCommand).toEqual({
       shell: '/bin/zsh',
       args: ['-l', '-c', 'codex resume codex-session-9'],
+    });
+  });
+
+  it('does not resume codex with the ui session id when no provider session id was captured', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'ui-session-1',
+      terminalSessionId: 'ui-session-1',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toEqual({
+      shell: 'codex',
+      args: [],
+    });
+    expect(plan.fallbackCommand).toEqual({
+      shell: '/bin/zsh',
+      args: ['-l', '-c', 'codex'],
     });
   });
 
@@ -344,6 +373,32 @@ describe('buildAgentLaunchPlan', () => {
           '-Command',
           '& { cursor-agent --resume resume-7 --model gpt-5 "say \\"hi\\" %%PATH%% `$HOME ``tick`` next" }',
         ],
+      },
+      env: undefined,
+      initialCommand: undefined,
+      tmuxSessionName: null,
+    });
+  });
+
+  it('does not resume cursor-agent with the ui session id when provider resume id is unknown', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'cursor-agent',
+      resumeSessionId: 'ui-session-2',
+      terminalSessionId: 'ui-session-2',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: {
+        shell: 'pwsh.exe',
+        execArgs: ['-NoLogo', '-Command'],
+      },
+    });
+
+    expect(plan).toEqual({
+      command: {
+        shell: 'pwsh.exe',
+        args: ['-NoLogo', '-Command', '& { cursor-agent }'],
       },
       env: undefined,
       initialCommand: undefined,

@@ -1,59 +1,60 @@
+import type { Terminal } from '@xterm/xterm';
 import { describe, expect, it, vi } from 'vitest';
 import { attachPersistentCustomWheelEventHandler } from '../xtermWheelHandlerPersistence';
 
-type WheelHandler = (event: WheelEvent) => boolean;
+describe('xtermWheelHandlerPersistence', () => {
+  it('routes DOM wheel events through the latest handler even when xterm mouse reporting is disabled', () => {
+    const wheelListenerRef: { current: ((event: Event) => void) | null } = {
+      current: null,
+    };
+    const element = {
+      addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+        if (type === 'wheel') {
+          wheelListenerRef.current =
+            typeof listener === 'function'
+              ? listener
+              : (event: Event) => {
+                  listener.handleEvent(event);
+                };
+        }
+      }),
+      removeEventListener: vi.fn(),
+    } as unknown as HTMLDivElement;
 
-class FakeTerminal {
-  _customWheelEventHandler?: WheelHandler;
+    const terminal = {
+      element,
+      attachCustomWheelEventHandler: vi.fn(),
+    } as unknown as Terminal;
 
-  readonly attachCustomWheelEventHandler = vi.fn((handler: WheelHandler) => {
-    this._customWheelEventHandler = handler;
-  });
+    const firstHandler = vi.fn(() => true);
+    attachPersistentCustomWheelEventHandler(terminal, firstHandler);
 
-  readonly originalReset = vi.fn(() => {
-    this._customWheelEventHandler = undefined;
-  });
+    expect(element.addEventListener).toHaveBeenCalledWith('wheel', expect.any(Function), {
+      passive: false,
+    });
 
-  reset = this.originalReset;
-}
+    const firstEvent = { deltaY: -120 } as WheelEvent;
+    const firstWheelListener = wheelListenerRef.current;
+    expect(firstWheelListener).not.toBeNull();
+    if (!firstWheelListener) {
+      throw new Error('Expected wheel listener to be registered');
+    }
+    firstWheelListener(firstEvent);
+    expect(firstHandler).toHaveBeenCalledWith(firstEvent);
 
-describe('attachPersistentCustomWheelEventHandler', () => {
-  it('attaches the provided wheel handler immediately', () => {
-    const terminal = new FakeTerminal();
-    const handler: WheelHandler = vi.fn(() => false);
+    const secondHandler = vi.fn(() => true);
+    attachPersistentCustomWheelEventHandler(terminal, secondHandler);
 
-    attachPersistentCustomWheelEventHandler(terminal as never, handler);
+    expect(element.removeEventListener).toHaveBeenCalledWith('wheel', expect.any(Function));
 
-    expect(terminal.attachCustomWheelEventHandler).toHaveBeenCalledTimes(1);
-    expect(terminal._customWheelEventHandler).toBe(handler);
-  });
-
-  it('restores the wheel handler after terminal reset clears it', () => {
-    const terminal = new FakeTerminal();
-    const handler: WheelHandler = vi.fn(() => false);
-
-    attachPersistentCustomWheelEventHandler(terminal as never, handler);
-    terminal.reset();
-
-    expect(terminal.originalReset).toHaveBeenCalledTimes(1);
-    expect(terminal.attachCustomWheelEventHandler).toHaveBeenCalledTimes(2);
-    expect(terminal._customWheelEventHandler).toBe(handler);
-  });
-
-  it('wraps reset only once and restores the latest handler', () => {
-    const terminal = new FakeTerminal();
-    const firstHandler: WheelHandler = vi.fn(() => false);
-    const secondHandler: WheelHandler = vi.fn(() => false);
-
-    attachPersistentCustomWheelEventHandler(terminal as never, firstHandler);
-    const wrappedReset = terminal.reset;
-    attachPersistentCustomWheelEventHandler(terminal as never, secondHandler);
-
-    expect(terminal.reset).toBe(wrappedReset);
-
-    terminal.reset();
-
-    expect(terminal.originalReset).toHaveBeenCalledTimes(1);
-    expect(terminal._customWheelEventHandler).toBe(secondHandler);
+    const secondEvent = { deltaY: 120 } as WheelEvent;
+    const secondWheelListener = wheelListenerRef.current;
+    expect(secondWheelListener).not.toBeNull();
+    if (!secondWheelListener) {
+      throw new Error('Expected wheel listener to be re-registered');
+    }
+    secondWheelListener(secondEvent);
+    expect(firstHandler).toHaveBeenCalledTimes(1);
+    expect(secondHandler).toHaveBeenCalledWith(secondEvent);
   });
 });

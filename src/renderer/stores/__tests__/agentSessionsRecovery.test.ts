@@ -93,6 +93,41 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('keeps exited sessions in the store and marks them as dead for inspection', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-1',
+      sessionId: 'provider-1',
+      backendSessionId: 'backend-1',
+      name: 'Codex',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      persistenceEnabled: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+    store.setOutputState('session-1', 'outputting', false);
+    store.markSessionExited('session-1');
+
+    const nextState = env.useAgentSessionsStore.getState();
+    expect(nextState.sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        backendSessionId: undefined,
+        recoveryState: 'dead',
+      }),
+    ]);
+    expect(nextState.getRuntimeState('session-1')).toMatchObject({
+      outputState: 'unread',
+      wasActiveWhenOutputting: false,
+    });
+  });
+
   it('upserts recovered sessions and preserves backend session ids for host reattach', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();

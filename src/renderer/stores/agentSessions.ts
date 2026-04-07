@@ -7,6 +7,10 @@ import {
   mergeAgentAttachments,
 } from '@/components/chat/agentAttachmentTrayModel';
 import type { Session } from '@/components/chat/SessionBar';
+import {
+  getMeaningfulTerminalTitle,
+  getStoredSessionName,
+} from '@/components/chat/sessionTitleText';
 import type { AgentGroupState } from '@/components/chat/types';
 import { createInitialGroupState } from '@/components/chat/types';
 import { isSessionPersistable } from '@/lib/agentSessionPersistence';
@@ -79,6 +83,7 @@ interface AgentSessionsState {
   addSession: (session: Session) => void;
   removeSession: (id: string) => void;
   updateSession: (id: string, updates: Partial<Session>) => void;
+  markSessionExited: (id: string) => void;
   setActiveId: (cwd: string, sessionId: string | null) => void;
   reorderSessions: (repoPath: string, cwd: string, fromIndex: number, toIndex: number) => void;
   getSessions: (repoPath: string, cwd: string) => Session[];
@@ -275,6 +280,14 @@ function sanitizePersistedEnhancedInputStates(
   return sanitized;
 }
 
+function sanitizePersistedSession(session: Session): Session {
+  return {
+    ...session,
+    name: getStoredSessionName(session.name, session.agentId),
+    terminalTitle: getMeaningfulTerminalTitle(session.terminalTitle),
+  };
+}
+
 function loadFromStorage(): PersistedAgentSessionsSnapshot {
   try {
     const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
@@ -285,7 +298,7 @@ function loadFromStorage(): PersistedAgentSessionsSnapshot {
         // Migrate old sessions that don't have repoPath (backwards compatibility)
         const migratedSessions: Session[] = persistedSessions
           .map((s: Session) => ({
-            ...s,
+            ...sanitizePersistedSession(s),
             repoPath: s.repoPath || s.cwd,
           }))
           .filter((session: Session) => isSessionPersistable(session));
@@ -327,7 +340,8 @@ function saveToStorage(
 ): void {
   // Only persist sessions that are activated and backed by a recoverable host.
   const persistableSessions = sessions.filter((session) => isSessionPersistable(session));
-  const persistableIds = new Set(persistableSessions.map((s) => s.id));
+  const sanitizedPersistableSessions = persistableSessions.map(sanitizePersistedSession);
+  const persistableIds = new Set(sanitizedPersistableSessions.map((s) => s.id));
   // Only keep activeIds that reference persistable sessions
   const persistableActiveIds: Record<string, string | null> = {};
   for (const [cwd, id] of Object.entries(activeIds)) {
@@ -336,9 +350,9 @@ function saveToStorage(
   localStorage.setItem(
     SESSIONS_STORAGE_KEY,
     JSON.stringify({
-      sessions: persistableSessions,
+      sessions: sanitizedPersistableSessions,
       activeIds: persistableActiveIds,
-      groupStates: sanitizePersistedGroupStates(groupStates, persistableSessions),
+      groupStates: sanitizePersistedGroupStates(groupStates, sanitizedPersistableSessions),
       runtimeStates: sanitizePersistedRuntimeStates(runtimeStates, persistableIds),
       enhancedInputStates: sanitizePersistedEnhancedInputStates(
         enhancedInputStates,
@@ -466,6 +480,41 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         sessions: state.sessions.map((s) => (s.id === id ? { ...s, ...updates } : s)),
       })),
 
+    markSessionExited: (id) =>
+      set((state) => {
+        const session = state.sessions.find((item) => item.id === id);
+        if (!session) {
+          return state;
+        }
+
+        const nextRuntimeStates = { ...state.runtimeStates };
+        const currentRuntimeState = nextRuntimeStates[id];
+        if (currentRuntimeState) {
+          nextRuntimeStates[id] = {
+            outputState:
+              currentRuntimeState.outputState === 'outputting'
+                ? 'unread'
+                : currentRuntimeState.outputState,
+            lastActivityAt: Date.now(),
+            wasActiveWhenOutputting: false,
+            hasCompletedTaskUnread: currentRuntimeState.hasCompletedTaskUnread ?? false,
+          };
+        }
+
+        return {
+          sessions: state.sessions.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  backendSessionId: undefined,
+                  recoveryState: 'dead',
+                }
+              : item
+          ),
+          runtimeStates: nextRuntimeStates,
+        };
+      }),
+
     setActiveId: (cwd, sessionId) =>
       set((state) => ({
         activeIds: { ...state.activeIds, [normalizePath(cwd)]: sessionId },
@@ -537,7 +586,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           sessionId: record.providerSessionId ?? record.uiSessionId,
           backendSessionId: record.backendSessionId,
           createdAt: record.createdAt,
-          name: record.displayName,
+          name: getStoredSessionName(record.displayName, record.agentId),
           agentId: record.agentId,
           agentCommand: record.agentCommand,
           customPath: record.customPath,
@@ -548,7 +597,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           cwd: record.cwd,
           environment: record.environment,
           displayOrder: existing?.displayOrder,
-          terminalTitle: existing?.terminalTitle,
+          terminalTitle: getMeaningfulTerminalTitle(existing?.terminalTitle),
           userRenamed: existing?.userRenamed,
           pendingCommand: existing?.pendingCommand,
           persistenceEnabled: true,

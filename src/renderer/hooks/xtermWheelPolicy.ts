@@ -4,18 +4,17 @@ export const DOM_DELTA_PIXEL = 0;
 export const DOM_DELTA_LINE = 1;
 export const DOM_DELTA_PAGE = 2;
 
-export const PAGE_UP_SEQUENCE = '\x1b[5~';
-export const PAGE_DOWN_SEQUENCE = '\x1b[6~';
-
 const TRACKPAD_PIXEL_DELTA_THRESHOLD = 50;
 
 export type XtermBufferType = 'normal' | 'alternate';
 export type XtermMouseTrackingMode = 'none' | 'x10' | 'vt200' | 'drag' | 'any';
+export type XtermHostScrollMode = 'none' | 'tmux';
 
 interface AgentWheelPolicyInput {
   kind: SessionKind;
   activeBufferType: XtermBufferType;
   mouseTrackingMode: XtermMouseTrackingMode;
+  hostScrollMode?: XtermHostScrollMode;
   deltaMode: number;
   deltaY: number;
   carryY: number;
@@ -31,8 +30,7 @@ type AgentWheelPolicyDecision =
   | {
       action: 'consume';
       carryY: number;
-      repeat: number;
-      sequence: string | null;
+      scrollLines: number;
     };
 
 function normalizePixelWheelDelta(
@@ -94,10 +92,9 @@ function normalizeWheelDelta(
 }
 
 export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWheelPolicyDecision {
-  const { kind, activeBufferType, mouseTrackingMode, deltaY } = input;
+  const { kind, mouseTrackingMode, deltaY } = input;
 
-  const shouldRemapWheel =
-    kind === 'agent' && activeBufferType === 'alternate' && mouseTrackingMode === 'none';
+  const shouldRemapWheel = kind === 'agent' && mouseTrackingMode === 'none';
 
   if (!shouldRemapWheel) {
     return {
@@ -110,8 +107,7 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
     return {
       action: 'consume',
       carryY: input.carryY,
-      repeat: 0,
-      sequence: null,
+      scrollLines: 0,
     };
   }
 
@@ -129,15 +125,13 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
     return {
       action: 'consume',
       carryY,
-      repeat: 0,
-      sequence: null,
+      scrollLines: 0,
     };
   }
 
   return {
     action: 'consume',
     carryY,
-    repeat: 1,
-    sequence: steps < 0 ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE,
+    scrollLines: steps,
   };
 }

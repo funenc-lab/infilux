@@ -1,4 +1,4 @@
-import { normalizeSessionTitleText } from './sessionTitleText';
+import { getMeaningfulTerminalTitle, normalizeSessionTitleText } from './sessionTitleText';
 
 export interface SessionTitleFromFirstInput {
   line: string;
@@ -22,7 +22,7 @@ export function resolveSessionTitleFromFirstInput(
     return null;
   }
 
-  if (input.terminalTitle?.trim()) {
+  if (getMeaningfulTerminalTitle(input.terminalTitle)) {
     return null;
   }
 

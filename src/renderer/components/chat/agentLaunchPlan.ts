@@ -43,18 +43,21 @@ function buildSessionResumeArgs(params: {
   agentCommand: string;
   resumeSessionId?: string;
   initialized?: boolean;
+  terminalSessionId?: string;
 }): string[] {
-  const { agentCommand, resumeSessionId, initialized } = params;
+  const { agentCommand, resumeSessionId, initialized, terminalSessionId } = params;
   if (!resumeSessionId) {
     return [];
   }
 
+  const hasExplicitProviderResumeId = resumeSessionId !== terminalSessionId;
+
   if (agentCommand === 'cursor-agent') {
-    return ['--resume', resumeSessionId];
+    return hasExplicitProviderResumeId ? ['--resume', resumeSessionId] : [];
   }
 
   if (agentCommand === 'codex') {
-    return initialized ? ['resume', resumeSessionId] : [];
+    return initialized && hasExplicitProviderResumeId ? ['resume', resumeSessionId] : [];
   }
 
   if (agentCommand.startsWith('claude')) {
@@ -200,9 +203,12 @@ function buildTmuxAttachCommand(
   const hideStatusCommand =
     `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} status off ` +
     '>/dev/null 2>&1 || true';
+  const disableMouseCommand =
+    `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} mouse off ` +
+    '>/dev/null 2>&1 || true';
   const attachSessionCommand = `exec env -u TMUX tmux -L ${tmuxServerName} attach-session -t ${tmuxSessionName}`;
 
-  return `${createSessionCommand}; ${hideStatusCommand}; ${attachSessionCommand}`;
+  return `${createSessionCommand}; ${hideStatusCommand}; ${disableMouseCommand}; ${attachSessionCommand}`;
 }
 
 export function buildAgentLaunchPlan({
@@ -240,6 +246,7 @@ export function buildAgentLaunchPlan({
     agentCommand,
     resumeSessionId,
     initialized,
+    terminalSessionId,
   });
 
   if (supportIde) {

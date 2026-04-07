@@ -7,10 +7,16 @@ import {
   type TerminalSearchBarRef,
 } from '@/components/terminal/TerminalSearchBar';
 import { toastManager } from '@/components/ui/toast';
+import { useAgentProviderSessionDiscovery } from '@/hooks/useAgentProviderSessionDiscovery';
 import { type DroppedFileDescriptor, useFileDrop } from '@/hooks/useFileDrop';
 import { useRepositoryRuntimeContext } from '@/hooks/useRepositoryRuntimeContext';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
+import {
+  copyTerminalSelectionToClipboard,
+  readClipboardText,
+  writeClipboardText,
+} from '@/hooks/xtermClipboard';
 import { useI18n } from '@/i18n';
 import { showRendererNotification } from '@/lib/electronNotification';
 import {
@@ -42,12 +48,14 @@ import {
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import { buildAgentLaunchPlan } from './agentLaunchPlan';
 import { canInsertAgentTerminalAttachments } from './agentTerminalAttachmentInsertPolicy';
+import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
 import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
 import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
 
 interface AgentTerminalProps {
   id?: string; // Terminal session ID (UI key)
+  createdAt?: number;
   cwd?: string;
   sessionId?: string; // Provider session ID for agent-level resume flows (falls back to id)
   backendSessionId?: string; // Unified backend session ID for attach/resume
@@ -84,10 +92,10 @@ interface AgentTerminalProps {
   ) => void;
   onUnregisterEnhancedInputSender?: (sessionId: string) => void;
   onBackendSessionIdChange?: (sessionId: string) => void;
+  onProviderSessionIdChange?: (sessionId: string) => void;
   onRuntimeStateChange?: (state: SessionRuntimeState) => void;
 }
 
-const MIN_RUNTIME_FOR_AUTO_CLOSE = 10000; // 10 seconds
 const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is doing work
 const MIN_OUTPUT_FOR_INDICATOR = 200; // Minimum chars to show "outputting" indicator (higher to avoid noise)
 const ACTIVITY_POLL_INTERVAL_MS = 1000; // Poll process activity every 1000ms
@@ -126,6 +134,7 @@ function getAttachmentTempExtension(file: File): string {
 
 export function AgentTerminal({
   id,
+  createdAt,
   cwd,
   sessionId,
   backendSessionId,
@@ -154,6 +163,7 @@ export function AgentTerminal({
   onRegisterEnhancedInputSender,
   onUnregisterEnhancedInputSender,
   onBackendSessionIdChange,
+  onProviderSessionIdChange,
   onRuntimeStateChange,
 }: AgentTerminalProps) {
   const { t } = useI18n();
@@ -164,7 +174,6 @@ export function AgentTerminal({
     hapiSettings,
     shellConfig,
     claudeCodeIntegration,
-    glowEffectEnabled,
   } = useSettingsStore();
   const { data: runtimeContext } = useRepositoryRuntimeContext(cwd);
   const isRemoteExecution = runtimeContext?.kind === 'remote';
@@ -288,7 +297,6 @@ export function AgentTerminal({
   const pendingIdleMonitorRef = useRef(false); // Pending idle monitor; enabled after Enter.
   const dataSinceEnterRef = useRef(0); // Track output volume since last Enter.
   const currentTitleRef = useRef<string>(''); // Terminal title from OSC escape sequence.
-  const tmuxSessionNameRef = useRef<string | null>(null); // Tmux session name for cleanup.
   const runtimeStateRef = useRef<'live' | 'reconnecting' | 'dead'>('live');
   const trustPromptSubmitRef = useRef<(data: string) => void>(() => {});
   const terminalFocusRef = useRef<(() => void) | null>(null);
@@ -320,6 +328,17 @@ export function AgentTerminal({
   const inputDispatchSessionId = backendSessionId ?? null;
   const usesNativeTerminalInput = supportsAgentNativeTerminalInput(agentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useAgentProviderSessionDiscovery({
+    agentCommand,
+    uiSessionId: id,
+    providerSessionId: sessionId,
+    cwd,
+    createdAt,
+    initialized,
+    isRemoteExecution,
+    onProviderSessionIdChange,
+  });
   const trayState = useAgentSessionsStore((state) =>
     terminalSessionId
       ? state.getAttachmentTrayState(terminalSessionId)
@@ -704,7 +723,6 @@ export function AgentTerminal({
       terminalSessionId,
       runtimeChannel,
     });
-    tmuxSessionNameRef.current = plan.tmuxSessionName;
     return {
       command: plan.command
         ? {
@@ -734,17 +752,9 @@ export function AgentTerminal({
     runtimeChannel,
   ]);
 
-  // Handle exit with auto-close logic
+  // Preserve exited sessions in the UI so users can inspect the final output and state.
   const handleExit = useCallback(() => {
-    const runtime = startTimeRef.current ? Date.now() - startTimeRef.current : 0;
-    const isSessionNotFound = outputBufferRef.current.includes(
-      'No conversation found with session ID'
-    );
-
-    if (runtime >= MIN_RUNTIME_FOR_AUTO_CLOSE || isSessionNotFound) {
-      onExit?.();
-    }
-    // Quick exit without session error - keep tab open for debugging
+    onExit?.();
   }, [onExit]);
 
   // Track output for error detection and idle notification
@@ -948,7 +958,7 @@ export function AgentTerminal({
         // Activity state is now managed by Hook notifications (PreToolUse, Stop, AskUserQuestion)
         // Enter event no longer sets activity state to avoid conflicts with other terminals
 
-        if (terminalSessionId && glowEffectEnabled) {
+        if (terminalSessionId) {
           isMonitoringOutputRef.current = true;
           outputSinceEnterRef.current = 0;
           ptyIdRef.current = ptyId;
@@ -1002,7 +1012,6 @@ export function AgentTerminal({
       agentNotificationEnterDelay,
       startActivityPolling,
       terminalSessionId,
-      glowEffectEnabled,
       agentId,
       claudeCodeIntegration.enhancedInputEnabled,
       enhancedInputOpen,
@@ -1081,6 +1090,7 @@ export function AgentTerminal({
           }
         : undefined,
     persistOnDisconnect: true,
+    retryOnDeadSession: false,
     onExit: handleExit,
     onData: handleData,
     onCustomKey: handleCustomKey,
@@ -1207,18 +1217,15 @@ export function AgentTerminal({
           refreshRenderer();
           break;
         case 'copy':
-          if (terminal?.hasSelection()) {
-            const selection = terminal.getSelection();
-            navigator.clipboard.writeText(selection);
-          }
+          void copyTerminalSelectionToClipboard(terminal).catch(() => {});
           break;
         case 'copyLatestOutputBlock':
           if (latestOutputBlock) {
-            navigator.clipboard.writeText(latestOutputBlock);
+            void writeClipboardText(latestOutputBlock).catch(() => {});
           }
           break;
         case 'paste':
-          navigator.clipboard.readText().then((text) => {
+          void readClipboardText().then((text) => {
             terminal?.paste(text);
           });
           break;
@@ -1302,13 +1309,17 @@ export function AgentTerminal({
         return;
       }
 
+      if (!shouldCaptureAgentTerminalClipboardFiles(agentId, files)) {
+        return;
+      }
+
       event.preventDefault();
       void resolveAttachmentTargets(files);
     };
 
     wrapper.addEventListener('paste', handlePaste, true);
     return () => wrapper.removeEventListener('paste', handlePaste, true);
-  }, [resolveAttachmentTargets, terminalWrapperRef]);
+  }, [agentId, resolveAttachmentTargets, terminalWrapperRef]);
 
   // Handle click to activate group
   const handleClick = useCallback(() => {
