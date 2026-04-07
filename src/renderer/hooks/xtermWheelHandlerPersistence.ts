@@ -28,7 +28,7 @@ export function attachPersistentCustomWheelEventHandler(
   }
 
   if (patchableTerminal[WHEEL_LISTENER_SYMBOL]) {
-    terminalElement.removeEventListener('wheel', patchableTerminal[WHEEL_LISTENER_SYMBOL]);
+    terminalElement.removeEventListener('wheel', patchableTerminal[WHEEL_LISTENER_SYMBOL], true);
   }
 
   patchableTerminal[WHEEL_HANDLER_SYMBOL] = handler;
@@ -45,5 +45,6 @@ export function attachPersistentCustomWheelEventHandler(
   patchableTerminal[WHEEL_LISTENER_SYMBOL] = wheelListener;
   terminalElement.addEventListener('wheel', wheelListener, {
     passive: false,
+    capture: true,
   });
 }

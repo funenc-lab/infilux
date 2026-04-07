@@ -31,6 +31,7 @@ describe('xtermWheelHandlerPersistence', () => {
 
     expect(element.addEventListener).toHaveBeenCalledWith('wheel', expect.any(Function), {
       passive: false,
+      capture: true,
     });
 
     const firstEvent = { deltaY: -120 } as WheelEvent;
@@ -45,7 +46,7 @@ describe('xtermWheelHandlerPersistence', () => {
     const secondHandler = vi.fn(() => true);
     attachPersistentCustomWheelEventHandler(terminal, secondHandler);
 
-    expect(element.removeEventListener).toHaveBeenCalledWith('wheel', expect.any(Function));
+    expect(element.removeEventListener).toHaveBeenCalledWith('wheel', expect.any(Function), true);
 
     const secondEvent = { deltaY: 120 } as WheelEvent;
     const secondWheelListener = wheelListenerRef.current;

@@ -25,6 +25,7 @@ import {
 import { useNavigationStore } from '@/stores/navigation';
 import { useSettingsStore } from '@/stores/settings';
 import { recordAgentStartup } from '@/utils/logging';
+import { attachAgentTranscriptMode } from './xtermAgentTranscriptPolicy';
 import {
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
@@ -39,11 +40,15 @@ import {
   shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
 } from './xtermSessionRecovery';
-import { attachAgentTranscriptMode } from './xtermAgentTranscriptPolicy';
 import { buildXtermTerminalOptions } from './xtermTerminalOptions';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
+
+interface InfiluxE2ETerminalWindow extends Window {
+  __INFILUX_E2E_ENABLE__?: boolean;
+  __INFILUX_E2E_LAST_XTERM__?: Terminal;
+}
 
 // Regex to match file paths with optional line:column
 // Matches: useXterm.ts:42 or path/to/file.ts:42 or ./file.ts:10 or @src/file.ts:42
@@ -670,6 +675,9 @@ export function useXterm({
       });
 
       terminalRef.current = terminal;
+      if ((window as InfiluxE2ETerminalWindow).__INFILUX_E2E_ENABLE__ === true) {
+        (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = terminal;
+      }
       fitAddonRef.current = fitAddon;
       searchAddonRef.current = searchAddon;
       setWheelHandlerAttachmentEpoch((current) => current + 1);
@@ -1138,6 +1146,9 @@ export function useXterm({
       rendererAddonRef.current = null;
       terminalRef.current?.dispose();
       terminalRef.current = null;
+      if ((window as InfiluxE2ETerminalWindow).__INFILUX_E2E_ENABLE__ === true) {
+        (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = undefined;
+      }
     };
   }, []);
 

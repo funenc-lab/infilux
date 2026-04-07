@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createAgentWheelProbeScenario } from './agentWheelProbeScenario';
 
 describe('createAgentWheelProbeScenario', () => {
-  it('creates a local repo fixture and browser snapshot for a seeded alternate-buffer shell session', async () => {
+  it('creates a local repo fixture and browser snapshot for a seeded transcript probe session', async () => {
     const scenario = await createAgentWheelProbeScenario();
 
     try {
@@ -47,8 +47,9 @@ describe('createAgentWheelProbeScenario', () => {
       expect(sessionsSnapshot.sessions[0]?.customArgs).toContain(scenario.probeLogPath);
 
       const probeScript = readFileSync(scenario.probeScriptPath, 'utf8');
-      expect(probeScript).toContain('PAGE_UP');
-      expect(probeScript).toContain('ARROW_UP');
+      expect(probeScript).toContain('TRANSCRIPT-LINE-');
+      expect(probeScript).toContain('MOUSE_EVENT');
+      expect(probeScript).toContain('TEXT:');
     } finally {
       await scenario.cleanup();
     }
