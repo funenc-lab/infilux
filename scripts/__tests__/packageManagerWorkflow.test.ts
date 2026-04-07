@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const workflowSource = readFileSync('.github/workflows/update-package-managers.yml', 'utf8');
+const workflowSource = readFileSync(
+  new URL('../../.github/workflows/update-package-managers.yml', import.meta.url),
+  'utf8'
+);
 const tagPlaceholder = '$' + '{TAG}';
 const versionPlaceholder = '$' + '{VERSION}';
 const homebrewArm64Asset = `https://github.com/funenc-lab/infilux/releases/download/${tagPlaceholder}/Infilux-${versionPlaceholder}-arm64.dmg`;
