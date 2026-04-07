@@ -2,9 +2,15 @@ import { rmSync } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { TEMP_INPUT_DIRNAME } from '@shared/paths';
-import { type FileEntry, type FileReadResult, IPC_CHANNELS } from '@shared/types';
+import {
+  type FileEntry,
+  type FileReadResult,
+  type FileSaveClipboardImageToTempRequest,
+  type FileTempSaveResult,
+  IPC_CHANNELS,
+} from '@shared/types';
 import { recoverPrefixedAbsolutePath } from '@shared/utils/path';
-import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, shell, type WebContents } from 'electron';
 import iconv from 'iconv-lite';
 import { isBinaryFile } from 'isbinaryfile';
 import { FileWatcher } from '../services/files/FileWatcher';
@@ -134,6 +140,44 @@ async function stopRemoteWatchersInDirectory(dirPath: string): Promise<void> {
       entry.normalizedDirPath.startsWith(`${normalizedDir}/`)
   );
   await Promise.all(registrations.map((entry) => stopRemoteWatcher(entry)));
+}
+
+async function ensureTempInputDirectory(sender: WebContents): Promise<string> {
+  const tempDir = app.getPath('temp');
+  const infiluxInputDir = join(tempDir, TEMP_INPUT_DIRNAME);
+  ensureFileOwnerCleanup(sender);
+  registerAllowedLocalFileRoot(infiluxInputDir, sender.id);
+  await mkdir(infiluxInputDir, { recursive: true });
+  return infiluxInputDir;
+}
+
+function resolveTempInputFilePath(
+  tempInputDir: string,
+  filename: string
+): { success: true; filePath: string } | { success: false; error: string } {
+  const safeName = basename(filename);
+  if (!safeName || safeName === '.' || safeName === '..') {
+    return { success: false, error: 'Invalid filename' };
+  }
+
+  const filePath = join(tempInputDir, safeName);
+  const resolvedPath = resolve(filePath);
+  const allowedRoot = resolve(tempInputDir) + sep;
+  if (!resolvedPath.startsWith(allowedRoot)) {
+    return { success: false, error: 'Invalid filename' };
+  }
+
+  return { success: true, filePath };
+}
+
+function normalizeClipboardImageFilename(filename: string, format: 'png' | 'jpeg'): string {
+  const safeName = basename(filename);
+  const extension = format === 'jpeg' ? 'jpg' : 'png';
+  const extensionIndex = safeName.lastIndexOf('.');
+  const baseName =
+    extensionIndex > 0 ? safeName.slice(0, extensionIndex) : safeName || 'clipboard-image';
+
+  return `${baseName}.${extension}`;
 }
 
 function ensureFileOwnerCleanup(sender: WebContents): void {
@@ -318,38 +362,53 @@ export function registerFileHandlers(): void {
   // Save file to temp directory (for enhanced input images)
   ipcMain.handle(
     IPC_CHANNELS.FILE_SAVE_TO_TEMP,
-    async (
-      event,
-      filename: string,
-      data: Uint8Array
-    ): Promise<{ success: boolean; path?: string; error?: string }> => {
+    async (event, filename: string, data: Uint8Array): Promise<FileTempSaveResult> => {
       try {
-        const tempDir = app.getPath('temp');
-        const infiluxInputDir = join(tempDir, TEMP_INPUT_DIRNAME);
-        ensureFileOwnerCleanup(event.sender);
-        // Allow renderer to preview saved temp images via local-file:// protocol.
-        // Without this, local-file access is denied by default.
-        registerAllowedLocalFileRoot(infiluxInputDir, event.sender.id);
-        await mkdir(infiluxInputDir, { recursive: true });
-
-        // Defense-in-depth: never trust renderer-controlled path segments.
-        const safeName = basename(filename);
-        if (!safeName || safeName === '.' || safeName === '..') {
-          return { success: false, error: 'Invalid filename' };
+        const infiluxInputDir = await ensureTempInputDirectory(event.sender);
+        const filePathResult = resolveTempInputFilePath(infiluxInputDir, filename);
+        if (!filePathResult.success) {
+          return filePathResult;
         }
 
-        const filePath = join(infiluxInputDir, safeName);
+        await writeFile(filePathResult.filePath, Buffer.from(data));
 
-        // Double-check resolved path stays within the allowed directory.
-        const resolvedPath = resolve(filePath);
-        const allowedRoot = resolve(infiluxInputDir) + sep;
-        if (!resolvedPath.startsWith(allowedRoot)) {
-          return { success: false, error: 'Invalid filename' };
+        return { success: true, path: filePathResult.filePath };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_SAVE_CLIPBOARD_IMAGE_TO_TEMP,
+    async (event, request: FileSaveClipboardImageToTempRequest): Promise<FileTempSaveResult> => {
+      try {
+        const format = request.format === 'jpeg' ? 'jpeg' : 'png';
+        const infiluxInputDir = await ensureTempInputDirectory(event.sender);
+        const normalizedFilename = normalizeClipboardImageFilename(request.filename, format);
+        const filePathResult = resolveTempInputFilePath(infiluxInputDir, normalizedFilename);
+        if (!filePathResult.success) {
+          return filePathResult;
         }
 
-        await writeFile(filePath, Buffer.from(data));
+        const image = clipboard.readImage();
+        if (image.isEmpty()) {
+          return {
+            success: false,
+            error: 'Clipboard image is unavailable',
+          };
+        }
 
-        return { success: true, path: filePath };
+        const fileData = format === 'jpeg' ? image.toJPEG(95) : image.toPNG();
+        await writeFile(filePathResult.filePath, fileData);
+
+        return {
+          success: true,
+          path: filePathResult.filePath,
+        };
       } catch (error) {
         return {
           success: false,

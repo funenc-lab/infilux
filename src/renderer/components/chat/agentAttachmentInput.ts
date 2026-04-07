@@ -1,6 +1,7 @@
 import { type AgentAttachmentItem, mergeAgentAttachments } from './agentAttachmentTrayModel';
 
 export const DRAFT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export type AgentAttachmentSource = 'clipboard' | 'drop' | 'picker' | 'unknown';
 
 export interface ResolvedAgentAttachmentEntry {
   path: string;
@@ -10,7 +11,9 @@ export interface ResolvedAgentAttachmentEntry {
 interface AgentAttachmentPathResolverOptions {
   draftMaxBytes?: number;
   preferTray?: boolean;
+  source?: AgentAttachmentSource;
   resolveFilePath: (file: File) => string | null | undefined;
+  saveClipboardImageToTemp?: (file: File) => Promise<string | null>;
   saveFileToTemp: (file: File) => Promise<string | null>;
 }
 
@@ -77,6 +80,7 @@ export async function resolveAgentAttachmentTargetsFromFiles(
   }
 
   const resolvedEntries: ResolvedAgentAttachmentEntry[] = [];
+  const source = options.source ?? 'unknown';
 
   for (const file of files) {
     const nativePath = options.resolveFilePath(file);
@@ -86,6 +90,22 @@ export async function resolveAgentAttachmentTargetsFromFiles(
         sizeBytes: file.size,
       });
       continue;
+    }
+
+    if (
+      source === 'clipboard' &&
+      files.length === 1 &&
+      file.type.toLowerCase().startsWith('image/') &&
+      options.saveClipboardImageToTemp
+    ) {
+      const clipboardImagePath = await options.saveClipboardImageToTemp(file);
+      if (clipboardImagePath) {
+        resolvedEntries.push({
+          path: clipboardImagePath,
+          sizeBytes: file.size,
+        });
+        continue;
+      }
     }
 
     const tempPath = await options.saveFileToTemp(file);

@@ -33,6 +33,11 @@ const fileHandlerTestDoubles = vi.hoisted(() => {
   >();
   const appGetPath = vi.fn(() => '/tmp');
   const shellShowItemInFolder = vi.fn();
+  const clipboardReadImage = vi.fn(() => ({
+    isEmpty: (): boolean => false,
+    toPNG: () => Buffer.from('clipboard-png'),
+    toJPEG: (_quality: number) => Buffer.from('clipboard-jpeg'),
+  }));
   const rmSync = vi.fn();
   const mkdir = vi.fn<MkdirFn>(async () => undefined);
   const readdir = vi.fn<ReaddirFn>(async () => []);
@@ -81,6 +86,7 @@ const fileHandlerTestDoubles = vi.hoisted(() => {
     windows,
     appGetPath,
     shellShowItemInFolder,
+    clipboardReadImage,
     rmSync,
     mkdir,
     readdir,
@@ -136,6 +142,9 @@ vi.mock('electron', () => ({
   },
   shell: {
     showItemInFolder: fileHandlerTestDoubles.shellShowItemInFolder,
+  },
+  clipboard: {
+    readImage: fileHandlerTestDoubles.clipboardReadImage,
   },
 }));
 
@@ -347,6 +356,48 @@ describe('file handlers', () => {
     await expect(saveHandler?.({ sender }, 'image.png', new Uint8Array([9]))).resolves.toEqual({
       success: false,
       error: 'Invalid filename',
+    });
+    expect(fileHandlerTestDoubles.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('saves clipboard images directly from the main process without renderer byte uploads', async () => {
+    const sender = createSender(4);
+    const saveClipboardHandler = fileHandlerTestDoubles.handlers.get(
+      IPC_CHANNELS.FILE_SAVE_CLIPBOARD_IMAGE_TO_TEMP
+    );
+
+    const result = await saveClipboardHandler?.({ sender }, { filename: '../capture.webp' });
+
+    expect(result).toEqual({
+      success: true,
+      path: '/tmp/infilux-input/capture.png',
+    });
+    expect(fileHandlerTestDoubles.clipboardReadImage).toHaveBeenCalledTimes(1);
+    expect(fileHandlerTestDoubles.writeFile).toHaveBeenCalledWith(
+      '/tmp/infilux-input/capture.png',
+      Buffer.from('clipboard-png')
+    );
+    expect(fileHandlerTestDoubles.registerAllowedLocalFileRoot).toHaveBeenCalledWith(
+      '/tmp/infilux-input',
+      4
+    );
+  });
+
+  it('returns an explicit error when no clipboard image is available', async () => {
+    const sender = createSender(5);
+    const saveClipboardHandler = fileHandlerTestDoubles.handlers.get(
+      IPC_CHANNELS.FILE_SAVE_CLIPBOARD_IMAGE_TO_TEMP
+    );
+
+    fileHandlerTestDoubles.clipboardReadImage.mockReturnValueOnce({
+      isEmpty: (): boolean => true,
+      toPNG: () => Buffer.from('clipboard-png'),
+      toJPEG: (_quality: number) => Buffer.from('clipboard-jpeg'),
+    });
+
+    await expect(saveClipboardHandler?.({ sender }, { filename: 'capture.png' })).resolves.toEqual({
+      success: false,
+      error: 'Clipboard image is unavailable',
     });
     expect(fileHandlerTestDoubles.writeFile).not.toHaveBeenCalled();
   });

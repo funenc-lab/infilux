@@ -12,6 +12,7 @@ import { isFocusLocked, lockFocus, unlockFocus } from '@/lib/focusLock';
 import { toLocalFileUrl } from '@/lib/localFileUrl';
 import { cn } from '@/lib/utils';
 import {
+  type AgentAttachmentSource,
   DRAFT_ATTACHMENT_MAX_BYTES,
   resolveAgentAttachmentTargetsFromFiles,
 } from './agentAttachmentInput';
@@ -469,6 +470,11 @@ export function EnhancedInput({
     return 'png';
   }, []);
 
+  const resolveClipboardImageTempFormat = useCallback((file: File): 'png' | 'jpeg' => {
+    const mime = file.type.toLowerCase();
+    return mime === 'image/jpeg' || mime === 'image/jpg' ? 'jpeg' : 'png';
+  }, []);
+
   const handlePanelKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -614,6 +620,59 @@ export function EnhancedInput({
     [getAttachmentTempExtension, t]
   );
 
+  const saveClipboardImageToTemp = useCallback(
+    async (file: File): Promise<string | null> => {
+      if (!file.type.toLowerCase().startsWith('image/')) {
+        return null;
+      }
+
+      try {
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(2, 8);
+        const format = resolveClipboardImageTempFormat(file);
+        const extension = format === 'jpeg' ? 'jpg' : 'png';
+        const filename = `${TEMP_INPUT_FILE_PREFIX}-${timestamp}-${random}.${extension}`;
+        const result = await window.electronAPI.file.saveClipboardImageToTemp({
+          filename,
+          format,
+        });
+
+        if (result.success && result.path) {
+          return result.path;
+        }
+
+        const errorCopy = buildChatInputToastCopy(
+          {
+            action: 'image-save',
+            phase: 'error',
+            message: result.error || undefined,
+          },
+          t
+        );
+        toastManager.add({
+          type: 'error',
+          title: errorCopy.title,
+          description: errorCopy.description,
+        });
+
+        return null;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const errorCopy = buildChatInputToastCopy(
+          { action: 'image-save', phase: 'error', message },
+          t
+        );
+        toastManager.add({
+          type: 'error',
+          title: errorCopy.title,
+          description: errorCopy.description,
+        });
+        return null;
+      }
+    },
+    [resolveClipboardImageTempFormat, t]
+  );
+
   const appendDraftAttachments = useCallback(
     (nextAttachments: AgentAttachmentItem[]) => {
       if (nextAttachments.length === 0) {
@@ -630,7 +689,7 @@ export function EnhancedInput({
   );
 
   const resolveAttachmentTargets = useCallback(
-    async (files: File[]) => {
+    async (files: File[], source: AgentAttachmentSource = 'unknown') => {
       if (files.length === 0) {
         return;
       }
@@ -642,6 +701,7 @@ export function EnhancedInput({
 
       try {
         const targets = await resolveAgentAttachmentTargetsFromFiles(files, {
+          source,
           resolveFilePath: (file) => {
             try {
               return window.electronAPI.utils.getPathForFile(file) || null;
@@ -649,6 +709,7 @@ export function EnhancedInput({
               return null;
             }
           },
+          saveClipboardImageToTemp,
           saveFileToTemp: saveAttachmentToTemp,
         });
 
@@ -662,7 +723,13 @@ export function EnhancedInput({
         }
       }
     },
-    [appendDraftAttachments, onRouteToTray, onTrayImportStateChange, saveAttachmentToTemp]
+    [
+      appendDraftAttachments,
+      onRouteToTray,
+      onTrayImportStateChange,
+      saveAttachmentToTemp,
+      saveClipboardImageToTemp,
+    ]
   );
 
   const handlePaste = useCallback(
@@ -684,7 +751,7 @@ export function EnhancedInput({
 
       if (files.length > 0) {
         e.preventDefault();
-        await resolveAttachmentTargets(files);
+        await resolveAttachmentTargets(files, 'clipboard');
       }
     },
     [resolveAttachmentTargets]
@@ -695,7 +762,7 @@ export function EnhancedInput({
       e.preventDefault();
       const files = Array.from(e.dataTransfer.files);
 
-      await resolveAttachmentTargets(files);
+      await resolveAttachmentTargets(files, 'drop');
     },
     [resolveAttachmentTargets]
   );
@@ -709,7 +776,7 @@ export function EnhancedInput({
       const files = e.target.files;
       if (!files) return;
 
-      await resolveAttachmentTargets(Array.from(files));
+      await resolveAttachmentTargets(Array.from(files), 'picker');
 
       // Reset input
       if (fileInputRef.current) {

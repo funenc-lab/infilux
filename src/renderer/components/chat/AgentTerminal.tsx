@@ -30,6 +30,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { AgentAttachmentTray } from './AgentAttachmentTray';
 import {
+  type AgentAttachmentSource,
   partitionResolvedAgentAttachments,
   resolveAgentAttachmentTargetsFromFiles,
   shouldRouteAgentAttachmentToTray,
@@ -130,6 +131,11 @@ function getAttachmentTempExtension(file: File): string {
   }
 
   return 'png';
+}
+
+function resolveClipboardImageTempFormat(file: File): 'png' | 'jpeg' {
+  const mime = file.type.toLowerCase();
+  return mime === 'image/jpeg' || mime === 'image/jpg' ? 'jpeg' : 'png';
 }
 
 export function AgentTerminal({
@@ -526,8 +532,69 @@ export function AgentTerminal({
     [t]
   );
 
+  const saveClipboardImageToTemp = useCallback(
+    async (file: File): Promise<string | null> => {
+      if (!file.type.toLowerCase().startsWith('image/')) {
+        return null;
+      }
+
+      try {
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(2, 8);
+        const format = resolveClipboardImageTempFormat(file);
+        const extension = format === 'jpeg' ? 'jpg' : 'png';
+        const filename = `${TEMP_INPUT_FILE_PREFIX}-${timestamp}-${random}.${extension}`;
+        const result = await window.electronAPI.file.saveClipboardImageToTemp({
+          filename,
+          format,
+        });
+
+        if (result.success && result.path) {
+          return result.path;
+        }
+
+        const errorCopy = buildChatInputToastCopy(
+          {
+            action: 'image-save',
+            phase: 'error',
+            message: result.error || undefined,
+          },
+          t
+        );
+        toastManager.add({
+          type: 'error',
+          title: errorCopy.title,
+          description: errorCopy.description,
+        });
+        return null;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const errorCopy = buildChatInputToastCopy(
+          { action: 'image-save', phase: 'error', message },
+          t
+        );
+        toastManager.add({
+          type: 'error',
+          title: errorCopy.title,
+          description: errorCopy.description,
+        });
+        return null;
+      }
+    },
+    [t]
+  );
+
   const resolveAttachmentTargets = useCallback(
-    async (files: File[], preferTray = false) => {
+    async (
+      files: File[],
+      {
+        preferTray = false,
+        source = 'unknown',
+      }: {
+        preferTray?: boolean;
+        source?: AgentAttachmentSource;
+      } = {}
+    ) => {
       if (files.length === 0) {
         return;
       }
@@ -541,6 +608,7 @@ export function AgentTerminal({
       try {
         const targets = await resolveAgentAttachmentTargetsFromFiles(files, {
           preferTray,
+          source,
           resolveFilePath: (file) => {
             try {
               return window.electronAPI.utils.getPathForFile(file) || null;
@@ -548,6 +616,7 @@ export function AgentTerminal({
               return null;
             }
           },
+          saveClipboardImageToTemp,
           saveFileToTemp: saveAttachmentToTemp,
         });
         handleResolvedAttachmentTargets(targets);
@@ -559,6 +628,7 @@ export function AgentTerminal({
     },
     [
       handleResolvedAttachmentTargets,
+      saveClipboardImageToTemp,
       saveAttachmentToTemp,
       setAttachmentTrayImporting,
       terminalSessionId,
@@ -572,7 +642,7 @@ export function AgentTerminal({
         return;
       }
 
-      await resolveAttachmentTargets(files, true);
+      await resolveAttachmentTargets(files, { preferTray: true, source: 'picker' });
       event.target.value = '';
     },
     [resolveAttachmentTargets]
@@ -1314,7 +1384,7 @@ export function AgentTerminal({
       }
 
       event.preventDefault();
-      void resolveAttachmentTargets(files);
+      void resolveAttachmentTargets(files, { source: 'clipboard' });
     };
 
     wrapper.addEventListener('paste', handlePaste, true);

@@ -89,6 +89,7 @@ export const IPC_CHANNELS = {
   FILE_READ: 'file:read',
   FILE_WRITE: 'file:write',
   FILE_SAVE_TO_TEMP: 'file:save-to-temp',
+  FILE_SAVE_CLIPBOARD_IMAGE_TO_TEMP: 'file:save-clipboard-image-to-temp',
   FILE_CREATE: 'file:create',
   FILE_CREATE_DIR: 'file:createDir',
   FILE_RENAME: 'file:rename',

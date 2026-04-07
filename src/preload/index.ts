@@ -25,8 +25,10 @@ import type {
   FileDiff,
   FileEntry,
   FileReadResult,
+  FileSaveClipboardImageToTempRequest,
   FileSearchParams,
   FileSearchResult,
+  FileTempSaveResult,
   GhCliStatus,
   GitBranch,
   GitLogEntry,
@@ -68,11 +70,11 @@ import type {
   TempWorkspaceCreateResult,
   TempWorkspaceItem,
   TempWorkspaceRemoveResult,
+  TerminalCreateOptions,
+  TerminalResizeOptions,
   TmuxCheckResult,
   TmuxScrollClientRequest,
   TmuxScrollClientResult,
-  TerminalCreateOptions,
-  TerminalResizeOptions,
   ValidateLocalPathResult,
   ValidateUrlResult,
   WorktreeCreateOptions,
@@ -352,11 +354,12 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
     write: (filePath: string, content: string, encoding?: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.FILE_WRITE, filePath, content, encoding),
-    saveToTemp: (
-      filename: string,
-      data: Uint8Array
-    ): Promise<{ success: boolean; path?: string; error?: string }> =>
+    saveToTemp: (filename: string, data: Uint8Array): Promise<FileTempSaveResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE_TO_TEMP, filename, data),
+    saveClipboardImageToTemp: (
+      request: FileSaveClipboardImageToTempRequest
+    ): Promise<FileTempSaveResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE_CLIPBOARD_IMAGE_TO_TEMP, request),
     createFile: (
       filePath: string,
       content = '',
@@ -738,10 +741,7 @@ const electronAPI = {
 
   // Tmux
   tmux: {
-    check: (
-      repoPath: string | undefined,
-      forceRefresh?: boolean
-    ): Promise<TmuxCheckResult> =>
+    check: (repoPath: string | undefined, forceRefresh?: boolean): Promise<TmuxCheckResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.TMUX_CHECK, repoPath, forceRefresh),
     killSession: (repoPath: string | undefined, name: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.TMUX_KILL_SESSION, repoPath, name),

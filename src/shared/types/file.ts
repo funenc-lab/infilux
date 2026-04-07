@@ -19,3 +19,16 @@ export interface FileReadResult {
   confidence: number;
   isBinary?: boolean;
 }
+
+export type ClipboardImageFormat = 'png' | 'jpeg';
+
+export interface FileSaveClipboardImageToTempRequest {
+  filename: string;
+  format?: ClipboardImageFormat;
+}
+
+export interface FileTempSaveResult {
+  success: boolean;
+  path?: string;
+  error?: string;
+}

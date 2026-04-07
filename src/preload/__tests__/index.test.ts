@@ -290,6 +290,10 @@ describe('preload bridge', () => {
       },
       { run: () => api.file.read('/repo/a.ts'), expected: [IPC_CHANNELS.FILE_READ, '/repo/a.ts'] },
       {
+        run: () => api.file.saveClipboardImageToTemp({ filename: 'capture.png' }),
+        expected: [IPC_CHANNELS.FILE_SAVE_CLIPBOARD_IMAGE_TO_TEMP, { filename: 'capture.png' }],
+      },
+      {
         run: () => api.file.createFile('/repo/new.ts'),
         expected: [IPC_CHANNELS.FILE_CREATE, '/repo/new.ts', '', undefined],
       },

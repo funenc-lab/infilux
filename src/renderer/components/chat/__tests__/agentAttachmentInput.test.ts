@@ -6,6 +6,36 @@ import {
 } from '../agentAttachmentInput';
 
 describe('agentAttachmentInput', () => {
+  it('prefers direct clipboard image temp saves for pasted images without native paths', async () => {
+    const clipboardImage = { name: 'clipboard.png', type: 'image/png' } as File;
+    Object.defineProperty(clipboardImage, 'size', { value: 1024 * 1024 });
+
+    const saveClipboardImageToTemp = vi.fn(async (file: File) =>
+      file === clipboardImage ? '/tmp/clipboard-fast-path.png' : null
+    );
+    const saveFileToTemp = vi.fn(async () => '/tmp/clipboard-fallback.png');
+
+    const targets = await resolveAgentAttachmentTargetsFromFiles([clipboardImage], {
+      source: 'clipboard',
+      resolveFilePath: () => null,
+      saveClipboardImageToTemp,
+      saveFileToTemp,
+    });
+
+    expect(targets.draftAttachments).toEqual([
+      {
+        id: '/tmp/clipboard-fast-path.png',
+        kind: 'image',
+        name: 'clipboard-fast-path.png',
+        path: '/tmp/clipboard-fast-path.png',
+      },
+    ]);
+    expect(targets.trayAttachments).toEqual([]);
+    expect(saveClipboardImageToTemp).toHaveBeenCalledTimes(1);
+    expect(saveClipboardImageToTemp).toHaveBeenCalledWith(clipboardImage);
+    expect(saveFileToTemp).not.toHaveBeenCalled();
+  });
+
   it('routes small attachments to the draft input and large ones to the tray', async () => {
     const specFile = { name: 'spec.md', type: 'text/markdown' } as File;
     const clipboardImage = { name: 'clipboard.png', type: 'image/png' } as File;
@@ -102,6 +132,35 @@ describe('agentAttachmentInput', () => {
     expect(targets.trayAttachments).toEqual([]);
     expect(saveFileToTemp).toHaveBeenCalledTimes(1);
     expect(saveFileToTemp).toHaveBeenCalledWith(notesFile);
+  });
+
+  it('falls back to renderer temp storage when clipboard fast path cannot provide an image', async () => {
+    const clipboardImage = { name: 'clipboard.webp', type: 'image/webp' } as File;
+    Object.defineProperty(clipboardImage, 'size', { value: 2048 });
+
+    const saveClipboardImageToTemp = vi.fn(async () => null);
+    const saveFileToTemp = vi.fn(async (file: File) =>
+      file === clipboardImage ? '/tmp/clipboard-fallback.webp' : null
+    );
+
+    const targets = await resolveAgentAttachmentTargetsFromFiles([clipboardImage], {
+      source: 'clipboard',
+      resolveFilePath: () => null,
+      saveClipboardImageToTemp,
+      saveFileToTemp,
+    });
+
+    expect(targets.draftAttachments).toEqual([
+      {
+        id: '/tmp/clipboard-fallback.webp',
+        kind: 'image',
+        name: 'clipboard-fallback.webp',
+        path: '/tmp/clipboard-fallback.webp',
+      },
+    ]);
+    expect(saveClipboardImageToTemp).toHaveBeenCalledTimes(1);
+    expect(saveFileToTemp).toHaveBeenCalledTimes(1);
+    expect(saveFileToTemp).toHaveBeenCalledWith(clipboardImage);
   });
 
   it('partitions already resolved drop entries using the size threshold', () => {
