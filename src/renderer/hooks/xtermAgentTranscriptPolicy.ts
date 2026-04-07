@@ -29,9 +29,7 @@ export function shouldSuppressAgentAlternateScreenSwitch(
 export function shouldSuppressAgentMouseTrackingSwitch(
   params: readonly (number | number[])[]
 ): boolean {
-  return flattenPrivateModeParams(params).some((param) =>
-    AGENT_MOUSE_PRIVATE_MODES.has(param)
-  );
+  return flattenPrivateModeParams(params).some((param) => AGENT_MOUSE_PRIVATE_MODES.has(param));
 }
 
 export function shouldSuppressAgentPrivateModeSwitch(

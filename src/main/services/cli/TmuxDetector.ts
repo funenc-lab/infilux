@@ -26,9 +26,7 @@ function normalizeScrollAmount(amount: number): number {
   return Math.max(0, Math.trunc(amount));
 }
 
-function findActivePaneForSession(
-  stdout: string
-): { paneId: string; inMode: boolean } | null {
+function findActivePaneForSession(stdout: string): { paneId: string; inMode: boolean } | null {
   const lines = stdout.split(/\r?\n/);
   let fallbackPaneId: string | null = null;
   let fallbackInMode = false;
@@ -94,12 +92,9 @@ class TmuxDetector {
     if (isWindows) return;
     try {
       const serverName = resolveTmuxServerName();
-      await execInPty(
-        `tmux -L ${shellQuote(serverName)} kill-session -t ${shellQuote(name)}`,
-        {
-          timeout: TMUX_COMMAND_TIMEOUT_MS,
-        }
-      );
+      await execInPty(`tmux -L ${shellQuote(serverName)} kill-session -t ${shellQuote(name)}`, {
+        timeout: TMUX_COMMAND_TIMEOUT_MS,
+      });
     } catch {
       // Session may already be gone — ignore errors
     }

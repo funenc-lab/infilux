@@ -126,9 +126,7 @@ describe('agentSession IPC handlers', () => {
     const listRecoverableHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_LIST_RECOVERABLE);
     const restoreWorktreeHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RESTORE_WORKTREE);
     const reconcileHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RECONCILE);
-    const resolveProviderSessionHandler = getHandler(
-      IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER
-    );
+    const resolveProviderSessionHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER);
     const markPersistentHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT);
     const abandonHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_ABANDON);
 

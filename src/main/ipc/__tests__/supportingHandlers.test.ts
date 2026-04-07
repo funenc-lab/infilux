@@ -481,9 +481,12 @@ describe('supporting IPC handlers', () => {
       lines: ['[info] hello', '[error] world'],
     });
     await expect(
-      getHandler(IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP)({}, {
-        message: '[agent-startup][renderer][pty-9] first-output +12ms (12ms total)',
-      })
+      getHandler(IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP)(
+        {},
+        {
+          message: '[agent-startup][renderer][pty-9] first-output +12ms (12ms total)',
+        }
+      )
     ).resolves.toBeUndefined();
 
     expect(handlerTestDoubles.initLogger).toHaveBeenCalledWith(true, 'debug', 14);
