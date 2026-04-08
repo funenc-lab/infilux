@@ -68,6 +68,7 @@ interface AgentTerminalProps {
   initialized?: boolean;
   activated?: boolean;
   persistenceEnabled?: boolean;
+  recovered?: boolean;
   isActive?: boolean;
   hasPendingCommand?: boolean; // Force terminal activation even when not visible
   initialPrompt?: string; // Initial prompt to pass as CLI argument (auto-execute)
@@ -152,6 +153,7 @@ export function AgentTerminal({
   initialized,
   activated,
   persistenceEnabled = false,
+  recovered = false,
   isActive = false,
   hasPendingCommand = false,
   initialPrompt,
@@ -306,6 +308,7 @@ export function AgentTerminal({
   const runtimeStateRef = useRef<'live' | 'reconnecting' | 'dead'>('live');
   const trustPromptSubmitRef = useRef<(data: string) => void>(() => {});
   const terminalFocusRef = useRef<(() => void) | null>(null);
+  const initialBackendSessionIdRef = useRef(backendSessionId);
 
   // Output state tracking for global store
   const outputStateRef = useRef<OutputState>('idle');
@@ -1162,6 +1165,9 @@ export function AgentTerminal({
           }
         : undefined,
     persistOnDisconnect: true,
+    preferHostScrollback:
+      hostSession?.kind === 'tmux' &&
+      (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current))),
     retryOnDeadSession: false,
     onExit: handleExit,
     onData: handleData,

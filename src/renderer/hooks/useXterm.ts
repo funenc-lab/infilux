@@ -107,6 +107,7 @@ export interface UseXtermOptions {
   initialCommand?: string;
   kind?: SessionKind;
   persistOnDisconnect?: boolean;
+  preferHostScrollback?: boolean;
   retryOnDeadSession?: boolean;
   onExit?: () => void;
   onData?: (data: string) => void;
@@ -198,6 +199,7 @@ export function useXterm({
   initialCommand,
   kind = 'terminal',
   persistOnDisconnect = false,
+  preferHostScrollback = false,
   retryOnDeadSession = true,
   onExit,
   onData,
@@ -449,6 +451,8 @@ export function useXterm({
         kind,
         activeBufferType: terminal.buffer.active.type,
         mouseTrackingMode: terminal.modes.mouseTrackingMode,
+        hostScrollMode:
+          preferHostScrollback && hostSession?.kind === 'tmux' ? hostSession.kind : undefined,
         deltaMode: event.deltaMode,
         deltaY: event.deltaY,
         carryY: wheelCarryRef.current,
@@ -459,6 +463,20 @@ export function useXterm({
       wheelCarryRef.current = decision.carryY;
       if (decision.action === 'delegate') {
         return true;
+      }
+
+      if (decision.action === 'host-scroll') {
+        if (hostSession?.kind === 'tmux' && decision.scrollLines !== 0) {
+          void window.electronAPI.tmux.scrollClient(cwd, {
+            sessionName: hostSession.sessionName,
+            serverName: hostSession.serverName,
+            direction: decision.scrollLines < 0 ? 'up' : 'down',
+            amount: Math.abs(decision.scrollLines),
+          });
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
       }
 
       if (typeof decision.scrollLines === 'number') {
@@ -474,7 +492,7 @@ export function useXterm({
       event.stopPropagation();
       return false;
     },
-    [kind]
+    [cwd, hostSession, kind, preferHostScrollback]
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect

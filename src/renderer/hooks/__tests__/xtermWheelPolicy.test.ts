@@ -39,7 +39,7 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('keeps normal-buffer wheel input on xterm viewport scrolling when the agent session is attached through tmux', () => {
+  it('routes normal-buffer wheel input to tmux host scrolling when recovered agent history lives in tmux', () => {
     expect(
       resolveAgentWheelPolicy({
         kind: 'agent',
@@ -53,7 +53,7 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'consume',
+      action: 'host-scroll',
       carryY: 0,
       scrollLines: -12,
     });
@@ -78,7 +78,7 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('keeps alternate-buffer wheel input on xterm viewport scrolling even when the agent session is attached through tmux', () => {
+  it('routes alternate-buffer wheel input to tmux host scrolling when recovered agent history lives in tmux', () => {
     expect(
       resolveAgentWheelPolicy({
         kind: 'agent',
@@ -92,7 +92,7 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'consume',
+      action: 'host-scroll',
       carryY: 0,
       scrollLines: -12,
     });
@@ -189,6 +189,26 @@ describe('xtermWheelPolicy', () => {
     ).toEqual({
       action: 'delegate',
       carryY: 0,
+    });
+  });
+
+  it('keeps recovered tmux sessions on host scrolling even when xterm reports mouse tracking', () => {
+    expect(
+      resolveAgentWheelPolicy({
+        kind: 'agent',
+        activeBufferType: 'alternate',
+        mouseTrackingMode: 'any',
+        hostScrollMode: 'tmux',
+        deltaMode: DOM_DELTA_LINE,
+        deltaY: 3,
+        carryY: 0,
+        cellHeightPx: 20,
+        devicePixelRatio: 2,
+      })
+    ).toEqual({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: 3,
     });
   });
 });

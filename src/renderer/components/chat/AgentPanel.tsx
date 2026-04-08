@@ -2236,6 +2236,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                 initialized={session.initialized}
                 activated={session.activated}
                 persistenceEnabled={session.persistenceEnabled}
+                recovered={session.recovered}
                 isActive={isTerminalActive}
                 hasPendingCommand={!!session.pendingCommand}
                 initialPrompt={session.pendingCommand}

@@ -28,6 +28,11 @@ type AgentWheelPolicyDecision =
       carryY: number;
     }
   | {
+      action: 'host-scroll';
+      carryY: number;
+      scrollLines: number;
+    }
+  | {
       action: 'consume';
       carryY: number;
       scrollLines: number;
@@ -92,9 +97,10 @@ function normalizeWheelDelta(
 }
 
 export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWheelPolicyDecision {
-  const { kind, mouseTrackingMode, deltaY } = input;
+  const { kind, mouseTrackingMode, deltaY, hostScrollMode } = input;
 
-  const shouldRemapWheel = kind === 'agent' && mouseTrackingMode === 'none';
+  const shouldRemapWheel =
+    kind === 'agent' && (hostScrollMode === 'tmux' || mouseTrackingMode === 'none');
 
   if (!shouldRemapWheel) {
     return {
@@ -126,6 +132,14 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
       action: 'consume',
       carryY,
       scrollLines: 0,
+    };
+  }
+
+  if (hostScrollMode === 'tmux') {
+    return {
+      action: 'host-scroll',
+      carryY,
+      scrollLines: steps,
     };
   }
 
