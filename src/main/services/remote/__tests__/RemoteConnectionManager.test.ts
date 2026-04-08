@@ -717,6 +717,37 @@ describe('RemoteConnectionManager', () => {
     );
   });
 
+  it('builds managed runtime paths with the Infilux remote filenames', async () => {
+    const { RemoteConnectionManager } = await import('../RemoteConnectionManager');
+    const manager = new RemoteConnectionManager();
+    const profile = createProfile({ runtimeInstallDir: '/remote/runtime' });
+    const runtime = {
+      platform: 'linux',
+      arch: 'x64',
+      homeDir: '/home/dev',
+      resolvedHost: {
+        host: 'example.com',
+        port: 22,
+      },
+    };
+    type RuntimeInstallTestInput = typeof runtime;
+
+    const getRuntimeInstallPaths = getPrivate<
+      (
+        profile: ConnectionProfile,
+        runtime: RuntimeInstallTestInput
+      ) => {
+        serverPath: string;
+        manifestPath: string;
+      }
+    >(manager, 'getRuntimeInstallPaths');
+
+    expect(getRuntimeInstallPaths.call(manager, profile, runtime)).toMatchObject({
+      serverPath: '/remote/runtime/9.9.9/infilux-remote-server.cjs',
+      manifestPath: '/remote/runtime/9.9.9/infilux-remote-runtime-manifest.json',
+    });
+  });
+
   it('runs install and update runtime orchestration and refreshes runtime status', async () => {
     const { RemoteConnectionManager } = await import('../RemoteConnectionManager');
     const manager = new RemoteConnectionManager();

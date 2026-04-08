@@ -1,4 +1,6 @@
 import { REMOTE_SESSION_STATE_SUBPATH, REMOTE_SETTINGS_SUBPATH } from '@shared/paths';
+import { APP_RUNTIME_NAMESPACE } from '@shared/utils/runtimeIdentity';
+import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
 import {
   GIT_LOG_FIELD_SEPARATOR,
   GIT_LOG_PRETTY_FORMAT,
@@ -7,6 +9,10 @@ import {
 
 export const REMOTE_SERVER_VERSION = '0.4.0';
 export const REMOTE_HELPER_VERSION = REMOTE_SERVER_VERSION;
+
+const REMOTE_DAEMON_INFO_FILE = `${APP_RUNTIME_NAMESPACE}-remote-daemon.json`;
+const REMOTE_RUNTIME_MANIFEST_FILENAME = `${APP_RUNTIME_NAMESPACE}-remote-runtime-manifest.json`;
+const DEFAULT_TMUX_SERVER_NAME = getAppRuntimeIdentity().tmuxServerName;
 
 export function getRemoteServerSource(): string {
   return String.raw`#!/usr/bin/env node
@@ -28,14 +34,15 @@ const REMOTE_SERVER_VERSION = ${JSON.stringify(REMOTE_SERVER_VERSION)};
 const GIT_LOG_FIELD_SEPARATOR = ${JSON.stringify(GIT_LOG_FIELD_SEPARATOR)};
 const GIT_LOG_RECORD_SEPARATOR = ${JSON.stringify(GIT_LOG_RECORD_SEPARATOR)};
 const GIT_LOG_PRETTY_FORMAT = ${JSON.stringify(GIT_LOG_PRETTY_FORMAT)};
-const DAEMON_INFO_FILE = 'enso-remote-daemon.json';
+const DAEMON_INFO_FILE = ${JSON.stringify(REMOTE_DAEMON_INFO_FILE)};
 const MAX_SESSION_REPLAY_CHARS = 65536;
 const EXEC_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const EXEC_COMMAND_OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
 const REMOTE_PTY_UNAVAILABLE = 'REMOTE_PTY_UNAVAILABLE';
 const REMOTE_SETTINGS_PATH = ${JSON.stringify(REMOTE_SETTINGS_SUBPATH)};
 const REMOTE_SESSION_STATE_PATH = ${JSON.stringify(REMOTE_SESSION_STATE_SUBPATH)};
-const RUNTIME_MANIFEST_FILENAME = 'enso-remote-runtime-manifest.json';
+const RUNTIME_MANIFEST_FILENAME = ${JSON.stringify(REMOTE_RUNTIME_MANIFEST_FILENAME)};
+const DEFAULT_TMUX_SERVER_NAME = ${JSON.stringify(DEFAULT_TMUX_SERVER_NAME)};
 const GLOBAL_STATUS_CACHE_TTL = 300000;
 const AUTH_TOKEN_BYTES = 36;
 let cachedNodePty = undefined;
@@ -2170,9 +2177,12 @@ async function checkTmux({ forceRefresh }) {
 
 async function killTmuxSession({ name }) {
   try {
-    await execInConfiguredShell('tmux -L enso kill-session -t ' + shellQuote(name), {
+    await execInConfiguredShell(
+      'tmux -L ${DEFAULT_TMUX_SERVER_NAME} kill-session -t ' + shellQuote(name),
+      {
       timeout: 5000,
-    });
+      }
+    );
   } catch {
     // Session may already be gone.
   }
@@ -2219,7 +2229,7 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
     typeof sessionName === 'string' && sessionName.length > 0 ? sessionName : '';
   const normalizedAmount = Number.isFinite(amount) ? Math.max(0, Math.trunc(amount)) : 0;
   const normalizedServerName =
-    typeof serverName === 'string' && serverName.length > 0 ? serverName : 'enso';
+    typeof serverName === 'string' && serverName.length > 0 ? serverName : '${DEFAULT_TMUX_SERVER_NAME}';
 
   if (!normalizedSessionName || normalizedAmount === 0) {
     return { applied: false, sessionName: normalizedSessionName };

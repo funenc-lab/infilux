@@ -19,6 +19,7 @@ import {
   type RemoteRuntimeStatus,
   type RemoteVerificationState,
 } from '@shared/types';
+import { APP_RUNTIME_NAMESPACE } from '@shared/utils/runtimeIdentity';
 import { app, BrowserWindow } from 'electron';
 import * as pty from 'node-pty';
 import { killProcessTree } from '../../utils/processUtils';
@@ -182,7 +183,7 @@ interface RemoteDirectoryEntry {
 type RemoteEventListener = (payload: unknown) => void;
 
 const DEFAULT_RUNTIME_DIR = MANAGED_REMOTE_RUNTIME_DIR;
-const SERVER_FILENAME = 'enso-remote-server.cjs';
+const SERVER_FILENAME = `${APP_RUNTIME_NAMESPACE}-remote-server.cjs`;
 const BOOTSTRAP_TIMEOUT_MS = 5_000;
 const REMOTE_SETTINGS_PATH = 'remote-connections.json';
 const REMOTE_KNOWN_HOSTS_PATH = 'remote-known_hosts';
@@ -191,7 +192,7 @@ const SSH_HOST_VERIFICATION_PROMPT_TIMEOUT_MS = 15_000;
 const MAX_REMOTE_DIAGNOSTIC_LINES = 40;
 const MAX_REMOTE_DIAGNOSTIC_CHARS = 8_192;
 const REMOTE_PTY_UNAVAILABLE_PREFIX = 'REMOTE_PTY_UNAVAILABLE:';
-const RUNTIME_MANIFEST_FILENAME = 'enso-remote-runtime-manifest.json';
+const RUNTIME_MANIFEST_FILENAME = `${APP_RUNTIME_NAMESPACE}-remote-runtime-manifest.json`;
 const LINUX_ONLY_REMOTE_ERROR = 'Only glibc-based Linux x64 and arm64 remote hosts are supported';
 const REMOTE_SHARED_SETTINGS_FILENAME = 'settings.json';
 const REMOTE_SHARED_SESSION_STATE_FILENAME = 'session-state.json';
@@ -1473,7 +1474,7 @@ export class RemoteConnectionManager {
     const source = getNormalizedRemoteServerSource();
     const tempPath = join(
       app.getPath('temp'),
-      `enso-remote-server-${profile.id}-${randomUUID()}.cjs`
+      `${APP_RUNTIME_NAMESPACE}-remote-server-${profile.id}-${randomUUID()}.cjs`
     );
     try {
       await this.validateRemoteServerSource(source);
@@ -1550,7 +1551,7 @@ export class RemoteConnectionManager {
   ): Promise<void> {
     const tempPath = join(
       app.getPath('temp'),
-      `enso-remote-runtime-manifest-${profile.id}-${randomUUID()}.json`
+      `${APP_RUNTIME_NAMESPACE}-remote-runtime-manifest-${profile.id}-${randomUUID()}.json`
     );
     const manifest = this.buildExpectedRuntimeManifest(runtime, runtimeAsset);
 
@@ -2834,7 +2835,7 @@ export class RemoteConnectionManager {
   ): Promise<RemoteHostFingerprint[]> {
     const tempPath = join(
       app.getPath('temp'),
-      `enso-remote-host-${host.replace(/[^a-z0-9_.-]/gi, '_')}-${port}-${randomUUID()}.keys`
+      `${APP_RUNTIME_NAMESPACE}-remote-host-${host.replace(/[^a-z0-9_.-]/gi, '_')}-${port}-${randomUUID()}.keys`
     );
 
     try {

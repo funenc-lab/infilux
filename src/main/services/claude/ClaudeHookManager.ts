@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { APP_RUNTIME_NAMESPACE } from '@shared/utils/runtimeIdentity';
 import { app } from 'electron';
 
 interface StatusLineConfig {
@@ -59,14 +60,34 @@ interface StatusLineBackup {
   backupTime: string;
 }
 
-// Hook is identified by the script path 'ensoai-hook' in the command
-// Use .cjs extension to force CommonJS mode regardless of user's package.json "type" setting
-const HOOK_SCRIPT_NAME = 'ensoai-hook.cjs';
-const HOOK_MARKER = 'ensoai-hook';
+interface ManagedCommandHook {
+  type: 'command' | 'prompt';
+  command?: string;
+  prompt?: string;
+  timeout?: number;
+}
 
-// Legacy script name for migration
-const LEGACY_SCRIPT_NAME = 'ensoai-stop.cjs';
-const LEGACY_MARKER = 'ensoai-stop';
+interface ManagedHookGroup {
+  matcher?: string;
+  hooks: ManagedCommandHook[];
+}
+
+type ManagedHookEvent = 'Stop' | 'PermissionRequest' | 'UserPromptSubmit' | 'PreToolUse';
+type ManagedHookGroups = ManagedHookGroup[] | undefined;
+
+// Hook is identified by the script path in the command.
+// Use .cjs extension to force CommonJS mode regardless of user's package.json "type" setting
+const HOOK_SCRIPT_NAME = `${APP_RUNTIME_NAMESPACE}-hook.cjs`;
+const HOOK_MARKER = `${APP_RUNTIME_NAMESPACE}-hook`;
+const LEGACY_HOOK_SCRIPT_NAMES = ['ensoai-hook.cjs', 'ensoai-stop.cjs', 'ensoai-stop.js'] as const;
+const LEGACY_HOOK_MARKERS = ['ensoai-hook', 'ensoai-stop'] as const;
+const MANAGED_HOOK_MARKERS = [HOOK_MARKER, ...LEGACY_HOOK_MARKERS] as const;
+const STATUSLINE_SCRIPT_NAME = `${APP_RUNTIME_NAMESPACE}-statusline.cjs`;
+const LEGACY_STATUSLINE_SCRIPT_NAMES = ['enso-statusline.cjs', 'enso-statusline.js'] as const;
+const MANAGED_STATUSLINE_MARKERS = [
+  STATUSLINE_SCRIPT_NAME,
+  ...LEGACY_STATUSLINE_SCRIPT_NAMES,
+] as const;
 
 function getClaudeConfigDir(): string {
   if (process.env.CLAUDE_CONFIG_DIR) {
@@ -87,8 +108,83 @@ function getHookScriptPath(): string {
   return path.join(getHooksDir(), HOOK_SCRIPT_NAME);
 }
 
-function getLegacyHookScriptPath(): string {
-  return path.join(getHooksDir(), LEGACY_SCRIPT_NAME);
+function getLegacyHookScriptPaths(): string[] {
+  return LEGACY_HOOK_SCRIPT_NAMES.map((name) => path.join(getHooksDir(), name));
+}
+
+function commandIncludesAny(command: string | undefined, markers: readonly string[]): boolean {
+  return typeof command === 'string' && markers.some((marker) => command.includes(marker));
+}
+
+function hasManagedCommandHook(groups: ManagedHookGroups, markers: readonly string[]): boolean {
+  return (
+    groups?.some((hookGroup) =>
+      hookGroup.hooks?.some(
+        (hook) => hook.type === 'command' && commandIncludesAny(hook.command, markers)
+      )
+    ) ?? false
+  );
+}
+
+function removeCommandHooksByMarker(groups: ManagedHookGroups, markers: readonly string[]) {
+  if (!groups) {
+    return {
+      changed: false,
+      groups,
+    };
+  }
+
+  const nextGroups = groups.filter(
+    (hookGroup) =>
+      !hookGroup.hooks?.some(
+        (hook) => hook.type === 'command' && commandIncludesAny(hook.command, markers)
+      )
+  );
+
+  return {
+    changed: nextGroups.length !== groups.length,
+    groups: nextGroups,
+  };
+}
+
+function migrateLegacyHookGroups(settings: ClaudeSettings, event: ManagedHookEvent): boolean {
+  const existing = settings.hooks?.[event];
+  const { changed, groups } = removeCommandHooksByMarker(existing, LEGACY_HOOK_MARKERS);
+  if (!changed || !settings.hooks) {
+    return false;
+  }
+
+  if (!groups || groups.length === 0) {
+    delete settings.hooks[event];
+  } else {
+    settings.hooks[event] = groups;
+  }
+
+  if (Object.keys(settings.hooks).length === 0) {
+    delete settings.hooks;
+  }
+
+  return true;
+}
+
+function removeManagedHookGroups(settings: ClaudeSettings, event: ManagedHookEvent): boolean {
+  const existing = settings.hooks?.[event];
+  const { changed, groups } = removeCommandHooksByMarker(existing, MANAGED_HOOK_MARKERS);
+  if (!changed || !settings.hooks) {
+    return false;
+  }
+
+  if (!groups || groups.length === 0) {
+    delete settings.hooks[event];
+  } else {
+    settings.hooks[event] = groups;
+  }
+
+  if (Object.keys(settings.hooks).length === 0) {
+    delete settings.hooks;
+  }
+
+  return true;
 }
 
 /**
@@ -255,21 +351,16 @@ function ensureHookScript(): string {
     fs.mkdirSync(hooksDir, { recursive: true, mode: 0o755 });
   }
 
-  // Migrate legacy script if exists
-  const legacyScriptPath = getLegacyHookScriptPath();
-  if (fs.existsSync(legacyScriptPath)) {
+  for (const legacyScriptPath of getLegacyHookScriptPaths()) {
+    if (!fs.existsSync(legacyScriptPath)) {
+      continue;
+    }
     try {
       fs.unlinkSync(legacyScriptPath);
-      console.log('[ClaudeHookManager] Removed legacy script:', LEGACY_SCRIPT_NAME);
+      console.log('[ClaudeHookManager] Removed legacy script:', path.basename(legacyScriptPath));
     } catch (err) {
       console.warn('[ClaudeHookManager] Failed to remove legacy script:', err);
     }
-  }
-
-  // TODO(v0.3.0): Remove legacy .js cleanup
-  const legacyScriptPath2 = path.join(hooksDir, 'ensoai-stop.js');
-  if (fs.existsSync(legacyScriptPath2)) {
-    fs.unlinkSync(legacyScriptPath2);
   }
 
   fs.writeFileSync(scriptPath, getHookScriptContent(), { mode: 0o755 });
@@ -322,26 +413,9 @@ export function ensureStopHook(): boolean {
 
     // IMPORTANT: Migrate settings.json BEFORE deleting legacy script files
     // This ensures atomic migration - if settings update fails, script still exists
-    let needSave = false;
-    if (settings.hooks?.Stop) {
-      const originalLength = settings.hooks.Stop.length;
-      // Remove old .js and legacy .cjs references
-      settings.hooks.Stop = settings.hooks.Stop.filter(
-        (hookGroup) =>
-          !hookGroup.hooks?.some(
-            (hook) =>
-              hook.type === 'command' &&
-              (hook.command?.includes('ensoai-stop.js') || hook.command?.includes(LEGACY_MARKER))
-          )
-      );
-      if (settings.hooks.Stop.length < originalLength) {
-        console.log('[ClaudeHookManager] Cleaned up legacy hook references from settings');
-        needSave = true;
-      }
-      // Clean up empty Stop array
-      if (settings.hooks.Stop.length === 0) {
-        delete settings.hooks.Stop;
-      }
+    const needSave = migrateLegacyHookGroups(settings, 'Stop');
+    if (needSave) {
+      console.log('[ClaudeHookManager] Cleaned up legacy Stop hook references from settings');
     }
 
     // Save migrated settings BEFORE deleting script files
@@ -354,12 +428,7 @@ export function ensureStopHook(): boolean {
     // Now safe to update script files (settings.json is already clean)
     ensureHookScript();
 
-    // Check if already configured (with NEW hook marker only, not legacy)
-    const hasCurrentHook = settings.hooks?.Stop?.some((hookGroup) =>
-      hookGroup.hooks?.some(
-        (hook) => hook.type === 'command' && hook.command?.includes(HOOK_MARKER)
-      )
-    );
+    const hasCurrentHook = hasManagedCommandHook(settings.hooks?.Stop, [HOOK_MARKER]);
     if (hasCurrentHook) {
       return true;
     }
@@ -379,7 +448,6 @@ export function ensureStopHook(): boolean {
       hooks: [
         {
           type: 'command',
-          // Marker is checked via includes(HOOK_MARKER), embedded in command itself
           command: hookCommand,
           timeout: 5,
         },
@@ -423,25 +491,7 @@ export function removeStopHook(): boolean {
       return true;
     }
 
-    // Filter out our hook (both current and legacy)
-    settings.hooks.Stop = settings.hooks.Stop.filter(
-      (hookGroup) =>
-        !hookGroup.hooks?.some(
-          (hook) =>
-            hook.type === 'command' &&
-            (hook.command?.includes(HOOK_MARKER) ||
-              hook.command?.includes(LEGACY_MARKER) ||
-              hook.command?.includes('ensoai-stop'))
-        )
-    );
-
-    // Clean up empty arrays
-    if (settings.hooks.Stop.length === 0) {
-      delete settings.hooks.Stop;
-    }
-    if (Object.keys(settings.hooks).length === 0) {
-      delete settings.hooks;
-    }
+    removeManagedHookGroups(settings, 'Stop');
 
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), {
       mode: 0o600,
@@ -459,7 +509,6 @@ export function removeStopHook(): boolean {
 // Status Line Hook Management
 // ============================================================================
 
-const STATUSLINE_SCRIPT_NAME = 'enso-statusline.cjs';
 const STATUSLINE_BACKUP_FILE = 'claude-statusline-backup.json';
 
 function getStatusLineScriptPath(): string {
@@ -553,10 +602,11 @@ function ensureStatusLineScript(): string {
     fs.mkdirSync(hooksDir, { recursive: true, mode: 0o755 });
   }
 
-  // TODO(v0.3.0): Remove legacy .js cleanup
-  const legacyScriptPath = path.join(hooksDir, 'enso-statusline.js');
-  if (fs.existsSync(legacyScriptPath)) {
-    fs.unlinkSync(legacyScriptPath);
+  for (const legacyScriptName of LEGACY_STATUSLINE_SCRIPT_NAMES) {
+    const legacyScriptPath = path.join(hooksDir, legacyScriptName);
+    if (fs.existsSync(legacyScriptPath)) {
+      fs.unlinkSync(legacyScriptPath);
+    }
   }
 
   fs.writeFileSync(scriptPath, getStatusLineScriptContent(), { mode: 0o755 });
@@ -575,10 +625,17 @@ function generateStatusLineCommand(): string {
 /**
  * Check if our status line hook is configured
  */
-function isStatusLineHookConfigured(settings: ClaudeSettings): boolean {
+function isCurrentStatusLineHookConfigured(settings: ClaudeSettings): boolean {
   return (
     settings.statusLine?.type === 'command' &&
     (settings.statusLine?.command?.includes(STATUSLINE_SCRIPT_NAME) ?? false)
+  );
+}
+
+function isManagedStatusLineHookConfigured(settings: ClaudeSettings): boolean {
+  return (
+    settings.statusLine?.type === 'command' &&
+    commandIncludesAny(settings.statusLine.command, MANAGED_STATUSLINE_MARKERS)
   );
 }
 
@@ -658,9 +715,9 @@ export function ensureStatusLineHook(): boolean {
     let needSave = false;
     if (
       settings.statusLine?.type === 'command' &&
-      settings.statusLine?.command?.includes('enso-statusline.js')
+      commandIncludesAny(settings.statusLine.command, LEGACY_STATUSLINE_SCRIPT_NAMES)
     ) {
-      console.log('[ClaudeHookManager] Cleaned up legacy .js statusLine reference from settings');
+      console.log('[ClaudeHookManager] Cleaned up legacy statusLine reference from settings');
       delete settings.statusLine;
       needSave = true;
     }
@@ -673,7 +730,7 @@ export function ensureStatusLineHook(): boolean {
     }
 
     // Already configured
-    if (isStatusLineHookConfigured(settings)) {
+    if (isCurrentStatusLineHookConfigured(settings)) {
       return true;
     }
 
@@ -716,7 +773,7 @@ export function removeStatusLineHook(): boolean {
     const settings: ClaudeSettings = JSON.parse(content);
 
     // Only remove if it's our hook
-    if (!isStatusLineHookConfigured(settings)) {
+    if (!isManagedStatusLineHookConfigured(settings)) {
       return true;
     }
 
@@ -762,7 +819,7 @@ export function isStatusLineHookInstalled(): boolean {
 
     const content = fs.readFileSync(settingsPath, 'utf-8');
     const settings: ClaudeSettings = JSON.parse(content);
-    return isStatusLineHookConfigured(settings);
+    return isCurrentStatusLineHookConfigured(settings);
   } catch {
     return false;
   }
@@ -776,17 +833,7 @@ export function isStatusLineHookInstalled(): boolean {
  * Check if PermissionRequest hook is configured
  */
 function isPermissionRequestHookConfigured(settings: ClaudeSettings): boolean {
-  if (!settings.hooks?.PermissionRequest) {
-    return false;
-  }
-
-  return settings.hooks.PermissionRequest.some((hookGroup) =>
-    hookGroup.hooks?.some(
-      (hook) =>
-        hook.type === 'command' &&
-        (hook.command?.includes(HOOK_MARKER) || hook.command?.includes(LEGACY_MARKER))
-    )
-  );
+  return hasManagedCommandHook(settings.hooks?.PermissionRequest, [HOOK_MARKER]);
 }
 
 /**
@@ -808,27 +855,11 @@ export function ensurePermissionRequestHook(): boolean {
       settings = JSON.parse(content);
     }
 
-    // Migrate legacy hook references (ensoai-stop -> ensoai-hook)
-    let needSave = false;
-    if (settings.hooks?.PermissionRequest) {
-      const originalLength = settings.hooks.PermissionRequest.length;
-      settings.hooks.PermissionRequest = settings.hooks.PermissionRequest.filter(
-        (hookGroup) =>
-          !hookGroup.hooks?.some(
-            (hook) =>
-              hook.type === 'command' &&
-              (hook.command?.includes('ensoai-stop.js') || hook.command?.includes(LEGACY_MARKER))
-          )
+    const needSave = migrateLegacyHookGroups(settings, 'PermissionRequest');
+    if (needSave) {
+      console.log(
+        '[ClaudeHookManager] Cleaned up legacy PermissionRequest hook references from settings'
       );
-      if (settings.hooks.PermissionRequest.length < originalLength) {
-        console.log(
-          '[ClaudeHookManager] Cleaned up legacy PermissionRequest hook references from settings'
-        );
-        needSave = true;
-      }
-      if (settings.hooks.PermissionRequest.length === 0) {
-        delete settings.hooks.PermissionRequest;
-      }
     }
 
     if (needSave) {
@@ -838,11 +869,7 @@ export function ensurePermissionRequestHook(): boolean {
     }
 
     // Check if already configured (with NEW hook marker only)
-    const hasCurrentHook = settings.hooks?.PermissionRequest?.some((hookGroup) =>
-      hookGroup.hooks?.some(
-        (hook) => hook.type === 'command' && hook.command?.includes(HOOK_MARKER)
-      )
-    );
+    const hasCurrentHook = hasManagedCommandHook(settings.hooks?.PermissionRequest, [HOOK_MARKER]);
     if (hasCurrentHook) {
       return true;
     }
@@ -855,7 +882,6 @@ export function ensurePermissionRequestHook(): boolean {
       settings.hooks.PermissionRequest = [];
     }
 
-    // Add our hook - reuse the same ensoai-hook.cjs script
     const hookCommand = generateHookCommand();
     settings.hooks.PermissionRequest.push({
       matcher: '',
@@ -907,12 +933,17 @@ export function ensureUserPromptSubmitHook(): boolean {
       settings = JSON.parse(content);
     }
 
-    // Check if already configured
-    const hasCurrentHook = settings.hooks?.UserPromptSubmit?.some((hookGroup) =>
-      hookGroup.hooks?.some(
-        (hook) => hook.type === 'command' && hook.command?.includes(HOOK_MARKER)
-      )
-    );
+    const needSave = migrateLegacyHookGroups(settings, 'UserPromptSubmit');
+    if (needSave) {
+      console.log(
+        '[ClaudeHookManager] Cleaned up legacy UserPromptSubmit hook references from settings'
+      );
+      fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), {
+        mode: 0o600,
+      });
+    }
+
+    const hasCurrentHook = hasManagedCommandHook(settings.hooks?.UserPromptSubmit, [HOOK_MARKER]);
     if (hasCurrentHook) {
       return true;
     }
@@ -925,7 +956,6 @@ export function ensureUserPromptSubmitHook(): boolean {
       settings.hooks.UserPromptSubmit = [];
     }
 
-    // Add our hook - reuse the same ensoai-hook.cjs script
     const hookCommand = generateHookCommand();
     settings.hooks.UserPromptSubmit.push({
       matcher: '',
@@ -977,12 +1007,15 @@ export function ensurePreToolUseHook(): boolean {
       settings = JSON.parse(content);
     }
 
-    // Check if already configured
-    const hasCurrentHook = settings.hooks?.PreToolUse?.some((hookGroup) =>
-      hookGroup.hooks?.some(
-        (hook) => hook.type === 'command' && hook.command?.includes(HOOK_MARKER)
-      )
-    );
+    const needSave = migrateLegacyHookGroups(settings, 'PreToolUse');
+    if (needSave) {
+      console.log('[ClaudeHookManager] Cleaned up legacy PreToolUse hook references from settings');
+      fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), {
+        mode: 0o600,
+      });
+    }
+
+    const hasCurrentHook = hasManagedCommandHook(settings.hooks?.PreToolUse, [HOOK_MARKER]);
     if (hasCurrentHook) {
       return true;
     }
@@ -995,7 +1028,6 @@ export function ensurePreToolUseHook(): boolean {
       settings.hooks.PreToolUse = [];
     }
 
-    // Add our hook - reuse the same ensoai-hook.cjs script
     const hookCommand = generateHookCommand();
     settings.hooks.PreToolUse.push({
       matcher: '',
@@ -1045,25 +1077,7 @@ export function removePermissionRequestHook(): boolean {
       return true;
     }
 
-    // Filter out our hook (both current and legacy)
-    settings.hooks.PermissionRequest = settings.hooks.PermissionRequest.filter(
-      (hookGroup) =>
-        !hookGroup.hooks?.some(
-          (hook) =>
-            hook.type === 'command' &&
-            (hook.command?.includes(HOOK_MARKER) || hook.command?.includes(LEGACY_MARKER))
-        )
-    );
-
-    // Clean up empty PermissionRequest array
-    if (settings.hooks.PermissionRequest.length === 0) {
-      delete settings.hooks.PermissionRequest;
-    }
-
-    // Clean up empty hooks object
-    if (Object.keys(settings.hooks).length === 0) {
-      delete settings.hooks;
-    }
+    removeManagedHookGroups(settings, 'PermissionRequest');
 
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), {
       mode: 0o600,
