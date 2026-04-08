@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import type {
   TmuxCheckResult,
   TmuxScrollClientRequest,
@@ -10,6 +11,7 @@ import { execInPty } from '../../utils/shell';
 const isWindows = process.platform === 'win32';
 const TMUX_COMMAND_TIMEOUT_MS = 5000;
 const LIST_PANES_FORMAT = '#{pane_id}\t#{pane_active}\t#{pane_in_mode}';
+const TMUX_HEALTHCHECK_SESSION_PREFIX = 'infilux-healthcheck';
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -17,6 +19,27 @@ function shellQuote(value: string): string {
 
 function resolveTmuxServerName(serverName?: string): string {
   return serverName || getAppRuntimeIdentity().tmuxServerName;
+}
+
+function buildTmuxHealthcheckSessionName(): string {
+  return `${TMUX_HEALTHCHECK_SESSION_PREFIX}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildTmuxHealthcheckCommand(serverName: string, sessionName: string): string {
+  return (
+    `tmux -L ${shellQuote(serverName)} -f /dev/null new-session -d -s ${shellQuote(sessionName)} ` +
+    // Keep the probe session alive long enough for kill-session to observe it reliably.
+    `${shellQuote('printf infilux-healthcheck; sleep 1')} >/dev/null 2>&1 && ` +
+    `tmux -L ${shellQuote(serverName)} kill-session -t ${shellQuote(sessionName)} >/dev/null 2>&1`
+  );
+}
+
+function resolveTmuxSocketPath(serverName: string): string | null {
+  if (isWindows || typeof process.getuid !== 'function') {
+    return null;
+  }
+
+  return `/tmp/tmux-${process.getuid()}/${serverName}`;
 }
 
 function normalizeScrollAmount(amount: number): number {
@@ -116,6 +139,25 @@ class TmuxDetector {
     }
   }
 
+  async ensureServerHealthy(serverName?: string): Promise<boolean> {
+    if (isWindows) {
+      return true;
+    }
+
+    const installStatus = await this.check();
+    if (!installStatus.installed) {
+      return false;
+    }
+
+    const resolvedServerName = resolveTmuxServerName(serverName);
+    if (await this.probeServer(resolvedServerName)) {
+      return true;
+    }
+
+    this.resetServer(resolvedServerName);
+    return this.probeServer(resolvedServerName);
+  }
+
   async scrollClient(request: TmuxScrollClientRequest): Promise<TmuxScrollClientResult> {
     if (isWindows) {
       return { applied: false, sessionName: request.sessionName };
@@ -201,6 +243,83 @@ class TmuxDetector {
       });
     } catch {
       // Server may already be gone — ignore errors
+    }
+  }
+
+  private async probeServer(serverName: string): Promise<boolean> {
+    try {
+      await execInPty(buildTmuxHealthcheckCommand(serverName, buildTmuxHealthcheckSessionName()), {
+        timeout: TMUX_COMMAND_TIMEOUT_MS,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private resetServer(serverName: string): void {
+    this.killServerSyncByName(serverName);
+    this.killResidualProcesses(serverName);
+    this.removeSocketFile(serverName);
+  }
+
+  private killServerSyncByName(serverName: string): void {
+    try {
+      spawnSync('tmux', ['-L', serverName, 'kill-server'], {
+        timeout: 3000,
+        stdio: 'ignore',
+      });
+    } catch {
+      // Server may already be gone — ignore errors
+    }
+  }
+
+  private killResidualProcesses(serverName: string): void {
+    let stdout = '';
+
+    try {
+      const result = spawnSync('ps', ['-ax', '-o', 'pid=', '-o', 'command='], {
+        encoding: 'utf8',
+        timeout: 3000,
+      });
+      stdout = typeof result.stdout === 'string' ? result.stdout : '';
+    } catch {
+      return;
+    }
+
+    const marker = `tmux -L ${serverName}`;
+    const pids = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.includes(marker))
+      .map((line) => {
+        const match = line.match(/^(\d+)/);
+        return match ? Number.parseInt(match[1], 10) : null;
+      })
+      .filter(
+        (value): value is number =>
+          value !== null && Number.isInteger(value) && value > 0 && value !== process.pid
+      );
+
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // Ignore already-exited processes.
+      }
+    }
+  }
+
+  private removeSocketFile(serverName: string): void {
+    const socketPath = resolveTmuxSocketPath(serverName);
+    if (!socketPath) {
+      return;
+    }
+
+    try {
+      rmSync(socketPath, { force: true });
+    } catch {
+      // Ignore missing or busy socket files.
     }
   }
 }

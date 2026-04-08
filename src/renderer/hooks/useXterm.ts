@@ -1,4 +1,9 @@
-import type { SessionDescriptor, SessionKind, SessionRuntimeState } from '@shared/types';
+import type {
+  SessionCreateOptions,
+  SessionDescriptor,
+  SessionKind,
+  SessionRuntimeState,
+} from '@shared/types';
 import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { FitAddon } from '@xterm/addon-fit';
@@ -96,6 +101,7 @@ export interface UseXtermOptions {
     };
   };
   env?: Record<string, string>;
+  hostSession?: SessionCreateOptions['hostSession'];
   metadata?: Record<string, unknown>;
   isActive?: boolean;
   initialCommand?: string;
@@ -186,6 +192,7 @@ export function useXterm({
   cwd,
   command,
   env,
+  hostSession,
   metadata,
   isActive = true,
   initialCommand,
@@ -829,6 +836,7 @@ export function useXterm({
         cols: terminal.cols,
         rows: terminal.rows,
         env,
+        hostSession,
         metadata,
         initialCommand: initialCommandRef.current,
         kind,
@@ -1007,6 +1015,7 @@ export function useXterm({
     shellConfig,
     commandKey,
     env,
+    hostSession,
     metadata,
     terminalRenderer,
     kind,

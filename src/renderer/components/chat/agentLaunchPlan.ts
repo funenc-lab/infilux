@@ -1,3 +1,4 @@
+import type { SessionHostSessionOptions } from '@shared/types';
 import {
   type AppRuntimeChannel,
   buildAppRuntimeIdentity,
@@ -37,6 +38,7 @@ export interface AgentLaunchPlan {
   env?: Record<string, string>;
   initialCommand?: string;
   tmuxSessionName: string | null;
+  hostSession?: SessionHostSessionOptions;
 }
 
 function buildSessionResumeArgs(params: {
@@ -296,6 +298,14 @@ export function buildAgentLaunchPlan({
   const tmuxSessionName = shouldUseTmux
     ? buildPersistentAgentHostSessionKey(terminalSessionId ?? '', runtimeChannel)
     : null;
+  const hostSession =
+    tmuxSessionName === null
+      ? undefined
+      : {
+          kind: 'tmux' as const,
+          serverName: runtimeIdentity.tmuxServerName,
+          sessionName: tmuxSessionName,
+        };
 
   let finalCommand = baseCommand;
   if (tmuxSessionName) {
@@ -312,6 +322,7 @@ export function buildAgentLaunchPlan({
       env: envVars,
       initialCommand: finalCommand,
       tmuxSessionName,
+      ...(hostSession ? { hostSession } : {}),
     };
   }
 
@@ -321,6 +332,7 @@ export function buildAgentLaunchPlan({
       env: envVars,
       initialCommand: undefined,
       tmuxSessionName,
+      ...(hostSession ? { hostSession } : {}),
     };
   }
 
@@ -335,6 +347,7 @@ export function buildAgentLaunchPlan({
       env: envVars,
       initialCommand: undefined,
       tmuxSessionName,
+      ...(hostSession ? { hostSession } : {}),
     };
   }
 
@@ -348,6 +361,7 @@ export function buildAgentLaunchPlan({
       env: envVars,
       initialCommand: undefined,
       tmuxSessionName,
+      ...(hostSession ? { hostSession } : {}),
     };
   }
 
@@ -373,6 +387,7 @@ export function buildAgentLaunchPlan({
       env: envVars,
       initialCommand: undefined,
       tmuxSessionName,
+      ...(hostSession ? { hostSession } : {}),
     };
   }
 
@@ -383,6 +398,7 @@ export function buildAgentLaunchPlan({
       env: envVars,
       initialCommand: finalCommand,
       tmuxSessionName,
+      ...(hostSession ? { hostSession } : {}),
     };
   }
 
@@ -405,5 +421,6 @@ export function buildAgentLaunchPlan({
     env: envVars,
     initialCommand: undefined,
     tmuxSessionName,
+    ...(hostSession ? { hostSession } : {}),
   };
 }

@@ -121,6 +121,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const supervisorOnExit = vi.fn();
   const supervisorOnDisconnect = vi.fn();
   const persistentAbandonSession = vi.fn();
+  const tmuxEnsureServerHealthy = vi.fn();
   const remoteConnectionManager = {
     getStatus: vi.fn<(connectionId: string) => { connected: boolean; recoverable?: boolean }>(),
     call: vi.fn<(connectionId: string, method: string, payload: unknown) => Promise<unknown>>(),
@@ -189,6 +190,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     supervisorOnExit,
     supervisorOnDisconnect,
     persistentAbandonSession,
+    tmuxEnsureServerHealthy,
     remoteConnectionManager,
   };
 });
@@ -224,6 +226,12 @@ vi.mock('../LocalSupervisorRuntime', () => ({
 vi.mock('../PersistentAgentSessionService', () => ({
   persistentAgentSessionService: {
     abandonSession: sessionTestDoubles.persistentAbandonSession,
+  },
+}));
+
+vi.mock('../../cli/TmuxDetector', () => ({
+  tmuxDetector: {
+    ensureServerHealthy: sessionTestDoubles.tmuxEnsureServerHealthy,
   },
 }));
 
@@ -338,6 +346,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.supervisorOnDisconnect.mockReturnValue(() => {});
     sessionTestDoubles.persistentAbandonSession.mockReset();
     sessionTestDoubles.persistentAbandonSession.mockResolvedValue([]);
+    sessionTestDoubles.tmuxEnsureServerHealthy.mockReset();
+    sessionTestDoubles.tmuxEnsureServerHealthy.mockResolvedValue(true);
   });
 
   it('buffers local output until attach completes and destroys the session when the last window detaches', async () => {
@@ -398,6 +408,25 @@ describe('SessionManager', () => {
 
     expect(pty.destroyAll).toHaveBeenCalledTimes(1);
     expect(pty.destroyAllAndWait).toHaveBeenCalledTimes(1);
+  });
+
+  it('ensures tmux host health before creating persistent local unix agent sessions', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-1',
+      },
+    });
+
+    expect(opened.session.sessionId).toBe('local-1');
+    expect(sessionTestDoubles.tmuxEnsureServerHealthy).toHaveBeenCalledWith('enso');
   });
 
   it('accepts BrowserWindow targets and safely handles missing sessions or unresolved web contents', async () => {

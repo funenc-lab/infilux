@@ -4,15 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const tmuxDetectorTestDoubles = vi.hoisted(() => {
   const execInPty = vi.fn();
   const spawnSync = vi.fn();
+  const rmSync = vi.fn();
 
   function reset() {
     execInPty.mockReset();
     spawnSync.mockReset();
+    rmSync.mockReset();
   }
 
   return {
     execInPty,
     spawnSync,
+    rmSync,
     reset,
   };
 });
@@ -24,6 +27,14 @@ vi.mock('../../../utils/shell', () => ({
 vi.mock('node:child_process', () => ({
   spawnSync: tmuxDetectorTestDoubles.spawnSync,
 }));
+
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return {
+    ...actual,
+    rmSync: tmuxDetectorTestDoubles.rmSync,
+  };
+});
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
 const originalRuntimeChannel = process.env.INFILUX_RUNTIME_CHANNEL;
@@ -177,6 +188,69 @@ describe('TmuxDetector', () => {
       2,
       `tmux -L '${testRuntimeIdentity.tmuxServerName}' has-session -t 'enso-missing'`,
       { timeout: 5000 }
+    );
+  });
+
+  it('keeps a healthy runtime server without resetting it', async () => {
+    setPlatform('darwin');
+    tmuxDetectorTestDoubles.execInPty.mockResolvedValueOnce('tmux 3.6a').mockResolvedValueOnce('');
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(tmuxDetector.ensureServerHealthy()).resolves.toBe(true);
+
+    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(2);
+    expect(tmuxDetectorTestDoubles.execInPty.mock.calls[1]?.[0]).toContain(
+      `tmux -L '${testRuntimeIdentity.tmuxServerName}' -f /dev/null new-session -d -s 'infilux-healthcheck-`
+    );
+    expect(tmuxDetectorTestDoubles.execInPty.mock.calls[1]?.[0]).toContain(
+      `'printf infilux-healthcheck; sleep 1'`
+    );
+    expect(tmuxDetectorTestDoubles.spawnSync).not.toHaveBeenCalled();
+    expect(tmuxDetectorTestDoubles.rmSync).not.toHaveBeenCalled();
+  });
+
+  it('resets a broken runtime server, removes the stale socket, and retries the health check', async () => {
+    setPlatform('darwin');
+    tmuxDetectorTestDoubles.execInPty
+      .mockResolvedValueOnce('tmux 3.6a')
+      .mockRejectedValueOnce(new Error('broken server'))
+      .mockResolvedValueOnce('');
+    tmuxDetectorTestDoubles.spawnSync
+      .mockReturnValueOnce({
+        status: 0,
+      })
+      .mockReturnValueOnce({
+        stdout: `12 tmux -L ${testRuntimeIdentity.tmuxServerName} attach-session -t broken\n`,
+      });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(tmuxDetector.ensureServerHealthy()).resolves.toBe(true);
+
+    expect(tmuxDetectorTestDoubles.spawnSync).toHaveBeenNthCalledWith(
+      1,
+      'tmux',
+      ['-L', testRuntimeIdentity.tmuxServerName, 'kill-server'],
+      {
+        timeout: 3000,
+        stdio: 'ignore',
+      }
+    );
+    expect(tmuxDetectorTestDoubles.spawnSync).toHaveBeenNthCalledWith(
+      2,
+      'ps',
+      ['-ax', '-o', 'pid=', '-o', 'command='],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+      }
+    );
+    expect(killSpy).toHaveBeenCalledWith(12, 'SIGKILL');
+    expect(tmuxDetectorTestDoubles.rmSync).toHaveBeenCalledWith(
+      `/tmp/tmux-${process.getuid?.()}/${testRuntimeIdentity.tmuxServerName}`,
+      { force: true }
     );
   });
 

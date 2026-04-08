@@ -80,6 +80,11 @@ describe('buildAgentLaunchPlan', () => {
     });
 
     expect(plan.tmuxSessionName).toBe('enso-ui-session-1');
+    expect(plan.hostSession).toEqual({
+      kind: 'tmux',
+      serverName: 'enso',
+      sessionName: 'enso-ui-session-1',
+    });
     expect(plan.command?.shell).toBe('/bin/zsh');
     expect(plan.command?.args[0]).toBe('-lc');
     expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');

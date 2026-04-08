@@ -12,6 +12,7 @@ import {
   type SessionStateEvent,
 } from '@shared/types';
 import { BrowserWindow, type WebContents } from 'electron';
+import { tmuxDetector } from '../cli/TmuxDetector';
 import { remoteConnectionManager } from '../remote/RemoteConnectionManager';
 import { isRemoteVirtualPath, parseRemoteVirtualPath } from '../remote/RemotePath';
 import { PtyManager } from '../terminal/PtyManager';
@@ -492,6 +493,13 @@ export class SessionManager {
       return this.createSupervisorSession(windowId, options);
     }
 
+    if (this.shouldEnsureTmuxHostHealth(options)) {
+      const healthy = await tmuxDetector.ensureServerHealthy(options.hostSession.serverName);
+      if (!healthy) {
+        throw new Error(`Failed to recover tmux server: ${options.hostSession.serverName}`);
+      }
+    }
+
     const kind = options.kind ?? 'terminal';
     const cwd = options.cwd || process.env.HOME || process.env.USERPROFILE || '/';
     const sessionId = this.localPtyManager.allocateId();
@@ -534,6 +542,16 @@ export class SessionManager {
       process.platform === 'win32' &&
       options.kind === 'agent' &&
       Boolean(options.persistOnDisconnect)
+    );
+  }
+
+  private shouldEnsureTmuxHostHealth(
+    options: SessionCreateOptions
+  ): options is SessionCreateOptions & { hostSession: { kind: 'tmux'; serverName: string } } {
+    return (
+      process.platform !== 'win32' &&
+      options.kind === 'agent' &&
+      options.hostSession?.kind === 'tmux'
     );
   }
 

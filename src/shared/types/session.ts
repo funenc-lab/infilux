@@ -1,6 +1,12 @@
 export type SessionKind = 'terminal' | 'agent';
 export type SessionBackendKind = 'local' | 'remote';
 
+export interface SessionHostSessionOptions {
+  kind: 'tmux';
+  serverName: string;
+  sessionName: string;
+}
+
 export interface SessionCreateOptions {
   cwd?: string;
   /** Internal use: OS cwd for the spawned process when logical cwd is virtual. */
@@ -19,6 +25,7 @@ export interface SessionCreateOptions {
   initialCommand?: string;
   kind?: SessionKind;
   persistOnDisconnect?: boolean;
+  hostSession?: SessionHostSessionOptions;
   metadata?: Record<string, unknown>;
 }
 

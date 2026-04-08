@@ -774,7 +774,7 @@ export function AgentTerminal({
   }, [terminalSessionId, clearRuntimeState, stopActivityPolling]);
 
   // Build command with session args
-  const { command, env, initialCommand } = useMemo(() => {
+  const { command, env, initialCommand, hostSession } = useMemo(() => {
     const plan = buildAgentLaunchPlan({
       agentCommand,
       customPath,
@@ -802,6 +802,7 @@ export function AgentTerminal({
         : undefined,
       env: plan.env,
       initialCommand: plan.initialCommand,
+      hostSession: plan.hostSession,
     };
   }, [
     agentCommand,
@@ -1147,6 +1148,7 @@ export function AgentTerminal({
     backendSessionId,
     command,
     env,
+    hostSession,
     initialCommand,
     isActive: effectiveIsActive,
     kind: 'agent',
