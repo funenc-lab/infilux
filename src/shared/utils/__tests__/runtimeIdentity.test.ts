@@ -33,18 +33,18 @@ describe('runtime identity utilities', () => {
   it('builds distinct tmux and persistence identities per channel', () => {
     expect(buildAppRuntimeIdentity('prod')).toEqual({
       channel: 'prod',
-      tmuxServerName: 'enso',
-      persistentAgentHostSessionPrefix: 'enso',
+      tmuxServerName: 'infilux',
+      persistentAgentHostSessionPrefix: 'infilux',
       persistentAgentSessionDatabaseFilename: 'persistent-agent-sessions.db',
     });
     expect(buildAppRuntimeIdentity('dev')).toEqual({
       channel: 'dev',
-      tmuxServerName: 'enso-dev',
-      persistentAgentHostSessionPrefix: 'enso-dev',
+      tmuxServerName: 'infilux-dev',
+      persistentAgentHostSessionPrefix: 'infilux-dev',
       persistentAgentSessionDatabaseFilename: 'persistent-agent-sessions-dev.db',
     });
     expect(buildPersistentAgentHostSessionKey('ui:session/1', 'test')).toBe(
-      'enso-test-ui_session_1'
+      'infilux-test-ui_session_1'
     );
   });
 });

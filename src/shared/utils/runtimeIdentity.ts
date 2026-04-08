@@ -7,6 +7,8 @@ export interface AppRuntimeIdentity {
   persistentAgentSessionDatabaseFilename: string;
 }
 
+export const APP_RUNTIME_NAMESPACE = 'infilux';
+
 interface ResolveAppRuntimeChannelOptions {
   explicitChannel?: unknown;
   nodeEnv?: string | null;
@@ -16,7 +18,7 @@ interface ResolveAppRuntimeChannelOptions {
 
 const VALID_RUNTIME_CHANNELS = new Set<AppRuntimeChannel>(['prod', 'dev', 'test']);
 const RUNTIME_CHANNEL_ARGUMENT_PREFIX = '--infilux-runtime-channel=';
-const SESSION_RUNTIME_NAMESPACE = 'enso';
+const SESSION_RUNTIME_NAMESPACE = APP_RUNTIME_NAMESPACE;
 const PERSISTENT_AGENT_SESSION_DATABASE_BASENAME = 'persistent-agent-sessions';
 
 function normalizeRuntimeChannel(value: unknown): AppRuntimeChannel | null {

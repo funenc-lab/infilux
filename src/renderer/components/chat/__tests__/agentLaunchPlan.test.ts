@@ -35,7 +35,7 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command).toBeUndefined();
     expect(plan.tmuxSessionName).toBeNull();
     expect(plan.initialCommand).toContain('claude --session-id session-1 --ide');
-    expect(plan.initialCommand).not.toContain('tmux -L enso');
+    expect(plan.initialCommand).not.toContain('tmux -L infilux');
   });
 
   it('skips the Claude IDE flag when IDE integration is unavailable', () => {
@@ -79,36 +79,36 @@ describe('buildAgentLaunchPlan', () => {
       terminalSessionId: 'ui-session-1',
     });
 
-    expect(plan.tmuxSessionName).toBe('enso-ui-session-1');
+    expect(plan.tmuxSessionName).toBe('infilux-ui-session-1');
     expect(plan.hostSession).toEqual({
       kind: 'tmux',
-      serverName: 'enso',
-      sessionName: 'enso-ui-session-1',
+      serverName: 'infilux',
+      sessionName: 'infilux-ui-session-1',
     });
     expect(plan.command?.shell).toBe('/bin/zsh');
     expect(plan.command?.args[0]).toBe('-lc');
     expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain('command -v claude >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain(
-      "then env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+      "then env -u TMUX tmux -L infilux -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
     );
     expect(plan.command?.args[1]).not.toContain(
-      "then exec env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+      "then exec env -u TMUX tmux -L infilux -f /dev/null new-session -d -s infilux-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
     );
     expect(plan.command?.args[1]).toContain(
-      "env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true"
+      "env -u TMUX tmux -L infilux -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true"
     );
     expect(plan.command?.args[1]).toContain(
-      'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 status off >/dev/null 2>&1 || true'
+      'env -u TMUX tmux -L infilux set-option -t infilux-ui-session-1 status off >/dev/null 2>&1 || true'
     );
     expect(plan.command?.args[1]).toContain(
-      'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 mouse off >/dev/null 2>&1 || true'
+      'env -u TMUX tmux -L infilux set-option -t infilux-ui-session-1 mouse off >/dev/null 2>&1 || true'
     );
     expect(plan.command?.args[1]).not.toContain(
-      'env -u TMUX tmux -L enso set-option -t enso-ui-session-1 mouse on >/dev/null 2>&1 || true'
+      'env -u TMUX tmux -L infilux set-option -t infilux-ui-session-1 mouse on >/dev/null 2>&1 || true'
     );
     expect(plan.command?.args[1]).toContain(
-      'exec env -u TMUX tmux -L enso attach-session -t enso-ui-session-1'
+      'exec env -u TMUX tmux -L infilux attach-session -t infilux-ui-session-1'
     );
     expect(plan.command?.args[1]).toContain('exec /bin/zsh -i -l -c');
   });
