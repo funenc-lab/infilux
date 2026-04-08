@@ -122,6 +122,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const supervisorOnDisconnect = vi.fn();
   const persistentAbandonSession = vi.fn();
   const tmuxEnsureServerHealthy = vi.fn();
+  const tmuxCaptureSessionHistory = vi.fn();
   const remoteConnectionManager = {
     getStatus: vi.fn<(connectionId: string) => { connected: boolean; recoverable?: boolean }>(),
     call: vi.fn<(connectionId: string, method: string, payload: unknown) => Promise<unknown>>(),
@@ -191,6 +192,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     supervisorOnDisconnect,
     persistentAbandonSession,
     tmuxEnsureServerHealthy,
+    tmuxCaptureSessionHistory,
     remoteConnectionManager,
   };
 });
@@ -232,6 +234,7 @@ vi.mock('../PersistentAgentSessionService', () => ({
 vi.mock('../../cli/TmuxDetector', () => ({
   tmuxDetector: {
     ensureServerHealthy: sessionTestDoubles.tmuxEnsureServerHealthy,
+    captureSessionHistory: sessionTestDoubles.tmuxCaptureSessionHistory,
   },
 }));
 
@@ -348,6 +351,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.persistentAbandonSession.mockResolvedValue([]);
     sessionTestDoubles.tmuxEnsureServerHealthy.mockReset();
     sessionTestDoubles.tmuxEnsureServerHealthy.mockResolvedValue(true);
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockReset();
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValue('');
   });
 
   it('buffers local output until attach completes and destroys the session when the last window detaches', async () => {
@@ -427,6 +432,38 @@ describe('SessionManager', () => {
 
     expect(opened.session.sessionId).toBe('local-1');
     expect(sessionTestDoubles.tmuxEnsureServerHealthy).toHaveBeenCalledWith('enso');
+  });
+
+  it('seeds recovered tmux agent sessions with captured host history before attach', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(
+      'RECOVERY-LINE-001\nRECOVERY-LINE-002\n'
+    );
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-1',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    pty.emitData(sessionId, 'RECOVERY-LINE-002\n');
+    pty.emitData(sessionId, 'prompt> ');
+
+    const attached = await manager.attach(1, { sessionId });
+
+    expect(sessionTestDoubles.tmuxCaptureSessionHistory).toHaveBeenCalledWith(
+      'enso-ui-session-1',
+      'enso'
+    );
+    expect(attached.replay).toBe('RECOVERY-LINE-001\nRECOVERY-LINE-002\nprompt> ');
   });
 
   it('accepts BrowserWindow targets and safely handles missing sessions or unresolved web contents', async () => {

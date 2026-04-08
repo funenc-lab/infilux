@@ -31,11 +31,16 @@ export interface AgentSessionRecoveryScenario {
   uiSessionId: string;
   sessionDisplayName: string;
   sessionPanelId: string;
+  transcriptFirstLine: string;
+  transcriptLastLine: string;
   tmuxGreeting: string;
   tmuxSessionName: string;
   profileName: string;
   cleanup: () => Promise<void>;
 }
+
+const RECOVERY_TRANSCRIPT_LINE_COUNT = 180;
+const RECOVERY_TRANSCRIPT_PREFIX = 'RECOVERY-LINE';
 
 function normalizePathForRepositoryId(value: string): string {
   const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
@@ -136,6 +141,11 @@ async function createTmuxRecoverySession(options: {
   const scriptContent = [
     '#!/bin/sh',
     `cd ${shellQuote(options.worktreePath)} || exit 1`,
+    'i=1',
+    `while [ "$i" -le ${RECOVERY_TRANSCRIPT_LINE_COUNT} ]; do`,
+    `  printf '${RECOVERY_TRANSCRIPT_PREFIX}-%03d\\n' "$i"`,
+    '  i=$((i + 1))',
+    'done',
     `printf '%s\\n' ${shellQuote(options.greeting)}`,
     'exec cat',
     '',
@@ -267,6 +277,8 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
     uiSessionId,
     sessionDisplayName,
     sessionPanelId: `agent-session-panel-${uiSessionId}`,
+    transcriptFirstLine: `${RECOVERY_TRANSCRIPT_PREFIX}-001`,
+    transcriptLastLine: `${RECOVERY_TRANSCRIPT_PREFIX}-${String(RECOVERY_TRANSCRIPT_LINE_COUNT).padStart(3, '0')}`,
     tmuxGreeting,
     tmuxSessionName,
     profileName,

@@ -25,6 +25,7 @@ interface ManagedSessionRecord extends SessionDescriptor {
   connectionId?: string;
   runtimeState?: SessionRuntimeState;
   replayBuffer?: string;
+  pendingHostReplayDedup?: boolean;
   streamState?: 'buffering' | 'attaching' | 'live';
   pendingExit?: SessionExitEvent;
 }
@@ -36,6 +37,13 @@ interface SessionRuntimeInfo {
 }
 
 const MAX_SESSION_REPLAY_CHARS = 65_536;
+type TmuxHostSessionCreateOptions = SessionCreateOptions & {
+  hostSession: {
+    kind: 'tmux';
+    serverName: string;
+    sessionName: string;
+  };
+};
 
 function getWindowId(target: BrowserWindow | WebContents | number): number {
   if (typeof target === 'number') {
@@ -500,6 +508,7 @@ export class SessionManager {
       }
     }
 
+    const initialReplay = await this.loadLocalReplaySeed(options);
     const kind = options.kind ?? 'terminal';
     const cwd = options.cwd || process.env.HOME || process.env.USERPROFILE || '/';
     const sessionId = this.localPtyManager.allocateId();
@@ -513,7 +522,8 @@ export class SessionManager {
       createdAt: now(),
       metadata: options.metadata,
       attachedWindowIds: new Set([windowId]),
-      replayBuffer: '',
+      replayBuffer: initialReplay,
+      pendingHostReplayDedup: initialReplay.length > 0 && this.shouldSeedTmuxHostReplay(options),
       streamState: 'buffering',
     };
     this.sessions.set(sessionId, record);
@@ -547,7 +557,7 @@ export class SessionManager {
 
   private shouldEnsureTmuxHostHealth(
     options: SessionCreateOptions
-  ): options is SessionCreateOptions & { hostSession: { kind: 'tmux'; serverName: string } } {
+  ): options is TmuxHostSessionCreateOptions {
     return (
       process.platform !== 'win32' &&
       options.kind === 'agent' &&
@@ -559,6 +569,24 @@ export class SessionManager {
     return (
       process.platform === 'win32' && Boolean(options.cwd && !isRemoteVirtualPath(options.cwd))
     );
+  }
+
+  private shouldSeedTmuxHostReplay(
+    options: SessionCreateOptions
+  ): options is TmuxHostSessionCreateOptions {
+    return this.shouldEnsureTmuxHostHealth(options);
+  }
+
+  private async loadLocalReplaySeed(options: SessionCreateOptions): Promise<string> {
+    if (!this.shouldSeedTmuxHostReplay(options)) {
+      return '';
+    }
+
+    const replay = await tmuxDetector.captureSessionHistory(
+      options.hostSession.sessionName,
+      options.hostSession.serverName
+    );
+    return replay.slice(-MAX_SESSION_REPLAY_CHARS);
   }
 
   private async createSupervisorSession(
@@ -717,10 +745,19 @@ export class SessionManager {
       return;
     }
 
-    this.appendReplayBuffer(session, data);
+    let nextData = data;
+    if (session.pendingHostReplayDedup && session.streamState !== 'live') {
+      nextData = this.getReplayDelta(session.replayBuffer, data);
+      if (!nextData) {
+        return;
+      }
+      session.pendingHostReplayDedup = false;
+    }
+
+    this.appendReplayBuffer(session, nextData);
 
     if (session.streamState === 'live') {
-      this.emitData(sessionId, data, new Set(session.attachedWindowIds));
+      this.emitData(sessionId, nextData, new Set(session.attachedWindowIds));
     }
   }
 
@@ -737,6 +774,7 @@ export class SessionManager {
       }
 
       session.streamState = 'live';
+      session.pendingHostReplayDedup = false;
       const replayBuffer = session.replayBuffer || '';
       const delta = replayBuffer.slice(replayCursor);
       if (delta) {

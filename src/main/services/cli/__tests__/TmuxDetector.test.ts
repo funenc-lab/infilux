@@ -160,6 +160,7 @@ describe('TmuxDetector', () => {
     await expect(tmuxDetector.check()).resolves.toEqual({
       installed: false,
     });
+    await expect(tmuxDetector.captureSessionHistory('ignored')).resolves.toBe('');
     await expect(tmuxDetector.killSession('ignored')).resolves.toBeUndefined();
     await expect(tmuxDetector.killServer()).resolves.toBeUndefined();
     expect(() => tmuxDetector.killServerSync()).not.toThrow();
@@ -331,6 +332,36 @@ describe('TmuxDetector', () => {
       sessionName: 'enso-ui-session-1',
     });
 
+    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(1);
+  });
+
+  it('captures the active tmux pane history for a matching session and falls back to empty output', async () => {
+    setPlatform('darwin');
+    tmuxDetectorTestDoubles.execInPty
+      .mockResolvedValueOnce('%1\t0\t0\n%0\t1\t0\n')
+      .mockResolvedValueOnce('RECOVERY-LINE-001\nRECOVERY-LINE-002\n');
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(tmuxDetector.captureSessionHistory('enso-ui-session-1')).resolves.toBe(
+      'RECOVERY-LINE-001\nRECOVERY-LINE-002\n'
+    );
+
+    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+      1,
+      `tmux -L '${testRuntimeIdentity.tmuxServerName}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
+      { timeout: 5000 }
+    );
+    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+      2,
+      `tmux -L '${testRuntimeIdentity.tmuxServerName}' capture-pane -p -e -J -S - -t '%0'`,
+      { timeout: 5000 }
+    );
+
+    tmuxDetectorTestDoubles.execInPty.mockReset();
+    tmuxDetectorTestDoubles.execInPty.mockResolvedValueOnce('');
+
+    await expect(tmuxDetector.captureSessionHistory('enso-ui-session-1')).resolves.toBe('');
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(1);
   });
 });

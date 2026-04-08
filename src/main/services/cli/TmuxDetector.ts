@@ -139,6 +139,36 @@ class TmuxDetector {
     }
   }
 
+  async captureSessionHistory(sessionName: string, serverName?: string): Promise<string> {
+    if (isWindows || !sessionName) {
+      return '';
+    }
+
+    const resolvedServerName = resolveTmuxServerName(serverName);
+
+    try {
+      const stdout = await execInPty(
+        `tmux -L ${shellQuote(resolvedServerName)} list-panes -t ${shellQuote(sessionName)} -F ${shellQuote(LIST_PANES_FORMAT)}`,
+        {
+          timeout: TMUX_COMMAND_TIMEOUT_MS,
+        }
+      );
+      const pane = findActivePaneForSession(stdout);
+      if (!pane) {
+        return '';
+      }
+
+      return await execInPty(
+        `tmux -L ${shellQuote(resolvedServerName)} capture-pane -p -e -J -S - -t ${shellQuote(pane.paneId)}`,
+        {
+          timeout: TMUX_COMMAND_TIMEOUT_MS,
+        }
+      );
+    } catch {
+      return '';
+    }
+  }
+
   async ensureServerHealthy(serverName?: string): Promise<boolean> {
     if (isWindows) {
       return true;
