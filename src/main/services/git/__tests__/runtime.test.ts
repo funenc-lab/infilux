@@ -199,4 +199,45 @@ describe('git runtime helpers', () => {
       })
     );
   });
+
+  it('patches simple-git child_process spawn calls to inject compatible git stdio', async () => {
+    const runtime = await import('../runtime');
+
+    const originalSpawn = vi.fn();
+    const fakeChildProcessModule = {
+      spawn: originalSpawn,
+    } as unknown as Parameters<typeof runtime.installGitSpawnCompatibilityPatch>[0];
+
+    runtime.installGitSpawnCompatibilityPatch(fakeChildProcessModule);
+    const patchedSpawn = fakeChildProcessModule.spawn;
+
+    runtime.installGitSpawnCompatibilityPatch(fakeChildProcessModule);
+    expect(fakeChildProcessModule.spawn).toBe(patchedSpawn);
+
+    fakeChildProcessModule.spawn('git', ['status'], { cwd: '/repo' });
+    expect(originalSpawn).toHaveBeenCalledWith(
+      'git',
+      ['status'],
+      expect.objectContaining({
+        cwd: '/repo',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    );
+
+    fakeChildProcessModule.spawn('git', ['status'], {
+      cwd: '/repo',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    expect(originalSpawn).toHaveBeenLastCalledWith(
+      'git',
+      ['status'],
+      expect.objectContaining({
+        cwd: '/repo',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    );
+
+    fakeChildProcessModule.spawn('bash', ['-lc', 'git status'], { cwd: '/repo' });
+    expect(originalSpawn).toHaveBeenLastCalledWith('bash', ['-lc', 'git status'], { cwd: '/repo' });
+  });
 });
