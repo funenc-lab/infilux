@@ -25,6 +25,7 @@ import {
   buildFileWorkflowToastCopy,
 } from '@/lib/feedbackCopy';
 import { resolveTerminalRuntimeOverlayState } from '@/lib/terminalRuntimeOverlay';
+import { cn } from '@/lib/utils';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
@@ -42,6 +43,10 @@ import {
   mergeAgentAttachments,
   resolveAgentAttachmentSendDelay,
 } from './agentAttachmentTrayModel';
+import {
+  AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS,
+  AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS,
+} from './agentFloatingControlLayout';
 import {
   resolveAgentInputAvailability,
   resolveAgentInputUnavailableReason,
@@ -1526,7 +1531,11 @@ export function AgentTerminal({
           aria-label={t('Scroll to bottom')}
           type="button"
           onClick={handleScrollToBottom}
-          className="absolute bottom-12 right-3 flex h-11 w-11 items-center justify-center rounded-full border border-primary/30 bg-primary/14 text-primary transition-[background-color,transform] hover:bg-primary/22 hover:scale-105 active:scale-95"
+          className={cn(
+            'absolute flex items-center justify-center rounded-full border border-primary/30 bg-primary/14 text-primary transition-[background-color,transform] hover:bg-primary/22 hover:scale-105 active:scale-95',
+            AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS,
+            AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS
+          )}
           title={t('Scroll to bottom')}
         >
           <ArrowDown className="h-4 w-4" />

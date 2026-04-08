@@ -10,7 +10,12 @@ import {
 } from 'lucide-react';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
+import { cn } from '@/lib/utils';
 import type { AgentAttachmentItem } from './agentAttachmentTrayModel';
+import {
+  AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS,
+  AGENT_CHAT_FLOATING_EDGE_INSET_CLASS,
+} from './agentFloatingControlLayout';
 
 interface AgentAttachmentTrayProps {
   attachments: AgentAttachmentItem[];
@@ -47,7 +52,11 @@ export function AgentAttachmentTray({
   return (
     <div
       aria-busy={isProcessing}
-      className="pointer-events-none absolute bottom-3 right-3 z-20 flex items-end gap-2"
+      className={cn(
+        'pointer-events-none absolute',
+        AGENT_CHAT_FLOATING_EDGE_INSET_CLASS,
+        'z-20 flex items-end gap-2'
+      )}
     >
       {expanded && attachmentCount > 0 && (
         <div className="pointer-events-auto flex w-[min(34rem,calc(100vw-1.5rem))] flex-col gap-3 rounded-2xl border border-border/70 bg-background/96 px-3 py-3 shadow-2xl shadow-black/20 backdrop-blur-md">
@@ -149,7 +158,10 @@ export function AgentAttachmentTray({
           type="button"
           aria-label={t('Add files')}
           onClick={onPickFiles}
-          className="flex h-11 w-11 items-center justify-center rounded-full border border-border/70 bg-background/92 text-foreground shadow-lg shadow-black/15 transition-colors hover:bg-muted"
+          className={cn(
+            'flex items-center justify-center rounded-full border border-border/70 bg-background/92 text-foreground shadow-lg shadow-black/15 transition-colors hover:bg-muted',
+            AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS
+          )}
         >
           {isProcessing ? (
             <LoaderCircle className="h-4 w-4 animate-spin" />
