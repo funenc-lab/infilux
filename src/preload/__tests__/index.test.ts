@@ -153,6 +153,14 @@ describe('preload bridge', () => {
     expect(preloadTestDoubles.getPathForFile).toHaveBeenCalledWith('file.bin');
   });
 
+  it('prefers the runtime app version parsed from additional arguments', async () => {
+    process.argv = [...originalArgv, '--infilux-app-version=9.8.7'];
+
+    const api = await loadElectronAPI();
+
+    expect(api.env.appVersion).toBe('9.8.7');
+  });
+
   it('exposes the bootstrap theme snapshot parsed from additional arguments', async () => {
     process.argv = [
       ...originalArgv,
@@ -423,6 +431,10 @@ describe('preload bridge', () => {
       {
         run: () => api.updater.setAutoUpdateEnabled(true),
         expected: [IPC_CHANNELS.UPDATER_SET_AUTO_UPDATE_ENABLED, true],
+      },
+      {
+        run: () => api.updater.getState(),
+        expected: [IPC_CHANNELS.UPDATER_GET_STATE],
       },
       {
         run: () => api.mcp.setEnabled(true, ['/repo']),

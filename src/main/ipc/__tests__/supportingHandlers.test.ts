@@ -47,6 +47,7 @@ const handlerTestDoubles = vi.hoisted(() => {
   const updaterQuitAndInstall = vi.fn();
   const updaterDownloadUpdate = vi.fn();
   const updaterSetAutoUpdateEnabled = vi.fn();
+  const updaterGetState = vi.fn();
 
   const loadProfiles = vi.fn();
   const saveProfile = vi.fn();
@@ -142,6 +143,11 @@ const handlerTestDoubles = vi.hoisted(() => {
     updaterDownloadUpdate.mockReset();
     updaterDownloadUpdate.mockResolvedValue(undefined);
     updaterSetAutoUpdateEnabled.mockReset();
+    updaterGetState.mockReset();
+    updaterGetState.mockReturnValue({
+      autoUpdateEnabled: true,
+      status: null,
+    });
 
     loadProfiles.mockReset();
     loadProfiles.mockResolvedValue([{ id: 'profile-1' }]);
@@ -205,6 +211,7 @@ const handlerTestDoubles = vi.hoisted(() => {
     updaterQuitAndInstall,
     updaterDownloadUpdate,
     updaterSetAutoUpdateEnabled,
+    updaterGetState,
     loadProfiles,
     saveProfile,
     deleteProfile,
@@ -327,6 +334,7 @@ vi.mock('../../services/updater/AutoUpdater', () => ({
     quitAndInstall: handlerTestDoubles.updaterQuitAndInstall,
     downloadUpdate: handlerTestDoubles.updaterDownloadUpdate,
     setAutoUpdateEnabled: handlerTestDoubles.updaterSetAutoUpdateEnabled,
+    getState: handlerTestDoubles.updaterGetState,
   },
 }));
 
@@ -600,11 +608,17 @@ describe('supporting IPC handlers', () => {
     await getHandler(IPC_CHANNELS.UPDATER_QUIT_AND_INSTALL)({});
     await getHandler(IPC_CHANNELS.UPDATER_DOWNLOAD_UPDATE)({});
     await getHandler(IPC_CHANNELS.UPDATER_SET_AUTO_UPDATE_ENABLED)({}, true);
+    await expect(getHandler(IPC_CHANNELS.UPDATER_GET_STATE)({})).resolves.toEqual({
+      isSupported: true,
+      autoUpdateEnabled: true,
+      status: null,
+    });
 
     expect(handlerTestDoubles.updaterCheckForUpdates).toHaveBeenCalledTimes(1);
     expect(handlerTestDoubles.updaterQuitAndInstall).toHaveBeenCalledTimes(1);
     expect(handlerTestDoubles.updaterDownloadUpdate).toHaveBeenCalledTimes(1);
     expect(handlerTestDoubles.updaterSetAutoUpdateEnabled).toHaveBeenCalledWith(true);
+    expect(handlerTestDoubles.updaterGetState).toHaveBeenCalledTimes(1);
   });
 
   it('skips updater handlers on linux packages without AppImage', async () => {
@@ -619,11 +633,17 @@ describe('supporting IPC handlers', () => {
     await expect(
       getHandler(IPC_CHANNELS.UPDATER_SET_AUTO_UPDATE_ENABLED)({}, false)
     ).resolves.toBeUndefined();
+    await expect(getHandler(IPC_CHANNELS.UPDATER_GET_STATE)({})).resolves.toEqual({
+      isSupported: false,
+      autoUpdateEnabled: false,
+      status: null,
+    });
 
     expect(handlerTestDoubles.updaterCheckForUpdates).not.toHaveBeenCalled();
     expect(handlerTestDoubles.updaterQuitAndInstall).not.toHaveBeenCalled();
     expect(handlerTestDoubles.updaterDownloadUpdate).not.toHaveBeenCalled();
     expect(handlerTestDoubles.updaterSetAutoUpdateEnabled).not.toHaveBeenCalled();
+    expect(handlerTestDoubles.updaterGetState).not.toHaveBeenCalled();
   });
 
   it('registers remote handlers and delegates every command to the remote manager', async () => {

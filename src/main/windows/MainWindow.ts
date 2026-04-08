@@ -6,6 +6,7 @@ import { is } from '@electron-toolkit/utils';
 import { type Locale, translate } from '@shared/i18n';
 import type { AppCloseRequestPayload, AppCloseRequestReason } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
+import { encodeBootstrapAppVersionArgument } from '@shared/utils/bootstrapAppVersion';
 import {
   encodeBootstrapLocaleArgument,
   extractBootstrapLocaleFromSettingsData,
@@ -71,6 +72,17 @@ const DEFAULT_STATE: WindowState = {
 const SHOW_WINDOW_FALLBACK_DELAY_MS = 3000;
 const MIN_WINDOW_WIDTH = 685;
 const MIN_WINDOW_HEIGHT = 600;
+
+function isDisposedWindowSendError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes('Render frame was disposed') ||
+    error.message.includes('Object has been destroyed')
+  );
+}
 
 function getStatePath(): string {
   return join(app.getPath('userData'), 'window-state.json');
@@ -219,6 +231,10 @@ function resolveBootstrapLocale(): Locale | null {
   return extractBootstrapLocaleFromSettingsData(readSharedSettings());
 }
 
+function resolveBootstrapAppVersionArgument(appVersion: string): string[] {
+  return [encodeBootstrapAppVersionArgument(appVersion)];
+}
+
 function resolveBootstrapMainStageArgument(
   bootstrapMainStage: BootstrapMainStage | null | undefined
 ): string[] | undefined {
@@ -232,15 +248,18 @@ function resolveBootstrapMainStageArgument(
 function resolveRendererAdditionalArguments(
   bootstrapThemeSnapshot: BootstrapThemeSnapshot | null,
   bootstrapLocale: Locale | null,
-  bootstrapMainStage: BootstrapMainStage | null | undefined
+  bootstrapMainStage: BootstrapMainStage | null | undefined,
+  appVersion: string
 ): string[] {
   const runtimeChannelArgument = encodeRuntimeChannelArgument(getAppRuntimeChannel());
+  const bootstrapAppVersionArguments = resolveBootstrapAppVersionArgument(appVersion);
   const bootstrapLocaleArguments = resolveBootstrapLocaleArgument(bootstrapLocale) ?? [];
   const bootstrapMainStageArguments = resolveBootstrapMainStageArgument(bootstrapMainStage) ?? [];
   const bootstrapThemeArguments = resolveBootstrapThemeArgument(bootstrapThemeSnapshot) ?? [];
 
   return [
     runtimeChannelArgument,
+    ...bootstrapAppVersionArguments,
     ...bootstrapLocaleArguments,
     ...bootstrapMainStageArguments,
     ...bootstrapThemeArguments,
@@ -477,10 +496,12 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
   const windowIconPath = resolveWindowIconPath();
   const bootstrapThemeSnapshot = resolveBootstrapThemeSnapshot();
   const bootstrapLocale = resolveBootstrapLocale();
+  const appVersion = app.getVersion();
   const rendererAdditionalArguments = resolveRendererAdditionalArguments(
     bootstrapThemeSnapshot,
     bootstrapLocale,
-    options.bootstrapMainStage
+    options.bootstrapMainStage,
+    appVersion
   );
 
   const win = new BrowserWindow({
@@ -811,17 +832,33 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
 
   win.on('close', (e) => {
     // Skip confirmation if force close, or quitting for update
-    if (forceClose || autoUpdaterService.isQuittingForUpdate()) {
+    if (forceClose || autoUpdaterService.isQuittingForUpdate() || win.webContents.isDestroyed()) {
       saveWindowState(win);
       return;
     }
 
     e.preventDefault();
-    void confirmCloseWithReason('quit-app').then((confirmed) => {
-      if (confirmed) {
-        forceReplaceCloseCurrentWindow();
-      }
-    });
+    void confirmCloseWithReason('quit-app')
+      .then((confirmed) => {
+        if (confirmed) {
+          forceReplaceCloseCurrentWindow();
+        }
+      })
+      .catch((error) => {
+        if (isDisposedWindowSendError(error) || win.webContents.isDestroyed()) {
+          log.warn('[window] Renderer unavailable during close confirmation, forcing close', {
+            windowId: win.id,
+            error,
+          });
+          forceReplaceCloseCurrentWindow();
+          return;
+        }
+
+        log.error('[window] Failed to confirm window close', {
+          windowId: win.id,
+          error,
+        });
+      });
   });
 
   // Open external links in browser

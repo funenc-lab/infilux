@@ -75,6 +75,8 @@ import type {
   TmuxCheckResult,
   TmuxScrollClientRequest,
   TmuxScrollClientResult,
+  UpdaterStateSnapshot,
+  UpdateStatus,
   ValidateLocalPathResult,
   ValidateUrlResult,
   WorktreeCreateOptions,
@@ -86,6 +88,7 @@ import type {
 import { IPC_CHANNELS } from '@shared/types';
 import type { AgentStopNotificationData } from '@shared/types/agent';
 import type { InspectPayload, WebInspectorStatus } from '@shared/types/webInspector';
+import { parseBootstrapAppVersionFromArgv } from '@shared/utils/bootstrapAppVersion';
 import { parseBootstrapLocaleFromArgv } from '@shared/utils/bootstrapLocale';
 import { parseBootstrapMainStageFromArgv } from '@shared/utils/bootstrapMainStage';
 import { parseBootstrapThemeSnapshotFromArgv } from '@shared/utils/bootstrapTheme';
@@ -821,7 +824,7 @@ const electronAPI = {
   env: {
     HOME: process.env.HOME || process.env.USERPROFILE || '',
     platform: process.platform as 'darwin' | 'win32' | 'linux',
-    appVersion: pkg.version,
+    appVersion: parseBootstrapAppVersionFromArgv(process.argv) ?? pkg.version,
     bootstrapLocale: parseBootstrapLocaleFromArgv(process.argv),
     bootstrapMainStage: parseBootstrapMainStageFromArgv(process.argv),
     bootstrapTheme: parseBootstrapThemeSnapshotFromArgv(process.argv),
@@ -964,36 +967,12 @@ const electronAPI = {
     checkForUpdates: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.UPDATER_CHECK),
     quitAndInstall: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.UPDATER_QUIT_AND_INSTALL),
     downloadUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.UPDATER_DOWNLOAD_UPDATE),
+    getState: (): Promise<UpdaterStateSnapshot> =>
+      ipcRenderer.invoke(IPC_CHANNELS.UPDATER_GET_STATE),
     setAutoUpdateEnabled: (enabled: boolean): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.UPDATER_SET_AUTO_UPDATE_ENABLED, enabled),
-    onStatus: (
-      callback: (status: {
-        status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
-        info?: unknown;
-        progress?: { percent: number; bytesPerSecond: number; total: number; transferred: number };
-        error?: string;
-      }) => void
-    ): (() => void) => {
-      const handler = (
-        _: unknown,
-        status: {
-          status:
-            | 'checking'
-            | 'available'
-            | 'not-available'
-            | 'downloading'
-            | 'downloaded'
-            | 'error';
-          info?: unknown;
-          progress?: {
-            percent: number;
-            bytesPerSecond: number;
-            total: number;
-            transferred: number;
-          };
-          error?: string;
-        }
-      ) => callback(status);
+    onStatus: (callback: (status: UpdateStatus) => void): (() => void) => {
+      const handler = (_: unknown, status: UpdateStatus) => callback(status);
       ipcRenderer.on(IPC_CHANNELS.UPDATER_STATUS, handler);
       return () => ipcRenderer.off(IPC_CHANNELS.UPDATER_STATUS, handler);
     },

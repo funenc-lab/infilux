@@ -1,5 +1,10 @@
 import { is } from '@electron-toolkit/utils';
-import type { ProxySettings } from '@shared/types';
+import {
+  IPC_CHANNELS,
+  type ProxySettings,
+  type UpdateReleaseInfo,
+  type UpdateStatus,
+} from '@shared/types';
 import type { BrowserWindow } from 'electron';
 import electronUpdater, { type UpdateInfo } from 'electron-updater';
 
@@ -7,27 +12,32 @@ import { applyProxy, registerUpdaterSession } from '../proxy/ProxyConfig';
 
 const { autoUpdater } = electronUpdater;
 
-export interface UpdateStatus {
-  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
-  info?: UpdateInfo;
-  progress?: {
-    percent: number;
-    bytesPerSecond: number;
-    total: number;
-    transferred: number;
-  };
-  error?: string;
-}
-
 // Check interval: 4 hours
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 // Minimum interval between focus checks: 30 minutes
 const MIN_FOCUS_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
+type UpdaterRuntimeState = {
+  autoUpdateEnabled: boolean;
+  status: UpdateStatus | null;
+};
+
+function normalizeUpdateInfo(info: UpdateInfo | null | undefined): UpdateReleaseInfo | undefined {
+  if (!info?.version) {
+    return undefined;
+  }
+
+  return {
+    version: info.version,
+  };
+}
+
 class AutoUpdaterService {
   private mainWindow: BrowserWindow | null = null;
   private updateDownloaded = false;
   private _isQuittingForUpdate = false;
+  private autoUpdateEnabled = true;
+  private currentStatus: UpdateStatus | null = null;
   private checkIntervalId: NodeJS.Timeout | null = null;
   private initialCheckTimeoutId: NodeJS.Timeout | null = null;
   private lastCheckTime = 0;
@@ -39,6 +49,7 @@ class AutoUpdaterService {
     proxySettings?: ProxySettings | null
   ): void {
     this.mainWindow = window;
+    this.autoUpdateEnabled = autoUpdateEnabled;
 
     // Register updater session so applyProxy() can configure it
     registerUpdaterSession(autoUpdater.netSession);
@@ -61,11 +72,11 @@ class AutoUpdaterService {
     });
 
     autoUpdater.on('update-available', (info) => {
-      this.sendStatus({ status: 'available', info });
+      this.sendStatus({ status: 'available', info: normalizeUpdateInfo(info) });
     });
 
     autoUpdater.on('update-not-available', (info) => {
-      this.sendStatus({ status: 'not-available', info });
+      this.sendStatus({ status: 'not-available', info: normalizeUpdateInfo(info) });
     });
 
     autoUpdater.on('download-progress', (progress) => {
@@ -84,7 +95,7 @@ class AutoUpdaterService {
       this.updateDownloaded = true;
       // Stop all future update checks to prevent race conditions
       this.clearScheduledChecks();
-      this.sendStatus({ status: 'downloaded', info });
+      this.sendStatus({ status: 'downloaded', info: normalizeUpdateInfo(info) });
     });
 
     autoUpdater.on('error', (error) => {
@@ -122,8 +133,9 @@ class AutoUpdaterService {
     if (this.updateDownloaded && status.status !== 'downloaded') {
       return;
     }
+    this.currentStatus = status;
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('updater:status', status);
+      this.mainWindow.webContents.send(IPC_CHANNELS.UPDATER_STATUS, status);
     }
   }
 
@@ -165,6 +177,7 @@ class AutoUpdaterService {
   }
 
   setAutoUpdateEnabled(enabled: boolean): void {
+    this.autoUpdateEnabled = enabled;
     autoUpdater.autoDownload = enabled;
     autoUpdater.autoInstallOnAppQuit = enabled;
 
@@ -184,6 +197,13 @@ class AutoUpdaterService {
     } else {
       this.clearScheduledChecks();
     }
+  }
+
+  getState(): UpdaterRuntimeState {
+    return {
+      autoUpdateEnabled: this.autoUpdateEnabled,
+      status: this.currentStatus,
+    };
   }
 
   private clearScheduledChecks(): void {

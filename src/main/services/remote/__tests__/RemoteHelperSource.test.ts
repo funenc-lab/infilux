@@ -4,8 +4,8 @@ import { getRemoteServerSource } from '../RemoteHelperSource';
 
 describe('getRemoteServerSource', () => {
   it('uses the Infilux runtime namespace for remote helper artifacts and tmux defaults', () => {
-    const source = getRemoteServerSource();
     const runtimeIdentity = buildAppRuntimeIdentity('test');
+    const source = getRemoteServerSource(runtimeIdentity);
 
     expect(source).toContain('const DAEMON_INFO_FILE = "infilux-remote-daemon.json";');
     expect(source).toContain(

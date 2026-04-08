@@ -14,6 +14,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
   const randomUUID = vi.fn(() => `uuid-${++randomUuidCounter}`);
   const getPath = vi.fn((name: string) => `/mock/${name}`);
   const getAppPath = vi.fn(() => '/mock/app');
+  const getVersion = vi.fn(() => '0.3.2');
   const nativeThemeShouldUseDarkColors = vi.fn(() => true);
   const appFocus = vi.fn();
   const dockShow = vi.fn();
@@ -231,6 +232,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     randomUUID.mockReset();
     getPath.mockReset();
     getAppPath.mockReset();
+    getVersion.mockReset();
     nativeThemeShouldUseDarkColors.mockReset();
     appFocus.mockReset();
     dockShow.mockReset();
@@ -258,6 +260,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     randomUUID.mockImplementation(() => `uuid-${++randomUuidCounter}`);
     getPath.mockImplementation((name: string) => `/mock/${name}`);
     getAppPath.mockReturnValue('/mock/app');
+    getVersion.mockReturnValue('0.3.2');
     nativeThemeShouldUseDarkColors.mockReturnValue(true);
     translate.mockImplementation((locale: string, key: string) => `${locale}:${key}`);
     getCurrentLocale.mockReturnValue('en');
@@ -282,6 +285,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
       focus: appFocus,
       getAppPath,
       getPath,
+      getVersion,
       isPackaged: false,
     },
     dialog: {
@@ -925,6 +929,56 @@ describe('MainWindow lifecycle', () => {
     );
     await flushPromises();
 
+    expect(win.hide).toHaveBeenCalledTimes(1);
+    expect(win.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips renderer confirmation when the webContents is already destroyed during close', async () => {
+    setPlatform('win32');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.webContentsDestroyed = true;
+
+    const closeEvent = { preventDefault: vi.fn() };
+    win.emit('close', closeEvent);
+
+    expect(closeEvent.preventDefault).not.toHaveBeenCalled();
+    expect(
+      win.webContents.send.mock.calls.filter(
+        ([channel]) => channel === IPC_CHANNELS.APP_CLOSE_REQUEST
+      )
+    ).toHaveLength(0);
+    expect(mainWindowLifecycleDoubles.writeFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('forces the window closed when renderer confirmation send fails with a disposed frame', async () => {
+    setPlatform('win32');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.webContents.send.mockImplementationOnce(() => {
+      throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+    });
+
+    const closeEvent = { preventDefault: vi.fn() };
+    win.emit('close', closeEvent);
+    await flushPromises();
+
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(mainWindowLifecycleDoubles.logWarn).toHaveBeenCalledWith(
+      '[window] Renderer unavailable during close confirmation, forcing close',
+      expect.objectContaining({
+        windowId: win.id,
+        error: expect.any(Error),
+      })
+    );
     expect(win.hide).toHaveBeenCalledTimes(1);
     expect(win.close).toHaveBeenCalledTimes(1);
   });

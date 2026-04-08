@@ -222,6 +222,46 @@ describe('AutoUpdaterService', () => {
     expect(window.listenerCount('focus')).toBe(0);
   });
 
+  it('returns the latest updater state snapshot for renderer consumers', async () => {
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+
+    autoUpdaterService.init(window as never, false);
+
+    expect(autoUpdaterService.getState()).toEqual({
+      autoUpdateEnabled: false,
+      status: null,
+    });
+
+    updaterTestDoubles.autoUpdater.emit('update-available', { version: '1.2.0' });
+    expect(autoUpdaterService.getState()).toEqual({
+      autoUpdateEnabled: false,
+      status: {
+        status: 'available',
+        info: { version: '1.2.0' },
+      },
+    });
+
+    autoUpdaterService.setAutoUpdateEnabled(true);
+    expect(autoUpdaterService.getState()).toEqual({
+      autoUpdateEnabled: true,
+      status: {
+        status: 'available',
+        info: { version: '1.2.0' },
+      },
+    });
+
+    updaterTestDoubles.autoUpdater.emit('update-downloaded', { version: '1.2.0' });
+    updaterTestDoubles.autoUpdater.emit('error', new Error('ignored after download'));
+    expect(autoUpdaterService.getState()).toEqual({
+      autoUpdateEnabled: true,
+      status: {
+        status: 'downloaded',
+        info: { version: '1.2.0' },
+      },
+    });
+  });
+
   it('handles explicit checks, downloads, and quit-and-install transitions', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { autoUpdaterService } = await import('../AutoUpdater');

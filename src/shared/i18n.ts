@@ -957,6 +957,9 @@ export const zhTranslations: Record<string, string> = {
     '新版本 {{version}} 已发布，请前往下载页面手动更新。',
   'Version {{version}} is available. Do you want to download and update now?':
     '检测到新版本 {{version}}，是否立即下载并更新？',
+  'Open releases page': '打开发布页面',
+  'Automatic updates are not available for this installation.': '当前安装形态不支持自动更新。',
+  'Download new versions manually from the releases page': '请从发布页面手动下载新版本。',
   'Update now': '立即更新',
   中文: '中文',
   // Editor settings

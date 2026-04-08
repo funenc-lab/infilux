@@ -22,4 +22,5 @@ export * from './shell';
 export * from './tempWorkspace';
 export * from './terminal';
 export * from './tmux';
+export * from './updater';
 export * from './worktree';

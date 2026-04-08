@@ -1,5 +1,5 @@
 import { REMOTE_SESSION_STATE_SUBPATH, REMOTE_SETTINGS_SUBPATH } from '@shared/paths';
-import { APP_RUNTIME_NAMESPACE } from '@shared/utils/runtimeIdentity';
+import { APP_RUNTIME_NAMESPACE, type AppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
 import {
   GIT_LOG_FIELD_SEPARATOR,
@@ -12,9 +12,12 @@ export const REMOTE_HELPER_VERSION = REMOTE_SERVER_VERSION;
 
 const REMOTE_DAEMON_INFO_FILE = `${APP_RUNTIME_NAMESPACE}-remote-daemon.json`;
 const REMOTE_RUNTIME_MANIFEST_FILENAME = `${APP_RUNTIME_NAMESPACE}-remote-runtime-manifest.json`;
-const DEFAULT_TMUX_SERVER_NAME = getAppRuntimeIdentity().tmuxServerName;
 
-export function getRemoteServerSource(): string {
+export function getRemoteServerSource(
+  runtimeIdentity: AppRuntimeIdentity = getAppRuntimeIdentity()
+): string {
+  const defaultTmuxServerName = runtimeIdentity.tmuxServerName;
+
   return String.raw`#!/usr/bin/env node
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -42,7 +45,7 @@ const REMOTE_PTY_UNAVAILABLE = 'REMOTE_PTY_UNAVAILABLE';
 const REMOTE_SETTINGS_PATH = ${JSON.stringify(REMOTE_SETTINGS_SUBPATH)};
 const REMOTE_SESSION_STATE_PATH = ${JSON.stringify(REMOTE_SESSION_STATE_SUBPATH)};
 const RUNTIME_MANIFEST_FILENAME = ${JSON.stringify(REMOTE_RUNTIME_MANIFEST_FILENAME)};
-const DEFAULT_TMUX_SERVER_NAME = ${JSON.stringify(DEFAULT_TMUX_SERVER_NAME)};
+const DEFAULT_TMUX_SERVER_NAME = ${JSON.stringify(defaultTmuxServerName)};
 const GLOBAL_STATUS_CACHE_TTL = 300000;
 const AUTH_TOKEN_BYTES = 36;
 let cachedNodePty = undefined;
@@ -2178,7 +2181,7 @@ async function checkTmux({ forceRefresh }) {
 async function killTmuxSession({ name }) {
   try {
     await execInConfiguredShell(
-      'tmux -L ${DEFAULT_TMUX_SERVER_NAME} kill-session -t ' + shellQuote(name),
+      'tmux -L ${defaultTmuxServerName} kill-session -t ' + shellQuote(name),
       {
       timeout: 5000,
       }
@@ -2229,7 +2232,7 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
     typeof sessionName === 'string' && sessionName.length > 0 ? sessionName : '';
   const normalizedAmount = Number.isFinite(amount) ? Math.max(0, Math.trunc(amount)) : 0;
   const normalizedServerName =
-    typeof serverName === 'string' && serverName.length > 0 ? serverName : '${DEFAULT_TMUX_SERVER_NAME}';
+    typeof serverName === 'string' && serverName.length > 0 ? serverName : '${defaultTmuxServerName}';
 
   if (!normalizedSessionName || normalizedAmount === 0) {
     return { applied: false, sessionName: normalizedSessionName };
