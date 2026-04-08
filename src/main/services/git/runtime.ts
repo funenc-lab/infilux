@@ -48,7 +48,8 @@ function isWslGitCommand(command: string, args: readonly string[]): boolean {
   const normalizedCommand = normalizeCommand(command);
   const firstArg = args[0]?.toLowerCase();
   return (
-    (normalizedCommand === 'wsl.exe' || normalizedCommand.endsWith('/wsl.exe')) && firstArg === 'git'
+    (normalizedCommand === 'wsl.exe' || normalizedCommand.endsWith('/wsl.exe')) &&
+    firstArg === 'git'
   );
 }
 
@@ -82,7 +83,11 @@ export function installGitSpawnCompatibilityPatch(
     childProcessModule
   ) as typeof childProcessModule.spawn;
 
-  const patchedSpawn = ((command: string, argsOrOptions?: readonly string[] | SpawnOptions, maybeOptions?: SpawnOptions) => {
+  const patchedSpawn = ((
+    command: string,
+    argsOrOptions?: readonly string[] | SpawnOptions,
+    maybeOptions?: SpawnOptions
+  ) => {
     if (Array.isArray(argsOrOptions)) {
       const patchedOptions = withGitSpawnCompatibility(command, argsOrOptions, maybeOptions);
       if (patchedOptions) {
@@ -95,10 +100,7 @@ export function installGitSpawnCompatibilityPatch(
     const spawnOptions = argsOrOptions as SpawnOptions | undefined;
     const patchedOptions = withGitSpawnCompatibility(command, [], spawnOptions);
     if (patchedOptions) {
-      return originalSpawn(
-        command,
-        patchedOptions
-      );
+      return originalSpawn(command, patchedOptions);
     }
 
     return originalSpawn(command);
@@ -109,7 +111,9 @@ export function installGitSpawnCompatibilityPatch(
   childProcessModule[GIT_SPAWN_COMPATIBILITY_PATCH_FLAG] = true;
 }
 
-installGitSpawnCompatibilityPatch(require('node:child_process') as ChildProcessModuleWithCompatFlag);
+installGitSpawnCompatibilityPatch(
+  require('node:child_process') as ChildProcessModuleWithCompatFlag
+);
 
 function parseWslUncPath(inputPath: string): WslPathInfo | null {
   if (process.platform !== 'win32') {
