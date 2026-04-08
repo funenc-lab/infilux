@@ -139,6 +139,9 @@ describe('git runtime helpers', () => {
       timeout: { block: 30000 },
       maxConcurrentProcesses: 3,
       binary: ['wsl.exe', 'git'],
+      spawnOptions: {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
     });
     expect(simpleGitInstance).toEqual(
       expect.objectContaining({
@@ -157,6 +160,7 @@ describe('git runtime helpers', () => {
       expect.objectContaining({
         cwd: baseDir,
         windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: expect.objectContaining({
           SAFE_DIRECTORY: baseDir,
         }),
@@ -180,6 +184,9 @@ describe('git runtime helpers', () => {
       baseDir: '/repo',
       timeout: { block: 30000 },
       maxConcurrentProcesses: 8,
+      spawnOptions: {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
     });
 
     runtime.spawnGit('/repo', ['status'], { cwd: '/repo' });
@@ -188,6 +195,7 @@ describe('git runtime helpers', () => {
       ['status'],
       expect.objectContaining({
         cwd: '/repo',
+        stdio: ['ignore', 'pipe', 'pipe'],
       })
     );
   });

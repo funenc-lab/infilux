@@ -1,3 +1,4 @@
+import type { StdioOptions } from 'node:child_process';
 import {
   type ChildProcessWithoutNullStreams,
   type SpawnOptionsWithoutStdio,
@@ -14,6 +15,10 @@ type WslPathInfo = {
   distro: string;
   linuxPath: string;
 };
+
+// Use an explicit stdio layout so packaged GUI builds do not depend on inherited
+// descriptors when spawning Git child processes.
+const GIT_SPAWN_STDIO: StdioOptions = ['ignore', 'pipe', 'pipe'];
 
 function normalizePath(inputPath: string): string {
   return inputPath.replace(/\\/g, '/').trim();
@@ -122,6 +127,10 @@ export function createSimpleGit(
     baseDir: options.baseDir ?? workdir,
     timeout: options.timeout ?? { block: 30_000 },
     maxConcurrentProcesses: options.maxConcurrentProcesses ?? 3,
+    spawnOptions: {
+      ...options.spawnOptions,
+      stdio: GIT_SPAWN_STDIO,
+    },
   };
   const baseDir = typeof resolvedOptions.baseDir === 'string' ? resolvedOptions.baseDir : workdir;
 
@@ -140,14 +149,16 @@ export function spawnGit(
   const cwd = typeof options.cwd === 'string' ? options.cwd : workdir;
   const env = options.env ?? createGitEnv(cwd);
   const gitArgs = args.map((arg) => toGitPath(cwd, arg));
+  const spawnOptions = {
+    ...options,
+    cwd,
+    env,
+    stdio: GIT_SPAWN_STDIO,
+  };
 
   if (isWslGitRepository(cwd)) {
-    return spawn('wsl.exe', ['git', ...gitArgs], {
-      ...options,
-      cwd,
-      env,
-    }) as ChildProcessWithoutNullStreams;
+    return spawn('wsl.exe', ['git', ...gitArgs], spawnOptions) as ChildProcessWithoutNullStreams;
   }
 
-  return spawn('git', gitArgs, { ...options, cwd, env }) as ChildProcessWithoutNullStreams;
+  return spawn('git', gitArgs, spawnOptions) as ChildProcessWithoutNullStreams;
 }
