@@ -7,6 +7,7 @@ import {
 import { createRequire } from 'node:module';
 import { WSL_UNC_PREFIXES } from '@shared/utils/path';
 import simpleGit, { type SimpleGit, type SimpleGitOptions } from 'simple-git';
+import log from '../../utils/logger';
 import { getProxyEnvVars } from '../proxy/ProxyConfig';
 import { getEnhancedPath } from '../terminal/PtyManager';
 import { withSafeDirectoryEnv } from './safeDirectory';
@@ -25,6 +26,16 @@ const GIT_SPAWN_COMPATIBILITY_PATCH_FLAG = '__infiluxGitSpawnCompatibilityPatche
 
 type ChildProcessModuleWithCompatFlag = typeof import('node:child_process') & {
   [GIT_SPAWN_COMPATIBILITY_PATCH_FLAG]?: boolean;
+};
+
+type GitSpawnFailureDiagnostics = {
+  command: string;
+  args: readonly string[];
+  cwd: string | null;
+  stdio: string | string[] | null;
+  path: string | null;
+  platform: NodeJS.Platform;
+  errorCode: string | null;
 };
 
 function normalizePath(inputPath: string): string {
@@ -48,12 +59,59 @@ function isWslGitCommand(command: string, args: readonly string[]): boolean {
   const normalizedCommand = normalizeCommand(command);
   const firstArg = args[0]?.toLowerCase();
   return (
-    (normalizedCommand === 'wsl.exe' || normalizedCommand.endsWith('/wsl.exe')) && firstArg === 'git'
+    (normalizedCommand === 'wsl.exe' || normalizedCommand.endsWith('/wsl.exe')) &&
+    firstArg === 'git'
   );
 }
 
 function isGitCommand(command: string, args: readonly string[]): boolean {
   return isGitBinaryCommand(command) || isWslGitCommand(command, args);
+}
+
+function formatStdioForDiagnostics(stdio: SpawnOptions['stdio']): string | string[] | null {
+  if (Array.isArray(stdio)) {
+    return stdio.map((entry) => {
+      if (typeof entry === 'string') {
+        return entry;
+      }
+      if (typeof entry === 'number') {
+        return String(entry);
+      }
+      if (entry === null || entry === undefined) {
+        return String(entry);
+      }
+      return 'stream';
+    });
+  }
+
+  if (typeof stdio === 'string') {
+    return stdio;
+  }
+
+  if (stdio === null || stdio === undefined) {
+    return null;
+  }
+
+  return 'stream';
+}
+
+function logGitSpawnFailure(
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions | undefined,
+  error: unknown
+): void {
+  const nodeError = error as NodeJS.ErrnoException;
+  const diagnostics: GitSpawnFailureDiagnostics = {
+    command,
+    args,
+    cwd: typeof options?.cwd === 'string' ? options.cwd : null,
+    stdio: formatStdioForDiagnostics(options?.stdio),
+    path: typeof options?.env?.PATH === 'string' ? options.env.PATH : null,
+    platform: process.platform,
+    errorCode: typeof nodeError?.code === 'string' ? nodeError.code : null,
+  };
+  log.error('Git spawn failed', diagnostics);
 }
 
 export function withGitSpawnCompatibility(
@@ -82,26 +140,41 @@ export function installGitSpawnCompatibilityPatch(
     childProcessModule
   ) as typeof childProcessModule.spawn;
 
-  const patchedSpawn = ((command: string, argsOrOptions?: readonly string[] | SpawnOptions, maybeOptions?: SpawnOptions) => {
+  const patchedSpawn = ((
+    command: string,
+    argsOrOptions?: readonly string[] | SpawnOptions,
+    maybeOptions?: SpawnOptions
+  ) => {
     if (Array.isArray(argsOrOptions)) {
       const patchedOptions = withGitSpawnCompatibility(command, argsOrOptions, maybeOptions);
-      if (patchedOptions) {
-        return originalSpawn(command, argsOrOptions, patchedOptions);
-      }
+      try {
+        if (patchedOptions) {
+          return originalSpawn(command, argsOrOptions, patchedOptions);
+        }
 
-      return originalSpawn(command, argsOrOptions);
+        return originalSpawn(command, argsOrOptions);
+      } catch (error) {
+        if (isGitCommand(command, argsOrOptions)) {
+          logGitSpawnFailure(command, argsOrOptions, patchedOptions ?? maybeOptions, error);
+        }
+        throw error;
+      }
     }
 
     const spawnOptions = argsOrOptions as SpawnOptions | undefined;
     const patchedOptions = withGitSpawnCompatibility(command, [], spawnOptions);
-    if (patchedOptions) {
-      return originalSpawn(
-        command,
-        patchedOptions
-      );
-    }
+    try {
+      if (patchedOptions) {
+        return originalSpawn(command, patchedOptions);
+      }
 
-    return originalSpawn(command);
+      return originalSpawn(command);
+    } catch (error) {
+      if (isGitCommand(command, [])) {
+        logGitSpawnFailure(command, [], patchedOptions ?? spawnOptions, error);
+      }
+      throw error;
+    }
   }) as unknown as typeof childProcessModule.spawn;
 
   childProcessModule.spawn = patchedSpawn;
@@ -109,7 +182,9 @@ export function installGitSpawnCompatibilityPatch(
   childProcessModule[GIT_SPAWN_COMPATIBILITY_PATCH_FLAG] = true;
 }
 
-installGitSpawnCompatibilityPatch(require('node:child_process') as ChildProcessModuleWithCompatFlag);
+installGitSpawnCompatibilityPatch(
+  require('node:child_process') as ChildProcessModuleWithCompatFlag
+);
 
 function parseWslUncPath(inputPath: string): WslPathInfo | null {
   if (process.platform !== 'win32') {
@@ -244,8 +319,18 @@ export function spawnGit(
   };
 
   if (isWslGitRepository(cwd)) {
-    return spawn('wsl.exe', ['git', ...gitArgs], spawnOptions) as ChildProcessWithoutNullStreams;
+    try {
+      return spawn('wsl.exe', ['git', ...gitArgs], spawnOptions) as ChildProcessWithoutNullStreams;
+    } catch (error) {
+      logGitSpawnFailure('wsl.exe', ['git', ...gitArgs], spawnOptions, error);
+      throw error;
+    }
   }
 
-  return spawn('git', gitArgs, spawnOptions) as ChildProcessWithoutNullStreams;
+  try {
+    return spawn('git', gitArgs, spawnOptions) as ChildProcessWithoutNullStreams;
+  } catch (error) {
+    logGitSpawnFailure('git', gitArgs, spawnOptions, error);
+    throw error;
+  }
 }

@@ -13,6 +13,7 @@ const runtimeTestDoubles = vi.hoisted(() => {
   const spawn = vi.fn();
   const env = vi.fn();
   const simpleGit = vi.fn();
+  const logError = vi.fn();
 
   function createSpawnedProcess(): FakeSpawnResult {
     const proc = new EventEmitter() as FakeSpawnResult;
@@ -28,6 +29,7 @@ const runtimeTestDoubles = vi.hoisted(() => {
     spawn.mockReset();
     env.mockReset();
     simpleGit.mockReset();
+    logError.mockReset();
 
     getProxyEnvVars.mockReturnValue({ HTTPS_PROXY: 'http://proxy:7890' });
     getEnhancedPath.mockReturnValue('/enhanced/bin');
@@ -50,6 +52,7 @@ const runtimeTestDoubles = vi.hoisted(() => {
     spawn,
     env,
     simpleGit,
+    logError,
     createSpawnedProcess,
     reset,
   };
@@ -73,6 +76,12 @@ vi.mock('../../terminal/PtyManager', () => ({
 
 vi.mock('simple-git', () => ({
   default: runtimeTestDoubles.simpleGit,
+}));
+
+vi.mock('../../../utils/logger', () => ({
+  default: {
+    error: runtimeTestDoubles.logError,
+  },
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -239,5 +248,55 @@ describe('git runtime helpers', () => {
 
     fakeChildProcessModule.spawn('bash', ['-lc', 'git status'], { cwd: '/repo' });
     expect(originalSpawn).toHaveBeenLastCalledWith('bash', ['-lc', 'git status'], { cwd: '/repo' });
+  });
+
+  it('logs git spawn diagnostics when the patched simple-git spawn throws synchronously', async () => {
+    const runtime = await import('../runtime');
+
+    const originalSpawn = vi.fn(() => {
+      const error = new Error('spawn EBADF') as NodeJS.ErrnoException;
+      error.code = 'EBADF';
+      throw error;
+    });
+    const fakeChildProcessModule = {
+      spawn: originalSpawn,
+    } as unknown as Parameters<typeof runtime.installGitSpawnCompatibilityPatch>[0];
+
+    runtime.installGitSpawnCompatibilityPatch(fakeChildProcessModule);
+
+    expect(() => fakeChildProcessModule.spawn('git', ['status'], { cwd: '/repo' })).toThrow(
+      'spawn EBADF'
+    );
+    expect(runtimeTestDoubles.logError).toHaveBeenCalledWith(
+      'Git spawn failed',
+      expect.objectContaining({
+        command: 'git',
+        args: ['status'],
+        cwd: '/repo',
+        errorCode: 'EBADF',
+      })
+    );
+  });
+
+  it('logs git spawn diagnostics when direct spawnGit throws synchronously', async () => {
+    const error = new Error('spawn EBADF') as NodeJS.ErrnoException;
+    error.code = 'EBADF';
+    runtimeTestDoubles.spawn.mockImplementationOnce(() => {
+      throw error;
+    });
+
+    const runtime = await import('../runtime');
+
+    expect(() => runtime.spawnGit('/repo', ['status'], { cwd: '/repo' })).toThrow('spawn EBADF');
+    expect(runtimeTestDoubles.logError).toHaveBeenCalledWith(
+      'Git spawn failed',
+      expect.objectContaining({
+        command: 'git',
+        args: ['status'],
+        cwd: '/repo',
+        errorCode: 'EBADF',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    );
   });
 });
