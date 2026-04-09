@@ -26,6 +26,7 @@ export interface SessionRuntimeState {
   outputState: OutputState;
   lastActivityAt: number;
   wasActiveWhenOutputting: boolean; // Track if user was viewing this session during output
+  waitingForInput?: boolean;
   hasCompletedTaskUnread?: boolean;
 }
 
@@ -98,6 +99,7 @@ interface AgentSessionsState {
 
   // Runtime state actions
   setOutputState: (sessionId: string, outputState: OutputState, isActive?: boolean) => void;
+  setWaitingForInput: (sessionId: string, waitingForInput: boolean) => void;
   markAsRead: (sessionId: string) => void;
   markSessionActive: (sessionId: string) => void; // Call when user views a session
   markTaskCompletedUnread: (sessionId: string) => void;
@@ -234,6 +236,7 @@ function sanitizePersistedRuntimeStates(
       outputState,
       lastActivityAt: typeof current.lastActivityAt === 'number' ? current.lastActivityAt : 0,
       wasActiveWhenOutputting: false,
+      waitingForInput: false,
       hasCompletedTaskUnread,
     };
   }
@@ -497,6 +500,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
                 : currentRuntimeState.outputState,
             lastActivityAt: Date.now(),
             wasActiveWhenOutputting: false,
+            waitingForInput: false,
             hasCompletedTaskUnread: currentRuntimeState.hasCompletedTaskUnread ?? false,
           };
         }
@@ -663,6 +667,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
                 outputState: 'outputting',
                 lastActivityAt: Date.now(),
                 wasActiveWhenOutputting: isActive,
+                waitingForInput: false,
                 hasCompletedTaskUnread: false,
               },
             },
@@ -689,6 +694,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
                 outputState: shouldMarkUnread ? 'unread' : 'idle',
                 lastActivityAt: Date.now(),
                 wasActiveWhenOutputting: false,
+                waitingForInput: false,
                 hasCompletedTaskUnread: currentState?.hasCompletedTaskUnread ?? false,
               },
             },
@@ -706,8 +712,35 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               outputState,
               lastActivityAt: Date.now(),
               wasActiveWhenOutputting: false,
+              waitingForInput: false,
               hasCompletedTaskUnread: currentState?.hasCompletedTaskUnread ?? false,
             },
+          },
+        };
+      }),
+
+    setWaitingForInput: (sessionId, waitingForInput) =>
+      set((prev) => {
+        const currentState = prev.runtimeStates[sessionId];
+        if (currentState?.waitingForInput === waitingForInput) {
+          return prev;
+        }
+
+        return {
+          runtimeStates: {
+            ...prev.runtimeStates,
+            [sessionId]: currentState
+              ? {
+                  ...currentState,
+                  waitingForInput,
+                }
+              : {
+                  outputState: 'idle',
+                  lastActivityAt: Date.now(),
+                  wasActiveWhenOutputting: false,
+                  waitingForInput,
+                  hasCompletedTaskUnread: false,
+                },
           },
         };
       }),
@@ -732,8 +765,21 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
     markSessionActive: (sessionId) =>
       set((prev) => {
         const currentState = prev.runtimeStates[sessionId];
+        const now = Date.now();
+
         if (!currentState) {
-          return prev;
+          return {
+            runtimeStates: {
+              ...prev.runtimeStates,
+              [sessionId]: {
+                outputState: 'idle',
+                lastActivityAt: now,
+                wasActiveWhenOutputting: false,
+                waitingForInput: false,
+                hasCompletedTaskUnread: false,
+              },
+            },
+          };
         }
         // If currently outputting, mark that user is now viewing
         // If unread, mark as read
@@ -743,7 +789,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               ...prev.runtimeStates,
               [sessionId]: {
                 ...currentState,
+                lastActivityAt: now,
                 wasActiveWhenOutputting: true,
+                waitingForInput: currentState.waitingForInput ?? false,
                 hasCompletedTaskUnread: false,
               },
             },
@@ -756,6 +804,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               [sessionId]: {
                 ...currentState,
                 outputState: 'idle',
+                lastActivityAt: now,
+                waitingForInput: currentState.waitingForInput ?? false,
                 hasCompletedTaskUnread: false,
               },
             },
@@ -767,12 +817,23 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               ...prev.runtimeStates,
               [sessionId]: {
                 ...currentState,
+                lastActivityAt: now,
+                waitingForInput: currentState.waitingForInput ?? false,
                 hasCompletedTaskUnread: false,
               },
             },
           };
         }
-        return prev;
+        return {
+          runtimeStates: {
+            ...prev.runtimeStates,
+            [sessionId]: {
+              ...currentState,
+              lastActivityAt: now,
+              waitingForInput: currentState.waitingForInput ?? false,
+            },
+          },
+        };
       }),
 
     markTaskCompletedUnread: (sessionId) =>
@@ -788,6 +849,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               outputState: currentState?.outputState ?? 'idle',
               lastActivityAt: currentState?.lastActivityAt ?? Date.now(),
               wasActiveWhenOutputting: currentState?.wasActiveWhenOutputting ?? false,
+              waitingForInput: currentState?.waitingForInput ?? false,
               hasCompletedTaskUnread: true,
             },
           },
@@ -856,6 +918,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         const hasRecoverableUnread =
           currentState.outputState === 'outputting' ||
           currentState.outputState === 'unread' ||
+          currentState.waitingForInput === true ||
           currentState.hasCompletedTaskUnread === true;
         if (hasRecoverableUnread) {
           return {
@@ -865,6 +928,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
                 outputState: currentState.outputState === 'idle' ? 'idle' : 'unread',
                 lastActivityAt: currentState.lastActivityAt,
                 wasActiveWhenOutputting: false,
+                waitingForInput: currentState.waitingForInput ?? false,
                 hasCompletedTaskUnread: currentState.hasCompletedTaskUnread ?? false,
               },
             },

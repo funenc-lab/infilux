@@ -128,6 +128,48 @@ describe('agent session recovery store', () => {
     });
   });
 
+  it('preserves waiting-input runtime hints until the session starts producing output again', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-1',
+      sessionId: 'provider-1',
+      backendSessionId: 'backend-1',
+      name: 'Codex',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      persistenceEnabled: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+
+    store.setWaitingForInput('session-1', true);
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      outputState: 'idle',
+      waitingForInput: true,
+    });
+
+    store.markSessionActive('session-1');
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      waitingForInput: true,
+    });
+
+    store.clearRuntimeState('session-1');
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      waitingForInput: true,
+    });
+
+    store.setOutputState('session-1', 'outputting', false);
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      outputState: 'outputting',
+      waitingForInput: false,
+    });
+  });
+
   it('upserts recovered sessions and preserves backend session ids for host reattach', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
@@ -470,6 +512,38 @@ describe('agent session recovery store', () => {
       hasCompletedTaskUnread: false,
       outputState: 'outputting',
     });
+  });
+
+  it('records fresh activity when an idle session becomes active again', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'));
+
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-1',
+      sessionId: 'provider-1',
+      name: 'Claude',
+      agentId: 'claude',
+      agentCommand: 'claude',
+      initialized: true,
+      activated: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+
+    store.markSessionActive('session-1');
+
+    expect(env.useAgentSessionsStore.getState().getRuntimeState('session-1')).toMatchObject({
+      outputState: 'idle',
+      lastActivityAt: Date.now(),
+      wasActiveWhenOutputting: false,
+      hasCompletedTaskUnread: false,
+    });
+
+    vi.useRealTimers();
   });
 
   it('preserves recoverable unread runtime markers when terminal state is cleared on unmount', async () => {

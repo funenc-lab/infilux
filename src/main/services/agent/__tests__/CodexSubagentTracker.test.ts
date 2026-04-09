@@ -46,6 +46,7 @@ describe('CodexSubagentTracker', () => {
     ).toEqual([
       expect.objectContaining({
         id: 'child-1',
+        rootThreadId: 'root-1',
         parentThreadId: 'root-1',
         cwd: '/repo/worktrees/feature-a',
         agentType: 'worker',

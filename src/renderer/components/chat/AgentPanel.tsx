@@ -6,6 +6,7 @@ import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { toastManager } from '@/components/ui/toast';
+import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useI18n } from '@/i18n';
 import {
   isSessionPersistable,
@@ -55,6 +56,10 @@ import { QuickTerminalModal } from './QuickTerminalModal';
 import type { Session } from './SessionBar';
 import { SessionPersistenceNotice } from './SessionPersistenceNotice';
 import { StatusLine } from './StatusLine';
+import {
+  buildSessionActivityStateBySessionId,
+  getHighestSessionActivityState,
+} from './sessionActivityState';
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
 import { shouldShowSessionPersistenceNotice } from './sessionPersistenceNoticePolicy';
 import { resolveSessionTitleFromFirstInput } from './sessionTitlePolicy';
@@ -396,6 +401,13 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const updateSession = useAgentSessionsStore((state) => state.updateSession);
   const markSessionExited = useAgentSessionsStore((state) => state.markSessionExited);
   const setActiveId = useAgentSessionsStore((state) => state.setActiveId);
+  const sessionRuntimeStates = useAgentSessionsStore((state) => state.runtimeStates);
+  const setDerivedActivityState = useWorktreeActivityStore(
+    (state) => state.setDerivedActivityState
+  );
+  const clearDerivedActivityState = useWorktreeActivityStore(
+    (state) => state.clearDerivedActivityState
+  );
   const persistableSessions = useMemo(
     () => allSessions.filter((session) => isSessionPersistable(session)),
     [allSessions]
@@ -629,7 +641,34 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       .filter((s) => s.repoPath === repoPath && pathsEqual(s.cwd, cwd))
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
   }, [allSessions, repoPath, cwd]);
+  const shouldPollLiveSubagents =
+    isActive && currentWorktreeSessions.some((session) => session.agentId === 'codex');
+  const liveSubagentsByWorktree = useLiveSubagents(shouldPollLiveSubagents ? [cwd] : []);
+  const sessionActivityStateById = useMemo(
+    () =>
+      buildSessionActivityStateBySessionId({
+        sessions: currentWorktreeSessions,
+        runtimeStates: sessionRuntimeStates,
+        subagentsByWorktree: liveSubagentsByWorktree,
+      }),
+    [currentWorktreeSessions, liveSubagentsByWorktree, sessionRuntimeStates]
+  );
+  const derivedWorktreeActivityState = useMemo(
+    () => getHighestSessionActivityState(Object.values(sessionActivityStateById)),
+    [sessionActivityStateById]
+  );
   const agentStatuses = useAgentStatusStore((state) => state.statuses);
+
+  useEffect(() => {
+    if (!cwd) {
+      return undefined;
+    }
+
+    setDerivedActivityState(cwd, derivedWorktreeActivityState);
+    return () => {
+      clearDerivedActivityState(cwd);
+    };
+  }, [clearDerivedActivityState, cwd, derivedWorktreeActivityState, setDerivedActivityState]);
 
   useEffect(() => {
     const currentSessionIds = new Set(currentWorktreeSessions.map((session) => session.id));
@@ -1419,12 +1458,15 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
   // 监听 Claude stop hook 通知，精确更新 output state 并发送完成通知
   const setOutputState = useAgentSessionsStore((s) => s.setOutputState);
+  const setWaitingForInput = useAgentSessionsStore((s) => s.setWaitingForInput);
   const markTaskCompletedUnread = useAgentSessionsStore((s) => s.markTaskCompletedUnread);
   const getActivityState = useWorktreeActivityStore((s) => s.getActivityState);
   useEffect(() => {
     const unsubscribe = onAgentStopNotification(({ sessionId, taskCompletionStatus }) => {
       const session = findSessionByNotificationId(sessionId);
       if (session) {
+        setWaitingForInput(session.id, false);
+
         // Check if user is currently viewing this session
         const activeGroup = groups.find((g) => g.id === activeGroupId);
         const isViewingSession =
@@ -1488,6 +1530,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     cwd,
     isActive,
     setOutputState,
+    setWaitingForInput,
     markTaskCompletedUnread,
     getActivityState,
     claudeCodeIntegration,
@@ -1502,6 +1545,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     const unsubscribe = onAskUserQuestionNotification(({ sessionId, toolInput }) => {
       const session = findSessionByNotificationId(sessionId);
       if (session) {
+        setWaitingForInput(session.id, true);
         const agentName = AGENT_INFO[session.agentId]?.name || session.agentCommand;
 
         // Extract first question text if available
@@ -1529,7 +1573,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       }
     });
     return unsubscribe;
-  }, [findSessionByNotificationId, t]);
+  }, [findSessionByNotificationId, setWaitingForInput, t]);
 
   // 监听 Claude status line 更新
   useEffect(() => {
@@ -2354,6 +2398,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
             <AgentGroup
               group={group}
               sessions={currentWorktreeSessions}
+              activityStateBySessionId={sessionActivityStateById}
               enabledAgents={enabledAgents}
               customAgents={customAgents}
               agentSettings={agentSettings}

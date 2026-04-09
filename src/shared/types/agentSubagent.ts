@@ -6,6 +6,7 @@ export interface LiveAgentSubagent {
   id: string;
   provider: 'codex';
   threadId: string;
+  rootThreadId?: string;
   parentThreadId: string;
   cwd: string;
   label: string;

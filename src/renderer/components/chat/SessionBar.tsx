@@ -39,6 +39,7 @@ import {
   CHAT_PRIMARY_ICON_BUTTON_CLASS_NAME,
   CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME,
 } from './controlButtonStyles';
+import type { SessionActivityState } from './sessionActivityState';
 import { getSessionDisplayName, getSessionHoverTitle } from './sessionBarLabels';
 import { supportsClaudeProviderSwitcher } from './sessionBarProviderPolicy';
 
@@ -74,6 +75,7 @@ export interface Session {
 interface SessionBarProps {
   sessions: Session[];
   activeSessionId: string | null;
+  activityStateBySessionId?: Record<string, SessionActivityState>;
   repoPath?: string;
   onSelectSession: (id: string) => void;
   onCloseSession: (id: string) => void;
@@ -167,6 +169,7 @@ const SESSION_BAR_MENU_UTILITY_BUTTON_CLASS_NAME = `${CHAT_MENU_UTILITY_ICON_BUT
 // Session tab with glow effect
 interface SessionTabProps {
   session: Session;
+  activityState?: SessionActivityState;
   index: number;
   tabId: string;
   panelId: string;
@@ -342,6 +345,7 @@ function MarqueeText({ children, className }: { children: string; className?: st
 
 function SessionTab({
   session,
+  activityState,
   index,
   tabId,
   panelId,
@@ -365,13 +369,15 @@ function SessionTab({
   onDragLeave,
   onDrop,
 }: SessionTabProps) {
-  const outputState = useSessionOutputState(session.id);
+  const fallbackActivityState = useSessionOutputState(session.id);
+  const visualState = activityState ?? fallbackActivityState;
   const hasCompletedTaskNotice = useSessionTaskCompletionNotice(session.id);
   const clearTaskCompletedUnread = useAgentSessionsStore((s) => s.clearTaskCompletedUnread);
-  const stateMeta = getActivityStateMeta(outputState);
+  const stateMeta = getActivityStateMeta(visualState);
   const sessionLabel = getSessionDisplayName(session);
   const sessionHoverTitle = getSessionHoverTitle(session);
   const closeLabel = `Close ${sessionLabel}`;
+  const glowState = visualState === 'waiting_input' ? 'running' : visualState;
   const handleSelect = useCallback(() => {
     clearTaskCompletedUnread(session.id);
     onSelect();
@@ -416,7 +422,7 @@ function SessionTab({
   const foregroundClassName = 'relative z-10';
   const tabContent = (
     <>
-      {outputState === 'idle' ? (
+      {visualState === 'idle' ? (
         <span
           className={cn(
             SESSION_TAB_STATUS_INDICATOR_CLASS_NAME,
@@ -426,7 +432,7 @@ function SessionTab({
         />
       ) : (
         <ActivityIndicator
-          state={outputState}
+          state={visualState}
           size="sm"
           className={SESSION_TAB_STATUS_INDICATOR_CLASS_NAME}
         />
@@ -470,7 +476,7 @@ function SessionTab({
     </>
   );
   const tabElement = (
-    <GlowCard state={outputState} as="div" {...tabProps}>
+    <GlowCard state={glowState} as="div" {...tabProps}>
       {tabContent}
     </GlowCard>
   );
@@ -496,6 +502,7 @@ function SessionTab({
 export function SessionBar({
   sessions,
   activeSessionId,
+  activityStateBySessionId,
   repoPath,
   onSelectSession,
   onCloseSession,
@@ -1078,6 +1085,7 @@ export function SessionBar({
                   <SessionTab
                     key={session.id}
                     session={session}
+                    activityState={activityStateBySessionId?.[session.id]}
                     index={index}
                     tabId={buildSessionTabId(session.id)}
                     panelId={buildSessionPanelId(session.id)}

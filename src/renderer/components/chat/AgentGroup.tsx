@@ -3,12 +3,14 @@ import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { AgentGroupEmptyState } from './AgentGroupEmptyState';
 import { type Session, SessionBar } from './SessionBar';
+import type { SessionActivityState } from './sessionActivityState';
 import type { AgentGroup as AgentGroupType } from './types';
 
 interface AgentGroupProps {
   group: AgentGroupType;
   repoPath?: string;
   sessions: Session[]; // All sessions for current worktree (filtered by groupSessionIds)
+  activityStateBySessionId?: Record<string, SessionActivityState>;
   enabledAgents: string[];
   customAgents: Array<{ id: string; name: string; command: string }>;
   agentSettings: Record<
@@ -33,6 +35,7 @@ export function AgentGroup({
   group,
   repoPath,
   sessions,
+  activityStateBySessionId,
   enabledAgents,
   customAgents,
   agentSettings,
@@ -136,6 +139,7 @@ export function AgentGroup({
     <SessionBar
       sessions={groupSessions}
       activeSessionId={activeSessionId}
+      activityStateBySessionId={activityStateBySessionId}
       repoPath={repoPath}
       onSelectSession={handleSelectSession}
       onCloseSession={onSessionClose}

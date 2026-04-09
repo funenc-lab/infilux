@@ -26,6 +26,8 @@ interface WorktreeActivityState {
   activities: Record<string, WorktreeActivity>;
   diffStats: Record<string, DiffStats>;
   activityStates: Record<string, AgentActivityState>; // Agent activity states per worktree
+  hookActivityStates: Record<string, AgentActivityState>;
+  derivedActivityStates: Record<string, AgentActivityState>;
 
   // Agent session tracking
   incrementAgent: (worktreePath: string) => void;
@@ -43,6 +45,8 @@ interface WorktreeActivityState {
 
   // Activity state tracking
   setActivityState: (worktreePath: string, state: AgentActivityState) => void;
+  setDerivedActivityState: (worktreePath: string, state: AgentActivityState) => void;
+  clearDerivedActivityState: (worktreePath: string) => void;
   getActivityState: (worktreePath: string) => AgentActivityState;
   clearActivityState: (worktreePath: string) => void;
 
@@ -103,11 +107,35 @@ function hasSameDiffStats(left: DiffStats | undefined, right: DiffStats) {
   );
 }
 
+function getEffectiveActivityPriority(state: AgentActivityState): number {
+  switch (state) {
+    case 'waiting_input':
+      return 3;
+    case 'running':
+      return 2;
+    case 'completed':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function mergeActivityStates(
+  hookState: AgentActivityState,
+  derivedState: AgentActivityState
+): AgentActivityState {
+  return getEffectiveActivityPriority(hookState) >= getEffectiveActivityPriority(derivedState)
+    ? hookState
+    : derivedState;
+}
+
 export const useWorktreeActivityStore = create<WorktreeActivityState>()(
   subscribeWithSelector((set, get) => ({
     activities: {},
     diffStats: {},
     activityStates: {},
+    hookActivityStates: {},
+    derivedActivityStates: {},
 
     incrementAgent: (worktreePath) =>
       set((state) => {
@@ -236,10 +264,10 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
     // Activity state methods
     setActivityState: (worktreePath, state) =>
       set((prev) => {
-        const currentState = prev.activityStates[worktreePath] || 'idle';
+        const currentHookState = prev.hookActivityStates[worktreePath] || 'idle';
 
         // Skip update if state hasn't changed to avoid unnecessary re-renders
-        if (currentState === state) return prev;
+        if (currentHookState === state) return prev;
 
         // Define state transition priority (higher number = higher priority)
         const STATE_PRIORITY: Record<AgentActivityState, number> = {
@@ -254,20 +282,80 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
         // 2. Allow transition from completed back to running (new task starts)
         // 3. Block downgrade transitions (except completed → running)
         const canTransition =
-          STATE_PRIORITY[state] > STATE_PRIORITY[currentState] ||
-          (currentState === 'completed' && state === 'running');
+          STATE_PRIORITY[state] > STATE_PRIORITY[currentHookState] ||
+          (currentHookState === 'completed' && state === 'running');
 
         if (!canTransition) {
           const pathShort = worktreePath.split('/').slice(-2).join('/');
           console.log(
-            `[WorktreeActivity] ${pathShort}: blocked ${currentState} → ${state} (priority)`
+            `[WorktreeActivity] ${pathShort}: blocked ${currentHookState} → ${state} (priority)`
           );
           return prev;
         }
 
         const pathShort = worktreePath.split('/').slice(-2).join('/');
         console.log(`[WorktreeActivity] ${pathShort} → ${state}`);
-        return { activityStates: { ...prev.activityStates, [worktreePath]: state } };
+        const derivedState = prev.derivedActivityStates[worktreePath] || 'idle';
+        const nextActivityState = mergeActivityStates(state, derivedState);
+        return {
+          hookActivityStates: { ...prev.hookActivityStates, [worktreePath]: state },
+          activityStates:
+            prev.activityStates[worktreePath] === nextActivityState
+              ? prev.activityStates
+              : { ...prev.activityStates, [worktreePath]: nextActivityState },
+        };
+      }),
+
+    setDerivedActivityState: (worktreePath, state) =>
+      set((prev) => {
+        const currentDerivedState = prev.derivedActivityStates[worktreePath] || 'idle';
+        if (currentDerivedState === state) {
+          return prev;
+        }
+
+        const nextDerivedActivityStates = { ...prev.derivedActivityStates };
+        if (state === 'idle') {
+          delete nextDerivedActivityStates[worktreePath];
+        } else {
+          nextDerivedActivityStates[worktreePath] = state;
+        }
+
+        const nextActivityState = mergeActivityStates(
+          prev.hookActivityStates[worktreePath] || 'idle',
+          state
+        );
+        const nextActivityStates = { ...prev.activityStates };
+        if (nextActivityState === 'idle') {
+          delete nextActivityStates[worktreePath];
+        } else {
+          nextActivityStates[worktreePath] = nextActivityState;
+        }
+
+        return {
+          derivedActivityStates: nextDerivedActivityStates,
+          activityStates: nextActivityStates,
+        };
+      }),
+
+    clearDerivedActivityState: (worktreePath) =>
+      set((prev) => {
+        if (!(worktreePath in prev.derivedActivityStates)) {
+          return prev;
+        }
+
+        const { [worktreePath]: _, ...restDerivedActivityStates } = prev.derivedActivityStates;
+        const nextActivityState = prev.hookActivityStates[worktreePath] || 'idle';
+        const nextActivityStates = { ...prev.activityStates };
+        if (nextActivityState === 'idle') {
+          delete nextActivityStates[worktreePath];
+        } else {
+          nextActivityStates[worktreePath] = nextActivityState;
+        }
+
+        return {
+          derivedActivityStates: restDerivedActivityStates,
+          activityStates: nextActivityStates,
+        };
       }),
 
     getActivityState: (worktreePath) => {
@@ -276,8 +364,18 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
 
     clearActivityState: (worktreePath) =>
       set((prev) => {
-        const { [worktreePath]: _, ...rest } = prev.activityStates;
-        return { activityStates: rest };
+        const { [worktreePath]: _, ...restHookActivityStates } = prev.hookActivityStates;
+        const nextDerivedState = prev.derivedActivityStates[worktreePath] || 'idle';
+        const nextActivityStates = { ...prev.activityStates };
+        if (nextDerivedState === 'idle') {
+          delete nextActivityStates[worktreePath];
+        } else {
+          nextActivityStates[worktreePath] = nextDerivedState;
+        }
+        return {
+          hookActivityStates: restHookActivityStates,
+          activityStates: nextActivityStates,
+        };
       }),
 
     clearWorktree: (worktreePath) =>
@@ -287,7 +385,14 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
         // Clean up session mappings - agentSessions handles session cleanup
         const { [worktreePath]: _, ...restActivities } = state.activities;
         const { [worktreePath]: __, ...restActivityStates } = state.activityStates;
-        return { activities: restActivities, activityStates: restActivityStates };
+        const { [worktreePath]: ___, ...restHookActivityStates } = state.hookActivityStates;
+        const { [worktreePath]: ____, ...restDerivedActivityStates } = state.derivedActivityStates;
+        return {
+          activities: restActivities,
+          activityStates: restActivityStates,
+          hookActivityStates: restHookActivityStates,
+          derivedActivityStates: restDerivedActivityStates,
+        };
       }),
 
     // Close handler registry

@@ -28,6 +28,7 @@ interface PendingSpawnDescriptor {
 interface CodexTrackedSubagent {
   id: string;
   threadId: string;
+  rootThreadId: string;
   parentThreadId: string;
   cwd?: string;
   label: string;
@@ -206,6 +207,7 @@ function ensureSubagent(
   const created: CodexTrackedSubagent = {
     id: childThreadId,
     threadId: childThreadId,
+    rootThreadId,
     parentThreadId,
     label: `${labelPrefix} ${sequence}`,
     agentType: pendingSpawn?.agentType,
@@ -347,6 +349,7 @@ export function buildLiveCodexSubagents(
       id: item.id,
       provider: 'codex' as const,
       threadId: item.threadId,
+      rootThreadId: item.rootThreadId,
       parentThreadId: item.parentThreadId,
       cwd:
         item.cwd ??

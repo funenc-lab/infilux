@@ -11,6 +11,7 @@ function createSubagent(overrides: Partial<LiveAgentSubagent> = {}): LiveAgentSu
     id: 'subagent-1',
     provider: 'codex',
     threadId: 'thread-1',
+    rootThreadId: 'root-thread-1',
     parentThreadId: 'root-thread-1',
     cwd: '/Users/tanzv/project/worktree-a',
     label: 'Worker',
@@ -70,6 +71,13 @@ describe('areLiveSubagentListsEqual', () => {
   it('detects metadata changes that affect subagent presentation', () => {
     const left = [createSubagent()];
     const right = [createSubagent({ summary: 'Updated summary' })];
+
+    expect(areLiveSubagentListsEqual(left, right)).toBe(false);
+  });
+
+  it('detects parent-session changes that affect session-level activity mapping', () => {
+    const left = [createSubagent()];
+    const right = [createSubagent({ rootThreadId: 'other-root-thread' })];
 
     expect(areLiveSubagentListsEqual(left, right)).toBe(false);
   });

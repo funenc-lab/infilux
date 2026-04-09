@@ -6,6 +6,8 @@ import {
   type OutputState,
   useAgentSessionsStore,
 } from '@/stores/agentSessions';
+import type { AgentActivityState } from '@/stores/worktreeActivity';
+import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 
 export function mapOutputStateToGlowState(outputState: OutputState): GlowState {
   switch (outputState) {
@@ -18,20 +20,69 @@ export function mapOutputStateToGlowState(outputState: OutputState): GlowState {
   }
 }
 
+export function resolveActivityGlowState({
+  outputState,
+  activityState,
+}: {
+  outputState: OutputState;
+  activityState: AgentActivityState;
+}): GlowState {
+  if (activityState === 'waiting_input') {
+    return 'waiting_input';
+  }
+
+  if (activityState === 'running' || outputState === 'outputting') {
+    return 'running';
+  }
+
+  if (activityState === 'completed' || outputState === 'unread') {
+    return 'completed';
+  }
+
+  return 'idle';
+}
+
 /**
  * Hook to get aggregated output state for a repository
  * Returns the highest priority state among all sessions in the repo
  */
 export function useRepoOutputState(repoPath: string): GlowState {
-  return useAgentSessionsStore(
+  const { repoSessions, outputState } = useAgentSessionsStore(
     useShallow((s) => {
       const normalizedRepoPath = normalizePath(repoPath);
       const repoSessions = s.sessions.filter(
         (session) => normalizePath(session.repoPath) === normalizedRepoPath
       );
-      return mapOutputStateToGlowState(computeHighestOutputState(repoSessions, s.runtimeStates));
+      return {
+        repoSessions,
+        outputState: computeHighestOutputState(repoSessions, s.runtimeStates),
+      };
     })
   );
+  const repoWorktreePaths = [...new Set(repoSessions.map((session) => normalizePath(session.cwd)))];
+  const activityState = useWorktreeActivityStore(
+    useShallow((s) => {
+      let highestState: AgentActivityState = 'idle';
+
+      for (const worktreePath of repoWorktreePaths) {
+        const nextState = s.activityStates[worktreePath] ?? 'idle';
+        if (nextState === 'waiting_input') {
+          return nextState;
+        }
+        if (nextState === 'running') {
+          highestState = 'running';
+          continue;
+        }
+        if (nextState === 'completed' && highestState === 'idle') {
+          highestState = 'completed';
+        }
+      }
+
+      return highestState;
+    })
+  );
+
+  return resolveActivityGlowState({ outputState, activityState });
 }
 
 /**
@@ -39,17 +90,18 @@ export function useRepoOutputState(repoPath: string): GlowState {
  * Returns the highest priority state among all sessions in the worktree
  */
 export function useWorktreeOutputState(worktreePath: string): GlowState {
-  return useAgentSessionsStore(
+  const outputState = useAgentSessionsStore(
     useShallow((s) => {
       const normalizedCwd = normalizePath(worktreePath);
       const worktreeSessions = s.sessions.filter(
         (session) => normalizePath(session.cwd) === normalizedCwd
       );
-      return mapOutputStateToGlowState(
-        computeHighestOutputState(worktreeSessions, s.runtimeStates)
-      );
+      return computeHighestOutputState(worktreeSessions, s.runtimeStates);
     })
   );
+  const activityState = useWorktreeActivityStore((s) => s.activityStates[worktreePath] ?? 'idle');
+
+  return resolveActivityGlowState({ outputState, activityState });
 }
 
 /**

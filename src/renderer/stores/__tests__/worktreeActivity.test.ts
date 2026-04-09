@@ -116,4 +116,20 @@ describe('worktree activity store', () => {
 
     expect(getDiffStats).toHaveBeenCalledTimes(2);
   });
+
+  it('merges derived session activity with hook-driven worktree activity using the highest-priority state', async () => {
+    const { useWorktreeActivityStore } = await import('../worktreeActivity');
+    const store = useWorktreeActivityStore.getState();
+
+    store.setActivityState('/repo', 'completed');
+    store.setDerivedActivityState('/repo', 'running');
+
+    expect(useWorktreeActivityStore.getState().activityStates['/repo']).toBe('running');
+
+    store.setDerivedActivityState('/repo', 'waiting_input');
+    expect(useWorktreeActivityStore.getState().activityStates['/repo']).toBe('waiting_input');
+
+    store.clearDerivedActivityState('/repo');
+    expect(useWorktreeActivityStore.getState().activityStates['/repo']).toBe('completed');
+  });
 });

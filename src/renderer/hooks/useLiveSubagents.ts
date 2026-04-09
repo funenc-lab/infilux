@@ -45,6 +45,7 @@ export function areLiveSubagentListsEqual(
       leftItem.id !== rightItem.id ||
       leftItem.provider !== rightItem.provider ||
       leftItem.threadId !== rightItem.threadId ||
+      leftItem.rootThreadId !== rightItem.rootThreadId ||
       leftItem.parentThreadId !== rightItem.parentThreadId ||
       leftItem.cwd !== rightItem.cwd ||
       leftItem.label !== rightItem.label ||
