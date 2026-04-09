@@ -8,6 +8,7 @@ export interface AppRuntimeIdentity {
 }
 
 export const APP_RUNTIME_NAMESPACE = 'infilux';
+const LEGACY_SESSION_RUNTIME_NAMESPACES = ['enso'] as const;
 
 interface ResolveAppRuntimeChannelOptions {
   explicitChannel?: unknown;
@@ -20,6 +21,32 @@ const VALID_RUNTIME_CHANNELS = new Set<AppRuntimeChannel>(['prod', 'dev', 'test'
 const RUNTIME_CHANNEL_ARGUMENT_PREFIX = '--infilux-runtime-channel=';
 const SESSION_RUNTIME_NAMESPACE = APP_RUNTIME_NAMESPACE;
 const PERSISTENT_AGENT_SESSION_DATABASE_BASENAME = 'persistent-agent-sessions';
+
+function buildAppRuntimeIdentityForNamespace(
+  channel: AppRuntimeChannel,
+  namespace: string
+): AppRuntimeIdentity {
+  const suffix = channel === 'prod' ? '' : `-${channel}`;
+
+  return {
+    channel,
+    tmuxServerName: `${namespace}${suffix}`,
+    persistentAgentHostSessionPrefix: `${namespace}${suffix}`,
+    persistentAgentSessionDatabaseFilename:
+      channel === 'prod'
+        ? `${PERSISTENT_AGENT_SESSION_DATABASE_BASENAME}.db`
+        : `${PERSISTENT_AGENT_SESSION_DATABASE_BASENAME}-${channel}.db`,
+  };
+}
+
+function listCompatibleAppRuntimeIdentities(channel: AppRuntimeChannel): AppRuntimeIdentity[] {
+  return [
+    buildAppRuntimeIdentityForNamespace(channel, SESSION_RUNTIME_NAMESPACE),
+    ...LEGACY_SESSION_RUNTIME_NAMESPACES.map((namespace) =>
+      buildAppRuntimeIdentityForNamespace(channel, namespace)
+    ),
+  ];
+}
 
 function normalizeRuntimeChannel(value: unknown): AppRuntimeChannel | null {
   return typeof value === 'string' && VALID_RUNTIME_CHANNELS.has(value as AppRuntimeChannel)
@@ -69,17 +96,7 @@ export function resolveAppRuntimeChannel({
 }
 
 export function buildAppRuntimeIdentity(channel: AppRuntimeChannel): AppRuntimeIdentity {
-  const suffix = channel === 'prod' ? '' : `-${channel}`;
-
-  return {
-    channel,
-    tmuxServerName: `${SESSION_RUNTIME_NAMESPACE}${suffix}`,
-    persistentAgentHostSessionPrefix: `${SESSION_RUNTIME_NAMESPACE}${suffix}`,
-    persistentAgentSessionDatabaseFilename:
-      channel === 'prod'
-        ? `${PERSISTENT_AGENT_SESSION_DATABASE_BASENAME}.db`
-        : `${PERSISTENT_AGENT_SESSION_DATABASE_BASENAME}-${channel}.db`,
-  };
+  return buildAppRuntimeIdentityForNamespace(channel, SESSION_RUNTIME_NAMESPACE);
 }
 
 export function buildPersistentAgentHostSessionKey(
@@ -88,4 +105,21 @@ export function buildPersistentAgentHostSessionKey(
 ): string {
   const { persistentAgentHostSessionPrefix } = buildAppRuntimeIdentity(channel);
   return `${persistentAgentHostSessionPrefix}-${uiSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+export function resolveTmuxServerNameForPersistentAgentHostSessionKey(
+  hostSessionKey: string,
+  channel: AppRuntimeChannel
+): string {
+  if (!hostSessionKey) {
+    return buildAppRuntimeIdentity(channel).tmuxServerName;
+  }
+
+  const matchedIdentity = listCompatibleAppRuntimeIdentities(channel).find(
+    (identity) =>
+      hostSessionKey === identity.persistentAgentHostSessionPrefix ||
+      hostSessionKey.startsWith(`${identity.persistentAgentHostSessionPrefix}-`)
+  );
+
+  return matchedIdentity?.tmuxServerName ?? buildAppRuntimeIdentity(channel).tmuxServerName;
 }

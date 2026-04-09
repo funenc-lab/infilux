@@ -73,6 +73,7 @@ interface AgentTerminalProps {
   initialized?: boolean;
   activated?: boolean;
   persistenceEnabled?: boolean;
+  hostSessionKey?: string;
   recovered?: boolean;
   isActive?: boolean;
   hasPendingCommand?: boolean; // Force terminal activation even when not visible
@@ -158,6 +159,7 @@ export function AgentTerminal({
   initialized,
   activated,
   persistenceEnabled = false,
+  hostSessionKey,
   recovered = false,
   isActive = false,
   hasPendingCommand = false,
@@ -800,6 +802,7 @@ export function AgentTerminal({
       resolvedShell,
       terminalSessionId,
       runtimeChannel,
+      persistentHostSessionKey: hostSessionKey,
     });
     return {
       command: plan.command
@@ -829,6 +832,7 @@ export function AgentTerminal({
     resolvedShell,
     terminalSessionId,
     runtimeChannel,
+    hostSessionKey,
   ]);
 
   // Preserve exited sessions in the UI so users can inspect the final output and state.

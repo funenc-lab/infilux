@@ -73,6 +73,7 @@ import type {
   TerminalCreateOptions,
   TerminalResizeOptions,
   TmuxCheckResult,
+  TmuxKillSessionRequest,
   TmuxScrollClientRequest,
   TmuxScrollClientResult,
   UpdaterStateSnapshot,
@@ -746,8 +747,8 @@ const electronAPI = {
   tmux: {
     check: (repoPath: string | undefined, forceRefresh?: boolean): Promise<TmuxCheckResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.TMUX_CHECK, repoPath, forceRefresh),
-    killSession: (repoPath: string | undefined, name: string): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.TMUX_KILL_SESSION, repoPath, name),
+    killSession: (repoPath: string | undefined, request: TmuxKillSessionRequest): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.TMUX_KILL_SESSION, repoPath, request),
     scrollClient: (
       repoPath: string | undefined,
       request: TmuxScrollClientRequest

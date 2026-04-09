@@ -601,6 +601,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           userRenamed: existing?.userRenamed,
           pendingCommand: existing?.pendingCommand,
           persistenceEnabled: true,
+          hostSessionKey: record.hostKind === 'tmux' ? record.hostSessionKey : undefined,
           recovered: true,
           recoveryState: record.lastKnownState,
         };

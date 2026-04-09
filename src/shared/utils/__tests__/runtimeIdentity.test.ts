@@ -5,6 +5,7 @@ import {
   encodeRuntimeChannelArgument,
   parseRuntimeChannelFromArgv,
   resolveAppRuntimeChannel,
+  resolveTmuxServerNameForPersistentAgentHostSessionKey,
 } from '../runtimeIdentity';
 
 describe('runtime identity utilities', () => {
@@ -45,6 +46,24 @@ describe('runtime identity utilities', () => {
     });
     expect(buildPersistentAgentHostSessionKey('ui:session/1', 'test')).toBe(
       'infilux-test-ui_session_1'
+    );
+  });
+
+  it('resolves tmux server names from persisted host session keys across legacy namespaces', () => {
+    expect(resolveTmuxServerNameForPersistentAgentHostSessionKey('infilux-session-1', 'prod')).toBe(
+      'infilux'
+    );
+    expect(
+      resolveTmuxServerNameForPersistentAgentHostSessionKey('infilux-dev-session-1', 'dev')
+    ).toBe('infilux-dev');
+    expect(resolveTmuxServerNameForPersistentAgentHostSessionKey('enso-session-1', 'prod')).toBe(
+      'enso'
+    );
+    expect(
+      resolveTmuxServerNameForPersistentAgentHostSessionKey('enso-test-session-1', 'test')
+    ).toBe('enso-test');
+    expect(resolveTmuxServerNameForPersistentAgentHostSessionKey('custom-session-1', 'dev')).toBe(
+      'infilux-dev'
     );
   });
 });

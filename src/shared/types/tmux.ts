@@ -4,6 +4,11 @@ export interface TmuxCheckResult {
   error?: string;
 }
 
+export interface TmuxKillSessionRequest {
+  name: string;
+  serverName?: string;
+}
+
 export type TmuxScrollDirection = 'up' | 'down';
 
 export interface TmuxScrollClientRequest {

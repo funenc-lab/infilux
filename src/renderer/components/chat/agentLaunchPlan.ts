@@ -1,8 +1,8 @@
 import type { SessionHostSessionOptions } from '@shared/types';
 import {
   type AppRuntimeChannel,
-  buildAppRuntimeIdentity,
   buildPersistentAgentHostSessionKey,
+  resolveTmuxServerNameForPersistentAgentHostSessionKey,
 } from '@shared/utils/runtimeIdentity';
 
 export interface AgentLaunchCommand {
@@ -29,6 +29,7 @@ export interface BuildAgentLaunchPlanParams {
     execArgs: string[];
   } | null;
   terminalSessionId?: string;
+  persistentHostSessionKey?: string;
   runtimeChannel?: AppRuntimeChannel;
 }
 
@@ -229,6 +230,7 @@ export function buildAgentLaunchPlan({
   tmuxEnabled = false,
   resolvedShell,
   terminalSessionId,
+  persistentHostSessionKey,
   runtimeChannel = 'prod',
 }: BuildAgentLaunchPlanParams): AgentLaunchPlan {
   if (!isRemoteExecution && !resolvedShell) {
@@ -294,26 +296,26 @@ export function buildAgentLaunchPlan({
 
   const shouldUseTmux =
     tmuxEnabled && !isRemoteExecution && !isWindows && Boolean(terminalSessionId);
-  const runtimeIdentity = buildAppRuntimeIdentity(runtimeChannel);
   const tmuxSessionName = shouldUseTmux
-    ? buildPersistentAgentHostSessionKey(terminalSessionId ?? '', runtimeChannel)
+    ? persistentHostSessionKey?.trim() ||
+      buildPersistentAgentHostSessionKey(terminalSessionId ?? '', runtimeChannel)
     : null;
-  const hostSession =
+  const tmuxServerName =
     tmuxSessionName === null
+      ? null
+      : resolveTmuxServerNameForPersistentAgentHostSessionKey(tmuxSessionName, runtimeChannel);
+  const hostSession =
+    tmuxSessionName === null || tmuxServerName === null
       ? undefined
       : {
           kind: 'tmux' as const,
-          serverName: runtimeIdentity.tmuxServerName,
+          serverName: tmuxServerName,
           sessionName: tmuxSessionName,
         };
 
   let finalCommand = baseCommand;
-  if (tmuxSessionName) {
-    finalCommand = buildTmuxAttachCommand(
-      baseCommand,
-      runtimeIdentity.tmuxServerName,
-      tmuxSessionName
-    );
+  if (tmuxSessionName && tmuxServerName) {
+    finalCommand = buildTmuxAttachCommand(baseCommand, tmuxServerName, tmuxSessionName);
   }
 
   if (isRemoteExecution) {

@@ -273,7 +273,12 @@ describe('auxiliary IPC handlers', () => {
     expect(await getHandler(IPC_CHANNELS.TMUX_CHECK)({}, '/repo', true)).toEqual({
       installed: true,
     });
-    expect(await getHandler(IPC_CHANNELS.TMUX_KILL_SESSION)({}, '/repo', 'enso')).toEqual({
+    expect(
+      await getHandler(IPC_CHANNELS.TMUX_KILL_SESSION)({}, '/repo', {
+        name: 'enso',
+        serverName: 'enso',
+      })
+    ).toEqual({
       killed: true,
     });
     expect(
@@ -291,7 +296,10 @@ describe('auxiliary IPC handlers', () => {
       remote: true,
     });
     expect(
-      await getHandler(IPC_CHANNELS.TMUX_KILL_SESSION)({}, '/__remote__/repo', 'enso')
+      await getHandler(IPC_CHANNELS.TMUX_KILL_SESSION)({}, '/__remote__/repo', {
+        name: 'enso',
+        serverName: 'enso',
+      })
     ).toEqual({
       remote: true,
     });
@@ -309,7 +317,7 @@ describe('auxiliary IPC handlers', () => {
     cleanupTmuxSync();
 
     expect(auxTestDoubles.tmuxCheck).toHaveBeenCalledWith(true);
-    expect(auxTestDoubles.tmuxKillSession).toHaveBeenCalledWith('enso');
+    expect(auxTestDoubles.tmuxKillSession).toHaveBeenCalledWith('enso', 'enso');
     expect(auxTestDoubles.tmuxScrollClient).toHaveBeenCalledWith({
       sessionName: 'enso-ui-session-1',
       direction: 'up',
@@ -320,6 +328,7 @@ describe('auxiliary IPC handlers', () => {
     });
     expect(auxTestDoubles.remoteCall).toHaveBeenNthCalledWith(2, 'conn-1', 'tmux:killSession', {
       name: 'enso',
+      serverName: 'enso',
     });
     expect(auxTestDoubles.remoteCall).toHaveBeenNthCalledWith(
       3,

@@ -1,6 +1,6 @@
 import type { AIProvider, PersistentAgentSessionRecord } from '@shared/types';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
-import { buildPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
+import { resolveTmuxServerNameForPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
@@ -50,6 +50,7 @@ import { collectMountedAgentSessionIds } from './agentPanelMountPolicy';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
+import { resolveSessionPersistentHostSessionKey } from './persistentHostSession';
 import { QuickTerminalModal } from './QuickTerminalModal';
 import type { Session } from './SessionBar';
 import { SessionPersistenceNotice } from './SessionPersistenceNotice';
@@ -84,13 +85,15 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = {
   opencode: { name: 'OpenCode', command: 'opencode' },
 };
 
-function buildPersistentHostSessionKey(uiSessionId: string): string {
-  return buildPersistentAgentHostSessionKey(uiSessionId, getRendererEnvironment().runtimeChannel);
-}
-
 function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
-  const isWindows = getRendererEnvironment().platform === 'win32';
+  const { platform, runtimeChannel } = getRendererEnvironment();
+  const isWindows = platform === 'win32';
   const createdAt = session.createdAt ?? Date.now();
+  const hostSessionKey = resolveSessionPersistentHostSessionKey({
+    session,
+    platform,
+    runtimeChannel,
+  });
 
   return {
     uiSessionId: session.id,
@@ -107,9 +110,7 @@ function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
     activated: Boolean(session.activated),
     initialized: session.initialized,
     hostKind: isWindows ? 'supervisor' : 'tmux',
-    hostSessionKey: isWindows
-      ? (session.backendSessionId ?? session.id)
-      : buildPersistentHostSessionKey(session.id),
+    hostSessionKey,
     recoveryPolicy: 'auto',
     createdAt,
     updatedAt: Date.now(),
@@ -660,9 +661,19 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       return;
     }
 
-    if (getRendererEnvironment().platform !== 'win32') {
+    const { platform, runtimeChannel } = getRendererEnvironment();
+    if (platform !== 'win32') {
+      const hostSessionKey = resolveSessionPersistentHostSessionKey({
+        session,
+        platform,
+        runtimeChannel,
+      });
+      const serverName = resolveTmuxServerNameForPersistentAgentHostSessionKey(
+        hostSessionKey,
+        runtimeChannel
+      );
       void window.electronAPI.tmux
-        .killSession(session.cwd, buildPersistentHostSessionKey(session.id))
+        .killSession(session.cwd, { name: hostSessionKey, serverName })
         .catch(() => {});
     }
 
@@ -2236,6 +2247,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                 initialized={session.initialized}
                 activated={session.activated}
                 persistenceEnabled={session.persistenceEnabled}
+                hostSessionKey={session.hostSessionKey}
                 recovered={session.recovered}
                 isActive={isTerminalActive}
                 hasPendingCommand={!!session.pendingCommand}

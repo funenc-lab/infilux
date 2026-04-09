@@ -111,28 +111,34 @@ class TmuxDetector {
     }
   }
 
-  async killSession(name: string): Promise<void> {
+  async killSession(name: string, serverName?: string): Promise<void> {
     if (isWindows) return;
     try {
-      const serverName = resolveTmuxServerName();
-      await execInPty(`tmux -L ${shellQuote(serverName)} kill-session -t ${shellQuote(name)}`, {
-        timeout: TMUX_COMMAND_TIMEOUT_MS,
-      });
+      const resolvedServerName = resolveTmuxServerName(serverName);
+      await execInPty(
+        `tmux -L ${shellQuote(resolvedServerName)} kill-session -t ${shellQuote(name)}`,
+        {
+          timeout: TMUX_COMMAND_TIMEOUT_MS,
+        }
+      );
     } catch {
       // Session may already be gone — ignore errors
     }
   }
 
-  async hasSession(name: string): Promise<boolean> {
+  async hasSession(name: string, serverName?: string): Promise<boolean> {
     if (isWindows) {
       return false;
     }
 
     try {
-      const serverName = resolveTmuxServerName();
-      await execInPty(`tmux -L ${shellQuote(serverName)} has-session -t ${shellQuote(name)}`, {
-        timeout: TMUX_COMMAND_TIMEOUT_MS,
-      });
+      const resolvedServerName = resolveTmuxServerName(serverName);
+      await execInPty(
+        `tmux -L ${shellQuote(resolvedServerName)} has-session -t ${shellQuote(name)}`,
+        {
+          timeout: TMUX_COMMAND_TIMEOUT_MS,
+        }
+      );
       return true;
     } catch {
       return false;

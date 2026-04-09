@@ -113,6 +113,38 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command?.args[1]).toContain('exec /bin/zsh -i -l -c');
   });
 
+  it('reuses a recovered tmux host session key instead of regenerating the current namespace', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      resumeSessionId: 'session-1',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-lc'],
+      },
+      terminalSessionId: 'ui-session-1',
+      runtimeChannel: 'prod',
+      persistentHostSessionKey: 'enso-session-1',
+    } as never);
+
+    expect(plan.tmuxSessionName).toBe('enso-session-1');
+    expect(plan.hostSession).toEqual({
+      kind: 'tmux',
+      serverName: 'enso',
+      sessionName: 'enso-session-1',
+    });
+    expect(plan.command?.args[1]).toContain(
+      "then env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+    );
+    expect(plan.command?.args[1]).toContain(
+      'exec env -u TMUX tmux -L enso attach-session -t enso-session-1'
+    );
+  });
+
   it('does not wrap local unix agent sessions in tmux when tmux persistence is disabled', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'claude',

@@ -66,6 +66,7 @@ export interface Session {
   userRenamed?: boolean; // true when user has manually renamed this session
   pendingCommand?: string; // command to send after agent is ready (e.g., from todo task)
   persistenceEnabled?: boolean; // whether this session should be restored across app restarts
+  hostSessionKey?: string; // persisted tmux host session key used for unix session recovery
   recovered?: boolean;
   recoveryState?: PersistentAgentRuntimeState;
 }
