@@ -151,7 +151,7 @@ describe('worktreeSwitchPolicy', () => {
     ).toEqual({ type: 'clear' });
   });
 
-  it('clears the active worktree when the selected repository stabilized with an explicit worktree error', () => {
+  it('retains the active worktree when the selected repository refresh fails with a worktree error', () => {
     const activeWorktree = makeWorktree({ path: '/repo-b/.worktrees/feature-b' });
 
     expect(
@@ -163,6 +163,6 @@ describe('worktreeSwitchPolicy', () => {
         worktreesFetching: false,
         hasWorktreeError: true,
       })
-    ).toEqual({ type: 'clear' });
+    ).toEqual({ type: 'retain' });
   });
 });

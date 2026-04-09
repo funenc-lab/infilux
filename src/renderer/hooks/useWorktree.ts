@@ -39,10 +39,9 @@ export function useWorktreeList(workdir: string | null, options?: WorktreeListOp
         setError(null);
         return safeWorktrees;
       } catch (error) {
-        // Handle not a git repository error
         setError(error instanceof Error ? error.message : 'Failed to load worktrees');
         setWorktrees([]);
-        return [];
+        throw error instanceof Error ? error : new Error('Failed to load worktrees');
       }
     },
     enabled: !!workdir && queryEnabled,

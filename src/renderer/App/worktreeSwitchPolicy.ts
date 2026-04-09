@@ -72,7 +72,7 @@ export function resolveWorktreeSyncAction({
     return { type: 'retain' };
   }
 
-  if (safeWorktrees.length === 0 && !hasWorktreeError) {
+  if (hasWorktreeError || safeWorktrees.length === 0) {
     return { type: 'retain' };
   }
 

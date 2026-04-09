@@ -67,6 +67,7 @@ import {
 } from './App/storage';
 import { useAppKeyboardShortcuts } from './App/useAppKeyboardShortcuts';
 import { usePanelResize } from './App/usePanelResize';
+import { shouldPruneSavedWorktreePath } from './App/worktreeRestorePolicy';
 import { resolvePreferredWorktreeSelection } from './App/worktreeSelectionPolicy';
 import { DevToolsOverlay } from './components/DevToolsOverlay';
 import { FileSidebar } from './components/files/FileSidebar';
@@ -653,20 +654,32 @@ export default function App() {
         return;
       }
 
-      const matchedWorktree = safeWorktrees.find((wt) => wt.path === savedWorktreePath);
+      const matchedWorktree = safeWorktrees.find(
+        (wt) => normalizePath(wt.path) === normalizePath(savedWorktreePath)
+      );
       if (matchedWorktree) {
         setActiveWorktree(matchedWorktree);
         return;
       }
 
-      // Remove stale saved mapping to avoid restore<->sync loops.
-      setRepoWorktreeMap((prev) => {
-        if (!prev[selectedRepo]) return prev;
-        const updated = { ...prev };
-        delete updated[selectedRepo];
-        localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKTREES, JSON.stringify(updated));
-        return updated;
-      });
+      if (
+        shouldPruneSavedWorktreePath({
+          savedWorktreePath,
+          worktrees: safeWorktrees,
+          worktreesFetched,
+          worktreesFetching,
+          hasWorktreeError: Boolean(worktreeError),
+        })
+      ) {
+        // Remove stale saved mapping only after a stable successful refresh excludes it.
+        setRepoWorktreeMap((prev) => {
+          if (!prev[selectedRepo]) return prev;
+          const updated = { ...prev };
+          delete updated[selectedRepo];
+          localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKTREES, JSON.stringify(updated));
+          return updated;
+        });
+      }
     }
   }, [
     selectedRepo,
@@ -676,6 +689,7 @@ export default function App() {
     safeWorktrees,
     worktreesFetched,
     worktreesFetching,
+    worktreeError,
     setRepoWorktreeMap,
     setActiveWorktree,
   ]);
