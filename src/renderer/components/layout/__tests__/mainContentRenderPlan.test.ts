@@ -18,7 +18,7 @@ describe('mainContentRenderPlan', () => {
         retainedChatPanelPaths: ['/repo/current', '/repo/older'],
         retainedTerminalPanelPaths: ['/repo/current', '/repo/terminal-old'],
         retainedFilePanelPaths: ['/repo/current', '/repo/file-old'],
-        hasCurrentChatActivity: false,
+        currentChatRetentionState: 'cold',
         hasCurrentTerminalActivity: false,
         currentFileTabCount: 0,
       })
@@ -40,7 +40,7 @@ describe('mainContentRenderPlan', () => {
         retainedChatPanelPaths: ['/repo/current'],
         retainedTerminalPanelPaths: ['/repo/current'],
         retainedFilePanelPaths: ['/repo/current'],
-        hasCurrentChatActivity: true,
+        currentChatRetentionState: 'warm',
         hasCurrentTerminalActivity: true,
         currentFileTabCount: 2,
       })
@@ -62,7 +62,7 @@ describe('mainContentRenderPlan', () => {
         retainedChatPanelPaths: ['/repo/older-chat'],
         retainedTerminalPanelPaths: ['/repo/older-terminal'],
         retainedFilePanelPaths: ['/repo/older-file'],
-        hasCurrentChatActivity: false,
+        currentChatRetentionState: 'cold',
         hasCurrentTerminalActivity: false,
         currentFileTabCount: 0,
       })
@@ -84,7 +84,7 @@ describe('mainContentRenderPlan', () => {
         retainedChatPanelPaths: ['/Repo/Older', '/repo/older', '/repo/second'],
         retainedTerminalPanelPaths: ['/Repo/Terminal', '/repo/terminal'],
         retainedFilePanelPaths: ['/Repo/File', '/repo/file'],
-        hasCurrentChatActivity: false,
+        currentChatRetentionState: 'cold',
         hasCurrentTerminalActivity: false,
         currentFileTabCount: 0,
       })

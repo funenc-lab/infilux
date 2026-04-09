@@ -11,6 +11,7 @@ function createCurrentState(): SettingsState {
     colorPreset: 'graphite-ink',
     customAccentColor: '',
     terminalAccentSync: false,
+    chatPanelInactivityThresholdMinutes: 5,
     backgroundOpacity: 0.85,
     backgroundBlur: 0,
     backgroundBrightness: 1,
@@ -185,6 +186,46 @@ describe('migrateSettings', () => {
     expect(result.backgroundSaturation).toBe(2);
     expect(result.backgroundUrlPath).toBe('https://example.com/wallpaper.png');
     expect(result.terminalRenderer).toBe('webgl');
+  });
+
+  it('clamps persisted chat panel inactivity thresholds to bounded whole minutes', () => {
+    const currentState = createCurrentState();
+
+    expect(
+      migrateSettings(
+        {
+          chatPanelInactivityThresholdMinutes: '18.9' as never,
+        },
+        currentState
+      ).chatPanelInactivityThresholdMinutes
+    ).toBe(18);
+
+    expect(
+      migrateSettings(
+        {
+          chatPanelInactivityThresholdMinutes: 0 as never,
+        },
+        currentState
+      ).chatPanelInactivityThresholdMinutes
+    ).toBe(1);
+
+    expect(
+      migrateSettings(
+        {
+          chatPanelInactivityThresholdMinutes: 99 as never,
+        },
+        currentState
+      ).chatPanelInactivityThresholdMinutes
+    ).toBe(30);
+
+    expect(
+      migrateSettings(
+        {
+          chatPanelInactivityThresholdMinutes: 'invalid' as never,
+        },
+        currentState
+      ).chatPanelInactivityThresholdMinutes
+    ).toBe(currentState.chatPanelInactivityThresholdMinutes);
   });
 
   it('migrates legacy keybindings and filters detection status to enabled agents only', () => {

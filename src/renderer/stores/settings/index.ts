@@ -10,6 +10,10 @@ import {
   sanitizeCustomAccentColor,
 } from '@/lib/appTheme';
 import {
+  DEFAULT_CHAT_PANEL_INACTIVITY_THRESHOLD_MINUTES,
+  normalizeChatPanelInactivityThresholdMinutes,
+} from './chatPanelInactivityThresholdPolicy';
+import {
   defaultAgentSettings,
   defaultBranchNameGeneratorSettings,
   defaultClaudeCodeIntegrationSettings,
@@ -108,6 +112,7 @@ function getInitialState() {
     agentDetectionStatus: {},
     customAgents: [] as CustomAgent[],
     shellConfig: getDefaultShellConfig(),
+    chatPanelInactivityThresholdMinutes: DEFAULT_CHAT_PANEL_INACTIVITY_THRESHOLD_MINUTES,
     agentNotificationEnabled: true,
     agentNotificationDelay: 5,
     agentNotificationEnterDelay: 5,
@@ -484,6 +489,13 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       setShellConfig: (shellConfig) => set({ shellConfig }),
+      setChatPanelInactivityThresholdMinutes: (chatPanelInactivityThresholdMinutes) =>
+        set({
+          chatPanelInactivityThresholdMinutes: normalizeChatPanelInactivityThresholdMinutes(
+            chatPanelInactivityThresholdMinutes,
+            get().chatPanelInactivityThresholdMinutes
+          ),
+        }),
       setAgentNotificationEnabled: (agentNotificationEnabled) => set({ agentNotificationEnabled }),
       setAgentNotificationDelay: (agentNotificationDelay) => set({ agentNotificationDelay }),
       setAgentNotificationEnterDelay: (agentNotificationEnterDelay) =>

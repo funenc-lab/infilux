@@ -9,6 +9,7 @@ type SettingsState = {
   settingsDisplayMode: 'tab' | 'draggable-modal';
   setSettingsDisplayMode: (mode: 'tab' | 'draggable-modal') => void;
   fileTreeDisplayMode: 'legacy' | 'current';
+  chatPanelInactivityThresholdMinutes: number;
   todoEnabled: boolean;
   backgroundImageEnabled: boolean;
 };
@@ -22,7 +23,14 @@ type EditorState = {
 type AgentSessionsState = {
   sessions: Array<{ id: string; repoPath: string; cwd: string; initialized?: boolean }>;
   activeIds: Record<string, string>;
-  runtimeStates: Record<string, { outputState?: 'unread' | 'outputting' }>;
+  runtimeStates: Record<
+    string,
+    {
+      outputState?: 'idle' | 'unread' | 'outputting';
+      lastActivityAt?: number;
+      hasCompletedTaskUnread?: boolean;
+    }
+  >;
 };
 
 type WorktreeActivityState = {
@@ -39,6 +47,7 @@ const settingsState: SettingsState = {
   settingsDisplayMode: 'tab',
   setSettingsDisplayMode: vi.fn(),
   fileTreeDisplayMode: 'legacy',
+  chatPanelInactivityThresholdMinutes: 5,
   todoEnabled: false,
   backgroundImageEnabled: false,
 };
@@ -503,6 +512,34 @@ describe('MainContent component render', () => {
     expect(markup).toContain('data-panel="source-control"');
   });
 
+  it('retains the current agent panel for darwin-equivalent worktree paths when session cwd uses a different alias', async () => {
+    Object.defineProperty(window.navigator, 'platform', {
+      configurable: true,
+      value: 'MacIntel',
+    });
+
+    agentSessionsState.sessions = [
+      {
+        id: 'session-1',
+        repoPath: '/private/var/folders/demo/repo-main',
+        cwd: '/var/folders/demo/repo-feature',
+        initialized: true,
+      },
+    ];
+
+    const markup = await renderMainContent('source-control', {
+      repoPath: '/private/var/folders/demo/repo-main',
+      worktreePath: '/private/var/folders/demo/repo-feature',
+      sourceControlRootPath: '/private/var/folders/demo/repo-feature',
+      reviewRootPath: '/private/var/folders/demo/repo-feature',
+      openInPath: '/private/var/folders/demo/repo-feature',
+    });
+
+    expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-cwd="/private/var/folders/demo/repo-feature"');
+    expect(markup).toContain('data-show-fallback="false"');
+  });
+
   it('releases the current agent panel while inactive when the current worktree has no agent activity', async () => {
     worktreeActivityState.activities = {
       '/repo/main/worktrees/current': {
@@ -515,6 +552,33 @@ describe('MainContent component render', () => {
 
     expect(markup).not.toContain('data-panel="agent"');
     expect(markup).toContain('data-panel="source-control"');
+  });
+
+  it('releases the current agent panel when only stale idle session history remains', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'));
+
+    agentSessionsState.sessions = [
+      {
+        id: 'session-1',
+        repoPath: '/repo/main',
+        cwd: '/repo/main/worktrees/current',
+        initialized: true,
+      },
+    ];
+    agentSessionsState.runtimeStates = {
+      'session-1': {
+        outputState: 'idle',
+        lastActivityAt: Date.now() - 10 * 60 * 1000,
+      },
+    };
+
+    const markup = await renderMainContent('source-control');
+
+    expect(markup).not.toContain('data-panel="agent"');
+    expect(markup).toContain('data-panel="source-control"');
+
+    vi.useRealTimers();
   });
 
   it('retains the current terminal panel while inactive when the current worktree still has terminal activity', async () => {

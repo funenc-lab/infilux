@@ -1,5 +1,6 @@
 import { normalizeLocale } from '@shared/i18n';
 import { resolvePresetThemeTokens } from '@/lib/appTheme';
+import { normalizeChatPanelInactivityThresholdMinutes } from './chatPanelInactivityThresholdPolicy';
 import { getDefaultUIFontFamily } from './defaults';
 import { normalizeTerminalScrollback } from './terminalScrollbackPolicy';
 import type {
@@ -305,6 +306,10 @@ export function migrateSettings(
     persisted.terminalScrollback,
     currentState.terminalScrollback
   );
+  const chatPanelInactivityThresholdMinutes = normalizeChatPanelInactivityThresholdMinutes(
+    persisted.chatPanelInactivityThresholdMinutes,
+    currentState.chatPanelInactivityThresholdMinutes
+  );
 
   // Migrate xterm keybindings from legacy formats
   const migratedXtermKeybindings = migrateXtermKeybindings(persisted, currentState);
@@ -349,6 +354,7 @@ export function migrateSettings(
     // Override with migrated/sanitized values
     ...(terminalRenderer && { terminalRenderer }),
     terminalScrollback,
+    chatPanelInactivityThresholdMinutes,
     xtermKeybindings: migratedXtermKeybindings,
     mainTabKeybindings: {
       ...currentState.mainTabKeybindings,

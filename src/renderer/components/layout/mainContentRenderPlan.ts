@@ -1,5 +1,6 @@
 import type { TabId } from '@/App/constants';
 import { normalizePath } from '@/App/storage';
+import type { ChatPanelRetentionState } from './panelRetentionPolicy';
 import { shouldRetainPanel } from './panelRetentionPolicy';
 
 interface MainContentRenderPlanOptions {
@@ -8,7 +9,7 @@ interface MainContentRenderPlanOptions {
   retainedChatPanelPaths: string[];
   retainedTerminalPanelPaths: string[];
   retainedFilePanelPaths: string[];
-  hasCurrentChatActivity: boolean;
+  currentChatRetentionState: ChatPanelRetentionState;
   hasCurrentTerminalActivity: boolean;
   currentFileTabCount: number;
 }
@@ -47,7 +48,7 @@ export function buildMainContentRenderPlan({
   retainedChatPanelPaths,
   retainedTerminalPanelPaths,
   retainedFilePanelPaths,
-  hasCurrentChatActivity,
+  currentChatRetentionState,
   hasCurrentTerminalActivity,
   currentFileTabCount,
 }: MainContentRenderPlanOptions) {
@@ -55,7 +56,7 @@ export function buildMainContentRenderPlan({
     shouldRenderCurrentChatPanel: shouldRetainPanel({
       tabId: 'chat',
       activeTab,
-      agentSessionCount: hasCurrentChatActivity ? 1 : 0,
+      chatRetentionState: currentChatRetentionState,
     }),
     shouldRenderCurrentTerminalPanel: shouldRetainPanel({
       tabId: 'terminal',

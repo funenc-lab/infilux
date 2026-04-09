@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { shouldRetainPanel } from '../panelRetentionPolicy';
+import { toChatPanelInactivityThresholdMs } from '@/stores/settings/chatPanelInactivityThresholdPolicy';
+import {
+  CHAT_PANEL_INACTIVITY_THRESHOLD_MS,
+  resolveChatPanelRetentionState,
+  shouldRetainPanel,
+} from '../panelRetentionPolicy';
 
 describe('panelRetentionPolicy', () => {
   it('always retains the active panel', () => {
@@ -23,19 +28,77 @@ describe('panelRetentionPolicy', () => {
     ).toBe(true);
   });
 
-  it('retains chat only while agent sessions still exist', () => {
+  it('classifies recent idle chat sessions as warm and stale ones as cold', () => {
+    const now = Date.UTC(2026, 3, 9, 12, 0, 0);
+
+    expect(
+      resolveChatPanelRetentionState({
+        sessionCount: 1,
+        latestActivityAt: now - CHAT_PANEL_INACTIVITY_THRESHOLD_MS + 1000,
+        now,
+      })
+    ).toBe('warm');
+    expect(
+      resolveChatPanelRetentionState({
+        sessionCount: 1,
+        latestActivityAt: now - CHAT_PANEL_INACTIVITY_THRESHOLD_MS - 1000,
+        now,
+      })
+    ).toBe('cold');
+  });
+
+  it('defaults session history without a runtime timestamp to warm retention', () => {
+    expect(
+      resolveChatPanelRetentionState({
+        sessionCount: 1,
+        latestActivityAt: null,
+      })
+    ).toBe('warm');
+  });
+
+  it('respects custom inactivity thresholds from settings', () => {
+    const now = Date.UTC(2026, 3, 9, 12, 0, 0);
+    const latestActivityAt = now - toChatPanelInactivityThresholdMs(8);
+
+    expect(
+      resolveChatPanelRetentionState({
+        sessionCount: 1,
+        latestActivityAt,
+        now,
+        inactivityThresholdMs: toChatPanelInactivityThresholdMs(10),
+      })
+    ).toBe('warm');
+
+    expect(
+      resolveChatPanelRetentionState({
+        sessionCount: 1,
+        latestActivityAt,
+        now,
+        inactivityThresholdMs: toChatPanelInactivityThresholdMs(5),
+      })
+    ).toBe('cold');
+  });
+
+  it('retains chat while the retention state is warm or hot', () => {
     expect(
       shouldRetainPanel({
         tabId: 'chat',
         activeTab: 'source-control',
-        agentSessionCount: 1,
+        chatRetentionState: 'warm',
       })
     ).toBe(true);
     expect(
       shouldRetainPanel({
         tabId: 'chat',
         activeTab: 'source-control',
-        agentSessionCount: 0,
+        chatRetentionState: 'hot',
+      })
+    ).toBe(true);
+    expect(
+      shouldRetainPanel({
+        tabId: 'chat',
+        activeTab: 'source-control',
+        chatRetentionState: 'cold',
       })
     ).toBe(false);
   });

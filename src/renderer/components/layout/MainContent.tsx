@@ -3,7 +3,7 @@ import { FileCode, GitBranch, KanbanSquare, Sparkles, Terminal } from 'lucide-re
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
-import { normalizePath } from '@/App/storage';
+import { normalizePath, pathsEqual } from '@/App/storage';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { useI18n } from '@/i18n';
 import { getRendererPlatform } from '@/lib/electronEnvironment';
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
+import { toChatPanelInactivityThresholdMs } from '@/stores/settings/chatPanelInactivityThresholdPolicy';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
@@ -23,6 +24,7 @@ import { MainContentTopbar } from './MainContentTopbar';
 import { resolveMainContentContext } from './mainContentContextPolicy';
 import { shouldRenderTabPanel } from './mainContentMountPolicy';
 import { buildMainContentRenderPlan } from './mainContentRenderPlan';
+import { resolveChatPanelRetentionState } from './panelRetentionPolicy';
 
 type LayoutMode = 'columns' | 'tree';
 
@@ -56,6 +58,17 @@ export interface MainContentProps {
   selectedSubagent?: LiveAgentSubagent | null;
   onCloseSelectedSubagent?: () => void;
   onStartupBlockingReady?: (key: StartupBlockingKey) => void;
+}
+
+function getValueForWorktreePath<T>(values: Record<string, T>, targetWorktreePath: string) {
+  const directValue = values[targetWorktreePath];
+  if (directValue !== undefined) {
+    return directValue;
+  }
+
+  return Object.entries(values).find(([worktreePath]) =>
+    pathsEqual(worktreePath, targetWorktreePath)
+  )?.[1];
 }
 
 export function MainContent({
@@ -93,17 +106,22 @@ export function MainContent({
   const settingsDisplayMode = useSettingsStore((state) => state.settingsDisplayMode);
   const setSettingsDisplayMode = useSettingsStore((state) => state.setSettingsDisplayMode);
   const fileTreeDisplayMode = useSettingsStore((state) => state.fileTreeDisplayMode);
+  const chatPanelInactivityThresholdMinutes = useSettingsStore(
+    (state) => state.chatPanelInactivityThresholdMinutes
+  );
   const todoEnabled = useSettingsStore((state) => state.todoEnabled);
   const bgImageEnabled = useSettingsStore((state) => state.backgroundImageEnabled);
   const editorTabCount = useEditorStore((state) => state.tabs.length);
   const editorCurrentWorktreePath = useEditorStore((state) => state.currentWorktreePath);
   const editorWorktreeStates = useEditorStore((state) => state.worktreeStates);
   const worktreeActivities = useWorktreeActivityStore((state) => state.activities);
+  const worktreeActivityStates = useWorktreeActivityStore((state) => state.activityStates);
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
   const sessions = useAgentSessionsStore((state) => state.sessions);
   const activeIds = useAgentSessionsStore((state) => state.activeIds);
+  const sessionRuntimeStates = useAgentSessionsStore((state) => state.runtimeStates);
   const activeSessionId = useMemo(() => {
     if (!repoPath || !worktreePath) {
       return null;
@@ -119,7 +137,7 @@ export function MainContent({
     }
 
     const firstSession = sessions.find(
-      (candidate) => candidate.repoPath === repoPath && candidate.cwd === worktreePath
+      (candidate) => candidate.repoPath === repoPath && pathsEqual(candidate.cwd, worktreePath)
     );
     return firstSession?.id ?? null;
   }, [activeIds, repoPath, sessions, worktreePath]);
@@ -262,7 +280,9 @@ export function MainContent({
 
   const getRepoPathForWorktree = useCallback(
     (targetWorktreePath: string) => {
-      const matchingSession = sessions.find((session) => session.cwd === targetWorktreePath);
+      const matchingSession = sessions.find((session) =>
+        pathsEqual(session.cwd, targetWorktreePath)
+      );
       if (matchingSession) {
         return matchingSession.repoPath;
       }
@@ -287,21 +307,63 @@ export function MainContent({
     [repoPath, retainedChatContext, sessions, worktreePath]
   );
 
-  const hasAgentActivityForWorktree = useCallback(
+  const getChatRetentionStateForWorktree = useCallback(
     (targetWorktreePath: string) => {
-      const activity = worktreeActivities[targetWorktreePath];
-      if (activity?.agentCount && activity.agentCount > 0) {
-        return true;
-      }
+      const matchingSessions = sessions.filter(
+        (session) => pathsEqual(session.cwd, targetWorktreePath) && session.initialized
+      );
+      const activity = getValueForWorktreePath(worktreeActivities, targetWorktreePath);
+      const activityState = getValueForWorktreePath(worktreeActivityStates, targetWorktreePath);
+      const latestActivityAt = matchingSessions.reduce<number | null>(
+        (latestTimestamp, session) => {
+          const nextTimestamp = sessionRuntimeStates[session.id]?.lastActivityAt;
+          if (typeof nextTimestamp !== 'number') {
+            return latestTimestamp;
+          }
+          if (latestTimestamp === null || nextTimestamp > latestTimestamp) {
+            return nextTimestamp;
+          }
+          return latestTimestamp;
+        },
+        null
+      );
+      const hasAttentionSignal =
+        activityState === 'waiting_input' ||
+        matchingSessions.some((session) => {
+          const runtimeState = sessionRuntimeStates[session.id];
+          return (
+            runtimeState?.outputState === 'unread' || runtimeState?.hasCompletedTaskUnread === true
+          );
+        });
+      const hasLiveActivity =
+        activityState === 'running' ||
+        (activity?.agentCount ?? 0) > 0 ||
+        matchingSessions.some(
+          (session) => sessionRuntimeStates[session.id]?.outputState === 'outputting'
+        );
 
-      return sessions.some((session) => session.cwd === targetWorktreePath && session.initialized);
+      return resolveChatPanelRetentionState({
+        sessionCount: matchingSessions.length,
+        latestActivityAt,
+        hasAttentionSignal,
+        hasLiveActivity,
+        inactivityThresholdMs: toChatPanelInactivityThresholdMs(
+          chatPanelInactivityThresholdMinutes
+        ),
+      });
     },
-    [sessions, worktreeActivities]
+    [
+      chatPanelInactivityThresholdMinutes,
+      sessionRuntimeStates,
+      sessions,
+      worktreeActivities,
+      worktreeActivityStates,
+    ]
   );
 
   const hasTerminalActivityForWorktree = useCallback(
     (targetWorktreePath: string) => {
-      const activity = worktreeActivities[targetWorktreePath];
+      const activity = getValueForWorktreePath(worktreeActivities, targetWorktreePath);
       return (activity?.terminalCount ?? 0) > 0;
     },
     [worktreeActivities]
@@ -327,9 +389,9 @@ export function MainContent({
     return getFileTabCountForWorktree(currentNormalizedWorktreePath);
   }, [currentNormalizedWorktreePath, getFileTabCountForWorktree]);
 
-  const hasCurrentChatActivity = currentWorktreePath
-    ? hasAgentActivityForWorktree(currentWorktreePath)
-    : false;
+  const currentChatRetentionState = currentWorktreePath
+    ? getChatRetentionStateForWorktree(currentWorktreePath)
+    : 'cold';
   const hasCurrentTerminalActivity = currentWorktreePath
     ? hasTerminalActivityForWorktree(currentWorktreePath)
     : false;
@@ -349,7 +411,7 @@ export function MainContent({
         retainedChatPanelPaths,
         retainedTerminalPanelPaths,
         retainedFilePanelPaths,
-        hasCurrentChatActivity,
+        currentChatRetentionState,
         hasCurrentTerminalActivity,
         currentFileTabCount: effectiveFileTabCount,
       }),
@@ -359,7 +421,7 @@ export function MainContent({
       retainedChatPanelPaths,
       retainedTerminalPanelPaths,
       retainedFilePanelPaths,
-      hasCurrentChatActivity,
+      currentChatRetentionState,
       hasCurrentTerminalActivity,
       effectiveFileTabCount,
     ]
@@ -374,10 +436,10 @@ export function MainContent({
       updateRetainedChatPanelPaths({
         previousPaths,
         activePath: currentWorktreePath,
-        hasActivity: hasAgentActivityForWorktree,
+        hasActivity: (worktreePath) => getChatRetentionStateForWorktree(worktreePath) !== 'cold',
       })
     );
-  }, [currentWorktreePath, hasAgentActivityForWorktree]);
+  }, [currentWorktreePath, getChatRetentionStateForWorktree]);
 
   useEffect(() => {
     setRetainedTerminalPanelPaths((previousPaths) =>

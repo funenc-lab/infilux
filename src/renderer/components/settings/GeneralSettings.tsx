@@ -75,6 +75,7 @@ import {
   type TerminalRenderer,
   useSettingsStore,
 } from '@/stores/settings';
+import { CHAT_PANEL_INACTIVITY_THRESHOLD_OPTIONS } from '@/stores/settings/chatPanelInactivityThresholdPolicy';
 import { TERMINAL_SCROLLBACK_OPTIONS } from '@/stores/settings/terminalScrollbackPolicy';
 import { buildLogDiagnosticsModel } from './logDiagnosticsModel';
 
@@ -197,6 +198,8 @@ export function GeneralSettings() {
     setTerminalScrollback,
     shellConfig,
     setShellConfig,
+    chatPanelInactivityThresholdMinutes,
+    setChatPanelInactivityThresholdMinutes,
     agentNotificationEnabled,
     setAgentNotificationEnabled,
     agentNotificationDelay,
@@ -347,6 +350,15 @@ export function GeneralSettings() {
       })),
     ],
     [t]
+  );
+
+  const chatPanelInactivityThresholdOptions = React.useMemo(
+    () =>
+      CHAT_PANEL_INACTIVITY_THRESHOLD_OPTIONS.map((value) => ({
+        value,
+        label: t('{{count}} minutes', { count: numberFormatter.format(value) }),
+      })),
+    [numberFormatter, t]
   );
 
   const [shells, setShells] = React.useState<ShellInfo[]>([]);
@@ -1360,6 +1372,38 @@ export function GeneralSettings() {
           </Select>
           <p className="text-xs text-muted-foreground">
             {t('How long to wait after pressing Enter before starting idle timer.')}
+          </p>
+        </div>
+      </div>
+
+      {/* Chat Panel Retention */}
+      <div className="settings-field-row settings-field-row-start">
+        <span className="text-sm font-medium mt-2">{t('Chat panel retention')}</span>
+        <div className="space-y-1.5">
+          <Select
+            value={String(chatPanelInactivityThresholdMinutes)}
+            onValueChange={(value) => setChatPanelInactivityThresholdMinutes(Number(value))}
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue>
+                {chatPanelInactivityThresholdOptions.find(
+                  (option) => option.value === chatPanelInactivityThresholdMinutes
+                )?.label ??
+                  t('{{count}} minutes', {
+                    count: numberFormatter.format(chatPanelInactivityThresholdMinutes),
+                  })}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {chatPanelInactivityThresholdOptions.map((option) => (
+                <SelectItem key={option.value} value={String(option.value)}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t('How long to keep an idle chat panel mounted after you switch away.')}
           </p>
         </div>
       </div>

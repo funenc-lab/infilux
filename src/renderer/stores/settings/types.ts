@@ -404,6 +404,7 @@ export interface SettingsState {
   agentDetectionStatus: AgentDetectionStatus;
   customAgents: CustomAgent[];
   shellConfig: ShellConfig;
+  chatPanelInactivityThresholdMinutes: number;
   agentNotificationEnabled: boolean;
   agentNotificationDelay: number; // in seconds
   agentNotificationEnterDelay: number; // delay after Enter before starting idle timer
@@ -541,6 +542,7 @@ export interface SettingsState {
   updateCustomAgent: (id: string, updates: Partial<CustomAgent>) => void;
   removeCustomAgent: (id: string) => void;
   setShellConfig: (config: ShellConfig) => void;
+  setChatPanelInactivityThresholdMinutes: (minutes: number) => void;
   setAgentNotificationEnabled: (enabled: boolean) => void;
   setAgentNotificationDelay: (delay: number) => void;
   setAgentNotificationEnterDelay: (delay: number) => void;
