@@ -2414,13 +2414,15 @@
 
   .control-tree-status-slot {
     position: absolute;
-    left: 0.0625rem;
-    inset-block: 0;
+    left: calc((var(--control-tree-glyph-slot-size) - 0.5rem) / 2);
+    top: calc(50% + var(--control-tree-glyph-offset-y) - 0.1875rem);
     display: flex;
     width: 0.5rem;
     align-items: center;
     justify-content: center;
     pointer-events: none;
+    inset-block: auto;
+    transform: translateY(-50%);
   }
 
   .control-tree-state-dot {

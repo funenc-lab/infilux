@@ -225,8 +225,18 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).toContain('control-tree-status-slot');
     expect(worktreePanelSource).toContain('control-tree-status-slot');
     expect(globalsSource).toContain('.control-tree-status-slot {');
+    expect(globalsSource).toContain(
+      'left: calc((var(--control-tree-glyph-slot-size) - 0.5rem) / 2);'
+    );
+    expect(globalsSource).toContain(
+      'top: calc(50% + var(--control-tree-glyph-offset-y) - 0.1875rem);'
+    );
+    expect(globalsSource).toContain('inset-block: auto;');
+    expect(globalsSource).toContain('transform: translateY(-50%);');
     expect(globalsSource).toContain('justify-content: center;');
     expect(globalsSource).toContain('width: 0.5rem;');
+    expect(globalsSource).not.toContain('left: 0.0625rem;');
+    expect(globalsSource).not.toContain('inset-block: 0;');
   });
 
   it('keeps worktree runtime presence inline as counters instead of a named agent child row', () => {
