@@ -310,6 +310,69 @@ describe('AppResourceManager', () => {
     );
   });
 
+  it('marks stale local sessions as stopped when the backing process is no longer alive', async () => {
+    const { AppResourceManager } = await import('../AppResourceManager');
+
+    const manager = new AppResourceManager({
+      getAppMetrics: () => [],
+      buildRuntimeSnapshot: vi.fn(() => ({
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      })),
+      listSessions: vi.fn(
+        async () =>
+          [
+            {
+              sessionId: 'session-local-stale',
+              backend: 'local',
+              kind: 'terminal',
+              cwd: '/repo/stale',
+              persistOnDisconnect: false,
+              createdAt: 10,
+            },
+          ] as SessionDescriptor[]
+      ),
+      getSessionRuntimeInfo: vi.fn(async () => ({
+        pid: 4001,
+        isActive: false,
+        isAlive: false,
+      })),
+      killSession: vi.fn(async () => undefined),
+      getHapiStatus: () => ({ running: false }),
+      stopHapi: vi.fn(async () => ({ running: false })),
+      getHapiRunnerStatus: () => ({ running: false }),
+      stopHapiRunner: vi.fn(async () => ({ running: false })),
+      getCloudflaredStatus: () => ({ installed: true, running: false }),
+      stopCloudflared: vi.fn(async () => ({ installed: true, running: false })),
+      terminateProcess: vi.fn(),
+    });
+
+    const snapshot = await manager.getSnapshot({
+      getOSProcessId: () => 303,
+      reload: vi.fn(),
+    });
+
+    expect(snapshot.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'session:session-local-stale',
+          kind: 'session',
+          status: 'stopped',
+          runtimeState: 'dead',
+          isAlive: false,
+          reclaimable: true,
+        }),
+      ])
+    );
+  });
+
   it('executes safe recovery actions and blocks protected process termination', async () => {
     const { AppResourceManager } = await import('../AppResourceManager');
 

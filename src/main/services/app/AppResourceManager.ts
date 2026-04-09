@@ -184,6 +184,17 @@ function resolveSessionRuntimeState(session: SessionDescriptor) {
   return session.runtimeState ?? 'live';
 }
 
+function resolveEffectiveSessionRuntimeState(
+  session: SessionDescriptor,
+  processInfo: SessionProcessInfo | null
+) {
+  if (session.backend === 'local' && processInfo?.isAlive === false) {
+    return 'dead';
+  }
+
+  return resolveSessionRuntimeState(session);
+}
+
 function toSessionStatus(
   runtimeState: ReturnType<typeof resolveSessionRuntimeState>
 ): AppResourceStatus {
@@ -233,7 +244,7 @@ export class AppResourceManager {
     const sessionResources = await Promise.all(
       sessions.map(async (session): Promise<AppSessionResource> => {
         const processInfo = await this.dependencies.getSessionRuntimeInfo(session.sessionId);
-        const runtimeState = resolveSessionRuntimeState(session);
+        const runtimeState = resolveEffectiveSessionRuntimeState(session, processInfo);
         return {
           id: `session:${session.sessionId}`,
           kind: 'session',
