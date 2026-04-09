@@ -96,6 +96,7 @@ import {
   resolveAgentCanvasCenteredScrollPosition,
   resolveAgentCanvasFloatingFrame,
   resolveAgentCanvasFloatingTerminalFontScale,
+  resolveAgentCanvasRestoreScrollPosition,
   resolveAgentCanvasViewportMetrics,
   resolveAgentCanvasViewportSyncPosition,
   resolveAgentCanvasWheelZoomDelta,
@@ -2460,7 +2461,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   }, [canvasZoomStorageKey, resetCanvasWheelZoomState]);
 
   useEffect(() => {
-    if (!isCanvasDisplayMode) {
+    if (!isCanvasDisplayMode || !isActive) {
       return;
     }
 
@@ -2477,22 +2478,13 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
       const snapshot = readCanvasViewportSnapshot(viewport);
       const savedPosition = canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey];
-      const nextPosition =
-        savedPosition != null
-          ? clampAgentCanvasScrollPosition({
-              clientHeight: snapshot.clientHeight,
-              clientWidth: snapshot.clientWidth,
-              left: savedPosition.left,
-              scrollHeight: snapshot.scrollHeight,
-              scrollWidth: snapshot.scrollWidth,
-              top: savedPosition.top,
-            })
-          : resolveAgentCanvasCenteredScrollPosition({
-              clientHeight: snapshot.clientHeight,
-              clientWidth: snapshot.clientWidth,
-              scrollHeight: snapshot.scrollHeight,
-              scrollWidth: snapshot.scrollWidth,
-            });
+      const nextPosition = resolveAgentCanvasRestoreScrollPosition({
+        clientHeight: snapshot.clientHeight,
+        clientWidth: snapshot.clientWidth,
+        savedPosition,
+        scrollHeight: snapshot.scrollHeight,
+        scrollWidth: snapshot.scrollWidth,
+      });
 
       applyCanvasViewportPosition(viewport, nextPosition);
       canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = snapshot;
@@ -2503,7 +2495,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       cancelled = true;
       cancelAnimationFrame(frameId);
     };
-  }, [applyCanvasViewportPosition, canvasZoomStorageKey, isCanvasDisplayMode]);
+  }, [applyCanvasViewportPosition, canvasZoomStorageKey, isActive, isCanvasDisplayMode]);
   useEffect(() => {
     if (!isCanvasDisplayMode) {
       setCanvasViewportBounds(null);

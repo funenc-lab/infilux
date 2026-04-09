@@ -30,6 +30,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('handleCloseCanvasFloatingSession');
     expect(agentPanelSource).toContain('resolveAgentCanvasFloatingFrame');
     expect(agentPanelSource).toContain('resolveAgentCanvasFloatingTerminalFontScale');
+    expect(agentPanelSource).toContain('resolveAgentCanvasRestoreScrollPosition');
     expect(agentPanelSource).toContain('resolveAgentCanvasViewportSyncPosition');
     expect(agentPanelSource).toContain('resolveAgentCanvasZoomTerminalFontScale');
     expect(agentPanelSource).toContain('createPortal');
@@ -43,6 +44,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain(
       'canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey'
     );
+    expect(agentPanelSource).toContain('if (!isCanvasDisplayMode || !isActive) {');
     expect(agentPanelSource).toContain('ensureCanvasSessionContentHost');
     expect(agentPanelSource).toContain('createPortal(sessionPanelContent, sessionContentHost)');
     expect(agentPanelSource).not.toContain('createPortal(sessionPanelContent, document.body)');

@@ -96,6 +96,39 @@ describe('agent canvas viewport helpers', () => {
     });
   });
 
+  it('restores a saved viewport position and falls back to the centered position', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasRestoreScrollPosition({
+        clientHeight: 180,
+        clientWidth: 220,
+        savedPosition: {
+          left: 640,
+          top: 920,
+        },
+        scrollHeight: 920,
+        scrollWidth: 960,
+      })
+    ).toEqual({
+      left: 640,
+      top: 740,
+    });
+
+    expect(
+      module?.resolveAgentCanvasRestoreScrollPosition({
+        clientHeight: 180,
+        clientWidth: 220,
+        savedPosition: null,
+        scrollHeight: 920,
+        scrollWidth: 960,
+      })
+    ).toEqual({
+      left: 370,
+      top: 370,
+    });
+  });
+
   it('detects whether the current scroll position is still near the viewport center', async () => {
     const module = await import('../agentCanvasViewport').catch(() => null);
 

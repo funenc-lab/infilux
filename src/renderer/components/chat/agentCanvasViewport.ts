@@ -164,6 +164,41 @@ export function clampAgentCanvasScrollPosition(dimensions: {
   };
 }
 
+export function resolveAgentCanvasRestoreScrollPosition(dimensions: {
+  clientHeight: number;
+  clientWidth: number;
+  scrollHeight: number;
+  scrollWidth: number;
+  savedPosition:
+    | {
+        left: number;
+        top: number;
+      }
+    | null
+    | undefined;
+}): {
+  left: number;
+  top: number;
+} {
+  if (dimensions.savedPosition) {
+    return clampAgentCanvasScrollPosition({
+      clientHeight: dimensions.clientHeight,
+      clientWidth: dimensions.clientWidth,
+      left: dimensions.savedPosition.left,
+      scrollHeight: dimensions.scrollHeight,
+      scrollWidth: dimensions.scrollWidth,
+      top: dimensions.savedPosition.top,
+    });
+  }
+
+  return resolveAgentCanvasCenteredScrollPosition({
+    clientHeight: dimensions.clientHeight,
+    clientWidth: dimensions.clientWidth,
+    scrollHeight: dimensions.scrollHeight,
+    scrollWidth: dimensions.scrollWidth,
+  });
+}
+
 export function isAgentCanvasScrollPositionNearCenter(dimensions: {
   clientHeight: number;
   clientWidth: number;
