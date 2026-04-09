@@ -2,9 +2,9 @@ import type { TempWorkspaceItem } from '@shared/types';
 import { getDisplayPath, isWslUncPath } from '@shared/utils/path';
 import {
   FolderGit2,
-  FolderOpen,
   GitBranch,
   PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RefreshCw,
   Search,
@@ -76,7 +76,7 @@ export function TemporaryWorkspacePanel({
         {
           id: 'expand-temp-sessions',
           label: t('Expand Temp Sessions'),
-          icon: FolderOpen,
+          icon: PanelLeftOpen,
           onSelect: () => onExpand?.(),
           disabled: !onExpand,
         },

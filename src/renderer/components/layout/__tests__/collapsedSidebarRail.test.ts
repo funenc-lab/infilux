@@ -4,6 +4,11 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('lucide-react', () => ({
+  ChevronRight: (props: React.SVGProps<SVGSVGElement>) =>
+    React.createElement('svg', { ...props, 'data-icon': 'expand-indicator' }),
+}));
+
 vi.mock('@/components/ui/menu', () => ({
   Menu: ({ children }: { children?: React.ReactNode }) =>
     React.createElement(React.Fragment, null, children as React.ReactNode),
@@ -70,5 +75,9 @@ describe('CollapsedSidebarRail', () => {
     expect(markup).toContain('Refresh');
     expect(markup).toContain('data-slot="menu-separator"');
     expect(markup).toContain('data-collapsed-sidebar="Repository"');
+    expect(markup).toContain('data-slot="collapsed-sidebar-trigger-icon"');
+    expect(markup).toContain('data-slot="collapsed-sidebar-expand-indicator"');
+    expect(markup).toContain('data-icon="trigger"');
+    expect(markup).toContain('data-icon="expand-indicator"');
   });
 });

@@ -33,4 +33,16 @@ describe('collapsed sidebar rail policy', () => {
     expect(temporaryWorkspacePanelSource).toContain('CollapsedSidebarRail');
     expect(fileSidebarSource).toContain('CollapsedSidebarRail');
   });
+
+  it('uses panel-open semantics for collapsed sidebar expand actions', () => {
+    expect(treeSidebarSource).toMatch(/label: t\('Expand Sidebar'\),\s+icon: PanelLeftOpen,/s);
+    expect(repositorySidebarSource).toMatch(
+      /label: t\('Expand Repository'\),\s+icon: PanelLeftOpen,/s
+    );
+    expect(worktreePanelSource).toMatch(/label: t\('Expand Worktree'\),\s+icon: PanelLeftOpen,/s);
+    expect(temporaryWorkspacePanelSource).toMatch(
+      /label: t\('Expand Temp Sessions'\),\s+icon: PanelLeftOpen,/s
+    );
+    expect(fileSidebarSource).toMatch(/label: t\('Expand File Sidebar'\),\s+icon: PanelLeftOpen,/s);
+  });
 });

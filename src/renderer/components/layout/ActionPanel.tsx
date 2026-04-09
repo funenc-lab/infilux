@@ -342,14 +342,14 @@ export function ActionPanel({
           {
             id: 'toggle-repository',
             label: repositoryCollapsed ? t('Expand Repository') : t('Collapse Repository'),
-            icon: repositoryCollapsed ? FolderOpen : PanelLeftClose,
+            icon: repositoryCollapsed ? PanelLeftOpen : PanelLeftClose,
             shortcut: formatKeybindingDisplay(workspaceKeybindings.toggleRepository),
             action: onToggleRepository,
           },
           {
             id: 'toggle-worktree',
             label: worktreeCollapsed ? t('Expand Worktree') : t('Collapse Worktree'),
-            icon: worktreeCollapsed ? GitBranch : PanelLeftOpen,
+            icon: worktreeCollapsed ? PanelLeftOpen : PanelLeftClose,
             shortcut: formatKeybindingDisplay(workspaceKeybindings.toggleWorktree),
             action: onToggleWorktree,
           },

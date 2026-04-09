@@ -5,8 +5,8 @@ import {
   Clock,
   FolderGit2,
   FolderMinus,
-  FolderOpen,
   PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Settings2,
@@ -425,7 +425,7 @@ export function RepositorySidebar({
         {
           id: 'expand-repository',
           label: t('Expand Repository'),
-          icon: FolderOpen,
+          icon: PanelLeftOpen,
           onSelect: () => onExpand?.(),
           disabled: !onExpand,
         },

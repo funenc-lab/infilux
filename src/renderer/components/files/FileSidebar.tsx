@@ -3,7 +3,7 @@ import {
   FileCode,
   FilePlus,
   FolderPlus,
-  PanelLeft,
+  PanelLeftOpen,
   RefreshCw,
   Search,
   SquareMinus,
@@ -478,7 +478,7 @@ export function FileSidebar({
             {
               id: 'expand-file-sidebar',
               label: t('Expand File Sidebar'),
-              icon: PanelLeft,
+              icon: PanelLeftOpen,
               onSelect: onExpand,
             },
             {

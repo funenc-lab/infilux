@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react';
 import type { ElementType } from 'react';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu';
 import { cn } from '@/lib/utils';
@@ -45,7 +46,19 @@ export function CollapsedSidebarRail({
               title={triggerTitle}
               aria-label={triggerTitle}
             >
-              <Icon className="h-4 w-4" />
+              <span
+                data-slot="collapsed-sidebar-trigger-icon"
+                className="relative inline-flex h-4.5 w-4.5 items-center justify-center"
+              >
+                <Icon className="h-4 w-4" />
+                <span
+                  data-slot="collapsed-sidebar-expand-indicator"
+                  aria-hidden="true"
+                  className="absolute -right-1 -bottom-1 inline-flex h-3 w-3 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground shadow-sm"
+                >
+                  <ChevronRight className="h-2 w-2" />
+                </span>
+              </span>
             </button>
           }
         />

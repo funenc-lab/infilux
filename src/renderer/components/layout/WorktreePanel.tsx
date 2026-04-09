@@ -6,7 +6,7 @@ import type {
 } from '@shared/types';
 import { getDisplayPath, getDisplayPathBasename } from '@shared/utils/path';
 import { LayoutGroup } from 'framer-motion';
-import { FolderOpen, GitBranch, PanelLeftClose, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { GitBranch, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertDialog,
@@ -250,7 +250,7 @@ export function WorktreePanel({
         {
           id: 'expand-worktree',
           label: t('Expand Worktree'),
-          icon: GitBranch,
+          icon: PanelLeftOpen,
           onSelect: () => onExpand?.(),
           disabled: !onExpand,
         },
@@ -282,7 +282,7 @@ export function WorktreePanel({
               onClick={onExpandRepository}
               title={t('Expand Repository')}
             >
-              <FolderOpen className="h-3.5 w-3.5" />
+              <PanelLeftOpen className="h-3.5 w-3.5" />
             </button>
           )}
           <button
