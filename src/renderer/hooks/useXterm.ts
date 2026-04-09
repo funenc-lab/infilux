@@ -13,6 +13,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
@@ -104,6 +105,7 @@ export interface UseXtermOptions {
   hostSession?: SessionCreateOptions['hostSession'];
   metadata?: Record<string, unknown>;
   isActive?: boolean;
+  fontSizeScale?: number;
   initialCommand?: string;
   kind?: SessionKind;
   persistOnDisconnect?: boolean;
@@ -154,7 +156,7 @@ export interface UseXtermResult {
   refreshRenderer: () => void;
 }
 
-function useTerminalSettings() {
+function useTerminalSettings(fontSizeScale = 1) {
   const {
     terminalTheme,
     terminalFontSize,
@@ -165,7 +167,19 @@ function useTerminalSettings() {
     terminalOptionIsMeta,
     xtermKeybindings,
     backgroundImageEnabled,
-  } = useSettingsStore();
+  } = useSettingsStore(
+    useShallow((state) => ({
+      terminalTheme: state.terminalTheme,
+      terminalFontSize: state.terminalFontSize,
+      terminalFontFamily: state.terminalFontFamily,
+      terminalFontWeight: state.terminalFontWeight,
+      terminalFontWeightBold: state.terminalFontWeightBold,
+      terminalScrollback: state.terminalScrollback,
+      terminalOptionIsMeta: state.terminalOptionIsMeta,
+      xtermKeybindings: state.xtermKeybindings,
+      backgroundImageEnabled: state.backgroundImageEnabled,
+    }))
+  );
 
   const theme = useMemo(() => {
     const baseTheme = getXtermTheme(terminalTheme) ?? defaultDarkTheme;
@@ -175,17 +189,33 @@ function useTerminalSettings() {
     return baseTheme;
   }, [terminalTheme, backgroundImageEnabled]);
 
-  return {
-    theme,
-    fontSize: terminalFontSize,
-    fontFamily: terminalFontFamily,
-    fontWeight: terminalFontWeight,
-    fontWeightBold: terminalFontWeightBold,
-    scrollback: terminalScrollback,
-    optionIsMeta: terminalOptionIsMeta,
-    xtermKeybindings,
-    backgroundImageEnabled,
-  };
+  const safeFontSizeScale = Number.isFinite(fontSizeScale) && fontSizeScale > 0 ? fontSizeScale : 1;
+
+  return useMemo(
+    () => ({
+      theme,
+      fontSize: Math.max(10, Math.round(terminalFontSize * safeFontSizeScale)),
+      fontFamily: terminalFontFamily,
+      fontWeight: terminalFontWeight,
+      fontWeightBold: terminalFontWeightBold,
+      scrollback: terminalScrollback,
+      optionIsMeta: terminalOptionIsMeta,
+      xtermKeybindings,
+      backgroundImageEnabled,
+    }),
+    [
+      backgroundImageEnabled,
+      safeFontSizeScale,
+      terminalFontFamily,
+      terminalFontSize,
+      terminalFontWeight,
+      terminalFontWeightBold,
+      terminalOptionIsMeta,
+      terminalScrollback,
+      theme,
+      xtermKeybindings,
+    ]
+  );
 }
 
 export function useXterm({
@@ -196,6 +226,7 @@ export function useXterm({
   hostSession,
   metadata,
   isActive = true,
+  fontSizeScale = 1,
   initialCommand,
   kind = 'terminal',
   persistOnDisconnect = false,
@@ -213,10 +244,14 @@ export function useXterm({
 }: UseXtermOptions): UseXtermResult {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
-  const settings = useTerminalSettings();
-  const terminalRenderer = useSettingsStore((s) => s.terminalRenderer);
-  const copyOnSelection = useSettingsStore((s) => s.copyOnSelection);
-  const shellConfig = useSettingsStore((s) => s.shellConfig);
+  const settings = useTerminalSettings(fontSizeScale);
+  const { terminalRenderer, copyOnSelection, shellConfig } = useSettingsStore(
+    useShallow((state) => ({
+      terminalRenderer: state.terminalRenderer,
+      copyOnSelection: state.copyOnSelection,
+      shellConfig: state.shellConfig,
+    }))
+  );
   const navigateToFile = useNavigationStore((s) => s.navigateToFile);
   const cwdRef = useRef(cwd);
   cwdRef.current = cwd;

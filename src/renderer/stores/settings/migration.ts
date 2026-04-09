@@ -4,6 +4,7 @@ import { normalizeChatPanelInactivityThresholdMinutes } from './chatPanelInactiv
 import { getDefaultUIFontFamily } from './defaults';
 import { normalizeTerminalScrollback } from './terminalScrollbackPolicy';
 import type {
+  AgentSessionDisplayMode,
   ColorPreset,
   CustomThemeDocument,
   SettingsState,
@@ -98,6 +99,13 @@ function sanitizeTheme(
   fallback: SettingsState['theme']
 ): SettingsState['theme'] | null {
   return value === 'light' || value === 'dark' || value === 'system' ? value : fallback;
+}
+
+function sanitizeAgentSessionDisplayMode(
+  value: unknown,
+  fallback: AgentSessionDisplayMode
+): AgentSessionDisplayMode {
+  return value === 'canvas' || value === 'tab' ? value : fallback;
 }
 
 function sanitizeThemeTokenSet(value: unknown, fallback: ThemeTokenSet): ThemeTokenSet {
@@ -332,6 +340,10 @@ export function migrateSettings(
     typeof persisted.fontFamily === 'string' && persisted.fontFamily.trim().length > 0
       ? persisted.fontFamily
       : getDefaultUIFontFamily(sanitizedLanguage);
+  const sanitizedAgentSessionDisplayMode = sanitizeAgentSessionDisplayMode(
+    persisted.agentSessionDisplayMode,
+    currentState.agentSessionDisplayMode
+  );
 
   return {
     ...currentState,
@@ -340,6 +352,7 @@ export function migrateSettings(
     terminalAccentSync: sanitizedTerminalAccentSync,
     language: sanitizedLanguage,
     fontFamily: sanitizedFontFamily,
+    agentSessionDisplayMode: sanitizedAgentSessionDisplayMode,
     colorPreset: sanitizedColorPreset,
     customAccentColor: sanitizedCustomAccentColor,
     customThemes: sanitizedCustomThemes,

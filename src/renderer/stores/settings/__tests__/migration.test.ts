@@ -11,6 +11,7 @@ function createCurrentState(): SettingsState {
     colorPreset: 'graphite-ink',
     customAccentColor: '',
     terminalAccentSync: false,
+    agentSessionDisplayMode: 'tab',
     chatPanelInactivityThresholdMinutes: 5,
     backgroundOpacity: 0.85,
     backgroundBlur: 0,
@@ -186,6 +187,28 @@ describe('migrateSettings', () => {
     expect(result.backgroundSaturation).toBe(2);
     expect(result.backgroundUrlPath).toBe('https://example.com/wallpaper.png');
     expect(result.terminalRenderer).toBe('webgl');
+  });
+
+  it('accepts known agent session display modes and falls back on invalid values', () => {
+    const currentState = createCurrentState();
+
+    expect(
+      migrateSettings(
+        {
+          agentSessionDisplayMode: 'canvas' as never,
+        },
+        currentState
+      ).agentSessionDisplayMode
+    ).toBe('canvas');
+
+    expect(
+      migrateSettings(
+        {
+          agentSessionDisplayMode: 'mosaic' as never,
+        },
+        currentState
+      ).agentSessionDisplayMode
+    ).toBe('tab');
   });
 
   it('clamps persisted chat panel inactivity thresholds to bounded whole minutes', () => {

@@ -2,6 +2,7 @@ import { TEMP_INPUT_FILE_PREFIX } from '@shared/paths';
 import type { ClaudeIdeBridgeStatus, SessionRuntimeState } from '@shared/types';
 import { ArrowDown } from 'lucide-react';
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import {
   TerminalSearchBar,
   type TerminalSearchBarRef,
@@ -76,6 +77,7 @@ interface AgentTerminalProps {
   hostSessionKey?: string;
   recovered?: boolean;
   isActive?: boolean;
+  terminalFontScale?: number;
   hasPendingCommand?: boolean; // Force terminal activation even when not visible
   initialPrompt?: string; // Initial prompt to pass as CLI argument (auto-execute)
   canMerge?: boolean; // whether merge option should be enabled (has multiple groups)
@@ -162,6 +164,7 @@ export function AgentTerminal({
   hostSessionKey,
   recovered = false,
   isActive = false,
+  terminalFontScale,
   hasPendingCommand = false,
   initialPrompt,
   canMerge = false,
@@ -189,7 +192,16 @@ export function AgentTerminal({
     hapiSettings,
     shellConfig,
     claudeCodeIntegration,
-  } = useSettingsStore();
+  } = useSettingsStore(
+    useShallow((state) => ({
+      agentNotificationEnabled: state.agentNotificationEnabled,
+      agentNotificationDelay: state.agentNotificationDelay,
+      agentNotificationEnterDelay: state.agentNotificationEnterDelay,
+      hapiSettings: state.hapiSettings,
+      shellConfig: state.shellConfig,
+      claudeCodeIntegration: state.claudeCodeIntegration,
+    }))
+  );
   const { data: runtimeContext } = useRepositoryRuntimeContext(cwd);
   const isRemoteExecution = runtimeContext?.kind === 'remote';
   const executionPlatform = window.electronAPI?.env?.platform;
@@ -1164,6 +1176,7 @@ export function AgentTerminal({
     initialCommand,
     isActive: effectiveIsActive,
     kind: 'agent',
+    fontSizeScale: terminalFontScale,
     metadata:
       persistenceEnabled && terminalSessionId
         ? {

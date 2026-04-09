@@ -607,9 +607,12 @@ describe('settings store setters', () => {
     const env = await loadSettingsStore();
     const store = env.useSettingsStore.getState();
 
+    expect(env.useSettingsStore.getState().agentSessionDisplayMode).toBe('tab');
+
     store.setLayoutMode('columns');
     store.setFileTreeDisplayMode('current');
     store.setRepositoryListDisplayMode('tabs');
+    store.setAgentSessionDisplayMode('canvas');
     store.setActivePresetTheme('warm-graphite');
     store.setActiveCustomTheme('missing-theme');
 
@@ -644,6 +647,7 @@ describe('settings store setters', () => {
     expect(state.layoutMode).toBe('columns');
     expect(state.fileTreeDisplayMode).toBe('current');
     expect(state.repositoryListDisplayMode).toBe('tabs');
+    expect(state.agentSessionDisplayMode).toBe('canvas');
     expect(state.activeThemeSelection).toEqual({
       kind: 'custom',
       customThemeId: presetThemeId,

@@ -192,6 +192,8 @@ export function GeneralSettings() {
     setFileTreeDisplayMode,
     repositoryListDisplayMode,
     setRepositoryListDisplayMode,
+    agentSessionDisplayMode,
+    setAgentSessionDisplayMode,
     terminalRenderer,
     setTerminalRenderer,
     terminalScrollback,
@@ -314,7 +316,6 @@ export function GeneralSettings() {
     () => new Intl.NumberFormat(locale === 'zh' ? 'zh-CN' : 'en-US'),
     [locale]
   );
-
   const rendererOptions = React.useMemo(
     () => [
       { value: 'dom', label: 'DOM', description: t('Best compatibility (recommended)') },
@@ -838,6 +839,33 @@ export function GeneralSettings() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <h3 className="text-lg font-medium">{t('Agent Session Display')}</h3>
+        <p className="text-sm text-muted-foreground">
+          {t('Choose how worktree agent sessions are displayed')}
+        </p>
+      </div>
+
+      <div className="settings-field-row">
+        <span className="text-sm font-medium">{t('Canvas Layout')}</span>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {t('Show worktree agent sessions on an infinite canvas instead of tabs')}
+          </p>
+          <Switch
+            checked={agentSessionDisplayMode === 'canvas'}
+            onCheckedChange={(checked) => setAgentSessionDisplayMode(checked ? 'canvas' : 'tab')}
+          />
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <h3 className="text-lg font-medium">{t('Panels')}</h3>
+        <p className="text-sm text-muted-foreground">
+          {t('Configure optional panels and quick-access tools')}
+        </p>
       </div>
 
       {/* Auto-create session */}

@@ -80,6 +80,7 @@ function getInitialState() {
     layoutMode: 'tree' as const,
     fileTreeDisplayMode: 'legacy' as const,
     repositoryListDisplayMode: 'list' as const,
+    agentSessionDisplayMode: 'tab' as const,
     language: defaultLanguage,
     fontSize: 14,
     fontFamily: getDefaultUIFontFamily(defaultLanguage),
@@ -344,6 +345,8 @@ export const useSettingsStore = create<SettingsState>()(
 
       setRepositoryListDisplayMode: (repositoryListDisplayMode) =>
         set({ repositoryListDisplayMode }),
+
+      setAgentSessionDisplayMode: (agentSessionDisplayMode) => set({ agentSessionDisplayMode }),
 
       setLanguage: (language) => {
         const normalizedLanguage = normalizeLocale(language);

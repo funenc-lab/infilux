@@ -81,6 +81,8 @@ export type RepositoryListDisplayMode = 'tabs' | 'list';
 
 export type SettingsDisplayMode = 'tab' | 'draggable-modal';
 
+export type AgentSessionDisplayMode = 'tab' | 'canvas';
+
 // Terminal types
 export type FontWeight =
   | 'normal'
@@ -372,6 +374,7 @@ export interface SettingsState {
   layoutMode: LayoutMode;
   fileTreeDisplayMode: FileTreeDisplayMode;
   repositoryListDisplayMode: RepositoryListDisplayMode;
+  agentSessionDisplayMode: AgentSessionDisplayMode;
   language: Locale;
   fontSize: number;
   fontFamily: string;
@@ -502,6 +505,7 @@ export interface SettingsState {
   setLayoutMode: (mode: LayoutMode) => void;
   setFileTreeDisplayMode: (mode: FileTreeDisplayMode) => void;
   setRepositoryListDisplayMode: (mode: RepositoryListDisplayMode) => void;
+  setAgentSessionDisplayMode: (mode: AgentSessionDisplayMode) => void;
   setLanguage: (language: Locale) => void;
   setFontSize: (size: number) => void;
   setFontFamily: (family: string) => void;

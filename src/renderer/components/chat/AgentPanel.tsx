@@ -1,10 +1,44 @@
 import type { AIProvider, PersistentAgentSessionRecord } from '@shared/types';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { resolveTmuxServerNameForPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Bot,
+  Braces,
+  ChevronDown,
+  Crosshair,
+  Diamond,
+  Lock,
+  LockOpen,
+  Maximize2,
+  Minimize2,
+  Minus,
+  MousePointer2,
+  Plus,
+  Settings,
+  Sparkles,
+  SquareTerminal,
+  WandSparkles,
+  X,
+} from 'lucide-react';
+import {
+  Fragment,
+  memo,
+  type PointerEvent as ReactPointerEvent,
+  type UIEvent as ReactUIEvent,
+  type WheelEvent as ReactWheelEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { useShallow } from 'zustand/shallow';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { toastManager } from '@/components/ui/toast';
 import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useI18n } from '@/i18n';
@@ -23,6 +57,7 @@ import { buildChatNotificationCopy } from '@/lib/feedbackCopy';
 import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
+import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { initAgentStatusListener, useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
@@ -41,6 +76,28 @@ import {
   resolvePersistedInstalledAgents,
   resolveRemoteInstalledAgents,
 } from './agentAvailability';
+import {
+  AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE,
+  AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
+  shouldStartAgentCanvasPan,
+} from './agentCanvasInteractionPolicy';
+import { resolveAgentCanvasColumnCount } from './agentCanvasLayout';
+import {
+  AGENT_CANVAS_ZOOM_DEFAULT,
+  AGENT_CANVAS_ZOOM_MAX,
+  AGENT_CANVAS_ZOOM_MIN,
+  clampAgentCanvasScrollPosition,
+  formatAgentCanvasZoomPercent,
+  resolveAgentCanvasCenteredScrollPosition,
+  resolveAgentCanvasFloatingFrame,
+  resolveAgentCanvasFloatingTerminalFontScale,
+  resolveAgentCanvasResizeScrollPosition,
+  resolveAgentCanvasViewportMetrics,
+  resolveAgentCanvasWheelZoomDelta,
+  resolveAgentCanvasZoomTerminalFontScale,
+  stepAgentCanvasZoom,
+  stepAgentCanvasZoomByDelta,
+} from './agentCanvasViewport';
 import { buildAgentEmptyStateModel } from './agentEmptyStateModel';
 import {
   resolveAgentInputAvailability,
@@ -48,6 +105,11 @@ import {
 } from './agentInputAvailability';
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import { collectMountedAgentSessionIds } from './agentPanelMountPolicy';
+import {
+  buildAgentSessionPlacementIndex,
+  resolveAgentGroupPositions,
+} from './agentSessionLayoutIndex';
+import { diffPersistentAgentSessionRecords } from './agentSessionPersistenceSync';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
@@ -162,8 +224,98 @@ function getAgentDisplayLabel(
   return isHapi ? `${baseName} (Hapi)` : isHappy ? `${baseName} (Happy)` : baseName;
 }
 
+function resolveAgentBaseId(agentId: string): string {
+  if (agentId.endsWith('-hapi')) {
+    return agentId.slice(0, -5);
+  }
+  if (agentId.endsWith('-happy')) {
+    return agentId.slice(0, -6);
+  }
+  return agentId;
+}
+
+function renderAgentLabelIcon(agentId: string) {
+  const baseId = resolveAgentBaseId(agentId);
+
+  switch (baseId) {
+    case 'claude':
+      return <Sparkles className="h-3.5 w-3.5 shrink-0" />;
+    case 'codex':
+      return <Braces className="h-3.5 w-3.5 shrink-0" />;
+    case 'gemini':
+      return <Diamond className="h-3.5 w-3.5 shrink-0" />;
+    case 'cursor':
+      return <MousePointer2 className="h-3.5 w-3.5 shrink-0" />;
+    case 'opencode':
+      return <SquareTerminal className="h-3.5 w-3.5 shrink-0" />;
+    case 'auggie':
+      return <WandSparkles className="h-3.5 w-3.5 shrink-0" />;
+    default:
+      return <Bot className="h-3.5 w-3.5 shrink-0" />;
+  }
+}
+
 function buildSessionPanelDomId(sessionId: string): string {
   return `agent-session-panel-${sessionId}`;
+}
+
+type CanvasPanState = {
+  captureElement: HTMLDivElement | null;
+  frameId: number | null;
+  pendingClientX: number;
+  pendingClientY: number;
+  pointerId: number | null;
+  startClientX: number;
+  startClientY: number;
+  startScrollLeft: number;
+  startScrollTop: number;
+};
+
+type CanvasViewportPosition = {
+  left: number;
+  top: number;
+};
+
+type CanvasViewportSnapshot = {
+  clientHeight: number;
+  clientWidth: number;
+  scrollHeight: number;
+  scrollWidth: number;
+};
+
+type CanvasWheelZoomState = {
+  frameId: number | null;
+  pendingDelta: number;
+};
+
+function createInitialCanvasPanState(): CanvasPanState {
+  return {
+    captureElement: null,
+    frameId: null,
+    pendingClientX: 0,
+    pendingClientY: 0,
+    pointerId: null,
+    startClientX: 0,
+    startClientY: 0,
+    startScrollLeft: 0,
+    startScrollTop: 0,
+  };
+}
+
+function createInitialCanvasWheelZoomState(): CanvasWheelZoomState {
+  return {
+    frameId: null,
+    pendingDelta: 0,
+  };
+}
+
+function readCanvasViewportSnapshot(viewport: HTMLDivElement): CanvasViewportSnapshot {
+  return {
+    clientHeight: viewport.clientHeight,
+    clientWidth: viewport.clientWidth,
+    scrollHeight: viewport.scrollHeight,
+    scrollWidth: viewport.scrollWidth,
+  };
 }
 
 function createSession(
@@ -279,11 +431,48 @@ const GroupBottomBar = memo(function GroupBottomBar({
   );
 });
 
+const CanvasSessionContentOutlet = memo(function CanvasSessionContentOutlet({
+  className,
+  hostElement,
+}: {
+  className?: string;
+  hostElement: HTMLDivElement | null;
+}) {
+  const outletRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const outletElement = outletRef.current;
+    if (!outletElement || !hostElement) {
+      return;
+    }
+
+    if (hostElement.parentElement !== outletElement) {
+      outletElement.replaceChildren(hostElement);
+    }
+
+    return () => {
+      if (hostElement.parentElement === outletElement) {
+        outletElement.replaceChildren();
+      }
+    };
+  }, [hostElement]);
+
+  return <div ref={outletRef} className={className} />;
+});
+
 export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }: AgentPanelProps) {
   const { t } = useI18n();
   const platform = getRendererEnvironment().platform;
   const isWindows = platform === 'win32';
   const panelRef = useRef<HTMLDivElement>(null); // 容器引用
+  const canvasViewportRef = useRef<HTMLDivElement>(null);
+  const canvasPanStateRef = useRef<CanvasPanState>(createInitialCanvasPanState());
+  const canvasWheelZoomStateRef = useRef<CanvasWheelZoomState>(createInitialCanvasWheelZoomState());
+  const canvasSessionContentHostByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const canvasViewportPositionByWorktreeRef = useRef<Record<string, CanvasViewportPosition>>({});
+  const canvasViewportSnapshotByWorktreeRef = useRef<Record<string, CanvasViewportSnapshot>>({});
+  const lastCanvasZoomStorageKeyRef = useRef<string | null>(null);
+  const spacePressedRef = useRef(false);
   const {
     agentSettings,
     agentDetectionStatus,
@@ -297,20 +486,42 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     fontFamily,
     fontSize,
     editorSettings,
-  } = useSettingsStore();
-  const setClaudeCodeIntegration = useSettingsStore((state) => state.setClaudeCodeIntegration);
-  const confirmBeforeClosingAgentSession = useSettingsStore(
-    (s) => s.confirmBeforeClosingAgentSession
+    agentSessionDisplayMode,
+    backgroundImageEnabled,
+    confirmBeforeClosingAgentSession,
+    quickTerminalEnabled,
+    quickTerminalOpen,
+    setClaudeCodeIntegration,
+    setQuickTerminalOpen,
+  } = useSettingsStore(
+    useShallow((state) => ({
+      agentSettings: state.agentSettings,
+      agentDetectionStatus: state.agentDetectionStatus,
+      customAgents: state.customAgents,
+      xtermKeybindings: state.xtermKeybindings,
+      hapiSettings: state.hapiSettings,
+      autoCreateSessionOnActivate: state.autoCreateSessionOnActivate,
+      autoCreateSessionOnTempActivate: state.autoCreateSessionOnTempActivate,
+      claudeCodeIntegration: state.claudeCodeIntegration,
+      terminalTheme: state.terminalTheme,
+      fontFamily: state.fontFamily,
+      fontSize: state.fontSize,
+      editorSettings: state.editorSettings,
+      agentSessionDisplayMode: state.agentSessionDisplayMode,
+      backgroundImageEnabled: state.backgroundImageEnabled,
+      confirmBeforeClosingAgentSession: state.confirmBeforeClosingAgentSession,
+      quickTerminalEnabled: state.quickTerminal.enabled ?? true,
+      quickTerminalOpen: state.quickTerminal.isOpen,
+      setClaudeCodeIntegration: state.setClaudeCodeIntegration,
+      setQuickTerminalOpen: state.setQuickTerminalOpen,
+    }))
   );
-  // 添加 ?? true 回退，兼容老用户可能没有 enabled 字段的情况
-  const quickTerminalEnabled = useSettingsStore((s) => s.quickTerminal.enabled ?? true);
-  const quickTerminalOpen = useSettingsStore((s) => s.quickTerminal.isOpen);
-  const setQuickTerminalOpen = useSettingsStore((s) => s.setQuickTerminalOpen);
   const { getQuickTerminalSession, setQuickTerminalSession, removeQuickTerminalSession } =
     useTerminalStore();
   const currentQuickTerminalSession = getQuickTerminalSession(cwd);
   const [tmuxInstalled, setTmuxInstalled] = useState<boolean | null>(null);
   const [isEnablingSessionPersistence, setIsEnablingSessionPersistence] = useState(false);
+  const [isCanvasPanning, setIsCanvasPanning] = useState(false);
 
   // 用于强制重新创建 QuickTerminalModal 的 key
   // 当功能被禁用再启用时递增，确保创建全新的 terminal
@@ -338,11 +549,10 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     setQuickTerminalOpen,
   ]);
 
-  const bgImageEnabled = useSettingsStore((s) => s.backgroundImageEnabled);
   const terminalBgColor = useMemo(() => {
-    if (bgImageEnabled) return 'transparent';
+    if (backgroundImageEnabled) return 'transparent';
     return getXtermTheme(terminalTheme)?.background ?? defaultDarkTheme.background;
-  }, [terminalTheme, bgImageEnabled]);
+  }, [backgroundImageEnabled, terminalTheme]);
   const statusLineEnabled = claudeCodeIntegration.statusLineEnabled;
   const defaultAgentId = useMemo(() => getDefaultAgentId(agentSettings), [agentSettings]);
   const isRemoteRepo = useMemo(() => isRemoteVirtualPath(repoPath), [repoPath]);
@@ -356,6 +566,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     name: string;
   } | null>(null);
   const autoRolledOverSessionIdsRef = useRef<Set<string>>(new Set());
+  const persistentRecordSnapshotBySessionIdRef = useRef<Map<string, string>>(new Map());
   const quickTerminalFocusLeaseRef = useRef<{
     release: (() => void) | null;
     sessionId: string | null;
@@ -434,6 +645,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   }, [cwd, worktreeGroupStates]);
 
   const { groups, activeGroupId } = currentGroupState;
+  const persistedActiveSessionId = useAgentSessionsStore(
+    (state) => state.activeIds[normalizePath(cwd)] ?? null
+  );
 
   const getCurrentActiveSessionId = useCallback(() => {
     return groups.find((group) => group.id === activeGroupId)?.activeSessionId ?? null;
@@ -609,6 +823,23 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     releaseQuickTerminalFocusLock,
   ]);
 
+  const ensureCanvasSessionContentHost = useCallback((sessionId: string): HTMLDivElement | null => {
+    if (typeof document === 'undefined') {
+      return null;
+    }
+
+    const existingHost = canvasSessionContentHostByIdRef.current.get(sessionId);
+    if (existingHost) {
+      return existingHost;
+    }
+
+    const nextHost = document.createElement('div');
+    nextHost.className = 'h-full w-full';
+    nextHost.dataset.agentCanvasContentHost = sessionId;
+    canvasSessionContentHostByIdRef.current.set(sessionId, nextHost);
+    return nextHost;
+  }, []);
+
   useEffect(() => {
     if (quickTerminalOpen && isActive) {
       pauseQuickTerminalFocusLock();
@@ -626,6 +857,27 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     };
   }, [releaseQuickTerminalFocusLock]);
 
+  useEffect(() => {
+    const activeSessionIds = new Set(allSessions.map((session) => session.id));
+    for (const [sessionId, hostElement] of canvasSessionContentHostByIdRef.current) {
+      if (activeSessionIds.has(sessionId)) {
+        continue;
+      }
+
+      hostElement.remove();
+      canvasSessionContentHostByIdRef.current.delete(sessionId);
+    }
+  }, [allSessions]);
+
+  useEffect(() => {
+    return () => {
+      for (const hostElement of canvasSessionContentHostByIdRef.current.values()) {
+        hostElement.remove();
+      }
+      canvasSessionContentHostByIdRef.current.clear();
+    };
+  }, []);
+
   // Update group state helper - uses store instead of local state
   const updateCurrentGroupState = useCallback(
     (updater: (state: AgentGroupState) => AgentGroupState) => {
@@ -641,6 +893,97 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       .filter((s) => s.repoPath === repoPath && pathsEqual(s.cwd, cwd))
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
   }, [allSessions, repoPath, cwd]);
+  const currentWorktreeSessionIds = useMemo(
+    () => currentWorktreeSessions.map((session) => session.id),
+    [currentWorktreeSessions]
+  );
+  const currentGroupIdBySessionId = useMemo(() => {
+    const groupIds = new Map<string, string>();
+    for (const group of currentGroupState.groups) {
+      for (const sessionId of group.sessionIds) {
+        groupIds.set(sessionId, group.id);
+      }
+    }
+    return groupIds;
+  }, [currentGroupState.groups]);
+  const canvasFocusedSessionId = useMemo(() => {
+    if (
+      persistedActiveSessionId &&
+      currentWorktreeSessions.some((session) => session.id === persistedActiveSessionId)
+    ) {
+      return persistedActiveSessionId;
+    }
+
+    const groupActiveSessionId = getCurrentActiveSessionId();
+    if (
+      groupActiveSessionId &&
+      currentWorktreeSessions.some((session) => session.id === groupActiveSessionId)
+    ) {
+      return groupActiveSessionId;
+    }
+
+    return currentWorktreeSessions[0]?.id ?? null;
+  }, [currentWorktreeSessions, getCurrentActiveSessionId, persistedActiveSessionId]);
+  const canvasColumnCount = useMemo(
+    () => resolveAgentCanvasColumnCount(currentWorktreeSessions.length),
+    [currentWorktreeSessions.length]
+  );
+  const [canvasZoomByWorktree, setCanvasZoomByWorktree] = useState<Record<string, number>>({});
+  const [canvasLockedByWorktree, setCanvasLockedByWorktree] = useState<Record<string, boolean>>({});
+  const [canvasFloatingSessionIdByWorktree, setCanvasFloatingSessionIdByWorktree] = useState<
+    Record<string, string | null>
+  >({});
+  const [canvasViewportBounds, setCanvasViewportBounds] = useState<{
+    height: number;
+    left: number;
+    top: number;
+    width: number;
+  } | null>(null);
+  const canvasZoomStorageKey = useMemo(() => normalizePath(cwd), [cwd]);
+  const canvasZoom = useMemo(
+    () => canvasZoomByWorktree[canvasZoomStorageKey] ?? AGENT_CANVAS_ZOOM_DEFAULT,
+    [canvasZoomByWorktree, canvasZoomStorageKey]
+  );
+  const canvasFloatingSessionId = useMemo(
+    () => canvasFloatingSessionIdByWorktree[canvasZoomStorageKey] ?? null,
+    [canvasFloatingSessionIdByWorktree, canvasZoomStorageKey]
+  );
+  const isCanvasLocked = useMemo(
+    () => canvasLockedByWorktree[canvasZoomStorageKey] ?? false,
+    [canvasLockedByWorktree, canvasZoomStorageKey]
+  );
+  const canvasZoomLabel = useMemo(() => formatAgentCanvasZoomPercent(canvasZoom), [canvasZoom]);
+  const canvasViewportMetrics = useMemo(
+    () => resolveAgentCanvasViewportMetrics(canvasZoom),
+    [canvasZoom]
+  );
+  const canvasFloatingFrame = useMemo(
+    () =>
+      canvasViewportBounds
+        ? resolveAgentCanvasFloatingFrame({
+            viewportHeight: canvasViewportBounds.height,
+            viewportLeft: canvasViewportBounds.left,
+            viewportTop: canvasViewportBounds.top,
+            viewportWidth: canvasViewportBounds.width,
+          })
+        : null,
+    [canvasViewportBounds]
+  );
+  const canvasFloatingTerminalFontScale = useMemo(() => {
+    if (!canvasFloatingFrame) {
+      return 1;
+    }
+
+    return resolveAgentCanvasFloatingTerminalFontScale({
+      frameHeight: canvasFloatingFrame.height,
+      frameWidth: canvasFloatingFrame.width,
+    });
+  }, [canvasFloatingFrame]);
+  const canvasZoomTerminalFontScale = useMemo(
+    () => resolveAgentCanvasZoomTerminalFontScale(canvasZoom),
+    [canvasZoom]
+  );
+  const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas';
   const shouldPollLiveSubagents =
     isActive && currentWorktreeSessions.some((session) => session.agentId === 'codex');
   const liveSubagentsByWorktree = useLiveSubagents(shouldPollLiveSubagents ? [cwd] : []);
@@ -657,7 +1000,20 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     () => getHighestSessionActivityState(Object.values(sessionActivityStateById)),
     [sessionActivityStateById]
   );
-  const agentStatuses = useAgentStatusStore((state) => state.statuses);
+  const currentWorktreeAgentStatuses = useAgentStatusStore(
+    useShallow((state) => {
+      const nextStatuses: typeof state.statuses = {};
+
+      for (const sessionId of currentWorktreeSessionIds) {
+        const status = state.statuses[sessionId];
+        if (status) {
+          nextStatuses[sessionId] = status;
+        }
+      }
+
+      return nextStatuses;
+    })
+  );
 
   useEffect(() => {
     if (!cwd) {
@@ -729,10 +1085,19 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   }, []);
 
   useEffect(() => {
+    const records = persistableSessions.map((session) => buildPersistentRecord(session));
+    const { changedRecords, nextSnapshotBySessionId } = diffPersistentAgentSessionRecords({
+      previousSnapshotBySessionId: persistentRecordSnapshotBySessionIdRef.current,
+      records,
+    });
+
+    persistentRecordSnapshotBySessionIdRef.current = nextSnapshotBySessionId;
+    if (changedRecords.length === 0) {
+      return;
+    }
+
     void Promise.allSettled(
-      persistableSessions.map((session) =>
-        window.electronAPI.agentSession.markPersistent(buildPersistentRecord(session))
-      )
+      changedRecords.map((record) => window.electronAPI.agentSession.markPersistent(record))
     );
   }, [persistableSessions]);
 
@@ -1220,7 +1585,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const handleStartFreshSession = useCallback(
     (session: Session, groupId: string) => {
       void (async () => {
-        const status = agentStatuses[session.id];
+        const status = currentWorktreeAgentStatuses[session.id];
         const openFiles = getOpenFilePathsForWorktree(session.cwd);
         const contextWindow = status?.contextWindow;
         const currentUsage = contextWindow?.currentUsage;
@@ -1268,7 +1633,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         });
       })();
     },
-    [agentStatuses, getOpenFilePathsForWorktree, handleNewSessionWithAgent]
+    [currentWorktreeAgentStatuses, getOpenFilePathsForWorktree, handleNewSessionWithAgent]
   );
 
   useEffect(() => {
@@ -1280,7 +1645,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       mode: claudeCodeIntegration.autoSessionRollover,
       groupState: currentGroupState,
       sessions: currentWorktreeSessions,
-      statuses: agentStatuses,
+      statuses: currentWorktreeAgentStatuses,
       handledSessionIds: autoRolledOverSessionIdsRef.current,
     });
     if (!target) {
@@ -1293,7 +1658,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     isActive,
     currentGroupState,
     currentWorktreeSessions,
-    agentStatuses,
+    currentWorktreeAgentStatuses,
     claudeCodeIntegration.autoSessionRollover,
     handleStartFreshSession,
   ]);
@@ -1614,6 +1979,614 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       ),
     }));
   }, [groups, activeGroupId, cwd, setActiveId, updateCurrentGroupState]);
+  const handleNextCanvasSession = useCallback(() => {
+    if (currentWorktreeSessions.length <= 1) {
+      return;
+    }
+
+    const currentIndex = currentWorktreeSessions.findIndex(
+      (session) => session.id === canvasFocusedSessionId
+    );
+    const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextSession = currentWorktreeSessions[(baseIndex + 1) % currentWorktreeSessions.length];
+
+    handleSelectSession(nextSession.id, currentGroupIdBySessionId.get(nextSession.id));
+  }, [
+    canvasFocusedSessionId,
+    currentGroupIdBySessionId,
+    currentWorktreeSessions,
+    handleSelectSession,
+  ]);
+  const handlePrevCanvasSession = useCallback(() => {
+    if (currentWorktreeSessions.length <= 1) {
+      return;
+    }
+
+    const currentIndex = currentWorktreeSessions.findIndex(
+      (session) => session.id === canvasFocusedSessionId
+    );
+    const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+    const prevIndex =
+      baseIndex <= 0 ? currentWorktreeSessions.length - 1 : Math.max(baseIndex - 1, 0);
+    const prevSession = currentWorktreeSessions[prevIndex];
+
+    handleSelectSession(prevSession.id, currentGroupIdBySessionId.get(prevSession.id));
+  }, [
+    canvasFocusedSessionId,
+    currentGroupIdBySessionId,
+    currentWorktreeSessions,
+    handleSelectSession,
+  ]);
+  const setCanvasZoomForCurrentWorktree = useCallback(
+    (updater: number | ((current: number) => number)) => {
+      setCanvasZoomByWorktree((prev) => {
+        const current = prev[canvasZoomStorageKey] ?? AGENT_CANVAS_ZOOM_DEFAULT;
+        const next = typeof updater === 'function' ? updater(current) : updater;
+        const normalizedNext =
+          next === AGENT_CANVAS_ZOOM_DEFAULT && prev[canvasZoomStorageKey] === undefined
+            ? AGENT_CANVAS_ZOOM_DEFAULT
+            : next;
+
+        if (normalizedNext === current) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [canvasZoomStorageKey]: normalizedNext,
+        };
+      });
+    },
+    [canvasZoomStorageKey]
+  );
+  const handleCanvasZoomOut = useCallback(() => {
+    if (isCanvasLocked) {
+      return;
+    }
+    setCanvasZoomForCurrentWorktree((current) => stepAgentCanvasZoom(current, 'out'));
+  }, [isCanvasLocked, setCanvasZoomForCurrentWorktree]);
+  const handleCanvasZoomReset = useCallback(() => {
+    if (isCanvasLocked) {
+      return;
+    }
+    setCanvasZoomForCurrentWorktree(AGENT_CANVAS_ZOOM_DEFAULT);
+  }, [isCanvasLocked, setCanvasZoomForCurrentWorktree]);
+  const handleCanvasZoomIn = useCallback(() => {
+    if (isCanvasLocked) {
+      return;
+    }
+    setCanvasZoomForCurrentWorktree((current) => stepAgentCanvasZoom(current, 'in'));
+  }, [isCanvasLocked, setCanvasZoomForCurrentWorktree]);
+  const setCanvasLockedForCurrentWorktree = useCallback(
+    (locked: boolean) => {
+      setCanvasLockedByWorktree((prev) => {
+        const current = prev[canvasZoomStorageKey] ?? false;
+        if (current === locked) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [canvasZoomStorageKey]: locked,
+        };
+      });
+    },
+    [canvasZoomStorageKey]
+  );
+  const handleToggleCanvasLock = useCallback(() => {
+    setCanvasLockedForCurrentWorktree(!isCanvasLocked);
+  }, [isCanvasLocked, setCanvasLockedForCurrentWorktree]);
+  const resetCanvasWheelZoomState = useCallback(() => {
+    const wheelZoomState = canvasWheelZoomStateRef.current;
+    if (wheelZoomState.frameId !== null) {
+      cancelAnimationFrame(wheelZoomState.frameId);
+    }
+    canvasWheelZoomStateRef.current = createInitialCanvasWheelZoomState();
+  }, []);
+  const updateCanvasViewportBounds = useCallback((viewport: HTMLDivElement) => {
+    const rect = viewport.getBoundingClientRect();
+    const nextBounds = {
+      height: rect.height,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+    };
+
+    setCanvasViewportBounds((previousBounds) => {
+      if (
+        previousBounds &&
+        previousBounds.height === nextBounds.height &&
+        previousBounds.left === nextBounds.left &&
+        previousBounds.top === nextBounds.top &&
+        previousBounds.width === nextBounds.width
+      ) {
+        return previousBounds;
+      }
+
+      return nextBounds;
+    });
+  }, []);
+  const applyCanvasViewportPosition = useCallback(
+    (viewport: HTMLDivElement, position: CanvasViewportPosition): CanvasViewportPosition => {
+      const snapshot = readCanvasViewportSnapshot(viewport);
+      const nextPosition = clampAgentCanvasScrollPosition({
+        clientHeight: snapshot.clientHeight,
+        clientWidth: snapshot.clientWidth,
+        left: position.left,
+        scrollHeight: snapshot.scrollHeight,
+        scrollWidth: snapshot.scrollWidth,
+        top: position.top,
+      });
+
+      if (viewport.scrollLeft !== nextPosition.left) {
+        viewport.scrollLeft = nextPosition.left;
+      }
+      if (viewport.scrollTop !== nextPosition.top) {
+        viewport.scrollTop = nextPosition.top;
+      }
+
+      canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = nextPosition;
+      return nextPosition;
+    },
+    [canvasZoomStorageKey]
+  );
+  const handleCenterCanvasViewport = useCallback(() => {
+    if (isCanvasLocked) {
+      return;
+    }
+
+    const viewport = canvasViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const snapshot = readCanvasViewportSnapshot(viewport);
+    const nextPosition = resolveAgentCanvasCenteredScrollPosition({
+      clientHeight: snapshot.clientHeight,
+      clientWidth: snapshot.clientWidth,
+      scrollHeight: snapshot.scrollHeight,
+      scrollWidth: snapshot.scrollWidth,
+    });
+
+    applyCanvasViewportPosition(viewport, nextPosition);
+    canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = snapshot;
+  }, [applyCanvasViewportPosition, canvasZoomStorageKey, isCanvasLocked]);
+  const handleCanvasViewportWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      if (!(event.metaKey || event.ctrlKey)) {
+        return;
+      }
+
+      event.preventDefault();
+      if (isCanvasLocked) {
+        return;
+      }
+      const wheelZoomState = canvasWheelZoomStateRef.current;
+      wheelZoomState.pendingDelta += event.deltaY;
+
+      if (wheelZoomState.frameId !== null) {
+        return;
+      }
+
+      wheelZoomState.frameId = requestAnimationFrame(() => {
+        const currentWheelZoomState = canvasWheelZoomStateRef.current;
+        currentWheelZoomState.frameId = null;
+
+        const { nextPendingDelta, stepDelta } = resolveAgentCanvasWheelZoomDelta(
+          currentWheelZoomState.pendingDelta
+        );
+        currentWheelZoomState.pendingDelta = nextPendingDelta;
+
+        if (stepDelta === 0) {
+          return;
+        }
+
+        setCanvasZoomForCurrentWorktree((current) =>
+          stepAgentCanvasZoomByDelta(current, stepDelta)
+        );
+      });
+    },
+    [isCanvasLocked, setCanvasZoomForCurrentWorktree]
+  );
+  const handleCanvasViewportScroll = useCallback(
+    (event: ReactUIEvent<HTMLDivElement>) => {
+      if (!isCanvasDisplayMode) {
+        return;
+      }
+
+      canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = {
+        left: event.currentTarget.scrollLeft,
+        top: event.currentTarget.scrollTop,
+      };
+    },
+    [canvasZoomStorageKey, isCanvasDisplayMode]
+  );
+  const setCanvasFloatingSessionIdForCurrentWorktree = useCallback(
+    (sessionId: string | null) => {
+      setCanvasFloatingSessionIdByWorktree((prev) => {
+        const current = prev[canvasZoomStorageKey] ?? null;
+        if (current === sessionId) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [canvasZoomStorageKey]: sessionId,
+        };
+      });
+    },
+    [canvasZoomStorageKey]
+  );
+  const handleOpenCanvasFloatingSession = useCallback(
+    (sessionId: string, groupId?: string) => {
+      handleSelectSession(sessionId, groupId);
+      setCanvasFloatingSessionIdForCurrentWorktree(sessionId);
+    },
+    [handleSelectSession, setCanvasFloatingSessionIdForCurrentWorktree]
+  );
+  const handleCloseCanvasFloatingSession = useCallback(() => {
+    setCanvasFloatingSessionIdForCurrentWorktree(null);
+  }, [setCanvasFloatingSessionIdForCurrentWorktree]);
+  const finishCanvasPan = useCallback(() => {
+    const panState = canvasPanStateRef.current;
+    if (panState.pointerId === null) {
+      return;
+    }
+
+    if (panState.frameId !== null) {
+      cancelAnimationFrame(panState.frameId);
+    }
+
+    if (
+      panState.captureElement?.isConnected &&
+      panState.captureElement.hasPointerCapture(panState.pointerId)
+    ) {
+      panState.captureElement.releasePointerCapture(panState.pointerId);
+    }
+
+    canvasPanStateRef.current = createInitialCanvasPanState();
+    setIsCanvasPanning(false);
+  }, []);
+  const handleCanvasViewportPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (
+        !shouldStartAgentCanvasPan({
+          isCanvasDisplayMode,
+          isCanvasLocked,
+          pointerButton: event.button,
+          spacePressed: spacePressedRef.current,
+          target: event.target,
+        })
+      ) {
+        return;
+      }
+
+      const viewport = canvasViewportRef.current;
+      if (!viewport || canvasPanStateRef.current.pointerId !== null) {
+        return;
+      }
+
+      canvasPanStateRef.current = {
+        captureElement: event.currentTarget,
+        frameId: null,
+        pendingClientX: event.clientX,
+        pendingClientY: event.clientY,
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startScrollLeft: viewport.scrollLeft,
+        startScrollTop: viewport.scrollTop,
+      };
+
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      event.stopPropagation();
+      setIsCanvasPanning(true);
+    },
+    [isCanvasDisplayMode, isCanvasLocked]
+  );
+  const handleCanvasViewportPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const panState = canvasPanStateRef.current;
+      if (panState.pointerId !== event.pointerId) {
+        return;
+      }
+
+      panState.pendingClientX = event.clientX;
+      panState.pendingClientY = event.clientY;
+
+      if (panState.frameId !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      panState.frameId = requestAnimationFrame(() => {
+        const viewport = canvasViewportRef.current;
+        const currentPanState = canvasPanStateRef.current;
+        currentPanState.frameId = null;
+
+        if (!viewport || currentPanState.pointerId === null) {
+          return;
+        }
+
+        const deltaX = currentPanState.pendingClientX - currentPanState.startClientX;
+        const deltaY = currentPanState.pendingClientY - currentPanState.startClientY;
+        viewport.scrollLeft = currentPanState.startScrollLeft - deltaX;
+        viewport.scrollTop = currentPanState.startScrollTop - deltaY;
+      });
+
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    []
+  );
+  const handleCanvasViewportPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (canvasPanStateRef.current.pointerId !== event.pointerId) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      finishCanvasPan();
+    },
+    [finishCanvasPan]
+  );
+  const handleCanvasViewportPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (canvasPanStateRef.current.pointerId !== event.pointerId) {
+        return;
+      }
+
+      finishCanvasPan();
+    },
+    [finishCanvasPan]
+  );
+
+  useEffect(() => {
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.code === 'Space') {
+        spacePressedRef.current = true;
+      }
+    };
+    const handleWindowKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space') {
+        spacePressedRef.current = false;
+      }
+    };
+    const handleWindowBlur = () => {
+      spacePressedRef.current = false;
+      finishCanvasPan();
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    window.addEventListener('keyup', handleWindowKeyUp);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown);
+      window.removeEventListener('keyup', handleWindowKeyUp);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [finishCanvasPan]);
+
+  useEffect(() => {
+    return () => {
+      resetCanvasWheelZoomState();
+    };
+  }, [resetCanvasWheelZoomState]);
+
+  useEffect(() => {
+    if (!isCanvasDisplayMode) {
+      finishCanvasPan();
+      resetCanvasWheelZoomState();
+    }
+  }, [finishCanvasPan, isCanvasDisplayMode, resetCanvasWheelZoomState]);
+
+  useEffect(() => {
+    if (!isCanvasLocked) {
+      return;
+    }
+
+    finishCanvasPan();
+    resetCanvasWheelZoomState();
+  }, [finishCanvasPan, isCanvasLocked, resetCanvasWheelZoomState]);
+
+  useEffect(() => {
+    if (lastCanvasZoomStorageKeyRef.current === canvasZoomStorageKey) {
+      return;
+    }
+
+    lastCanvasZoomStorageKeyRef.current = canvasZoomStorageKey;
+    resetCanvasWheelZoomState();
+  }, [canvasZoomStorageKey, resetCanvasWheelZoomState]);
+
+  useEffect(() => {
+    if (!isCanvasDisplayMode) {
+      return;
+    }
+
+    let cancelled = false;
+    const frameId = requestAnimationFrame(() => {
+      if (cancelled) {
+        return;
+      }
+
+      const viewport = canvasViewportRef.current;
+      if (!viewport) {
+        return;
+      }
+
+      const snapshot = readCanvasViewportSnapshot(viewport);
+      const savedPosition = canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey];
+      const nextPosition =
+        savedPosition != null
+          ? clampAgentCanvasScrollPosition({
+              clientHeight: snapshot.clientHeight,
+              clientWidth: snapshot.clientWidth,
+              left: savedPosition.left,
+              scrollHeight: snapshot.scrollHeight,
+              scrollWidth: snapshot.scrollWidth,
+              top: savedPosition.top,
+            })
+          : resolveAgentCanvasCenteredScrollPosition({
+              clientHeight: snapshot.clientHeight,
+              clientWidth: snapshot.clientWidth,
+              scrollHeight: snapshot.scrollHeight,
+              scrollWidth: snapshot.scrollWidth,
+            });
+
+      applyCanvasViewportPosition(viewport, nextPosition);
+      canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = snapshot;
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+    };
+  }, [applyCanvasViewportPosition, canvasZoomStorageKey, isCanvasDisplayMode]);
+  useEffect(() => {
+    if (!isCanvasDisplayMode) {
+      setCanvasViewportBounds(null);
+      return;
+    }
+
+    const viewport = canvasViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    let frameId: number | null = null;
+
+    const syncCanvasViewportLayout = () => {
+      updateCanvasViewportBounds(viewport);
+
+      const nextSnapshot = readCanvasViewportSnapshot(viewport);
+      const previousSnapshot = canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey];
+      const currentPosition = {
+        left: viewport.scrollLeft,
+        top: viewport.scrollTop,
+      };
+
+      if (
+        previousSnapshot &&
+        previousSnapshot.clientHeight === nextSnapshot.clientHeight &&
+        previousSnapshot.clientWidth === nextSnapshot.clientWidth &&
+        previousSnapshot.scrollHeight === nextSnapshot.scrollHeight &&
+        previousSnapshot.scrollWidth === nextSnapshot.scrollWidth
+      ) {
+        canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] =
+          clampAgentCanvasScrollPosition({
+            clientHeight: nextSnapshot.clientHeight,
+            clientWidth: nextSnapshot.clientWidth,
+            left: currentPosition.left,
+            scrollHeight: nextSnapshot.scrollHeight,
+            scrollWidth: nextSnapshot.scrollWidth,
+            top: currentPosition.top,
+          });
+        canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = nextSnapshot;
+        return;
+      }
+
+      const nextPosition = previousSnapshot
+        ? resolveAgentCanvasResizeScrollPosition({
+            currentLeft: currentPosition.left,
+            currentTop: currentPosition.top,
+            nextClientHeight: nextSnapshot.clientHeight,
+            nextClientWidth: nextSnapshot.clientWidth,
+            nextScrollHeight: nextSnapshot.scrollHeight,
+            nextScrollWidth: nextSnapshot.scrollWidth,
+            previousClientHeight: previousSnapshot.clientHeight,
+            previousClientWidth: previousSnapshot.clientWidth,
+            previousScrollHeight: previousSnapshot.scrollHeight,
+            previousScrollWidth: previousSnapshot.scrollWidth,
+          })
+        : clampAgentCanvasScrollPosition({
+            clientHeight: nextSnapshot.clientHeight,
+            clientWidth: nextSnapshot.clientWidth,
+            left: currentPosition.left,
+            scrollHeight: nextSnapshot.scrollHeight,
+            scrollWidth: nextSnapshot.scrollWidth,
+            top: currentPosition.top,
+          });
+
+      applyCanvasViewportPosition(viewport, nextPosition);
+      canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = nextSnapshot;
+    };
+
+    const scheduleViewportLayoutSync = () => {
+      if (frameId !== null) {
+        return;
+      }
+
+      frameId = requestAnimationFrame(() => {
+        frameId = null;
+        syncCanvasViewportLayout();
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleViewportLayoutSync();
+    });
+
+    scheduleViewportLayoutSync();
+    resizeObserver.observe(viewport);
+    window.addEventListener('resize', scheduleViewportLayoutSync);
+
+    return () => {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', scheduleViewportLayoutSync);
+    };
+  }, [
+    applyCanvasViewportPosition,
+    canvasZoomStorageKey,
+    isCanvasDisplayMode,
+    updateCanvasViewportBounds,
+  ]);
+  useEffect(() => {
+    if (isCanvasDisplayMode) {
+      return;
+    }
+
+    if (canvasFloatingSessionId !== null) {
+      setCanvasFloatingSessionIdForCurrentWorktree(null);
+    }
+  }, [canvasFloatingSessionId, isCanvasDisplayMode, setCanvasFloatingSessionIdForCurrentWorktree]);
+  useEffect(() => {
+    if (
+      canvasFloatingSessionId &&
+      !currentWorktreeSessions.some((session) => session.id === canvasFloatingSessionId)
+    ) {
+      setCanvasFloatingSessionIdForCurrentWorktree(null);
+    }
+  }, [
+    canvasFloatingSessionId,
+    currentWorktreeSessions,
+    setCanvasFloatingSessionIdForCurrentWorktree,
+  ]);
+  useEffect(() => {
+    if (!canvasFloatingSessionId) {
+      return;
+    }
+
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      event.preventDefault();
+      handleCloseCanvasFloatingSession();
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown);
+    };
+  }, [canvasFloatingSessionId, handleCloseCanvasFloatingSession]);
 
   const handleInitialized = useCallback(
     (id: string) => {
@@ -2002,6 +2975,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return;
       if (pendingCloseSession) return;
+      const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas';
 
       if (matchesKeybinding(e, xtermKeybindings.newTab)) {
         e.preventDefault();
@@ -2011,6 +2985,15 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
       if (matchesKeybinding(e, xtermKeybindings.closeTab)) {
         e.preventDefault();
+        if (isCanvasDisplayMode) {
+          if (canvasFocusedSessionId) {
+            handleCloseSession(
+              canvasFocusedSessionId,
+              currentGroupIdBySessionId.get(canvasFocusedSessionId)
+            );
+          }
+          return;
+        }
         const activeGroup = groups.find((g) => g.id === activeGroupId);
         if (activeGroup?.activeSessionId) {
           handleCloseSession(activeGroup.activeSessionId, activeGroup.id);
@@ -2020,17 +3003,34 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
       if (matchesKeybinding(e, xtermKeybindings.nextTab)) {
         e.preventDefault();
+        if (isCanvasDisplayMode) {
+          handleNextCanvasSession();
+          return;
+        }
         handleNextSession();
         return;
       }
 
       if (matchesKeybinding(e, xtermKeybindings.prevTab)) {
         e.preventDefault();
+        if (isCanvasDisplayMode) {
+          handlePrevCanvasSession();
+          return;
+        }
         handlePrevSession();
         return;
       }
 
       if (e.metaKey && e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        if (isCanvasDisplayMode) {
+          const index = Number.parseInt(e.key, 10) - 1;
+          const targetSession = currentWorktreeSessions[index];
+          if (targetSession) {
+            e.preventDefault();
+            handleSelectSession(targetSession.id, currentGroupIdBySessionId.get(targetSession.id));
+          }
+          return;
+        }
         const activeGroup = groups.find((g) => g.id === activeGroupId);
         if (activeGroup) {
           const index = Number.parseInt(e.key, 10) - 1;
@@ -2049,9 +3049,15 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     pendingCloseSession,
     groups,
     activeGroupId,
+    agentSessionDisplayMode,
+    canvasFocusedSessionId,
+    currentGroupIdBySessionId,
+    currentWorktreeSessions,
     xtermKeybindings,
     handleNewSession,
     handleCloseSession,
+    handleNextCanvasSession,
+    handlePrevCanvasSession,
     handleNextSession,
     handlePrevSession,
     handleSelectSession,
@@ -2080,6 +3086,26 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     }
     return max;
   }, [statusLineHeightsByGroupId]);
+  const mountedCurrentWorktreeSessionIds = useMemo(() => {
+    const orderedIds = currentWorktreeSessions.map((session) => session.id);
+    const seen = new Set(orderedIds);
+
+    for (const sessionId of globalSessionIds) {
+      if (!seen.has(sessionId)) {
+        orderedIds.push(sessionId);
+      }
+    }
+
+    return orderedIds;
+  }, [currentWorktreeSessions, globalSessionIds]);
+  const sessionById = useMemo(
+    () => new Map(allSessions.map((session) => [session.id, session])),
+    [allSessions]
+  );
+  const sessionPlacementById = useMemo(
+    () => buildAgentSessionPlacementIndex(worktreeGroupStates),
+    [worktreeGroupStates]
+  );
   const defaultAgentLabel = getAgentDisplayLabel(defaultAgentId, customAgents);
   const emptyStateModel = useMemo(
     () =>
@@ -2137,38 +3163,382 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   // Check if current worktree has any groups (used for empty state detection)
   const hasAnyGroups = groups.length > 0;
 
-  // Helper to find session info (which worktree, group, index)
-  const findSessionInfo = (sessionId: string) => {
-    for (const [worktreePath, state] of Object.entries(worktreeGroupStates)) {
-      for (let groupIndex = 0; groupIndex < state.groups.length; groupIndex++) {
-        const group = state.groups[groupIndex];
-        if (group.sessionIds.includes(sessionId)) {
-          const session = allSessions.find((s) => s.id === sessionId);
-          if (session) {
-            return { worktreePath, state, group, groupIndex, session };
-          }
-        }
-      }
-    }
-    return null;
-  };
-
-  // Calculate cumulative left positions for groups
-  const getGroupPositions = (state: AgentGroupState) => {
-    const positions: { left: number; width: number }[] = [];
-    let cumulative = 0;
-    for (const percent of state.flexPercents) {
-      positions.push({ left: cumulative, width: percent });
-      cumulative += percent;
-    }
-    return positions;
-  };
-
   // Check if current worktree has no sessions (for empty state overlay)
   const showEmptyState = !hasAnyGroups && currentWorktreeSessions.length === 0;
 
   // Get current worktree's group positions for terminal placement
-  const currentGroupPositions = getGroupPositions(currentGroupState);
+  const currentGroupPositions = resolveAgentGroupPositions(currentGroupState);
+  const renderedSessionPanels = mountedCurrentWorktreeSessionIds.map((sessionId) => {
+    const session = sessionById.get(sessionId);
+    if (!session) return null;
+
+    // Check if this session belongs to current repo
+    const isCurrentRepo = session.repoPath === repoPath;
+
+    const placement = sessionPlacementById.get(sessionId);
+
+    // Determine if this session belongs to current worktree
+    const isCurrentWorktree = isCurrentRepo && pathsEqual(session.cwd, cwd);
+
+    // Calculate position - if no group info, use full width
+    let left = 0;
+    let width = 100;
+    let isSessionVisible = true;
+    let groupId: string | null = null;
+
+    if (placement) {
+      left = placement.left;
+      width = placement.width;
+      isSessionVisible = placement.isVisible;
+      groupId = placement.groupId;
+    }
+
+    const isGroupActive = groupId === currentGroupState.activeGroupId;
+    const isFocusedSession = session.id === canvasFocusedSessionId;
+    const isTerminalActive = isCanvasDisplayMode
+      ? isActive && isCurrentWorktree && isFocusedSession
+      : isActive && isCurrentWorktree && isSessionVisible && isGroupActive;
+
+    // Only show terminals from current repo + current worktree + active session
+    const shouldShow =
+      isCurrentRepo && isCurrentWorktree && (isCanvasDisplayMode || isSessionVisible);
+    const canMerge = placement ? placement.groupIndex > 0 : false;
+    const sessionAvailability = resolveAgentInputAvailability({
+      backendSessionId: session.backendSessionId,
+      runtimeState: session.recoveryState,
+    });
+    const canSendToSession = sessionAvailability === 'ready';
+    const sessionSendLabel =
+      sessionAvailability === 'awaiting-session'
+        ? t('Awaiting Session')
+        : sessionAvailability === 'reconnecting'
+          ? t('Reconnecting')
+          : sessionAvailability === 'disconnected'
+            ? t('Disconnected')
+            : t('Send');
+    const sessionSendHint = resolveAgentInputUnavailableReason({
+      agentCommand: session.agentCommand || 'claude',
+      availability: sessionAvailability,
+      isRemoteExecution: isRemoteVirtualPath(session.cwd),
+      t,
+    });
+    const sender = enhancedInputSenderRef.current.get(sessionId);
+    const tileAgentLabel = getAgentDisplayLabel(session.agentId, customAgents);
+    const isCanvasFloatingSession = isCanvasDisplayMode && session.id === canvasFloatingSessionId;
+    const sessionContentHost = ensureCanvasSessionContentHost(sessionId);
+    const canRenderCanvasFloatingSessionInPortal =
+      sessionContentHost !== null && isCanvasFloatingSession && canvasFloatingFrame !== null;
+    const shouldDimCanvasTile =
+      isCanvasDisplayMode && canvasFloatingSessionId !== null && !isCanvasFloatingSession;
+    const renderSessionHeaderSummary = () => (
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="control-chip shrink-0 max-w-[45%] gap-1.5 truncate">
+          {renderAgentLabelIcon(session.agentId)}
+          <span className="truncate">{tileAgentLabel}</span>
+        </span>
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          {session.name}
+        </div>
+      </div>
+    );
+    const sessionPanelContent = (
+      <div
+        key={`${sessionId}-content`}
+        data-agent-canvas-floating={isCanvasFloatingSession ? 'true' : undefined}
+        className={cn(isCanvasDisplayMode ? 'flex h-full min-h-0 flex-1 flex-col gap-2' : 'h-full')}
+      >
+        <div
+          className={cn(
+            isCanvasDisplayMode
+              ? cn(
+                  'flex min-h-0 shrink-0 items-start justify-between gap-2 px-1 pt-1',
+                  canRenderCanvasFloatingSessionInPortal && 'hidden'
+                )
+              : 'hidden'
+          )}
+        >
+          <button
+            type="button"
+            data-agent-canvas-header={isCanvasDisplayMode ? 'true' : undefined}
+            className={cn(
+              'min-w-0 flex-1 rounded-xl px-2 py-1 text-left transition-colors',
+              isCanvasDisplayMode ? 'hover:bg-accent/20' : 'pointer-events-none'
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenCanvasFloatingSession(sessionId, groupId ?? undefined);
+            }}
+          >
+            {renderSessionHeaderSummary()}
+          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {isCanvasDisplayMode && !isCanvasFloatingSession ? (
+              <button
+                type="button"
+                className="control-panel flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30"
+                aria-label={t('Bring to Front')}
+                title={t('Bring to Front')}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenCanvasFloatingSession(sessionId, groupId ?? undefined);
+                }}
+              >
+                <Maximize2 className="h-4 w-4" />
+              </button>
+            ) : null}
+            {isCanvasFloatingSession && !canRenderCanvasFloatingSessionInPortal ? (
+              <button
+                type="button"
+                className="control-panel flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30"
+                aria-label={t('Back to Canvas')}
+                title={t('Back to Canvas')}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleCloseCanvasFloatingSession();
+                }}
+              >
+                <Minimize2 className="h-4 w-4" />
+              </button>
+            ) : null}
+            {!canRenderCanvasFloatingSessionInPortal ? (
+              <button
+                type="button"
+                className="control-panel flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30"
+                aria-label={t('Close')}
+                title={t('Close')}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleCloseSession(session.id, groupId ?? undefined);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            'relative min-h-0',
+            isCanvasDisplayMode
+              ? 'flex-1 overflow-hidden rounded-xl border border-border/60 bg-background/20'
+              : 'h-full'
+          )}
+        >
+          {/* Inactive overlay - like TerminalGroup */}
+          {!isCanvasDisplayMode && shouldShow && !isGroupActive ? (
+            <div className="absolute inset-0 z-10 bg-background/10 pointer-events-none" />
+          ) : null}
+          <AgentTerminal
+            id={session.id}
+            createdAt={session.createdAt}
+            cwd={session.cwd}
+            sessionId={session.sessionId || session.id}
+            backendSessionId={session.backendSessionId}
+            agentId={session.agentId}
+            agentCommand={session.agentCommand || 'claude'}
+            customPath={session.customPath}
+            customArgs={session.customArgs}
+            environment={session.environment || 'native'}
+            initialized={session.initialized}
+            activated={session.activated}
+            persistenceEnabled={session.persistenceEnabled}
+            hostSessionKey={session.hostSessionKey}
+            recovered={session.recovered}
+            isActive={isTerminalActive}
+            terminalFontScale={
+              isCanvasFloatingSession
+                ? canvasFloatingTerminalFontScale
+                : isCanvasDisplayMode
+                  ? canvasZoomTerminalFontScale
+                  : undefined
+            }
+            hasPendingCommand={!!session.pendingCommand}
+            initialPrompt={session.pendingCommand}
+            onInitialized={() => handleInitialized(sessionId)}
+            onActivated={() => handleActivated(sessionId)}
+            onActivatedWithFirstLine={(line) => handleActivatedWithFirstLine(sessionId, line)}
+            onExit={() => handleSessionExit(sessionId, groupId || undefined)}
+            onTerminalTitleChange={(title) => {
+              if (session.userRenamed) return;
+              const nextTerminalTitle = getMeaningfulTerminalTitle(title);
+              const defaultName = getDefaultSessionName(session.agentId);
+              const currentName = normalizeSessionTitleText(session.name);
+              const syncName =
+                nextTerminalTitle &&
+                isCursorAgent(session.agentId) &&
+                (!currentName || currentName === normalizeSessionTitleText(defaultName));
+              updateSession(sessionId, {
+                terminalTitle: nextTerminalTitle,
+                ...(syncName ? { name: nextTerminalTitle } : {}),
+              });
+            }}
+            onBackendSessionIdChange={(backendSessionId) => {
+              if (session.backendSessionId === backendSessionId) return;
+              updateSession(sessionId, { backendSessionId });
+            }}
+            onProviderSessionIdChange={(providerSessionId) => {
+              if (session.sessionId === providerSessionId) return;
+              updateSession(sessionId, { sessionId: providerSessionId });
+            }}
+            onRuntimeStateChange={(runtimeState) => {
+              if (session.recoveryState === runtimeState) return;
+              updateSession(sessionId, { recoveryState: runtimeState });
+            }}
+            onSplit={() => groupId && handleSplit(groupId)}
+            canMerge={canMerge}
+            onMerge={() => groupId && handleMerge(groupId)}
+            onFocus={() => groupId && handleSelectSession(sessionId, groupId)}
+            enhancedInputOpen={getEnhancedInputState(sessionId).open}
+            onEnhancedInputOpenChange={(open) => {
+              // EnhancedInput open state is now stored per-session in the store
+              setEnhancedInputOpen(sessionId, open);
+            }}
+            onRegisterEnhancedInputSender={(senderSessionId, sender) => {
+              enhancedInputSenderRef.current.set(senderSessionId, sender);
+            }}
+            onUnregisterEnhancedInputSender={(senderSessionId) => {
+              enhancedInputSenderRef.current.delete(senderSessionId);
+            }}
+          />
+        </div>
+
+        <div className={cn(isCanvasDisplayMode ? 'pointer-events-auto' : 'hidden')}>
+          {isCanvasDisplayMode ? (
+            <>
+              {claudeCodeIntegration.enhancedInputEnabled &&
+              !supportsAgentNativeTerminalInput(session.agentId) ? (
+                <EnhancedInputContainer
+                  sessionId={session.id}
+                  canSend={canSendToSession}
+                  sendLabel={sessionSendLabel}
+                  sendHint={sessionSendHint}
+                  onSend={(content, attachments) => sender?.(content, attachments) ?? false}
+                  isActive={isActive && isFocusedSession}
+                />
+              ) : null}
+              {statusLineEnabled ? (
+                <StatusLine
+                  sessionId={session.id}
+                  onRequestFreshSession={
+                    groupId ? () => handleStartFreshSession(session, groupId) : undefined
+                  }
+                />
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </div>
+    );
+    const sessionPanelContentPortal =
+      sessionContentHost !== null ? createPortal(sessionPanelContent, sessionContentHost) : null;
+
+    const sessionPanelShell = (
+      <div
+        key={sessionId}
+        id={buildSessionPanelDomId(sessionId)}
+        {...(isCanvasDisplayMode ? { [AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE]: 'true' } : undefined)}
+        className={cn(
+          isCanvasDisplayMode
+            ? 'control-panel-muted flex h-full min-h-0 overflow-hidden rounded-2xl border p-2 shadow-sm transition-colors'
+            : shouldShow
+              ? 'absolute top-0 h-full'
+              : 'absolute top-0 h-full opacity-0 pointer-events-none',
+          shouldDimCanvasTile && 'opacity-35',
+          canRenderCanvasFloatingSessionInPortal && 'opacity-0 pointer-events-none',
+          isCanvasDisplayMode &&
+            (isFocusedSession ? 'border-primary/60 ring-1 ring-primary/40' : 'border-border/70')
+        )}
+        style={
+          isCanvasDisplayMode
+            ? undefined
+            : {
+                left: `${left}%`,
+                width: `${width}%`,
+              }
+        }
+        onMouseDownCapture={
+          isCanvasDisplayMode
+            ? () => handleSelectSession(sessionId, groupId ?? undefined)
+            : undefined
+        }
+      >
+        {canRenderCanvasFloatingSessionInPortal ? (
+          <div className="h-full w-full rounded-[inherit] border border-transparent" />
+        ) : sessionContentHost ? (
+          <CanvasSessionContentOutlet
+            className="h-full w-full rounded-[inherit]"
+            hostElement={sessionContentHost}
+          />
+        ) : (
+          sessionPanelContent
+        )}
+      </div>
+    );
+
+    return canRenderCanvasFloatingSessionInPortal ? (
+      <Fragment key={sessionId}>
+        {sessionPanelContentPortal}
+        {sessionPanelShell}
+        {createPortal(
+          <div
+            {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+            className="fixed z-30 flex flex-col overflow-hidden rounded-[20px] border border-primary/50 bg-background shadow-2xl pointer-events-auto no-drag"
+            style={
+              canvasFloatingFrame
+                ? {
+                    height: `${canvasFloatingFrame.height}px`,
+                    left: `${canvasFloatingFrame.left}px`,
+                    top: `${canvasFloatingFrame.top}px`,
+                    width: `${canvasFloatingFrame.width}px`,
+                  }
+                : undefined
+            }
+          >
+            <div className="control-panel-muted pointer-events-auto relative z-20 flex shrink-0 items-start justify-between gap-3 border-b border-border/60 px-3 py-2 no-drag">
+              <div className="min-w-0">{renderSessionHeaderSummary()}</div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  className="control-panel pointer-events-auto relative z-20 flex h-10 w-10 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-accent/30 no-drag"
+                  aria-label={t('Back to Canvas')}
+                  title={t('Back to Canvas')}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleCloseCanvasFloatingSession();
+                  }}
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="control-panel pointer-events-auto relative z-20 flex h-10 w-10 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-accent/30 no-drag"
+                  aria-label={t('Close')}
+                  title={t('Close')}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleCloseSession(session.id, groupId ?? undefined);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <CanvasSessionContentOutlet
+              className="min-h-0 flex-1"
+              hostElement={sessionContentHost}
+            />
+          </div>,
+          document.body
+        )}
+      </Fragment>
+    ) : (
+      <Fragment key={sessionId}>
+        {sessionPanelContentPortal}
+        {sessionPanelShell}
+      </Fragment>
+    );
+  });
 
   return (
     <div
@@ -2186,7 +3556,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       {/* IMPORTANT: Don't use early return here - terminals must stay mounted to prevent PTY destruction */}
       {showEmptyState ? (
         <AgentPanelEmptyState
-          bgImageEnabled={bgImageEnabled}
+          bgImageEnabled={backgroundImageEnabled}
           buttonStyle={emptyStateButtonStyle}
           cwd={cwd}
           defaultAgentLabel={defaultAgentLabel}
@@ -2198,8 +3568,126 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           profiles={emptyStateProfiles}
         />
       ) : null}
+      {isCanvasDisplayMode && currentWorktreeSessions.length > 0 ? (
+        <div className="absolute inset-x-2 top-2 z-10 flex items-center justify-end gap-2">
+          <div className="flex items-center justify-end gap-2">
+            <div className="control-panel-muted pointer-events-auto flex items-center gap-1 rounded-xl p-1">
+              <button
+                type="button"
+                className={cn(
+                  'control-panel flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30',
+                  isCanvasLocked && 'bg-accent/30 text-primary'
+                )}
+                aria-label={isCanvasLocked ? t('Unlock Canvas') : t('Lock Canvas')}
+                title={isCanvasLocked ? t('Unlock Canvas') : t('Lock Canvas')}
+                onClick={handleToggleCanvasLock}
+              >
+                {isCanvasLocked ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                className="control-panel flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30 disabled:opacity-50"
+                aria-label={t('Center')}
+                title={t('Center')}
+                onClick={handleCenterCanvasViewport}
+                disabled={isCanvasLocked}
+              >
+                <Crosshair className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="control-panel flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30 disabled:opacity-50"
+                aria-label={t('Zoom Out')}
+                title={t('Zoom Out')}
+                onClick={handleCanvasZoomOut}
+                disabled={isCanvasLocked || canvasZoom <= AGENT_CANVAS_ZOOM_MIN}
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="control-panel rounded-lg px-2.5 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent/30"
+                aria-label={t('Reset Zoom')}
+                title={t('Reset Zoom')}
+                onClick={handleCanvasZoomReset}
+                disabled={isCanvasLocked}
+              >
+                {canvasZoomLabel}
+              </button>
+              <button
+                type="button"
+                className="control-panel flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30 disabled:opacity-50"
+                aria-label={t('Zoom In')}
+                title={t('Zoom In')}
+                onClick={handleCanvasZoomIn}
+                disabled={isCanvasLocked || canvasZoom >= AGENT_CANVAS_ZOOM_MAX}
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="control-panel-muted pointer-events-auto inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/30"
+                onClick={() => handleNewSession()}
+              >
+                <Plus className="h-4 w-4" />
+                {t('New Session')}
+              </button>
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="control-panel-muted pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-accent/30"
+                      aria-label={t('Choose session agent')}
+                      title={t('Choose session agent')}
+                      disabled={emptyStateProfiles.length === 0}
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  }
+                />
+                <MenuPopup align="end" sideOffset={8} className="min-w-48 rounded-2xl p-2">
+                  <div className="mb-1 flex items-center justify-between px-1 py-1">
+                    <span className="control-menu-label text-muted-foreground">
+                      {t('Select Agent')}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={t('Agent profiles')}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleOpenAgentSettings();
+                      }}
+                      className="control-icon-button flex h-7 w-7 items-center justify-center"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {emptyStateProfiles.map((profile) => (
+                    <MenuItem
+                      key={profile.agentId}
+                      onClick={() => handleNewSessionWithAgent(profile.agentId, profile.command)}
+                      className="control-menu-item mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-foreground"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{profile.name}</span>
+                      {profile.isDefault ? (
+                        <span className="control-chip control-chip-strong shrink-0">
+                          {t('Default')}
+                        </span>
+                      ) : null}
+                    </MenuItem>
+                  ))}
+                </MenuPopup>
+              </Menu>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {/* Resize handles - only for current worktree */}
-      {currentGroupState.groups.length > 1 &&
+      {!isCanvasDisplayMode &&
+        currentGroupState.groups.length > 1 &&
         currentGroupState.groups.map((group, index) => {
           if (index >= currentGroupState.groups.length - 1) return null;
           const leftPos = currentGroupPositions
@@ -2219,234 +3707,171 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       {/* All sessions across ALL repos are rendered here to keep them mounted */}
       {/* bottom is dynamically set based on StatusLine height */}
       <div
-        className="absolute top-2 left-2 right-2 z-0"
-        style={{ bottom: maxStatusLineHeight + 8 }}
+        ref={canvasViewportRef}
+        className={cn(
+          'absolute left-2 right-2 z-0',
+          isCanvasDisplayMode
+            ? 'top-14 bottom-2 overflow-auto overscroll-contain touch-none'
+            : 'top-2',
+          isCanvasDisplayMode &&
+            (isCanvasLocked
+              ? 'cursor-default'
+              : isCanvasPanning
+                ? 'cursor-grabbing select-none'
+                : 'cursor-grab')
+        )}
+        style={isCanvasDisplayMode ? undefined : { bottom: maxStatusLineHeight + 8 }}
+        onPointerDownCapture={isCanvasDisplayMode ? handleCanvasViewportPointerDown : undefined}
+        onPointerMove={isCanvasDisplayMode ? handleCanvasViewportPointerMove : undefined}
+        onPointerUp={isCanvasDisplayMode ? handleCanvasViewportPointerUp : undefined}
+        onPointerCancel={isCanvasDisplayMode ? handleCanvasViewportPointerCancel : undefined}
+        onScroll={isCanvasDisplayMode ? handleCanvasViewportScroll : undefined}
+        onWheelCapture={isCanvasDisplayMode ? handleCanvasViewportWheel : undefined}
       >
-        {Array.from(globalSessionIds).map((sessionId) => {
-          const session = allSessions.find((s) => s.id === sessionId);
-          if (!session) return null;
-
-          // Check if this session belongs to current repo
-          const isCurrentRepo = session.repoPath === repoPath;
-
-          // Find session's group info for positioning
-          const info = findSessionInfo(sessionId);
-
-          // Determine if this session belongs to current worktree
-          const isCurrentWorktree = isCurrentRepo && pathsEqual(session.cwd, cwd);
-
-          // Calculate position - if no group info, use full width
-          let left = 0;
-          let width = 100;
-          let isSessionVisible = true;
-          let groupId: string | null = null;
-
-          if (info) {
-            const positions = getGroupPositions(info.state);
-            const position = positions[info.groupIndex];
-            if (position) {
-              left = position.left;
-              width = position.width;
-            }
-            isSessionVisible = info.group.activeSessionId === sessionId;
-            groupId = info.group.id;
-          }
-
-          const isGroupActive = groupId === currentGroupState.activeGroupId;
-          const isTerminalActive =
-            isActive && isCurrentWorktree && isSessionVisible && isGroupActive;
-
-          // Only show terminals from current repo + current worktree + active session
-          const shouldShow = isCurrentRepo && isCurrentWorktree && isSessionVisible;
-
-          return (
+        {isCanvasDisplayMode && canvasFloatingSessionId ? (
+          <button
+            type="button"
+            {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+            className="absolute inset-0 z-20 bg-background/58 backdrop-blur-[1px] no-drag"
+            aria-label={t('Dismiss Floating Session')}
+            onClick={handleCloseCanvasFloatingSession}
+          />
+        ) : null}
+        {isCanvasDisplayMode ? (
+          <div
+            className="relative min-h-full min-w-full"
+            style={{
+              width: `${canvasViewportMetrics.planePercent}%`,
+              height: `${canvasViewportMetrics.planePercent}%`,
+            }}
+          >
             <div
-              key={sessionId}
-              id={buildSessionPanelDomId(sessionId)}
-              className={
-                shouldShow
-                  ? 'absolute top-0 h-full'
-                  : 'absolute top-0 h-full opacity-0 pointer-events-none'
-              }
+              className="absolute left-1/2 top-1/2"
               style={{
-                left: `${left}%`,
-                width: `${width}%`,
+                width: `${canvasViewportMetrics.framePercent}%`,
+                height: `${canvasViewportMetrics.framePercent}%`,
+                transform: 'translate(-50%, -50%)',
               }}
             >
-              {/* Inactive overlay - like TerminalGroup */}
-              {shouldShow && !isGroupActive && (
-                <div className="absolute inset-0 z-10 bg-background/10 pointer-events-none" />
-              )}
-              <AgentTerminal
-                id={session.id}
-                createdAt={session.createdAt}
-                cwd={session.cwd}
-                sessionId={session.sessionId || session.id}
-                backendSessionId={session.backendSessionId}
-                agentId={session.agentId}
-                agentCommand={session.agentCommand || 'claude'}
-                customPath={session.customPath}
-                customArgs={session.customArgs}
-                environment={session.environment || 'native'}
-                initialized={session.initialized}
-                activated={session.activated}
-                persistenceEnabled={session.persistenceEnabled}
-                hostSessionKey={session.hostSessionKey}
-                recovered={session.recovered}
-                isActive={isTerminalActive}
-                hasPendingCommand={!!session.pendingCommand}
-                initialPrompt={session.pendingCommand}
-                onInitialized={() => handleInitialized(sessionId)}
-                onActivated={() => handleActivated(sessionId)}
-                onActivatedWithFirstLine={(line) => handleActivatedWithFirstLine(sessionId, line)}
-                onExit={() => handleSessionExit(sessionId, groupId || undefined)}
-                onTerminalTitleChange={(title) => {
-                  if (session.userRenamed) return;
-                  const nextTerminalTitle = getMeaningfulTerminalTitle(title);
-                  const defaultName = getDefaultSessionName(session.agentId);
-                  const currentName = normalizeSessionTitleText(session.name);
-                  const syncName =
-                    nextTerminalTitle &&
-                    isCursorAgent(session.agentId) &&
-                    (!currentName || currentName === normalizeSessionTitleText(defaultName));
-                  updateSession(sessionId, {
-                    terminalTitle: nextTerminalTitle,
-                    ...(syncName ? { name: nextTerminalTitle } : {}),
-                  });
+              <div
+                className="grid h-full w-full gap-3 transition-transform duration-150 ease-out motion-reduce:transition-none"
+                style={{
+                  transform: `scale(${canvasViewportMetrics.zoom})`,
+                  transformOrigin: 'center center',
+                  gridTemplateColumns: `repeat(${canvasColumnCount}, minmax(0, 1fr))`,
+                  gridAutoRows: 'minmax(0, 1fr)',
                 }}
-                onBackendSessionIdChange={(backendSessionId) => {
-                  if (session.backendSessionId === backendSessionId) return;
-                  updateSession(sessionId, { backendSessionId });
-                }}
-                onProviderSessionIdChange={(providerSessionId) => {
-                  if (session.sessionId === providerSessionId) return;
-                  updateSession(sessionId, { sessionId: providerSessionId });
-                }}
-                onRuntimeStateChange={(runtimeState) => {
-                  if (session.recoveryState === runtimeState) return;
-                  updateSession(sessionId, { recoveryState: runtimeState });
-                }}
-                onSplit={() => groupId && handleSplit(groupId)}
-                canMerge={info ? info.groupIndex > 0 : false}
-                onMerge={() => groupId && handleMerge(groupId)}
-                onFocus={() => groupId && handleSelectSession(sessionId, groupId)}
-                enhancedInputOpen={getEnhancedInputState(sessionId).open}
-                onEnhancedInputOpenChange={(open) => {
-                  // EnhancedInput open state is now stored per-session in the store
-                  setEnhancedInputOpen(sessionId, open);
-                }}
-                onRegisterEnhancedInputSender={(senderSessionId, sender) => {
-                  enhancedInputSenderRef.current.set(senderSessionId, sender);
-                }}
-                onUnregisterEnhancedInputSender={(senderSessionId) => {
-                  enhancedInputSenderRef.current.delete(senderSessionId);
-                }}
-              />
+              >
+                {renderedSessionPanels}
+              </div>
             </div>
-          );
-        })}
+          </div>
+        ) : (
+          <div className="relative h-full min-h-0">{renderedSessionPanels}</div>
+        )}
       </div>
 
       {/* Session bars (floating) - rendered for each group in current worktree */}
       {/* pointer-events-none on container, AgentGroup handles its own pointer-events */}
-      {currentGroupState.groups.map((group, index) => {
-        const position = currentGroupPositions[index];
-        if (!position) return null;
+      {!isCanvasDisplayMode &&
+        currentGroupState.groups.map((group, index) => {
+          const position = currentGroupPositions[index];
+          if (!position) return null;
 
-        const isActiveGroup = group.id === activeGroupId;
-        const activeSession =
-          group.activeSessionId != null
-            ? (currentWorktreeSessions.find((session) => session.id === group.activeSessionId) ??
-              null)
-            : null;
-        const activeSessionAvailability = resolveAgentInputAvailability({
-          backendSessionId: activeSession?.backendSessionId,
-          runtimeState: activeSession?.recoveryState,
-        });
-        const canSendToActiveSession = activeSessionAvailability === 'ready';
-        const activeSessionSendLabel =
-          activeSessionAvailability === 'awaiting-session'
-            ? t('Awaiting Session')
-            : activeSessionAvailability === 'reconnecting'
-              ? t('Reconnecting')
-              : activeSessionAvailability === 'disconnected'
-                ? t('Disconnected')
-                : t('Send');
-        const activeSessionSendHint =
-          activeSession == null
-            ? undefined
-            : resolveAgentInputUnavailableReason({
-                agentCommand: activeSession.agentCommand || 'claude',
-                availability: activeSessionAvailability,
-                isRemoteExecution: isRemoteVirtualPath(activeSession.cwd),
-                t,
-              });
-        const sender =
-          isActiveGroup && group.activeSessionId
-            ? enhancedInputSenderRef.current.get(group.activeSessionId)
-            : undefined;
+          const isActiveGroup = group.id === activeGroupId;
+          const activeSession =
+            group.activeSessionId != null
+              ? (currentWorktreeSessions.find((session) => session.id === group.activeSessionId) ??
+                null)
+              : null;
+          const activeSessionAvailability = resolveAgentInputAvailability({
+            backendSessionId: activeSession?.backendSessionId,
+            runtimeState: activeSession?.recoveryState,
+          });
+          const canSendToActiveSession = activeSessionAvailability === 'ready';
+          const activeSessionSendLabel =
+            activeSessionAvailability === 'awaiting-session'
+              ? t('Awaiting Session')
+              : activeSessionAvailability === 'reconnecting'
+                ? t('Reconnecting')
+                : activeSessionAvailability === 'disconnected'
+                  ? t('Disconnected')
+                  : t('Send');
+          const activeSessionSendHint =
+            activeSession == null
+              ? undefined
+              : resolveAgentInputUnavailableReason({
+                  agentCommand: activeSession.agentCommand || 'claude',
+                  availability: activeSessionAvailability,
+                  isRemoteExecution: isRemoteVirtualPath(activeSession.cwd),
+                  t,
+                });
+          const sender =
+            isActiveGroup && group.activeSessionId
+              ? enhancedInputSenderRef.current.get(group.activeSessionId)
+              : undefined;
 
-        return (
-          <div
-            key={`group-ui-${group.id}`}
-            className="absolute top-0 bottom-0 z-10 pointer-events-none overflow-hidden flex flex-col"
-            style={{
-              left: `${position.left}%`,
-              width: `${position.width}%`,
-            }}
-          >
-            <AgentGroup
-              group={group}
-              sessions={currentWorktreeSessions}
-              activityStateBySessionId={sessionActivityStateById}
-              enabledAgents={enabledAgents}
-              customAgents={customAgents}
-              agentSettings={agentSettings}
-              agentInfo={AGENT_INFO}
-              onSessionSelect={(id) => handleSelectSession(id, group.id)}
-              onSessionClose={(id) => handleCloseSession(id, group.id)}
-              onSessionNew={() => handleNewSession(group.id)}
-              onSessionNewWithAgent={(agentId, cmd) =>
-                handleNewSessionWithAgent(agentId, cmd, group.id)
-              }
-              onSessionRename={handleRenameSession}
-              onSessionReorder={(from, to) => handleReorderSessions(group.id, from, to)}
-              onGroupClick={() => handleGroupClick(group.id)}
-              quickTerminalOpen={quickTerminalOpen}
-              quickTerminalHasProcess={hasRunningProcess}
-              onToggleQuickTerminal={quickTerminalEnabled ? handleToggleQuickTerminal : undefined}
-            />
-            {/* Bottom bar: Enhanced Input + Status Line, height measured for terminal offset */}
-            <GroupBottomBar groupId={group.id} onHeightChange={setStatusLineHeightsByGroupId}>
-              {isActiveGroup &&
-                claudeCodeIntegration.enhancedInputEnabled &&
-                activeSession != null &&
-                !supportsAgentNativeTerminalInput(activeSession.agentId) && (
-                  <EnhancedInputContainer
-                    sessionId={activeSession.id}
-                    canSend={canSendToActiveSession}
-                    sendLabel={activeSessionSendLabel}
-                    sendHint={activeSessionSendHint}
-                    onSend={(content, attachments) => {
-                      return sender?.(content, attachments) ?? false;
-                    }}
-                    isActive={isActive}
+          return (
+            <div
+              key={`group-ui-${group.id}`}
+              className="absolute top-0 bottom-0 z-10 pointer-events-none overflow-hidden flex flex-col"
+              style={{
+                left: `${position.left}%`,
+                width: `${position.width}%`,
+              }}
+            >
+              <AgentGroup
+                group={group}
+                sessions={currentWorktreeSessions}
+                activityStateBySessionId={sessionActivityStateById}
+                enabledAgents={enabledAgents}
+                customAgents={customAgents}
+                agentSettings={agentSettings}
+                agentInfo={AGENT_INFO}
+                onSessionSelect={(id) => handleSelectSession(id, group.id)}
+                onSessionClose={(id) => handleCloseSession(id, group.id)}
+                onSessionNew={() => handleNewSession(group.id)}
+                onSessionNewWithAgent={(agentId, cmd) =>
+                  handleNewSessionWithAgent(agentId, cmd, group.id)
+                }
+                onSessionRename={handleRenameSession}
+                onSessionReorder={(from, to) => handleReorderSessions(group.id, from, to)}
+                onGroupClick={() => handleGroupClick(group.id)}
+                quickTerminalOpen={quickTerminalOpen}
+                quickTerminalHasProcess={hasRunningProcess}
+                onToggleQuickTerminal={quickTerminalEnabled ? handleToggleQuickTerminal : undefined}
+              />
+              {/* Bottom bar: Enhanced Input + Status Line, height measured for terminal offset */}
+              <GroupBottomBar groupId={group.id} onHeightChange={setStatusLineHeightsByGroupId}>
+                {isActiveGroup &&
+                  claudeCodeIntegration.enhancedInputEnabled &&
+                  activeSession != null &&
+                  !supportsAgentNativeTerminalInput(activeSession.agentId) && (
+                    <EnhancedInputContainer
+                      sessionId={activeSession.id}
+                      canSend={canSendToActiveSession}
+                      sendLabel={activeSessionSendLabel}
+                      sendHint={activeSessionSendHint}
+                      onSend={(content, attachments) => {
+                        return sender?.(content, attachments) ?? false;
+                      }}
+                      isActive={isActive}
+                    />
+                  )}
+                {statusLineEnabled && (
+                  <StatusLine
+                    sessionId={group.activeSessionId}
+                    onRequestFreshSession={
+                      activeSession
+                        ? () => handleStartFreshSession(activeSession, group.id)
+                        : undefined
+                    }
                   />
                 )}
-              {statusLineEnabled && (
-                <StatusLine
-                  sessionId={group.activeSessionId}
-                  onRequestFreshSession={
-                    activeSession
-                      ? () => handleStartFreshSession(activeSession, group.id)
-                      : undefined
-                  }
-                />
-              )}
-            </GroupBottomBar>
-          </div>
-        );
-      })}
+              </GroupBottomBar>
+            </div>
+          );
+        })}
       <AgentCloseSessionDialog
         pendingCloseSession={pendingCloseSession}
         onConfirm={handleConfirmCloseSession}
