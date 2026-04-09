@@ -12,7 +12,7 @@ import {
   useState,
 } from 'react';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
-import { getActivityStateMeta } from '@/components/ui/activityStatus';
+import { WorktreeActivityMarker } from '@/components/layout/WorktreeActivityMarker';
 import { toastManager } from '@/components/ui/toast';
 import { useGitSync } from '@/hooks/useGitSync';
 import { useWorktreeTaskCompletionNotice } from '@/hooks/useOutputState';
@@ -192,33 +192,11 @@ export const WorktreeItem = memo(function WorktreeItem({
     }
   }, [menuOpen, menuPosition]);
 
-  const activityMeta = getActivityStateMeta(activityState);
   const metaItems = [
     activityState !== 'idle'
       ? {
           key: 'state',
-          content: (
-            <span
-              className={cn(
-                'control-tree-state',
-                activityState === 'running' && 'control-tree-state-live',
-                activityState === 'waiting_input' && 'control-tree-state-wait',
-                activityState === 'completed' && 'control-tree-state-done'
-              )}
-            >
-              {activityMeta.label}
-            </span>
-          ),
-        }
-      : null,
-    !tracking && currentBranch
-      ? {
-          key: 'publish',
-          content: (
-            <span className="control-tree-metric">
-              <span className="control-tree-metric-label">{t('publish')}</span>
-            </span>
-          ),
+          content: <WorktreeActivityMarker state={activityState} />,
         }
       : null,
   ].filter((item): item is { key: string; content: ReactElement } => item !== null);

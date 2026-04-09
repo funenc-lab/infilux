@@ -43,6 +43,9 @@ describe('worktree sidebar cleanup policy', () => {
       '.control-tree-node[data-node-kind="worktree"]:hover .control-tree-tail[data-role="action"],'
     );
     expect(globalsSource).toContain('max-width: 6.5rem;');
+    expect(globalsSource).toContain('align-items: center;');
+    expect(globalsSource).toContain('align-self: center;');
+    expect(globalsSource).toContain('transform: none;');
   });
 
   it('keeps nested worktree groups on a single guide instead of per-row rails', () => {
@@ -55,5 +58,10 @@ describe('worktree sidebar cleanup policy', () => {
     expect(globalsSource).toContain('flex-wrap: nowrap;');
     expect(globalsSource).toContain('white-space: nowrap;');
     expect(globalsSource).toContain('overflow: hidden;');
+  });
+
+  it('keeps publish as a tail action instead of duplicating it in worktree meta rows', () => {
+    expect(worktreeTreeItemSource).not.toContain("key: 'publish'");
+    expect(worktreePanelItemSource).not.toContain("key: 'publish'");
   });
 });

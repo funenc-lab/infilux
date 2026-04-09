@@ -35,6 +35,12 @@ describe('worktree row performance policy', () => {
     expect(treeSidebarWorktreeItemSource).not.toContain(
       'const activityStates = useWorktreeActivityStore((s) => s.activityStates);'
     );
+    expect(treeSidebarWorktreeItemSource).toContain(
+      '<WorktreeActivityMarker state={activityState} />'
+    );
+    expect(treeSidebarWorktreeItemSource).not.toContain("? 'Running'");
+    expect(treeSidebarWorktreeItemSource).not.toContain("? 'Waiting'");
+    expect(treeSidebarWorktreeItemSource).not.toContain("? 'Done'");
   });
 
   it('keeps worktree panel rows on the same path-scoped activity selectors', () => {
@@ -57,5 +63,7 @@ describe('worktree row performance policy', () => {
     expect(worktreePanelItemSource).not.toContain(
       'const activityStates = useWorktreeActivityStore((s) => s.activityStates);'
     );
+    expect(worktreePanelItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(worktreePanelItemSource).not.toContain('{activityMeta.label}');
   });
 });

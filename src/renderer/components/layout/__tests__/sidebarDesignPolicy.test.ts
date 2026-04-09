@@ -145,17 +145,11 @@ describe('sidebar design policy', () => {
     );
     expect(treeSidebarSource).toContain("key: 'diff'");
     expect(worktreePanelSource).toContain("key: 'diff'");
-    expect(treeSidebarSource.indexOf("key: 'publish'")).toBeGreaterThan(
-      treeSidebarSource.indexOf("key: 'state'")
-    );
     expect(treeSidebarSource.indexOf("key: 'sync'")).toBeGreaterThan(
       treeSidebarSource.indexOf("key: 'diff'")
     );
     expect(treeSidebarSource.indexOf("key: 'agents'")).toBeGreaterThan(
       treeSidebarSource.indexOf("key: 'sync'")
-    );
-    expect(worktreePanelSource.indexOf("key: 'publish'")).toBeGreaterThan(
-      worktreePanelSource.indexOf("key: 'state'")
     );
     expect(worktreePanelSource.indexOf("key: 'sync'")).toBeGreaterThan(
       worktreePanelSource.indexOf("key: 'diff'")
@@ -568,9 +562,16 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       'padding-inline-start: var(--control-tree-tail-padding-start);'
     );
+    expect(globalsSource).toContain('.control-tree-tail {');
     expect(globalsSource).toContain('align-items: flex-start;');
     expect(globalsSource).toContain('align-self: flex-start;');
     expect(globalsSource).toContain('transform: translateY(var(--control-tree-tail-offset-y));');
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-node-kind="worktree"] .control-tree-tail[data-role="action"] {'
+    );
+    expect(globalsSource).toContain('align-items: center;');
+    expect(globalsSource).toContain('align-self: center;');
+    expect(globalsSource).toContain('transform: none;');
     expect(treeSidebarSource).not.toContain('self-start pl-1');
     expect(worktreePanelSource).not.toContain('self-start pl-1');
   });

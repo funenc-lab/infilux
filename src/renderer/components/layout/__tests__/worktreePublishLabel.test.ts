@@ -94,6 +94,11 @@ function expectSingleLinePublishButton(markup: string) {
   );
 }
 
+function expectActionOnlyPublish(markup: string) {
+  expect(markup).toContain('data-mode="publish"');
+  expect(markup).not.toContain('control-tree-metric-label">publish</span>');
+}
+
 describe('worktree publish button layout', () => {
   it('keeps the tree sidebar publish button on a single line', () => {
     const markup = renderToStaticMarkup(
@@ -106,6 +111,7 @@ describe('worktree publish button layout', () => {
     );
 
     expectSingleLinePublishButton(markup);
+    expectActionOnlyPublish(markup);
   });
 
   it('keeps the worktree panel publish button on a single line', () => {
@@ -119,5 +125,6 @@ describe('worktree publish button layout', () => {
     );
 
     expectSingleLinePublishButton(markup);
+    expectActionOnlyPublish(markup);
   });
 });
