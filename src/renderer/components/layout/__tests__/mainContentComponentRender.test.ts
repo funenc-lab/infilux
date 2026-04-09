@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import type { LiveAgentSubagent } from '@shared/types';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,7 +22,14 @@ type EditorState = {
 };
 
 type AgentSessionsState = {
-  sessions: Array<{ id: string; repoPath: string; cwd: string; initialized?: boolean }>;
+  sessions: Array<{
+    id: string;
+    repoPath: string;
+    cwd: string;
+    agentId?: string;
+    sessionId?: string;
+    initialized?: boolean;
+  }>;
   activeIds: Record<string, string>;
   runtimeStates: Record<
     string,
@@ -29,6 +37,7 @@ type AgentSessionsState = {
       outputState?: 'idle' | 'unread' | 'outputting';
       lastActivityAt?: number;
       hasCompletedTaskUnread?: boolean;
+      waitingForInput?: boolean;
     }
   >;
 };
@@ -68,6 +77,9 @@ const worktreeActivityState: WorktreeActivityState = {
   activities: {},
   activityStates: {},
 };
+
+const liveSubagentsByWorktree = new Map<string, LiveAgentSubagent[]>();
+const useLiveSubagentsMock = vi.fn(() => liveSubagentsByWorktree);
 
 function setWindowElectronEnv(
   env?: Partial<{
@@ -243,6 +255,10 @@ vi.mock('@/stores/worktreeActivity', () => ({
     selector(worktreeActivityState),
 }));
 
+vi.mock('@/hooks/useLiveSubagents', () => ({
+  useLiveSubagents: useLiveSubagentsMock,
+}));
+
 vi.mock('@/stores/terminalWrite', () => ({
   useTerminalWriteStore: (
     selector: (state: { setActiveSessionId: (id: string | null) => void }) => unknown
@@ -313,6 +329,8 @@ describe('MainContent component render', () => {
 
     worktreeActivityState.activities = {};
     worktreeActivityState.activityStates = {};
+    liveSubagentsByWorktree.clear();
+    useLiveSubagentsMock.mockClear();
 
     setWindowElectronEnv({
       platform: 'darwin',
@@ -507,6 +525,74 @@ describe('MainContent component render', () => {
 
     const markup = await renderMainContent('source-control');
 
+    expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-show-fallback="false"');
+    expect(markup).toContain('data-panel="source-control"');
+  });
+
+  it('retains the current agent panel while inactive when the session is waiting for input even without store activity', async () => {
+    agentSessionsState.sessions = [
+      {
+        id: 'session-1',
+        repoPath: '/repo/main',
+        cwd: '/repo/main/worktrees/current',
+        agentId: 'claude',
+        sessionId: 'claude-thread-1',
+        initialized: true,
+      },
+    ];
+    agentSessionsState.runtimeStates = {
+      'session-1': {
+        outputState: 'idle',
+        lastActivityAt: 1,
+        waitingForInput: true,
+        hasCompletedTaskUnread: false,
+      },
+    };
+
+    const markup = await renderMainContent('source-control');
+
+    expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-show-fallback="false"');
+    expect(markup).toContain('data-panel="source-control"');
+  });
+
+  it('polls codex live subagents for inactive worktrees so background tasks do not collapse to idle', async () => {
+    agentSessionsState.sessions = [
+      {
+        id: 'session-1',
+        repoPath: '/repo/main',
+        cwd: '/repo/main/worktrees/current',
+        agentId: 'codex',
+        sessionId: 'root-thread-1',
+        initialized: true,
+      },
+    ];
+    agentSessionsState.runtimeStates = {
+      'session-1': {
+        outputState: 'idle',
+        lastActivityAt: 1,
+        waitingForInput: false,
+        hasCompletedTaskUnread: false,
+      },
+    };
+    liveSubagentsByWorktree.set('/repo/main/worktrees/current', [
+      {
+        id: 'subagent-1',
+        provider: 'codex',
+        threadId: 'child-thread-1',
+        rootThreadId: 'root-thread-1',
+        parentThreadId: 'root-thread-1',
+        cwd: '/repo/main/worktrees/current',
+        label: 'Worker 1',
+        lastSeenAt: 10,
+        status: 'running',
+      },
+    ]);
+
+    const markup = await renderMainContent('source-control');
+
+    expect(useLiveSubagentsMock).toHaveBeenCalledWith(['/repo/main/worktrees/current']);
     expect(markup).toContain('data-panel="agent"');
     expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="source-control"');

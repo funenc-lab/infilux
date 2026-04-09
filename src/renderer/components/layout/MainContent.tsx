@@ -4,7 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
 import { normalizePath, pathsEqual } from '@/App/storage';
+import {
+  buildSessionActivityStateBySessionId,
+  getHighestSessionActivityState,
+  type SessionActivityState,
+} from '@/components/chat/sessionActivityState';
 import type { SettingsCategory } from '@/components/settings/constants';
+import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useI18n } from '@/i18n';
 import { getRendererPlatform } from '@/lib/electronEnvironment';
 import { cn } from '@/lib/utils';
@@ -71,6 +77,24 @@ function getValueForWorktreePath<T>(values: Record<string, T>, targetWorktreePat
   )?.[1];
 }
 
+function isCodexSessionAgent(agentId: string | undefined): boolean {
+  return agentId?.replace(/-(hapi|happy)$/, '') === 'codex';
+}
+
+function mergeWorktreeSessionActivityState(
+  values: Record<string, SessionActivityState>,
+  worktreePath: string,
+  nextState: SessionActivityState
+): Record<string, SessionActivityState> {
+  const existingEntry = Object.entries(values).find(([candidatePath]) =>
+    pathsEqual(candidatePath, worktreePath)
+  );
+  const targetPath = existingEntry?.[0] ?? worktreePath;
+  const currentState = existingEntry?.[1] ?? 'idle';
+  values[targetPath] = getHighestSessionActivityState([currentState, nextState]);
+  return values;
+}
+
 export function MainContent({
   activeTab,
   onTabChange,
@@ -115,7 +139,12 @@ export function MainContent({
   const editorCurrentWorktreePath = useEditorStore((state) => state.currentWorktreePath);
   const editorWorktreeStates = useEditorStore((state) => state.worktreeStates);
   const worktreeActivities = useWorktreeActivityStore((state) => state.activities);
-  const worktreeActivityStates = useWorktreeActivityStore((state) => state.activityStates);
+  const setDerivedActivityState = useWorktreeActivityStore(
+    (state) => state.setDerivedActivityState
+  );
+  const clearDerivedActivityState = useWorktreeActivityStore(
+    (state) => state.clearDerivedActivityState
+  );
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
@@ -173,6 +202,7 @@ export function MainContent({
   const [retainedChatPanelPaths, setRetainedChatPanelPaths] = useState<string[]>([]);
   const [retainedTerminalPanelPaths, setRetainedTerminalPanelPaths] = useState<string[]>([]);
   const [retainedFilePanelPaths, setRetainedFilePanelPaths] = useState<string[]>([]);
+  const syncedDerivedActivityPathsRef = useRef<string[]>([]);
 
   useEffect(() => {
     const dragImage = document.createElement('div');
@@ -278,6 +308,65 @@ export function MainContent({
     lastValidContext: lastValidContextRef.current,
   });
 
+  const initializedSessions = useMemo(
+    () => sessions.filter((session) => session.initialized),
+    [sessions]
+  );
+  const liveSubagentPollCwds = useMemo(() => {
+    const nextCwds = new Set<string>();
+
+    for (const session of initializedSessions) {
+      if (!isCodexSessionAgent(session.agentId) || !session.cwd) {
+        continue;
+      }
+      nextCwds.add(normalizePath(session.cwd));
+    }
+
+    return [...nextCwds].sort();
+  }, [initializedSessions]);
+  const liveSubagentsByWorktree = useLiveSubagents(liveSubagentPollCwds);
+  const sessionActivityStateById = useMemo(
+    () =>
+      buildSessionActivityStateBySessionId({
+        sessions: initializedSessions,
+        runtimeStates: sessionRuntimeStates,
+        subagentsByWorktree: liveSubagentsByWorktree,
+      }),
+    [initializedSessions, liveSubagentsByWorktree, sessionRuntimeStates]
+  );
+  const sessionActivityStateByWorktree = useMemo(() => {
+    const activityStatesByWorktree: Record<string, SessionActivityState> = {};
+
+    for (const session of initializedSessions) {
+      mergeWorktreeSessionActivityState(
+        activityStatesByWorktree,
+        session.cwd,
+        sessionActivityStateById[session.id] ?? 'idle'
+      );
+    }
+
+    return activityStatesByWorktree;
+  }, [initializedSessions, sessionActivityStateById]);
+  const syncedSessionActivityStateByWorktree = useMemo(() => {
+    const activityStatesByWorktree = { ...sessionActivityStateByWorktree };
+
+    for (const worktreePath of [currentWorktreePath, ...retainedChatPanelPaths]) {
+      if (!worktreePath) {
+        continue;
+      }
+
+      const activityState =
+        getValueForWorktreePath(sessionActivityStateByWorktree, worktreePath) ?? 'idle';
+      if (activityState === 'idle') {
+        continue;
+      }
+
+      activityStatesByWorktree[worktreePath] = activityState;
+    }
+
+    return activityStatesByWorktree;
+  }, [currentWorktreePath, retainedChatPanelPaths, sessionActivityStateByWorktree]);
+
   const getRepoPathForWorktree = useCallback(
     (targetWorktreePath: string) => {
       const matchingSession = sessions.find((session) =>
@@ -309,11 +398,12 @@ export function MainContent({
 
   const getChatRetentionStateForWorktree = useCallback(
     (targetWorktreePath: string) => {
-      const matchingSessions = sessions.filter(
-        (session) => pathsEqual(session.cwd, targetWorktreePath) && session.initialized
+      const matchingSessions = initializedSessions.filter((session) =>
+        pathsEqual(session.cwd, targetWorktreePath)
       );
       const activity = getValueForWorktreePath(worktreeActivities, targetWorktreePath);
-      const activityState = getValueForWorktreePath(worktreeActivityStates, targetWorktreePath);
+      const sessionActivityState =
+        getValueForWorktreePath(sessionActivityStateByWorktree, targetWorktreePath) ?? 'idle';
       const latestActivityAt = matchingSessions.reduce<number | null>(
         (latestTimestamp, session) => {
           const nextTimestamp = sessionRuntimeStates[session.id]?.lastActivityAt;
@@ -328,15 +418,9 @@ export function MainContent({
         null
       );
       const hasAttentionSignal =
-        activityState === 'waiting_input' ||
-        matchingSessions.some((session) => {
-          const runtimeState = sessionRuntimeStates[session.id];
-          return (
-            runtimeState?.outputState === 'unread' || runtimeState?.hasCompletedTaskUnread === true
-          );
-        });
+        sessionActivityState === 'waiting_input' || sessionActivityState === 'completed';
       const hasLiveActivity =
-        activityState === 'running' ||
+        sessionActivityState === 'running' ||
         (activity?.agentCount ?? 0) > 0 ||
         matchingSessions.some(
           (session) => sessionRuntimeStates[session.id]?.outputState === 'outputting'
@@ -354,10 +438,10 @@ export function MainContent({
     },
     [
       chatPanelInactivityThresholdMinutes,
+      initializedSessions,
+      sessionActivityStateByWorktree,
       sessionRuntimeStates,
-      sessions,
       worktreeActivities,
-      worktreeActivityStates,
     ]
   );
 
@@ -430,6 +514,37 @@ export function MainContent({
   const shouldRenderSourceControl = shouldRenderTabPanel('source-control', activeTab);
   const shouldRenderTodo = shouldRenderTabPanel('todo', activeTab);
   const shouldRenderSettings = shouldRenderTabPanel('settings', activeTab);
+
+  useEffect(() => {
+    const nextPaths = Object.entries(syncedSessionActivityStateByWorktree)
+      .filter(([, state]) => state !== 'idle')
+      .map(([path]) => path);
+
+    for (const [path, state] of Object.entries(syncedSessionActivityStateByWorktree)) {
+      if (state === 'idle') {
+        continue;
+      }
+      setDerivedActivityState(path, state);
+    }
+
+    for (const previousPath of syncedDerivedActivityPathsRef.current) {
+      const stillTracked = nextPaths.some((path) => pathsEqual(path, previousPath));
+      if (!stillTracked) {
+        clearDerivedActivityState(previousPath);
+      }
+    }
+
+    syncedDerivedActivityPathsRef.current = nextPaths;
+  }, [clearDerivedActivityState, setDerivedActivityState, syncedSessionActivityStateByWorktree]);
+
+  useEffect(() => {
+    return () => {
+      for (const path of syncedDerivedActivityPathsRef.current) {
+        clearDerivedActivityState(path);
+      }
+      syncedDerivedActivityPathsRef.current = [];
+    };
+  }, [clearDerivedActivityState]);
 
   useEffect(() => {
     setRetainedChatPanelPaths((previousPaths) =>
