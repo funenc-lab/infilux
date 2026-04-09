@@ -1,16 +1,7 @@
 import type { GitBranch as GitBranchType, GitWorktree } from '@shared/types';
 import { getDisplayPath } from '@shared/utils/path';
 import { Copy, FolderOpen, GitBranch, GitMerge, Sparkles, Terminal, Trash2, X } from 'lucide-react';
-import {
-  Fragment,
-  memo,
-  type ReactElement,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { memo, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
 import { WorktreeActivityMarker } from '@/components/layout/WorktreeActivityMarker';
 import { toastManager } from '@/components/ui/toast';
@@ -218,14 +209,6 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
     }
   }, [menuOpen]);
 
-  const metaItems = [
-    activityState !== 'idle'
-      ? {
-          key: 'state',
-          content: <WorktreeActivityMarker state={activityState} />,
-        }
-      : null,
-  ].filter((item): item is { key: string; content: ReactElement } => item !== null);
   const inlineItems = [
     isMain
       ? {
@@ -364,23 +347,14 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
                 <div className="control-tree-title-row">
                   <span
                     className={cn(
-                      'control-tree-title min-w-0 truncate',
+                      'control-tree-title min-w-0 flex-1 truncate',
                       isPrunable && 'line-through'
                     )}
                   >
                     {branchDisplay}
                   </span>
+                  <WorktreeActivityMarker state={activityState} />
                 </div>
-                {metaItems.length > 0 ? (
-                  <div className="control-tree-meta control-tree-meta-row min-w-0">
-                    {metaItems.map((item, index) => (
-                      <Fragment key={item.key}>
-                        {index > 0 ? <span className="control-tree-separator">·</span> : null}
-                        {item.content}
-                      </Fragment>
-                    ))}
-                  </div>
-                ) : null}
               </div>
               {inlineItems.length > 0 ? (
                 <div className="control-tree-inline-signals">

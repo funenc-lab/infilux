@@ -60,12 +60,14 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).toContain('control-tree-text-stack');
     expect(treeSidebarSource).toContain('control-tree-title-row');
     expect(treeSidebarSource).not.toContain('control-tree-signal-row');
-    expect(treeSidebarSource).toContain('control-tree-meta-row');
+    expect(treeSidebarSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(treeSidebarSource).not.toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(repositorySidebarSource).toContain('control-tree-meta-inline');
     expect(worktreePanelSource).toContain('control-tree-text-stack');
     expect(worktreePanelSource).toContain('control-tree-title-row');
     expect(worktreePanelSource).not.toContain('control-tree-signal-row');
-    expect(worktreePanelSource).toContain('control-tree-meta-row');
+    expect(worktreePanelSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(worktreePanelSource).not.toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(worktreePanelSource).toContain(
       'control-tree-primary min-w-0 flex-1 text-left outline-none'
     );
@@ -213,8 +215,8 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).not.toContain('control-tree-signal-row');
     expect(treeSidebarSource).not.toContain('control-tree-subtitle min-w-0 flex-1');
     expect(worktreePanelSource).not.toContain('control-tree-subtitle min-w-0 flex-1');
-    expect(treeSidebarSource).toContain('control-tree-meta-row');
-    expect(worktreePanelSource).toContain('control-tree-meta-row');
+    expect(treeSidebarSource).toContain('control-tree-title min-w-0 flex-1 truncate');
+    expect(worktreePanelSource).toContain('control-tree-title min-w-0 flex-1 truncate');
   });
 
   it('keeps worktree runtime presence inline as counters instead of a named agent child row', () => {
@@ -532,7 +534,7 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).toContain('data-node-kind="worktree"');
     expect(treeSidebarSource).toContain('data-kind="diff"');
     expect(treeSidebarSource).not.toContain('control-tree-separator control-tree-separator-diff');
-    expect(treeSidebarSource).toContain('control-tree-meta control-tree-meta-row min-w-0');
+    expect(treeSidebarSource).not.toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="false"] .control-tree-metric[data-kind="diff"] {'
     );
@@ -646,7 +648,7 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('margin-top: var(--control-tree-meta-offset-y);');
     expect(treeSidebarSource).not.toContain('control-tree-glyph mt-0.5');
     expect(treeSidebarSource).not.toContain('control-tree-subtitle mt-px');
-    expect(treeSidebarSource).not.toContain('control-tree-meta control-tree-meta-row mt-0.5');
+    expect(treeSidebarSource).not.toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(worktreePanelSource).not.toContain('control-tree-glyph mt-0.5');
     expect(worktreePanelSource).not.toContain(
       'control-tree-meta control-tree-meta-row control-tree-meta-offset mt-0.5'

@@ -16,15 +16,19 @@ const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.
 
 describe('worktree sidebar cleanup policy', () => {
   it('keeps worktree rows focused on branch identity while retaining the path for row actions', () => {
-    expect(worktreeTreeItemSource).toContain('const metaItems = [');
-    expect(worktreeTreeItemSource).toContain('control-tree-meta control-tree-meta-row min-w-0');
+    expect(worktreeTreeItemSource).toContain('control-tree-title min-w-0 flex-1 truncate');
+    expect(worktreeTreeItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(worktreeTreeItemSource).not.toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(worktreeTreeItemSource).toContain(
       'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
     expect(worktreeTreeItemSource).not.toContain('title={displayWorktreePath}');
     expect(worktreeTreeItemSource).not.toContain('{displayWorktreePath}');
-    expect(worktreePanelItemSource).toContain('const metaItems = [');
-    expect(worktreePanelItemSource).toContain('control-tree-meta control-tree-meta-row min-w-0');
+    expect(worktreePanelItemSource).toContain('control-tree-title min-w-0 flex-1 truncate');
+    expect(worktreePanelItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(worktreePanelItemSource).not.toContain(
+      'control-tree-meta control-tree-meta-row min-w-0'
+    );
     expect(worktreePanelItemSource).toContain(
       'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
@@ -53,11 +57,13 @@ describe('worktree sidebar cleanup policy', () => {
     expect(globalsSource).not.toContain('.control-tree-guide-item::before {');
   });
 
-  it('keeps worktree meta rails dense and single-line instead of wrapping into stacked fragments', () => {
-    expect(globalsSource).toContain('.control-tree-meta-row {');
-    expect(globalsSource).toContain('flex-wrap: nowrap;');
-    expect(globalsSource).toContain('white-space: nowrap;');
-    expect(globalsSource).toContain('overflow: hidden;');
+  it('keeps worktree status anchored in the title row instead of a second meta line', () => {
+    expect(worktreeTreeItemSource).toContain('<div className="control-tree-title-row">');
+    expect(worktreePanelItemSource).toContain('<div className="control-tree-title-row">');
+    expect(worktreeTreeItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(worktreePanelItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(worktreeTreeItemSource).not.toContain('const metaItems = [');
+    expect(worktreePanelItemSource).not.toContain('const metaItems = [');
   });
 
   it('keeps publish as a tail action instead of duplicating it in worktree meta rows', () => {
