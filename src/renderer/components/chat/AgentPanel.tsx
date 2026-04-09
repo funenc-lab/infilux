@@ -91,8 +91,8 @@ import {
   resolveAgentCanvasCenteredScrollPosition,
   resolveAgentCanvasFloatingFrame,
   resolveAgentCanvasFloatingTerminalFontScale,
-  resolveAgentCanvasResizeScrollPosition,
   resolveAgentCanvasViewportMetrics,
+  resolveAgentCanvasViewportSyncPosition,
   resolveAgentCanvasWheelZoomDelta,
   resolveAgentCanvasZoomTerminalFontScale,
   stepAgentCanvasZoom,
@@ -471,6 +471,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   const canvasSessionContentHostByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const canvasViewportPositionByWorktreeRef = useRef<Record<string, CanvasViewportPosition>>({});
   const canvasViewportSnapshotByWorktreeRef = useRef<Record<string, CanvasViewportSnapshot>>({});
+  const canvasViewportRestoreReadyWorktreeKeyRef = useRef<string | null>(null);
   const lastCanvasZoomStorageKeyRef = useRef<string | null>(null);
   const spacePressedRef = useRef(false);
   const {
@@ -2230,6 +2231,10 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         return;
       }
 
+      if (canvasViewportRestoreReadyWorktreeKeyRef.current !== canvasZoomStorageKey) {
+        return;
+      }
+
       canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = {
         left: event.currentTarget.scrollLeft,
         top: event.currentTarget.scrollTop,
@@ -2435,6 +2440,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     }
 
     lastCanvasZoomStorageKeyRef.current = canvasZoomStorageKey;
+    canvasViewportRestoreReadyWorktreeKeyRef.current = null;
     resetCanvasWheelZoomState();
   }, [canvasZoomStorageKey, resetCanvasWheelZoomState]);
 
@@ -2475,6 +2481,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
       applyCanvasViewportPosition(viewport, nextPosition);
       canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = snapshot;
+      canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey;
     });
 
     return () => {
@@ -2500,55 +2507,26 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
 
       const nextSnapshot = readCanvasViewportSnapshot(viewport);
       const previousSnapshot = canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey];
+      const savedPosition = canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey];
       const currentPosition = {
         left: viewport.scrollLeft,
         top: viewport.scrollTop,
       };
 
-      if (
-        previousSnapshot &&
-        previousSnapshot.clientHeight === nextSnapshot.clientHeight &&
-        previousSnapshot.clientWidth === nextSnapshot.clientWidth &&
-        previousSnapshot.scrollHeight === nextSnapshot.scrollHeight &&
-        previousSnapshot.scrollWidth === nextSnapshot.scrollWidth
-      ) {
-        canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] =
-          clampAgentCanvasScrollPosition({
-            clientHeight: nextSnapshot.clientHeight,
-            clientWidth: nextSnapshot.clientWidth,
-            left: currentPosition.left,
-            scrollHeight: nextSnapshot.scrollHeight,
-            scrollWidth: nextSnapshot.scrollWidth,
-            top: currentPosition.top,
-          });
-        canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = nextSnapshot;
-        return;
-      }
-
-      const nextPosition = previousSnapshot
-        ? resolveAgentCanvasResizeScrollPosition({
-            currentLeft: currentPosition.left,
-            currentTop: currentPosition.top,
-            nextClientHeight: nextSnapshot.clientHeight,
-            nextClientWidth: nextSnapshot.clientWidth,
-            nextScrollHeight: nextSnapshot.scrollHeight,
-            nextScrollWidth: nextSnapshot.scrollWidth,
-            previousClientHeight: previousSnapshot.clientHeight,
-            previousClientWidth: previousSnapshot.clientWidth,
-            previousScrollHeight: previousSnapshot.scrollHeight,
-            previousScrollWidth: previousSnapshot.scrollWidth,
-          })
-        : clampAgentCanvasScrollPosition({
-            clientHeight: nextSnapshot.clientHeight,
-            clientWidth: nextSnapshot.clientWidth,
-            left: currentPosition.left,
-            scrollHeight: nextSnapshot.scrollHeight,
-            scrollWidth: nextSnapshot.scrollWidth,
-            top: currentPosition.top,
-          });
+      const nextPosition = resolveAgentCanvasViewportSyncPosition({
+        currentLeft: currentPosition.left,
+        currentTop: currentPosition.top,
+        nextClientHeight: nextSnapshot.clientHeight,
+        nextClientWidth: nextSnapshot.clientWidth,
+        nextScrollHeight: nextSnapshot.scrollHeight,
+        nextScrollWidth: nextSnapshot.scrollWidth,
+        previousSnapshot,
+        savedPosition,
+      });
 
       applyCanvasViewportPosition(viewport, nextPosition);
       canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = nextSnapshot;
+      canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey;
     };
 
     const scheduleViewportLayoutSync = () => {

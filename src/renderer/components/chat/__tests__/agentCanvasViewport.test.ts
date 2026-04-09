@@ -162,6 +162,49 @@ describe('agent canvas viewport helpers', () => {
     });
   });
 
+  it('recenters the first viewport sync for a new worktree instead of preserving stale scroll', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasViewportSyncPosition({
+        currentLeft: 120,
+        currentTop: 180,
+        nextClientHeight: 180,
+        nextClientWidth: 220,
+        nextScrollHeight: 920,
+        nextScrollWidth: 960,
+        previousSnapshot: null,
+        savedPosition: null,
+      })
+    ).toEqual({
+      left: 370,
+      top: 370,
+    });
+  });
+
+  it('restores a saved viewport position during the first sync for a revisited worktree', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasViewportSyncPosition({
+        currentLeft: 120,
+        currentTop: 180,
+        nextClientHeight: 180,
+        nextClientWidth: 220,
+        nextScrollHeight: 920,
+        nextScrollWidth: 960,
+        previousSnapshot: null,
+        savedPosition: {
+          left: 640,
+          top: 920,
+        },
+      })
+    ).toEqual({
+      left: 640,
+      top: 740,
+    });
+  });
+
   it('resolves a clamped focus scroll position for a target tile', async () => {
     const module = await import('../agentCanvasViewport').catch(() => null);
 

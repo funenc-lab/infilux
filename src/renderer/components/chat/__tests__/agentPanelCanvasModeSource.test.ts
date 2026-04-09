@@ -28,11 +28,19 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('handleCloseCanvasFloatingSession');
     expect(agentPanelSource).toContain('resolveAgentCanvasFloatingFrame');
     expect(agentPanelSource).toContain('resolveAgentCanvasFloatingTerminalFontScale');
-    expect(agentPanelSource).toContain('resolveAgentCanvasResizeScrollPosition');
+    expect(agentPanelSource).toContain('resolveAgentCanvasViewportSyncPosition');
     expect(agentPanelSource).toContain('resolveAgentCanvasZoomTerminalFontScale');
     expect(agentPanelSource).toContain('createPortal');
     expect(agentPanelSource).toContain('CanvasSessionContentOutlet');
     expect(agentPanelSource).toContain('canvasSessionContentHostByIdRef');
+    expect(agentPanelSource).toContain('canvasViewportRestoreReadyWorktreeKeyRef');
+    expect(agentPanelSource).toContain(
+      'canvasViewportRestoreReadyWorktreeKeyRef.current !== canvasZoomStorageKey'
+    );
+    expect(agentPanelSource).toContain('canvasViewportRestoreReadyWorktreeKeyRef.current = null');
+    expect(agentPanelSource).toContain(
+      'canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey'
+    );
     expect(agentPanelSource).toContain('ensureCanvasSessionContentHost');
     expect(agentPanelSource).toContain('createPortal(sessionPanelContent, sessionContentHost)');
     expect(agentPanelSource).not.toContain('createPortal(sessionPanelContent, document.body)');

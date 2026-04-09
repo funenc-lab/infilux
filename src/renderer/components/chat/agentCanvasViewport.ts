@@ -238,6 +238,83 @@ export function resolveAgentCanvasResizeScrollPosition(dimensions: {
   });
 }
 
+export function resolveAgentCanvasViewportSyncPosition(dimensions: {
+  currentLeft: number;
+  currentTop: number;
+  nextClientHeight: number;
+  nextClientWidth: number;
+  nextScrollHeight: number;
+  nextScrollWidth: number;
+  previousSnapshot:
+    | {
+        clientHeight: number;
+        clientWidth: number;
+        scrollHeight: number;
+        scrollWidth: number;
+      }
+    | null
+    | undefined;
+  savedPosition:
+    | {
+        left: number;
+        top: number;
+      }
+    | null
+    | undefined;
+}): {
+  left: number;
+  top: number;
+} {
+  if (!dimensions.previousSnapshot) {
+    if (dimensions.savedPosition) {
+      return clampAgentCanvasScrollPosition({
+        clientHeight: dimensions.nextClientHeight,
+        clientWidth: dimensions.nextClientWidth,
+        left: dimensions.savedPosition.left,
+        scrollHeight: dimensions.nextScrollHeight,
+        scrollWidth: dimensions.nextScrollWidth,
+        top: dimensions.savedPosition.top,
+      });
+    }
+
+    return resolveAgentCanvasCenteredScrollPosition({
+      clientHeight: dimensions.nextClientHeight,
+      clientWidth: dimensions.nextClientWidth,
+      scrollHeight: dimensions.nextScrollHeight,
+      scrollWidth: dimensions.nextScrollWidth,
+    });
+  }
+
+  if (
+    dimensions.previousSnapshot.clientHeight === dimensions.nextClientHeight &&
+    dimensions.previousSnapshot.clientWidth === dimensions.nextClientWidth &&
+    dimensions.previousSnapshot.scrollHeight === dimensions.nextScrollHeight &&
+    dimensions.previousSnapshot.scrollWidth === dimensions.nextScrollWidth
+  ) {
+    return clampAgentCanvasScrollPosition({
+      clientHeight: dimensions.nextClientHeight,
+      clientWidth: dimensions.nextClientWidth,
+      left: dimensions.currentLeft,
+      scrollHeight: dimensions.nextScrollHeight,
+      scrollWidth: dimensions.nextScrollWidth,
+      top: dimensions.currentTop,
+    });
+  }
+
+  return resolveAgentCanvasResizeScrollPosition({
+    currentLeft: dimensions.currentLeft,
+    currentTop: dimensions.currentTop,
+    nextClientHeight: dimensions.nextClientHeight,
+    nextClientWidth: dimensions.nextClientWidth,
+    nextScrollHeight: dimensions.nextScrollHeight,
+    nextScrollWidth: dimensions.nextScrollWidth,
+    previousClientHeight: dimensions.previousSnapshot.clientHeight,
+    previousClientWidth: dimensions.previousSnapshot.clientWidth,
+    previousScrollHeight: dimensions.previousSnapshot.scrollHeight,
+    previousScrollWidth: dimensions.previousSnapshot.scrollWidth,
+  });
+}
+
 export function resolveAgentCanvasFocusScrollPosition(dimensions: {
   clientHeight: number;
   clientWidth: number;
