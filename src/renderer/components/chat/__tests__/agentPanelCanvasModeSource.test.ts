@@ -74,6 +74,8 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain("t('Center')");
     expect(agentPanelSource).toContain('handleCenterCanvasViewport');
     expect(agentPanelSource).toContain('onClick={handleCenterCanvasViewport}');
+    expect(agentPanelSource).toContain("aria-label={t('Quick Terminal')}");
+    expect(agentPanelSource).toContain('<Terminal className="h-4 w-4" />');
     expect(agentPanelSource).toContain("t('Choose session agent')");
     expect(agentPanelSource).toContain("t('Select Agent')");
     expect(agentPanelSource).toContain("t('Agent profiles')");

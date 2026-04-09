@@ -17,6 +17,7 @@ import {
   Settings,
   Sparkles,
   SquareTerminal,
+  Terminal,
   WandSparkles,
   X,
 } from 'lucide-react';
@@ -3640,6 +3641,24 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
               </button>
             </div>
             <div className="flex items-center gap-1">
+              {quickTerminalEnabled ? (
+                <button
+                  type="button"
+                  className={cn(
+                    'control-panel-muted pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-accent/30',
+                    quickTerminalOpen
+                      ? 'control-icon-button-active'
+                      : hasRunningProcess
+                        ? 'control-icon-button-live'
+                        : undefined
+                  )}
+                  aria-label={t('Quick Terminal')}
+                  title={t('Quick Terminal (Ctrl+`)')}
+                  onClick={handleToggleQuickTerminal}
+                >
+                  <Terminal className="h-4 w-4" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="control-panel-muted pointer-events-auto inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/30"
