@@ -76,7 +76,7 @@ describe('resolveTreeSidebarRepoSnapshot', () => {
     expect(snapshot.error).toBeNull();
   });
 
-  it('reuses expanded repo cache while the selected repository is refetching', () => {
+  it('keeps showing expanded repo cache without re-entering loading while the selected repository is refetching', () => {
     const expandedWorktrees: GitWorktree[] = [
       {
         path: '/repo-a',
@@ -105,7 +105,7 @@ describe('resolveTreeSidebarRepoSnapshot', () => {
     });
 
     expect(snapshot.worktrees).toEqual(expandedWorktrees);
-    expect(snapshot.isLoading).toBe(true);
+    expect(snapshot.isLoading).toBe(false);
     expect(snapshot.error).toBeNull();
   });
 

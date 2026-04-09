@@ -110,6 +110,7 @@ export function resolveTreeSidebarRepoSnapshot({
         : selectedSnapshotWorktrees
     : expandedWorktrees;
   const error = isSelectedRepo ? selectedError : (errorsMap[repoPath] ?? null);
+  const hasVisibleWorktrees = worktrees.length > 0;
 
   if (!canLoad) {
     return {
@@ -126,9 +127,9 @@ export function resolveTreeSidebarRepoSnapshot({
     worktrees,
     isLoading: isSelectedRepo
       ? selectedIsLoading ||
-        selectedIsFetching ||
         fallbackLoading ||
-        shouldShowSelectedActiveWorktree
+        shouldShowSelectedActiveWorktree ||
+        (!hasVisibleWorktrees && selectedIsFetching)
       : (loadingMap[repoPath] ?? fallbackLoading),
     error,
   };
