@@ -1,12 +1,11 @@
-import { createReadStream } from 'node:fs';
 import { access, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import readline from 'node:readline';
 import type {
   ResolveAgentProviderSessionRequest,
   ResolveAgentProviderSessionResult,
 } from '@shared/types';
+import { closeFileLineReader, createFileLineReader } from './fileLineReader';
 
 const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
 const MAX_SESSION_FILES_PER_LOOKUP = 64;
@@ -73,13 +72,10 @@ async function pathExists(targetPath: string): Promise<boolean> {
 }
 
 async function readCodexSessionMeta(filePath: string): Promise<CodexSessionMeta | null> {
-  const lineReader = readline.createInterface({
-    input: createReadStream(filePath, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
+  const reader = createFileLineReader(filePath);
 
   try {
-    for await (const rawLine of lineReader) {
+    for await (const rawLine of reader.lineReader) {
       const parsed = safeJsonParse(rawLine.trim());
       if (!parsed || parsed.type !== 'session_meta' || !parsed.payload) {
         continue;
@@ -101,7 +97,7 @@ async function readCodexSessionMeta(filePath: string): Promise<CodexSessionMeta 
       };
     }
   } finally {
-    lineReader.close();
+    await closeFileLineReader(reader);
   }
 
   return null;

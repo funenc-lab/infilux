@@ -1,13 +1,12 @@
-import { createReadStream } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import readline from 'node:readline';
 import type {
   AgentSubagentTranscriptEntry,
   GetAgentSubagentTranscriptRequest,
   GetAgentSubagentTranscriptResult,
 } from '@shared/types';
+import { closeFileLineReader, createFileLineReader } from './fileLineReader';
 
 const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
 const DEFAULT_MAX_TRANSCRIPT_ENTRIES = 200;
@@ -271,17 +270,14 @@ async function parseCodexSubagentTranscriptFile(
   options: ParseCodexSubagentTranscriptOptions = {}
 ): Promise<ParsedTranscriptEnvelope> {
   const collector = createTranscriptCollector(options);
-  const lineReader = readline.createInterface({
-    input: createReadStream(filePath, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
+  const reader = createFileLineReader(filePath);
 
   try {
-    for await (const rawLine of lineReader) {
+    for await (const rawLine of reader.lineReader) {
       consumeTranscriptLine(collector, rawLine);
     }
   } finally {
-    lineReader.close();
+    await closeFileLineReader(reader);
   }
 
   return finalizeCollector(collector);
