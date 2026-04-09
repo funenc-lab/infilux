@@ -9,8 +9,10 @@ import {
   ChevronRight,
   Clock,
   EyeOff,
+  Filter,
   FolderGit2,
   FolderMinus,
+  FolderOpen,
   GitBranch,
   List,
   MoreHorizontal,
@@ -73,6 +75,7 @@ import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummary';
 import { SidebarEmptyState } from './SidebarEmptyState';
@@ -117,6 +120,7 @@ export interface TreeSidebarProps {
   onToggleSettings?: () => void;
   collapsed?: boolean;
   onCollapse?: () => void;
+  onExpand?: () => void;
   groups: RepositoryGroup[];
   activeGroupId: string;
   onSwitchGroup: (groupId: string) => void;
@@ -172,8 +176,9 @@ export function TreeSidebar({
   onOpenSettings: _onOpenSettings,
   isSettingsActive: _isSettingsActive,
   onToggleSettings: _onToggleSettings,
-  collapsed: _collapsed = false,
+  collapsed = false,
   onCollapse,
+  onExpand,
   groups,
   activeGroupId,
   onSwitchGroup,
@@ -200,6 +205,7 @@ export function TreeSidebar({
   const { t, tNode } = useI18n();
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAgentWorktreesOnly, setShowAgentWorktreesOnly] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [tempExpanded, setTempExpanded] = useState(() => getStoredTreeSidebarTempExpanded());
   const [expandedRepoList, setExpandedRepoList] = useState<string[]>(() =>
@@ -772,7 +778,7 @@ export function TreeSidebar({
     () =>
       buildTreeSidebarWorktreePrefetchInputs({
         allRepoPaths: searchableRepoPaths,
-        hasActiveFilter: parsedSearch.hasActiveFilter,
+        hasActiveFilter: parsedSearch.hasActiveFilter || showAgentWorktreesOnly,
         canLoadRepo,
         activeRepoPaths,
         loadedRepoPaths,
@@ -780,19 +786,34 @@ export function TreeSidebar({
     [
       searchableRepoPaths,
       parsedSearch.hasActiveFilter,
+      showAgentWorktreesOnly,
       canLoadRepo,
       activeRepoPaths,
       loadedRepoPaths,
     ]
   );
-  const { worktreesMap: allRepoWorktreesMap } = useWorktreeListMultiple(
-    allRepoWorktreePrefetchInputs
-  );
+  const {
+    worktreesMap: allRepoWorktreesMap,
+    errorsMap: allRepoWorktreesErrorsMap,
+    loadingMap: allRepoWorktreesLoadingMap,
+  } = useWorktreeListMultiple(allRepoWorktreePrefetchInputs);
 
-  const hasSearchFilter = parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0;
+  const hasSearchFilter =
+    parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0 || showAgentWorktreesOnly;
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
+  const hasAgentActivityForPath = useCallback(
+    (path: string) => {
+      const activity = activities[normalizePath(path)] ?? activities[path];
+      return activity !== undefined && activity.agentCount > 0;
+    },
+    [activities]
+  );
   const filteredTempWorkspaces = useMemo(() => {
     return sortedTempWorkspaces.filter((item) => {
+      if (showAgentWorktreesOnly && !hasAgentActivityForPath(item.path)) {
+        return false;
+      }
+
       const normalizedPath = normalizePath(item.path);
       const activity = activities[normalizedPath] ?? activities[item.path];
 
@@ -810,7 +831,13 @@ export function TreeSidebar({
         getDisplayPath(item.path).toLowerCase().includes(parsedSearch.textQuery)
       );
     });
-  }, [activities, parsedSearch, sortedTempWorkspaces]);
+  }, [
+    activities,
+    hasAgentActivityForPath,
+    parsedSearch,
+    showAgentWorktreesOnly,
+    sortedTempWorkspaces,
+  ]);
   const getSearchableRepoWorktrees = useCallback(
     (repoPath: string) => {
       if (repoPath === selectedRepo) {
@@ -824,6 +851,14 @@ export function TreeSidebar({
 
   const filteredRepos = useMemo(() => {
     let filtered = searchableRepos;
+
+    if (showAgentWorktreesOnly) {
+      filtered = filtered.filter((repo) =>
+        getSearchableRepoWorktrees(repo.path).some((worktree) =>
+          hasAgentActivityForPath(worktree.path)
+        )
+      );
+    }
 
     if (parsedSearch.hasActiveFilter) {
       filtered = filtered.filter((repo) => {
@@ -852,7 +887,15 @@ export function TreeSidebar({
       repo,
       originalIndex: repoIndexMap.get(repo.path) ?? -1,
     }));
-  }, [searchableRepos, parsedSearch, activePathSet, getSearchableRepoWorktrees, repoIndexMap]);
+  }, [
+    searchableRepos,
+    showAgentWorktreesOnly,
+    parsedSearch,
+    activePathSet,
+    getSearchableRepoWorktrees,
+    hasAgentActivityForPath,
+    repoIndexMap,
+  ]);
   const showSearchEmptyState =
     hasSearchFilter && filteredRepos.length === 0 && filteredTempWorkspaces.length === 0;
 
@@ -903,6 +946,10 @@ export function TreeSidebar({
   const getFilteredWorktrees = useCallback(
     (repoWorktrees: GitWorktree[]) => {
       return repoWorktrees.filter((wt) => {
+        if (showAgentWorktreesOnly && !hasAgentActivityForPath(wt.path)) {
+          return false;
+        }
+
         if (parsedSearch.hasActiveFilter) {
           const activity = activities[normalizePath(wt.path)] ?? activities[wt.path];
           const hasActivity =
@@ -918,12 +965,13 @@ export function TreeSidebar({
         );
       });
     },
-    [parsedSearch, activities]
+    [activities, hasAgentActivityForPath, parsedSearch, showAgentWorktreesOnly]
   );
 
   const renderRepoItem = (repo: Repository, originalIndex: number, sectionGroupId?: string) => {
     const isSelected = selectedRepo === repo.path;
-    const isExpanded = expandedRepos.has(normalizePath(repo.path));
+    const isStoredExpanded = expandedRepos.has(normalizePath(repo.path));
+    const isExpanded = isStoredExpanded || showAgentWorktreesOnly;
     const worktreeSectionId = getSidebarSectionId('tree-worktrees', repo.path);
     const repoCanLoad = canLoadRepo(repo.path);
     const repoSnapshot = resolveTreeSidebarRepoSnapshot({
@@ -940,12 +988,21 @@ export function TreeSidebar({
       isExpanded,
       canLoad: repoCanLoad,
     });
+    const prefetchedRepoWorktrees = getSearchableRepoWorktrees(repo.path);
     const repoWorktrees = isExpanded
-      ? getFilteredWorktrees(repoSnapshot.worktrees)
+      ? getFilteredWorktrees(isStoredExpanded ? repoSnapshot.worktrees : prefetchedRepoWorktrees)
       : EMPTY_WORKTREES;
-    const repoError = repoSnapshot.error;
-    const repoLoading = repoSnapshot.isLoading;
-    const repoWts = repoSnapshot.worktrees;
+    const repoError = isStoredExpanded
+      ? repoSnapshot.error
+      : isSelected
+        ? selectedRepoError
+        : (allRepoWorktreesErrorsMap[repo.path] ?? null);
+    const repoLoading = isStoredExpanded
+      ? repoSnapshot.isLoading
+      : isSelected
+        ? selectedRepoLoading
+        : (allRepoWorktreesLoadingMap[repo.path] ?? false);
+    const repoWts = showAgentWorktreesOnly ? prefetchedRepoWorktrees : repoSnapshot.worktrees;
     const displayRepoPath = getDisplayPath(repo.path);
     const useLtrPathDisplay = isWslUncPath(displayRepoPath);
     const activeWorktreeCount = repoWts.filter((wt) =>
@@ -1146,7 +1203,46 @@ export function TreeSidebar({
     !!activeWorktree &&
     safeTempWorkspaces.some((item) => item.path === activeWorktree.path);
 
-  return (
+  const sidebarBody = collapsed ? (
+    <CollapsedSidebarRail
+      label="Tree Sidebar"
+      triggerTitle={t('Tree sidebar actions')}
+      icon={GitBranch}
+      popupClassName="min-w-[208px]"
+      actions={[
+        {
+          id: 'expand-sidebar',
+          label: t('Expand Sidebar'),
+          icon: FolderOpen,
+          onSelect: () => onExpand?.(),
+          disabled: !onExpand,
+        },
+        {
+          id: 'manage-repositories',
+          label: t('Repositories'),
+          icon: List,
+          onSelect: () => setRepoManagerOpen(true),
+          separatorBefore: true,
+        },
+        {
+          id: 'refresh-tree-sidebar',
+          label: t('Refresh'),
+          icon: RefreshCw,
+          onSelect: () => {
+            onRefresh();
+            refetchExpandedWorktrees();
+          },
+        },
+        {
+          id: 'add-repository',
+          label: t('Add Repository'),
+          icon: Plus,
+          onSelect: onAddRepository,
+          separatorBefore: true,
+        },
+      ]}
+    />
+  ) : (
     <aside
       className={cn(
         'control-sidebar flex h-full w-full flex-col border-r bg-background transition-colors',
@@ -1212,31 +1308,49 @@ export function TreeSidebar({
           />
         )}
 
-        <div className="control-sidebar-filter control-sidebar-search">
-          <Search className="control-sidebar-search-icon h-3.5 w-3.5" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            aria-label={t('Search projects')}
-            placeholder={`${t('Search projects')} (:active)`}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="control-sidebar-search-input"
-          />
-          {searchQuery.length > 0 && (
-            <button
-              type="button"
-              className="control-sidebar-search-clear"
-              onClick={() => {
-                setSearchQuery('');
-                searchInputRef.current?.focus();
-              }}
-              aria-label={t('Clear search')}
-              title={t('Clear')}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
+        <div className="control-sidebar-search-row">
+          <div className="control-sidebar-filter control-sidebar-search">
+            <Search className="control-sidebar-search-icon h-3.5 w-3.5" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              aria-label={t('Search projects')}
+              placeholder={t('Search projects')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="control-sidebar-search-input"
+            />
+            {searchQuery.length > 0 && (
+              <button
+                type="button"
+                className="control-sidebar-search-clear"
+                onClick={() => {
+                  setSearchQuery('');
+                  searchInputRef.current?.focus();
+                }}
+                aria-label={t('Clear search')}
+                title={t('Clear')}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            className="control-sidebar-inline-filter"
+            data-active={showAgentWorktreesOnly ? 'true' : 'false'}
+            onClick={() => setShowAgentWorktreesOnly((previous) => !previous)}
+            aria-pressed={showAgentWorktreesOnly}
+            aria-label={
+              showAgentWorktreesOnly ? t('Show all worktrees') : t('Only show Agent worktrees')
+            }
+            title={
+              showAgentWorktreesOnly ? t('Show all worktrees') : t('Only show Agent worktrees')
+            }
+          >
+            <Filter className="h-3.5 w-3.5 shrink-0" />
+            <span>{t('Agent')}</span>
+          </button>
         </div>
       </div>
 
@@ -1395,7 +1509,9 @@ export function TreeSidebar({
                 'No projects match the current search. Try a broader term or clear the filter.'
               )}
               meta={t('Filter: {{query}}', {
-                query: searchQuery.trim() || t('Search query'),
+                query:
+                  searchQuery.trim() ||
+                  (showAgentWorktreesOnly ? t('Agent worktrees') : t('Search query')),
               })}
               actions={
                 <Button
@@ -1479,6 +1595,12 @@ export function TreeSidebar({
           {t('Add Repository')}
         </button>
       </div>
+    </aside>
+  );
+
+  return (
+    <>
+      {sidebarBody}
 
       {/* Repository Context Menu */}
       {repoMenuOpen && (
@@ -1774,6 +1896,6 @@ export function TreeSidebar({
         onUpdate={onUpdateGroup}
         onDelete={onDeleteGroup}
       />
-    </aside>
+    </>
   );
 }

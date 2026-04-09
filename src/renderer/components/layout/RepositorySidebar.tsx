@@ -5,6 +5,7 @@ import {
   Clock,
   FolderGit2,
   FolderMinus,
+  FolderOpen,
   PanelLeftClose,
   Plus,
   Search,
@@ -50,6 +51,7 @@ import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 import {
   type RepositoryTreeItemRepository as Repository,
@@ -71,6 +73,7 @@ export interface RepositorySidebarProps {
   onToggleSettings?: () => void;
   collapsed?: boolean;
   onCollapse?: () => void;
+  onExpand?: () => void;
   groups: RepositoryGroup[];
   activeGroupId: string;
   onSwitchGroup: (groupId: string) => void;
@@ -99,8 +102,9 @@ export function RepositorySidebar({
   onOpenSettings: _onOpenSettings,
   isSettingsActive: _isSettingsActive,
   onToggleSettings: _onToggleSettings,
-  collapsed: _collapsed = false,
+  collapsed = false,
   onCollapse,
+  onExpand,
   groups,
   activeGroupId,
   onSwitchGroup,
@@ -411,7 +415,30 @@ export function RepositorySidebar({
     []
   );
 
-  return (
+  const sidebarBody = collapsed ? (
+    <CollapsedSidebarRail
+      label="Repository Sidebar"
+      triggerTitle={t('Repository sidebar actions')}
+      icon={FolderGit2}
+      popupClassName="min-w-[196px]"
+      actions={[
+        {
+          id: 'expand-repository',
+          label: t('Expand Repository'),
+          icon: FolderOpen,
+          onSelect: () => onExpand?.(),
+          disabled: !onExpand,
+        },
+        {
+          id: 'add-repository',
+          label: t('Add Repository'),
+          icon: Plus,
+          onSelect: onAddRepository,
+          separatorBefore: true,
+        },
+      ]}
+    />
+  ) : (
     <aside
       className={cn(
         'control-sidebar flex h-full w-full flex-col border-r bg-background transition-colors',
@@ -463,7 +490,7 @@ export function RepositorySidebar({
             ref={searchInputRef}
             type="text"
             aria-label={t('Search projects')}
-            placeholder={`${t('Search projects')} (:active)`}
+            placeholder={t('Search projects')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="control-sidebar-search-input"
@@ -701,6 +728,12 @@ export function RepositorySidebar({
           {t('Add Repository')}
         </button>
       </div>
+    </aside>
+  );
+
+  return (
+    <>
+      {sidebarBody}
 
       {/* Context Menu */}
       {menuOpen && (
@@ -826,6 +859,6 @@ export function RepositorySidebar({
         onUpdate={onUpdateGroup}
         onDelete={onDeleteGroup}
       />
-    </aside>
+    </>
   );
 }

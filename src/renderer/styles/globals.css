@@ -1484,6 +1484,18 @@
     color: var(--foreground);
   }
 
+  .control-sidebar-search-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .control-sidebar-search-row .control-sidebar-search {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
   .control-sidebar-search:hover {
     background: color-mix(in oklch, var(--background) 93%, var(--muted) 7%);
   }
@@ -1551,6 +1563,46 @@
 
   .control-sidebar-search {
     color: var(--foreground);
+  }
+
+  .control-sidebar-inline-filter {
+    display: inline-flex;
+    min-height: 2.25rem;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.375rem;
+    border: 1px solid color-mix(in oklch, var(--border) 20%, transparent);
+    border-radius: 0.75rem;
+    padding-inline: 0.625rem 0.75rem;
+    background: color-mix(in oklch, var(--background) 95%, var(--muted) 5%);
+    color: color-mix(in oklch, var(--muted-foreground) 84%, transparent);
+    font-size: 0.75rem;
+    font-weight: 560;
+    letter-spacing: 0.015em;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease;
+  }
+
+  .control-sidebar-inline-filter:hover {
+    background: color-mix(in oklch, var(--background) 93%, var(--muted) 7%);
+    color: var(--foreground);
+  }
+
+  .control-sidebar-inline-filter:focus-visible {
+    outline: 2px solid color-mix(in oklch, var(--ring) 72%, transparent);
+    outline-offset: 1px;
+  }
+
+  .control-sidebar-inline-filter[data-active="true"] {
+    border-color: color-mix(in oklch, var(--ring) 22%, transparent);
+    background: color-mix(
+      in oklch,
+      var(--control-surface-muted) 18%,
+      var(--background) 82%
+    );
+    color: color-mix(in oklch, var(--foreground) 92%, var(--muted-foreground) 8%);
   }
 
   .control-section-header {

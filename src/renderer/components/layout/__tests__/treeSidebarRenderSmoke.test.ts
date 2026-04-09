@@ -10,6 +10,7 @@ vi.mock('lucide-react', () => {
     ChevronRight: icon,
     Clock: icon,
     EyeOff: icon,
+    Filter: icon,
     FolderGit2: icon,
     FolderMinus: icon,
     GitBranch: icon,

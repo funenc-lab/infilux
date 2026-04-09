@@ -280,11 +280,11 @@ describe('sidebar design policy', () => {
 
   it('keeps search and filtered-empty copy aligned across sidebar variants', () => {
     expect(treeSidebarSource).toContain("aria-label={t('Search projects')}");
-    expect(treeSidebarSource).toMatch(/placeholder=\{`\$\{t\('Search projects'\)\} \(:active\)`\}/);
+    expect(treeSidebarSource).toContain("placeholder={t('Search projects')}");
+    expect(treeSidebarSource).toContain(">{t('Agent')}</span>");
+    expect(treeSidebarSource).toContain('control-sidebar-inline-filter');
     expect(repositorySidebarSource).toContain("aria-label={t('Search projects')}");
-    expect(repositorySidebarSource).toMatch(
-      /placeholder=\{`\$\{t\('Search projects'\)\} \(:active\)`\}/
-    );
+    expect(repositorySidebarSource).toContain("placeholder={t('Search projects')}");
     expect(treeSidebarSource).toContain(
       'No projects match the current search. Try a broader term or clear the filter.'
     );
