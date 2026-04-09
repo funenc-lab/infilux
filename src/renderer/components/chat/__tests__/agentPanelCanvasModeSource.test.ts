@@ -10,7 +10,9 @@ describe('AgentPanel canvas mode source', () => {
   it('reads the persisted display mode and keeps a single AgentTerminal mount tree', () => {
     expect(agentPanelSource).toContain('agentSessionDisplayMode');
     expect(agentPanelSource).toContain("agentSessionDisplayMode === 'canvas'");
+    expect(agentPanelSource).toContain('AGENT_CANVAS_GRID_COLUMN_UNITS');
     expect(agentPanelSource).toContain('resolveAgentCanvasColumnCount');
+    expect(agentPanelSource).toContain('resolveAgentCanvasTileColumnSpan');
     expect(agentPanelSource).toContain('resolveAgentCanvasViewportMetrics');
     expect(agentPanelSource).toContain('canvasViewportRef');
     expect(agentPanelSource).toContain('canvasPanStateRef');
@@ -58,6 +60,10 @@ describe('AgentPanel canvas mode source', () => {
     );
     expect(agentPanelSource).toContain('canvasZoomTerminalFontScale');
     expect(agentPanelSource).toContain('terminalFontScale');
+    expect(agentPanelSource).toContain('canvasTileColumnSpanBySessionId');
+    expect(agentPanelSource).toContain(
+      `gridColumn: \`span \${canvasTileColumnSpan} / span \${canvasTileColumnSpan}\``
+    );
     expect(agentPanelSource).toContain('handleCanvasViewportWheel');
     expect(agentPanelSource).toContain('canvasLockedByWorktree');
     expect(agentPanelSource).toContain('isCanvasLocked');
@@ -121,6 +127,9 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('currentWorktreeAgentStatuses');
     expect(agentPanelSource).toContain('useAgentStatusStore(');
     expect(agentPanelSource).toContain('useShallow((state) =>');
+    expect(agentPanelSource).toContain(
+      `gridTemplateColumns: \`repeat(\${AGENT_CANVAS_GRID_COLUMN_UNITS}, minmax(0, 1fr))\``
+    );
     expect(agentPanelSource).not.toContain("t('Start fresh session')");
     expect(agentPanelSource).not.toContain("t('Current')");
     expect(agentPanelSource.match(/<AgentTerminal/g)).toHaveLength(1);

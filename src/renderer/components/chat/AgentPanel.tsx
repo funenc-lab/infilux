@@ -82,7 +82,11 @@ import {
   AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
   shouldStartAgentCanvasPan,
 } from './agentCanvasInteractionPolicy';
-import { resolveAgentCanvasColumnCount } from './agentCanvasLayout';
+import {
+  AGENT_CANVAS_GRID_COLUMN_UNITS,
+  resolveAgentCanvasColumnCount,
+  resolveAgentCanvasTileColumnSpan,
+} from './agentCanvasLayout';
 import {
   AGENT_CANVAS_ZOOM_DEFAULT,
   AGENT_CANVAS_ZOOM_MAX,
@@ -930,6 +934,16 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     () => resolveAgentCanvasColumnCount(currentWorktreeSessions.length),
     [currentWorktreeSessions.length]
   );
+  const canvasTileColumnSpanBySessionId = useMemo(() => {
+    const spans = new Map<string, number>();
+    currentWorktreeSessions.forEach((session, index) => {
+      spans.set(
+        session.id,
+        resolveAgentCanvasTileColumnSpan(currentWorktreeSessions.length, index)
+      );
+    });
+    return spans;
+  }, [currentWorktreeSessions]);
   const [canvasZoomByWorktree, setCanvasZoomByWorktree] = useState<Record<string, number>>({});
   const [canvasLockedByWorktree, setCanvasLockedByWorktree] = useState<Record<string, boolean>>({});
   const [canvasFloatingSessionIdByWorktree, setCanvasFloatingSessionIdByWorktree] = useState<
@@ -3241,6 +3255,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     const tileAgentLabel = getAgentDisplayLabel(session.agentId, customAgents);
     const isCanvasFloatingSession = isCanvasDisplayMode && session.id === canvasFloatingSessionId;
     const sessionContentHost = ensureCanvasSessionContentHost(sessionId);
+    const canvasTileColumnSpan =
+      canvasTileColumnSpanBySessionId.get(sessionId) ??
+      AGENT_CANVAS_GRID_COLUMN_UNITS / Math.max(canvasColumnCount, 1);
     const canRenderCanvasFloatingSessionInPortal =
       sessionContentHost !== null && isCanvasFloatingSession && canvasFloatingFrame !== null;
     const shouldDimCanvasTile =
@@ -3466,7 +3483,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         )}
         style={
           isCanvasDisplayMode
-            ? undefined
+            ? {
+                gridColumn: `span ${canvasTileColumnSpan} / span ${canvasTileColumnSpan}`,
+              }
             : {
                 left: `${left}%`,
                 width: `${width}%`,
@@ -3791,7 +3810,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                 style={{
                   transform: `scale(${canvasViewportMetrics.zoom})`,
                   transformOrigin: 'center center',
-                  gridTemplateColumns: `repeat(${canvasColumnCount}, minmax(0, 1fr))`,
+                  gridTemplateColumns: `repeat(${AGENT_CANVAS_GRID_COLUMN_UNITS}, minmax(0, 1fr))`,
                   gridAutoRows: 'minmax(0, 1fr)',
                 }}
               >
