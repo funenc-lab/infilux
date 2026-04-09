@@ -131,6 +131,11 @@ export interface ValidateUrlResult {
   repoName?: string;
 }
 
+export interface GitAutoFetchCompletedPayload {
+  timestamp: number;
+  repositoryPaths: string[];
+}
+
 // Git Submodule types
 export type SubmoduleStatus =
   | 'clean' // 干净

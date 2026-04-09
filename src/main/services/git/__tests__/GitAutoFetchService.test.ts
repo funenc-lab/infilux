@@ -170,6 +170,7 @@ describe('GitAutoFetchService', () => {
     expect(gitAutoFetchTestDoubles.fetchSubmodule).toHaveBeenCalledWith('sub-a');
     expect(send).toHaveBeenCalledWith('git:autoFetch:completed', {
       timestamp: expect.any(Number),
+      repositoryPaths: ['/repo'],
     });
 
     focusListeners[0]?.();
@@ -292,6 +293,44 @@ describe('GitAutoFetchService', () => {
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(gitAutoFetchTestDoubles.fetch).not.toHaveBeenCalled();
+  });
+
+  it('fetches each repository root once when multiple worktrees belong to the same repository', async () => {
+    const send = vi.fn();
+    const window = {
+      on: vi.fn(),
+      off: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        send,
+      },
+    };
+
+    const gitAutoFetchService = await loadGitAutoFetchService();
+
+    gitAutoFetchService.init(window as never);
+    gitAutoFetchService.setEnabled(true);
+
+    const service = gitAutoFetchService as unknown as {
+      fetchAll: () => Promise<void>;
+      syncRepositoryWorktrees: (repositoryPath: string, worktreePaths: string[]) => void;
+    };
+
+    service.syncRepositoryWorktrees('/repo/main', [
+      '/repo/main',
+      '/repo/main/.worktrees/feature-a',
+      '/repo/main/.worktrees/feature-b',
+    ]);
+
+    await service.fetchAll();
+
+    expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledTimes(1);
+    expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledWith('/repo/main');
+    expect(send).toHaveBeenCalledWith('git:autoFetch:completed', {
+      timestamp: expect.any(Number),
+      repositoryPaths: ['/repo/main'],
+    });
   });
 
   it('drops stale worktree registrations across cleanup and reinit cycles', async () => {

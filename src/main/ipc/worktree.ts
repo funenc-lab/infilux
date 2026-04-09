@@ -46,12 +46,11 @@ export function registerWorktreeHandlers(): void {
 
     const service = getWorktreeService(workdir);
     const worktrees = await service.list();
-
-    // Register all worktrees with auto-fetch service
-    gitAutoFetchService.clearWorktrees();
-    for (const wt of worktrees) {
-      gitAutoFetchService.registerWorktree(wt.path);
-    }
+    const repositoryPath = worktrees.find((worktree) => worktree.isMainWorktree)?.path ?? workdir;
+    gitAutoFetchService.syncRepositoryWorktrees(
+      repositoryPath,
+      worktrees.map((worktree) => worktree.path)
+    );
 
     return worktrees;
   });

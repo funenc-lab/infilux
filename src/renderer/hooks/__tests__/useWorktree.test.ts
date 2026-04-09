@@ -4,6 +4,8 @@ const reactQueryMock = vi.hoisted(() => ({
   useQuery: vi.fn((options: unknown) => options),
   useQueries: vi.fn(),
   useMutation: vi.fn(),
+  invalidateQueries: vi.fn(),
+  getQueryData: vi.fn(),
   useQueryClient: vi.fn(),
 }));
 
@@ -35,7 +37,7 @@ vi.mock('@/stores/worktree', () => ({
   useWorktreeStore: worktreeStoreMock.hook,
 }));
 
-import { useWorktreeList } from '../useWorktree';
+import { resetWorktreeRecoveryStateForTests, useWorktreeList } from '../useWorktree';
 
 type MockedQueryOptions<TResult> = {
   queryFn: () => Promise<TResult>;
@@ -44,9 +46,18 @@ type MockedQueryOptions<TResult> = {
 describe('useWorktreeList', () => {
   beforeEach(() => {
     reactQueryMock.useQuery.mockClear();
+    reactQueryMock.useQueryClient.mockReset();
+    reactQueryMock.useQueryClient.mockReturnValue({
+      invalidateQueries: reactQueryMock.invalidateQueries,
+      getQueryData: reactQueryMock.getQueryData,
+    });
+    reactQueryMock.invalidateQueries.mockClear();
+    reactQueryMock.getQueryData.mockReset();
+    reactQueryMock.getQueryData.mockReturnValue(undefined);
     worktreeStoreMock.hook.mockClear();
     worktreeStoreMock.setWorktrees.mockClear();
     worktreeStoreMock.setError.mockClear();
+    resetWorktreeRecoveryStateForTests();
   });
 
   afterEach(() => {
@@ -76,9 +87,10 @@ describe('useWorktreeList', () => {
     ]);
     expect(worktreeStoreMock.setWorktrees).toHaveBeenCalledWith(worktrees);
     expect(worktreeStoreMock.setError).toHaveBeenCalledWith(null);
+    expect(reactQueryMock.invalidateQueries).not.toHaveBeenCalled();
   });
 
-  it('records the error, clears stale store data, and rethrows the fetch failure', async () => {
+  it('records the error, preserves the previous store data, and rethrows the fetch failure', async () => {
     vi.stubGlobal('window', {
       electronAPI: {
         worktree: {
@@ -91,6 +103,34 @@ describe('useWorktreeList', () => {
 
     await expect(query.queryFn()).rejects.toThrow('spawn EBADF');
     expect(worktreeStoreMock.setError).toHaveBeenCalledWith('spawn EBADF');
-    expect(worktreeStoreMock.setWorktrees).toHaveBeenCalledWith([]);
+    expect(worktreeStoreMock.setWorktrees).not.toHaveBeenCalled();
+  });
+
+  it('preserves the previous snapshot and schedules recovery when a refresh unexpectedly returns an empty array', async () => {
+    const previousWorktrees = [
+      {
+        path: '/repo',
+        head: 'abc123',
+        isMainWorktree: true,
+      },
+    ];
+
+    reactQueryMock.getQueryData.mockReturnValue(previousWorktrees);
+    vi.stubGlobal('window', {
+      electronAPI: {
+        worktree: {
+          list: vi.fn().mockResolvedValue([]),
+        },
+      },
+    });
+
+    const query = useWorktreeList('/repo') as unknown as MockedQueryOptions<unknown>;
+    const worktrees = await query.queryFn();
+
+    expect(worktrees).toEqual(previousWorktrees);
+    expect(worktreeStoreMock.setWorktrees).toHaveBeenCalledWith(previousWorktrees);
+    expect(reactQueryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['worktree', 'list', '/repo'],
+    });
   });
 });

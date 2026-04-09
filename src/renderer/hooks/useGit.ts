@@ -1,3 +1,4 @@
+import type { GitAutoFetchCompletedPayload } from '@shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { normalizePath } from '@/App/storage';
@@ -48,6 +49,10 @@ export function useGitBranches(workdir: string | null, options?: GitQueryOptions
       return branches;
     },
     enabled: !!workdir && queryEnabled,
+    staleTime: 30000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -221,11 +226,12 @@ export function useAutoFetchListener() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const cleanup = onGitAutoFetchCompleted(() => {
-      // Invalidate all git status queries to refresh behind/ahead counts
-      queryClient.invalidateQueries({ queryKey: ['git', 'status'] });
-      queryClient.invalidateQueries({ queryKey: ['git', 'branches'] });
-      queryClient.invalidateQueries({ queryKey: worktreeQueryKeys.lists() });
+    const cleanup = onGitAutoFetchCompleted((data: GitAutoFetchCompletedPayload) => {
+      for (const repositoryPath of data.repositoryPaths) {
+        queryClient.invalidateQueries({ queryKey: ['git', 'status', repositoryPath] });
+        queryClient.invalidateQueries({ queryKey: ['git', 'branches', repositoryPath] });
+        queryClient.invalidateQueries({ queryKey: worktreeQueryKeys.list(repositoryPath) });
+      }
     });
 
     return cleanup;

@@ -1,14 +1,11 @@
 import { existsSync, type FSWatcher, watch } from 'node:fs';
-import { join } from 'node:path';
-import { IPC_CHANNELS } from '@shared/types';
+import { join, resolve } from 'node:path';
+import { type GitAutoFetchCompletedPayload, IPC_CHANNELS } from '@shared/types';
 import type { BrowserWindow } from 'electron';
 import { GitService } from './GitService';
 
-// Default interval: 3 minutes
 const FETCH_INTERVAL_MS = 3 * 60 * 1000;
-// Minimum interval between focus-triggered fetches: 1 minute
 const MIN_FOCUS_INTERVAL_MS = 1 * 60 * 1000;
-// Debounce delay for HEAD file change notifications
 const HEAD_CHANGE_DEBOUNCE_MS = 300;
 const FETCH_TIMEOUT_MS = 30_000;
 
@@ -45,7 +42,8 @@ class GitAutoFetchService {
   private intervalId: NodeJS.Timeout | null = null;
   private startupFetchTimeoutId: NodeJS.Timeout | null = null;
   private lastFetchTime = 0;
-  private worktreePaths: Set<string> = new Set();
+  private repositoryWorktreePaths: Map<string, Set<string>> = new Map();
+  private worktreeRepositoryPaths: Map<string, string> = new Map();
   private enabled = false;
   private fetching = false;
   private onFocusHandler: (() => void) | null = null;
@@ -53,20 +51,20 @@ class GitAutoFetchService {
   private headDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
 
   init(window: BrowserWindow): void {
-    // 防止重复初始化导致多个事件监听器
     if (this.mainWindow) {
       console.warn('GitAutoFetchService already initialized');
       return;
     }
-    this.mainWindow = window;
 
-    // 窗口获得焦点时检查（带防抖）
+    this.mainWindow = window;
     this.onFocusHandler = () => {
-      if (this.enabled) {
-        const now = Date.now();
-        if (now - this.lastFetchTime >= MIN_FOCUS_INTERVAL_MS) {
-          this.fetchAll();
-        }
+      if (!this.enabled) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - this.lastFetchTime >= MIN_FOCUS_INTERVAL_MS) {
+        void this.fetchAll();
       }
     };
     window.on('focus', this.onFocusHandler);
@@ -79,14 +77,12 @@ class GitAutoFetchService {
   cleanup(): void {
     this.stop();
     this.clearWorktrees();
-    // Collect keys first to avoid modifying Map during iteration
-    for (const path of [...this.headWatchers.keys()]) {
-      this.unwatchHead(path);
-    }
+
     if (this.mainWindow && this.onFocusHandler) {
       this.mainWindow.off('focus', this.onFocusHandler);
       this.onFocusHandler = null;
     }
+
     this.mainWindow = null;
     this.enabled = false;
     this.fetching = false;
@@ -94,13 +90,14 @@ class GitAutoFetchService {
   }
 
   start(): void {
-    if (this.intervalId) return;
+    if (this.intervalId) {
+      return;
+    }
 
     this.intervalId = setInterval(() => {
-      this.fetchAll();
+      void this.fetchAll();
     }, FETCH_INTERVAL_MS);
 
-    // 启动后延迟 5 秒执行首次 fetch
     this.startupFetchTimeoutId = setTimeout(() => {
       this.startupFetchTimeoutId = null;
       void this.fetchAll();
@@ -112,6 +109,7 @@ class GitAutoFetchService {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+
     if (this.startupFetchTimeoutId) {
       clearTimeout(this.startupFetchTimeoutId);
       this.startupFetchTimeoutId = null;
@@ -122,71 +120,121 @@ class GitAutoFetchService {
     this.enabled = enabled;
     if (enabled) {
       this.start();
-    } else {
-      this.stop();
-      this.fetching = false;
+      return;
     }
+
+    this.stop();
+    this.fetching = false;
   }
 
   registerWorktree(path: string): void {
-    this.worktreePaths.add(path);
-    this.watchHead(path);
+    this.registerRepositoryWorktree(path, path);
+  }
+
+  syncRepositoryWorktrees(repositoryPath: string, worktreePaths: string[]): void {
+    const normalizedRepositoryPath = resolve(repositoryPath);
+    const nextWorktreePaths = new Set(worktreePaths.map((path) => resolve(path)));
+    const previousWorktreePaths = this.repositoryWorktreePaths.get(normalizedRepositoryPath);
+
+    if (previousWorktreePaths) {
+      for (const previousPath of previousWorktreePaths) {
+        if (!nextWorktreePaths.has(previousPath)) {
+          this.unregisterWorktree(previousPath);
+        }
+      }
+    }
+
+    for (const worktreePath of nextWorktreePaths) {
+      this.registerRepositoryWorktree(worktreePath, normalizedRepositoryPath);
+    }
+
+    if (nextWorktreePaths.size === 0) {
+      this.repositoryWorktreePaths.delete(normalizedRepositoryPath);
+    }
   }
 
   unregisterWorktree(path: string): void {
-    this.worktreePaths.delete(path);
-    this.unwatchHead(path);
+    const normalizedPath = resolve(path);
+    const repositoryPath = this.worktreeRepositoryPaths.get(normalizedPath);
+
+    if (repositoryPath) {
+      const repositoryWorktrees = this.repositoryWorktreePaths.get(repositoryPath);
+      repositoryWorktrees?.delete(normalizedPath);
+      if (repositoryWorktrees && repositoryWorktrees.size === 0) {
+        this.repositoryWorktreePaths.delete(repositoryPath);
+      }
+      this.worktreeRepositoryPaths.delete(normalizedPath);
+    }
+
+    this.unwatchHead(normalizedPath);
   }
 
   clearWorktrees(): void {
-    for (const path of this.worktreePaths) {
-      this.unwatchHead(path);
+    for (const worktreePath of [...this.worktreeRepositoryPaths.keys()]) {
+      this.unwatchHead(worktreePath);
     }
-    this.worktreePaths.clear();
+
+    this.repositoryWorktreePaths.clear();
+    this.worktreeRepositoryPaths.clear();
   }
 
   private async fetchAll(): Promise<void> {
-    if (!this.enabled || this.worktreePaths.size === 0 || this.fetching) return;
+    if (!this.enabled || this.repositoryWorktreePaths.size === 0 || this.fetching) {
+      return;
+    }
+
     this.fetching = true;
+    const completedRepositoryPaths = new Set<string>();
 
     try {
       this.lastFetchTime = Date.now();
 
-      // 串行执行，避免网络拥堵
-      for (const path of this.worktreePaths) {
-        if (!this.enabled) break;
+      for (const repositoryPath of this.repositoryWorktreePaths.keys()) {
+        if (!this.enabled) {
+          break;
+        }
+
         try {
-          const git = new GitService(path);
+          const git = new GitService(repositoryPath);
           await withTimeout(git.fetch(), FETCH_TIMEOUT_MS, 'fetch');
+          completedRepositoryPaths.add(repositoryPath);
 
-          if (!this.enabled) break;
+          if (!this.enabled) {
+            break;
+          }
 
-          // 并行 fetch 已初始化的子模块（带超时控制）
           const submodules = await git.listSubmodules();
           const submodulePromises = submodules
-            .filter((s) => s.initialized)
-            .map((s) =>
-              withTimeout(git.fetchSubmodule(s.path), FETCH_TIMEOUT_MS, 'submodule fetch').catch(
-                (err) => {
-                  console.debug(`Auto fetch submodule failed for ${s.path}:`, err);
-                }
-              )
+            .filter((submodule) => submodule.initialized)
+            .map((submodule) =>
+              withTimeout(
+                git.fetchSubmodule(submodule.path),
+                FETCH_TIMEOUT_MS,
+                'submodule fetch'
+              ).catch((error) => {
+                console.debug(`Auto fetch submodule failed for ${submodule.path}:`, error);
+              })
             );
           await Promise.all(submodulePromises);
         } catch (error) {
-          // 静默失败，不打扰用户
-          console.debug(`Auto fetch failed for ${path}:`, error);
+          console.debug(`Auto fetch failed for ${repositoryPath}:`, error);
         }
       }
     } finally {
       this.fetching = false;
     }
 
-    // 通知渲染进程刷新状态
-    this.notifyCompleted();
+    this.notifyCompleted([...completedRepositoryPaths]);
   }
 
-  private notifyCompleted(): void {
+  private notifyCompleted(repositoryPaths: string[]): void {
+    const normalizedRepositoryPaths = [
+      ...new Set(repositoryPaths.map((path) => resolve(path))),
+    ].sort();
+    if (normalizedRepositoryPaths.length === 0) {
+      return;
+    }
+
     if (!this.mainWindow || this.mainWindow.isDestroyed()) {
       return;
     }
@@ -196,9 +244,11 @@ class GitAutoFetchService {
     }
 
     try {
-      this.mainWindow.webContents.send(IPC_CHANNELS.GIT_AUTO_FETCH_COMPLETED, {
+      const payload: GitAutoFetchCompletedPayload = {
         timestamp: Date.now(),
-      });
+        repositoryPaths: normalizedRepositoryPaths,
+      };
+      this.mainWindow.webContents.send(IPC_CHANNELS.GIT_AUTO_FETCH_COMPLETED, payload);
     } catch (error) {
       if (isDisposedWindowSendError(error)) {
         return;
@@ -208,26 +258,26 @@ class GitAutoFetchService {
     }
   }
 
-  /**
-   * Watch the .git/HEAD file for a worktree so branch switches triggered
-   * externally (terminal, AI agents) are detected immediately.
-   */
-  private watchHead(worktreePath: string): void {
-    // Avoid duplicate watchers
-    if (this.headWatchers.has(worktreePath)) return;
+  private watchHead(worktreePath: string, repositoryPath: string): void {
+    if (this.headWatchers.has(worktreePath)) {
+      return;
+    }
 
     const headPath = join(worktreePath, '.git', 'HEAD');
-    if (!existsSync(headPath)) return;
+    if (!existsSync(headPath)) {
+      return;
+    }
 
     try {
       const watcher = watch(headPath, () => {
-        // Debounce rapid successive events (e.g. git writes HEAD twice during checkout)
-        const existing = this.headDebounceTimers.get(worktreePath);
-        if (existing) clearTimeout(existing);
+        const existingTimer = this.headDebounceTimers.get(worktreePath);
+        if (existingTimer) {
+          clearTimeout(existingTimer);
+        }
 
         const timer = setTimeout(() => {
           this.headDebounceTimers.delete(worktreePath);
-          this.notifyCompleted();
+          this.notifyCompleted([repositoryPath]);
         }, HEAD_CHANGE_DEBOUNCE_MS);
 
         this.headDebounceTimers.set(worktreePath, timer);
@@ -236,7 +286,7 @@ class GitAutoFetchService {
       watcher.on('error', () => this.unwatchHead(worktreePath));
       this.headWatchers.set(worktreePath, watcher);
     } catch {
-      // Silent fail — polling remains as fallback
+      // Silent fail: periodic auto-fetch remains as fallback.
     }
   }
 
@@ -252,6 +302,28 @@ class GitAutoFetchService {
       watcher.close();
       this.headWatchers.delete(worktreePath);
     }
+  }
+
+  private registerRepositoryWorktree(path: string, repositoryPath: string): void {
+    const normalizedPath = resolve(path);
+    const normalizedRepositoryPath = resolve(repositoryPath);
+    const previousRepositoryPath = this.worktreeRepositoryPaths.get(normalizedPath);
+
+    if (previousRepositoryPath && previousRepositoryPath !== normalizedRepositoryPath) {
+      const previousRepositoryWorktrees = this.repositoryWorktreePaths.get(previousRepositoryPath);
+      previousRepositoryWorktrees?.delete(normalizedPath);
+      if (previousRepositoryWorktrees && previousRepositoryWorktrees.size === 0) {
+        this.repositoryWorktreePaths.delete(previousRepositoryPath);
+      }
+      this.unwatchHead(normalizedPath);
+    }
+
+    const repositoryWorktrees =
+      this.repositoryWorktreePaths.get(normalizedRepositoryPath) ?? new Set<string>();
+    repositoryWorktrees.add(normalizedPath);
+    this.repositoryWorktreePaths.set(normalizedRepositoryPath, repositoryWorktrees);
+    this.worktreeRepositoryPaths.set(normalizedPath, normalizedRepositoryPath);
+    this.watchHead(normalizedPath, normalizedRepositoryPath);
   }
 }
 

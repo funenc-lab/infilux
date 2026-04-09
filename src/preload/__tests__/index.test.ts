@@ -875,8 +875,8 @@ describe('preload bridge', () => {
         channel: IPC_CHANNELS.GIT_AUTO_FETCH_COMPLETED,
         register: (callback: (value: unknown) => void) =>
           api.git.onAutoFetchCompleted(callback as never),
-        emitted: [{ timestamp: 123 }],
-        expected: [{ timestamp: 123 }],
+        emitted: [{ timestamp: 123, repositoryPaths: ['/repo/a'] }],
+        expected: [{ timestamp: 123, repositoryPaths: ['/repo/a'] }],
       },
       {
         channel: IPC_CHANNELS.FILE_CHANGE,

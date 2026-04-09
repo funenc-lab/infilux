@@ -1,6 +1,8 @@
+import type { GitAutoFetchCompletedPayload } from '@shared/types';
+
 interface RendererGitApi {
   onAutoFetchCompleted?: (
-    callback: (data: { timestamp: number }) => void
+    callback: (data: GitAutoFetchCompletedPayload) => void
   ) => (() => void) | undefined;
   setAutoFetchEnabled?: (enabled: boolean) => Promise<void>;
 }
@@ -16,7 +18,7 @@ function getRendererGitApi(): RendererGitApi | null {
 }
 
 export function onGitAutoFetchCompleted(
-  callback: (data: { timestamp: number }) => void
+  callback: (data: GitAutoFetchCompletedPayload) => void
 ): () => void {
   const git = getRendererGitApi();
   if (!git?.onAutoFetchCompleted) {
