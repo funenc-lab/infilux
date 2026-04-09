@@ -32,8 +32,6 @@ import { shouldRenderTabPanel } from './mainContentMountPolicy';
 import { buildMainContentRenderPlan } from './mainContentRenderPlan';
 import { resolveChatPanelRetentionState } from './panelRetentionPolicy';
 
-type LayoutMode = 'columns' | 'tree';
-
 export interface MainContentProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
@@ -47,8 +45,6 @@ export interface MainContentProps {
   repositoryCollapsed?: boolean;
   worktreeCollapsed?: boolean;
   fileSidebarCollapsed?: boolean;
-  layoutMode?: LayoutMode;
-  onExpandRepository?: () => void;
   onExpandWorktree?: () => void;
   onExpandFileSidebar?: () => void;
   onSwitchWorktree?: (worktreePath: string) => void;
@@ -108,8 +104,6 @@ export function MainContent({
   repositoryCollapsed = false,
   worktreeCollapsed = false,
   fileSidebarCollapsed = false,
-  layoutMode = 'columns',
-  onExpandRepository,
   onExpandWorktree,
   onExpandFileSidebar,
   onSwitchWorktree,
@@ -577,7 +571,6 @@ export function MainContent({
   }, [currentWorktreePath, getFileTabCountForWorktree]);
 
   const innerBg = bgImageEnabled ? '' : 'bg-background';
-  const hasCollapsedPanels = repositoryCollapsed || worktreeCollapsed || fileSidebarCollapsed;
   const showOpenInToolbar = showOpenInMenu && activeTab === 'file' && Boolean(effectiveOpenInPath);
 
   return (
@@ -585,13 +578,8 @@ export function MainContent({
       <MainContentTopbar
         bgImageEnabled={bgImageEnabled}
         needsTrafficLightPadding={needsTrafficLightPadding}
-        hasCollapsedPanels={hasCollapsedPanels}
         repositoryCollapsed={repositoryCollapsed}
-        worktreeCollapsed={worktreeCollapsed}
         fileSidebarCollapsed={fileSidebarCollapsed}
-        layoutMode={layoutMode}
-        onExpandRepository={onExpandRepository}
-        onExpandWorktree={onExpandWorktree}
         onExpandFileSidebar={onExpandFileSidebar}
         onSwitchWorktree={onSwitchWorktree}
         onSwitchTab={onSwitchTab}

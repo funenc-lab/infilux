@@ -51,6 +51,8 @@ type MainContentModule = typeof import('../MainContent');
 type MainContentProps = React.ComponentProps<MainContentModule['MainContent']>;
 type MainContentPanelsModule = typeof import('../MainContentPanels');
 type MainContentPanelsProps = React.ComponentProps<MainContentPanelsModule['MainContentPanels']>;
+type MainContentTopbarModule = typeof import('../MainContentTopbar');
+type MainContentTopbarProps = React.ComponentProps<MainContentTopbarModule['MainContentTopbar']>;
 
 const settingsState: SettingsState = {
   settingsDisplayMode: 'tab',
@@ -406,6 +408,40 @@ describe('MainContent component render', () => {
     );
   }
 
+  async function renderMainContentTopbar(
+    overrides?: Partial<MainContentTopbarProps>
+  ): Promise<string> {
+    const { MainContentTopbar } = await import('../MainContentTopbar');
+    return renderToStaticMarkup(
+      React.createElement(MainContentTopbar, {
+        bgImageEnabled: false,
+        needsTrafficLightPadding: false,
+        repositoryCollapsed: false,
+        fileSidebarCollapsed: false,
+        onExpandFileSidebar: vi.fn(),
+        onSwitchWorktree: vi.fn(),
+        onSwitchTab: vi.fn(),
+        tabs: [],
+        activeTab: 'chat',
+        onTabChange: vi.fn(),
+        onTabReorder: vi.fn(),
+        draggedIndex: null,
+        dropTargetIndex: null,
+        onDragStart: vi.fn(),
+        onDragEnd: vi.fn(),
+        onDragOver: vi.fn(),
+        onDragLeave: vi.fn(),
+        onDrop: vi.fn(),
+        isSettingsActive: false,
+        onToggleSettings: vi.fn(),
+        activeSessionId: null,
+        onOpenReview: vi.fn(),
+        showOpenInToolbar: false,
+        ...overrides,
+      })
+    );
+  }
+
   it('renders the current-file panel when fileTreeDisplayMode is current', async () => {
     settingsState.fileTreeDisplayMode = 'current';
     editorState.tabs = [{ path: '/repo/main/worktrees/current/src/App.tsx' }];
@@ -492,6 +528,19 @@ describe('MainContent component render', () => {
     expect(markup).toMatch(
       /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-show-fallback="false"|<div data-panel="agent"[^>]*data-show-fallback="false"[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
     );
+  });
+
+  it('does not render a duplicated Panels menu when sidebars are collapsed', async () => {
+    const markup = await renderMainContentTopbar({
+      repositoryCollapsed: true,
+      fileSidebarCollapsed: true,
+    });
+
+    expect(markup).toContain('data-component="RunningProjectsPopover"');
+    expect(markup).not.toContain('Panels');
+    expect(markup).not.toContain('Expand Repository');
+    expect(markup).not.toContain('Expand Worktree');
+    expect(markup).not.toContain('Expand File Sidebar');
   });
 
   it('keeps the current agent panel mounted behind the selected subagent transcript', async () => {

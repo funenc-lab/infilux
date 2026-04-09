@@ -1,6 +1,15 @@
 import type { TempWorkspaceItem } from '@shared/types';
 import { getDisplayPath, isWslUncPath } from '@shared/utils/path';
-import { FolderGit2, GitBranch, PanelLeftClose, Plus, RefreshCw, Search, X } from 'lucide-react';
+import {
+  FolderGit2,
+  FolderOpen,
+  GitBranch,
+  PanelLeftClose,
+  Plus,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { TempWorkspaceContextMenu } from '@/components/temp-workspace/TempWorkspaceContextMenu';
 import { Button } from '@/components/ui/button';
@@ -8,6 +17,7 @@ import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { SidebarEmptyState } from './SidebarEmptyState';
 
 interface TemporaryWorkspacePanelProps {
@@ -18,7 +28,9 @@ interface TemporaryWorkspacePanelProps {
   onRequestRename: (id: string) => void;
   onRequestDelete: (id: string) => void;
   onRefresh: () => void;
+  collapsed?: boolean;
   onCollapse?: () => void;
+  onExpand?: () => void;
 }
 
 export function TemporaryWorkspacePanel({
@@ -29,7 +41,9 @@ export function TemporaryWorkspacePanel({
   onRequestRename,
   onRequestDelete,
   onRefresh,
+  collapsed = false,
   onCollapse,
+  onExpand,
 }: TemporaryWorkspacePanelProps) {
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,7 +66,36 @@ export function TemporaryWorkspacePanel({
   }, [sortedItems, searchQuery]);
   const hasSearchFilter = searchQuery.trim().length > 0;
 
-  return (
+  const sidebarBody = collapsed ? (
+    <CollapsedSidebarRail
+      label="Temp Workspace Panel"
+      triggerTitle={t('Temp session actions')}
+      icon={FolderGit2}
+      popupClassName="min-w-[208px]"
+      actions={[
+        {
+          id: 'expand-temp-sessions',
+          label: t('Expand Temp Sessions'),
+          icon: FolderOpen,
+          onSelect: () => onExpand?.(),
+          disabled: !onExpand,
+        },
+        {
+          id: 'new-temp-session',
+          label: t('New Temp Session'),
+          icon: Plus,
+          onSelect: onCreate,
+          separatorBefore: true,
+        },
+        {
+          id: 'refresh-temp-sessions',
+          label: t('Refresh'),
+          icon: RefreshCw,
+          onSelect: onRefresh,
+        },
+      ]}
+    />
+  ) : (
     <aside className="control-sidebar flex h-full w-full flex-col border-r bg-background">
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
@@ -183,6 +226,8 @@ export function TemporaryWorkspacePanel({
       </div>
     </aside>
   );
+
+  return <>{sidebarBody}</>;
 }
 
 interface TemporaryWorkspaceItemRowProps {

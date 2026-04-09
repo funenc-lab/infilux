@@ -24,6 +24,7 @@ import { useI18n } from '@/i18n';
 import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { WorktreeItem } from './worktree-panel/WorktreeItem';
 import { resolveWorktreePanelSnapshot } from './worktreePanelSnapshot';
@@ -58,6 +59,7 @@ export interface WorktreePanelProps {
   width?: number;
   collapsed?: boolean;
   onCollapse?: () => void;
+  onExpand?: () => void;
   repositoryCollapsed?: boolean;
   onExpandRepository?: () => void;
 }
@@ -84,13 +86,15 @@ export function WorktreePanel({
   isChatActive: _isChatActive = false,
   selectedSubagentByWorktree: _selectedSubagentByWorktree = {},
   width: _width = 280,
-  collapsed: _collapsed = false,
+  collapsed = false,
   onCollapse,
+  onExpand,
   repositoryCollapsed = false,
   onExpandRepository,
 }: WorktreePanelProps) {
   const { t, tNode } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [worktreeToDelete, setWorktreeToDelete] = useState<GitWorktree | null>(null);
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [forceDelete, setForceDelete] = useState(false);
@@ -236,7 +240,36 @@ export function WorktreePanel({
     return () => clearInterval(interval);
   }, [diffStatPathKey, fetchDiffStats, shouldPoll]);
 
-  return (
+  const sidebarBody = collapsed ? (
+    <CollapsedSidebarRail
+      label="Worktree Panel"
+      triggerTitle={t('Worktree panel actions')}
+      icon={GitBranch}
+      popupClassName="min-w-[208px]"
+      actions={[
+        {
+          id: 'expand-worktree',
+          label: t('Expand Worktree'),
+          icon: GitBranch,
+          onSelect: () => onExpand?.(),
+          disabled: !onExpand,
+        },
+        {
+          id: 'new-worktree',
+          label: t('New Worktree'),
+          icon: Plus,
+          onSelect: () => setCreateDialogOpen(true),
+          separatorBefore: true,
+        },
+        {
+          id: 'refresh-worktree',
+          label: t('Refresh'),
+          icon: RefreshCw,
+          onSelect: onRefresh,
+        },
+      ]}
+    />
+  ) : (
     <aside className="control-sidebar flex h-full w-full flex-col border-r bg-background">
       {/* Header */}
       <div className={cn('control-sidebar-header drag-region', repositoryCollapsed && 'pl-[70px]')}>
@@ -467,23 +500,31 @@ export function WorktreePanel({
 
       {/* Footer - Create Worktree Button */}
       <div className="control-sidebar-footer">
-        <CreateWorktreeDialog
-          branches={branches}
-          projectName={projectName}
-          workdir={workdir}
-          isLoading={isCreating}
-          onSubmit={onCreateWorktree}
-          trigger={
-            <button
-              type="button"
-              className="control-sidebar-footer-action control-sidebar-footer-action-primary"
-            >
-              <Plus className="h-4 w-4" />
-              {t('New Worktree')}
-            </button>
-          }
-        />
+        <button
+          type="button"
+          className="control-sidebar-footer-action control-sidebar-footer-action-primary"
+          onClick={() => setCreateDialogOpen(true)}
+        >
+          <Plus className="h-4 w-4" />
+          {t('New Worktree')}
+        </button>
       </div>
+    </aside>
+  );
+
+  return (
+    <>
+      {sidebarBody}
+
+      <CreateWorktreeDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        branches={branches}
+        projectName={projectName}
+        workdir={workdir}
+        isLoading={isCreating}
+        onSubmit={onCreateWorktree}
+      />
 
       {/* Delete confirmation dialog */}
       <AlertDialog
@@ -564,7 +605,7 @@ export function WorktreePanel({
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-    </aside>
+    </>
   );
 }
 

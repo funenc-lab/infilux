@@ -85,6 +85,7 @@ export const WORKTREE_DEFAULT = 280;
 export const FILE_SIDEBAR_MIN = 180;
 export const FILE_SIDEBAR_MAX = 500;
 export const FILE_SIDEBAR_DEFAULT = 256;
+export const COLLAPSED_SIDEBAR_RAIL_WIDTH = 44;
 
 // Tree layout constraints
 export const TREE_SIDEBAR_MIN = 256;

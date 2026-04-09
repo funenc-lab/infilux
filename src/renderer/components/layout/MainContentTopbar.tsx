@@ -1,17 +1,14 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { FolderOpen, GitBranch, MessageSquare, PanelLeft, Settings } from 'lucide-react';
+import { MessageSquare, Settings } from 'lucide-react';
 import type { ElementType } from 'react';
 import type { TabId } from '@/App/constants';
 import { OpenInMenu } from '@/components/app/OpenInMenu';
 import { AppResourceStatusPopover } from '@/components/layout/AppResourceStatusPopover';
 import { RunningProjectsPopover } from '@/components/layout/RunningProjectsPopover';
 import { Button } from '@/components/ui/button';
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { useI18n } from '@/i18n';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
-
-type LayoutMode = 'columns' | 'tree';
 
 const isMac = typeof window !== 'undefined' && window.electronAPI?.env?.platform === 'darwin';
 
@@ -24,13 +21,8 @@ export interface MainContentTopbarTab {
 interface MainContentTopbarProps {
   bgImageEnabled: boolean;
   needsTrafficLightPadding: boolean;
-  hasCollapsedPanels: boolean;
   repositoryCollapsed: boolean;
-  worktreeCollapsed: boolean;
   fileSidebarCollapsed: boolean;
-  layoutMode: LayoutMode;
-  onExpandRepository?: () => void;
-  onExpandWorktree?: () => void;
   onExpandFileSidebar?: () => void;
   onSwitchWorktree?: (worktreePath: string) => void;
   onSwitchTab?: (tab: TabId) => void;
@@ -57,13 +49,8 @@ interface MainContentTopbarProps {
 export function MainContentTopbar({
   bgImageEnabled,
   needsTrafficLightPadding,
-  hasCollapsedPanels,
   repositoryCollapsed,
-  worktreeCollapsed,
   fileSidebarCollapsed,
-  layoutMode,
-  onExpandRepository,
-  onExpandWorktree,
   onExpandFileSidebar,
   onSwitchWorktree,
   onSwitchTab,
@@ -88,6 +75,7 @@ export function MainContentTopbar({
 }: MainContentTopbarProps) {
   const { t } = useI18n();
   const headerButtonClass = 'control-topbar-action';
+  const showRunningProjectsPopover = repositoryCollapsed && onSwitchWorktree && onSwitchTab;
 
   return (
     <header
@@ -101,67 +89,20 @@ export function MainContentTopbar({
         <div className="control-topbar-main">
           <div className="control-topbar-nav">
             <AnimatePresence mode="popLayout">
-              {hasCollapsedPanels ? (
+              {showRunningProjectsPopover ? (
                 <motion.div
-                  key="toolbar-panels"
+                  key="toolbar-running-projects"
                   initial={{ width: 0, opacity: 0 }}
                   animate={{ width: 'auto', opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                   className="flex items-center gap-2 overflow-hidden"
                 >
-                  {repositoryCollapsed && onSwitchWorktree && onSwitchTab ? (
-                    <RunningProjectsPopover
-                      onSelectWorktreeByPath={onSwitchWorktree}
-                      onSwitchTab={onSwitchTab}
-                      showBadge={false}
-                    />
-                  ) : null}
-                  <Menu>
-                    <MenuTrigger
-                      render={
-                        <button
-                          type="button"
-                          className={headerButtonClass}
-                          title={t('Panels')}
-                          aria-label={t('Panels')}
-                        >
-                          <PanelLeft className="h-4 w-4" />
-                        </button>
-                      }
-                    />
-                    <MenuPopup align="start" sideOffset={8} className="min-w-[190px]">
-                      {layoutMode === 'tree' ? (
-                        onExpandRepository ? (
-                          <MenuItem onClick={onExpandRepository}>
-                            <FolderOpen className="h-4 w-4" />
-                            {t('Expand Sidebar')}
-                          </MenuItem>
-                        ) : null
-                      ) : (
-                        <>
-                          {repositoryCollapsed && onExpandRepository ? (
-                            <MenuItem onClick={onExpandRepository}>
-                              <FolderOpen className="h-4 w-4" />
-                              {t('Expand Repository')}
-                            </MenuItem>
-                          ) : null}
-                          {worktreeCollapsed && onExpandWorktree ? (
-                            <MenuItem onClick={onExpandWorktree}>
-                              <GitBranch className="h-4 w-4" />
-                              {t('Expand Worktree')}
-                            </MenuItem>
-                          ) : null}
-                        </>
-                      )}
-                      {fileSidebarCollapsed && onExpandFileSidebar ? (
-                        <MenuItem onClick={onExpandFileSidebar}>
-                          <PanelLeft className="h-4 w-4" />
-                          {t('Expand File Sidebar')}
-                        </MenuItem>
-                      ) : null}
-                    </MenuPopup>
-                  </Menu>
+                  <RunningProjectsPopover
+                    onSelectWorktreeByPath={onSwitchWorktree}
+                    onSwitchTab={onSwitchTab}
+                    showBadge={false}
+                  />
                 </motion.div>
               ) : null}
             </AnimatePresence>

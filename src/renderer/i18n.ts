@@ -12,6 +12,28 @@ const decodeEscapedUnicode = (value: string): string =>
 
 const rendererZhTranslations: Record<string, string> = {
   'Import from EnsoAI': decodeEscapedUnicode('\\u4ece EnsoAI \\u5bfc\\u5165'),
+  'Repository sidebar actions': decodeEscapedUnicode('\\u4ed3\\u5e93\\u4fa7\\u680f\\u64cd\\u4f5c'),
+  'Bring to Front': decodeEscapedUnicode('\\u7f6e\\u4e8e\\u524d\\u53f0'),
+  'Back to Canvas': decodeEscapedUnicode('\\u8fd4\\u56de\\u753b\\u5e03'),
+  'Dismiss Floating Session': decodeEscapedUnicode('\\u6536\\u8d77\\u60ac\\u6d6e\\u4f1a\\u8bdd'),
+  'Tree sidebar actions': decodeEscapedUnicode('\\u6811\\u5f62\\u4fa7\\u680f\\u64cd\\u4f5c'),
+  'Show all worktrees': decodeEscapedUnicode('\\u663e\\u793a\\u5168\\u90e8\\u5de5\\u4f5c\\u6811'),
+  'Only show Agent worktrees': decodeEscapedUnicode(
+    '\\u4ec5\\u663e\\u793a Agent \\u5de5\\u4f5c\\u6811'
+  ),
+  'Agent worktrees': decodeEscapedUnicode('Agent \\u5de5\\u4f5c\\u6811'),
+  'Worktree panel actions': decodeEscapedUnicode('Worktree \\u9762\\u677f\\u64cd\\u4f5c'),
+  'Temp session actions': decodeEscapedUnicode('\\u4e34\\u65f6\\u4f1a\\u8bdd\\u64cd\\u4f5c'),
+  'File sidebar actions': decodeEscapedUnicode('\\u6587\\u4ef6\\u4fa7\\u680f\\u64cd\\u4f5c'),
+  'Expand Temp Sessions': decodeEscapedUnicode('\\u5c55\\u5f00\\u4e34\\u65f6\\u4f1a\\u8bdd'),
+  'Search Files': decodeEscapedUnicode('\\u641c\\u7d22\\u6587\\u4ef6'),
+  '{{count}} minutes': decodeEscapedUnicode('\\{\\{count\\}\\} \\u5206\\u949f'),
+  'Chat panel retention': decodeEscapedUnicode(
+    '\\u804a\\u5929\\u9762\\u677f\\u4fdd\\u7559\\u65f6\\u957f'
+  ),
+  'How long to keep an idle chat panel mounted after you switch away.': decodeEscapedUnicode(
+    '\\u5207\\u6362\\u79bb\\u5f00\\u540e\\uff0c\\u7a7a\\u95f2\\u804a\\u5929\\u9762\\u677f\\u4fdd\\u6301\\u6302\\u8f7d\\u7684\\u65f6\\u957f\\u3002'
+  ),
   'Preview and import settings from an EnsoAI settings.json file': decodeEscapedUnicode(
     '\\u9884\\u89c8\\u5e76\\u5bfc\\u5165 EnsoAI settings.json \\u6587\\u4ef6\\u4e2d\\u7684\\u8bbe\\u7f6e'
   ),

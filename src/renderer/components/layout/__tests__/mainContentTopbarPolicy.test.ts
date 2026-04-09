@@ -38,4 +38,13 @@ describe('main content topbar policy', () => {
   it('keeps the app runtime status entry available from the shared main topbar', () => {
     expect(mainContentSource).toContain('AppResourceStatusPopover');
   });
+
+  it('keeps collapsed sidebar expansion actions out of the topbar', () => {
+    expect(mainContentSource).toContain('RunningProjectsPopover');
+    expect(mainContentSource).not.toContain("title={t('Panels')}");
+    expect(mainContentSource).not.toContain("aria-label={t('Panels')}");
+    expect(mainContentSource).not.toContain("t('Expand Repository')");
+    expect(mainContentSource).not.toContain("t('Expand Worktree')");
+    expect(mainContentSource).not.toContain("t('Expand File Sidebar')");
+  });
 });

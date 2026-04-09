@@ -1,8 +1,17 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { FileCode } from 'lucide-react';
+import {
+  FileCode,
+  FilePlus,
+  FolderPlus,
+  PanelLeft,
+  RefreshCw,
+  Search,
+  SquareMinus,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { panelTransition } from '@/App/constants';
 import { normalizePath } from '@/App/storage';
+import { CollapsedSidebarRail } from '@/components/layout/CollapsedSidebarRail';
 import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { GlobalSearchDialog } from '@/components/search/GlobalSearchDialog';
 import type { SearchMode } from '@/components/search/useGlobalSearch';
@@ -29,6 +38,7 @@ interface FileSidebarProps {
   width: number;
   collapsed: boolean;
   onCollapse: () => void;
+  onExpand: () => void;
   onResizeStart: (e: React.MouseEvent) => void;
   onSwitchTab?: () => void;
 }
@@ -42,6 +52,7 @@ export function FileSidebar({
   width,
   collapsed,
   onCollapse,
+  onExpand,
   onResizeStart,
   onSwitchTab,
 }: FileSidebarProps) {
@@ -254,6 +265,10 @@ export function FileSidebar({
     [effectiveSessionId, rootPath, terminalWrite, terminalFocus, t]
   );
 
+  const handleCollapseAll = useCallback(() => {
+    toggleExpand('__COLLAPSE_ALL__');
+  }, [toggleExpand]);
+
   const handleExternalFileDrop = useCallback(
     async (files: FileList, targetDir: string, operation: 'copy' | 'move') => {
       const result = await handleExternalDrop(files, targetDir, operation);
@@ -452,68 +467,117 @@ export function FileSidebar({
   }
 
   return (
-    <AnimatePresence initial={false}>
-      {!collapsed && (
-        <motion.aside
-          key="file-sidebar"
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={panelTransition}
-          className="relative h-full shrink-0 overflow-hidden border-r bg-background"
-          style={{ width }}
-        >
-          <FileTree
-            tree={tree}
-            expandedPaths={expandedPaths}
-            onToggleExpand={toggleExpand}
-            onFileClick={handleFileClick}
-            selectedPath={selectedFilePath}
-            onSelectedPathChange={setSelectedFilePath}
-            onCreateFile={handleCreateFile}
-            onCreateDirectory={handleCreateDirectory}
-            onRename={handleRename}
-            onDelete={handleDelete}
-            onRefresh={refresh}
-            onOpenSearch={handleOpenSearch}
-            onExternalDrop={handleExternalFileDrop}
-            onRecordOperations={handleRecordOperations}
-            onFileDeleted={closeFile}
-            isLoading={isLoading}
-            rootPath={rootPath}
-            isCollapsed={false}
-            onToggleCollapse={onCollapse}
-            onSendToSession={effectiveSessionId ? handleSendToSession : undefined}
-          />
-          <div
-            className="absolute right-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/20 active:bg-primary/30 transition-colors z-10"
-            onMouseDown={onResizeStart}
-          />
-          <GlobalSearchDialog
-            open={searchOpen}
-            onOpenChange={setSearchOpen}
-            rootPath={rootPath}
-            initialMode={searchMode}
-            onOpenFile={navigateToFile}
-          />
-          <NewItemDialog
-            isOpen={newItemType !== null}
-            type={newItemType || 'file'}
-            onConfirm={handleNewItemConfirm}
-            onCancel={() => {
-              setNewItemType(null);
-              setNewItemParentPath('');
-              endNewItemFocusPause();
-            }}
-          />
-          <FileConflictDialog
-            open={conflictDialogOpen}
-            conflicts={conflicts}
-            onResolve={handleConflictResolve}
-            onCancel={handleConflictCancel}
-          />
-        </motion.aside>
+    <>
+      {collapsed ? (
+        <CollapsedSidebarRail
+          label="File Sidebar"
+          triggerTitle={t('File sidebar actions')}
+          icon={FileCode}
+          popupClassName="min-w-[208px]"
+          actions={[
+            {
+              id: 'expand-file-sidebar',
+              label: t('Expand File Sidebar'),
+              icon: PanelLeft,
+              onSelect: onExpand,
+            },
+            {
+              id: 'search-files',
+              label: t('Search Files'),
+              icon: Search,
+              onSelect: () => handleOpenSearch(),
+            },
+            {
+              id: 'new-file',
+              label: t('New File'),
+              icon: FilePlus,
+              onSelect: () => handleCreateFile(rootPath),
+              separatorBefore: true,
+            },
+            {
+              id: 'new-folder',
+              label: t('New Folder'),
+              icon: FolderPlus,
+              onSelect: () => handleCreateDirectory(rootPath),
+            },
+            {
+              id: 'refresh-file-tree',
+              label: t('Refresh'),
+              icon: RefreshCw,
+              onSelect: refresh,
+              separatorBefore: true,
+            },
+            {
+              id: 'collapse-all-folders',
+              label: t('Collapse all folders'),
+              icon: SquareMinus,
+              onSelect: handleCollapseAll,
+            },
+          ]}
+        />
+      ) : (
+        <AnimatePresence initial={false}>
+          <motion.aside
+            key="file-sidebar"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={panelTransition}
+            className="relative h-full shrink-0 overflow-hidden border-r bg-background"
+            style={{ width }}
+          >
+            <FileTree
+              tree={tree}
+              expandedPaths={expandedPaths}
+              onToggleExpand={toggleExpand}
+              onFileClick={handleFileClick}
+              selectedPath={selectedFilePath}
+              onSelectedPathChange={setSelectedFilePath}
+              onCreateFile={handleCreateFile}
+              onCreateDirectory={handleCreateDirectory}
+              onRename={handleRename}
+              onDelete={handleDelete}
+              onRefresh={refresh}
+              onOpenSearch={handleOpenSearch}
+              onExternalDrop={handleExternalFileDrop}
+              onRecordOperations={handleRecordOperations}
+              onFileDeleted={closeFile}
+              isLoading={isLoading}
+              rootPath={rootPath}
+              isCollapsed={false}
+              onToggleCollapse={onCollapse}
+              onSendToSession={effectiveSessionId ? handleSendToSession : undefined}
+            />
+            <div
+              className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-primary/20 active:bg-primary/30"
+              onMouseDown={onResizeStart}
+            />
+          </motion.aside>
+        </AnimatePresence>
       )}
-    </AnimatePresence>
+      <GlobalSearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        rootPath={rootPath}
+        initialMode={searchMode}
+        onOpenFile={navigateToFile}
+      />
+      <NewItemDialog
+        isOpen={newItemType !== null}
+        type={newItemType || 'file'}
+        onConfirm={handleNewItemConfirm}
+        onCancel={() => {
+          setNewItemType(null);
+          setNewItemParentPath('');
+          endNewItemFocusPause();
+        }}
+      />
+      <FileConflictDialog
+        open={conflictDialogOpen}
+        conflicts={conflicts}
+        onResolve={handleConflictResolve}
+        onCancel={handleConflictCancel}
+      />
+    </>
   );
 }
