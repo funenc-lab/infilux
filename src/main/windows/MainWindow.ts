@@ -73,6 +73,17 @@ const SHOW_WINDOW_FALLBACK_DELAY_MS = 3000;
 const MIN_WINDOW_WIDTH = 685;
 const MIN_WINDOW_HEIGHT = 600;
 
+function isDisposedWindowSendError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes('Render frame was disposed') ||
+    error.message.includes('Object has been destroyed')
+  );
+}
+
 function getStatePath(): string {
   return join(app.getPath('userData'), 'window-state.json');
 }
@@ -821,17 +832,33 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
 
   win.on('close', (e) => {
     // Skip confirmation if force close, or quitting for update
-    if (forceClose || autoUpdaterService.isQuittingForUpdate()) {
+    if (forceClose || autoUpdaterService.isQuittingForUpdate() || win.webContents.isDestroyed()) {
       saveWindowState(win);
       return;
     }
 
     e.preventDefault();
-    void confirmCloseWithReason('quit-app').then((confirmed) => {
-      if (confirmed) {
-        forceReplaceCloseCurrentWindow();
-      }
-    });
+    void confirmCloseWithReason('quit-app')
+      .then((confirmed) => {
+        if (confirmed) {
+          forceReplaceCloseCurrentWindow();
+        }
+      })
+      .catch((error) => {
+        if (isDisposedWindowSendError(error) || win.webContents.isDestroyed()) {
+          log.warn('[window] Renderer unavailable during close confirmation, forcing close', {
+            windowId: win.id,
+            error,
+          });
+          forceReplaceCloseCurrentWindow();
+          return;
+        }
+
+        log.error('[window] Failed to confirm window close', {
+          windowId: win.id,
+          error,
+        });
+      });
   });
 
   // Open external links in browser

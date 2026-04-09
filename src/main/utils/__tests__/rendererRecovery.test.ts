@@ -13,6 +13,7 @@ describe('rendererRecovery', () => {
 
   it('does not auto-recover after a clean exit', () => {
     expect(shouldAutoRecoverRenderer('clean-exit')).toBe(false);
+    expect(shouldAutoRecoverRenderer('killed')).toBe(false);
   });
 
   it('builds a structured failure context for logging', () => {

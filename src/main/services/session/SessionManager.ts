@@ -84,10 +84,22 @@ function shouldAbandonPersistentRecordOnLocalExit(session: ManagedSessionRecord)
   return process.platform === 'win32';
 }
 
+function isDisposedWindowSendError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes('Render frame was disposed') ||
+    error.message.includes('Object has been destroyed')
+  );
+}
+
 export class SessionManager {
   readonly localPtyManager = new PtyManager();
 
   private readonly sessions = new Map<string, ManagedSessionRecord>();
+  private readonly suspendedWindowIds = new Set<number>();
   private localSupervisorSubscriptionsInitialized = false;
   private readonly remoteSubscriptions = new Map<
     string,
@@ -107,6 +119,7 @@ export class SessionManager {
     options: SessionCreateOptions = {}
   ): Promise<SessionOpenResult> {
     const windowId = getWindowId(target);
+    this.suspendedWindowIds.delete(windowId);
     if (options.cwd && isRemoteVirtualPath(options.cwd)) {
       return this.createRemote(windowId, options);
     }
@@ -118,6 +131,7 @@ export class SessionManager {
     options: SessionAttachOptions
   ): Promise<SessionAttachResult> {
     const windowId = getWindowId(target);
+    this.suspendedWindowIds.delete(windowId);
     const existing = this.sessions.get(options.sessionId);
     if (existing?.backend === 'local') {
       if (existing.localRuntime === 'supervisor') {
@@ -462,6 +476,7 @@ export class SessionManager {
   }
 
   async detachWindowSessions(windowId: number): Promise<void> {
+    this.suspendedWindowIds.delete(windowId);
     const ids = [...this.sessions.values()]
       .filter((session) => session.attachedWindowIds.has(windowId))
       .map((session) => session.sessionId);
@@ -1245,8 +1260,13 @@ export class SessionManager {
     }
 
     for (const windowId of windowIds) {
+      if (this.suspendedWindowIds.has(windowId)) {
+        continue;
+      }
+
       const window = BrowserWindow.fromId(windowId);
       if (!window || window.isDestroyed()) {
+        this.suspendedWindowIds.add(windowId);
         continue;
       }
       const resolvedChannel =
@@ -1256,11 +1276,16 @@ export class SessionManager {
             ? IPC_CHANNELS.SESSION_EXIT
             : IPC_CHANNELS.SESSION_STATE;
       if (window.webContents.isDestroyed()) {
+        this.suspendedWindowIds.add(windowId);
         continue;
       }
       try {
         window.webContents.send(resolvedChannel, payload);
       } catch (error) {
+        if (isDisposedWindowSendError(error)) {
+          this.suspendedWindowIds.add(windowId);
+          continue;
+        }
         console.warn('[session] Failed to emit session event to window:', error);
       }
     }

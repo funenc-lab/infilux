@@ -149,6 +149,7 @@ describe('GitAutoFetchService', () => {
       off: vi.fn(),
       isDestroyed: vi.fn(() => false),
       webContents: {
+        isDestroyed: vi.fn(() => false),
         send,
       },
     };
@@ -227,6 +228,7 @@ describe('GitAutoFetchService', () => {
       off: vi.fn(),
       isDestroyed: vi.fn(() => true),
       webContents: {
+        isDestroyed: vi.fn(() => false),
         send,
       },
     };
@@ -275,6 +277,7 @@ describe('GitAutoFetchService', () => {
       off: vi.fn(),
       isDestroyed: vi.fn(() => false),
       webContents: {
+        isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       },
     };
@@ -297,6 +300,7 @@ describe('GitAutoFetchService', () => {
       off: vi.fn(),
       isDestroyed: vi.fn(() => false),
       webContents: {
+        isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       },
     };
@@ -305,6 +309,7 @@ describe('GitAutoFetchService', () => {
       off: vi.fn(),
       isDestroyed: vi.fn(() => false),
       webContents: {
+        isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       },
     };
@@ -328,5 +333,39 @@ describe('GitAutoFetchService', () => {
 
     expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledTimes(1);
     expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledWith('/repo-new');
+  });
+
+  it('swallows disposed renderer send errors when notifying auto-fetch completion', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const send = vi.fn(() => {
+      throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+    });
+    const window = {
+      on: vi.fn(),
+      off: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        send,
+      },
+    };
+
+    const gitAutoFetchService = await loadGitAutoFetchService();
+
+    gitAutoFetchService.init(window as never);
+    gitAutoFetchService.registerWorktree('/repo-disposed');
+    gitAutoFetchService.setEnabled(true);
+
+    const service = gitAutoFetchService as unknown as {
+      fetchAll: () => Promise<void>;
+    };
+
+    await service.fetchAll();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      'Failed to notify renderer about git auto fetch completion:',
+      expect.any(Error)
+    );
   });
 });

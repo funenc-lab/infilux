@@ -25,7 +25,7 @@ interface RendererFailureContextOptions {
 }
 
 export function shouldAutoRecoverRenderer(reason: string): boolean {
-  return reason !== 'clean-exit';
+  return reason !== 'clean-exit' && reason !== 'killed';
 }
 
 export function captureRendererDiagnostics(

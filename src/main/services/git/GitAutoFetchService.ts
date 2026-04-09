@@ -12,6 +12,17 @@ const MIN_FOCUS_INTERVAL_MS = 1 * 60 * 1000;
 const HEAD_CHANGE_DEBOUNCE_MS = 300;
 const FETCH_TIMEOUT_MS = 30_000;
 
+function isDisposedWindowSendError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes('Render frame was disposed') ||
+    error.message.includes('Object has been destroyed')
+  );
+}
+
 async function withTimeout<T>(task: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeoutId: NodeJS.Timeout | null = null;
 
@@ -176,10 +187,24 @@ class GitAutoFetchService {
   }
 
   private notifyCompleted(): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+      return;
+    }
+
+    if (this.mainWindow.webContents.isDestroyed()) {
+      return;
+    }
+
+    try {
       this.mainWindow.webContents.send(IPC_CHANNELS.GIT_AUTO_FETCH_COMPLETED, {
         timestamp: Date.now(),
       });
+    } catch (error) {
+      if (isDisposedWindowSendError(error)) {
+        return;
+      }
+
+      console.warn('Failed to notify renderer about git auto fetch completion:', error);
     }
   }
 

@@ -2117,6 +2117,36 @@ describe('SessionManager', () => {
     }
   });
 
+  it('suspends session delivery after a disposed-frame send failure until the window reattaches', async () => {
+    const windowOne = createWindow(1);
+    const manager = new SessionManager();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const opened = await manager.create(1, { cwd: '/repo-a' });
+      const emitData = getPrivateMethod<[string, string, Set<number>?], void>(manager, 'emitData');
+      const sessions = getManagedSessions(manager);
+      const session = sessions.get(opened.session.sessionId);
+      if (!session) {
+        throw new Error('Expected managed session to exist');
+      }
+
+      windowOne.webContents.send = vi.fn(() => {
+        throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+      });
+
+      emitData(opened.session.sessionId, 'first payload');
+      emitData(opened.session.sessionId, 'second payload');
+
+      expect(windowOne.webContents.send).toHaveBeenCalledTimes(1);
+      expect(session.attachedWindowIds.has(1)).toBe(true);
+      expect(Reflect.get(manager, 'suspendedWindowIds') as Set<number>).toEqual(new Set([1]));
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('kills matching local sessions by workdir and cleans remote listeners on disconnect', async () => {
     createWindow(1);
     createWindow(2);
