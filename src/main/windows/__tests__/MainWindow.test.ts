@@ -9,6 +9,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
   const writeFileSync = vi.fn();
   const getPath = vi.fn((name: string) => `/mock/${name}`);
   const getAppPath = vi.fn(() => '/mock/app');
+  const getVersion = vi.fn(() => '0.3.2');
   const appFocus = vi.fn();
   const nativeThemeShouldUseDarkColors = vi.fn(() => true);
   const showMessageBox = vi.fn();
@@ -70,6 +71,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     writeFileSync.mockReset();
     getPath.mockReset();
     getAppPath.mockReset();
+    getVersion.mockReset();
     appFocus.mockReset();
     nativeThemeShouldUseDarkColors.mockReset();
     showMessageBox.mockReset();
@@ -88,6 +90,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     readFileSync.mockReturnValue('{}');
     getPath.mockImplementation((name: string) => `/mock/${name}`);
     getAppPath.mockReturnValue('/mock/app');
+    getVersion.mockReturnValue('0.3.2');
     nativeThemeShouldUseDarkColors.mockReturnValue(true);
     getAllDisplays.mockReturnValue([{ workArea: { width: 1920, height: 1080, x: 0, y: 0 } }]);
     getPrimaryDisplay.mockReturnValue({
@@ -106,6 +109,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
       focus: appFocus,
       getAppPath,
       getPath,
+      getVersion,
       isPackaged: false,
     },
     dialog: {
@@ -314,7 +318,23 @@ describe('MainWindow', () => {
 
     expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
       webPreferences: {
-        additionalArguments: ['--infilux-runtime-channel=prod'],
+        additionalArguments: ['--infilux-runtime-channel=prod', '--infilux-app-version=0.3.2'],
+      },
+    });
+  });
+
+  it('passes the runtime app version through BrowserWindow additional arguments', async () => {
+    mainWindowTestDoubles.app.getVersion.mockReturnValue('9.8.7');
+
+    const { createMainWindow } = await import('../MainWindow');
+    createMainWindow();
+
+    expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
+      webPreferences: {
+        additionalArguments: expect.arrayContaining([
+          '--infilux-runtime-channel=prod',
+          '--infilux-app-version=9.8.7',
+        ]),
       },
     });
   });

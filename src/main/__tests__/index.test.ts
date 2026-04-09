@@ -137,6 +137,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const logInfo = vi.fn();
   const initLogger = vi.fn();
   const autoUpdaterInit = vi.fn();
+  const autoUpdaterAttachWindow = vi.fn();
   const persistentAgentSessionRepositoryInitialize = vi.fn(async () => undefined);
   const customProtocolUriToPath = vi.fn((_url: string) => '/mock/image.png');
   const trayInit = vi.fn();
@@ -458,6 +459,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       logInfo,
       initLogger,
       autoUpdaterInit,
+      autoUpdaterAttachWindow,
       persistentAgentSessionRepositoryInitialize,
       customProtocolUriToPath,
       trayInit,
@@ -662,6 +664,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     logInfo,
     initLogger,
     autoUpdaterInit,
+    autoUpdaterAttachWindow,
     persistentAgentSessionRepositoryInitialize,
     customProtocolUriToPath,
     trayInit,
@@ -868,6 +871,7 @@ vi.mock('sqlite3', () => ({
 vi.mock('../services/updater/AutoUpdater', () => ({
   autoUpdaterService: {
     init: mainIndexTestDoubles.autoUpdaterInit,
+    attachWindow: mainIndexTestDoubles.autoUpdaterAttachWindow,
   },
 }));
 
@@ -1605,11 +1609,13 @@ describe('main entry', () => {
     mainIndexTestDoubles.setNextOpenWindow(activatedWindow);
     await mainIndexTestDoubles.emitApp('activate');
     expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledTimes(2);
+    expect(mainIndexTestDoubles.autoUpdaterAttachWindow).toHaveBeenCalledWith(activatedWindow);
 
     await mainIndexTestDoubles.emitApp('browser-window-focus', {}, activatedWindow);
     expect(mainIndexTestDoubles.webInspectorSetMainWindow).toHaveBeenLastCalledWith(
       activatedWindow
     );
+    expect(mainIndexTestDoubles.autoUpdaterAttachWindow).toHaveBeenLastCalledWith(activatedWindow);
   });
 
   it('initializes the tray on macOS and keeps the app alive when windows close', async () => {

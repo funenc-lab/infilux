@@ -544,9 +544,7 @@ if (process.platform === 'linux') {
 }
 
 async function initAutoUpdater(window: BrowserWindow): Promise<void> {
-  // Linux deb/rpm: avoid loading electron-updater (it can trigger GTK crashes on some systems).
-  // AppImage uses APPIMAGE env var, where auto-update is expected to work.
-  if (process.platform === 'linux' && !process.env.APPIMAGE) {
+  if (!isAutoUpdaterSupported()) {
     return;
   }
 
@@ -560,6 +558,21 @@ async function initAutoUpdater(window: BrowserWindow): Promise<void> {
 
   const { autoUpdaterService } = await import('./services/updater/AutoUpdater');
   autoUpdaterService.init(window, autoUpdateEnabled, proxySettings);
+}
+
+function isAutoUpdaterSupported(): boolean {
+  // Linux deb/rpm: avoid loading electron-updater (it can trigger GTK crashes on some systems).
+  // AppImage uses APPIMAGE env var, where auto-update is expected to work.
+  return !(process.platform === 'linux' && !process.env.APPIMAGE);
+}
+
+async function attachAutoUpdaterWindow(window: BrowserWindow): Promise<void> {
+  if (!isAutoUpdaterSupported()) {
+    return;
+  }
+
+  const { autoUpdaterService } = await import('./services/updater/AutoUpdater');
+  autoUpdaterService.attachWindow(window);
 }
 
 function migrateLegacySettingsIfNeeded(): void {
@@ -1531,7 +1544,8 @@ app.whenReady().then(async () => {
 
   appTrayService.init({
     onOpen: () => {
-      openOrRestoreMainWindow();
+      const window = openOrRestoreMainWindow();
+      void attachAutoUpdaterWindow(window);
     },
     onQuit: () => {
       app.quit();
@@ -1551,15 +1565,17 @@ app.whenReady().then(async () => {
     appTrayService.refreshMenu();
   });
 
-  app.on('activate', () => {
+  app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = openOrRestoreMainWindow();
+      await attachAutoUpdaterWindow(mainWindow);
     }
   });
 
-  app.on('browser-window-focus', (_, window) => {
+  app.on('browser-window-focus', async (_, window) => {
     mainWindow = window;
     webInspectorServer.setMainWindow(window);
+    await attachAutoUpdaterWindow(window);
   });
 });
 

@@ -1,3 +1,4 @@
+import type { UpdateStatus } from '@shared/types';
 import { Download, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/i18n';
@@ -11,21 +12,6 @@ import {
   DialogTitle,
 } from './ui/dialog';
 
-interface UpdateStatus {
-  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
-  info?: {
-    version?: string;
-    releaseNotes?: string;
-  };
-  progress?: {
-    percent: number;
-    bytesPerSecond: number;
-    total: number;
-    transferred: number;
-  };
-  error?: string;
-}
-
 interface UpdateNotificationProps {
   autoUpdateEnabled: boolean;
 }
@@ -36,21 +22,68 @@ export function UpdateNotification({ autoUpdateEnabled }: UpdateNotificationProp
   const [dialogOpen, setDialogOpen] = useState(false);
   const [availableDialogOpen, setAvailableDialogOpen] = useState(false);
 
-  useEffect(() => {
-    const cleanup = window.electronAPI.updater.onStatus((newStatus) => {
-      setStatus(newStatus as UpdateStatus);
+  const applyStatus = useCallback(
+    (nextStatus: UpdateStatus | null) => {
+      setStatus(nextStatus);
 
-      if (newStatus.status === 'downloaded') {
+      if (!nextStatus) {
+        return;
+      }
+
+      if (nextStatus.status === 'downloaded') {
+        setAvailableDialogOpen(false);
         setDialogOpen(true);
+        return;
       }
 
-      if (newStatus.status === 'available' && !autoUpdateEnabled) {
+      if (nextStatus.status === 'available' && !autoUpdateEnabled) {
         setAvailableDialogOpen(true);
+        return;
       }
+
+      if (nextStatus.status !== 'available') {
+        setAvailableDialogOpen(false);
+      }
+    },
+    [autoUpdateEnabled]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void window.electronAPI.updater
+      .getState()
+      .then((state) => {
+        if (cancelled) {
+          return;
+        }
+        applyStatus(state.status);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        console.error('[UpdateNotification] Failed to read updater state:', error);
+      });
+
+    const cleanup = window.electronAPI.updater.onStatus((nextStatus) => {
+      if (cancelled) {
+        return;
+      }
+      applyStatus(nextStatus);
     });
 
-    return cleanup;
-  }, [autoUpdateEnabled]);
+    return () => {
+      cancelled = true;
+      cleanup();
+    };
+  }, [applyStatus]);
+
+  useEffect(() => {
+    if (autoUpdateEnabled && status?.status === 'available') {
+      setAvailableDialogOpen(false);
+    }
+  }, [autoUpdateEnabled, status?.status]);
 
   const handleInstall = useCallback(() => {
     window.electronAPI.updater.quitAndInstall();

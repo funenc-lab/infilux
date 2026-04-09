@@ -247,6 +247,7 @@ export const IPC_CHANNELS = {
   UPDATER_STATUS: 'updater:status',
   UPDATER_SET_AUTO_UPDATE_ENABLED: 'updater:setAutoUpdateEnabled',
   UPDATER_DOWNLOAD_UPDATE: 'updater:downloadUpdate',
+  UPDATER_GET_STATE: 'updater:getState',
 
   // Web Inspector
   WEB_INSPECTOR_START: 'web-inspector:start',

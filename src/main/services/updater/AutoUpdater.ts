@@ -1,5 +1,10 @@
 import { is } from '@electron-toolkit/utils';
-import type { ProxySettings } from '@shared/types';
+import {
+  IPC_CHANNELS,
+  type ProxySettings,
+  type UpdateReleaseInfo,
+  type UpdateStatus,
+} from '@shared/types';
 import type { BrowserWindow } from 'electron';
 import electronUpdater, { type UpdateInfo } from 'electron-updater';
 
@@ -7,38 +12,45 @@ import { applyProxy, registerUpdaterSession } from '../proxy/ProxyConfig';
 
 const { autoUpdater } = electronUpdater;
 
-export interface UpdateStatus {
-  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
-  info?: UpdateInfo;
-  progress?: {
-    percent: number;
-    bytesPerSecond: number;
-    total: number;
-    transferred: number;
-  };
-  error?: string;
-}
-
 // Check interval: 4 hours
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 // Minimum interval between focus checks: 30 minutes
 const MIN_FOCUS_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
+type UpdaterRuntimeState = {
+  autoUpdateEnabled: boolean;
+  status: UpdateStatus | null;
+};
+
+function normalizeUpdateInfo(info: UpdateInfo | null | undefined): UpdateReleaseInfo | undefined {
+  if (!info?.version) {
+    return undefined;
+  }
+
+  return {
+    version: info.version,
+  };
+}
+
 class AutoUpdaterService {
   private mainWindow: BrowserWindow | null = null;
   private updateDownloaded = false;
   private _isQuittingForUpdate = false;
+  private autoUpdateEnabled = true;
+  private currentStatus: UpdateStatus | null = null;
   private checkIntervalId: NodeJS.Timeout | null = null;
   private initialCheckTimeoutId: NodeJS.Timeout | null = null;
   private lastCheckTime = 0;
   private onFocusHandler: (() => void) | null = null;
+  private updaterEventsBound = false;
 
   init(
     window: BrowserWindow,
     autoUpdateEnabled = true,
     proxySettings?: ProxySettings | null
   ): void {
-    this.mainWindow = window;
+    this.attachWindow(window);
+    this.autoUpdateEnabled = autoUpdateEnabled;
 
     // Register updater session so applyProxy() can configure it
     registerUpdaterSession(autoUpdater.netSession);
@@ -55,65 +67,35 @@ class AutoUpdaterService {
       autoUpdater.logger = console;
     }
 
-    // Event handlers
-    autoUpdater.on('checking-for-update', () => {
-      this.sendStatus({ status: 'checking' });
-    });
-
-    autoUpdater.on('update-available', (info) => {
-      this.sendStatus({ status: 'available', info });
-    });
-
-    autoUpdater.on('update-not-available', (info) => {
-      this.sendStatus({ status: 'not-available', info });
-    });
-
-    autoUpdater.on('download-progress', (progress) => {
-      this.sendStatus({
-        status: 'downloading',
-        progress: {
-          percent: progress.percent,
-          bytesPerSecond: progress.bytesPerSecond,
-          total: progress.total,
-          transferred: progress.transferred,
-        },
-      });
-    });
-
-    autoUpdater.on('update-downloaded', (info) => {
-      this.updateDownloaded = true;
-      // Stop all future update checks to prevent race conditions
-      this.clearScheduledChecks();
-      this.sendStatus({ status: 'downloaded', info });
-    });
-
-    autoUpdater.on('error', (error) => {
-      this.sendStatus({ status: 'error', error: error.message });
-    });
+    this.ensureUpdaterEventHandlers();
 
     autoUpdater.autoDownload = autoUpdateEnabled;
-
-    // Check on window focus (with 30-minute debounce)
-    this.onFocusHandler = () => {
-      if (autoUpdater.autoDownload) {
-        const now = Date.now();
-        if (now - this.lastCheckTime >= MIN_FOCUS_CHECK_INTERVAL_MS) {
-          this.checkForUpdates();
-        }
-      }
-    };
-    window.on('focus', this.onFocusHandler);
 
     // Apply initial auto-update setting
     this.setAutoUpdateEnabled(autoUpdateEnabled);
   }
 
+  attachWindow(window: BrowserWindow): void {
+    this.detachWindow();
+    this.mainWindow = window;
+
+    if (!this.onFocusHandler) {
+      this.onFocusHandler = () => {
+        if (autoUpdater.autoDownload) {
+          const now = Date.now();
+          if (now - this.lastCheckTime >= MIN_FOCUS_CHECK_INTERVAL_MS) {
+            void this.checkForUpdates();
+          }
+        }
+      };
+    }
+
+    window.on('focus', this.onFocusHandler);
+  }
+
   cleanup(): void {
     this.clearScheduledChecks();
-    if (this.mainWindow && this.onFocusHandler) {
-      this.mainWindow.off('focus', this.onFocusHandler);
-      this.onFocusHandler = null;
-    }
+    this.detachWindow();
   }
 
   private sendStatus(status: UpdateStatus): void {
@@ -122,8 +104,9 @@ class AutoUpdaterService {
     if (this.updateDownloaded && status.status !== 'downloaded') {
       return;
     }
+    this.currentStatus = status;
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('updater:status', status);
+      this.mainWindow.webContents.send(IPC_CHANNELS.UPDATER_STATUS, status);
     }
   }
 
@@ -165,6 +148,7 @@ class AutoUpdaterService {
   }
 
   setAutoUpdateEnabled(enabled: boolean): void {
+    this.autoUpdateEnabled = enabled;
     autoUpdater.autoDownload = enabled;
     autoUpdater.autoInstallOnAppQuit = enabled;
 
@@ -186,6 +170,56 @@ class AutoUpdaterService {
     }
   }
 
+  getState(): UpdaterRuntimeState {
+    return {
+      autoUpdateEnabled: this.autoUpdateEnabled,
+      status: this.currentStatus,
+    };
+  }
+
+  private ensureUpdaterEventHandlers(): void {
+    if (this.updaterEventsBound) {
+      return;
+    }
+
+    autoUpdater.on('checking-for-update', () => {
+      this.sendStatus({ status: 'checking' });
+    });
+
+    autoUpdater.on('update-available', (info) => {
+      this.sendStatus({ status: 'available', info: normalizeUpdateInfo(info) });
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+      this.sendStatus({ status: 'not-available', info: normalizeUpdateInfo(info) });
+    });
+
+    autoUpdater.on('download-progress', (progress) => {
+      this.sendStatus({
+        status: 'downloading',
+        progress: {
+          percent: progress.percent,
+          bytesPerSecond: progress.bytesPerSecond,
+          total: progress.total,
+          transferred: progress.transferred,
+        },
+      });
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      this.updateDownloaded = true;
+      // Stop all future update checks to prevent race conditions
+      this.clearScheduledChecks();
+      this.sendStatus({ status: 'downloaded', info: normalizeUpdateInfo(info) });
+    });
+
+    autoUpdater.on('error', (error) => {
+      this.sendStatus({ status: 'error', error: error.message });
+    });
+
+    this.updaterEventsBound = true;
+  }
+
   private clearScheduledChecks(): void {
     if (this.checkIntervalId) {
       clearInterval(this.checkIntervalId);
@@ -195,6 +229,13 @@ class AutoUpdaterService {
       clearTimeout(this.initialCheckTimeoutId);
       this.initialCheckTimeoutId = null;
     }
+  }
+
+  private detachWindow(): void {
+    if (this.mainWindow && this.onFocusHandler) {
+      this.mainWindow.off('focus', this.onFocusHandler);
+    }
+    this.mainWindow = null;
   }
 }
 

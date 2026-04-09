@@ -6,6 +6,7 @@ import { is } from '@electron-toolkit/utils';
 import { type Locale, translate } from '@shared/i18n';
 import type { AppCloseRequestPayload, AppCloseRequestReason } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
+import { encodeBootstrapAppVersionArgument } from '@shared/utils/bootstrapAppVersion';
 import {
   encodeBootstrapLocaleArgument,
   extractBootstrapLocaleFromSettingsData,
@@ -219,6 +220,10 @@ function resolveBootstrapLocale(): Locale | null {
   return extractBootstrapLocaleFromSettingsData(readSharedSettings());
 }
 
+function resolveBootstrapAppVersionArgument(appVersion: string): string[] {
+  return [encodeBootstrapAppVersionArgument(appVersion)];
+}
+
 function resolveBootstrapMainStageArgument(
   bootstrapMainStage: BootstrapMainStage | null | undefined
 ): string[] | undefined {
@@ -232,15 +237,18 @@ function resolveBootstrapMainStageArgument(
 function resolveRendererAdditionalArguments(
   bootstrapThemeSnapshot: BootstrapThemeSnapshot | null,
   bootstrapLocale: Locale | null,
-  bootstrapMainStage: BootstrapMainStage | null | undefined
+  bootstrapMainStage: BootstrapMainStage | null | undefined,
+  appVersion: string
 ): string[] {
   const runtimeChannelArgument = encodeRuntimeChannelArgument(getAppRuntimeChannel());
+  const bootstrapAppVersionArguments = resolveBootstrapAppVersionArgument(appVersion);
   const bootstrapLocaleArguments = resolveBootstrapLocaleArgument(bootstrapLocale) ?? [];
   const bootstrapMainStageArguments = resolveBootstrapMainStageArgument(bootstrapMainStage) ?? [];
   const bootstrapThemeArguments = resolveBootstrapThemeArgument(bootstrapThemeSnapshot) ?? [];
 
   return [
     runtimeChannelArgument,
+    ...bootstrapAppVersionArguments,
     ...bootstrapLocaleArguments,
     ...bootstrapMainStageArguments,
     ...bootstrapThemeArguments,
@@ -477,10 +485,12 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
   const windowIconPath = resolveWindowIconPath();
   const bootstrapThemeSnapshot = resolveBootstrapThemeSnapshot();
   const bootstrapLocale = resolveBootstrapLocale();
+  const appVersion = app.getVersion();
   const rendererAdditionalArguments = resolveRendererAdditionalArguments(
     bootstrapThemeSnapshot,
     bootstrapLocale,
-    options.bootstrapMainStage
+    options.bootstrapMainStage,
+    appVersion
   );
 
   const win = new BrowserWindow({

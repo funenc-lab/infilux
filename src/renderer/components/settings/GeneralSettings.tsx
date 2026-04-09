@@ -6,7 +6,13 @@ import {
   DEFAULT_WORKTREES_DIRNAME,
   LEGACY_SETTINGS_IMPORT_PATH_EXAMPLES,
 } from '@shared/paths';
-import type { LegacySettingsImportPreview, LogDiagnostics, ShellInfo } from '@shared/types';
+import type {
+  LegacySettingsImportPreview,
+  LogDiagnostics,
+  ShellInfo,
+  UpdaterStateSnapshot,
+  UpdateStatus,
+} from '@shared/types';
 import { AppCategory } from '@shared/types';
 import {
   ChevronRight,
@@ -60,6 +66,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { useDetectedApps } from '@/hooks/useAppDetector';
 import { useI18n } from '@/i18n';
+import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { cn } from '@/lib/utils';
 import {
   type FileTreeDisplayMode,
@@ -103,11 +110,7 @@ function stringifyShellArgs(args: string[]): string {
     .join(' ');
 }
 
-interface UpdateStatus {
-  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
-  info?: { version?: string };
-  error?: string;
-}
+const RELEASES_PAGE_URL = 'https://github.com/funenc-lab/infilux/releases';
 
 function SettingsOptionCard({
   icon: Icon,
@@ -348,10 +351,9 @@ export function GeneralSettings() {
 
   const [shells, setShells] = React.useState<ShellInfo[]>([]);
   const [loadingShells, setLoadingShells] = React.useState(true);
-  const appVersion = window.electronAPI?.env.appVersion || '0.0.0';
-
-  // Update status state
-  const [updateStatus, setUpdateStatus] = React.useState<UpdateStatus | null>(null);
+  const appVersion = getRendererEnvironment().appVersion;
+  const [updaterState, setUpdaterState] = React.useState<UpdaterStateSnapshot | null>(null);
+  const updateStatus = updaterState?.status ?? null;
 
   // Proxy test state
   const [proxyTestStatus, setProxyTestStatus] = React.useState<
@@ -659,11 +661,51 @@ export function GeneralSettings() {
 
   // Listen for update status changes
   React.useEffect(() => {
-    const cleanup = window.electronAPI.updater.onStatus((status) => {
-      setUpdateStatus(status as UpdateStatus);
+    let cancelled = false;
+
+    void window.electronAPI.updater
+      .getState()
+      .then((state) => {
+        if (cancelled) {
+          return;
+        }
+        setUpdaterState(state);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        console.error('[Settings] Failed to read updater state:', error);
+      });
+
+    const cleanup = window.electronAPI.updater.onStatus((status: UpdateStatus) => {
+      if (cancelled) {
+        return;
+      }
+
+      setUpdaterState((previousState) => ({
+        isSupported: previousState?.isSupported ?? true,
+        autoUpdateEnabled: previousState?.autoUpdateEnabled ?? autoUpdateEnabled,
+        status,
+      }));
     });
-    return cleanup;
-  }, []);
+
+    return () => {
+      cancelled = true;
+      cleanup();
+    };
+  }, [autoUpdateEnabled]);
+
+  React.useEffect(() => {
+    setUpdaterState((previousState) =>
+      previousState
+        ? {
+            ...previousState,
+            autoUpdateEnabled,
+          }
+        : previousState
+    );
+  }, [autoUpdateEnabled]);
 
   const handleCheckForUpdates = React.useCallback(() => {
     window.electronAPI.updater.checkForUpdates();
@@ -1623,18 +1665,35 @@ export function GeneralSettings() {
               <span className="text-xs text-destructive">({t('Check failed')})</span>
             )}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCheckForUpdates}
-            disabled={updateStatus?.status === 'checking' || updateStatus?.status === 'downloading'}
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${updateStatus?.status === 'checking' ? 'animate-spin' : ''}`}
-            />
-            {updateStatus?.status === 'checking' ? t('Checking...') : t('Check for updates')}
-          </Button>
+          {updaterState?.isSupported === false ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.electronAPI.shell.openExternal(RELEASES_PAGE_URL)}
+            >
+              {t('Open releases page')}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCheckForUpdates}
+              disabled={
+                updateStatus?.status === 'checking' || updateStatus?.status === 'downloading'
+              }
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${updateStatus?.status === 'checking' ? 'animate-spin' : ''}`}
+              />
+              {updateStatus?.status === 'checking' ? t('Checking...') : t('Check for updates')}
+            </Button>
+          )}
         </div>
+        {updaterState?.isSupported === false && (
+          <p className="text-xs text-muted-foreground">
+            {t('Automatic updates are not available for this installation.')}
+          </p>
+        )}
       </div>
 
       {/* Auto Update */}
@@ -1642,9 +1701,15 @@ export function GeneralSettings() {
         <span className="text-sm font-medium">{t('Auto update')}</span>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            {t('Automatically download and install updates')}
+            {updaterState?.isSupported === false
+              ? t('Download new versions manually from the releases page')
+              : t('Automatically download and install updates')}
           </p>
-          <Switch checked={autoUpdateEnabled} onCheckedChange={setAutoUpdateEnabled} />
+          <Switch
+            checked={autoUpdateEnabled}
+            onCheckedChange={setAutoUpdateEnabled}
+            disabled={updaterState?.isSupported === false}
+          />
         </div>
       </div>
 
