@@ -59,10 +59,13 @@ describe('agent session persistence sync', () => {
     expect(result?.nextSnapshotBySessionId.get('session-c')).toBe(
       serializePersistentAgentSessionRecordSnapshot(createRecord('session-c'))
     );
+    expect(result?.removedRecords).toEqual([]);
+    expect(result?.removedSessionIds).toEqual([]);
   });
 
-  it('drops removed sessions from the next snapshot map', async () => {
+  it('reports removed sessions so callers can abandon stale persistence records', async () => {
     const module = await import('../agentSessionPersistenceSync').catch(() => null);
+    const { updatedAt: _updatedAt, ...stableRemovedRecord } = createRecord('session-b');
 
     const result = module?.diffPersistentAgentSessionRecords({
       previousSnapshotBySessionId: new Map<string, string>([
@@ -73,6 +76,8 @@ describe('agent session persistence sync', () => {
     });
 
     expect(result?.changedRecords).toEqual([]);
+    expect(result?.removedRecords).toEqual([stableRemovedRecord]);
     expect(Array.from(result?.nextSnapshotBySessionId.keys() ?? [])).toEqual(['session-a']);
+    expect(result?.removedSessionIds).toEqual(['session-b']);
   });
 });

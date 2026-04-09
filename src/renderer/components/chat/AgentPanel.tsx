@@ -1084,22 +1084,58 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     });
   }, []);
 
-  useEffect(() => {
-    const records = persistableSessions.map((session) => buildPersistentRecord(session));
-    const { changedRecords, nextSnapshotBySessionId } = diffPersistentAgentSessionRecords({
-      previousSnapshotBySessionId: persistentRecordSnapshotBySessionIdRef.current,
-      records,
-    });
+  const cleanupRemovedPersistentRecord = useCallback((record: PersistentAgentSessionRecord) => {
+    const { runtimeChannel } = getRendererEnvironment();
 
-    persistentRecordSnapshotBySessionIdRef.current = nextSnapshotBySessionId;
-    if (changedRecords.length === 0) {
+    if (record.hostKind === 'tmux') {
+      const serverName = resolveTmuxServerNameForPersistentAgentHostSessionKey(
+        record.hostSessionKey,
+        runtimeChannel
+      );
+      void window.electronAPI.tmux
+        .killSession(record.cwd, { name: record.hostSessionKey, serverName })
+        .catch(() => {});
+    }
+
+    if (!record.backendSessionId) {
       return;
     }
 
-    void Promise.allSettled(
-      changedRecords.map((record) => window.electronAPI.agentSession.markPersistent(record))
-    );
-  }, [persistableSessions]);
+    void window.electronAPI.session.kill(record.backendSessionId).catch((error) => {
+      console.error(
+        `[AgentPanel] Failed to kill removed backend session ${record.backendSessionId}`,
+        error
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    const records = persistableSessions.map((session) => buildPersistentRecord(session));
+    const { changedRecords, removedRecords, removedSessionIds, nextSnapshotBySessionId } =
+      diffPersistentAgentSessionRecords({
+        previousSnapshotBySessionId: persistentRecordSnapshotBySessionIdRef.current,
+        records,
+      });
+
+    persistentRecordSnapshotBySessionIdRef.current = nextSnapshotBySessionId;
+    if (changedRecords.length === 0 && removedSessionIds.length === 0) {
+      return;
+    }
+
+    const removedRecordIds = new Set(removedRecords.map((record) => record.uiSessionId));
+    void Promise.allSettled([
+      ...changedRecords.map((record) => window.electronAPI.agentSession.markPersistent(record)),
+      ...removedRecords.map(async (record) => {
+        cleanupRemovedPersistentRecord(record);
+        return window.electronAPI.agentSession.abandon(record.uiSessionId);
+      }),
+      ...removedSessionIds.map((uiSessionId) =>
+        removedRecordIds.has(uiSessionId)
+          ? Promise.resolve(undefined)
+          : window.electronAPI.agentSession.abandon(uiSessionId)
+      ),
+    ]);
+  }, [cleanupRemovedPersistentRecord, persistableSessions]);
 
   useEffect(() => {
     void restoreWorktreeAgentSessions({
