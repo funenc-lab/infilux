@@ -69,7 +69,7 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).toContain('<WorktreeActivityMarker state={activityState} />');
     expect(worktreePanelSource).not.toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(worktreePanelSource).toContain(
-      'control-tree-primary min-w-0 flex-1 text-left outline-none'
+      'control-tree-primary relative min-w-0 flex-1 text-left outline-none'
     );
     expect(worktreePanelSource).not.toContain('pl-[1.625rem]');
     expect(worktreePanelSource).not.toContain(
@@ -217,6 +217,16 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).not.toContain('control-tree-subtitle min-w-0 flex-1');
     expect(treeSidebarSource).toContain('control-tree-title min-w-0 flex-1 truncate');
     expect(worktreePanelSource).toContain('control-tree-title min-w-0 flex-1 truncate');
+  });
+
+  it('moves the worktree activity dot into a shared leading status slot', () => {
+    expect(treeSidebarSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(worktreePanelSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(treeSidebarSource).toContain('control-tree-status-slot');
+    expect(worktreePanelSource).toContain('control-tree-status-slot');
+    expect(globalsSource).toContain('.control-tree-status-slot {');
+    expect(globalsSource).toContain('justify-content: center;');
+    expect(globalsSource).toContain('width: 0.5rem;');
   });
 
   it('keeps worktree runtime presence inline as counters instead of a named agent child row', () => {

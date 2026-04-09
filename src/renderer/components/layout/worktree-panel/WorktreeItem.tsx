@@ -313,10 +313,13 @@ export const WorktreeItem = memo(function WorktreeItem({
             ref={menuTriggerRef}
             type="button"
             onClick={handleSelectWorktree}
-            className="control-tree-primary min-w-0 flex-1 text-left outline-none"
+            className="control-tree-primary relative min-w-0 flex-1 text-left outline-none"
             data-surface="row"
             aria-current={isActive ? 'page' : undefined}
           >
+            <span className="control-tree-status-slot">
+              <WorktreeActivityMarker state={activityState} />
+            </span>
             <div className="control-tree-primary-content control-tree-primary-content-worktree">
               <span className="control-tree-glyph h-4 w-4 shrink-0">
                 <GitBranch
@@ -339,7 +342,6 @@ export const WorktreeItem = memo(function WorktreeItem({
                   >
                     {branchDisplay}
                   </span>
-                  <WorktreeActivityMarker state={activityState} />
                 </div>
               </div>
               {inlineItems.length > 0 ? (

@@ -20,10 +20,7 @@ export function WorktreeActivityMarker({ state }: { state: AgentActivityState })
       role="img"
       aria-label={activityMeta.label}
       title={activityMeta.label}
-      className={cn(
-        'control-tree-state-dot inline-flex h-1.5 w-1.5 shrink-0 rounded-full',
-        WORKTREE_ACTIVITY_MARKER_CLASS_NAME[state]
-      )}
+      className={cn('control-tree-state-dot', WORKTREE_ACTIVITY_MARKER_CLASS_NAME[state])}
     />
   );
 }

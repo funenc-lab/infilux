@@ -90,13 +90,16 @@ vi.mock('@/components/ui/toast', () => ({
   },
 }));
 
-function expectTitleRowStatusDot(markup: string) {
-  expect(markup).toMatch(/control-tree-title-row[\s\S]*?feature-a[\s\S]*?control-tree-state-dot/);
+function expectLeadingStatusDot(markup: string) {
+  expect(markup).toMatch(
+    /control-tree-status-slot[\s\S]*?control-tree-state-dot[\s\S]*?control-tree-glyph[\s\S]*?feature-a/
+  );
+  expect(markup).not.toMatch(/control-tree-title-row[\s\S]*?control-tree-state-dot/);
   expect(markup).not.toContain('control-tree-meta control-tree-meta-row');
 }
 
 describe('worktree status dot layout', () => {
-  it('renders the tree sidebar status dot in the title row instead of a second meta line', () => {
+  it('renders the tree sidebar status dot in a leading status slot instead of the title row', () => {
     const markup = renderToStaticMarkup(
       React.createElement(WorktreeTreeItem, {
         worktree: WORKTREE,
@@ -106,10 +109,10 @@ describe('worktree status dot layout', () => {
       })
     );
 
-    expectTitleRowStatusDot(markup);
+    expectLeadingStatusDot(markup);
   });
 
-  it('renders the worktree panel status dot in the title row instead of a second meta line', () => {
+  it('renders the worktree panel status dot in a leading status slot instead of the title row', () => {
     const markup = renderToStaticMarkup(
       React.createElement(WorktreeItem, {
         worktree: WORKTREE,
@@ -119,6 +122,6 @@ describe('worktree status dot layout', () => {
       })
     );
 
-    expectTitleRowStatusDot(markup);
+    expectLeadingStatusDot(markup);
   });
 });

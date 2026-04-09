@@ -57,11 +57,13 @@ describe('worktree sidebar cleanup policy', () => {
     expect(globalsSource).not.toContain('.control-tree-guide-item::before {');
   });
 
-  it('keeps worktree status anchored in the title row instead of a second meta line', () => {
+  it('keeps worktree status in a leading slot instead of a second meta line', () => {
     expect(worktreeTreeItemSource).toContain('<div className="control-tree-title-row">');
     expect(worktreePanelItemSource).toContain('<div className="control-tree-title-row">');
     expect(worktreeTreeItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
     expect(worktreePanelItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
+    expect(worktreeTreeItemSource).toContain('control-tree-status-slot');
+    expect(worktreePanelItemSource).toContain('control-tree-status-slot');
     expect(worktreeTreeItemSource).not.toContain('const metaItems = [');
     expect(worktreePanelItemSource).not.toContain('const metaItems = [');
   });
