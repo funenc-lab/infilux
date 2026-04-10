@@ -19,6 +19,7 @@ import {
   writeClipboardText,
 } from '@/hooks/xtermClipboard';
 import { useI18n } from '@/i18n';
+import { shouldPersistAgentSessionOnDisconnect } from '@/lib/agentSessionPersistence';
 import { showRendererNotification } from '@/lib/electronNotification';
 import {
   buildChatInputToastCopy,
@@ -1186,7 +1187,7 @@ export function AgentTerminal({
             environment,
           }
         : undefined,
-    persistOnDisconnect: true,
+    persistOnDisconnect: shouldPersistAgentSessionOnDisconnect(persistenceEnabled),
     preferHostScrollback:
       hostSession?.kind === 'tmux' &&
       (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current))),
