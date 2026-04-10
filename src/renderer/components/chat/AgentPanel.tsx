@@ -96,7 +96,6 @@ import {
   resolveAgentCanvasCenteredScrollPosition,
   resolveAgentCanvasFloatingFrame,
   resolveAgentCanvasFloatingTerminalFontScale,
-  resolveAgentCanvasRestoreScrollPosition,
   resolveAgentCanvasViewportMetrics,
   resolveAgentCanvasViewportSyncPosition,
   resolveAgentCanvasWheelZoomDelta,
@@ -139,6 +138,7 @@ import {
 } from './sessionTitleText';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
+import { useAgentCanvasViewportRestore } from './useAgentCanvasViewportRestore';
 
 export interface AgentPanelProps {
   repoPath: string; // repository path (workspace identifier)
@@ -2460,42 +2460,17 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     resetCanvasWheelZoomState();
   }, [canvasZoomStorageKey, resetCanvasWheelZoomState]);
 
-  useEffect(() => {
-    if (!isCanvasDisplayMode || !isActive) {
-      return;
-    }
-
-    let cancelled = false;
-    const frameId = requestAnimationFrame(() => {
-      if (cancelled) {
-        return;
-      }
-
-      const viewport = canvasViewportRef.current;
-      if (!viewport) {
-        return;
-      }
-
-      const snapshot = readCanvasViewportSnapshot(viewport);
-      const savedPosition = canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey];
-      const nextPosition = resolveAgentCanvasRestoreScrollPosition({
-        clientHeight: snapshot.clientHeight,
-        clientWidth: snapshot.clientWidth,
-        savedPosition,
-        scrollHeight: snapshot.scrollHeight,
-        scrollWidth: snapshot.scrollWidth,
-      });
-
-      applyCanvasViewportPosition(viewport, nextPosition);
-      canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = snapshot;
-      canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey;
-    });
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frameId);
-    };
-  }, [applyCanvasViewportPosition, canvasZoomStorageKey, isActive, isCanvasDisplayMode]);
+  useAgentCanvasViewportRestore({
+    applyCanvasViewportPosition,
+    canvasViewportPositionByWorktreeRef,
+    canvasViewportRestoreReadyWorktreeKeyRef,
+    canvasViewportSnapshotByWorktreeRef,
+    canvasZoomStorageKey,
+    isActive,
+    isCanvasDisplayMode,
+    readCanvasViewportSnapshot,
+    viewportRef: canvasViewportRef,
+  });
   useEffect(() => {
     if (!isCanvasDisplayMode) {
       setCanvasViewportBounds(null);
