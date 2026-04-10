@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isSessionPersistable,
   isSessionPersistenceEnabledForHost,
+  shouldPersistAgentSessionOnDisconnect,
 } from '../agentSessionPersistence';
 
 describe('agentSessionPersistence', () => {
@@ -47,5 +48,11 @@ describe('agentSessionPersistence', () => {
     expect(isSessionPersistable({ activated: true, persistenceEnabled: true })).toBe(true);
     expect(isSessionPersistable({ activated: true, persistenceEnabled: false })).toBe(false);
     expect(isSessionPersistable({ activated: false, persistenceEnabled: true })).toBe(false);
+  });
+
+  it('keeps agent sessions alive across UI detaches even when restart recovery is disabled', () => {
+    expect(shouldPersistAgentSessionOnDisconnect(true)).toBe(true);
+    expect(shouldPersistAgentSessionOnDisconnect(false)).toBe(true);
+    expect(shouldPersistAgentSessionOnDisconnect(undefined)).toBe(true);
   });
 });
