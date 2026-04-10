@@ -47,6 +47,7 @@ import {
   shouldRebindXtermSession,
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions } from './xtermTerminalOptions';
+import { syncXtermViewportToSession } from './xtermViewportSync';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
@@ -355,20 +356,35 @@ export function useXterm({
     }
   }, []);
 
-  const fitTerminal = useCallback(() => {
-    if (
-      fitAddonRef.current &&
-      terminalRef.current &&
-      ptyIdRef.current &&
-      runtimeStateRef.current === 'live'
-    ) {
-      fitAddonRef.current.fit();
-      window.electronAPI.session.resize(ptyIdRef.current, {
-        cols: terminalRef.current.cols,
-        rows: terminalRef.current.rows,
-      });
-    }
+  const syncViewportToSession = useCallback(() => {
+    return syncXtermViewportToSession({
+      fitViewport: () => {
+        fitAddonRef.current?.fit();
+      },
+      measureViewport: () => {
+        const fitAddon = fitAddonRef.current;
+        const terminal = terminalRef.current;
+
+        if (!fitAddon || !terminal) {
+          return null;
+        }
+
+        return {
+          cols: terminal.cols,
+          rows: terminal.rows,
+        };
+      },
+      resizeSession: (sessionId, size) => {
+        void window.electronAPI.session.resize(sessionId, size);
+      },
+      runtimeState: runtimeStateRef.current,
+      sessionId: ptyIdRef.current,
+    });
   }, []);
+
+  const fitTerminal = useCallback(() => {
+    syncViewportToSession();
+  }, [syncViewportToSession]);
 
   const findNext = useCallback(
     (
@@ -1224,19 +1240,14 @@ export function useXterm({
       terminalRef.current.options.fontWeightBold = settings.fontWeightBold;
       // Update transparency options dynamically
       terminalRef.current.options.allowTransparency = settings.backgroundImageEnabled;
-      fitAddonRef.current?.fit();
+      syncViewportToSession();
     }
-  }, [settings]);
+  }, [settings, syncViewportToSession]);
 
   // Handle resize
   useEffect(() => {
     const handleResize = () => {
-      if (fitAddonRef.current && terminalRef.current && ptyIdRef.current) {
-        fitAddonRef.current.fit();
-        window.electronAPI.session.resize(ptyIdRef.current, {
-          cols: terminalRef.current.cols,
-          rows: terminalRef.current.rows,
-        });
+      if (syncViewportToSession()) {
         // Clear WebGL texture atlas on resize to prevent glitches
         const addon = rendererAddonRef.current;
         if (addon && 'clearTextureAtlas' in addon) {
@@ -1278,7 +1289,7 @@ export function useXterm({
       observer.disconnect();
       intersectionObserver.disconnect();
     };
-  }, []);
+  }, [syncViewportToSession]);
 
   // Fit and focus when becoming active (only after loading completes)
   useEffect(() => {
