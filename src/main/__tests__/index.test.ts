@@ -1109,10 +1109,10 @@ describe('main entry', () => {
       ['/mock/app-entry']
     );
     expect(mainIndexTestDoubles.appendSwitch).toHaveBeenCalledWith('gtk-version', '3');
-    expect(mainIndexTestDoubles.appendSwitch).not.toHaveBeenCalledWith(
-      'remote-debugging-port',
-      '9222'
+    const remoteDebuggingCalls = mainIndexTestDoubles.appendSwitch.mock.calls.filter(
+      ([switchName, value]) => switchName === 'remote-debugging-port' && value === '9222'
     );
+    expect(remoteDebuggingCalls).toHaveLength(0);
   }, 15000);
 
   it('enables the remote debugging port only when explicitly requested in development', async () => {
@@ -1124,7 +1124,10 @@ describe('main entry', () => {
       argv: ['/mock/electron', '/mock/app-entry'],
     });
 
-    expect(mainIndexTestDoubles.appendSwitch).toHaveBeenCalledWith('remote-debugging-port', '9222');
+    const remoteDebuggingCalls = mainIndexTestDoubles.appendSwitch.mock.calls.filter(
+      ([switchName, value]) => switchName === 'remote-debugging-port' && value === '9222'
+    );
+    expect(remoteDebuggingCalls).toHaveLength(1);
   });
 
   it('falls back to the default dev profile when the sanitized profile name is empty', async () => {

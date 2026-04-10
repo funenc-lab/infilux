@@ -31,6 +31,26 @@ describe('bootstrapTheme', () => {
     expect(bootstrapThemeTestDoubles.isTerminalThemeDark).not.toHaveBeenCalled();
   });
 
+  it('falls back to dark mode and respects explicit light and dark snapshots', async () => {
+    const { resolveBootstrapThemeMode } = await import('../bootstrapTheme');
+
+    expect(resolveBootstrapThemeMode(undefined)).toBe('dark');
+    expect(
+      resolveBootstrapThemeMode({
+        theme: 'light',
+        terminalTheme: 'Xcode WWDC',
+        systemShouldUseDarkColors: true,
+      })
+    ).toBe('light');
+    expect(
+      resolveBootstrapThemeMode({
+        theme: 'dark',
+        terminalTheme: 'Dracula',
+        systemShouldUseDarkColors: false,
+      })
+    ).toBe('dark');
+  });
+
   it('applies the resolved bootstrap theme mode to the root element', async () => {
     const classListToggle = vi.fn();
     vi.stubGlobal('document', {
@@ -50,5 +70,13 @@ describe('bootstrapTheme', () => {
     expect(classListToggle).toHaveBeenCalledWith('dark', false);
     expect(document.documentElement.dataset.themeMode).toBe('light');
     expect(document.documentElement.dataset.themeSource).toBe('system');
+  });
+
+  it('skips DOM writes when the document is unavailable', async () => {
+    vi.stubGlobal('document', undefined);
+
+    const { applyBootstrapTheme } = await import('../bootstrapTheme');
+
+    expect(() => applyBootstrapTheme(null)).not.toThrow();
   });
 });
