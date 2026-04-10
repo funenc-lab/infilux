@@ -1,5 +1,5 @@
 import type { GitWorktree } from '@shared/types';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { shouldPruneSavedWorktreePath } from '../worktreeRestorePolicy';
 
 function makeWorktree(overrides: Partial<GitWorktree>): GitWorktree {
@@ -15,6 +15,11 @@ function makeWorktree(overrides: Partial<GitWorktree>): GitWorktree {
 }
 
 describe('worktreeRestorePolicy', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it('does not prune the saved worktree path while the refresh is still unstable', () => {
     expect(
       shouldPruneSavedWorktreePath({
@@ -49,7 +54,21 @@ describe('worktreeRestorePolicy', () => {
     ).toBe(false);
   });
 
-  it('does not prune the saved worktree path when the fetched list still contains it', () => {
+  it('does not prune the saved worktree path when the fetched list still contains the exact path', () => {
+    expect(
+      shouldPruneSavedWorktreePath({
+        savedWorktreePath: '/repo/.worktrees/feature-a',
+        worktrees: [makeWorktree({ path: '/repo/.worktrees/feature-a' })],
+        worktreesFetched: true,
+        worktreesFetching: false,
+        hasWorktreeError: false,
+      })
+    ).toBe(false);
+  });
+
+  it('does not prune equivalent worktree paths when macOS normalization keeps them matched', () => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+
     expect(
       shouldPruneSavedWorktreePath({
         savedWorktreePath: '/Repo/.worktrees/Feature-A',
@@ -59,6 +78,20 @@ describe('worktreeRestorePolicy', () => {
         hasWorktreeError: false,
       })
     ).toBe(false);
+  });
+
+  it('prunes differently cased worktree paths under linux normalization rules', () => {
+    vi.stubGlobal('navigator', { platform: 'Linux x86_64' });
+
+    expect(
+      shouldPruneSavedWorktreePath({
+        savedWorktreePath: '/Repo/.worktrees/Feature-A',
+        worktrees: [makeWorktree({ path: '/repo/.worktrees/feature-a' })],
+        worktreesFetched: true,
+        worktreesFetching: false,
+        hasWorktreeError: false,
+      })
+    ).toBe(true);
   });
 
   it('prunes the saved worktree path only after a stable successful refresh excludes it', () => {
