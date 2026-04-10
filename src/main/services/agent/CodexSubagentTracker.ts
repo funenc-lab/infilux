@@ -12,6 +12,7 @@ import type {
 const CODEX_TUI_LOG_PATH = path.join(os.homedir(), '.codex', 'log', 'codex-tui.log');
 const DEFAULT_MAX_IDLE_MS = 45_000;
 const MAX_LOG_READ_WINDOW_BYTES = 8 * 1024 * 1024;
+const MAX_TRACKED_STATE_RETENTION_MS = 15 * 60 * 1_000;
 
 interface CodexThreadContext {
   threadId: string;
@@ -23,6 +24,7 @@ interface CodexThreadContext {
 interface PendingSpawnDescriptor {
   agentType?: string;
   summary?: string;
+  timestampMs: number;
 }
 
 interface CodexTrackedSubagent {
@@ -254,6 +256,61 @@ function resetTrackerStateContents(state: CodexSubagentTrackerState): void {
   state.subagentsByThread.clear();
 }
 
+function resolveTrackedStateRetentionMs(maxIdleMs: number): number {
+  return Math.max(1, Math.min(maxIdleMs, MAX_TRACKED_STATE_RETENTION_MS));
+}
+
+export function pruneCodexSubagentTrackerState(
+  state: CodexSubagentTrackerState,
+  now: number,
+  retentionMs: number
+): void {
+  const cutoff = now - Math.max(1, retentionMs);
+
+  for (const [rootThreadId, queue] of state.pendingSpawnsByRoot.entries()) {
+    const retained = queue.filter((item) => item.timestampMs >= cutoff);
+    if (retained.length === 0) {
+      state.pendingSpawnsByRoot.delete(rootThreadId);
+      continue;
+    }
+    state.pendingSpawnsByRoot.set(rootThreadId, retained);
+  }
+
+  const referencedThreadIds = new Set<string>();
+  const retainedRootThreadIds = new Set<string>(state.pendingSpawnsByRoot.keys());
+
+  for (const [threadId, subagent] of state.subagentsByThread.entries()) {
+    if (subagent.lastSeenAt < cutoff) {
+      state.subagentsByThread.delete(threadId);
+      continue;
+    }
+
+    referencedThreadIds.add(subagent.threadId);
+    referencedThreadIds.add(subagent.parentThreadId);
+    referencedThreadIds.add(subagent.rootThreadId);
+    retainedRootThreadIds.add(subagent.rootThreadId);
+  }
+
+  for (const [threadId, context] of state.threadContexts.entries()) {
+    if (context.lastSeenAt >= cutoff) {
+      retainedRootThreadIds.add(context.rootThreadId);
+      continue;
+    }
+
+    if (referencedThreadIds.has(threadId) || retainedRootThreadIds.has(context.rootThreadId)) {
+      continue;
+    }
+
+    state.threadContexts.delete(threadId);
+  }
+
+  for (const rootThreadId of state.childSequencesByRoot.keys()) {
+    if (!retainedRootThreadIds.has(rootThreadId)) {
+      state.childSequencesByRoot.delete(rootThreadId);
+    }
+  }
+}
+
 export function resolveCodexLogReadWindow(
   offset: number,
   size: number,
@@ -313,6 +370,7 @@ export function applyCodexLogLine(
       agentType:
         typeof parsed.payload?.agent_type === 'string' ? parsed.payload.agent_type : undefined,
       summary: summarizeSpawnMessage(parsed.payload?.message),
+      timestampMs: parsed.timestampMs,
     });
     state.pendingSpawnsByRoot.set(parsed.rootThreadId, queue);
   }
@@ -403,6 +461,11 @@ export class CodexSubagentTracker {
     request: ListLiveAgentSubagentsRequest = {}
   ): Promise<ListLiveAgentSubagentsResult> {
     await this.refresh();
+    pruneCodexSubagentTrackerState(
+      this.state,
+      Date.now(),
+      resolveTrackedStateRetentionMs(request.maxIdleMs ?? DEFAULT_MAX_IDLE_MS)
+    );
 
     return {
       items: buildLiveCodexSubagents(this.state, request),
@@ -416,6 +479,7 @@ export class CodexSubagentTracker {
     try {
       fileStat = await stat(this.logPath);
     } catch {
+      resetTrackerStateContents(this.state);
       this.state.offset = 0;
       this.state.remainder = '';
       return;

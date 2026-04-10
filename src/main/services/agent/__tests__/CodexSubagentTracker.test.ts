@@ -3,6 +3,7 @@ import {
   applyCodexLogLine,
   buildLiveCodexSubagents,
   createEmptyCodexSubagentTrackerState,
+  pruneCodexSubagentTrackerState,
   resolveCodexLogReadWindow,
 } from '../CodexSubagentTracker';
 
@@ -144,5 +145,54 @@ describe('CodexSubagentTracker', () => {
         cwds: ['/repo/worktrees/feature-a'],
       })
     ).toEqual([]);
+  });
+
+  it('prunes expired subagent tracker state instead of keeping old threads forever', () => {
+    const state = applyLines([
+      '2026-03-29T09:00:00.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/repo/worktrees/feature-a"} thread_id=root-1',
+      '2026-03-29T09:00:01.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: spawn_agent {"agent_type":"worker","message":"Old task"} thread_id=root-1',
+      '2026-03-29T09:00:02.000Z  INFO session_loop{thread_id=root-1}:session_loop{thread_id=child-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/repo/worktrees/feature-a"} thread_id=child-1',
+    ]);
+
+    pruneCodexSubagentTrackerState(state, Date.parse('2026-03-29T09:05:00.000Z'), 30_000);
+
+    expect(state.subagentsByThread.size).toBe(0);
+    expect(state.threadContexts.size).toBe(0);
+    expect(state.pendingSpawnsByRoot.size).toBe(0);
+    expect(state.childSequencesByRoot.size).toBe(0);
+  });
+
+  it('keeps referenced root thread context while a recent subagent still needs it for cwd', () => {
+    const state = createEmptyCodexSubagentTrackerState();
+    state.threadContexts.set('root-1', {
+      threadId: 'root-1',
+      rootThreadId: 'root-1',
+      cwd: '/repo/worktrees/feature-a',
+      lastSeenAt: Date.parse('2026-03-29T09:00:00.000Z'),
+    });
+    state.subagentsByThread.set('child-1', {
+      id: 'child-1',
+      threadId: 'child-1',
+      rootThreadId: 'root-1',
+      parentThreadId: 'root-1',
+      label: 'Worker 1',
+      lastSeenAt: Date.parse('2026-03-29T09:04:50.000Z'),
+    });
+
+    pruneCodexSubagentTrackerState(state, Date.parse('2026-03-29T09:05:00.000Z'), 30_000);
+
+    expect(state.threadContexts.has('root-1')).toBe(true);
+    expect(
+      buildLiveCodexSubagents(state, {
+        now: Date.parse('2026-03-29T09:05:00.000Z'),
+        maxIdleMs: 30_000,
+        cwds: ['/repo/worktrees/feature-a'],
+      })
+    ).toEqual([
+      expect.objectContaining({
+        id: 'child-1',
+        cwd: '/repo/worktrees/feature-a',
+      }),
+    ]);
   });
 });

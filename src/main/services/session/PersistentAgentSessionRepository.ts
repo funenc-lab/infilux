@@ -6,6 +6,7 @@ import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
 import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSessionState';
 
 const BUSY_TIMEOUT_MS = 3000;
+const STALE_PERSISTENT_SESSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 interface PersistentAgentSessionRow {
   ui_session_id: string;
@@ -155,6 +156,12 @@ function compareByUpdatedAtDesc(
   return right.updatedAt - left.updatedAt;
 }
 
+function isPrunablePersistentAgentState(
+  state: PersistentAgentSessionRow['last_known_state']
+): boolean {
+  return state === 'dead' || state === 'missing-host-session';
+}
+
 function getDatabasePath(): string {
   return join(getSharedRootPath(), getAppRuntimeIdentity().persistentAgentSessionDatabaseFilename);
 }
@@ -193,6 +200,8 @@ export class PersistentAgentSessionRepository {
   async upsertSession(record: PersistentAgentSessionRecord): Promise<void> {
     await this.initialize();
     await this.writeRecord(record);
+    await this.refreshCache();
+    await this.pruneStaleSessions();
     await this.refreshCache();
   }
 
@@ -279,6 +288,8 @@ export class PersistentAgentSessionRepository {
     this.db = database;
     await this.refreshCache();
     await this.migrateLegacyStateIfNeeded();
+    await this.pruneStaleSessions();
+    await this.refreshCache();
   }
 
   private async migrateLegacyStateIfNeeded(): Promise<void> {
@@ -304,6 +315,28 @@ export class PersistentAgentSessionRepository {
       'SELECT * FROM persistent_agent_sessions ORDER BY updated_at DESC'
     );
     this.cache = rows.map(rowToRecord);
+  }
+
+  private async pruneStaleSessions(now = Date.now()): Promise<void> {
+    const cutoff = now - STALE_PERSISTENT_SESSION_RETENTION_MS;
+    const staleSessionIds = this.cache
+      .filter(
+        (record) =>
+          isPrunablePersistentAgentState(record.lastKnownState) && record.updatedAt < cutoff
+      )
+      .map((record) => record.uiSessionId);
+
+    if (staleSessionIds.length === 0) {
+      return;
+    }
+
+    await Promise.all(
+      staleSessionIds.map((uiSessionId) =>
+        dbRun(this.getDb(), 'DELETE FROM persistent_agent_sessions WHERE ui_session_id = ?', [
+          uiSessionId,
+        ])
+      )
+    );
   }
 
   private async writeRecord(record: PersistentAgentSessionRecord): Promise<void> {
