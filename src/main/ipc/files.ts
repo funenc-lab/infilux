@@ -82,7 +82,7 @@ function logFileListDiagnostics(stage: string, payload: Record<string, unknown>)
 }
 
 function emitFileListRuntimeDiagnostics(stage: string, payload: Record<string, unknown>): void {
-  if (process.env.NODE_ENV === 'test') {
+  if (!shouldLogFileListDiagnostics) {
     return;
   }
 

@@ -55,6 +55,7 @@ import {
 } from './agentInputAvailability';
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import { buildAgentLaunchPlan } from './agentLaunchPlan';
+import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActivityPollingPolicy';
 import { canInsertAgentTerminalAttachments } from './agentTerminalAttachmentInsertPolicy';
 import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
 import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
@@ -109,7 +110,6 @@ interface AgentTerminalProps {
 
 const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is doing work
 const MIN_OUTPUT_FOR_INDICATOR = 200; // Minimum chars to show "outputting" indicator (higher to avoid noise)
-const ACTIVITY_POLL_INTERVAL_MS = 1000; // Poll process activity every 1000ms
 const IDLE_CONFIRMATION_COUNT = 2; // Require 2 consecutive idle polls (2 seconds) before marking as idle
 const RECENT_OUTPUT_TIMEOUT_MS = 3000; // If output received within this time, consider still active
 
@@ -717,12 +717,53 @@ export function AgentTerminal({
     );
   }, []);
 
+  // Wait for shell config and hapi check to complete before activating terminal
+  const effectiveIsActive = useMemo(() => {
+    if (
+      agentCommand.startsWith('claude') &&
+      claudeCodeIntegration.enabled &&
+      claudeIdeStatus === null
+    ) {
+      return false;
+    }
+    if (
+      agentCommand.startsWith('claude') &&
+      !isRemoteExecution &&
+      claudeWorkspaceTrusted === null
+    ) {
+      return false;
+    }
+    if (!isRemoteExecution && !resolvedShell) {
+      return false;
+    }
+    if (environment === 'hapi' && hapiGlobalInstalled === null) {
+      return false;
+    }
+    // Force activation when there's a pending command (auto-execute)
+    return isActive || hasPendingCommand;
+  }, [
+    environment,
+    hapiGlobalInstalled,
+    isActive,
+    agentCommand,
+    claudeCodeIntegration.enabled,
+    claudeIdeStatus,
+    claudeWorkspaceTrusted,
+    isRemoteExecution,
+    resolvedShell,
+    hasPendingCommand,
+  ]);
+
   // Mark session as active when user is viewing it
   useEffect(() => {
     if (isActive && terminalSessionId) {
       markSessionActive(terminalSessionId);
     }
   }, [isActive, terminalSessionId, markSessionActive]);
+
+  const activityPollIntervalMs = resolveAgentTerminalActivityPollIntervalMs({
+    isActive: effectiveIsActive,
+  });
 
   // Start polling for process activity
   const startActivityPolling = useCallback(() => {
@@ -775,8 +816,8 @@ export function AgentTerminal({
       } catch {
         // Error checking activity, ignore
       }
-    }, ACTIVITY_POLL_INTERVAL_MS);
-  }, [updateOutputState]);
+    }, activityPollIntervalMs);
+  }, [activityPollIntervalMs, updateOutputState]);
 
   // Stop polling for process activity
   const stopActivityPolling = useCallback(() => {
@@ -795,6 +836,14 @@ export function AgentTerminal({
       stopActivityPolling();
     };
   }, [terminalSessionId, clearRuntimeState, stopActivityPolling]);
+
+  useEffect(() => {
+    if (!isMonitoringOutputRef.current || !activityPollIntervalRef.current) {
+      return;
+    }
+
+    startActivityPolling();
+  }, [startActivityPolling]);
 
   // Build command with session args
   const { command, env, initialCommand, hostSession } = useMemo(() => {
@@ -1117,43 +1166,6 @@ export function AgentTerminal({
       // and accessed via try-catch for safety
     ]
   );
-
-  // Wait for shell config and hapi check to complete before activating terminal
-  const effectiveIsActive = useMemo(() => {
-    if (
-      agentCommand.startsWith('claude') &&
-      claudeCodeIntegration.enabled &&
-      claudeIdeStatus === null
-    ) {
-      return false;
-    }
-    if (
-      agentCommand.startsWith('claude') &&
-      !isRemoteExecution &&
-      claudeWorkspaceTrusted === null
-    ) {
-      return false;
-    }
-    if (!isRemoteExecution && !resolvedShell) {
-      return false;
-    }
-    if (environment === 'hapi' && hapiGlobalInstalled === null) {
-      return false;
-    }
-    // Force activation when there's a pending command (auto-execute)
-    return isActive || hasPendingCommand;
-  }, [
-    environment,
-    hapiGlobalInstalled,
-    isActive,
-    agentCommand,
-    claudeCodeIntegration.enabled,
-    claudeIdeStatus,
-    claudeWorkspaceTrusted,
-    isRemoteExecution,
-    resolvedShell,
-    hasPendingCommand,
-  ]);
 
   const {
     containerRef,

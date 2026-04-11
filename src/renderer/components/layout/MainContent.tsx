@@ -10,7 +10,7 @@ import {
   type SessionActivityState,
 } from '@/components/chat/sessionActivityState';
 import type { SettingsCategory } from '@/components/settings/constants';
-import { useLiveSubagents } from '@/hooks/useLiveSubagents';
+import { buildPolledLiveSubagentCwds, useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useI18n } from '@/i18n';
 import { getRendererPlatform } from '@/lib/electronEnvironment';
 import { cn } from '@/lib/utils';
@@ -310,18 +310,31 @@ export function MainContent({
     () => sessions.filter((session) => session.initialized),
     [sessions]
   );
-  const liveSubagentPollCwds = useMemo(() => {
-    const nextCwds = new Set<string>();
+  const activeCodexSessionCwds = useMemo(() => {
+    const nextCwds: string[] = [];
 
     for (const session of initializedSessions) {
       if (!isCodexSessionAgent(session.agentId) || !session.cwd) {
         continue;
       }
-      nextCwds.add(normalizePath(session.cwd));
+      nextCwds.push(session.cwd);
     }
 
-    return [...nextCwds].sort();
+    return nextCwds;
   }, [initializedSessions]);
+  const liveSubagentVisibleCwds = useMemo(
+    () =>
+      [
+        currentWorktreePath,
+        retainedChatContext?.worktreePath ?? null,
+        ...retainedChatPanelPaths,
+      ].filter((path): path is string => Boolean(path)),
+    [currentWorktreePath, retainedChatContext, retainedChatPanelPaths]
+  );
+  const liveSubagentPollCwds = useMemo(
+    () => buildPolledLiveSubagentCwds(liveSubagentVisibleCwds, activeCodexSessionCwds),
+    [activeCodexSessionCwds, liveSubagentVisibleCwds]
+  );
   const liveSubagentsByWorktree = useLiveSubagents(liveSubagentPollCwds);
   const sessionActivityStateById = useMemo(
     () =>

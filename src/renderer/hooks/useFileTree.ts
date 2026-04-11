@@ -6,6 +6,7 @@ import {
   resolveFileListGitRoot,
   resolveFileListPath,
 } from '@/components/files/breadcrumbPathUtils';
+import { shouldEmitFileTreeRuntimeDiagnostics } from './fileTreeDiagnosticsPolicy';
 import { shouldRecoverRootFileList } from './fileTreeRootRecoveryPolicy';
 import {
   cloneEntriesToNodes,
@@ -44,8 +45,12 @@ function logFileTreeDiagnostics(
   console.info(`[file-tree] ${stage}`, payload);
 }
 
-function emitFileTreeRuntimeDiagnostics(stage: string, payload: Record<string, unknown>): void {
-  if (import.meta.env.MODE === 'test') {
+function emitFileTreeRuntimeDiagnostics(
+  stage: string,
+  payload: Record<string, unknown>,
+  shouldEmit: boolean
+): void {
+  if (!shouldEmit) {
     return;
   }
 
@@ -56,6 +61,10 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   const queryClient = useQueryClient();
   const shouldPoll = useShouldPoll();
   const shouldLogDiagnostics = shouldLogFileTreeDiagnostics;
+  const shouldEmitRuntimeDiagnostics = shouldEmitFileTreeRuntimeDiagnostics({
+    isDev: import.meta.env.DEV,
+    mode: import.meta.env.MODE,
+  });
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() =>
     rootPath ? loadFileTreeExpandedPaths(rootPath) : new Set()
   );
@@ -76,25 +85,33 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         { rootPath, resolvedRootPath, resolvedGitRoot },
         shouldLogDiagnostics
       );
-      emitFileTreeRuntimeDiagnostics('root-query:start', {
-        rootPath,
-        resolvedRootPath,
-        resolvedGitRoot,
-        enabled,
-        isActive,
-      });
+      emitFileTreeRuntimeDiagnostics(
+        'root-query:start',
+        {
+          rootPath,
+          resolvedRootPath,
+          resolvedGitRoot,
+          enabled,
+          isActive,
+        },
+        shouldEmitRuntimeDiagnostics
+      );
       const files = await window.electronAPI.file.list(resolvedRootPath, resolvedGitRoot);
       logFileTreeDiagnostics(
         'root-query:success',
         { rootPath, resolvedRootPath, resolvedGitRoot, count: files.length },
         shouldLogDiagnostics
       );
-      emitFileTreeRuntimeDiagnostics('root-query:success', {
-        rootPath,
-        resolvedRootPath,
-        resolvedGitRoot,
-        count: files.length,
-      });
+      emitFileTreeRuntimeDiagnostics(
+        'root-query:success',
+        {
+          rootPath,
+          resolvedRootPath,
+          resolvedGitRoot,
+          count: files.length,
+        },
+        shouldEmitRuntimeDiagnostics
+      );
       return files;
     },
     enabled: enabled && !!rootPath,
@@ -176,11 +193,15 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       { rootPath, count: rootFiles.length },
       shouldLogDiagnostics
     );
-    emitFileTreeRuntimeDiagnostics('root-files:update', {
-      rootPath,
-      count: rootFiles.length,
-      expandedCount: expandedPathsRef.current.size,
-    });
+    emitFileTreeRuntimeDiagnostics(
+      'root-files:update',
+      {
+        rootPath,
+        count: rootFiles.length,
+        expandedCount: expandedPathsRef.current.size,
+      },
+      shouldEmitRuntimeDiagnostics
+    );
 
     const merged = mergeNodesPreservingState(rootFiles, treeRef.current);
     setTree(merged);
@@ -229,7 +250,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     return () => {
       cancelled = true;
     };
-  }, [rootFiles, rootPath, loadChildren, shouldLogDiagnostics]);
+  }, [rootFiles, rootPath, loadChildren, shouldLogDiagnostics, shouldEmitRuntimeDiagnostics]);
 
   useEffect(() => {
     if (
@@ -258,11 +279,15 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       },
       shouldLogDiagnostics
     );
-    emitFileTreeRuntimeDiagnostics('root-query:recover:start', {
-      rootPath: targetRootPath,
-      isRootError,
-      rootFileCount: rootFiles?.length ?? null,
-    });
+    emitFileTreeRuntimeDiagnostics(
+      'root-query:recover:start',
+      {
+        rootPath: targetRootPath,
+        isRootError,
+        rootFileCount: rootFiles?.length ?? null,
+      },
+      shouldEmitRuntimeDiagnostics
+    );
 
     let cancelled = false;
 
@@ -283,10 +308,14 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
           },
           shouldLogDiagnostics
         );
-        emitFileTreeRuntimeDiagnostics('root-query:recover:success', {
-          rootPath: targetRootPath,
-          count: files.length,
-        });
+        emitFileTreeRuntimeDiagnostics(
+          'root-query:recover:success',
+          {
+            rootPath: targetRootPath,
+            count: files.length,
+          },
+          shouldEmitRuntimeDiagnostics
+        );
       } catch (error) {
         if (!cancelled) {
           recoveredRootPathsRef.current.delete(targetRootPath);
@@ -299,10 +328,14 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
           },
           shouldLogDiagnostics
         );
-        emitFileTreeRuntimeDiagnostics('root-query:recover:error', {
-          rootPath: targetRootPath,
-          message: error instanceof Error ? error.message : String(error),
-        });
+        emitFileTreeRuntimeDiagnostics(
+          'root-query:recover:error',
+          {
+            rootPath: targetRootPath,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          shouldEmitRuntimeDiagnostics
+        );
       }
     };
 
@@ -311,7 +344,15 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     return () => {
       cancelled = true;
     };
-  }, [queryClient, rootFiles, rootPath, isRootLoading, isRootError, shouldLogDiagnostics]);
+  }, [
+    queryClient,
+    rootFiles,
+    rootPath,
+    isRootLoading,
+    isRootError,
+    shouldLogDiagnostics,
+    shouldEmitRuntimeDiagnostics,
+  ]);
 
   // Toggle directory expansion
   const toggleExpand = useCallback(

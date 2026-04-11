@@ -283,4 +283,18 @@ describe('file list diagnostics logging', () => {
     expect(infoSpy).toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalled();
   });
+
+  it('does not emit runtime error diagnostics by default for packaged builds', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { listHandler } = await loadFilesModule({
+      nodeEnv: 'production',
+      isPackaged: true,
+    });
+
+    await listHandler?.({ sender: createSender(4) }, '/repo', '/repo');
+
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
 });

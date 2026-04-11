@@ -302,6 +302,7 @@ export function MainContentPanels({
               onReady={() => onStartupBlockingReady?.('file-panel')}
               rootPath={currentWorktreePath ?? undefined}
               isActive={activeTab === 'file'}
+              treeEnabled={activeTab === 'file'}
               onExpandWorktree={onExpandWorktree}
               shouldLoad={activeTab === 'file'}
               showFallback={activeTab === 'file'}
@@ -326,6 +327,7 @@ export function MainContentPanels({
             <DeferredFilePanel
               rootPath={cachedWorktreePath}
               isActive={false}
+              treeEnabled={false}
               shouldLoad
               showFallback={false}
             />

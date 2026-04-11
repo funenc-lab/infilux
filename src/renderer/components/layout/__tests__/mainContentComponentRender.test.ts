@@ -109,6 +109,7 @@ function renderMockPanel(
   return React.createElement('div', {
     'data-panel': panel,
     'data-active': String(props.isActive ?? false),
+    'data-tree-enabled': String(props.treeEnabled ?? ''),
     'data-canvas-recenter-token':
       typeof props.canvasRecenterOnActivateToken === 'number'
         ? String(props.canvasRecenterOnActivateToken)
@@ -261,9 +262,15 @@ vi.mock('@/stores/worktreeActivity', () => ({
     selector(worktreeActivityState),
 }));
 
-vi.mock('@/hooks/useLiveSubagents', () => ({
-  useLiveSubagents: useLiveSubagentsMock,
-}));
+vi.mock('@/hooks/useLiveSubagents', async () => {
+  const actual = await vi.importActual<typeof import('@/hooks/useLiveSubagents')>(
+    '@/hooks/useLiveSubagents'
+  );
+  return {
+    ...actual,
+    useLiveSubagents: useLiveSubagentsMock,
+  };
+});
 
 vi.mock('@/stores/terminalWrite', () => ({
   useTerminalWriteStore: (
@@ -463,6 +470,7 @@ describe('MainContent component render', () => {
     const markup = await renderMainContent('file');
 
     expect(markup).toContain('data-panel="file-legacy"');
+    expect(markup).toContain('data-tree-enabled="true"');
   }, 15000);
 
   it('retains the legacy file panel while inactive when the current worktree still has open tabs', async () => {
@@ -473,6 +481,7 @@ describe('MainContent component render', () => {
     const markup = await renderMainContent('source-control');
 
     expect(markup).toContain('data-panel="file-legacy"');
+    expect(markup).toContain('data-tree-enabled="false"');
     expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="source-control"');
   });
@@ -664,6 +673,31 @@ describe('MainContent component render', () => {
     expect(markup).toContain('data-panel="agent"');
     expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="source-control"');
+  });
+
+  it('limits codex live subagent polling to the current worktree instead of every initialized session cwd', async () => {
+    agentSessionsState.sessions = [
+      {
+        id: 'session-1',
+        repoPath: '/repo/main',
+        cwd: '/repo/main/worktrees/current',
+        agentId: 'codex',
+        sessionId: 'root-thread-1',
+        initialized: true,
+      },
+      {
+        id: 'session-2',
+        repoPath: '/repo/main',
+        cwd: '/repo/main/worktrees/archived',
+        agentId: 'codex',
+        sessionId: 'root-thread-2',
+        initialized: true,
+      },
+    ];
+
+    await renderMainContent('source-control');
+
+    expect(useLiveSubagentsMock).toHaveBeenCalledWith(['/repo/main/worktrees/current']);
   });
 
   it('retains the current agent panel for darwin-equivalent worktree paths when session cwd uses a different alias', async () => {

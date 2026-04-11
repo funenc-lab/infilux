@@ -79,6 +79,7 @@ import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummary';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { shouldPollSidebarDiffStats } from './sidebarDiffPollingPolicy';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 import { TempWorkspaceTreeItem } from './tree-sidebar/TempWorkspaceTreeItem';
 import { WorktreeTreeItem } from './tree-sidebar/WorktreeTreeItem';
@@ -432,9 +433,14 @@ export function TreeSidebar({
     return [...new Set([...selectedSnapshotWorktrees, ...allWorktrees].map((wt) => wt.path))];
   }, [selectedSnapshotWorktrees, worktreesMap]);
   const diffStatPathKey = useMemo(() => diffStatPaths.join('\n'), [diffStatPaths]);
+  const shouldPollDiffStats = shouldPollSidebarDiffStats({
+    collapsed,
+    diffStatPathKey,
+    shouldPoll,
+  });
 
   useEffect(() => {
-    if (!diffStatPathKey || !shouldPoll) return;
+    if (!shouldPollDiffStats) return;
     const paths = diffStatPathKey.split('\n');
 
     fetchDiffStats(paths);
@@ -442,7 +448,7 @@ export function TreeSidebar({
       fetchDiffStats(paths);
     }, 10000);
     return () => clearInterval(interval);
-  }, [diffStatPathKey, fetchDiffStats, shouldPoll]);
+  }, [diffStatPathKey, fetchDiffStats, shouldPollDiffStats]);
 
   // Auto-expand selected repo (only when selectedRepo changes externally, not from tree click)
   const prevSelectedRepoRef = useRef<string | null>(null);

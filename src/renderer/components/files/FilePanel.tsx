@@ -34,6 +34,7 @@ import {
   FileConflictDialog,
 } from './FileConflictDialog';
 import { FileTree } from './FileTree';
+import { shouldEnableFilePanelTreeQuery } from './filePanelTreeQueryPolicy';
 import { createInitialFilePanelTrackingState } from './fileTreeTrackingState';
 import { shouldAutoExpandIntegratedFileTree } from './fileTreeVisibilityPolicy';
 import { NewItemDialog } from './NewItemDialog';
@@ -58,6 +59,7 @@ function matchesKeybinding(e: KeyboardEvent, binding: TerminalKeybinding): boole
 export interface FilePanelProps {
   rootPath: string | undefined;
   isActive?: boolean;
+  treeEnabled?: boolean;
   onExpandWorktree?: () => void;
   worktreeCollapsed?: boolean;
 }
@@ -67,6 +69,7 @@ type NewItemType = 'file' | 'directory' | null;
 export function FilePanel({
   rootPath,
   isActive = false,
+  treeEnabled = true,
   onExpandWorktree,
   worktreeCollapsed = false,
 }: FilePanelProps) {
@@ -85,7 +88,14 @@ export function FilePanel({
     handleExternalDrop,
     resolveConflictsAndContinue,
     revealFile,
-  } = useFileTree({ rootPath, enabled: !!rootPath, isActive });
+  } = useFileTree({
+    rootPath,
+    enabled: shouldEnableFilePanelTreeQuery({
+      hasRootPath: Boolean(rootPath),
+      treeEnabled,
+    }),
+    isActive,
+  });
 
   const {
     tabs,
@@ -175,7 +185,7 @@ export function FilePanel({
   const fileTreeAutoReveal = useSettingsStore((s) => s.fileTreeAutoReveal);
 
   useEffect(() => {
-    if (!activeTab?.path || !rootPath) return;
+    if (!treeEnabled || !activeTab?.path || !rootPath) return;
 
     // Update selected file path to match active tab (always do this, it's fast)
     setSelectedFilePath(activeTab.path);
@@ -189,7 +199,7 @@ export function FilePanel({
         console.debug('[FilePanel] revealFile error:', error);
       });
     }
-  }, [activeTab?.path, rootPath, revealFile, fileTreeAutoReveal]);
+  }, [activeTab?.path, rootPath, revealFile, fileTreeAutoReveal, treeEnabled]);
 
   // Refresh active tab content when window regains focus (like mini-program onShow)
   const { isWindowFocused } = useWindowFocus();

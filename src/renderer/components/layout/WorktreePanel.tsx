@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { shouldPollSidebarDiffStats } from './sidebarDiffPollingPolicy';
 import { WorktreeItem } from './worktree-panel/WorktreeItem';
 import { resolveWorktreePanelSnapshot } from './worktreePanelSnapshot';
 
@@ -211,6 +212,11 @@ export function WorktreePanel({
 
   const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
   const shouldPoll = useShouldPoll();
+  const shouldPollDiffStats = shouldPollSidebarDiffStats({
+    collapsed,
+    diffStatPathKey,
+    shouldPoll,
+  });
   const isRemoteReconnecting = remoteStatus?.phase === 'reconnecting';
   const isRemoteFailed = Boolean(
     inactiveRemote &&
@@ -230,7 +236,7 @@ export function WorktreePanel({
       : t('Click the selected repository again to connect and load worktrees.');
 
   useEffect(() => {
-    if (!diffStatPathKey || !shouldPoll) return;
+    if (!shouldPollDiffStats) return;
     const paths = diffStatPathKey.split('\n');
 
     fetchDiffStats(paths);
@@ -238,7 +244,7 @@ export function WorktreePanel({
       fetchDiffStats(paths);
     }, 10000);
     return () => clearInterval(interval);
-  }, [diffStatPathKey, fetchDiffStats, shouldPoll]);
+  }, [diffStatPathKey, fetchDiffStats, shouldPollDiffStats]);
 
   const sidebarBody = collapsed ? (
     <CollapsedSidebarRail
