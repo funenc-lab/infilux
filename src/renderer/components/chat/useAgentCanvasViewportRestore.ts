@@ -1,5 +1,5 @@
 import type { MutableRefObject, RefObject } from 'react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { resolveAgentCanvasRestoreScrollPosition } from './agentCanvasViewport';
 
 type CanvasViewportPosition = {
@@ -26,6 +26,7 @@ interface UseAgentCanvasViewportRestoreOptions {
   isActive: boolean;
   isCanvasDisplayMode: boolean;
   readCanvasViewportSnapshot: (viewport: HTMLDivElement) => CanvasViewportSnapshot;
+  recenterOnActivateToken?: number;
   viewportRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -38,8 +39,11 @@ export function useAgentCanvasViewportRestore({
   isActive,
   isCanvasDisplayMode,
   readCanvasViewportSnapshot,
+  recenterOnActivateToken = 0,
   viewportRef,
 }: UseAgentCanvasViewportRestoreOptions) {
+  const lastHandledRecenterOnActivateTokenRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!isCanvasDisplayMode || !isActive) {
       return;
@@ -57,16 +61,25 @@ export function useAgentCanvasViewportRestore({
       }
 
       const snapshot = readCanvasViewportSnapshot(viewport);
-      const savedPosition = canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey];
+      const shouldForceCenter =
+        recenterOnActivateToken > 0 &&
+        lastHandledRecenterOnActivateTokenRef.current !== recenterOnActivateToken;
+      const savedPosition = shouldForceCenter
+        ? null
+        : canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey];
       const nextPosition = resolveAgentCanvasRestoreScrollPosition({
         clientHeight: snapshot.clientHeight,
         clientWidth: snapshot.clientWidth,
+        forceCenter: shouldForceCenter,
         savedPosition,
         scrollHeight: snapshot.scrollHeight,
         scrollWidth: snapshot.scrollWidth,
       });
 
       applyCanvasViewportPosition(viewport, nextPosition);
+      if (shouldForceCenter) {
+        lastHandledRecenterOnActivateTokenRef.current = recenterOnActivateToken;
+      }
       canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = snapshot;
       canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey;
     });
@@ -84,6 +97,7 @@ export function useAgentCanvasViewportRestore({
     isActive,
     isCanvasDisplayMode,
     readCanvasViewportSnapshot,
+    recenterOnActivateToken,
     viewportRef,
   ]);
 }

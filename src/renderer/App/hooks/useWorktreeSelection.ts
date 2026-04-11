@@ -27,7 +27,8 @@ export function useWorktreeSelection(
   setActiveTab: (tab: TabId) => void,
   selectedRepo: string | null,
   setSelectedRepo: (repo: string) => void,
-  persistSelectedWorktree: (repoPath: string, worktree: GitWorktree) => void
+  persistSelectedWorktree: (repoPath: string, worktree: GitWorktree) => void,
+  requestAgentCanvasRecenter?: (worktreePath: string) => void
 ) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -168,6 +169,7 @@ export function useWorktreeSelection(
 
       // Switch to new worktree
       setActiveWorktree(worktree);
+      requestAgentCanvasRecenter?.(worktree.path);
 
       if (targetRepoPath) {
         void restoreWorktreeAgentSessions({
@@ -216,6 +218,7 @@ export function useWorktreeSelection(
       setActiveWorktree,
       setWorktreeTabMap,
       setActiveTab,
+      requestAgentCanvasRecenter,
     ]
   );
 

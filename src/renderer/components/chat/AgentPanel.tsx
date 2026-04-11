@@ -145,6 +145,7 @@ export interface AgentPanelProps {
   cwd: string; // current worktree path
   isActive?: boolean;
   onSwitchWorktree?: (worktreePath: string) => void;
+  canvasRecenterOnActivateToken?: number;
 }
 
 // Agent display names and commands
@@ -466,7 +467,13 @@ const CanvasSessionContentOutlet = memo(function CanvasSessionContentOutlet({
   return <div ref={outletRef} className={className} />;
 });
 
-export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }: AgentPanelProps) {
+export function AgentPanel({
+  repoPath,
+  cwd,
+  isActive = false,
+  onSwitchWorktree,
+  canvasRecenterOnActivateToken = 0,
+}: AgentPanelProps) {
   const { t } = useI18n();
   const platform = getRendererEnvironment().platform;
   const isWindows = platform === 'win32';
@@ -2469,6 +2476,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     isActive,
     isCanvasDisplayMode,
     readCanvasViewportSnapshot,
+    recenterOnActivateToken: canvasRecenterOnActivateToken,
     viewportRef: canvasViewportRef,
   });
   useEffect(() => {

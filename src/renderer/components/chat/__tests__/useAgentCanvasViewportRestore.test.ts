@@ -36,12 +36,14 @@ function readCanvasViewportSnapshot(viewport: HTMLDivElement): CanvasViewportSna
 interface HookHarnessProps {
   isActive: boolean;
   isCanvasDisplayMode?: boolean;
+  recenterOnActivateToken?: number;
   worktreeKey?: string;
 }
 
 function HookHarness({
   isActive,
   isCanvasDisplayMode = true,
+  recenterOnActivateToken = 0,
   worktreeKey = '/repo/worktree',
 }: HookHarnessProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -80,6 +82,7 @@ function HookHarness({
     isCanvasDisplayMode,
     readCanvasViewportSnapshot,
     viewportRef,
+    ...(recenterOnActivateToken > 0 ? { recenterOnActivateToken } : {}),
   });
 
   const handleScroll = useCallback(
@@ -234,5 +237,35 @@ describe('useAgentCanvasViewportRestore', () => {
 
     expect(viewport.scrollLeft).toBe(0);
     expect(viewport.scrollTop).toBe(0);
+  });
+
+  it('recenters the viewport when a worktree switch token arrives before the kept-mounted canvas becomes active', async () => {
+    await renderHarness({ isActive: true });
+
+    const viewport = container?.querySelector('[data-testid="viewport"]') as HTMLDivElement | null;
+    expect(viewport).not.toBeNull();
+    if (!viewport) {
+      return;
+    }
+
+    mockViewportMetrics(viewport);
+    await flushAnimationFrames();
+
+    viewport.scrollLeft = 640;
+    viewport.scrollTop = 700;
+    await act(async () => {
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+
+    await renderHarness({ isActive: false });
+
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = 0;
+
+    await renderHarness({ isActive: true, recenterOnActivateToken: 1 });
+    await flushAnimationFrames();
+
+    expect(viewport.scrollLeft).toBe(370);
+    expect(viewport.scrollTop).toBe(370);
   });
 });

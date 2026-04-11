@@ -109,6 +109,10 @@ function renderMockPanel(
   return React.createElement('div', {
     'data-panel': panel,
     'data-active': String(props.isActive ?? false),
+    'data-canvas-recenter-token':
+      typeof props.canvasRecenterOnActivateToken === 'number'
+        ? String(props.canvasRecenterOnActivateToken)
+        : '',
     'data-should-load': String(props.shouldLoad ?? false),
     'data-show-fallback': String(props.showFallback ?? false),
     'data-root-path': typeof props.rootPath === 'string' ? props.rootPath : '',
@@ -527,6 +531,21 @@ describe('MainContent component render', () => {
     );
     expect(markup).toMatch(
       /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-show-fallback="false"|<div data-panel="agent"[^>]*data-show-fallback="false"[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
+    );
+  });
+
+  it('passes the recenter token only to the current chat panel that matches the requested worktree', async () => {
+    const markup = await renderMainContentPanels({
+      cachedChatPanelPaths: ['/repo/main/worktrees/older'],
+      chatCanvasRecenterToken: 7,
+      chatCanvasRecenterWorktreePath: '/repo/main/worktrees/current',
+    });
+
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"[^>]*data-canvas-recenter-token="7"|<div data-panel="agent"[^>]*data-canvas-recenter-token="7"[^>]*data-cwd="\/repo\/main\/worktrees\/current"/
+    );
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-canvas-recenter-token="0"|<div data-panel="agent"[^>]*data-canvas-recenter-token="0"[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
     );
   });
 

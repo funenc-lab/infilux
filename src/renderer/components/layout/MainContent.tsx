@@ -54,6 +54,8 @@ export interface MainContentProps {
   onCategoryChange?: (category: SettingsCategory) => void;
   scrollToProvider?: boolean;
   onToggleSettings?: () => void;
+  chatCanvasRecenterToken?: number;
+  chatCanvasRecenterWorktreePath?: string | null;
   showOpenInMenu?: boolean;
   sourceControlEmptyTitle?: string;
   sourceControlEmptyDescription?: string;
@@ -113,6 +115,8 @@ export function MainContent({
   onCategoryChange,
   scrollToProvider,
   onToggleSettings,
+  chatCanvasRecenterToken = 0,
+  chatCanvasRecenterWorktreePath = null,
   showOpenInMenu = true,
   sourceControlEmptyTitle,
   sourceControlEmptyDescription,
@@ -635,6 +639,8 @@ export function MainContent({
         settingsCategory={settingsCategory}
         onCategoryChange={onCategoryChange}
         scrollToProvider={scrollToProvider}
+        chatCanvasRecenterToken={chatCanvasRecenterToken}
+        chatCanvasRecenterWorktreePath={chatCanvasRecenterWorktreePath}
         onTabChange={onTabChange}
         selectedSubagent={selectedSubagent}
         onCloseSelectedSubagent={onCloseSelectedSubagent}

@@ -167,6 +167,7 @@ export function clampAgentCanvasScrollPosition(dimensions: {
 export function resolveAgentCanvasRestoreScrollPosition(dimensions: {
   clientHeight: number;
   clientWidth: number;
+  forceCenter?: boolean;
   scrollHeight: number;
   scrollWidth: number;
   savedPosition:
@@ -180,6 +181,15 @@ export function resolveAgentCanvasRestoreScrollPosition(dimensions: {
   left: number;
   top: number;
 } {
+  if (dimensions.forceCenter) {
+    return resolveAgentCanvasCenteredScrollPosition({
+      clientHeight: dimensions.clientHeight,
+      clientWidth: dimensions.clientWidth,
+      scrollHeight: dimensions.scrollHeight,
+      scrollWidth: dimensions.scrollWidth,
+    });
+  }
+
   if (dimensions.savedPosition) {
     return clampAgentCanvasScrollPosition({
       clientHeight: dimensions.clientHeight,
