@@ -8,6 +8,7 @@ import {
 import type { BrowserWindow } from 'electron';
 import electronUpdater, { type UpdateInfo } from 'electron-updater';
 
+import log from '../../utils/logger';
 import { applyProxy, registerUpdaterSession } from '../proxy/ProxyConfig';
 
 const { autoUpdater } = electronUpdater;
@@ -133,10 +134,14 @@ class AutoUpdaterService {
   }
 
   quitAndInstall(): void {
-    if (this.updateDownloaded) {
-      this._isQuittingForUpdate = true;
-      autoUpdater.quitAndInstall();
+    if (!this.updateDownloaded) {
+      log.warn('[updater] Ignoring quitAndInstall request before an update is downloaded');
+      return;
     }
+
+    this._isQuittingForUpdate = true;
+    log.info('[updater] Starting quitAndInstall restart flow');
+    autoUpdater.quitAndInstall();
   }
 
   isUpdateDownloaded(): boolean {
@@ -210,6 +215,9 @@ class AutoUpdaterService {
       this.updateDownloaded = true;
       // Stop all future update checks to prevent race conditions
       this.clearScheduledChecks();
+      log.info('[updater] Update downloaded and ready to install', {
+        version: info?.version ?? null,
+      });
       this.sendStatus({ status: 'downloaded', info: normalizeUpdateInfo(info) });
     });
 

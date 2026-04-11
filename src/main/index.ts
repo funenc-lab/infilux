@@ -107,6 +107,7 @@ let mainWindow: BrowserWindow | null = null;
 let pendingOpenPath: string | null = null;
 let cleanupWindowHandlers: (() => void) | null = null;
 let isQuittingCleanupRunning = false;
+let isQuittingForAutoUpdateInstall = (): boolean => false;
 
 const isDev = !app.isPackaged;
 
@@ -557,6 +558,7 @@ async function initAutoUpdater(window: BrowserWindow): Promise<void> {
   const proxySettings = ensoSettings?.state?.proxySettings ?? null;
 
   const { autoUpdaterService } = await import('./services/updater/AutoUpdater');
+  isQuittingForAutoUpdateInstall = () => autoUpdaterService.isQuittingForUpdate();
   autoUpdaterService.init(window, autoUpdateEnabled, proxySettings);
 }
 
@@ -572,6 +574,7 @@ async function attachAutoUpdaterWindow(window: BrowserWindow): Promise<void> {
   }
 
   const { autoUpdaterService } = await import('./services/updater/AutoUpdater');
+  isQuittingForAutoUpdateInstall = () => autoUpdaterService.isQuittingForUpdate();
   autoUpdaterService.attachWindow(window);
 }
 
@@ -1591,6 +1594,11 @@ app.on('window-all-closed', () => {
 
 // Cleanup before app quits (covers all quit methods: Cmd+Q, window close, etc.)
 app.on('will-quit', (event) => {
+  if (isQuittingForAutoUpdateInstall()) {
+    log.info('[updater] Allowing updater-controlled quit flow for install restart');
+    return;
+  }
+
   if (isQuittingCleanupRunning) {
     return;
   }
