@@ -28,6 +28,7 @@ import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { shouldPollSidebarDiffStats } from './sidebarDiffPollingPolicy';
 import { WorktreeItem } from './worktree-panel/WorktreeItem';
+import { resolveWorktreeLoadErrorState } from './worktreeLoadErrorState';
 import { resolveWorktreePanelSnapshot } from './worktreePanelSnapshot';
 
 export interface WorktreePanelProps {
@@ -181,6 +182,8 @@ export function WorktreePanel({
     () => resolveWorktreePanelSnapshot({ worktrees, cachedWorktrees: [], activeWorktree }),
     [worktrees, activeWorktree]
   );
+  const errorState = useMemo(() => resolveWorktreeLoadErrorState(error), [error]);
+  const showBlockingError = Boolean(errorState && safeWorktrees.length === 0);
   const diffStatPaths = useMemo(() => safeWorktrees.map((wt) => wt.path), [safeWorktrees]);
   const diffStatPathKey = useMemo(() => diffStatPaths.join('\n'), [diffStatPaths]);
 
@@ -365,19 +368,20 @@ export function WorktreePanel({
               ])}
             />
           </div>
-        ) : error ? (
+        ) : showBlockingError && errorState ? (
           <div className="flex h-full items-start justify-start px-2 py-3">
             <SidebarEmptyState
               icon={<GitBranch className="h-4.5 w-4.5" />}
-              label={t('Repository Required')}
-              title={t('Not a Git repository')}
-              description={t(
-                'This directory is not a Git repository. Initialize it to enable branches, worktrees, and source-control workflows.'
-              )}
+              label={t(errorState.label)}
+              title={t(errorState.title)}
+              description={t(errorState.description)}
               meta={renderSidebarMeta([
-                { label: t('Status'), value: t('Git metadata not found') },
+                { label: t('Status'), value: t(errorState.status) },
                 { label: t('Repository'), value: projectName || t('Current directory') },
-                { label: t('Next Step'), value: t('Refresh or initialize the repository') },
+                { label: t('Next Step'), value: t(errorState.nextStep) },
+                ...(errorState.kind === 'not-git-repository'
+                  ? []
+                  : [{ label: t('Error'), value: errorState.detail }]),
               ])}
               actions={
                 <>
@@ -388,9 +392,9 @@ export function WorktreePanel({
                     className="control-action-button control-action-button-secondary h-8 rounded-lg px-3 text-sm"
                   >
                     <RefreshCw className="h-4 w-4" />
-                    {t('Refresh')}
+                    {t(errorState.kind === 'not-git-repository' ? 'Refresh' : 'Retry')}
                   </Button>
-                  {onInitGit && (
+                  {errorState.kind === 'not-git-repository' && onInitGit && (
                     <Button
                       onClick={onInitGit}
                       variant="default"

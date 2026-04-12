@@ -9,6 +9,11 @@ import type {
 import type { QueryClient } from '@tanstack/react-query';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef } from 'react';
+import {
+  canRecoverWorktreeListFromPreviousSnapshot,
+  normalizeWorktreeLoadErrorMessage,
+  shouldRetryWorktreeLoadError,
+} from '@/lib/worktreeLoadError';
 import { useWorktreeStore } from '@/stores/worktree';
 import {
   buildWorktreeListMap,
@@ -22,33 +27,37 @@ interface WorktreeListOptions {
   enabled?: boolean;
 }
 
-const EMPTY_WORKTREE_RECOVERY_COOLDOWN_MS = 5000;
-const lastEmptyWorktreeRecoveryAt = new Map<string, number>();
+const WORKTREE_RECOVERY_COOLDOWN_MS = 5000;
+const lastWorktreeRecoveryAt = new Map<string, number>();
 
 function maybeScheduleWorktreeListRecovery(
   queryClient: Pick<QueryClient, 'invalidateQueries'>,
   repoPath: string,
   recoveryReason: WorktreeListRecoveryReason
 ) {
-  if (recoveryReason !== 'empty') {
-    lastEmptyWorktreeRecoveryAt.delete(repoPath);
+  if (recoveryReason === null) {
+    lastWorktreeRecoveryAt.delete(repoPath);
+    return;
+  }
+
+  if (recoveryReason !== 'empty' && recoveryReason !== 'transient-error') {
     return;
   }
 
   const now = Date.now();
-  const lastAttemptAt = lastEmptyWorktreeRecoveryAt.get(repoPath) ?? 0;
-  if (now - lastAttemptAt < EMPTY_WORKTREE_RECOVERY_COOLDOWN_MS) {
+  const lastAttemptAt = lastWorktreeRecoveryAt.get(repoPath) ?? 0;
+  if (now - lastAttemptAt < WORKTREE_RECOVERY_COOLDOWN_MS) {
     return;
   }
 
-  lastEmptyWorktreeRecoveryAt.set(repoPath, now);
+  lastWorktreeRecoveryAt.set(repoPath, now);
   void queryClient.invalidateQueries({
     queryKey: worktreeQueryKeys.list(repoPath),
   });
 }
 
 export function resetWorktreeRecoveryStateForTests() {
-  lastEmptyWorktreeRecoveryAt.clear();
+  lastWorktreeRecoveryAt.clear();
 }
 
 type WorktreeListMultipleInput =
@@ -68,10 +77,10 @@ export function useWorktreeList(workdir: string | null, options?: WorktreeListOp
     queryKey: worktreeQueryKeys.list(workdir),
     queryFn: async () => {
       if (!workdir) return [];
+      const previousWorktrees =
+        queryClient.getQueryData<GitWorktree[]>(worktreeQueryKeys.list(workdir)) ?? [];
       try {
         const worktrees = await window.electronAPI.worktree.list(workdir);
-        const previousWorktrees =
-          queryClient.getQueryData<GitWorktree[]>(worktreeQueryKeys.list(workdir)) ?? [];
         const { worktrees: safeWorktrees, recoveryReason } = resolveWorktreeListSnapshot(
           worktrees,
           previousWorktrees
@@ -81,12 +90,20 @@ export function useWorktreeList(workdir: string | null, options?: WorktreeListOp
         setError(null);
         return safeWorktrees;
       } catch (error) {
-        setError(error instanceof Error ? error.message : 'Failed to load worktrees');
-        throw error instanceof Error ? error : new Error('Failed to load worktrees');
+        if (canRecoverWorktreeListFromPreviousSnapshot(error, previousWorktrees)) {
+          maybeScheduleWorktreeListRecovery(queryClient, workdir, 'transient-error');
+          setWorktrees(previousWorktrees);
+          setError(null);
+          return previousWorktrees;
+        }
+
+        const message = normalizeWorktreeLoadErrorMessage(error);
+        setError(message);
+        throw error instanceof Error ? error : new Error(message);
       }
     },
     enabled: !!workdir && queryEnabled,
-    retry: false, // Don't retry on git errors
+    retry: shouldRetryWorktreeLoadError,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
@@ -113,16 +130,27 @@ export function useWorktreeListMultiple(repoInputs: WorktreeListMultipleInput[])
     queries: repoQueries.map(({ repoPath, enabled }) => ({
       queryKey: worktreeQueryKeys.list(repoPath),
       queryFn: async () => {
-        const worktrees = await window.electronAPI.worktree.list(repoPath);
-        const { worktrees: safeWorktrees, recoveryReason } = resolveWorktreeListSnapshot(
-          worktrees,
-          previousWorktreesMapRef.current[repoPath] ?? []
-        );
-        maybeScheduleWorktreeListRecovery(queryClient, repoPath, recoveryReason);
-        return safeWorktrees;
+        const previousWorktrees = previousWorktreesMapRef.current[repoPath] ?? [];
+        try {
+          const worktrees = await window.electronAPI.worktree.list(repoPath);
+          const { worktrees: safeWorktrees, recoveryReason } = resolveWorktreeListSnapshot(
+            worktrees,
+            previousWorktrees
+          );
+          maybeScheduleWorktreeListRecovery(queryClient, repoPath, recoveryReason);
+          return safeWorktrees;
+        } catch (error) {
+          if (canRecoverWorktreeListFromPreviousSnapshot(error, previousWorktrees)) {
+            maybeScheduleWorktreeListRecovery(queryClient, repoPath, 'transient-error');
+            return previousWorktrees;
+          }
+
+          const message = normalizeWorktreeLoadErrorMessage(error);
+          throw error instanceof Error ? error : new Error(message);
+        }
       },
       enabled,
-      retry: false,
+      retry: shouldRetryWorktreeLoadError,
       staleTime: 30000, // Cache for 30 seconds to avoid excessive refetching
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,

@@ -41,6 +41,7 @@ import { resetWorktreeRecoveryStateForTests, useWorktreeList } from '../useWorkt
 
 type MockedQueryOptions<TResult> = {
   queryFn: () => Promise<TResult>;
+  retry: ((failureCount: number, error: unknown) => boolean) | boolean;
 };
 
 describe('useWorktreeList', () => {
@@ -90,7 +91,34 @@ describe('useWorktreeList', () => {
     expect(reactQueryMock.invalidateQueries).not.toHaveBeenCalled();
   });
 
-  it('records the error, preserves the previous store data, and rethrows the fetch failure', async () => {
+  it('records the error, preserves the previous store data, and rethrows a repository-metadata failure', async () => {
+    vi.stubGlobal('window', {
+      electronAPI: {
+        worktree: {
+          list: vi.fn().mockRejectedValue(new Error('Invalid workdir: not a git repository')),
+        },
+      },
+    });
+
+    const query = useWorktreeList('/repo') as unknown as MockedQueryOptions<unknown>;
+
+    await expect(query.queryFn()).rejects.toThrow('Invalid workdir: not a git repository');
+    expect(worktreeStoreMock.setError).toHaveBeenCalledWith(
+      'Invalid workdir: not a git repository'
+    );
+    expect(worktreeStoreMock.setWorktrees).not.toHaveBeenCalled();
+  });
+
+  it('keeps the previous snapshot and clears the blocking error for transient spawn failures', async () => {
+    const previousWorktrees = [
+      {
+        path: '/repo',
+        head: 'abc123',
+        isMainWorktree: true,
+      },
+    ];
+
+    reactQueryMock.getQueryData.mockReturnValue(previousWorktrees);
     vi.stubGlobal('window', {
       electronAPI: {
         worktree: {
@@ -100,10 +128,14 @@ describe('useWorktreeList', () => {
     });
 
     const query = useWorktreeList('/repo') as unknown as MockedQueryOptions<unknown>;
+    const worktrees = await query.queryFn();
 
-    await expect(query.queryFn()).rejects.toThrow('spawn EBADF');
-    expect(worktreeStoreMock.setError).toHaveBeenCalledWith('spawn EBADF');
-    expect(worktreeStoreMock.setWorktrees).not.toHaveBeenCalled();
+    expect(worktrees).toEqual(previousWorktrees);
+    expect(worktreeStoreMock.setWorktrees).toHaveBeenCalledWith(previousWorktrees);
+    expect(worktreeStoreMock.setError).toHaveBeenCalledWith(null);
+    expect(reactQueryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['worktree', 'list', '/repo'],
+    });
   });
 
   it('preserves the previous snapshot and schedules recovery when a refresh unexpectedly returns an empty array', async () => {
@@ -132,5 +164,29 @@ describe('useWorktreeList', () => {
     expect(reactQueryMock.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ['worktree', 'list', '/repo'],
     });
+  });
+
+  it('retries only transient git spawn failures', () => {
+    const query = useWorktreeList('/repo') as unknown as MockedQueryOptions<unknown>;
+
+    expect(typeof query.retry).toBe('function');
+    expect(
+      (query.retry as (failureCount: number, error: unknown) => boolean)(
+        0,
+        new Error('spawn EBADF')
+      )
+    ).toBe(true);
+    expect(
+      (query.retry as (failureCount: number, error: unknown) => boolean)(
+        2,
+        new Error('spawn EBADF')
+      )
+    ).toBe(false);
+    expect(
+      (query.retry as (failureCount: number, error: unknown) => boolean)(
+        0,
+        new Error('Invalid workdir: not a git repository')
+      )
+    ).toBe(false);
   });
 });

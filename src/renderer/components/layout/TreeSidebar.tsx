@@ -84,6 +84,7 @@ import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetc
 import { TempWorkspaceTreeItem } from './tree-sidebar/TempWorkspaceTreeItem';
 import { WorktreeTreeItem } from './tree-sidebar/WorktreeTreeItem';
 import { resolveTreeSidebarRepoSnapshot } from './treeSidebarRepoSnapshot';
+import { resolveWorktreeLoadErrorState } from './worktreeLoadErrorState';
 
 function getSidebarSectionId(prefix: string, value: string): string {
   return `${prefix}-${value.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
@@ -1003,12 +1004,14 @@ export function TreeSidebar({
       : isSelected
         ? selectedRepoError
         : (allRepoWorktreesErrorsMap[repo.path] ?? null);
+    const repoErrorState = resolveWorktreeLoadErrorState(repoError);
     const repoLoading = isStoredExpanded
       ? repoSnapshot.isLoading
       : isSelected
         ? selectedRepoLoading
         : (allRepoWorktreesLoadingMap[repo.path] ?? false);
     const repoWts = showAgentWorktreesOnly ? prefetchedRepoWorktrees : repoSnapshot.worktrees;
+    const showRepoError = Boolean(repoErrorState && repoWts.length === 0);
     const displayRepoPath = getDisplayPath(repo.path);
     const useLtrPathDisplay = isWslUncPath(displayRepoPath);
     const activeWorktreeCount = repoWts.filter((wt) =>
@@ -1129,13 +1132,13 @@ export function TreeSidebar({
                   {t('Select this repository to load and inspect its worktrees.')}
                 </span>
               </div>
-            ) : repoError ? (
-              <div className="control-tree-inline-empty" data-tone="danger">
-                <span className="control-tree-inline-title">{t('Not a Git repository')}</span>
+            ) : showRepoError && repoErrorState ? (
+              <div className="control-tree-inline-empty" data-tone={repoErrorState.tone}>
+                <span className="control-tree-inline-title">{t(repoErrorState.title)}</span>
                 <span className="control-tree-inline-copy">
-                  {t('Initialize Git here to create and manage worktrees.')}
+                  {t(repoErrorState.inlineDescription)}
                 </span>
-                {onInitGit && isSelected && (
+                {repoErrorState.kind === 'not-git-repository' && onInitGit && isSelected && (
                   <Button
                     onClick={async () => {
                       await onInitGit();
@@ -1147,6 +1150,20 @@ export function TreeSidebar({
                   >
                     <GitBranch className="mr-1 h-3 w-3" />
                     {t('Init')}
+                  </Button>
+                )}
+                {repoErrorState.kind !== 'not-git-repository' && isSelected && (
+                  <Button
+                    onClick={() => {
+                      onRefresh();
+                      refetchExpandedWorktrees();
+                    }}
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 text-xs w-fit"
+                  >
+                    <RefreshCw className="mr-1 h-3 w-3" />
+                    {t('Retry')}
                   </Button>
                 )}
               </div>

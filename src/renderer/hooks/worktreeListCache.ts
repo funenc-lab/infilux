@@ -6,7 +6,7 @@ export interface WorktreeListRepoQuery {
   enabled: boolean;
 }
 
-export type WorktreeListRecoveryReason = 'missing' | 'empty' | null;
+export type WorktreeListRecoveryReason = 'missing' | 'empty' | 'transient-error' | null;
 
 interface ResolvedWorktreeListSnapshot {
   worktrees: GitWorktree[];
