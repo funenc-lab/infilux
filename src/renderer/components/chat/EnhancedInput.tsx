@@ -1,7 +1,7 @@
 import { TEMP_INPUT_FILE_PREFIX } from '@shared/paths';
 import type { ClaudeSlashCompletionItem, ClaudeSlashCompletionsSnapshot } from '@shared/types';
 import type { FileSearchResult } from '@shared/types/search';
-import { FileImage, FileText, Paperclip, Send, X } from 'lucide-react';
+import { FileImage, FileText, Send, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog, DialogPopup } from '@/components/ui/dialog';
 import { toastManager } from '@/components/ui/toast';
@@ -39,10 +39,6 @@ interface EnhancedInputProps {
   onContentChange: (content: string) => void;
   /** Callback when attachment items change (store-controlled) */
   onAttachmentsChange: (attachments: AgentAttachmentItem[]) => void;
-  /** Route oversized attachments to the tray instead of the draft input */
-  onRouteToTray: (attachments: AgentAttachmentItem[]) => void;
-  /** Notifies parent when large attachment routing is in progress */
-  onTrayImportStateChange?: (isImporting: boolean) => void;
   /** Keep panel open after sending (for 'always' mode) */
   keepOpenAfterSend?: boolean;
   /** Whether the parent panel is active (used to trigger focus on tab switch) */
@@ -66,8 +62,6 @@ export function EnhancedInput({
   attachments,
   onContentChange,
   onAttachmentsChange,
-  onRouteToTray,
-  onTrayImportStateChange,
   keepOpenAfterSend = false,
   isActive = false,
   cwd,
@@ -77,7 +71,6 @@ export function EnhancedInput({
   const resolvedSendLabel = sendLabel ?? t('Send');
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [manualMinH, setManualMinH] = useState<number | null>(null);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
 
@@ -688,47 +681,61 @@ export function EnhancedInput({
     [attachments, onAttachmentsChange]
   );
 
+  const showOversizedAttachmentWarning = useCallback(
+    (oversizedFiles: File[]) => {
+      const largestSizeBytes = Math.max(...oversizedFiles.map((file) => file.size), 0);
+      const largestSizeMb = Math.ceil(largestSizeBytes / (1024 * 1024));
+      const attachmentLabel =
+        oversizedFiles.length === 1 ? oversizedFiles[0]?.name || t('Attachment') : t('Attachments');
+
+      toastManager.add({
+        type: 'warning',
+        title: t('Attachment too large'),
+        description: t(
+          '{{label}} must be smaller than {{limit}} MB to paste into the agent input. Largest pasted file: {{size}} MB.',
+          {
+            label: attachmentLabel,
+            limit: Math.floor(DRAFT_ATTACHMENT_MAX_BYTES / (1024 * 1024)),
+            size: largestSizeMb,
+          }
+        ),
+      });
+    },
+    [t]
+  );
+
   const resolveAttachmentTargets = useCallback(
     async (files: File[], source: AgentAttachmentSource = 'unknown') => {
       if (files.length === 0) {
         return;
       }
 
-      const shouldShowTrayImporting = files.some((file) => file.size > DRAFT_ATTACHMENT_MAX_BYTES);
-      if (shouldShowTrayImporting) {
-        onTrayImportStateChange?.(true);
+      const oversizedFiles = files.filter((file) => file.size > DRAFT_ATTACHMENT_MAX_BYTES);
+      if (oversizedFiles.length > 0) {
+        showOversizedAttachmentWarning(oversizedFiles);
+        return;
       }
 
-      try {
-        const targets = await resolveAgentAttachmentTargetsFromFiles(files, {
-          source,
-          resolveFilePath: (file) => {
-            try {
-              return window.electronAPI.utils.getPathForFile(file) || null;
-            } catch {
-              return null;
-            }
-          },
-          saveClipboardImageToTemp,
-          saveFileToTemp: saveAttachmentToTemp,
-        });
+      const targets = await resolveAgentAttachmentTargetsFromFiles(files, {
+        source,
+        resolveFilePath: (file) => {
+          try {
+            return window.electronAPI.utils.getPathForFile(file) || null;
+          } catch {
+            return null;
+          }
+        },
+        saveClipboardImageToTemp,
+        saveFileToTemp: saveAttachmentToTemp,
+      });
 
-        appendDraftAttachments(targets.draftAttachments);
-        if (targets.trayAttachments.length > 0) {
-          onRouteToTray(targets.trayAttachments);
-        }
-      } finally {
-        if (shouldShowTrayImporting) {
-          onTrayImportStateChange?.(false);
-        }
-      }
+      appendDraftAttachments(targets.draftAttachments);
     },
     [
       appendDraftAttachments,
-      onRouteToTray,
-      onTrayImportStateChange,
       saveAttachmentToTemp,
       saveClipboardImageToTemp,
+      showOversizedAttachmentWarning,
     ]
   );
 
@@ -756,39 +763,6 @@ export function EnhancedInput({
     },
     [resolveAttachmentTargets]
   );
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      const files = Array.from(e.dataTransfer.files);
-
-      await resolveAttachmentTargets(files, 'drop');
-    },
-    [resolveAttachmentTargets]
-  );
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-  }, []);
-
-  const handleFileSelect = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files) return;
-
-      await resolveAttachmentTargets(Array.from(files), 'picker');
-
-      // Reset input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    },
-    [resolveAttachmentTargets]
-  );
-
-  const handleSelectFiles = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
 
   if (!open) return null;
 
@@ -912,14 +886,6 @@ export function EnhancedInput({
         className="pointer-events-auto bg-background overflow-hidden border-t"
         onKeyDown={handlePanelKeyDown}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-
         <div className="control-panel-muted relative mx-3 my-2 rounded-lg">
           {/* Close button (top-right) */}
           <button
@@ -940,7 +906,7 @@ export function EnhancedInput({
           </div>
 
           {/* Textarea */}
-          <div onDrop={handleDrop} onDragOver={handleDragOver} className="flex">
+          <div className="flex">
             <textarea
               ref={textareaRef}
               data-enhanced-input-session-id={sessionId}
@@ -1005,14 +971,6 @@ export function EnhancedInput({
 
             {/* Action buttons - always right-aligned */}
             <div className="ml-auto flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={handleSelectFiles}
-                className="control-input-action control-input-action-secondary h-8 w-8"
-                aria-label={t('Add files')}
-              >
-                <Paperclip className="h-3.5 w-3.5" />
-              </button>
               {sendHint ? (
                 <Tooltip>
                   <TooltipTrigger render={<span className="inline-flex" />}>

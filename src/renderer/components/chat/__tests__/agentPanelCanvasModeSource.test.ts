@@ -30,6 +30,8 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('handleCloseCanvasFloatingSession');
     expect(agentPanelSource).toContain('resolveAgentCanvasFloatingFrame');
     expect(agentPanelSource).toContain('resolveAgentCanvasFloatingTerminalFontScale');
+    expect(agentPanelSource).toContain('resolveAgentCanvasFocusScrollPosition');
+    expect(agentPanelSource).toContain('resolveAgentCanvasScrollBehavior');
     expect(agentPanelSource).toContain('useAgentCanvasViewportRestore');
     expect(agentPanelSource).toContain('resolveAgentCanvasViewportSyncPosition');
     expect(agentPanelSource).toContain('resolveAgentCanvasZoomTerminalFontScale');
@@ -123,6 +125,10 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('pointerButton: event.button');
     expect(agentPanelSource).toContain('spacePressed: spacePressedRef.current');
     expect(agentPanelSource).toContain('if (isCanvasLocked) {');
+    expect(agentPanelSource).toContain('viewport.scrollTo({');
+    expect(agentPanelSource).toContain('behavior: resolveAgentCanvasScrollBehavior');
+    expect(agentPanelSource).toContain('buildSessionPanelDomId(id)');
+    expect(agentPanelSource).toContain('canvasFloatingSessionId ? nextBounds : null');
     expect(agentPanelSource).toContain('mountedCurrentWorktreeSessionIds');
     expect(agentPanelSource).toContain('diffPersistentAgentSessionRecords');
     expect(agentPanelSource).toContain('currentWorktreeAgentStatuses');

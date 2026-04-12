@@ -454,6 +454,10 @@
     @apply bg-muted-foreground/40;
   }
 
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   /* Keep interactive chrome non-selectable without blocking text copy globally */
   button,
   [role="button"],

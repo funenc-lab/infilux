@@ -9,18 +9,19 @@ const agentTerminalSource = readFileSync(resolve(currentDir, '../AgentTerminal.t
 const useXtermSource = readFileSync(resolve(currentDir, '../../../hooks/useXterm.ts'), 'utf8');
 
 describe('agent native terminal input policy', () => {
-  it('keeps native-terminal providers out of the enhanced composer surface', () => {
-    expect(agentPanelSource).toContain('supportsAgentNativeTerminalInput');
-    expect(agentPanelSource).toContain('!supportsAgentNativeTerminalInput(activeSession.agentId)');
+  it('keeps the fallback composer scoped to providers without native terminal input', () => {
+    expect(agentPanelSource).toContain('shouldRenderEnhancedInput');
+    expect(agentPanelSource).toContain('shouldRenderEnhancedInput(session.id)');
+    expect(agentPanelSource).toContain('shouldRenderEnhancedInput(activeSession.id)');
+    expect(agentPanelSource).toContain('!supportsAgentNativeTerminalInput(session.agentId)');
   });
 
-  it('inserts Claude and Codex attachments into the terminal input buffer instead of routing them through the composer', () => {
-    expect(agentTerminalSource).toContain('supportsAgentNativeTerminalInput(agentId)');
+  it('routes Claude and Codex attachment paste into the terminal input instead of a composer draft', () => {
     expect(agentTerminalSource).toContain('buildAgentAttachmentInsertText');
     expect(agentTerminalSource).toContain('insertTerminalAttachmentText');
-    expect(agentTerminalSource).toContain(
-      'const didInsert = insertTerminalAttachmentText(trayAttachments);'
-    );
+    expect(agentTerminalSource).toContain('submit: false,');
+    expect(agentTerminalSource).toContain('supportsNativeTerminalInput');
+    expect(agentTerminalSource).not.toContain('AgentAttachmentTray');
   });
 
   it('keeps clipboard file paste on the app-managed attachment bridge', () => {
@@ -30,10 +31,13 @@ describe('agent native terminal input policy', () => {
     );
   });
 
-  it('blocks direct attachment insertion only when the current session is outputting, not when another worktree session is running', () => {
-    expect(agentTerminalSource).toContain('canInsertAgentTerminalAttachments');
-    expect(agentTerminalSource).toContain('outputState: outputStateRef.current');
-    expect(agentTerminalSource).not.toContain("getActivityState(cwd) === 'running'");
+  it('registers the enhanced input sender without excluding native-terminal providers', () => {
+    expect(agentTerminalSource).toContain(
+      'onRegisterEnhancedInputSender?.(terminalSessionId, handleEnhancedInputSend);'
+    );
+    expect(agentTerminalSource).not.toContain(
+      'if (!terminalSessionId || supportsAgentNativeTerminalInput(agentId)) return;'
+    );
   });
 
   it('starts session output monitoring independently from the beta glow toggle', () => {
@@ -42,13 +46,10 @@ describe('agent native terminal input policy', () => {
     expect(agentTerminalSource).not.toContain('if (terminalSessionId && glowEffectEnabled) {');
   });
 
-  it('shows explicit reconnecting and disconnected tray labels when native terminal input is unavailable', () => {
-    expect(agentTerminalSource).toContain('resolveAgentInputAvailability');
-    expect(agentTerminalSource).toContain("agentInputAvailability === 'reconnecting'");
-    expect(agentTerminalSource).toContain("agentInputAvailability === 'disconnected'");
-    expect(agentTerminalSource).toContain(
-      'primaryActionHint={resolveAgentInputUnavailableReason({'
-    );
+  it('rejects oversized pasted attachments instead of routing them into a hidden tray', () => {
+    expect(agentTerminalSource).toContain('showOversizedAttachmentWarning');
+    expect(agentTerminalSource).toContain('file.size > DRAFT_ATTACHMENT_MAX_BYTES');
+    expect(agentTerminalSource).not.toContain('setAttachmentTrayImporting');
   });
 
   it('keeps agent sessions in transcript mode so pointer and wheel gestures do not move the cursor into the output region', () => {

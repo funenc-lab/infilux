@@ -29,6 +29,17 @@ describe('enhanced input container send policy', () => {
     expect(enhancedInputSource).toContain('const didSend = onSend(newContent, attachments);');
   });
 
+  it('limits attachment entry to paste inside the enhanced input', () => {
+    expect(enhancedInputSource).toContain('onPaste={handlePaste}');
+    expect(enhancedInputSource).not.toContain('onRouteToTray');
+    expect(enhancedInputSource).not.toContain('type="file"');
+    expect(enhancedInputSource).not.toContain('onDrop={handleDrop}');
+    expect(enhancedInputSource).not.toContain('onDragOver={handleDragOver}');
+    expect(enhancedInputSource).not.toContain('Paperclip');
+    expect(enhancedInputContainerSource).not.toContain('appendAttachmentTrayAttachments');
+    expect(enhancedInputContainerSource).not.toContain('setAttachmentTrayImporting');
+  });
+
   it('renders an explicit awaiting-session send state before the backend session is ready', () => {
     expect(enhancedInputSource).toContain('canSend?: boolean;');
     expect(enhancedInputSource).toContain('sendHint?: string;');
@@ -44,8 +55,9 @@ describe('enhanced input container send policy', () => {
   it('maps reconnecting and disconnected runtime states to explicit send labels', () => {
     expect(agentPanelSource).toContain("activeSessionAvailability === 'reconnecting'");
     expect(agentPanelSource).toContain("activeSessionAvailability === 'disconnected'");
-    expect(agentTerminalSource).toContain(
+    expect(agentTerminalSource).not.toContain(
       'primaryActionHint={resolveAgentInputUnavailableReason({'
     );
+    expect(agentTerminalSource).toContain('showOversizedAttachmentWarning');
   });
 });

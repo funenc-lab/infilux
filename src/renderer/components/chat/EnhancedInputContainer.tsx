@@ -33,12 +33,6 @@ export const EnhancedInputContainer = memo(function EnhancedInputContainer({
   const setEnhancedInputAttachments = useAgentSessionsStore(
     (state) => state.setEnhancedInputAttachments
   );
-  const appendAttachmentTrayAttachments = useAgentSessionsStore(
-    (state) => state.appendAttachmentTrayAttachments
-  );
-  const setAttachmentTrayImporting = useAgentSessionsStore(
-    (state) => state.setAttachmentTrayImporting
-  );
   const clearEnhancedInput = useAgentSessionsStore((state) => state.clearEnhancedInput);
 
   // Get enhanced input mode setting
@@ -86,10 +80,6 @@ export const EnhancedInputContainer = memo(function EnhancedInputContainer({
       onAttachmentsChange={(newAttachments) =>
         setEnhancedInputAttachments(sessionId, newAttachments)
       }
-      onRouteToTray={(trayAttachments) =>
-        appendAttachmentTrayAttachments(sessionId, trayAttachments)
-      }
-      onTrayImportStateChange={(isImporting) => setAttachmentTrayImporting(sessionId, isImporting)}
       keepOpenAfterSend={keepOpenAfterSend}
       isActive={isActive}
       cwd={cwd}
