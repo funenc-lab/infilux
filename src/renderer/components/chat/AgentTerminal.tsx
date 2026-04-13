@@ -56,6 +56,11 @@ import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActiv
 import { resolveAgentTerminalAttachmentInsertDisposition } from './agentTerminalAttachmentInsertPolicy';
 import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
 import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
+import {
+  INTERRUPT_OUTPUT_IDLE_SETTLE_MS,
+  isAgentTerminalInterruptKeyEvent,
+  shouldForceAgentTerminalIdleAfterInterrupt,
+} from './agentTerminalInterruptPolicy';
 import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
 
@@ -338,6 +343,8 @@ export function AgentTerminal({
   const isActiveRef = useRef(isActive); // Track latest isActive value for interval callback
   const lastCommandWasSlashCommand = useRef(false); // Track if last command was a slash command
   const pendingTerminalAttachmentInsertRef = useRef<AgentAttachmentItem[]>([]);
+  const interruptIdleResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastInterruptRequestAtRef = useRef<number | null>(null);
   const setOutputState = useAgentSessionsStore((s) => s.setOutputState);
   const markSessionActive = useAgentSessionsStore((s) => s.markSessionActive);
   const clearRuntimeState = useAgentSessionsStore((s) => s.clearRuntimeState);
@@ -348,6 +355,13 @@ export function AgentTerminal({
   const resumeSessionId = sessionId ?? id;
   const inputDispatchSessionId = backendSessionId ?? null;
   const supportsNativeTerminalInput = supportsAgentNativeTerminalInput(agentId);
+
+  const clearInterruptIdleResetTimer = useCallback(() => {
+    if (interruptIdleResetTimerRef.current) {
+      clearTimeout(interruptIdleResetTimerRef.current);
+      interruptIdleResetTimerRef.current = null;
+    }
+  }, []);
 
   useAgentProviderSessionDiscovery({
     agentCommand,
@@ -698,6 +712,10 @@ export function AgentTerminal({
   const updateOutputState = useCallback(
     (newState: OutputState) => {
       if (!terminalSessionId) return;
+      if (newState !== 'outputting') {
+        lastInterruptRequestAtRef.current = null;
+        clearInterruptIdleResetTimer();
+      }
       if (outputStateRef.current === newState) return;
       outputStateRef.current = newState;
       // Use isActiveRef.current to get latest value (important for interval callbacks)
@@ -719,6 +737,7 @@ export function AgentTerminal({
       }
     },
     [
+      clearInterruptIdleResetTimer,
       terminalSessionId,
       setOutputState,
       agentId,
@@ -728,6 +747,25 @@ export function AgentTerminal({
       onEnhancedInputOpenChange,
     ]
   );
+
+  const scheduleInterruptOutputStateReset = useCallback(() => {
+    clearInterruptIdleResetTimer();
+    interruptIdleResetTimerRef.current = setTimeout(() => {
+      interruptIdleResetTimerRef.current = null;
+
+      if (
+        shouldForceAgentTerminalIdleAfterInterrupt({
+          now: Date.now(),
+          outputState: outputStateRef.current,
+          runtimeState: runtimeStateRef.current,
+          lastInterruptRequestAt: lastInterruptRequestAtRef.current,
+          lastOutputAt: lastOutputTimeRef.current,
+        })
+      ) {
+        updateOutputState('idle');
+      }
+    }, INTERRUPT_OUTPUT_IDLE_SETTLE_MS);
+  }, [clearInterruptIdleResetTimer, updateOutputState]);
 
   const getLatestCopyableOutputBlock = useCallback(() => {
     return (
@@ -852,9 +890,10 @@ export function AgentTerminal({
       if (terminalSessionId) {
         clearRuntimeState(terminalSessionId);
       }
+      clearInterruptIdleResetTimer();
       stopActivityPolling();
     };
-  }, [terminalSessionId, clearRuntimeState, stopActivityPolling]);
+  }, [terminalSessionId, clearInterruptIdleResetTimer, clearRuntimeState, stopActivityPolling]);
 
   useEffect(() => {
     if (!isMonitoringOutputRef.current || !activityPollIntervalRef.current) {
@@ -960,6 +999,9 @@ export function AgentTerminal({
       if (isMonitoringOutputRef.current) {
         outputSinceEnterRef.current += data.length;
         lastOutputTimeRef.current = Date.now(); // Track last output time for idle detection
+        if (lastInterruptRequestAtRef.current !== null) {
+          scheduleInterruptOutputStateReset();
+        }
 
         // Update to 'outputting' once we have substantial output after Enter
         if (outputSinceEnterRef.current > MIN_OUTPUT_FOR_INDICATOR) {
@@ -1026,6 +1068,7 @@ export function AgentTerminal({
       agentNotificationEnabled,
       agentNotificationDelay,
       claudeCodeIntegration.stopHookEnabled,
+      scheduleInterruptOutputStateReset,
       terminalSessionId,
       t,
       updateOutputState,
@@ -1097,6 +1140,8 @@ export function AgentTerminal({
         }
         // Reset output counter.
         dataSinceEnterRef.current = 0;
+        lastInterruptRequestAtRef.current = null;
+        clearInterruptIdleResetTimer();
 
         // Detect if user entered a slash command (like /clear, /help, etc.)
         // These commands don't trigger Claude and should quickly return to idle
@@ -1147,6 +1192,20 @@ export function AgentTerminal({
         return true; // Let Enter through normally
       }
 
+      if (
+        isAgentTerminalInterruptKeyEvent({
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+        }) &&
+        outputStateRef.current === 'outputting'
+      ) {
+        lastInterruptRequestAtRef.current = Date.now();
+        scheduleInterruptOutputStateReset();
+      }
+
       // User is typing - cancel idle notification and enter delay timer
       if (
         (isWaitingForIdleRef.current ||
@@ -1174,6 +1233,7 @@ export function AgentTerminal({
       onActivated,
       onActivatedWithFirstLine,
       agentNotificationEnterDelay,
+      clearInterruptIdleResetTimer,
       startActivityPolling,
       terminalSessionId,
       agentId,
@@ -1181,6 +1241,7 @@ export function AgentTerminal({
       claudeCodeIntegration.enhancedInputEnabled,
       enhancedInputOpen,
       setEnhancedInputOpen,
+      scheduleInterruptOutputStateReset,
       // Note: terminal is excluded as it's defined after this callback
       // and accessed via try-catch for safety
     ]
@@ -1235,6 +1296,15 @@ export function AgentTerminal({
   trustPromptSubmitRef.current = write;
   terminalFocusRef.current = () => terminal?.focus();
   runtimeStateRef.current = runtimeState;
+  useEffect(() => {
+    if (runtimeState === 'live') {
+      return;
+    }
+
+    lastInterruptRequestAtRef.current = null;
+    clearInterruptIdleResetTimer();
+  }, [clearInterruptIdleResetTimer, runtimeState]);
+
   useEffect(() => {
     onRuntimeStateChange?.(runtimeState);
   }, [onRuntimeStateChange, runtimeState]);
