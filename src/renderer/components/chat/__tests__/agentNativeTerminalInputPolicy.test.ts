@@ -19,6 +19,9 @@ describe('agent native terminal input policy', () => {
   it('routes Claude and Codex attachment paste into the terminal input instead of a composer draft', () => {
     expect(agentTerminalSource).toContain('buildAgentAttachmentInsertText');
     expect(agentTerminalSource).toContain('insertTerminalAttachmentText');
+    expect(agentTerminalSource).toContain('queueTerminalAttachmentInsert');
+    expect(agentTerminalSource).toContain('flushQueuedTerminalAttachmentInsert');
+    expect(agentTerminalSource).toContain("disposition === 'queue'");
     expect(agentTerminalSource).toContain('submit: false,');
     expect(agentTerminalSource).toContain('supportsNativeTerminalInput');
     expect(agentTerminalSource).not.toContain('AgentAttachmentTray');

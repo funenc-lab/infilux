@@ -53,7 +53,7 @@ import {
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import { buildAgentLaunchPlan } from './agentLaunchPlan';
 import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActivityPollingPolicy';
-import { canInsertAgentTerminalAttachments } from './agentTerminalAttachmentInsertPolicy';
+import { resolveAgentTerminalAttachmentInsertDisposition } from './agentTerminalAttachmentInsertPolicy';
 import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
 import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
 import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
@@ -337,6 +337,7 @@ export function AgentTerminal({
   const ptyIdRef = useRef<string | null>(null); // Store PTY ID for activity checks
   const isActiveRef = useRef(isActive); // Track latest isActive value for interval callback
   const lastCommandWasSlashCommand = useRef(false); // Track if last command was a slash command
+  const pendingTerminalAttachmentInsertRef = useRef<AgentAttachmentItem[]>([]);
   const setOutputState = useAgentSessionsStore((s) => s.setOutputState);
   const markSessionActive = useAgentSessionsStore((s) => s.markSessionActive);
   const clearRuntimeState = useAgentSessionsStore((s) => s.clearRuntimeState);
@@ -418,44 +419,99 @@ export function AgentTerminal({
     });
   }, [agentCommand, inputDispatchSessionId, isRemoteExecution, t]);
 
-  const insertTerminalAttachmentText = useCallback(
+  const dispatchTerminalAttachmentInsert = useCallback(
     (nextAttachments: AgentAttachmentItem[]) => {
-      if (nextAttachments.length === 0) {
-        return;
-      }
-
-      const dispatchSessionId = inputDispatchSessionId;
-      if (
-        !dispatchSessionId ||
-        !canInsertAgentTerminalAttachments({
-          sessionId: dispatchSessionId,
-          attachmentCount: nextAttachments.length,
-          runtimeState: runtimeStateRef.current,
-          outputState: outputStateRef.current,
-        })
-      ) {
-        showAttachmentPasteUnavailableWarning();
-        return;
+      if (nextAttachments.length === 0 || !inputDispatchSessionId) {
+        return false;
       }
 
       const text = buildAgentAttachmentInsertText(nextAttachments);
       if (!text) {
-        return;
+        return false;
       }
 
       void window.electronAPI.agentInput
         .dispatch({
-          sessionId: dispatchSessionId,
+          sessionId: inputDispatchSessionId,
           agentId,
           text,
           submit: false,
         })
         .catch((error) => {
           console.error('[AgentTerminal] Failed to insert agent attachment text', error);
+          pendingTerminalAttachmentInsertRef.current = mergeAgentAttachments(
+            pendingTerminalAttachmentInsertRef.current,
+            nextAttachments.map((attachment) => attachment.path)
+          );
         });
       terminalFocusRef.current?.();
+      return true;
     },
-    [agentId, inputDispatchSessionId, showAttachmentPasteUnavailableWarning]
+    [agentId, inputDispatchSessionId]
+  );
+
+  const queueTerminalAttachmentInsert = useCallback((nextAttachments: AgentAttachmentItem[]) => {
+    if (nextAttachments.length === 0) {
+      return;
+    }
+
+    pendingTerminalAttachmentInsertRef.current = mergeAgentAttachments(
+      pendingTerminalAttachmentInsertRef.current,
+      nextAttachments.map((attachment) => attachment.path)
+    );
+  }, []);
+
+  const flushQueuedTerminalAttachmentInsert = useCallback(() => {
+    const queuedAttachments = pendingTerminalAttachmentInsertRef.current;
+    if (queuedAttachments.length === 0) {
+      return false;
+    }
+
+    const disposition = resolveAgentTerminalAttachmentInsertDisposition({
+      sessionId: inputDispatchSessionId,
+      attachmentCount: queuedAttachments.length,
+      runtimeState: runtimeStateRef.current,
+      outputState: outputStateRef.current,
+    });
+    if (disposition !== 'insert') {
+      return false;
+    }
+
+    pendingTerminalAttachmentInsertRef.current = [];
+    return dispatchTerminalAttachmentInsert(queuedAttachments);
+  }, [dispatchTerminalAttachmentInsert, inputDispatchSessionId]);
+
+  const insertTerminalAttachmentText = useCallback(
+    (nextAttachments: AgentAttachmentItem[]) => {
+      if (nextAttachments.length === 0) {
+        return;
+      }
+
+      const disposition = resolveAgentTerminalAttachmentInsertDisposition({
+        sessionId: inputDispatchSessionId,
+        attachmentCount: nextAttachments.length,
+        runtimeState: runtimeStateRef.current,
+        outputState: outputStateRef.current,
+      });
+
+      if (disposition === 'queue') {
+        queueTerminalAttachmentInsert(nextAttachments);
+        return;
+      }
+
+      if (disposition === 'reject') {
+        showAttachmentPasteUnavailableWarning();
+        return;
+      }
+
+      dispatchTerminalAttachmentInsert(nextAttachments);
+    },
+    [
+      dispatchTerminalAttachmentInsert,
+      inputDispatchSessionId,
+      queueTerminalAttachmentInsert,
+      showAttachmentPasteUnavailableWarning,
+    ]
   );
 
   const handleResolvedAttachmentTargets = useCallback(
@@ -657,6 +713,10 @@ export function AgentTerminal({
       ) {
         onEnhancedInputOpenChange?.(false);
       }
+
+      if (newState !== 'outputting') {
+        flushQueuedTerminalAttachmentInsert();
+      }
     },
     [
       terminalSessionId,
@@ -664,6 +724,7 @@ export function AgentTerminal({
       agentId,
       supportsNativeTerminalInput,
       claudeCodeIntegration,
+      flushQueuedTerminalAttachmentInsert,
       onEnhancedInputOpenChange,
     ]
   );

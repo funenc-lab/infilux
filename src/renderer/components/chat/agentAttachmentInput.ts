@@ -22,6 +22,23 @@ interface AgentAttachmentTargets {
   trayAttachments: AgentAttachmentItem[];
 }
 
+function shouldUseClipboardImageFastPath(
+  file: File,
+  source: AgentAttachmentSource,
+  fileCount: number
+): boolean {
+  if (source !== 'clipboard' || fileCount !== 1) {
+    return false;
+  }
+
+  const mimeType = file.type.toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    return false;
+  }
+
+  return mimeType !== 'image/svg+xml';
+}
+
 function createEmptyAgentAttachmentTargets(): AgentAttachmentTargets {
   return {
     draftAttachments: [],
@@ -93,9 +110,7 @@ export async function resolveAgentAttachmentTargetsFromFiles(
     }
 
     if (
-      source === 'clipboard' &&
-      files.length === 1 &&
-      file.type.toLowerCase().startsWith('image/') &&
+      shouldUseClipboardImageFastPath(file, source, files.length) &&
       options.saveClipboardImageToTemp
     ) {
       const clipboardImagePath = await options.saveClipboardImageToTemp(file);
