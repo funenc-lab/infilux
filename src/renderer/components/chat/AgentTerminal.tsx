@@ -374,7 +374,6 @@ export function AgentTerminal({
   const terminalSessionId = id ?? sessionId;
   const resumeSessionId = sessionId ?? id;
   const inputDispatchSessionId = backendSessionId ?? null;
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const globalPolicy = getClaudeGlobalPolicy();
   const projectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;
   const worktreePolicy = cwd ? getClaudeWorktreePolicy(cwd) : null;

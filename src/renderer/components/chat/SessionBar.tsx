@@ -384,10 +384,11 @@ function SessionTab({
   onDrop,
 }: SessionTabProps) {
   const fallbackActivityState = useSessionOutputState(session.id);
-  const outputState = activityState ?? fallbackActivityState;
+  const visualState = activityState ?? fallbackActivityState;
+  const glowState = visualState;
   const hasCompletedTaskNotice = useSessionTaskCompletionNotice(session.id);
   const clearTaskCompletedUnread = useAgentSessionsStore((s) => s.clearTaskCompletedUnread);
-  const stateMeta = getActivityStateMeta(outputState);
+  const stateMeta = getActivityStateMeta(visualState);
   const sessionLabel = getSessionDisplayName(session);
   const sessionHoverTitle = getSessionHoverTitle(session);
   const closeLabel = `Close ${sessionLabel}`;
@@ -435,7 +436,7 @@ function SessionTab({
   const foregroundClassName = 'relative z-10';
   const tabContent = (
     <>
-      {outputState === 'idle' ? (
+      {visualState === 'idle' ? (
         <span
           className={cn(
             SESSION_TAB_STATUS_INDICATOR_CLASS_NAME,
@@ -445,7 +446,7 @@ function SessionTab({
         />
       ) : (
         <ActivityIndicator
-          state={outputState}
+          state={visualState}
           size="sm"
           className={SESSION_TAB_STATUS_INDICATOR_CLASS_NAME}
         />
@@ -489,7 +490,7 @@ function SessionTab({
     </>
   );
   const tabElement = (
-    <GlowCard state={outputState} as="div" {...tabProps}>
+    <GlowCard state={glowState} as="div" {...tabProps}>
       {tabContent}
     </GlowCard>
   );
