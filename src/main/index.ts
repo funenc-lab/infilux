@@ -7,7 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { extname, join } from 'node:path';
+import { delimiter, extname, join } from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import { inspect } from 'node:util';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
@@ -45,10 +45,44 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+function mergePathEntries(primaryPath: string, secondaryPath: string): string {
+  const seen = new Set<string>();
+  const mergedEntries: string[] = [];
+
+  for (const candidate of [...primaryPath.split(delimiter), ...secondaryPath.split(delimiter)]) {
+    const entry = candidate.trim();
+    if (!entry || seen.has(entry)) {
+      continue;
+    }
+    seen.add(entry);
+    mergedEntries.push(entry);
+  }
+
+  return mergedEntries.join(delimiter);
+}
+
+function mergeShellEnvironment(
+  currentEnv: NodeJS.ProcessEnv,
+  shellEnv: Record<string, string>
+): Record<string, string> {
+  const mergedShellEnv = { ...shellEnv };
+  const currentPath = currentEnv.PATH;
+  const shellPath = mergedShellEnv.PATH;
+
+  if (typeof currentPath === 'string' && currentPath.length > 0) {
+    mergedShellEnv.PATH =
+      typeof shellPath === 'string' && shellPath.length > 0
+        ? mergePathEntries(currentPath, shellPath)
+        : currentPath;
+  }
+
+  return mergedShellEnv;
+}
+
 // Fix environment for packaged app (macOS GUI apps don't inherit shell env)
 if (process.platform === 'darwin') {
   try {
-    Object.assign(process.env, shellEnvSync());
+    Object.assign(process.env, mergeShellEnvironment(process.env, shellEnvSync()));
   } catch {
     // Ignore errors - will use default env
   }
@@ -1673,6 +1707,8 @@ function getAnyWindow(): BrowserWindow | null {
 export const __testables = {
   isPrivateIpLiteral,
   isAllowedRemoteImageUrl,
+  mergePathEntries,
+  mergeShellEnvironment,
   sanitizeProfileName: sanitizeRuntimeProfileName,
   resolveStartupRuntimeChannel,
   parseInfiluxUrl,
