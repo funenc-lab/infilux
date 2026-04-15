@@ -31,7 +31,7 @@ export function isSessionPersistable(session: PersistableSessionLike): boolean {
   return Boolean(session.activated && session.persistenceEnabled);
 }
 
-export function shouldPersistAgentSessionOnDisconnect(persistenceEnabled?: boolean): boolean {
+export function shouldPersistAgentSessionOnDisconnect(_persistenceEnabled?: boolean): boolean {
   // UI detach/reattach is not the same as restart recovery.
   // Keep the backend agent session alive so worktree and panel switches can reattach even when
   // the host does not support restoring that session after a full app restart.
