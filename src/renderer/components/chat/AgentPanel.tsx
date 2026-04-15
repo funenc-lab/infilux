@@ -1,4 +1,5 @@
-import type { AIProvider, PersistentAgentSessionRecord } from '@shared/types';
+import type { AIProvider, ClaudePolicyConfig, PersistentAgentSessionRecord } from '@shared/types';
+import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { resolveTmuxServerNameForPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
 import {
@@ -118,6 +119,7 @@ import {
 import { diffPersistentAgentSessionRecords } from './agentSessionPersistenceSync';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
+import { ClaudeSessionLaunchDialog } from './ClaudeSessionLaunchDialog';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
 import { resolveSessionPersistentHostSessionKey } from './persistentHostSession';
 import { QuickTerminalModal } from './QuickTerminalModal';
@@ -157,6 +159,14 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = {
   cursor: { name: 'Cursor', command: 'cursor-agent' },
   opencode: { name: 'OpenCode', command: 'opencode' },
 };
+
+interface SessionLaunchPolicyDialogState {
+  agentId: string;
+  agentCommand: string;
+  agentLabel: string;
+  targetGroupId?: string;
+  initialPolicy?: ClaudePolicyConfig | null;
+}
 
 function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
   const { platform, runtimeChannel } = getRendererEnvironment();
@@ -572,6 +582,8 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     groupId?: string;
     name: string;
   } | null>(null);
+  const [sessionLaunchPolicyDialog, setSessionLaunchPolicyDialog] =
+    useState<SessionLaunchPolicyDialogState | null>(null);
   const autoRolledOverSessionIdsRef = useRef<Set<string>>(new Set());
   const persistentRecordSnapshotBySessionIdRef = useRef<Map<string, string>>(new Map());
   const quickTerminalFocusLeaseRef = useRef<{
@@ -1633,6 +1645,36 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       claudeCodeIntegration.enhancedInputAutoPopup,
       setEnhancedInputOpen,
     ]
+  );
+
+  const handleOpenSessionLaunchOptions = useCallback(
+    (agentId: string, agentCommand: string, targetGroupId?: string) => {
+      setSessionLaunchPolicyDialog({
+        agentId,
+        agentCommand,
+        agentLabel: getAgentDisplayLabel(agentId, customAgents),
+        targetGroupId,
+      });
+    },
+    [customAgents]
+  );
+
+  const handleLaunchSessionWithOptions = useCallback(
+    (policy: ClaudePolicyConfig | null) => {
+      if (!sessionLaunchPolicyDialog) {
+        return;
+      }
+
+      handleNewSessionWithAgent(
+        sessionLaunchPolicyDialog.agentId,
+        sessionLaunchPolicyDialog.agentCommand,
+        sessionLaunchPolicyDialog.targetGroupId,
+        {
+          claudeSessionPolicy: policy,
+        }
+      );
+    },
+    [handleNewSessionWithAgent, sessionLaunchPolicyDialog]
   );
 
   const handleStartFreshSession = useCallback(
@@ -3356,6 +3398,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           <AgentTerminal
             id={session.id}
             createdAt={session.createdAt}
+            repoPath={repoPath}
             cwd={session.cwd}
             sessionId={session.sessionId || session.id}
             backendSessionId={session.backendSessionId}
@@ -3379,6 +3422,8 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
             }
             hasPendingCommand={!!session.pendingCommand}
             initialPrompt={session.pendingCommand}
+            sessionPolicy={session.claudeSessionPolicy}
+            materializationMode={session.claudePolicyMaterializationMode}
             onInitialized={() => handleInitialized(sessionId)}
             onActivated={() => handleActivated(sessionId)}
             onActivatedWithFirstLine={(line) => handleActivatedWithFirstLine(sessionId, line)}
@@ -3408,6 +3453,21 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
             onRuntimeStateChange={(runtimeState) => {
               if (session.recoveryState === runtimeState) return;
               updateSession(sessionId, { recoveryState: runtimeState });
+            }}
+            onClaudePolicyStateChange={(policyState) => {
+              if (
+                session.claudePolicyHash === policyState.hash &&
+                session.claudePolicyStale === false &&
+                JSON.stringify(session.claudePolicyWarnings ?? []) ===
+                  JSON.stringify(policyState.warnings)
+              ) {
+                return;
+              }
+              updateSession(sessionId, {
+                claudePolicyHash: policyState.hash,
+                claudePolicyWarnings: policyState.warnings,
+                claudePolicyStale: false,
+              });
             }}
             onSplit={() => groupId && handleSplit(groupId)}
             canMerge={canMerge}
@@ -3589,6 +3649,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           emptyStateModel={emptyStateModel}
           enabledAgentCount={enabledAgents.length}
           onOpenAgentSettings={handleOpenAgentSettings}
+          onOpenLaunchOptions={(agentId, agentCommand) =>
+            handleOpenSessionLaunchOptions(agentId, agentCommand)
+          }
           onStartDefaultSession={handleNewSession}
           onStartSessionWithAgent={handleNewSessionWithAgent}
           profiles={emptyStateProfiles}
@@ -3710,18 +3773,33 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                     </button>
                   </div>
                   {emptyStateProfiles.map((profile) => (
-                    <MenuItem
-                      key={profile.agentId}
-                      onClick={() => handleNewSessionWithAgent(profile.agentId, profile.command)}
-                      className="control-menu-item mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-foreground"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{profile.name}</span>
-                      {profile.isDefault ? (
-                        <span className="control-chip control-chip-strong shrink-0">
-                          {t('Default')}
-                        </span>
+                    <div key={profile.agentId} className="mt-1 flex items-center gap-1">
+                      <MenuItem
+                        onClick={() => handleNewSessionWithAgent(profile.agentId, profile.command)}
+                        className="control-menu-item flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-foreground"
+                      >
+                        <span className="min-w-0 flex-1 truncate">{profile.name}</span>
+                        {profile.isDefault ? (
+                          <span className="control-chip control-chip-strong shrink-0">
+                            {t('Default')}
+                          </span>
+                        ) : null}
+                      </MenuItem>
+                      {supportsAgentCapabilityPolicyLaunch(profile.agentId, profile.command) ? (
+                        <button
+                          type="button"
+                          aria-label={t('Skill & MCP')}
+                          title={t('Skill & MCP')}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenSessionLaunchOptions(profile.agentId, profile.command);
+                          }}
+                          className="control-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                        </button>
                       ) : null}
-                    </MenuItem>
+                    </div>
                   ))}
                 </MenuPopup>
               </Menu>
@@ -3878,6 +3956,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
                 onSessionNewWithAgent={(agentId, cmd) =>
                   handleNewSessionWithAgent(agentId, cmd, group.id)
                 }
+                onOpenLaunchOptions={(agentId, agentCommand) =>
+                  handleOpenSessionLaunchOptions(agentId, agentCommand, group.id)
+                }
                 onSessionRename={handleRenameSession}
                 onSessionReorder={(from, to) => handleReorderSessions(group.id, from, to)}
                 onGroupClick={() => handleGroupClick(group.id)}
@@ -3916,6 +3997,21 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
             </div>
           );
         })}
+      {sessionLaunchPolicyDialog ? (
+        <ClaudeSessionLaunchDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setSessionLaunchPolicyDialog(null);
+            }
+          }}
+          repoPath={repoPath}
+          worktreePath={cwd}
+          agentLabel={sessionLaunchPolicyDialog.agentLabel}
+          initialPolicy={sessionLaunchPolicyDialog.initialPolicy}
+          onLaunch={handleLaunchSessionWithOptions}
+        />
+      ) : null}
       <AgentCloseSessionDialog
         pendingCloseSession={pendingCloseSession}
         onConfirm={handleConfirmCloseSession}

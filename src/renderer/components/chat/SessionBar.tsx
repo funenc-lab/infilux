@@ -1,7 +1,14 @@
-import type { ClaudeProvider, PersistentAgentRuntimeState } from '@shared/types';
+import type {
+  ClaudePolicyConfig,
+  ClaudePolicyMaterializationMode,
+  ClaudeProvider,
+  PersistentAgentRuntimeState,
+} from '@shared/types';
+import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  AlertTriangle,
   Ban,
   Check,
   CheckCircle,
@@ -11,6 +18,7 @@ import {
   Plus,
   RectangleEllipsis,
   Settings,
+  Settings2,
   Terminal,
   X,
 } from 'lucide-react';
@@ -70,6 +78,11 @@ export interface Session {
   hostSessionKey?: string; // persisted tmux host session key used for unix session recovery
   recovered?: boolean;
   recoveryState?: PersistentAgentRuntimeState;
+  claudePolicyHash?: string;
+  claudePolicyWarnings?: string[];
+  claudePolicyStale?: boolean;
+  claudeSessionPolicy?: ClaudePolicyConfig | null;
+  claudePolicyMaterializationMode?: ClaudePolicyMaterializationMode;
 }
 
 interface SessionBarProps {
@@ -81,6 +94,7 @@ interface SessionBarProps {
   onCloseSession: (id: string) => void;
   onNewSession: () => void;
   onNewSessionWithAgent?: (agentId: string, agentCommand: string) => void;
+  onOpenLaunchOptions?: (agentId: string, agentCommand: string) => void;
   onRenameSession: (id: string, name: string) => void;
   onReorderSessions?: (fromIndex: number, toIndex: number) => void;
   // Quick Terminal props
@@ -370,14 +384,13 @@ function SessionTab({
   onDrop,
 }: SessionTabProps) {
   const fallbackActivityState = useSessionOutputState(session.id);
-  const visualState = activityState ?? fallbackActivityState;
+  const outputState = activityState ?? fallbackActivityState;
   const hasCompletedTaskNotice = useSessionTaskCompletionNotice(session.id);
   const clearTaskCompletedUnread = useAgentSessionsStore((s) => s.clearTaskCompletedUnread);
-  const stateMeta = getActivityStateMeta(visualState);
+  const stateMeta = getActivityStateMeta(outputState);
   const sessionLabel = getSessionDisplayName(session);
   const sessionHoverTitle = getSessionHoverTitle(session);
   const closeLabel = `Close ${sessionLabel}`;
-  const glowState = visualState === 'waiting_input' ? 'running' : visualState;
   const handleSelect = useCallback(() => {
     clearTaskCompletedUnread(session.id);
     onSelect();
@@ -422,7 +435,7 @@ function SessionTab({
   const foregroundClassName = 'relative z-10';
   const tabContent = (
     <>
-      {visualState === 'idle' ? (
+      {outputState === 'idle' ? (
         <span
           className={cn(
             SESSION_TAB_STATUS_INDICATOR_CLASS_NAME,
@@ -432,7 +445,7 @@ function SessionTab({
         />
       ) : (
         <ActivityIndicator
-          state={visualState}
+          state={outputState}
           size="sm"
           className={SESSION_TAB_STATUS_INDICATOR_CLASS_NAME}
         />
@@ -476,7 +489,7 @@ function SessionTab({
     </>
   );
   const tabElement = (
-    <GlowCard state={glowState} as="div" {...tabProps}>
+    <GlowCard state={outputState} as="div" {...tabProps}>
       {tabContent}
     </GlowCard>
   );
@@ -508,6 +521,7 @@ export function SessionBar({
   onCloseSession,
   onNewSession,
   onNewSessionWithAgent,
+  onOpenLaunchOptions,
   onRenameSession,
   onReorderSessions,
   quickTerminalOpen,
@@ -547,6 +561,7 @@ export function SessionBar({
     () => showProviderSwitcher && supportsClaudeProviderSwitcher(activeSession),
     [activeSession, showProviderSwitcher]
   );
+  const showPolicyStaleNotice = Boolean(activeSession?.claudePolicyStale);
 
   const { data: claudeData } = useQuery({
     queryKey: ['claude-settings', repoPath ?? null],
@@ -991,6 +1006,22 @@ export function SessionBar({
     [customAgents, onNewSessionWithAgent]
   );
 
+  const handleOpenLaunchOptions = useCallback(
+    (agentId: string) => {
+      const isHapi = agentId.endsWith('-hapi');
+      const isHappy = agentId.endsWith('-happy');
+      const baseId = isHapi ? agentId.slice(0, -5) : isHappy ? agentId.slice(0, -6) : agentId;
+      const customAgent = customAgents.find((a) => a.id === baseId);
+      const info = customAgent
+        ? { name: customAgent.name, command: customAgent.command }
+        : AGENT_INFO[baseId] || { name: 'Claude', command: 'claude' };
+
+      onOpenLaunchOptions?.(agentId, info.command);
+      setShowAgentMenu(false);
+    },
+    [customAgents, onOpenLaunchOptions]
+  );
+
   useEffect(() => {
     if (!showClaudeProviderSwitcher && showProviderMenu) {
       setShowProviderMenu(false);
@@ -1061,287 +1092,325 @@ export function SessionBar({
           <div
             role="toolbar"
             aria-label={t('Agent session controls')}
-            className="control-toolbar flex w-full max-w-full min-w-0 items-center gap-1 rounded-2xl px-2 py-1.5"
+            className="control-toolbar flex w-full max-w-full min-w-0 flex-col gap-2 rounded-2xl px-2 py-1.5"
           >
-            <div
-              role="group"
-              aria-label={t('Active sessions')}
-              className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            >
-              <div
-                title={t('Move session controls')}
-                className="flex h-7 w-4 cursor-grab items-center justify-center text-muted-foreground/50"
-                onMouseDown={handleMouseDown}
-              >
-                <GripVertical className="h-3.5 w-3.5" />
+            {showPolicyStaleNotice ? (
+              <div className="flex w-full items-start gap-2 rounded-xl border border-warning/45 bg-warning/8 px-3 py-2 text-warning-foreground">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0 flex-1 ui-type-meta">
+                  {t('Skill and MCP settings changed. Restart sessions to apply.')}
+                </div>
               </div>
+            ) : null}
 
+            <div className="flex w-full items-center gap-1">
               <div
-                role="tablist"
-                aria-label={t('Agent sessions')}
-                className="flex min-w-max items-center gap-1"
+                role="group"
+                aria-label={t('Active sessions')}
+                className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
-                {sessions.map((session, index) => (
-                  <SessionTab
-                    key={session.id}
-                    session={session}
-                    activityState={activityStateBySessionId?.[session.id]}
-                    index={index}
-                    tabId={buildSessionTabId(session.id)}
-                    panelId={buildSessionPanelId(session.id)}
-                    isActive={activeSessionId === session.id}
-                    isEditing={editingId === session.id}
-                    editingName={editingName}
-                    isDragging={draggedTabIndexRef.current === index}
-                    dropTargetIndex={dropTargetIndex}
-                    draggedTabIndex={draggedTabIndexRef.current}
-                    inputRef={inputRef}
-                    onSelect={() => onSelectSession(session.id)}
-                    onClose={() => onCloseSession(session.id)}
-                    onStartEdit={() => handleStartEdit(session)}
-                    onEditingNameChange={setEditingName}
-                    onFinishEdit={handleFinishEdit}
-                    onEditKeyDown={handleKeyDown}
-                    onTabKeyDown={(event) => handleSessionTabKeyDown(session.id, event)}
-                    onDragStart={(e) => handleTabDragStart(e, index)}
-                    onDragEnd={handleTabDragEnd}
-                    onDragOver={(e) => handleTabDragOver(e, index)}
-                    onDragLeave={handleTabDragLeave}
-                    onDrop={(e) => handleTabDrop(e, index)}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div
-              role="group"
-              aria-label={t('Session actions')}
-              className="flex shrink-0 items-center gap-1"
-            >
-              <div className="control-divider mx-1 h-5 w-px" />
-
-              <div ref={agentMenuRef} className="relative">
-                <div className={SESSION_BAR_SPLIT_ACTION_GROUP_CLASS_NAME}>
-                  <button
-                    type="button"
-                    aria-label={t('Create default session')}
-                    onClick={handleCreateDefaultSession}
-                    className={SESSION_BAR_SPLIT_PRIMARY_ACTION_BUTTON_CLASS_NAME}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t('Choose session agent')}
-                    aria-haspopup="menu"
-                    aria-expanded={showAgentMenu}
-                    onClick={handleToggleAgentMenu}
-                    className={cn(
-                      SESSION_BAR_SPLIT_TOGGLE_ACTION_BUTTON_CLASS_NAME,
-                      showAgentMenu && 'control-icon-button-active'
-                    )}
-                  >
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
+                <div
+                  title={t('Move session controls')}
+                  className="flex h-7 w-4 cursor-grab items-center justify-center text-muted-foreground/50"
+                  onMouseDown={handleMouseDown}
+                >
+                  <GripVertical className="h-3.5 w-3.5" />
                 </div>
 
-                {showAgentMenu && (
-                  <div
-                    role="menu"
-                    aria-label={t('Select Agent')}
-                    className={cn(
-                      'absolute right-0 z-50 min-w-40',
-                      containerRef.current &&
-                        state.y > containerRef.current.getBoundingClientRect().height / 2
-                        ? 'origin-bottom-right bottom-full pb-1'
-                        : 'origin-top-right top-full pt-1'
-                    )}
-                  >
-                    <div className="control-menu rounded-2xl p-2">
-                      <div className="mb-1 flex items-center justify-between px-1 py-1">
-                        <span className="control-menu-label text-muted-foreground">
-                          {t('Select Agent')}
-                        </span>
-                        <Tooltip>
-                          <TooltipTrigger render={<span />}>
-                            <button
-                              type="button"
-                              aria-label={t('Agent profiles')}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowAgentMenu(false);
-                                window.dispatchEvent(new CustomEvent('open-settings-agent'));
-                              }}
-                              className={SESSION_BAR_MENU_BUTTON_CLASS_NAME}
-                            >
-                              <Settings className="h-3.5 w-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipPopup side="right">{t('Agent profiles')}</TooltipPopup>
-                        </Tooltip>
-                      </div>
-                      {[...enabledAgents]
-                        .sort((a, b) => {
-                          const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
-                          const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
-                          return bDefault - aDefault;
-                        })
-                        .map((agentId) => {
-                          const isHapi = agentId.endsWith('-hapi');
-                          const isHappy = agentId.endsWith('-happy');
-                          const baseId = isHapi
-                            ? agentId.slice(0, -5)
-                            : isHappy
-                              ? agentId.slice(0, -6)
-                              : agentId;
-                          const customAgent = customAgents.find((a) => a.id === baseId);
-                          const baseName = customAgent?.name ?? AGENT_INFO[baseId]?.name ?? baseId;
-                          const name = isHapi
-                            ? `${baseName} (Hapi)`
-                            : isHappy
-                              ? `${baseName} (Happy)`
-                              : baseName;
-                          const isDefault = agentSettings[agentId]?.isDefault;
-                          return (
-                            <button
-                              type="button"
-                              key={agentId}
-                              onClick={() => handleSelectAgent(agentId)}
-                              className="control-menu-item mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-foreground"
-                            >
-                              <span className="min-w-0 flex-1 truncate">{name}</span>
-                              {isDefault ? (
-                                <span className="control-chip control-chip-strong shrink-0">
-                                  {t('Default')}
-                                </span>
-                              ) : null}
-                            </button>
-                          );
-                        })}
-                    </div>
-                  </div>
-                )}
+                <div
+                  role="tablist"
+                  aria-label={t('Agent sessions')}
+                  className="flex min-w-max items-center gap-1"
+                >
+                  {sessions.map((session, index) => (
+                    <SessionTab
+                      key={session.id}
+                      session={session}
+                      activityState={activityStateBySessionId?.[session.id]}
+                      index={index}
+                      tabId={buildSessionTabId(session.id)}
+                      panelId={buildSessionPanelId(session.id)}
+                      isActive={activeSessionId === session.id}
+                      isEditing={editingId === session.id}
+                      editingName={editingName}
+                      isDragging={draggedTabIndexRef.current === index}
+                      dropTargetIndex={dropTargetIndex}
+                      draggedTabIndex={draggedTabIndexRef.current}
+                      inputRef={inputRef}
+                      onSelect={() => onSelectSession(session.id)}
+                      onClose={() => onCloseSession(session.id)}
+                      onStartEdit={() => handleStartEdit(session)}
+                      onEditingNameChange={setEditingName}
+                      onFinishEdit={handleFinishEdit}
+                      onEditKeyDown={handleKeyDown}
+                      onTabKeyDown={(event) => handleSessionTabKeyDown(session.id, event)}
+                      onDragStart={(e) => handleTabDragStart(e, index)}
+                      onDragEnd={handleTabDragEnd}
+                      onDragOver={(e) => handleTabDragOver(e, index)}
+                      onDragLeave={handleTabDragLeave}
+                      onDrop={(e) => handleTabDrop(e, index)}
+                    />
+                  ))}
+                </div>
               </div>
 
-              {!state.collapsed && showClaudeProviderSwitcher && (
-                <>
-                  <div className="control-divider mx-1 h-4 w-px" />
+              <div
+                role="group"
+                aria-label={t('Session actions')}
+                className="flex shrink-0 items-center gap-1"
+              >
+                <div className="control-divider mx-1 h-5 w-px" />
 
-                  <div ref={providerMenuRef} className="relative shrink-0">
+                <div ref={agentMenuRef} className="relative">
+                  <div className={SESSION_BAR_SPLIT_ACTION_GROUP_CLASS_NAME}>
                     <button
                       type="button"
-                      aria-label={activeProvider?.name ?? t('Select Provider')}
-                      aria-haspopup="menu"
-                      aria-expanded={showProviderMenu}
-                      onClick={handleToggleProviderMenu}
-                      className={cn(
-                        SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME,
-                        showProviderMenu && 'control-icon-button-active'
-                      )}
-                      title={activeProvider?.name ?? t('Select Provider')}
+                      aria-label={t('Create default session')}
+                      onClick={handleCreateDefaultSession}
+                      className={SESSION_BAR_SPLIT_PRIMARY_ACTION_BUTTON_CLASS_NAME}
                     >
-                      <svg
-                        fill="currentColor"
-                        fillRule="evenodd"
-                        height="1em"
-                        className="h-3.5 w-3.5 shrink-0"
-                        viewBox="0 0 24 24"
-                        width="1em"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <title>Claude</title>
-                        <path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" />
-                      </svg>
+                      <Plus className="h-4 w-4" />
                     </button>
+                    <button
+                      type="button"
+                      aria-label={t('Choose session agent')}
+                      aria-haspopup="menu"
+                      aria-expanded={showAgentMenu}
+                      onClick={handleToggleAgentMenu}
+                      className={cn(
+                        SESSION_BAR_SPLIT_TOGGLE_ACTION_BUTTON_CLASS_NAME,
+                        showAgentMenu && 'control-icon-button-active'
+                      )}
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
 
-                    {showProviderMenu && providers.length > 0 && (
-                      <div
-                        role="menu"
-                        aria-label={t('Select Provider')}
-                        className={cn(
-                          'absolute right-0 z-50 min-w-40',
-                          containerRef.current &&
-                            state.y > containerRef.current.getBoundingClientRect().height / 2
-                            ? 'origin-bottom-right bottom-full pb-1'
-                            : 'origin-top-right top-full pt-1'
-                        )}
-                      >
-                        <div className="control-menu rounded-2xl p-2">
-                          <div className="mb-1 flex items-center justify-between px-1 py-1">
-                            <span className="control-menu-label whitespace-nowrap text-muted-foreground">
-                              {t('Select Provider')}
-                            </span>
-                            <Tooltip>
-                              <TooltipTrigger render={<span />}>
+                  {showAgentMenu && (
+                    <div
+                      role="menu"
+                      aria-label={t('Select Agent')}
+                      className={cn(
+                        'absolute right-0 z-50 min-w-40',
+                        containerRef.current &&
+                          state.y > containerRef.current.getBoundingClientRect().height / 2
+                          ? 'origin-bottom-right bottom-full pb-1'
+                          : 'origin-top-right top-full pt-1'
+                      )}
+                    >
+                      <div className="control-menu rounded-2xl p-2">
+                        <div className="mb-1 flex items-center justify-between px-1 py-1">
+                          <span className="control-menu-label text-muted-foreground">
+                            {t('Select Agent')}
+                          </span>
+                          <Tooltip>
+                            <TooltipTrigger render={<span />}>
+                              <button
+                                type="button"
+                                aria-label={t('Agent profiles')}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowAgentMenu(false);
+                                  window.dispatchEvent(new CustomEvent('open-settings-agent'));
+                                }}
+                                className={SESSION_BAR_MENU_BUTTON_CLASS_NAME}
+                              >
+                                <Settings className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipPopup side="right">{t('Agent profiles')}</TooltipPopup>
+                          </Tooltip>
+                        </div>
+                        {[...enabledAgents]
+                          .sort((a, b) => {
+                            const aDefault = agentSettings[a]?.isDefault ? 1 : 0;
+                            const bDefault = agentSettings[b]?.isDefault ? 1 : 0;
+                            return bDefault - aDefault;
+                          })
+                          .map((agentId) => {
+                            const isHapi = agentId.endsWith('-hapi');
+                            const isHappy = agentId.endsWith('-happy');
+                            const baseId = isHapi
+                              ? agentId.slice(0, -5)
+                              : isHappy
+                                ? agentId.slice(0, -6)
+                                : agentId;
+                            const customAgent = customAgents.find((a) => a.id === baseId);
+                            const info = customAgent
+                              ? { name: customAgent.name, command: customAgent.command }
+                              : AGENT_INFO[baseId] || { name: baseId, command: 'claude' };
+                            const baseName = info.name;
+                            const name = isHapi
+                              ? `${baseName} (Hapi)`
+                              : isHappy
+                                ? `${baseName} (Happy)`
+                                : baseName;
+                            const isDefault = agentSettings[agentId]?.isDefault;
+                            const canOpenLaunchOptions = supportsAgentCapabilityPolicyLaunch(
+                              agentId,
+                              info.command
+                            );
+                            return (
+                              <div key={agentId} className="mt-1 flex items-center gap-1">
                                 <button
                                   type="button"
-                                  aria-label={t('Manage Providers')}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowProviderMenu(false);
-                                    window.dispatchEvent(new CustomEvent('open-settings-provider'));
-                                  }}
-                                  className={SESSION_BAR_MENU_BUTTON_CLASS_NAME}
+                                  onClick={() => handleSelectAgent(agentId)}
+                                  className="control-menu-item flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-foreground"
                                 >
-                                  <Settings className="h-3.5 w-3.5" />
+                                  <span className="min-w-0 flex-1 truncate">{name}</span>
+                                  {isDefault ? (
+                                    <span className="control-chip control-chip-strong shrink-0">
+                                      {t('Default')}
+                                    </span>
+                                  ) : null}
                                 </button>
-                              </TooltipTrigger>
-                              <TooltipPopup side="right">{t('Manage Providers')}</TooltipPopup>
-                            </Tooltip>
-                          </div>
-                          {providers.map((provider) => {
-                            const isActive = activeProvider?.id === provider.id;
-                            const isDisabled = provider.enabled === false;
-
-                            return (
-                              <ProviderMenuItem
-                                key={provider.id}
-                                provider={provider}
-                                isActive={isActive}
-                                isDisabled={isDisabled}
-                                isPending={applyProvider.isPending}
-                                activeProviderId={activeProvider?.id}
-                                providers={providers}
-                                onApplyProvider={handleApplyProvider}
-                                onCloseMenu={handleCloseProviderMenu}
-                                setClaudeProviderEnabled={setClaudeProviderEnabled}
-                                enableProviderDisableFeature={enableProviderDisableFeature}
-                                t={t}
-                              />
+                                {canOpenLaunchOptions ? (
+                                  <button
+                                    type="button"
+                                    aria-label={t('Skill & MCP')}
+                                    title={t('Skill & MCP')}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleOpenLaunchOptions(agentId);
+                                    }}
+                                    className={cn(
+                                      SESSION_BAR_MENU_UTILITY_BUTTON_CLASS_NAME,
+                                      'h-9 w-9 shrink-0 rounded-lg'
+                                    )}
+                                  >
+                                    <Settings2 className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : null}
+                              </div>
                             );
                           })}
-                        </div>
                       </div>
-                    )}
-                  </div>
-                </>
-              )}
+                    </div>
+                  )}
+                </div>
 
-              {!state.collapsed && onToggleQuickTerminal && (
-                <>
-                  <div className="control-divider mx-1 h-4 w-px" />
-                  <Tooltip>
-                    <TooltipTrigger render={<span />}>
+                {!state.collapsed && showClaudeProviderSwitcher && (
+                  <>
+                    <div className="control-divider mx-1 h-4 w-px" />
+
+                    <div ref={providerMenuRef} className="relative shrink-0">
                       <button
                         type="button"
-                        aria-label={t('Quick Terminal')}
-                        onClick={onToggleQuickTerminal}
+                        aria-label={activeProvider?.name ?? t('Select Provider')}
+                        aria-haspopup="menu"
+                        aria-expanded={showProviderMenu}
+                        onClick={handleToggleProviderMenu}
                         className={cn(
                           SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME,
-                          quickTerminalOpen
-                            ? 'control-icon-button-active'
-                            : quickTerminalHasProcess
-                              ? 'control-icon-button-live'
-                              : undefined
+                          showProviderMenu && 'control-icon-button-active'
                         )}
+                        title={activeProvider?.name ?? t('Select Provider')}
                       >
-                        <Terminal className="h-3.5 w-3.5" />
+                        <svg
+                          fill="currentColor"
+                          fillRule="evenodd"
+                          height="1em"
+                          className="h-3.5 w-3.5 shrink-0"
+                          viewBox="0 0 24 24"
+                          width="1em"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <title>Claude</title>
+                          <path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" />
+                        </svg>
                       </button>
-                    </TooltipTrigger>
-                    <TooltipPopup>{t('Quick Terminal')} (Ctrl+`)</TooltipPopup>
-                  </Tooltip>
-                </>
-              )}
+
+                      {showProviderMenu && providers.length > 0 && (
+                        <div
+                          role="menu"
+                          aria-label={t('Select Provider')}
+                          className={cn(
+                            'absolute right-0 z-50 min-w-40',
+                            containerRef.current &&
+                              state.y > containerRef.current.getBoundingClientRect().height / 2
+                              ? 'origin-bottom-right bottom-full pb-1'
+                              : 'origin-top-right top-full pt-1'
+                          )}
+                        >
+                          <div className="control-menu rounded-2xl p-2">
+                            <div className="mb-1 flex items-center justify-between px-1 py-1">
+                              <span className="control-menu-label whitespace-nowrap text-muted-foreground">
+                                {t('Select Provider')}
+                              </span>
+                              <Tooltip>
+                                <TooltipTrigger render={<span />}>
+                                  <button
+                                    type="button"
+                                    aria-label={t('Manage Providers')}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowProviderMenu(false);
+                                      window.dispatchEvent(
+                                        new CustomEvent('open-settings-provider')
+                                      );
+                                    }}
+                                    className={SESSION_BAR_MENU_BUTTON_CLASS_NAME}
+                                  >
+                                    <Settings className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipPopup side="right">{t('Manage Providers')}</TooltipPopup>
+                              </Tooltip>
+                            </div>
+                            {providers.map((provider) => {
+                              const isActive = activeProvider?.id === provider.id;
+                              const isDisabled = provider.enabled === false;
+
+                              return (
+                                <ProviderMenuItem
+                                  key={provider.id}
+                                  provider={provider}
+                                  isActive={isActive}
+                                  isDisabled={isDisabled}
+                                  isPending={applyProvider.isPending}
+                                  activeProviderId={activeProvider?.id}
+                                  providers={providers}
+                                  onApplyProvider={handleApplyProvider}
+                                  onCloseMenu={handleCloseProviderMenu}
+                                  setClaudeProviderEnabled={setClaudeProviderEnabled}
+                                  enableProviderDisableFeature={enableProviderDisableFeature}
+                                  t={t}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {!state.collapsed && onToggleQuickTerminal && (
+                  <>
+                    <div className="control-divider mx-1 h-4 w-px" />
+                    <Tooltip>
+                      <TooltipTrigger render={<span />}>
+                        <button
+                          type="button"
+                          aria-label={t('Quick Terminal')}
+                          onClick={onToggleQuickTerminal}
+                          className={cn(
+                            SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME,
+                            quickTerminalOpen
+                              ? 'control-icon-button-active'
+                              : quickTerminalHasProcess
+                                ? 'control-icon-button-live'
+                                : undefined
+                          )}
+                        >
+                          <Terminal className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipPopup>{t('Quick Terminal')} (Ctrl+`)</TooltipPopup>
+                    </Tooltip>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         )}

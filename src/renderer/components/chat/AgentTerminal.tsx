@@ -1,8 +1,18 @@
 import { TEMP_INPUT_FILE_PREFIX } from '@shared/paths';
-import type { ClaudeIdeBridgeStatus, SessionRuntimeState } from '@shared/types';
+import type {
+  ClaudeIdeBridgeStatus,
+  ClaudePolicyConfig,
+  ClaudePolicyMaterializationMode,
+  SessionRuntimeState,
+} from '@shared/types';
 import { ArrowDown } from 'lucide-react';
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
+import {
+  getClaudeGlobalPolicy,
+  getClaudeProjectPolicy,
+  getClaudeWorktreePolicy,
+} from '@/App/storage';
 import {
   TerminalSearchBar,
   type TerminalSearchBarRef,
@@ -44,6 +54,7 @@ import {
   mergeAgentAttachments,
   resolveAgentAttachmentSendDelay,
 } from './agentAttachmentTrayModel';
+import { buildAgentCapabilityLaunchMetadata } from './agentCapabilityLaunch';
 import {
   AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS,
   AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS,
@@ -58,11 +69,13 @@ import { canInsertAgentTerminalAttachments } from './agentTerminalAttachmentInse
 import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
 import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
 import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
+import { extractClaudePolicySessionMetadata } from './claudePolicyLaunch';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
 
 interface AgentTerminalProps {
   id?: string; // Terminal session ID (UI key)
   createdAt?: number;
+  repoPath?: string;
   cwd?: string;
   sessionId?: string; // Provider session ID for agent-level resume flows (falls back to id)
   backendSessionId?: string; // Unified backend session ID for attach/resume
@@ -80,6 +93,8 @@ interface AgentTerminalProps {
   terminalFontScale?: number;
   hasPendingCommand?: boolean; // Force terminal activation even when not visible
   initialPrompt?: string; // Initial prompt to pass as CLI argument (auto-execute)
+  sessionPolicy?: ClaudePolicyConfig | null;
+  materializationMode?: ClaudePolicyMaterializationMode;
   canMerge?: boolean; // whether merge option should be enabled (has multiple groups)
   /**
    * When provided, Enhanced Input open state is controlled by parent (e.g. AgentPanel store).
@@ -104,6 +119,7 @@ interface AgentTerminalProps {
   onBackendSessionIdChange?: (sessionId: string) => void;
   onProviderSessionIdChange?: (sessionId: string) => void;
   onRuntimeStateChange?: (state: SessionRuntimeState) => void;
+  onClaudePolicyStateChange?: (state: { hash: string; warnings: string[] }) => void;
 }
 
 const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is doing work
@@ -150,6 +166,7 @@ function resolveClipboardImageTempFormat(file: File): 'png' | 'jpeg' {
 export function AgentTerminal({
   id,
   createdAt,
+  repoPath,
   cwd,
   sessionId,
   backendSessionId,
@@ -167,6 +184,8 @@ export function AgentTerminal({
   terminalFontScale,
   hasPendingCommand = false,
   initialPrompt,
+  sessionPolicy,
+  materializationMode,
   canMerge = false,
   enhancedInputOpen: externalEnhancedInputOpen,
   onEnhancedInputOpenChange,
@@ -183,6 +202,7 @@ export function AgentTerminal({
   onBackendSessionIdChange,
   onProviderSessionIdChange,
   onRuntimeStateChange,
+  onClaudePolicyStateChange,
 }: AgentTerminalProps) {
   const { t } = useI18n();
   const {
@@ -356,6 +376,9 @@ export function AgentTerminal({
   const inputDispatchSessionId = backendSessionId ?? null;
   const usesNativeTerminalInput = supportsAgentNativeTerminalInput(agentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const globalPolicy = getClaudeGlobalPolicy();
+  const projectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;
+  const worktreePolicy = cwd ? getClaudeWorktreePolicy(cwd) : null;
 
   useAgentProviderSessionDiscovery({
     agentCommand,
@@ -1177,15 +1200,26 @@ export function AgentTerminal({
     isActive: effectiveIsActive,
     kind: 'agent',
     fontSizeScale: terminalFontScale,
-    metadata:
-      persistenceEnabled && terminalSessionId
-        ? {
-            uiSessionId: terminalSessionId,
-            agentId,
-            agentCommand,
-            environment,
-          }
-        : undefined,
+    metadata: buildAgentCapabilityLaunchMetadata({
+      agentId,
+      agentCommand,
+      repoPath,
+      worktreePath: cwd,
+      globalPolicy,
+      projectPolicy,
+      worktreePolicy,
+      sessionPolicy,
+      materializationMode,
+      metadata:
+        persistenceEnabled && terminalSessionId
+          ? {
+              uiSessionId: terminalSessionId,
+              agentId,
+              agentCommand,
+              environment,
+            }
+          : undefined,
+    }),
     persistOnDisconnect: true,
     preferHostScrollback:
       hostSession?.kind === 'tmux' &&
@@ -1196,6 +1230,12 @@ export function AgentTerminal({
     onCustomKey: handleCustomKey,
     onTitleChange: handleTitleChange,
     onSessionIdChange: onBackendSessionIdChange,
+    onSessionOpen: (session) => {
+      const policyState = extractClaudePolicySessionMetadata(session.metadata);
+      if (policyState) {
+        onClaudePolicyStateChange?.(policyState);
+      }
+    },
     onSplit,
     onMerge,
     canMerge,

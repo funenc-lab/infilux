@@ -1,8 +1,10 @@
-import { Bot, ChevronDown, Plus } from 'lucide-react';
+import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
+import { Bot, ChevronDown, Plus, Settings2 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { ConsoleEmptyState } from '@/components/layout/ConsoleEmptyState';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
+import { cn } from '@/lib/utils';
 import {
   CHAT_ACTION_BUTTON_PRIMARY_CLASS_NAME,
   CHAT_ACTION_BUTTON_SECONDARY_CLASS_NAME,
@@ -15,6 +17,8 @@ const AGENT_GROUP_EMPTY_STATE_TOGGLE_ACTION_CLASS_NAME = `${CHAT_ACTION_BUTTON_S
 const AGENT_GROUP_EMPTY_STATE_MENU_CONTAINER_CLASS_NAME =
   'absolute left-1/2 top-full z-50 min-w-40 -translate-x-1/2 pt-2';
 const AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-foreground`;
+const AGENT_GROUP_EMPTY_STATE_MENU_UTILITY_BUTTON_CLASS_NAME =
+  'control-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-lg';
 
 interface AgentGroupEmptyStateProps {
   menuRef: RefObject<HTMLDivElement | null>;
@@ -26,6 +30,7 @@ interface AgentGroupEmptyStateProps {
     { enabled: boolean; isDefault: boolean; customPath?: string; customArgs?: string }
   >;
   agentInfo: Record<string, { name: string; command: string }>;
+  onOpenLaunchOptions: (agentId: string, agentCommand: string) => void;
   onSessionNew: () => void;
   onSessionNewWithAgent: (agentId: string, agentCommand: string) => void;
   onToggleAgentMenu: () => void;
@@ -38,6 +43,7 @@ export function AgentGroupEmptyState({
   customAgents,
   agentSettings,
   agentInfo,
+  onOpenLaunchOptions,
   onSessionNew,
   onSessionNewWithAgent,
   onToggleAgentMenu,
@@ -124,26 +130,44 @@ export function AgentGroupEmptyState({
                         : baseName;
                     const isDefault = agentSettings[agentId]?.isDefault;
 
+                    const agentCommand =
+                      customAgent?.command ?? agentInfo[baseId]?.command ?? 'claude';
+
                     return (
-                      <button
-                        type="button"
-                        key={agentId}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onSessionNewWithAgent(
-                            agentId,
-                            customAgent?.command ?? agentInfo[baseId]?.command ?? 'claude'
-                          );
-                        }}
-                        className={AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME}
-                      >
-                        <span className="min-w-0 flex-1 truncate">{name}</span>
-                        {isDefault ? (
-                          <span className="control-chip control-chip-strong shrink-0">
-                            {t('Default')}
-                          </span>
+                      <div key={agentId} className="mt-1 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onSessionNewWithAgent(agentId, agentCommand);
+                          }}
+                          className={cn(
+                            AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME,
+                            'mt-0 flex-1 justify-start'
+                          )}
+                        >
+                          <span className="min-w-0 flex-1 truncate">{name}</span>
+                          {isDefault ? (
+                            <span className="control-chip control-chip-strong shrink-0">
+                              {t('Default')}
+                            </span>
+                          ) : null}
+                        </button>
+                        {supportsAgentCapabilityPolicyLaunch(agentId, agentCommand) ? (
+                          <button
+                            type="button"
+                            aria-label={t('Skill & MCP')}
+                            title={t('Skill & MCP')}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onOpenLaunchOptions(agentId, agentCommand);
+                            }}
+                            className={AGENT_GROUP_EMPTY_STATE_MENU_UTILITY_BUTTON_CLASS_NAME}
+                          >
+                            <Settings2 className="h-3.5 w-3.5" />
+                          </button>
                         ) : null}
-                      </button>
+                      </div>
                     );
                   })}
               </div>

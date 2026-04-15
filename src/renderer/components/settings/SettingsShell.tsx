@@ -1,6 +1,7 @@
 import { getDisplayPathBasename } from '@shared/utils/path';
 import {
   Bot,
+  Boxes,
   FileCode,
   Globe,
   Keyboard,
@@ -18,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { AgentSettings } from './AgentSettings';
 import { AISettings } from './AISettings';
 import { AppearanceSettings } from './AppearanceSettings';
+import { ClaudeCapabilityCatalogSection } from './claude-policy';
 import type { SettingsCategory } from './constants';
 import { EditorSettings } from './EditorSettings';
 import { GeneralSettings } from './GeneralSettings';
@@ -54,6 +56,7 @@ export function SettingsShell({
         { id: 'appearance', icon: Palette, label: t('Appearance') },
         { id: 'editor', icon: FileCode, label: t('Editor') },
         { id: 'keybindings', icon: Keyboard, label: t('Keybindings') },
+        { id: 'claudeCatalog', icon: Boxes, label: t('Skill & MCP') },
         { id: 'agent', icon: Bot, label: t('Agent') },
         { id: 'ai', icon: Sparkles, label: t('AI') },
         { id: 'input', icon: Paperclip, label: t('Advanced Features') },
@@ -122,6 +125,7 @@ export function SettingsShell({
         {activeCategory === 'appearance' && <AppearanceSettings />}
         {activeCategory === 'editor' && <EditorSettings />}
         {activeCategory === 'keybindings' && <KeybindingsSettings />}
+        {activeCategory === 'claudeCatalog' && <ClaudeCapabilityCatalogSection />}
         {activeCategory === 'agent' && <AgentSettings repoPath={repoPath} />}
         {activeCategory === 'ai' && <AISettings />}
         {activeCategory === 'input' && <InputSettings />}

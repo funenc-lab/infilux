@@ -1,4 +1,5 @@
 import type { PersistentAgentSessionRecord } from '@shared/types';
+import { supportsClaudeCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { normalizePath, pathsEqual } from '@/App/storage';
@@ -84,6 +85,9 @@ interface AgentSessionsState {
   addSession: (session: Session) => void;
   removeSession: (id: string) => void;
   updateSession: (id: string, updates: Partial<Session>) => void;
+  markClaudePolicyStaleGlobally: () => void;
+  markClaudePolicyStaleForRepo: (repoPath: string) => void;
+  markClaudePolicyStaleForWorktree: (repoPath: string, worktreePath: string) => void;
   markSessionExited: (id: string) => void;
   setActiveId: (cwd: string, sessionId: string | null) => void;
   reorderSessions: (repoPath: string, cwd: string, fromIndex: number, toIndex: number) => void;
@@ -291,6 +295,13 @@ function sanitizePersistedSession(session: Session): Session {
   };
 }
 
+function isTrackedClaudePolicySession(session: Session): boolean {
+  return (
+    supportsClaudeCapabilityPolicyLaunch(session.agentId, session.agentCommand) &&
+    Boolean(session.claudePolicyHash)
+  );
+}
+
 function loadFromStorage(): PersistedAgentSessionsSnapshot {
   try {
     const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
@@ -481,6 +492,38 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
     updateSession: (id, updates) =>
       set((state) => ({
         sessions: state.sessions.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      })),
+
+    markClaudePolicyStaleGlobally: () =>
+      set((state) => ({
+        sessions: state.sessions.map((session) =>
+          isTrackedClaudePolicySession(session) && session.recoveryState !== 'dead'
+            ? { ...session, claudePolicyStale: true }
+            : session
+        ),
+      })),
+
+    markClaudePolicyStaleForRepo: (repoPath) =>
+      set((state) => ({
+        sessions: state.sessions.map((session) =>
+          isTrackedClaudePolicySession(session) &&
+          session.recoveryState !== 'dead' &&
+          pathsEqual(session.repoPath, repoPath)
+            ? { ...session, claudePolicyStale: true }
+            : session
+        ),
+      })),
+
+    markClaudePolicyStaleForWorktree: (repoPath, worktreePath) =>
+      set((state) => ({
+        sessions: state.sessions.map((session) =>
+          isTrackedClaudePolicySession(session) &&
+          session.recoveryState !== 'dead' &&
+          pathsEqual(session.repoPath, repoPath) &&
+          pathsEqual(session.cwd, worktreePath)
+            ? { ...session, claudePolicyStale: true }
+            : session
+        ),
       })),
 
     markSessionExited: (id) =>

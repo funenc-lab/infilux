@@ -1,3 +1,4 @@
+import type { ClaudeGlobalPolicy, ClaudeProjectPolicy, ClaudeWorktreePolicy } from '@shared/types';
 import { buildRepositoryId, normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { normalizeHexColor } from '@/lib/colors';
 import {
@@ -26,6 +27,9 @@ export const STORAGE_KEYS = {
   WORKTREE_COLLAPSED: 'enso-worktree-collapsed',
   FILE_SIDEBAR_COLLAPSED: 'enso-file-sidebar-collapsed',
   REPOSITORY_SETTINGS: 'enso-repository-settings', // per-repo settings (init script, etc.)
+  CLAUDE_GLOBAL_POLICY: 'enso-claude-global-policy',
+  CLAUDE_PROJECT_POLICIES: 'enso-claude-project-policies',
+  CLAUDE_WORKTREE_POLICIES: 'enso-claude-worktree-policies',
   REPOSITORY_GROUPS: 'enso-repository-groups',
   ACTIVE_GROUP: 'enso-active-group',
   GROUP_COLLAPSED_STATE: 'enso-group-collapsed-state',
@@ -55,6 +59,9 @@ const LEGACY_LOCAL_STORAGE_IMPORT_KEYS = new Set<string>([
   STORAGE_KEYS.WORKTREE_COLLAPSED,
   STORAGE_KEYS.FILE_SIDEBAR_COLLAPSED,
   STORAGE_KEYS.REPOSITORY_SETTINGS,
+  STORAGE_KEYS.CLAUDE_GLOBAL_POLICY,
+  STORAGE_KEYS.CLAUDE_PROJECT_POLICIES,
+  STORAGE_KEYS.CLAUDE_WORKTREE_POLICIES,
   STORAGE_KEYS.REPOSITORY_GROUPS,
   STORAGE_KEYS.ACTIVE_GROUP,
   STORAGE_KEYS.GROUP_COLLAPSED_STATE,
@@ -402,6 +409,194 @@ export const saveRepositorySettings = (repoPath: string, settings: RepositorySet
   const normalizedPath = normalizeWorkspacePathKey(repoPath);
   allSettings[normalizedPath] = settings;
   localStorage.setItem(STORAGE_KEYS.REPOSITORY_SETTINGS, JSON.stringify(allSettings));
+};
+
+interface ClaudePolicyValueShape {
+  allowedCapabilityIds?: unknown;
+  blockedCapabilityIds?: unknown;
+  allowedSharedMcpIds?: unknown;
+  blockedSharedMcpIds?: unknown;
+  allowedPersonalMcpIds?: unknown;
+  blockedPersonalMcpIds?: unknown;
+  updatedAt?: unknown;
+}
+
+const normalizeStringList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === 'string');
+};
+
+const normalizeClaudePolicyValue = (value: ClaudePolicyValueShape) => ({
+  allowedCapabilityIds: normalizeStringList(value.allowedCapabilityIds),
+  blockedCapabilityIds: normalizeStringList(value.blockedCapabilityIds),
+  allowedSharedMcpIds: normalizeStringList(value.allowedSharedMcpIds),
+  blockedSharedMcpIds: normalizeStringList(value.blockedSharedMcpIds),
+  allowedPersonalMcpIds: normalizeStringList(value.allowedPersonalMcpIds),
+  blockedPersonalMcpIds: normalizeStringList(value.blockedPersonalMcpIds),
+  updatedAt:
+    typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) ? value.updatedAt : 0,
+});
+
+const parseStoredRecord = (key: string): Record<string, unknown> => {
+  const saved = localStorage.getItem(key);
+  if (!saved) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(saved) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return parsed as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+};
+
+const normalizeClaudeProjectPolicyEntry = (
+  repoPath: string,
+  policy: Partial<ClaudeProjectPolicy>
+): ClaudeProjectPolicy => ({
+  repoPath: normalizeWorkspacePathKey(policy.repoPath || repoPath),
+  ...normalizeClaudePolicyValue(policy),
+});
+
+const normalizeClaudeGlobalPolicyEntry = (
+  policy: Partial<ClaudeGlobalPolicy>
+): ClaudeGlobalPolicy => ({
+  ...normalizeClaudePolicyValue(policy),
+});
+
+const normalizeClaudeWorktreePolicyEntry = (
+  worktreePath: string,
+  policy: Partial<ClaudeWorktreePolicy>
+): ClaudeWorktreePolicy => ({
+  worktreePath: normalizeWorkspacePathKey(policy.worktreePath || worktreePath),
+  repoPath: normalizeWorkspacePathKey(policy.repoPath || ''),
+  ...normalizeClaudePolicyValue(policy),
+});
+
+export const getStoredClaudeProjectPolicies = (): Record<string, ClaudeProjectPolicy> => {
+  const stored = parseStoredRecord(STORAGE_KEYS.CLAUDE_PROJECT_POLICIES);
+  const policies: Record<string, ClaudeProjectPolicy> = {};
+
+  for (const [repoPath, value] of Object.entries(stored)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      continue;
+    }
+
+    const normalizedRepoPath = normalizeWorkspacePathKey(repoPath);
+    policies[normalizedRepoPath] = normalizeClaudeProjectPolicyEntry(
+      normalizedRepoPath,
+      value as Partial<ClaudeProjectPolicy>
+    );
+  }
+
+  return policies;
+};
+
+export const getClaudeGlobalPolicy = (): ClaudeGlobalPolicy | null => {
+  const stored = localStorage.getItem(STORAGE_KEYS.CLAUDE_GLOBAL_POLICY);
+  if (!stored) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return normalizeClaudeGlobalPolicyEntry(parsed as Partial<ClaudeGlobalPolicy>);
+  } catch {
+    return null;
+  }
+};
+
+export const saveClaudeGlobalPolicy = (policy: ClaudeGlobalPolicy | null): void => {
+  if (!policy) {
+    localStorage.removeItem(STORAGE_KEYS.CLAUDE_GLOBAL_POLICY);
+    return;
+  }
+
+  localStorage.setItem(
+    STORAGE_KEYS.CLAUDE_GLOBAL_POLICY,
+    JSON.stringify(normalizeClaudeGlobalPolicyEntry(policy))
+  );
+};
+
+export const getClaudeProjectPolicy = (repoPath: string): ClaudeProjectPolicy | null => {
+  const policies = getStoredClaudeProjectPolicies();
+  return policies[normalizeWorkspacePathKey(repoPath)] || null;
+};
+
+export const saveClaudeProjectPolicy = (
+  repoPath: string,
+  policy: ClaudeProjectPolicy | null
+): void => {
+  const policies = getStoredClaudeProjectPolicies();
+  const normalizedRepoPath = normalizeWorkspacePathKey(repoPath);
+
+  if (policy) {
+    policies[normalizedRepoPath] = normalizeClaudeProjectPolicyEntry(normalizedRepoPath, policy);
+  } else {
+    delete policies[normalizedRepoPath];
+  }
+
+  localStorage.setItem(STORAGE_KEYS.CLAUDE_PROJECT_POLICIES, JSON.stringify(policies));
+};
+
+export const getStoredClaudeWorktreePolicies = (): Record<string, ClaudeWorktreePolicy> => {
+  const stored = parseStoredRecord(STORAGE_KEYS.CLAUDE_WORKTREE_POLICIES);
+  const policies: Record<string, ClaudeWorktreePolicy> = {};
+
+  for (const [worktreePath, value] of Object.entries(stored)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      continue;
+    }
+
+    const normalizedWorktreePath = normalizeWorkspacePathKey(worktreePath);
+    const normalizedPolicy = normalizeClaudeWorktreePolicyEntry(
+      normalizedWorktreePath,
+      value as Partial<ClaudeWorktreePolicy>
+    );
+
+    if (!normalizedPolicy.repoPath) {
+      continue;
+    }
+
+    policies[normalizedWorktreePath] = normalizedPolicy;
+  }
+
+  return policies;
+};
+
+export const getClaudeWorktreePolicy = (worktreePath: string): ClaudeWorktreePolicy | null => {
+  const policies = getStoredClaudeWorktreePolicies();
+  return policies[normalizeWorkspacePathKey(worktreePath)] || null;
+};
+
+export const saveClaudeWorktreePolicy = (
+  worktreePath: string,
+  policy: ClaudeWorktreePolicy | null
+): void => {
+  const policies = getStoredClaudeWorktreePolicies();
+  const normalizedWorktreePath = normalizeWorkspacePathKey(worktreePath);
+
+  if (policy) {
+    const normalizedPolicy = normalizeClaudeWorktreePolicyEntry(normalizedWorktreePath, policy);
+    if (normalizedPolicy.repoPath) {
+      policies[normalizedWorktreePath] = normalizedPolicy;
+    }
+  } else {
+    delete policies[normalizedWorktreePath];
+  }
+
+  localStorage.setItem(STORAGE_KEYS.CLAUDE_WORKTREE_POLICIES, JSON.stringify(policies));
 };
 
 export const getStoredGroups = (): RepositoryGroup[] => {

@@ -34,6 +34,9 @@ import {
 } from '@/App/constants';
 import {
   DEFAULT_REPOSITORY_SETTINGS,
+  getClaudeGlobalPolicy,
+  getClaudeProjectPolicy,
+  getClaudeWorktreePolicy,
   getRepositorySettings,
   getStoredGroupCollapsedState,
   getStoredRepositorySettings,
@@ -41,6 +44,8 @@ import {
   getStoredTreeSidebarTempExpanded,
   normalizePath,
   type RepositorySettings,
+  saveClaudeProjectPolicy,
+  saveClaudeWorktreePolicy,
   saveGroupCollapsedState,
   saveRepositorySettings,
   saveTreeSidebarExpandedRepos,
@@ -54,6 +59,8 @@ import {
 } from '@/components/group';
 import { RepositoryManagerDialog } from '@/components/repository/RepositoryManagerDialog';
 import { RepositorySettingsDialog } from '@/components/repository/RepositorySettingsDialog';
+import { ClaudePolicyEditorDialog } from '@/components/settings/claude-policy';
+import { hasClaudePolicyConfigChanges } from '@/components/settings/claude-policy/model';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -73,6 +80,7 @@ import { buildRemovalDialogCopy, buildWorkspaceToastCopy } from '@/lib/feedbackC
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
@@ -298,9 +306,20 @@ export function TreeSidebar({
   // Repository settings dialog
   const [repoSettingsOpen, setRepoSettingsOpen] = useState(false);
   const [repoSettingsTarget, setRepoSettingsTarget] = useState<Repository | null>(null);
+  const [repoPolicyOpen, setRepoPolicyOpen] = useState(false);
+  const [repoPolicyTarget, setRepoPolicyTarget] = useState<Repository | null>(null);
+  const [worktreePolicyOpen, setWorktreePolicyOpen] = useState(false);
+  const [worktreePolicyTarget, setWorktreePolicyTarget] = useState<{
+    repo: Repository;
+    worktree: GitWorktree;
+  } | null>(null);
 
   // Repository manager dialog
   const [repoManagerOpen, setRepoManagerOpen] = useState(false);
+  const markClaudePolicyStaleForRepo = useAgentSessionsStore((s) => s.markClaudePolicyStaleForRepo);
+  const markClaudePolicyStaleForWorktree = useAgentSessionsStore(
+    (s) => s.markClaudePolicyStaleForWorktree
+  );
 
   // Cached repository settings to avoid repeated localStorage reads
   const [repoSettingsMap, setRepoSettingsMap] = useState<Record<string, RepositorySettings>>(
@@ -1171,6 +1190,10 @@ export function TreeSidebar({
                     isActive={activeWorktree?.path === worktree.path}
                     onClick={() => onSelectWorktree(worktree, isSelected ? undefined : repo.path)}
                     onDelete={() => setWorktreeToDelete(worktree)}
+                    onEditPolicy={() => {
+                      setWorktreePolicyTarget({ repo, worktree });
+                      setWorktreePolicyOpen(true);
+                    }}
                     onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
                     draggable={!searchQuery && !!onReorderWorktrees && isSelected}
                     onDragStart={(e) => handleWorktreeDragStart(e, wtIndex, worktree)}
@@ -1655,6 +1678,22 @@ export function TreeSidebar({
               onClick={() => {
                 setRepoMenuOpen(false);
                 if (repoMenuTarget) {
+                  setRepoPolicyTarget(repoMenuTarget);
+                  setRepoPolicyOpen(true);
+                }
+              }}
+              role="menuitem"
+            >
+              <Settings2 className="h-4 w-4" />
+              {t('Project Configuration')}
+            </button>
+
+            <button
+              type="button"
+              className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
+              onClick={() => {
+                setRepoMenuOpen(false);
+                if (repoMenuTarget) {
                   setRepoSettingsTarget(repoMenuTarget);
                   setRepoSettingsOpen(true);
                 }
@@ -1870,6 +1909,69 @@ export function TreeSidebar({
           repoName={repoSettingsTarget.name}
         />
       )}
+
+      {repoPolicyTarget ? (
+        <ClaudePolicyEditorDialog
+          open={repoPolicyOpen}
+          onOpenChange={(nextOpen) => {
+            setRepoPolicyOpen(nextOpen);
+            if (!nextOpen) {
+              setRepoPolicyTarget(null);
+            }
+          }}
+          scope="project"
+          globalPolicy={getClaudeGlobalPolicy()}
+          repoPath={repoPolicyTarget.path}
+          repoName={repoPolicyTarget.name}
+          projectPolicy={getClaudeProjectPolicy(repoPolicyTarget.path)}
+          worktreePolicy={null}
+          onSave={(nextPolicy) => {
+            const currentPolicy = getClaudeProjectPolicy(repoPolicyTarget.path);
+            const changed = hasClaudePolicyConfigChanges(currentPolicy, nextPolicy);
+            saveClaudeProjectPolicy(
+              repoPolicyTarget.path,
+              nextPolicy as Parameters<typeof saveClaudeProjectPolicy>[1]
+            );
+            if (changed) {
+              markClaudePolicyStaleForRepo(repoPolicyTarget.path);
+            }
+          }}
+        />
+      ) : null}
+
+      {worktreePolicyTarget ? (
+        <ClaudePolicyEditorDialog
+          open={worktreePolicyOpen}
+          onOpenChange={(nextOpen) => {
+            setWorktreePolicyOpen(nextOpen);
+            if (!nextOpen) {
+              setWorktreePolicyTarget(null);
+            }
+          }}
+          scope="worktree"
+          globalPolicy={getClaudeGlobalPolicy()}
+          repoPath={worktreePolicyTarget.repo.path}
+          repoName={worktreePolicyTarget.repo.name}
+          worktreePath={worktreePolicyTarget.worktree.path}
+          worktreeName={worktreePolicyTarget.worktree.branch || worktreePolicyTarget.worktree.path}
+          projectPolicy={getClaudeProjectPolicy(worktreePolicyTarget.repo.path)}
+          worktreePolicy={getClaudeWorktreePolicy(worktreePolicyTarget.worktree.path)}
+          onSave={(nextPolicy) => {
+            const currentPolicy = getClaudeWorktreePolicy(worktreePolicyTarget.worktree.path);
+            const changed = hasClaudePolicyConfigChanges(currentPolicy, nextPolicy);
+            saveClaudeWorktreePolicy(
+              worktreePolicyTarget.worktree.path,
+              nextPolicy as Parameters<typeof saveClaudeWorktreePolicy>[1]
+            );
+            if (changed) {
+              markClaudePolicyStaleForWorktree(
+                worktreePolicyTarget.repo.path,
+                worktreePolicyTarget.worktree.path
+              );
+            }
+          }}
+        />
+      ) : null}
 
       {/* Repository Manager Dialog */}
       <RepositoryManagerDialog

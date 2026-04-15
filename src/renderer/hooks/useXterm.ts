@@ -121,6 +121,7 @@ export interface UseXtermOptions {
   onTitleChange?: (title: string) => void;
   onInit?: (ptyId: string) => void;
   onSessionIdChange?: (sessionId: string) => void;
+  onSessionOpen?: (session: SessionDescriptor) => void;
   onSplit?: () => void;
   onMerge?: () => void;
   canMerge?: boolean;
@@ -238,6 +239,7 @@ export function useXterm({
   onTitleChange,
   onInit,
   onSessionIdChange,
+  onSessionOpen,
   onSplit,
   onMerge,
   canMerge = false,
@@ -287,6 +289,8 @@ export function useXterm({
   onInitRef.current = onInit;
   const onSessionIdChangeRef = useRef(onSessionIdChange);
   onSessionIdChangeRef.current = onSessionIdChange;
+  const onSessionOpenRef = useRef(onSessionOpen);
+  onSessionOpenRef.current = onSessionOpen;
   const onSplitRef = useRef(onSplit);
   onSplitRef.current = onSplit;
   const onMergeRef = useRef(onMerge);
@@ -1020,6 +1024,8 @@ export function useXterm({
         await window.electronAPI.session.kill(session.sessionId).catch(() => {});
         return;
       }
+
+      onSessionOpenRef.current?.(session);
 
       if (ptyIdRef.current !== session.sessionId) {
         setCurrentSessionId(session.sessionId);
