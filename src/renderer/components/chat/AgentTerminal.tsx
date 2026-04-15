@@ -6,7 +6,7 @@ import type {
   SessionRuntimeState,
 } from '@shared/types';
 import { ArrowDown } from 'lucide-react';
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import {
   getClaudeGlobalPolicy,
@@ -19,7 +19,6 @@ import {
 } from '@/components/terminal/TerminalSearchBar';
 import { toastManager } from '@/components/ui/toast';
 import { useAgentProviderSessionDiscovery } from '@/hooks/useAgentProviderSessionDiscovery';
-import { type DroppedFileDescriptor, useFileDrop } from '@/hooks/useFileDrop';
 import { useRepositoryRuntimeContext } from '@/hooks/useRepositoryRuntimeContext';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
@@ -29,6 +28,7 @@ import {
   writeClipboardText,
 } from '@/hooks/xtermClipboard';
 import { useI18n } from '@/i18n';
+import { shouldPersistAgentSessionOnDisconnect } from '@/lib/agentSessionPersistence';
 import { showRendererNotification } from '@/lib/electronNotification';
 import {
   buildChatInputToastCopy,
@@ -40,12 +40,10 @@ import { cn } from '@/lib/utils';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
-import { AgentAttachmentTray } from './AgentAttachmentTray';
 import {
   type AgentAttachmentSource,
-  partitionResolvedAgentAttachments,
+  DRAFT_ATTACHMENT_MAX_BYTES,
   resolveAgentAttachmentTargetsFromFiles,
-  shouldRouteAgentAttachmentToTray,
 } from './agentAttachmentInput';
 import {
   type AgentAttachmentItem,
@@ -65,9 +63,15 @@ import {
 } from './agentInputAvailability';
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import { buildAgentLaunchPlan } from './agentLaunchPlan';
-import { canInsertAgentTerminalAttachments } from './agentTerminalAttachmentInsertPolicy';
+import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActivityPollingPolicy';
+import { resolveAgentTerminalAttachmentInsertDisposition } from './agentTerminalAttachmentInsertPolicy';
 import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
 import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
+import {
+  INTERRUPT_OUTPUT_IDLE_SETTLE_MS,
+  isAgentTerminalInterruptKeyEvent,
+  shouldForceAgentTerminalIdleAfterInterrupt,
+} from './agentTerminalInterruptPolicy';
 import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
 import { extractClaudePolicySessionMetadata } from './claudePolicyLaunch';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
@@ -124,7 +128,6 @@ interface AgentTerminalProps {
 
 const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is doing work
 const MIN_OUTPUT_FOR_INDICATOR = 200; // Minimum chars to show "outputting" indicator (higher to avoid noise)
-const ACTIVITY_POLL_INTERVAL_MS = 1000; // Poll process activity every 1000ms
 const IDLE_CONFIRMATION_COUNT = 2; // Require 2 consecutive idle polls (2 seconds) before marking as idle
 const RECENT_OUTPUT_TIMEOUT_MS = 3000; // If output received within this time, consider still active
 
@@ -359,26 +362,30 @@ export function AgentTerminal({
   const ptyIdRef = useRef<string | null>(null); // Store PTY ID for activity checks
   const isActiveRef = useRef(isActive); // Track latest isActive value for interval callback
   const lastCommandWasSlashCommand = useRef(false); // Track if last command was a slash command
+  const pendingTerminalAttachmentInsertRef = useRef<AgentAttachmentItem[]>([]);
+  const interruptIdleResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastInterruptRequestAtRef = useRef<number | null>(null);
   const setOutputState = useAgentSessionsStore((s) => s.setOutputState);
   const markSessionActive = useAgentSessionsStore((s) => s.markSessionActive);
   const clearRuntimeState = useAgentSessionsStore((s) => s.clearRuntimeState);
   const getEnhancedInputState = useAgentSessionsStore((s) => s.getEnhancedInputState);
   const setEnhancedInputAttachments = useAgentSessionsStore((s) => s.setEnhancedInputAttachments);
-  const appendAttachmentTrayAttachments = useAgentSessionsStore(
-    (s) => s.appendAttachmentTrayAttachments
-  );
-  const setAttachmentTrayAttachments = useAgentSessionsStore((s) => s.setAttachmentTrayAttachments);
-  const setAttachmentTrayImporting = useAgentSessionsStore((s) => s.setAttachmentTrayImporting);
-  const clearAttachmentTray = useAgentSessionsStore((s) => s.clearAttachmentTray);
 
   const terminalSessionId = id ?? sessionId;
   const resumeSessionId = sessionId ?? id;
   const inputDispatchSessionId = backendSessionId ?? null;
-  const usesNativeTerminalInput = supportsAgentNativeTerminalInput(agentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const globalPolicy = getClaudeGlobalPolicy();
   const projectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;
   const worktreePolicy = cwd ? getClaudeWorktreePolicy(cwd) : null;
+  const supportsNativeTerminalInput = supportsAgentNativeTerminalInput(agentId);
+
+  const clearInterruptIdleResetTimer = useCallback(() => {
+    if (interruptIdleResetTimerRef.current) {
+      clearTimeout(interruptIdleResetTimerRef.current);
+      interruptIdleResetTimerRef.current = null;
+    }
+  }, []);
 
   useAgentProviderSessionDiscovery({
     agentCommand,
@@ -390,18 +397,10 @@ export function AgentTerminal({
     isRemoteExecution,
     onProviderSessionIdChange,
   });
-  const trayState = useAgentSessionsStore((state) =>
-    terminalSessionId
-      ? state.getAttachmentTrayState(terminalSessionId)
-      : state.getAttachmentTrayState('__agent-terminal-unbound__')
-  );
-  const trayAttachments = trayState.attachments;
-  const isTrayImporting = trayState.isImporting;
 
   // Use external control if provided, otherwise use local state.
   // IMPORTANT: `externalEnhancedInputOpen` can be false, so we must check `undefined` rather than truthiness.
   const [localEnhancedInputOpen, setLocalEnhancedInputOpen] = useState(false);
-  const [attachmentTrayExpanded, setAttachmentTrayExpanded] = useState(false);
   const isExternallyControlled = externalEnhancedInputOpen !== undefined;
   const enhancedInputOpen = isExternallyControlled
     ? externalEnhancedInputOpen
@@ -435,92 +434,134 @@ export function AgentTerminal({
     [getEnhancedInputState, setEnhancedInputAttachments, setEnhancedInputOpen, terminalSessionId]
   );
 
-  const appendTrayAttachments = useCallback(
-    (nextAttachments: AgentAttachmentItem[]) => {
-      if (!terminalSessionId || nextAttachments.length === 0) {
-        return;
-      }
-      appendAttachmentTrayAttachments(terminalSessionId, nextAttachments);
-    },
-    [appendAttachmentTrayAttachments, terminalSessionId]
-  );
+  const showAttachmentPasteUnavailableWarning = useCallback(() => {
+    const availability = resolveAgentInputAvailability({
+      backendSessionId: inputDispatchSessionId,
+      runtimeState: runtimeStateRef.current,
+    });
+    const unavailableReason = resolveAgentInputUnavailableReason({
+      agentCommand,
+      availability,
+      isRemoteExecution,
+      t,
+    });
+    const description =
+      outputStateRef.current === 'outputting'
+        ? t('Wait for the agent to finish responding before pasting attachments.')
+        : (unavailableReason ?? t('Wait for the agent prompt before pasting attachments.'));
 
-  const insertTerminalAttachmentText = useCallback(
+    toastManager.add({
+      type: 'warning',
+      title: t('Attachment paste unavailable'),
+      description,
+    });
+  }, [agentCommand, inputDispatchSessionId, isRemoteExecution, t]);
+
+  const dispatchTerminalAttachmentInsert = useCallback(
     (nextAttachments: AgentAttachmentItem[]) => {
-      const sessionId = inputDispatchSessionId;
-      if (!sessionId) {
+      if (nextAttachments.length === 0 || !inputDispatchSessionId) {
         return false;
       }
 
-      if (
-        !canInsertAgentTerminalAttachments({
-          sessionId,
-          attachmentCount: nextAttachments.length,
-          runtimeState: runtimeStateRef.current,
-          outputState: outputStateRef.current,
-        })
-      ) {
-        return false;
-      }
-
-      const insertText = buildAgentAttachmentInsertText(nextAttachments);
-      if (!insertText) {
+      const text = buildAgentAttachmentInsertText(nextAttachments);
+      if (!text) {
         return false;
       }
 
       void window.electronAPI.agentInput
         .dispatch({
-          sessionId,
+          sessionId: inputDispatchSessionId,
           agentId,
-          text: insertText,
+          text,
+          submit: false,
         })
         .catch((error) => {
-          console.error('[AgentTerminal] Failed to insert agent attachments', error);
+          console.error('[AgentTerminal] Failed to insert agent attachment text', error);
+          pendingTerminalAttachmentInsertRef.current = mergeAgentAttachments(
+            pendingTerminalAttachmentInsertRef.current,
+            nextAttachments.map((attachment) => attachment.path)
+          );
         });
       terminalFocusRef.current?.();
       return true;
     },
-    [inputDispatchSessionId, agentId]
+    [agentId, inputDispatchSessionId]
   );
 
-  const handleResolvedAttachmentTargets = useCallback(
-    ({
-      draftAttachments: nextDraftAttachments,
-      trayAttachments: nextTrayAttachments,
-    }: {
-      draftAttachments: AgentAttachmentItem[];
-      trayAttachments: AgentAttachmentItem[];
-    }) => {
-      if (nextDraftAttachments.length > 0) {
-        if (usesNativeTerminalInput) {
-          const inserted = insertTerminalAttachmentText(nextDraftAttachments);
-          if (!inserted) {
-            appendTrayAttachments(nextDraftAttachments);
-          }
-        } else if (claudeCodeIntegration.enhancedInputEnabled) {
-          appendDraftAttachments(nextDraftAttachments);
-        } else {
-          appendTrayAttachments(nextDraftAttachments);
-        }
+  const queueTerminalAttachmentInsert = useCallback((nextAttachments: AgentAttachmentItem[]) => {
+    if (nextAttachments.length === 0) {
+      return;
+    }
+
+    pendingTerminalAttachmentInsertRef.current = mergeAgentAttachments(
+      pendingTerminalAttachmentInsertRef.current,
+      nextAttachments.map((attachment) => attachment.path)
+    );
+  }, []);
+
+  const flushQueuedTerminalAttachmentInsert = useCallback(() => {
+    const queuedAttachments = pendingTerminalAttachmentInsertRef.current;
+    if (queuedAttachments.length === 0) {
+      return false;
+    }
+
+    const disposition = resolveAgentTerminalAttachmentInsertDisposition({
+      sessionId: inputDispatchSessionId,
+      attachmentCount: queuedAttachments.length,
+      runtimeState: runtimeStateRef.current,
+      outputState: outputStateRef.current,
+    });
+    if (disposition !== 'insert') {
+      return false;
+    }
+
+    pendingTerminalAttachmentInsertRef.current = [];
+    return dispatchTerminalAttachmentInsert(queuedAttachments);
+  }, [dispatchTerminalAttachmentInsert, inputDispatchSessionId]);
+
+  const insertTerminalAttachmentText = useCallback(
+    (nextAttachments: AgentAttachmentItem[]) => {
+      if (nextAttachments.length === 0) {
+        return;
       }
-      if (nextTrayAttachments.length > 0) {
-        appendTrayAttachments(nextTrayAttachments);
+
+      const disposition = resolveAgentTerminalAttachmentInsertDisposition({
+        sessionId: inputDispatchSessionId,
+        attachmentCount: nextAttachments.length,
+        runtimeState: runtimeStateRef.current,
+        outputState: outputStateRef.current,
+      });
+
+      if (disposition === 'queue') {
+        queueTerminalAttachmentInsert(nextAttachments);
+        return;
       }
+
+      if (disposition === 'reject') {
+        showAttachmentPasteUnavailableWarning();
+        return;
+      }
+
+      dispatchTerminalAttachmentInsert(nextAttachments);
     },
     [
-      appendDraftAttachments,
-      appendTrayAttachments,
-      claudeCodeIntegration.enhancedInputEnabled,
-      insertTerminalAttachmentText,
-      usesNativeTerminalInput,
+      dispatchTerminalAttachmentInsert,
+      inputDispatchSessionId,
+      queueTerminalAttachmentInsert,
+      showAttachmentPasteUnavailableWarning,
     ]
   );
 
-  useEffect(() => {
-    if (trayAttachments.length === 0 && attachmentTrayExpanded) {
-      setAttachmentTrayExpanded(false);
-    }
-  }, [trayAttachments.length, attachmentTrayExpanded]);
+  const handleResolvedAttachmentTargets = useCallback(
+    (nextDraftAttachments: AgentAttachmentItem[]) => {
+      if (supportsNativeTerminalInput) {
+        insertTerminalAttachmentText(nextDraftAttachments);
+        return;
+      }
+      appendDraftAttachments(nextDraftAttachments);
+    },
+    [appendDraftAttachments, insertTerminalAttachmentText, supportsNativeTerminalInput]
+  );
 
   const saveAttachmentToTemp = useCallback(
     async (file: File): Promise<string | null> => {
@@ -629,73 +670,62 @@ export function AgentTerminal({
     [t]
   );
 
+  const showOversizedAttachmentWarning = useCallback(
+    (oversizedFiles: File[]) => {
+      const largestSizeBytes = Math.max(...oversizedFiles.map((file) => file.size), 0);
+      const largestSizeMb = Math.ceil(largestSizeBytes / (1024 * 1024));
+      const attachmentLabel =
+        oversizedFiles.length === 1 ? oversizedFiles[0]?.name || t('Attachment') : t('Attachments');
+
+      toastManager.add({
+        type: 'warning',
+        title: t('Attachment too large'),
+        description: t(
+          '{{label}} must be smaller than {{limit}} MB to paste into the agent input. Largest pasted file: {{size}} MB.',
+          {
+            label: attachmentLabel,
+            limit: Math.floor(DRAFT_ATTACHMENT_MAX_BYTES / (1024 * 1024)),
+            size: largestSizeMb,
+          }
+        ),
+      });
+    },
+    [t]
+  );
+
   const resolveAttachmentTargets = useCallback(
-    async (
-      files: File[],
-      {
-        preferTray = false,
-        source = 'unknown',
-      }: {
-        preferTray?: boolean;
-        source?: AgentAttachmentSource;
-      } = {}
-    ) => {
+    async (files: File[], source: AgentAttachmentSource = 'unknown') => {
       if (files.length === 0) {
         return;
       }
 
-      const shouldImportToTray =
-        preferTray || files.some((file) => shouldRouteAgentAttachmentToTray(file.size));
-      if (terminalSessionId && shouldImportToTray) {
-        setAttachmentTrayImporting(terminalSessionId, true);
+      const oversizedFiles = files.filter((file) => file.size > DRAFT_ATTACHMENT_MAX_BYTES);
+      if (oversizedFiles.length > 0) {
+        showOversizedAttachmentWarning(oversizedFiles);
+        return;
       }
 
-      try {
-        const targets = await resolveAgentAttachmentTargetsFromFiles(files, {
-          preferTray,
-          source,
-          resolveFilePath: (file) => {
-            try {
-              return window.electronAPI.utils.getPathForFile(file) || null;
-            } catch {
-              return null;
-            }
-          },
-          saveClipboardImageToTemp,
-          saveFileToTemp: saveAttachmentToTemp,
-        });
-        handleResolvedAttachmentTargets(targets);
-      } finally {
-        if (terminalSessionId && shouldImportToTray) {
-          setAttachmentTrayImporting(terminalSessionId, false);
-        }
-      }
+      const targets = await resolveAgentAttachmentTargetsFromFiles(files, {
+        source,
+        resolveFilePath: (file) => {
+          try {
+            return window.electronAPI.utils.getPathForFile(file) || null;
+          } catch {
+            return null;
+          }
+        },
+        saveClipboardImageToTemp,
+        saveFileToTemp: saveAttachmentToTemp,
+      });
+      handleResolvedAttachmentTargets(targets.draftAttachments);
     },
     [
       handleResolvedAttachmentTargets,
       saveClipboardImageToTemp,
       saveAttachmentToTemp,
-      setAttachmentTrayImporting,
-      terminalSessionId,
+      showOversizedAttachmentWarning,
     ]
   );
-
-  const handleAttachmentInputChange = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const files = event.target.files ? Array.from(event.target.files) : [];
-      if (files.length === 0) {
-        return;
-      }
-
-      await resolveAttachmentTargets(files, { preferTray: true, source: 'picker' });
-      event.target.value = '';
-    },
-    [resolveAttachmentTargets]
-  );
-
-  const handlePickAttachmentFiles = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
 
   // Keep isActiveRef in sync with isActive prop
   useEffect(() => {
@@ -706,6 +736,10 @@ export function AgentTerminal({
   const updateOutputState = useCallback(
     (newState: OutputState) => {
       if (!terminalSessionId) return;
+      if (newState !== 'outputting') {
+        lastInterruptRequestAtRef.current = null;
+        clearInterruptIdleResetTimer();
+      }
       if (outputStateRef.current === newState) return;
       outputStateRef.current = newState;
       // Use isActiveRef.current to get latest value (important for interval callbacks)
@@ -714,23 +748,48 @@ export function AgentTerminal({
       // Hide enhanced input when agent starts running (hideWhileRunning mode)
       if (
         newState === 'outputting' &&
-        !usesNativeTerminalInput &&
         agentId === 'claude' &&
+        !supportsNativeTerminalInput &&
         claudeCodeIntegration.enhancedInputEnabled &&
         claudeCodeIntegration.enhancedInputAutoPopup === 'hideWhileRunning'
       ) {
         onEnhancedInputOpenChange?.(false);
       }
+
+      if (newState !== 'outputting') {
+        flushQueuedTerminalAttachmentInsert();
+      }
     },
     [
+      clearInterruptIdleResetTimer,
       terminalSessionId,
       setOutputState,
       agentId,
+      supportsNativeTerminalInput,
       claudeCodeIntegration,
+      flushQueuedTerminalAttachmentInsert,
       onEnhancedInputOpenChange,
-      usesNativeTerminalInput,
     ]
   );
+
+  const scheduleInterruptOutputStateReset = useCallback(() => {
+    clearInterruptIdleResetTimer();
+    interruptIdleResetTimerRef.current = setTimeout(() => {
+      interruptIdleResetTimerRef.current = null;
+
+      if (
+        shouldForceAgentTerminalIdleAfterInterrupt({
+          now: Date.now(),
+          outputState: outputStateRef.current,
+          runtimeState: runtimeStateRef.current,
+          lastInterruptRequestAt: lastInterruptRequestAtRef.current,
+          lastOutputAt: lastOutputTimeRef.current,
+        })
+      ) {
+        updateOutputState('idle');
+      }
+    }, INTERRUPT_OUTPUT_IDLE_SETTLE_MS);
+  }, [clearInterruptIdleResetTimer, updateOutputState]);
 
   const getLatestCopyableOutputBlock = useCallback(() => {
     return (
@@ -739,12 +798,53 @@ export function AgentTerminal({
     );
   }, []);
 
+  // Wait for shell config and hapi check to complete before activating terminal
+  const effectiveIsActive = useMemo(() => {
+    if (
+      agentCommand.startsWith('claude') &&
+      claudeCodeIntegration.enabled &&
+      claudeIdeStatus === null
+    ) {
+      return false;
+    }
+    if (
+      agentCommand.startsWith('claude') &&
+      !isRemoteExecution &&
+      claudeWorkspaceTrusted === null
+    ) {
+      return false;
+    }
+    if (!isRemoteExecution && !resolvedShell) {
+      return false;
+    }
+    if (environment === 'hapi' && hapiGlobalInstalled === null) {
+      return false;
+    }
+    // Force activation when there's a pending command (auto-execute)
+    return isActive || hasPendingCommand;
+  }, [
+    environment,
+    hapiGlobalInstalled,
+    isActive,
+    agentCommand,
+    claudeCodeIntegration.enabled,
+    claudeIdeStatus,
+    claudeWorkspaceTrusted,
+    isRemoteExecution,
+    resolvedShell,
+    hasPendingCommand,
+  ]);
+
   // Mark session as active when user is viewing it
   useEffect(() => {
     if (isActive && terminalSessionId) {
       markSessionActive(terminalSessionId);
     }
   }, [isActive, terminalSessionId, markSessionActive]);
+
+  const activityPollIntervalMs = resolveAgentTerminalActivityPollIntervalMs({
+    isActive: effectiveIsActive,
+  });
 
   // Start polling for process activity
   const startActivityPolling = useCallback(() => {
@@ -797,8 +897,8 @@ export function AgentTerminal({
       } catch {
         // Error checking activity, ignore
       }
-    }, ACTIVITY_POLL_INTERVAL_MS);
-  }, [updateOutputState]);
+    }, activityPollIntervalMs);
+  }, [activityPollIntervalMs, updateOutputState]);
 
   // Stop polling for process activity
   const stopActivityPolling = useCallback(() => {
@@ -814,9 +914,18 @@ export function AgentTerminal({
       if (terminalSessionId) {
         clearRuntimeState(terminalSessionId);
       }
+      clearInterruptIdleResetTimer();
       stopActivityPolling();
     };
-  }, [terminalSessionId, clearRuntimeState, stopActivityPolling]);
+  }, [terminalSessionId, clearInterruptIdleResetTimer, clearRuntimeState, stopActivityPolling]);
+
+  useEffect(() => {
+    if (!isMonitoringOutputRef.current || !activityPollIntervalRef.current) {
+      return;
+    }
+
+    startActivityPolling();
+  }, [startActivityPolling]);
 
   // Build command with session args
   const { command, env, initialCommand, hostSession } = useMemo(() => {
@@ -914,6 +1023,9 @@ export function AgentTerminal({
       if (isMonitoringOutputRef.current) {
         outputSinceEnterRef.current += data.length;
         lastOutputTimeRef.current = Date.now(); // Track last output time for idle detection
+        if (lastInterruptRequestAtRef.current !== null) {
+          scheduleInterruptOutputStateReset();
+        }
 
         // Update to 'outputting' once we have substantial output after Enter
         if (outputSinceEnterRef.current > MIN_OUTPUT_FOR_INDICATOR) {
@@ -980,6 +1092,7 @@ export function AgentTerminal({
       agentNotificationEnabled,
       agentNotificationDelay,
       claudeCodeIntegration.stopHookEnabled,
+      scheduleInterruptOutputStateReset,
       terminalSessionId,
       t,
       updateOutputState,
@@ -1016,7 +1129,7 @@ export function AgentTerminal({
         event.ctrlKey &&
         event.code === 'KeyG' &&
         agentId === 'claude' &&
-        !usesNativeTerminalInput
+        !supportsNativeTerminalInput
       ) {
         if (claudeCodeIntegration.enhancedInputEnabled) {
           setEnhancedInputOpen(!enhancedInputOpen);
@@ -1051,6 +1164,8 @@ export function AgentTerminal({
         }
         // Reset output counter.
         dataSinceEnterRef.current = 0;
+        lastInterruptRequestAtRef.current = null;
+        clearInterruptIdleResetTimer();
 
         // Detect if user entered a slash command (like /clear, /help, etc.)
         // These commands don't trigger Claude and should quickly return to idle
@@ -1101,6 +1216,20 @@ export function AgentTerminal({
         return true; // Let Enter through normally
       }
 
+      if (
+        isAgentTerminalInterruptKeyEvent({
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+        }) &&
+        outputStateRef.current === 'outputting'
+      ) {
+        lastInterruptRequestAtRef.current = Date.now();
+        scheduleInterruptOutputStateReset();
+      }
+
       // User is typing - cancel idle notification and enter delay timer
       if (
         (isWaitingForIdleRef.current ||
@@ -1128,54 +1257,19 @@ export function AgentTerminal({
       onActivated,
       onActivatedWithFirstLine,
       agentNotificationEnterDelay,
+      clearInterruptIdleResetTimer,
       startActivityPolling,
       terminalSessionId,
       agentId,
+      supportsNativeTerminalInput,
       claudeCodeIntegration.enhancedInputEnabled,
       enhancedInputOpen,
       setEnhancedInputOpen,
-      usesNativeTerminalInput,
+      scheduleInterruptOutputStateReset,
       // Note: terminal is excluded as it's defined after this callback
       // and accessed via try-catch for safety
     ]
   );
-
-  // Wait for shell config and hapi check to complete before activating terminal
-  const effectiveIsActive = useMemo(() => {
-    if (
-      agentCommand.startsWith('claude') &&
-      claudeCodeIntegration.enabled &&
-      claudeIdeStatus === null
-    ) {
-      return false;
-    }
-    if (
-      agentCommand.startsWith('claude') &&
-      !isRemoteExecution &&
-      claudeWorkspaceTrusted === null
-    ) {
-      return false;
-    }
-    if (!isRemoteExecution && !resolvedShell) {
-      return false;
-    }
-    if (environment === 'hapi' && hapiGlobalInstalled === null) {
-      return false;
-    }
-    // Force activation when there's a pending command (auto-execute)
-    return isActive || hasPendingCommand;
-  }, [
-    environment,
-    hapiGlobalInstalled,
-    isActive,
-    agentCommand,
-    claudeCodeIntegration.enabled,
-    claudeIdeStatus,
-    claudeWorkspaceTrusted,
-    isRemoteExecution,
-    resolvedShell,
-    hasPendingCommand,
-  ]);
 
   const {
     containerRef,
@@ -1220,7 +1314,7 @@ export function AgentTerminal({
             }
           : undefined,
     }),
-    persistOnDisconnect: true,
+    persistOnDisconnect: shouldPersistAgentSessionOnDisconnect(persistenceEnabled),
     preferHostScrollback:
       hostSession?.kind === 'tmux' &&
       (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current))),
@@ -1243,11 +1337,15 @@ export function AgentTerminal({
   trustPromptSubmitRef.current = write;
   terminalFocusRef.current = () => terminal?.focus();
   runtimeStateRef.current = runtimeState;
-  const agentInputAvailability = resolveAgentInputAvailability({
-    backendSessionId: inputDispatchSessionId,
-    runtimeState,
-  });
-  const canDispatchAgentInput = agentInputAvailability === 'ready';
+  useEffect(() => {
+    if (runtimeState === 'live') {
+      return;
+    }
+
+    lastInterruptRequestAtRef.current = null;
+    clearInterruptIdleResetTimer();
+  }, [clearInterruptIdleResetTimer, runtimeState]);
+
   useEffect(() => {
     onRuntimeStateChange?.(runtimeState);
   }, [onRuntimeStateChange, runtimeState]);
@@ -1410,16 +1508,7 @@ export function AgentTerminal({
     };
   }, []);
 
-  // Handle external file drop (from OS file manager, VS Code, etc.)
-  const terminalWrapperRef = useFileDrop<HTMLDivElement>({
-    cwd,
-    onDrop: useCallback(
-      (files: DroppedFileDescriptor[]) => {
-        handleResolvedAttachmentTargets(partitionResolvedAgentAttachments(files));
-      },
-      [handleResolvedAttachmentTargets]
-    ),
-  });
+  const terminalWrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const wrapper = terminalWrapperRef.current;
@@ -1454,12 +1543,12 @@ export function AgentTerminal({
       }
 
       event.preventDefault();
-      void resolveAttachmentTargets(files, { source: 'clipboard' });
+      void resolveAttachmentTargets(files, 'clipboard');
     };
 
     wrapper.addEventListener('paste', handlePaste, true);
     return () => wrapper.removeEventListener('paste', handlePaste, true);
-  }, [agentId, resolveAttachmentTargets, terminalWrapperRef]);
+  }, [agentId, resolveAttachmentTargets]);
 
   // Handle click to activate group
   const handleClick = useCallback(() => {
@@ -1494,40 +1583,6 @@ export function AgentTerminal({
     [inputDispatchSessionId, agentId]
   );
 
-  const handleAttachmentSend = useCallback(() => {
-    if (usesNativeTerminalInput) {
-      const didInsert = insertTerminalAttachmentText(trayAttachments);
-      if (!didInsert) {
-        return;
-      }
-    } else {
-      const message = buildAgentAttachmentMessage('', trayAttachments);
-      if (!message) {
-        return;
-      }
-
-      const didSend = sendTerminalMessage(
-        message,
-        resolveAgentAttachmentSendDelay(message, trayAttachments)
-      );
-      if (!didSend) {
-        return;
-      }
-    }
-
-    if (terminalSessionId) {
-      clearAttachmentTray(terminalSessionId);
-    }
-    setAttachmentTrayExpanded(false);
-  }, [
-    clearAttachmentTray,
-    insertTerminalAttachmentText,
-    sendTerminalMessage,
-    terminalSessionId,
-    trayAttachments,
-    usesNativeTerminalInput,
-  ]);
-
   // Handle enhanced input send
   const handleEnhancedInputSend = useCallback(
     (content: string, attachments: AgentAttachmentItem[]) => {
@@ -1542,13 +1597,12 @@ export function AgentTerminal({
   );
 
   useEffect(() => {
-    if (!terminalSessionId || supportsAgentNativeTerminalInput(agentId)) return;
+    if (!terminalSessionId) return;
     onRegisterEnhancedInputSender?.(terminalSessionId, handleEnhancedInputSend);
     return () => {
       onUnregisterEnhancedInputSender?.(terminalSessionId);
     };
   }, [
-    agentId,
     terminalSessionId,
     handleEnhancedInputSend,
     onRegisterEnhancedInputSender,
@@ -1563,15 +1617,6 @@ export function AgentTerminal({
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}
       onClick={handleClick}
     >
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(event) => {
-          void handleAttachmentInputChange(event);
-        }}
-      />
       <div ref={containerRef} className="h-full w-full" />
       <TerminalSearchBar
         ref={searchBarRef}
@@ -1598,47 +1643,6 @@ export function AgentTerminal({
           <ArrowDown className="h-4 w-4" />
         </button>
       )}
-      <AgentAttachmentTray
-        attachments={trayAttachments}
-        expanded={attachmentTrayExpanded}
-        canSend={canDispatchAgentInput}
-        primaryActionLabel={
-          agentInputAvailability === 'awaiting-session'
-            ? t('Awaiting Session')
-            : agentInputAvailability === 'reconnecting'
-              ? t('Reconnecting')
-              : agentInputAvailability === 'disconnected'
-                ? t('Disconnected')
-                : usesNativeTerminalInput
-                  ? t('Insert attachments')
-                  : undefined
-        }
-        primaryActionHint={resolveAgentInputUnavailableReason({
-          agentCommand,
-          availability: agentInputAvailability,
-          isRemoteExecution,
-          t,
-        })}
-        isProcessing={isTrayImporting}
-        onExpandedChange={setAttachmentTrayExpanded}
-        onPickFiles={handlePickAttachmentFiles}
-        onRemoveAttachment={(attachmentId) => {
-          if (!terminalSessionId) {
-            return;
-          }
-          setAttachmentTrayAttachments(
-            terminalSessionId,
-            trayAttachments.filter((attachment) => attachment.id !== attachmentId)
-          );
-        }}
-        onClear={() => {
-          if (terminalSessionId) {
-            clearAttachmentTray(terminalSessionId);
-          }
-          setAttachmentTrayExpanded(false);
-        }}
-        onSend={handleAttachmentSend}
-      />
       {(isLoading ||
         (agentCommand.startsWith('claude') &&
           !isRemoteExecution &&

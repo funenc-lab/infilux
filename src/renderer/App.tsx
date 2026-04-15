@@ -113,6 +113,13 @@ import { initAgentActivityListener, useWorktreeActivityStore } from './stores/wo
 export default function App() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const [agentCanvasRecenterRequest, setAgentCanvasRecenterRequest] = useState<{
+    token: number;
+    worktreePath: string | null;
+  }>({
+    token: 0,
+    worktreePath: null,
+  });
 
   useEffect(() => {
     return initCloneProgressListener();
@@ -320,6 +327,14 @@ export default function App() {
     [activateRemoteRepo, isRemoteRepoPath, setSelectedRepoState]
   );
 
+  const requestAgentCanvasRecenter = useCallback((worktreePath: string) => {
+    const normalizedWorktreePath = normalizePath(worktreePath);
+    setAgentCanvasRecenterRequest((previous) => ({
+      token: previous.token + 1,
+      worktreePath: normalizedWorktreePath,
+    }));
+  }, []);
+
   const { refreshGitData, handleSelectWorktree } = useWorktreeSelection(
     activeWorktree,
     setActiveWorktree,
@@ -331,7 +346,8 @@ export default function App() {
     setActiveTab,
     selectedRepo,
     setSelectedRepoForWorktreeSelection,
-    saveActiveWorktreeToMap
+    saveActiveWorktreeToMap,
+    requestAgentCanvasRecenter
   );
 
   const {
@@ -961,6 +977,7 @@ export default function App() {
           if (found) {
             setSelectedRepoForWorktreeSelection(repo.path);
             setActiveWorktree(found);
+            requestAgentCanvasRecenter(found.path);
             const savedTab = resolveWorktreeTabForRestore({
               savedTab: worktreeTabMap[found.path],
               settingsDisplayMode,
@@ -987,6 +1004,7 @@ export default function App() {
       setActiveTab,
       setActiveWorktree,
       setSelectedRepoForWorktreeSelection,
+      requestAgentCanvasRecenter,
     ]
   );
 
@@ -1651,6 +1669,8 @@ export default function App() {
           onCategoryChange={handleSettingsCategoryChange}
           scrollToProvider={scrollToProvider}
           onToggleSettings={toggleSettings}
+          chatCanvasRecenterToken={agentCanvasRecenterRequest.token}
+          chatCanvasRecenterWorktreePath={agentCanvasRecenterRequest.worktreePath}
           selectedSubagent={activeSelectedSubagent}
           onCloseSelectedSubagent={() => {
             if (!activeWorktree) {

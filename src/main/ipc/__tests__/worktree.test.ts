@@ -52,6 +52,7 @@ const worktreeTestDoubles = vi.hoisted(() => {
   const clearWorktrees = vi.fn();
   const registerWorktree = vi.fn();
   const unregisterWorktree = vi.fn();
+  const syncRepositoryWorktrees = vi.fn();
   const isRemoteVirtualPath = vi.fn((input: string) => input.startsWith('/__remote__/'));
   const stopWatchersInDirectory = vi.fn(async () => undefined);
   const killByWorkdir = vi.fn(async () => undefined);
@@ -82,6 +83,7 @@ const worktreeTestDoubles = vi.hoisted(() => {
     clearWorktrees.mockReset();
     registerWorktree.mockReset();
     unregisterWorktree.mockReset();
+    syncRepositoryWorktrees.mockReset();
     isRemoteVirtualPath.mockReset();
     isRemoteVirtualPath.mockImplementation((input: string) => input.startsWith('/__remote__/'));
     stopWatchersInDirectory.mockReset();
@@ -126,6 +128,7 @@ const worktreeTestDoubles = vi.hoisted(() => {
     clearWorktrees,
     registerWorktree,
     unregisterWorktree,
+    syncRepositoryWorktrees,
     isRemoteVirtualPath,
     stopWatchersInDirectory,
     killByWorkdir,
@@ -155,6 +158,7 @@ vi.mock('../../services/git/GitAutoFetchService', () => ({
     clearWorktrees: worktreeTestDoubles.clearWorktrees,
     registerWorktree: worktreeTestDoubles.registerWorktree,
     unregisterWorktree: worktreeTestDoubles.unregisterWorktree,
+    syncRepositoryWorktrees: worktreeTestDoubles.syncRepositoryWorktrees,
   },
 }));
 
@@ -218,9 +222,15 @@ describe('worktree IPC handlers', () => {
       { path: '/repo/feature-a' },
     ]);
     expect(worktreeTestDoubles.getService).toHaveBeenCalledTimes(1);
-    expect(worktreeTestDoubles.clearWorktrees).toHaveBeenCalledTimes(2);
-    expect(worktreeTestDoubles.registerWorktree).toHaveBeenNthCalledWith(1, '/repo/main');
-    expect(worktreeTestDoubles.registerWorktree).toHaveBeenNthCalledWith(2, '/repo/feature-a');
+    expect(worktreeTestDoubles.syncRepositoryWorktrees).toHaveBeenCalledTimes(2);
+    expect(worktreeTestDoubles.syncRepositoryWorktrees).toHaveBeenNthCalledWith(1, '/repo', [
+      '/repo/main',
+      '/repo/feature-a',
+    ]);
+    expect(worktreeTestDoubles.syncRepositoryWorktrees).toHaveBeenNthCalledWith(2, '/repo', [
+      '/repo/main',
+      '/repo/feature-a',
+    ]);
 
     clearWorktreeService('/repo');
     expect(await listHandler({}, '/repo')).toEqual([
@@ -228,6 +238,7 @@ describe('worktree IPC handlers', () => {
       { path: '/repo/feature-a' },
     ]);
     expect(worktreeTestDoubles.getService).toHaveBeenCalledTimes(2);
+    expect(worktreeTestDoubles.syncRepositoryWorktrees).toHaveBeenCalledTimes(3);
   });
 
   it('delegates remote list and add operations without constructing local services', async () => {
@@ -269,6 +280,7 @@ describe('worktree IPC handlers', () => {
     expect(worktreeTestDoubles.getService).not.toHaveBeenCalled();
     expect(worktreeTestDoubles.clearWorktrees).not.toHaveBeenCalled();
     expect(worktreeTestDoubles.registerWorktree).not.toHaveBeenCalled();
+    expect(worktreeTestDoubles.syncRepositoryWorktrees).not.toHaveBeenCalled();
   });
 
   it('adds and removes local worktrees after stopping dependent resources', async () => {

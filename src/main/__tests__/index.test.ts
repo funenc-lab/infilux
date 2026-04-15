@@ -138,6 +138,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const initLogger = vi.fn();
   const autoUpdaterInit = vi.fn();
   const autoUpdaterAttachWindow = vi.fn();
+  const autoUpdaterIsQuittingForUpdate = vi.fn(() => false);
   const persistentAgentSessionRepositoryInitialize = vi.fn(async () => undefined);
   const customProtocolUriToPath = vi.fn((_url: string) => '/mock/image.png');
   const trayInit = vi.fn();
@@ -460,6 +461,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       initLogger,
       autoUpdaterInit,
       autoUpdaterAttachWindow,
+      autoUpdaterIsQuittingForUpdate,
       persistentAgentSessionRepositoryInitialize,
       customProtocolUriToPath,
       trayInit,
@@ -521,6 +523,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     todoInitialize.mockResolvedValue(undefined);
     todoExportAllTasks.mockResolvedValue([{ id: 'board-1' }]);
     persistentAgentSessionRepositoryInitialize.mockResolvedValue(undefined);
+    autoUpdaterIsQuittingForUpdate.mockReturnValue(false);
     customProtocolUriToPath.mockImplementation((_url: string) => '/mock/image.png');
     trayInit.mockReset();
     trayRefreshMenu.mockReset();
@@ -665,6 +668,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     initLogger,
     autoUpdaterInit,
     autoUpdaterAttachWindow,
+    autoUpdaterIsQuittingForUpdate,
     persistentAgentSessionRepositoryInitialize,
     customProtocolUriToPath,
     trayInit,
@@ -872,6 +876,7 @@ vi.mock('../services/updater/AutoUpdater', () => ({
   autoUpdaterService: {
     init: mainIndexTestDoubles.autoUpdaterInit,
     attachWindow: mainIndexTestDoubles.autoUpdaterAttachWindow,
+    isQuittingForUpdate: mainIndexTestDoubles.autoUpdaterIsQuittingForUpdate,
   },
 }));
 
@@ -1120,10 +1125,10 @@ describe('main entry', () => {
       ['/mock/app-entry']
     );
     expect(mainIndexTestDoubles.appendSwitch).toHaveBeenCalledWith('gtk-version', '3');
-    expect(mainIndexTestDoubles.appendSwitch).not.toHaveBeenCalledWith(
-      'remote-debugging-port',
-      '9222'
+    const remoteDebuggingCalls = mainIndexTestDoubles.appendSwitch.mock.calls.filter(
+      ([switchName, value]) => switchName === 'remote-debugging-port' && value === '9222'
     );
+    expect(remoteDebuggingCalls).toHaveLength(0);
   }, 15000);
 
   it('enables the remote debugging port only when explicitly requested in development', async () => {
@@ -1135,7 +1140,10 @@ describe('main entry', () => {
       argv: ['/mock/electron', '/mock/app-entry'],
     });
 
-    expect(mainIndexTestDoubles.appendSwitch).toHaveBeenCalledWith('remote-debugging-port', '9222');
+    const remoteDebuggingCalls = mainIndexTestDoubles.appendSwitch.mock.calls.filter(
+      ([switchName, value]) => switchName === 'remote-debugging-port' && value === '9222'
+    );
+    expect(remoteDebuggingCalls).toHaveLength(1);
   });
 
   it('falls back to the default dev profile when the sanitized profile name is empty', async () => {
@@ -2393,6 +2401,35 @@ describe('main entry', () => {
     rejectionHandler(ignorableError);
 
     expect(errorSpy).not.toHaveBeenCalledWith('Unhandled Rejection:', ignorableError);
+  });
+
+  it('bypasses custom will-quit cleanup while updater is restarting to install an update', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow();
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    mainIndexTestDoubles.autoUpdaterIsQuittingForUpdate.mockReturnValue(true);
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'darwin',
+    });
+
+    const quitEvent = {
+      preventDefault: vi.fn(),
+    };
+
+    await mainIndexTestDoubles.emitApp('will-quit', quitEvent);
+    await Promise.resolve();
+
+    expect(mainIndexTestDoubles.logInfo).toHaveBeenCalledWith(
+      '[updater] Allowing updater-controlled quit flow for install restart'
+    );
+    expect(quitEvent.preventDefault).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.registerWindowHandlersCleanup).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.unwatchClaudeSettings).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.gitAutoFetchCleanup).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.cleanupAllResources).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.cleanupAllResourcesSync).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.exit).not.toHaveBeenCalled();
   });
 
   it('cleans up resources on will-quit and handles shutdown signals', async () => {

@@ -8,20 +8,13 @@ const agentFloatingControlLayoutSource = readFileSync(
   resolve(currentDir, '../agentFloatingControlLayout.ts'),
   'utf8'
 );
-const agentAttachmentTraySource = readFileSync(
-  resolve(currentDir, '../AgentAttachmentTray.tsx'),
-  'utf8'
-);
 const agentTerminalSource = readFileSync(resolve(currentDir, '../AgentTerminal.tsx'), 'utf8');
 
 describe('agent terminal floating control layout', () => {
-  it('keeps the scroll-to-bottom control clear of the floating attachment launcher', () => {
-    expect(agentFloatingControlLayoutSource).toContain('AGENT_CHAT_FLOATING_EDGE_INSET_CLASS');
+  it('keeps the scroll-to-bottom control independent from any attachment launcher', () => {
     expect(agentFloatingControlLayoutSource).toContain('AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS');
-    expect(agentAttachmentTraySource).toContain("from './agentFloatingControlLayout'");
-    expect(agentAttachmentTraySource).toContain('AGENT_CHAT_FLOATING_EDGE_INSET_CLASS');
-    expect(agentTerminalSource).toContain("from './agentFloatingControlLayout'");
+    expect(agentFloatingControlLayoutSource).not.toContain('bottom-[calc(');
     expect(agentTerminalSource).toContain('AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS');
-    expect(agentTerminalSource).not.toContain('absolute bottom-12 right-3');
+    expect(agentTerminalSource).not.toContain("from './AgentAttachmentTray'");
   });
 });

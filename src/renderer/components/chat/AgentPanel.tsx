@@ -97,7 +97,8 @@ import {
   resolveAgentCanvasCenteredScrollPosition,
   resolveAgentCanvasFloatingFrame,
   resolveAgentCanvasFloatingTerminalFontScale,
-  resolveAgentCanvasRestoreScrollPosition,
+  resolveAgentCanvasFocusScrollPosition,
+  resolveAgentCanvasScrollBehavior,
   resolveAgentCanvasViewportMetrics,
   resolveAgentCanvasViewportSyncPosition,
   resolveAgentCanvasWheelZoomDelta,
@@ -141,12 +142,14 @@ import {
 } from './sessionTitleText';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
+import { useAgentCanvasViewportRestore } from './useAgentCanvasViewportRestore';
 
 export interface AgentPanelProps {
   repoPath: string; // repository path (workspace identifier)
   cwd: string; // current worktree path
   isActive?: boolean;
   onSwitchWorktree?: (worktreePath: string) => void;
+  canvasRecenterOnActivateToken?: number;
 }
 
 // Agent display names and commands
@@ -297,6 +300,10 @@ type CanvasViewportSnapshot = {
   clientWidth: number;
   scrollHeight: number;
   scrollWidth: number;
+};
+
+type SelectSessionOptions = {
+  focusCanvasViewport?: boolean;
 };
 
 type CanvasWheelZoomState = {
@@ -476,7 +483,13 @@ const CanvasSessionContentOutlet = memo(function CanvasSessionContentOutlet({
   return <div ref={outletRef} className={className} />;
 });
 
-export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }: AgentPanelProps) {
+export function AgentPanel({
+  repoPath,
+  cwd,
+  isActive = false,
+  onSwitchWorktree,
+  canvasRecenterOnActivateToken = 0,
+}: AgentPanelProps) {
   const { t } = useI18n();
   const platform = getRendererEnvironment().platform;
   const isWindows = platform === 'win32';
@@ -646,6 +659,21 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
   // Enhanced input state actions from store
   const setEnhancedInputOpen = useAgentSessionsStore((state) => state.setEnhancedInputOpen);
   const getEnhancedInputState = useAgentSessionsStore((state) => state.getEnhancedInputState);
+  const shouldRenderEnhancedInput = useCallback(
+    (sessionId: string) => {
+      const session = allSessions.find((item) => item.id === sessionId);
+      if (!session || supportsAgentNativeTerminalInput(session.agentId)) {
+        return false;
+      }
+      const inputState = getEnhancedInputState(sessionId);
+      return (
+        claudeCodeIntegration.enhancedInputEnabled ||
+        inputState.open ||
+        inputState.attachments.length > 0
+      );
+    },
+    [allSessions, claudeCodeIntegration.enhancedInputEnabled, getEnhancedInputState]
+  );
 
   // Group states from store (persists across component remounts)
   const worktreeGroupStates = useAgentSessionsStore((state) => state.groupStates);
@@ -1516,6 +1544,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
         if (
           baseAgentId === 'claude' &&
+          !supportsAgentNativeTerminalInput(defaultAgentId) &&
           claudeCodeIntegration.enhancedInputEnabled &&
           (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
         ) {
@@ -1869,9 +1898,53 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     [markSessionExited]
   );
 
+  const focusCanvasViewportOnSession = useCallback(
+    (id: string) => {
+      if (!isCanvasDisplayMode || isCanvasLocked) {
+        return;
+      }
+
+      const viewport = canvasViewportRef.current;
+      if (!viewport) {
+        return;
+      }
+
+      const sessionPanel = document.getElementById(buildSessionPanelDomId(id));
+      if (!(sessionPanel instanceof HTMLElement)) {
+        return;
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const sessionPanelRect = sessionPanel.getBoundingClientRect();
+      const nextPosition = resolveAgentCanvasFocusScrollPosition({
+        clientHeight: viewport.clientHeight,
+        clientWidth: viewport.clientWidth,
+        currentScrollLeft: viewport.scrollLeft,
+        currentScrollTop: viewport.scrollTop,
+        scrollHeight: viewport.scrollHeight,
+        scrollWidth: viewport.scrollWidth,
+        targetHeight: sessionPanelRect.height,
+        targetLeft: viewport.scrollLeft + sessionPanelRect.left - viewportRect.left,
+        targetTop: viewport.scrollTop + sessionPanelRect.top - viewportRect.top,
+        targetWidth: sessionPanelRect.width,
+      });
+      const prefersReducedMotion =
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      viewport.scrollTo({
+        left: nextPosition.left,
+        top: nextPosition.top,
+        behavior: resolveAgentCanvasScrollBehavior(prefersReducedMotion),
+      });
+      canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = nextPosition;
+    },
+    [canvasZoomStorageKey, isCanvasDisplayMode, isCanvasLocked]
+  );
+
   // Handle session selection
   const handleSelectSession = useCallback(
-    (id: string, groupId?: string) => {
+    (id: string, groupId?: string, options?: SelectSessionOptions) => {
       setActiveId(cwd, id);
 
       updateCurrentGroupState((state) => {
@@ -1886,8 +1959,12 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           activeGroupId: targetGroupId,
         };
       });
+
+      if (options?.focusCanvasViewport) {
+        focusCanvasViewportOnSession(id);
+      }
     },
-    [cwd, setActiveId, updateCurrentGroupState]
+    [cwd, focusCanvasViewportOnSession, setActiveId, updateCurrentGroupState]
   );
 
   // Notification payload may carry either UI session id or Claude sessionId.
@@ -1905,7 +1982,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         onSwitchWorktree(session.cwd);
       }
       if (session) {
-        handleSelectSession(session.id);
+        handleSelectSession(session.id, undefined, { focusCanvasViewport: true });
       }
     });
     return unsubscribe;
@@ -2085,7 +2162,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     const baseIndex = currentIndex >= 0 ? currentIndex : 0;
     const nextSession = currentWorktreeSessions[(baseIndex + 1) % currentWorktreeSessions.length];
 
-    handleSelectSession(nextSession.id, currentGroupIdBySessionId.get(nextSession.id));
+    handleSelectSession(nextSession.id, currentGroupIdBySessionId.get(nextSession.id), {
+      focusCanvasViewport: true,
+    });
   }, [
     canvasFocusedSessionId,
     currentGroupIdBySessionId,
@@ -2105,7 +2184,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
       baseIndex <= 0 ? currentWorktreeSessions.length - 1 : Math.max(baseIndex - 1, 0);
     const prevSession = currentWorktreeSessions[prevIndex];
 
-    handleSelectSession(prevSession.id, currentGroupIdBySessionId.get(prevSession.id));
+    handleSelectSession(prevSession.id, currentGroupIdBySessionId.get(prevSession.id), {
+      focusCanvasViewport: true,
+    });
   }, [
     canvasFocusedSessionId,
     currentGroupIdBySessionId,
@@ -2178,29 +2259,38 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     }
     canvasWheelZoomStateRef.current = createInitialCanvasWheelZoomState();
   }, []);
-  const updateCanvasViewportBounds = useCallback((viewport: HTMLDivElement) => {
-    const rect = viewport.getBoundingClientRect();
-    const nextBounds = {
-      height: rect.height,
-      left: rect.left,
-      top: rect.top,
-      width: rect.width,
-    };
+  const updateCanvasViewportBounds = useCallback(
+    (viewport: HTMLDivElement) => {
+      const rect = viewport.getBoundingClientRect();
+      const nextBounds = {
+        height: rect.height,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+      };
+      const nextStoredBounds = canvasFloatingSessionId ? nextBounds : null;
 
-    setCanvasViewportBounds((previousBounds) => {
-      if (
-        previousBounds &&
-        previousBounds.height === nextBounds.height &&
-        previousBounds.left === nextBounds.left &&
-        previousBounds.top === nextBounds.top &&
-        previousBounds.width === nextBounds.width
-      ) {
-        return previousBounds;
-      }
+      setCanvasViewportBounds((previousBounds) => {
+        if (previousBounds === null && nextStoredBounds === null) {
+          return previousBounds;
+        }
 
-      return nextBounds;
-    });
-  }, []);
+        if (
+          previousBounds &&
+          nextStoredBounds &&
+          previousBounds.height === nextStoredBounds.height &&
+          previousBounds.left === nextStoredBounds.left &&
+          previousBounds.top === nextStoredBounds.top &&
+          previousBounds.width === nextStoredBounds.width
+        ) {
+          return previousBounds;
+        }
+
+        return nextStoredBounds;
+      });
+    },
+    [canvasFloatingSessionId]
+  );
   const applyCanvasViewportPosition = useCallback(
     (viewport: HTMLDivElement, position: CanvasViewportPosition): CanvasViewportPosition => {
       const snapshot = readCanvasViewportSnapshot(viewport);
@@ -2502,42 +2592,18 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
     resetCanvasWheelZoomState();
   }, [canvasZoomStorageKey, resetCanvasWheelZoomState]);
 
-  useEffect(() => {
-    if (!isCanvasDisplayMode || !isActive) {
-      return;
-    }
-
-    let cancelled = false;
-    const frameId = requestAnimationFrame(() => {
-      if (cancelled) {
-        return;
-      }
-
-      const viewport = canvasViewportRef.current;
-      if (!viewport) {
-        return;
-      }
-
-      const snapshot = readCanvasViewportSnapshot(viewport);
-      const savedPosition = canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey];
-      const nextPosition = resolveAgentCanvasRestoreScrollPosition({
-        clientHeight: snapshot.clientHeight,
-        clientWidth: snapshot.clientWidth,
-        savedPosition,
-        scrollHeight: snapshot.scrollHeight,
-        scrollWidth: snapshot.scrollWidth,
-      });
-
-      applyCanvasViewportPosition(viewport, nextPosition);
-      canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] = snapshot;
-      canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey;
-    });
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frameId);
-    };
-  }, [applyCanvasViewportPosition, canvasZoomStorageKey, isActive, isCanvasDisplayMode]);
+  useAgentCanvasViewportRestore({
+    applyCanvasViewportPosition,
+    canvasViewportPositionByWorktreeRef,
+    canvasViewportRestoreReadyWorktreeKeyRef,
+    canvasViewportSnapshotByWorktreeRef,
+    canvasZoomStorageKey,
+    isActive,
+    isCanvasDisplayMode,
+    readCanvasViewportSnapshot,
+    recenterOnActivateToken: canvasRecenterOnActivateToken,
+    viewportRef: canvasViewportRef,
+  });
   useEffect(() => {
     if (!isCanvasDisplayMode) {
       setCanvasViewportBounds(null);
@@ -3090,7 +3156,9 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
           const targetSession = currentWorktreeSessions[index];
           if (targetSession) {
             e.preventDefault();
-            handleSelectSession(targetSession.id, currentGroupIdBySessionId.get(targetSession.id));
+            handleSelectSession(targetSession.id, currentGroupIdBySessionId.get(targetSession.id), {
+              focusCanvasViewport: true,
+            });
           }
           return;
         }
@@ -3490,8 +3558,7 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
         <div className={cn(isCanvasDisplayMode ? 'pointer-events-auto' : 'hidden')}>
           {isCanvasDisplayMode ? (
             <>
-              {claudeCodeIntegration.enhancedInputEnabled &&
-              !supportsAgentNativeTerminalInput(session.agentId) ? (
+              {shouldRenderEnhancedInput(session.id) ? (
                 <EnhancedInputContainer
                   sessionId={session.id}
                   canSend={canSendToSession}
@@ -3969,9 +4036,8 @@ export function AgentPanel({ repoPath, cwd, isActive = false, onSwitchWorktree }
               {/* Bottom bar: Enhanced Input + Status Line, height measured for terminal offset */}
               <GroupBottomBar groupId={group.id} onHeightChange={setStatusLineHeightsByGroupId}>
                 {isActiveGroup &&
-                  claudeCodeIntegration.enhancedInputEnabled &&
                   activeSession != null &&
-                  !supportsAgentNativeTerminalInput(activeSession.agentId) && (
+                  shouldRenderEnhancedInput(activeSession.id) && (
                     <EnhancedInputContainer
                       sessionId={activeSession.id}
                       canSend={canSendToActiveSession}

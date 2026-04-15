@@ -13,6 +13,7 @@ declare global {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const useWorktreeListMultipleMock = vi.fn();
+let shouldPollValue = false;
 
 vi.mock('lucide-react', () => {
   const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
@@ -27,6 +28,7 @@ vi.mock('lucide-react', () => {
     List: icon,
     MoreHorizontal: icon,
     PanelLeftClose: icon,
+    PanelLeftOpen: icon,
     Plus: icon,
     RefreshCw: icon,
     Search: icon,
@@ -95,7 +97,7 @@ vi.mock('@/stores/worktreeActivity', () => ({
 }));
 
 vi.mock('@/hooks/useWindowFocus', () => ({
-  useShouldPoll: () => false,
+  useShouldPoll: () => shouldPollValue,
 }));
 
 vi.mock('@/hooks/useLiveSubagents', () => ({
@@ -230,7 +232,9 @@ function buildUseWorktreeListResponse(
   };
 }
 
-async function mountTreeSidebar() {
+async function mountTreeSidebar(
+  overrides: Partial<React.ComponentProps<typeof import('../TreeSidebar')['TreeSidebar']>> = {}
+) {
   const { TreeSidebar } = await import('../TreeSidebar');
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -296,6 +300,7 @@ async function mountTreeSidebar() {
           },
         ],
         onSelectTempWorkspace: vi.fn(),
+        ...overrides,
       })
     );
   });
@@ -313,6 +318,7 @@ async function mountTreeSidebar() {
 
 describe('TreeSidebar agent filter', () => {
   beforeEach(() => {
+    shouldPollValue = false;
     worktreeActivityState.activities = {
       '/repo-a/main': { agentCount: 0, terminalCount: 0 },
       '/repo-a/agent-task': { agentCount: 1, terminalCount: 0 },
@@ -389,6 +395,30 @@ describe('TreeSidebar agent filter', () => {
 
       expect(useWorktreeListMultipleMock).toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ repoPath: '/repo-b', enabled: true })])
+      );
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('skips diff stat polling while the tree sidebar is collapsed', async () => {
+    shouldPollValue = true;
+    const view = await mountTreeSidebar({ collapsed: true });
+
+    try {
+      expect(worktreeActivityState.fetchDiffStats).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('polls diff stats immediately when the tree sidebar is expanded and polling is allowed', async () => {
+    shouldPollValue = true;
+    const view = await mountTreeSidebar({ collapsed: false });
+
+    try {
+      expect(worktreeActivityState.fetchDiffStats).toHaveBeenCalledWith(
+        expect.arrayContaining(['/repo-a/main', '/repo-a/agent-task'])
       );
     } finally {
       view.unmount();

@@ -52,16 +52,16 @@ describe('SessionBar floating accessibility and structure', () => {
   });
 
   it('keeps the session tab glow card as a static state frame while the indicator carries motion', () => {
-    expect(sessionBarSource).toContain('<GlowCard state={outputState} as="div" {...tabProps}>');
+    expect(sessionBarSource).toContain('<GlowCard state={glowState} as="div" {...tabProps}>');
     expect(sessionBarSource).not.toContain(
-      '<GlowCard state={outputState} animated as="div" {...tabProps}>'
+      '<GlowCard state={glowState} animated as="div" {...tabProps}>'
     );
   });
 
   it('renders the session tab execution indicator through the shared animated primitive', () => {
     expect(sessionBarSource).toContain("from '@/components/ui/activity-indicator'");
     expect(sessionBarSource).toContain('<ActivityIndicator');
-    expect(sessionBarSource).toContain('state={outputState}');
+    expect(sessionBarSource).toContain('state={visualState}');
   });
 
   it('keeps session tab execution animation independent from the beta glow toggle', () => {

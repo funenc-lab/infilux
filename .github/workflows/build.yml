@@ -242,7 +242,9 @@ jobs:
           echo "APPLE_API_KEY_ID=${APPLE_API_KEY_ID}" >> "${GITHUB_ENV}"
 
       - name: Import Apple Certificate
+        id: import_apple_certificate
         if: ${{ steps.macos_signing.outputs.ready == 'true' }}
+        continue-on-error: true
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -298,8 +300,13 @@ jobs:
           echo "APPLE_SIGNING_IDENTITY_RESOLVED=${resolved_identity}" >> "${GITHUB_ENV}"
           echo "Resolved Apple signing identity: ${resolved_identity}"
 
+      - name: Announce unsigned macOS fallback
+        if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome != 'success' }}
+        run: |
+          echo "::warning title=Unsigned macOS fallback::Apple certificate import failed. Continuing with unsigned macOS output for this release."
+
       - name: Build macOS (${{ matrix.arch }}) signed
-        if: ${{ steps.macos_signing.outputs.ready == 'true' }}
+        if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome == 'success' }}
         run: npx electron-builder --mac --${{ matrix.arch }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -310,7 +317,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Build macOS (${{ matrix.arch }}) unsigned
-        if: ${{ steps.macos_signing.outputs.ready != 'true' }}
+        if: ${{ steps.macos_signing.outputs.ready != 'true' || steps.import_apple_certificate.outcome != 'success' }}
         run: npx electron-builder --mac --${{ matrix.arch }} -c.mac.identity=null -c.mac.notarize=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

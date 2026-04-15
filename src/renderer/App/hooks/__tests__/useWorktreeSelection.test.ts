@@ -327,4 +327,41 @@ describe('useWorktreeSelection', () => {
       cwd: nextWorktree.path,
     });
   });
+
+  it('requests an agent canvas recenter after switching to a new worktree', async () => {
+    const setActiveWorktree = vi.fn();
+    const setWorktreeTabMap = vi.fn();
+    const setActiveTab = vi.fn();
+    const setSelectedRepo = vi.fn();
+    const persistSelectedWorktree = vi.fn();
+    const requestAgentCanvasRecenter = vi.fn();
+    const currentWorktreePathRef = { current: null as string | null };
+    const activeWorktree = makeWorktree('/repo-a/.worktrees/current');
+    const nextWorktree = makeWorktree('/repo-b/.worktrees/feature-b');
+
+    renderToStaticMarkup(
+      React.createElement(HookHarness, {
+        args: [
+          activeWorktree,
+          setActiveWorktree,
+          currentWorktreePathRef,
+          {},
+          setWorktreeTabMap,
+          'chat',
+          null,
+          setActiveTab,
+          '/repo-a',
+          setSelectedRepo,
+          persistSelectedWorktree,
+          requestAgentCanvasRecenter,
+        ],
+      })
+    );
+
+    expect(capturedHandleSelectWorktree).not.toBeNull();
+
+    await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
+
+    expect(requestAgentCanvasRecenter).toHaveBeenCalledWith(nextWorktree.path);
+  });
 });

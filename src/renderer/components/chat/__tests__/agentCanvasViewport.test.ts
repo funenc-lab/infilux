@@ -129,6 +129,27 @@ describe('agent canvas viewport helpers', () => {
     });
   });
 
+  it('prefers the centered position when a worktree switch explicitly requests recentering', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasRestoreScrollPosition({
+        clientHeight: 180,
+        clientWidth: 220,
+        savedPosition: {
+          left: 640,
+          top: 920,
+        },
+        scrollHeight: 920,
+        scrollWidth: 960,
+        ...{ forceCenter: true },
+      })
+    ).toEqual({
+      left: 370,
+      top: 370,
+    });
+  });
+
   it('detects whether the current scroll position is still near the viewport center', async () => {
     const module = await import('../agentCanvasViewport').catch(() => null);
 

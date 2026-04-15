@@ -7,16 +7,28 @@ interface AgentTerminalAttachmentInsertOptions {
   sessionId?: string | null;
 }
 
-export function canInsertAgentTerminalAttachments(
+export type AgentTerminalAttachmentInsertDisposition = 'insert' | 'queue' | 'reject';
+
+export function resolveAgentTerminalAttachmentInsertDisposition(
   options: AgentTerminalAttachmentInsertOptions
-): boolean {
+): AgentTerminalAttachmentInsertDisposition {
   if (!options.sessionId || options.attachmentCount === 0) {
-    return false;
+    return 'reject';
   }
 
   if (options.runtimeState !== 'live') {
-    return false;
+    return 'reject';
   }
 
-  return options.outputState !== 'outputting';
+  if (options.outputState === 'outputting') {
+    return 'queue';
+  }
+
+  return 'insert';
+}
+
+export function canInsertAgentTerminalAttachments(
+  options: AgentTerminalAttachmentInsertOptions
+): boolean {
+  return resolveAgentTerminalAttachmentInsertDisposition(options) === 'insert';
 }

@@ -460,6 +460,44 @@ describe('PersistentAgentSessionRepository', () => {
     ]);
   });
 
+  it('prunes long-dead persistent session records during initialization', async () => {
+    const staleTimestamp = Date.parse('2026-01-01T00:00:00.000Z');
+    const freshTimestamp = Date.parse('2026-04-09T00:00:00.000Z');
+    const dateNowSpy = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-04-10T00:00:00.000Z'));
+
+    try {
+      repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([
+        makeRecord({
+          uiSessionId: 'stale-dead-session',
+          lastKnownState: 'dead',
+          updatedAt: staleTimestamp,
+        }),
+        makeRecord({
+          uiSessionId: 'fresh-live-session',
+          lastKnownState: 'live',
+          updatedAt: freshTimestamp,
+        }),
+      ]);
+
+      const { PersistentAgentSessionRepository } = await import(
+        '../PersistentAgentSessionRepository'
+      );
+      const repository = new PersistentAgentSessionRepository();
+
+      await repository.initialize();
+
+      await expect(repository.listSessions()).resolves.toEqual([
+        expect.objectContaining({
+          uiSessionId: 'fresh-live-session',
+        }),
+      ]);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
   it('surfaces open, schema, query, and close failures', async () => {
     repositoryTestDoubles.state.initializeError = new Error('open failed');
     let module = await import('../PersistentAgentSessionRepository');

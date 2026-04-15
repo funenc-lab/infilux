@@ -16,6 +16,22 @@ const rendererZhTranslations: Record<string, string> = {
   'Bring to Front': decodeEscapedUnicode('\\u7f6e\\u4e8e\\u524d\\u53f0'),
   'Back to Canvas': decodeEscapedUnicode('\\u8fd4\\u56de\\u753b\\u5e03'),
   'Dismiss Floating Session': decodeEscapedUnicode('\\u6536\\u8d77\\u60ac\\u6d6e\\u4f1a\\u8bdd'),
+  Attachment: decodeEscapedUnicode('\\u9644\\u4ef6'),
+  Attachments: decodeEscapedUnicode('\\u9644\\u4ef6'),
+  'Attachment paste unavailable': decodeEscapedUnicode(
+    '\\u5f53\\u524d\\u65e0\\u6cd5\\u7c98\\u8d34\\u9644\\u4ef6'
+  ),
+  'Attachment too large': decodeEscapedUnicode('\\u9644\\u4ef6\\u8fc7\\u5927'),
+  'Wait for the agent to finish responding before pasting attachments.': decodeEscapedUnicode(
+    '\\u8bf7\\u7b49\\u5f85 Agent \\u5b8c\\u6210\\u56de\\u590d\\u540e\\u518d\\u7c98\\u8d34\\u9644\\u4ef6\\u3002'
+  ),
+  'Wait for the agent prompt before pasting attachments.': decodeEscapedUnicode(
+    '\\u8bf7\\u7b49\\u5f85 Agent \\u63d0\\u793a\\u8f93\\u5165\\u540e\\u518d\\u7c98\\u8d34\\u9644\\u4ef6\\u3002'
+  ),
+  '{{label}} must be smaller than {{limit}} MB to paste into the agent input. Largest pasted file: {{size}} MB.':
+    decodeEscapedUnicode(
+      '\\{\\{label\\}\\} \\u5fc5\\u987b\\u5c0f\\u4e8e \\{\\{limit\\}\\} MB \\u624d\\u80fd\\u7c98\\u8d34\\u5230 Agent \\u8f93\\u5165\\u6846\\u3002\\u5f53\\u524d\\u7c98\\u8d34\\u6587\\u4ef6\\u4e2d\\u6700\\u5927\\u7684\\u662f \\{\\{size\\}\\} MB\\u3002'
+    ),
   'Tree sidebar actions': decodeEscapedUnicode('\\u6811\\u5f62\\u4fa7\\u680f\\u64cd\\u4f5c'),
   'Show all worktrees': decodeEscapedUnicode('\\u663e\\u793a\\u5168\\u90e8\\u5de5\\u4f5c\\u6811'),
   'Only show Agent worktrees': decodeEscapedUnicode(

@@ -3,6 +3,7 @@ import { getDisplayPathBasename } from '@shared/utils/path';
 import { GitBranch, RectangleEllipsis, Sparkles } from 'lucide-react';
 import type { TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
+import { normalizePath } from '@/App/storage';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -58,6 +59,8 @@ export interface MainContentPanelsProps {
   settingsCategory?: SettingsCategory;
   onCategoryChange?: (category: SettingsCategory) => void;
   scrollToProvider?: boolean;
+  chatCanvasRecenterToken?: number;
+  chatCanvasRecenterWorktreePath?: string | null;
   onTabChange: (tab: TabId) => void;
   selectedSubagent?: LiveAgentSubagent | null;
   onCloseSelectedSubagent?: () => void;
@@ -146,6 +149,8 @@ export function MainContentPanels({
   settingsCategory,
   onCategoryChange,
   scrollToProvider,
+  chatCanvasRecenterToken = 0,
+  chatCanvasRecenterWorktreePath = null,
   onTabChange,
   selectedSubagent = null,
   onCloseSelectedSubagent,
@@ -167,30 +172,41 @@ export function MainContentPanels({
 
   return (
     <div className="relative flex-1 overflow-hidden">
-      {chatPanelEntries.map((entry) => (
-        <div
-          key={`chat:${entry.worktreePath}`}
-          className={cn(
-            'absolute inset-0',
-            innerBg,
-            entry.isVisible ? 'z-10' : 'invisible pointer-events-none z-0'
-          )}
-        >
-          <DeferredAgentPanel
-            onReady={
-              entry.isCurrent && entry.isVisible
-                ? () => onStartupBlockingReady?.('chat-panel')
-                : undefined
-            }
-            repoPath={entry.repoPath}
-            cwd={entry.worktreePath}
-            isActive={entry.isActive}
-            onSwitchWorktree={onSwitchWorktree}
-            shouldLoad
-            showFallback={entry.showFallback}
-          />
-        </div>
-      ))}
+      {chatPanelEntries.map((entry) => {
+        const canvasRecenterOnActivateToken =
+          entry.isCurrent &&
+          chatCanvasRecenterToken > 0 &&
+          chatCanvasRecenterWorktreePath &&
+          normalizePath(entry.worktreePath) === normalizePath(chatCanvasRecenterWorktreePath)
+            ? chatCanvasRecenterToken
+            : 0;
+
+        return (
+          <div
+            key={`chat:${entry.worktreePath}`}
+            className={cn(
+              'absolute inset-0',
+              innerBg,
+              entry.isVisible ? 'z-10' : 'invisible pointer-events-none z-0'
+            )}
+          >
+            <DeferredAgentPanel
+              onReady={
+                entry.isCurrent && entry.isVisible
+                  ? () => onStartupBlockingReady?.('chat-panel')
+                  : undefined
+              }
+              repoPath={entry.repoPath}
+              cwd={entry.worktreePath}
+              isActive={entry.isActive}
+              onSwitchWorktree={onSwitchWorktree}
+              canvasRecenterOnActivateToken={canvasRecenterOnActivateToken}
+              shouldLoad
+              showFallback={entry.showFallback}
+            />
+          </div>
+        );
+      })}
       {showSubagentTranscript ? (
         <div className={cn('absolute inset-0 z-20', innerBg)}>
           <SubagentTranscriptPanel
@@ -286,6 +302,7 @@ export function MainContentPanels({
               onReady={() => onStartupBlockingReady?.('file-panel')}
               rootPath={currentWorktreePath ?? undefined}
               isActive={activeTab === 'file'}
+              treeEnabled={activeTab === 'file'}
               onExpandWorktree={onExpandWorktree}
               shouldLoad={activeTab === 'file'}
               showFallback={activeTab === 'file'}
@@ -310,6 +327,7 @@ export function MainContentPanels({
             <DeferredFilePanel
               rootPath={cachedWorktreePath}
               isActive={false}
+              treeEnabled={false}
               shouldLoad
               showFallback={false}
             />

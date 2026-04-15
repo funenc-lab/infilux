@@ -71,6 +71,8 @@ const updaterTestDoubles = vi.hoisted(() => {
   const applyProxy = vi.fn();
   const registerUpdaterSession = vi.fn();
   const isDev = { value: false };
+  const logInfo = vi.fn();
+  const logWarn = vi.fn();
 
   function reset() {
     autoUpdater.removeAllListeners();
@@ -86,6 +88,8 @@ const updaterTestDoubles = vi.hoisted(() => {
     applyProxy.mockResolvedValue(undefined);
     registerUpdaterSession.mockReset();
     isDev.value = false;
+    logInfo.mockReset();
+    logWarn.mockReset();
   }
 
   return {
@@ -93,6 +97,8 @@ const updaterTestDoubles = vi.hoisted(() => {
     applyProxy,
     registerUpdaterSession,
     isDev,
+    logInfo,
+    logWarn,
     reset,
   };
 });
@@ -114,6 +120,13 @@ vi.mock('@electron-toolkit/utils', () => ({
 vi.mock('../../proxy/ProxyConfig', () => ({
   applyProxy: updaterTestDoubles.applyProxy,
   registerUpdaterSession: updaterTestDoubles.registerUpdaterSession,
+}));
+
+vi.mock('../../../utils/logger', () => ({
+  default: {
+    info: updaterTestDoubles.logInfo,
+    warn: updaterTestDoubles.logWarn,
+  },
 }));
 
 describe('AutoUpdaterService', () => {
@@ -303,11 +316,24 @@ describe('AutoUpdaterService', () => {
 
     autoUpdaterService.quitAndInstall();
     expect(updaterTestDoubles.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(updaterTestDoubles.logWarn).toHaveBeenCalledWith(
+      '[updater] Ignoring quitAndInstall request before an update is downloaded'
+    );
 
     updaterTestDoubles.autoUpdater.emit('update-downloaded', { version: '1.3.0' });
+    expect(updaterTestDoubles.logInfo).toHaveBeenCalledWith(
+      '[updater] Update downloaded and ready to install',
+      {
+        version: '1.3.0',
+      }
+    );
+
     autoUpdaterService.quitAndInstall();
     expect(updaterTestDoubles.autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
     expect(autoUpdaterService.isQuittingForUpdate()).toBe(true);
+    expect(updaterTestDoubles.logInfo).toHaveBeenCalledWith(
+      '[updater] Starting quitAndInstall restart flow'
+    );
 
     updaterTestDoubles.autoUpdater.checkForUpdates.mockClear();
     await expect(autoUpdaterService.checkForUpdates()).resolves.toBeUndefined();

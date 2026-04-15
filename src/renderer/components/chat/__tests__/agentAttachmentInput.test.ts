@@ -163,6 +163,35 @@ describe('agentAttachmentInput', () => {
     expect(saveFileToTemp).toHaveBeenCalledWith(clipboardImage);
   });
 
+  it('keeps clipboard svg files on the generic file-save path instead of the bitmap fast path', async () => {
+    const clipboardSvg = { name: 'diagram.svg', type: 'image/svg+xml' } as File;
+    Object.defineProperty(clipboardSvg, 'size', { value: 4096 });
+
+    const saveClipboardImageToTemp = vi.fn(async () => '/tmp/clipboard-rasterized.png');
+    const saveFileToTemp = vi.fn(async (file: File) =>
+      file === clipboardSvg ? '/tmp/clipboard-diagram.svg' : null
+    );
+
+    const targets = await resolveAgentAttachmentTargetsFromFiles([clipboardSvg], {
+      source: 'clipboard',
+      resolveFilePath: () => null,
+      saveClipboardImageToTemp,
+      saveFileToTemp,
+    });
+
+    expect(targets.draftAttachments).toEqual([
+      {
+        id: '/tmp/clipboard-diagram.svg',
+        kind: 'image',
+        name: 'clipboard-diagram.svg',
+        path: '/tmp/clipboard-diagram.svg',
+      },
+    ]);
+    expect(saveClipboardImageToTemp).not.toHaveBeenCalled();
+    expect(saveFileToTemp).toHaveBeenCalledTimes(1);
+    expect(saveFileToTemp).toHaveBeenCalledWith(clipboardSvg);
+  });
+
   it('partitions already resolved drop entries using the size threshold', () => {
     const targets = partitionResolvedAgentAttachments([
       { path: 'docs/spec.md', sizeBytes: 512 },
