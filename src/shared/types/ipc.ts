@@ -272,6 +272,11 @@ export const IPC_CHANNELS = {
   CLAUDE_PROVIDER_APPLY: 'claude:provider:apply',
   CLAUDE_PROVIDER_SETTINGS_CHANGED: 'claude:provider:settingsChanged',
 
+  // Claude Policy
+  CLAUDE_POLICY_CATALOG_LIST: 'claude:policy:catalog:list',
+  CLAUDE_POLICY_PREVIEW_RESOLVE: 'claude:policy:preview:resolve',
+  CLAUDE_POLICY_LAUNCH_PREPARE: 'claude:policy:launch:prepare',
+
   // Claude MCP Management
   CLAUDE_PROJECT_TRUST_ENSURE: 'claude:projectTrust:ensure',
   CLAUDE_MCP_READ: 'claude:mcp:read',

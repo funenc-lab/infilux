@@ -610,6 +610,66 @@ describe('preload bridge', () => {
     );
   });
 
+  it('routes Claude policy bridge APIs to the expected IPC channels', async () => {
+    const api = await loadElectronAPI();
+    const claudePolicyApi = (
+      api as ElectronAPI & {
+        claudePolicy: {
+          catalog: {
+            list: (request?: unknown) => Promise<unknown>;
+          };
+          preview: {
+            resolve: (request: unknown) => Promise<unknown>;
+          };
+          launch: {
+            prepare: (request: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).claudePolicy;
+
+    const previewRequest = {
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feat-x',
+      projectPolicy: {
+        repoPath: '/repo',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        updatedAt: 1,
+      },
+      worktreePolicy: null,
+    };
+    const catalogRequest = {
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feat-x',
+    };
+    const launchRequest = {
+      ...previewRequest,
+    };
+
+    await claudePolicyApi.catalog.list(catalogRequest);
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.CLAUDE_POLICY_CATALOG_LIST,
+      catalogRequest
+    );
+
+    await claudePolicyApi.preview.resolve(previewRequest);
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.CLAUDE_POLICY_PREVIEW_RESOLVE,
+      previewRequest
+    );
+
+    await claudePolicyApi.launch.prepare(launchRequest);
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.CLAUDE_POLICY_LAUNCH_PREPARE,
+      launchRequest
+    );
+  });
+
   it('routes send-based APIs and native shell APIs correctly', async () => {
     const api = await loadElectronAPI();
 

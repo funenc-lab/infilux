@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-interface ClaudeProjectSettings {
+export interface ClaudeProjectSettings {
   allowedTools?: string[];
   mcpContextUris?: string[];
   mcpServers?: Record<string, unknown>;
@@ -15,12 +15,12 @@ interface ClaudeProjectSettings {
   [key: string]: unknown;
 }
 
-interface ClaudeJson {
+export interface ClaudeJson {
   projects?: Record<string, ClaudeProjectSettings>;
   [key: string]: unknown;
 }
 
-interface EnsureClaudeWorkspaceTrustedOptions {
+export interface ClaudeWorkspaceSettingsOptions {
   claudeJsonPath?: string;
   resolveRealpath?: (workspacePath: string) => string;
 }
@@ -115,29 +115,111 @@ function collectWorkspaceTrustTargets(
   return [...targets];
 }
 
-export function ensureClaudeWorkspaceTrusted(
+function getWorkspaceSettingsOptions(
+  options: ClaudeWorkspaceSettingsOptions = {}
+): Required<ClaudeWorkspaceSettingsOptions> {
+  return {
+    claudeJsonPath: options.claudeJsonPath ?? getClaudeJsonPath(),
+    resolveRealpath:
+      options.resolveRealpath ?? ((targetPath: string) => fs.realpathSync.native(targetPath)),
+  };
+}
+
+function getProjectSettingsTargets(
   workspacePath: string,
-  options: EnsureClaudeWorkspaceTrustedOptions = {}
+  options: ClaudeWorkspaceSettingsOptions = {}
+): { claudeJsonPath: string; targets: string[] } {
+  const normalizedOptions = getWorkspaceSettingsOptions(options);
+  return {
+    claudeJsonPath: normalizedOptions.claudeJsonPath,
+    targets: collectWorkspaceTrustTargets(workspacePath, normalizedOptions.resolveRealpath),
+  };
+}
+
+export function readClaudeProjectSettings(
+  workspacePath: string,
+  options: ClaudeWorkspaceSettingsOptions = {}
+): ClaudeProjectSettings | null {
+  if (!workspacePath || workspacePath.trim().length === 0) {
+    return null;
+  }
+
+  const { claudeJsonPath, targets } = getProjectSettingsTargets(workspacePath, options);
+  const data = readClaudeJson(claudeJsonPath);
+  const projects = data.projects ?? {};
+
+  for (const targetPath of targets) {
+    if (projects[targetPath]) {
+      return projects[targetPath] ?? null;
+    }
+  }
+
+  return null;
+}
+
+export function writeClaudeProjectSettings(
+  workspacePath: string,
+  settings: ClaudeProjectSettings,
+  options: ClaudeWorkspaceSettingsOptions = {}
 ): boolean {
   if (!workspacePath || workspacePath.trim().length === 0) {
     return false;
   }
 
-  const claudeJsonPath = options.claudeJsonPath ?? getClaudeJsonPath();
-  const resolveRealpath =
-    options.resolveRealpath ?? ((targetPath: string) => fs.realpathSync.native(targetPath));
-  const trustTargets = collectWorkspaceTrustTargets(workspacePath, resolveRealpath);
-  if (trustTargets.length === 0) {
+  const { claudeJsonPath, targets } = getProjectSettingsTargets(workspacePath, options);
+  if (targets.length === 0) {
     return false;
   }
 
   const data = readClaudeJson(claudeJsonPath);
   const projects = { ...(data.projects ?? {}) };
 
-  for (const targetPath of trustTargets) {
-    projects[targetPath] = buildTrustedProjectSettings(projects[targetPath]);
+  for (const targetPath of targets) {
+    projects[targetPath] = { ...settings };
   }
 
   data.projects = projects;
   return writeClaudeJson(claudeJsonPath, data);
+}
+
+export function updateClaudeProjectSettings(
+  workspacePath: string,
+  update: (existing: ClaudeProjectSettings | undefined) => ClaudeProjectSettings,
+  options: ClaudeWorkspaceSettingsOptions = {}
+): boolean {
+  if (!workspacePath || workspacePath.trim().length === 0) {
+    return false;
+  }
+
+  const { claudeJsonPath, targets } = getProjectSettingsTargets(workspacePath, options);
+  if (targets.length === 0) {
+    return false;
+  }
+
+  const data = readClaudeJson(claudeJsonPath);
+  const projects = { ...(data.projects ?? {}) };
+  const nextPrimarySettings = update(projects[targets[0]]);
+
+  for (const targetPath of targets) {
+    const existing = projects[targetPath];
+    projects[targetPath] = existing ? update(existing) : { ...nextPrimarySettings };
+  }
+
+  data.projects = projects;
+  return writeClaudeJson(claudeJsonPath, data);
+}
+
+export function ensureClaudeWorkspaceTrusted(
+  workspacePath: string,
+  options: ClaudeWorkspaceSettingsOptions = {}
+): boolean {
+  if (!workspacePath || workspacePath.trim().length === 0) {
+    return false;
+  }
+
+  return updateClaudeProjectSettings(
+    workspacePath,
+    (existing) => buildTrustedProjectSettings(existing),
+    options
+  );
 }

@@ -16,6 +16,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const getActivity = vi.fn();
   const destroyAllLocal = vi.fn();
   const destroyAllLocalAndWait = vi.fn();
+  const prepareAgentCapabilityLaunch = vi.fn();
 
   function reset() {
     handlers.clear();
@@ -50,6 +51,41 @@ const sessionTestDoubles = vi.hoisted(() => {
     destroyAllLocal.mockReset();
     destroyAllLocalAndWait.mockReset();
     destroyAllLocalAndWait.mockResolvedValue(undefined);
+
+    prepareAgentCapabilityLaunch.mockReset();
+    prepareAgentCapabilityLaunch.mockResolvedValue({
+      launchResult: {
+        provider: 'claude',
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        hash: 'hash-1',
+        warnings: [],
+        resolvedPolicy: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          allowedCapabilityIds: ['command:ship'],
+          blockedCapabilityIds: [],
+          allowedSharedMcpIds: [],
+          blockedSharedMcpIds: [],
+          allowedPersonalMcpIds: [],
+          blockedPersonalMcpIds: [],
+          capabilityProvenance: {},
+          sharedMcpProvenance: {},
+          personalMcpProvenance: {},
+          hash: 'hash-1',
+          policyHash: 'hash-1',
+        },
+        projected: {
+          hash: 'hash-1',
+          materializationMode: 'copy',
+          applied: true,
+          updatedFiles: ['/repo/worktrees/feature-a/.mcp.json'],
+          warnings: [],
+          errors: [],
+        },
+      },
+      sessionOverrides: undefined,
+    });
   }
 
   return {
@@ -64,6 +100,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     getActivity,
     destroyAllLocal,
     destroyAllLocalAndWait,
+    prepareAgentCapabilityLaunch,
     reset,
   };
 });
@@ -89,6 +126,34 @@ vi.mock('../../services/session/SessionManager', () => ({
     destroyAllLocal: sessionTestDoubles.destroyAllLocal,
     destroyAllLocalAndWait: sessionTestDoubles.destroyAllLocalAndWait,
   },
+}));
+
+vi.mock('../../services/agent/AgentCapabilityLaunchService', () => ({
+  prepareAgentCapabilityLaunch: sessionTestDoubles.prepareAgentCapabilityLaunch,
+  resolveAgentCapabilityLaunchRequest: vi.fn((metadata?: Record<string, unknown>) => {
+    const genericCandidate = metadata?.agentCapabilityLaunch;
+    if (
+      genericCandidate &&
+      typeof genericCandidate === 'object' &&
+      !Array.isArray(genericCandidate)
+    ) {
+      return genericCandidate;
+    }
+
+    const legacyClaudeCandidate = metadata?.claudePolicyLaunch;
+    if (
+      legacyClaudeCandidate &&
+      typeof legacyClaudeCandidate === 'object' &&
+      !Array.isArray(legacyClaudeCandidate)
+    ) {
+      return {
+        provider: 'claude',
+        ...legacyClaudeCandidate,
+      };
+    }
+
+    return null;
+  }),
 }));
 
 function getHandler(channel: string) {
@@ -194,6 +259,298 @@ describe('session IPC handlers', () => {
       initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
       persistOnDisconnect: true,
     });
+  });
+
+  it('runs capability launch preparation before creating agent sessions when generic launch metadata is provided', async () => {
+    const event = createEvent();
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+
+    await createHandler(event, {
+      cwd: '/repo/worktrees/feature-a',
+      kind: 'agent',
+      metadata: {
+        agentCapabilityLaunch: {
+          provider: 'claude',
+          agentId: 'claude',
+          agentCommand: 'claude',
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          globalPolicy: null,
+          projectPolicy: null,
+          worktreePolicy: null,
+          sessionPolicy: {
+            allowedCapabilityIds: ['legacy-skill:ship'],
+            blockedCapabilityIds: [],
+            allowedSharedMcpIds: [],
+            blockedSharedMcpIds: [],
+            allowedPersonalMcpIds: [],
+            blockedPersonalMcpIds: [],
+            updatedAt: 10,
+          },
+          materializationMode: 'symlink',
+        },
+      },
+    });
+
+    expect(sessionTestDoubles.prepareAgentCapabilityLaunch).toHaveBeenCalledWith(
+      {
+        provider: 'claude',
+        agentId: 'claude',
+        agentCommand: 'claude',
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        globalPolicy: null,
+        projectPolicy: null,
+        worktreePolicy: null,
+        sessionPolicy: {
+          allowedCapabilityIds: ['legacy-skill:ship'],
+          blockedCapabilityIds: [],
+          allowedSharedMcpIds: [],
+          blockedSharedMcpIds: [],
+          allowedPersonalMcpIds: [],
+          blockedPersonalMcpIds: [],
+          updatedAt: 10,
+        },
+        materializationMode: 'symlink',
+      },
+      {
+        cwd: '/repo/worktrees/feature-a',
+        kind: 'agent',
+        metadata: {
+          agentCapabilityLaunch: {
+            provider: 'claude',
+            agentId: 'claude',
+            agentCommand: 'claude',
+            repoPath: '/repo',
+            worktreePath: '/repo/worktrees/feature-a',
+            globalPolicy: null,
+            projectPolicy: null,
+            worktreePolicy: null,
+            sessionPolicy: {
+              allowedCapabilityIds: ['legacy-skill:ship'],
+              blockedCapabilityIds: [],
+              allowedSharedMcpIds: [],
+              blockedSharedMcpIds: [],
+              allowedPersonalMcpIds: [],
+              blockedPersonalMcpIds: [],
+              updatedAt: 10,
+            },
+            materializationMode: 'symlink',
+          },
+        },
+      }
+    );
+    expect(sessionTestDoubles.create).toHaveBeenCalledWith(
+      event.sender,
+      expect.objectContaining({
+        metadata: {
+          agentCapabilityLaunch: {
+            provider: 'claude',
+            agentId: 'claude',
+            agentCommand: 'claude',
+            repoPath: '/repo',
+            worktreePath: '/repo/worktrees/feature-a',
+            globalPolicy: null,
+            projectPolicy: null,
+            worktreePolicy: null,
+            sessionPolicy: {
+              allowedCapabilityIds: ['legacy-skill:ship'],
+              blockedCapabilityIds: [],
+              allowedSharedMcpIds: [],
+              blockedSharedMcpIds: [],
+              allowedPersonalMcpIds: [],
+              blockedPersonalMcpIds: [],
+              updatedAt: 10,
+            },
+            materializationMode: 'symlink',
+          },
+          agentCapability: {
+            provider: 'claude',
+            hash: 'hash-1',
+            warnings: [],
+            projected: {
+              hash: 'hash-1',
+              materializationMode: 'copy',
+              applied: true,
+              updatedFiles: ['/repo/worktrees/feature-a/.mcp.json'],
+              warnings: [],
+              errors: [],
+            },
+          },
+          claudePolicy: {
+            hash: 'hash-1',
+            warnings: [],
+            projected: {
+              hash: 'hash-1',
+              materializationMode: 'copy',
+              applied: true,
+              updatedFiles: ['/repo/worktrees/feature-a/.mcp.json'],
+              warnings: [],
+              errors: [],
+            },
+          },
+        },
+      })
+    );
+  });
+
+  it('applies session option overrides returned by the capability adapter before session creation', async () => {
+    const event = createEvent();
+
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: {
+        provider: 'claude',
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        hash: 'hash-1',
+        warnings: [],
+        resolvedPolicy: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          allowedCapabilityIds: ['command:ship'],
+          blockedCapabilityIds: [],
+          allowedSharedMcpIds: [],
+          blockedSharedMcpIds: [],
+          allowedPersonalMcpIds: [],
+          blockedPersonalMcpIds: [],
+          capabilityProvenance: {},
+          sharedMcpProvenance: {},
+          personalMcpProvenance: {},
+          hash: 'hash-1',
+          policyHash: 'hash-1',
+        },
+        projected: {
+          hash: 'hash-1',
+          materializationMode: 'copy',
+          applied: true,
+          updatedFiles: ['/repo/worktrees/feature-a/.mcp.json'],
+          warnings: [],
+          errors: [],
+        },
+      },
+      sessionOverrides: {
+        env: {
+          AGENT_CAPABILITY_PROFILE: 'strict',
+        },
+        initialCommand: 'codex --profile strict',
+        spawnCwd: '/tmp/infilux/capability-session',
+        metadata: {
+          providerLaunchStrategy: 'provider-native',
+        },
+      },
+    });
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+
+    await createHandler(event, {
+      cwd: '/repo/worktrees/feature-a',
+      kind: 'agent',
+      env: {
+        BASE_ENV: '1',
+      },
+      initialCommand: 'codex --profile default',
+      metadata: {
+        agentCapabilityLaunch: {
+          provider: 'claude',
+          agentId: 'claude',
+          agentCommand: 'claude',
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          globalPolicy: null,
+          projectPolicy: null,
+          worktreePolicy: null,
+          sessionPolicy: null,
+          materializationMode: 'copy',
+        },
+      },
+    });
+
+    expect(sessionTestDoubles.create).toHaveBeenCalledWith(
+      event.sender,
+      expect.objectContaining({
+        cwd: '/repo/worktrees/feature-a',
+        kind: 'agent',
+        spawnCwd: '/tmp/infilux/capability-session',
+        initialCommand: 'codex --profile strict',
+        env: {
+          BASE_ENV: '1',
+          AGENT_CAPABILITY_PROFILE: 'strict',
+        },
+        metadata: expect.objectContaining({
+          providerLaunchStrategy: 'provider-native',
+          agentCapability: expect.objectContaining({
+            provider: 'claude',
+            hash: 'hash-1',
+          }),
+        }),
+      })
+    );
+  });
+
+  it('keeps legacy Claude launch metadata compatible while routing through the generic service', async () => {
+    const event = createEvent();
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+
+    await createHandler(event, {
+      cwd: '/repo/worktrees/feature-a',
+      kind: 'agent',
+      metadata: {
+        claudePolicyLaunch: {
+          agentId: 'claude',
+          agentCommand: 'claude',
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          globalPolicy: null,
+          projectPolicy: null,
+          worktreePolicy: null,
+          sessionPolicy: null,
+          materializationMode: 'copy',
+        },
+      },
+    });
+
+    expect(sessionTestDoubles.prepareAgentCapabilityLaunch).toHaveBeenCalledWith(
+      {
+        provider: 'claude',
+        agentId: 'claude',
+        agentCommand: 'claude',
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        globalPolicy: null,
+        projectPolicy: null,
+        worktreePolicy: null,
+        sessionPolicy: null,
+        materializationMode: 'copy',
+      },
+      {
+        cwd: '/repo/worktrees/feature-a',
+        kind: 'agent',
+        metadata: {
+          claudePolicyLaunch: {
+            agentId: 'claude',
+            agentCommand: 'claude',
+            repoPath: '/repo',
+            worktreePath: '/repo/worktrees/feature-a',
+            globalPolicy: null,
+            projectPolicy: null,
+            worktreePolicy: null,
+            sessionPolicy: null,
+            materializationMode: 'copy',
+          },
+        },
+      }
+    );
   });
 
   it('bridges legacy terminal handlers through session creation and attach replay', async () => {

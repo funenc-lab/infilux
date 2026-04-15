@@ -16,6 +16,7 @@ import {
   stopClaudeCompletionsWatchers,
 } from './claudeCompletions';
 import { registerClaudeConfigHandlers } from './claudeConfig';
+import { registerClaudePolicyHandlers } from './claudePolicy';
 import { registerClaudeProviderHandlers } from './claudeProvider';
 import { registerCliHandlers } from './cli';
 import { registerDialogHandlers } from './dialog';
@@ -85,6 +86,7 @@ export function registerIpcHandlers(): void {
   registerSearchHandlers();
   registerHapiHandlers();
   registerClaudeProviderHandlers();
+  registerClaudePolicyHandlers();
   registerClaudeConfigHandlers();
   registerClaudeCompletionsHandlers();
   registerWebInspectorHandlers();

@@ -7,6 +7,11 @@ import {
   type TerminalResizeOptions,
 } from '@shared/types';
 import { ipcMain } from 'electron';
+import {
+  prepareAgentCapabilityLaunch,
+  resolveAgentCapabilityLaunchRequest,
+} from '../services/agent/AgentCapabilityLaunchService';
+import type { PreparedAgentCapabilityLaunch } from '../services/agent/AgentCapabilityProviderAdapter';
 import { sessionManager } from '../services/session/SessionManager';
 
 function toSessionCreateOptions(options: TerminalCreateOptions = {}): SessionCreateOptions {
@@ -14,6 +19,84 @@ function toSessionCreateOptions(options: TerminalCreateOptions = {}): SessionCre
     ...options,
     kind: 'terminal',
   };
+}
+
+function mergeSessionEnvironment(
+  currentEnv: SessionCreateOptions['env'],
+  overrideEnv: SessionCreateOptions['env']
+): SessionCreateOptions['env'] {
+  if (!currentEnv && !overrideEnv) {
+    return undefined;
+  }
+
+  return {
+    ...(currentEnv ?? {}),
+    ...(overrideEnv ?? {}),
+  };
+}
+
+function applyPreparedAgentCapabilityLaunch(
+  options: SessionCreateOptions,
+  preparedLaunch: PreparedAgentCapabilityLaunch
+): SessionCreateOptions {
+  const { launchResult, sessionOverrides } = preparedLaunch;
+  const capabilityMetadata = {
+    provider: launchResult.provider,
+    hash: launchResult.hash,
+    warnings: launchResult.warnings,
+    projected: launchResult.projected,
+  };
+
+  return {
+    ...options,
+    ...(sessionOverrides?.spawnCwd !== undefined ? { spawnCwd: sessionOverrides.spawnCwd } : {}),
+    ...(sessionOverrides?.shell !== undefined ? { shell: sessionOverrides.shell } : {}),
+    ...(sessionOverrides?.args !== undefined ? { args: sessionOverrides.args } : {}),
+    ...(sessionOverrides?.fallbackShell !== undefined
+      ? { fallbackShell: sessionOverrides.fallbackShell }
+      : {}),
+    ...(sessionOverrides?.fallbackArgs !== undefined
+      ? { fallbackArgs: sessionOverrides.fallbackArgs }
+      : {}),
+    ...(sessionOverrides?.initialCommand !== undefined
+      ? { initialCommand: sessionOverrides.initialCommand }
+      : {}),
+    env: mergeSessionEnvironment(options.env, sessionOverrides?.env),
+    metadata: {
+      ...(options.metadata ?? {}),
+      ...(sessionOverrides?.metadata ?? {}),
+      agentCapability: capabilityMetadata,
+      ...(launchResult.provider === 'claude'
+        ? {
+            claudePolicy: {
+              hash: launchResult.hash,
+              warnings: launchResult.warnings,
+              projected: launchResult.projected,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+async function prepareAgentSessionOptions(
+  options: SessionCreateOptions
+): Promise<SessionCreateOptions> {
+  if (options.kind !== 'agent') {
+    return options;
+  }
+
+  const launchRequest = resolveAgentCapabilityLaunchRequest(options.metadata);
+  if (!launchRequest) {
+    return options;
+  }
+
+  const launchResult = await prepareAgentCapabilityLaunch(launchRequest, options);
+  if (!launchResult) {
+    return options;
+  }
+
+  return applyPreparedAgentCapabilityLaunch(options, launchResult);
 }
 
 export function destroyAllTerminals(): void {
@@ -26,7 +109,8 @@ export async function destroyAllTerminalsAndWait(): Promise<void> {
 
 export function registerSessionHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SESSION_CREATE, async (event, options: SessionCreateOptions = {}) => {
-    return sessionManager.create(event.sender, options);
+    const preparedOptions = await prepareAgentSessionOptions(options);
+    return sessionManager.create(event.sender, preparedOptions);
   });
 
   ipcMain.handle(IPC_CHANNELS.SESSION_ATTACH, async (event, options: SessionAttachOptions) => {

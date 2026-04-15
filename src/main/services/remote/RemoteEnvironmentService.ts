@@ -75,6 +75,10 @@ async function writeRemoteJsonFile(
   return writeRemoteTextFile(connectionId, remotePath, JSON.stringify(data, null, 2));
 }
 
+function normalizeRemoteWorkspaceKey(workspacePath: string): string {
+  return normalizeRemoteDir(workspacePath);
+}
+
 export async function getRepositoryEnvironmentContext(repoPath?: string | null): Promise<
   | {
       kind: 'local';
@@ -154,6 +158,46 @@ export async function writeRepositoryClaudeJson(
   return writeRemoteJsonFile(context.connectionId, context.claudeJsonPath, data);
 }
 
+export async function readRepositoryRemoteTextFile(
+  repoPath: string | undefined,
+  remotePath: string
+): Promise<string | null> {
+  const context = await getRepositoryEnvironmentContext(repoPath);
+  if (context.kind === 'local') {
+    return null;
+  }
+  return readRemoteTextFile(context.connectionId, remotePath);
+}
+
+export async function writeRepositoryRemoteTextFile(
+  repoPath: string | undefined,
+  remotePath: string,
+  content: string
+): Promise<boolean> {
+  const context = await getRepositoryEnvironmentContext(repoPath);
+  if (context.kind === 'local') {
+    return false;
+  }
+  return writeRemoteTextFile(context.connectionId, remotePath, content);
+}
+
+export async function deleteRepositoryRemotePath(
+  repoPath: string | undefined,
+  remotePath: string
+): Promise<boolean> {
+  const context = await getRepositoryEnvironmentContext(repoPath);
+  if (context.kind === 'local') {
+    return false;
+  }
+
+  try {
+    await remoteConnectionManager.call(context.connectionId, 'fs:delete', { path: remotePath });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function readRepositoryClaudePrompt(repoPath?: string | null): Promise<string | null> {
   const context = await getRepositoryEnvironmentContext(repoPath);
   if (context.kind === 'local') {
@@ -210,6 +254,46 @@ export async function writeRepositoryRemoteMcpServers(
   return writeRepositoryClaudeJson(repoPath, {
     ...data,
     mcpServers: nextServers,
+  });
+}
+
+export async function readRepositoryRemoteProjectSettings(
+  repoPath: string | undefined,
+  workspacePath: string
+): Promise<Record<string, unknown> | null> {
+  const data = await readRepositoryClaudeJson(repoPath);
+  const projects = data?.projects;
+  if (!projects || typeof projects !== 'object' || Array.isArray(projects)) {
+    return null;
+  }
+
+  const normalizedWorkspacePath = normalizeRemoteWorkspaceKey(workspacePath);
+  for (const [candidatePath, settings] of Object.entries(projects)) {
+    if (normalizeRemoteWorkspaceKey(candidatePath) === normalizedWorkspacePath) {
+      return (settings as Record<string, unknown>) ?? null;
+    }
+  }
+
+  return null;
+}
+
+export async function writeRepositoryRemoteProjectSettings(
+  repoPath: string | undefined,
+  workspacePath: string,
+  settings: Record<string, unknown>
+): Promise<boolean> {
+  const data = (await readRepositoryClaudeJson(repoPath)) ?? {};
+  const existingProjects =
+    data.projects && typeof data.projects === 'object' && !Array.isArray(data.projects)
+      ? (data.projects as Record<string, unknown>)
+      : {};
+
+  const nextProjects = { ...existingProjects };
+  nextProjects[normalizeRemoteWorkspaceKey(workspacePath)] = settings;
+
+  return writeRepositoryClaudeJson(repoPath, {
+    ...data,
+    projects: nextProjects,
   });
 }
 
