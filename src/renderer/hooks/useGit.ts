@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { normalizePath } from '@/App/storage';
 import { onGitAutoFetchCompleted } from '@/lib/electronGit';
+import { resolveGitPollingInterval, shouldRetryGitPollingError } from '@/lib/gitPollingError';
+import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useRepositoryStore } from '@/stores/repository';
 import { useSettingsStore } from '@/stores/settings';
-import { useShouldPoll } from './useWindowFocus';
 import { worktreeQueryKeys } from './worktreeQueryKeys';
 
 interface GitQueryOptions {
@@ -27,11 +28,18 @@ export function useGitStatus(workdir: string | null, isActive = true) {
       return status;
     },
     enabled: !!workdir,
+    retry: shouldRetryGitPollingError,
     refetchInterval: (query) => {
       if (!isActive || !shouldPoll || !gitAutoFetchEnabled) return false;
-      return query.state.data?.truncated ? 60000 : 5000;
+      return resolveGitPollingInterval(
+        query.state.error,
+        query.state.data?.truncated ? 60000 : 5000,
+        30000
+      );
     },
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 

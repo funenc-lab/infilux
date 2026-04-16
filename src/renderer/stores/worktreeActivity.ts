@@ -5,6 +5,7 @@ import {
   onAskUserQuestionNotification,
   onPreToolUseNotification,
 } from '@/lib/electronNotification';
+import { resolveGitPollingInterval } from '@/lib/gitPollingError';
 import { useAgentSessionsStore } from './agentSessions';
 
 // Agent activity state for tree sidebar display
@@ -70,16 +71,26 @@ interface WorktreeActivityState {
 const defaultActivity: WorktreeActivity = { agentCount: 0, terminalCount: 0 };
 const defaultDiffStats: DiffStats = { insertions: 0, deletions: 0 };
 export const DIFF_STATS_FRESHNESS_MS = 4000;
+const DIFF_STATS_TRANSIENT_BACKOFF_MS = 30000;
 
 const diffStatsInFlight = new Map<string, Promise<DiffStats>>();
-const diffStatsLastFetchedAt = new Map<string, number>();
+const diffStatsNextFetchAt = new Map<string, number>();
+const diffStatsDisabledPaths = new Set<string>();
 
 function shouldReuseRecentDiffStats(worktreePath: string, now: number): boolean {
-  const lastFetchedAt = diffStatsLastFetchedAt.get(worktreePath);
-  return lastFetchedAt !== undefined && now - lastFetchedAt < DIFF_STATS_FRESHNESS_MS;
+  if (diffStatsDisabledPaths.has(worktreePath)) {
+    return true;
+  }
+
+  const nextFetchAt = diffStatsNextFetchAt.get(worktreePath);
+  return nextFetchAt !== undefined && now < nextFetchAt;
 }
 
 async function fetchDiffStatsForPath(worktreePath: string): Promise<DiffStats> {
+  if (diffStatsDisabledPaths.has(worktreePath)) {
+    return defaultDiffStats;
+  }
+
   const inFlight = diffStatsInFlight.get(worktreePath);
   if (inFlight) {
     return inFlight;
@@ -87,10 +98,25 @@ async function fetchDiffStatsForPath(worktreePath: string): Promise<DiffStats> {
 
   const request = window.electronAPI.git
     .getDiffStats(worktreePath)
-    .catch(() => defaultDiffStats)
     .then((stats) => {
-      diffStatsLastFetchedAt.set(worktreePath, Date.now());
+      diffStatsNextFetchAt.set(worktreePath, Date.now() + DIFF_STATS_FRESHNESS_MS);
       return stats;
+    })
+    .catch((error) => {
+      const nextInterval = resolveGitPollingInterval(
+        error,
+        DIFF_STATS_FRESHNESS_MS,
+        DIFF_STATS_TRANSIENT_BACKOFF_MS
+      );
+
+      if (nextInterval === false) {
+        diffStatsDisabledPaths.add(worktreePath);
+        diffStatsNextFetchAt.delete(worktreePath);
+      } else {
+        diffStatsNextFetchAt.set(worktreePath, Date.now() + nextInterval);
+      }
+
+      return defaultDiffStats;
     })
     .finally(() => {
       diffStatsInFlight.delete(worktreePath);
@@ -381,14 +407,17 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
     clearWorktree: (worktreePath) =>
       set((state) => {
         diffStatsInFlight.delete(worktreePath);
-        diffStatsLastFetchedAt.delete(worktreePath);
+        diffStatsNextFetchAt.delete(worktreePath);
+        diffStatsDisabledPaths.delete(worktreePath);
         // Clean up session mappings - agentSessions handles session cleanup
         const { [worktreePath]: _, ...restActivities } = state.activities;
         const { [worktreePath]: __, ...restActivityStates } = state.activityStates;
         const { [worktreePath]: ___, ...restHookActivityStates } = state.hookActivityStates;
         const { [worktreePath]: ____, ...restDerivedActivityStates } = state.derivedActivityStates;
+        const { [worktreePath]: _____, ...restDiffStats } = state.diffStats;
         return {
           activities: restActivities,
+          diffStats: restDiffStats,
           activityStates: restActivityStates,
           hookActivityStates: restHookActivityStates,
           derivedActivityStates: restDerivedActivityStates,

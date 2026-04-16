@@ -91,7 +91,7 @@ function getInitialState() {
     terminalFontWeight: 'normal' as FontWeight,
     terminalFontWeightBold: '500' as FontWeight,
     terminalTheme: 'Dracula',
-    terminalRenderer: 'dom' as const,
+    terminalRenderer: 'webgl' as const,
     terminalScrollback: DEFAULT_TERMINAL_SCROLLBACK,
     terminalOptionIsMeta: true,
     copyOnSelection: false,

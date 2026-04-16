@@ -117,6 +117,81 @@ describe('worktree activity store', () => {
     expect(getDiffStats).toHaveBeenCalledTimes(2);
   });
 
+  it('stops refetching diff stats after an invalid workdir failure until the worktree is cleared', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-31T00:00:00.000Z'));
+
+    const getDiffStats = vi.fn(async () => {
+      throw new Error('Invalid workdir: path does not exist or is not a directory');
+    });
+    vi.stubGlobal('window', {
+      electronAPI: {
+        git: {
+          getDiffStats,
+        },
+        worktree: {
+          activate: vi.fn(),
+        },
+      },
+    });
+
+    const { useWorktreeActivityStore, DIFF_STATS_FRESHNESS_MS } = await import(
+      '../worktreeActivity'
+    );
+    const store = useWorktreeActivityStore.getState();
+
+    await store.fetchDiffStats(['/repo']);
+    vi.advanceTimersByTime(DIFF_STATS_FRESHNESS_MS + 1);
+    vi.setSystemTime(Date.now());
+    await store.fetchDiffStats(['/repo']);
+
+    expect(getDiffStats).toHaveBeenCalledTimes(1);
+
+    store.clearWorktree('/repo');
+    vi.advanceTimersByTime(DIFF_STATS_FRESHNESS_MS + 1);
+    vi.setSystemTime(Date.now());
+    await store.fetchDiffStats(['/repo']);
+
+    expect(getDiffStats).toHaveBeenCalledTimes(2);
+  });
+
+  it('backs off diff stat refetches after transient spawn failures', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-31T00:00:00.000Z'));
+
+    const getDiffStats = vi.fn(async () => {
+      throw new Error('spawn EAGAIN');
+    });
+    vi.stubGlobal('window', {
+      electronAPI: {
+        git: {
+          getDiffStats,
+        },
+        worktree: {
+          activate: vi.fn(),
+        },
+      },
+    });
+
+    const { useWorktreeActivityStore, DIFF_STATS_FRESHNESS_MS } = await import(
+      '../worktreeActivity'
+    );
+    const store = useWorktreeActivityStore.getState();
+
+    await store.fetchDiffStats(['/repo']);
+    vi.advanceTimersByTime(DIFF_STATS_FRESHNESS_MS + 1);
+    vi.setSystemTime(Date.now());
+    await store.fetchDiffStats(['/repo']);
+
+    expect(getDiffStats).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(30000);
+    vi.setSystemTime(Date.now());
+    await store.fetchDiffStats(['/repo']);
+
+    expect(getDiffStats).toHaveBeenCalledTimes(2);
+  });
+
   it('merges derived session activity with hook-driven worktree activity using the highest-priority state', async () => {
     const { useWorktreeActivityStore } = await import('../worktreeActivity');
     const store = useWorktreeActivityStore.getState();

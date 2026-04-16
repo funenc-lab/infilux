@@ -25,7 +25,8 @@ function createCurrentState(): SettingsState {
     backgroundRandomEnabled: false,
     backgroundRandomInterval: 300,
     backgroundSizeMode: 'cover',
-    terminalRenderer: 'dom',
+    terminalRenderer: 'webgl',
+    terminalScrollback: 3000,
     xtermKeybindings: {
       newTab: key('t'),
       closeTab: key('w'),
@@ -166,7 +167,7 @@ describe('migrateSettings', () => {
     expect(migrateSettings(undefined, currentState)).toBe(currentState);
   });
 
-  it('clamps persisted background values, migrates url source path, and upgrades legacy canvas renderer', () => {
+  it('clamps persisted background values, migrates url source path, and upgrades legacy DOM and canvas renderers', () => {
     const result = migrateSettings(
       {
         backgroundOpacity: 99,
@@ -187,6 +188,30 @@ describe('migrateSettings', () => {
     expect(result.backgroundSaturation).toBe(2);
     expect(result.backgroundUrlPath).toBe('https://example.com/wallpaper.png');
     expect(result.terminalRenderer).toBe('webgl');
+  });
+
+  it('upgrades persisted dom renderer values to webgl', () => {
+    const result = migrateSettings(
+      {
+        terminalRenderer: 'dom' as never,
+      },
+      createCurrentState()
+    );
+
+    expect(result.terminalRenderer).toBe('webgl');
+  });
+
+  it('clamps persisted terminal scrollback to the tighter runtime budget', () => {
+    const currentState = createCurrentState();
+
+    const result = migrateSettings(
+      {
+        terminalScrollback: 25000,
+      } as unknown as Partial<SettingsState>,
+      currentState
+    );
+
+    expect(result.terminalScrollback).toBe(5000);
   });
 
   it('accepts known agent session display modes and falls back on invalid values', () => {

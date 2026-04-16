@@ -893,7 +893,7 @@ describe('settings store setters', () => {
     expect(state.terminalFontWeight).toBe('600');
     expect(state.terminalFontWeightBold).toBe('700');
     expect(state.terminalRenderer).toBe('webgl');
-    expect(state.terminalScrollback).toBe(20000);
+    expect(state.terminalScrollback).toBe(5000);
     expect(state.terminalOptionIsMeta).toBe(false);
     expect(state.copyOnSelection).toBe(true);
     expect(state.xtermKeybindings.clear).toMatchObject({ key: 'x', ctrl: true });
