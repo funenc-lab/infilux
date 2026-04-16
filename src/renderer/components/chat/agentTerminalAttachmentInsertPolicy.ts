@@ -5,6 +5,7 @@ interface AgentTerminalAttachmentInsertOptions {
   outputState: OutputState;
   runtimeState: 'live' | 'reconnecting' | 'dead';
   sessionId?: string | null;
+  waitingForInput?: boolean;
 }
 
 export type AgentTerminalAttachmentInsertDisposition = 'insert' | 'queue' | 'reject';
@@ -18,6 +19,10 @@ export function resolveAgentTerminalAttachmentInsertDisposition(
 
   if (options.runtimeState !== 'live') {
     return 'reject';
+  }
+
+  if (options.waitingForInput) {
+    return 'insert';
   }
 
   if (options.outputState === 'outputting') {

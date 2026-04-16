@@ -906,6 +906,7 @@ export default function App() {
         const savedTab = resolveWorktreeTabForRestore({
           savedTab: worktreeTabMap[savedWorktreePath],
           settingsDisplayMode,
+          allowFileTabRestore: false,
         });
         setActiveTab(savedTab);
         return;
@@ -981,6 +982,7 @@ export default function App() {
             const savedTab = resolveWorktreeTabForRestore({
               savedTab: worktreeTabMap[found.path],
               settingsDisplayMode,
+              allowFileTabRestore: false,
             });
             setActiveTab(savedTab);
 

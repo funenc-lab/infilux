@@ -33,4 +33,14 @@ describe('settingsWorktreeTabPolicy', () => {
       })
     ).toBe('chat');
   });
+
+  it('falls back to chat when file restore is disabled for worktree navigation', () => {
+    expect(
+      resolveWorktreeTabForRestore({
+        savedTab: 'file',
+        settingsDisplayMode: 'tab',
+        allowFileTabRestore: false,
+      })
+    ).toBe('chat');
+  });
 });

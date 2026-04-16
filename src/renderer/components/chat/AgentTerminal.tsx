@@ -381,6 +381,9 @@ export function AgentTerminal({
   const enhancedInputOpen = isExternallyControlled
     ? externalEnhancedInputOpen
     : localEnhancedInputOpen;
+  const waitingForInput = useAgentSessionsStore(
+    (state) => state.runtimeStates[terminalSessionId ?? '']?.waitingForInput ?? false
+  );
   const setEnhancedInputOpen = useCallback(
     (open: boolean) => {
       if (isExternallyControlled) {
@@ -486,6 +489,7 @@ export function AgentTerminal({
       attachmentCount: queuedAttachments.length,
       runtimeState: runtimeStateRef.current,
       outputState: outputStateRef.current,
+      waitingForInput,
     });
     if (disposition !== 'insert') {
       return false;
@@ -493,7 +497,7 @@ export function AgentTerminal({
 
     pendingTerminalAttachmentInsertRef.current = [];
     return dispatchTerminalAttachmentInsert(queuedAttachments);
-  }, [dispatchTerminalAttachmentInsert, inputDispatchSessionId]);
+  }, [dispatchTerminalAttachmentInsert, inputDispatchSessionId, waitingForInput]);
 
   const insertTerminalAttachmentText = useCallback(
     (nextAttachments: AgentAttachmentItem[]) => {
@@ -506,6 +510,7 @@ export function AgentTerminal({
         attachmentCount: nextAttachments.length,
         runtimeState: runtimeStateRef.current,
         outputState: outputStateRef.current,
+        waitingForInput,
       });
 
       if (disposition === 'queue') {
@@ -525,6 +530,7 @@ export function AgentTerminal({
       inputDispatchSessionId,
       queueTerminalAttachmentInsert,
       showAttachmentPasteUnavailableWarning,
+      waitingForInput,
     ]
   );
 

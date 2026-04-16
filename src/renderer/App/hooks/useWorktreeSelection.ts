@@ -193,6 +193,7 @@ export function useWorktreeSelection(
         ? resolveWorktreeTabForRestore({
             savedTab: worktreeTabMap[worktree.path],
             settingsDisplayMode,
+            allowFileTabRestore: false,
           })
         : 'chat';
       setActiveTab(savedTab);

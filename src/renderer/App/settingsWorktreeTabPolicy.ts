@@ -11,6 +11,7 @@ interface ResolveWorktreeTabForRestoreOptions {
   savedTab?: TabId;
   settingsDisplayMode: SettingsDisplayMode;
   fallbackTab?: Exclude<TabId, 'settings'>;
+  allowFileTabRestore?: boolean;
 }
 
 export function resolveWorktreeTabForPersistence({
@@ -29,10 +30,15 @@ export function resolveWorktreeTabForRestore({
   savedTab,
   settingsDisplayMode,
   fallbackTab = 'chat',
+  allowFileTabRestore = true,
 }: ResolveWorktreeTabForRestoreOptions): TabId {
   const restoredTab = savedTab ?? fallbackTab;
 
   if (settingsDisplayMode === 'draggable-modal' && restoredTab === 'settings') {
+    return fallbackTab;
+  }
+
+  if (!allowFileTabRestore && restoredTab === 'file') {
     return fallbackTab;
   }
 
