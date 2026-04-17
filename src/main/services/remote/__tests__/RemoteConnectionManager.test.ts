@@ -56,6 +56,8 @@ const remoteConnectionManagerTestDoubles = vi.hoisted(() => {
   };
 
   const killProcessTree = vi.fn();
+  const spawn = vi.fn();
+  const logError = vi.fn();
   const getEnvForCommand = vi.fn(() => ({}));
   const readSharedSettings = vi.fn(() => ({}));
   const readSharedSessionState = vi.fn(() => ({}));
@@ -88,6 +90,8 @@ const remoteConnectionManagerTestDoubles = vi.hoisted(() => {
     appendFile.mockReset();
     appGetPath.mockClear();
     killProcessTree.mockReset();
+    spawn.mockReset();
+    logError.mockReset();
     getEnvForCommand.mockReset();
     readSharedSettings.mockReset();
     readSharedSessionState.mockReset();
@@ -133,6 +137,8 @@ const remoteConnectionManagerTestDoubles = vi.hoisted(() => {
     MockRemoteAuthBroker,
     createWindow,
     killProcessTree,
+    spawn,
+    logError,
     getEnvForCommand,
     readSharedSettings,
     readSharedSessionState,
@@ -173,13 +179,27 @@ vi.mock('electron', () => ({
   BrowserWindow: remoteConnectionManagerTestDoubles.MockBrowserWindow,
 }));
 
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+  return {
+    ...actual,
+    spawn: remoteConnectionManagerTestDoubles.spawn,
+  };
+});
+
 vi.mock('node-pty', () => ({}));
 
-vi.mock('../../utils/processUtils', () => ({
+vi.mock('../../../utils/processUtils', () => ({
   killProcessTree: remoteConnectionManagerTestDoubles.killProcessTree,
 }));
 
-vi.mock('../../utils/shell', () => ({
+vi.mock('../../../utils/logger', () => ({
+  default: {
+    error: remoteConnectionManagerTestDoubles.logError,
+  },
+}));
+
+vi.mock('../../../utils/shell', () => ({
   getEnvForCommand: remoteConnectionManagerTestDoubles.getEnvForCommand,
 }));
 
@@ -980,6 +1000,126 @@ describe('RemoteConnectionManager', () => {
         phase: 'idle',
       })
     );
+  });
+
+  it('logs remote server exit diagnostics at error level when the ssh bridge exits non-zero', async () => {
+    const { RemoteConnectionManager } = await import('../RemoteConnectionManager');
+    const manager = new RemoteConnectionManager();
+    const proc = createFakeProc();
+    const profile = createProfile({
+      id: 'profile-remote',
+      name: 'Remote Alpha',
+      sshTarget: 'alpha@example.com',
+    });
+    const runtime = {
+      platform: 'linux',
+      arch: 'x64',
+      homeDir: '/home/dev',
+      resolvedHost: {
+        host: 'example.com',
+        port: 22,
+      },
+    };
+    const paths = {
+      installDir: '/remote/runtime',
+      versionDir: '/remote/runtime/9.9.9',
+      incomingDir: '/remote/runtime/.incoming',
+      archivePath: '/remote/runtime/runtime.tar.gz',
+      runtimeRootDir: '/remote/runtime/root',
+      nodeModulesPath: '/remote/runtime/node_modules',
+      serverPath: '/remote/runtime/infilux-remote-server.cjs',
+      manifestPath: '/remote/runtime/infilux-remote-runtime-manifest.json',
+      nodePath: '/remote/runtime/bin/node',
+    };
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    remoteConnectionManagerTestDoubles.spawn.mockReturnValue(proc as never);
+    setPrivate(
+      manager,
+      'buildSshContext',
+      vi.fn().mockResolvedValue({
+        env: { PATH: '/usr/bin:/bin' },
+        optionArgs: ['-o', 'BatchMode=yes'],
+      })
+    );
+
+    const spawnServerProcess = getPrivate<
+      (
+        profile: ConnectionProfile,
+        runtime: {
+          platform: string;
+          arch: string;
+          homeDir: string;
+          resolvedHost: {
+            host: string;
+            port: number;
+          };
+        },
+        paths: {
+          installDir: string;
+          versionDir: string;
+          incomingDir: string;
+          archivePath: string;
+          runtimeRootDir: string;
+          nodeModulesPath: string;
+          serverPath: string;
+          manifestPath: string;
+          nodePath: string;
+        }
+      ) => Promise<{
+        closed: boolean;
+        stderrTail: string[];
+        stdoutNoiseTail: string[];
+        status: {
+          connected: boolean;
+          phase: string;
+          error?: string;
+          recoverable?: boolean;
+          lastDisconnectReason?: string;
+        };
+      }>
+    >(manager, 'spawnServerProcess');
+
+    const server = await spawnServerProcess.call(manager, profile, runtime, paths);
+    const handleStdout = proc.stdout.on.mock.calls.find(([event]) => event === 'data')?.[1] as
+      | ((chunk: string) => void)
+      | undefined;
+    const handleStderr = proc.stderr.on.mock.calls.find(([event]) => event === 'data')?.[1] as
+      | ((chunk: string) => void)
+      | undefined;
+
+    expect(handleStdout).toBeTypeOf('function');
+    expect(handleStderr).toBeTypeOf('function');
+
+    handleStderr?.('ssh_exchange_identification: Connection closed by remote host\n');
+    handleStdout?.('non-json diagnostic line\n');
+    proc.emit('exit', 255, null);
+
+    expect(server.closed).toBe(true);
+    expect(server.status).toEqual(
+      expect.objectContaining({
+        connected: false,
+        phase: 'failed',
+        recoverable: true,
+      })
+    );
+    expect(remoteConnectionManagerTestDoubles.logError).toHaveBeenCalledWith(
+      '[remote] Remote server failure',
+      expect.objectContaining({
+        connectionId: 'profile-remote',
+        profileName: 'Remote Alpha',
+        phase: 'starting-server',
+        recoverable: true,
+        stderrTail: ['ssh_exchange_identification: Connection closed by remote host'],
+        stdoutNoiseTail: ['non-json diagnostic line'],
+      })
+    );
+    expect(remoteConnectionManagerTestDoubles.logError.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        lastDisconnectReason: expect.stringContaining('Remote server exited (255)'),
+      })
+    );
+    expect(consoleWarn).toHaveBeenCalled();
   });
 
   it('forwards helper aliases and auth responses through their primary handlers', async () => {

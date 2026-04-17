@@ -4,6 +4,7 @@ import { toastManager } from '@/components/ui/toast';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
 import { buildSourceControlToastCopy } from '@/lib/feedbackCopy';
+import { resolveGitPollingInterval, shouldRetryGitPollingError } from '@/lib/gitPollingError';
 
 const emptyResult: FileChangesResult = { changes: [] };
 
@@ -17,11 +18,18 @@ export function useFileChanges(workdir: string | null, isActive = true) {
       return window.electronAPI.git.getFileChanges(workdir);
     },
     enabled: !!workdir,
+    retry: shouldRetryGitPollingError,
     refetchInterval: (query) => {
       if (!isActive || !shouldPoll) return false;
-      return query.state.data?.truncated ? 60000 : 5000;
+      return resolveGitPollingInterval(
+        query.state.error,
+        query.state.data?.truncated ? 60000 : 5000,
+        30000
+      );
     }, // Only poll when tab is active and user is not idle
     refetchIntervalInBackground: false, // Only poll when window is focused
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     staleTime: 2000, // Avoid redundant requests within 2s
   });
 }
@@ -41,9 +49,18 @@ export function useFileDiff(
       return window.electronAPI.git.getFileDiff(workdir, path, staged);
     },
     enabled: (options?.enabled ?? true) && !!workdir && !!path,
+    retry: shouldRetryGitPollingError,
     staleTime: 0, // Always consider data stale
-    refetchInterval: shouldPoll ? 2000 : false, // Poll every 2s when window is focused
+    refetchInterval: (query) => {
+      if (!shouldPoll) {
+        return false;
+      }
+
+      return resolveGitPollingInterval(query.state.error, 2000, 30000);
+    }, // Poll every 2s when window is focused
     refetchIntervalInBackground: false, // Don't poll in background
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 

@@ -246,6 +246,49 @@ describe('useWorktreeSelection', () => {
     expect(setActiveTab).toHaveBeenCalledWith('terminal');
   });
 
+  it('falls back to chat instead of restoring the file tab when switching worktrees', async () => {
+    getSessions.mockReturnValue([
+      {
+        id: 'session-1',
+        repoPath: '/repo-b',
+        cwd: '/repo-b/.worktrees/feature-b',
+      },
+    ]);
+
+    const setActiveWorktree = vi.fn();
+    const setWorktreeTabMap = vi.fn();
+    const setActiveTab = vi.fn();
+    const setSelectedRepo = vi.fn();
+    const persistSelectedWorktree = vi.fn();
+    const currentWorktreePathRef = { current: null as string | null };
+    const activeWorktree = makeWorktree('/repo-a/.worktrees/current');
+    const nextWorktree = makeWorktree('/repo-b/.worktrees/feature-b');
+
+    renderToStaticMarkup(
+      React.createElement(HookHarness, {
+        args: [
+          activeWorktree,
+          setActiveWorktree,
+          currentWorktreePathRef,
+          { [nextWorktree.path]: 'file' },
+          setWorktreeTabMap,
+          'chat',
+          null,
+          setActiveTab,
+          '/repo-a',
+          setSelectedRepo,
+          persistSelectedWorktree,
+        ],
+      })
+    );
+
+    expect(capturedHandleSelectWorktree).not.toBeNull();
+
+    await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
+
+    expect(setActiveTab).toHaveBeenCalledWith('chat');
+  });
+
   it('falls back to chat when a worktree still has a stale settings tab saved in draggable mode', async () => {
     settingsStoreState.settingsDisplayMode = 'draggable-modal';
     getSessions.mockReturnValue([

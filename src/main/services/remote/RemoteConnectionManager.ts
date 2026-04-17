@@ -22,6 +22,7 @@ import {
 import { APP_RUNTIME_NAMESPACE } from '@shared/utils/runtimeIdentity';
 import { app, BrowserWindow } from 'electron';
 import * as pty from 'node-pty';
+import log from '../../utils/logger';
 import { killProcessTree } from '../../utils/processUtils';
 import { getEnvForCommand } from '../../utils/shell';
 import { readSharedSessionState, readSharedSettings } from '../SharedSessionState';
@@ -1662,6 +1663,22 @@ export class RemoteConnectionManager {
     return createRemoteError(message, undefined, diagnostics);
   }
 
+  private logServerFailure(
+    server: RemoteServerProcess,
+    detail: string,
+    recoverable: boolean
+  ): void {
+    log.error('[remote] Remote server failure', {
+      connectionId: server.connectionId,
+      profileName: server.profile.name,
+      phase: server.status.phase,
+      lastDisconnectReason: detail,
+      recoverable,
+      stderrTail: server.stderrTail.length > 0 ? [...server.stderrTail] : undefined,
+      stdoutNoiseTail: server.stdoutNoiseTail.length > 0 ? [...server.stdoutNoiseTail] : undefined,
+    });
+  }
+
   private async verifyManagedRuntime(
     profile: ConnectionProfile,
     runtime: ConnectionRuntime,
@@ -2076,6 +2093,7 @@ export class RemoteConnectionManager {
     const detail = getRemoteErrorDetail(error);
     const timestamp = now();
     const intentional = this.intentionalDisconnects.delete(server.connectionId);
+    const recoverable = !intentional && this.shouldAutoReconnect(detail);
     server.closed = true;
     try {
       if (!server.proc.stdin.destroyed && server.proc.stdin.writable) {
@@ -2083,6 +2101,9 @@ export class RemoteConnectionManager {
       }
     } catch {
       // Ignore shutdown races when ssh already closed its stdin.
+    }
+    if (!intentional && detail) {
+      this.logServerFailure(server, detail, recoverable);
     }
     server.status = {
       ...server.status,
@@ -2094,7 +2115,7 @@ export class RemoteConnectionManager {
           ? phaseLabelFor('failed')
           : phaseLabelFor('idle'),
       error: detail,
-      recoverable: !intentional && this.shouldAutoReconnect(detail),
+      recoverable,
       reconnectAttempt: undefined,
       nextRetryAt: undefined,
       lastDisconnectReason: detail,

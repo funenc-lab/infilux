@@ -307,9 +307,12 @@ export function migrateSettings(
       ? persisted.backgroundSizeMode
       : currentState.backgroundSizeMode;
 
-  // Migrate legacy 'canvas' renderer to 'webgl' (canvas support was removed)
+  // Upgrade legacy default renderers to WebGL while keeping unsupported values on the current default.
   const terminalRenderer =
-    (persisted.terminalRenderer as string) === 'canvas' ? 'webgl' : persisted.terminalRenderer;
+    (persisted.terminalRenderer as string) === 'canvas' ||
+    (persisted.terminalRenderer as string) === 'dom'
+      ? 'webgl'
+      : persisted.terminalRenderer;
   const terminalScrollback = normalizeTerminalScrollback(
     persisted.terminalScrollback,
     currentState.terminalScrollback

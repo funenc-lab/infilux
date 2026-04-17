@@ -53,6 +53,7 @@ import {
   onAgentStopNotification,
   onAskUserQuestionNotification,
   onNotificationClick,
+  onPreToolUseNotification,
   showRendererNotification,
 } from '@/lib/electronNotification';
 import { buildChatNotificationCopy } from '@/lib/feedbackCopy';
@@ -2073,6 +2074,23 @@ export function AgentPanel({
     claudeCodeIntegration,
     setEnhancedInputOpen,
   ]);
+
+  useEffect(() => {
+    const unsubscribe = onPreToolUseNotification(({ sessionId, toolName }) => {
+      if (toolName !== 'UserPromptSubmit') {
+        return;
+      }
+
+      const session = findSessionByNotificationId(sessionId);
+      if (!session) {
+        return;
+      }
+
+      setWaitingForInput(session.id, false);
+    });
+
+    return unsubscribe;
+  }, [findSessionByNotificationId, setWaitingForInput]);
 
   // Note: EnhancedInput open state is now stored per-session in the store
   // No need to auto-collapse on session switch - each session keeps its own state

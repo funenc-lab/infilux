@@ -55,6 +55,12 @@ describe('agent native terminal input policy', () => {
     expect(agentTerminalSource).not.toContain('setAttachmentTrayImporting');
   });
 
+  it('clears stale waiting-input state once the user resumes the agent after a prompt', () => {
+    expect(agentPanelSource).toContain('onPreToolUseNotification');
+    expect(agentPanelSource).toContain("'UserPromptSubmit'");
+    expect(agentPanelSource).toContain('setWaitingForInput(session.id, false);');
+  });
+
   it('keeps agent sessions in transcript mode so pointer and wheel gestures do not move the cursor into the output region', () => {
     expect(useXtermSource).toContain('attachAgentTranscriptMode');
     expect(useXtermSource).toContain('attachAgentTranscriptMode(nextTerminal, kind)');

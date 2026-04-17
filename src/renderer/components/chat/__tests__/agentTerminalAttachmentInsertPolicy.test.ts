@@ -16,6 +16,19 @@ describe('agentTerminalAttachmentInsertPolicy', () => {
     ).toBe(true);
   });
 
+  it('allows direct terminal insertion while the agent is explicitly waiting for user input', () => {
+    const waitingForInputOptions = {
+      sessionId: 'backend-1',
+      attachmentCount: 1,
+      runtimeState: 'live' as const,
+      outputState: 'outputting' as const,
+      waitingForInput: true,
+    };
+
+    expect(resolveAgentTerminalAttachmentInsertDisposition(waitingForInputOptions)).toBe('insert');
+    expect(canInsertAgentTerminalAttachments(waitingForInputOptions)).toBe(true);
+  });
+
   it('blocks direct terminal insertion when the current session is still outputting', () => {
     expect(
       canInsertAgentTerminalAttachments({
