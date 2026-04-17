@@ -24,11 +24,7 @@ function matchesAnyPattern(message: string, patterns: readonly RegExp[]) {
 
 export function normalizeGitPollingErrorMessage(error: unknown): string {
   let message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : 'Git query failed';
+    error instanceof Error ? error.message : typeof error === 'string' ? error : 'Git query failed';
 
   while (message.startsWith('Error: ')) {
     message = message.slice('Error: '.length);

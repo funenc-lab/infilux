@@ -41,9 +41,9 @@ import { useFileChanges, useFileDiff } from '../useSourceControl';
 type MockedSourceControlQueryOptions = {
   refetchOnReconnect: boolean;
   refetchOnWindowFocus: boolean;
-  refetchInterval: (query: { state: { data?: { truncated?: boolean }; error?: unknown } }) =>
-    | number
-    | false;
+  refetchInterval: (query: {
+    state: { data?: { truncated?: boolean }; error?: unknown };
+  }) => number | false;
   retry: (failureCount: number, error: unknown) => boolean;
 };
 
@@ -72,7 +72,11 @@ describe('source control polling', () => {
   });
 
   it('backs off file diff polling after transient spawn failures', () => {
-    const query = useFileDiff('/repo', 'README.md', false) as unknown as MockedSourceControlQueryOptions;
+    const query = useFileDiff(
+      '/repo',
+      'README.md',
+      false
+    ) as unknown as MockedSourceControlQueryOptions;
 
     expect(
       query.refetchInterval({
