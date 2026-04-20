@@ -13,13 +13,13 @@ describe('resolveWorktreeLoadErrorState', () => {
     );
   });
 
-  it('maps transient spawn failures to a retryable unavailable state', () => {
+  it('maps bad file descriptor spawn failures to a restart-required state', () => {
     expect(resolveWorktreeLoadErrorState('Error: spawn EBADF')).toEqual(
       expect.objectContaining({
-        kind: 'transient',
-        tone: 'warning',
-        title: 'Git temporarily unavailable',
-        status: 'Git process launch failed',
+        kind: 'runtime-restart-required',
+        tone: 'danger',
+        title: 'Restart Infilux to recover Git',
+        status: 'Git runtime requires restart',
       })
     );
   });

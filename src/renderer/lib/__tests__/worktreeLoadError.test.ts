@@ -7,11 +7,12 @@ import {
 } from '../worktreeLoadError';
 
 describe('worktreeLoadError helpers', () => {
-  it('classifies repository-metadata and transient spawn failures separately', () => {
+  it('classifies repository-metadata, runtime restart, and transient spawn failures separately', () => {
     expect(classifyWorktreeLoadError('Invalid workdir: not a git repository')).toBe(
       'not-git-repository'
     );
-    expect(classifyWorktreeLoadError('Error: spawn EBADF')).toBe('transient');
+    expect(classifyWorktreeLoadError('Error: spawn EBADF')).toBe('runtime-restart-required');
+    expect(classifyWorktreeLoadError('Error: spawn EAGAIN')).toBe('transient');
     expect(classifyWorktreeLoadError('fatal: unexpected failure')).toBe('generic');
   });
 
@@ -20,12 +21,13 @@ describe('worktreeLoadError helpers', () => {
   });
 
   it('retries only transient worktree load failures', () => {
-    expect(shouldRetryWorktreeLoadError(0, new Error('spawn EBADF'))).toBe(true);
-    expect(shouldRetryWorktreeLoadError(2, new Error('spawn EBADF'))).toBe(false);
+    expect(shouldRetryWorktreeLoadError(0, new Error('spawn EBADF'))).toBe(false);
+    expect(shouldRetryWorktreeLoadError(0, new Error('spawn EAGAIN'))).toBe(true);
+    expect(shouldRetryWorktreeLoadError(2, new Error('spawn EAGAIN'))).toBe(false);
     expect(shouldRetryWorktreeLoadError(0, new Error('not a git repository'))).toBe(false);
   });
 
-  it('recovers transient failures only when a previous snapshot exists', () => {
+  it('recovers restart-required and transient failures only when a previous snapshot exists', () => {
     const previousWorktrees = [
       {
         path: '/repo',
@@ -39,6 +41,9 @@ describe('worktreeLoadError helpers', () => {
 
     expect(
       canRecoverWorktreeListFromPreviousSnapshot(new Error('spawn EBADF'), previousWorktrees)
+    ).toBe(true);
+    expect(
+      canRecoverWorktreeListFromPreviousSnapshot(new Error('spawn EAGAIN'), previousWorktrees)
     ).toBe(true);
     expect(canRecoverWorktreeListFromPreviousSnapshot(new Error('spawn EBADF'), [])).toBe(false);
     expect(

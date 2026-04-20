@@ -54,6 +54,20 @@ export function resolveWorktreeLoadErrorState(
         nextStep: 'Refresh the repository or wait for automatic recovery',
         detail,
       };
+    case 'runtime-restart-required':
+      return {
+        kind,
+        tone: 'danger',
+        label: 'Restart Required',
+        title: 'Restart Infilux to recover Git',
+        description:
+          'Git process startup failed inside the current Infilux runtime. Fully quit and reopen the app to restore repository features.',
+        inlineDescription:
+          'Git process startup failed inside Infilux. Fully quit and reopen the app.',
+        status: 'Git runtime requires restart',
+        nextStep: 'Quit Infilux completely, then reopen it',
+        detail,
+      };
     default:
       return {
         kind,

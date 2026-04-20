@@ -41,9 +41,9 @@ import { useFileChanges, useFileDiff } from '../useSourceControl';
 type MockedSourceControlQueryOptions = {
   refetchOnReconnect: boolean;
   refetchOnWindowFocus: boolean;
-  refetchInterval: (query: { state: { data?: { truncated?: boolean }; error?: unknown } }) =>
-    | number
-    | false;
+  refetchInterval: (query: {
+    state: { data?: { truncated?: boolean }; error?: unknown };
+  }) => number | false;
   retry: (failureCount: number, error: unknown) => boolean;
 };
 
@@ -71,8 +71,12 @@ describe('source control polling', () => {
     ).toBe(false);
   });
 
-  it('backs off file diff polling after transient spawn failures', () => {
-    const query = useFileDiff('/repo', 'README.md', false) as unknown as MockedSourceControlQueryOptions;
+  it('stops file diff polling after restart-required spawn failures', () => {
+    const query = useFileDiff(
+      '/repo',
+      'README.md',
+      false
+    ) as unknown as MockedSourceControlQueryOptions;
 
     expect(
       query.refetchInterval({
@@ -80,7 +84,7 @@ describe('source control polling', () => {
           error: new Error('spawn EBADF'),
         },
       })
-    ).toBe(30000);
-    expect(query.retry(0, new Error('spawn EBADF'))).toBe(true);
+    ).toBe(false);
+    expect(query.retry(0, new Error('spawn EBADF'))).toBe(false);
   });
 });
