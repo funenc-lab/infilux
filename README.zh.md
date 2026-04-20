@@ -41,7 +41,35 @@
 
 告别 git stash。Infilux 将每个分支视为一等公民，赋予其独立的工作区与 AI 上下文。
 
-![Infilux 终端](docs/assets/feature-terminal.png)
+![Infilux 工作区总览](docs/assets/readme-workspace.png)
+
+---
+
+## 本文截图使用的示例项目
+
+下面的截图全部来自当前应用构建，并基于一个临时创建的演示仓库 `Example App` 拍摄。
+这样文档里的状态来自真实 worktree，而不是静态拼图。
+
+- 仓库: `Example App`
+- Worktree: `main`、`feature/docs-refresh`
+- 已暂存改动: `package.json`、`src/main.ts`
+- 未暂存改动: `README.md`
+- 未跟踪文件: `src/components/ReviewPanel.tsx`
+
+合并冲突截图使用了另一个临时仓库 `Merge Demo`，这样内置 merge editor 展示的是真实冲突状态。
+
+```text
+Example App
+├── README.md
+├── package.json
+├── docs/
+│   └── workflow-notes.md
+└── src/
+    ├── main.ts
+    └── components/
+        ├── ReviewPanel.tsx
+        └── WorktreeStatus.tsx
+```
 
 ---
 
@@ -150,94 +178,78 @@ pnpm build:linux  # Linux
 
 ## 功能特性
 
-### 多 Agent 矩阵
+### 按 Worktree 隔离的 Agent 会话
 
-无缝切换 Claude、Codex、Gemini 或本地 LLM。每个 Worktree 都有独立的持久化 AI 会话。
-
-![多 Agent 矩阵](docs/assets/feature-terminal.png)
+每个 worktree 都有独立的 Agent 入口、启动动作与上下文，不需要切出当前分支就能开始协作。
 
 内置支持：
-- **Claude** - Anthropic 的 AI 助手，支持会话持久化
+- **Claude** - Anthropic 的 AI 助手，支持持久化会话工作流
 - **Codex** - OpenAI 的编程助手
 - **Gemini** - Google 的 AI 助手
 - **Cursor** - Cursor 的 AI 助手 (`cursor-agent`)
 - **Droid** - Factory CLI，AI 驱动的 CI/CD 助手
 - **Auggie** - Augment Code 的 AI 助手
 
-你也可以通过指定 CLI 命令来添加自定义 Agent。
-
----
-
-### 内置 Git 管理器
-
-优雅的可视化 Git 面板。通过键盘即可完成差异对比、暂存修改和提交代码。
-
-![Git 管理器](docs/assets/feature-editor.png)
-
-- 变更列表显示所有修改的文件
-- 支持暂存/取消暂存操作
-- 提交历史浏览
-- 代码差异对比视图
+你也可以通过指定 CLI 命令接入自定义 Agent。
 
 ---
 
 ### 内置代码编辑器
 
-基于 Monaco 构建的轻量级编辑器。支持 50+ 种语言高亮，提供流畅的多标签拖拽体验。
+基于 Monaco 的编辑器适合在当前 worktree 内快速修复、查看与补充代码，不必切回外部 IDE 才能完成小步修改。
 
-![代码编辑器](docs/assets/feature-git.png)
+![Infilux 代码编辑器](docs/assets/readme-editor.png)
 
-- 多标签编辑，支持拖拽排序
-- 文件树支持创建/重命名/删除操作
-- 自动语言检测
-- 编辑器状态跨会话持久化
-
----
-
-### AI 代码审查
-
-自动生成高质量的 Commit Message，并利用 AI 助手对代码变更进行深度审查与优化。
-
-![AI 代码审查](docs/assets/feature-agents.png)
+- 文件树和编辑器始终绑定当前 worktree
+- 适合快速修复、跟进 review、补充说明文件
+- 打开的文件会跟随 worktree 上下文保留
 
 ---
 
-### 三栏合并工具
+### 与 Worktree 对齐的版本管理面板
 
-内置专业的三栏合并编辑器。清晰展示冲突来源，支持一键采纳变更与实时结果预览，让解决冲突变得轻松愉悦。
+版本管理面板直接展示当前 worktree 的已暂存、未暂存和未跟踪文件，并在右侧打开对应 diff。
 
-![三栏合并工具](docs/assets/feature-merge.png)
+![Infilux 版本管理](docs/assets/readme-source-control.png)
+
+- 已暂存、未暂存、未跟踪改动分区清晰
+- 选中文件后可直接查看并排 diff
+- 提交输入框、刷新和 review 入口保持在同一工作区内
+
+---
+
+### Review 与合并流程
+
+Infilux 会把 review 和 merge 操作留在 worktree 语境里，而不是把你频繁踢回外部工具。
+
+![Infilux 合并编辑器](docs/assets/readme-merge.png)
+
+- 从版本管理直接发起 diff review，并继续切到 Agent 面板追问
+- 使用内置三栏合并编辑器处理冲突
+- 在合并完成后继续做清理动作，而不是中途切换工具链
 
 ---
 
 ### Worktree 管理
 
-毫秒级创建与切换 Git Worktree。在不同功能分支间自由穿梭，无需重复配置环境。
+可以直接创建、切换和清理 Git Worktree，而不需要反复重新打开项目。
 
 - 从现有分支或新分支创建 worktree
-- 即时切换 worktree
-- 删除 worktree 并可选择同时删除分支
-- 可视化 worktree 列表，显示分支状态
+- 在不同 worktree 之间切换，并保持各自的编辑器与 Agent 上下文
+- 删除 worktree 时可选是否一并删除分支
+- 在侧边栏直接查看分支状态
 
 ---
 
-### IDE 桥接
+### IDE 桥接与日常效率能力
 
-在 Infilux 中统筹全局，一键跳转至 VS Code 或 Cursor 进行深度开发。无缝衔接现有工具链。
+用 Infilux 负责编排，再一键跳转到 VS Code、Cursor、Ghostty 等工具完成深度开发。
 
-通过 `Cmd+Shift+P` 打开命令面板：
-- **面板控制** - 切换 Workspace/Worktree 侧边栏显示
-- **设置** - 打开设置对话框 (Cmd+,)
-- **打开方式** - 在 Cursor、Ghostty、VS Code 等中打开当前项目
-
----
-
-### 其他特性
-
-- **多窗口支持** - 同时打开多个工作空间
-- **主题同步** - 应用主题可与终端主题（400+ Ghostty 主题）同步
-- **键盘快捷键** - 高效导航（Cmd+1-9 切换标签）
-- **设置持久化** - 所有设置保存为 JSON，便于恢复
+- 命令面板用于面板控制和工作区动作
+- 多窗口支持并行仓库工作
+- 主题可与终端主题同步
+- 提供标签切换和工作区导航快捷键
+- 设置持久化，方便恢复环境和复用配置
 
 ---
 
