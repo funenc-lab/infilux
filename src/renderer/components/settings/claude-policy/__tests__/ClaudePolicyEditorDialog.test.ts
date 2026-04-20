@@ -26,16 +26,24 @@ vi.mock('@/i18n', () => ({
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
     open ? React.createElement('div', { 'data-testid': 'dialog-root' }, children) : null,
-  DialogPopup: ({ children }: { children: React.ReactNode }) =>
-    React.createElement('div', { 'data-testid': 'dialog-popup' }, children),
+  DialogPopup: ({
+    children,
+    className,
+    ...props
+  }: {
+    children: React.ReactNode;
+    className?: string;
+    [key: string]: unknown;
+  }) =>
+    React.createElement('div', { 'data-testid': 'dialog-popup', className, ...props }, children),
   DialogHeader: ({ children }: { children: React.ReactNode }) =>
     React.createElement('div', null, children),
   DialogTitle: ({ children }: { children: React.ReactNode }) =>
     React.createElement('h2', null, children),
   DialogDescription: ({ children }: { children: React.ReactNode }) =>
     React.createElement('p', null, children),
-  DialogPanel: ({ children }: { children: React.ReactNode }) =>
-    React.createElement('div', null, children),
+  DialogPanel: ({ children, className }: { children: React.ReactNode; className?: string }) =>
+    React.createElement('div', { 'data-testid': 'dialog-panel', className }, children),
   DialogFooter: ({ children }: { children: React.ReactNode }) =>
     React.createElement('div', null, children),
   DialogClose: ({ render }: { render?: React.ReactElement }) => render ?? null,
@@ -81,6 +89,16 @@ async function flushEffects() {
     await Promise.resolve();
     await Promise.resolve();
   });
+}
+
+function setInputValue(element: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    'value'
+  )?.set;
+  valueSetter?.call(element, value);
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 describe('ClaudePolicyEditorDialog', () => {
@@ -464,5 +482,211 @@ describe('ClaudePolicyEditorDialog', () => {
     const saveButton = container?.querySelector<HTMLButtonElement>('[data-policy-action="save"]');
     expect(saveButton?.disabled).toBe(true);
     expect(handleSave).not.toHaveBeenCalled();
+  });
+
+  it('applies batch decisions to the current visible items', async () => {
+    installElectronApi(
+      {
+        capabilities: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'project',
+            sourcePath: '/repo/.agents/skills/planner/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+          {
+            id: 'legacy-skill:reviewer',
+            kind: 'legacy-skill',
+            name: 'Reviewer',
+            sourceScope: 'project',
+            sourcePath: '/repo/.agents/skills/reviewer/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [
+          {
+            id: 'shared:filesystem',
+            name: 'Filesystem',
+            scope: 'shared',
+            sourceScope: 'project',
+            sourcePath: '/repo/.mcp.json',
+            transportType: 'stdio',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+          {
+            id: 'shared:git',
+            name: 'Git',
+            scope: 'shared',
+            sourceScope: 'project',
+            sourcePath: '/repo/.mcp.json',
+            transportType: 'stdio',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {},
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const handleSave = vi.fn();
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'project',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          projectPolicy: null,
+          worktreePolicy: null,
+          onSave: handleSave,
+        })
+      );
+    });
+    await flushEffects();
+
+    await act(async () => {
+      const searchInput = container?.querySelector<HTMLInputElement>(
+        '[data-policy-search="input"]'
+      );
+      if (searchInput) {
+        setInputValue(searchInput, 'plan');
+      }
+    });
+    await flushEffects();
+
+    const skillSection = container?.querySelector('[data-policy-section="skills"]');
+    await act(async () => {
+      skillSection
+        ?.querySelector<HTMLButtonElement>('[data-policy-batch-action="allow"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    await act(async () => {
+      container
+        ?.querySelector<HTMLButtonElement>('[data-policy-tab="mcp"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const searchInput = container?.querySelector<HTMLInputElement>(
+        '[data-policy-search="input"]'
+      );
+      if (searchInput) {
+        setInputValue(searchInput, 'git');
+      }
+    });
+    await flushEffects();
+
+    const sharedMcpSection = container?.querySelector('[data-policy-section="shared-mcp"]');
+    await act(async () => {
+      sharedMcpSection
+        ?.querySelector<HTMLButtonElement>('[data-policy-batch-action="block"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    await act(async () => {
+      container
+        ?.querySelector<HTMLButtonElement>('[data-policy-action="save"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(handleSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: '/repo',
+        allowedCapabilityIds: ['legacy-skill:planner'],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: ['shared:git'],
+      }),
+      expect.objectContaining({
+        hash: 'hash-preview',
+      })
+    );
+  });
+
+  it('keeps a stable popup frame while the catalog is still loading', async () => {
+    catalogList.mockReturnValue(new Promise<ClaudeCapabilityCatalog>(() => {}));
+    previewResolve.mockResolvedValue({
+      repoPath: '/repo',
+      worktreePath: '/repo',
+      allowedCapabilityIds: [],
+      blockedCapabilityIds: [],
+      allowedSharedMcpIds: [],
+      blockedSharedMcpIds: [],
+      allowedPersonalMcpIds: [],
+      blockedPersonalMcpIds: [],
+      capabilityProvenance: {},
+      sharedMcpProvenance: {},
+      personalMcpProvenance: {},
+      hash: 'hash-preview',
+      policyHash: 'hash-preview',
+    });
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        claudePolicy: {
+          catalog: {
+            list: catalogList,
+          },
+          preview: {
+            resolve: previewResolve,
+          },
+        },
+      },
+    });
+
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'worktree',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          worktreeName: 'feature-a',
+          projectPolicy: null,
+          worktreePolicy: null,
+          onSave: vi.fn(),
+        })
+      );
+    });
+    await flushEffects();
+
+    const popup = container?.querySelector<HTMLElement>('[data-testid="dialog-popup"]');
+    const panel = container?.querySelector<HTMLElement>('[data-testid="dialog-panel"]');
+
+    expect(container?.textContent).toContain('Loading skill and MCP catalog...');
+    expect(popup?.dataset.policyDialog).toBe('editor');
+    expect(popup?.className).toContain('h-[min(85vh,54rem)]');
+    expect(panel?.className).toContain('flex-1');
+    expect(panel?.className).toContain('min-h-0');
   });
 });

@@ -406,6 +406,7 @@ export const zhTranslations: Record<string, string> = {
   'Discard changes': '撤销更改',
   'Discard changes title': '撤销更改',
   'Discard failed': '撤销更改失败',
+  Disable: '禁用',
   Disabled: '禁用',
   'Downloading update': '正在下载更新',
   Edit: '编辑',
@@ -2236,6 +2237,7 @@ export const zhTranslations: Record<string, string> = {
   'No favorite themes yet. Click the heart icon to add favorites.':
     '还没有收藏主题。点击心形图标即可添加收藏。',
   Reset: '重置',
+  'Apply to visible items': '应用到当前可见项',
   'Edit selected': '编辑所选项',
   'State Highlight': '状态高亮',
   'Highlight AI output states with stronger borders': '使用更明显的边框高亮 AI 输出状态',

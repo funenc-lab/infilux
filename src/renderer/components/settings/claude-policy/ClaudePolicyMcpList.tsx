@@ -1,6 +1,7 @@
 import type { ClaudeMcpCatalogItem, ClaudePolicyConfig } from '@shared/types';
 import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/i18n';
+import { ClaudePolicyBatchActions } from './ClaudePolicyBatchActions';
 import { ClaudePolicyDecisionControls } from './ClaudePolicyDecisionControls';
 import {
   type ClaudePolicyBucket,
@@ -16,6 +17,7 @@ interface ClaudePolicyMcpListProps {
   bucket: Extract<ClaudePolicyBucket, 'sharedMcp' | 'personalMcp'>;
   policy: ClaudePolicyConfig;
   onDecisionChange: (id: string, decision: ClaudePolicyDecisionValue) => void;
+  onBatchDecisionChange: (ids: string[], decision: ClaudePolicyDecisionValue) => void;
 }
 
 export function ClaudePolicyMcpList({
@@ -26,14 +28,22 @@ export function ClaudePolicyMcpList({
   bucket,
   policy,
   onDecisionChange,
+  onBatchDecisionChange,
 }: ClaudePolicyMcpListProps) {
   const { t } = useI18n();
+  const itemIds = items.map((item) => item.id);
 
   return (
     <section className="space-y-3" data-policy-section={sectionId}>
-      <div className="space-y-1">
-        <h3 className="ui-type-block-title">{title}</h3>
-        {description ? <p className="ui-type-meta text-muted-foreground">{description}</p> : null}
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="space-y-1">
+          <h3 className="ui-type-block-title">{title}</h3>
+          {description ? <p className="ui-type-meta text-muted-foreground">{description}</p> : null}
+        </div>
+        <ClaudePolicyBatchActions
+          itemCount={itemIds.length}
+          onDecisionChange={(decision) => onBatchDecisionChange(itemIds, decision)}
+        />
       </div>
 
       <div className="space-y-2">

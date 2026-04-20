@@ -33,4 +33,20 @@ describe('collectMountedAgentSessionIds', () => {
       )
     ).toEqual(['session-a']);
   });
+
+  it('treats equivalent repository paths as the same mounted session scope', () => {
+    expect(
+      collectMountedAgentSessionIds(
+        [
+          {
+            id: 'session-a',
+            repoPath: '/Users/tanzv/Development/Git/Lads-Gateway/',
+            cwd: '/Users/tanzv/Development/Git/Lads-Gateway/worktrees/feat-skill-mcp/',
+          },
+        ],
+        '/users/tanzv/development/git/lads-gateway',
+        '/users/tanzv/development/git/lads-gateway/worktrees/feat-skill-mcp'
+      )
+    ).toEqual(['session-a']);
+  });
 });

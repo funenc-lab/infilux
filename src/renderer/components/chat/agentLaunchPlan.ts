@@ -51,8 +51,10 @@ function buildSessionResumeArgs(params: {
   resumeSessionId?: string;
   initialized?: boolean;
   terminalSessionId?: string;
+  useTmuxHostSession?: boolean;
 }): string[] {
-  const { agentCommand, resumeSessionId, initialized, terminalSessionId } = params;
+  const { agentCommand, resumeSessionId, initialized, terminalSessionId, useTmuxHostSession } =
+    params;
   if (!resumeSessionId) {
     return [];
   }
@@ -64,6 +66,9 @@ function buildSessionResumeArgs(params: {
   }
 
   if (agentCommand === 'codex') {
+    if (useTmuxHostSession) {
+      return [];
+    }
     return initialized && hasExplicitProviderResumeId ? ['resume', resumeSessionId] : [];
   }
 
@@ -252,12 +257,15 @@ export function buildAgentLaunchPlan({
   const effectiveCommand = customPath || agentCommand;
   const supportIde = agentCommand.startsWith('claude') && enableIdeIntegration;
   const isWindows = executionPlatform === 'win32';
+  const useTmuxHostSession =
+    tmuxEnabled && !isRemoteExecution && !isWindows && Boolean(terminalSessionId);
 
   const agentArgs = buildSessionResumeArgs({
     agentCommand,
     resumeSessionId,
     initialized,
     terminalSessionId,
+    useTmuxHostSession,
   });
 
   if (supportIde) {
@@ -301,8 +309,7 @@ export function buildAgentLaunchPlan({
     baseCommand = `happy ${happyArgs} ${agentArgs.join(' ')}`.trim();
   }
 
-  const shouldUseTmux =
-    tmuxEnabled && !isRemoteExecution && !isWindows && Boolean(terminalSessionId);
+  const shouldUseTmux = useTmuxHostSession;
   const tmuxSessionName = shouldUseTmux
     ? persistentHostSessionKey?.trim() ||
       buildPersistentAgentHostSessionKey(terminalSessionId ?? '', runtimeChannel)

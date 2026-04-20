@@ -306,10 +306,21 @@ function buildCodexResolvedSkillEntries(
       continue;
     }
 
-    for (const sourcePath of sourcePaths) {
+    const enabled = allowedCapabilityIds.has(capability.id);
+    const preferredSourcePath =
+      capability.sourcePath && sourcePaths.includes(capability.sourcePath)
+        ? capability.sourcePath
+        : (sourcePaths[0] ?? null);
+    const injectedSourcePaths = enabled
+      ? preferredSourcePath
+        ? [preferredSourcePath]
+        : sourcePaths
+      : sourcePaths;
+
+    for (const sourcePath of injectedSourcePaths) {
       skillEntries.push({
         id: capability.id,
-        enabled: allowedCapabilityIds.has(capability.id),
+        enabled,
         path: sourcePath,
         sourceScope: capability.sourceScope,
       });

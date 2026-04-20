@@ -35,6 +35,7 @@ import {
   createClaudeSkillPolicyDraft,
   hasClaudeSkillPolicyConfigChanges,
   setClaudePolicyDecision,
+  setClaudePolicyDecisionForIds,
 } from './model';
 import { getCapabilitySourcePaths } from './sourcePaths';
 
@@ -234,6 +235,24 @@ export function ClaudePolicyEditorDialog({
     },
     []
   );
+  const handleCapabilityBatchDecisionChange = useCallback(
+    (ids: string[], decision: ClaudePolicyDecisionValue) => {
+      setDraft((current) => setClaudePolicyDecisionForIds(current, 'capability', ids, decision));
+    },
+    []
+  );
+  const handleSharedMcpBatchDecisionChange = useCallback(
+    (ids: string[], decision: ClaudePolicyDecisionValue) => {
+      setDraft((current) => setClaudePolicyDecisionForIds(current, 'sharedMcp', ids, decision));
+    },
+    []
+  );
+  const handlePersonalMcpBatchDecisionChange = useCallback(
+    (ids: string[], decision: ClaudePolicyDecisionValue) => {
+      setDraft((current) => setClaudePolicyDecisionForIds(current, 'personalMcp', ids, decision));
+    },
+    []
+  );
 
   const isDirty = useMemo(
     () => hasClaudeSkillPolicyConfigChanges(activePolicy, draft),
@@ -277,7 +296,7 @@ export function ClaudePolicyEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="max-w-5xl">
+      <DialogPopup data-policy-dialog="editor" className="max-w-5xl h-[min(85vh,54rem)]">
         <DialogHeader>
           <DialogTitle>{t(dialogTitle)}</DialogTitle>
           <DialogDescription>
@@ -289,7 +308,7 @@ export function ClaudePolicyEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <DialogPanel className="space-y-6">
+        <DialogPanel className="flex-1 min-h-0 space-y-6">
           {catalogError ? (
             <div className="rounded-xl border border-warning/45 bg-warning/8 p-4 text-warning-foreground">
               <div className="ui-type-block-title">{t('Catalog warning')}</div>
@@ -366,6 +385,7 @@ export function ClaudePolicyEditorDialog({
                 items={filteredSkillItems}
                 policy={draft}
                 onDecisionChange={handleCapabilityDecisionChange}
+                onBatchDecisionChange={handleCapabilityBatchDecisionChange}
               />
             ) : (
               <div className="space-y-6">
@@ -379,6 +399,7 @@ export function ClaudePolicyEditorDialog({
                   bucket="sharedMcp"
                   policy={draft}
                   onDecisionChange={handleSharedMcpDecisionChange}
+                  onBatchDecisionChange={handleSharedMcpBatchDecisionChange}
                 />
 
                 <ClaudePolicyMcpList
@@ -391,6 +412,7 @@ export function ClaudePolicyEditorDialog({
                   bucket="personalMcp"
                   policy={draft}
                   onDecisionChange={handlePersonalMcpDecisionChange}
+                  onBatchDecisionChange={handlePersonalMcpBatchDecisionChange}
                 />
               </div>
             )}

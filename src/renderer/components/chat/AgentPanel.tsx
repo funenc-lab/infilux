@@ -120,6 +120,7 @@ import {
 } from './agentSessionLayoutIndex';
 import { diffPersistentAgentSessionRecords } from './agentSessionPersistenceSync';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
+import { matchesAgentSessionRepoPath, matchesAgentSessionScope } from './agentSessionScope';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { ClaudeSessionLaunchDialog } from './ClaudeSessionLaunchDialog';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
@@ -938,7 +939,7 @@ export function AgentPanel({
   // Filter sessions for current repo+worktree (for SessionBar display, sorted by displayOrder)
   const currentWorktreeSessions = useMemo(() => {
     return allSessions
-      .filter((s) => s.repoPath === repoPath && pathsEqual(s.cwd, cwd))
+      .filter((session) => matchesAgentSessionScope(session, repoPath, cwd))
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
   }, [allSessions, repoPath, cwd]);
   const currentWorktreeSessionIds = useMemo(
@@ -3322,7 +3323,7 @@ export function AgentPanel({
     if (!session) return null;
 
     // Check if this session belongs to current repo
-    const isCurrentRepo = session.repoPath === repoPath;
+    const isCurrentRepo = matchesAgentSessionRepoPath(session, repoPath);
 
     const placement = sessionPlacementById.get(sessionId);
 

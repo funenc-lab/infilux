@@ -275,6 +275,37 @@ describe('buildAgentLaunchPlan', () => {
     });
   });
 
+  it('does not add codex resume when the session is hosted by tmux recovery', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'codex-session-11',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-11',
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toBeUndefined();
+    expect(plan.fallbackCommand).toBeUndefined();
+    expect(plan.hostSession).toEqual({
+      kind: 'tmux',
+      serverName: 'infilux',
+      sessionName: 'infilux-ui-session-11',
+    });
+    expect(plan.initialCommand).toContain(
+      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-11`
+    );
+    expect(plan.initialCommand).toContain('CLICOLOR_FORCE codex');
+    expect(plan.initialCommand).not.toContain('codex resume codex-session-11');
+  });
+
   it('keeps a login shell alive for local unix codex commands that need shell wrapping', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'codex',

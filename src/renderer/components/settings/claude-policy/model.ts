@@ -161,6 +161,10 @@ function updateDecisionList(values: string[], id: string, include: boolean): str
   return [...next].sort((left, right) => left.localeCompare(right));
 }
 
+function sortStringSet(values: Set<string>): string[] {
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
 export function setClaudePolicyDecision(
   policy: Partial<ClaudePolicyConfig> | null | undefined,
   bucket: ClaudePolicyBucket,
@@ -172,6 +176,58 @@ export function setClaudePolicyDecision(
   const blockedIds = getPolicyLists(current, bucket).blocked;
   const nextAllowedIds = updateDecisionList(allowedIds, id, decision === 'allow');
   const nextBlockedIds = updateDecisionList(blockedIds, id, decision === 'block');
+
+  if (bucket === 'capability') {
+    return {
+      ...current,
+      allowedCapabilityIds: nextAllowedIds,
+      blockedCapabilityIds: nextBlockedIds,
+    };
+  }
+
+  if (bucket === 'sharedMcp') {
+    return {
+      ...current,
+      allowedSharedMcpIds: nextAllowedIds,
+      blockedSharedMcpIds: nextBlockedIds,
+    };
+  }
+
+  return {
+    ...current,
+    allowedPersonalMcpIds: nextAllowedIds,
+    blockedPersonalMcpIds: nextBlockedIds,
+  };
+}
+
+export function setClaudePolicyDecisionForIds(
+  policy: Partial<ClaudePolicyConfig> | null | undefined,
+  bucket: ClaudePolicyBucket,
+  ids: string[],
+  decision: ClaudePolicyDecisionValue
+): ClaudePolicyConfig {
+  const normalizedIds = normalizeStringList(ids);
+  if (normalizedIds.length === 0) {
+    return createClaudePolicyDraft(policy);
+  }
+
+  const current = createClaudePolicyDraft(policy);
+  const allowedIds = new Set(getPolicyLists(current, bucket).allowed);
+  const blockedIds = new Set(getPolicyLists(current, bucket).blocked);
+
+  for (const id of normalizedIds) {
+    allowedIds.delete(id);
+    blockedIds.delete(id);
+
+    if (decision === 'allow') {
+      allowedIds.add(id);
+    } else if (decision === 'block') {
+      blockedIds.add(id);
+    }
+  }
+
+  const nextAllowedIds = sortStringSet(allowedIds);
+  const nextBlockedIds = sortStringSet(blockedIds);
 
   if (bucket === 'capability') {
     return {

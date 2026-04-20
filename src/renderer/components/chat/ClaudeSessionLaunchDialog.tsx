@@ -25,6 +25,7 @@ import {
   createClaudePolicyDraft,
   isClaudePolicyConfigEmpty,
   setClaudePolicyDecision,
+  setClaudePolicyDecisionForIds,
 } from '../settings/claude-policy/model';
 
 type ClaudeSessionLaunchDialogTab = 'skills' | 'mcp';
@@ -132,6 +133,24 @@ export function ClaudeSessionLaunchDialog({
   const handlePersonalMcpDecisionChange = useCallback(
     (id: string, decision: ClaudePolicyDecisionValue) => {
       setDraft((current) => setClaudePolicyDecision(current, 'personalMcp', id, decision));
+    },
+    []
+  );
+  const handleCapabilityBatchDecisionChange = useCallback(
+    (ids: string[], decision: ClaudePolicyDecisionValue) => {
+      setDraft((current) => setClaudePolicyDecisionForIds(current, 'capability', ids, decision));
+    },
+    []
+  );
+  const handleSharedMcpBatchDecisionChange = useCallback(
+    (ids: string[], decision: ClaudePolicyDecisionValue) => {
+      setDraft((current) => setClaudePolicyDecisionForIds(current, 'sharedMcp', ids, decision));
+    },
+    []
+  );
+  const handlePersonalMcpBatchDecisionChange = useCallback(
+    (ids: string[], decision: ClaudePolicyDecisionValue) => {
+      setDraft((current) => setClaudePolicyDecisionForIds(current, 'personalMcp', ids, decision));
     },
     []
   );
@@ -275,6 +294,7 @@ export function ClaudeSessionLaunchDialog({
                     items={skillItems}
                     policy={draft}
                     onDecisionChange={handleCapabilityDecisionChange}
+                    onBatchDecisionChange={handleCapabilityBatchDecisionChange}
                   />
                 ) : (
                   <div className="space-y-6">
@@ -285,6 +305,7 @@ export function ClaudeSessionLaunchDialog({
                       bucket="sharedMcp"
                       policy={draft}
                       onDecisionChange={handleSharedMcpDecisionChange}
+                      onBatchDecisionChange={handleSharedMcpBatchDecisionChange}
                     />
                     <ClaudePolicyMcpList
                       sectionId="personal-mcp"
@@ -293,6 +314,7 @@ export function ClaudeSessionLaunchDialog({
                       bucket="personalMcp"
                       policy={draft}
                       onDecisionChange={handlePersonalMcpDecisionChange}
+                      onBatchDecisionChange={handlePersonalMcpBatchDecisionChange}
                     />
                   </div>
                 )}
