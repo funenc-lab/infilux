@@ -98,6 +98,7 @@ function findActivePaneForSession(stdout: string): { paneId: string; inMode: boo
 
 class TmuxDetector {
   private cache: TmuxCheckResult | null = null;
+  private readonly serverHealthCheckPromises = new Map<string, Promise<boolean>>();
 
   async check(forceRefresh?: boolean): Promise<TmuxCheckResult> {
     if (isWindows) {
@@ -199,18 +200,20 @@ class TmuxDetector {
       return true;
     }
 
-    const installStatus = await this.check();
-    if (!installStatus.installed) {
-      return false;
-    }
-
     const resolvedServerName = resolveTmuxServerName(serverName);
-    if (await this.probeServer(resolvedServerName)) {
-      return true;
+    const inFlightHealthCheck = this.serverHealthCheckPromises.get(resolvedServerName);
+    if (inFlightHealthCheck) {
+      return inFlightHealthCheck;
     }
 
-    this.resetServer(resolvedServerName);
-    return this.probeServer(resolvedServerName);
+    const healthCheckPromise = this.ensureServerHealthyInternal(resolvedServerName).finally(() => {
+      if (this.serverHealthCheckPromises.get(resolvedServerName) === healthCheckPromise) {
+        this.serverHealthCheckPromises.delete(resolvedServerName);
+      }
+    });
+
+    this.serverHealthCheckPromises.set(resolvedServerName, healthCheckPromise);
+    return healthCheckPromise;
   }
 
   async scrollClient(request: TmuxScrollClientRequest): Promise<TmuxScrollClientResult> {
@@ -327,6 +330,20 @@ class TmuxDetector {
     this.killServerSyncByName(serverName);
     this.killResidualProcesses(serverName);
     this.removeSocketFile(serverName);
+  }
+
+  private async ensureServerHealthyInternal(serverName: string): Promise<boolean> {
+    const installStatus = await this.check();
+    if (!installStatus.installed) {
+      return false;
+    }
+
+    if (await this.probeServer(serverName)) {
+      return true;
+    }
+
+    this.resetServer(serverName);
+    return this.probeServer(serverName);
   }
 
   private killServerSyncByName(serverName: string): void {

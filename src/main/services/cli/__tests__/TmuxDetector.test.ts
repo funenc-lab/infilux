@@ -254,6 +254,59 @@ describe('TmuxDetector', () => {
     expect(tmuxDetectorTestDoubles.rmSync).toHaveBeenCalledWith(testSocketPath, { force: true });
   });
 
+  it('deduplicates concurrent runtime health checks for the same tmux server', async () => {
+    setPlatform('darwin');
+    let rejectFirstProbe: ((error: Error) => void) | null = null;
+    const firstProbe = new Promise<string>((_, reject) => {
+      rejectFirstProbe = reject;
+    });
+    let healthcheckCount = 0;
+
+    tmuxDetectorTestDoubles.execInPty.mockImplementation((command: string) => {
+      if (command === 'tmux -V') {
+        return Promise.resolve('tmux 3.6a');
+      }
+
+      if (command.includes('infilux-healthcheck')) {
+        healthcheckCount += 1;
+        return healthcheckCount === 1 ? firstProbe : Promise.resolve('');
+      }
+
+      return Promise.resolve('');
+    });
+
+    tmuxDetectorTestDoubles.spawnSync.mockImplementation((command: string) => {
+      if (command === 'ps') {
+        return {
+          stdout: '',
+        };
+      }
+
+      return {
+        status: 0,
+      };
+    });
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    const first = tmuxDetector.ensureServerHealthy();
+    const second = tmuxDetector.ensureServerHealthy();
+
+    await vi.waitFor(() => {
+      expect(healthcheckCount).toBeGreaterThan(0);
+    });
+
+    expect(healthcheckCount).toBe(1);
+
+    expect(rejectFirstProbe).not.toBeNull();
+    rejectFirstProbe!(new Error('broken server'));
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(healthcheckCount).toBe(2);
+    expect(tmuxDetectorTestDoubles.spawnSync).toHaveBeenCalledTimes(2);
+    expect(tmuxDetectorTestDoubles.rmSync).toHaveBeenCalledTimes(1);
+  });
+
   it('scrolls the active tmux pane history for a matching session and reports when no pane is found', async () => {
     setPlatform('darwin');
     tmuxDetectorTestDoubles.execInPty

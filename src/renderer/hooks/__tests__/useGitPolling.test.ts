@@ -60,9 +60,9 @@ import { useGitStatus } from '../useGit';
 type MockedStatusQueryOptions = {
   refetchOnReconnect: boolean;
   refetchOnWindowFocus: boolean;
-  refetchInterval: (query: { state: { data?: { truncated?: boolean }; error?: unknown } }) =>
-    | number
-    | false;
+  refetchInterval: (query: {
+    state: { data?: { truncated?: boolean }; error?: unknown };
+  }) => number | false;
   retry: (failureCount: number, error: unknown) => boolean;
 };
 
