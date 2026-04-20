@@ -134,12 +134,10 @@ export async function restoreWorktreeAgentSessions({
 
   const request = (async () => {
     const result = await restoreWorktreeSessions({ repoPath, cwd });
-    const restoredIds = result.items
-      .filter((item) => item.recoverable)
-      .map((item) => {
-        upsertRecoveredSession(item.record);
-        return item.record.uiSessionId;
-      });
+    const restoredIds = result.items.map((item) => {
+      upsertRecoveredSession(item.record);
+      return item.record.uiSessionId;
+    });
 
     if (restoredIds.length > 0) {
       updateGroupState(cwd, (state) => mergeRecoveredSessionsIntoGroupState(state, restoredIds));

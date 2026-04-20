@@ -77,7 +77,7 @@ describe('PersistentAgentSessionService', () => {
     expect(persistentAgentSessionServiceTestDoubles.upsertSession).toHaveBeenCalledWith(record);
   });
 
-  it('restores worktree sessions and marks dead sessions as non-recoverable', async () => {
+  it('restores worktree sessions and preserves non-recoverable records for metadata recovery', async () => {
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
       makeRecord(),
       makeRecord({
@@ -110,10 +110,14 @@ describe('PersistentAgentSessionService', () => {
         runtimeState: 'live',
         recoverable: true,
       }),
+      expect.objectContaining({
+        record: expect.objectContaining({ uiSessionId: 'session-2' }),
+        runtimeState: 'dead',
+        recoverable: false,
+        reason: 'session-dead',
+      }),
     ]);
-    expect(persistentAgentSessionServiceTestDoubles.deleteSession).toHaveBeenCalledWith(
-      'session-2'
-    );
+    expect(persistentAgentSessionServiceTestDoubles.deleteSession).not.toHaveBeenCalled();
   });
 
   it('only probes records that match the requested worktree during restore', async () => {
@@ -167,7 +171,7 @@ describe('PersistentAgentSessionService', () => {
     ]);
   });
 
-  it('reconciles host state and persists missing tmux sessions as missing-host-session', async () => {
+  it('reconciles host state and returns missing tmux sessions for metadata recovery', async () => {
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([makeRecord()]);
     const probeSession = vi.fn<() => Promise<'live' | 'missing-host-session'>>(
       async () => 'missing-host-session'
@@ -192,10 +196,18 @@ describe('PersistentAgentSessionService', () => {
         lastKnownState: 'missing-host-session',
       })
     );
-    expect(result.items).toEqual([]);
-    expect(persistentAgentSessionServiceTestDoubles.deleteSession).toHaveBeenCalledWith(
-      'session-1'
-    );
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        record: expect.objectContaining({
+          uiSessionId: 'session-1',
+          lastKnownState: 'missing-host-session',
+        }),
+        runtimeState: 'missing-host-session',
+        recoverable: false,
+        reason: 'missing-host-session',
+      }),
+    ]);
+    expect(persistentAgentSessionServiceTestDoubles.deleteSession).not.toHaveBeenCalled();
   });
 
   it('ignores remote virtual-path records during worktree restore', async () => {

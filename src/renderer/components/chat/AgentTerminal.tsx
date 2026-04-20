@@ -1276,6 +1276,7 @@ export function AgentTerminal({
     isActive: effectiveIsActive,
     kind: 'agent',
     fontSizeScale: terminalFontScale,
+    preferCompatibilityRenderer: terminalFontScale !== undefined,
     metadata:
       persistenceEnabled && terminalSessionId
         ? {
@@ -1515,11 +1516,15 @@ export function AgentTerminal({
     return () => wrapper.removeEventListener('paste', handlePaste, true);
   }, [agentId, resolveAttachmentTargets]);
 
-  // Handle click to activate group
+  // Keep native terminal input sessions writable after focus moves to session chrome or other UI.
   const handleClick = useCallback(() => {
     if (!isActive) {
       onFocus?.();
+      requestAnimationFrame(() => terminalFocusRef.current?.());
+      return;
     }
+
+    terminalFocusRef.current?.();
   }, [isActive, onFocus]);
 
   const sendTerminalMessage = useCallback(

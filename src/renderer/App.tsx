@@ -68,6 +68,7 @@ import {
 } from './App/storage';
 import { useAppKeyboardShortcuts } from './App/useAppKeyboardShortcuts';
 import { usePanelResize } from './App/usePanelResize';
+import { switchWorktreeByPath } from './App/worktreePathSelection';
 import { shouldPruneSavedWorktreePath } from './App/worktreeRestorePolicy';
 import { resolvePreferredWorktreeSelection } from './App/worktreeSelectionPolicy';
 import { DevToolsOverlay } from './components/DevToolsOverlay';
@@ -335,7 +336,7 @@ export default function App() {
     }));
   }, []);
 
-  const { refreshGitData, handleSelectWorktree } = useWorktreeSelection(
+  const { handleSelectWorktree } = useWorktreeSelection(
     activeWorktree,
     setActiveWorktree,
     currentWorktreePathRef,
@@ -952,46 +953,16 @@ export default function App() {
 
   const handleSwitchWorktreePath = useCallback(
     async (worktreePath: string) => {
-      const tempMatch = safeTempWorkspaces.find((item) => item.path === worktreePath);
-      if (tempMatch) {
-        await handleSelectWorktree({ path: tempMatch.path } as GitWorktree, TEMP_REPO_ID);
-        return;
-      }
-
-      const worktree = safeWorktrees.find((wt) => wt.path === worktreePath);
-      if (worktree) {
-        handleSelectWorktree(worktree);
-        return;
-      }
-
-      for (const repo of repositories) {
-        if (isRemoteRepoPath(repo.path) && !canLoadRepo(repo.path)) {
-          continue;
-        }
-
-        try {
-          const repoWorktrees = await window.electronAPI.worktree.list(repo.path);
-          const safeRepoWorktrees = sanitizeGitWorktrees(
-            Array.isArray(repoWorktrees) ? repoWorktrees : []
-          );
-          const found = safeRepoWorktrees.find((wt) => wt.path === worktreePath);
-          if (found) {
-            setSelectedRepoForWorktreeSelection(repo.path);
-            setActiveWorktree(found);
-            requestAgentCanvasRecenter(found.path);
-            const savedTab = resolveWorktreeTabForRestore({
-              savedTab: worktreeTabMap[found.path],
-              settingsDisplayMode,
-              allowFileTabRestore: false,
-            });
-            setActiveTab(savedTab);
-
-            // Refresh git data for the switched worktree
-            refreshGitData(found.path);
-            return;
-          }
-        } catch {}
-      }
+      await switchWorktreeByPath({
+        worktreePath,
+        tempWorkspaces: safeTempWorkspaces,
+        visibleWorktrees: safeWorktrees,
+        repositories,
+        canLoadRepo,
+        isRemoteRepoPath,
+        listWorktrees: window.electronAPI.worktree.list,
+        selectWorktree: handleSelectWorktree,
+      });
     },
     [
       safeTempWorkspaces,
@@ -999,14 +970,7 @@ export default function App() {
       repositories,
       isRemoteRepoPath,
       canLoadRepo,
-      settingsDisplayMode,
-      worktreeTabMap,
       handleSelectWorktree,
-      refreshGitData,
-      setActiveTab,
-      setActiveWorktree,
-      setSelectedRepoForWorktreeSelection,
-      requestAgentCanvasRecenter,
     ]
   );
 

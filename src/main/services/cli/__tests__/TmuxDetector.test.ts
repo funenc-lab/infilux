@@ -41,6 +41,8 @@ const originalRuntimeChannel = process.env.INFILUX_RUNTIME_CHANNEL;
 const originalNodeEnv = process.env.NODE_ENV;
 const originalVitest = process.env.VITEST;
 const testRuntimeIdentity = buildAppRuntimeIdentity('test');
+const testHomeDir = process.env.HOME || '/Users/test';
+const testSocketPath = `${testHomeDir}/.infilux/tmux/${testRuntimeIdentity.tmuxServerName}.sock`;
 
 function setPlatform(value: NodeJS.Platform) {
   Object.defineProperty(process, 'platform', {
@@ -134,17 +136,17 @@ describe('TmuxDetector', () => {
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       2,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' kill-session -t 'enso-session'`,
+      `tmux -S '${testSocketPath}' kill-session -t 'enso-session'`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       4,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' kill-server`,
+      `tmux -S '${testSocketPath}' kill-server`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.spawnSync).toHaveBeenCalledWith(
       'tmux',
-      ['-L', testRuntimeIdentity.tmuxServerName, 'kill-server'],
+      ['-S', testSocketPath, 'kill-server'],
       {
         timeout: 3000,
         stdio: 'ignore',
@@ -182,12 +184,12 @@ describe('TmuxDetector', () => {
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       1,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' has-session -t 'enso-live'`,
+      `tmux -S '${testSocketPath}' has-session -t 'enso-live'`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       2,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' has-session -t 'enso-missing'`,
+      `tmux -S '${testSocketPath}' has-session -t 'enso-missing'`,
       { timeout: 5000 }
     );
   });
@@ -202,7 +204,7 @@ describe('TmuxDetector', () => {
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(2);
     expect(tmuxDetectorTestDoubles.execInPty.mock.calls[1]?.[0]).toContain(
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' -f /dev/null new-session -d -s 'infilux-healthcheck-`
+      `tmux -S '${testSocketPath}' -f /dev/null new-session -d -s 'infilux-healthcheck-`
     );
     expect(tmuxDetectorTestDoubles.execInPty.mock.calls[1]?.[0]).toContain(
       `'printf infilux-healthcheck; sleep 1'`
@@ -222,7 +224,7 @@ describe('TmuxDetector', () => {
         status: 0,
       })
       .mockReturnValueOnce({
-        stdout: `12 tmux -L ${testRuntimeIdentity.tmuxServerName} attach-session -t broken\n`,
+        stdout: `12 tmux -S ${testSocketPath} attach-session -t broken\n`,
       });
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
@@ -233,7 +235,7 @@ describe('TmuxDetector', () => {
     expect(tmuxDetectorTestDoubles.spawnSync).toHaveBeenNthCalledWith(
       1,
       'tmux',
-      ['-L', testRuntimeIdentity.tmuxServerName, 'kill-server'],
+      ['-S', testSocketPath, 'kill-server'],
       {
         timeout: 3000,
         stdio: 'ignore',
@@ -249,10 +251,7 @@ describe('TmuxDetector', () => {
       }
     );
     expect(killSpy).toHaveBeenCalledWith(12, 'SIGKILL');
-    expect(tmuxDetectorTestDoubles.rmSync).toHaveBeenCalledWith(
-      `/tmp/tmux-${process.getuid?.()}/${testRuntimeIdentity.tmuxServerName}`,
-      { force: true }
-    );
+    expect(tmuxDetectorTestDoubles.rmSync).toHaveBeenCalledWith(testSocketPath, { force: true });
   });
 
   it('scrolls the active tmux pane history for a matching session and reports when no pane is found', async () => {
@@ -278,17 +277,17 @@ describe('TmuxDetector', () => {
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       1,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
+      `tmux -S '${testSocketPath}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       2,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' copy-mode -eH -t '%0'`,
+      `tmux -S '${testSocketPath}' copy-mode -eH -t '%0'`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       3,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' send-keys -X -N 5 -t '%0' scroll-up`,
+      `tmux -S '${testSocketPath}' send-keys -X -N 5 -t '%0' scroll-up`,
       { timeout: 5000 }
     );
 
@@ -309,12 +308,12 @@ describe('TmuxDetector', () => {
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       1,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
+      `tmux -S '${testSocketPath}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       2,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' send-keys -X -N 3 -t '%0' scroll-down-and-cancel`,
+      `tmux -S '${testSocketPath}' send-keys -X -N 3 -t '%0' scroll-down-and-cancel`,
       { timeout: 5000 }
     );
 
@@ -349,12 +348,12 @@ describe('TmuxDetector', () => {
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       1,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
+      `tmux -S '${testSocketPath}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
       { timeout: 5000 }
     );
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       2,
-      `tmux -L '${testRuntimeIdentity.tmuxServerName}' capture-pane -p -e -J -S - -t '%0'`,
+      `tmux -S '${testSocketPath}' capture-pane -p -e -J -S - -t '%0'`,
       { timeout: 5000 }
     );
 

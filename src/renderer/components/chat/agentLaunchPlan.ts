@@ -4,6 +4,10 @@ import {
   buildPersistentAgentHostSessionKey,
   resolveTmuxServerNameForPersistentAgentHostSessionKey,
 } from '@shared/utils/runtimeIdentity';
+import {
+  buildManagedTmuxSocketShellDir,
+  buildManagedTmuxSocketShellPath,
+} from '@shared/utils/tmux';
 
 export interface AgentLaunchCommand {
   shell: string;
@@ -199,19 +203,22 @@ function buildTmuxAttachCommand(
   tmuxServerName: string,
   tmuxSessionName: string
 ): string {
+  const tmuxSocketDir = buildManagedTmuxSocketShellDir();
+  const tmuxSocketPath = buildManagedTmuxSocketShellPath(tmuxServerName);
   const quotedBaseCommand = quotePosixShell(buildTmuxSessionCommand(baseCommand));
+  const ensureSocketDirCommand = `mkdir -p "${tmuxSocketDir}"`;
   const createSessionCommand =
-    `env -u TMUX tmux -L ${tmuxServerName} -f /dev/null new-session -d -s ${tmuxSessionName} ` +
+    `env -u TMUX tmux -S "${tmuxSocketPath}" -f /dev/null new-session -d -s ${tmuxSessionName} ` +
     `${quotedBaseCommand} >/dev/null 2>&1 || true`;
   const hideStatusCommand =
-    `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} status off ` +
+    `env -u TMUX tmux -S "${tmuxSocketPath}" set-option -t ${tmuxSessionName} status off ` +
     '>/dev/null 2>&1 || true';
   const disableMouseCommand =
-    `env -u TMUX tmux -L ${tmuxServerName} set-option -t ${tmuxSessionName} mouse off ` +
+    `env -u TMUX tmux -S "${tmuxSocketPath}" set-option -t ${tmuxSessionName} mouse off ` +
     '>/dev/null 2>&1 || true';
-  const attachSessionCommand = `exec env -u TMUX tmux -L ${tmuxServerName} attach-session -t ${tmuxSessionName}`;
+  const attachSessionCommand = `exec env -u TMUX tmux -S "${tmuxSocketPath}" attach-session -t ${tmuxSessionName}`;
 
-  return `${createSessionCommand}; ${hideStatusCommand}; ${disableMouseCommand}; ${attachSessionCommand}`;
+  return `${ensureSocketDirCommand}; ${createSessionCommand}; ${hideStatusCommand}; ${disableMouseCommand}; ${attachSessionCommand}`;
 }
 
 export function buildAgentLaunchPlan({
