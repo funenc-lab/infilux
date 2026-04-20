@@ -1,65 +1,80 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-type WatchCallback = () => void;
-type ErrorCallback = () => void;
-
-interface FakeWatcher {
-  close: ReturnType<typeof vi.fn>;
-  on: ReturnType<typeof vi.fn>;
-  emitChange: () => void;
-  emitError: () => void;
-}
+type MockStats = {
+  isDirectory: () => boolean;
+  isFile: () => boolean;
+};
 
 const gitAutoFetchTestDoubles = vi.hoisted(() => {
   const existsSync = vi.fn();
+  const statSync = vi.fn();
+  const readFileSync = vi.fn();
   const watch = vi.fn();
   const fetch = vi.fn();
   const listSubmodules = vi.fn();
   const fetchSubmodule = vi.fn();
   const GitService = vi.fn();
 
-  const watchers = new Map<string, FakeWatcher>();
+  const directories = new Set<string>();
+  const files = new Map<string, string>();
 
-  function createWatcher(path: string): FakeWatcher {
-    let onError: ErrorCallback | undefined;
-    let onChange: WatchCallback | undefined;
+  function createMissingPathError(target: string): NodeJS.ErrnoException {
+    const error = new Error(
+      `ENOENT: no such file or directory, stat '${target}'`
+    ) as NodeJS.ErrnoException;
+    error.code = 'ENOENT';
+    return error;
+  }
 
-    const watcher: FakeWatcher = {
-      close: vi.fn(),
-      on: vi.fn((event: string, callback: ErrorCallback) => {
-        if (event === 'error') {
-          onError = callback;
-        }
-      }),
-      emitChange: () => {
-        onChange?.();
-      },
-      emitError: () => {
-        onError?.();
-      },
-    };
+  function setDirectory(target: string) {
+    directories.add(target);
+  }
 
-    watch.mockImplementation((watchPath: string, callback: WatchCallback) => {
-      if (watchPath === path) {
-        onChange = callback;
-        return watcher;
-      }
-      throw new Error(`Unexpected watch path: ${watchPath}`);
-    });
+  function setFile(target: string, content: string) {
+    files.set(target, content);
+  }
 
-    return watcher;
+  function updateFile(target: string, content: string) {
+    files.set(target, content);
   }
 
   function reset() {
     existsSync.mockReset();
+    statSync.mockReset();
+    readFileSync.mockReset();
     watch.mockReset();
     fetch.mockReset();
     listSubmodules.mockReset();
     fetchSubmodule.mockReset();
     GitService.mockReset();
-    watchers.clear();
+    directories.clear();
+    files.clear();
 
-    existsSync.mockReturnValue(false);
+    existsSync.mockImplementation((target: string) => directories.has(target) || files.has(target));
+    statSync.mockImplementation((target: string): MockStats => {
+      if (directories.has(target)) {
+        return {
+          isDirectory: () => true,
+          isFile: () => false,
+        };
+      }
+
+      if (files.has(target)) {
+        return {
+          isDirectory: () => false,
+          isFile: () => true,
+        };
+      }
+
+      throw createMissingPathError(target);
+    });
+    readFileSync.mockImplementation((target: string) => {
+      const content = files.get(target);
+      if (content === undefined) {
+        throw createMissingPathError(target);
+      }
+      return content;
+    });
     listSubmodules.mockResolvedValue([]);
     fetch.mockResolvedValue(undefined);
     fetchSubmodule.mockResolvedValue(undefined);
@@ -68,35 +83,32 @@ const gitAutoFetchTestDoubles = vi.hoisted(() => {
       listSubmodules,
       fetchSubmodule,
     }));
-    watch.mockImplementation((watchPath: string, callback: WatchCallback) => {
-      const watcher: FakeWatcher = {
-        close: vi.fn(),
-        on: vi.fn(),
-        emitChange: () => {
-          callback();
-        },
-        emitError: () => {},
-      };
-      watchers.set(watchPath, watcher);
-      return watcher;
-    });
+    watch.mockImplementation(() => ({
+      close: vi.fn(),
+      on: vi.fn(),
+    }));
   }
 
   return {
     existsSync,
+    statSync,
+    readFileSync,
     watch,
     fetch,
     listSubmodules,
     fetchSubmodule,
     GitService,
-    watchers,
-    createWatcher,
+    setDirectory,
+    setFile,
+    updateFile,
     reset,
   };
 });
 
 vi.mock('node:fs', () => ({
   existsSync: gitAutoFetchTestDoubles.existsSync,
+  readFileSync: gitAutoFetchTestDoubles.readFileSync,
+  statSync: gitAutoFetchTestDoubles.statSync,
   watch: gitAutoFetchTestDoubles.watch,
 }));
 
@@ -127,12 +139,14 @@ describe('GitAutoFetchService', () => {
     vi.restoreAllMocks();
   });
 
-  it('auto fetches worktrees, handles submodules, debounces HEAD changes, and cleans up listeners', async () => {
+  it('auto fetches worktrees, polls HEAD changes without fs watchers, and cleans up listeners', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const worktreePath = '/repo';
+    const gitDirPath = '/repo/.git';
     const headPath = '/repo/.git/HEAD';
-    const watcher = gitAutoFetchTestDoubles.createWatcher(headPath);
-    gitAutoFetchTestDoubles.existsSync.mockImplementation((target: string) => target === headPath);
+
+    gitAutoFetchTestDoubles.setDirectory(gitDirPath);
+    gitAutoFetchTestDoubles.setFile(headPath, 'ref: refs/heads/main\n');
     gitAutoFetchTestDoubles.listSubmodules.mockResolvedValue([
       { path: 'sub-a', initialized: true },
       { path: 'sub-b', initialized: false },
@@ -162,6 +176,8 @@ describe('GitAutoFetchService', () => {
     gitAutoFetchService.registerWorktree(worktreePath);
     gitAutoFetchService.registerWorktree(worktreePath);
 
+    expect(gitAutoFetchTestDoubles.watch).not.toHaveBeenCalled();
+
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledWith(worktreePath);
@@ -181,19 +197,14 @@ describe('GitAutoFetchService', () => {
     await Promise.resolve();
     expect(gitAutoFetchTestDoubles.fetch).toHaveBeenCalledTimes(2);
 
-    watcher.emitChange();
-    watcher.emitChange();
-    await vi.advanceTimersByTimeAsync(299);
-    expect(send).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(1);
+    gitAutoFetchTestDoubles.updateFile(headPath, 'ref: refs/heads/feature\n');
+    await vi.advanceTimersByTimeAsync(5000);
     expect(send).toHaveBeenCalledTimes(3);
 
-    watcher.emitError();
     gitAutoFetchService.cleanup();
     activeService = null;
 
     expect(window.off).toHaveBeenCalledWith('focus', focusListeners[0]);
-    expect(watcher.close).toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith('GitAutoFetchService already initialized');
     expect(vi.getTimerCount()).toBe(0);
   }, 20_000);
@@ -201,21 +212,11 @@ describe('GitAutoFetchService', () => {
   it('handles fetch failures, disabled state, and destroyed windows safely', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const worktreePath = '/repo-b';
+    const gitDirPath = '/repo-b/.git';
     const headPath = '/repo-b/.git/HEAD';
 
-    gitAutoFetchTestDoubles.existsSync.mockImplementation((target: string) => target === headPath);
-    const watcher: FakeWatcher = {
-      close: vi.fn(),
-      on: vi.fn(),
-      emitChange: () => {},
-      emitError: () => {},
-    };
-    gitAutoFetchTestDoubles.watch.mockImplementation(
-      (_watchPath: string, callback: WatchCallback) => {
-        watcher.emitChange = () => callback();
-        return watcher;
-      }
-    );
+    gitAutoFetchTestDoubles.setDirectory(gitDirPath);
+    gitAutoFetchTestDoubles.setFile(headPath, 'ref: refs/heads/main\n');
 
     gitAutoFetchTestDoubles.fetch.mockRejectedValueOnce(new Error('fetch failed'));
     gitAutoFetchTestDoubles.listSubmodules.mockResolvedValueOnce([
@@ -265,11 +266,9 @@ describe('GitAutoFetchService', () => {
     expect(gitAutoFetchTestDoubles.fetch).toHaveBeenCalledTimes(2);
 
     service.unregisterWorktree(worktreePath);
-    expect(watcher.close).toHaveBeenCalledTimes(1);
-
     gitAutoFetchService.registerWorktree(worktreePath);
     service.clearWorktrees();
-    expect(watcher.close).toHaveBeenCalledTimes(2);
+    expect(gitAutoFetchTestDoubles.watch).not.toHaveBeenCalled();
   });
 
   it('cancels the deferred startup fetch when cleanup runs before the timer fires', async () => {
@@ -372,6 +371,42 @@ describe('GitAutoFetchService', () => {
 
     expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledTimes(1);
     expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledWith('/repo-new');
+  });
+
+  it('tracks linked worktree HEAD files through gitdir indirection without fs watchers', async () => {
+    const send = vi.fn();
+    const window = {
+      on: vi.fn(),
+      off: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        send,
+      },
+    };
+    const worktreePath = '/repo/feature';
+    const worktreeGitFile = '/repo/feature/.git';
+    const gitDirPath = '/repo/.git/worktrees/feature';
+    const headPath = '/repo/.git/worktrees/feature/HEAD';
+
+    gitAutoFetchTestDoubles.setFile(worktreeGitFile, 'gitdir: ../.git/worktrees/feature\n');
+    gitAutoFetchTestDoubles.setDirectory(gitDirPath);
+    gitAutoFetchTestDoubles.setFile(headPath, 'ref: refs/heads/feature-a\n');
+
+    const gitAutoFetchService = await loadGitAutoFetchService();
+
+    gitAutoFetchService.init(window as never);
+    gitAutoFetchService.registerWorktree(worktreePath);
+
+    expect(gitAutoFetchTestDoubles.watch).not.toHaveBeenCalled();
+
+    gitAutoFetchTestDoubles.updateFile(headPath, 'ref: refs/heads/feature-b\n');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(send).toHaveBeenCalledWith('git:autoFetch:completed', {
+      timestamp: expect.any(Number),
+      repositoryPaths: ['/repo/feature'],
+    });
   });
 
   it('swallows disposed renderer send errors when notifying auto-fetch completion', async () => {

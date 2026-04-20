@@ -1,13 +1,19 @@
-import { existsSync, type FSWatcher, watch } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { type GitAutoFetchCompletedPayload, IPC_CHANNELS } from '@shared/types';
 import type { BrowserWindow } from 'electron';
 import { GitService } from './GitService';
 
 const FETCH_INTERVAL_MS = 3 * 60 * 1000;
+const HEAD_POLL_INTERVAL_MS = 5 * 1000;
 const MIN_FOCUS_INTERVAL_MS = 1 * 60 * 1000;
-const HEAD_CHANGE_DEBOUNCE_MS = 300;
 const FETCH_TIMEOUT_MS = 30_000;
+
+type HeadTrackingState = {
+  repositoryPath: string;
+  headPath: string;
+  signature: string | null;
+};
 
 function isDisposedWindowSendError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -37,9 +43,54 @@ async function withTimeout<T>(task: Promise<T>, timeoutMs: number, label: string
   }
 }
 
+function resolveTrackedHeadPath(worktreePath: string): string | null {
+  const gitPath = join(worktreePath, '.git');
+
+  if (!existsSync(gitPath)) {
+    return null;
+  }
+
+  try {
+    const gitStats = statSync(gitPath);
+    if (gitStats.isDirectory()) {
+      const headPath = join(gitPath, 'HEAD');
+      return existsSync(headPath) ? headPath : null;
+    }
+
+    if (!gitStats.isFile()) {
+      return null;
+    }
+
+    const gitDirEntry = readFileSync(gitPath, 'utf8');
+    const gitDirMatch = gitDirEntry.match(/^gitdir:\s*(.+)\s*$/im);
+    if (!gitDirMatch?.[1]) {
+      return null;
+    }
+
+    const resolvedGitDir = resolve(worktreePath, gitDirMatch[1].trim());
+    const headPath = join(resolvedGitDir, 'HEAD');
+    return existsSync(headPath) ? headPath : null;
+  } catch {
+    return null;
+  }
+}
+
+function readHeadSignature(headPath: string): string | null {
+  try {
+    if (!existsSync(headPath)) {
+      return null;
+    }
+
+    return readFileSync(headPath, 'utf8').trim();
+  } catch {
+    return null;
+  }
+}
+
 class GitAutoFetchService {
   private mainWindow: BrowserWindow | null = null;
   private intervalId: NodeJS.Timeout | null = null;
+  private headPollIntervalId: NodeJS.Timeout | null = null;
   private startupFetchTimeoutId: NodeJS.Timeout | null = null;
   private lastFetchTime = 0;
   private repositoryWorktreePaths: Map<string, Set<string>> = new Map();
@@ -47,8 +98,7 @@ class GitAutoFetchService {
   private enabled = false;
   private fetching = false;
   private onFocusHandler: (() => void) | null = null;
-  private headWatchers: Map<string, FSWatcher> = new Map();
-  private headDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  private trackedHeadStates: Map<string, HeadTrackingState> = new Map();
 
   init(window: BrowserWindow): void {
     if (this.mainWindow) {
@@ -72,10 +122,13 @@ class GitAutoFetchService {
     if (this.enabled) {
       this.start();
     }
+
+    this.syncHeadPolling();
   }
 
   cleanup(): void {
     this.stop();
+    this.stopHeadPolling();
     this.clearWorktrees();
 
     if (this.mainWindow && this.onFocusHandler) {
@@ -166,16 +219,14 @@ class GitAutoFetchService {
       this.worktreeRepositoryPaths.delete(normalizedPath);
     }
 
-    this.unwatchHead(normalizedPath);
+    this.removeTrackedHeadState(normalizedPath);
   }
 
   clearWorktrees(): void {
-    for (const worktreePath of [...this.worktreeRepositoryPaths.keys()]) {
-      this.unwatchHead(worktreePath);
-    }
-
+    this.trackedHeadStates.clear();
     this.repositoryWorktreePaths.clear();
     this.worktreeRepositoryPaths.clear();
+    this.syncHeadPolling();
   }
 
   private async fetchAll(): Promise<void> {
@@ -258,49 +309,54 @@ class GitAutoFetchService {
     }
   }
 
-  private watchHead(worktreePath: string, repositoryPath: string): void {
-    if (this.headWatchers.has(worktreePath)) {
+  private startHeadPolling(): void {
+    if (this.headPollIntervalId) {
       return;
     }
 
-    const headPath = join(worktreePath, '.git', 'HEAD');
-    if (!existsSync(headPath)) {
-      return;
-    }
+    this.headPollIntervalId = setInterval(() => {
+      this.pollHeadChanges();
+    }, HEAD_POLL_INTERVAL_MS);
+  }
 
-    try {
-      const watcher = watch(headPath, () => {
-        const existingTimer = this.headDebounceTimers.get(worktreePath);
-        if (existingTimer) {
-          clearTimeout(existingTimer);
-        }
-
-        const timer = setTimeout(() => {
-          this.headDebounceTimers.delete(worktreePath);
-          this.notifyCompleted([repositoryPath]);
-        }, HEAD_CHANGE_DEBOUNCE_MS);
-
-        this.headDebounceTimers.set(worktreePath, timer);
-      });
-
-      watcher.on('error', () => this.unwatchHead(worktreePath));
-      this.headWatchers.set(worktreePath, watcher);
-    } catch {
-      // Silent fail: periodic auto-fetch remains as fallback.
+  private stopHeadPolling(): void {
+    if (this.headPollIntervalId) {
+      clearInterval(this.headPollIntervalId);
+      this.headPollIntervalId = null;
     }
   }
 
-  private unwatchHead(worktreePath: string): void {
-    const timer = this.headDebounceTimers.get(worktreePath);
-    if (timer) {
-      clearTimeout(timer);
-      this.headDebounceTimers.delete(worktreePath);
+  private syncHeadPolling(): void {
+    if (this.mainWindow && this.trackedHeadStates.size > 0) {
+      this.startHeadPolling();
+      return;
     }
 
-    const watcher = this.headWatchers.get(worktreePath);
-    if (watcher) {
-      watcher.close();
-      this.headWatchers.delete(worktreePath);
+    this.stopHeadPolling();
+  }
+
+  private pollHeadChanges(): void {
+    if (!this.mainWindow) {
+      return;
+    }
+
+    const changedRepositoryPaths = new Set<string>();
+
+    for (const headState of this.trackedHeadStates.values()) {
+      const nextSignature = readHeadSignature(headState.headPath);
+      if (nextSignature === headState.signature) {
+        continue;
+      }
+
+      if (headState.signature !== null) {
+        changedRepositoryPaths.add(headState.repositoryPath);
+      }
+
+      headState.signature = nextSignature;
+    }
+
+    if (changedRepositoryPaths.size > 0) {
+      this.notifyCompleted([...changedRepositoryPaths]);
     }
   }
 
@@ -315,7 +371,6 @@ class GitAutoFetchService {
       if (previousRepositoryWorktrees && previousRepositoryWorktrees.size === 0) {
         this.repositoryWorktreePaths.delete(previousRepositoryPath);
       }
-      this.unwatchHead(normalizedPath);
     }
 
     const repositoryWorktrees =
@@ -323,7 +378,34 @@ class GitAutoFetchService {
     repositoryWorktrees.add(normalizedPath);
     this.repositoryWorktreePaths.set(normalizedRepositoryPath, repositoryWorktrees);
     this.worktreeRepositoryPaths.set(normalizedPath, normalizedRepositoryPath);
-    this.watchHead(normalizedPath, normalizedRepositoryPath);
+
+    const trackedHeadPath = resolveTrackedHeadPath(normalizedPath);
+    if (!trackedHeadPath) {
+      this.trackedHeadStates.delete(normalizedPath);
+      this.syncHeadPolling();
+      return;
+    }
+
+    const previousHeadState = this.trackedHeadStates.get(normalizedPath);
+    const signature =
+      previousHeadState?.headPath === trackedHeadPath
+        ? previousHeadState.signature
+        : readHeadSignature(trackedHeadPath);
+
+    this.trackedHeadStates.set(normalizedPath, {
+      repositoryPath: normalizedRepositoryPath,
+      headPath: trackedHeadPath,
+      signature,
+    });
+    this.syncHeadPolling();
+  }
+
+  private removeTrackedHeadState(worktreePath: string): void {
+    if (!this.trackedHeadStates.delete(worktreePath)) {
+      return;
+    }
+
+    this.syncHeadPolling();
   }
 }
 

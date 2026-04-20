@@ -114,17 +114,7 @@ export class PersistentAgentSessionService {
     request: RestoreWorktreeSessionsRequest
   ): Promise<RestoreWorktreeSessionsResult> {
     const items = await this.listRecoverableWorktreeSessions(request);
-    const staleUiSessionIds = items
-      .filter((item) => !item.recoverable)
-      .map((item) => item.record.uiSessionId);
-
-    if (staleUiSessionIds.length > 0) {
-      await Promise.allSettled(
-        staleUiSessionIds.map((uiSessionId) => this.repository.deleteSession(uiSessionId))
-      );
-    }
-
-    return { items: items.filter((item) => item.recoverable) };
+    return { items };
   }
 
   private async listRecoverableWorktreeSessions(

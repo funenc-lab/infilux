@@ -31,6 +31,7 @@ import {
 import { useNavigationStore } from '@/stores/navigation';
 import { useSettingsStore } from '@/stores/settings';
 import { recordAgentStartup } from '@/utils/logging';
+import { scheduleXtermActivationRefresh } from './xtermActivationRefresh';
 import { attachAgentTranscriptMode } from './xtermAgentTranscriptPolicy';
 import {
   copyTerminalSelectionToClipboard,
@@ -38,6 +39,8 @@ import {
   shouldHandleTerminalCopyEvent,
   writeClipboardText,
 } from './xtermClipboard';
+import { isXtermContainerReady, scheduleXtermContainerReady } from './xtermContainerReady';
+import { resolveXtermRenderer } from './xtermRendererPolicy';
 import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
@@ -107,6 +110,7 @@ export interface UseXtermOptions {
   metadata?: Record<string, unknown>;
   isActive?: boolean;
   fontSizeScale?: number;
+  preferCompatibilityRenderer?: boolean;
   initialCommand?: string;
   kind?: SessionKind;
   persistOnDisconnect?: boolean;
@@ -229,6 +233,7 @@ export function useXterm({
   metadata,
   isActive = true,
   fontSizeScale = 1,
+  preferCompatibilityRenderer = false,
   initialCommand,
   kind = 'terminal',
   persistOnDisconnect = false,
@@ -256,6 +261,14 @@ export function useXterm({
     }))
   );
   const navigateToFile = useNavigationStore((s) => s.navigateToFile);
+  const effectiveTerminalRenderer = useMemo(
+    () =>
+      resolveXtermRenderer({
+        requestedRenderer: terminalRenderer,
+        preferCompatibilityRenderer,
+      }),
+    [preferCompatibilityRenderer, terminalRenderer]
+  );
   const cwdRef = useRef(cwd);
   cwdRef.current = cwd;
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -273,6 +286,8 @@ export function useXterm({
   > | null>(null);
   const deadRecoveryAttemptKeyRef = useRef<string | null>(null);
   const isUnmountedRef = useRef(false);
+  const initAttemptIdRef = useRef(0);
+  const containerReadyCleanupRef = useRef<(() => void) | null>(null);
   const createRequestIdRef = useRef(0);
   const agentStartupLoggerRef = useRef<ReturnType<typeof createAgentStartupTimelineLogger> | null>(
     null
@@ -554,6 +569,9 @@ export function useXterm({
   const initTerminal = useCallback(async () => {
     if (!containerRef.current && !terminalRef.current) return;
 
+    const initAttemptId = ++initAttemptIdRef.current;
+    containerReadyCleanupRef.current?.();
+    containerReadyCleanupRef.current = null;
     setIsLoading(true);
     if (kind === 'agent') {
       agentStartupFirstOutputLoggedRef.current = false;
@@ -570,6 +588,36 @@ export function useXterm({
     let terminal = terminalRef.current;
 
     if (!terminal) {
+      const initialContainer = containerRef.current;
+      if (!initialContainer) {
+        setIsLoading(false);
+        return;
+      }
+
+      if (!isXtermContainerReady(initialContainer)) {
+        await new Promise<void>((resolve) => {
+          containerReadyCleanupRef.current?.();
+          containerReadyCleanupRef.current = scheduleXtermContainerReady({
+            container: initialContainer,
+            onReady: resolve,
+            requestAnimationFrame: window.requestAnimationFrame.bind(window),
+            cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+          });
+        });
+        containerReadyCleanupRef.current = null;
+
+        if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      const container = containerRef.current;
+      if (!container || !isXtermContainerReady(container)) {
+        setIsLoading(false);
+        return;
+      }
+
       const nextTerminal = new Terminal(
         buildXtermTerminalOptions({
           platform: getRendererEnvironment().platform,
@@ -593,12 +641,6 @@ export function useXterm({
       terminal.loadAddon(unicode11Addon);
       terminal.unicode.activeVersion = '11';
 
-      const container = containerRef.current;
-      if (!container) {
-        setIsLoading(false);
-        return;
-      }
-
       terminal.open(container);
       fitAddon.fit();
 
@@ -615,7 +657,7 @@ export function useXterm({
         onTitleChangeRef.current?.(title);
       });
 
-      loadRenderer(terminal, terminalRenderer);
+      loadRenderer(terminal, effectiveTerminalRenderer);
 
       const linkProviderDisposable = terminal.registerLinkProvider({
         provideLinks: (bufferLineNumber, callback) => {
@@ -1092,7 +1134,7 @@ export function useXterm({
     env,
     hostSession,
     metadata,
-    terminalRenderer,
+    effectiveTerminalRenderer,
     kind,
     persistOnDisconnect,
     navigateToFile,
@@ -1182,9 +1224,9 @@ export function useXterm({
   // Handle dynamic renderer switching
   useEffect(() => {
     if (terminalRef.current) {
-      loadRenderer(terminalRef.current, terminalRenderer);
+      loadRenderer(terminalRef.current, effectiveTerminalRenderer);
     }
-  }, [terminalRenderer, loadRenderer]);
+  }, [effectiveTerminalRenderer, loadRenderer]);
 
   // Cleanup on unmount.
   // Setup: reset isUnmountedRef so StrictMode re-mount can re-initialize.
@@ -1195,6 +1237,9 @@ export function useXterm({
 
     return () => {
       isUnmountedRef.current = true;
+      initAttemptIdRef.current += 1;
+      containerReadyCleanupRef.current?.();
+      containerReadyCleanupRef.current = null;
       hasBeenActivatedRef.current = false;
       hasReceivedDataRef.current = false;
       createRequestIdRef.current += 1;
@@ -1299,13 +1344,36 @@ export function useXterm({
 
   // Fit and focus when becoming active (only after loading completes)
   useEffect(() => {
-    if (isActive && terminalRef.current && !isLoading) {
-      requestAnimationFrame(() => {
-        fitTerminal();
-        terminalRef.current?.focus();
-      });
+    if (!isActive || !terminalRef.current || isLoading) {
+      return;
     }
-  }, [isActive, isLoading, fitTerminal]);
+
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    let activationRefreshCleanup: (() => void) | null = null;
+    const containerReadyCleanup = scheduleXtermContainerReady({
+      container,
+      onReady: () => {
+        activationRefreshCleanup = scheduleXtermActivationRefresh({
+          fitViewport: fitTerminal,
+          refresh: refreshRenderer,
+          focus: () => terminalRef.current?.focus(),
+          requestAnimationFrame: window.requestAnimationFrame.bind(window),
+          cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+        });
+      },
+      requestAnimationFrame: window.requestAnimationFrame.bind(window),
+      cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+    });
+
+    return () => {
+      containerReadyCleanup();
+      activationRefreshCleanup?.();
+    };
+  }, [isActive, isLoading, fitTerminal, refreshRenderer]);
 
   // Handle window visibility change to refresh terminal rendering
   useEffect(() => {
@@ -1356,7 +1424,7 @@ export function useXterm({
       () => {
         const addon = rendererAddonRef.current;
         if (
-          terminalRenderer === 'webgl' &&
+          effectiveTerminalRenderer === 'webgl' &&
           terminalRef.current &&
           addon &&
           'clearTextureAtlas' in addon &&
@@ -1376,7 +1444,7 @@ export function useXterm({
     ); // 30 minutes
 
     return () => clearInterval(preventGlitchInterval);
-  }, [isActive, terminalRenderer]);
+  }, [effectiveTerminalRenderer, isActive]);
 
   return {
     containerRef,

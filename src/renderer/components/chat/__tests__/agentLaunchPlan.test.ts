@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildAgentLaunchPlan } from '../agentLaunchPlan';
 
+const infiluxTmuxDir = '$HOME/.infilux/tmux';
+const infiluxTmuxSocket = '$HOME/.infilux/tmux/infilux.sock';
+const legacyEnsoTmuxSocket = '$HOME/.infilux/tmux/enso.sock';
+
 describe('buildAgentLaunchPlan', () => {
   it('returns an empty plan when local execution has no resolved shell', () => {
     const plan = buildAgentLaunchPlan({
@@ -90,25 +94,25 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain('command -v claude >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain(
-      "then env -u TMUX tmux -L infilux -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+      `then mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
     );
     expect(plan.command?.args[1]).not.toContain(
-      "then exec env -u TMUX tmux -L infilux -f /dev/null new-session -d -s infilux-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+      `then exec env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
     );
     expect(plan.command?.args[1]).toContain(
-      "env -u TMUX tmux -L infilux -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true"
+      `mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true`
     );
     expect(plan.command?.args[1]).toContain(
-      'env -u TMUX tmux -L infilux set-option -t infilux-ui-session-1 status off >/dev/null 2>&1 || true'
+      `env -u TMUX tmux -S "${infiluxTmuxSocket}" set-option -t infilux-ui-session-1 status off >/dev/null 2>&1 || true`
     );
     expect(plan.command?.args[1]).toContain(
-      'env -u TMUX tmux -L infilux set-option -t infilux-ui-session-1 mouse off >/dev/null 2>&1 || true'
+      `env -u TMUX tmux -S "${infiluxTmuxSocket}" set-option -t infilux-ui-session-1 mouse off >/dev/null 2>&1 || true`
     );
     expect(plan.command?.args[1]).not.toContain(
-      'env -u TMUX tmux -L infilux set-option -t infilux-ui-session-1 mouse on >/dev/null 2>&1 || true'
+      `env -u TMUX tmux -S "${infiluxTmuxSocket}" set-option -t infilux-ui-session-1 mouse on >/dev/null 2>&1 || true`
     );
     expect(plan.command?.args[1]).toContain(
-      'exec env -u TMUX tmux -L infilux attach-session -t infilux-ui-session-1'
+      `exec env -u TMUX tmux -S "${infiluxTmuxSocket}" attach-session -t infilux-ui-session-1`
     );
     expect(plan.command?.args[1]).toContain('exec /bin/zsh -i -l -c');
   });
@@ -138,10 +142,10 @@ describe('buildAgentLaunchPlan', () => {
       sessionName: 'enso-session-1',
     });
     expect(plan.command?.args[1]).toContain(
-      "then env -u TMUX tmux -L enso -f /dev/null new-session -d -s enso-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;"
+      `then mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${legacyEnsoTmuxSocket}" -f /dev/null new-session -d -s enso-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
     );
     expect(plan.command?.args[1]).toContain(
-      'exec env -u TMUX tmux -L enso attach-session -t enso-session-1'
+      `exec env -u TMUX tmux -S "${legacyEnsoTmuxSocket}" attach-session -t enso-session-1`
     );
   });
 

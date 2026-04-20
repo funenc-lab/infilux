@@ -175,11 +175,17 @@ describe('useWorktreeList', () => {
         0,
         new Error('spawn EBADF')
       )
+    ).toBe(false);
+    expect(
+      (query.retry as (failureCount: number, error: unknown) => boolean)(
+        0,
+        new Error('spawn EAGAIN')
+      )
     ).toBe(true);
     expect(
       (query.retry as (failureCount: number, error: unknown) => boolean)(
         2,
-        new Error('spawn EBADF')
+        new Error('spawn EAGAIN')
       )
     ).toBe(false);
     expect(

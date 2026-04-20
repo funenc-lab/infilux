@@ -42,7 +42,35 @@
 
 Stop stashing and popping. Infilux treats every branch as a first-class workspace with its own dedicated AI context.
 
-![Infilux Terminal](docs/assets/feature-terminal.png)
+![Infilux Workspace Overview](docs/assets/readme-workspace.png)
+
+---
+
+## Example Project Used In These Screenshots
+
+The screenshots below were captured from the current app build with a temporary demo repository named `Example App`.
+This keeps the documentation grounded in a real worktree state instead of a static mock.
+
+- Repository: `Example App`
+- Worktrees: `main`, `feature/docs-refresh`
+- Staged changes: `package.json`, `src/main.ts`
+- Unstaged changes: `README.md`
+- Untracked changes: `src/components/ReviewPanel.tsx`
+
+Merge conflict screenshots use a second temporary repository named `Merge Demo` so the built-in merge editor shows a real conflict state.
+
+```text
+Example App
+├── README.md
+├── package.json
+├── docs/
+│   └── workflow-notes.md
+└── src/
+    ├── main.ts
+    └── components/
+        ├── ReviewPanel.tsx
+        └── WorktreeStatus.tsx
+```
 
 ---
 
@@ -152,14 +180,13 @@ pnpm build:linux  # Linux
 
 ## Features
 
-### Multi-Agent Matrix
+### Worktree-Scoped Agent Sessions
 
-Seamlessly switch between Claude, Codex, Gemini, and local LLMs. Each worktree gets its own persistent AI session.
-
-![Multi-Agent Matrix](docs/assets/feature-terminal.png)
+Each worktree keeps its own agent entry point, launch action, and session context.
+You can stay on the branch you are working on, then start Claude, Codex, Gemini, or a custom CLI agent from the same surface.
 
 Built-in support:
-- **Claude** - Anthropic's AI assistant with session persistence
+- **Claude** - Anthropic's AI assistant with persistent session workflows
 - **Codex** - OpenAI's coding assistant
 - **Gemini** - Google's AI assistant
 - **Cursor** - Cursor's AI agent (`cursor-agent`)
@@ -170,76 +197,62 @@ You can also add custom agents by specifying the CLI command.
 
 ---
 
-### Visual Source Control
-
-Review diffs, stage changes, and manage commits with a beautiful, keyboard-centric Git interface.
-
-![Git Manager](docs/assets/feature-editor.png)
-
-- Change list showing all modified files
-- Stage/unstage operations
-- Commit history browser
-- Code diff view
-
----
-
 ### Integrated File Editor
 
-Built-in Monaco editor for quick edits. Syntax highlighting for 50+ languages with drag-and-drop multi-tab support.
+The built-in Monaco editor is designed for quick worktree-local edits without leaving the app.
 
-![File Editor](docs/assets/feature-git.png)
+![Infilux File Editor](docs/assets/readme-editor.png)
 
-- Multi-tab editing with drag-and-drop reorder
-- File tree with create/rename/delete operations
-- Automatic language detection
-- Editor state persistence across sessions
-
----
-
-### AI Code Review
-
-Auto-generate high-quality commit messages and perform deep code reviews using your favorite AI agents.
-
-![AI Code Review](docs/assets/feature-agents.png)
+- File tree and editor stay scoped to the active worktree
+- Monaco handles code editing for quick fixes and review follow-ups
+- Open files remain attached to their worktree context across tab switches
 
 ---
 
-### 3-Way Merge Tool
+### Source Control That Matches The Worktree
 
-Built-in professional 3-way merge editor. Clearly visualize conflict sources and resolve them with a single click and real-time result preview.
+The source control panel shows staged, unstaged, and untracked files for the currently selected worktree, then opens a focused diff next to the list.
 
-![3-Way Merge Tool](docs/assets/feature-merge.png)
+![Infilux Source Control](docs/assets/readme-source-control.png)
+
+- Staged, unstaged, and untracked changes are separated clearly
+- File selection opens a side-by-side diff for the active worktree
+- Commit input, refresh, and review actions stay in the same workspace surface
+
+---
+
+### Review And Merge Flows
+
+Infilux keeps review and merge operations close to the worktree they belong to.
+
+![Infilux Merge Editor](docs/assets/readme-merge.png)
+
+- Start diff review from source control and continue the conversation in the agent panel
+- Resolve merge conflicts with the built-in three-way merge editor
+- Finish merge cleanup without dropping back to an external toolchain for routine work
 
 ---
 
 ### Git Worktree Management
 
-Create, switch, and manage Git worktrees instantly. No more context switching costs between branches.
+Create, switch, and manage Git worktrees instantly without re-opening the project in another window.
 
 - Create worktrees from existing or new branches
-- Switch between worktrees instantly
+- Switch between worktrees with separate editor and agent context
 - Delete worktrees with optional branch cleanup
-- Visual worktree list with branch status
+- Track branch status directly from the sidebar
 
 ---
 
-### IDE Bridge
+### IDE Bridge And Daily Quality-Of-Life
 
-Use Infilux for orchestration, then jump into VS Code or Cursor for deep diving with a single click.
+Use Infilux for orchestration, then jump into VS Code, Cursor, Ghostty, or other tools with a single click.
 
-Quick access to all actions via `Cmd+Shift+P`:
-- **Panel Control** - Toggle Workspace/Worktree sidebar visibility
-- **Settings** - Open settings dialog (Cmd+,)
-- **Open In** - Open current project in Cursor, Ghostty, VS Code, etc.
-
----
-
-### Additional Features
-
-- **Multi-Window Support** - Open multiple workspaces simultaneously
-- **Theme Sync** - Sync app theme with terminal theme (400+ Ghostty themes)
-- **Keyboard Shortcuts** - Efficient navigation (Cmd+1-9 to switch tabs)
-- **Settings Persistence** - All settings saved to JSON for easy recovery
+- Command palette access for panel control and workspace actions
+- Multi-window support for parallel repository work
+- Theme sync with terminal themes
+- Keyboard shortcuts for tab switching and workspace navigation
+- Settings persistence for recovery and repeatability
 
 ---
 

@@ -71,7 +71,7 @@ describe('source control polling', () => {
     ).toBe(false);
   });
 
-  it('backs off file diff polling after transient spawn failures', () => {
+  it('stops file diff polling after restart-required spawn failures', () => {
     const query = useFileDiff(
       '/repo',
       'README.md',
@@ -84,7 +84,7 @@ describe('source control polling', () => {
           error: new Error('spawn EBADF'),
         },
       })
-    ).toBe(30000);
-    expect(query.retry(0, new Error('spawn EBADF'))).toBe(true);
+    ).toBe(false);
+    expect(query.retry(0, new Error('spawn EBADF'))).toBe(false);
   });
 });

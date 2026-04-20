@@ -36,6 +36,40 @@ function createRecoverableRestoreResult(uiSessionId = 'session-1') {
   };
 }
 
+function createNonRecoverableRestoreResult(
+  uiSessionId = 'session-dead',
+  runtimeState: 'dead' | 'missing-host-session' = 'missing-host-session'
+) {
+  return {
+    items: [
+      {
+        recoverable: false,
+        runtimeState,
+        reason: runtimeState === 'dead' ? 'session-dead' : 'missing-host-session',
+        record: {
+          uiSessionId,
+          backendSessionId: `backend-${uiSessionId}`,
+          providerSessionId: `provider-${uiSessionId}`,
+          agentId: 'codex',
+          agentCommand: 'codex',
+          environment: 'native' as const,
+          repoPath: '/repo',
+          cwd: '/repo/worktree',
+          displayName: 'Codex',
+          activated: true,
+          initialized: true,
+          hostKind: 'tmux' as const,
+          hostSessionKey: `enso-${uiSessionId}`,
+          recoveryPolicy: 'auto' as const,
+          createdAt: 1,
+          updatedAt: 2,
+          lastKnownState: runtimeState,
+        },
+      },
+    ],
+  };
+}
+
 describe('agentSessionRecovery', () => {
   beforeEach(() => {
     resetWorktreeAgentSessionRecoveryCacheForTests();
@@ -317,6 +351,40 @@ describe('agentSessionRecovery', () => {
     expect(groupState.groups[0]).toMatchObject({
       sessionIds: ['session-3'],
       activeSessionId: 'session-3',
+    });
+  });
+
+  it('hydrates disconnected sessions so worktrees do not recover as empty when the host is gone', async () => {
+    const restoreWorktreeSessions = vi
+      .fn()
+      .mockResolvedValue(createNonRecoverableRestoreResult('session-missing'));
+    const upsertRecoveredSession = vi.fn();
+    let groupState: AgentGroupState = createInitialGroupState();
+    const updateGroupState = vi.fn(
+      (_cwd: string, updater: (state: AgentGroupState) => AgentGroupState) => {
+        groupState = updater(groupState);
+      }
+    );
+
+    await expect(
+      restoreWorktreeAgentSessions({
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        restoreWorktreeSessions,
+        upsertRecoveredSession,
+        updateGroupState,
+      })
+    ).resolves.toEqual(['session-missing']);
+
+    expect(upsertRecoveredSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'session-missing',
+        lastKnownState: 'missing-host-session',
+      })
+    );
+    expect(groupState.groups[0]).toMatchObject({
+      sessionIds: ['session-missing'],
+      activeSessionId: 'session-missing',
     });
   });
 

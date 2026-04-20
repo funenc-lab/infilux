@@ -1,6 +1,7 @@
 export type GitPollingErrorKind =
   | 'invalid-workdir'
   | 'not-git-repository'
+  | 'runtime-restart-required'
   | 'transient'
   | 'generic';
 
@@ -13,8 +14,10 @@ const NOT_GIT_REPOSITORY_PATTERNS = [
   /\bnot a git repository\b/i,
 ];
 
+const RUNTIME_RESTART_GIT_FAILURE_PATTERNS = [/\bspawn\s+EBADF\b/i];
+
 const TRANSIENT_GIT_FAILURE_PATTERNS = [
-  /\bspawn\s+(EBADF|EAGAIN|EMFILE|ENFILE|EPIPE)\b/i,
+  /\bspawn\s+(EAGAIN|EMFILE|ENFILE|EPIPE)\b/i,
   /\b(ECONNRESET|ETIMEDOUT)\b/i,
 ];
 
@@ -45,6 +48,10 @@ export function classifyGitPollingError(error: unknown): GitPollingErrorKind {
     return 'not-git-repository';
   }
 
+  if (matchesAnyPattern(message, RUNTIME_RESTART_GIT_FAILURE_PATTERNS)) {
+    return 'runtime-restart-required';
+  }
+
   if (matchesAnyPattern(message, TRANSIENT_GIT_FAILURE_PATTERNS)) {
     return 'transient';
   }
@@ -58,7 +65,11 @@ export function shouldRetryGitPollingError(failureCount: number, error: unknown)
 
 export function shouldStopGitPolling(error: unknown): boolean {
   const kind = classifyGitPollingError(error);
-  return kind === 'invalid-workdir' || kind === 'not-git-repository';
+  return (
+    kind === 'invalid-workdir' ||
+    kind === 'not-git-repository' ||
+    kind === 'runtime-restart-required'
+  );
 }
 
 export function resolveGitPollingInterval(

@@ -26,10 +26,13 @@ describe('gitPollingError', () => {
     expect(shouldStopGitPolling(new Error('Invalid workdir: not a git repository'))).toBe(true);
   });
 
-  it('classifies spawn failures as transient and limits retries', () => {
-    expect(classifyGitPollingError(new Error('spawn EBADF'))).toBe('transient');
-    expect(shouldRetryGitPollingError(0, new Error('spawn EBADF'))).toBe(true);
-    expect(shouldRetryGitPollingError(2, new Error('spawn EBADF'))).toBe(false);
+  it('classifies bad file descriptor failures as restart-required and limits retries to transient failures', () => {
+    expect(classifyGitPollingError(new Error('spawn EBADF'))).toBe('runtime-restart-required');
+    expect(classifyGitPollingError(new Error('spawn EAGAIN'))).toBe('transient');
+    expect(shouldRetryGitPollingError(0, new Error('spawn EBADF'))).toBe(false);
+    expect(shouldRetryGitPollingError(0, new Error('spawn EAGAIN'))).toBe(true);
+    expect(shouldRetryGitPollingError(2, new Error('spawn EAGAIN'))).toBe(false);
+    expect(shouldStopGitPolling(new Error('spawn EBADF'))).toBe(true);
   });
 
   it('resolves polling intervals from the current error class', () => {
@@ -40,6 +43,7 @@ describe('gitPollingError', () => {
         30000
       )
     ).toBe(false);
+    expect(resolveGitPollingInterval(new Error('spawn EBADF'), 5000, 30000)).toBe(false);
     expect(resolveGitPollingInterval(new Error('spawn EAGAIN'), 5000, 30000)).toBe(30000);
     expect(resolveGitPollingInterval(null, 5000, 30000)).toBe(5000);
   });

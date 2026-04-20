@@ -1,15 +1,21 @@
 import type { GitWorktree } from '@shared/types';
 import { sanitizeGitWorktrees } from './worktreeData';
 
-export type WorktreeLoadErrorKind = 'not-git-repository' | 'transient' | 'generic';
+export type WorktreeLoadErrorKind =
+  | 'not-git-repository'
+  | 'runtime-restart-required'
+  | 'transient'
+  | 'generic';
 
 const NOT_GIT_REPOSITORY_PATTERNS = [
   /\bnot a git repository\b/i,
   /\binvalid workdir:\s*not a git repository\b/i,
 ];
 
+const RUNTIME_RESTART_GIT_FAILURE_PATTERNS = [/\bspawn\s+EBADF\b/i];
+
 const TRANSIENT_GIT_FAILURE_PATTERNS = [
-  /\bspawn\s+(EBADF|EAGAIN|EMFILE|ENFILE|EPIPE)\b/i,
+  /\bspawn\s+(EAGAIN|EMFILE|ENFILE|EPIPE)\b/i,
   /\b(ECONNRESET|ETIMEDOUT)\b/i,
 ];
 
@@ -40,6 +46,10 @@ export function classifyWorktreeLoadError(error: unknown): WorktreeLoadErrorKind
     return 'not-git-repository';
   }
 
+  if (matchesAnyPattern(message, RUNTIME_RESTART_GIT_FAILURE_PATTERNS)) {
+    return 'runtime-restart-required';
+  }
+
   if (matchesAnyPattern(message, TRANSIENT_GIT_FAILURE_PATTERNS)) {
     return 'transient';
   }
@@ -55,8 +65,9 @@ export function canRecoverWorktreeListFromPreviousSnapshot(
   error: unknown,
   previousWorktrees: readonly GitWorktree[] = []
 ): boolean {
+  const kind = classifyWorktreeLoadError(error);
   return (
-    classifyWorktreeLoadError(error) === 'transient' &&
+    (kind === 'transient' || kind === 'runtime-restart-required') &&
     sanitizeGitWorktrees(previousWorktrees).length > 0
   );
 }

@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import type {
   TmuxCheckResult,
   TmuxScrollClientRequest,
   TmuxScrollClientResult,
 } from '@shared/types';
+import { buildManagedTmuxSocketDirPath, buildManagedTmuxSocketPath } from '@shared/utils/tmux';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
 import { execInPty } from '../../utils/shell';
 
@@ -27,19 +29,30 @@ function buildTmuxHealthcheckSessionName(): string {
 
 function buildTmuxHealthcheckCommand(serverName: string, sessionName: string): string {
   return (
-    `tmux -L ${shellQuote(serverName)} -f /dev/null new-session -d -s ${shellQuote(sessionName)} ` +
+    `${buildTmuxShellCommand(serverName, `-f /dev/null new-session -d -s ${shellQuote(sessionName)}`)} ` +
     // Keep the probe session alive long enough for kill-session to observe it reliably.
     `${shellQuote('printf infilux-healthcheck; sleep 1')} >/dev/null 2>&1 && ` +
-    `tmux -L ${shellQuote(serverName)} kill-session -t ${shellQuote(sessionName)} >/dev/null 2>&1`
+    `${buildTmuxShellCommand(serverName, `kill-session -t ${shellQuote(sessionName)}`)} >/dev/null 2>&1`
   );
 }
 
-function resolveTmuxSocketPath(serverName: string): string | null {
-  if (isWindows || typeof process.getuid !== 'function') {
-    return null;
-  }
+function resolveTmuxSocketPath(serverName: string): string {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || homedir();
+  return buildManagedTmuxSocketPath(homeDir, serverName);
+}
 
-  return `/tmp/tmux-${process.getuid()}/${serverName}`;
+function ensureTmuxSocketDirectory(_serverName: string): void {
+  mkdirSync(
+    buildManagedTmuxSocketDirPath(process.env.HOME || process.env.USERPROFILE || homedir()),
+    {
+      recursive: true,
+    }
+  );
+}
+
+function buildTmuxShellCommand(serverName: string, command: string): string {
+  ensureTmuxSocketDirectory(serverName);
+  return `tmux -S ${shellQuote(resolveTmuxSocketPath(serverName))} ${command}`;
 }
 
 function normalizeScrollAmount(amount: number): number {
@@ -116,7 +129,7 @@ class TmuxDetector {
     try {
       const resolvedServerName = resolveTmuxServerName(serverName);
       await execInPty(
-        `tmux -L ${shellQuote(resolvedServerName)} kill-session -t ${shellQuote(name)}`,
+        buildTmuxShellCommand(resolvedServerName, `kill-session -t ${shellQuote(name)}`),
         {
           timeout: TMUX_COMMAND_TIMEOUT_MS,
         }
@@ -134,7 +147,7 @@ class TmuxDetector {
     try {
       const resolvedServerName = resolveTmuxServerName(serverName);
       await execInPty(
-        `tmux -L ${shellQuote(resolvedServerName)} has-session -t ${shellQuote(name)}`,
+        buildTmuxShellCommand(resolvedServerName, `has-session -t ${shellQuote(name)}`),
         {
           timeout: TMUX_COMMAND_TIMEOUT_MS,
         }
@@ -154,7 +167,10 @@ class TmuxDetector {
 
     try {
       const stdout = await execInPty(
-        `tmux -L ${shellQuote(resolvedServerName)} list-panes -t ${shellQuote(sessionName)} -F ${shellQuote(LIST_PANES_FORMAT)}`,
+        buildTmuxShellCommand(
+          resolvedServerName,
+          `list-panes -t ${shellQuote(sessionName)} -F ${shellQuote(LIST_PANES_FORMAT)}`
+        ),
         {
           timeout: TMUX_COMMAND_TIMEOUT_MS,
         }
@@ -165,7 +181,10 @@ class TmuxDetector {
       }
 
       return await execInPty(
-        `tmux -L ${shellQuote(resolvedServerName)} capture-pane -p -e -J -S - -t ${shellQuote(pane.paneId)}`,
+        buildTmuxShellCommand(
+          resolvedServerName,
+          `capture-pane -p -e -J -S - -t ${shellQuote(pane.paneId)}`
+        ),
         {
           timeout: TMUX_COMMAND_TIMEOUT_MS,
         }
@@ -208,7 +227,10 @@ class TmuxDetector {
 
     try {
       const stdout = await execInPty(
-        `tmux -L ${shellQuote(serverName)} list-panes -t ${shellQuote(request.sessionName)} -F ${shellQuote(LIST_PANES_FORMAT)}`,
+        buildTmuxShellCommand(
+          serverName,
+          `list-panes -t ${shellQuote(request.sessionName)} -F ${shellQuote(LIST_PANES_FORMAT)}`
+        ),
         {
           timeout: TMUX_COMMAND_TIMEOUT_MS,
         }
@@ -220,13 +242,16 @@ class TmuxDetector {
 
       if (request.direction === 'up') {
         await execInPty(
-          `tmux -L ${shellQuote(serverName)} copy-mode -eH -t ${shellQuote(pane.paneId)}`,
+          buildTmuxShellCommand(serverName, `copy-mode -eH -t ${shellQuote(pane.paneId)}`),
           {
             timeout: TMUX_COMMAND_TIMEOUT_MS,
           }
         );
         await execInPty(
-          `tmux -L ${shellQuote(serverName)} send-keys -X -N ${amount} -t ${shellQuote(pane.paneId)} scroll-up`,
+          buildTmuxShellCommand(
+            serverName,
+            `send-keys -X -N ${amount} -t ${shellQuote(pane.paneId)} scroll-up`
+          ),
           {
             timeout: TMUX_COMMAND_TIMEOUT_MS,
           }
@@ -241,7 +266,10 @@ class TmuxDetector {
         }
 
         await execInPty(
-          `tmux -L ${shellQuote(serverName)} send-keys -X -N ${amount} -t ${shellQuote(pane.paneId)} scroll-down-and-cancel`,
+          buildTmuxShellCommand(
+            serverName,
+            `send-keys -X -N ${amount} -t ${shellQuote(pane.paneId)} scroll-down-and-cancel`
+          ),
           {
             timeout: TMUX_COMMAND_TIMEOUT_MS,
           }
@@ -262,7 +290,7 @@ class TmuxDetector {
     if (isWindows) return;
     try {
       const serverName = resolveTmuxServerName();
-      await execInPty(`tmux -L ${shellQuote(serverName)} kill-server`, {
+      await execInPty(buildTmuxShellCommand(serverName, 'kill-server'), {
         timeout: TMUX_COMMAND_TIMEOUT_MS,
       });
     } catch {
@@ -273,7 +301,9 @@ class TmuxDetector {
   killServerSync(): void {
     if (isWindows) return;
     try {
-      spawnSync('tmux', ['-L', getAppRuntimeIdentity().tmuxServerName, 'kill-server'], {
+      const serverName = getAppRuntimeIdentity().tmuxServerName;
+      ensureTmuxSocketDirectory(serverName);
+      spawnSync('tmux', ['-S', resolveTmuxSocketPath(serverName), 'kill-server'], {
         timeout: 3000,
         stdio: 'ignore',
       });
@@ -301,7 +331,8 @@ class TmuxDetector {
 
   private killServerSyncByName(serverName: string): void {
     try {
-      spawnSync('tmux', ['-L', serverName, 'kill-server'], {
+      ensureTmuxSocketDirectory(serverName);
+      spawnSync('tmux', ['-S', resolveTmuxSocketPath(serverName), 'kill-server'], {
         timeout: 3000,
         stdio: 'ignore',
       });
@@ -323,7 +354,7 @@ class TmuxDetector {
       return;
     }
 
-    const marker = `tmux -L ${serverName}`;
+    const marker = `tmux -S ${resolveTmuxSocketPath(serverName)}`;
     const pids = stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -347,13 +378,8 @@ class TmuxDetector {
   }
 
   private removeSocketFile(serverName: string): void {
-    const socketPath = resolveTmuxSocketPath(serverName);
-    if (!socketPath) {
-      return;
-    }
-
     try {
-      rmSync(socketPath, { force: true });
+      rmSync(resolveTmuxSocketPath(serverName), { force: true });
     } catch {
       // Ignore missing or busy socket files.
     }

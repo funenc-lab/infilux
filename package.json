@@ -1,6 +1,6 @@
 {
   "name": "infilux",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Infilux - Git Worktree Manager with AI Agent",
   "main": "./out/main/index.cjs",
   "author": {
