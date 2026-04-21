@@ -498,6 +498,7 @@ export async function projectClaudeRuntimePolicy(
     materializationMode?: ClaudePolicyMaterializationMode;
     catalog: ClaudeCapabilityCatalog;
     resolvedPolicy: ResolvedClaudePolicy;
+    projectWorkspaceMcp?: boolean;
   },
   dependencies: ClaudeRuntimeProjectorDependencies = {}
 ): Promise<ClaudeRuntimeProjectionResult> {
@@ -505,6 +506,7 @@ export async function projectClaudeRuntimePolicy(
   const runtimeWorkspacePath = isRemoteRuntime
     ? parseRemoteVirtualPath(params.worktreePath).remotePath
     : params.worktreePath;
+  const projectWorkspaceMcp = params.projectWorkspaceMcp ?? true;
   const { effectiveMode, warnings: modeWarnings } = resolveRequestedMaterializationMode(
     params.materializationMode,
     isRemoteRuntime
@@ -520,8 +522,12 @@ export async function projectClaudeRuntimePolicy(
     isRemoteRuntime,
     dependencies.readRepositoryRemoteTextFile ?? defaultReadRepositoryRemoteTextFile
   );
-  const sharedMcpConfigById = await loadSharedMcpConfigById(params, dependencies);
-  const personalMcpConfigById = await loadPersonalMcpConfigById(params, dependencies);
+  const sharedMcpConfigById = projectWorkspaceMcp
+    ? await loadSharedMcpConfigById(params, dependencies)
+    : {};
+  const personalMcpConfigById = projectWorkspaceMcp
+    ? await loadPersonalMcpConfigById(params, dependencies)
+    : {};
   for (const capability of params.catalog.capabilities) {
     if (!capability.sourcePath) {
       continue;
@@ -644,35 +650,37 @@ export async function projectClaudeRuntimePolicy(
     desiredArtifacts.set(targetPath, { kind: 'file', content });
   }
 
-  const sharedMcpConfigs = Object.fromEntries(
-    params.resolvedPolicy.allowedSharedMcpIds
-      .map((id) => [id, sharedMcpConfigById[id]] as const)
-      .filter((entry): entry is [string, McpServerConfig] => Boolean(entry[1]))
-  );
-  const mcpTargetPath = isRemoteRuntime
-    ? joinRemotePath(runtimeWorkspacePath, '.mcp.json')
-    : path.join(runtimeWorkspacePath, '.mcp.json');
-  const desiredMcpContent = JSON.stringify({ mcpServers: sharedMcpConfigs }, null, 2);
-  const existingMcpContent = isRemoteRuntime
-    ? await (dependencies.readRepositoryRemoteTextFile ?? defaultReadRepositoryRemoteTextFile)(
-        params.repoPath,
-        mcpTargetPath
-      )
-    : await readLocalTextFile(mcpTargetPath);
-  const isUnmanagedWorkspaceMcpSource =
-    existingMcpContent !== null && !manifest.managedFiles.includes(mcpTargetPath);
-  if (isUnmanagedWorkspaceMcpSource) {
-    protectedManagedPaths.add(mcpTargetPath);
-    if (existingMcpContent !== desiredMcpContent) {
-      warnings.push(
-        'Skipping shared MCP projection because the current workspace already owns .mcp.json.'
-      );
+  if (projectWorkspaceMcp) {
+    const sharedMcpConfigs = Object.fromEntries(
+      params.resolvedPolicy.allowedSharedMcpIds
+        .map((id) => [id, sharedMcpConfigById[id]] as const)
+        .filter((entry): entry is [string, McpServerConfig] => Boolean(entry[1]))
+    );
+    const mcpTargetPath = isRemoteRuntime
+      ? joinRemotePath(runtimeWorkspacePath, '.mcp.json')
+      : path.join(runtimeWorkspacePath, '.mcp.json');
+    const desiredMcpContent = JSON.stringify({ mcpServers: sharedMcpConfigs }, null, 2);
+    const existingMcpContent = isRemoteRuntime
+      ? await (dependencies.readRepositoryRemoteTextFile ?? defaultReadRepositoryRemoteTextFile)(
+          params.repoPath,
+          mcpTargetPath
+        )
+      : await readLocalTextFile(mcpTargetPath);
+    const isUnmanagedWorkspaceMcpSource =
+      existingMcpContent !== null && !manifest.managedFiles.includes(mcpTargetPath);
+    if (isUnmanagedWorkspaceMcpSource) {
+      protectedManagedPaths.add(mcpTargetPath);
+      if (existingMcpContent !== desiredMcpContent) {
+        warnings.push(
+          'Skipping shared MCP projection because the current workspace already owns .mcp.json.'
+        );
+      }
+    } else {
+      desiredArtifacts.set(mcpTargetPath, {
+        kind: 'file',
+        content: desiredMcpContent,
+      });
     }
-  } else {
-    desiredArtifacts.set(mcpTargetPath, {
-      kind: 'file',
-      content: desiredMcpContent,
-    });
   }
 
   for (const managedFile of manifest.managedFiles) {
@@ -716,38 +724,40 @@ export async function projectClaudeRuntimePolicy(
     }
   }
 
-  const selectedPersonalMcpConfigs = Object.fromEntries(
-    params.resolvedPolicy.allowedPersonalMcpIds
-      .map((id) => [id, personalMcpConfigById[id]] as const)
-      .filter((entry): entry is [string, McpServerConfig] => Boolean(entry[1]))
-  );
-  const existingProjectSettings = isRemoteRuntime
-    ? await (dependencies.readRemoteProjectSettings ?? defaultReadRepositoryRemoteProjectSettings)(
-        params.repoPath,
-        runtimeWorkspacePath
-      )
-    : (dependencies.readLocalProjectSettings ?? readClaudeProjectSettings)(runtimeWorkspacePath);
-  const nextProjectSettings = {
-    ...(existingProjectSettings ?? {}),
-    mcpServers: selectedPersonalMcpConfigs,
-  };
-  const personalSettingsChanged =
-    stableStringify(existingProjectSettings?.mcpServers ?? {}) !==
-    stableStringify(selectedPersonalMcpConfigs);
-
-  if (personalSettingsChanged) {
-    const updated = isRemoteRuntime
+  let personalSettingsChanged = false;
+  if (projectWorkspaceMcp) {
+    const selectedPersonalMcpConfigs = Object.fromEntries(
+      params.resolvedPolicy.allowedPersonalMcpIds
+        .map((id) => [id, personalMcpConfigById[id]] as const)
+        .filter((entry): entry is [string, McpServerConfig] => Boolean(entry[1]))
+    );
+    const existingProjectSettings = isRemoteRuntime
       ? await (
-          dependencies.updateRemoteProjectSettings ?? defaultWriteRepositoryRemoteProjectSettings
-        )(params.repoPath, runtimeWorkspacePath, nextProjectSettings)
-      : await (
-          dependencies.updateLocalProjectSettings ??
-          (async (workspacePath: string, settings: Record<string, unknown>) =>
-            writeClaudeProjectSettings(workspacePath, settings as ClaudeProjectSettings))
-        )(runtimeWorkspacePath, nextProjectSettings);
+          dependencies.readRemoteProjectSettings ?? defaultReadRepositoryRemoteProjectSettings
+        )(params.repoPath, runtimeWorkspacePath)
+      : (dependencies.readLocalProjectSettings ?? readClaudeProjectSettings)(runtimeWorkspacePath);
+    const nextProjectSettings = {
+      ...(existingProjectSettings ?? {}),
+      mcpServers: selectedPersonalMcpConfigs,
+    };
+    personalSettingsChanged =
+      stableStringify(existingProjectSettings?.mcpServers ?? {}) !==
+      stableStringify(selectedPersonalMcpConfigs);
 
-    if (!updated) {
-      errors.push(`Failed to update personal MCP settings for ${runtimeWorkspacePath}`);
+    if (personalSettingsChanged) {
+      const updated = isRemoteRuntime
+        ? await (
+            dependencies.updateRemoteProjectSettings ?? defaultWriteRepositoryRemoteProjectSettings
+          )(params.repoPath, runtimeWorkspacePath, nextProjectSettings)
+        : await (
+            dependencies.updateLocalProjectSettings ??
+            (async (workspacePath: string, settings: Record<string, unknown>) =>
+              writeClaudeProjectSettings(workspacePath, settings as ClaudeProjectSettings))
+          )(runtimeWorkspacePath, nextProjectSettings);
+
+      if (!updated) {
+        errors.push(`Failed to update personal MCP settings for ${runtimeWorkspacePath}`);
+      }
     }
   }
 

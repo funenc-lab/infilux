@@ -191,6 +191,59 @@ describe('projectClaudeRuntimePolicy', () => {
     );
   });
 
+  it('skips workspace MCP materialization when native Claude MCP injection is active', async () => {
+    const catalog = createCatalog(sourceRoot);
+    const updates: Array<{ workspacePath: string; settings: Record<string, unknown> }> = [];
+
+    const result = await projectClaudeRuntimePolicy(
+      {
+        repoPath: join(rootDir, 'repo'),
+        worktreePath,
+        materializationMode: 'copy',
+        catalog,
+        resolvedPolicy: {
+          ...createResolvedPolicy(),
+          repoPath: join(rootDir, 'repo'),
+          worktreePath,
+        },
+        projectWorkspaceMcp: false,
+      },
+      {
+        updateLocalProjectSettings: async (workspacePath, settings) => {
+          updates.push({ workspacePath, settings });
+          return true;
+        },
+        sharedMcpConfigById: {
+          'shared-alpha': { command: 'npx', args: ['shared-alpha'] },
+        },
+        personalMcpConfigById: {
+          'personal-alpha': { type: 'http', url: 'https://personal.example.com/mcp' },
+        },
+      }
+    );
+
+    expect(result.applied).toBe(true);
+    expect(readFileSync(join(worktreePath, '.claude', 'commands', 'ship.md'), 'utf8')).toContain(
+      '# Ship command'
+    );
+    expect(readFileSync(join(worktreePath, '.claude', 'agents', 'reviewer.md'), 'utf8')).toContain(
+      '# Reviewer'
+    );
+    expect(
+      readFileSync(join(worktreePath, '.claude', 'skills', 'ship-skill', 'SKILL.md'), 'utf8')
+    ).toContain('Ship Skill');
+    expect(result.updatedFiles).toEqual(
+      expect.arrayContaining([
+        join(worktreePath, '.claude', 'commands', 'ship.md'),
+        join(worktreePath, '.claude', 'agents', 'reviewer.md'),
+        join(worktreePath, '.claude', 'skills', 'ship-skill', 'SKILL.md'),
+      ])
+    );
+    expect(result.updatedFiles).not.toContain(join(worktreePath, '.mcp.json'));
+    expect(() => readFileSync(join(worktreePath, '.mcp.json'), 'utf8')).toThrow();
+    expect(updates).toEqual([]);
+  });
+
   it('projects remote runtime artifacts through the remote adapter paths', async () => {
     const remoteRepoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
     const remoteWorktreePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktrees/feature-a');
