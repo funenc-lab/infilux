@@ -72,6 +72,8 @@ import { AgentCloseSessionDialog } from './AgentCloseSessionDialog';
 import { AgentGroup } from './AgentGroup';
 import { AgentTerminal } from './AgentTerminal';
 import { AgentPanelEmptyState } from './agent-panel/AgentPanelEmptyState';
+import { SessionSubagentInspector } from './agent-panel/SessionSubagentInspector';
+import { SessionSubagentTriggerButton } from './agent-panel/SessionSubagentTriggerButton';
 import type { AgentAttachmentItem } from './agentAttachmentTrayModel';
 import {
   probeRemoteAgentAvailability,
@@ -132,6 +134,11 @@ import {
 } from './sessionActivityState';
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
 import { shouldShowSessionPersistenceNotice } from './sessionPersistenceNoticePolicy';
+import {
+  getMatchedSessionSubagents,
+  resolveSessionSubagentViewState,
+  supportsSessionSubagentTracking,
+} from './sessionSubagentState';
 import { resolveSessionTitleFromFirstInput } from './sessionTitlePolicy';
 import {
   getDefaultSessionName,
@@ -619,6 +626,12 @@ export function AgentPanel({
   const [statusLineHeightsByGroupId, setStatusLineHeightsByGroupId] = useState<
     Record<string, number>
   >({});
+  const [openSessionSubagentInspectorId, setOpenSessionSubagentInspectorId] = useState<
+    string | null
+  >(null);
+  const [selectedSubagentThreadIdBySessionId, setSelectedSubagentThreadIdBySessionId] = useState<
+    Record<string, string | null>
+  >({});
 
   useEffect(() => {
     if (!statusLineEnabled) {
@@ -933,6 +946,28 @@ export function AgentPanel({
     () => currentWorktreeSessions.map((session) => session.id),
     [currentWorktreeSessions]
   );
+  useEffect(() => {
+    const activeSessionIdSet = new Set(currentWorktreeSessionIds);
+
+    setOpenSessionSubagentInspectorId((current) =>
+      current && activeSessionIdSet.has(current) ? current : null
+    );
+    setSelectedSubagentThreadIdBySessionId((current) => {
+      let changed = false;
+      const next: Record<string, string | null> = {};
+
+      for (const [sessionId, threadId] of Object.entries(current)) {
+        if (!activeSessionIdSet.has(sessionId)) {
+          changed = true;
+          continue;
+        }
+
+        next[sessionId] = threadId;
+      }
+
+      return changed ? next : current;
+    });
+  }, [currentWorktreeSessionIds]);
   const currentGroupIdBySessionId = useMemo(() => {
     const groupIds = new Map<string, string>();
     for (const group of currentGroupState.groups) {
@@ -1031,7 +1066,10 @@ export function AgentPanel({
   );
   const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas';
   const shouldPollLiveSubagents =
-    isActive && currentWorktreeSessions.some((session) => session.agentId === 'codex');
+    isActive &&
+    currentWorktreeSessions.some((session) =>
+      supportsSessionSubagentTracking(session.agentId, session.agentCommand)
+    );
   const liveSubagentsByWorktree = useLiveSubagents(shouldPollLiveSubagents ? [cwd] : []);
   const sessionActivityStateById = useMemo(
     () =>
@@ -3264,6 +3302,24 @@ export function AgentPanel({
   const handleOpenAgentSettings = useCallback(() => {
     window.dispatchEvent(new CustomEvent('open-settings-agent'));
   }, []);
+  const handleToggleSessionSubagentInspector = useCallback((sessionId: string) => {
+    setOpenSessionSubagentInspectorId((current) => (current === sessionId ? null : sessionId));
+  }, []);
+  const handleCloseSessionSubagentInspector = useCallback(() => {
+    setOpenSessionSubagentInspectorId(null);
+  }, []);
+  const handleSelectSessionSubagentThread = useCallback((sessionId: string, threadId: string) => {
+    setSelectedSubagentThreadIdBySessionId((current) => {
+      if (current[sessionId] === threadId) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [sessionId]: threadId,
+      };
+    });
+  }, []);
 
   if (!cwd) return null;
 
@@ -3331,6 +3387,22 @@ export function AgentPanel({
     });
     const sender = enhancedInputSenderRef.current.get(sessionId);
     const tileAgentLabel = getAgentDisplayLabel(session.agentId, customAgents);
+    const sessionWorktreeSubagents = liveSubagentsByWorktree.get(normalizePath(session.cwd)) ?? [];
+    const matchedSessionSubagents = getMatchedSessionSubagents(
+      session.agentId,
+      session.agentCommand,
+      session.sessionId,
+      sessionWorktreeSubagents
+    );
+    const sessionSubagentViewState = resolveSessionSubagentViewState({
+      agentId: session.agentId,
+      agentCommand: session.agentCommand,
+      initialized: session.initialized,
+      uiSessionId: session.id,
+      providerSessionId: session.sessionId,
+      isRemoteExecution: isRemoteVirtualPath(session.cwd),
+    });
+    const isSessionSubagentInspectorOpen = openSessionSubagentInspectorId === session.id;
     const isCanvasFloatingSession = isCanvasDisplayMode && session.id === canvasFloatingSessionId;
     const sessionContentHost = ensureCanvasSessionContentHost(sessionId);
     const canvasTileColumnSpan =
@@ -3350,6 +3422,16 @@ export function AgentPanel({
           {session.name}
         </div>
       </div>
+    );
+    const renderSessionSubagentTrigger = (className: string) => (
+      <SessionSubagentTriggerButton
+        count={matchedSessionSubagents.length}
+        isActive={isSessionSubagentInspectorOpen}
+        className={className}
+        title={t('View session subagents')}
+        ariaLabel={t('View session subagents')}
+        onClick={() => handleToggleSessionSubagentInspector(session.id)}
+      />
     );
     const sessionPanelContent = (
       <div
@@ -3382,6 +3464,11 @@ export function AgentPanel({
             {renderSessionHeaderSummary()}
           </button>
           <div className="flex shrink-0 items-center gap-2">
+            {isCanvasDisplayMode
+              ? renderSessionSubagentTrigger(
+                  'control-panel flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30'
+                )
+              : null}
             {isCanvasDisplayMode && !isCanvasFloatingSession ? (
               <button
                 type="button"
@@ -3511,6 +3598,17 @@ export function AgentPanel({
               enhancedInputSenderRef.current.delete(senderSessionId);
             }}
           />
+          {isSessionSubagentInspectorOpen ? (
+            <SessionSubagentInspector
+              sessionName={session.name}
+              agentLabel={tileAgentLabel}
+              viewState={sessionSubagentViewState}
+              subagents={matchedSessionSubagents}
+              selectedThreadId={selectedSubagentThreadIdBySessionId[session.id] ?? null}
+              onSelectThread={(threadId) => handleSelectSessionSubagentThread(session.id, threadId)}
+              onClose={handleCloseSessionSubagentInspector}
+            />
+          ) : null}
         </div>
 
         <div className={cn(isCanvasDisplayMode ? 'pointer-events-auto' : 'hidden')}>
@@ -3609,6 +3707,9 @@ export function AgentPanel({
             <div className="control-panel-muted pointer-events-auto relative z-20 flex shrink-0 items-start justify-between gap-3 border-b border-border/60 px-3 py-2 no-drag">
               <div className="min-w-0">{renderSessionHeaderSummary()}</div>
               <div className="flex shrink-0 items-center gap-2">
+                {renderSessionSubagentTrigger(
+                  'control-panel pointer-events-auto relative z-20 flex h-10 w-10 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-accent/30 no-drag'
+                )}
                 <button
                   type="button"
                   className="control-panel pointer-events-auto relative z-20 flex h-10 w-10 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-accent/30 no-drag"
@@ -3917,6 +4018,37 @@ export function AgentPanel({
             backendSessionId: activeSession?.backendSessionId,
             runtimeState: activeSession?.recoveryState,
           });
+          const activeSessionSubagents =
+            activeSession == null
+              ? []
+              : getMatchedSessionSubagents(
+                  activeSession.agentId,
+                  activeSession.agentCommand,
+                  activeSession.sessionId,
+                  liveSubagentsByWorktree.get(normalizePath(activeSession.cwd)) ?? []
+                );
+          const activeSessionSubagentViewState =
+            activeSession == null
+              ? null
+              : resolveSessionSubagentViewState({
+                  agentId: activeSession.agentId,
+                  agentCommand: activeSession.agentCommand,
+                  initialized: activeSession.initialized,
+                  uiSessionId: activeSession.id,
+                  providerSessionId: activeSession.sessionId,
+                  isRemoteExecution: isRemoteVirtualPath(activeSession.cwd),
+                });
+          const activeSessionToolbarAccessory =
+            activeSession != null && activeSessionSubagentViewState != null ? (
+              <SessionSubagentTriggerButton
+                count={activeSessionSubagents.length}
+                isActive={openSessionSubagentInspectorId === activeSession.id}
+                className="control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors"
+                title={t('View session subagents')}
+                ariaLabel={t('View session subagents')}
+                onClick={() => handleToggleSessionSubagentInspector(activeSession.id)}
+              />
+            ) : null;
           const canSendToActiveSession = activeSessionAvailability === 'ready';
           const activeSessionSendLabel =
             activeSessionAvailability === 'awaiting-session'
@@ -3957,6 +4089,7 @@ export function AgentPanel({
                 customAgents={customAgents}
                 agentSettings={agentSettings}
                 agentInfo={AGENT_INFO}
+                toolbarAccessory={activeSessionToolbarAccessory}
                 onSessionSelect={(id) => handleSelectSession(id, group.id)}
                 onSessionClose={(id) => handleCloseSession(id, group.id)}
                 onSessionNew={() => handleNewSession(group.id)}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { AgentGroupEmptyState } from './AgentGroupEmptyState';
@@ -18,6 +18,7 @@ interface AgentGroupProps {
     { enabled: boolean; isDefault: boolean; customPath?: string; customArgs?: string }
   >;
   agentInfo: Record<string, { name: string; command: string }>;
+  toolbarAccessory?: ReactNode;
   onSessionSelect: (sessionId: string) => void;
   onSessionClose: (sessionId: string) => void;
   onSessionNew: () => void;
@@ -40,6 +41,7 @@ export function AgentGroup({
   customAgents,
   agentSettings,
   agentInfo,
+  toolbarAccessory,
   onSessionSelect,
   onSessionClose,
   onSessionNew,
@@ -141,6 +143,7 @@ export function AgentGroup({
       activeSessionId={activeSessionId}
       activityStateBySessionId={activityStateBySessionId}
       repoPath={repoPath}
+      toolbarAccessory={toolbarAccessory}
       onSelectSession={handleSelectSession}
       onCloseSession={onSessionClose}
       onNewSession={onSessionNew}

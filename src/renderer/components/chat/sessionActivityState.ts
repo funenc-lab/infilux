@@ -1,5 +1,6 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { normalizePath } from '@/App/storage';
+import { getMatchedSessionSubagents } from './sessionSubagentState';
 
 type OutputState = 'idle' | 'outputting' | 'unread';
 
@@ -8,6 +9,7 @@ export type SessionActivityState = 'idle' | 'running' | 'waiting_input' | 'compl
 interface SessionLike {
   id: string;
   agentId?: string;
+  agentCommand?: string;
   sessionId?: string;
   cwd: string;
 }
@@ -22,6 +24,7 @@ interface SessionRuntimeLike {
 
 interface ResolveSessionActivityStateOptions {
   agentId?: string;
+  agentCommand?: string;
   outputState?: OutputState;
   hasCompletedTaskUnread?: boolean;
   waitingForInput?: boolean;
@@ -33,22 +36,6 @@ interface BuildSessionActivityStateBySessionIdOptions {
   sessions: SessionLike[];
   runtimeStates: Record<string, SessionRuntimeLike | undefined>;
   subagentsByWorktree: Map<string, LiveAgentSubagent[]>;
-}
-
-function getMatchedSessionSubagents(
-  agentId: string | undefined,
-  providerSessionId: string | undefined,
-  subagents: LiveAgentSubagent[]
-): LiveAgentSubagent[] {
-  if (agentId && agentId.replace(/-(hapi|happy)$/, '') !== 'codex') {
-    return [];
-  }
-
-  if (!providerSessionId) {
-    return [];
-  }
-
-  return subagents.filter((subagent) => subagent.rootThreadId === providerSessionId);
 }
 
 function getSessionActivityStatePriority(state: SessionActivityState): number {
@@ -66,13 +53,19 @@ function getSessionActivityStatePriority(state: SessionActivityState): number {
 
 export function resolveSessionActivityState({
   agentId,
+  agentCommand,
   outputState = 'idle',
   hasCompletedTaskUnread = false,
   waitingForInput = false,
   providerSessionId,
   subagents = [],
 }: ResolveSessionActivityStateOptions): SessionActivityState {
-  const matchedSubagents = getMatchedSessionSubagents(agentId, providerSessionId, subagents);
+  const matchedSubagents = getMatchedSessionSubagents(
+    agentId,
+    agentCommand,
+    providerSessionId,
+    subagents
+  );
   const hasWaitingSubagent = matchedSubagents.some((subagent) => subagent.status === 'waiting');
   const hasRunningSubagent = matchedSubagents.some((subagent) => subagent.status === 'running');
 
@@ -121,6 +114,7 @@ export function buildSessionActivityStateBySessionId({
 
     activityStatesBySessionId[session.id] = resolveSessionActivityState({
       agentId: session.agentId,
+      agentCommand: session.agentCommand,
       outputState: runtimeState?.outputState ?? 'idle',
       hasCompletedTaskUnread: runtimeState?.hasCompletedTaskUnread ?? false,
       waitingForInput: runtimeState?.waitingForInput ?? false,
