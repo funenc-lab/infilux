@@ -48,20 +48,12 @@ import {
   isSessionPersistenceEnabledForHost,
 } from '@/lib/agentSessionPersistence';
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
-import {
-  onAgentStopNotification,
-  onAskUserQuestionNotification,
-  onNotificationClick,
-  onPreToolUseNotification,
-  showRendererNotification,
-} from '@/lib/electronNotification';
-import { buildChatNotificationCopy } from '@/lib/feedbackCopy';
 import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
-import { initAgentStatusListener, useAgentStatusStore } from '@/stores/agentStatus';
+import { useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useEditorStore } from '@/stores/editor';
 import { BUILTIN_AGENT_IDS, useSettingsStore } from '@/stores/settings';
@@ -147,8 +139,9 @@ export interface AgentPanelProps {
   repoPath: string; // repository path (workspace identifier)
   cwd: string; // current worktree path
   isActive?: boolean;
-  onSwitchWorktree?: (worktreePath: string) => void;
   canvasRecenterOnActivateToken?: number;
+  canvasFocusOnActivateToken?: number;
+  canvasFocusSessionId?: string | null;
 }
 
 // Agent display names and commands
@@ -478,8 +471,9 @@ export function AgentPanel({
   repoPath,
   cwd,
   isActive = false,
-  onSwitchWorktree,
   canvasRecenterOnActivateToken = 0,
+  canvasFocusOnActivateToken = 0,
+  canvasFocusSessionId = null,
 }: AgentPanelProps) {
   const { t } = useI18n();
   const platform = getRendererEnvironment().platform;
@@ -492,6 +486,7 @@ export function AgentPanel({
   const canvasViewportPositionByWorktreeRef = useRef<Record<string, CanvasViewportPosition>>({});
   const canvasViewportSnapshotByWorktreeRef = useRef<Record<string, CanvasViewportSnapshot>>({});
   const canvasViewportRestoreReadyWorktreeKeyRef = useRef<string | null>(null);
+  const lastHandledCanvasFocusRequestTokenRef = useRef<number | null>(null);
   const lastCanvasZoomStorageKeyRef = useRef<string | null>(null);
   const spacePressedRef = useRef(false);
   const {
@@ -1926,173 +1921,10 @@ export function AgentPanel({
     [cwd, focusCanvasViewportOnSession, setActiveId, updateCurrentGroupState]
   );
 
-  // Notification payload may carry either UI session id or Claude sessionId.
-  const findSessionByNotificationId = useCallback(
-    (incomingSessionId: string) =>
-      allSessions.find((s) => s.id === incomingSessionId || s.sessionId === incomingSessionId),
-    [allSessions]
-  );
-
-  // 监听通知点击，激活对应 session 并切换 worktree
-  useEffect(() => {
-    const unsubscribe = onNotificationClick((sessionId) => {
-      const session = findSessionByNotificationId(sessionId);
-      if (session && !pathsEqual(session.cwd, cwd) && onSwitchWorktree) {
-        onSwitchWorktree(session.cwd);
-      }
-      if (session) {
-        handleSelectSession(session.id, undefined, { focusCanvasViewport: true });
-      }
-    });
-    return unsubscribe;
-  }, [handleSelectSession, findSessionByNotificationId, cwd, onSwitchWorktree]);
-
   // Enhanced input sender ref (unchanged)
   const enhancedInputSenderRef = useRef<
     Map<string, (content: string, attachments: AgentAttachmentItem[]) => boolean>
   >(new Map());
-
-  // 监听 Claude stop hook 通知，精确更新 output state 并发送完成通知
-  const setOutputState = useAgentSessionsStore((s) => s.setOutputState);
-  const setWaitingForInput = useAgentSessionsStore((s) => s.setWaitingForInput);
-  const markTaskCompletedUnread = useAgentSessionsStore((s) => s.markTaskCompletedUnread);
-  const getActivityState = useWorktreeActivityStore((s) => s.getActivityState);
-  useEffect(() => {
-    const unsubscribe = onAgentStopNotification(({ sessionId, taskCompletionStatus }) => {
-      const session = findSessionByNotificationId(sessionId);
-      if (session) {
-        setWaitingForInput(session.id, false);
-
-        // Check if user is currently viewing this session
-        const activeGroup = groups.find((g) => g.id === activeGroupId);
-        const isViewingSession =
-          activeGroup?.activeSessionId === session.id && pathsEqual(session.cwd, cwd) && isActive;
-
-        // Update output state to idle (will become 'unread' if user is not viewing)
-        setOutputState(session.id, 'idle', isViewingSession);
-
-        if (taskCompletionStatus === 'completed' && !isViewingSession) {
-          markTaskCompletedUnread(session.id);
-        }
-
-        // Check if enhanced input is enabled and should auto popup
-        // Auto popup requires:
-        // 1. enhancedInputEnabled
-        // 2. enhancedInputAutoPopup is 'always' or 'hideWhileRunning'
-        // 3. stopHookEnabled (for Claude Code)
-        // 4. NOT in 'waiting_input' state (AskUserQuestion or Permission Prompt active)
-        const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
-        const activityState = getActivityState(session.cwd);
-        const shouldAutoPopup =
-          session.agentId === 'claude' &&
-          !supportsAgentNativeTerminalInput(session.agentId) &&
-          claudeCodeIntegration.enhancedInputEnabled &&
-          (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning') &&
-          claudeCodeIntegration.stopHookEnabled &&
-          activityState !== 'waiting_input';
-
-        // Auto popup enhanced input if enabled
-        // Now we set the open state in store - it persists per session
-        if (shouldAutoPopup) {
-          setEnhancedInputOpen(sessionId, true);
-        }
-
-        // Send system notification
-        const projectName = session.cwd.split('/').pop() || 'Unknown';
-        const agentName = AGENT_INFO[session.agentId]?.name || session.agentCommand;
-        // Use terminal title as body, fall back to project name
-        const notificationBody = session.terminalTitle || projectName;
-        const notificationCopy = buildChatNotificationCopy(
-          {
-            action: 'command-completed',
-            command: agentName,
-            body: notificationBody,
-          },
-          t
-        );
-        void showRendererNotification({
-          title: notificationCopy.title,
-          body: notificationCopy.body,
-          sessionId: session.id,
-        });
-      }
-    });
-    return unsubscribe;
-  }, [
-    findSessionByNotificationId,
-    t,
-    groups,
-    activeGroupId,
-    cwd,
-    isActive,
-    setOutputState,
-    setWaitingForInput,
-    markTaskCompletedUnread,
-    getActivityState,
-    claudeCodeIntegration,
-    setEnhancedInputOpen,
-  ]);
-
-  useEffect(() => {
-    const unsubscribe = onPreToolUseNotification(({ sessionId, toolName }) => {
-      if (toolName !== 'UserPromptSubmit') {
-        return;
-      }
-
-      const session = findSessionByNotificationId(sessionId);
-      if (!session) {
-        return;
-      }
-
-      setWaitingForInput(session.id, false);
-    });
-
-    return unsubscribe;
-  }, [findSessionByNotificationId, setWaitingForInput]);
-
-  // Note: EnhancedInput open state is now stored per-session in the store
-  // No need to auto-collapse on session switch - each session keeps its own state
-
-  // 监听 Claude AskUserQuestion 通知
-  useEffect(() => {
-    const unsubscribe = onAskUserQuestionNotification(({ sessionId, toolInput }) => {
-      const session = findSessionByNotificationId(sessionId);
-      if (session) {
-        setWaitingForInput(session.id, true);
-        const agentName = AGENT_INFO[session.agentId]?.name || session.agentCommand;
-
-        // Extract first question text if available
-        let questionPreview = t('User response required');
-        if (toolInput && typeof toolInput === 'object' && 'questions' in toolInput) {
-          const questions = (toolInput as { questions: Array<{ question: string }> }).questions;
-          if (questions?.[0]?.question) {
-            questionPreview = questions[0].question;
-          }
-        }
-
-        const notificationCopy = buildChatNotificationCopy(
-          {
-            action: 'waiting-input',
-            command: agentName,
-            preview: questionPreview,
-          },
-          t
-        );
-        void showRendererNotification({
-          title: notificationCopy.title,
-          body: notificationCopy.body,
-          sessionId: session.id,
-        });
-      }
-    });
-    return unsubscribe;
-  }, [findSessionByNotificationId, setWaitingForInput, t]);
-
-  // 监听 Claude status line 更新
-  useEffect(() => {
-    const unsubscribe = initAgentStatusListener();
-    return unsubscribe;
-  }, []);
 
   const handleNextSession = useCallback(() => {
     const activeGroup = groups.find((g) => g.id === activeGroupId);
@@ -2580,6 +2412,41 @@ export function AgentPanel({
     recenterOnActivateToken: canvasRecenterOnActivateToken,
     viewportRef: canvasViewportRef,
   });
+  useEffect(() => {
+    if (
+      !isCanvasDisplayMode ||
+      !isActive ||
+      !canvasFocusSessionId ||
+      canvasFocusOnActivateToken <= 0
+    ) {
+      return;
+    }
+
+    if (lastHandledCanvasFocusRequestTokenRef.current === canvasFocusOnActivateToken) {
+      return;
+    }
+
+    lastHandledCanvasFocusRequestTokenRef.current = canvasFocusOnActivateToken;
+    let cancelled = false;
+    const frameId = requestAnimationFrame(() => {
+      if (cancelled) {
+        return;
+      }
+
+      focusCanvasViewportOnSession(canvasFocusSessionId);
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+    };
+  }, [
+    canvasFocusOnActivateToken,
+    canvasFocusSessionId,
+    focusCanvasViewportOnSession,
+    isActive,
+    isCanvasDisplayMode,
+  ]);
   useEffect(() => {
     if (!isCanvasDisplayMode) {
       setCanvasViewportBounds(null);

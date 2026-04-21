@@ -56,6 +56,9 @@ export interface MainContentProps {
   onToggleSettings?: () => void;
   chatCanvasRecenterToken?: number;
   chatCanvasRecenterWorktreePath?: string | null;
+  chatCanvasFocusToken?: number;
+  chatCanvasFocusWorktreePath?: string | null;
+  chatCanvasFocusSessionId?: string | null;
   showOpenInMenu?: boolean;
   sourceControlEmptyTitle?: string;
   sourceControlEmptyDescription?: string;
@@ -117,6 +120,9 @@ export function MainContent({
   onToggleSettings,
   chatCanvasRecenterToken = 0,
   chatCanvasRecenterWorktreePath = null,
+  chatCanvasFocusToken = 0,
+  chatCanvasFocusWorktreePath = null,
+  chatCanvasFocusSessionId = null,
   showOpenInMenu = true,
   sourceControlEmptyTitle,
   sourceControlEmptyDescription,
@@ -631,7 +637,6 @@ export function MainContent({
         hasActiveWorktree={hasActiveWorktree}
         worktreeCollapsed={worktreeCollapsed}
         onExpandWorktree={onExpandWorktree}
-        onSwitchWorktree={onSwitchWorktree}
         getRepoPathForWorktree={getRepoPathForWorktree}
         shouldRenderCurrentChatPanel={shouldRenderCurrentChatPanel}
         shouldRenderCurrentTerminalPanel={shouldRenderCurrentTerminalPanel}
@@ -654,6 +659,9 @@ export function MainContent({
         scrollToProvider={scrollToProvider}
         chatCanvasRecenterToken={chatCanvasRecenterToken}
         chatCanvasRecenterWorktreePath={chatCanvasRecenterWorktreePath}
+        chatCanvasFocusToken={chatCanvasFocusToken}
+        chatCanvasFocusWorktreePath={chatCanvasFocusWorktreePath}
+        chatCanvasFocusSessionId={chatCanvasFocusSessionId}
         onTabChange={onTabChange}
         selectedSubagent={selectedSubagent}
         onCloseSelectedSubagent={onCloseSelectedSubagent}

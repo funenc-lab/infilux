@@ -38,7 +38,6 @@ export interface MainContentPanelsProps {
   hasActiveWorktree: boolean;
   worktreeCollapsed: boolean;
   onExpandWorktree?: () => void;
-  onSwitchWorktree?: (worktreePath: string) => void;
   getRepoPathForWorktree: (worktreePath: string) => string | null;
   shouldRenderCurrentChatPanel: boolean;
   shouldRenderCurrentTerminalPanel: boolean;
@@ -61,6 +60,9 @@ export interface MainContentPanelsProps {
   scrollToProvider?: boolean;
   chatCanvasRecenterToken?: number;
   chatCanvasRecenterWorktreePath?: string | null;
+  chatCanvasFocusToken?: number;
+  chatCanvasFocusWorktreePath?: string | null;
+  chatCanvasFocusSessionId?: string | null;
   onTabChange: (tab: TabId) => void;
   selectedSubagent?: LiveAgentSubagent | null;
   onCloseSelectedSubagent?: () => void;
@@ -128,7 +130,6 @@ export function MainContentPanels({
   hasActiveWorktree,
   worktreeCollapsed,
   onExpandWorktree,
-  onSwitchWorktree,
   getRepoPathForWorktree,
   shouldRenderCurrentChatPanel,
   shouldRenderCurrentTerminalPanel,
@@ -151,6 +152,9 @@ export function MainContentPanels({
   scrollToProvider,
   chatCanvasRecenterToken = 0,
   chatCanvasRecenterWorktreePath = null,
+  chatCanvasFocusToken = 0,
+  chatCanvasFocusWorktreePath = null,
+  chatCanvasFocusSessionId = null,
   onTabChange,
   selectedSubagent = null,
   onCloseSelectedSubagent,
@@ -180,6 +184,15 @@ export function MainContentPanels({
           normalizePath(entry.worktreePath) === normalizePath(chatCanvasRecenterWorktreePath)
             ? chatCanvasRecenterToken
             : 0;
+        const canvasFocusOnActivateToken =
+          entry.isCurrent &&
+          chatCanvasFocusToken > 0 &&
+          chatCanvasFocusWorktreePath &&
+          normalizePath(entry.worktreePath) === normalizePath(chatCanvasFocusWorktreePath)
+            ? chatCanvasFocusToken
+            : 0;
+        const canvasFocusSessionIdForEntry =
+          canvasFocusOnActivateToken > 0 ? chatCanvasFocusSessionId : null;
 
         return (
           <div
@@ -199,8 +212,9 @@ export function MainContentPanels({
               repoPath={entry.repoPath}
               cwd={entry.worktreePath}
               isActive={entry.isActive}
-              onSwitchWorktree={onSwitchWorktree}
               canvasRecenterOnActivateToken={canvasRecenterOnActivateToken}
+              canvasFocusOnActivateToken={canvasFocusOnActivateToken}
+              canvasFocusSessionId={canvasFocusSessionIdForEntry}
               shouldLoad
               showFallback={entry.showFallback}
             />

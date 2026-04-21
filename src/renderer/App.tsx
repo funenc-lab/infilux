@@ -24,6 +24,7 @@ import {
 } from './App/constants';
 import { resolveFileSidebarVisibility } from './App/fileSidebarVisibilityPolicy';
 import {
+  useAgentSessionNotifications,
   useAppLifecycle,
   useBackgroundImage,
   useClaudeIntegration,
@@ -103,6 +104,7 @@ import { getRendererEnvironment } from './lib/electronEnvironment';
 import { buildOperationToastCopy, buildSourceControlWorkflowToastCopy } from './lib/feedbackCopy';
 import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from './lib/worktreeData';
 import { useAgentSessionsStore } from './stores/agentSessions';
+import { initAgentStatusListener } from './stores/agentStatus';
 import { initCloneProgressListener } from './stores/cloneTasks';
 import { useEditorStore } from './stores/editor';
 import { useInitScriptStore } from './stores/initScript';
@@ -121,6 +123,15 @@ export default function App() {
     token: 0,
     worktreePath: null,
   });
+  const [agentCanvasFocusRequest, setAgentCanvasFocusRequest] = useState<{
+    sessionId: string | null;
+    token: number;
+    worktreePath: string | null;
+  }>({
+    sessionId: null,
+    token: 0,
+    worktreePath: null,
+  });
 
   useEffect(() => {
     return initCloneProgressListener();
@@ -129,6 +140,10 @@ export default function App() {
   // Initialize agent activity listener for tree sidebar status display
   useEffect(() => {
     return initAgentActivityListener();
+  }, []);
+
+  useEffect(() => {
+    return initAgentStatusListener();
   }, []);
 
   // Listen for auto-fetch completion events to refresh git status
@@ -331,6 +346,14 @@ export default function App() {
   const requestAgentCanvasRecenter = useCallback((worktreePath: string) => {
     const normalizedWorktreePath = normalizePath(worktreePath);
     setAgentCanvasRecenterRequest((previous) => ({
+      token: previous.token + 1,
+      worktreePath: normalizedWorktreePath,
+    }));
+  }, []);
+  const requestAgentCanvasFocus = useCallback((worktreePath: string, sessionId: string) => {
+    const normalizedWorktreePath = normalizePath(worktreePath);
+    setAgentCanvasFocusRequest((previous) => ({
+      sessionId,
       token: previous.token + 1,
       worktreePath: normalizedWorktreePath,
     }));
@@ -976,6 +999,14 @@ export default function App() {
 
   // Assign to ref for use in keyboard shortcut callback
   switchWorktreePathRef.current = handleSwitchWorktreePath;
+
+  useAgentSessionNotifications({
+    activeTab,
+    activeWorktreePath: activeWorktree?.path ?? null,
+    hasSelectedSubagent: Boolean(activeSelectedSubagent),
+    onRequestCanvasFocus: requestAgentCanvasFocus,
+    onSwitchWorktreePath: handleSwitchWorktreePath,
+  });
 
   // Handle adding a local repository
   const createRepositoryEntry = useCallback(
@@ -1637,6 +1668,9 @@ export default function App() {
           onToggleSettings={toggleSettings}
           chatCanvasRecenterToken={agentCanvasRecenterRequest.token}
           chatCanvasRecenterWorktreePath={agentCanvasRecenterRequest.worktreePath}
+          chatCanvasFocusToken={agentCanvasFocusRequest.token}
+          chatCanvasFocusWorktreePath={agentCanvasFocusRequest.worktreePath}
+          chatCanvasFocusSessionId={agentCanvasFocusRequest.sessionId}
           selectedSubagent={activeSelectedSubagent}
           onCloseSelectedSubagent={() => {
             if (!activeWorktree) {

@@ -86,6 +86,7 @@ interface AgentSessionsState {
   updateSession: (id: string, updates: Partial<Session>) => void;
   markSessionExited: (id: string) => void;
   setActiveId: (cwd: string, sessionId: string | null) => void;
+  focusSession: (sessionId: string) => void;
   reorderSessions: (repoPath: string, cwd: string, fromIndex: number, toIndex: number) => void;
   getSessions: (repoPath: string, cwd: string) => Session[];
   getActiveSessionId: (repoPath: string, cwd: string) => string | null;
@@ -523,6 +524,69 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
       set((state) => ({
         activeIds: { ...state.activeIds, [normalizePath(cwd)]: sessionId },
       })),
+
+    focusSession: (sessionId) =>
+      set((state) => {
+        const session = state.sessions.find((item) => item.id === sessionId);
+        if (!session) {
+          return state;
+        }
+
+        const normalizedCwd = normalizePath(session.cwd);
+        const activeIds =
+          state.activeIds[normalizedCwd] === sessionId
+            ? state.activeIds
+            : { ...state.activeIds, [normalizedCwd]: sessionId };
+        const currentGroupState = state.groupStates[normalizedCwd];
+        if (!currentGroupState || currentGroupState.groups.length === 0) {
+          return activeIds === state.activeIds ? state : { activeIds };
+        }
+
+        let matchedGroupId: string | null = null;
+        let groupsChanged = false;
+        const nextGroups = currentGroupState.groups.map((group) => {
+          if (!group.sessionIds.includes(sessionId)) {
+            return group;
+          }
+
+          matchedGroupId = group.id;
+          if (group.activeSessionId === sessionId) {
+            return group;
+          }
+
+          groupsChanged = true;
+          return {
+            ...group,
+            activeSessionId: sessionId,
+          };
+        });
+
+        if (!matchedGroupId) {
+          return activeIds === state.activeIds ? state : { activeIds };
+        }
+
+        const nextGroupState =
+          groupsChanged || currentGroupState.activeGroupId !== matchedGroupId
+            ? {
+                ...currentGroupState,
+                groups: nextGroups,
+                activeGroupId: matchedGroupId,
+              }
+            : currentGroupState;
+        const groupStates =
+          nextGroupState === currentGroupState
+            ? state.groupStates
+            : { ...state.groupStates, [normalizedCwd]: nextGroupState };
+
+        if (activeIds === state.activeIds && groupStates === state.groupStates) {
+          return state;
+        }
+
+        return {
+          activeIds,
+          groupStates,
+        };
+      }),
 
     reorderSessions: (repoPath, cwd, fromIndex, toIndex) =>
       set((state) => {

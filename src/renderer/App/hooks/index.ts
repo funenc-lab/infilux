@@ -1,3 +1,4 @@
+export { useAgentSessionNotifications } from './useAgentSessionNotifications';
 export { useAppLifecycle } from './useAppLifecycle';
 export { useBackgroundImage } from './useBackgroundImage';
 export { useClaudeIntegration } from './useClaudeIntegration';

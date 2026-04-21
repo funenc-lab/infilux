@@ -8,6 +8,9 @@ const agentPanelSource = readFileSync(resolve(currentDir, '../AgentPanel.tsx'), 
 
 describe('AgentPanel canvas mode source', () => {
   it('reads the persisted display mode and keeps a single AgentTerminal mount tree', () => {
+    expect(agentPanelSource).toContain('canvasFocusOnActivateToken');
+    expect(agentPanelSource).toContain('canvasFocusSessionId');
+    expect(agentPanelSource).toContain('lastHandledCanvasFocusRequestTokenRef');
     expect(agentPanelSource).toContain('agentSessionDisplayMode');
     expect(agentPanelSource).toContain("agentSessionDisplayMode === 'canvas'");
     expect(agentPanelSource).toContain('AGENT_CANVAS_GRID_COLUMN_UNITS');
@@ -137,6 +140,13 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain(
       `gridTemplateColumns: \`repeat(\${AGENT_CANVAS_GRID_COLUMN_UNITS}, minmax(0, 1fr))\``
     );
+    expect(agentPanelSource).not.toContain('onNotificationClick');
+    expect(agentPanelSource).not.toContain('onAgentStopNotification');
+    expect(agentPanelSource).not.toContain('onAskUserQuestionNotification');
+    expect(agentPanelSource).not.toContain('onPreToolUseNotification');
+    expect(agentPanelSource).not.toContain('showRendererNotification');
+    expect(agentPanelSource).not.toContain('buildChatNotificationCopy');
+    expect(agentPanelSource).not.toContain('initAgentStatusListener');
     expect(agentPanelSource).not.toContain("t('Start fresh session')");
     expect(agentPanelSource).not.toContain("t('Current')");
     expect(agentPanelSource.match(/<AgentTerminal/g)).toHaveLength(1);

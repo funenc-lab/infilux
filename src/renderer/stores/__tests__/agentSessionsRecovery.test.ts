@@ -204,6 +204,107 @@ describe('agent session recovery store', () => {
     });
   });
 
+  it('focuses the target session by updating the active session id for its worktree', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-1',
+      sessionId: 'provider-1',
+      name: 'Claude',
+      agentId: 'claude',
+      agentCommand: 'claude',
+      initialized: true,
+      activated: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+    store.addSession({
+      id: 'session-2',
+      sessionId: 'provider-2',
+      name: 'Codex',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+
+    store.focusSession('session-1');
+    expect(env.useAgentSessionsStore.getState().activeIds['/repo/worktree']).toBe('session-1');
+
+    store.focusSession('session-2');
+    expect(env.useAgentSessionsStore.getState().activeIds['/repo/worktree']).toBe('session-2');
+  });
+
+  it('focuses the containing group and session when the worktree already has group state', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-1',
+      sessionId: 'provider-1',
+      name: 'Claude',
+      agentId: 'claude',
+      agentCommand: 'claude',
+      initialized: true,
+      activated: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+    store.addSession({
+      id: 'session-2',
+      sessionId: 'provider-2',
+      name: 'Codex',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+    store.setGroupState('/repo/worktree', {
+      groups: [
+        {
+          id: 'group-1',
+          sessionIds: ['session-1'],
+          activeSessionId: 'session-1',
+        },
+        {
+          id: 'group-2',
+          sessionIds: ['session-2'],
+          activeSessionId: null,
+        },
+      ],
+      activeGroupId: 'group-1',
+      flexPercents: [50, 50],
+    });
+
+    store.focusSession('session-2');
+
+    expect(env.useAgentSessionsStore.getState().getGroupState('/repo/worktree')).toEqual({
+      groups: [
+        {
+          id: 'group-1',
+          sessionIds: ['session-1'],
+          activeSessionId: 'session-1',
+        },
+        {
+          id: 'group-2',
+          sessionIds: ['session-2'],
+          activeSessionId: 'session-2',
+        },
+      ],
+      activeGroupId: 'group-2',
+      flexPercents: [50, 50],
+    });
+  });
+
   it('treats /var and /private/var worktree paths as the same recovered worktree on darwin', async () => {
     vi.stubGlobal('navigator', { platform: 'MacIntel' });
     const env = await loadAgentSessionsStore();
