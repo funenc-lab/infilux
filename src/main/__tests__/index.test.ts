@@ -2522,4 +2522,27 @@ describe('main entry', () => {
     expect(errorSpy).toHaveBeenCalledWith('[app] Sync cleanup error:', syncCleanupError);
     expect(mainIndexTestDoubles.exit).toHaveBeenCalledWith(0);
   });
+
+  it('still exits when signal cleanup throws synchronously', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow();
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    const syncCleanupError = new Error('signal cleanup failed');
+    mainIndexTestDoubles.cleanupAllResourcesSync.mockImplementationOnce(() => {
+      throw syncCleanupError;
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const { __testables } = await importMainModule({
+      autoReady: true,
+      platform: 'win32',
+    });
+
+    __testables.handleShutdownSignal('SIGTERM');
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[app] Sync cleanup error during SIGTERM:',
+      syncCleanupError
+    );
+    expect(mainIndexTestDoubles.exit).toHaveBeenCalledWith(0);
+  });
 });
