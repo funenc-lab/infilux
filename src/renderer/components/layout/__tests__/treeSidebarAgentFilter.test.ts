@@ -157,7 +157,29 @@ vi.mock('@/components/ui/toast', () => ({
 }));
 
 vi.mock('@/components/worktree/CreateWorktreeDialog', () => ({
-  CreateWorktreeDialog: () => null,
+  CreateWorktreeDialog: ({
+    open,
+    onSubmit,
+  }: {
+    open?: boolean;
+    onSubmit: (options: { path: string; branch: string; newBranch: string }) => Promise<void>;
+  }) =>
+    open
+      ? React.createElement(
+          'button',
+          {
+            type: 'button',
+            'data-create-worktree-submit': 'true',
+            onClick: () =>
+              void onSubmit({
+                path: '/repo-a/new-agent-task',
+                branch: 'main',
+                newBranch: 'new-agent-task',
+              }),
+          },
+          'Submit new worktree'
+        )
+      : null,
 }));
 
 vi.mock('../RunningProjectsPopover', () => ({
@@ -396,6 +418,91 @@ describe('TreeSidebar agent filter', () => {
       expect(useWorktreeListMultipleMock).toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ repoPath: '/repo-b', enabled: true })])
       );
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('keeps the active worktree visible under the agent filter even without agent activity', async () => {
+    worktreeActivityState.activities = {
+      '/repo-a/main': { agentCount: 0, terminalCount: 0 },
+      '/repo-a/agent-task': { agentCount: 0, terminalCount: 0 },
+      '/repo-b/main': { agentCount: 0, terminalCount: 0 },
+      '/tmp/temp-agent': { agentCount: 0, terminalCount: 0 },
+      '/tmp/temp-idle': { agentCount: 0, terminalCount: 0 },
+    };
+
+    const view = await mountTreeSidebar({
+      activeWorktree: repoWorktrees['/repo-a'][0],
+    });
+
+    try {
+      const toggle = view.container.querySelector(
+        'button[title="Only show Agent worktrees"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(view.container.textContent).toContain('Repo A');
+      expect(view.container.textContent).not.toContain('Repo B');
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).not.toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')).toBeNull();
+      expect(view.container.querySelector('[data-temp-item="temp-agent"]')).toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('keeps a newly created worktree visible while the agent filter is active', async () => {
+    const onCreateWorktree = vi.fn(async () => undefined);
+    const view = await mountTreeSidebar({ onCreateWorktree });
+
+    try {
+      const toggle = view.container.querySelector(
+        'button[title="Only show Agent worktrees"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      const repoActionsButton = view.container.querySelector(
+        'button[title="Repository actions"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        repoActionsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      const newWorktreeButton = Array.from(view.container.querySelectorAll('button')).find(
+        (button) => button.textContent?.includes('New Worktree')
+      );
+
+      await act(async () => {
+        newWorktreeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      const submitButton = view.container.querySelector(
+        'button[data-create-worktree-submit="true"]'
+      ) as HTMLButtonElement | null;
+
+      expect(submitButton).not.toBeNull();
+
+      await act(async () => {
+        submitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(onCreateWorktree).toHaveBeenCalledWith({
+        path: '/repo-a/new-agent-task',
+        branch: 'main',
+        newBranch: 'new-agent-task',
+      });
+      expect(
+        view.container.querySelector('[data-worktree-item="/repo-a/new-agent-task"]')
+      ).not.toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
     } finally {
       view.unmount();
     }
