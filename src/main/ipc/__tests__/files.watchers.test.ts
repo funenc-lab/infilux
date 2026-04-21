@@ -67,12 +67,14 @@ const fileWatcherTestDoubles = vi.hoisted(() => {
   const remoteToRemoteVirtualPath = vi.fn((connectionId: string, path: string) => {
     return `/__remote__/${connectionId}${path}`;
   });
+  const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-file-watchers');
 
   class MockFileWatcher {
     readonly dirPath: string;
     readonly callback: (type: 'create' | 'update' | 'delete', path: string) => void;
     readonly start: ReturnType<typeof vi.fn>;
     readonly stop: ReturnType<typeof vi.fn>;
+    readonly getRuntimeInfo: ReturnType<typeof vi.fn>;
 
     constructor(
       dirPath: string,
@@ -83,6 +85,14 @@ const fileWatcherTestDoubles = vi.hoisted(() => {
       this.start = vi.fn(nextStartImplementation ?? (async () => {}));
       nextStartImplementation = null;
       this.stop = vi.fn(async () => {});
+      this.getRuntimeInfo = vi.fn(() => ({
+        backendHint: 'native-default',
+        inferredBackend: 'fs-events',
+        inferenceSource: 'test',
+        bindingPackageName: '@parcel/watcher-darwin-arm64',
+        bindingResolution: 'prebuilt-package',
+        bindingPath: '/tmp/watcher.node',
+      }));
       instances.push(this);
     }
   }
@@ -104,6 +114,7 @@ const fileWatcherTestDoubles = vi.hoisted(() => {
     remoteIsRemoteVirtualPath,
     remoteParseRemoteVirtualPath,
     remoteToRemoteVirtualPath,
+    requestMainProcessDiagnosticsCapture,
     MockFileWatcher,
   };
 });
@@ -146,6 +157,11 @@ vi.mock('../fileUtils', async () => {
 
 vi.mock('../../services/files/FileWatcher', () => ({
   FileWatcher: fileWatcherTestDoubles.MockFileWatcher,
+}));
+
+vi.mock('../../utils/mainProcessDiagnostics', () => ({
+  registerMainProcessDiagnosticsCollector: vi.fn(() => vi.fn()),
+  requestMainProcessDiagnosticsCapture: fileWatcherTestDoubles.requestMainProcessDiagnosticsCapture,
 }));
 
 vi.mock('../../services/files/LocalFileAccess', () => ({
@@ -259,6 +275,10 @@ describe('file watcher lifecycle', () => {
     fileWatcherTestDoubles.remoteToRemoteVirtualPath.mockImplementation(
       (connectionId: string, path: string) => `/__remote__/${connectionId}${path}`
     );
+    fileWatcherTestDoubles.requestMainProcessDiagnosticsCapture.mockReset();
+    fileWatcherTestDoubles.requestMainProcessDiagnosticsCapture.mockReturnValue(
+      'diag-file-watchers'
+    );
     stopAllFileWatchersSync();
     registerFileHandlers();
   });
@@ -315,6 +335,20 @@ describe('file watcher lifecycle', () => {
     await expect(startHandler?.({ sender }, '/repo/failing')).rejects.toThrow('watch failed');
     const watcher = fileWatcherTestDoubles.instances[0];
     expect(watcher?.stop).toHaveBeenCalledTimes(1);
+    expect(fileWatcherTestDoubles.requestMainProcessDiagnosticsCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'file-watcher-start-failed',
+        throttleKey: 'file-watcher-start-failed',
+        context: expect.objectContaining({
+          watcherKey: '13:/repo/failing',
+          dirPath: '/repo/failing',
+          ownerId: 13,
+          runtimeInfo: expect.objectContaining({
+            inferredBackend: 'fs-events',
+          }),
+        }),
+      })
+    );
   });
 
   it('flushes normal watcher events as individual file change notifications', async () => {
@@ -360,6 +394,18 @@ describe('file watcher lifecycle', () => {
       type: 'update',
       path: '/repo/.enso-bulk',
     });
+    expect(fileWatcherTestDoubles.requestMainProcessDiagnosticsCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'file-watcher-bulk-mode',
+        throttleKey: 'file-watcher-bulk-mode',
+        level: 'warn',
+        context: expect.objectContaining({
+          watcherKey: '11:/repo',
+          dirPath: '/repo',
+          ownerId: 11,
+        }),
+      })
+    );
   });
 
   it('stops the watcher when file events arrive after the sender is already destroyed', async () => {

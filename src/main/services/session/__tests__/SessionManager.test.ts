@@ -123,6 +123,8 @@ const sessionTestDoubles = vi.hoisted(() => {
   const persistentAbandonSession = vi.fn();
   const tmuxEnsureServerHealthy = vi.fn();
   const tmuxCaptureSessionHistory = vi.fn();
+  const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-session');
+  const registerMainProcessDiagnosticsCollector = vi.fn(() => vi.fn());
   const remoteConnectionManager = {
     getStatus: vi.fn<(connectionId: string) => { connected: boolean; recoverable?: boolean }>(),
     call: vi.fn<(connectionId: string, method: string, payload: unknown) => Promise<unknown>>(),
@@ -193,6 +195,8 @@ const sessionTestDoubles = vi.hoisted(() => {
     persistentAbandonSession,
     tmuxEnsureServerHealthy,
     tmuxCaptureSessionHistory,
+    requestMainProcessDiagnosticsCapture,
+    registerMainProcessDiagnosticsCollector,
     remoteConnectionManager,
   };
 });
@@ -236,6 +240,12 @@ vi.mock('../../cli/TmuxDetector', () => ({
     ensureServerHealthy: sessionTestDoubles.tmuxEnsureServerHealthy,
     captureSessionHistory: sessionTestDoubles.tmuxCaptureSessionHistory,
   },
+}));
+
+vi.mock('../../../utils/mainProcessDiagnostics', () => ({
+  requestMainProcessDiagnosticsCapture: sessionTestDoubles.requestMainProcessDiagnosticsCapture,
+  registerMainProcessDiagnosticsCollector:
+    sessionTestDoubles.registerMainProcessDiagnosticsCollector,
 }));
 
 import { SessionManager } from '../SessionManager';
@@ -353,6 +363,10 @@ describe('SessionManager', () => {
     sessionTestDoubles.tmuxEnsureServerHealthy.mockResolvedValue(true);
     sessionTestDoubles.tmuxCaptureSessionHistory.mockReset();
     sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValue('');
+    sessionTestDoubles.requestMainProcessDiagnosticsCapture.mockReset();
+    sessionTestDoubles.requestMainProcessDiagnosticsCapture.mockReturnValue('diag-session');
+    sessionTestDoubles.registerMainProcessDiagnosticsCollector.mockReset();
+    sessionTestDoubles.registerMainProcessDiagnosticsCollector.mockReturnValue(vi.fn());
   });
 
   it('buffers local output until attach completes and destroys the session when the last window detaches', async () => {

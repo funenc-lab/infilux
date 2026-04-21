@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { WSL_UNC_PREFIXES } from '@shared/utils/path';
 import simpleGit, { type SimpleGit, type SimpleGitOptions } from 'simple-git';
 import log from '../../utils/logger';
+import { requestMainProcessDiagnosticsCapture } from '../../utils/mainProcessDiagnostics';
 import { getProxyEnvVars } from '../proxy/ProxyConfig';
 import { getEnhancedPath } from '../terminal/PtyManager';
 import { withSafeDirectoryEnv } from './safeDirectory';
@@ -111,7 +112,16 @@ function logGitSpawnFailure(
     platform: process.platform,
     errorCode: typeof nodeError?.code === 'string' ? nodeError.code : null,
   };
-  log.error('Git spawn failed', diagnostics);
+  const diagnosticsId = requestMainProcessDiagnosticsCapture({
+    event: 'git-spawn-failed',
+    context: diagnostics,
+    error,
+    throttleKey: `git-spawn-failed:${diagnostics.errorCode ?? 'unknown'}`,
+  });
+  log.error('Git spawn failed', {
+    diagnosticsId,
+    ...diagnostics,
+  });
 }
 
 export function withGitSpawnCompatibility(

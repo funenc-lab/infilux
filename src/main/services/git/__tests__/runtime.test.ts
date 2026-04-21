@@ -14,6 +14,7 @@ const runtimeTestDoubles = vi.hoisted(() => {
   const env = vi.fn();
   const simpleGit = vi.fn();
   const logError = vi.fn();
+  const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-git');
 
   function createSpawnedProcess(): FakeSpawnResult {
     const proc = new EventEmitter() as FakeSpawnResult;
@@ -30,6 +31,7 @@ const runtimeTestDoubles = vi.hoisted(() => {
     env.mockReset();
     simpleGit.mockReset();
     logError.mockReset();
+    requestMainProcessDiagnosticsCapture.mockReset();
 
     getProxyEnvVars.mockReturnValue({ HTTPS_PROXY: 'http://proxy:7890' });
     getEnhancedPath.mockReturnValue('/enhanced/bin');
@@ -43,6 +45,7 @@ const runtimeTestDoubles = vi.hoisted(() => {
       options,
       env,
     }));
+    requestMainProcessDiagnosticsCapture.mockReturnValue('diag-git');
   }
 
   return {
@@ -53,6 +56,7 @@ const runtimeTestDoubles = vi.hoisted(() => {
     env,
     simpleGit,
     logError,
+    requestMainProcessDiagnosticsCapture,
     createSpawnedProcess,
     reset,
   };
@@ -82,6 +86,10 @@ vi.mock('../../../utils/logger', () => ({
   default: {
     error: runtimeTestDoubles.logError,
   },
+}));
+
+vi.mock('../../../utils/mainProcessDiagnostics', () => ({
+  requestMainProcessDiagnosticsCapture: runtimeTestDoubles.requestMainProcessDiagnosticsCapture,
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -270,10 +278,17 @@ describe('git runtime helpers', () => {
     expect(runtimeTestDoubles.logError).toHaveBeenCalledWith(
       'Git spawn failed',
       expect.objectContaining({
+        diagnosticsId: 'diag-git',
         command: 'git',
         args: ['status'],
         cwd: '/repo',
         errorCode: 'EBADF',
+      })
+    );
+    expect(runtimeTestDoubles.requestMainProcessDiagnosticsCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'git-spawn-failed',
+        throttleKey: 'git-spawn-failed:EBADF',
       })
     );
   });
@@ -291,11 +306,18 @@ describe('git runtime helpers', () => {
     expect(runtimeTestDoubles.logError).toHaveBeenCalledWith(
       'Git spawn failed',
       expect.objectContaining({
+        diagnosticsId: 'diag-git',
         command: 'git',
         args: ['status'],
         cwd: '/repo',
         errorCode: 'EBADF',
         stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    );
+    expect(runtimeTestDoubles.requestMainProcessDiagnosticsCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'git-spawn-failed',
+        throttleKey: 'git-spawn-failed:EBADF',
       })
     );
   });

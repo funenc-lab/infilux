@@ -8,6 +8,7 @@ import * as pty from 'node-pty';
 import pidtree from 'pidtree';
 import pidusage from 'pidusage';
 import log from '../../utils/logger';
+import { requestMainProcessDiagnosticsCapture } from '../../utils/mainProcessDiagnostics';
 import { killProcessTree } from '../../utils/processUtils';
 import { getProxyEnvVars } from '../proxy/ProxyConfig';
 import { detectShell, shellDetector } from './ShellDetector';
@@ -248,6 +249,30 @@ function sanitizeAgentPresentationEnv(
   }
 }
 
+function buildPtyErrorContext(
+  id: string,
+  options: Pick<
+    SessionCreateOptions,
+    'kind' | 'cwd' | 'spawnCwd' | 'shell' | 'shellConfig' | 'initialCommand'
+  >,
+  shell: string,
+  args: string[],
+  phase: 'spawn' | 'resize'
+): Record<string, unknown> {
+  return {
+    ptyId: id,
+    phase,
+    kind: options.kind ?? 'terminal',
+    cwd: options.cwd ?? process.env.HOME ?? process.env.USERPROFILE ?? null,
+    spawnCwd:
+      options.spawnCwd ?? options.cwd ?? process.env.HOME ?? process.env.USERPROFILE ?? null,
+    shell,
+    args,
+    hasShellConfig: Boolean(options.shellConfig),
+    hasInitialCommand: Boolean(options.initialCommand?.trim()),
+  };
+}
+
 /**
  * Find a login shell with appropriate args for running commands.
  * Returns shell path and args that will load user environment (nvm, homebrew, etc.)
@@ -466,38 +491,128 @@ export class PtyManager {
     } catch (error) {
       if (options.fallbackShell) {
         const fallbackArgs = options.fallbackArgs || [];
-        console.warn(
-          `[pty] Failed to spawn ${shell}. Falling back to explicit command ${options.fallbackShell}`
-        );
-        ptyProcess = pty.spawn(options.fallbackShell, fallbackArgs, {
-          name: 'xterm-256color',
-          cols: options.cols || 80,
-          rows: options.rows || 24,
-          cwd: spawnCwd,
-          env,
+        log.warn('[pty] Primary spawn failed, trying explicit fallback', {
+          ...buildPtyErrorContext(id, options, shell, args, 'spawn'),
+          fallbackShell: options.fallbackShell,
+          fallbackArgs,
+          errorCode:
+            typeof (error as NodeJS.ErrnoException).code === 'string'
+              ? (error as NodeJS.ErrnoException).code
+              : null,
         });
-        shell = options.fallbackShell;
-        args = fallbackArgs;
-        startupLogger?.markStage('spawned-fallback-explicit');
-      } else if (!isWindows) {
-        const fallbackShell = findFallbackShell();
-        if (fallbackShell !== shell) {
-          const fallbackArgs = adjustArgsForShell(fallbackShell, args);
-          console.warn(`[pty] Failed to spawn ${shell}. Falling back to ${fallbackShell}`);
-          ptyProcess = pty.spawn(fallbackShell, fallbackArgs, {
+        try {
+          ptyProcess = pty.spawn(options.fallbackShell, fallbackArgs, {
             name: 'xterm-256color',
             cols: options.cols || 80,
             rows: options.rows || 24,
             cwd: spawnCwd,
             env,
           });
-          shell = fallbackShell;
+          shell = options.fallbackShell;
           args = fallbackArgs;
-          startupLogger?.markStage('spawned-fallback-shell');
+          startupLogger?.markStage('spawned-fallback-explicit');
+        } catch (fallbackError) {
+          const diagnosticsId = requestMainProcessDiagnosticsCapture({
+            event: 'pty-spawn-failed',
+            context: {
+              ...buildPtyErrorContext(id, options, shell, args, 'spawn'),
+              fallbackShell: options.fallbackShell,
+              fallbackArgs,
+            },
+            error: fallbackError,
+            throttleKey: `pty-spawn-failed:${(fallbackError as NodeJS.ErrnoException).code ?? 'unknown'}`,
+          });
+          log.error('[pty] Fallback spawn failed', {
+            diagnosticsId,
+            ...buildPtyErrorContext(id, options, shell, args, 'spawn'),
+            fallbackShell: options.fallbackShell,
+            fallbackArgs,
+            errorCode:
+              typeof (fallbackError as NodeJS.ErrnoException).code === 'string'
+                ? (fallbackError as NodeJS.ErrnoException).code
+                : null,
+          });
+          throw fallbackError;
+        }
+      } else if (!isWindows) {
+        const fallbackShell = findFallbackShell();
+        if (fallbackShell !== shell) {
+          const fallbackArgs = adjustArgsForShell(fallbackShell, args);
+          log.warn('[pty] Primary spawn failed, trying shell fallback', {
+            ...buildPtyErrorContext(id, options, shell, args, 'spawn'),
+            fallbackShell,
+            fallbackArgs,
+            errorCode:
+              typeof (error as NodeJS.ErrnoException).code === 'string'
+                ? (error as NodeJS.ErrnoException).code
+                : null,
+          });
+          try {
+            ptyProcess = pty.spawn(fallbackShell, fallbackArgs, {
+              name: 'xterm-256color',
+              cols: options.cols || 80,
+              rows: options.rows || 24,
+              cwd: spawnCwd,
+              env,
+            });
+            shell = fallbackShell;
+            args = fallbackArgs;
+            startupLogger?.markStage('spawned-fallback-shell');
+          } catch (fallbackError) {
+            const diagnosticsId = requestMainProcessDiagnosticsCapture({
+              event: 'pty-spawn-failed',
+              context: {
+                ...buildPtyErrorContext(id, options, shell, args, 'spawn'),
+                fallbackShell,
+                fallbackArgs,
+              },
+              error: fallbackError,
+              throttleKey: `pty-spawn-failed:${(fallbackError as NodeJS.ErrnoException).code ?? 'unknown'}`,
+            });
+            log.error('[pty] Shell fallback spawn failed', {
+              diagnosticsId,
+              ...buildPtyErrorContext(id, options, shell, args, 'spawn'),
+              fallbackShell,
+              fallbackArgs,
+              errorCode:
+                typeof (fallbackError as NodeJS.ErrnoException).code === 'string'
+                  ? (fallbackError as NodeJS.ErrnoException).code
+                  : null,
+            });
+            throw fallbackError;
+          }
         } else {
+          const diagnosticsId = requestMainProcessDiagnosticsCapture({
+            event: 'pty-spawn-failed',
+            context: buildPtyErrorContext(id, options, shell, args, 'spawn'),
+            error,
+            throttleKey: `pty-spawn-failed:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`,
+          });
+          log.error('[pty] Spawn failed', {
+            diagnosticsId,
+            ...buildPtyErrorContext(id, options, shell, args, 'spawn'),
+            errorCode:
+              typeof (error as NodeJS.ErrnoException).code === 'string'
+                ? (error as NodeJS.ErrnoException).code
+                : null,
+          });
           throw error;
         }
       } else {
+        const diagnosticsId = requestMainProcessDiagnosticsCapture({
+          event: 'pty-spawn-failed',
+          context: buildPtyErrorContext(id, options, shell, args, 'spawn'),
+          error,
+          throttleKey: `pty-spawn-failed:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`,
+        });
+        log.error('[pty] Spawn failed', {
+          diagnosticsId,
+          ...buildPtyErrorContext(id, options, shell, args, 'spawn'),
+          errorCode:
+            typeof (error as NodeJS.ErrnoException).code === 'string'
+              ? (error as NodeJS.ErrnoException).code
+              : null,
+        });
         throw error;
       }
     }
@@ -553,8 +668,53 @@ export class PtyManager {
   resize(id: string, cols: number, rows: number): void {
     const session = this.sessions.get(id);
     if (session) {
-      session.pty.resize(cols, rows);
+      try {
+        session.pty.resize(cols, rows);
+      } catch (error) {
+        const diagnosticsId = requestMainProcessDiagnosticsCapture({
+          event: 'pty-resize-failed',
+          context: {
+            ptyId: id,
+            cwd: session.cwd,
+            cols,
+            rows,
+            pid: session.pty.pid,
+          },
+          error,
+          throttleKey: `pty-resize-failed:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`,
+        });
+        log.error('[pty] Resize failed', {
+          diagnosticsId,
+          ptyId: id,
+          cwd: session.cwd,
+          cols,
+          rows,
+          pid: session.pty.pid,
+          errorCode:
+            typeof (error as NodeJS.ErrnoException).code === 'string'
+              ? (error as NodeJS.ErrnoException).code
+              : null,
+        });
+        throw error;
+      }
     }
+  }
+
+  getDiagnosticsSummary(): {
+    sessionCount: number;
+    sampleSessions: Array<{ ptyId: string; cwd: string; pid: number; ownerId: number | null }>;
+  } {
+    return {
+      sessionCount: this.sessions.size,
+      sampleSessions: Array.from(this.sessions.entries())
+        .slice(0, 6)
+        .map(([ptyId, session]) => ({
+          ptyId,
+          cwd: session.cwd,
+          pid: session.pty.pid,
+          ownerId: session.ownerId,
+        })),
+    };
   }
 
   destroy(id: string): void {
