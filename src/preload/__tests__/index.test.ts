@@ -319,6 +319,25 @@ describe('preload bridge', () => {
       },
       { run: () => api.agent.list(), expected: [IPC_CHANNELS.AGENT_LIST] },
       {
+        run: () => api.agentSubagent.listLive({ cwds: ['/repo/worktree'] }),
+        expected: [IPC_CHANNELS.AGENT_SUBAGENT_LIST_LIVE, { cwds: ['/repo/worktree'] }],
+      },
+      {
+        run: () =>
+          api.agentSubagent.listSession({
+            providerSessionId: 'provider-session-1',
+            cwd: '/repo/worktree',
+          }),
+        expected: [
+          IPC_CHANNELS.AGENT_SUBAGENT_LIST_SESSION,
+          { providerSessionId: 'provider-session-1', cwd: '/repo/worktree' },
+        ],
+      },
+      {
+        run: () => api.agentSubagent.getTranscript({ threadId: 'thread-1' }),
+        expected: [IPC_CHANNELS.AGENT_SUBAGENT_GET_TRANSCRIPT, { threadId: 'thread-1' }],
+      },
+      {
         run: () => api.app.getPath('logs'),
         expected: [IPC_CHANNELS.APP_GET_PATH, 'logs'],
       },

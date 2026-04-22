@@ -1188,6 +1188,7 @@ export const zhTranslations: Record<string, string> = {
     '这将恢复代码审查的默认 AI 提示词。您的自定义提示词将丢失。',
   'Enter a prompt template for code review.\nAvailable variables:\n• {language} - Review output language\n• {git_diff} - Git diff of changes\n• {git_log} - Commit history':
     '输入代码审查的提示词模板。\n可用变量：\n• {language} - 审查输出语言\n• {git_diff} - 变更的 Git diff\n• {git_log} - 提交历史',
+  Conversation: '会话',
   'Continue Conversation': '继续对话',
   'Preserve session for follow-up conversations after review': '审查后保留 session 以便继续对话',
   Review: '审查',
@@ -2405,6 +2406,39 @@ export const zhTranslations: Record<string, string> = {
   'Startup failed': '\u542f\u52a8\u5931\u8d25',
   'The workspace did not finish loading. Check renderer logs and restart.':
     '\u5de5\u4f5c\u533a\u672a\u80fd\u5b8c\u6210\u52a0\u8f7d\u3002\u8bf7\u68c0\u67e5 renderer \u65e5\u5fd7\u5e76\u91cd\u542f\u3002',
+  'View session subagents': '\u67e5\u770b\u5f53\u524d\u4f1a\u8bdd\u7684\u5b50 agent',
+  'Subagents are not ready yet': '\u5b50 agent \u8fd8\u672a\u51c6\u5907\u597d',
+  'Run this session once before opening its subagent window.':
+    '\u8bf7\u5148\u8fd0\u884c\u8fd9\u4e2a\u4f1a\u8bdd\u4e00\u6b21\uff0c\u518d\u6253\u5f00\u5b50 agent \u7a97\u53e3\u3002',
+  'Subagent session is still resolving': '\u5b50 agent \u4f1a\u8bdd\u4ecd\u5728\u89e3\u6790\u4e2d',
+  'Wait for the provider session id to be captured, then try again.':
+    '\u8bf7\u7b49\u5f85 provider session id \u88ab\u6355\u83b7\u540e\u518d\u91cd\u8bd5\u3002',
+  'Subagent tracking is local-only right now':
+    '\u5b50 agent \u8ddf\u8e2a\u76ee\u524d\u4ec5\u652f\u6301\u672c\u5730\u4f1a\u8bdd',
+  'This agent tool can open subagents, but the current remote session is not trackable yet.':
+    '\u8fd9\u4e2a agent \u5de5\u5177\u53ef\u4ee5\u6253\u5f00\u5b50 agent\uff0c\u4f46\u5f53\u524d\u8fdc\u7a0b\u4f1a\u8bdd\u6682\u65f6\u8fd8\u65e0\u6cd5\u8ddf\u8e2a\u3002',
+  'Subagents are not available for this tool':
+    '\u8fd9\u4e2a\u5de5\u5177\u6682\u4e0d\u652f\u6301\u5b50 agent',
+  'does not expose subagent tracking in Infilux yet.':
+    '\u5728 Infilux \u4e2d\u8fd8\u6ca1\u6709\u5f00\u653e\u5b50 agent \u8ddf\u8e2a\u80fd\u529b\u3002',
+  'No session subagents': '\u6682\u65e0\u4f1a\u8bdd\u5b50 agent',
+  'This session has not spawned any subagents yet.':
+    '\u5f53\u524d\u4f1a\u8bdd\u8fd8\u6ca1\u6709\u6d3e\u751f\u51fa\u5b50 agent\u3002',
+  Subagents: '\u5b50 agents',
+  'Close subagent window': '\u5173\u95ed\u5b50 agent \u7a97\u53e3',
+  'Session subagents': '\u4f1a\u8bdd\u5b50 agent',
+  Transcript: '\u4f1a\u8bdd\u8bb0\u5f55',
+  'Loading session subagents...': '\u6b63\u5728\u52a0\u8f7d\u4f1a\u8bdd\u5b50 agent...',
+  'Loading transcript...': '\u6b63\u5728\u52a0\u8f7d\u4f1a\u8bdd\u8bb0\u5f55...',
+  'No transcript entries were found for this subagent.':
+    '\u672a\u627e\u5230\u8fd9\u4e2a\u5b50 agent \u7684\u4f1a\u8bdd\u8bb0\u5f55\u3002',
+  'Showing the latest transcript entries. Older entries were omitted to keep long sessions responsive.':
+    '\u5f53\u524d\u663e\u793a\u6700\u65b0\u7684\u4f1a\u8bdd\u8bb0\u5f55\uff0c\u66f4\u65e9\u7684\u5185\u5bb9\u5df2\u88ab\u7701\u7565\uff0c\u4ee5\u4fdd\u6301\u957f\u4f1a\u8bdd\u7684\u54cd\u5e94\u901f\u5ea6\u3002',
+  'Showing the latest': '\u5f53\u524d\u663e\u793a\u6700\u65b0\u7684',
+  'entries.': '\u6761\u8bb0\u5f55\u3002',
+  'older entries are hidden.': '\u66f4\u65e9\u7684\u8bb0\u5f55\u5df2\u88ab\u9690\u85cf\u3002',
+  'Show older': '\u663e\u793a\u66f4\u65e9\u7684\u8bb0\u5f55',
+  'Show all': '\u5168\u90e8\u663e\u793a',
 };
 
 export function normalizeLocale(input?: string): Locale {

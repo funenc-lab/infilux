@@ -53,6 +53,29 @@ describe('CodexSubagentTranscriptService', () => {
         payload: { type: 'task_started' },
       }),
       JSON.stringify({
+        timestamp: '2026-03-29T10:00:01.050Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'developer',
+          content: [{ type: 'input_text', text: 'Developer bootstrap text should be skipped' }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: '2026-03-29T10:00:01.075Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: '# AGENTS.md instructions for /repo/worktrees/feature-a\\n\\n<INSTRUCTIONS>skip me</INSTRUCTIONS>',
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
         timestamp: '2026-03-29T10:00:01.100Z',
         type: 'response_item',
         payload: {
@@ -139,6 +162,15 @@ describe('CodexSubagentTranscriptService', () => {
         type: 'event_msg',
         payload: { type: 'task_started' },
       }),
+      JSON.stringify({
+        timestamp: '2026-03-29T10:00:01.050Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Summarize the latest entries only.' }],
+        },
+      }),
       ...Array.from({ length: 5 }, (_, index) =>
         JSON.stringify({
           timestamp: `2026-03-29T10:00:0${index + 2}.000Z`,
@@ -161,7 +193,7 @@ describe('CodexSubagentTranscriptService', () => {
     expect(result.entries.map((entry) => entry.text)).toEqual(['Entry 3', 'Entry 4', 'Entry 5']);
     expect(result).toMatchObject({
       truncated: true,
-      omittedEntryCount: 2,
+      omittedEntryCount: 3,
     });
   });
 
@@ -196,6 +228,15 @@ describe('CodexSubagentTranscriptService', () => {
         type: 'event_msg',
         payload: { type: 'task_started' },
       }),
+      JSON.stringify({
+        timestamp: '2026-03-30T08:00:01.050Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Capture the long-running transcript.' }],
+        },
+      }),
       ...Array.from({ length: 250 }, (_, index) =>
         JSON.stringify({
           timestamp: `2026-03-30T08:01:${String(index).padStart(2, '0')}.000Z`,
@@ -220,7 +261,7 @@ describe('CodexSubagentTranscriptService', () => {
     expect(result.entries.at(-1)?.text).toBe('Long entry 249');
     expect(result).toMatchObject({
       truncated: true,
-      omittedEntryCount: 50,
+      omittedEntryCount: 51,
     });
   });
 });

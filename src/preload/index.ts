@@ -505,6 +505,8 @@ const electronAPI = {
   agentSubagent: {
     listLive: (request: import('@shared/types').ListLiveAgentSubagentsRequest = {}) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_LIST_LIVE, request),
+    listSession: (request: import('@shared/types').ListSessionAgentSubagentsRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_LIST_SESSION, request),
     getTranscript: (request: import('@shared/types').GetAgentSubagentTranscriptRequest) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_GET_TRANSCRIPT, request),
   },
