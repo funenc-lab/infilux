@@ -115,6 +115,7 @@ import { diffPersistentAgentSessionRecords } from './agentSessionPersistenceSync
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
+import { clearGroupBottomBarHeight, setGroupBottomBarHeight } from './groupBottomBarHeightState';
 import { resolveSessionPersistentHostSessionKey } from './persistentHostSession';
 import { QuickTerminalModal } from './QuickTerminalModal';
 import type { Session } from './SessionBar';
@@ -421,16 +422,16 @@ const GroupBottomBar = memo(function GroupBottomBar({
       const height = Math.ceil(el.getBoundingClientRect().height);
       if (height === last) return;
       last = height;
-      onHeightChange((prev) => {
-        if (prev[groupId] === height) return prev;
-        return { ...prev, [groupId]: height };
-      });
+      onHeightChange((prev) => setGroupBottomBarHeight(prev, groupId, height));
     };
 
     const observer = new ResizeObserver(report);
     observer.observe(el);
     report();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      onHeightChange((prev) => clearGroupBottomBarHeight(prev, groupId));
+    };
   }, [groupId, onHeightChange]);
 
   return (

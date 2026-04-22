@@ -70,6 +70,7 @@ import {
 import { useAppKeyboardShortcuts } from './App/useAppKeyboardShortcuts';
 import { usePanelResize } from './App/usePanelResize';
 import { switchWorktreeByPath } from './App/worktreePathSelection';
+import { clearRemovedWorktreeUiState } from './App/worktreeRemovalCleanup';
 import { shouldPruneSavedWorktreePath } from './App/worktreeRestorePolicy';
 import { resolvePreferredWorktreeSelection } from './App/worktreeSelectionPolicy';
 import { DevToolsOverlay } from './components/DevToolsOverlay';
@@ -1197,12 +1198,13 @@ export default function App() {
         },
       })
       .then(() => {
-        // Clear editor state for the removed worktree
-        clearEditorWorktreeState(worktree.path);
-        // Clear selection if the active worktree was removed
-        if (activeWorktree?.path === worktree.path) {
-          setActiveWorktree(null);
-        }
+        clearRemovedWorktreeUiState({
+          worktreePath: worktree.path,
+          activeWorktreePath: activeWorktree?.path ?? null,
+          clearEditorWorktreeState,
+          clearWorktreeActivity,
+          setActiveWorktree,
+        });
         refetchBranches();
 
         toastManager.close(toastId);
@@ -1726,10 +1728,13 @@ export default function App() {
           onMergeConflicts={handleMergeConflicts}
           onMergeSuccess={({ deletedWorktree }) => {
             if (deletedWorktree && mergeWorktree) {
-              clearEditorWorktreeState(mergeWorktree.path);
-              if (activeWorktree?.path === mergeWorktree.path) {
-                setActiveWorktree(null);
-              }
+              clearRemovedWorktreeUiState({
+                worktreePath: mergeWorktree.path,
+                activeWorktreePath: activeWorktree?.path ?? null,
+                clearEditorWorktreeState,
+                clearWorktreeActivity,
+                setActiveWorktree,
+              });
             }
             refetch();
             refetchBranches();

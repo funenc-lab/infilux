@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { toastManager } from '@/components/ui/toast';
 import { buildOperationToastCopy } from '@/lib/feedbackCopy';
 import { TEMP_REPO_ID } from '../constants';
+import { clearRemovedWorktreeUiState } from '../worktreeRemovalCleanup';
 import { selectNextTempWorkspacePath } from './tempWorkspaceActionModel';
 
 type TranslationFn = (key: string, params?: Record<string, string | number>) => string;
@@ -149,8 +150,13 @@ export function useTempWorkspaceActions({
       }
 
       removeTempWorkspace(id);
-      clearEditorWorktreeState(target.path);
-      clearWorktreeActivity(target.path);
+      clearRemovedWorktreeUiState({
+        worktreePath: target.path,
+        activeWorktreePath,
+        clearEditorWorktreeState,
+        clearWorktreeActivity,
+        setActiveWorktree,
+      });
 
       if (activeWorktreePath === target.path) {
         const nextPath = selectNextTempWorkspacePath(safeTempWorkspaces, id);
