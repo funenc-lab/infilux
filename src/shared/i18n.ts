@@ -711,6 +711,9 @@ export const zhTranslations: Record<string, string> = {
   'File read failed': '读取文件失败',
   'File changed externally': '文件已被外部修改',
   'Keep Mine': '保留本地',
+  'Keep worktree sessions mounted': '\u4fdd\u6301 Worktree \u4f1a\u8bdd\u6302\u8f7d',
+  'Keep chat panels mounted for worktrees that still have agent sessions.':
+    '\u4e3a\u4ecd\u6709 Agent \u4f1a\u8bdd\u7684 Worktree \u6301\u7eed\u6302\u8f7d\u804a\u5929\u9762\u677f\u3002',
   Reload: '重新加载',
   'Do you want to save the changes you made to {{file}}?': '要保存对 {{file}} 的更改吗？',
   "Your changes will be lost if you don't save them.": '如果不保存，你的更改将丢失。',

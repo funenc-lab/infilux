@@ -16,6 +16,13 @@ export const AGENT_CANVAS_ZOOM_TERMINAL_FONT_SCALE_LOG_FACTOR = 0.18;
 export const AGENT_CANVAS_CENTER_PROXIMITY_MIN = 40;
 export const AGENT_CANVAS_CENTER_PROXIMITY_RATIO = 0.08;
 
+export interface AgentCanvasFocusTarget {
+  height: number;
+  left: number;
+  top: number;
+  width: number;
+}
+
 function roundAgentCanvasZoom(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -243,6 +250,7 @@ export function isAgentCanvasScrollPositionNearCenter(dimensions: {
 export function resolveAgentCanvasResizeScrollPosition(dimensions: {
   currentLeft: number;
   currentTop: number;
+  focusTarget?: AgentCanvasFocusTarget | null;
   nextClientHeight: number;
   nextClientWidth: number;
   nextScrollHeight: number;
@@ -255,6 +263,25 @@ export function resolveAgentCanvasResizeScrollPosition(dimensions: {
   left: number;
   top: number;
 } {
+  if (
+    dimensions.focusTarget &&
+    dimensions.focusTarget.height > 0 &&
+    dimensions.focusTarget.width > 0
+  ) {
+    return resolveAgentCanvasFocusScrollPosition({
+      clientHeight: dimensions.nextClientHeight,
+      clientWidth: dimensions.nextClientWidth,
+      currentScrollLeft: dimensions.currentLeft,
+      currentScrollTop: dimensions.currentTop,
+      scrollHeight: dimensions.nextScrollHeight,
+      scrollWidth: dimensions.nextScrollWidth,
+      targetHeight: dimensions.focusTarget.height,
+      targetLeft: dimensions.focusTarget.left,
+      targetTop: dimensions.focusTarget.top,
+      targetWidth: dimensions.focusTarget.width,
+    });
+  }
+
   if (
     isAgentCanvasScrollPositionNearCenter({
       clientHeight: dimensions.previousClientHeight,
@@ -286,6 +313,7 @@ export function resolveAgentCanvasResizeScrollPosition(dimensions: {
 export function resolveAgentCanvasViewportSyncPosition(dimensions: {
   currentLeft: number;
   currentTop: number;
+  focusTarget?: AgentCanvasFocusTarget | null;
   nextClientHeight: number;
   nextClientWidth: number;
   nextScrollHeight: number;
@@ -349,6 +377,7 @@ export function resolveAgentCanvasViewportSyncPosition(dimensions: {
   return resolveAgentCanvasResizeScrollPosition({
     currentLeft: dimensions.currentLeft,
     currentTop: dimensions.currentTop,
+    focusTarget: dimensions.focusTarget,
     nextClientHeight: dimensions.nextClientHeight,
     nextClientWidth: dimensions.nextClientWidth,
     nextScrollHeight: dimensions.nextScrollHeight,
@@ -357,6 +386,47 @@ export function resolveAgentCanvasViewportSyncPosition(dimensions: {
     previousClientWidth: dimensions.previousSnapshot.clientWidth,
     previousScrollHeight: dimensions.previousSnapshot.scrollHeight,
     previousScrollWidth: dimensions.previousSnapshot.scrollWidth,
+  });
+}
+
+export function resolveAgentCanvasZoomScrollPosition(dimensions: {
+  clientHeight: number;
+  clientWidth: number;
+  currentLeft: number;
+  currentTop: number;
+  focusTarget?: AgentCanvasFocusTarget | null;
+  scrollHeight: number;
+  scrollWidth: number;
+}): {
+  left: number;
+  top: number;
+} {
+  if (
+    dimensions.focusTarget &&
+    dimensions.focusTarget.height > 0 &&
+    dimensions.focusTarget.width > 0
+  ) {
+    return resolveAgentCanvasFocusScrollPosition({
+      clientHeight: dimensions.clientHeight,
+      clientWidth: dimensions.clientWidth,
+      currentScrollLeft: dimensions.currentLeft,
+      currentScrollTop: dimensions.currentTop,
+      scrollHeight: dimensions.scrollHeight,
+      scrollWidth: dimensions.scrollWidth,
+      targetHeight: dimensions.focusTarget.height,
+      targetLeft: dimensions.focusTarget.left,
+      targetTop: dimensions.focusTarget.top,
+      targetWidth: dimensions.focusTarget.width,
+    });
+  }
+
+  return clampAgentCanvasScrollPosition({
+    clientHeight: dimensions.clientHeight,
+    clientWidth: dimensions.clientWidth,
+    left: dimensions.currentLeft,
+    scrollHeight: dimensions.scrollHeight,
+    scrollWidth: dimensions.scrollWidth,
+    top: dimensions.currentTop,
   });
 }
 

@@ -216,6 +216,83 @@ describe('agent canvas viewport helpers', () => {
     });
   });
 
+  it('prioritizes the focused session tile when resize changes the viewport layout', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasViewportSyncPosition({
+        currentLeft: 120,
+        currentTop: 180,
+        focusTarget: {
+          height: 240,
+          left: 820,
+          top: 640,
+          width: 360,
+        },
+        nextClientHeight: 200,
+        nextClientWidth: 300,
+        nextScrollHeight: 1200,
+        nextScrollWidth: 1500,
+        previousSnapshot: {
+          clientHeight: 120,
+          clientWidth: 160,
+          scrollHeight: 1200,
+          scrollWidth: 1500,
+        },
+        savedPosition: {
+          left: 40,
+          top: 60,
+        },
+      })
+    ).toEqual({
+      left: 850,
+      top: 660,
+    });
+  });
+
+  it('prioritizes the focused session tile when zoom changes the rendered layout', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasZoomScrollPosition({
+        clientHeight: 220,
+        clientWidth: 320,
+        currentLeft: 180,
+        currentTop: 260,
+        focusTarget: {
+          height: 280,
+          left: 860,
+          top: 700,
+          width: 420,
+        },
+        scrollHeight: 1500,
+        scrollWidth: 1800,
+      })
+    ).toEqual({
+      left: 910,
+      top: 730,
+    });
+  });
+
+  it('keeps the current viewport position clamped when zoom changes without a focus target', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasZoomScrollPosition({
+        clientHeight: 240,
+        clientWidth: 320,
+        currentLeft: -30,
+        currentTop: 1480,
+        focusTarget: null,
+        scrollHeight: 1600,
+        scrollWidth: 1500,
+      })
+    ).toEqual({
+      left: 0,
+      top: 1360,
+    });
+  });
+
   it('recenters the first viewport sync for a new worktree instead of preserving stale scroll', async () => {
     const module = await import('../agentCanvasViewport').catch(() => null);
 

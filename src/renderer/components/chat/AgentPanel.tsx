@@ -84,6 +84,7 @@ import {
   AGENT_CANVAS_ZOOM_DEFAULT,
   AGENT_CANVAS_ZOOM_MAX,
   AGENT_CANVAS_ZOOM_MIN,
+  type AgentCanvasFocusTarget,
   clampAgentCanvasScrollPosition,
   formatAgentCanvasZoomPercent,
   resolveAgentCanvasCenteredScrollPosition,
@@ -94,6 +95,7 @@ import {
   resolveAgentCanvasViewportMetrics,
   resolveAgentCanvasViewportSyncPosition,
   resolveAgentCanvasWheelZoomDelta,
+  resolveAgentCanvasZoomScrollPosition,
   resolveAgentCanvasZoomTerminalFontScale,
   stepAgentCanvasZoom,
   stepAgentCanvasZoomByDelta,
@@ -488,6 +490,7 @@ export function AgentPanel({
   const canvasViewportRestoreReadyWorktreeKeyRef = useRef<string | null>(null);
   const lastHandledCanvasFocusRequestTokenRef = useRef<number | null>(null);
   const lastCanvasZoomStorageKeyRef = useRef<string | null>(null);
+  const lastCanvasZoomByWorktreeRef = useRef<Record<string, number>>({});
   const spacePressedRef = useRef(false);
   const {
     agentSettings,
@@ -955,20 +958,6 @@ export function AgentPanel({
 
     return currentWorktreeSessions[0]?.id ?? null;
   }, [currentWorktreeSessions, getCurrentActiveSessionId, persistedActiveSessionId]);
-  const canvasColumnCount = useMemo(
-    () => resolveAgentCanvasColumnCount(currentWorktreeSessions.length),
-    [currentWorktreeSessions.length]
-  );
-  const canvasTileColumnSpanBySessionId = useMemo(() => {
-    const spans = new Map<string, number>();
-    currentWorktreeSessions.forEach((session, index) => {
-      spans.set(
-        session.id,
-        resolveAgentCanvasTileColumnSpan(currentWorktreeSessions.length, index)
-      );
-    });
-    return spans;
-  }, [currentWorktreeSessions]);
   const [canvasZoomByWorktree, setCanvasZoomByWorktree] = useState<Record<string, number>>({});
   const [canvasLockedByWorktree, setCanvasLockedByWorktree] = useState<Record<string, boolean>>({});
   const [canvasFloatingSessionIdByWorktree, setCanvasFloatingSessionIdByWorktree] = useState<
@@ -980,6 +969,21 @@ export function AgentPanel({
     top: number;
     width: number;
   } | null>(null);
+  const [canvasViewportWidth, setCanvasViewportWidth] = useState<number | null>(null);
+  const canvasColumnCount = useMemo(
+    () => resolveAgentCanvasColumnCount(currentWorktreeSessions.length, canvasViewportWidth),
+    [canvasViewportWidth, currentWorktreeSessions.length]
+  );
+  const canvasTileColumnSpanBySessionId = useMemo(() => {
+    const spans = new Map<string, number>();
+    currentWorktreeSessions.forEach((session, index) => {
+      spans.set(
+        session.id,
+        resolveAgentCanvasTileColumnSpan(currentWorktreeSessions.length, index, canvasColumnCount)
+      );
+    });
+    return spans;
+  }, [canvasColumnCount, currentWorktreeSessions]);
   const canvasZoomStorageKey = useMemo(() => normalizePath(cwd), [cwd]);
   const canvasZoom = useMemo(
     () => canvasZoomByWorktree[canvasZoomStorageKey] ?? AGENT_CANVAS_ZOOM_DEFAULT,
@@ -1851,6 +1855,35 @@ export function AgentPanel({
     },
     [markSessionExited]
   );
+  const readCanvasSessionFocusTarget = useCallback(
+    (
+      id: string,
+      viewportRect: DOMRect | Pick<DOMRect, 'left' | 'top'>
+    ): AgentCanvasFocusTarget | null => {
+      const viewport = canvasViewportRef.current;
+      if (!viewport) {
+        return null;
+      }
+
+      const sessionPanel = document.getElementById(buildSessionPanelDomId(id));
+      if (!(sessionPanel instanceof HTMLElement)) {
+        return null;
+      }
+
+      const sessionPanelRect = sessionPanel.getBoundingClientRect();
+      if (sessionPanelRect.width <= 0 || sessionPanelRect.height <= 0) {
+        return null;
+      }
+
+      return {
+        height: sessionPanelRect.height,
+        left: viewport.scrollLeft + sessionPanelRect.left - viewportRect.left,
+        top: viewport.scrollTop + sessionPanelRect.top - viewportRect.top,
+        width: sessionPanelRect.width,
+      };
+    },
+    []
+  );
 
   const focusCanvasViewportOnSession = useCallback(
     (id: string) => {
@@ -1863,13 +1896,12 @@ export function AgentPanel({
         return;
       }
 
-      const sessionPanel = document.getElementById(buildSessionPanelDomId(id));
-      if (!(sessionPanel instanceof HTMLElement)) {
+      const viewportRect = viewport.getBoundingClientRect();
+      const focusTarget = readCanvasSessionFocusTarget(id, viewportRect);
+      if (!focusTarget) {
         return;
       }
 
-      const viewportRect = viewport.getBoundingClientRect();
-      const sessionPanelRect = sessionPanel.getBoundingClientRect();
       const nextPosition = resolveAgentCanvasFocusScrollPosition({
         clientHeight: viewport.clientHeight,
         clientWidth: viewport.clientWidth,
@@ -1877,10 +1909,10 @@ export function AgentPanel({
         currentScrollTop: viewport.scrollTop,
         scrollHeight: viewport.scrollHeight,
         scrollWidth: viewport.scrollWidth,
-        targetHeight: sessionPanelRect.height,
-        targetLeft: viewport.scrollLeft + sessionPanelRect.left - viewportRect.left,
-        targetTop: viewport.scrollTop + sessionPanelRect.top - viewportRect.top,
-        targetWidth: sessionPanelRect.width,
+        targetHeight: focusTarget.height,
+        targetLeft: focusTarget.left,
+        targetTop: focusTarget.top,
+        targetWidth: focusTarget.width,
       });
       const prefersReducedMotion =
         typeof window.matchMedia === 'function' &&
@@ -1893,7 +1925,7 @@ export function AgentPanel({
       });
       canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = nextPosition;
     },
-    [canvasZoomStorageKey, isCanvasDisplayMode, isCanvasLocked]
+    [canvasZoomStorageKey, isCanvasDisplayMode, isCanvasLocked, readCanvasSessionFocusTarget]
   );
 
   // Handle session selection
@@ -2076,6 +2108,9 @@ export function AgentPanel({
         top: rect.top,
         width: rect.width,
       };
+      setCanvasViewportWidth((previousWidth) =>
+        previousWidth === nextBounds.width ? previousWidth : nextBounds.width
+      );
       const nextStoredBounds = canvasFloatingSessionId ? nextBounds : null;
 
       setCanvasViewportBounds((previousBounds) => {
@@ -2399,6 +2434,62 @@ export function AgentPanel({
     canvasViewportRestoreReadyWorktreeKeyRef.current = null;
     resetCanvasWheelZoomState();
   }, [canvasZoomStorageKey, resetCanvasWheelZoomState]);
+  useEffect(() => {
+    if (!isCanvasDisplayMode || !isActive) {
+      return;
+    }
+
+    const previousZoom = lastCanvasZoomByWorktreeRef.current[canvasZoomStorageKey];
+    lastCanvasZoomByWorktreeRef.current[canvasZoomStorageKey] = canvasZoom;
+
+    if (previousZoom === undefined || previousZoom === canvasZoom) {
+      return;
+    }
+
+    let cancelled = false;
+    const frameId = requestAnimationFrame(() => {
+      if (cancelled) {
+        return;
+      }
+
+      const viewport = canvasViewportRef.current;
+      if (!viewport) {
+        return;
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const focusTarget = canvasFocusedSessionId
+        ? readCanvasSessionFocusTarget(canvasFocusedSessionId, viewportRect)
+        : null;
+      const nextPosition = resolveAgentCanvasZoomScrollPosition({
+        clientHeight: viewport.clientHeight,
+        clientWidth: viewport.clientWidth,
+        currentLeft: viewport.scrollLeft,
+        currentTop: viewport.scrollTop,
+        focusTarget,
+        scrollHeight: viewport.scrollHeight,
+        scrollWidth: viewport.scrollWidth,
+      });
+
+      applyCanvasViewportPosition(viewport, nextPosition);
+      canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] =
+        readCanvasViewportSnapshot(viewport);
+      canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey;
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+    };
+  }, [
+    applyCanvasViewportPosition,
+    canvasFocusedSessionId,
+    canvasZoom,
+    canvasZoomStorageKey,
+    isActive,
+    isCanvasDisplayMode,
+    readCanvasSessionFocusTarget,
+  ]);
 
   useAgentCanvasViewportRestore({
     applyCanvasViewportPosition,
@@ -2450,6 +2541,7 @@ export function AgentPanel({
   useEffect(() => {
     if (!isCanvasDisplayMode) {
       setCanvasViewportBounds(null);
+      setCanvasViewportWidth(null);
       return;
     }
 
@@ -2470,10 +2562,16 @@ export function AgentPanel({
         left: viewport.scrollLeft,
         top: viewport.scrollTop,
       };
+      const viewportRect = viewport.getBoundingClientRect();
+      const focusTarget =
+        previousSnapshot && canvasFocusedSessionId
+          ? readCanvasSessionFocusTarget(canvasFocusedSessionId, viewportRect)
+          : null;
 
       const nextPosition = resolveAgentCanvasViewportSyncPosition({
         currentLeft: currentPosition.left,
         currentTop: currentPosition.top,
+        focusTarget,
         nextClientHeight: nextSnapshot.clientHeight,
         nextClientWidth: nextSnapshot.clientWidth,
         nextScrollHeight: nextSnapshot.scrollHeight,
@@ -2515,8 +2613,10 @@ export function AgentPanel({
     };
   }, [
     applyCanvasViewportPosition,
+    canvasFocusedSessionId,
     canvasZoomStorageKey,
     isCanvasDisplayMode,
+    readCanvasSessionFocusTarget,
     updateCanvasViewportBounds,
   ]);
   useEffect(() => {
