@@ -27,4 +27,19 @@ describe('Agent panel subagent inspector wiring', () => {
     expect(agentPanelSource).toContain('<SessionSubagentTriggerButton');
     expect(agentPanelSource).toContain("title={t('View session subagents')}");
   });
+
+  it('closes the floating inspector when the session layout mode changes', () => {
+    expect(agentPanelSource).toContain(
+      '// Keep the inspector scoped to the currently active session layout mode.'
+    );
+    expect(agentPanelSource).toContain('setOpenSessionSubagentInspectorId(null);');
+    expect(agentPanelSource).toContain('}, [agentSessionDisplayMode]);');
+  });
+
+  it('ports the inspector above the canvas transform instead of leaving it inside the session tile', () => {
+    expect(agentPanelSource).toContain(
+      '// Render the inspector above the canvas transform so it does not scale or pan with tiles.'
+    );
+    expect(agentPanelSource).toContain('createPortal(sessionSubagentInspector, document.body)');
+  });
 });

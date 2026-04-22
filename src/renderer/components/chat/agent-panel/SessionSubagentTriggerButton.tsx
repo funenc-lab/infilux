@@ -25,13 +25,20 @@ export function SessionSubagentTriggerButton({
       aria-label={ariaLabel ?? title}
       data-session-subagent-trigger="true"
       data-active={isActive ? 'true' : 'false'}
-      className={cn(className, isActive && 'control-icon-button-active')}
+      data-has-count={count > 0 ? 'true' : 'false'}
+      className={cn(
+        className,
+        count > 0 &&
+          !isActive &&
+          'text-primary shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_22%,transparent)]',
+        isActive && 'control-icon-button-active'
+      )}
       onClick={onClick}
     >
       <span className="relative">
         <CornerDownRight className="h-4 w-4" />
         {count > 0 ? (
-          <span className="pointer-events-none absolute -right-2.5 -top-2 flex min-w-4 items-center justify-center rounded-full border border-primary/20 bg-primary px-1 text-[9px] font-semibold leading-4 text-primary-foreground">
+          <span className="pointer-events-none absolute -right-2 -top-2 flex min-w-4 items-center justify-center rounded-full border border-background/80 bg-primary px-1 text-[9px] font-semibold leading-4 text-primary-foreground shadow-[0_0_0_2px_var(--background)]">
             {count > 9 ? '9+' : count}
           </span>
         ) : null}

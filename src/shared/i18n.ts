@@ -1185,6 +1185,7 @@ export const zhTranslations: Record<string, string> = {
     '这将恢复代码审查的默认 AI 提示词。您的自定义提示词将丢失。',
   'Enter a prompt template for code review.\nAvailable variables:\n• {language} - Review output language\n• {git_diff} - Git diff of changes\n• {git_log} - Commit history':
     '输入代码审查的提示词模板。\n可用变量：\n• {language} - 审查输出语言\n• {git_diff} - 变更的 Git diff\n• {git_log} - 提交历史',
+  Conversation: '会话',
   'Continue Conversation': '继续对话',
   'Preserve session for follow-up conversations after review': '审查后保留 session 以便继续对话',
   Review: '审查',
@@ -2417,14 +2418,14 @@ export const zhTranslations: Record<string, string> = {
     '\u8fd9\u4e2a\u5de5\u5177\u6682\u4e0d\u652f\u6301\u5b50 agent',
   'does not expose subagent tracking in Infilux yet.':
     '\u5728 Infilux \u4e2d\u8fd8\u6ca1\u6709\u5f00\u653e\u5b50 agent \u8ddf\u8e2a\u80fd\u529b\u3002',
-  'No active subagents': '\u6682\u65e0\u6d3b\u8dc3\u5b50 agent',
-  'This session has not spawned any live subagents yet.':
-    '\u5f53\u524d\u4f1a\u8bdd\u8fd8\u6ca1\u6709\u6d3e\u751f\u51fa\u6d3b\u8dc3\u7684\u5b50 agent\u3002',
+  'No session subagents': '\u6682\u65e0\u4f1a\u8bdd\u5b50 agent',
+  'This session has not spawned any subagents yet.':
+    '\u5f53\u524d\u4f1a\u8bdd\u8fd8\u6ca1\u6709\u6d3e\u751f\u51fa\u5b50 agent\u3002',
   Subagents: '\u5b50 agents',
-  'Live subagents spawned from the current agent session.':
-    '\u6765\u81ea\u5f53\u524d agent \u4f1a\u8bdd\u7684\u5b9e\u65f6\u5b50 agent\u3002',
   'Close subagent window': '\u5173\u95ed\u5b50 agent \u7a97\u53e3',
   'Session subagents': '\u4f1a\u8bdd\u5b50 agent',
+  Transcript: '\u4f1a\u8bdd\u8bb0\u5f55',
+  'Loading session subagents...': '\u6b63\u5728\u52a0\u8f7d\u4f1a\u8bdd\u5b50 agent...',
   'Loading transcript...': '\u6b63\u5728\u52a0\u8f7d\u4f1a\u8bdd\u8bb0\u5f55...',
   'No transcript entries were found for this subagent.':
     '\u672a\u627e\u5230\u8fd9\u4e2a\u5b50 agent \u7684\u4f1a\u8bdd\u8bb0\u5f55\u3002',

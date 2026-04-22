@@ -174,6 +174,12 @@ const SUBAGENT_STATUS_PRESENTATION: Record<LiveAgentSubagentStatus, SubagentStat
     buttonClassName:
       'hover:bg-muted/50 hover:text-foreground focus-visible:ring-muted-foreground/30',
   },
+  completed: {
+    label: 'Completed',
+    dotClassName: 'bg-sky-400 shadow-[0_0_0_3px_rgba(56,189,248,0.16)]',
+    badgeClassName: 'border border-sky-500/20 bg-sky-500/10 text-sky-200',
+    buttonClassName: 'hover:bg-sky-500/8 hover:text-sky-100 focus-visible:ring-sky-400/40',
+  },
 };
 
 export function getSubagentStatusPresentation(

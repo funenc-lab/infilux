@@ -1,4 +1,4 @@
-import type { AIProvider, PersistentAgentSessionRecord } from '@shared/types';
+import type { AIProvider, LiveAgentSubagent, PersistentAgentSessionRecord } from '@shared/types';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { resolveTmuxServerNameForPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
 import {
@@ -41,7 +41,8 @@ import { normalizePath, pathsEqual } from '@/App/storage';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { toastManager } from '@/components/ui/toast';
-import { useLiveSubagents } from '@/hooks/useLiveSubagents';
+import { areLiveSubagentListsEqual, useLiveSubagents } from '@/hooks/useLiveSubagents';
+import { useSessionSubagentsBySession } from '@/hooks/useSessionSubagentsBySession';
 import { useI18n } from '@/i18n';
 import {
   isSessionPersistable,
@@ -632,6 +633,20 @@ export function AgentPanel({
   const [selectedSubagentThreadIdBySessionId, setSelectedSubagentThreadIdBySessionId] = useState<
     Record<string, string | null>
   >({});
+  const [inspectorSubagentsBySessionId, setInspectorSubagentsBySessionId] = useState<
+    Record<string, LiveAgentSubagent[]>
+  >({});
+  const subagentInspectorDisplayModeRef = useRef(agentSessionDisplayMode);
+
+  // Keep the inspector scoped to the currently active session layout mode.
+  useEffect(() => {
+    if (subagentInspectorDisplayModeRef.current === agentSessionDisplayMode) {
+      return;
+    }
+
+    subagentInspectorDisplayModeRef.current = agentSessionDisplayMode;
+    setOpenSessionSubagentInspectorId(null);
+  }, [agentSessionDisplayMode]);
 
   useEffect(() => {
     if (!statusLineEnabled) {
@@ -946,6 +961,40 @@ export function AgentPanel({
     () => currentWorktreeSessions.map((session) => session.id),
     [currentWorktreeSessions]
   );
+  const sessionSubagentViewStateBySessionId = useMemo(() => {
+    return Object.fromEntries(
+      currentWorktreeSessions.map((session) => [
+        session.id,
+        resolveSessionSubagentViewState({
+          agentId: session.agentId,
+          agentCommand: session.agentCommand,
+          initialized: session.initialized,
+          uiSessionId: session.id,
+          providerSessionId: session.sessionId,
+          isRemoteExecution: isRemoteVirtualPath(session.cwd),
+        }),
+      ])
+    );
+  }, [currentWorktreeSessions]);
+  const shouldPollSessionSubagents =
+    isActive &&
+    currentWorktreeSessions.some(
+      (session) => sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported'
+    );
+  const sessionSubagentPollTargets = useMemo(
+    () =>
+      currentWorktreeSessions.map((session) => ({
+        sessionId: session.id,
+        cwd: session.cwd,
+        providerSessionId: session.sessionId,
+        enabled: sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported',
+      })),
+    [currentWorktreeSessions, sessionSubagentViewStateBySessionId]
+  );
+  const { itemsBySessionId: sessionScopedSubagentsBySessionId } = useSessionSubagentsBySession({
+    enabled: shouldPollSessionSubagents,
+    targets: sessionSubagentPollTargets,
+  });
   useEffect(() => {
     const activeSessionIdSet = new Set(currentWorktreeSessionIds);
 
@@ -967,7 +1016,48 @@ export function AgentPanel({
 
       return changed ? next : current;
     });
+    setInspectorSubagentsBySessionId((current) => {
+      let changed = false;
+      const next: Record<string, LiveAgentSubagent[]> = {};
+
+      for (const [sessionId, subagents] of Object.entries(current)) {
+        if (!activeSessionIdSet.has(sessionId)) {
+          changed = true;
+          continue;
+        }
+
+        next[sessionId] = subagents;
+      }
+
+      return changed ? next : current;
+    });
   }, [currentWorktreeSessionIds]);
+  const handleSessionInspectorSubagentsChange = useCallback(
+    (sessionId: string, subagents: LiveAgentSubagent[]) => {
+      setInspectorSubagentsBySessionId((current) => {
+        const existing = current[sessionId];
+        const hasExisting = Array.isArray(existing);
+
+        if (!hasExisting && subagents.length === 0) {
+          return current;
+        }
+
+        if (hasExisting && areLiveSubagentListsEqual(existing, subagents)) {
+          return current;
+        }
+
+        const next = { ...current };
+        if (subagents.length === 0) {
+          delete next[sessionId];
+        } else {
+          next[sessionId] = subagents;
+        }
+
+        return next;
+      });
+    },
+    []
+  );
   const currentGroupIdBySessionId = useMemo(() => {
     const groupIds = new Map<string, string>();
     for (const group of currentGroupState.groups) {
@@ -3394,14 +3484,11 @@ export function AgentPanel({
       session.sessionId,
       sessionWorktreeSubagents
     );
-    const sessionSubagentViewState = resolveSessionSubagentViewState({
-      agentId: session.agentId,
-      agentCommand: session.agentCommand,
-      initialized: session.initialized,
-      uiSessionId: session.id,
-      providerSessionId: session.sessionId,
-      isRemoteExecution: isRemoteVirtualPath(session.cwd),
-    });
+    const sessionScopedSubagents = sessionScopedSubagentsBySessionId[session.id] ?? [];
+    const displayedSessionSubagents =
+      inspectorSubagentsBySessionId[session.id] ??
+      (sessionScopedSubagents.length > 0 ? sessionScopedSubagents : matchedSessionSubagents);
+    const sessionSubagentViewState = sessionSubagentViewStateBySessionId[session.id];
     const isSessionSubagentInspectorOpen = openSessionSubagentInspectorId === session.id;
     const isCanvasFloatingSession = isCanvasDisplayMode && session.id === canvasFloatingSessionId;
     const sessionContentHost = ensureCanvasSessionContentHost(sessionId);
@@ -3425,7 +3512,7 @@ export function AgentPanel({
     );
     const renderSessionSubagentTrigger = (className: string) => (
       <SessionSubagentTriggerButton
-        count={matchedSessionSubagents.length}
+        count={displayedSessionSubagents.length}
         isActive={isSessionSubagentInspectorOpen}
         className={className}
         title={t('View session subagents')}
@@ -3598,17 +3685,6 @@ export function AgentPanel({
               enhancedInputSenderRef.current.delete(senderSessionId);
             }}
           />
-          {isSessionSubagentInspectorOpen ? (
-            <SessionSubagentInspector
-              sessionName={session.name}
-              agentLabel={tileAgentLabel}
-              viewState={sessionSubagentViewState}
-              subagents={matchedSessionSubagents}
-              selectedThreadId={selectedSubagentThreadIdBySessionId[session.id] ?? null}
-              onSelectThread={(threadId) => handleSelectSessionSubagentThread(session.id, threadId)}
-              onClose={handleCloseSessionSubagentInspector}
-            />
-          ) : null}
         </div>
 
         <div className={cn(isCanvasDisplayMode ? 'pointer-events-auto' : 'hidden')}>
@@ -3637,6 +3713,31 @@ export function AgentPanel({
         </div>
       </div>
     );
+    const sessionSubagentInspector = isSessionSubagentInspectorOpen ? (
+      <SessionSubagentInspector
+        key={`${session.id}-subagent-inspector`}
+        sessionName={session.name}
+        agentLabel={tileAgentLabel}
+        sessionCwd={session.cwd}
+        providerSessionId={session.sessionId}
+        viewState={sessionSubagentViewState}
+        subagents={displayedSessionSubagents}
+        surfaceColor={terminalBgColor}
+        selectedThreadId={selectedSubagentThreadIdBySessionId[session.id] ?? null}
+        onSubagentsChange={(subagents) =>
+          handleSessionInspectorSubagentsChange(session.id, subagents)
+        }
+        onSelectThread={(threadId) => handleSelectSessionSubagentThread(session.id, threadId)}
+        onClose={handleCloseSessionSubagentInspector}
+      />
+    ) : null;
+    // Render the inspector above the canvas transform so it does not scale or pan with tiles.
+    const sessionSubagentInspectorPortal =
+      sessionSubagentInspector === null
+        ? null
+        : typeof document !== 'undefined' && document.body
+          ? createPortal(sessionSubagentInspector, document.body)
+          : sessionSubagentInspector;
     const sessionPanelContentPortal =
       sessionContentHost !== null ? createPortal(sessionPanelContent, sessionContentHost) : null;
 
@@ -3689,6 +3790,7 @@ export function AgentPanel({
       <Fragment key={sessionId}>
         {sessionPanelContentPortal}
         {sessionPanelShell}
+        {sessionSubagentInspectorPortal}
         {createPortal(
           <div
             {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
@@ -3748,6 +3850,7 @@ export function AgentPanel({
       <Fragment key={sessionId}>
         {sessionPanelContentPortal}
         {sessionPanelShell}
+        {sessionSubagentInspectorPortal}
       </Fragment>
     );
   });
@@ -4021,23 +4124,23 @@ export function AgentPanel({
           const activeSessionSubagents =
             activeSession == null
               ? []
-              : getMatchedSessionSubagents(
-                  activeSession.agentId,
-                  activeSession.agentCommand,
-                  activeSession.sessionId,
-                  liveSubagentsByWorktree.get(normalizePath(activeSession.cwd)) ?? []
-                );
+              : (inspectorSubagentsBySessionId[activeSession.id] ??
+                (() => {
+                  const sessionScopedSubagents =
+                    sessionScopedSubagentsBySessionId[activeSession.id] ?? [];
+                  if (sessionScopedSubagents.length > 0) {
+                    return sessionScopedSubagents;
+                  }
+
+                  return getMatchedSessionSubagents(
+                    activeSession.agentId,
+                    activeSession.agentCommand,
+                    activeSession.sessionId,
+                    liveSubagentsByWorktree.get(normalizePath(activeSession.cwd)) ?? []
+                  );
+                })());
           const activeSessionSubagentViewState =
-            activeSession == null
-              ? null
-              : resolveSessionSubagentViewState({
-                  agentId: activeSession.agentId,
-                  agentCommand: activeSession.agentCommand,
-                  initialized: activeSession.initialized,
-                  uiSessionId: activeSession.id,
-                  providerSessionId: activeSession.sessionId,
-                  isRemoteExecution: isRemoteVirtualPath(activeSession.cwd),
-                });
+            activeSession == null ? null : sessionSubagentViewStateBySessionId[activeSession.id];
           const activeSessionToolbarAccessory =
             activeSession != null && activeSessionSubagentViewState != null ? (
               <SessionSubagentTriggerButton
