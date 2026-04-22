@@ -14,6 +14,31 @@ const isWindows = process.platform === 'win32';
 const TMUX_COMMAND_TIMEOUT_MS = 5000;
 const LIST_PANES_FORMAT = '#{pane_id}\t#{pane_active}\t#{pane_in_mode}';
 const TMUX_HEALTHCHECK_SESSION_PREFIX = 'infilux-healthcheck';
+const TMUX_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
+
+function isResourceExhaustionError(error: unknown): error is NodeJS.ErrnoException {
+  const nodeError = error as NodeJS.ErrnoException;
+  return (
+    typeof nodeError?.code === 'string' && TMUX_RESOURCE_EXHAUSTION_ERROR_CODES.has(nodeError.code)
+  );
+}
+
+function toTmuxResourceExhaustionError(
+  error: unknown,
+  serverName: string,
+  operation: string
+): NodeJS.ErrnoException {
+  const nodeError = error as NodeJS.ErrnoException;
+  const wrappedError = new Error(
+    `System resources exhausted while ${operation} tmux server ${serverName}`
+  ) as NodeJS.ErrnoException & {
+    cause?: unknown;
+  };
+  wrappedError.name = 'TmuxResourceExhaustionError';
+  wrappedError.code = nodeError.code ?? 'EAGAIN';
+  wrappedError.cause = error;
+  return wrappedError;
+}
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -321,7 +346,10 @@ class TmuxDetector {
         timeout: TMUX_COMMAND_TIMEOUT_MS,
       });
       return true;
-    } catch {
+    } catch (error) {
+      if (isResourceExhaustionError(error)) {
+        throw toTmuxResourceExhaustionError(error, serverName, 'probing');
+      }
       return false;
     }
   }

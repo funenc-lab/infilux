@@ -254,6 +254,25 @@ describe('TmuxDetector', () => {
     expect(tmuxDetectorTestDoubles.rmSync).toHaveBeenCalledWith(testSocketPath, { force: true });
   });
 
+  it('rethrows resource exhaustion during tmux health checks without resetting the server', async () => {
+    setPlatform('darwin');
+    const error = new Error('spawn EAGAIN') as NodeJS.ErrnoException;
+    error.code = 'EAGAIN';
+    tmuxDetectorTestDoubles.execInPty
+      .mockResolvedValueOnce('tmux 3.6a')
+      .mockRejectedValueOnce(error);
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(tmuxDetector.ensureServerHealthy()).rejects.toMatchObject({
+      name: 'TmuxResourceExhaustionError',
+      code: 'EAGAIN',
+      message: `System resources exhausted while probing tmux server ${testRuntimeIdentity.tmuxServerName}`,
+    });
+    expect(tmuxDetectorTestDoubles.spawnSync).not.toHaveBeenCalled();
+    expect(tmuxDetectorTestDoubles.rmSync).not.toHaveBeenCalled();
+  });
+
   it('deduplicates concurrent runtime health checks for the same tmux server', async () => {
     setPlatform('darwin');
     let rejectFirstProbe: ((error: Error) => void) | null = null;

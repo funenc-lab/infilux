@@ -41,6 +41,7 @@ interface SessionRuntimeInfo {
 }
 
 const MAX_SESSION_REPLAY_CHARS = 65_536;
+const SESSION_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 type TmuxHostSessionCreateOptions = SessionCreateOptions & {
   hostSession: {
     kind: 'tmux';
@@ -67,6 +68,14 @@ function getWindowId(target: BrowserWindow | WebContents | number): number {
 
 function now(): number {
   return Date.now();
+}
+
+function isSessionResourceExhaustionError(error: unknown): error is NodeJS.ErrnoException {
+  const nodeError = error as NodeJS.ErrnoException;
+  return (
+    typeof nodeError?.code === 'string' &&
+    SESSION_RESOURCE_EXHAUSTION_ERROR_CODES.has(nodeError.code)
+  );
 }
 
 function getPersistentUiSessionId(
@@ -542,7 +551,39 @@ export class SessionManager {
     }
 
     if (this.shouldEnsureTmuxHostHealth(options)) {
-      const healthy = await tmuxDetector.ensureServerHealthy(options.hostSession.serverName);
+      let healthy = false;
+      try {
+        healthy = await tmuxDetector.ensureServerHealthy(options.hostSession.serverName);
+      } catch (error) {
+        if (isSessionResourceExhaustionError(error)) {
+          const diagnosticsId = requestMainProcessDiagnosticsCapture({
+            event: 'session-tmux-healthcheck-resource-exhausted',
+            context: {
+              windowId,
+              cwd: options.cwd ?? null,
+              kind: options.kind ?? 'terminal',
+              serverName: options.hostSession.serverName,
+              sessionName: options.hostSession.sessionName,
+              errorCode: error.code,
+            },
+            error,
+            throttleKey: `session-tmux-healthcheck-resource-exhausted:${options.hostSession.serverName}`,
+          });
+          console.error('[session] Tmux host health check failed due to resource exhaustion', {
+            diagnosticsId,
+            windowId,
+            cwd: options.cwd ?? null,
+            kind: options.kind ?? 'terminal',
+            serverName: options.hostSession.serverName,
+            sessionName: options.hostSession.sessionName,
+            errorCode: error.code,
+          });
+          throw new Error(
+            `System resources exhausted while checking tmux server: ${options.hostSession.serverName}`
+          );
+        }
+        throw error;
+      }
       if (!healthy) {
         const diagnosticsId = requestMainProcessDiagnosticsCapture({
           event: 'session-tmux-recovery-failed',

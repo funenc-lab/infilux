@@ -448,6 +448,45 @@ describe('SessionManager', () => {
     expect(sessionTestDoubles.tmuxEnsureServerHealthy).toHaveBeenCalledWith('enso');
   });
 
+  it('surfaces tmux health check resource exhaustion as a session creation error', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const error = new Error(
+      'fork failed: resource temporarily unavailable'
+    ) as NodeJS.ErrnoException;
+    error.code = 'EAGAIN';
+    sessionTestDoubles.tmuxEnsureServerHealthy.mockRejectedValueOnce(error);
+
+    await expect(
+      manager.create(1, {
+        cwd: '/repo-agent',
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-1',
+        },
+      })
+    ).rejects.toThrow('System resources exhausted while checking tmux server: infilux');
+
+    expect(sessionTestDoubles.requestMainProcessDiagnosticsCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'session-tmux-healthcheck-resource-exhausted',
+        throttleKey: 'session-tmux-healthcheck-resource-exhausted:infilux',
+        error,
+        context: expect.objectContaining({
+          windowId: 1,
+          cwd: '/repo-agent',
+          kind: 'agent',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-1',
+          errorCode: 'EAGAIN',
+        }),
+      })
+    );
+  });
+
   it('seeds recovered tmux agent sessions with captured host history before attach', async () => {
     createWindow(1);
     const manager = new SessionManager();
