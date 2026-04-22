@@ -20,6 +20,7 @@ import {
   getRepositoryEnvironmentContext,
   readRepositoryRemoteTextFile,
 } from '../remote/RemoteEnvironmentService';
+import { filterAgentCapabilityCatalogForProvider } from './AgentCapabilityCatalogSupport';
 import type {
   AgentCapabilityProviderAdapter,
   AgentCapabilitySessionOverrides,
@@ -238,28 +239,6 @@ function buildGeminiResolvedMcpEntries(
   return { entries, warnings };
 }
 
-function buildUnsupportedRestrictionWarnings(
-  capabilities: ClaudeCapabilityCatalogItem[],
-  resolvedPolicy: ResolvedClaudePolicy
-): string[] {
-  const restrictedIds = new Set([
-    ...resolvedPolicy.allowedCapabilityIds,
-    ...resolvedPolicy.blockedCapabilityIds,
-  ]);
-  const unsupportedIds = capabilities
-    .filter((capability) => capability.kind !== 'legacy-skill' && restrictedIds.has(capability.id))
-    .map((capability) => capability.id)
-    .sort((left, right) => left.localeCompare(right));
-
-  if (unsupportedIds.length === 0) {
-    return [];
-  }
-
-  return [
-    `Gemini runtime capability injection currently supports SKILL.md capabilities only. Command and subagent restrictions were not enforced for: ${unsupportedIds.join(', ')}.`,
-  ];
-}
-
 async function readLocalTextFile(filePath: string): Promise<string | null> {
   try {
     return await fs.promises.readFile(filePath, 'utf8');
@@ -429,7 +408,7 @@ export function createGeminiCapabilityProviderAdapter(
     capabilities: ClaudeCapabilityCatalogItem[],
     mcpConfigs: CapabilityMcpConfigSet
   ): Promise<GeminiRuntimeProjection> {
-    const warnings = buildUnsupportedRestrictionWarnings(capabilities, resolvedPolicy);
+    const warnings: string[] = [];
     const { entries: skillEntries, warnings: skillWarnings } = await resolveGeminiSkillEntries(
       request.repoPath,
       request.worktreePath,
@@ -600,10 +579,11 @@ export function createGeminiCapabilityProviderAdapter(
       request: AgentCapabilityLaunchRequest,
       _sessionOptions: SessionCreateOptions
     ): Promise<PreparedAgentCapabilityLaunch> {
-      const catalog = await listCatalog({
+      const discoveredCatalog = await listCatalog({
         repoPath: request.repoPath,
         worktreePath: request.worktreePath,
       });
+      const catalog = filterAgentCapabilityCatalogForProvider(discoveredCatalog, 'gemini');
       const resolvedPolicy = resolvePolicy({
         catalog,
         repoPath: request.repoPath,

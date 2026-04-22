@@ -15,6 +15,7 @@ import {
   resolveCapabilityMcpConfigEntries,
 } from '../claude/CapabilityMcpConfigService';
 import { resolveClaudePolicy } from '../claude/ClaudePolicyResolver';
+import { filterAgentCapabilityCatalogForProvider } from './AgentCapabilityCatalogSupport';
 import type {
   AgentCapabilityProviderAdapter,
   AgentCapabilitySessionOverrides,
@@ -270,15 +271,6 @@ function buildCodexResolvedMcpEntries(
   return { entries, warnings };
 }
 
-function summarizeCapabilityIds(ids: string[], limit = 3): string {
-  if (ids.length <= limit) {
-    return ids.join(', ');
-  }
-
-  const visibleIds = ids.slice(0, limit);
-  return `${visibleIds.join(', ')} (+${ids.length - limit} more)`;
-}
-
 function buildCodexResolvedSkillEntries(
   capabilities: ClaudeCapabilityCatalogItem[],
   resolvedPolicy: ResolvedClaudePolicy
@@ -325,20 +317,6 @@ function buildCodexResolvedSkillEntries(
         sourceScope: capability.sourceScope,
       });
     }
-  }
-
-  const unsupportedCapabilityIds = capabilities
-    .filter((capability) => capability.kind !== 'legacy-skill')
-    .map((capability) => capability.id)
-    .sort((left, right) => left.localeCompare(right));
-  const unsupportedRestrictedIds = unsupportedCapabilityIds.filter(
-    (id) => !allowedCapabilityIds.has(id)
-  );
-
-  if (unsupportedRestrictedIds.length > 0) {
-    warnings.push(
-      `Codex runtime capability injection currently supports SKILL.md capabilities only. Command and subagent restrictions were not enforced for: ${summarizeCapabilityIds(unsupportedRestrictedIds)}.`
-    );
   }
 
   return {
@@ -456,10 +434,11 @@ export function createCodexCapabilityProviderAdapter(
       request: AgentCapabilityLaunchRequest,
       sessionOptions: SessionCreateOptions
     ): Promise<PreparedAgentCapabilityLaunch> {
-      const catalog = await listCatalog({
+      const discoveredCatalog = await listCatalog({
         repoPath: request.repoPath,
         worktreePath: request.worktreePath,
       });
+      const catalog = filterAgentCapabilityCatalogForProvider(discoveredCatalog, 'codex');
       const resolvedPolicy = resolvePolicy({
         catalog,
         repoPath: request.repoPath,

@@ -299,7 +299,7 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
   });
 
-  it('warns when command or subagent restrictions cannot be enforced through Codex runtime skill config', () => {
+  it('ignores unsupported command and subagent entries when building Codex runtime skill config', () => {
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
@@ -316,14 +316,12 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
 
     expect(projection.applied).toBe(true);
-    expect(projection.warnings).toContain(
-      'Codex runtime capability injection currently supports SKILL.md capabilities only. Command and subagent restrictions were not enforced for: command:help.'
-    );
+    expect(projection.warnings).toEqual([]);
   });
 
   it('resolves policy and MCP sources through the adapter and returns provider-native launch metadata', async () => {
     const listClaudeCapabilityCatalog = vi.fn().mockResolvedValue({
-      capabilities: createCapabilities(),
+      capabilities: createCapabilities({ includeCommand: true }),
       sharedMcpServers: [{ id: 'shared-project' }],
       personalMcpServers: [],
       generatedAt: 1,
@@ -359,6 +357,11 @@ describe('CodexCapabilityProviderAdapter', () => {
       worktreePath: '/repo/worktrees/feat-a',
     });
     expect(resolveClaudePolicyFn).toHaveBeenCalled();
+    expect(
+      resolveClaudePolicyFn.mock.calls[0]?.[0].catalog.capabilities.map(
+        (item: ClaudeCapabilityCatalogItem) => item.kind
+      )
+    ).toEqual(['legacy-skill', 'legacy-skill']);
     expect(resolveCapabilityMcpConfigEntriesFn).toHaveBeenCalledWith({
       repoPath: '/repo',
       worktreePath: '/repo/worktrees/feat-a',
@@ -371,6 +374,7 @@ describe('CodexCapabilityProviderAdapter', () => {
         applied: true,
       },
     });
+    expect(result.launchResult.warnings).toEqual([]);
     expect(result.sessionOverrides).toMatchObject({
       metadata: {
         providerLaunchStrategy: 'codex-runtime-config',

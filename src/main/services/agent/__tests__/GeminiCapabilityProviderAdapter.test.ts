@@ -140,6 +140,15 @@ describe('GeminiCapabilityProviderAdapter', () => {
   });
 
   it('materializes a Gemini runtime home with merged settings, linked skills, and environment overrides', async () => {
+    const resolveClaudePolicy = vi.fn().mockReturnValue(
+      createResolvedPolicy({
+        repoPath,
+        worktreePath,
+        allowedCapabilityIds: ['legacy-skill:user-skill'],
+        blockedCapabilityIds: ['legacy-skill:worktree-skill', 'command:help'],
+        allowedSharedMcpIds: ['repo-mcp'],
+      })
+    );
     const adapter = createGeminiCapabilityProviderAdapter({
       listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
         capabilities,
@@ -147,15 +156,7 @@ describe('GeminiCapabilityProviderAdapter', () => {
         personalMcpServers: [],
         generatedAt: 1,
       }),
-      resolveClaudePolicy: vi.fn().mockReturnValue(
-        createResolvedPolicy({
-          repoPath,
-          worktreePath,
-          allowedCapabilityIds: ['legacy-skill:user-skill'],
-          blockedCapabilityIds: ['legacy-skill:worktree-skill', 'command:help'],
-          allowedSharedMcpIds: ['repo-mcp'],
-        })
-      ),
+      resolveClaudePolicy,
       resolveGeminiCapabilityMcpConfigEntries: vi.fn().mockResolvedValue({
         sharedById: {
           'repo-mcp': {
@@ -196,9 +197,12 @@ describe('GeminiCapabilityProviderAdapter', () => {
         applied: true,
       },
     });
-    expect(result.launchResult.warnings).toContain(
-      'Gemini runtime capability injection currently supports SKILL.md capabilities only. Command and subagent restrictions were not enforced for: command:help.'
-    );
+    expect(result.launchResult.warnings).toEqual([]);
+    expect(
+      resolveClaudePolicy.mock.calls[0]?.[0].catalog.capabilities.map(
+        (item: ClaudeCapabilityCatalogItem) => item.kind
+      )
+    ).toEqual(['legacy-skill', 'legacy-skill']);
 
     const runtimeHome = join(runtimeRoot, 'gemini', 'hash-1');
     expect(result.sessionOverrides?.env).toEqual({
