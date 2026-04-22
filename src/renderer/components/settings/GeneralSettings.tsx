@@ -202,6 +202,8 @@ export function GeneralSettings() {
     setShellConfig,
     chatPanelInactivityThresholdMinutes,
     setChatPanelInactivityThresholdMinutes,
+    retainSessionBackedChatPanels,
+    setRetainSessionBackedChatPanels,
     agentNotificationEnabled,
     setAgentNotificationEnabled,
     agentNotificationDelay,
@@ -1433,6 +1435,19 @@ export function GeneralSettings() {
           <p className="text-xs text-muted-foreground">
             {t('How long to keep an idle chat panel mounted after you switch away.')}
           </p>
+        </div>
+      </div>
+
+      <div className="settings-field-row">
+        <span className="text-sm font-medium">{t('Keep worktree sessions mounted')}</span>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-muted-foreground">
+            {t('Keep chat panels mounted for worktrees that still have agent sessions.')}
+          </p>
+          <Switch
+            checked={retainSessionBackedChatPanels}
+            onCheckedChange={setRetainSessionBackedChatPanels}
+          />
         </div>
       </div>
 

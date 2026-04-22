@@ -408,6 +408,7 @@ export interface SettingsState {
   customAgents: CustomAgent[];
   shellConfig: ShellConfig;
   chatPanelInactivityThresholdMinutes: number;
+  retainSessionBackedChatPanels: boolean;
   agentNotificationEnabled: boolean;
   agentNotificationDelay: number; // in seconds
   agentNotificationEnterDelay: number; // delay after Enter before starting idle timer
@@ -547,6 +548,7 @@ export interface SettingsState {
   removeCustomAgent: (id: string) => void;
   setShellConfig: (config: ShellConfig) => void;
   setChatPanelInactivityThresholdMinutes: (minutes: number) => void;
+  setRetainSessionBackedChatPanels: (enabled: boolean) => void;
   setAgentNotificationEnabled: (enabled: boolean) => void;
   setAgentNotificationDelay: (delay: number) => void;
   setAgentNotificationEnterDelay: (delay: number) => void;

@@ -11,6 +11,7 @@ type SettingsState = {
   setSettingsDisplayMode: (mode: 'tab' | 'draggable-modal') => void;
   fileTreeDisplayMode: 'legacy' | 'current';
   chatPanelInactivityThresholdMinutes: number;
+  retainSessionBackedChatPanels: boolean;
   todoEnabled: boolean;
   backgroundImageEnabled: boolean;
 };
@@ -59,6 +60,7 @@ const settingsState: SettingsState = {
   setSettingsDisplayMode: vi.fn(),
   fileTreeDisplayMode: 'legacy',
   chatPanelInactivityThresholdMinutes: 5,
+  retainSessionBackedChatPanels: true,
   todoEnabled: false,
   backgroundImageEnabled: false,
 };
@@ -334,6 +336,7 @@ describe('MainContent component render', () => {
   beforeEach(() => {
     settingsState.settingsDisplayMode = 'tab';
     settingsState.fileTreeDisplayMode = 'legacy';
+    settingsState.retainSessionBackedChatPanels = true;
     settingsState.todoEnabled = false;
     settingsState.backgroundImageEnabled = false;
     settingsState.setSettingsDisplayMode = vi.fn();
@@ -768,9 +771,38 @@ describe('MainContent component render', () => {
     expect(markup).toContain('data-panel="source-control"');
   });
 
-  it('releases the current agent panel when only stale idle session history remains', async () => {
+  it('retains the current agent panel when only stale idle session history remains', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'));
+
+    agentSessionsState.sessions = [
+      {
+        id: 'session-1',
+        repoPath: '/repo/main',
+        cwd: '/repo/main/worktrees/current',
+        initialized: true,
+      },
+    ];
+    agentSessionsState.runtimeStates = {
+      'session-1': {
+        outputState: 'idle',
+        lastActivityAt: Date.now() - 10 * 60 * 1000,
+      },
+    };
+
+    const markup = await renderMainContent('source-control');
+
+    expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-show-fallback="false"');
+    expect(markup).toContain('data-panel="source-control"');
+
+    vi.useRealTimers();
+  });
+
+  it('releases the current agent panel after cooldown when session-backed retention is disabled', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'));
+    settingsState.retainSessionBackedChatPanels = false;
 
     agentSessionsState.sessions = [
       {

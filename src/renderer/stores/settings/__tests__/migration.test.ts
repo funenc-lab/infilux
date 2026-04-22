@@ -13,6 +13,7 @@ function createCurrentState(): SettingsState {
     terminalAccentSync: false,
     agentSessionDisplayMode: 'tab',
     chatPanelInactivityThresholdMinutes: 5,
+    retainSessionBackedChatPanels: true,
     backgroundOpacity: 0.85,
     backgroundBlur: 0,
     backgroundBrightness: 1,
@@ -274,6 +275,28 @@ describe('migrateSettings', () => {
         currentState
       ).chatPanelInactivityThresholdMinutes
     ).toBe(currentState.chatPanelInactivityThresholdMinutes);
+  });
+
+  it('preserves explicit session-backed chat retention settings and falls back to the default', () => {
+    const currentState = createCurrentState();
+
+    expect(
+      migrateSettings(
+        {
+          retainSessionBackedChatPanels: false,
+        },
+        currentState
+      ).retainSessionBackedChatPanels
+    ).toBe(false);
+
+    expect(
+      migrateSettings(
+        {
+          retainSessionBackedChatPanels: 'invalid' as never,
+        },
+        currentState
+      ).retainSessionBackedChatPanels
+    ).toBe(currentState.retainSessionBackedChatPanels);
   });
 
   it('migrates legacy keybindings and filters detection status to enabled agents only', () => {
