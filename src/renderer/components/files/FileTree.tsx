@@ -42,6 +42,7 @@ import {
   didPathChangeAffectSubtree,
   isPathInSubtree,
 } from './fileTreeRenderUtils';
+import { shouldHandleFileTreeShortcut } from './fileTreeShortcutPolicy';
 
 const DRAG_CONFIRM_STORAGE_KEY = 'file-tree-drag-confirm-disabled';
 const PASTE_CONFLICT_STORAGE_KEY = 'file-tree-paste-conflict-disabled';
@@ -961,16 +962,19 @@ export function FileTree({
   const fileTreeContainerRef = useRef<HTMLDivElement>(null);
 
   // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle shortcuts when focus is within the FileTree container
-      // This prevents intercepting copy/paste in Monaco editor and other inputs
-      const activeElement = document.activeElement;
-      if (!fileTreeContainerRef.current?.contains(activeElement)) {
+  const handleTreeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (
+        !shouldHandleFileTreeShortcut({
+          container: fileTreeContainerRef.current,
+          activeElement: document.activeElement,
+          target: e.target,
+        })
+      ) {
         return;
       }
 
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
       const modKey = isMac ? e.metaKey : e.ctrlKey;
 
       // Cmd/Ctrl + C - Copy
@@ -981,6 +985,7 @@ export function FileTree({
           selectedNode.path.split('/').pop() || '',
           selectedNode.isDirectory
         );
+        return;
       }
 
       // Cmd/Ctrl + X - Cut
@@ -991,6 +996,7 @@ export function FileTree({
           selectedNode.path.split('/').pop() || '',
           selectedNode.isDirectory
         );
+        return;
       }
 
       // Cmd/Ctrl + V - Paste
@@ -1002,39 +1008,36 @@ export function FileTree({
           ? selectedNode.path
           : selectedNode.path.substring(0, selectedNode.path.lastIndexOf('/')) || rootPath || '';
         const targetIsDirectory = true; // Parent or selected dir is always a directory
-        handlePaste(targetPath, targetIsDirectory);
+        void handlePaste(targetPath, targetIsDirectory);
+        return;
       }
 
       // Cmd/Ctrl + Z - Undo
       if (modKey && e.key === 'z' && !e.shiftKey && !editingPath) {
         e.preventDefault();
-        handleUndo();
+        void handleUndo();
+        return;
       }
 
       // Cmd/Ctrl + Shift + Z - Redo
       if (modKey && e.key === 'z' && e.shiftKey && !editingPath) {
         e.preventDefault();
-        handleRedo();
+        void handleRedo();
       }
-    };
+    },
+    [
+      clipboard,
+      editingPath,
+      handleCopy,
+      handleCut,
+      handlePaste,
+      handleRedo,
+      handleUndo,
+      rootPath,
+      selectedNode,
+    ]
+  );
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [
-    selectedNode,
-    clipboard,
-    editingPath,
-    handleCopy,
-    handleCut,
-    handlePaste,
-    handleUndo,
-    handleRedo,
-    rootPath,
-  ]);
-
-  // Handle collapse all
   const handleCollapseAll = useCallback(() => {
     onToggleExpand('__COLLAPSE_ALL__');
   }, [onToggleExpand]);
@@ -1156,6 +1159,7 @@ export function FileTree({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onContextMenu={handleRootContextMenu}
+        onKeyDown={handleTreeKeyDown}
       >
         {/* Toolbar */}
         <div className="sticky top-0 z-10 flex h-12 items-center justify-between gap-1 border-b border-border/60 bg-background/95 px-3 backdrop-blur-sm">

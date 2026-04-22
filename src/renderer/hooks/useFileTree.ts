@@ -7,7 +7,14 @@ import {
   resolveFileListPath,
 } from '@/components/files/breadcrumbPathUtils';
 import { shouldEmitFileTreeRuntimeDiagnostics } from './fileTreeDiagnosticsPolicy';
+import {
+  FILE_TREE_ROOT_QUERY_STALE_TIME_MS,
+  shouldInvalidateFileTreeRootQueryOnRootChange,
+  shouldRefetchFileTreeRootQueryOnMount,
+} from './fileTreeRootQueryPolicy';
+import { fileTreeRootQueryRemountTracker } from './fileTreeRootQueryRemountTracker';
 import { shouldRecoverRootFileList } from './fileTreeRootRecoveryPolicy';
+import { createFileTreeRootRecoveryTracker } from './fileTreeRootRecoveryTracker';
 import {
   cloneEntriesToNodes,
   findNodeByPath,
@@ -16,7 +23,11 @@ import {
   setNodeLoadingState,
 } from './fileTreeStateUtils';
 import { buildFileTreeWatchRefreshPlan, type FileTreeWatchEvent } from './fileTreeWatchBatch';
-import { shouldRefreshFileTreeOnWatchResume, shouldWatchFileTree } from './fileTreeWatchPolicy';
+import {
+  type FileTreeWatchStateSnapshot,
+  shouldRefreshFileTreeOnWatchResume,
+  shouldWatchFileTree,
+} from './fileTreeWatchPolicy';
 import { useShouldPoll } from './useWindowFocus';
 
 interface UseFileTreeOptions {
@@ -65,6 +76,12 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     isDev: import.meta.env.DEV,
     mode: import.meta.env.MODE,
   });
+  const shouldRefetchRootQueryOnMount =
+    rootPath === undefined
+      ? true
+      : shouldRefetchFileTreeRootQueryOnMount({
+          lastInactiveAt: fileTreeRootQueryRemountTracker.getLastInactiveAt(rootPath),
+        });
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() =>
     rootPath ? loadFileTreeExpandedPaths(rootPath) : new Set()
   );
@@ -115,6 +132,8 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       return files;
     },
     enabled: enabled && !!rootPath,
+    refetchOnMount: shouldRefetchRootQueryOnMount,
+    staleTime: FILE_TREE_ROOT_QUERY_STALE_TIME_MS,
   });
 
   // Build tree structure with expanded directories
@@ -129,9 +148,10 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
   // Track the current rootPath in a ref for use inside callbacks
   const rootPathRef = useRef(rootPath);
   rootPathRef.current = rootPath;
+  const previousRootPathRef = useRef<string | undefined>(undefined);
   // Track whether children have been restored for the current rootPath
   const childrenRestoredRef = useRef(false);
-  const recoveredRootPathsRef = useRef<Set<string>>(new Set());
+  const rootRecoveryTrackerRef = useRef(createFileTreeRootRecoveryTracker());
 
   // Helper: update expanded state and persist to localStorage atomically
   const setAndPersistExpandedPaths = useCallback((paths: Set<string>) => {
@@ -141,16 +161,29 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
 
   // When rootPath changes: restore saved expanded state and trigger a fresh tree fetch
   useEffect(() => {
+    const previousRootPath = previousRootPathRef.current;
+    previousRootPathRef.current = rootPath;
+    rootRecoveryTrackerRef.current.reset();
     if (!rootPath) return;
 
     childrenRestoredRef.current = false;
-    recoveredRootPathsRef.current.delete(rootPath);
     setExpandedPaths(loadFileTreeExpandedPaths(rootPath));
     setTree([]);
 
-    // Invalidate root query so rootFiles effect always re-fires even on cache hit
-    queryClient.invalidateQueries({ queryKey: ['file', 'list', rootPath] });
+    if (shouldInvalidateFileTreeRootQueryOnRootChange(previousRootPath, rootPath)) {
+      queryClient.invalidateQueries({ queryKey: ['file', 'list', rootPath] });
+    }
   }, [rootPath, queryClient]);
+
+  useEffect(() => {
+    if (!rootPath) {
+      return;
+    }
+
+    return () => {
+      fileTreeRootQueryRemountTracker.markInactive(rootPath);
+    };
+  }, [rootPath]);
 
   // Load children for a directory
   const loadChildren = useCallback(
@@ -259,14 +292,14 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         isRootLoading,
         isRootError,
         rootFileCount: rootFiles?.length ?? null,
-        alreadyRecovered: rootPath ? recoveredRootPathsRef.current.has(rootPath) : false,
+        alreadyRecovered: rootPath ? rootRecoveryTrackerRef.current.has(rootPath) : false,
       })
     ) {
       return;
     }
 
     const targetRootPath = rootPath as string;
-    recoveredRootPathsRef.current.add(targetRootPath);
+    rootRecoveryTrackerRef.current.mark(targetRootPath);
 
     const recoveredGitRoot =
       resolveFileListGitRoot(targetRootPath, targetRootPath) ?? targetRootPath;
@@ -318,7 +351,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         );
       } catch (error) {
         if (!cancelled) {
-          recoveredRootPathsRef.current.delete(targetRootPath);
+          rootRecoveryTrackerRef.current.clear(targetRootPath);
         }
         logFileTreeDiagnostics(
           'root-query:recover:error',
@@ -442,7 +475,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     [loadChildren, setAndPersistExpandedPaths]
   );
 
-  // 递归更新树中某个目录的 children
+  // Recursively refresh the children of a directory in the tree.
   const refreshNodeChildren = useCallback(
     async (targetPath: string) => {
       try {
@@ -500,12 +533,12 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     isActive,
     shouldPoll,
   });
-  const previousWatchStateRef = useRef<{
-    rootPath: string | undefined;
-    shouldWatch: boolean;
-  }>({
+  const previousWatchStateRef = useRef<FileTreeWatchStateSnapshot>({
     rootPath: undefined,
     shouldWatch: false,
+    isActive: false,
+    shouldPoll: false,
+    updatedAt: 0,
   });
 
   const refresh = useCallback(async () => {
@@ -519,7 +552,13 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
 
   // File watch effect - only watch while the file tree is active and the window is not idle
   useEffect(() => {
-    const nextWatchState = { rootPath, shouldWatch };
+    const nextWatchState: FileTreeWatchStateSnapshot = {
+      rootPath,
+      shouldWatch,
+      isActive,
+      shouldPoll,
+      updatedAt: Date.now(),
+    };
     const previousWatchState = previousWatchStateRef.current;
     previousWatchStateRef.current = nextWatchState;
 
@@ -586,7 +625,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       unsubscribe();
       window.electronAPI.file.watchStop(rootPath);
     };
-  }, [queryClient, refresh, refreshNodeChildren, rootPath, shouldWatch]);
+  }, [queryClient, refresh, refreshNodeChildren, rootPath, shouldWatch, isActive, shouldPoll]);
 
   // File operations
   const createFile = useCallback(

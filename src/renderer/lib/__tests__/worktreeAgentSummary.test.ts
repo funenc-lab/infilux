@@ -199,5 +199,9 @@ describe('worktreeAgentSummary', () => {
       label: 'Stale',
       dotClassName: expect.stringContaining('bg-muted-foreground/50'),
     });
+    expect(getSubagentStatusPresentation('completed')).toMatchObject({
+      label: 'Completed',
+      dotClassName: expect.stringContaining('bg-sky'),
+    });
   });
 });

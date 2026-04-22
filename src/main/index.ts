@@ -1696,13 +1696,18 @@ process.on('unhandledRejection', (reason) => {
 // Use synchronous cleanup + immediate app.exit() to ensure clean shutdown.
 function handleShutdownSignal(signal: string): void {
   console.log(`[app] Received ${signal}, exiting...`);
-  // Sync cleanup: kill child processes immediately
-  appTrayService.destroy();
-  unwatchClaudeSettings();
-  gitAutoFetchService.cleanup();
-  cleanupAllResourcesSync();
-  // Use app.exit() to bypass will-quit handler (already cleaned up)
-  app.exit(0);
+  try {
+    // Sync cleanup: kill child processes immediately
+    appTrayService.destroy();
+    unwatchClaudeSettings();
+    gitAutoFetchService.cleanup();
+    cleanupAllResourcesSync();
+  } catch (error) {
+    console.error(`[app] Sync cleanup error during ${signal}:`, error);
+  } finally {
+    // Use app.exit() to bypass will-quit handler (already cleaned up)
+    app.exit(0);
+  }
 }
 
 process.on('SIGINT', () => handleShutdownSignal('SIGINT'));

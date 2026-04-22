@@ -8,17 +8,30 @@ import type {
   LiveAgentSubagent,
   LiveAgentSubagentStatus,
 } from '@shared/types';
+import { normalizeWorkspaceKey } from '@shared/utils/workspace';
+import {
+  CODEX_SESSIONS_DIR,
+  findCodexSessionFileByThreadId,
+  formatCodexAgentType,
+  readCodexSessionMeta,
+  readCodexSessionMetaRecords,
+} from './codexSessionMetadata';
 
 const CODEX_TUI_LOG_PATH = path.join(os.homedir(), '.codex', 'log', 'codex-tui.log');
 const DEFAULT_MAX_IDLE_MS = 45_000;
 const MAX_LOG_READ_WINDOW_BYTES = 8 * 1024 * 1024;
 const MAX_TRACKED_STATE_RETENTION_MS = 15 * 60 * 1_000;
 
+function normalizeSubagentCwdKey(cwd: string): string {
+  return normalizeWorkspaceKey(cwd, process.platform === 'darwin' ? 'darwin' : 'linux');
+}
+
 interface CodexThreadContext {
   threadId: string;
   rootThreadId: string;
   cwd?: string;
   lastSeenAt: number;
+  lastToolName?: string;
 }
 
 interface PendingSpawnDescriptor {
@@ -38,6 +51,21 @@ interface CodexTrackedSubagent {
   summary?: string;
   lastSeenAt: number;
   lastToolName?: string;
+}
+
+interface CodexSessionSubagentMeta {
+  threadId: string;
+  parentThreadId: string;
+  cwd?: string;
+  agentType?: string;
+  agentNickname?: string;
+  timestampMs: number;
+}
+
+interface CodexSessionSubagentMetaRecord {
+  filePath: string;
+  fileMtimeMs: number;
+  meta: CodexSessionSubagentMeta;
 }
 
 export interface CodexSubagentTrackerState {
@@ -80,15 +108,20 @@ function summarizeSpawnMessage(message: unknown): string | undefined {
 }
 
 function formatAgentType(agentType?: string): string {
-  if (!agentType) {
-    return 'Subagent';
+  return formatCodexAgentType(agentType);
+}
+
+function buildSubagentLabel(
+  agentType: string | undefined,
+  sequence: number,
+  agentNickname?: string
+): string {
+  const nickname = agentNickname?.trim();
+  if (nickname) {
+    return nickname;
   }
 
-  return agentType
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+  return `${formatAgentType(agentType)} ${sequence}`;
 }
 
 function nextChildSequence(state: CodexSubagentTrackerState, rootThreadId: string): number {
@@ -160,6 +193,9 @@ function ensureThreadContext(
   const existing = state.threadContexts.get(threadId);
 
   if (existing) {
+    if (existing.rootThreadId === existing.threadId && rootThreadId !== existing.threadId) {
+      existing.rootThreadId = rootThreadId;
+    }
     existing.lastSeenAt = Math.max(existing.lastSeenAt, timestampMs);
     return existing;
   }
@@ -171,6 +207,89 @@ function ensureThreadContext(
   };
   state.threadContexts.set(threadId, created);
   return created;
+}
+
+function resolveCanonicalRootThreadId(state: CodexSubagentTrackerState, threadId: string): string {
+  return (
+    state.subagentsByThread.get(threadId)?.rootThreadId ??
+    state.threadContexts.get(threadId)?.rootThreadId ??
+    threadId
+  );
+}
+
+function toCodexSessionSubagentMeta(meta: {
+  threadId: string;
+  parentThreadId?: string;
+  cwd?: string;
+  agentType?: string;
+  agentNickname?: string;
+  timestampMs: number;
+}): CodexSessionSubagentMeta | null {
+  if (!meta.parentThreadId) {
+    return null;
+  }
+
+  return {
+    threadId: meta.threadId,
+    parentThreadId: meta.parentThreadId,
+    cwd: meta.cwd,
+    agentType: meta.agentType,
+    agentNickname: meta.agentNickname,
+    timestampMs: meta.timestampMs,
+  };
+}
+
+export function applyCodexSessionSubagentMeta(
+  state: CodexSubagentTrackerState,
+  meta: CodexSessionSubagentMeta
+): CodexSubagentTrackerState {
+  const rootThreadId = resolveCanonicalRootThreadId(state, meta.parentThreadId);
+  const parentContext = ensureThreadContext(
+    state,
+    meta.parentThreadId,
+    rootThreadId,
+    meta.timestampMs
+  );
+  const childContext = ensureThreadContext(state, meta.threadId, rootThreadId, meta.timestampMs);
+  childContext.rootThreadId = rootThreadId;
+  if (meta.cwd) {
+    childContext.cwd = meta.cwd;
+  }
+
+  const lastSeenAt = Math.max(meta.timestampMs, childContext.lastSeenAt, parentContext.lastSeenAt);
+  const agentType = meta.agentType;
+  const existing = state.subagentsByThread.get(meta.threadId);
+
+  if (existing) {
+    existing.rootThreadId = rootThreadId;
+    existing.parentThreadId = meta.parentThreadId;
+    existing.cwd = meta.cwd ?? childContext.cwd ?? existing.cwd;
+    existing.agentType = agentType ?? existing.agentType;
+    existing.lastSeenAt = Math.max(existing.lastSeenAt, lastSeenAt);
+    existing.lastToolName = childContext.lastToolName ?? existing.lastToolName;
+    if (meta.agentNickname?.trim()) {
+      existing.label = meta.agentNickname.trim();
+    }
+    return state;
+  }
+
+  const pendingSpawn = attachPendingSpawn(state, rootThreadId);
+  const resolvedAgentType = agentType ?? pendingSpawn?.agentType;
+  const sequence = nextChildSequence(state, rootThreadId);
+  state.subagentsByThread.set(meta.threadId, {
+    id: meta.threadId,
+    threadId: meta.threadId,
+    rootThreadId,
+    parentThreadId: meta.parentThreadId,
+    cwd: meta.cwd ?? childContext.cwd,
+    label: buildSubagentLabel(resolvedAgentType, sequence, meta.agentNickname),
+    agentType: resolvedAgentType,
+    summary: pendingSpawn?.summary,
+    lastSeenAt,
+    lastToolName: childContext.lastToolName,
+  });
+
+  return state;
 }
 
 function attachPendingSpawn(
@@ -364,6 +483,10 @@ export function applyCodexLogLine(
     }
   }
 
+  if (parsed.toolName) {
+    currentContext.lastToolName = parsed.toolName;
+  }
+
   if (parsed.toolName === 'spawn_agent') {
     const queue = state.pendingSpawnsByRoot.get(parsed.rootThreadId) ?? [];
     queue.push({
@@ -399,7 +522,9 @@ export function buildLiveCodexSubagents(
 ): LiveAgentSubagent[] {
   const now = request.now ?? Date.now();
   const maxIdleMs = request.maxIdleMs ?? DEFAULT_MAX_IDLE_MS;
-  const cwdFilter = request.cwds ? new Set(request.cwds) : null;
+  const cwdFilter = request.cwds
+    ? new Set(request.cwds.filter(Boolean).map((cwd) => normalizeSubagentCwdKey(cwd)))
+    : null;
 
   return [...state.subagentsByThread.values()]
     .filter((item) => now - item.lastSeenAt <= maxIdleMs)
@@ -420,7 +545,7 @@ export function buildLiveCodexSubagents(
       lastSeenAt: item.lastSeenAt,
       status: inferSubagentStatus(item, now, maxIdleMs),
     }))
-    .filter((item) => item.cwd && (!cwdFilter || cwdFilter.has(item.cwd)))
+    .filter((item) => item.cwd && (!cwdFilter || cwdFilter.has(normalizeSubagentCwdKey(item.cwd))))
     .sort((left, right) => right.lastSeenAt - left.lastSeenAt);
 }
 
@@ -452,9 +577,12 @@ async function readAppendedLogChunk(
 export class CodexSubagentTracker {
   private readonly state = createEmptyCodexSubagentTrackerState();
   private readonly logPath: string;
+  private readonly sessionsDir: string;
+  private readonly sessionFileByThreadId = new Map<string, string>();
 
-  constructor(logPath = CODEX_TUI_LOG_PATH) {
+  constructor(logPath = CODEX_TUI_LOG_PATH, sessionsDir = CODEX_SESSIONS_DIR) {
     this.logPath = logPath;
+    this.sessionsDir = sessionsDir;
   }
 
   async listLive(
@@ -498,17 +626,68 @@ export class CodexSubagentTracker {
     const chunk = await readAppendedLogChunk(this.logPath, readWindow.start, fileStat.size);
     this.state.offset = fileStat.size;
 
-    if (!chunk) {
-      return;
+    if (chunk) {
+      const combined = this.state.remainder + chunk;
+      const lines = combined.split('\n');
+      this.state.remainder = lines.pop() ?? '';
+
+      for (const line of lines) {
+        applyCodexLogLine(this.state, line);
+      }
     }
 
-    const combined = this.state.remainder + chunk;
-    const lines = combined.split('\n');
-    this.state.remainder = lines.pop() ?? '';
+    await this.hydrateSubagentsFromSessionFiles();
+  }
 
-    for (const line of lines) {
-      applyCodexLogLine(this.state, line);
+  private async hydrateSubagentsFromSessionFiles(): Promise<void> {
+    const cutoff = Date.now() - MAX_TRACKED_STATE_RETENTION_MS;
+    const recentMetaRecords: CodexSessionSubagentMetaRecord[] = (
+      await readCodexSessionMetaRecords(this.sessionsDir, cutoff)
+    ).flatMap((record) => {
+      const meta = toCodexSessionSubagentMeta(record.meta);
+      return meta ? [{ ...record, meta }] : [];
+    });
+
+    for (const record of recentMetaRecords) {
+      this.sessionFileByThreadId.set(record.meta.threadId, record.filePath);
+      applyCodexSessionSubagentMeta(this.state, record.meta);
     }
+
+    const candidates = [...this.state.threadContexts.values()]
+      .filter(
+        (context) =>
+          context.lastSeenAt >= cutoff && !this.state.subagentsByThread.has(context.threadId)
+      )
+      .sort((left, right) => left.lastSeenAt - right.lastSeenAt);
+
+    for (const context of candidates) {
+      const sessionFile = await this.resolveSessionFilePath(context.threadId);
+      if (!sessionFile) {
+        continue;
+      }
+
+      const meta = await readCodexSessionMeta(sessionFile);
+      const subagentMeta = meta ? toCodexSessionSubagentMeta(meta) : null;
+      if (!subagentMeta) {
+        continue;
+      }
+
+      applyCodexSessionSubagentMeta(this.state, subagentMeta);
+    }
+  }
+
+  private async resolveSessionFilePath(threadId: string): Promise<string | null> {
+    const cached = this.sessionFileByThreadId.get(threadId);
+    if (cached) {
+      return cached;
+    }
+
+    const resolved = await findCodexSessionFileByThreadId(this.sessionsDir, threadId);
+    if (resolved) {
+      this.sessionFileByThreadId.set(threadId, resolved);
+    }
+
+    return resolved;
   }
 }
 

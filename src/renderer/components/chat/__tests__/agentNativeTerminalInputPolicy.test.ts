@@ -6,6 +6,10 @@ import { describe, expect, it } from 'vitest';
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const agentPanelSource = readFileSync(resolve(currentDir, '../AgentPanel.tsx'), 'utf8');
 const agentTerminalSource = readFileSync(resolve(currentDir, '../AgentTerminal.tsx'), 'utf8');
+const agentSessionNotificationSource = readFileSync(
+  resolve(currentDir, '../../../App/hooks/useAgentSessionNotifications.ts'),
+  'utf8'
+);
 const useXtermSource = readFileSync(resolve(currentDir, '../../../hooks/useXterm.ts'), 'utf8');
 
 describe('agent native terminal input policy', () => {
@@ -13,7 +17,9 @@ describe('agent native terminal input policy', () => {
     expect(agentPanelSource).toContain('shouldRenderEnhancedInput');
     expect(agentPanelSource).toContain('shouldRenderEnhancedInput(session.id)');
     expect(agentPanelSource).toContain('shouldRenderEnhancedInput(activeSession.id)');
-    expect(agentPanelSource).toContain('!supportsAgentNativeTerminalInput(session.agentId)');
+    expect(agentPanelSource).toContain(
+      'if (!session || supportsAgentNativeTerminalInput(session.agentId)) {'
+    );
   });
 
   it('routes Claude and Codex attachment paste into the terminal input instead of a composer draft', () => {
@@ -56,9 +62,10 @@ describe('agent native terminal input policy', () => {
   });
 
   it('clears stale waiting-input state once the user resumes the agent after a prompt', () => {
-    expect(agentPanelSource).toContain('onPreToolUseNotification');
-    expect(agentPanelSource).toContain("'UserPromptSubmit'");
-    expect(agentPanelSource).toContain('setWaitingForInput(session.id, false);');
+    expect(agentSessionNotificationSource).toContain('onPreToolUseNotification');
+    expect(agentSessionNotificationSource).toContain("'UserPromptSubmit'");
+    expect(agentSessionNotificationSource).toContain('setWaitingForInput(session.id, false);');
+    expect(agentPanelSource).not.toContain('onPreToolUseNotification');
   });
 
   it('keeps agent sessions in transcript mode so pointer and wheel gestures do not move the cursor into the output region', () => {

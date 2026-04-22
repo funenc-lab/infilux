@@ -1,4 +1,4 @@
-export type LiveAgentSubagentStatus = 'running' | 'waiting' | 'stale';
+export type LiveAgentSubagentStatus = 'running' | 'waiting' | 'stale' | 'completed';
 export type AgentSubagentTranscriptEntryKind = 'message' | 'tool_call';
 export type AgentSubagentTranscriptEntryRole = 'assistant' | 'developer' | 'user';
 
@@ -22,6 +22,17 @@ export interface ListLiveAgentSubagentsRequest {
 }
 
 export interface ListLiveAgentSubagentsResult {
+  items: LiveAgentSubagent[];
+  generatedAt: number;
+}
+
+export interface ListSessionAgentSubagentsRequest {
+  providerSessionId: string;
+  cwd?: string;
+  maxIdleMs?: number;
+}
+
+export interface ListSessionAgentSubagentsResult {
   items: LiveAgentSubagent[];
   generatedAt: number;
 }

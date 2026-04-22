@@ -90,6 +90,7 @@ interface SessionBarProps {
   activeSessionId: string | null;
   activityStateBySessionId?: Record<string, SessionActivityState>;
   repoPath?: string;
+  toolbarAccessory?: React.ReactNode;
   onSelectSession: (id: string) => void;
   onCloseSession: (id: string) => void;
   onNewSession: () => void;
@@ -518,6 +519,7 @@ export function SessionBar({
   activeSessionId,
   activityStateBySessionId,
   repoPath,
+  toolbarAccessory,
   onSelectSession,
   onCloseSession,
   onNewSession,
@@ -1154,6 +1156,13 @@ export function SessionBar({
                   ))}
                 </div>
               </div>
+
+              {toolbarAccessory ? (
+                <>
+                  <div className="control-divider mx-1 h-4 w-px" />
+                  {toolbarAccessory}
+                </>
+              ) : null}
 
               <div
                 role="group"

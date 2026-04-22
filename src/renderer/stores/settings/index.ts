@@ -114,6 +114,7 @@ function getInitialState() {
     customAgents: [] as CustomAgent[],
     shellConfig: getDefaultShellConfig(),
     chatPanelInactivityThresholdMinutes: DEFAULT_CHAT_PANEL_INACTIVITY_THRESHOLD_MINUTES,
+    retainSessionBackedChatPanels: true,
     agentNotificationEnabled: true,
     agentNotificationDelay: 5,
     agentNotificationEnterDelay: 5,
@@ -499,6 +500,8 @@ export const useSettingsStore = create<SettingsState>()(
             get().chatPanelInactivityThresholdMinutes
           ),
         }),
+      setRetainSessionBackedChatPanels: (retainSessionBackedChatPanels) =>
+        set({ retainSessionBackedChatPanels }),
       setAgentNotificationEnabled: (agentNotificationEnabled) => set({ agentNotificationEnabled }),
       setAgentNotificationDelay: (agentNotificationDelay) => set({ agentNotificationDelay }),
       setAgentNotificationEnterDelay: (agentNotificationEnterDelay) =>

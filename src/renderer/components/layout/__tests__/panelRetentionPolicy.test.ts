@@ -3,7 +3,9 @@ import { toChatPanelInactivityThresholdMs } from '@/stores/settings/chatPanelIna
 import {
   CHAT_PANEL_INACTIVITY_THRESHOLD_MS,
   resolveChatPanelRetentionState,
+  resolveCurrentChatPanelRetentionState,
   shouldRetainPanel,
+  shouldRetainSessionBackedChatPanel,
 } from '../panelRetentionPolicy';
 
 describe('panelRetentionPolicy', () => {
@@ -99,6 +101,61 @@ describe('panelRetentionPolicy', () => {
         tabId: 'chat',
         activeTab: 'source-control',
         chatRetentionState: 'cold',
+      })
+    ).toBe(false);
+  });
+
+  it('keeps the current chat panel warm while sessions still exist', () => {
+    expect(
+      resolveCurrentChatPanelRetentionState({
+        retentionState: 'cold',
+        sessionCount: 1,
+        retainSessionBackedPanels: true,
+      })
+    ).toBe('warm');
+    expect(
+      resolveCurrentChatPanelRetentionState({
+        retentionState: 'hot',
+        sessionCount: 1,
+        retainSessionBackedPanels: true,
+      })
+    ).toBe('hot');
+    expect(
+      resolveCurrentChatPanelRetentionState({
+        retentionState: 'cold',
+        sessionCount: 0,
+        retainSessionBackedPanels: true,
+      })
+    ).toBe('cold');
+  });
+
+  it('keeps session-backed chat panels retained even after idle cooldown expires', () => {
+    expect(
+      shouldRetainSessionBackedChatPanel({
+        retentionState: 'cold',
+        sessionCount: 1,
+        retainSessionBackedPanels: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldRetainSessionBackedChatPanel({
+        retentionState: 'warm',
+        sessionCount: 0,
+        retainSessionBackedPanels: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldRetainSessionBackedChatPanel({
+        retentionState: 'cold',
+        sessionCount: 0,
+        retainSessionBackedPanels: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldRetainSessionBackedChatPanel({
+        retentionState: 'cold',
+        sessionCount: 1,
+        retainSessionBackedPanels: false,
       })
     ).toBe(false);
   });

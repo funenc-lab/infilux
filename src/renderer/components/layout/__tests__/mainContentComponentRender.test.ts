@@ -11,6 +11,7 @@ type SettingsState = {
   setSettingsDisplayMode: (mode: 'tab' | 'draggable-modal') => void;
   fileTreeDisplayMode: 'legacy' | 'current';
   chatPanelInactivityThresholdMinutes: number;
+  retainSessionBackedChatPanels: boolean;
   todoEnabled: boolean;
   backgroundImageEnabled: boolean;
 };
@@ -59,6 +60,7 @@ const settingsState: SettingsState = {
   setSettingsDisplayMode: vi.fn(),
   fileTreeDisplayMode: 'legacy',
   chatPanelInactivityThresholdMinutes: 5,
+  retainSessionBackedChatPanels: true,
   todoEnabled: false,
   backgroundImageEnabled: false,
 };
@@ -114,6 +116,12 @@ function renderMockPanel(
       typeof props.canvasRecenterOnActivateToken === 'number'
         ? String(props.canvasRecenterOnActivateToken)
         : '',
+    'data-canvas-focus-token':
+      typeof props.canvasFocusOnActivateToken === 'number'
+        ? String(props.canvasFocusOnActivateToken)
+        : '',
+    'data-canvas-focus-session-id':
+      typeof props.canvasFocusSessionId === 'string' ? props.canvasFocusSessionId : '',
     'data-should-load': String(props.shouldLoad ?? false),
     'data-show-fallback': String(props.showFallback ?? false),
     'data-root-path': typeof props.rootPath === 'string' ? props.rootPath : '',
@@ -328,6 +336,7 @@ describe('MainContent component render', () => {
   beforeEach(() => {
     settingsState.settingsDisplayMode = 'tab';
     settingsState.fileTreeDisplayMode = 'legacy';
+    settingsState.retainSessionBackedChatPanels = true;
     settingsState.todoEnabled = false;
     settingsState.backgroundImageEnabled = false;
     settingsState.setSettingsDisplayMode = vi.fn();
@@ -388,7 +397,6 @@ describe('MainContent component render', () => {
         hasActiveWorktree: true,
         worktreeCollapsed: false,
         onExpandWorktree: vi.fn(),
-        onSwitchWorktree: vi.fn(),
         getRepoPathForWorktree: (targetPath: string) =>
           targetPath === '/repo/main/worktrees/older' ? '/repo/main' : null,
         shouldRenderCurrentChatPanel: true,
@@ -410,6 +418,11 @@ describe('MainContent component render', () => {
         settingsCategory: undefined,
         onCategoryChange: undefined,
         scrollToProvider: false,
+        chatCanvasRecenterToken: 0,
+        chatCanvasRecenterWorktreePath: null,
+        chatCanvasFocusToken: 0,
+        chatCanvasFocusWorktreePath: null,
+        chatCanvasFocusSessionId: null,
         onTabChange: vi.fn(),
         selectedSubagent: null,
         onCloseSelectedSubagent: vi.fn(),
@@ -555,6 +568,22 @@ describe('MainContent component render', () => {
     );
     expect(markup).toMatch(
       /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-canvas-recenter-token="0"|<div data-panel="agent"[^>]*data-canvas-recenter-token="0"[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
+    );
+  });
+
+  it('passes the canvas focus request only to the current chat panel that matches the requested worktree', async () => {
+    const markup = await renderMainContentPanels({
+      cachedChatPanelPaths: ['/repo/main/worktrees/older'],
+      chatCanvasFocusToken: 11,
+      chatCanvasFocusWorktreePath: '/repo/main/worktrees/current',
+      chatCanvasFocusSessionId: 'session-2',
+    });
+
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"[^>]*data-canvas-focus-token="11"[^>]*data-canvas-focus-session-id="session-2"|<div data-panel="agent"[^>]*data-canvas-focus-token="11"[^>]*data-canvas-focus-session-id="session-2"[^>]*data-cwd="\/repo\/main\/worktrees\/current"/
+    );
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-canvas-focus-token="0"[^>]*data-canvas-focus-session-id=""|<div data-panel="agent"[^>]*data-canvas-focus-token="0"[^>]*data-canvas-focus-session-id=""[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
     );
   });
 
@@ -742,9 +771,38 @@ describe('MainContent component render', () => {
     expect(markup).toContain('data-panel="source-control"');
   });
 
-  it('releases the current agent panel when only stale idle session history remains', async () => {
+  it('retains the current agent panel when only stale idle session history remains', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'));
+
+    agentSessionsState.sessions = [
+      {
+        id: 'session-1',
+        repoPath: '/repo/main',
+        cwd: '/repo/main/worktrees/current',
+        initialized: true,
+      },
+    ];
+    agentSessionsState.runtimeStates = {
+      'session-1': {
+        outputState: 'idle',
+        lastActivityAt: Date.now() - 10 * 60 * 1000,
+      },
+    };
+
+    const markup = await renderMainContent('source-control');
+
+    expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-show-fallback="false"');
+    expect(markup).toContain('data-panel="source-control"');
+
+    vi.useRealTimers();
+  });
+
+  it('releases the current agent panel after cooldown when session-backed retention is disabled', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'));
+    settingsState.retainSessionBackedChatPanels = false;
 
     agentSessionsState.sessions = [
       {

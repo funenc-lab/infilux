@@ -12,6 +12,10 @@ import {
   type SessionStateEvent,
 } from '@shared/types';
 import { BrowserWindow, type WebContents } from 'electron';
+import {
+  registerMainProcessDiagnosticsCollector,
+  requestMainProcessDiagnosticsCapture,
+} from '../../utils/mainProcessDiagnostics';
 import { tmuxDetector } from '../cli/TmuxDetector';
 import { remoteConnectionManager } from '../remote/RemoteConnectionManager';
 import { isRemoteVirtualPath, parseRemoteVirtualPath } from '../remote/RemotePath';
@@ -37,6 +41,7 @@ interface SessionRuntimeInfo {
 }
 
 const MAX_SESSION_REPLAY_CHARS = 65_536;
+const SESSION_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 type TmuxHostSessionCreateOptions = SessionCreateOptions & {
   hostSession: {
     kind: 'tmux';
@@ -63,6 +68,14 @@ function getWindowId(target: BrowserWindow | WebContents | number): number {
 
 function now(): number {
   return Date.now();
+}
+
+function isSessionResourceExhaustionError(error: unknown): error is NodeJS.ErrnoException {
+  const nodeError = error as NodeJS.ErrnoException;
+  return (
+    typeof nodeError?.code === 'string' &&
+    SESSION_RESOURCE_EXHAUSTION_ERROR_CODES.has(nodeError.code)
+  );
 }
 
 function getPersistentUiSessionId(
@@ -113,6 +126,10 @@ export class SessionManager {
   private readonly remoteDisconnectSubscriptions = new Map<string, () => void>();
   private readonly remoteStatusSubscriptions = new Map<string, () => void>();
   private readonly remoteRecoveryPromises = new Map<string, Promise<void>>();
+
+  constructor() {
+    registerMainProcessDiagnosticsCollector('sessions', () => this.buildDiagnosticsSnapshot());
+  }
 
   async create(
     target: BrowserWindow | WebContents | number,
@@ -412,7 +429,24 @@ export class SessionManager {
       return;
     }
 
-    this.localPtyManager.resize(sessionId, cols, rows);
+    try {
+      this.localPtyManager.resize(sessionId, cols, rows);
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      console.error('[session] Local session resize failed', {
+        sessionId,
+        kind: session.kind,
+        cwd: session.cwd,
+        backend: session.backend,
+        localRuntime: session.localRuntime ?? null,
+        runtimeState: session.runtimeState ?? 'live',
+        attachedWindowIds: Array.from(session.attachedWindowIds),
+        cols,
+        rows,
+        errorCode: typeof nodeError.code === 'string' ? nodeError.code : null,
+      });
+      throw error;
+    }
   }
 
   async getActivity(sessionId: string): Promise<boolean> {
@@ -517,8 +551,60 @@ export class SessionManager {
     }
 
     if (this.shouldEnsureTmuxHostHealth(options)) {
-      const healthy = await tmuxDetector.ensureServerHealthy(options.hostSession.serverName);
+      let healthy = false;
+      try {
+        healthy = await tmuxDetector.ensureServerHealthy(options.hostSession.serverName);
+      } catch (error) {
+        if (isSessionResourceExhaustionError(error)) {
+          const diagnosticsId = requestMainProcessDiagnosticsCapture({
+            event: 'session-tmux-healthcheck-resource-exhausted',
+            context: {
+              windowId,
+              cwd: options.cwd ?? null,
+              kind: options.kind ?? 'terminal',
+              serverName: options.hostSession.serverName,
+              sessionName: options.hostSession.sessionName,
+              errorCode: error.code,
+            },
+            error,
+            throttleKey: `session-tmux-healthcheck-resource-exhausted:${options.hostSession.serverName}`,
+          });
+          console.error('[session] Tmux host health check failed due to resource exhaustion', {
+            diagnosticsId,
+            windowId,
+            cwd: options.cwd ?? null,
+            kind: options.kind ?? 'terminal',
+            serverName: options.hostSession.serverName,
+            sessionName: options.hostSession.sessionName,
+            errorCode: error.code,
+          });
+          throw new Error(
+            `System resources exhausted while checking tmux server: ${options.hostSession.serverName}`
+          );
+        }
+        throw error;
+      }
       if (!healthy) {
+        const diagnosticsId = requestMainProcessDiagnosticsCapture({
+          event: 'session-tmux-recovery-failed',
+          context: {
+            windowId,
+            cwd: options.cwd ?? null,
+            kind: options.kind ?? 'terminal',
+            serverName: options.hostSession.serverName,
+            sessionName: options.hostSession.sessionName,
+          },
+          throttleKey: `session-tmux-recovery-failed:${options.hostSession.serverName}`,
+          level: 'warn',
+        });
+        console.error('[session] Tmux host recovery failed', {
+          diagnosticsId,
+          windowId,
+          cwd: options.cwd ?? null,
+          kind: options.kind ?? 'terminal',
+          serverName: options.hostSession.serverName,
+          sessionName: options.hostSession.sessionName,
+        });
         throw new Error(`Failed to recover tmux server: ${options.hostSession.serverName}`);
       }
     }
@@ -553,6 +639,16 @@ export class SessionManager {
         sessionId
       );
     } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      console.error('[session] Local session creation failed', {
+        sessionId,
+        windowId,
+        kind,
+        cwd,
+        persistOnDisconnect: record.persistOnDisconnect,
+        hostSessionKind: options.hostSession?.kind ?? null,
+        errorCode: typeof nodeError.code === 'string' ? nodeError.code : null,
+      });
       this.sessions.delete(sessionId);
       throw error;
     }
@@ -1301,6 +1397,42 @@ export class SessionManager {
       createdAt: session.createdAt,
       runtimeState: session.runtimeState ?? 'live',
       metadata: session.metadata,
+    };
+  }
+
+  private buildDiagnosticsSnapshot(): Record<string, unknown> {
+    const backendCounts: Record<string, number> = {};
+    const runtimeStateCounts: Record<string, number> = {};
+    const kindCounts: Record<string, number> = {};
+    let attachedWindowCount = 0;
+
+    for (const session of this.sessions.values()) {
+      backendCounts[session.backend] = (backendCounts[session.backend] ?? 0) + 1;
+      const runtimeState = session.runtimeState ?? 'live';
+      runtimeStateCounts[runtimeState] = (runtimeStateCounts[runtimeState] ?? 0) + 1;
+      kindCounts[session.kind] = (kindCounts[session.kind] ?? 0) + 1;
+      attachedWindowCount += session.attachedWindowIds.size;
+    }
+
+    return {
+      sessionCount: this.sessions.size,
+      backendCounts,
+      runtimeStateCounts,
+      kindCounts,
+      suspendedWindowCount: this.suspendedWindowIds.size,
+      attachedWindowCount,
+      localPty: this.localPtyManager.getDiagnosticsSummary(),
+      sampleSessions: Array.from(this.sessions.values())
+        .slice(0, 6)
+        .map((session) => ({
+          sessionId: session.sessionId,
+          backend: session.backend,
+          kind: session.kind,
+          cwd: session.cwd,
+          runtimeState: session.runtimeState ?? 'live',
+          localRuntime: session.localRuntime ?? null,
+          attachedWindowIds: Array.from(session.attachedWindowIds),
+        })),
     };
   }
 }

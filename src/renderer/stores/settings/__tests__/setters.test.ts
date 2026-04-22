@@ -770,6 +770,7 @@ describe('settings store setters', () => {
       customShellArgs: ['-l'],
     });
     store.setChatPanelInactivityThresholdMinutes(37);
+    store.setRetainSessionBackedChatPanels(false);
     store.setAgentNotificationEnabled(false);
     store.setAgentNotificationDelay(12);
     store.setAgentNotificationEnterDelay(18);
@@ -917,6 +918,7 @@ describe('settings store setters', () => {
       customShellArgs: ['-l'],
     });
     expect(state.chatPanelInactivityThresholdMinutes).toBe(30);
+    expect(state.retainSessionBackedChatPanels).toBe(false);
     expect(state.agentNotificationEnabled).toBe(false);
     expect(state.agentNotificationDelay).toBe(12);
     expect(state.agentNotificationEnterDelay).toBe(18);

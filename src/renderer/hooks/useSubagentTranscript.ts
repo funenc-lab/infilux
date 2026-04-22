@@ -1,18 +1,21 @@
 import type { GetAgentSubagentTranscriptResult, LiveAgentSubagent } from '@shared/types';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface UseSubagentTranscriptState {
   data: GetAgentSubagentTranscriptResult | null;
   isLoading: boolean;
+  isRefreshing: boolean;
   error: string | null;
 }
 
 export function useSubagentTranscript(
   subagent: LiveAgentSubagent | null | undefined
 ): UseSubagentTranscriptState {
+  const transcriptCacheRef = useRef<Record<string, GetAgentSubagentTranscriptResult>>({});
   const [state, setState] = useState<UseSubagentTranscriptState>({
     data: null,
     isLoading: false,
+    isRefreshing: false,
     error: null,
   });
 
@@ -23,14 +26,17 @@ export function useSubagentTranscript(
       setState({
         data: null,
         isLoading: false,
+        isRefreshing: false,
         error: null,
       });
       return;
     }
 
+    const cachedTranscript = transcriptCacheRef.current[subagent.threadId] ?? null;
     setState({
-      data: null,
-      isLoading: true,
+      data: cachedTranscript,
+      isLoading: cachedTranscript === null,
+      isRefreshing: cachedTranscript !== null,
       error: null,
     });
 
@@ -38,9 +44,11 @@ export function useSubagentTranscript(
       .getTranscript({ threadId: subagent.threadId })
       .then((data) => {
         if (!cancelled) {
+          transcriptCacheRef.current[subagent.threadId] = data;
           setState({
             data,
             isLoading: false,
+            isRefreshing: false,
             error: null,
           });
         }
@@ -49,8 +57,9 @@ export function useSubagentTranscript(
         if (!cancelled) {
           const message = error instanceof Error ? error.message : String(error);
           setState({
-            data: null,
+            data: cachedTranscript,
             isLoading: false,
+            isRefreshing: false,
             error: message || 'Failed to load transcript.',
           });
         }

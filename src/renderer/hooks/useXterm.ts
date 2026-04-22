@@ -94,6 +94,11 @@ interface InternalTerminalSearchResultChange {
   resultCount: number;
 }
 
+interface XtermStaticContent {
+  text: string;
+  identity?: string;
+}
+
 export interface UseXtermOptions {
   backendSessionId?: string;
   cwd?: string;
@@ -116,6 +121,7 @@ export interface UseXtermOptions {
   persistOnDisconnect?: boolean;
   preferHostScrollback?: boolean;
   retryOnDeadSession?: boolean;
+  staticContent?: XtermStaticContent;
   onExit?: () => void;
   onData?: (data: string) => void;
   onCustomKey?: (
@@ -239,6 +245,7 @@ export function useXterm({
   persistOnDisconnect = false,
   preferHostScrollback = false,
   retryOnDeadSession = true,
+  staticContent,
   onExit,
   onData,
   onCustomKey,
@@ -289,6 +296,7 @@ export function useXterm({
   const initAttemptIdRef = useRef(0);
   const containerReadyCleanupRef = useRef<(() => void) | null>(null);
   const createRequestIdRef = useRef(0);
+  const appliedStaticContentKeyRef = useRef<string | null>(null);
   const agentStartupLoggerRef = useRef<ReturnType<typeof createAgentStartupTimelineLogger> | null>(
     null
   );
@@ -317,6 +325,10 @@ export function useXterm({
   copyOnSelectionRef.current = copyOnSelection;
   const hasBeenActivatedRef = useRef(false);
   const hasReceivedDataRef = useRef(false);
+  const staticContentRef = useRef(staticContent);
+  staticContentRef.current = staticContent;
+  const isStaticContentModeRef = useRef(Boolean(staticContent));
+  isStaticContentModeRef.current = Boolean(staticContent);
   const [isLoading, setIsLoading] = useState(false);
   const [runtimeState, setRuntimeState] = useState<SessionRuntimeState>('live');
   const [wheelHandlerAttachmentEpoch, setWheelHandlerAttachmentEpoch] = useState(0);
@@ -338,15 +350,19 @@ export function useXterm({
         : `shellConfig:${JSON.stringify(shellConfig)}:initialCommand:${initialCommand || ''}`,
     [command, shellConfig, initialCommand]
   );
+  const staticContentKey = useMemo(
+    () => staticContent?.identity ?? staticContent?.text ?? '',
+    [staticContent]
+  );
   const desiredSessionBinding = useMemo(
     () =>
       createXtermSessionBindingSnapshot({
         cwd: cwd || getRendererEnvironment().HOME,
         kind,
         persistOnDisconnect,
-        sessionId: backendSessionId,
+        sessionId: staticContent ? `static:${staticContentKey}` : backendSessionId,
       }),
-    [backendSessionId, cwd, kind, persistOnDisconnect]
+    [backendSessionId, cwd, kind, persistOnDisconnect, staticContent, staticContentKey]
   );
   // rAF write buffer for smooth rendering
   const writeBufferRef = useRef('');
@@ -573,7 +589,7 @@ export function useXterm({
     containerReadyCleanupRef.current?.();
     containerReadyCleanupRef.current = null;
     setIsLoading(true);
-    if (kind === 'agent') {
+    if (!staticContent && kind === 'agent') {
       agentStartupFirstOutputLoggedRef.current = false;
       agentStartupLoggerRef.current = createAgentStartupTimelineLogger({
         source: 'renderer',
@@ -859,6 +875,23 @@ export function useXterm({
       const isMac = platform === 'darwin';
       const modKey = isMac ? event.metaKey : event.ctrlKey;
 
+      if (isStaticContentModeRef.current) {
+        if (event.type === 'keydown' && modKey && !event.altKey) {
+          if (event.key === 'c' || event.key === 'C') {
+            if (getTerminalSelectionText(terminal)) {
+              void copyTerminalSelectionToClipboard(terminal).catch(() => {});
+              return false;
+            }
+            if (!isMac) {
+              return true;
+            }
+            return false;
+          }
+        }
+
+        return true;
+      }
+
       if (event.type === 'keydown' && modKey && !event.altKey) {
         // Paste: DO NOT intercept - let browser/agent handle it naturally
         // This allows Claude Code and other agents to receive image paste events
@@ -933,6 +966,28 @@ export function useXterm({
       }
       return true;
     });
+
+    terminal.options.disableStdin = Boolean(staticContentRef.current);
+
+    if (staticContentRef.current) {
+      hasReceivedDataRef.current = staticContentRef.current.text.length > 0;
+      activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
+        cwd: cwd || getRendererEnvironment().HOME,
+        kind,
+        persistOnDisconnect,
+        sessionId: `static:${staticContentKey}`,
+      });
+      deadRecoveryAttemptKeyRef.current = null;
+      setRuntimeState('live');
+      setIsLoading(false);
+
+      if (staticContentRef.current.text) {
+        terminal.write(staticContentRef.current.text);
+      }
+      appliedStaticContentKeyRef.current = staticContentKey;
+
+      return;
+    }
 
     try {
       const createRequestId = ++createRequestIdRef.current;
@@ -1140,11 +1195,13 @@ export function useXterm({
     navigateToFile,
     loadRenderer,
     resetSessionBinding,
+    staticContent,
+    staticContentKey,
     write,
   ]);
 
   useEffect(() => {
-    const shouldActivate = isActive || Boolean(initialCommand);
+    const shouldActivate = isActive || Boolean(initialCommand) || Boolean(staticContent);
     if (shouldActivate && !hasBeenActivatedRef.current) {
       hasBeenActivatedRef.current = true;
       requestAnimationFrame(() => {
@@ -1153,9 +1210,13 @@ export function useXterm({
         });
       });
     }
-  }, [isActive, initialCommand, initTerminal]);
+  }, [isActive, initialCommand, initTerminal, staticContent]);
 
   useEffect(() => {
+    if (staticContent) {
+      return;
+    }
+
     const shouldActivate = isActive || Boolean(initialCommand);
     if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
       return;
@@ -1170,9 +1231,13 @@ export function useXterm({
         void initTerminal();
       });
     });
-  }, [desiredSessionBinding, initTerminal, initialCommand, isActive]);
+  }, [desiredSessionBinding, initTerminal, initialCommand, isActive, staticContent]);
 
   useEffect(() => {
+    if (staticContent) {
+      return;
+    }
+
     const shouldActivate = isActive || Boolean(initialCommand);
     if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
       return;
@@ -1205,7 +1270,48 @@ export function useXterm({
     isActive,
     retryOnDeadSession,
     runtimeState,
+    staticContent,
   ]);
+
+  useEffect(() => {
+    if (!staticContent) {
+      appliedStaticContentKeyRef.current = null;
+      return;
+    }
+
+    if (!hasBeenActivatedRef.current) {
+      return;
+    }
+
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void initTerminal();
+        });
+      });
+      return;
+    }
+
+    if (appliedStaticContentKeyRef.current === staticContentKey) {
+      return;
+    }
+
+    searchAddonRef.current?.clearDecorations();
+    setSearchState(createEmptyTerminalSearchState());
+    writeBufferRef.current = '';
+    isFlushPendingRef.current = false;
+    terminal.reset();
+    terminal.options.disableStdin = true;
+    if (staticContent.text) {
+      terminal.write(staticContent.text);
+    }
+    appliedStaticContentKeyRef.current = staticContentKey;
+
+    requestAnimationFrame(() => {
+      fitTerminal();
+    });
+  }, [fitTerminal, initTerminal, staticContent, staticContentKey]);
 
   useEffect(() => {
     if (wheelHandlerAttachmentEpoch === 0) {
@@ -1243,6 +1349,7 @@ export function useXterm({
       hasBeenActivatedRef.current = false;
       hasReceivedDataRef.current = false;
       createRequestIdRef.current += 1;
+      appliedStaticContentKeyRef.current = null;
       activeSessionBindingRef.current = null;
       deadRecoveryAttemptKeyRef.current = null;
       wheelCarryRef.current = 0;

@@ -14,6 +14,31 @@ const isWindows = process.platform === 'win32';
 const TMUX_COMMAND_TIMEOUT_MS = 5000;
 const LIST_PANES_FORMAT = '#{pane_id}\t#{pane_active}\t#{pane_in_mode}';
 const TMUX_HEALTHCHECK_SESSION_PREFIX = 'infilux-healthcheck';
+const TMUX_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
+
+function isResourceExhaustionError(error: unknown): error is NodeJS.ErrnoException {
+  const nodeError = error as NodeJS.ErrnoException;
+  return (
+    typeof nodeError?.code === 'string' && TMUX_RESOURCE_EXHAUSTION_ERROR_CODES.has(nodeError.code)
+  );
+}
+
+function toTmuxResourceExhaustionError(
+  error: unknown,
+  serverName: string,
+  operation: string
+): NodeJS.ErrnoException {
+  const nodeError = error as NodeJS.ErrnoException;
+  const wrappedError = new Error(
+    `System resources exhausted while ${operation} tmux server ${serverName}`
+  ) as NodeJS.ErrnoException & {
+    cause?: unknown;
+  };
+  wrappedError.name = 'TmuxResourceExhaustionError';
+  wrappedError.code = nodeError.code ?? 'EAGAIN';
+  wrappedError.cause = error;
+  return wrappedError;
+}
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -98,6 +123,7 @@ function findActivePaneForSession(stdout: string): { paneId: string; inMode: boo
 
 class TmuxDetector {
   private cache: TmuxCheckResult | null = null;
+  private readonly serverHealthCheckPromises = new Map<string, Promise<boolean>>();
 
   async check(forceRefresh?: boolean): Promise<TmuxCheckResult> {
     if (isWindows) {
@@ -199,18 +225,20 @@ class TmuxDetector {
       return true;
     }
 
-    const installStatus = await this.check();
-    if (!installStatus.installed) {
-      return false;
-    }
-
     const resolvedServerName = resolveTmuxServerName(serverName);
-    if (await this.probeServer(resolvedServerName)) {
-      return true;
+    const inFlightHealthCheck = this.serverHealthCheckPromises.get(resolvedServerName);
+    if (inFlightHealthCheck) {
+      return inFlightHealthCheck;
     }
 
-    this.resetServer(resolvedServerName);
-    return this.probeServer(resolvedServerName);
+    const healthCheckPromise = this.ensureServerHealthyInternal(resolvedServerName).finally(() => {
+      if (this.serverHealthCheckPromises.get(resolvedServerName) === healthCheckPromise) {
+        this.serverHealthCheckPromises.delete(resolvedServerName);
+      }
+    });
+
+    this.serverHealthCheckPromises.set(resolvedServerName, healthCheckPromise);
+    return healthCheckPromise;
   }
 
   async scrollClient(request: TmuxScrollClientRequest): Promise<TmuxScrollClientResult> {
@@ -318,7 +346,10 @@ class TmuxDetector {
         timeout: TMUX_COMMAND_TIMEOUT_MS,
       });
       return true;
-    } catch {
+    } catch (error) {
+      if (isResourceExhaustionError(error)) {
+        throw toTmuxResourceExhaustionError(error, serverName, 'probing');
+      }
       return false;
     }
   }
@@ -327,6 +358,20 @@ class TmuxDetector {
     this.killServerSyncByName(serverName);
     this.killResidualProcesses(serverName);
     this.removeSocketFile(serverName);
+  }
+
+  private async ensureServerHealthyInternal(serverName: string): Promise<boolean> {
+    const installStatus = await this.check();
+    if (!installStatus.installed) {
+      return false;
+    }
+
+    if (await this.probeServer(serverName)) {
+      return true;
+    }
+
+    this.resetServer(serverName);
+    return this.probeServer(serverName);
   }
 
   private killServerSyncByName(serverName: string): void {

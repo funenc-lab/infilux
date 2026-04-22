@@ -30,7 +30,11 @@ import { MainContentTopbar } from './MainContentTopbar';
 import { resolveMainContentContext } from './mainContentContextPolicy';
 import { shouldRenderTabPanel } from './mainContentMountPolicy';
 import { buildMainContentRenderPlan } from './mainContentRenderPlan';
-import { resolveChatPanelRetentionState } from './panelRetentionPolicy';
+import {
+  resolveChatPanelRetentionState,
+  resolveCurrentChatPanelRetentionState,
+  shouldRetainSessionBackedChatPanel,
+} from './panelRetentionPolicy';
 
 export interface MainContentProps {
   activeTab: TabId;
@@ -56,6 +60,9 @@ export interface MainContentProps {
   onToggleSettings?: () => void;
   chatCanvasRecenterToken?: number;
   chatCanvasRecenterWorktreePath?: string | null;
+  chatCanvasFocusToken?: number;
+  chatCanvasFocusWorktreePath?: string | null;
+  chatCanvasFocusSessionId?: string | null;
   showOpenInMenu?: boolean;
   sourceControlEmptyTitle?: string;
   sourceControlEmptyDescription?: string;
@@ -117,6 +124,9 @@ export function MainContent({
   onToggleSettings,
   chatCanvasRecenterToken = 0,
   chatCanvasRecenterWorktreePath = null,
+  chatCanvasFocusToken = 0,
+  chatCanvasFocusWorktreePath = null,
+  chatCanvasFocusSessionId = null,
   showOpenInMenu = true,
   sourceControlEmptyTitle,
   sourceControlEmptyDescription,
@@ -130,6 +140,9 @@ export function MainContent({
   const fileTreeDisplayMode = useSettingsStore((state) => state.fileTreeDisplayMode);
   const chatPanelInactivityThresholdMinutes = useSettingsStore(
     (state) => state.chatPanelInactivityThresholdMinutes
+  );
+  const retainSessionBackedChatPanels = useSettingsStore(
+    (state) => state.retainSessionBackedChatPanels
   );
   const todoEnabled = useSettingsStore((state) => state.todoEnabled);
   const bgImageEnabled = useSettingsStore((state) => state.backgroundImageEnabled);
@@ -455,6 +468,11 @@ export function MainContent({
       worktreeActivities,
     ]
   );
+  const getChatSessionCountForWorktree = useCallback(
+    (targetWorktreePath: string) =>
+      sessions.filter((session) => pathsEqual(session.cwd, targetWorktreePath)).length,
+    [sessions]
+  );
 
   const hasTerminalActivityForWorktree = useCallback(
     (targetWorktreePath: string) => {
@@ -485,7 +503,11 @@ export function MainContent({
   }, [currentNormalizedWorktreePath, getFileTabCountForWorktree]);
 
   const currentChatRetentionState = currentWorktreePath
-    ? getChatRetentionStateForWorktree(currentWorktreePath)
+    ? resolveCurrentChatPanelRetentionState({
+        retentionState: getChatRetentionStateForWorktree(currentWorktreePath),
+        sessionCount: getChatSessionCountForWorktree(currentWorktreePath),
+        retainSessionBackedPanels: retainSessionBackedChatPanels,
+      })
     : 'cold';
   const hasCurrentTerminalActivity = currentWorktreePath
     ? hasTerminalActivityForWorktree(currentWorktreePath)
@@ -562,10 +584,20 @@ export function MainContent({
       updateRetainedChatPanelPaths({
         previousPaths,
         activePath: currentWorktreePath,
-        hasActivity: (worktreePath) => getChatRetentionStateForWorktree(worktreePath) !== 'cold',
+        hasActivity: (worktreePath) =>
+          shouldRetainSessionBackedChatPanel({
+            retentionState: getChatRetentionStateForWorktree(worktreePath),
+            sessionCount: getChatSessionCountForWorktree(worktreePath),
+            retainSessionBackedPanels: retainSessionBackedChatPanels,
+          }),
       })
     );
-  }, [currentWorktreePath, getChatRetentionStateForWorktree]);
+  }, [
+    currentWorktreePath,
+    getChatRetentionStateForWorktree,
+    getChatSessionCountForWorktree,
+    retainSessionBackedChatPanels,
+  ]);
 
   useEffect(() => {
     setRetainedTerminalPanelPaths((previousPaths) =>
@@ -631,7 +663,6 @@ export function MainContent({
         hasActiveWorktree={hasActiveWorktree}
         worktreeCollapsed={worktreeCollapsed}
         onExpandWorktree={onExpandWorktree}
-        onSwitchWorktree={onSwitchWorktree}
         getRepoPathForWorktree={getRepoPathForWorktree}
         shouldRenderCurrentChatPanel={shouldRenderCurrentChatPanel}
         shouldRenderCurrentTerminalPanel={shouldRenderCurrentTerminalPanel}
@@ -654,6 +685,9 @@ export function MainContent({
         scrollToProvider={scrollToProvider}
         chatCanvasRecenterToken={chatCanvasRecenterToken}
         chatCanvasRecenterWorktreePath={chatCanvasRecenterWorktreePath}
+        chatCanvasFocusToken={chatCanvasFocusToken}
+        chatCanvasFocusWorktreePath={chatCanvasFocusWorktreePath}
+        chatCanvasFocusSessionId={chatCanvasFocusSessionId}
         onTabChange={onTabChange}
         selectedSubagent={selectedSubagent}
         onCloseSelectedSubagent={onCloseSelectedSubagent}

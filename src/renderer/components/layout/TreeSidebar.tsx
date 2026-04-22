@@ -99,6 +99,38 @@ function getSidebarSectionId(prefix: string, value: string): string {
 }
 
 const EMPTY_WORKTREES: GitWorktree[] = [];
+
+function buildCreatedWorktreePreview(options: WorktreeCreateOptions): GitWorktree {
+  return {
+    path: options.path,
+    head: '',
+    branch: options.newBranch || options.branch || null,
+    isMainWorktree: false,
+    isLocked: false,
+    prunable: false,
+  };
+}
+
+function mergeWorktreesByPath(
+  primaryWorktrees: readonly GitWorktree[],
+  fallbackWorktrees: readonly GitWorktree[]
+): GitWorktree[] {
+  const mergedWorktrees = new Map<string, GitWorktree>();
+
+  for (const worktree of sanitizeGitWorktrees(primaryWorktrees)) {
+    mergedWorktrees.set(normalizePath(worktree.path), worktree);
+  }
+
+  for (const worktree of sanitizeGitWorktrees(fallbackWorktrees)) {
+    const normalizedPath = normalizePath(worktree.path);
+    if (!mergedWorktrees.has(normalizedPath)) {
+      mergedWorktrees.set(normalizedPath, worktree);
+    }
+  }
+
+  return [...mergedWorktrees.values()];
+}
+
 export interface TreeSidebarProps {
   repositories: Repository[];
   selectedRepo: string | null;
@@ -216,6 +248,9 @@ export function TreeSidebar({
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAgentWorktreesOnly, setShowAgentWorktreesOnly] = useState(false);
+  const [agentFilterCreatedWorktrees, setAgentFilterCreatedWorktrees] = useState<
+    Record<string, GitWorktree[]>
+  >({});
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [tempExpanded, setTempExpanded] = useState(() => getStoredTreeSidebarTempExpanded());
   const [expandedRepoList, setExpandedRepoList] = useState<string[]>(() =>
@@ -254,6 +289,16 @@ export function TreeSidebar({
     [safeTempWorkspaces]
   );
   const selectedSnapshotWorktrees = useMemo(() => sanitizeGitWorktrees(_worktrees), [_worktrees]);
+  const selectedVisibleWorktrees = useMemo(
+    () =>
+      mergeWorktreesByPath(
+        selectedSnapshotWorktrees,
+        selectedRepo && activeWorktree && selectedRepo !== TEMP_REPO_ID
+          ? [activeWorktree]
+          : EMPTY_WORKTREES
+      ),
+    [activeWorktree, selectedRepo, selectedSnapshotWorktrees]
+  );
 
   // Convert list to set for fast lookups
   const expandedRepos = useMemo(() => new Set(expandedRepoList), [expandedRepoList]);
@@ -283,6 +328,12 @@ export function TreeSidebar({
   useEffect(() => {
     saveTreeSidebarTempExpanded(tempExpanded);
   }, [tempExpanded]);
+
+  useEffect(() => {
+    if (!showAgentWorktreesOnly && Object.keys(agentFilterCreatedWorktrees).length > 0) {
+      setAgentFilterCreatedWorktrees({});
+    }
+  }, [agentFilterCreatedWorktrees, showAgentWorktreesOnly]);
 
   // Fetch worktrees for expanded repos only
   const {
@@ -405,7 +456,7 @@ export function TreeSidebar({
     return resolveTreeSidebarRepoSnapshot({
       repoPath: selectedRepo,
       selectedRepo,
-      selectedWorktrees: selectedSnapshotWorktrees,
+      selectedWorktrees: selectedVisibleWorktrees,
       selectedActiveWorktree: activeWorktree,
       selectedActiveWorktreePath: activeWorktree?.path ?? null,
       selectedIsLoading: selectedRepoLoading,
@@ -427,7 +478,7 @@ export function TreeSidebar({
     selectedRepoError,
     selectedRepoFetching,
     selectedRepoLoading,
-    selectedSnapshotWorktrees,
+    selectedVisibleWorktrees,
     worktreesMap,
   ]);
 
@@ -834,9 +885,36 @@ export function TreeSidebar({
     },
     [activities]
   );
+  const agentFilterCreatedPathSet = useMemo(() => {
+    const createdPaths = new Set<string>();
+
+    for (const worktrees of Object.values(agentFilterCreatedWorktrees)) {
+      for (const worktree of worktrees) {
+        createdPaths.add(normalizePath(worktree.path));
+      }
+    }
+
+    return createdPaths;
+  }, [agentFilterCreatedWorktrees]);
+  const activeWorktreePath = activeWorktree?.path ?? null;
+  const hasAgentFilterVisibilityOverrideForPath = useCallback(
+    (path: string) => {
+      const normalizedPath = normalizePath(path);
+      return (
+        normalizedPath === (activeWorktreePath ? normalizePath(activeWorktreePath) : null) ||
+        agentFilterCreatedPathSet.has(normalizedPath)
+      );
+    },
+    [activeWorktreePath, agentFilterCreatedPathSet]
+  );
+  const matchesAgentWorktreeFilter = useCallback(
+    (path: string) =>
+      hasAgentActivityForPath(path) || hasAgentFilterVisibilityOverrideForPath(path),
+    [hasAgentActivityForPath, hasAgentFilterVisibilityOverrideForPath]
+  );
   const filteredTempWorkspaces = useMemo(() => {
     return sortedTempWorkspaces.filter((item) => {
-      if (showAgentWorktreesOnly && !hasAgentActivityForPath(item.path)) {
+      if (showAgentWorktreesOnly && !matchesAgentWorktreeFilter(item.path)) {
         return false;
       }
 
@@ -859,20 +937,28 @@ export function TreeSidebar({
     });
   }, [
     activities,
-    hasAgentActivityForPath,
+    matchesAgentWorktreeFilter,
     parsedSearch,
     showAgentWorktreesOnly,
     sortedTempWorkspaces,
   ]);
   const getSearchableRepoWorktrees = useCallback(
     (repoPath: string) => {
-      if (repoPath === selectedRepo) {
-        return selectedSnapshotWorktrees;
-      }
-
-      return worktreesMap[repoPath] || allRepoWorktreesMap[repoPath] || EMPTY_WORKTREES;
+      const baseWorktrees =
+        repoPath === selectedRepo
+          ? selectedVisibleWorktrees
+          : worktreesMap[repoPath] || allRepoWorktreesMap[repoPath] || EMPTY_WORKTREES;
+      const createdWorktrees =
+        agentFilterCreatedWorktrees[normalizePath(repoPath)] || EMPTY_WORKTREES;
+      return mergeWorktreesByPath(baseWorktrees, createdWorktrees);
     },
-    [allRepoWorktreesMap, selectedRepo, selectedSnapshotWorktrees, worktreesMap]
+    [
+      agentFilterCreatedWorktrees,
+      allRepoWorktreesMap,
+      selectedRepo,
+      selectedVisibleWorktrees,
+      worktreesMap,
+    ]
   );
 
   const filteredRepos = useMemo(() => {
@@ -881,7 +967,7 @@ export function TreeSidebar({
     if (showAgentWorktreesOnly) {
       filtered = filtered.filter((repo) =>
         getSearchableRepoWorktrees(repo.path).some((worktree) =>
-          hasAgentActivityForPath(worktree.path)
+          matchesAgentWorktreeFilter(worktree.path)
         )
       );
     }
@@ -919,7 +1005,7 @@ export function TreeSidebar({
     parsedSearch,
     activePathSet,
     getSearchableRepoWorktrees,
-    hasAgentActivityForPath,
+    matchesAgentWorktreeFilter,
     repoIndexMap,
   ]);
   const showSearchEmptyState =
@@ -972,7 +1058,7 @@ export function TreeSidebar({
   const getFilteredWorktrees = useCallback(
     (repoWorktrees: GitWorktree[]) => {
       return repoWorktrees.filter((wt) => {
-        if (showAgentWorktreesOnly && !hasAgentActivityForPath(wt.path)) {
+        if (showAgentWorktreesOnly && !matchesAgentWorktreeFilter(wt.path)) {
           return false;
         }
 
@@ -991,7 +1077,7 @@ export function TreeSidebar({
         );
       });
     },
-    [activities, hasAgentActivityForPath, parsedSearch, showAgentWorktreesOnly]
+    [activities, matchesAgentWorktreeFilter, parsedSearch, showAgentWorktreesOnly]
   );
 
   const renderRepoItem = (repo: Repository, originalIndex: number, sectionGroupId?: string) => {
@@ -1015,9 +1101,11 @@ export function TreeSidebar({
       canLoad: repoCanLoad,
     });
     const prefetchedRepoWorktrees = getSearchableRepoWorktrees(repo.path);
-    const repoWorktrees = isExpanded
-      ? getFilteredWorktrees(isStoredExpanded ? repoSnapshot.worktrees : prefetchedRepoWorktrees)
-      : EMPTY_WORKTREES;
+    const visibleRepoWorktrees = mergeWorktreesByPath(
+      repoSnapshot.worktrees,
+      prefetchedRepoWorktrees
+    );
+    const repoWorktrees = isExpanded ? getFilteredWorktrees(visibleRepoWorktrees) : EMPTY_WORKTREES;
     const repoError = isStoredExpanded
       ? repoSnapshot.error
       : isSelected
@@ -1919,6 +2007,16 @@ export function TreeSidebar({
         isLoading={isCreating}
         onSubmit={async (options) => {
           await onCreateWorktree(options);
+          if (showAgentWorktreesOnly && selectedRepo && selectedRepo !== TEMP_REPO_ID) {
+            const repoKey = normalizePath(selectedRepo);
+            const createdWorktree = buildCreatedWorktreePreview(options);
+            setAgentFilterCreatedWorktrees((previous) => ({
+              ...previous,
+              [repoKey]: mergeWorktreesByPath(previous[repoKey] || EMPTY_WORKTREES, [
+                createdWorktree,
+              ]),
+            }));
+          }
           refetchExpandedWorktrees();
         }}
       />

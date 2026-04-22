@@ -51,6 +51,45 @@ export function resolveChatPanelRetentionState({
   return 'cold';
 }
 
+interface ResolveCurrentChatPanelRetentionStateOptions {
+  retentionState: ChatPanelRetentionState;
+  sessionCount: number;
+  retainSessionBackedPanels?: boolean;
+}
+
+interface ShouldRetainSessionBackedChatPanelOptions {
+  retentionState: ChatPanelRetentionState;
+  sessionCount: number;
+  retainSessionBackedPanels?: boolean;
+}
+
+export function shouldRetainSessionBackedChatPanel({
+  retentionState,
+  sessionCount,
+  retainSessionBackedPanels = true,
+}: ShouldRetainSessionBackedChatPanelOptions): boolean {
+  return retentionState !== 'cold' || (retainSessionBackedPanels && sessionCount > 0);
+}
+
+export function resolveCurrentChatPanelRetentionState({
+  retentionState,
+  sessionCount,
+  retainSessionBackedPanels = true,
+}: ResolveCurrentChatPanelRetentionStateOptions): ChatPanelRetentionState {
+  if (
+    retentionState === 'cold' &&
+    shouldRetainSessionBackedChatPanel({
+      retentionState,
+      sessionCount,
+      retainSessionBackedPanels,
+    })
+  ) {
+    return 'warm';
+  }
+
+  return retentionState;
+}
+
 export function shouldRetainPanel({
   tabId,
   activeTab,

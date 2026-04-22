@@ -29,6 +29,10 @@ import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { DeferredEditorArea } from './DeferredEditorArea';
 import type { EditorAreaRef } from './EditorArea';
 import {
+  getFilePanelRefreshTargetOnWindowFocus,
+  resolveRetainedEditorRuntime,
+} from './editorRuntimePolicy';
+import {
   type ConflictInfo,
   type ConflictResolution,
   FileConflictDialog,
@@ -207,10 +211,21 @@ export function FilePanel({
   useEffect(() => {
     const wasFocused = prevFocusedRef.current;
     prevFocusedRef.current = isWindowFocused;
-    if (isWindowFocused && !wasFocused && activeTab?.path) {
-      refreshFileContent(activeTab.path);
+    const refreshTarget = getFilePanelRefreshTargetOnWindowFocus({
+      isPanelActive: isActive,
+      isWindowFocused,
+      wasWindowFocused: wasFocused,
+      activeTabPath: activeTab?.path ?? null,
+    });
+    if (refreshTarget) {
+      refreshFileContent(refreshTarget);
     }
-  }, [isWindowFocused, activeTab?.path, refreshFileContent]);
+  }, [isActive, isWindowFocused, activeTab?.path, refreshFileContent]);
+
+  const retainedEditorRuntime = resolveRetainedEditorRuntime({
+    isPanelActive: isActive,
+    openTabCount: tabs.length,
+  });
 
   // Handle file deleted (from undo operation)
   const handleFileDeleted = useCallback(
@@ -885,10 +900,11 @@ export function FilePanel({
       <div className="flex-1 overflow-hidden">
         <DeferredEditorArea
           ref={editorAreaRef}
-          shouldLoad={isActive || tabs.length > 0}
+          shouldLoad={retainedEditorRuntime.shouldLoadEditor}
           tabs={tabs}
           activeTab={activeTab}
           activeTabPath={activeTab?.path ?? null}
+          runtimeEffectsEnabled={retainedEditorRuntime.runtimeEffectsEnabled}
           pendingCursor={pendingCursor}
           rootPath={rootPath}
           onTabClick={handleTabClick}

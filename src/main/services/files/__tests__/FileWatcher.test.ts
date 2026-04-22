@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const fileWatcherTestDoubles = vi.hoisted(() => {
   const unsubscribe = vi.fn(async () => undefined);
   const subscribe = vi.fn();
+  const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-file-watch');
+  const logError = vi.fn();
+  const resolveModulePath = vi.fn();
   let subscribeCallback:
     | ((
         err: Error | null,
@@ -13,8 +16,21 @@ const fileWatcherTestDoubles = vi.hoisted(() => {
   function reset() {
     unsubscribe.mockReset();
     subscribe.mockReset();
+    requestMainProcessDiagnosticsCapture.mockReset();
+    logError.mockReset();
+    resolveModulePath.mockReset();
     subscribeCallback = null;
 
+    requestMainProcessDiagnosticsCapture.mockReturnValue('diag-file-watch');
+    resolveModulePath.mockImplementation((target: string) => {
+      if (target === '@parcel/watcher') {
+        return '/repo/node_modules/@parcel/watcher/index.js';
+      }
+      if (target === '@parcel/watcher-win32-x64') {
+        return '/repo/node_modules/@parcel/watcher-win32-x64/index.node';
+      }
+      throw new Error(`Cannot resolve ${target}`);
+    });
     unsubscribe.mockResolvedValue(undefined);
     subscribe.mockImplementation(
       async (
@@ -33,6 +49,9 @@ const fileWatcherTestDoubles = vi.hoisted(() => {
   return {
     subscribe,
     unsubscribe,
+    requestMainProcessDiagnosticsCapture,
+    logError,
+    resolveModulePath,
     get subscribeCallback() {
       return subscribeCallback;
     },
@@ -42,6 +61,22 @@ const fileWatcherTestDoubles = vi.hoisted(() => {
 
 vi.mock('@parcel/watcher', () => ({
   subscribe: fileWatcherTestDoubles.subscribe,
+}));
+
+vi.mock('node:module', () => ({
+  createRequire: () => ({
+    resolve: fileWatcherTestDoubles.resolveModulePath,
+  }),
+}));
+
+vi.mock('../../../utils/mainProcessDiagnostics', () => ({
+  requestMainProcessDiagnosticsCapture: fileWatcherTestDoubles.requestMainProcessDiagnosticsCapture,
+}));
+
+vi.mock('../../../utils/logger', () => ({
+  default: {
+    error: fileWatcherTestDoubles.logError,
+  },
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -71,7 +106,7 @@ describe('FileWatcher', () => {
     setPlatform('win32');
     const callback = vi.fn();
 
-    const { FileWatcher } = await import('../FileWatcher');
+    const { FileWatcher, resolveFileWatcherBackendHint } = await import('../FileWatcher');
     const watcher = new FileWatcher('/repo', callback);
 
     await watcher.start();
@@ -80,6 +115,14 @@ describe('FileWatcher', () => {
       ignore: ['node_modules', '.git', 'dist', 'out'],
       backend: 'windows',
     });
+    expect(resolveFileWatcherBackendHint()).toBe('windows');
+    expect(watcher.getRuntimeInfo()).toEqual(
+      expect.objectContaining({
+        backendHint: 'windows',
+        inferredBackend: 'windows',
+        inferenceSource: 'Explicit backend option for Windows',
+      })
+    );
 
     fileWatcherTestDoubles.subscribeCallback?.(null, [
       { type: 'create', path: '/repo/new.ts' },
@@ -95,9 +138,8 @@ describe('FileWatcher', () => {
     expect(fileWatcherTestDoubles.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it('logs watcher errors and safely ignores repeated stops', async () => {
+  it('logs watcher runtime errors and safely ignores repeated stops', async () => {
     setPlatform('linux');
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     const { FileWatcher } = await import('../FileWatcher');
     const watcher = new FileWatcher('/repo', vi.fn());
@@ -105,10 +147,65 @@ describe('FileWatcher', () => {
     await watcher.start();
     fileWatcherTestDoubles.subscribeCallback?.(new Error('watch failed'), []);
 
-    expect(errorSpy).toHaveBeenCalledWith('File watcher error:', expect.any(Error));
+    expect(fileWatcherTestDoubles.requestMainProcessDiagnosticsCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'file-watcher-runtime-error',
+        context: expect.objectContaining({
+          dirPath: '/repo',
+          runtimeInfo: expect.objectContaining({
+            backendHint: 'native-default',
+            inferredBackend: 'default',
+          }),
+        }),
+      })
+    );
+    expect(fileWatcherTestDoubles.logError).toHaveBeenCalledWith(
+      'File watcher runtime error',
+      expect.objectContaining({
+        diagnosticsId: 'diag-file-watch',
+        dirPath: '/repo',
+        runtimeInfo: expect.objectContaining({
+          backendHint: 'native-default',
+          inferredBackend: 'default',
+        }),
+      })
+    );
 
     await watcher.stop();
     await watcher.stop();
     expect(fileWatcherTestDoubles.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs subscribe failures with diagnostics and rethrows the error', async () => {
+    setPlatform('linux');
+    fileWatcherTestDoubles.subscribe.mockRejectedValueOnce(new Error('subscribe failed'));
+
+    const { FileWatcher } = await import('../FileWatcher');
+    const watcher = new FileWatcher('/repo/failing', vi.fn());
+
+    await expect(watcher.start()).rejects.toThrow('subscribe failed');
+    expect(fileWatcherTestDoubles.requestMainProcessDiagnosticsCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'file-watcher-subscribe-failed',
+        context: expect.objectContaining({
+          dirPath: '/repo/failing',
+          runtimeInfo: expect.objectContaining({
+            backendHint: 'native-default',
+            inferredBackend: 'default',
+          }),
+        }),
+      })
+    );
+    expect(fileWatcherTestDoubles.logError).toHaveBeenCalledWith(
+      'File watcher subscribe failed',
+      expect.objectContaining({
+        diagnosticsId: 'diag-file-watch',
+        dirPath: '/repo/failing',
+        runtimeInfo: expect.objectContaining({
+          backendHint: 'native-default',
+          inferredBackend: 'default',
+        }),
+      })
+    );
   });
 });

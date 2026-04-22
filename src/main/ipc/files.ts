@@ -27,6 +27,10 @@ import {
   toRemoteVirtualPath,
 } from '../services/remote/RemotePath';
 import { remoteRepositoryBackend } from '../services/remote/RemoteRepositoryBackend';
+import {
+  registerMainProcessDiagnosticsCollector,
+  requestMainProcessDiagnosticsCapture,
+} from '../utils/mainProcessDiagnostics';
 import { shouldReturnEmptyFileList } from './fileListPolicy';
 import {
   detectEncoding,
@@ -89,6 +93,51 @@ function emitFileListRuntimeDiagnostics(stage: string, payload: Record<string, u
   console.error(`[file-list-debug] ${stage}`, payload);
 }
 
+function buildFileWatcherCountSummary(): Record<string, number> {
+  return {
+    localWatcherCount: watchers.size,
+    remoteWatcherCount: remoteWatchers.size,
+    localWatcherOwnerCount: ownerWatcherKeys.size,
+    remoteConnectionSubscriptionCount: remoteWatcherConnectionSubscriptions.size,
+    pendingRemoteConnectionSubscriptionCount: pendingRemoteWatcherConnectionSubscriptions.size,
+  };
+}
+
+function buildFileWatcherDiagnosticsSnapshot(): Record<string, unknown> {
+  const localStates: Record<FileWatcherState, number> = {
+    starting: 0,
+    running: 0,
+    stopping: 0,
+  };
+
+  for (const entry of watchers.values()) {
+    localStates[entry.state] += 1;
+  }
+
+  return {
+    ...buildFileWatcherCountSummary(),
+    localWatchersByState: localStates,
+    sampleLocalWatchers: Array.from(watchers.values())
+      .slice(0, 6)
+      .map((entry) => ({
+        dirPath: entry.dirPath,
+        ownerId: entry.ownerId,
+        state: entry.state,
+      })),
+    sampleRemoteWatchers: Array.from(remoteWatchers.values())
+      .slice(0, 4)
+      .map((entry) => ({
+        dirPath: entry.dirPath,
+        connectionId: entry.connectionId,
+        windowId: entry.windowId,
+      })),
+  };
+}
+
+registerMainProcessDiagnosticsCollector('fileWatchers', () =>
+  buildFileWatcherDiagnosticsSnapshot()
+);
+
 function trackWatcherKey(ownerId: number, key: string): void {
   const keys = ownerWatcherKeys.get(ownerId) ?? new Set<string>();
   keys.add(key);
@@ -118,6 +167,12 @@ async function stopWatcherEntry(key: string): Promise<void> {
 
   watchers.delete(key);
   untrackWatcherKey(entry.ownerId, key);
+  console.info('[file-watch] stopped', {
+    watcherKey: key,
+    dirPath: entry.dirPath,
+    ownerId: entry.ownerId,
+    ...buildFileWatcherCountSummary(),
+  });
 }
 
 async function stopFileWatchersForOwner(ownerId: number): Promise<void> {
@@ -307,6 +362,13 @@ async function startRemoteWatcherRegistration(
     id: registration.watcherId,
     path: registration.remotePath,
   });
+  console.info('[file-watch] remote started', {
+    watcherKey: registration.key,
+    dirPath: registration.dirPath,
+    connectionId: registration.connectionId,
+    windowId: registration.windowId,
+    ...buildFileWatcherCountSummary(),
+  });
 }
 
 async function startRemoteWatcher(window: BrowserWindow, dirPath: string): Promise<void> {
@@ -356,6 +418,14 @@ async function stopRemoteWatcher(registration: RemoteWatcherRegistration): Promi
   } catch {
     // Helper may already be gone. Cleanup should stay best-effort.
   }
+
+  console.info('[file-watch] remote stopped', {
+    watcherKey: registration.key,
+    dirPath: registration.dirPath,
+    connectionId: registration.connectionId,
+    windowId: registration.windowId,
+    ...buildFileWatcherCountSummary(),
+  });
 }
 
 export function registerFileHandlers(): void {
@@ -761,6 +831,27 @@ export function registerFileHandlers(): void {
       if (pendingEvents.size > MAX_PENDING_EVENTS) {
         bulkMode = true;
         pendingEvents.clear();
+        const diagnosticsId = requestMainProcessDiagnosticsCapture({
+          event: 'file-watcher-bulk-mode',
+          context: {
+            watcherKey,
+            dirPath,
+            ownerId,
+            pendingEventLimit: MAX_PENDING_EVENTS,
+            flushEventLimit: MAX_FLUSH_EVENTS,
+          },
+          throttleKey: 'file-watcher-bulk-mode',
+          level: 'warn',
+        });
+        console.warn('[file-watch] entered bulk mode', {
+          diagnosticsId,
+          watcherKey,
+          dirPath,
+          ownerId,
+          pendingEventLimit: MAX_PENDING_EVENTS,
+          flushEventLimit: MAX_FLUSH_EVENTS,
+          ...buildFileWatcherCountSummary(),
+        });
       }
       scheduleFlush();
     });
@@ -789,7 +880,35 @@ export function registerFileHandlers(): void {
       }
 
       entry.state = 'running';
+      console.info('[file-watch] started', {
+        watcherKey,
+        dirPath,
+        ownerId,
+        runtimeInfo: watcher.getRuntimeInfo(),
+        ...buildFileWatcherCountSummary(),
+      });
     } catch (error) {
+      const diagnosticsId = requestMainProcessDiagnosticsCapture({
+        event: 'file-watcher-start-failed',
+        context: {
+          watcherKey,
+          dirPath,
+          ownerId,
+          runtimeInfo: watcher.getRuntimeInfo(),
+        },
+        error,
+        throttleKey: 'file-watcher-start-failed',
+      });
+      const nodeError = error as NodeJS.ErrnoException;
+      console.error('[file-watch] failed to start', {
+        diagnosticsId,
+        watcherKey,
+        dirPath,
+        ownerId,
+        runtimeInfo: watcher.getRuntimeInfo(),
+        errorCode: typeof nodeError.code === 'string' ? nodeError.code : null,
+        ...buildFileWatcherCountSummary(),
+      });
       await stopWatcherEntry(watcherKey);
       throw error;
     }

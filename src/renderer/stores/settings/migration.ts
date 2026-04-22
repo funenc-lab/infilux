@@ -321,6 +321,10 @@ export function migrateSettings(
     persisted.chatPanelInactivityThresholdMinutes,
     currentState.chatPanelInactivityThresholdMinutes
   );
+  const retainSessionBackedChatPanels =
+    typeof persisted.retainSessionBackedChatPanels === 'boolean'
+      ? persisted.retainSessionBackedChatPanels
+      : currentState.retainSessionBackedChatPanels;
 
   // Migrate xterm keybindings from legacy formats
   const migratedXtermKeybindings = migrateXtermKeybindings(persisted, currentState);
@@ -371,6 +375,7 @@ export function migrateSettings(
     ...(terminalRenderer && { terminalRenderer }),
     terminalScrollback,
     chatPanelInactivityThresholdMinutes,
+    retainSessionBackedChatPanels,
     xtermKeybindings: migratedXtermKeybindings,
     mainTabKeybindings: {
       ...currentState.mainTabKeybindings,

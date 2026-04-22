@@ -21,6 +21,10 @@ import { useWindowFocus } from '@/hooks/useWindowFocus';
 import { type TerminalKeybinding, useSettingsStore } from '@/stores/settings';
 import { DeferredEditorArea } from './DeferredEditorArea';
 import type { EditorAreaRef } from './EditorArea';
+import {
+  getFilePanelRefreshTargetOnWindowFocus,
+  resolveRetainedEditorRuntime,
+} from './editorRuntimePolicy';
 import type { UnsavedChangesChoice } from './UnsavedChangesDialog';
 
 // Helper to check if a keyboard event matches a keybinding
@@ -70,10 +74,16 @@ export function CurrentFilePanel({
   useEffect(() => {
     const wasFocused = prevFocusedRef.current;
     prevFocusedRef.current = isWindowFocused;
-    if (isWindowFocused && !wasFocused && activeTab?.path) {
-      refreshFileContent(activeTab.path);
+    const refreshTarget = getFilePanelRefreshTargetOnWindowFocus({
+      isPanelActive: isActive,
+      isWindowFocused,
+      wasWindowFocused: wasFocused,
+      activeTabPath: activeTab?.path ?? null,
+    });
+    if (refreshTarget) {
+      refreshFileContent(refreshTarget);
     }
-  }, [isWindowFocused, activeTab?.path, refreshFileContent]);
+  }, [isActive, isWindowFocused, activeTab?.path, refreshFileContent]);
 
   // Global search state
   const [searchOpen, setSearchOpen] = useState(false);
@@ -82,6 +92,10 @@ export function CurrentFilePanel({
   // Get search keybindings from settings
   const searchKeybindings = useSettingsStore((s) => s.searchKeybindings);
   const editorSettings = useSettingsStore((s) => s.editorSettings);
+  const retainedEditorRuntime = resolveRetainedEditorRuntime({
+    isPanelActive: isActive,
+    openTabCount: tabs.length,
+  });
 
   // Helper to open search dialog with current selection
   const openSearch = useCallback((mode: SearchMode, selectedText?: string) => {
@@ -273,10 +287,11 @@ export function CurrentFilePanel({
       <div className="flex-1 overflow-hidden">
         <DeferredEditorArea
           ref={editorAreaRef}
-          shouldLoad={isActive || tabs.length > 0}
+          shouldLoad={retainedEditorRuntime.shouldLoadEditor}
           tabs={tabs}
           activeTab={activeTab}
           activeTabPath={activeTab?.path ?? null}
+          runtimeEffectsEnabled={retainedEditorRuntime.runtimeEffectsEnabled}
           pendingCursor={pendingCursor}
           rootPath={rootPath}
           onTabClick={handleTabClick}

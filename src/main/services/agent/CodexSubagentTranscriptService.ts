@@ -1,14 +1,15 @@
-import { readdir } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import type {
   AgentSubagentTranscriptEntry,
   GetAgentSubagentTranscriptRequest,
   GetAgentSubagentTranscriptResult,
 } from '@shared/types';
+import {
+  CODEX_SESSIONS_DIR,
+  findCodexSessionFileByThreadId,
+  formatCodexAgentType,
+} from './codexSessionMetadata';
 import { closeFileLineReader, createFileLineReader } from './fileLineReader';
 
-const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
 const DEFAULT_MAX_TRANSCRIPT_ENTRIES = 200;
 
 interface CodexSessionMeta {
@@ -49,15 +50,7 @@ function parseTimestamp(value: unknown): number {
 }
 
 function formatAgentType(agentType?: string): string {
-  if (!agentType) {
-    return 'Subagent';
-  }
-
-  return agentType
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+  return formatCodexAgentType(agentType);
 }
 
 function buildTranscriptLabel(meta: CodexSessionMeta): string {
@@ -117,6 +110,7 @@ interface TranscriptCollector {
   meta: CodexSessionMeta;
   entries: AgentSubagentTranscriptEntry[];
   started: boolean;
+  capturing: boolean;
   entryIndex: number;
   omittedEntryCount: number;
   maxEntries: number;
@@ -131,6 +125,7 @@ function createTranscriptCollector(
     },
     entries: [],
     started: false,
+    capturing: false,
     entryIndex: 0,
     omittedEntryCount: 0,
     maxEntries: Math.max(1, options.maxEntries ?? DEFAULT_MAX_TRANSCRIPT_ENTRIES),
@@ -150,6 +145,14 @@ function pushTranscriptEntry(
     collector.entries.shift();
     collector.omittedEntryCount += 1;
   }
+}
+
+function isBootstrapTranscriptText(text: string): boolean {
+  return (
+    text.includes('# AGENTS.md instructions') ||
+    text.includes('<INSTRUCTIONS>') ||
+    text.includes('<environment_context>')
+  );
 }
 
 function consumeTranscriptLine(collector: TranscriptCollector, rawLine: string): void {
@@ -218,6 +221,14 @@ function consumeTranscriptLine(collector: TranscriptCollector, rawLine: string):
       return;
     }
 
+    if (!collector.capturing) {
+      if (role !== 'user' || isBootstrapTranscriptText(text)) {
+        return;
+      }
+
+      collector.capturing = true;
+    }
+
     pushTranscriptEntry(collector, {
       timestamp,
       kind: 'message',
@@ -229,6 +240,10 @@ function consumeTranscriptLine(collector: TranscriptCollector, rawLine: string):
   }
 
   if (payload.type === 'function_call') {
+    if (!collector.capturing) {
+      return;
+    }
+
     const toolName = typeof payload.name === 'string' ? payload.name : 'tool';
     const summary = summarizeToolArguments(payload.arguments);
     const text = summary ? `${toolName}: ${summary}` : toolName;
@@ -281,35 +296,6 @@ async function parseCodexSubagentTranscriptFile(
   }
 
   return finalizeCollector(collector);
-}
-
-async function findCodexSessionFileByThreadId(
-  rootDir: string,
-  threadId: string
-): Promise<string | null> {
-  try {
-    const entries = await readdir(rootDir, { withFileTypes: true, encoding: 'utf8' });
-
-    for (const entry of entries) {
-      const fullPath = path.join(rootDir, entry.name);
-
-      if (entry.isDirectory()) {
-        const nested = await findCodexSessionFileByThreadId(fullPath, threadId);
-        if (nested) {
-          return nested;
-        }
-        continue;
-      }
-
-      if (entry.isFile() && entry.name.endsWith('.jsonl') && entry.name.includes(threadId)) {
-        return fullPath;
-      }
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
 }
 
 export class CodexSubagentTranscriptService {

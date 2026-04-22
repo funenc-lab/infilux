@@ -101,6 +101,7 @@ export interface EditorAreaProps {
   tabs: EditorTab[];
   activeTab: EditorTab | null;
   activeTabPath: string | null;
+  runtimeEffectsEnabled?: boolean;
   pendingCursor: PendingCursor | null;
   rootPath?: string;
   onTabClick: (path: string) => void;
@@ -125,6 +126,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
     tabs,
     activeTab,
     activeTabPath,
+    runtimeEffectsEnabled = true,
     pendingCursor,
     rootPath,
     onTabClick,
@@ -415,14 +417,14 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
   // Auto save: Handle blur listener for onFocusChange mode
   // This effect ensures listener is properly registered/unregistered when autoSave mode changes
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
     // Cleanup previous listener
     if (blurDisposableRef.current) {
       blurDisposableRef.current.dispose();
       blurDisposableRef.current = null;
     }
+
+    const editor = editorRef.current;
+    if (!editor || !runtimeEffectsEnabled) return;
 
     // Register new listener if onFocusChange mode
     if (editorSettings.autoSave === 'onFocusChange') {
@@ -442,10 +444,14 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
         blurDisposableRef.current = null;
       }
     };
-  }, [editorSettings.autoSave, handleSaveWithBlameRefresh]);
+  }, [editorSettings.autoSave, handleSaveWithBlameRefresh, runtimeEffectsEnabled]);
 
   // Auto save: Save on window focus change
   useEffect(() => {
+    if (!runtimeEffectsEnabled) {
+      return;
+    }
+
     const handleWindowBlur = () => {
       if (
         activeTabPath &&
@@ -459,10 +465,14 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
 
     window.addEventListener('blur', handleWindowBlur);
     return () => window.removeEventListener('blur', handleWindowBlur);
-  }, [activeTabPath, editorSettings.autoSave, handleSaveWithBlameRefresh]);
+  }, [activeTabPath, editorSettings.autoSave, handleSaveWithBlameRefresh, runtimeEffectsEnabled]);
 
   // Listen for external file changes and update open tabs
   useEffect(() => {
+    if (!runtimeEffectsEnabled) {
+      return;
+    }
+
     // Debounce timers keyed by file path to prevent concurrent reloads of the same file.
     // Needed because Claude CLI atomic writes (tmp + rename) can fire multiple rapid events.
     const reloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -591,7 +601,13 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
       for (const timer of reloadTimers.values()) clearTimeout(timer);
       reloadTimers.clear();
     };
-  }, [markTabsStale, onContentChange, markExternalChange, setEditorValueProgrammatically]);
+  }, [
+    markTabsStale,
+    onContentChange,
+    markExternalChange,
+    runtimeEffectsEnabled,
+    setEditorValueProgrammatically,
+  ]);
 
   // Sync Monaco editor when store content is updated by background refresh (tab switch reload)
   useEffect(() => {

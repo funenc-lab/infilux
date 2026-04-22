@@ -29,6 +29,9 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
   const pidtree = vi.fn();
   const pidusage = vi.fn();
   const logInfo = vi.fn();
+  const logWarn = vi.fn();
+  const logError = vi.fn();
+  const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-pty');
   const ptys: FakePty[] = [];
 
   function createPty(pid = 1000 + ptys.length): FakePty {
@@ -88,6 +91,9 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
     pidtree.mockReset();
     pidusage.mockReset();
     logInfo.mockReset();
+    logWarn.mockReset();
+    logError.mockReset();
+    requestMainProcessDiagnosticsCapture.mockReset();
     ptys.length = 0;
 
     homedir.mockReturnValue('/Users/tester');
@@ -123,6 +129,7 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
       ptys.push(pty);
       return pty;
     });
+    requestMainProcessDiagnosticsCapture.mockReturnValue('diag-pty');
   }
 
   return {
@@ -139,6 +146,9 @@ const ptyManagerTestDoubles = vi.hoisted(() => {
     pidtree,
     pidusage,
     logInfo,
+    logWarn,
+    logError,
+    requestMainProcessDiagnosticsCapture,
     ptys,
     reset,
   };
@@ -196,7 +206,13 @@ vi.mock('pidusage', () => ({
 vi.mock('../../../utils/logger', () => ({
   default: {
     info: ptyManagerTestDoubles.logInfo,
+    warn: ptyManagerTestDoubles.logWarn,
+    error: ptyManagerTestDoubles.logError,
   },
+}));
+
+vi.mock('../../../utils/mainProcessDiagnostics', () => ({
+  requestMainProcessDiagnosticsCapture: ptyManagerTestDoubles.requestMainProcessDiagnosticsCapture,
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -363,8 +379,59 @@ describe('PtyManager utilities', () => {
     expect(pty.resize).toHaveBeenCalledTimes(1);
   });
 
+  it('logs resize failures with diagnostics and exposes session summaries', async () => {
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+    const id = manager.create({ cwd: '/repo', kind: 'agent' }, vi.fn(), undefined, 'session-2');
+    const pty = ptyManagerTestDoubles.ptys[0];
+    if (!pty) {
+      throw new Error('Missing PTY instance');
+    }
+
+    pty.resize.mockImplementationOnce(() => {
+      const error = new Error('ioctl failed') as NodeJS.ErrnoException;
+      error.code = 'EBADF';
+      throw error;
+    });
+
+    expect(() => manager.resize(id, 120, 50)).toThrow('ioctl failed');
+    expect(ptyManagerTestDoubles.requestMainProcessDiagnosticsCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'pty-resize-failed',
+        throttleKey: 'pty-resize-failed:EBADF',
+        context: expect.objectContaining({
+          ptyId: 'session-2',
+          cwd: '/repo',
+          cols: 120,
+          rows: 50,
+        }),
+      })
+    );
+    expect(ptyManagerTestDoubles.logError).toHaveBeenCalledWith(
+      '[pty] Resize failed',
+      expect.objectContaining({
+        diagnosticsId: 'diag-pty',
+        ptyId: 'session-2',
+        cwd: '/repo',
+        cols: 120,
+        rows: 50,
+        errorCode: 'EBADF',
+      })
+    );
+    expect(manager.getDiagnosticsSummary()).toEqual({
+      sessionCount: 1,
+      sampleSessions: [
+        {
+          ptyId: 'session-2',
+          cwd: '/repo',
+          pid: pty.pid,
+          ownerId: null,
+        },
+      ],
+    });
+  });
+
   it('supports shellConfig resolution, spawn fallback, targeted destroy helpers, and destroyAllAndWait', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     ptyManagerTestDoubles.resolveShellConfig.mockReturnValue({
       shell: '/bad/bash',
@@ -426,8 +493,13 @@ describe('PtyManager utilities', () => {
       vi.fn()
     );
     expect(id).toBe('pty-1');
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[pty] Failed to spawn /bad/bash. Falling back to /bin/zsh'
+    expect(ptyManagerTestDoubles.logWarn).toHaveBeenCalledWith(
+      '[pty] Primary spawn failed, trying shell fallback',
+      expect.objectContaining({
+        ptyId: 'pty-1',
+        fallbackShell: '/bin/zsh',
+        fallbackArgs: ['-l'],
+      })
     );
     expect(ptyManagerTestDoubles.spawn).toHaveBeenNthCalledWith(
       2,
@@ -498,7 +570,6 @@ describe('PtyManager utilities', () => {
   });
 
   it('uses an explicit fallback command when direct executable launch fails', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     ptyManagerTestDoubles.spawn.mockImplementation((shell: string) => {
       if (shell === 'codex') {
         throw new Error('command not found');
@@ -551,8 +622,13 @@ describe('PtyManager utilities', () => {
       vi.fn()
     );
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[pty] Failed to spawn codex. Falling back to explicit command /bin/zsh'
+    expect(ptyManagerTestDoubles.logWarn).toHaveBeenCalledWith(
+      '[pty] Primary spawn failed, trying explicit fallback',
+      expect.objectContaining({
+        ptyId: 'pty-1',
+        fallbackShell: '/bin/zsh',
+        fallbackArgs: ['-l', '-c', 'codex --sandbox workspace-write'],
+      })
     );
     expect(ptyManagerTestDoubles.spawn).toHaveBeenNthCalledWith(
       1,

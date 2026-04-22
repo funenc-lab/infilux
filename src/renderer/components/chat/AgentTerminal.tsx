@@ -1,5 +1,6 @@
 import { TEMP_INPUT_FILE_PREFIX } from '@shared/paths';
 import type {
+  AgentSubagentTranscriptEntry,
   ClaudeIdeBridgeStatus,
   ClaudePolicyConfig,
   ClaudePolicyMaterializationMode,
@@ -73,8 +74,14 @@ import {
   shouldForceAgentTerminalIdleAfterInterrupt,
 } from './agentTerminalInterruptPolicy';
 import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
+import { formatAgentTranscriptForTerminal } from './agentTranscriptTerminalFormat';
 import { extractClaudePolicySessionMetadata } from './claudePolicyLaunch';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
+
+export interface AgentTerminalReadOnlyTranscript {
+  entries: AgentSubagentTranscriptEntry[];
+  identity?: string;
+}
 
 interface AgentTerminalProps {
   id?: string; // Terminal session ID (UI key)
@@ -124,6 +131,7 @@ interface AgentTerminalProps {
   onProviderSessionIdChange?: (sessionId: string) => void;
   onRuntimeStateChange?: (state: SessionRuntimeState) => void;
   onClaudePolicyStateChange?: (state: { hash: string; warnings: string[] }) => void;
+  readOnlyTranscript?: AgentTerminalReadOnlyTranscript | null;
 }
 
 const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is doing work
@@ -206,8 +214,25 @@ export function AgentTerminal({
   onProviderSessionIdChange,
   onRuntimeStateChange,
   onClaudePolicyStateChange,
+  readOnlyTranscript = null,
 }: AgentTerminalProps) {
   const { t } = useI18n();
+  const isReadOnlyTranscript = readOnlyTranscript !== null;
+  const transcriptTerminalText = useMemo(
+    () => (readOnlyTranscript ? formatAgentTranscriptForTerminal(readOnlyTranscript.entries) : ''),
+    [readOnlyTranscript]
+  );
+  const transcriptIdentity = readOnlyTranscript?.identity ?? transcriptTerminalText;
+  const transcriptStaticContent = useMemo(
+    () =>
+      readOnlyTranscript
+        ? {
+            text: transcriptTerminalText,
+            identity: transcriptIdentity,
+          }
+        : undefined,
+    [readOnlyTranscript, transcriptIdentity, transcriptTerminalText]
+  );
   const {
     agentNotificationEnabled,
     agentNotificationDelay,
@@ -243,24 +268,53 @@ export function AgentTerminal({
 
   // Resolve shell configuration on mount and when shellConfig changes
   useEffect(() => {
+    if (isReadOnlyTranscript) {
+      setResolvedShell({
+        shell: '',
+        execArgs: [],
+      });
+      return;
+    }
+
     if (isRemoteExecution) {
       setResolvedShell(null);
       return;
     }
     window.electronAPI.shell.resolveForCommand(cwd, shellConfig).then(setResolvedShell);
-  }, [cwd, isRemoteExecution, shellConfig]);
+  }, [cwd, isReadOnlyTranscript, isRemoteExecution, shellConfig]);
 
   // Check hapi global installation on mount (only for hapi environment)
   useEffect(() => {
+    if (isReadOnlyTranscript) {
+      setHapiGlobalInstalled(true);
+      return;
+    }
+
     if (environment === 'hapi') {
       window.electronAPI.hapi.checkGlobal(cwd, false).then((status) => {
         setHapiGlobalInstalled(status.installed);
       });
+      return;
     }
-  }, [cwd, environment]);
+
+    setHapiGlobalInstalled(true);
+  }, [cwd, environment, isReadOnlyTranscript]);
 
   useEffect(() => {
     let cancelled = false;
+
+    if (isReadOnlyTranscript) {
+      setClaudeIdeStatus({
+        enabled: false,
+        port: null,
+        workspaceFolders: [],
+        hasMatchingWorkspace: false,
+        matchingWorkspaceLockCount: 0,
+        canUseIde: false,
+        reason: 'bridge-disabled',
+      });
+      return;
+    }
 
     if (!agentCommand.startsWith('claude')) {
       setClaudeIdeStatus(null);
@@ -305,10 +359,15 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [agentCommand, claudeCodeIntegration.enabled, cwd]);
+  }, [agentCommand, claudeCodeIntegration.enabled, cwd, isReadOnlyTranscript]);
   useEffect(() => {
     let cancelled = false;
     hasAutoConfirmedTrustPromptRef.current = false;
+
+    if (isReadOnlyTranscript) {
+      setClaudeWorkspaceTrusted(true);
+      return;
+    }
 
     if (!agentCommand.startsWith('claude') || isRemoteExecution || !cwd) {
       setClaudeWorkspaceTrusted(true);
@@ -332,7 +391,7 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [agentCommand, cwd, isRemoteExecution]);
+  }, [agentCommand, cwd, isReadOnlyTranscript, isRemoteExecution]);
   const outputBufferRef = useRef('');
   const currentOutputBlockRef = useRef('');
   const latestCompletedOutputBlockRef = useRef('');
@@ -387,12 +446,12 @@ export function AgentTerminal({
   }, []);
 
   useAgentProviderSessionDiscovery({
-    agentCommand,
+    agentCommand: isReadOnlyTranscript ? '' : agentCommand,
     uiSessionId: id,
     providerSessionId: sessionId,
     cwd,
     createdAt,
-    initialized,
+    initialized: isReadOnlyTranscript ? false : initialized,
     isRemoteExecution,
     onProviderSessionIdChange,
   });
@@ -805,6 +864,10 @@ export function AgentTerminal({
 
   // Wait for shell config and hapi check to complete before activating terminal
   const effectiveIsActive = useMemo(() => {
+    if (isReadOnlyTranscript) {
+      return isActive;
+    }
+
     if (
       agentCommand.startsWith('claude') &&
       claudeCodeIntegration.enabled &&
@@ -830,6 +893,7 @@ export function AgentTerminal({
   }, [
     environment,
     hapiGlobalInstalled,
+    isReadOnlyTranscript,
     isActive,
     agentCommand,
     claudeCodeIntegration.enabled,
@@ -934,6 +998,15 @@ export function AgentTerminal({
 
   // Build command with session args
   const { command, env, initialCommand, hostSession } = useMemo(() => {
+    if (isReadOnlyTranscript) {
+      return {
+        command: undefined,
+        env: undefined,
+        initialCommand: undefined,
+        hostSession: undefined,
+      };
+    }
+
     const plan = buildAgentLaunchPlan({
       agentCommand,
       customPath,
@@ -972,6 +1045,7 @@ export function AgentTerminal({
     initialPrompt,
     resumeSessionId,
     initialized,
+    isReadOnlyTranscript,
     environment,
     hapiSettings.cliApiToken,
     hapiGlobalInstalled,
@@ -1300,26 +1374,29 @@ export function AgentTerminal({
     kind: 'agent',
     fontSizeScale: terminalFontScale,
     preferCompatibilityRenderer: terminalFontScale !== undefined,
-    metadata: buildAgentCapabilityLaunchMetadata({
-      agentId,
-      agentCommand,
-      repoPath,
-      worktreePath: cwd,
-      globalPolicy,
-      projectPolicy,
-      worktreePolicy,
-      sessionPolicy,
-      materializationMode,
-      metadata:
-        persistenceEnabled && terminalSessionId
-          ? {
-              uiSessionId: terminalSessionId,
-              agentId,
-              agentCommand,
-              environment,
-            }
-          : undefined,
-    }),
+    staticContent: transcriptStaticContent,
+    metadata: isReadOnlyTranscript
+      ? undefined
+      : buildAgentCapabilityLaunchMetadata({
+          agentId,
+          agentCommand,
+          repoPath,
+          worktreePath: cwd,
+          globalPolicy,
+          projectPolicy,
+          worktreePolicy,
+          sessionPolicy,
+          materializationMode,
+          metadata:
+            persistenceEnabled && terminalSessionId
+              ? {
+                  uiSessionId: terminalSessionId,
+                  agentId,
+                  agentCommand,
+                  environment,
+                }
+              : undefined,
+        }),
     persistOnDisconnect: shouldPersistAgentSessionOnDisconnect(persistenceEnabled),
     preferHostScrollback:
       hostSession?.kind === 'tmux' &&
@@ -1355,11 +1432,13 @@ export function AgentTerminal({
   useEffect(() => {
     onRuntimeStateChange?.(runtimeState);
   }, [onRuntimeStateChange, runtimeState]);
-  const terminalOverlayState = resolveTerminalRuntimeOverlayState({
-    isLoading,
-    isRemoteExecution,
-    runtimeState,
-  });
+  const terminalOverlayState = isReadOnlyTranscript
+    ? null
+    : resolveTerminalRuntimeOverlayState({
+        isLoading,
+        isRemoteExecution,
+        runtimeState,
+      });
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
 
@@ -1431,6 +1510,10 @@ export function AgentTerminal({
   // Handle right-click context menu
   const handleContextMenu = useCallback(
     async (e: MouseEvent) => {
+      if (isReadOnlyTranscript) {
+        return;
+      }
+
       e.preventDefault();
       onFocus?.();
       const latestOutputBlock = getLatestCopyableOutputBlock();
@@ -1488,6 +1571,7 @@ export function AgentTerminal({
       onMerge,
       onFocus,
       getLatestCopyableOutputBlock,
+      isReadOnlyTranscript,
     ]
   );
 
@@ -1498,12 +1582,16 @@ export function AgentTerminal({
   }, [isActive, handleKeyDown]);
 
   useEffect(() => {
+    if (isReadOnlyTranscript) {
+      return;
+    }
+
     const container = containerRef.current;
     if (!container) return;
 
     container.addEventListener('contextmenu', handleContextMenu);
     return () => container.removeEventListener('contextmenu', handleContextMenu);
-  }, [handleContextMenu, containerRef]);
+  }, [containerRef, handleContextMenu, isReadOnlyTranscript]);
 
   // Cleanup idle timer on unmount
   useEffect(() => {
@@ -1517,6 +1605,10 @@ export function AgentTerminal({
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (isReadOnlyTranscript) {
+      return;
+    }
+
     const wrapper = terminalWrapperRef.current;
     if (!wrapper) {
       return;
@@ -1554,10 +1646,15 @@ export function AgentTerminal({
 
     wrapper.addEventListener('paste', handlePaste, true);
     return () => wrapper.removeEventListener('paste', handlePaste, true);
-  }, [agentId, resolveAttachmentTargets]);
+  }, [agentId, isReadOnlyTranscript, resolveAttachmentTargets]);
 
   // Keep native terminal input sessions writable after focus moves to session chrome or other UI.
   const handleClick = useCallback(() => {
+    if (isReadOnlyTranscript) {
+      terminalFocusRef.current?.();
+      return;
+    }
+
     if (!isActive) {
       onFocus?.();
       requestAnimationFrame(() => terminalFocusRef.current?.());
@@ -1565,10 +1662,14 @@ export function AgentTerminal({
     }
 
     terminalFocusRef.current?.();
-  }, [isActive, onFocus]);
+  }, [isActive, isReadOnlyTranscript, onFocus]);
 
   const sendTerminalMessage = useCallback(
     (message: string, delay: number) => {
+      if (isReadOnlyTranscript) {
+        return false;
+      }
+
       if (!message || !inputDispatchSessionId) {
         return false;
       }
@@ -1590,7 +1691,7 @@ export function AgentTerminal({
       terminalFocusRef.current?.();
       return true;
     },
-    [inputDispatchSessionId, agentId]
+    [inputDispatchSessionId, agentId, isReadOnlyTranscript]
   );
 
   // Handle enhanced input send
@@ -1624,6 +1725,7 @@ export function AgentTerminal({
     <div
       ref={terminalWrapperRef}
       className="relative h-full w-full"
+      data-agent-terminal-mode={isReadOnlyTranscript ? 'transcript' : 'live'}
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}
       onClick={handleClick}
     >
@@ -1653,27 +1755,28 @@ export function AgentTerminal({
           <ArrowDown className="h-4 w-4" />
         </button>
       )}
-      {(isLoading ||
-        (agentCommand.startsWith('claude') &&
-          !isRemoteExecution &&
-          claudeWorkspaceTrusted === null) ||
-        (agentCommand.startsWith('claude') &&
-          claudeCodeIntegration.enabled &&
-          claudeIdeStatus === null) ||
-        (!isRemoteExecution && !resolvedShell) ||
-        (environment === 'hapi' && hapiGlobalInstalled === null)) && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div
-              className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"
-              style={{ color: settings.theme.foreground, opacity: 0.5 }}
-            />
-            <span style={{ color: settings.theme.foreground, opacity: 0.5 }} className="text-sm">
-              {t('Loading {{agent}}...', { agent: agentCommand })}
-            </span>
+      {!isReadOnlyTranscript &&
+        (isLoading ||
+          (agentCommand.startsWith('claude') &&
+            !isRemoteExecution &&
+            claudeWorkspaceTrusted === null) ||
+          (agentCommand.startsWith('claude') &&
+            claudeCodeIntegration.enabled &&
+            claudeIdeStatus === null) ||
+          (!isRemoteExecution && !resolvedShell) ||
+          (environment === 'hapi' && hapiGlobalInstalled === null)) && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div
+                className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"
+                style={{ color: settings.theme.foreground, opacity: 0.5 }}
+              />
+              <span style={{ color: settings.theme.foreground, opacity: 0.5 }} className="text-sm">
+                {t('Loading {{agent}}...', { agent: agentCommand })}
+              </span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
       {terminalOverlayState && (
         <div className="absolute inset-0 flex items-center justify-center bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px]">
           <div className="control-floating-muted rounded-xl px-4 py-3 text-center">

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import { buildAppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -290,7 +293,13 @@ function makeRecord(
   };
 }
 
+function createTempHomeDir(prefix = 'persistent-agent-session-home-'): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
 describe('PersistentAgentSessionRepository', () => {
+  const tempDirs: string[] = [];
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -300,12 +309,20 @@ describe('PersistentAgentSessionRepository', () => {
   });
 
   afterEach(() => {
+    while (tempDirs.length > 0) {
+      const tempDir = tempDirs.pop();
+      if (tempDir) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
 
   it('initializes sqlite storage and migrates legacy JSON records when the table is empty', async () => {
-    vi.stubEnv('HOME', '/tmp/home');
+    const homeDir = createTempHomeDir();
+    tempDirs.push(homeDir);
+    vi.stubEnv('HOME', homeDir);
     vi.stubEnv('USERPROFILE', '');
 
     repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([
@@ -327,7 +344,7 @@ describe('PersistentAgentSessionRepository', () => {
     await repository.initialize();
 
     expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
-      `/tmp/home/.infilux/${testRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
+      `${homeDir}/.infilux/${testRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
       repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
       expect.any(Function)
     );
@@ -340,7 +357,9 @@ describe('PersistentAgentSessionRepository', () => {
   });
 
   it('prefers HOME overrides for the persistent session database path', async () => {
-    vi.stubEnv('HOME', '/tmp/override-home');
+    const homeDir = createTempHomeDir();
+    tempDirs.push(homeDir);
+    vi.stubEnv('HOME', homeDir);
     vi.stubEnv('USERPROFILE', '');
 
     const { PersistentAgentSessionRepository } = await import(
@@ -351,7 +370,7 @@ describe('PersistentAgentSessionRepository', () => {
     await repository.initialize();
 
     expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
-      `/tmp/override-home/.infilux/${testRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
+      `${homeDir}/.infilux/${testRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
       repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
       expect.any(Function)
     );
@@ -359,7 +378,9 @@ describe('PersistentAgentSessionRepository', () => {
 
   it('isolates the persistent session database under the development shared-state profile', async () => {
     const devRuntimeIdentity = buildAppRuntimeIdentity('dev');
-    vi.stubEnv('HOME', '/tmp/dev-home');
+    const homeDir = createTempHomeDir('persistent-agent-session-dev-home-');
+    tempDirs.push(homeDir);
+    vi.stubEnv('HOME', homeDir);
     vi.stubEnv('USERPROFILE', '');
     vi.stubEnv('INFILUX_RUNTIME_CHANNEL', 'dev');
     vi.stubEnv('ENSOAI_PROFILE', 'sessionbar dot check');
@@ -372,7 +393,7 @@ describe('PersistentAgentSessionRepository', () => {
     await repository.initialize();
 
     expect(repositoryTestDoubles.sqlite3.Database).toHaveBeenCalledWith(
-      `/tmp/dev-home/.infilux-dev/sessionbar-dot-check/${devRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
+      `${homeDir}/.infilux-dev/sessionbar-dot-check/${devRuntimeIdentity.persistentAgentSessionDatabaseFilename}`,
       repositoryTestDoubles.sqlite3.OPEN_READWRITE | repositoryTestDoubles.sqlite3.OPEN_CREATE,
       expect.any(Function)
     );
