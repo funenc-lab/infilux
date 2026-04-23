@@ -23,6 +23,12 @@ export default defineConfig({
         'src/shared/**/*.ts',
       ],
       exclude: ['src/**/__tests__/**', '**/*.test.ts', '**/*.test.tsx', '**/*.d.ts'],
+      thresholds: {
+        statements: 39,
+        lines: 39,
+        branches: 82,
+        functions: 72,
+      },
     },
   },
 });

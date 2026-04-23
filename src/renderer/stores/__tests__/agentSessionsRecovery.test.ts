@@ -490,6 +490,180 @@ describe('agent session recovery store', () => {
     });
   });
 
+  it('sanitizes malformed persisted snapshot fields and repairs stale group metadata', async () => {
+    const persistedPayload = {
+      sessions: [
+        {
+          id: 'session-1',
+          sessionId: 'provider-1',
+          name: 'Codex',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          initialized: true,
+          activated: true,
+          persistenceEnabled: true,
+          cwd: '/repo/worktree',
+          environment: 'native',
+        },
+        {
+          id: 'session-2',
+          sessionId: 'provider-2',
+          name: 'Claude',
+          agentId: 'claude',
+          agentCommand: 'claude',
+          initialized: true,
+          activated: true,
+          persistenceEnabled: true,
+          repoPath: '/repo',
+          cwd: '/repo/other',
+          environment: 'native',
+        },
+      ],
+      activeIds: {
+        '/repo/worktree': 'missing-session',
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-empty',
+              sessionIds: ['missing-session'],
+              activeSessionId: 'missing-session',
+            },
+            {
+              id: 'group-valid',
+              sessionIds: ['session-1', 'missing-session'],
+              activeSessionId: 'missing-session',
+            },
+          ],
+          activeGroupId: 'missing-group',
+          flexPercents: [25, 75],
+        },
+        '/repo/other': {
+          groups: [
+            {
+              id: 'group-stale-only',
+              sessionIds: ['missing-session'],
+              activeSessionId: 'missing-session',
+            },
+          ],
+          activeGroupId: 'group-stale-only',
+          flexPercents: [100],
+        },
+      },
+      runtimeStates: {
+        'session-1': {
+          outputState: 'outputting',
+          lastActivityAt: 'not-a-number',
+          wasActiveWhenOutputting: true,
+          hasCompletedTaskUnread: false,
+        },
+      },
+      enhancedInputStates: {
+        'session-1': {
+          open: 1,
+          content: 42,
+          imagePaths: ['/tmp/mock.png', null],
+        },
+      },
+    };
+
+    const env = await loadAgentSessionsStore({
+      'enso-agent-sessions': JSON.stringify(persistedPayload),
+    });
+
+    const state = env.useAgentSessionsStore.getState();
+    expect(state.sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        repoPath: '/repo/worktree',
+      }),
+      expect.objectContaining({
+        id: 'session-2',
+        repoPath: '/repo',
+      }),
+    ]);
+    expect(state.activeIds['/repo/worktree']).toBeNull();
+    expect(state.getGroupState('/repo/worktree')).toEqual({
+      groups: [
+        {
+          id: 'group-valid',
+          sessionIds: ['session-1'],
+          activeSessionId: 'session-1',
+        },
+      ],
+      activeGroupId: 'group-valid',
+      flexPercents: [100],
+    });
+    expect(state.getGroupState('/repo/other')).toEqual(state.getGroupState('/repo/missing'));
+    expect(state.getRuntimeState('session-1')).toEqual({
+      outputState: 'unread',
+      lastActivityAt: 0,
+      wasActiveWhenOutputting: false,
+      waitingForInput: false,
+      hasCompletedTaskUnread: false,
+    });
+    expect(state.getEnhancedInputState('session-1')).toEqual({
+      open: true,
+      content: '',
+      attachments: [
+        {
+          id: '/tmp/mock.png',
+          kind: 'image',
+          name: 'mock.png',
+          path: '/tmp/mock.png',
+        },
+      ],
+    });
+  });
+
+  it('falls back to empty persisted auxiliary state when storage payload is invalid', async () => {
+    const env = await loadAgentSessionsStore({
+      'enso-agent-sessions': JSON.stringify({
+        sessions: [
+          {
+            id: 'session-1',
+            sessionId: 'provider-1',
+            name: 'Codex',
+            agentId: 'codex',
+            agentCommand: 'codex',
+            initialized: true,
+            activated: true,
+            persistenceEnabled: true,
+            repoPath: '/repo',
+            cwd: '/repo/worktree',
+            environment: 'native',
+          },
+        ],
+        groupStates: null,
+        runtimeStates: null,
+        enhancedInputStates: null,
+      }),
+    });
+
+    const recoveredState = env.useAgentSessionsStore.getState();
+    expect(recoveredState.sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+      }),
+    ]);
+    expect(recoveredState.activeIds).toEqual({});
+    expect(recoveredState.groupStates).toEqual({});
+    expect(recoveredState.runtimeStates).toEqual({});
+    expect(recoveredState.enhancedInputStates).toEqual({});
+
+    const invalidJsonEnv = await loadAgentSessionsStore({
+      'enso-agent-sessions': '{invalid-json',
+    });
+    expect(invalidJsonEnv.useAgentSessionsStore.getState()).toMatchObject({
+      sessions: [],
+      activeIds: {},
+      groupStates: {},
+      runtimeStates: {},
+      enhancedInputStates: {},
+    });
+  });
+
   it('persists group layout, enhanced input draft, and unread runtime markers for recoverable sessions', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();

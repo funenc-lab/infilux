@@ -207,4 +207,204 @@ describe('worktree activity store', () => {
     store.clearDerivedActivityState('/repo');
     expect(useWorktreeActivityStore.getState().activityStates['/repo']).toBe('completed');
   });
+
+  it('tracks agent and terminal counters, exposes helpers, and clears per-worktree state', async () => {
+    const { useWorktreeActivityStore } = await import('../worktreeActivity');
+    const store = useWorktreeActivityStore.getState();
+
+    expect(store.hasActivity('/repo')).toBe(false);
+    expect(store.getActivity('/repo')).toEqual({
+      agentCount: 0,
+      terminalCount: 0,
+    });
+    expect(store.getDiffStats('/repo')).toEqual({
+      insertions: 0,
+      deletions: 0,
+    });
+
+    store.incrementAgent('/repo');
+    store.incrementTerminal('/repo');
+    store.decrementAgent('/repo');
+    store.setAgentCount('/repo', 2);
+    store.decrementTerminal('/repo');
+    store.setTerminalCount('/repo', 3);
+    store.setDiffStats('/repo', {
+      insertions: 7,
+      deletions: 4,
+    });
+
+    expect(store.hasActivity('/repo')).toBe(true);
+    expect(store.getActivity('/repo')).toEqual({
+      agentCount: 2,
+      terminalCount: 3,
+    });
+    expect(store.getDiffStats('/repo')).toEqual({
+      insertions: 7,
+      deletions: 4,
+    });
+    expect(store.getActivityState('/repo')).toBe('idle');
+
+    store.clearWorktree('/repo');
+
+    expect(store.hasActivity('/repo')).toBe(false);
+    expect(store.getActivity('/repo')).toEqual({
+      agentCount: 0,
+      terminalCount: 0,
+    });
+    expect(store.getDiffStats('/repo')).toEqual({
+      insertions: 0,
+      deletions: 0,
+    });
+  });
+
+  it('registers close handlers and notifies only currently registered listeners', async () => {
+    const { useWorktreeActivityStore } = await import('../worktreeActivity');
+    const store = useWorktreeActivityStore.getState();
+    const agentHandler = vi.fn();
+    const terminalHandler = vi.fn();
+
+    const unregisterAgent = store.registerAgentCloseHandler(agentHandler);
+    const unregisterTerminal = store.registerTerminalCloseHandler(terminalHandler);
+
+    store.closeAgentSessions('/repo');
+    store.closeTerminalSessions('/repo');
+
+    expect(agentHandler).toHaveBeenCalledWith('/repo');
+    expect(terminalHandler).toHaveBeenCalledWith('/repo');
+
+    unregisterAgent();
+    unregisterTerminal();
+
+    store.closeAgentSessions('/repo-next');
+    store.closeTerminalSessions('/repo-next');
+
+    expect(agentHandler).toHaveBeenCalledTimes(1);
+    expect(terminalHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('initializes activity listeners and resolves missing cwd values from tracked sessions', async () => {
+    const unsubscribePreToolUse = vi.fn();
+    const unsubscribeStop = vi.fn();
+    const unsubscribeAsk = vi.fn();
+    let preToolUseListener:
+      | ((data: { sessionId: string; toolName: string; cwd?: string }) => void)
+      | null = null;
+    let stopListener: ((data: { sessionId: string; cwd?: string }) => void) | null = null;
+    let askListener: ((data: { sessionId: string; cwd?: string }) => void) | null = null;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    vi.doMock('@/lib/electronNotification', () => ({
+      onPreToolUseNotification: vi.fn((callback) => {
+        preToolUseListener = callback;
+        return unsubscribePreToolUse;
+      }),
+      onAgentStopNotification: vi.fn((callback) => {
+        stopListener = callback;
+        return unsubscribeStop;
+      }),
+      onAskUserQuestionNotification: vi.fn((callback) => {
+        askListener = callback;
+        return unsubscribeAsk;
+      }),
+    }));
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+    });
+
+    const { useAgentSessionsStore } = await import('../agentSessions');
+    const { initAgentActivityListener, useWorktreeActivityStore } = await import(
+      '../worktreeActivity'
+    );
+
+    useAgentSessionsStore.setState({
+      sessions: [
+        {
+          id: 'session-ui-1',
+          sessionId: 'session-provider-1',
+          backendSessionId: 'backend-session-1',
+          createdAt: 1,
+          name: 'Claude',
+          agentId: 'claude',
+          agentCommand: 'claude',
+          initialized: true,
+          activated: true,
+          repoPath: '/repo',
+          cwd: '/repo/worktree',
+          environment: 'native',
+          persistenceEnabled: false,
+        },
+      ],
+      activeIds: {},
+      groupStates: {},
+      runtimeStates: {},
+      enhancedInputStates: {},
+      attachmentTrayStates: {},
+    });
+
+    const cleanup = initAgentActivityListener();
+
+    preToolUseListener?.({
+      sessionId: 'session-provider-1',
+      toolName: 'Read',
+    });
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe('running');
+
+    askListener?.({
+      sessionId: 'session-ui-1',
+    });
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe(
+      'waiting_input'
+    );
+
+    stopListener?.({
+      sessionId: 'session-provider-1',
+    });
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe(
+      'completed'
+    );
+
+    preToolUseListener?.({
+      sessionId: 'session-direct',
+      toolName: 'Read',
+      cwd: '/repo/direct',
+    });
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/direct')).toBe('running');
+
+    askListener?.({
+      sessionId: 'session-direct',
+      cwd: '/repo/direct',
+    });
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/direct')).toBe(
+      'waiting_input'
+    );
+
+    stopListener?.({
+      sessionId: 'session-direct',
+      cwd: '/repo/direct',
+    });
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/direct')).toBe('completed');
+
+    preToolUseListener?.({
+      sessionId: 'missing-pretool',
+      toolName: 'Read',
+    });
+    askListener?.({
+      sessionId: 'missing-ask',
+    });
+    stopListener?.({
+      sessionId: 'missing-stop',
+    });
+
+    expect(warnSpy).toHaveBeenCalledTimes(3);
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/direct')).toBe('completed');
+
+    cleanup();
+
+    expect(unsubscribePreToolUse).toHaveBeenCalledTimes(1);
+    expect(unsubscribeStop).toHaveBeenCalledTimes(1);
+    expect(unsubscribeAsk).toHaveBeenCalledTimes(1);
+  });
 });

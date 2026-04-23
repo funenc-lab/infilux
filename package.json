@@ -24,7 +24,7 @@
     "generate:themes": "npx tsx scripts/generate-themes.ts",
     "diagnostics:collect": "npx tsx scripts/collect-diagnostics.ts",
     "test": "vitest run",
-    "test:coverage": "vitest run --config vitest.full.config.ts --coverage",
+    "test:coverage": "pnpm test:coverage:full",
     "test:coverage:focused": "vitest run --coverage",
     "test:coverage:full": "vitest run --config vitest.full.config.ts --coverage",
     "test:watch": "vitest",

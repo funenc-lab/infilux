@@ -51,8 +51,8 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Test
-        run: pnpm test
+      - name: Coverage
+        run: pnpm test:coverage
 
   # 先构建 Vite 产物，共享给所有平台
   build-app:

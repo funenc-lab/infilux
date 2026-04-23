@@ -47,21 +47,28 @@ export function resolveActivityGlowState({
  * Returns the highest priority state among all sessions in the repo
  */
 export function useRepoOutputState(repoPath: string): GlowState {
-  const { repoSessions, outputState } = useAgentSessionsStore(
+  const normalizedRepoPath = normalizePath(repoPath);
+  const outputState = useAgentSessionsStore((s) =>
+    computeHighestOutputState(
+      s.sessions.filter((session) => normalizePath(session.repoPath) === normalizedRepoPath),
+      s.runtimeStates
+    )
+  );
+  const repoWorktreePaths = useAgentSessionsStore(
     useShallow((s) => {
-      const normalizedRepoPath = normalizePath(repoPath);
-      const repoSessions = s.sessions.filter(
-        (session) => normalizePath(session.repoPath) === normalizedRepoPath
-      );
-      return {
-        repoSessions,
-        outputState: computeHighestOutputState(repoSessions, s.runtimeStates),
-      };
+      const uniqueWorktreePaths = new Set<string>();
+
+      for (const session of s.sessions) {
+        if (normalizePath(session.repoPath) === normalizedRepoPath) {
+          uniqueWorktreePaths.add(normalizePath(session.cwd));
+        }
+      }
+
+      return [...uniqueWorktreePaths];
     })
   );
-  const repoWorktreePaths = [...new Set(repoSessions.map((session) => normalizePath(session.cwd)))];
   const activityState = useWorktreeActivityStore(
-    useShallow((s) => {
+    (s) => {
       let highestState: AgentActivityState = 'idle';
 
       for (const worktreePath of repoWorktreePaths) {
@@ -79,7 +86,7 @@ export function useRepoOutputState(repoPath: string): GlowState {
       }
 
       return highestState;
-    })
+    }
   );
 
   return resolveActivityGlowState({ outputState, activityState });
@@ -90,14 +97,12 @@ export function useRepoOutputState(repoPath: string): GlowState {
  * Returns the highest priority state among all sessions in the worktree
  */
 export function useWorktreeOutputState(worktreePath: string): GlowState {
-  const outputState = useAgentSessionsStore(
-    useShallow((s) => {
-      const normalizedCwd = normalizePath(worktreePath);
-      const worktreeSessions = s.sessions.filter(
-        (session) => normalizePath(session.cwd) === normalizedCwd
-      );
-      return computeHighestOutputState(worktreeSessions, s.runtimeStates);
-    })
+  const normalizedWorktreePath = normalizePath(worktreePath);
+  const outputState = useAgentSessionsStore((s) =>
+    computeHighestOutputState(
+      s.sessions.filter((session) => normalizePath(session.cwd) === normalizedWorktreePath),
+      s.runtimeStates
+    )
   );
   const activityState = useWorktreeActivityStore((s) => s.activityStates[worktreePath] ?? 'idle');
 
@@ -117,15 +122,13 @@ export function useSessionOutputState(sessionId: string): GlowState {
  * Hook to determine whether a worktree has any unread task completion markers.
  */
 export function useWorktreeTaskCompletionNotice(worktreePath: string): boolean {
-  return useAgentSessionsStore(
-    useShallow((s) => {
-      const normalizedCwd = normalizePath(worktreePath);
-      return s.sessions.some(
-        (session) =>
-          normalizePath(session.cwd) === normalizedCwd &&
-          s.runtimeStates[session.id]?.hasCompletedTaskUnread === true
-      );
-    })
+  const normalizedWorktreePath = normalizePath(worktreePath);
+  return useAgentSessionsStore((s) =>
+    s.sessions.some(
+      (session) =>
+        normalizePath(session.cwd) === normalizedWorktreePath &&
+        s.runtimeStates[session.id]?.hasCompletedTaskUnread === true
+    )
   );
 }
 
