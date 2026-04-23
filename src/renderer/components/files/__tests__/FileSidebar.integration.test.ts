@@ -1,9 +1,9 @@
 /* @vitest-environment jsdom */
 
-import type { ConflictInfo, ConflictResolution } from '../FileConflictDialog';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ConflictInfo, ConflictResolution } from '../FileConflictDialog';
 
 type FileSidebarModule = typeof import('../FileSidebar');
 type FileSidebarProps = React.ComponentProps<FileSidebarModule['FileSidebar']>;
@@ -151,7 +151,7 @@ vi.mock('@/hooks/useEditor', () => ({
 
 vi.mock('@/stores/terminalWrite', () => ({
   useTerminalWriteStore: (
-    selector: (state: typeof terminalState) => typeof terminalState[keyof typeof terminalState]
+    selector: (state: typeof terminalState) => (typeof terminalState)[keyof typeof terminalState]
   ) => selector(terminalState),
 }));
 
@@ -186,8 +186,7 @@ vi.mock('../NewItemDialog', () => ({
             {
               type: 'button',
               'data-testid': 'new-item-confirm',
-              onClick: () =>
-                void onConfirm(type === 'file' ? 'created-file.ts' : 'created-folder'),
+              onClick: () => void onConfirm(type === 'file' ? 'created-file.ts' : 'created-folder'),
             },
             'confirm'
           ),
@@ -308,7 +307,7 @@ vi.mock('../FileTree', () => ({
           type: 'button',
           'data-testid': 'file-tree-drop',
           onClick: () =>
-            void onExternalDrop(
+            void onExternalDrop?.(
               createFileList([new File(['incoming'], 'incoming.ts', { type: 'text/plain' })]),
               '/repo/inbox',
               'copy'

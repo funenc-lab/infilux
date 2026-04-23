@@ -135,6 +135,7 @@ import {
   resolveSessionSubagentViewState,
   supportsSessionSubagentTracking,
 } from './sessionSubagentState';
+import { resolveSessionSubagentTriggerPresentation } from './sessionSubagentTriggerPolicy';
 import { resolveSessionTitleFromFirstInput } from './sessionTitlePolicy';
 import {
   getDefaultSessionName,
@@ -3478,16 +3479,28 @@ export function AgentPanel({
         </div>
       </div>
     );
-    const renderSessionSubagentTrigger = (className: string) => (
-      <SessionSubagentTriggerButton
-        count={displayedSessionSubagents.length}
-        isActive={isSessionSubagentInspectorOpen}
-        className={className}
-        title={t('View session subagents')}
-        ariaLabel={t('View session subagents')}
-        onClick={() => handleToggleSessionSubagentInspector(session.id)}
-      />
-    );
+    const renderSessionSubagentTrigger = (className: string) => {
+      const triggerPresentation = resolveSessionSubagentTriggerPresentation(
+        sessionSubagentViewState,
+        displayedSessionSubagents.length
+      );
+
+      if (!triggerPresentation.visible) {
+        return null;
+      }
+
+      return (
+        <SessionSubagentTriggerButton
+          count={displayedSessionSubagents.length}
+          emphasized={triggerPresentation.emphasized}
+          isActive={isSessionSubagentInspectorOpen}
+          className={className}
+          title={t('View session subagents')}
+          ariaLabel={t('View session subagents')}
+          onClick={() => handleToggleSessionSubagentInspector(session.id)}
+        />
+      );
+    };
     const sessionPanelContent = (
       <div
         key={`${sessionId}-content`}
@@ -4110,16 +4123,30 @@ export function AgentPanel({
           const activeSessionSubagentViewState =
             activeSession == null ? null : sessionSubagentViewStateBySessionId[activeSession.id];
           const activeSessionToolbarAccessory =
-            activeSession != null && activeSessionSubagentViewState != null ? (
-              <SessionSubagentTriggerButton
-                count={activeSessionSubagents.length}
-                isActive={openSessionSubagentInspectorId === activeSession.id}
-                className="control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors"
-                title={t('View session subagents')}
-                ariaLabel={t('View session subagents')}
-                onClick={() => handleToggleSessionSubagentInspector(activeSession.id)}
-              />
-            ) : null;
+            activeSession != null && activeSessionSubagentViewState != null
+              ? (() => {
+                  const triggerPresentation = resolveSessionSubagentTriggerPresentation(
+                    activeSessionSubagentViewState,
+                    activeSessionSubagents.length
+                  );
+
+                  if (!triggerPresentation.visible) {
+                    return null;
+                  }
+
+                  return (
+                    <SessionSubagentTriggerButton
+                      count={activeSessionSubagents.length}
+                      emphasized={triggerPresentation.emphasized}
+                      isActive={openSessionSubagentInspectorId === activeSession.id}
+                      className="control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors"
+                      title={t('View session subagents')}
+                      ariaLabel={t('View session subagents')}
+                      onClick={() => handleToggleSessionSubagentInspector(activeSession.id)}
+                    />
+                  );
+                })()
+              : null;
           const canSendToActiveSession = activeSessionAvailability === 'ready';
           const activeSessionSendLabel =
             activeSessionAvailability === 'awaiting-session'

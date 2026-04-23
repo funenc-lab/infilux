@@ -1,5 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+type PreToolUseNotification = {
+  sessionId: string;
+  toolName: string;
+  cwd?: string;
+};
+
+type AgentStopNotification = {
+  sessionId: string;
+  cwd?: string;
+};
+
+type AskUserQuestionNotification = {
+  sessionId: string;
+  cwd?: string;
+};
+
 describe('worktree activity store', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -286,11 +302,9 @@ describe('worktree activity store', () => {
     const unsubscribePreToolUse = vi.fn();
     const unsubscribeStop = vi.fn();
     const unsubscribeAsk = vi.fn();
-    let preToolUseListener:
-      | ((data: { sessionId: string; toolName: string; cwd?: string }) => void)
-      | null = null;
-    let stopListener: ((data: { sessionId: string; cwd?: string }) => void) | null = null;
-    let askListener: ((data: { sessionId: string; cwd?: string }) => void) | null = null;
+    let preToolUseListener: ((data: PreToolUseNotification) => void) | null = null;
+    let stopListener: ((data: AgentStopNotification) => void) | null = null;
+    let askListener: ((data: AskUserQuestionNotification) => void) | null = null;
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     vi.doMock('@/lib/electronNotification', () => ({
@@ -345,35 +359,41 @@ describe('worktree activity store', () => {
     });
 
     const cleanup = initAgentActivityListener();
+    if (preToolUseListener == null || askListener == null || stopListener == null) {
+      throw new Error('Expected activity listeners to be registered');
+    }
+    const emitPreToolUse: (data: PreToolUseNotification) => void = preToolUseListener;
+    const emitAsk: (data: AskUserQuestionNotification) => void = askListener;
+    const emitStop: (data: AgentStopNotification) => void = stopListener;
 
-    preToolUseListener?.({
+    emitPreToolUse({
       sessionId: 'session-provider-1',
       toolName: 'Read',
     });
     expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe('running');
 
-    askListener?.({
+    emitAsk({
       sessionId: 'session-ui-1',
     });
     expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe(
       'waiting_input'
     );
 
-    stopListener?.({
+    emitStop({
       sessionId: 'session-provider-1',
     });
     expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe(
       'completed'
     );
 
-    preToolUseListener?.({
+    emitPreToolUse({
       sessionId: 'session-direct',
       toolName: 'Read',
       cwd: '/repo/direct',
     });
     expect(useWorktreeActivityStore.getState().getActivityState('/repo/direct')).toBe('running');
 
-    askListener?.({
+    emitAsk({
       sessionId: 'session-direct',
       cwd: '/repo/direct',
     });
@@ -381,20 +401,20 @@ describe('worktree activity store', () => {
       'waiting_input'
     );
 
-    stopListener?.({
+    emitStop({
       sessionId: 'session-direct',
       cwd: '/repo/direct',
     });
     expect(useWorktreeActivityStore.getState().getActivityState('/repo/direct')).toBe('completed');
 
-    preToolUseListener?.({
+    emitPreToolUse({
       sessionId: 'missing-pretool',
       toolName: 'Read',
     });
-    askListener?.({
+    emitAsk({
       sessionId: 'missing-ask',
     });
-    stopListener?.({
+    emitStop({
       sessionId: 'missing-stop',
     });
 

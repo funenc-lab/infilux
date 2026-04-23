@@ -32,9 +32,7 @@ async function loadAgentSessionsModule() {
   return await import('../agentSessions');
 }
 
-function makeSession(
-  overrides: Record<string, unknown> = {}
-): {
+function makeSession(overrides: Record<string, unknown> = {}): {
   id: string;
   sessionId: string;
   name: string;

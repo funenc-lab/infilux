@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Session } from '@/components/chat/SessionBar';
 
 function createLocalStorageMock(initial?: Record<string, string>) {
   const data = new Map(Object.entries(initial ?? {}));
@@ -27,11 +28,7 @@ async function loadAgentSessionsModule() {
   };
 }
 
-function makeSession(
-  overrides: Partial<
-    Awaited<ReturnType<typeof loadAgentSessionsModule>>['useAgentSessionsStore']['getState']['sessions'][number]
-  > = {}
-) {
+function makeSession(overrides: Partial<Session> = {}) {
   return {
     id: 'session-1',
     sessionId: 'provider-1',

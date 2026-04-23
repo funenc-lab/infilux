@@ -67,27 +67,25 @@ export function useRepoOutputState(repoPath: string): GlowState {
       return [...uniqueWorktreePaths];
     })
   );
-  const activityState = useWorktreeActivityStore(
-    (s) => {
-      let highestState: AgentActivityState = 'idle';
+  const activityState = useWorktreeActivityStore((s) => {
+    let highestState: AgentActivityState = 'idle';
 
-      for (const worktreePath of repoWorktreePaths) {
-        const nextState = s.activityStates[worktreePath] ?? 'idle';
-        if (nextState === 'waiting_input') {
-          return nextState;
-        }
-        if (nextState === 'running') {
-          highestState = 'running';
-          continue;
-        }
-        if (nextState === 'completed' && highestState === 'idle') {
-          highestState = 'completed';
-        }
+    for (const worktreePath of repoWorktreePaths) {
+      const nextState = s.activityStates[worktreePath] ?? 'idle';
+      if (nextState === 'waiting_input') {
+        return nextState;
       }
-
-      return highestState;
+      if (nextState === 'running') {
+        highestState = 'running';
+        continue;
+      }
+      if (nextState === 'completed' && highestState === 'idle') {
+        highestState = 'completed';
+      }
     }
-  );
+
+    return highestState;
+  });
 
   return resolveActivityGlowState({ outputState, activityState });
 }

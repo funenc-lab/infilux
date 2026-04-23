@@ -96,7 +96,7 @@ const testState = vi.hoisted(() => ({
     })),
     ensureWorkspaceTrusted: vi.fn(async () => true),
     agentInputDispatch: vi.fn(async () => undefined),
-    contextMenuShow: vi.fn(async () => null),
+    contextMenuShow: vi.fn(async (_items?: unknown) => null as string | null),
     sessionGetActivity: vi.fn(async () => false),
     utilsGetPathForFile: vi.fn(() => null),
     fileSaveToTemp: vi.fn(async () => ({
@@ -210,9 +210,8 @@ vi.mock('@/lib/utils', () => ({
 }));
 
 vi.mock('@/stores/agentSessions', () => ({
-  useAgentSessionsStore: (
-    selector: (state: typeof testState.agentSessionsStore) => unknown
-  ) => selector(testState.agentSessionsStore),
+  useAgentSessionsStore: (selector: (state: typeof testState.agentSessionsStore) => unknown) =>
+    selector(testState.agentSessionsStore),
 }));
 
 vi.mock('@/stores/settings', () => ({
@@ -567,18 +566,22 @@ describe('AgentTerminal integration', () => {
     const mounted = await mountAgentTerminal();
 
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, code: 'KeyF' }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, code: 'KeyF' })
+      );
       await flushMicrotasks();
     });
 
     expect(
-      mounted.container.querySelector('[data-testid="terminal-search-bar"]')?.getAttribute(
-        'data-open'
-      )
+      mounted.container
+        .querySelector('[data-testid="terminal-search-bar"]')
+        ?.getAttribute('data-open')
     ).toBe('true');
 
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, code: 'KeyF' }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, code: 'KeyF' })
+      );
       await flushMicrotasks();
     });
 

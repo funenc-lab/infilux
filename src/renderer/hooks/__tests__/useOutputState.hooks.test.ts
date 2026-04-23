@@ -49,7 +49,9 @@ function HookHarness({
   const worktreeTaskCompletionNotice = useWorktreeTaskCompletionNotice(
     worktreePath ?? MISSING_WORKTREE_PATH
   );
-  const sessionTaskCompletionNotice = useSessionTaskCompletionNotice(sessionId ?? MISSING_SESSION_ID);
+  const sessionTaskCompletionNotice = useSessionTaskCompletionNotice(
+    sessionId ?? MISSING_SESSION_ID
+  );
 
   latestSnapshot = {
     repoGlowState: repoPath ? repoGlowState : undefined,

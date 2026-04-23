@@ -106,7 +106,9 @@ describe('electronNotification', () => {
       },
     };
 
-    const { onNotificationClick, showRendererNotification } = await import('../electronNotification');
+    const { onNotificationClick, showRendererNotification } = await import(
+      '../electronNotification'
+    );
 
     const cleanup = onNotificationClick(() => undefined);
 

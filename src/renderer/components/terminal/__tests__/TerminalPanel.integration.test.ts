@@ -100,9 +100,7 @@ vi.mock('@/lib/keybinding', () => ({
 }));
 
 vi.mock('@/stores/settings', () => ({
-  useSettingsStore: (
-    selector: (state: typeof settingsState) => unknown
-  ) => selector(settingsState),
+  useSettingsStore: (selector: (state: typeof settingsState) => unknown) => selector(settingsState),
 }));
 
 vi.mock('@/stores/initScript', () => ({
@@ -162,10 +160,7 @@ vi.mock('@/components/layout/ControlStateCard', () => ({
 }));
 
 vi.mock('../TerminalGroup', () => ({
-  TerminalGroup: ({
-    group,
-    isGroupActive,
-  }: TerminalGroupProps) =>
+  TerminalGroup: ({ group, isGroupActive }: TerminalGroupProps) =>
     React.createElement(
       'div',
       {
@@ -288,7 +283,7 @@ describe('TerminalPanel integration', () => {
 
     randomUuidSpy = vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => {
       randomCounter += 1;
-      return `uuid-${randomCounter}`;
+      return `00000000-0000-4000-8000-${String(randomCounter).padStart(12, '0')}`;
     });
   });
 

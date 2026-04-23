@@ -1,7 +1,6 @@
 /* @vitest-environment jsdom */
 
-import type { PersistentAgentSessionRecord } from '@shared/types';
-import type { Session } from '../SessionBar';
+import type { PersistentAgentSessionRecord, RestoreWorktreeSessionsResult } from '@shared/types';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,6 +10,7 @@ import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useEditorStore } from '@/stores/editor';
 import { useTerminalStore } from '@/stores/terminal';
 import { resetWorktreeAgentSessionRecoveryCacheForTests } from '../agentSessionRecovery';
+import type { Session } from '../SessionBar';
 
 type AgentPanelModule = typeof import('../AgentPanel');
 type AgentPanelProps = React.ComponentProps<AgentPanelModule['AgentPanel']>;
@@ -88,7 +88,9 @@ const testState = vi.hoisted(() => ({
     }),
   },
   electronAPI: {
-    restoreWorktreeSessions: vi.fn(async () => ({ items: [] })),
+    restoreWorktreeSessions: vi.fn(
+      async (): Promise<RestoreWorktreeSessionsResult> => ({ items: [] })
+    ),
     markPersistent: vi.fn(async () => undefined),
     abandon: vi.fn(async () => undefined),
     sessionKill: vi.fn(async () => undefined),
@@ -102,9 +104,8 @@ vi.mock('@/stores/settings', () => ({
 }));
 
 vi.mock('@/stores/worktreeActivity', () => ({
-  useWorktreeActivityStore: (
-    selector?: (state: typeof testState.worktreeActivity) => unknown
-  ) => (selector ? selector(testState.worktreeActivity) : testState.worktreeActivity),
+  useWorktreeActivityStore: (selector?: (state: typeof testState.worktreeActivity) => unknown) =>
+    selector ? selector(testState.worktreeActivity) : testState.worktreeActivity,
 }));
 
 vi.mock('@/hooks/useLiveSubagents', () => ({
@@ -711,9 +712,9 @@ describe('AgentPanel integration', () => {
       mounted.container.querySelector('[data-testid="agent-panel-empty-state"]')
     ).not.toBeNull();
     expect(
-      mounted.container.querySelector('[data-testid="agent-panel-empty-state"]')?.getAttribute(
-        'data-enabled-agent-count'
-      )
+      mounted.container
+        .querySelector('[data-testid="agent-panel-empty-state"]')
+        ?.getAttribute('data-enabled-agent-count')
     ).toBe('1');
 
     await clickByTestId(mounted.container, 'start-default-session');
@@ -843,12 +844,14 @@ describe('AgentPanel integration', () => {
     const mounted = await mountAgentPanel();
 
     expect(
-      mounted.container.querySelector('[data-testid="enhanced-input"]')?.getAttribute(
-        'data-session-id'
-      )
+      mounted.container
+        .querySelector('[data-testid="enhanced-input"]')
+        ?.getAttribute('data-session-id')
     ).toBe('session-a');
     expect(
-      mounted.container.querySelector('[data-testid="status-line"]')?.getAttribute('data-session-id')
+      mounted.container
+        .querySelector('[data-testid="status-line"]')
+        ?.getAttribute('data-session-id')
     ).toBe('session-a');
 
     await clickByTestId(mounted.container, 'select-session-session-b');
@@ -857,12 +860,14 @@ describe('AgentPanel integration', () => {
     expect(store.activeIds['/repo/worktree']).toBe('session-b');
     expect(store.getGroupState('/repo/worktree').groups[0]?.activeSessionId).toBe('session-b');
     expect(
-      mounted.container.querySelector('[data-testid="enhanced-input"]')?.getAttribute(
-        'data-session-id'
-      )
+      mounted.container
+        .querySelector('[data-testid="enhanced-input"]')
+        ?.getAttribute('data-session-id')
     ).toBe('session-b');
     expect(
-      mounted.container.querySelector('[data-testid="status-line"]')?.getAttribute('data-session-id')
+      mounted.container
+        .querySelector('[data-testid="status-line"]')
+        ?.getAttribute('data-session-id')
     ).toBe('session-b');
 
     await mounted.unmount();
@@ -902,9 +907,7 @@ describe('AgentPanel integration', () => {
 
     await clickByTestId(mounted.container, 'close-session-session-close');
 
-    expect(
-      mounted.container.querySelector('[data-testid="close-session-dialog"]')
-    ).not.toBeNull();
+    expect(mounted.container.querySelector('[data-testid="close-session-dialog"]')).not.toBeNull();
     expect(testState.electronAPI.abandon).not.toHaveBeenCalled();
 
     await clickByTestId(mounted.container, 'confirm-close-session');
@@ -962,9 +965,7 @@ describe('AgentPanel integration', () => {
     await clickByTestId(mounted.container, 'close-session-session-close-a');
 
     const store = useAgentSessionsStore.getState();
-    expect(
-      mounted.container.querySelector('[data-testid="close-session-dialog"]')
-    ).toBeNull();
+    expect(mounted.container.querySelector('[data-testid="close-session-dialog"]')).toBeNull();
     expect(testState.electronAPI.sessionKill).toHaveBeenCalledWith('backend-close-a');
     expect(testState.electronAPI.abandon).toHaveBeenCalledWith('session-close-a');
     expect(store.sessions).toEqual([expect.objectContaining({ id: 'session-close-b' })]);
@@ -980,12 +981,14 @@ describe('AgentPanel integration', () => {
       flexPercents: [100],
     });
     expect(
-      mounted.container.querySelector('[data-testid="enhanced-input"]')?.getAttribute(
-        'data-session-id'
-      )
+      mounted.container
+        .querySelector('[data-testid="enhanced-input"]')
+        ?.getAttribute('data-session-id')
     ).toBe('session-close-b');
     expect(
-      mounted.container.querySelector('[data-testid="status-line"]')?.getAttribute('data-session-id')
+      mounted.container
+        .querySelector('[data-testid="status-line"]')
+        ?.getAttribute('data-session-id')
     ).toBe('session-close-b');
 
     await mounted.unmount();
@@ -1024,9 +1027,7 @@ describe('AgentPanel integration', () => {
 
     await clickByTestId(mounted.container, 'close-session-session-disappear');
 
-    expect(
-      mounted.container.querySelector('[data-testid="close-session-dialog"]')
-    ).not.toBeNull();
+    expect(mounted.container.querySelector('[data-testid="close-session-dialog"]')).not.toBeNull();
 
     await act(async () => {
       useAgentSessionsStore.setState({
@@ -1046,9 +1047,7 @@ describe('AgentPanel integration', () => {
     });
     await mounted.rerender();
 
-    expect(
-      mounted.container.querySelector('[data-testid="close-session-dialog"]')
-    ).toBeNull();
+    expect(mounted.container.querySelector('[data-testid="close-session-dialog"]')).toBeNull();
     expect(testState.electronAPI.sessionKill).not.toHaveBeenCalled();
     expect(testState.electronAPI.abandon).not.toHaveBeenCalled();
 
@@ -1064,9 +1063,9 @@ describe('AgentPanel integration', () => {
     const mounted = await mountAgentPanel();
 
     expect(
-      mounted.container.querySelector('[data-testid="quick-terminal-modal"]')?.getAttribute(
-        'data-open'
-      )
+      mounted.container
+        .querySelector('[data-testid="quick-terminal-modal"]')
+        ?.getAttribute('data-open')
     ).toBe('true');
 
     await clickByTestId(mounted.container, 'init-quick-terminal-session');
@@ -1096,9 +1095,9 @@ describe('AgentPanel integration', () => {
     });
 
     expect(
-      mounted.container.querySelector('[data-testid="quick-terminal-modal"]')?.getAttribute(
-        'data-open'
-      )
+      mounted.container
+        .querySelector('[data-testid="quick-terminal-modal"]')
+        ?.getAttribute('data-open')
     ).toBe('false');
 
     await mounted.rerender({
@@ -1106,9 +1105,9 @@ describe('AgentPanel integration', () => {
     });
 
     expect(
-      mounted.container.querySelector('[data-testid="quick-terminal-modal"]')?.getAttribute(
-        'data-open'
-      )
+      mounted.container
+        .querySelector('[data-testid="quick-terminal-modal"]')
+        ?.getAttribute('data-open')
     ).toBe('true');
 
     await mounted.rerender({
@@ -1116,9 +1115,9 @@ describe('AgentPanel integration', () => {
     });
 
     expect(
-      mounted.container.querySelector('[data-testid="quick-terminal-modal"]')?.getAttribute(
-        'data-open'
-      )
+      mounted.container
+        .querySelector('[data-testid="quick-terminal-modal"]')
+        ?.getAttribute('data-open')
     ).toBe('false');
 
     await mounted.unmount();

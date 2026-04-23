@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+type CodeReviewDataEvent = {
+  reviewId: string;
+  type: 'data' | 'error' | 'exit';
+  data?: string;
+  exitCode?: number;
+};
+
+type CodeReviewDataListener = (event: CodeReviewDataEvent) => void;
+
 describe('code review continue store', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -76,9 +85,7 @@ describe('code review continue store', () => {
 
   it('starts, streams, completes, and stops a code review session', async () => {
     const onCodeReviewDataCleanup = vi.fn();
-    let onCodeReviewData:
-      | ((event: { reviewId: string; type: 'data' | 'error' | 'exit'; data?: string; exitCode?: number }) => void)
-      | null = null;
+    let onCodeReviewData: CodeReviewDataListener | null = null;
     const startCodeReviewMock = vi.fn(async () => ({ success: true }));
     const stopCodeReviewMock = vi.fn(async () => undefined);
 
@@ -124,8 +131,12 @@ describe('code review continue store', () => {
       sessionId: 'uuid-session-1',
       prompt: 'Review changes',
     });
+    if (onCodeReviewData == null) {
+      throw new Error('Expected code review data listener to be registered');
+    }
+    const emitReviewEvent: CodeReviewDataListener = onCodeReviewData;
 
-    onCodeReviewData?.({
+    emitReviewEvent({
       reviewId: reviewId ?? '',
       type: 'data',
       data: 'chunk-1',
@@ -135,7 +146,7 @@ describe('code review continue store', () => {
       content: 'chunk-1',
     });
 
-    onCodeReviewData?.({
+    emitReviewEvent({
       reviewId: reviewId ?? '',
       type: 'exit',
       exitCode: 0,
@@ -152,9 +163,7 @@ describe('code review continue store', () => {
 
   it('ignores unrelated review events and preserves explicit error state on non-zero exit', async () => {
     const onCodeReviewDataCleanup = vi.fn();
-    let onCodeReviewData:
-      | ((event: { reviewId: string; type: 'data' | 'error' | 'exit'; data?: string; exitCode?: number }) => void)
-      | null = null;
+    let onCodeReviewData: CodeReviewDataListener | null = null;
 
     vi.stubGlobal('window', {
       electronAPI: {
@@ -186,8 +195,12 @@ describe('code review continue store', () => {
 
     const reviewId = useCodeReviewContinueStore.getState().review.reviewId;
     expect(reviewId).toBeTruthy();
+    if (onCodeReviewData == null) {
+      throw new Error('Expected code review data listener to be registered');
+    }
+    const emitReviewEvent: CodeReviewDataListener = onCodeReviewData;
 
-    onCodeReviewData?.({
+    emitReviewEvent({
       reviewId: 'other-review',
       type: 'data',
       data: 'ignored-data',
@@ -195,7 +208,7 @@ describe('code review continue store', () => {
     expect(useCodeReviewContinueStore.getState().review.content).toBe('');
 
     useCodeReviewContinueStore.getState().setReviewId('stale-review');
-    onCodeReviewData?.({
+    emitReviewEvent({
       reviewId: reviewId ?? '',
       type: 'data',
       data: 'stale-data',
@@ -203,7 +216,7 @@ describe('code review continue store', () => {
     expect(useCodeReviewContinueStore.getState().review.content).toBe('');
 
     useCodeReviewContinueStore.getState().setReviewId(reviewId);
-    onCodeReviewData?.({
+    emitReviewEvent({
       reviewId: reviewId ?? '',
       type: 'error',
       data: 'review failed',
@@ -213,7 +226,7 @@ describe('code review continue store', () => {
       error: 'review failed',
     });
 
-    onCodeReviewData?.({
+    emitReviewEvent({
       reviewId: reviewId ?? '',
       type: 'exit',
       exitCode: 1,
@@ -227,7 +240,7 @@ describe('code review continue store', () => {
       status: 'error',
       error: 'review failed again',
     });
-    onCodeReviewData?.({
+    emitReviewEvent({
       reviewId: reviewId ?? '',
       type: 'exit',
       exitCode: 0,

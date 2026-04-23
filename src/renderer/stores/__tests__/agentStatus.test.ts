@@ -1,5 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+type AgentStatusNotification = {
+  sessionId: string;
+  model?: { id: string; display_name: string };
+  contextWindow?: {
+    total_input_tokens: number;
+    total_output_tokens: number;
+    context_window_size: number;
+    current_usage?: {
+      input_tokens: number;
+      output_tokens: number;
+      cache_creation_input_tokens: number;
+      cache_read_input_tokens: number;
+    } | null;
+  };
+  cost?: {
+    total_cost_usd: number;
+    total_duration_ms: number;
+    total_api_duration_ms?: number;
+    total_lines_added: number;
+    total_lines_removed: number;
+  };
+  workspace?: {
+    current_dir: string;
+    project_dir: string;
+  };
+  version?: string;
+};
+
+type AgentStatusListener = (payload: AgentStatusNotification) => void;
+
 describe('agent status store', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -60,35 +90,7 @@ describe('agent status store', () => {
 
   it('maps status notifications into the store and unsubscribes on cleanup', async () => {
     const unsubscribe = vi.fn();
-    let listener:
-      | ((payload: {
-          sessionId: string;
-          model?: { id: string; display_name: string };
-          contextWindow?: {
-            total_input_tokens: number;
-            total_output_tokens: number;
-            context_window_size: number;
-            current_usage?: {
-              input_tokens: number;
-              output_tokens: number;
-              cache_creation_input_tokens: number;
-              cache_read_input_tokens: number;
-            } | null;
-          };
-          cost?: {
-            total_cost_usd: number;
-            total_duration_ms: number;
-            total_api_duration_ms?: number;
-            total_lines_added: number;
-            total_lines_removed: number;
-          };
-          workspace?: {
-            current_dir: string;
-            project_dir: string;
-          };
-          version?: string;
-        }) => void)
-      | null = null;
+    let listener: AgentStatusListener | null = null;
 
     vi.doMock('@/lib/electronNotification', () => ({
       onAgentStatusUpdateNotification: vi.fn((callback) => {
@@ -102,8 +104,12 @@ describe('agent status store', () => {
 
     const cleanup = initAgentStatusListener();
     expect(listener).toBeTypeOf('function');
+    if (listener == null) {
+      throw new Error('Expected status listener to be registered');
+    }
+    const emitStatus: AgentStatusListener = listener;
 
-    listener?.({
+    emitStatus({
       sessionId: 'session-2',
       model: {
         id: 'claude-sonnet',
@@ -172,23 +178,7 @@ describe('agent status store', () => {
 
   it('maps null usage and missing api duration to stable defaults', async () => {
     const unsubscribe = vi.fn();
-    let listener:
-      | ((payload: {
-          sessionId: string;
-          contextWindow?: {
-            total_input_tokens: number;
-            total_output_tokens: number;
-            context_window_size: number;
-            current_usage?: null;
-          };
-          cost?: {
-            total_cost_usd: number;
-            total_duration_ms: number;
-            total_lines_added: number;
-            total_lines_removed: number;
-          };
-        }) => void)
-      | null = null;
+    let listener: AgentStatusListener | null = null;
 
     vi.doMock('@/lib/electronNotification', () => ({
       onAgentStatusUpdateNotification: vi.fn((callback) => {
@@ -201,8 +191,12 @@ describe('agent status store', () => {
     const { initAgentStatusListener, useAgentStatusStore } = await import('../agentStatus');
 
     const cleanup = initAgentStatusListener();
+    if (listener == null) {
+      throw new Error('Expected status listener to be registered');
+    }
+    const emitStatus: AgentStatusListener = listener;
 
-    listener?.({
+    emitStatus({
       sessionId: 'session-3',
       contextWindow: {
         total_input_tokens: 11,

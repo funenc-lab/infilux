@@ -7,6 +7,10 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const agentPanelSource = readFileSync(resolve(currentDir, '../AgentPanel.tsx'), 'utf8');
 const agentGroupSource = readFileSync(resolve(currentDir, '../AgentGroup.tsx'), 'utf8');
 const sessionBarSource = readFileSync(resolve(currentDir, '../SessionBar.tsx'), 'utf8');
+const triggerButtonSource = readFileSync(
+  resolve(currentDir, '../agent-panel/SessionSubagentTriggerButton.tsx'),
+  'utf8'
+);
 
 describe('Agent panel subagent inspector wiring', () => {
   it('renders a dedicated floating inspector inside session panels instead of routing to layout overlays', () => {
@@ -24,8 +28,16 @@ describe('Agent panel subagent inspector wiring', () => {
 
   it('exposes a dedicated trigger button for the session subagent window', () => {
     expect(agentPanelSource).toContain("from './agent-panel/SessionSubagentTriggerButton'");
+    expect(agentPanelSource).toContain("from './sessionSubagentTriggerPolicy'");
+    expect(agentPanelSource).toContain('resolveSessionSubagentTriggerPresentation(');
     expect(agentPanelSource).toContain('<SessionSubagentTriggerButton');
     expect(agentPanelSource).toContain("title={t('View session subagents')}");
+  });
+
+  it('uses a branch-oriented trigger icon with an explicit emphasis state', () => {
+    expect(triggerButtonSource).toContain("import { GitBranch } from 'lucide-react'");
+    expect(triggerButtonSource).toContain("data-emphasized={emphasized ? 'true' : 'false'}");
+    expect(triggerButtonSource).toContain('<GitBranch className="h-4 w-4" />');
   });
 
   it('closes the floating inspector when the session layout mode changes', () => {
