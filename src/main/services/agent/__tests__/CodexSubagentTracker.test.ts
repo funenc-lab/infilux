@@ -113,6 +113,22 @@ describe('CodexSubagentTracker', () => {
     ]);
   });
 
+  it('keeps linux cwd filters case-sensitive when the path shape does not look like darwin or windows', () => {
+    const state = applyLines([
+      '2026-03-29T09:00:00.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/srv/Repo-A"} thread_id=root-1',
+      '2026-03-29T09:00:01.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: spawn_agent {"agent_type":"explorer","message":"Inspect the repository root"} thread_id=root-1',
+      '2026-03-29T09:00:03.000Z  INFO session_loop{thread_id=root-1}:session_loop{thread_id=child-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"ls","workdir":"/srv/Repo-A"} thread_id=child-1',
+    ]);
+
+    expect(
+      buildLiveCodexSubagents(state, {
+        now: Date.parse('2026-03-29T09:00:10.000Z'),
+        maxIdleMs: 15_000,
+        cwds: ['/srv/repo-a'],
+      })
+    ).toEqual([]);
+  });
+
   it('tracks the direct parent thread for nested subagents instead of flattening to root', () => {
     const state = applyLines([
       '2026-03-29T09:00:00.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/repo/worktrees/feature-a"} thread_id=root-1',

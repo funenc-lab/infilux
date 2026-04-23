@@ -22,8 +22,39 @@ const DEFAULT_MAX_IDLE_MS = 45_000;
 const MAX_LOG_READ_WINDOW_BYTES = 8 * 1024 * 1024;
 const MAX_TRACKED_STATE_RETENTION_MS = 15 * 60 * 1_000;
 
+function inferWorkspacePlatformFromCwd(cwd: string): 'linux' | 'darwin' | 'win32' {
+  const normalized = cwd.replace(/\\/g, '/');
+
+  if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith('//')) {
+    return 'win32';
+  }
+
+  if (
+    normalized === '/Users' ||
+    normalized.startsWith('/Users/') ||
+    normalized === '/Applications' ||
+    normalized.startsWith('/Applications/') ||
+    normalized === '/Library' ||
+    normalized.startsWith('/Library/') ||
+    normalized === '/System' ||
+    normalized.startsWith('/System/') ||
+    normalized === '/Volumes' ||
+    normalized.startsWith('/Volumes/') ||
+    normalized === '/private/var' ||
+    normalized.startsWith('/private/var/') ||
+    normalized === '/private/tmp' ||
+    normalized.startsWith('/private/tmp/') ||
+    normalized === '/private/etc' ||
+    normalized.startsWith('/private/etc/')
+  ) {
+    return 'darwin';
+  }
+
+  return 'linux';
+}
+
 function normalizeSubagentCwdKey(cwd: string): string {
-  return normalizeWorkspaceKey(cwd, process.platform === 'darwin' ? 'darwin' : 'linux');
+  return normalizeWorkspaceKey(cwd, inferWorkspacePlatformFromCwd(cwd));
 }
 
 interface CodexThreadContext {
