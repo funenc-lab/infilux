@@ -2,20 +2,38 @@
 
 > 日期：2026-03-26  
 > 项目：Infilux / EnsoAI  
-> 范围：所有 Agent 会话在 APP 退出后可自动恢复，无需重新开启会话
+> 范围（原始设计目标）：所有 Agent 会话在 APP 退出后可自动恢复，无需重新开启会话  
+> 状态：历史设计文档。本文记录 2026-03-26 的设计目标，不等同于 2026-04-23 的当前实现。当前行为请以 `PersistentAgentSessionService`、`SessionManager`、`agentSessionRecovery.ts` 及相关测试为准。
+
+---
+
+## 0. 2026-04-23 现状校准
+
+- `persistent recovery` 目前只覆盖本地 worktree 的 Agent 会话；`remote virtual path` 会被显式排除。
+- Unix 本地恢复依赖 `tmux`，Windows 依赖 `supervisor`。remote Agent 会话更接近 reconnect / resume，不属于同一条 persistent recovery 语义。
+- Renderer 已有两条恢复编排：APP 启动预热（`useStartupAgentSessionRecovery`）与 worktree 激活预热（`restoreWorktreeAgentSessions`）。
+- 当前最后一个窗口 detach 后，不应简单理解为“`SessionManager` 内存记录一直原样保活”。更准确的说法是：支持持久恢复的本地 Agent 会话会依赖 host 与 persisted registry 在后续重新建立绑定。
+- 因此，本文后续凡是“所有 Agent 会话统一恢复”“detach 不 destroy session”的表述，都应视为原始设计目标，而不是现行实现承诺。
 
 ---
 
 ## 1. 目标
 
-为当前 APP 设计并落地一套 **Persistent Agent Session Recovery** 能力，使所有 Agent 会话在以下场景下具备一致恢复体验：
+本设计的原始目标，是为当前 APP 设计并落地一套 **Persistent Agent Session Recovery** 能力，使 Agent 会话在以下场景下尽可能具备一致恢复体验：
 
 - APP 正常退出后再次启动
 - APP 异常退出后再次启动
 - Renderer 刷新/窗口重建后重新附加会话
 - 工作区切换后恢复到原 worktree 的 Agent 会话
 
-用户期望的最终效果：
+截至 2026-04-23，已实际落地并可依赖的范围更接近：
+
+1. 本地 worktree 下、宿主能力满足条件的 Agent 会话可在 APP 重启后恢复
+2. APP 启动后与 worktree 激活后都会触发恢复预热与 reconcile
+3. remote Agent 会话主要依赖 reconnect / resume，而不是沿用本地 persistent recovery 的定义
+4. 恢复失败时，系统会保留 `dead` / `missing-host-session` 等状态，避免假恢复
+
+原始用户期望的最终效果：
 
 1. APP 退出后，Agent 会话不因为窗口关闭而被销毁
 2. APP 启动后，自动恢复原 worktree 下的 Agent 会话
@@ -56,25 +74,26 @@
 - 代码库已存在 `tmux` 检测与清理能力
 - Claude 已有局部 tmux 包装逻辑
 
-### 3.2 关键缺口
+### 3.2 2026-04-23 的当前状态
 
-当前“恢复”主要还是 UI 级恢复，而不是进程级恢复：
+当前系统已经不再只是 UI 级恢复，现状如下：
 
-1. **本地 session 在最后一个窗口 detach 后会被销毁**  
-   `SessionManager.detach()` 对 local session 会在 `attachedWindowIds.size === 0` 时直接 destroy
+1. **主进程已有统一恢复编排**  
+   `PersistentAgentSessionService`、`agentSession.*` IPC 和共享恢复类型已经落地。
 
-2. **tmux 只对 Claude 做了局部接入**  
-   所有 Agent 没有统一的 persistent host 抽象
+2. **persistent recovery 只覆盖本地 worktree Agent 会话**  
+   `remote virtual path` 不进入当前 persistent recovery 过滤结果。
 
-3. **恢复逻辑分散在 Renderer 与 AgentTerminal 内部**  
-   缺少主进程层统一恢复编排
+3. **APP 启动与 worktree 激活都已有预热流程**  
+   Renderer 会在启动和 worktree 切换时调用 `restoreWorktreeSessions()` 进行预热与 reconcile。
 
-4. **会话持久化策略是 Agent-specific，而不是 capability-driven**  
-   目前 store 中 `isResumableAgent()` 偏向 Claude
+4. **detach 与恢复的真实边界已经清晰**  
+   普通本地 PTY session 在最后一个窗口 detach 后仍会销毁当前 backend binding；支持持久恢复的本地 Agent 会话则依赖 `tmux` / `supervisor` 与 persisted registry 在后续重新 attach / restore。
 
-5. **APP 启动后没有统一的 Agent 会话 rehydrate/reconcile 流程**
+5. **对 remote 会话，应理解为 reconnect / resume**  
+   它与本地 APP 重启后的 persistent recovery 不是同一层语义。
 
-因此，当前系统能做到“部分 UI 元数据保留”，但不能可靠做到“APP 退出后会话持续存在并自动恢复”。
+因此，当前系统已经能稳定覆盖“本地可持久 Agent 会话”的恢复链路，但不能再把它描述成“所有 Agent 会话在所有环境下统一恢复”。
 
 ---
 
@@ -288,15 +307,17 @@
 
 APP 关闭时：
 
-1. Renderer 正常退出，不主动 kill persistent Agent sessions
-2. `SessionManager.detachWindowSessions(windowId)` 仅 detach，不 destroy persistent agent session
-3. Host 持续托管底层进程
-4. registry 记录仍保留，状态为可恢复
+1. Renderer 正常退出，不主动 kill 支持持久恢复的本地 Agent sessions
+2. 当前 `SessionManager` 可以在最后一个窗口 detach 后释放当前 backend session binding / 内存记录
+3. Unix 下由 `tmux` 持续托管底层 Agent 进程；Windows 下由 `supervisor` 持续托管会话
+4. persisted registry 记录仍保留，后续可通过 host probe + worktree restore 重新建立绑定
 
 关键变化：
 
-- **local persistent agent session 不再因最后一个 window detach 而自动 destroy**
-- destroy 只能发生在：
+- 不应再把“最后一个 window detach 后 `SessionManager` 记录仍原样存在”当成恢复前提
+- 真正需要保留的是 host 中的会话与 persisted registry
+- destroy / abandon 会发生在：
+  - 普通非持久 Agent session 退出
   - 用户明确关闭 session
   - host 探测为已退出且不可恢复
   - 清理策略命中 stale session
@@ -307,20 +328,16 @@ APP 关闭时：
 
 APP 启动后：
 
-1. Main 读取共享 session state 中的 persistent agent records
-2. 对每条记录执行 host probe
-3. 形成三类结果：
-   - `recoverable-live`
-   - `recoverable-dead`
-   - `missing-host-session`
-4. 将恢复快照暴露给 renderer
-5. Renderer 在 worktree 激活或 AgentPanel mount 时自动 reconcile：
+1. Main 初始化持久会话仓库与恢复服务
+2. Renderer 在 startup hook 验证当前 active worktree 后，调用 `agentSession.restoreWorktreeSessions`
+3. `PersistentAgentSessionService` 读取 records，过滤 remote virtual path，并对匹配 worktree 的记录执行 host probe
+4. Main 返回 `live` / `reconnecting` / `dead` / `missing-host-session` 等恢复快照
+5. Renderer 在启动预热、worktree 激活或 AgentPanel mount 时自动 reconcile：
    - 找到匹配的 UI session
    - 回填 `backendSessionId`
    - attach 并回放 replay
    - 若无 UI session，则自动创建一个恢复态 session tab
-6. 成功后将状态更新为 `live`
-7. 对失效记录展示“已结束”或自动清理
+6. 对失效记录展示“已结束”状态，必要时由清理流程移除
 
 ---
 

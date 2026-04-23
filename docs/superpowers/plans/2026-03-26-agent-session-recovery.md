@@ -1,10 +1,16 @@
 # Agent Session Recovery Implementation Plan
 
+> 状态：历史实现计划。此文记录 2026-03-26 的实施拆解，不是 2026-04-23 的当前行为说明。当前实现已落地大部分能力，但 scope 与部分语义有偏差：
+> - persistent recovery 只覆盖本地非 remote worktree 的 Agent 会话
+> - APP 启动与 worktree 切换都已有 prewarm / reconcile 流程
+> - 最后一个窗口 detach 后，当前 backend binding 可能被释放；恢复依赖 persistent host + registry，而不是要求原 `SessionManager` 记录一直保留
+> - 如需确认行为，请以 `PersistentAgentSessionService`、`SessionManager`、`agentSessionRecovery.ts` 和相关测试为准
+>
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build persistent recovery for all Agent sessions so the app can quit and later auto-restore active sessions without requiring users to manually start them again.
+**Original Goal:** Build persistent recovery for all Agent sessions so the app can quit and later auto-restore active sessions without requiring users to manually start them again.
 
-**Architecture:** Introduce a main-process persistent agent session orchestration layer that owns session registry, host selection, and restore reconciliation. Move platform-specific process persistence behind a SessionHost abstraction, then let renderer stores and AgentPanel rehydrate against the authoritative recovery snapshot instead of relying on Claude-only or localStorage-only heuristics.
+**Planned Architecture:** Introduce a main-process persistent agent session orchestration layer that owns session registry, host selection, and restore reconciliation. Move platform-specific process persistence behind a SessionHost abstraction, then let renderer stores and AgentPanel rehydrate against the authoritative recovery snapshot instead of relying on Claude-only or localStorage-only heuristics.
 
 **Tech Stack:** Electron, TypeScript, React, Zustand, Vitest, tmux on macOS/Linux, application-managed supervisor on Windows
 
@@ -31,7 +37,7 @@
 - `src/shared/types/session.ts` — Extend session metadata for persistent host semantics when needed
 - `src/main/ipc/session.ts` — Keep base session behavior aligned with persistent session semantics
 - `src/main/ipc/index.ts` — Register new IPC handlers
-- `src/main/services/session/SessionManager.ts` — Support persistent local Agent sessions and non-destructive detach
+- `src/main/services/session/SessionManager.ts` — Support persistent local Agent session recovery semantics across detach
 - `src/main/services/SharedSessionState.ts` — Persist and read persistent Agent session registry
 - `src/preload/index.ts` — Expose typed `agentSession.*` bridge methods
 - `src/preload/types.ts` — Update `ElectronAPI` typings
@@ -286,7 +292,7 @@ git commit -m "feat(session): add persistent agent session orchestration"
 
 ## Chunk 3: Integrate orchestration into the unified session layer
 
-### Task 8: Teach SessionManager to preserve persistent local Agent sessions across detach
+### Task 8: Teach SessionManager to preserve persistent local Agent recovery semantics across detach
 
 **Files:**
 - Modify: `src/main/services/session/SessionManager.ts`
@@ -295,7 +301,7 @@ git commit -m "feat(session): add persistent agent session orchestration"
 - [ ] **Step 1: Add failing tests for non-destructive detach semantics**
 
 Add scenarios that verify:
-- persistent local agent sessions survive the last window detach
+- persistent local agent sessions preserve host-backed recovery semantics across the last window detach
 - regular terminal sessions still destroy on final detach
 - explicit kill still destroys persistent sessions
 

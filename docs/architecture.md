@@ -213,6 +213,14 @@ terminal = PTY 传输
 agent = Agent 编排与元信息
 ```
 
+当前与 Agent 会话恢复相关的实现边界：
+
+- `persistent recovery` 目前只覆盖本地 worktree 的 Agent 会话；`remote virtual path` 不纳入这条持久恢复链路。
+- macOS / Linux 依赖 `tmux`，Windows 依赖 `supervisor`。两者都允许后续重新建立 backend binding，但不要求原 `SessionManager` 内存记录在最后一个窗口 detach 后原样保留。
+- remote Agent 会话主要依赖 remote session 的 reconnect / resume 语义，不等同于 APP 重启后的本地 persistent recovery。
+- Renderer 会在启动和 worktree 切换阶段预热可恢复会话，再由 `AgentPanel` / `AgentTerminal` 回填 `backendSessionId`、replay 和恢复状态。
+- 当文档与代码不一致时，应以 `PersistentAgentSessionService`、`SessionManager`、`src/renderer/components/chat/agentSessionRecovery.ts` 及对应测试为准。
+
 #### Files / Watchers
 
 位置：
