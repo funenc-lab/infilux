@@ -435,4 +435,83 @@ describe('SessionSubagentInspector', () => {
 
     mounted.unmount();
   });
+
+  it('lets plain wheel events reach transcript content while still trapping zoom gestures', async () => {
+    sessionSubagentState.items = [createSubagent()];
+    transcriptState.data = {
+      threadId: 'child-thread-1',
+      entries: [
+        {
+          id: 'entry-1',
+          text: 'Scrollable transcript body',
+          kind: 'message',
+          role: 'assistant',
+          timestamp: Date.parse('2026-04-21T10:00:00.000Z'),
+        },
+      ],
+    };
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    const onWheel = vi.fn();
+
+    act(() => {
+      root.render(
+        React.createElement(
+          'div',
+          { onWheel },
+          React.createElement(SessionSubagentInspector, {
+            sessionName: 'Codex Main',
+            agentLabel: 'Codex',
+            sessionCwd: '/repo/worktree',
+            providerSessionId: 'root-thread-1',
+            viewState: {
+              kind: 'supported',
+              provider: 'codex',
+            },
+            subagents: [createSubagent()],
+            selectedThreadId: 'child-thread-1',
+            onSelectThread: () => undefined,
+            onClose: () => undefined,
+          })
+        )
+      );
+    });
+
+    const transcriptTerminal = container.querySelector<HTMLElement>(
+      '[data-agent-terminal-mode="transcript"]'
+    );
+    expect(transcriptTerminal).not.toBeNull();
+
+    await act(async () => {
+      transcriptTerminal?.dispatchEvent(
+        new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaY: 40,
+        })
+      );
+    });
+
+    expect(onWheel).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      transcriptTerminal?.dispatchEvent(
+        new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: true,
+          deltaY: 40,
+        })
+      );
+    });
+
+    expect(onWheel).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });

@@ -1,6 +1,6 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { Bot, TerminalSquare, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { type WheelEvent as ReactWheelEvent, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { Button } from '@/components/ui/button';
 import { useSessionSubagents } from '@/hooks/useSessionSubagents';
@@ -135,6 +135,12 @@ function resolveInspectorLayoutMode({ width, height }: InspectorViewportSize): I
   }
 
   return 'wide';
+}
+
+function shouldCaptureInspectorWheel(
+  event: Pick<ReactWheelEvent<HTMLElement>, 'ctrlKey' | 'metaKey'>
+): boolean {
+  return event.ctrlKey || event.metaKey;
 }
 
 function getInspectorCopy(
@@ -461,7 +467,9 @@ export function SessionSubagentInspector({
         }
       }}
       onWheelCapture={(event) => {
-        event.stopPropagation();
+        if (shouldCaptureInspectorWheel(event)) {
+          event.stopPropagation();
+        }
       }}
     >
       <div className="flex min-h-0 w-full items-center justify-center">
@@ -485,7 +493,9 @@ export function SessionSubagentInspector({
             event.stopPropagation();
           }}
           onWheelCapture={(event) => {
-            event.stopPropagation();
+            if (shouldCaptureInspectorWheel(event)) {
+              event.stopPropagation();
+            }
           }}
         >
           <div
