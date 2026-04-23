@@ -51,6 +51,28 @@ import { registerUpdaterHandlers } from './updater';
 import { registerWebInspectorHandlers } from './webInspector';
 import { clearAllWorktreeServices, registerWorktreeHandlers } from './worktree';
 
+export type CleanupTaskStatus = 'completed' | 'failed' | 'timedOut';
+
+export interface CleanupTaskResult {
+  label: string;
+  status: CleanupTaskStatus;
+  durationMs: number;
+  errorMessage?: string;
+}
+
+export interface CleanupSummary {
+  tasks: CleanupTaskResult[];
+  timedOutLabels: string[];
+  failedLabels: string[];
+  hasTimeouts: boolean;
+}
+
+interface AsyncCleanupTask {
+  label: string;
+  timeoutMs: number;
+  run: () => Promise<void>;
+}
+
 function shouldCleanupTmuxServer(): boolean {
   return !persistentAgentSessionService
     .listCachedSessionsSync()
@@ -93,68 +115,159 @@ export function registerIpcHandlers(): void {
   registerTodoHandlers();
 }
 
-export async function cleanupAllResources(): Promise<void> {
-  // Single global deadline well within FORCE_EXIT_TIMEOUT_MS (8000ms).
-  // Previous approach ran steps serially with per-step 3000ms timeouts, which
-  // could stack up to ~15s total — triggering the force-exit while async cleanup
-  // was still running and causing double-cleanup of node-pty native resources.
-  const TOTAL_ASYNC_TIMEOUT = 5500;
-  const deadline = new Promise<void>((resolve) => setTimeout(resolve, TOTAL_ASYNC_TIMEOUT));
+function getCleanupErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
 
-  const safeRun = async (fn: () => Promise<void>, label: string): Promise<void> => {
-    try {
-      await fn();
-    } catch (err) {
-      console.warn(`[cleanup] ${label} warning:`, err);
-    }
+async function runAsyncCleanupTask(task: AsyncCleanupTask): Promise<CleanupTaskResult> {
+  const startedAt = Date.now();
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const taskPromise = Promise.resolve()
+    .then(async () => {
+      await task.run();
+      return {
+        label: task.label,
+        status: 'completed' as const,
+        durationMs: Date.now() - startedAt,
+      };
+    })
+    .catch((error: unknown) => ({
+      label: task.label,
+      status: 'failed' as const,
+      durationMs: Date.now() - startedAt,
+      errorMessage: getCleanupErrorMessage(error),
+    }));
+
+  const timeoutPromise = new Promise<CleanupTaskResult>((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({
+        label: task.label,
+        status: 'timedOut',
+        durationMs: Date.now() - startedAt,
+        errorMessage: `${task.label} exceeded ${task.timeoutMs}ms`,
+      });
+    }, task.timeoutMs);
+  });
+
+  const result = await Promise.race([taskPromise, timeoutPromise]);
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+
+  if (result.status === 'failed') {
+    console.warn(`[cleanup] ${task.label} warning:`, result.errorMessage);
+  } else if (result.status === 'timedOut') {
+    console.warn(`[cleanup] ${task.label} timed out after ${task.timeoutMs}ms`);
+  }
+
+  return result;
+}
+
+function runSyncCleanupTask(label: string, task: () => void): CleanupTaskResult {
+  const startedAt = Date.now();
+  try {
+    task();
+    return {
+      label,
+      status: 'completed',
+      durationMs: Date.now() - startedAt,
+    };
+  } catch (error) {
+    const errorMessage = getCleanupErrorMessage(error);
+    console.warn(`[cleanup] ${label} warning:`, error);
+    return {
+      label,
+      status: 'failed',
+      durationMs: Date.now() - startedAt,
+      errorMessage,
+    };
+  }
+}
+
+function buildCleanupSummary(tasks: CleanupTaskResult[]): CleanupSummary {
+  return {
+    tasks,
+    timedOutLabels: tasks.filter((task) => task.status === 'timedOut').map((task) => task.label),
+    failedLabels: tasks.filter((task) => task.status === 'failed').map((task) => task.label),
+    hasTimeouts: tasks.some((task) => task.status === 'timedOut'),
   };
+}
 
-  // Run all independent async cleanup steps in parallel, bounded by a single deadline.
-  await Promise.race([
-    Promise.allSettled([
-      // node-pty PTYs used by short-lived commands (exec-in-pty pool)
-      safeRun(() => cleanupExecInPtys(4000), 'execInPty'),
-      // Hapi server + runner + cloudflared
-      safeRun(() => cleanupHapi(4000), 'hapi'),
-      // Interactive terminal PTY sessions
-      safeRun(async () => {
+export async function cleanupAllResources(): Promise<CleanupSummary> {
+  const asyncTasks: AsyncCleanupTask[] = [
+    {
+      label: 'execInPty',
+      timeoutMs: 4_000,
+      run: () => cleanupExecInPtys(4_000),
+    },
+    {
+      label: 'hapi',
+      timeoutMs: 4_000,
+      run: () => cleanupHapi(4_000),
+    },
+    {
+      label: 'terminals',
+      timeoutMs: 4_000,
+      run: async () => {
         try {
           await destroyAllTerminalsAndWait();
-        } catch (err) {
-          console.warn('[cleanup] terminals warning:', err);
-          // Fallback: force-kill without waiting
+        } catch (error) {
+          console.warn('[cleanup] terminals warning:', error);
           destroyAllTerminals();
         }
-      }, 'terminals'),
-      // File system watchers
-      safeRun(() => stopAllFileWatchers(), 'fileWatchers'),
-      // Claude completions file watcher
-      safeRun(() => stopClaudeCompletionsWatchers(), 'claudeCompletions'),
-      // Temp files
-      safeRun(() => cleanupTempFiles(), 'tempFiles'),
-    ]),
-    deadline,
-  ]);
+      },
+    },
+    {
+      label: 'fileWatchers',
+      timeoutMs: 4_000,
+      run: () => stopAllFileWatchers(),
+    },
+    {
+      label: 'claudeCompletions',
+      timeoutMs: 4_000,
+      run: () => stopClaudeCompletionsWatchers(),
+    },
+    {
+      label: 'tempFiles',
+      timeoutMs: 4_000,
+      run: () => cleanupTempFiles(),
+    },
+    {
+      label: 'remoteConnections',
+      timeoutMs: 4_000,
+      run: () => remoteConnectionManager.cleanup(),
+    },
+    {
+      label: 'todo',
+      timeoutMs: 2_000,
+      run: () => cleanupTodo(),
+    },
+    {
+      label: 'persistentAgentSessions',
+      timeoutMs: 2_000,
+      run: () => persistentAgentSessionRepository.close(),
+    },
+  ];
 
-  // Fast synchronous cleanup (runs after async steps or deadline)
+  const asyncResults = await Promise.all(asyncTasks.map((task) => runAsyncCleanupTask(task)));
+  const syncResults: CleanupTaskResult[] = [];
+
   if (shouldCleanupTmuxServer()) {
-    try {
-      cleanupTmuxSync();
-    } catch (err) {
-      console.warn('[cleanup] tmux warning:', err);
-    }
+    syncResults.push(runSyncCleanupTask('tmux', () => cleanupTmuxSync()));
   }
-  webInspectorServer.stop();
-  stopAllCodeReviews();
-  clearAllGitServices();
-  clearAllWorktreeServices();
-  autoUpdaterService.cleanup();
-  disposeClaudeIdeBridge();
-  await remoteConnectionManager.cleanup();
-  await cleanupTodo();
-  await persistentAgentSessionRepository.close().catch((err) => {
-    console.warn('[cleanup] persistentAgentSessions warning:', err);
-  });
+
+  syncResults.push(runSyncCleanupTask('webInspector', () => webInspectorServer.stop()));
+  syncResults.push(runSyncCleanupTask('codeReviews', () => stopAllCodeReviews()));
+  syncResults.push(runSyncCleanupTask('gitServices', () => clearAllGitServices()));
+  syncResults.push(runSyncCleanupTask('worktreeServices', () => clearAllWorktreeServices()));
+  syncResults.push(runSyncCleanupTask('autoUpdater', () => autoUpdaterService.cleanup()));
+  syncResults.push(runSyncCleanupTask('claudeIdeBridge', () => disposeClaudeIdeBridge()));
+
+  return buildCleanupSummary([...asyncResults, ...syncResults]);
 }
 
 /**

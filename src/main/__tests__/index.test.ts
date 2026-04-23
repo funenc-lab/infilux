@@ -13,8 +13,21 @@ type ProtocolHandler = (request: {
 type ProcessWithRawDebug = NodeJS.Process & {
   _rawDebug?: (message: string) => void;
 };
+type MockCleanupSummary = {
+  hasTimeouts: boolean;
+  timedOutLabels: string[];
+  failedLabels: string[];
+};
 
 type MockWindow = ReturnType<typeof mainIndexTestDoubles.createWindow>;
+
+function createCompletedCleanupSummary(): MockCleanupSummary {
+  return {
+    hasTimeouts: false,
+    timedOutLabels: [],
+    failedLabels: [],
+  };
+}
 
 const mainIndexTestDoubles = vi.hoisted(() => {
   const appListeners = new Map<string, Listener[]>();
@@ -92,7 +105,9 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     SHELL_ENV_READY: '1',
   }));
   const autoStartHapi = vi.fn<() => Promise<void>>(async () => undefined);
-  const cleanupAllResources = vi.fn<() => Promise<void>>(async () => undefined);
+  const cleanupAllResources = vi.fn<() => Promise<MockCleanupSummary>>(async () =>
+    createCompletedCleanupSummary()
+  );
   const cleanupAllResourcesSync = vi.fn();
   const registerIpcHandlers = vi.fn();
   const initClaudeProviderWatcher = vi.fn();
@@ -505,7 +520,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       SHELL_ENV_READY: '1',
     });
     autoStartHapi.mockResolvedValue(undefined);
-    cleanupAllResources.mockResolvedValue(undefined);
+    cleanupAllResources.mockResolvedValue(createCompletedCleanupSummary());
     cleanupTempFiles.mockResolvedValue(undefined);
     readSettings.mockReturnValue({});
     registerWindowHandlers.mockReturnValue(registerWindowHandlersCleanup);
@@ -2326,9 +2341,11 @@ describe('main entry', () => {
     uncaughtHandler(ignorableError);
 
     expect(errorSpy).not.toHaveBeenCalledWith('Uncaught Exception:', ignorableError);
+    expect(mainIndexTestDoubles.cleanupAllResourcesSync).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.exit).not.toHaveBeenCalled();
   });
 
-  it('records uncaught exceptions and logs non-ignorable failures', async () => {
+  it('records uncaught exceptions and performs a controlled shutdown for non-ignorable failures', async () => {
     await importMainModule({
       platform: 'win32',
     });
@@ -2344,9 +2361,11 @@ describe('main entry', () => {
     uncaughtHandler(failure);
 
     expect(errorSpy).toHaveBeenCalledWith('Uncaught Exception:', failure);
+    expect(mainIndexTestDoubles.cleanupAllResourcesSync).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.exit).toHaveBeenCalledWith(1);
   });
 
-  it('records unhandled rejections and logs non-ignorable failures', async () => {
+  it('records unhandled rejections and performs a controlled shutdown for non-ignorable failures', async () => {
     await importMainModule({
       platform: 'win32',
     });
@@ -2362,6 +2381,8 @@ describe('main entry', () => {
     rejectionHandler(rejection);
 
     expect(errorSpy).toHaveBeenCalledWith('Unhandled Rejection:', rejection);
+    expect(mainIndexTestDoubles.cleanupAllResourcesSync).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.exit).toHaveBeenCalledWith(1);
   });
 
   it('records unhandled rejections and suppresses console noise for ignorable stream write errors', async () => {
@@ -2381,6 +2402,8 @@ describe('main entry', () => {
     rejectionHandler(ignorableError);
 
     expect(errorSpy).not.toHaveBeenCalledWith('Unhandled Rejection:', ignorableError);
+    expect(mainIndexTestDoubles.cleanupAllResourcesSync).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.exit).not.toHaveBeenCalled();
   });
 
   it('bypasses custom will-quit cleanup while updater is restarting to install an update', async () => {
@@ -2441,14 +2464,16 @@ describe('main entry', () => {
     expect(mainIndexTestDoubles.exit).toHaveBeenCalledTimes(2);
   });
 
-  it('forces synchronous cleanup when async quit cleanup times out', async () => {
+  it('forces synchronous cleanup when async quit cleanup reports timed out tasks', async () => {
     vi.useFakeTimers();
 
     const mainWindow = mainIndexTestDoubles.createWindow();
     mainIndexTestDoubles.setNextOpenWindow(mainWindow);
-    mainIndexTestDoubles.cleanupAllResources.mockImplementation(
-      () => new Promise<void>(() => undefined)
-    );
+    mainIndexTestDoubles.cleanupAllResources.mockResolvedValue({
+      hasTimeouts: true,
+      timedOutLabels: ['terminals'],
+      failedLabels: [],
+    });
 
     await importMainModule({
       autoReady: true,
@@ -2460,6 +2485,9 @@ describe('main entry', () => {
     };
 
     await mainIndexTestDoubles.emitApp('will-quit', quitEvent);
+    await Promise.resolve();
+
+    expect(mainIndexTestDoubles.exit).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(8000);
 
     expect(mainIndexTestDoubles.cleanupAllResourcesSync).toHaveBeenCalledTimes(1);
@@ -2470,7 +2498,7 @@ describe('main entry', () => {
     const mainWindow = mainIndexTestDoubles.createWindow();
     mainIndexTestDoubles.setNextOpenWindow(mainWindow);
     mainIndexTestDoubles.cleanupAllResources.mockImplementation(
-      () => new Promise<void>(() => undefined)
+      () => new Promise<MockCleanupSummary>(() => undefined)
     );
 
     await importMainModule({
@@ -2498,9 +2526,11 @@ describe('main entry', () => {
 
     const mainWindow = mainIndexTestDoubles.createWindow();
     mainIndexTestDoubles.setNextOpenWindow(mainWindow);
-    mainIndexTestDoubles.cleanupAllResources.mockImplementation(
-      () => new Promise<void>(() => undefined)
-    );
+    mainIndexTestDoubles.cleanupAllResources.mockResolvedValue({
+      hasTimeouts: true,
+      timedOutLabels: ['remoteConnections'],
+      failedLabels: [],
+    });
     const syncCleanupError = new Error('sync cleanup failed');
     mainIndexTestDoubles.cleanupAllResourcesSync.mockImplementationOnce(() => {
       throw syncCleanupError;
@@ -2517,9 +2547,13 @@ describe('main entry', () => {
     };
 
     await mainIndexTestDoubles.emitApp('will-quit', quitEvent);
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(8000);
 
-    expect(errorSpy).toHaveBeenCalledWith('[app] Sync cleanup error:', syncCleanupError);
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[app] Sync cleanup error during will-quit-timeout:',
+      syncCleanupError
+    );
     expect(mainIndexTestDoubles.exit).toHaveBeenCalledWith(0);
   });
 

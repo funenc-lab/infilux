@@ -108,6 +108,7 @@ let pendingOpenPath: string | null = null;
 let cleanupWindowHandlers: (() => void) | null = null;
 let isQuittingCleanupRunning = false;
 let isQuittingForAutoUpdateInstall = (): boolean => false;
+let emergencyShutdownTriggered = false;
 
 const isDev = !app.isPackaged;
 
@@ -1592,6 +1593,74 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
+function runBestEffortPreExitStep(reason: string, label: string, step: () => void): void {
+  try {
+    step();
+  } catch (error) {
+    console.error(`[app] ${label} cleanup error during ${reason}:`, error);
+  }
+}
+
+function prepareForExit(reason: string): void {
+  const windowCleanup = cleanupWindowHandlers;
+  cleanupWindowHandlers = null;
+
+  if (windowCleanup) {
+    runBestEffortPreExitStep(reason, 'window', () => {
+      windowCleanup();
+    });
+  }
+
+  runBestEffortPreExitStep(reason, 'tray', () => appTrayService.destroy());
+  runBestEffortPreExitStep(reason, 'claudeSettings', () => unwatchClaudeSettings());
+  runBestEffortPreExitStep(reason, 'gitAutoFetch', () => gitAutoFetchService.cleanup());
+}
+
+function performSynchronousShutdown(
+  reason: string,
+  exitCode: number,
+  options: {
+    prepareBeforeCleanup?: boolean;
+  } = {}
+): void {
+  if (emergencyShutdownTriggered) {
+    return;
+  }
+
+  emergencyShutdownTriggered = true;
+  isQuittingCleanupRunning = true;
+
+  if (options.prepareBeforeCleanup !== false) {
+    prepareForExit(reason);
+  }
+
+  try {
+    cleanupAllResourcesSync();
+  } catch (error) {
+    console.error(`[app] Sync cleanup error during ${reason}:`, error);
+  } finally {
+    app.exit(exitCode);
+  }
+}
+
+function handleFatalMainProcessError(
+  label: 'uncaughtException' | 'unhandledRejection',
+  error: unknown
+): void {
+  writeUncaughtExceptionSnapshot(label, error);
+  if (isIgnorableConsoleWriteError(error)) {
+    return;
+  }
+
+  if (label === 'uncaughtException') {
+    console.error('Uncaught Exception:', error);
+  } else {
+    console.error('Unhandled Rejection:', error);
+  }
+
+  performSynchronousShutdown(label, 1);
+}
+
 // Cleanup before app quits (covers all quit methods: Cmd+Q, window close, etc.)
 app.on('will-quit', (event) => {
   if (isQuittingForAutoUpdateInstall()) {
@@ -1606,11 +1675,7 @@ app.on('will-quit', (event) => {
   event.preventDefault();
   isQuittingCleanupRunning = true;
   console.log('[app] Will quit, cleaning up...');
-  cleanupWindowHandlers?.();
-  cleanupWindowHandlers = null;
-  appTrayService.destroy();
-  unwatchClaudeSettings();
-  gitAutoFetchService.cleanup();
+  prepareForExit('will-quit');
 
   // Guard against double-cleanup: sync cleanup in the force-exit path must be
   // skipped if async cleanup already finished, otherwise both paths would
@@ -1620,41 +1685,43 @@ app.on('will-quit', (event) => {
   const forceExitTimer = setTimeout(() => {
     console.error('[app] Cleanup timed out, forcing exit');
     if (!asyncCleanupDone) {
-      // Async cleanup is still running — kill native resources synchronously
-      // before Node starts tearing down addons to avoid a deadlock/crash.
-      try {
-        cleanupAllResourcesSync();
-      } catch (err) {
-        console.error('[app] Sync cleanup error:', err);
-      }
+      performSynchronousShutdown('will-quit-timeout', 0, {
+        prepareBeforeCleanup: false,
+      });
+      return;
     }
     app.exit(0);
   }, FORCE_EXIT_TIMEOUT_MS);
 
-  cleanupAllResources()
-    .catch((err) => console.error('[app] Cleanup error:', err))
-    .finally(() => {
+  void cleanupAllResources()
+    .then((summary) => {
+      if (summary.failedLabels.length > 0) {
+        console.warn('[app] Cleanup completed with warnings:', summary.failedLabels.join(', '));
+      }
+      if (summary.hasTimeouts) {
+        console.error(
+          '[app] Cleanup incomplete before exit deadline. Waiting for forced shutdown for tasks:',
+          summary.timedOutLabels.join(', ')
+        );
+        return;
+      }
+
       asyncCleanupDone = true;
       clearTimeout(forceExitTimer);
       app.exit(0);
+    })
+    .catch((error) => {
+      console.error('[app] Cleanup error:', error);
     });
 });
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {
-  writeUncaughtExceptionSnapshot('uncaughtException', error);
-  if (isIgnorableConsoleWriteError(error)) {
-    return;
-  }
-  console.error('Uncaught Exception:', error);
+  handleFatalMainProcessError('uncaughtException', error);
 });
 
 process.on('unhandledRejection', (reason) => {
-  writeUncaughtExceptionSnapshot('unhandledRejection', reason);
-  if (isIgnorableConsoleWriteError(reason)) {
-    return;
-  }
-  console.error('Unhandled Rejection:', reason);
+  handleFatalMainProcessError('unhandledRejection', reason);
 });
 
 // Handle SIGINT (Ctrl+C) and SIGTERM
@@ -1662,18 +1729,7 @@ process.on('unhandledRejection', (reason) => {
 // Use synchronous cleanup + immediate app.exit() to ensure clean shutdown.
 function handleShutdownSignal(signal: string): void {
   console.log(`[app] Received ${signal}, exiting...`);
-  try {
-    // Sync cleanup: kill child processes immediately
-    appTrayService.destroy();
-    unwatchClaudeSettings();
-    gitAutoFetchService.cleanup();
-    cleanupAllResourcesSync();
-  } catch (error) {
-    console.error(`[app] Sync cleanup error during ${signal}:`, error);
-  } finally {
-    // Use app.exit() to bypass will-quit handler (already cleaned up)
-    app.exit(0);
-  }
+  performSynchronousShutdown(signal, 0);
 }
 
 process.on('SIGINT', () => handleShutdownSignal('SIGINT'));

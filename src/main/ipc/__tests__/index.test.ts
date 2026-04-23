@@ -426,7 +426,7 @@ describe('ipc index', () => {
     indexTestDoubles.destroyAllTerminalsAndWait.mockRejectedValueOnce(new Error('pty still busy'));
 
     const { cleanupAllResources } = await import('../index');
-    await cleanupAllResources();
+    const summary = await cleanupAllResources();
 
     expect(indexTestDoubles.cleanupExecInPtys).toHaveBeenCalledWith(4000);
     expect(indexTestDoubles.cleanupHapi).toHaveBeenCalledWith(4000);
@@ -448,6 +448,26 @@ describe('ipc index', () => {
       '[cleanup] terminals warning:',
       expect.objectContaining({ message: 'pty still busy' })
     );
+    expect(summary.hasTimeouts).toBe(false);
+    expect(summary.failedLabels).toEqual([]);
+    expect(summary.timedOutLabels).toEqual([]);
+  });
+
+  it('returns a cleanup summary when async tasks time out', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    indexTestDoubles.remoteCleanup.mockImplementationOnce(() => new Promise<void>(() => undefined));
+
+    const { cleanupAllResources } = await import('../index');
+    const summaryPromise = cleanupAllResources();
+
+    await vi.advanceTimersByTimeAsync(4000);
+
+    const summary = await summaryPromise;
+
+    expect(summary.hasTimeouts).toBe(true);
+    expect(summary.timedOutLabels).toContain('remoteConnections');
+    expect(summary.failedLabels).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledWith('[cleanup] remoteConnections timed out after 4000ms');
   });
 
   it('logs sync cleanup steps and force-cleans every synchronous resource', async () => {
