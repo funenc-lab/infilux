@@ -1,4 +1,4 @@
-import { GitBranch } from 'lucide-react';
+import { GitFork } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface SessionSubagentTriggerButtonProps {
@@ -39,7 +39,7 @@ export function SessionSubagentTriggerButton({
       onClick={onClick}
     >
       <span className="relative">
-        <GitBranch className="h-4 w-4" />
+        <GitFork className="h-4 w-4" />
         {count > 0 ? (
           <span className="pointer-events-none absolute -right-2 -top-2 flex min-w-4 items-center justify-center rounded-full border border-background/80 bg-primary px-1 text-[9px] font-semibold leading-4 text-primary-foreground shadow-[0_0_0_2px_var(--background)]">
             {count > 9 ? '9+' : count}

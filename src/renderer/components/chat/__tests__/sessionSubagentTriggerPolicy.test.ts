@@ -17,7 +17,7 @@ describe('session subagent trigger policy', () => {
     });
   });
 
-  it('keeps the trigger visible but quiet while the session is pending', () => {
+  it('hides the trigger while the session has no tracked subagent sessions', () => {
     expect(
       resolveSessionSubagentTriggerPresentation(
         {
@@ -28,12 +28,9 @@ describe('session subagent trigger policy', () => {
         0
       )
     ).toEqual({
-      visible: true,
+      visible: false,
       emphasized: false,
     });
-  });
-
-  it('emphasizes the trigger only when a supported session has tracked subagents', () => {
     expect(
       resolveSessionSubagentTriggerPresentation(
         {
@@ -43,10 +40,12 @@ describe('session subagent trigger policy', () => {
         0
       )
     ).toEqual({
-      visible: true,
+      visible: false,
       emphasized: false,
     });
+  });
 
+  it('emphasizes the trigger only when a supported session has tracked subagents', () => {
     expect(
       resolveSessionSubagentTriggerPresentation(
         {

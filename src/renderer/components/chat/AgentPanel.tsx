@@ -1162,6 +1162,55 @@ export function AgentPanel({
       supportsSessionSubagentTracking(session.agentId, session.agentCommand)
     );
   const liveSubagentsByWorktree = useLiveSubagents(shouldPollLiveSubagents ? [cwd] : []);
+  const displayedSessionSubagentsBySessionId = useMemo(() => {
+    return Object.fromEntries(
+      currentWorktreeSessions.map((session) => {
+        const sessionWorktreeSubagents =
+          liveSubagentsByWorktree.get(normalizePath(session.cwd)) ?? [];
+        const matchedSessionSubagents = getMatchedSessionSubagents(
+          session.agentId,
+          session.agentCommand,
+          session.sessionId,
+          sessionWorktreeSubagents
+        );
+        const sessionScopedSubagents = sessionScopedSubagentsBySessionId[session.id] ?? [];
+        const displayedSessionSubagents =
+          inspectorSubagentsBySessionId[session.id] ??
+          (sessionScopedSubagents.length > 0 ? sessionScopedSubagents : matchedSessionSubagents);
+
+        return [session.id, displayedSessionSubagents];
+      })
+    );
+  }, [
+    currentWorktreeSessions,
+    inspectorSubagentsBySessionId,
+    liveSubagentsByWorktree,
+    sessionScopedSubagentsBySessionId,
+  ]);
+  const sessionSubagentTriggerPresentationBySessionId = useMemo(() => {
+    return Object.fromEntries(
+      currentWorktreeSessions.map((session) => [
+        session.id,
+        resolveSessionSubagentTriggerPresentation(
+          sessionSubagentViewStateBySessionId[session.id],
+          displayedSessionSubagentsBySessionId[session.id]?.length ?? 0
+        ),
+      ])
+    );
+  }, [
+    currentWorktreeSessions,
+    displayedSessionSubagentsBySessionId,
+    sessionSubagentViewStateBySessionId,
+  ]);
+  useEffect(() => {
+    setOpenSessionSubagentInspectorId((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return sessionSubagentTriggerPresentationBySessionId[current]?.visible ? current : null;
+    });
+  }, [sessionSubagentTriggerPresentationBySessionId]);
   const sessionActivityStateById = useMemo(
     () =>
       buildSessionActivityStateBySessionId({
@@ -3446,18 +3495,10 @@ export function AgentPanel({
     });
     const sender = enhancedInputSenderRef.current.get(sessionId);
     const tileAgentLabel = getAgentDisplayLabel(session.agentId, customAgents);
-    const sessionWorktreeSubagents = liveSubagentsByWorktree.get(normalizePath(session.cwd)) ?? [];
-    const matchedSessionSubagents = getMatchedSessionSubagents(
-      session.agentId,
-      session.agentCommand,
-      session.sessionId,
-      sessionWorktreeSubagents
-    );
-    const sessionScopedSubagents = sessionScopedSubagentsBySessionId[session.id] ?? [];
-    const displayedSessionSubagents =
-      inspectorSubagentsBySessionId[session.id] ??
-      (sessionScopedSubagents.length > 0 ? sessionScopedSubagents : matchedSessionSubagents);
+    const displayedSessionSubagents = displayedSessionSubagentsBySessionId[session.id] ?? [];
     const sessionSubagentViewState = sessionSubagentViewStateBySessionId[session.id];
+    const sessionSubagentTriggerPresentation =
+      sessionSubagentTriggerPresentationBySessionId[session.id];
     const isSessionSubagentInspectorOpen = openSessionSubagentInspectorId === session.id;
     const isCanvasFloatingSession = isCanvasDisplayMode && session.id === canvasFloatingSessionId;
     const sessionContentHost = ensureCanvasSessionContentHost(sessionId);
@@ -3480,19 +3521,14 @@ export function AgentPanel({
       </div>
     );
     const renderSessionSubagentTrigger = (className: string) => {
-      const triggerPresentation = resolveSessionSubagentTriggerPresentation(
-        sessionSubagentViewState,
-        displayedSessionSubagents.length
-      );
-
-      if (!triggerPresentation.visible) {
+      if (!sessionSubagentTriggerPresentation?.visible) {
         return null;
       }
 
       return (
         <SessionSubagentTriggerButton
           count={displayedSessionSubagents.length}
-          emphasized={triggerPresentation.emphasized}
+          emphasized={sessionSubagentTriggerPresentation.emphasized}
           isActive={isSessionSubagentInspectorOpen}
           className={className}
           title={t('View session subagents')}
@@ -4105,39 +4141,24 @@ export function AgentPanel({
           const activeSessionSubagents =
             activeSession == null
               ? []
-              : (inspectorSubagentsBySessionId[activeSession.id] ??
-                (() => {
-                  const sessionScopedSubagents =
-                    sessionScopedSubagentsBySessionId[activeSession.id] ?? [];
-                  if (sessionScopedSubagents.length > 0) {
-                    return sessionScopedSubagents;
-                  }
-
-                  return getMatchedSessionSubagents(
-                    activeSession.agentId,
-                    activeSession.agentCommand,
-                    activeSession.sessionId,
-                    liveSubagentsByWorktree.get(normalizePath(activeSession.cwd)) ?? []
-                  );
-                })());
+              : (displayedSessionSubagentsBySessionId[activeSession.id] ?? []);
           const activeSessionSubagentViewState =
             activeSession == null ? null : sessionSubagentViewStateBySessionId[activeSession.id];
+          const activeSessionSubagentTriggerPresentation =
+            activeSession == null
+              ? undefined
+              : sessionSubagentTriggerPresentationBySessionId[activeSession.id];
           const activeSessionToolbarAccessory =
             activeSession != null && activeSessionSubagentViewState != null
               ? (() => {
-                  const triggerPresentation = resolveSessionSubagentTriggerPresentation(
-                    activeSessionSubagentViewState,
-                    activeSessionSubagents.length
-                  );
-
-                  if (!triggerPresentation.visible) {
+                  if (!activeSessionSubagentTriggerPresentation?.visible) {
                     return null;
                   }
 
                   return (
                     <SessionSubagentTriggerButton
                       count={activeSessionSubagents.length}
-                      emphasized={triggerPresentation.emphasized}
+                      emphasized={activeSessionSubagentTriggerPresentation.emphasized}
                       isActive={openSessionSubagentInspectorId === activeSession.id}
                       className="control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors"
                       title={t('View session subagents')}

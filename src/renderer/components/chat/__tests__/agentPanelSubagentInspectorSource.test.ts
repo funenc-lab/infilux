@@ -34,10 +34,10 @@ describe('Agent panel subagent inspector wiring', () => {
     expect(agentPanelSource).toContain("title={t('View session subagents')}");
   });
 
-  it('uses a branch-oriented trigger icon with an explicit emphasis state', () => {
-    expect(triggerButtonSource).toContain("import { GitBranch } from 'lucide-react'");
+  it('uses a fork-oriented trigger icon with an explicit emphasis state', () => {
+    expect(triggerButtonSource).toContain("import { GitFork } from 'lucide-react'");
     expect(triggerButtonSource).toContain("data-emphasized={emphasized ? 'true' : 'false'}");
-    expect(triggerButtonSource).toContain('<GitBranch className="h-4 w-4" />');
+    expect(triggerButtonSource).toContain('<GitFork className="h-4 w-4" />');
   });
 
   it('closes the floating inspector when the session layout mode changes', () => {
@@ -46,6 +46,13 @@ describe('Agent panel subagent inspector wiring', () => {
     );
     expect(agentPanelSource).toContain('setOpenSessionSubagentInspectorId(null);');
     expect(agentPanelSource).toContain('}, [agentSessionDisplayMode]);');
+  });
+
+  it('closes the floating inspector when the trigger becomes unavailable', () => {
+    expect(agentPanelSource).toContain(
+      'sessionSubagentTriggerPresentationBySessionId[current]?.visible'
+    );
+    expect(agentPanelSource).toContain('}, [sessionSubagentTriggerPresentationBySessionId]);');
   });
 
   it('ports the inspector above the canvas transform instead of leaving it inside the session tile', () => {
