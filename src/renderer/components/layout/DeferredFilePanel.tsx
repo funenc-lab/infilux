@@ -1,11 +1,21 @@
 import { FileCode } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { FilePanelProps } from '@/components/files/FilePanel';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { DeferredPanelLoadError } from './DeferredPanelLoadError';
+import { useDeferredComponentLoader } from './useDeferredComponentLoader';
 import { useDeferredReady } from './useDeferredReady';
 
 type FilePanelComponent = React.ComponentType<FilePanelProps>;
+type FilePanelModule = typeof import('@/components/files/FilePanel');
+
+function loadFilePanelModule(): Promise<FilePanelModule> {
+  return import('@/components/files/FilePanel');
+}
+
+function selectFilePanelComponent(module: FilePanelModule): FilePanelComponent {
+  return module.FilePanel as FilePanelComponent;
+}
 
 interface DeferredFilePanelProps extends FilePanelProps {
   shouldLoad?: boolean;
@@ -20,25 +30,12 @@ export function DeferredFilePanel({
   ...panelProps
 }: DeferredFilePanelProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<FilePanelComponent | null>(null);
-
-  useEffect(() => {
-    if (!shouldLoad || Component) {
-      return;
-    }
-
-    let cancelled = false;
-    import('@/components/files/FilePanel').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.FilePanel as FilePanelComponent);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldLoad, Component]);
+  const { Component, error, retry } = useDeferredComponentLoader<FilePanelModule, FilePanelProps>({
+    shouldLoad,
+    load: loadFilePanelModule,
+    selectComponent: selectFilePanelComponent,
+    errorLabel: 'FilePanel',
+  });
 
   useDeferredReady(Boolean(Component), onReady);
 
@@ -48,6 +45,18 @@ export function DeferredFilePanel({
 
   if (!showFallback) {
     return null;
+  }
+
+  if (error) {
+    return (
+      <DeferredPanelLoadError
+        eyebrow={t('File Explorer')}
+        title={t('Unable to load file')}
+        description={t('Unable to load resources.')}
+        error={error}
+        onRetry={retry}
+      />
+    );
   }
 
   return (

@@ -1,11 +1,23 @@
 import { FileCode } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { CurrentFilePanelProps } from '@/components/files/CurrentFilePanel';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { DeferredPanelLoadError } from './DeferredPanelLoadError';
+import { useDeferredComponentLoader } from './useDeferredComponentLoader';
 import { useDeferredReady } from './useDeferredReady';
 
 type CurrentFilePanelComponent = React.ComponentType<CurrentFilePanelProps>;
+type CurrentFilePanelModule = typeof import('@/components/files/CurrentFilePanel');
+
+function loadCurrentFilePanelModule(): Promise<CurrentFilePanelModule> {
+  return import('@/components/files/CurrentFilePanel');
+}
+
+function selectCurrentFilePanelComponent(
+  module: CurrentFilePanelModule
+): CurrentFilePanelComponent {
+  return module.CurrentFilePanel as CurrentFilePanelComponent;
+}
 
 interface DeferredCurrentFilePanelProps extends CurrentFilePanelProps {
   shouldLoad?: boolean;
@@ -20,25 +32,15 @@ export function DeferredCurrentFilePanel({
   ...panelProps
 }: DeferredCurrentFilePanelProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<CurrentFilePanelComponent | null>(null);
-
-  useEffect(() => {
-    if (!shouldLoad || Component) {
-      return;
-    }
-
-    let cancelled = false;
-    import('@/components/files/CurrentFilePanel').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.CurrentFilePanel as CurrentFilePanelComponent);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldLoad, Component]);
+  const { Component, error, retry } = useDeferredComponentLoader<
+    CurrentFilePanelModule,
+    CurrentFilePanelProps
+  >({
+    shouldLoad,
+    load: loadCurrentFilePanelModule,
+    selectComponent: selectCurrentFilePanelComponent,
+    errorLabel: 'CurrentFilePanel',
+  });
 
   useDeferredReady(Boolean(Component), onReady);
 
@@ -48,6 +50,18 @@ export function DeferredCurrentFilePanel({
 
   if (!showFallback) {
     return null;
+  }
+
+  if (error) {
+    return (
+      <DeferredPanelLoadError
+        eyebrow={t('File Explorer')}
+        title={t('Unable to load file')}
+        description={t('Unable to load resources.')}
+        error={error}
+        onRetry={retry}
+      />
+    );
   }
 
   return (
