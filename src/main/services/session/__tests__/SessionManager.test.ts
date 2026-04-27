@@ -123,6 +123,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const persistentAbandonSession = vi.fn();
   const tmuxEnsureServerHealthy = vi.fn();
   const tmuxCaptureSessionHistory = vi.fn();
+  const logInfo = vi.fn();
   const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-session');
   const registerMainProcessDiagnosticsCollector = vi.fn(() => vi.fn());
   const remoteConnectionManager = {
@@ -195,6 +196,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     persistentAbandonSession,
     tmuxEnsureServerHealthy,
     tmuxCaptureSessionHistory,
+    logInfo,
     requestMainProcessDiagnosticsCapture,
     registerMainProcessDiagnosticsCollector,
     remoteConnectionManager,
@@ -246,6 +248,12 @@ vi.mock('../../../utils/mainProcessDiagnostics', () => ({
   requestMainProcessDiagnosticsCapture: sessionTestDoubles.requestMainProcessDiagnosticsCapture,
   registerMainProcessDiagnosticsCollector:
     sessionTestDoubles.registerMainProcessDiagnosticsCollector,
+}));
+
+vi.mock('../../../utils/logger', () => ({
+  default: {
+    info: sessionTestDoubles.logInfo,
+  },
 }));
 
 import { SessionManager } from '../SessionManager';
@@ -363,6 +371,7 @@ describe('SessionManager', () => {
     sessionTestDoubles.tmuxEnsureServerHealthy.mockResolvedValue(true);
     sessionTestDoubles.tmuxCaptureSessionHistory.mockReset();
     sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValue('');
+    sessionTestDoubles.logInfo.mockReset();
     sessionTestDoubles.requestMainProcessDiagnosticsCapture.mockReset();
     sessionTestDoubles.requestMainProcessDiagnosticsCapture.mockReturnValue('diag-session');
     sessionTestDoubles.registerMainProcessDiagnosticsCollector.mockReset();
@@ -517,6 +526,46 @@ describe('SessionManager', () => {
       'enso'
     );
     expect(attached.replay).toBe('RECOVERY-LINE-001\nRECOVERY-LINE-002\nprompt> ');
+  });
+
+  it('records tmux agent startup stages before creating the local pty', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+
+    await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'infilux-ui-session-1',
+      },
+    });
+
+    const startupMessages = sessionTestDoubles.logInfo.mock.calls
+      .map((call) => call[0])
+      .filter((message): message is string => typeof message === 'string');
+
+    expect(startupMessages).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('[agent-startup][main][infilux-ui-session-1] session-create-start'),
+        expect.stringContaining(
+          '[agent-startup][main][infilux-ui-session-1] tmux-healthcheck-start'
+        ),
+        expect.stringContaining(
+          '[agent-startup][main][infilux-ui-session-1] tmux-healthcheck-done'
+        ),
+        expect.stringContaining(
+          '[agent-startup][main][infilux-ui-session-1] tmux-history-capture-start'
+        ),
+        expect.stringContaining(
+          '[agent-startup][main][infilux-ui-session-1] tmux-history-capture-done'
+        ),
+        expect.stringContaining('[agent-startup][main][local-1] pty-create-start'),
+        expect.stringContaining('[agent-startup][main][local-1] pty-create-returned'),
+      ])
+    );
   });
 
   it('accepts BrowserWindow targets and safely handles missing sessions or unresolved web contents', async () => {

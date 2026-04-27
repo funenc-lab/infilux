@@ -569,6 +569,40 @@ describe('PtyManager utilities', () => {
     );
   });
 
+  it('records a sanitized agent launch shape for shell-config initial commands', async () => {
+    ptyManagerTestDoubles.resolveShellForCommand.mockReturnValue({
+      shell: '/bin/zsh',
+      execArgs: ['-l', '-c'],
+    });
+
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+
+    manager.create(
+      {
+        cwd: '/repo/project',
+        kind: 'agent',
+        shellConfig: { shellType: 'zsh' } as never,
+        initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-session-1',
+        },
+      },
+      vi.fn()
+    );
+
+    expect(ptyManagerTestDoubles.logInfo).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'spawn-command shell=/bin/zsh argCount=3 loginShell=true interactiveShell=false commandMode=true hasInitialCommand=true hasShellConfig=true hostSession=tmux'
+      )
+    );
+    expect(ptyManagerTestDoubles.logInfo).not.toHaveBeenCalledWith(
+      expect.stringContaining('codex --dangerously-bypass-approvals-and-sandbox')
+    );
+  });
+
   it('uses an explicit fallback command when direct executable launch fails', async () => {
     ptyManagerTestDoubles.spawn.mockImplementation((shell: string) => {
       if (shell === 'codex') {

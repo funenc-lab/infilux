@@ -273,6 +273,33 @@ function buildPtyErrorContext(
   };
 }
 
+function hasShellLaunchFlag(args: string[], candidates: string[]): boolean {
+  const normalizedCandidates = new Set(candidates.map((candidate) => candidate.toLowerCase()));
+  return args.some((arg) => normalizedCandidates.has(arg.toLowerCase()));
+}
+
+function buildAgentLaunchShapeStage({
+  shell,
+  args,
+  options,
+}: {
+  shell: string;
+  args: string[];
+  options: SessionCreateOptions;
+}): string {
+  return [
+    'spawn-command',
+    `shell=${shell}`,
+    `argCount=${args.length}`,
+    `loginShell=${hasShellLaunchFlag(args, ['-l', '--login'])}`,
+    `interactiveShell=${hasShellLaunchFlag(args, ['-i', '--interactive'])}`,
+    `commandMode=${hasShellLaunchFlag(args, ['-c', '/c', '/k', '-command'])}`,
+    `hasInitialCommand=${Boolean(options.initialCommand?.trim())}`,
+    `hasShellConfig=${Boolean(options.shellConfig)}`,
+    `hostSession=${options.hostSession?.kind ?? 'none'}`,
+  ].join(' ');
+}
+
 /**
  * Find a login shell with appropriate args for running commands.
  * Returns shell path and args that will load user environment (nvm, homebrew, etc.)
@@ -488,6 +515,7 @@ export class PtyManager {
         env,
       });
       startupLogger?.markStage('spawned-primary');
+      startupLogger?.markStage(buildAgentLaunchShapeStage({ shell, args, options }));
     } catch (error) {
       if (options.fallbackShell) {
         const fallbackArgs = options.fallbackArgs || [];
@@ -511,6 +539,7 @@ export class PtyManager {
           shell = options.fallbackShell;
           args = fallbackArgs;
           startupLogger?.markStage('spawned-fallback-explicit');
+          startupLogger?.markStage(buildAgentLaunchShapeStage({ shell, args, options }));
         } catch (fallbackError) {
           const diagnosticsId = requestMainProcessDiagnosticsCapture({
             event: 'pty-spawn-failed',

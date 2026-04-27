@@ -11,7 +11,12 @@ import {
   type SessionRuntimeState,
   type SessionStateEvent,
 } from '@shared/types';
+import {
+  type AgentStartupTimelineLogger,
+  createAgentStartupTimelineLogger,
+} from '@shared/utils/agentStartupTimeline';
 import { BrowserWindow, type WebContents } from 'electron';
+import log from '../../utils/logger';
 import {
   registerMainProcessDiagnosticsCollector,
   requestMainProcessDiagnosticsCapture,
@@ -550,10 +555,23 @@ export class SessionManager {
       return this.createSupervisorSession(windowId, options);
     }
 
+    let startupLabel = options.hostSession?.sessionName ?? options.cwd ?? 'pending';
+    const startupLogger =
+      options.kind === 'agent'
+        ? createAgentStartupTimelineLogger({
+            source: 'main',
+            getLabel: () => startupLabel,
+            log: (message) => log.info(message),
+          })
+        : null;
+    startupLogger?.markStage('session-create-start');
+
     if (this.shouldEnsureTmuxHostHealth(options)) {
       let healthy = false;
       try {
+        startupLogger?.markStage('tmux-healthcheck-start');
         healthy = await tmuxDetector.ensureServerHealthy(options.hostSession.serverName);
+        startupLogger?.markStage('tmux-healthcheck-done');
       } catch (error) {
         if (isSessionResourceExhaustionError(error)) {
           const diagnosticsId = requestMainProcessDiagnosticsCapture({
@@ -609,10 +627,11 @@ export class SessionManager {
       }
     }
 
-    const initialReplay = await this.loadLocalReplaySeed(options);
+    const initialReplay = await this.loadLocalReplaySeed(options, startupLogger);
     const kind = options.kind ?? 'terminal';
     const cwd = options.cwd || process.env.HOME || process.env.USERPROFILE || '/';
     const sessionId = this.localPtyManager.allocateId();
+    startupLabel = sessionId;
     const record: ManagedSessionRecord = {
       sessionId,
       backend: 'local',
@@ -630,6 +649,7 @@ export class SessionManager {
     this.sessions.set(sessionId, record);
 
     try {
+      startupLogger?.markStage('pty-create-start');
       this.localPtyManager.create(
         options,
         (data) => this.handleLocalData(sessionId, data),
@@ -638,7 +658,9 @@ export class SessionManager {
         },
         sessionId
       );
+      startupLogger?.markStage('pty-create-returned');
     } catch (error) {
+      startupLogger?.markStage('pty-create-failed');
       const nodeError = error as NodeJS.ErrnoException;
       console.error('[session] Local session creation failed', {
         sessionId,
@@ -688,15 +710,20 @@ export class SessionManager {
     return this.shouldEnsureTmuxHostHealth(options);
   }
 
-  private async loadLocalReplaySeed(options: SessionCreateOptions): Promise<string> {
+  private async loadLocalReplaySeed(
+    options: SessionCreateOptions,
+    startupLogger?: AgentStartupTimelineLogger | null
+  ): Promise<string> {
     if (!this.shouldSeedTmuxHostReplay(options)) {
       return '';
     }
 
+    startupLogger?.markStage('tmux-history-capture-start');
     const replay = await tmuxDetector.captureSessionHistory(
       options.hostSession.sessionName,
       options.hostSession.serverName
     );
+    startupLogger?.markStage('tmux-history-capture-done');
     return replay.slice(-MAX_SESSION_REPLAY_CHARS);
   }
 
