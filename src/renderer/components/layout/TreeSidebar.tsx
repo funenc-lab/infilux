@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Clock,
   EyeOff,
-  Filter,
   FolderGit2,
   FolderMinus,
   GitBranch,
@@ -21,6 +20,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1459,7 +1459,7 @@ export function TreeSidebar({
               showAgentWorktreesOnly ? t('Show all worktrees') : t('Only show Agent worktrees')
             }
           >
-            <Filter className="h-3.5 w-3.5 shrink-0" />
+            <Sparkles className="h-3.5 w-3.5 shrink-0" />
             <span>{t('Agent')}</span>
           </button>
         </div>

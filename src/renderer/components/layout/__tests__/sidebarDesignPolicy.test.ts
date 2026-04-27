@@ -292,6 +292,9 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).toContain("aria-label={t('Search projects')}");
     expect(treeSidebarSource).toContain("placeholder={t('Search projects')}");
     expect(treeSidebarSource).toContain(">{t('Agent')}</span>");
+    expect(treeSidebarSource).toContain('import {');
+    expect(treeSidebarSource).toContain('Sparkles,');
+    expect(treeSidebarSource).toContain('<Sparkles className="h-3.5 w-3.5 shrink-0" />');
     expect(treeSidebarSource).toContain('control-sidebar-inline-filter');
     expect(repositorySidebarSource).toContain("aria-label={t('Search projects')}");
     expect(repositorySidebarSource).toContain("placeholder={t('Search projects')}");

@@ -34,10 +34,10 @@ describe('Agent panel subagent inspector wiring', () => {
     expect(agentPanelSource).toContain("title={t('View session subagents')}");
   });
 
-  it('uses a fork-oriented trigger icon with an explicit emphasis state', () => {
-    expect(triggerButtonSource).toContain("import { GitFork } from 'lucide-react'");
+  it('uses a workflow-oriented trigger icon with an explicit emphasis state', () => {
+    expect(triggerButtonSource).toContain("import { Workflow } from 'lucide-react'");
     expect(triggerButtonSource).toContain("data-emphasized={emphasized ? 'true' : 'false'}");
-    expect(triggerButtonSource).toContain('<GitFork className="h-4 w-4" />');
+    expect(triggerButtonSource).toContain('<Workflow className="h-4 w-4" />');
   });
 
   it('closes the floating inspector when the session layout mode changes', () => {
