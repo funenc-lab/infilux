@@ -149,6 +149,7 @@ export const zhTranslations: Record<string, string> = {
     '远程终端正在重连，输入暂时不可用。',
   'Remote terminal has disconnected. Reconnect the remote host to continue.':
     '远程终端已断开，请重新连接远程主机后继续。',
+  'Resolving the latest preview...': '正在解析最新预览...',
   characters: '字符',
   Chat: '聊天',
   'Choose base branch...': '选择基准分支...',
@@ -179,6 +180,14 @@ export const zhTranslations: Record<string, string> = {
   'This session is using {{percent}}% of the available context. Start a fresh session before responses become less reliable.':
     '当前会话已使用可用上下文的 {{percent}}%。请在回复质量下降前开启一个新会话。',
   'Start fresh session': '开启新会话',
+  'Global Policy': '\u5168\u5c40\u7b56\u7565',
+  'Global Skill & MCP': '全局 Skill 与 MCP',
+  'Project Policy': '\u9879\u76ee\u7b56\u7565',
+  'Project Configuration': '项目配置',
+  'Project Skill & MCP': '项目 Skill 与 MCP',
+  'Current repository context': '\u5f53\u524d\u4ed3\u5e93\u4e0a\u4e0b\u6587',
+  'Global default baseline': '\u5168\u5c40\u9ed8\u8ba4\u57fa\u7ebf',
+  'Currently enabled': '\u5f53\u524d\u5df2\u542f\u7528',
   'Click to load worktrees': '点击加载 worktrees',
   'Click the selected repository again to connect and load worktrees.':
     '再次点击当前仓库以连接并加载 worktree。',
@@ -195,6 +204,30 @@ export const zhTranslations: Record<string, string> = {
   'Collapse file tree': '折叠文件树',
   'Collapse Repository': '折叠 Repository',
   'Collapse Worktree': '折叠 Worktree',
+  'Claude Catalog': 'Claude 目录',
+  'Claude Policy': 'Claude \u7b56\u7565',
+  'Skill & MCP': 'Skill 与 MCP',
+  'Claude Capability Catalog': 'Claude \u80fd\u529b\u76ee\u5f55',
+  Capabilities: '\u80fd\u529b',
+  Skills: '\u6280\u80fd',
+  'Shared MCP': '\u5171\u4eab MCP',
+  'Personal MCP': '\u4e2a\u4eba MCP',
+  'Effective Preview': '\u751f\u6548\u9884\u89c8',
+  'Effective Access': '生效访问',
+  subagent: 'Subagent',
+  command: '\u547d\u4ee4',
+  'legacy-skill': '\u65e7 Skill',
+  mcp: 'MCP',
+  system: '\u7cfb\u7edf',
+  user: '\u7528\u6237',
+  project: '\u9879\u76ee',
+  worktree: 'Worktree',
+  remote: '\u8fdc\u7a0b',
+  shared: '\u5171\u4eab',
+  personal: '\u4e2a\u4eba',
+  stdio: 'stdio',
+  http: 'http',
+  sse: 'sse',
   'Color scheme': '配色',
   Command: '命令',
   Commit: '提交',
@@ -202,6 +235,78 @@ export const zhTranslations: Record<string, string> = {
   'Commit in progress...': '提交中...',
   'Commit message': '提交信息',
   'Commit successful': '提交成功',
+  'Control which Claude capabilities and MCP sources become the default baseline for this repository.':
+    '控制哪些 Claude 能力和 MCP 来源将作为此仓库的默认基线。',
+  'Control the default skill and MCP baseline applied to Claude sessions in this repository.':
+    '控制应用到此仓库 Claude 会话的默认 Skill 与 MCP 基线。',
+  'Control the default Claude skill and MCP baseline that every repository and worktree inherits.':
+    '控制所有仓库与 worktree 继承的默认 Claude Skill 与 MCP 基线。',
+  'Control the default skill and MCP baseline applied to Claude sessions across repositories and worktrees.':
+    '控制应用到 Claude 会话的默认 Skill 与 MCP 基线，所有仓库与 worktree 都会继承。',
+  'Control the default Claude capability and MCP baseline that every repository and worktree inherits.':
+    '\u63a7\u5236\u6240\u6709\u4ed3\u5e93\u4e0e worktree \u7ee7\u627f\u7684\u9ed8\u8ba4 Claude \u80fd\u529b\u4e0e MCP \u57fa\u7ebf\u3002',
+  'Review the resolved skill and MCP access that is currently effective for this scope.':
+    '查看当前范围下已解析生效的 Skill 与 MCP 访问权限。',
+  'Review the resolved capability and MCP access that is currently effective for this scope.':
+    '\u67e5\u770b\u5f53\u524d\u8303\u56f4\u4e0b\u5df2\u89e3\u6790\u751f\u6548\u7684 Claude \u80fd\u529b\u4e0e MCP \u8bbf\u95ee\u6743\u9650\u3002',
+  'Preview data will appear after the current draft resolves successfully.':
+    '\u5f53\u524d\u8349\u7a3f\u6210\u529f\u89e3\u6790\u540e\uff0c\u9884\u89c8\u6570\u636e\u5c06\u663e\u793a\u5728\u6b64\u5904\u3002',
+  '{{count}} blocked': '\u5df2\u7981\u7528 {{count}} \u9879',
+  'No effective skills.': '当前没有生效的 Skill。',
+  'No effective capabilities.': '\u5f53\u524d\u6ca1\u6709\u751f\u6548\u7684\u80fd\u529b\u3002',
+  'No effective shared MCP servers.':
+    '\u5f53\u524d\u6ca1\u6709\u751f\u6548\u7684\u5171\u4eab MCP \u670d\u52a1\u5668\u3002',
+  'No effective personal MCP servers.':
+    '\u5f53\u524d\u6ca1\u6709\u751f\u6548\u7684\u4e2a\u4eba MCP \u670d\u52a1\u5668\u3002',
+  'Scope Summary': '\u8303\u56f4\u6982\u89c8',
+  'Configure the default Claude capability and MCP baseline across all repositories and worktrees.':
+    '\u914d\u7f6e\u6240\u6709\u4ed3\u5e93\u4e0e worktree \u5171\u4eab\u7684\u9ed8\u8ba4 Claude \u80fd\u529b\u4e0e MCP \u57fa\u7ebf\u3002',
+  'Configure the repository baseline for Claude capabilities and MCP projection.':
+    '\u4e3a\u5f53\u524d\u4ed3\u5e93\u914d\u7f6e Claude \u80fd\u529b\u4e0e MCP \u6295\u5f71\u7684\u9ed8\u8ba4\u57fa\u7ebf\u3002',
+  'Override the repository baseline for this worktree only.':
+    '\u4ec5\u4e3a\u8be5 worktree \u8986\u76d6\u4ed3\u5e93\u7684\u9ed8\u8ba4\u57fa\u7ebf\u3002',
+  'Context repository': '\u4e0a\u4e0b\u6587\u4ed3\u5e93',
+  'Preview workspace': '\u9884\u89c8\u5de5\u4f5c\u533a',
+  'Catalog warning': '\u76ee\u5f55\u8b66\u544a',
+  'Preview warning': '\u9884\u89c8\u8b66\u544a',
+  'Loading policy catalog...': '\u6b63\u5728\u52a0\u8f7d\u7b56\u7565\u76ee\u5f55...',
+  'Loading skill and MCP catalog...': '正在加载 Skill 与 MCP 目录...',
+  'Choose whether this scope inherits, enables, or disables each discovered command or subagent.':
+    '\u9009\u62e9\u5f53\u524d\u8303\u56f4\u5bf9\u6bcf\u4e2a\u5df2\u53d1\u73b0 command \u6216 subagent \u662f\u7ee7\u627f\u3001\u542f\u7528\u8fd8\u662f\u7981\u7528\u3002',
+  'Choose whether this scope inherits, enables, or disables each discovered skill.':
+    '\u9009\u62e9\u5f53\u524d\u8303\u56f4\u5bf9\u6bcf\u4e2a\u5df2\u53d1\u73b0\u7684 Skill \u662f\u7ee7\u627f\u3001\u542f\u7528\u8fd8\u662f\u7981\u7528\u3002',
+  'Enable or disable each discovered skill for this scope. Leave it unselected to inherit.':
+    '为当前范围启用或禁用每个已发现的 Skill。未选择时将继承上一级配置。',
+  'Control MCP servers discovered from the repository or worktree runtime.':
+    '\u63a7\u5236\u4ece\u4ed3\u5e93\u6216 worktree \u8fd0\u884c\u65f6\u53d1\u73b0\u7684 MCP \u670d\u52a1\u5668\u3002',
+  'Enable or disable repository and worktree MCP servers for this scope. Leave them unselected to inherit.':
+    '为当前范围启用或禁用项目与 worktree 的 MCP 服务。未选择时将继承上一级配置。',
+  'Control user-scope MCP servers that Claude can project into this workspace.':
+    '\u63a7\u5236 Claude \u53ef\u4ee5\u6295\u5f71\u5230\u8be5\u5de5\u4f5c\u533a\u7684\u7528\u6237\u8303\u56f4 MCP \u670d\u52a1\u5668\u3002',
+  'Enable or disable personal MCP servers for this scope. Leave them unselected to inherit.':
+    '为当前范围启用或禁用个人 MCP 服务。未选择时将继承上一级配置。',
+  'Read only': '\u53ea\u8bfb',
+  MCP: 'MCP',
+  'Skills and MCP': 'Skill 与 MCP',
+  'Search skills or MCP': '搜索 Skill 或 MCP',
+  'Skill & MCP Catalog': 'Skill 与 MCP 目录',
+  'Claude Skill & MCP Catalog': 'Claude Skill 与 MCP 目录',
+  'Browse every discovered skill and MCP source before deciding what each scope should allow or block.':
+    '在决定每个范围允许或禁用哪些 Skill 与 MCP 前，先查看所有已发现来源。',
+  'Browse every discovered skill and MCP source before deciding what project and worktree policies should enable or disable.':
+    '在决定项目与 worktree 策略要启用或禁用哪些项之前，先查看所有已发现的 Skill 与 MCP 来源。',
+  'Browse every discovered Claude capability and MCP source before deciding what project and worktree policies should enable or disable.':
+    '\u5728\u51b3\u5b9a\u9879\u76ee\u4e0e worktree \u7b56\u7565\u8981\u542f\u7528\u6216\u7981\u7528\u54ea\u4e9b\u9879\u4e4b\u524d\uff0c\u5148\u67e5\u770b\u6240\u6709\u5df2\u53d1\u73b0\u7684 Claude \u80fd\u529b\u4e0e MCP \u6765\u6e90\u3002',
+  'Loading catalog...': '\u6b63\u5728\u52a0\u8f7d\u76ee\u5f55...',
+  'Subagents and commands grouped by their discovered source.':
+    '\u6309\u53d1\u73b0\u6765\u6e90\u5206\u7ec4\u663e\u793a\u7684 subagent \u4e0e command\u3002',
+  'Skills discovered from Claude, .agents, and .codex roots grouped by source.':
+    '\u6309\u6765\u6e90\u5206\u7ec4\u663e\u793a\u4ece Claude\u3001.agents \u4e0e .codex \u6839\u76ee\u5f55\u53d1\u73b0\u7684 Skill\u3002',
+  '{{count}} items': '{{count}} \u9879',
+  'Project and worktree MCP servers that can be projected into runtime workspaces.':
+    '\u53ef\u4ee5\u6295\u5f71\u5230\u8fd0\u884c\u65f6\u5de5\u4f5c\u533a\u7684\u9879\u76ee\u4e0e worktree MCP \u670d\u52a1\u5668\u3002',
+  'User-scope MCP servers discovered from Claude project settings.':
+    '\u4ece Claude \u9879\u76ee\u8bbe\u7f6e\u4e2d\u53d1\u73b0\u7684\u7528\u6237\u8303\u56f4 MCP \u670d\u52a1\u5668\u3002',
   Pagination: '分页',
   'Committed {{count}} files': '已提交 {{count}} 个文件',
   'Current Log File': '当前日志文件',
@@ -246,18 +351,26 @@ export const zhTranslations: Record<string, string> = {
   'Reset failed': 'Reset 失败',
   'Reset to {{mode}} mode': '已 Reset 到 {{mode}} 模式',
   'Path copied to clipboard': '路径已复制到剪贴板',
+  'Policy changed. Restart sessions to apply.': '策略已变更。请重启会话以应用。',
+  'Skill and MCP settings changed. Restart sessions to apply.':
+    'Skill 与 MCP 配置已变更。请重启会话以应用。',
   'Reveal in Finder': '在 Finder 中显示',
   'Reveal in Explorer': '在资源管理器中显示',
   'Quick scratch sessions': '快速临时会话',
+  'Search catalog': '搜索目录',
   'Toggle Sidebar': '切换侧栏',
   Cut: '剪切',
   Paste: '粘贴',
   Color: '颜色',
   'Custom color': '自定义颜色',
+  Allow: '允许',
   Create: '创建',
   'Create in progress...': '创建中...',
   'Create new branch': '创建新分支',
   'Create Worktree': '创建 Worktree',
+  'Edit Policy': '编辑策略',
+  Configure: '配置',
+  'Effective preview': '生效预览',
   'Create workspace': '新建工作区',
   'Create a new branch and work in a separate directory to handle multiple tasks.':
     '创建新分支并在独立目录中工作，可同时处理多个功能',
@@ -276,6 +389,10 @@ export const zhTranslations: Record<string, string> = {
   'Displays the mobile sidebar.': '显示移动端侧栏。',
   'Worktree {{name}} and its directory will be deleted.': 'Worktree {{name}} 及其目录将被删除。',
   'Worktree {{name}} records will be removed from Git.': 'Worktree {{name}} 的 Git 记录将被移除。',
+  'Worktree Policy': 'Worktree \u7b56\u7565',
+  'Worktree Configuration': 'Worktree 配置',
+  'Worktree Skill & MCP': 'Worktree Skill 与 MCP',
+  'All repositories': '\u6240\u6709\u4ed3\u5e93',
   'The directory has already been removed.': '目录已被移除。',
   'Deleting worktree': '正在删除 worktree',
   'Failed to delete worktree': '删除 worktree 失败',
@@ -289,6 +406,7 @@ export const zhTranslations: Record<string, string> = {
   'Discard changes': '撤销更改',
   'Discard changes title': '撤销更改',
   'Discard failed': '撤销更改失败',
+  Disable: '禁用',
   Disabled: '禁用',
   'Downloading update': '正在下载更新',
   Edit: '编辑',
@@ -340,6 +458,7 @@ export const zhTranslations: Record<string, string> = {
   'Go to download': '前往下载',
   Head: '头',
   Help: '帮助',
+  capabilities: '能力',
   'Hide changed files': '隐藏更改文件',
   'Hide sidebar': '隐藏侧边栏',
   History: '历史',
@@ -436,8 +555,10 @@ export const zhTranslations: Record<string, string> = {
   'Open in IDE': '在 IDE 中打开',
   'Open in {{app}}': '在 {{app}} 打开',
   'Open settings': '打开设置',
+  'personal MCP': '个人 MCP',
   'Remote repository is not connected yet': '远程仓库尚未连接',
   'Open terminal': '在终端中打开',
+  'shared MCP': '共享 MCP',
   'Open with': '打开方式',
   'Open folder': '打开文件夹',
   Panel: '面板',
@@ -744,8 +865,8 @@ export const zhTranslations: Record<string, string> = {
   Active: '活跃',
   'Active sessions': '活跃会话',
   'Add a Git repository from a local folder to get started': '从本地文件夹添加 Git 仓库开始使用',
-  'Higher performance (recommended)': '性能更高（推荐）',
   'Higher performance, may have issues': '性能更高，可能有兼容问题',
+  'Higher performance (recommended)': '性能更高（推荐）',
   'Bright theme': '明亮的界面主题',
   'Choose display language': '选择界面语言',
   'Choose interface theme': '选择界面的深浅模式',
@@ -2120,6 +2241,7 @@ export const zhTranslations: Record<string, string> = {
   'No favorite themes yet. Click the heart icon to add favorites.':
     '还没有收藏主题。点击心形图标即可添加收藏。',
   Reset: '重置',
+  'Apply to visible items': '应用到当前可见项',
   'Edit selected': '编辑所选项',
   'State Highlight': '状态高亮',
   'Highlight AI output states with stronger borders': '使用更明显的边框高亮 AI 输出状态',

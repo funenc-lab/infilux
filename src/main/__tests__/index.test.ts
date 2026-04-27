@@ -101,7 +101,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     size: 64,
   }));
   const writeFileSync = vi.fn();
-  const shellEnvSync = vi.fn(() => ({
+  const shellEnvSync = vi.fn<() => Record<string, string>>(() => ({
     SHELL_ENV_READY: '1',
   }));
   const autoStartHapi = vi.fn<() => Promise<void>>(async () => undefined);
@@ -934,6 +934,7 @@ const originalRawDebugDescriptor = Object.getOwnPropertyDescriptor(process, '_ra
 const originalProcessOn = process.on;
 const originalArgv = [...process.argv];
 const originalShellEnvReady = process.env.SHELL_ENV_READY;
+const originalPath = process.env.PATH;
 const originalProfile = process.env.ENSOAI_PROFILE;
 const originalGtkVersion = process.env.ENSOAI_GTK_VERSION;
 const originalAppImage = process.env.APPIMAGE;
@@ -1031,6 +1032,11 @@ describe('main entry', () => {
     vi.clearAllMocks();
     mainIndexTestDoubles.reset();
     delete process.env.SHELL_ENV_READY;
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
     delete process.env.ENSOAI_PROFILE;
     delete process.env.ENSOAI_GTK_VERSION;
     delete process.env.APPIMAGE;
@@ -1061,6 +1067,11 @@ describe('main entry', () => {
       delete process.env.SHELL_ENV_READY;
     } else {
       process.env.SHELL_ENV_READY = originalShellEnvReady;
+    }
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
     }
     if (originalProfile === undefined) {
       delete process.env.ENSOAI_PROFILE;
@@ -1182,6 +1193,7 @@ describe('main entry', () => {
   });
 
   it('loads shell environment on macOS and exposes helper functions', async () => {
+    process.env.PATH = '/tmp/fake-bin:/usr/bin:/bin';
     mainIndexTestDoubles.readSharedSettings.mockReturnValue({
       'enso-settings': {
         state: {
@@ -1189,12 +1201,20 @@ describe('main entry', () => {
         },
       },
     });
+    mainIndexTestDoubles.shellEnvSync.mockReturnValue({
+      SHELL_ENV_READY: '1',
+      PATH: '/usr/local/bin:/usr/bin:/bin:/tmp/fake-bin',
+    });
 
     const { __testables } = await importMainModule({
       platform: 'darwin',
     });
 
     expect(process.env.SHELL_ENV_READY).toBe('1');
+    expect(process.env.PATH).toBe('/tmp/fake-bin:/usr/bin:/bin:/usr/local/bin');
+    expect(__testables.mergePathEntries('/tmp/fake-bin:/usr/bin', '/usr/local/bin:/usr/bin')).toBe(
+      '/tmp/fake-bin:/usr/bin:/usr/local/bin'
+    );
     expect(__testables.isPrivateIpLiteral('127.0.0.1')).toBe(true);
     expect(__testables.isPrivateIpLiteral('8.8.8.8')).toBe(false);
     expect(__testables.isAllowedRemoteImageUrl('https://example.com/image.png')).toBe(true);

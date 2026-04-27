@@ -1,6 +1,16 @@
 import type { GitBranch as GitBranchType, GitWorktree } from '@shared/types';
 import { getDisplayPath } from '@shared/utils/path';
-import { Copy, FolderOpen, GitBranch, GitMerge, Sparkles, Terminal, Trash2, X } from 'lucide-react';
+import {
+  Copy,
+  FolderOpen,
+  GitBranch,
+  GitMerge,
+  Settings2,
+  Sparkles,
+  Terminal,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { memo, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
 import { WorktreeActivityMarker } from '@/components/layout/WorktreeActivityMarker';
@@ -29,6 +39,7 @@ interface WorktreeTreeItemProps {
   isActive: boolean;
   onClick: () => void;
   onDelete: () => void;
+  onEditPolicy?: () => void;
   onMerge?: () => void;
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
@@ -68,6 +79,7 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
   isActive,
   onClick,
   onDelete,
+  onEditPolicy,
   onMerge,
   draggable,
   onDragStart,
@@ -494,6 +506,21 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
               <Copy className="h-4 w-4" />
               {t('Copy Path')}
             </button>
+
+            {onEditPolicy ? (
+              <button
+                type="button"
+                className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onEditPolicy();
+                }}
+                role="menuitem"
+              >
+                <Settings2 className="h-4 w-4" />
+                {t('Worktree Configuration')}
+              </button>
+            ) : null}
 
             {onMerge && !isMain && !isPrunable && (
               <button

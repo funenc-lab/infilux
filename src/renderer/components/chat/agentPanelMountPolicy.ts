@@ -1,4 +1,4 @@
-import { pathsEqual } from '@/App/storage';
+import { matchesAgentSessionScope } from './agentSessionScope';
 
 interface SessionMountCandidate {
   id: string;
@@ -12,6 +12,6 @@ export function collectMountedAgentSessionIds(
   cwd: string
 ): string[] {
   return sessions
-    .filter((session) => session.repoPath === repoPath && pathsEqual(session.cwd, cwd))
+    .filter((session) => matchesAgentSessionScope(session, repoPath, cwd))
     .map((session) => session.id);
 }

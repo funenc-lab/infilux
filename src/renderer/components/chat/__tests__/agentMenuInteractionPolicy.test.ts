@@ -46,9 +46,8 @@ describe('agent menu interaction policy', () => {
       'control-menu-item flex w-full min-w-0 items-center gap-2'
     );
     expect(agentGroupEmptyStateSource).toContain('CHAT_MENU_ITEM_BASE_CLASS_NAME');
-    expect(agentGroupEmptyStateSource).toContain(
-      'className={AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME}'
-    );
+    expect(agentGroupEmptyStateSource).toContain('AGENT_GROUP_EMPTY_STATE_MENU_ITEM_CLASS_NAME');
+    expect(agentGroupEmptyStateSource).toContain("'mt-0 flex-1 justify-start'");
     expect(agentPanelSource).toContain('flex w-full min-w-0 items-center gap-2');
     expect(agentGroupEmptyStateSource).not.toContain('whitespace-nowrap text-foreground');
     expect(agentPanelSource).not.toContain('text-foreground whitespace-nowrap');

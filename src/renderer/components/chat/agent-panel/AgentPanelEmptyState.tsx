@@ -1,4 +1,5 @@
-import { Bot, ChevronDown, Plus, Settings } from 'lucide-react';
+import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
+import { Bot, ChevronDown, Plus, Settings, Settings2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ControlStateActionButton } from '@/components/layout/ControlStateActionButton';
 import { ControlStateCard } from '@/components/layout/ControlStateCard';
@@ -29,6 +30,7 @@ interface AgentPanelEmptyStateProps {
   emptyStateModel: AgentEmptyStateModel;
   enabledAgentCount: number;
   onOpenAgentSettings: () => void;
+  onOpenLaunchOptions: (agentId: string, agentCommand: string) => void;
   onStartDefaultSession: () => void;
   onStartSessionWithAgent: (agentId: string, agentCommand: string) => void;
   profiles: AgentPanelEmptyStateProfileItem[];
@@ -44,6 +46,8 @@ const EMPTY_STATE_SPLIT_ACTION_TOGGLE_CLASS_NAME = `${CHAT_ACTION_BUTTON_PRIMARY
 const EMPTY_STATE_SPLIT_ACTION_MENU_CLASS_NAME =
   'absolute left-0 right-0 top-full z-50 pt-2 text-left sm:left-auto sm:right-0 sm:min-w-52';
 const EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-foreground`;
+const EMPTY_STATE_PROFILE_MENU_UTILITY_BUTTON_CLASS_NAME =
+  'control-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-lg';
 const EMPTY_STATE_CONTEXT_FOOTER_CLASS_NAME =
   'flex min-w-0 flex-wrap gap-x-5 gap-y-2 text-[0.76em] leading-5 text-muted-foreground/84';
 const EMPTY_STATE_CONTEXT_ITEM_CLASS_NAME = 'flex min-w-0 items-start gap-2';
@@ -58,6 +62,7 @@ export function AgentPanelEmptyState({
   emptyStateModel,
   enabledAgentCount,
   onOpenAgentSettings,
+  onOpenLaunchOptions,
   onStartDefaultSession,
   onStartSessionWithAgent,
   profiles,
@@ -205,22 +210,41 @@ export function AgentPanelEmptyState({
                       </Tooltip>
                     </div>
                     {profiles.map((profile) => (
-                      <button
-                        type="button"
-                        key={profile.agentId}
-                        onClick={() => {
-                          onStartSessionWithAgent(profile.agentId, profile.command);
-                          setShowAgentMenu(false);
-                        }}
-                        className={EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME}
-                      >
-                        <span className="min-w-0 flex-1 truncate">{profile.name}</span>
-                        {profile.isDefault ? (
-                          <span className="control-chip control-chip-strong shrink-0">
-                            {t('Default')}
-                          </span>
+                      <div key={profile.agentId} className="mt-1 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onStartSessionWithAgent(profile.agentId, profile.command);
+                            setShowAgentMenu(false);
+                          }}
+                          className={cn(
+                            EMPTY_STATE_PROFILE_MENU_ITEM_CLASS_NAME,
+                            'mt-0 flex-1 justify-start'
+                          )}
+                        >
+                          <span className="min-w-0 flex-1 truncate">{profile.name}</span>
+                          {profile.isDefault ? (
+                            <span className="control-chip control-chip-strong shrink-0">
+                              {t('Default')}
+                            </span>
+                          ) : null}
+                        </button>
+                        {supportsAgentCapabilityPolicyLaunch(profile.agentId, profile.command) ? (
+                          <button
+                            type="button"
+                            aria-label={t('Skill & MCP')}
+                            title={t('Skill & MCP')}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onOpenLaunchOptions(profile.agentId, profile.command);
+                              setShowAgentMenu(false);
+                            }}
+                            className={EMPTY_STATE_PROFILE_MENU_UTILITY_BUTTON_CLASS_NAME}
+                          >
+                            <Settings2 className="h-3.5 w-3.5" />
+                          </button>
                         ) : null}
-                      </button>
+                      </div>
                     ))}
                   </div>
                 </div>

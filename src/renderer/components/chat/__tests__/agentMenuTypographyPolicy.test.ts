@@ -53,7 +53,7 @@ describe('agent menu typography policy', () => {
 
   it('keeps SessionBar agent menu items shrink-safe beside the default chip', () => {
     expect(sessionBarSource).toContain(
-      'control-menu-item mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-foreground'
+      'control-menu-item flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-foreground'
     );
     expect(sessionBarSource).not.toContain(
       'control-menu-item mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 whitespace-nowrap text-foreground'
@@ -72,7 +72,7 @@ describe('agent menu typography policy', () => {
   it('keeps provider menu rows and utility toggles inside the shared menu/button family', () => {
     expect(sessionBarSource).toContain('SESSION_BAR_PROVIDER_MENU_ITEM_CLASS_NAME');
     expect(sessionBarSource).toContain('SESSION_BAR_MENU_UTILITY_BUTTON_CLASS_NAME');
-    expect(sessionBarSource).toContain('control-menu-item mt-1 flex w-full min-w-0');
+    expect(sessionBarSource).toContain('control-menu-item flex w-full min-w-0');
     expect(sessionBarSource).toContain('CHAT_MENU_ITEM_BASE_CLASS_NAME');
   });
 });

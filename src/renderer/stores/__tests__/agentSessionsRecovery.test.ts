@@ -343,6 +343,10 @@ describe('agent session recovery store', () => {
       repoPath: '/repo',
       cwd: '/repo/worktree',
       environment: 'native',
+      agentCapabilityProvider: 'codex',
+      agentCapabilityHash: 'hash-1',
+      agentCapabilityWarnings: ['warn-1'],
+      agentCapabilityStale: false,
     });
     store.updateSession('session-1', {
       displayOrder: 7,
@@ -370,6 +374,10 @@ describe('agent session recovery store', () => {
         terminalTitle: 'terminal-title',
         userRenamed: true,
         pendingCommand: 'continue work',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityHash: 'hash-1',
+        agentCapabilityWarnings: ['warn-1'],
+        agentCapabilityStale: false,
         recovered: true,
         recoveryState: 'live',
       }),

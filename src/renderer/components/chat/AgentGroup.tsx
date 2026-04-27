@@ -23,6 +23,7 @@ interface AgentGroupProps {
   onSessionClose: (sessionId: string) => void;
   onSessionNew: () => void;
   onSessionNewWithAgent: (agentId: string, agentCommand: string) => void;
+  onOpenLaunchOptions?: (agentId: string, agentCommand: string) => void;
   onSessionRename: (sessionId: string, name: string) => void;
   onSessionReorder: (fromIndex: number, toIndex: number) => void;
   onGroupClick: () => void;
@@ -46,6 +47,7 @@ export function AgentGroup({
   onSessionClose,
   onSessionNew,
   onSessionNewWithAgent,
+  onOpenLaunchOptions,
   onSessionRename,
   onSessionReorder,
   onGroupClick,
@@ -126,6 +128,10 @@ export function AgentGroup({
             setShowAgentMenu(false);
             onSessionNew();
           }}
+          onOpenLaunchOptions={(agentId, agentCommand) => {
+            setShowAgentMenu(false);
+            onOpenLaunchOptions?.(agentId, agentCommand);
+          }}
           onSessionNewWithAgent={(agentId, agentCommand) => {
             setShowAgentMenu(false);
             onSessionNewWithAgent(agentId, agentCommand);
@@ -148,6 +154,7 @@ export function AgentGroup({
       onCloseSession={onSessionClose}
       onNewSession={onSessionNew}
       onNewSessionWithAgent={onSessionNewWithAgent}
+      onOpenLaunchOptions={onOpenLaunchOptions}
       onRenameSession={onSessionRename}
       onReorderSessions={onSessionReorder}
       quickTerminalOpen={quickTerminalOpen}

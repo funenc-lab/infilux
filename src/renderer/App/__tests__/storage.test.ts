@@ -287,6 +287,221 @@ describe('storage helpers', () => {
     );
   });
 
+  it('reads, normalizes, persists, and clears Claude project/worktree policies', async () => {
+    const env = await loadStorageModule({
+      platform: 'MacIntel',
+      initialStorage: {
+        'enso-claude-project-policies': JSON.stringify({
+          '/repo/current': {
+            repoPath: '/repo/current',
+            allowedCapabilityIds: ['command:build'],
+            blockedCapabilityIds: ['subagent:reviewer'],
+            allowedSharedMcpIds: ['shared-server'],
+            blockedSharedMcpIds: [],
+            allowedPersonalMcpIds: ['personal-server'],
+            blockedPersonalMcpIds: [],
+            updatedAt: 100,
+          },
+        }),
+        'enso-claude-worktree-policies': JSON.stringify({
+          '/repo/current/worktrees/feature-a': {
+            worktreePath: '/repo/current/worktrees/feature-a',
+            repoPath: '/repo/current',
+            allowedCapabilityIds: ['legacy-skill:ship'],
+            blockedCapabilityIds: [],
+            allowedSharedMcpIds: [],
+            blockedSharedMcpIds: ['shared-server'],
+            allowedPersonalMcpIds: [],
+            blockedPersonalMcpIds: ['personal-server'],
+            updatedAt: 200,
+          },
+        }),
+      },
+    });
+
+    const getStoredClaudeProjectPolicies = env.getStoredClaudeProjectPolicies as () => Record<
+      string,
+      unknown
+    >;
+    const getStoredClaudeWorktreePolicies = env.getStoredClaudeWorktreePolicies as () => Record<
+      string,
+      unknown
+    >;
+    const getClaudeProjectPolicy = env.getClaudeProjectPolicy as (
+      repoPath: string
+    ) => unknown | null;
+    const getClaudeWorktreePolicy = env.getClaudeWorktreePolicy as (
+      worktreePath: string
+    ) => unknown | null;
+    const saveClaudeProjectPolicy = env.saveClaudeProjectPolicy as (
+      repoPath: string,
+      policy: Record<string, unknown> | null
+    ) => void;
+    const saveClaudeWorktreePolicy = env.saveClaudeWorktreePolicy as (
+      worktreePath: string,
+      policy: Record<string, unknown> | null
+    ) => void;
+
+    expect(getStoredClaudeProjectPolicies()).toEqual({
+      '/repo/current': {
+        repoPath: '/repo/current',
+        allowedCapabilityIds: ['command:build'],
+        blockedCapabilityIds: ['subagent:reviewer'],
+        allowedSharedMcpIds: ['shared-server'],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: ['personal-server'],
+        blockedPersonalMcpIds: [],
+        updatedAt: 100,
+      },
+    });
+    expect(getStoredClaudeWorktreePolicies()).toEqual({
+      '/repo/current/worktrees/feature-a': {
+        worktreePath: '/repo/current/worktrees/feature-a',
+        repoPath: '/repo/current',
+        allowedCapabilityIds: ['legacy-skill:ship'],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: ['shared-server'],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: ['personal-server'],
+        updatedAt: 200,
+      },
+    });
+    expect(getClaudeProjectPolicy('/Repo/Current')).toEqual({
+      repoPath: '/repo/current',
+      allowedCapabilityIds: ['command:build'],
+      blockedCapabilityIds: ['subagent:reviewer'],
+      allowedSharedMcpIds: ['shared-server'],
+      blockedSharedMcpIds: [],
+      allowedPersonalMcpIds: ['personal-server'],
+      blockedPersonalMcpIds: [],
+      updatedAt: 100,
+    });
+    expect(getClaudeProjectPolicy('/Repo/Unknown')).toBeNull();
+    expect(getClaudeWorktreePolicy('/Repo/Current/Worktrees/Feature-A')).toEqual({
+      worktreePath: '/repo/current/worktrees/feature-a',
+      repoPath: '/repo/current',
+      allowedCapabilityIds: ['legacy-skill:ship'],
+      blockedCapabilityIds: [],
+      allowedSharedMcpIds: [],
+      blockedSharedMcpIds: ['shared-server'],
+      allowedPersonalMcpIds: [],
+      blockedPersonalMcpIds: ['personal-server'],
+      updatedAt: 200,
+    });
+    expect(getClaudeWorktreePolicy('/Repo/Current/Worktrees/Missing')).toBeNull();
+
+    saveClaudeProjectPolicy('/Repo/New/', {
+      repoPath: '/Repo/New/',
+      allowedCapabilityIds: ['command:test'],
+      blockedCapabilityIds: [],
+      allowedSharedMcpIds: [],
+      blockedSharedMcpIds: ['shared-server'],
+      allowedPersonalMcpIds: ['personal-server'],
+      blockedPersonalMcpIds: [],
+      updatedAt: 300,
+    });
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      'enso-claude-project-policies',
+      JSON.stringify({
+        '/repo/current': {
+          repoPath: '/repo/current',
+          allowedCapabilityIds: ['command:build'],
+          blockedCapabilityIds: ['subagent:reviewer'],
+          allowedSharedMcpIds: ['shared-server'],
+          blockedSharedMcpIds: [],
+          allowedPersonalMcpIds: ['personal-server'],
+          blockedPersonalMcpIds: [],
+          updatedAt: 100,
+        },
+        '/repo/new': {
+          repoPath: '/repo/new',
+          allowedCapabilityIds: ['command:test'],
+          blockedCapabilityIds: [],
+          allowedSharedMcpIds: [],
+          blockedSharedMcpIds: ['shared-server'],
+          allowedPersonalMcpIds: ['personal-server'],
+          blockedPersonalMcpIds: [],
+          updatedAt: 300,
+        },
+      })
+    );
+
+    saveClaudeWorktreePolicy('/Repo/New/Worktrees/Feature-B/', {
+      worktreePath: '/Repo/New/Worktrees/Feature-B/',
+      repoPath: '/Repo/New/',
+      allowedCapabilityIds: [],
+      blockedCapabilityIds: ['command:dangerous'],
+      allowedSharedMcpIds: ['shared-server'],
+      blockedSharedMcpIds: [],
+      allowedPersonalMcpIds: [],
+      blockedPersonalMcpIds: ['personal-server'],
+      updatedAt: 400,
+    });
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      'enso-claude-worktree-policies',
+      JSON.stringify({
+        '/repo/current/worktrees/feature-a': {
+          worktreePath: '/repo/current/worktrees/feature-a',
+          repoPath: '/repo/current',
+          allowedCapabilityIds: ['legacy-skill:ship'],
+          blockedCapabilityIds: [],
+          allowedSharedMcpIds: [],
+          blockedSharedMcpIds: ['shared-server'],
+          allowedPersonalMcpIds: [],
+          blockedPersonalMcpIds: ['personal-server'],
+          updatedAt: 200,
+        },
+        '/repo/new/worktrees/feature-b': {
+          worktreePath: '/repo/new/worktrees/feature-b',
+          repoPath: '/repo/new',
+          allowedCapabilityIds: [],
+          blockedCapabilityIds: ['command:dangerous'],
+          allowedSharedMcpIds: ['shared-server'],
+          blockedSharedMcpIds: [],
+          allowedPersonalMcpIds: [],
+          blockedPersonalMcpIds: ['personal-server'],
+          updatedAt: 400,
+        },
+      })
+    );
+
+    saveClaudeProjectPolicy('/Repo/New/', null);
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      'enso-claude-project-policies',
+      JSON.stringify({
+        '/repo/current': {
+          repoPath: '/repo/current',
+          allowedCapabilityIds: ['command:build'],
+          blockedCapabilityIds: ['subagent:reviewer'],
+          allowedSharedMcpIds: ['shared-server'],
+          blockedSharedMcpIds: [],
+          allowedPersonalMcpIds: ['personal-server'],
+          blockedPersonalMcpIds: [],
+          updatedAt: 100,
+        },
+      })
+    );
+
+    saveClaudeWorktreePolicy('/Repo/New/Worktrees/Feature-B/', null);
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      'enso-claude-worktree-policies',
+      JSON.stringify({
+        '/repo/current/worktrees/feature-a': {
+          worktreePath: '/repo/current/worktrees/feature-a',
+          repoPath: '/repo/current',
+          allowedCapabilityIds: ['legacy-skill:ship'],
+          blockedCapabilityIds: [],
+          allowedSharedMcpIds: [],
+          blockedSharedMcpIds: ['shared-server'],
+          allowedPersonalMcpIds: [],
+          blockedPersonalMcpIds: ['personal-server'],
+          updatedAt: 200,
+        },
+      })
+    );
+  });
+
   it('migrates group defaults and persists active and collapsed group state', async () => {
     const env = await loadStorageModule();
 
@@ -388,6 +603,9 @@ describe('storage helpers', () => {
       [envKey('REPOSITORIES')]:
         '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo","kind":"local"}]',
       [envKey('SELECTED_REPO')]: '/repo/demo',
+      'enso-claude-project-policies': '{"/repo/demo":{"repoPath":"/repo/demo","updatedAt":1}}',
+      'enso-claude-worktree-policies':
+        '{"/repo/demo/worktrees/a":{"repoPath":"/repo/demo","worktreePath":"/repo/demo/worktrees/a","updatedAt":2}}',
       [`${envKey('FILE_TREE_EXPANDED_PREFIX')}:/repo/demo`]: '["/repo/demo/src"]',
       'custom-unrelated': 'ignore-me',
     });
@@ -395,6 +613,8 @@ describe('storage helpers', () => {
     expect(appliedKeys).toEqual([
       env.STORAGE_KEYS.REPOSITORIES,
       env.STORAGE_KEYS.SELECTED_REPO,
+      'enso-claude-project-policies',
+      'enso-claude-worktree-policies',
       `${env.STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX}:/repo/demo`,
     ]);
     expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
@@ -404,6 +624,14 @@ describe('storage helpers', () => {
     expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
       env.STORAGE_KEYS.SELECTED_REPO,
       '/repo/demo'
+    );
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      'enso-claude-project-policies',
+      '{"/repo/demo":{"repoPath":"/repo/demo","updatedAt":1}}'
+    );
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      'enso-claude-worktree-policies',
+      '{"/repo/demo/worktrees/a":{"repoPath":"/repo/demo","worktreePath":"/repo/demo/worktrees/a","updatedAt":2}}'
     );
     expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
       `${env.STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX}:/repo/demo`,
@@ -418,6 +646,9 @@ describe('storage helpers', () => {
         [envKey('REPOSITORIES')]:
           '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo","kind":"local"}]',
         [envKey('SELECTED_REPO')]: '/repo/demo',
+        'enso-claude-project-policies': '{"/repo/demo":{"repoPath":"/repo/demo","updatedAt":1}}',
+        'enso-claude-worktree-policies':
+          '{"/repo/demo/worktrees/a":{"repoPath":"/repo/demo","worktreePath":"/repo/demo/worktrees/a","updatedAt":2}}',
         [`${envKey('FILE_TREE_EXPANDED_PREFIX')}:/repo/demo`]: '["/repo/demo/src"]',
         'custom-unrelated': 'ignore-me',
       },
@@ -427,6 +658,9 @@ describe('storage helpers', () => {
       [env.STORAGE_KEYS.REPOSITORIES]:
         '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo","kind":"local"}]',
       [env.STORAGE_KEYS.SELECTED_REPO]: '/repo/demo',
+      'enso-claude-project-policies': '{"/repo/demo":{"repoPath":"/repo/demo","updatedAt":1}}',
+      'enso-claude-worktree-policies':
+        '{"/repo/demo/worktrees/a":{"repoPath":"/repo/demo","worktreePath":"/repo/demo/worktrees/a","updatedAt":2}}',
       [`${env.STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX}:/repo/demo`]: '["/repo/demo/src"]',
     });
 
@@ -504,6 +738,9 @@ function envKey(key: keyof typeof import('../storage').STORAGE_KEYS): string {
     WORKTREE_COLLAPSED: 'enso-worktree-collapsed',
     FILE_SIDEBAR_COLLAPSED: 'enso-file-sidebar-collapsed',
     REPOSITORY_SETTINGS: 'enso-repository-settings',
+    CLAUDE_GLOBAL_POLICY: 'enso-claude-global-policy',
+    CLAUDE_PROJECT_POLICIES: 'enso-claude-project-policies',
+    CLAUDE_WORKTREE_POLICIES: 'enso-claude-worktree-policies',
     REPOSITORY_GROUPS: 'enso-repository-groups',
     ACTIVE_GROUP: 'enso-active-group',
     GROUP_COLLAPSED_STATE: 'enso-group-collapsed-state',

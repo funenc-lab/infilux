@@ -9,6 +9,8 @@ import type {
   AppResourceActionRequest,
   AppResourceActionResult,
   AppResourceSnapshot,
+  ClaudeCapabilityCatalog,
+  ClaudePolicyCatalogRequest,
   CloneProgress,
   CloneResult,
   CommitFileChange,
@@ -44,6 +46,8 @@ import type {
   MergeConflictContent,
   MergeState,
   PersistentAgentSessionRecord,
+  PrepareClaudePolicyLaunchRequest,
+  PrepareClaudePolicyLaunchResult,
   ProxySettings,
   PullRequest,
   RecentEditorProject,
@@ -54,6 +58,8 @@ import type {
   RemoteHelperStatus,
   RemoteRuntimeStatus,
   RepositoryRuntimeContext,
+  ResolveClaudePolicyPreviewRequest,
+  ResolvedClaudePolicy,
   RestoreWorktreeSessionsRequest,
   RuntimeMemorySnapshot,
   SessionAttachOptions,
@@ -1039,6 +1045,23 @@ const electronAPI = {
       const handler = (_: unknown, data: Parameters<typeof callback>[0]) => callback(data);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED, handler);
       return () => ipcRenderer.off(IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED, handler);
+    },
+  },
+
+  claudePolicy: {
+    catalog: {
+      list: (request?: ClaudePolicyCatalogRequest): Promise<ClaudeCapabilityCatalog> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_POLICY_CATALOG_LIST, request),
+    },
+    preview: {
+      resolve: (request: ResolveClaudePolicyPreviewRequest): Promise<ResolvedClaudePolicy> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_POLICY_PREVIEW_RESOLVE, request),
+    },
+    launch: {
+      prepare: (
+        request: PrepareClaudePolicyLaunchRequest
+      ): Promise<PrepareClaudePolicyLaunchResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_POLICY_LAUNCH_PREPARE, request),
     },
   },
 

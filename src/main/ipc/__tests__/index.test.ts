@@ -24,6 +24,7 @@ const indexTestDoubles = vi.hoisted(() => {
   const registerSearchHandlers = vi.fn();
   const registerHapiHandlers = vi.fn();
   const registerClaudeProviderHandlers = vi.fn();
+  const registerClaudePolicyHandlers = vi.fn();
   const registerClaudeConfigHandlers = vi.fn();
   const registerClaudeCompletionsHandlers = vi.fn();
   const registerWebInspectorHandlers = vi.fn();
@@ -77,6 +78,7 @@ const indexTestDoubles = vi.hoisted(() => {
       registerSearchHandlers,
       registerHapiHandlers,
       registerClaudeProviderHandlers,
+      registerClaudePolicyHandlers,
       registerClaudeConfigHandlers,
       registerClaudeCompletionsHandlers,
       registerWebInspectorHandlers,
@@ -145,6 +147,7 @@ const indexTestDoubles = vi.hoisted(() => {
     registerSearchHandlers,
     registerHapiHandlers,
     registerClaudeProviderHandlers,
+    registerClaudePolicyHandlers,
     registerClaudeConfigHandlers,
     registerClaudeCompletionsHandlers,
     registerWebInspectorHandlers,
@@ -257,6 +260,10 @@ vi.mock('../claudeConfig', () => ({
 
 vi.mock('../claudeProvider', () => ({
   registerClaudeProviderHandlers: indexTestDoubles.registerClaudeProviderHandlers,
+}));
+
+vi.mock('../claudePolicy', () => ({
+  registerClaudePolicyHandlers: indexTestDoubles.registerClaudePolicyHandlers,
 }));
 
 vi.mock('../cli', () => ({
@@ -408,6 +415,7 @@ describe('ipc index', () => {
       indexTestDoubles.registerSearchHandlers,
       indexTestDoubles.registerHapiHandlers,
       indexTestDoubles.registerClaudeProviderHandlers,
+      indexTestDoubles.registerClaudePolicyHandlers,
       indexTestDoubles.registerClaudeConfigHandlers,
       indexTestDoubles.registerClaudeCompletionsHandlers,
       indexTestDoubles.registerWebInspectorHandlers,
