@@ -74,16 +74,35 @@ interface AsyncCleanupTask {
   run: () => Promise<void>;
 }
 
-function shouldCleanupTmuxServer(): boolean {
-  return !persistentAgentSessionService
-    .listCachedSessionsSync()
-    .some(
-      (session) =>
-        session.hostKind === 'tmux' &&
-        !isRemoteVirtualPath(session.cwd) &&
-        !isRemoteVirtualPath(session.repoPath) &&
-        (session.lastKnownState === 'live' || session.lastKnownState === 'reconnecting')
-    );
+function hasRecoverableLocalTmuxSession(
+  sessions: ReturnType<typeof persistentAgentSessionService.listCachedSessionsSync>
+): boolean {
+  return sessions.some(
+    (session) =>
+      session.hostKind === 'tmux' &&
+      !isRemoteVirtualPath(session.cwd) &&
+      !isRemoteVirtualPath(session.repoPath) &&
+      (session.lastKnownState === 'live' || session.lastKnownState === 'reconnecting')
+  );
+}
+
+async function shouldCleanupTmuxServer(): Promise<boolean> {
+  try {
+    const sessions = await persistentAgentSessionService.listSessions();
+    return !hasRecoverableLocalTmuxSession(sessions);
+  } catch (error) {
+    console.warn('[cleanup] Failed to inspect persistent agent sessions:', error);
+    return shouldCleanupTmuxServerSync();
+  }
+}
+
+function shouldCleanupTmuxServerSync(): boolean {
+  const sessions = persistentAgentSessionService.listCachedSessionsSync();
+  if (sessions.length === 0) {
+    return false;
+  }
+
+  return !hasRecoverableLocalTmuxSession(sessions);
 }
 
 export function registerIpcHandlers(): void {
@@ -255,10 +274,11 @@ export async function cleanupAllResources(): Promise<CleanupSummary> {
     },
   ];
 
+  const shouldCleanupTmux = await shouldCleanupTmuxServer();
   const asyncResults = await Promise.all(asyncTasks.map((task) => runAsyncCleanupTask(task)));
   const syncResults: CleanupTaskResult[] = [];
 
-  if (shouldCleanupTmuxServer()) {
+  if (shouldCleanupTmux) {
     syncResults.push(runSyncCleanupTask('tmux', () => cleanupTmuxSync()));
   }
 
@@ -286,7 +306,7 @@ export function cleanupAllResourcesSync(): void {
   // Kill Hapi/Cloudflared processes (sync)
   cleanupHapiSync();
 
-  if (shouldCleanupTmuxServer()) {
+  if (shouldCleanupTmuxServerSync()) {
     cleanupTmuxSync();
   }
 

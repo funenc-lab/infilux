@@ -54,6 +54,9 @@ const indexTestDoubles = vi.hoisted(() => {
   const cleanupTodoSync = vi.fn();
   const webInspectorStop = vi.fn();
   const listCachedSessionsSync = vi.fn<() => PersistentAgentSessionRecord[]>(() => []);
+  const listSessions = vi.fn<() => Promise<PersistentAgentSessionRecord[]>>(() =>
+    Promise.resolve([])
+  );
 
   function reset() {
     const fns = [
@@ -107,6 +110,7 @@ const indexTestDoubles = vi.hoisted(() => {
       cleanupTodoSync,
       webInspectorStop,
       listCachedSessionsSync,
+      listSessions,
     ];
 
     for (const fn of fns) {
@@ -123,6 +127,7 @@ const indexTestDoubles = vi.hoisted(() => {
     cleanupTodo.mockResolvedValue(undefined);
     webInspectorStop.mockResolvedValue(undefined);
     listCachedSessionsSync.mockReturnValue([]);
+    listSessions.mockResolvedValue([]);
   }
 
   return {
@@ -176,6 +181,7 @@ const indexTestDoubles = vi.hoisted(() => {
     cleanupTodoSync,
     webInspectorStop,
     listCachedSessionsSync,
+    listSessions,
     reset,
   };
 });
@@ -373,6 +379,7 @@ vi.mock('../../services/SharedSessionState', () => ({
 vi.mock('../../services/session/PersistentAgentSessionService', () => ({
   persistentAgentSessionService: {
     listCachedSessionsSync: indexTestDoubles.listCachedSessionsSync,
+    listSessions: indexTestDoubles.listSessions,
   },
 }));
 
@@ -461,6 +468,22 @@ describe('ipc index', () => {
     expect(summary.timedOutLabels).toEqual([]);
   });
 
+  it('keeps tmux alive during async cleanup when persistent records require recovery', async () => {
+    indexTestDoubles.listCachedSessionsSync.mockReturnValue([]);
+    indexTestDoubles.listSessions.mockResolvedValue([
+      makePersistentAgentSessionRecord({
+        hostKind: 'tmux',
+        lastKnownState: 'live',
+      }),
+    ]);
+
+    const { cleanupAllResources } = await import('../index');
+    await cleanupAllResources();
+
+    expect(indexTestDoubles.listSessions).toHaveBeenCalledTimes(1);
+    expect(indexTestDoubles.cleanupTmuxSync).not.toHaveBeenCalled();
+  });
+
   it('returns a cleanup summary when async tasks time out', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     indexTestDoubles.remoteCleanup.mockImplementationOnce(() => new Promise<void>(() => undefined));
@@ -478,7 +501,7 @@ describe('ipc index', () => {
     expect(warnSpy).toHaveBeenCalledWith('[cleanup] remoteConnections timed out after 4000ms');
   });
 
-  it('logs sync cleanup steps and force-cleans every synchronous resource', async () => {
+  it('logs sync cleanup steps and keeps tmux when the persistent cache is empty', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     const { cleanupAllResourcesSync } = await import('../index');
@@ -486,7 +509,7 @@ describe('ipc index', () => {
 
     expect(indexTestDoubles.cleanupExecInPtysSync).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.cleanupHapiSync).toHaveBeenCalledTimes(1);
-    expect(indexTestDoubles.cleanupTmuxSync).toHaveBeenCalledTimes(1);
+    expect(indexTestDoubles.cleanupTmuxSync).not.toHaveBeenCalled();
     expect(indexTestDoubles.webInspectorStop).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.destroyAllTerminals).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.stopAllCodeReviews).toHaveBeenCalledTimes(1);
@@ -498,6 +521,18 @@ describe('ipc index', () => {
     expect(indexTestDoubles.remoteCleanup).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.cleanupTodoSync).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.cleanupTempFilesSync).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenNthCalledWith(1, '[app] Sync cleanup starting...');
+    expect(logSpy).toHaveBeenNthCalledWith(2, '[app] Sync cleanup done');
+  });
+
+  it('keeps tmux alive during sync cleanup when persistent cache is not initialized yet', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    indexTestDoubles.listCachedSessionsSync.mockReturnValue([]);
+
+    const { cleanupAllResourcesSync } = await import('../index');
+    cleanupAllResourcesSync();
+
+    expect(indexTestDoubles.cleanupTmuxSync).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenNthCalledWith(1, '[app] Sync cleanup starting...');
     expect(logSpy).toHaveBeenNthCalledWith(2, '[app] Sync cleanup done');
   });

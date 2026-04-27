@@ -3695,6 +3695,7 @@ export function AgentPanel({
             persistenceEnabled={session.persistenceEnabled}
             hostSessionKey={session.hostSessionKey}
             recovered={session.recovered}
+            recoveryState={session.recoveryState}
             isActive={isTerminalActive}
             terminalFontScale={
               isCanvasFloatingSession

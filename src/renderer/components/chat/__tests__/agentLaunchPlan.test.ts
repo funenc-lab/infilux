@@ -306,6 +306,58 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.initialCommand).not.toContain('codex resume codex-session-11');
   });
 
+  it('resumes codex by provider id when persistent tmux host is missing', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'codex-session-12',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-12',
+      persistentHostSessionAvailable: false,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toEqual({
+      shell: 'codex',
+      args: ['resume', 'codex-session-12'],
+    });
+    expect(plan.fallbackCommand).toEqual({
+      shell: '/bin/zsh',
+      args: ['-l', '-c', 'codex resume codex-session-12'],
+    });
+    expect(plan.hostSession).toBeUndefined();
+  });
+
+  it('does not start a new codex session when persistent tmux host is missing and provider id is unresolved', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'ui-session-13',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-13',
+      persistentHostSessionAvailable: false,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toBeUndefined();
+    expect(plan.initialCommand).toBeUndefined();
+    expect(plan.hostSession).toBeUndefined();
+  });
+
   it('keeps a login shell alive for local unix codex commands that need shell wrapping', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'codex',

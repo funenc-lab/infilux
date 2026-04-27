@@ -34,6 +34,7 @@ export interface BuildAgentLaunchPlanParams {
   } | null;
   terminalSessionId?: string;
   persistentHostSessionKey?: string;
+  persistentHostSessionAvailable?: boolean;
   runtimeChannel?: AppRuntimeChannel;
 }
 
@@ -77,6 +78,13 @@ function buildSessionResumeArgs(params: {
   }
 
   return [];
+}
+
+function hasExplicitProviderResumeId(
+  resumeSessionId?: string,
+  terminalSessionId?: string
+): boolean {
+  return Boolean(resumeSessionId && resumeSessionId !== terminalSessionId);
 }
 
 function quotePosixShell(input: string): string {
@@ -243,6 +251,7 @@ export function buildAgentLaunchPlan({
   resolvedShell,
   terminalSessionId,
   persistentHostSessionKey,
+  persistentHostSessionAvailable = true,
   runtimeChannel = 'prod',
 }: BuildAgentLaunchPlanParams): AgentLaunchPlan {
   if (!isRemoteExecution && !resolvedShell) {
@@ -258,7 +267,27 @@ export function buildAgentLaunchPlan({
   const supportIde = agentCommand.startsWith('claude') && enableIdeIntegration;
   const isWindows = executionPlatform === 'win32';
   const useTmuxHostSession =
-    tmuxEnabled && !isRemoteExecution && !isWindows && Boolean(terminalSessionId);
+    tmuxEnabled &&
+    persistentHostSessionAvailable &&
+    !isRemoteExecution &&
+    !isWindows &&
+    Boolean(terminalSessionId);
+  const hasProviderResumeId = hasExplicitProviderResumeId(resumeSessionId, terminalSessionId);
+
+  if (
+    tmuxEnabled &&
+    !persistentHostSessionAvailable &&
+    agentCommand === 'codex' &&
+    initialized &&
+    !hasProviderResumeId
+  ) {
+    return {
+      command: undefined,
+      env: undefined,
+      initialCommand: undefined,
+      tmuxSessionName: null,
+    };
+  }
 
   const agentArgs = buildSessionResumeArgs({
     agentCommand,

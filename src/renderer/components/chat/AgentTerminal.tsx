@@ -4,6 +4,7 @@ import type {
   ClaudeIdeBridgeStatus,
   ClaudePolicyConfig,
   ClaudePolicyMaterializationMode,
+  PersistentAgentRuntimeState,
   SessionRuntimeState,
 } from '@shared/types';
 import { ArrowDown } from 'lucide-react';
@@ -103,6 +104,7 @@ interface AgentTerminalProps {
   persistenceEnabled?: boolean;
   hostSessionKey?: string;
   recovered?: boolean;
+  recoveryState?: PersistentAgentRuntimeState;
   isActive?: boolean;
   terminalFontScale?: number;
   hasPendingCommand?: boolean; // Force terminal activation even when not visible
@@ -198,6 +200,7 @@ export function AgentTerminal({
   persistenceEnabled = false,
   hostSessionKey,
   recovered = false,
+  recoveryState,
   isActive = false,
   terminalFontScale,
   hasPendingCommand = false,
@@ -1032,6 +1035,7 @@ export function AgentTerminal({
       terminalSessionId,
       runtimeChannel,
       persistentHostSessionKey: hostSessionKey,
+      persistentHostSessionAvailable: recoveryState !== 'missing-host-session',
     });
     return {
       command: plan.command
@@ -1063,6 +1067,7 @@ export function AgentTerminal({
     terminalSessionId,
     runtimeChannel,
     hostSessionKey,
+    recoveryState,
   ]);
 
   // Preserve exited sessions in the UI so users can inspect the final output and state.
