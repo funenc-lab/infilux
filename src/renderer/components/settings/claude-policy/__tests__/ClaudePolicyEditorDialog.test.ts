@@ -402,6 +402,130 @@ describe('ClaudePolicyEditorDialog', () => {
     expect(container?.textContent).toContain('项目 Skill 与 MCP');
   });
 
+  it('preserves hidden command and subagent decisions when saving skill-only changes', async () => {
+    installElectronApi(
+      {
+        capabilities: [
+          {
+            id: 'command:review',
+            kind: 'command',
+            name: 'Review',
+            sourceScope: 'project',
+            sourcePath: '/repo/.claude/commands/review.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+          {
+            id: 'subagent:reviewer',
+            kind: 'subagent',
+            name: 'Reviewer',
+            sourceScope: 'project',
+            sourcePath: '/repo/.claude/agents/reviewer.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'project',
+            sourcePath: '/repo/.agents/skills/planner/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo',
+        allowedCapabilityIds: ['legacy-skill:planner', 'subagent:reviewer'],
+        blockedCapabilityIds: ['command:review'],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {
+          'legacy-skill:planner': {
+            source: 'project-policy',
+            decision: 'allow',
+          },
+          'subagent:reviewer': {
+            source: 'project-policy',
+            decision: 'allow',
+          },
+          'command:review': {
+            source: 'project-policy',
+            decision: 'block',
+          },
+        },
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const handleSave = vi.fn();
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'project',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          projectPolicy: {
+            repoPath: '/repo',
+            allowedCapabilityIds: ['subagent:reviewer'],
+            blockedCapabilityIds: ['command:review'],
+            allowedSharedMcpIds: [],
+            blockedSharedMcpIds: [],
+            allowedPersonalMcpIds: [],
+            blockedPersonalMcpIds: [],
+            updatedAt: 1,
+          },
+          worktreePolicy: null,
+          onSave: handleSave,
+        })
+      );
+    });
+    await flushEffects();
+
+    expect(container?.querySelector('[data-policy-item-id="command:review"]')).toBeNull();
+    expect(container?.querySelector('[data-policy-item-id="subagent:reviewer"]')).toBeNull();
+
+    const skillRow = container?.querySelector('[data-policy-item-id="legacy-skill:planner"]');
+    await act(async () => {
+      skillRow
+        ?.querySelector<HTMLButtonElement>('[data-policy-decision="allow"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    await act(async () => {
+      container
+        ?.querySelector<HTMLButtonElement>('[data-policy-action="save"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(handleSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: '/repo',
+        allowedCapabilityIds: ['legacy-skill:planner', 'subagent:reviewer'],
+        blockedCapabilityIds: ['command:review'],
+      }),
+      expect.objectContaining({
+        hash: 'hash-preview',
+      })
+    );
+  });
+
   it('uses two primary actions and resets explicit decisions back to inherit', async () => {
     installElectronApi(
       {

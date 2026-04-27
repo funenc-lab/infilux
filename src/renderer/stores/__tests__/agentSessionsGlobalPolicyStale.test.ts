@@ -37,7 +37,7 @@ describe('agent session global policy stale tracking', () => {
     vi.restoreAllMocks();
   });
 
-  it('marks every tracked Claude session as stale when the global policy changes', async () => {
+  it('marks every tracked capability session as stale when the global policy changes', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
 
@@ -54,6 +54,8 @@ describe('agent session global policy stale tracking', () => {
       environment: 'native',
       claudePolicyHash: 'hash-a',
       claudePolicyStale: false,
+      agentCapabilityHash: 'hash-a',
+      agentCapabilityStale: false,
     });
     store.addSession({
       id: 'claude-2',
@@ -68,6 +70,8 @@ describe('agent session global policy stale tracking', () => {
       environment: 'native',
       claudePolicyHash: 'hash-b',
       claudePolicyStale: false,
+      agentCapabilityHash: 'hash-b',
+      agentCapabilityStale: false,
     });
     store.addSession({
       id: 'codex-1',
@@ -80,6 +84,8 @@ describe('agent session global policy stale tracking', () => {
       repoPath: '/repo-c',
       cwd: '/repo-c/worktrees/feat-c',
       environment: 'native',
+      agentCapabilityHash: 'hash-c',
+      agentCapabilityStale: false,
     });
 
     expect(typeof Reflect.get(store, 'markClaudePolicyStaleGlobally')).toBe('function');
@@ -89,6 +95,6 @@ describe('agent session global policy stale tracking', () => {
     const sessions = env.useAgentSessionsStore.getState().sessions;
     expect(sessions.find((session) => session.id === 'claude-1')?.claudePolicyStale).toBe(true);
     expect(sessions.find((session) => session.id === 'claude-2')?.claudePolicyStale).toBe(true);
-    expect(sessions.find((session) => session.id === 'codex-1')?.claudePolicyStale).not.toBe(true);
+    expect(sessions.find((session) => session.id === 'codex-1')?.agentCapabilityStale).toBe(true);
   });
 });

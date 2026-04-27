@@ -133,6 +133,13 @@ describe('projectClaudeRuntimePolicy', () => {
         },
       },
       {
+        readLocalProjectSettings: () => ({
+          customSetting: true,
+          mcpServers: {
+            'manual-unknown': { command: 'uvx', args: ['manual-unknown'] },
+            'personal-alpha': { command: 'old-alpha' },
+          },
+        }),
         updateLocalProjectSettings: async (workspacePath, settings) => {
           updates.push({ workspacePath, settings });
           return true;
@@ -172,7 +179,12 @@ describe('projectClaudeRuntimePolicy', () => {
       {
         workspacePath: worktreePath,
         settings: {
+          customSetting: true,
           mcpServers: {
+            'manual-unknown': {
+              command: 'uvx',
+              args: ['manual-unknown'],
+            },
             'personal-alpha': {
               type: 'http',
               url: 'https://personal.example.com/mcp',
@@ -351,6 +363,78 @@ describe('projectClaudeRuntimePolicy', () => {
     ]);
   });
 
+  it('loads remote personal MCP configs through injected project settings readers', async () => {
+    const remoteRepoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
+    const remoteWorktreePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktrees/feature-a');
+    const remoteProjectSettings: Array<{
+      workspacePath: string;
+      settings: Record<string, unknown>;
+    }> = [];
+    const catalog: ClaudeCapabilityCatalog = {
+      capabilities: [],
+      sharedMcpServers: [],
+      personalMcpServers: [
+        {
+          id: 'personal-alpha',
+          name: 'Personal Alpha',
+          scope: 'personal',
+          sourceScope: 'remote',
+          transportType: 'stdio',
+          isAvailable: true,
+          isConfigurable: true,
+        },
+      ],
+      generatedAt: 1,
+    };
+
+    await projectClaudeRuntimePolicy(
+      {
+        repoPath: remoteRepoPath,
+        worktreePath: remoteWorktreePath,
+        materializationMode: 'copy',
+        catalog,
+        resolvedPolicy: {
+          ...createResolvedPolicy(),
+          repoPath: remoteRepoPath,
+          worktreePath: remoteWorktreePath,
+          allowedCapabilityIds: [],
+          allowedSharedMcpIds: [],
+          allowedPersonalMcpIds: ['personal-alpha'],
+        },
+      },
+      {
+        readRepositoryRemoteTextFile: async () => null,
+        writeRepositoryRemoteTextFile: async () => true,
+        readRemoteProjectSettings: async (_repoPath, workspacePath) =>
+          workspacePath === '/srv/repo'
+            ? {
+                mcpServers: {
+                  'personal-alpha': { command: 'uvx', args: ['personal-alpha'] },
+                },
+              }
+            : null,
+        updateRemoteProjectSettings: async (_repoPath, workspacePath, settings) => {
+          remoteProjectSettings.push({ workspacePath, settings });
+          return true;
+        },
+      }
+    );
+
+    expect(remoteProjectSettings).toEqual([
+      {
+        workspacePath: '/srv/repo/worktrees/feature-a',
+        settings: {
+          mcpServers: {
+            'personal-alpha': {
+              command: 'uvx',
+              args: ['personal-alpha'],
+            },
+          },
+        },
+      },
+    ]);
+  });
+
   it('uses symlink materialization for local skill and command runtime artifacts when requested', async () => {
     const catalog = createCatalog(sourceRoot);
     const result = await projectClaudeRuntimePolicy(
@@ -455,6 +539,11 @@ describe('projectClaudeRuntimePolicy', () => {
     );
 
     expect(result.updatedFiles).not.toContain(sourceCommandPath);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        'Claude capability "command:ship" is blocked by policy but remains in a workspace-native .claude path and may still be loaded by Claude.',
+      ])
+    );
     expect(readFileSync(sourceCommandPath, 'utf8')).toContain('# Workspace Ship');
     expect(JSON.parse(readFileSync(sourceManifestPath, 'utf8'))).toEqual({
       managedFiles: [join(repoPath, '.mcp.json')],

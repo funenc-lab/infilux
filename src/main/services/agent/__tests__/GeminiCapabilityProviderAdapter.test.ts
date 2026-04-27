@@ -259,4 +259,78 @@ describe('GeminiCapabilityProviderAdapter', () => {
       realpathSync(join(rootDir, '.gemini', 'memory.md'))
     );
   });
+
+  it('prefers the Gemini skill root when duplicate skill definitions exist in the same scope', async () => {
+    writeTextFile(
+      join(worktreePath, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'),
+      ['---', 'name: Claude Duplicate Skill', 'description: Claude duplicate skill', '---'].join(
+        '\n'
+      )
+    );
+    writeTextFile(
+      join(worktreePath, '.gemini', 'skills', 'duplicate-skill', 'SKILL.md'),
+      ['---', 'name: Gemini Duplicate Skill', 'description: Gemini duplicate skill', '---'].join(
+        '\n'
+      )
+    );
+
+    const adapter = createGeminiCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities: [
+          {
+            id: 'legacy-skill:duplicate-skill',
+            kind: 'legacy-skill',
+            name: 'Duplicate Skill',
+            description: 'Duplicate skill',
+            sourceScope: 'worktree',
+            sourcePath: join(worktreePath, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'),
+            sourcePaths: [
+              join(worktreePath, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'),
+              join(worktreePath, '.gemini', 'skills', 'duplicate-skill', 'SKILL.md'),
+            ],
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(
+        createResolvedPolicy({
+          repoPath,
+          worktreePath,
+          blockedCapabilityIds: ['legacy-skill:duplicate-skill'],
+        })
+      ),
+      resolveGeminiCapabilityMcpConfigEntries: vi.fn().mockResolvedValue({
+        sharedById: {},
+        personalById: {},
+      }),
+      now: () => 456,
+      tempRootDir: runtimeRoot,
+    });
+
+    const result = await adapter.prepareLaunch(request, {
+      cwd: worktreePath,
+      kind: 'agent',
+      initialCommand: 'gemini',
+    });
+    expect(result).not.toBeNull();
+    if (!result) {
+      throw new Error('Expected Gemini launch result');
+    }
+
+    const runtimeHome = join(runtimeRoot, 'gemini', 'hash-1');
+    const settingsPath = join(runtimeHome, '.gemini', 'settings.json');
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+      skills?: { disabled?: string[] };
+    };
+    expect(settings.skills?.disabled).toEqual(
+      expect.arrayContaining(['Gemini Duplicate Skill', 'skill-creator'])
+    );
+    expect(settings.skills?.disabled).not.toEqual(
+      expect.arrayContaining(['Claude Duplicate Skill'])
+    );
+  });
 });

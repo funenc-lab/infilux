@@ -1,5 +1,6 @@
 import type {
   AgentCapabilityLaunchRequest,
+  AgentCapabilityProvider,
   ClaudeGlobalPolicy,
   ClaudePolicyConfig,
   ClaudePolicyMaterializationMode,
@@ -45,6 +46,43 @@ export function buildAgentCapabilityLaunchRequest(
     materializationMode:
       params.materializationMode ??
       resolveAgentCapabilityPolicyMaterializationMode(params.agentId, params.agentCommand),
+  };
+}
+
+export interface ExtractedAgentCapabilitySessionMetadata {
+  provider: AgentCapabilityProvider;
+  hash: string;
+  warnings: string[];
+}
+
+function isAgentCapabilityProvider(value: unknown): value is AgentCapabilityProvider {
+  return value === 'claude' || value === 'codex' || value === 'gemini';
+}
+
+export function extractAgentCapabilitySessionMetadata(
+  metadata: Record<string, unknown> | undefined
+): ExtractedAgentCapabilitySessionMetadata | null {
+  const candidate = metadata?.agentCapability;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return null;
+  }
+
+  const provider = (candidate as { provider?: unknown }).provider;
+  const hash = (candidate as { hash?: unknown }).hash;
+  if (!isAgentCapabilityProvider(provider) || typeof hash !== 'string' || !hash) {
+    return null;
+  }
+
+  const warnings = Array.isArray((candidate as { warnings?: unknown }).warnings)
+    ? (candidate as { warnings: unknown[] }).warnings.filter(
+        (warning): warning is string => typeof warning === 'string'
+      )
+    : [];
+
+  return {
+    provider,
+    hash,
+    warnings,
   };
 }
 

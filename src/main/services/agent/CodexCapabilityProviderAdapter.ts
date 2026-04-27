@@ -21,6 +21,7 @@ import type {
   AgentCapabilitySessionOverrides,
   PreparedAgentCapabilityLaunch,
 } from './AgentCapabilityProviderAdapter';
+import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
 
 export interface CodexCapabilityProviderAdapterDependencies {
   listClaudeCapabilityCatalog?: typeof listClaudeCapabilityCatalog;
@@ -299,10 +300,12 @@ function buildCodexResolvedSkillEntries(
     }
 
     const enabled = allowedCapabilityIds.has(capability.id);
-    const preferredSourcePath =
-      capability.sourcePath && sourcePaths.includes(capability.sourcePath)
-        ? capability.sourcePath
-        : (sourcePaths[0] ?? null);
+    const preferredSourcePath = selectPreferredSkillSourcePathForProvider({
+      provider: 'codex',
+      capability,
+      repoPath: resolvedPolicy.repoPath,
+      worktreePath: resolvedPolicy.worktreePath,
+    });
     const injectedSourcePaths = enabled
       ? preferredSourcePath
         ? [preferredSourcePath]

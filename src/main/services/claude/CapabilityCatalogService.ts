@@ -767,6 +767,7 @@ async function readRemoteSharedMcpItems(
 
 async function readLocalPersonalMcpItems(
   workspacePath: string,
+  sourceScope: ClaudeCapabilitySourceScope,
   readLocalProjectSettings: (workspacePath: string) => Promise<ClaudeProjectState | null>
 ): Promise<ClaudeMcpCatalogItem[]> {
   const settings = await readLocalProjectSettings(workspacePath);
@@ -776,7 +777,7 @@ async function readLocalPersonalMcpItems(
       name: id,
       config,
       scope: 'personal',
-      sourceScope: 'user',
+      sourceScope,
       sourcePath: path.join(os.homedir(), '.claude.json'),
     })
   );
@@ -1156,7 +1157,7 @@ export async function listClaudeCapabilityCatalog(
       );
       sharedMcpServers.push(...(await readLocalSharedMcpItems(repoPath, 'project')));
       personalMcpServers.push(
-        ...(await readLocalPersonalMcpItems(repoPath, readLocalProjectSettings))
+        ...(await readLocalPersonalMcpItems(repoPath, 'project', readLocalProjectSettings))
       );
       personalMcpServers.push(
         ...(await readLocalGeminiPersonalMcpItems(
@@ -1187,7 +1188,7 @@ export async function listClaudeCapabilityCatalog(
       );
       sharedMcpServers.push(...(await readLocalSharedMcpItems(worktreePath, 'worktree')));
       personalMcpServers.push(
-        ...(await readLocalPersonalMcpItems(worktreePath, readLocalProjectSettings))
+        ...(await readLocalPersonalMcpItems(worktreePath, 'worktree', readLocalProjectSettings))
       );
       personalMcpServers.push(
         ...(await readLocalGeminiPersonalMcpItems(

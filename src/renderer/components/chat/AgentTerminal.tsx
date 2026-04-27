@@ -53,7 +53,10 @@ import {
   mergeAgentAttachments,
   resolveAgentAttachmentSendDelay,
 } from './agentAttachmentTrayModel';
-import { buildAgentCapabilityLaunchMetadata } from './agentCapabilityLaunch';
+import {
+  buildAgentCapabilityLaunchMetadata,
+  extractAgentCapabilitySessionMetadata,
+} from './agentCapabilityLaunch';
 import {
   AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS,
   AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS,
@@ -130,7 +133,11 @@ interface AgentTerminalProps {
   onBackendSessionIdChange?: (sessionId: string) => void;
   onProviderSessionIdChange?: (sessionId: string) => void;
   onRuntimeStateChange?: (state: SessionRuntimeState) => void;
-  onClaudePolicyStateChange?: (state: { hash: string; warnings: string[] }) => void;
+  onClaudePolicyStateChange?: (state: {
+    provider?: 'claude' | 'codex' | 'gemini';
+    hash: string;
+    warnings: string[];
+  }) => void;
   readOnlyTranscript?: AgentTerminalReadOnlyTranscript | null;
 }
 
@@ -1408,6 +1415,10 @@ export function AgentTerminal({
     onTitleChange: handleTitleChange,
     onSessionIdChange: onBackendSessionIdChange,
     onSessionOpen: (session) => {
+      const capabilityState = extractAgentCapabilitySessionMetadata(session.metadata);
+      if (capabilityState) {
+        onClaudePolicyStateChange?.(capabilityState);
+      }
       const policyState = extractClaudePolicySessionMetadata(session.metadata);
       if (policyState) {
         onClaudePolicyStateChange?.(policyState);

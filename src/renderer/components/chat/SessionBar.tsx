@@ -1,4 +1,5 @@
 import type {
+  AgentCapabilityProvider,
   ClaudePolicyConfig,
   ClaudePolicyMaterializationMode,
   ClaudeProvider,
@@ -78,6 +79,10 @@ export interface Session {
   hostSessionKey?: string; // persisted tmux host session key used for unix session recovery
   recovered?: boolean;
   recoveryState?: PersistentAgentRuntimeState;
+  agentCapabilityProvider?: AgentCapabilityProvider;
+  agentCapabilityHash?: string;
+  agentCapabilityWarnings?: string[];
+  agentCapabilityStale?: boolean;
   claudePolicyHash?: string;
   claudePolicyWarnings?: string[];
   claudePolicyStale?: boolean;
@@ -564,7 +569,9 @@ export function SessionBar({
     () => showProviderSwitcher && supportsClaudeProviderSwitcher(activeSession),
     [activeSession, showProviderSwitcher]
   );
-  const showPolicyStaleNotice = Boolean(activeSession?.claudePolicyStale);
+  const showPolicyStaleNotice = Boolean(
+    activeSession?.agentCapabilityStale || activeSession?.claudePolicyStale
+  );
 
   const { data: claudeData } = useQuery({
     queryKey: ['claude-settings', repoPath ?? null],

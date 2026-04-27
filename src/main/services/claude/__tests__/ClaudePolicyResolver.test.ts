@@ -88,7 +88,7 @@ function createWorktreePolicy(overrides: Partial<ClaudeWorktreePolicy> = {}): Cl
 }
 
 describe('resolveClaudePolicy', () => {
-  it('applies global allow-only policy before project and worktree overrides', () => {
+  it('keeps catalog defaults for items that are not explicitly configured in global policy', () => {
     const resolved = resolveClaudePolicy({
       catalog: baseCatalog,
       repoPath: '/repo',
@@ -106,7 +106,11 @@ describe('resolveClaudePolicy', () => {
       worktreePolicy: null,
     } as Parameters<typeof resolveClaudePolicy>[0]);
 
-    expect(resolved.allowedCapabilityIds).toEqual(['command:build']);
+    expect(resolved.allowedCapabilityIds).toEqual([
+      'command:build',
+      'legacy-skill:ship',
+      'subagent:reviewer',
+    ]);
     expect(resolved.allowedSharedMcpIds).toEqual(['shared-alpha']);
     expect(resolved.allowedPersonalMcpIds).toEqual([]);
     expect(resolved.blockedPersonalMcpIds).toEqual(['personal-alpha']);
@@ -114,9 +118,13 @@ describe('resolveClaudePolicy', () => {
       source: 'global-policy',
       decision: 'allow',
     });
+    expect(resolved.capabilityProvenance['legacy-skill:ship']).toEqual({
+      source: 'catalog',
+      decision: 'allow',
+    });
   });
 
-  it('supports project allow-only resolution for capabilities and MCP', () => {
+  it('does not narrow project scope when only some items are explicitly allowed', () => {
     const resolved = resolveClaudePolicy({
       catalog: baseCatalog,
       repoPath: '/repo',
@@ -129,7 +137,11 @@ describe('resolveClaudePolicy', () => {
       worktreePolicy: null,
     });
 
-    expect(resolved.allowedCapabilityIds).toEqual(['command:build']);
+    expect(resolved.allowedCapabilityIds).toEqual([
+      'command:build',
+      'legacy-skill:ship',
+      'subagent:reviewer',
+    ]);
     expect(resolved.allowedSharedMcpIds).toEqual(['shared-alpha']);
     expect(resolved.allowedPersonalMcpIds).toEqual(['personal-alpha']);
     expect(resolved.capabilityProvenance['command:build']).toEqual({
@@ -179,39 +191,83 @@ describe('resolveClaudePolicy', () => {
     });
   });
 
-  it('lets worktree allow restore items only when they are not blocked', () => {
+  it('lets worktree allow restore items blocked by parent scopes', () => {
     const resolved = resolveClaudePolicy({
       catalog: baseCatalog,
       repoPath: '/repo',
       worktreePath: '/repo/worktrees/feature-a',
-      globalPolicy: {
-        allowedCapabilityIds: ['command:build', 'subagent:reviewer'],
-        blockedCapabilityIds: [],
-        allowedSharedMcpIds: [],
-        blockedSharedMcpIds: [],
-        allowedPersonalMcpIds: [],
-        blockedPersonalMcpIds: [],
-        updatedAt: 1,
-      },
       projectPolicy: createProjectPolicy({
-        allowedCapabilityIds: ['command:build'],
         blockedCapabilityIds: ['legacy-skill:ship'],
+        blockedSharedMcpIds: ['shared-alpha'],
       }),
       worktreePolicy: createWorktreePolicy({
-        allowedCapabilityIds: ['subagent:reviewer', 'legacy-skill:ship'],
+        allowedCapabilityIds: ['legacy-skill:ship'],
+        allowedSharedMcpIds: ['shared-alpha'],
       }),
-    } as Parameters<typeof resolveClaudePolicy>[0]);
+    });
 
-    expect(resolved.allowedCapabilityIds).toEqual(['command:build', 'subagent:reviewer']);
-    expect(resolved.allowedCapabilityIds).not.toContain('legacy-skill:ship');
-    expect(resolved.blockedCapabilityIds).toContain('legacy-skill:ship');
-    expect(resolved.capabilityProvenance['subagent:reviewer']).toEqual({
+    expect(resolved.allowedCapabilityIds).toEqual([
+      'command:build',
+      'legacy-skill:ship',
+      'subagent:reviewer',
+    ]);
+    expect(resolved.blockedCapabilityIds).toEqual([]);
+    expect(resolved.allowedSharedMcpIds).toEqual(['shared-alpha']);
+    expect(resolved.blockedSharedMcpIds).toEqual([]);
+    expect(resolved.capabilityProvenance['legacy-skill:ship']).toEqual({
       source: 'worktree-policy',
       decision: 'allow',
     });
-    expect(resolved.capabilityProvenance['legacy-skill:ship']).toEqual({
-      source: 'project-policy',
-      decision: 'block',
+    expect(resolved.sharedMcpProvenance['shared-alpha']).toEqual({
+      source: 'worktree-policy',
+      decision: 'allow',
+    });
+  });
+
+  it('lets session allow restore items blocked by project and worktree scopes', () => {
+    const resolved = resolveClaudePolicy({
+      catalog: baseCatalog,
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feature-a',
+      projectPolicy: createProjectPolicy({
+        blockedCapabilityIds: ['command:build'],
+        blockedPersonalMcpIds: ['personal-alpha'],
+      }),
+      worktreePolicy: createWorktreePolicy({
+        blockedSharedMcpIds: ['shared-alpha'],
+      }),
+      sessionPolicy: {
+        allowedCapabilityIds: ['command:build'],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: ['shared-alpha'],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: ['personal-alpha'],
+        blockedPersonalMcpIds: [],
+        updatedAt: 9,
+      },
+    });
+
+    expect(resolved.allowedCapabilityIds).toEqual([
+      'command:build',
+      'legacy-skill:ship',
+      'subagent:reviewer',
+    ]);
+    expect(resolved.blockedCapabilityIds).toEqual([]);
+    expect(resolved.allowedSharedMcpIds).toEqual(['shared-alpha']);
+    expect(resolved.blockedSharedMcpIds).toEqual([]);
+    expect(resolved.allowedPersonalMcpIds).toEqual(['personal-alpha']);
+    expect(resolved.blockedPersonalMcpIds).toEqual([]);
+    expect(resolved.capabilityProvenance['command:build']).toEqual({
+      source: 'session-policy',
+      decision: 'allow',
+    });
+    expect(resolved.sharedMcpProvenance['shared-alpha']).toEqual({
+      source: 'session-policy',
+      decision: 'allow',
+    });
+    expect(resolved.personalMcpProvenance['personal-alpha']).toEqual({
+      source: 'session-policy',
+      decision: 'allow',
     });
   });
 

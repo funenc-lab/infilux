@@ -1,11 +1,37 @@
 import type { AgentCapabilityProvider, ClaudePolicyMaterializationMode } from '@shared/types';
 import { getAgentInputBaseId } from './agentInputMode';
 
+const KNOWN_CAPABILITY_PROVIDERS = new Set<AgentCapabilityProvider>(['claude', 'codex', 'gemini']);
+
+function normalizeProviderCandidate(value: string | undefined): AgentCapabilityProvider | null {
+  const candidate = value?.trim();
+  if (!candidate) {
+    return null;
+  }
+
+  const baseId = getAgentInputBaseId(candidate);
+  return KNOWN_CAPABILITY_PROVIDERS.has(baseId as AgentCapabilityProvider)
+    ? (baseId as AgentCapabilityProvider)
+    : null;
+}
+
+function extractCommandExecutableName(agentCommand: string | undefined): string | undefined {
+  const firstToken = agentCommand?.trim().split(/\s+/)[0];
+  if (!firstToken) {
+    return undefined;
+  }
+
+  const normalizedToken = firstToken.replace(/^['"]|['"]$/g, '').replace(/\\/g, '/');
+  const executableName = normalizedToken.slice(normalizedToken.lastIndexOf('/') + 1);
+  return executableName.replace(/\.exe$/i, '');
+}
+
 function resolveAgentCapabilityPolicyBaseId(
   agentId: string | undefined,
   agentCommand: string | undefined
 ): string | null {
-  const candidate = agentId?.trim() || agentCommand?.trim();
+  const candidate =
+    normalizeProviderCandidate(agentId) ?? extractCommandExecutableName(agentCommand);
   return candidate ? getAgentInputBaseId(candidate) : null;
 }
 

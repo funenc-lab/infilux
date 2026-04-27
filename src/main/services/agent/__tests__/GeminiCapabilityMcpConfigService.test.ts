@@ -32,7 +32,27 @@ describe('resolveGeminiCapabilityMcpConfigEntries', () => {
     rmSync(rootDir, { recursive: true, force: true });
   });
 
-  it('includes Codex config.toml MCP entries in local Gemini runtime config resolution', async () => {
+  it('includes Claude and Codex MCP entries in local Gemini runtime config resolution', async () => {
+    writeTextFile(
+      join(rootDir, '.claude.json'),
+      JSON.stringify({
+        mcpServers: {
+          'claude-global': { command: 'uvx', args: ['claude-global'] },
+        },
+        projects: {
+          [repoPath]: {
+            mcpServers: {
+              'claude-project': { command: 'uvx', args: ['claude-project'] },
+            },
+          },
+          [worktreePath]: {
+            mcpServers: {
+              'claude-worktree': { command: 'uvx', args: ['claude-worktree'] },
+            },
+          },
+        },
+      })
+    );
     writeTextFile(
       join(rootDir, '.codex', 'config.toml'),
       ['[mcp_servers.codex-global]', 'command = "uvx"', 'args = ["codex-global"]'].join('\n')
@@ -91,6 +111,27 @@ describe('resolveGeminiCapabilityMcpConfigEntries', () => {
       expect.objectContaining({
         id: 'gemini-global',
         sourceScope: 'user',
+      })
+    );
+    expect(configSet.personalById['claude-global']).toEqual(
+      expect.objectContaining({
+        id: 'claude-global',
+        sourceScope: 'user',
+        sourcePath: join(rootDir, '.claude.json'),
+      })
+    );
+    expect(configSet.personalById['claude-project']).toEqual(
+      expect.objectContaining({
+        id: 'claude-project',
+        sourceScope: 'project',
+        sourcePath: join(rootDir, '.claude.json'),
+      })
+    );
+    expect(configSet.personalById['claude-worktree']).toEqual(
+      expect.objectContaining({
+        id: 'claude-worktree',
+        sourceScope: 'worktree',
+        sourcePath: join(rootDir, '.claude.json'),
       })
     );
   });

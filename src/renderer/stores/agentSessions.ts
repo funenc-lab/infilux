@@ -1,5 +1,8 @@
 import type { PersistentAgentSessionRecord } from '@shared/types';
-import { supportsClaudeCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
+import {
+  supportsAgentCapabilityPolicyLaunch,
+  supportsClaudeCapabilityPolicyLaunch,
+} from '@shared/utils/agentCapabilityPolicy';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { normalizePath, pathsEqual } from '@/App/storage';
@@ -307,6 +310,21 @@ function isTrackedClaudePolicySession(session: Session): boolean {
   );
 }
 
+function isTrackedAgentCapabilitySession(session: Session): boolean {
+  return (
+    supportsAgentCapabilityPolicyLaunch(session.agentId, session.agentCommand) &&
+    Boolean(session.agentCapabilityHash ?? session.claudePolicyHash)
+  );
+}
+
+function markSessionCapabilityStale(session: Session): Session {
+  return {
+    ...session,
+    agentCapabilityStale: true,
+    ...(isTrackedClaudePolicySession(session) ? { claudePolicyStale: true } : {}),
+  };
+}
+
 function loadFromStorage(): PersistedAgentSessionsSnapshot {
   try {
     const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
@@ -502,8 +520,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
     markClaudePolicyStaleGlobally: () =>
       set((state) => ({
         sessions: state.sessions.map((session) =>
-          isTrackedClaudePolicySession(session) && session.recoveryState !== 'dead'
-            ? { ...session, claudePolicyStale: true }
+          isTrackedAgentCapabilitySession(session) && session.recoveryState !== 'dead'
+            ? markSessionCapabilityStale(session)
             : session
         ),
       })),
@@ -511,10 +529,10 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
     markClaudePolicyStaleForRepo: (repoPath) =>
       set((state) => ({
         sessions: state.sessions.map((session) =>
-          isTrackedClaudePolicySession(session) &&
+          isTrackedAgentCapabilitySession(session) &&
           session.recoveryState !== 'dead' &&
           pathsEqual(session.repoPath, repoPath)
-            ? { ...session, claudePolicyStale: true }
+            ? markSessionCapabilityStale(session)
             : session
         ),
       })),
@@ -522,11 +540,11 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
     markClaudePolicyStaleForWorktree: (repoPath, worktreePath) =>
       set((state) => ({
         sessions: state.sessions.map((session) =>
-          isTrackedClaudePolicySession(session) &&
+          isTrackedAgentCapabilitySession(session) &&
           session.recoveryState !== 'dead' &&
           pathsEqual(session.repoPath, repoPath) &&
           pathsEqual(session.cwd, worktreePath)
-            ? { ...session, claudePolicyStale: true }
+            ? markSessionCapabilityStale(session)
             : session
         ),
       })),
@@ -719,6 +737,15 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           hostSessionKey: record.hostKind === 'tmux' ? record.hostSessionKey : undefined,
           recovered: true,
           recoveryState: record.lastKnownState,
+          agentCapabilityProvider: existing?.agentCapabilityProvider,
+          agentCapabilityHash: existing?.agentCapabilityHash,
+          agentCapabilityWarnings: existing?.agentCapabilityWarnings,
+          agentCapabilityStale: existing?.agentCapabilityStale,
+          claudePolicyHash: existing?.claudePolicyHash,
+          claudePolicyWarnings: existing?.claudePolicyWarnings,
+          claudePolicyStale: existing?.claudePolicyStale,
+          claudeSessionPolicy: existing?.claudeSessionPolicy,
+          claudePolicyMaterializationMode: existing?.claudePolicyMaterializationMode,
         };
 
         const sessions = existing

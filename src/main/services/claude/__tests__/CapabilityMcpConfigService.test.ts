@@ -32,7 +32,31 @@ describe('resolveCapabilityMcpConfigEntries', () => {
     rmSync(rootDir, { recursive: true, force: true });
   });
 
-  it('collects local Codex config.toml MCP entries for user, project, and worktree scopes', async () => {
+  it('collects local Gemini and Codex MCP entries for user, project, and worktree scopes', async () => {
+    writeTextFile(
+      join(rootDir, '.gemini', 'settings.json'),
+      JSON.stringify({
+        mcpServers: {
+          'gemini-global': { command: 'uvx', args: ['gemini-global'] },
+        },
+      })
+    );
+    writeTextFile(
+      join(repoPath, '.gemini', 'settings.json'),
+      JSON.stringify({
+        mcpServers: {
+          'gemini-project': { command: 'uvx', args: ['gemini-project'] },
+        },
+      })
+    );
+    writeTextFile(
+      join(worktreePath, '.gemini', 'settings.json'),
+      JSON.stringify({
+        mcpServers: {
+          'gemini-worktree': { command: 'uvx', args: ['gemini-worktree'] },
+        },
+      })
+    );
     writeTextFile(
       join(rootDir, '.codex', 'config.toml'),
       ['[mcp_servers.codex-global]', 'command = "uvx"', 'args = ["codex-global"]'].join('\n')
@@ -91,6 +115,27 @@ describe('resolveCapabilityMcpConfigEntries', () => {
       expect.objectContaining({
         id: 'claude-global',
         sourceScope: 'user',
+      })
+    );
+    expect(configSet.personalById['gemini-global']).toEqual(
+      expect.objectContaining({
+        id: 'gemini-global',
+        sourceScope: 'user',
+        sourcePath: join(rootDir, '.gemini', 'settings.json'),
+      })
+    );
+    expect(configSet.personalById['gemini-project']).toEqual(
+      expect.objectContaining({
+        id: 'gemini-project',
+        sourceScope: 'project',
+        sourcePath: join(repoPath, '.gemini', 'settings.json'),
+      })
+    );
+    expect(configSet.personalById['gemini-worktree']).toEqual(
+      expect.objectContaining({
+        id: 'gemini-worktree',
+        sourceScope: 'worktree',
+        sourcePath: join(worktreePath, '.gemini', 'settings.json'),
       })
     );
   });

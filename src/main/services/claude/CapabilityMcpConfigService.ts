@@ -21,6 +21,11 @@ interface ClaudeJsonProjects {
   [key: string]: unknown;
 }
 
+interface GeminiSettings {
+  mcpServers?: Record<string, McpServerConfig>;
+  [key: string]: unknown;
+}
+
 export interface CapabilityMcpConfigEntry {
   id: string;
   config: McpServerConfig;
@@ -36,6 +41,8 @@ export interface CapabilityMcpConfigSet {
 export interface CapabilityMcpConfigServiceDependencies {
   readLocalClaudeJson?: () => Promise<ClaudeJsonProjects | null>;
   readLocalProjectSettings?: (workspacePath: string) => Promise<ClaudeProjectState | null>;
+  readLocalGeminiSettings?: () => Promise<GeminiSettings | null>;
+  readLocalGeminiWorkspaceSettings?: (workspacePath: string) => Promise<GeminiSettings | null>;
   getRepositoryEnvironmentContext?: typeof getRepositoryEnvironmentContext;
   readRepositoryRemoteTextFile?: typeof readRepositoryRemoteTextFile;
   readRepositoryClaudeJson?: typeof readRepositoryClaudeJson;
@@ -106,6 +113,16 @@ async function defaultReadLocalProjectSettings(
   }
 
   return null;
+}
+
+async function defaultReadLocalGeminiSettings(): Promise<GeminiSettings | null> {
+  return readJsonFileSafe<GeminiSettings>(path.join(os.homedir(), '.gemini', 'settings.json'));
+}
+
+async function defaultReadLocalGeminiWorkspaceSettings(
+  workspacePath: string
+): Promise<GeminiSettings | null> {
+  return readJsonFileSafe<GeminiSettings>(path.join(workspacePath, '.gemini', 'settings.json'));
 }
 
 function normalizeRemoteWorkspacePath(workspacePath: string): string {
@@ -228,6 +245,21 @@ async function readLocalWorkspacePersonalEntries(
   }));
 }
 
+async function readLocalGeminiPersonalEntries(
+  settingsPath: string,
+  sourceScope: ClaudeCapabilitySourceScope,
+  readSettings: () => Promise<GeminiSettings | null>
+): Promise<CapabilityMcpConfigEntry[]> {
+  const settings = await readSettings();
+
+  return Object.entries(settings?.mcpServers ?? {}).map(([id, config]) => ({
+    id,
+    config,
+    sourceScope,
+    sourcePath: settingsPath,
+  }));
+}
+
 function readRemoteGlobalPersonalEntries(
   claudeJson: Record<string, unknown> | null,
   sourcePath: string
@@ -283,6 +315,32 @@ async function readRemoteCodexPersonalEntries(
   }));
 }
 
+async function readRemoteGeminiPersonalEntries(
+  repoPath: string,
+  settingsPath: string,
+  sourceScope: ClaudeCapabilitySourceScope,
+  readRemoteTextFile: typeof readRepositoryRemoteTextFile
+): Promise<CapabilityMcpConfigEntry[]> {
+  const content = await readRemoteTextFile(repoPath, settingsPath);
+  if (!content?.trim()) {
+    return [];
+  }
+
+  let settings: GeminiSettings | null = null;
+  try {
+    settings = JSON.parse(content) as GeminiSettings;
+  } catch {
+    settings = null;
+  }
+
+  return Object.entries(settings?.mcpServers ?? {}).map(([id, config]) => ({
+    id,
+    config,
+    sourceScope,
+    sourcePath: settingsPath,
+  }));
+}
+
 export async function resolveCapabilityMcpConfigEntries(
   params: { repoPath?: string; worktreePath?: string },
   dependencies: CapabilityMcpConfigServiceDependencies = {}
@@ -293,6 +351,10 @@ export async function resolveCapabilityMcpConfigEntries(
   const readLocalClaudeJsonFn = dependencies.readLocalClaudeJson ?? defaultReadLocalClaudeJson;
   const readLocalProjectSettingsFn =
     dependencies.readLocalProjectSettings ?? defaultReadLocalProjectSettings;
+  const readLocalGeminiSettingsFn =
+    dependencies.readLocalGeminiSettings ?? defaultReadLocalGeminiSettings;
+  const readLocalGeminiWorkspaceSettingsFn =
+    dependencies.readLocalGeminiWorkspaceSettings ?? defaultReadLocalGeminiWorkspaceSettings;
   const getRemoteContext =
     dependencies.getRepositoryEnvironmentContext ?? getRepositoryEnvironmentContext;
   const readRemoteTextFile =
@@ -321,6 +383,18 @@ export async function resolveCapabilityMcpConfigEntries(
       personalEntries.push(
         ...readRemoteGlobalPersonalEntries(remoteClaudeJson, context.claudeJsonPath),
         ...readRemoteWorkspacePersonalEntries(normalizedRepoPath, remoteClaudeJson),
+        ...(await readRemoteGeminiPersonalEntries(
+          repoPath,
+          `${toRemotePath(context.homeDir)}/.gemini/settings.json`,
+          'user',
+          readRemoteTextFile
+        )),
+        ...(await readRemoteGeminiPersonalEntries(
+          repoPath,
+          `${normalizedRepoPath}/.gemini/settings.json`,
+          'project',
+          readRemoteTextFile
+        )),
         ...(await readRemoteCodexPersonalEntries(
           repoPath,
           `${toRemotePath(context.homeDir)}/.codex/config.toml`,
@@ -339,6 +413,12 @@ export async function resolveCapabilityMcpConfigEntries(
             normalizeRemoteWorkspacePath(worktreePath),
             remoteClaudeJson
           ),
+          ...(await readRemoteGeminiPersonalEntries(
+            repoPath,
+            `${normalizeRemoteWorkspacePath(worktreePath)}/.gemini/settings.json`,
+            'worktree',
+            readRemoteTextFile
+          )),
           ...(await readRemoteCodexPersonalEntries(
             repoPath,
             `${normalizeRemoteWorkspacePath(worktreePath)}/.codex/config.toml`,
@@ -350,6 +430,11 @@ export async function resolveCapabilityMcpConfigEntries(
   } else {
     personalEntries.push(
       ...(await readLocalGlobalPersonalEntries(readLocalClaudeJsonFn)),
+      ...(await readLocalGeminiPersonalEntries(
+        path.join(os.homedir(), '.gemini', 'settings.json'),
+        'user',
+        readLocalGeminiSettingsFn
+      )),
       ...(await readLocalCodexPersonalEntries(
         path.join(os.homedir(), '.codex', 'config.toml'),
         'user'
@@ -363,6 +448,11 @@ export async function resolveCapabilityMcpConfigEntries(
           repoPath,
           readLocalProjectSettingsFn,
           'project'
+        )),
+        ...(await readLocalGeminiPersonalEntries(
+          path.join(repoPath, '.gemini', 'settings.json'),
+          'project',
+          () => readLocalGeminiWorkspaceSettingsFn(repoPath)
         )),
         ...(await readLocalCodexPersonalEntries(
           path.join(repoPath, '.codex', 'config.toml'),
@@ -378,6 +468,11 @@ export async function resolveCapabilityMcpConfigEntries(
           worktreePath,
           readLocalProjectSettingsFn,
           'worktree'
+        )),
+        ...(await readLocalGeminiPersonalEntries(
+          path.join(worktreePath, '.gemini', 'settings.json'),
+          'worktree',
+          () => readLocalGeminiWorkspaceSettingsFn(worktreePath)
         )),
         ...(await readLocalCodexPersonalEntries(
           path.join(worktreePath, '.codex', 'config.toml'),

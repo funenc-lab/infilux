@@ -26,6 +26,7 @@ import type {
   AgentCapabilitySessionOverrides,
   PreparedAgentCapabilityLaunch,
 } from './AgentCapabilityProviderAdapter';
+import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
 import { resolveGeminiCapabilityMcpConfigEntries } from './GeminiCapabilityMcpConfigService';
 
 export interface GeminiCapabilityProviderAdapterDependencies {
@@ -258,13 +259,23 @@ async function resolveGeminiSkillEntries(
   const skillEntries: GeminiResolvedSkillEntry[] = [];
 
   for (const capability of capabilities) {
-    if (capability.kind !== 'legacy-skill' || !capability.sourcePath) {
+    if (capability.kind !== 'legacy-skill') {
+      continue;
+    }
+
+    const selectedSourcePath = selectPreferredSkillSourcePathForProvider({
+      provider: 'gemini',
+      capability,
+      repoPath,
+      worktreePath,
+    });
+    if (!selectedSourcePath) {
       continue;
     }
 
     const content = isRemote
-      ? await readRemoteTextFile(repoPath, capability.sourcePath)
-      : await readLocalTextFile(capability.sourcePath);
+      ? await readRemoteTextFile(repoPath, selectedSourcePath)
+      : await readLocalTextFile(selectedSourcePath);
     const parsedName = content ? parseGeminiSkillName(content) : null;
     if (!parsedName) {
       warnings.push(
@@ -275,15 +286,15 @@ async function resolveGeminiSkillEntries(
     skillEntries.push({
       id: capability.id,
       runtimeName: parsedName ?? sanitizeGeminiSkillName(capability.name),
-      sourcePath: capability.sourcePath,
+      sourcePath: selectedSourcePath,
       sourceDir: isRemote
-        ? path.posix.dirname(capability.sourcePath)
-        : path.dirname(capability.sourcePath),
+        ? path.posix.dirname(selectedSourcePath)
+        : path.dirname(selectedSourcePath),
       autoLoaded: isGeminiWorkspaceAutoLoadedSkillSource(
         isRemote
           ? normalizeRemotePath(parseRemoteVirtualPath(worktreePath).remotePath)
           : worktreePath,
-        capability.sourcePath,
+        selectedSourcePath,
         isRemote
       ),
     });

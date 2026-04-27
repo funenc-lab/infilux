@@ -15,6 +15,14 @@ interface ApplyAllowBlockResult {
   provenance: Record<string, ClaudePolicyProvenance>;
 }
 
+type PolicyDecision = 'allow' | 'block';
+
+interface ScopedDecisionSets {
+  source: ClaudePolicyProvenance['source'];
+  allowed: Set<string>;
+  blocked: Set<string>;
+}
+
 function sortStrings(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
@@ -31,78 +39,61 @@ export function applyAllowBlock(params: {
   sessionBlockedIds: string[];
 }): ApplyAllowBlockResult {
   const availableIds = new Set(params.availableIds);
-  const globalAllowedIds = new Set(params.globalAllowedIds.filter((id) => availableIds.has(id)));
-  const globalBlockedIds = new Set(params.globalBlockedIds.filter((id) => availableIds.has(id)));
-  const projectAllowedIds = new Set(params.projectAllowedIds.filter((id) => availableIds.has(id)));
-  const worktreeAllowedIds = new Set(
-    params.worktreeAllowedIds.filter((id) => availableIds.has(id))
-  );
-  const projectBlockedIds = new Set(params.projectBlockedIds.filter((id) => availableIds.has(id)));
-  const worktreeBlockedIds = new Set(
-    params.worktreeBlockedIds.filter((id) => availableIds.has(id))
-  );
-  const sessionAllowedIds = new Set(params.sessionAllowedIds.filter((id) => availableIds.has(id)));
-  const sessionBlockedIds = new Set(params.sessionBlockedIds.filter((id) => availableIds.has(id)));
+  const scopedDecisions: ScopedDecisionSets[] = [
+    {
+      source: 'global-policy',
+      allowed: new Set(params.globalAllowedIds.filter((id) => availableIds.has(id))),
+      blocked: new Set(params.globalBlockedIds.filter((id) => availableIds.has(id))),
+    },
+    {
+      source: 'project-policy',
+      allowed: new Set(params.projectAllowedIds.filter((id) => availableIds.has(id))),
+      blocked: new Set(params.projectBlockedIds.filter((id) => availableIds.has(id))),
+    },
+    {
+      source: 'worktree-policy',
+      allowed: new Set(params.worktreeAllowedIds.filter((id) => availableIds.has(id))),
+      blocked: new Set(params.worktreeBlockedIds.filter((id) => availableIds.has(id))),
+    },
+    {
+      source: 'session-policy',
+      allowed: new Set(params.sessionAllowedIds.filter((id) => availableIds.has(id))),
+      blocked: new Set(params.sessionBlockedIds.filter((id) => availableIds.has(id))),
+    },
+  ];
 
-  const baseAllowedIds =
-    globalAllowedIds.size > 0 ? new Set(globalAllowedIds) : new Set(availableIds);
-  if (projectAllowedIds.size > 0) {
-    baseAllowedIds.clear();
-    for (const id of projectAllowedIds) {
-      baseAllowedIds.add(id);
-    }
-  }
-  for (const id of worktreeAllowedIds) {
-    baseAllowedIds.add(id);
-  }
-  for (const id of sessionAllowedIds) {
-    baseAllowedIds.add(id);
-  }
-
-  const blockedIds = new Set<string>([
-    ...globalBlockedIds,
-    ...projectBlockedIds,
-    ...worktreeBlockedIds,
-    ...sessionBlockedIds,
-  ]);
-  const allowedIds = [...baseAllowedIds].filter((id) => !blockedIds.has(id));
-
+  const allowedIds: string[] = [];
+  const blockedIds: string[] = [];
   const provenance: Record<string, ClaudePolicyProvenance> = {};
-  for (const id of blockedIds) {
-    provenance[id] = sessionBlockedIds.has(id)
-      ? { source: 'session-policy', decision: 'block' }
-      : worktreeBlockedIds.has(id)
-        ? { source: 'worktree-policy', decision: 'block' }
-        : projectBlockedIds.has(id)
-          ? { source: 'project-policy', decision: 'block' }
-          : { source: 'global-policy', decision: 'block' };
-  }
-  for (const id of allowedIds) {
-    if (provenance[id]) {
-      continue;
+
+  for (const id of sortStrings(availableIds)) {
+    let decision: PolicyDecision = 'allow';
+    let source: ClaudePolicyProvenance['source'] = 'catalog';
+
+    for (const scope of scopedDecisions) {
+      if (scope.blocked.has(id)) {
+        decision = 'block';
+        source = scope.source;
+        continue;
+      }
+      if (scope.allowed.has(id)) {
+        decision = 'allow';
+        source = scope.source;
+      }
     }
-    if (sessionAllowedIds.has(id)) {
-      provenance[id] = { source: 'session-policy', decision: 'allow' };
-      continue;
+
+    if (decision === 'allow') {
+      allowedIds.push(id);
+    } else {
+      blockedIds.push(id);
     }
-    if (worktreeAllowedIds.has(id)) {
-      provenance[id] = { source: 'worktree-policy', decision: 'allow' };
-      continue;
-    }
-    if (projectAllowedIds.size > 0) {
-      provenance[id] = { source: 'project-policy', decision: 'allow' };
-      continue;
-    }
-    if (globalAllowedIds.size > 0) {
-      provenance[id] = { source: 'global-policy', decision: 'allow' };
-      continue;
-    }
-    provenance[id] = { source: 'catalog', decision: 'allow' };
+
+    provenance[id] = { source, decision };
   }
 
   return {
-    allowedIds: sortStrings(allowedIds),
-    blockedIds: sortStrings(blockedIds),
+    allowedIds,
+    blockedIds,
     provenance,
   };
 }

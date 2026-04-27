@@ -32,8 +32,8 @@ import {
   buildClaudeProjectPolicy,
   buildClaudeWorktreePolicy,
   type ClaudePolicyDecisionValue,
-  createClaudeSkillPolicyDraft,
-  hasClaudeSkillPolicyConfigChanges,
+  createClaudePolicyDraft,
+  hasClaudePolicyConfigChanges,
   setClaudePolicyDecision,
   setClaudePolicyDecisionForIds,
 } from './model';
@@ -114,7 +114,7 @@ export function ClaudePolicyEditorDialog({
   const { t } = useI18n();
   const activePolicy =
     scope === 'global' ? globalPolicy : scope === 'project' ? projectPolicy : worktreePolicy;
-  const [draft, setDraft] = useState(() => createClaudeSkillPolicyDraft(activePolicy));
+  const [draft, setDraft] = useState(() => createClaudePolicyDraft(activePolicy));
   const [catalog, setCatalog] = useState<ClaudeCapabilityCatalog | null>(null);
   const [resolvedPolicy, setResolvedPolicy] = useState<ResolvedClaudePolicy | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -131,7 +131,7 @@ export function ClaudePolicyEditorDialog({
       return;
     }
 
-    setDraft(createClaudeSkillPolicyDraft(activePolicy));
+    setDraft(createClaudePolicyDraft(activePolicy));
     setIsPreviewExpanded(false);
     setActiveTab('skills');
     setSearchQuery('');
@@ -255,7 +255,7 @@ export function ClaudePolicyEditorDialog({
   );
 
   const isDirty = useMemo(
-    () => hasClaudeSkillPolicyConfigChanges(activePolicy, draft),
+    () => hasClaudePolicyConfigChanges(activePolicy, draft),
     [activePolicy, draft]
   );
   const skillItems = useMemo(

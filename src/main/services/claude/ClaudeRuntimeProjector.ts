@@ -248,6 +248,22 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(sortObjectDeep(value));
 }
 
+function mergeManagedPersonalMcpServers(
+  existingServers: Record<string, McpServerConfig>,
+  selectedServers: Record<string, McpServerConfig>,
+  knownServerIds: Iterable<string>
+): Record<string, McpServerConfig> {
+  const knownIds = new Set(knownServerIds);
+  const unmanagedServers = Object.fromEntries(
+    Object.entries(existingServers).filter(([id]) => !knownIds.has(id))
+  );
+
+  return {
+    ...unmanagedServers,
+    ...selectedServers,
+  };
+}
+
 async function readManifest(
   runtimeWorkspacePath: string,
   repoPath: string,
@@ -369,12 +385,11 @@ async function loadPersonalMcpConfigById(
   const lookup: Record<string, McpServerConfig> = {};
 
   if (isRemoteVirtualPath(params.repoPath)) {
+    const readRemoteProjectSettings =
+      dependencies.readRemoteProjectSettings ?? defaultReadRepositoryRemoteProjectSettings;
     for (const workspacePath of [params.repoPath, params.worktreePath]) {
       const actualWorkspacePath = parseRemoteVirtualPath(workspacePath).remotePath;
-      const settings = await defaultReadRepositoryRemoteProjectSettings(
-        params.repoPath,
-        actualWorkspacePath
-      );
+      const settings = await readRemoteProjectSettings(params.repoPath, actualWorkspacePath);
       Object.assign(lookup, normalizeMcpConfigRecord(settings?.mcpServers));
     }
     return lookup;
@@ -516,6 +531,7 @@ export async function projectClaudeRuntimePolicy(
   const updatedFiles: string[] = [];
   const desiredArtifacts = new Map<string, DesiredRuntimeArtifact>();
   const protectedManagedPaths = new Set<string>();
+  const allowedCapabilityIds = new Set(params.resolvedPolicy.allowedCapabilityIds);
   const manifest = await readManifest(
     runtimeWorkspacePath,
     params.repoPath,
@@ -547,6 +563,11 @@ export async function projectClaudeRuntimePolicy(
         )
       ) {
         protectedManagedPaths.add(symlinkDestination.targetPath);
+        if (!allowedCapabilityIds.has(capability.id)) {
+          warnings.push(
+            `Claude capability "${capability.id}" is blocked by policy but remains in a workspace-native .claude path and may still be loaded by Claude.`
+          );
+        }
       }
       continue;
     }
@@ -561,10 +582,15 @@ export async function projectClaudeRuntimePolicy(
       areManagedPathsEqual(copyTargetPath, capability.sourcePath, isRemoteRuntime)
     ) {
       protectedManagedPaths.add(copyTargetPath);
+      if (!allowedCapabilityIds.has(capability.id)) {
+        warnings.push(
+          `Claude capability "${capability.id}" is blocked by policy but remains in a workspace-native .claude path and may still be loaded by Claude.`
+        );
+      }
     }
   }
   const allowedCapabilities = params.catalog.capabilities.filter((item) =>
-    params.resolvedPolicy.allowedCapabilityIds.includes(item.id)
+    allowedCapabilityIds.has(item.id)
   );
 
   if (effectiveMode === 'provider-native') {
@@ -736,13 +762,18 @@ export async function projectClaudeRuntimePolicy(
           dependencies.readRemoteProjectSettings ?? defaultReadRepositoryRemoteProjectSettings
         )(params.repoPath, runtimeWorkspacePath)
       : (dependencies.readLocalProjectSettings ?? readClaudeProjectSettings)(runtimeWorkspacePath);
+    const nextPersonalMcpServers = mergeManagedPersonalMcpServers(
+      normalizeMcpConfigRecord(existingProjectSettings?.mcpServers),
+      selectedPersonalMcpConfigs,
+      Object.keys(personalMcpConfigById)
+    );
     const nextProjectSettings = {
       ...(existingProjectSettings ?? {}),
-      mcpServers: selectedPersonalMcpConfigs,
+      mcpServers: nextPersonalMcpServers,
     };
     personalSettingsChanged =
       stableStringify(existingProjectSettings?.mcpServers ?? {}) !==
-      stableStringify(selectedPersonalMcpConfigs);
+      stableStringify(nextPersonalMcpServers);
 
     if (personalSettingsChanged) {
       const updated = isRemoteRuntime

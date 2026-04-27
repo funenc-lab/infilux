@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAgentCapabilityLaunchMetadata,
   buildAgentCapabilityLaunchRequest,
+  extractAgentCapabilitySessionMetadata,
 } from '../agentCapabilityLaunch';
 
 function createProjectPolicy(): ClaudeProjectPolicy {
@@ -120,6 +121,44 @@ describe('agentCapabilityLaunch', () => {
       worktreePolicy: null,
       sessionPolicy: null,
       materializationMode: 'provider-native',
+    });
+  });
+
+  it('resolves known providers from the command when the agent id is custom', () => {
+    const projectPolicy = createProjectPolicy();
+
+    expect(
+      buildAgentCapabilityLaunchRequest({
+        agentId: 'custom-codex',
+        agentCommand: '/opt/bin/codex',
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feat-a',
+        projectPolicy,
+        worktreePolicy: null,
+      })
+    ).toEqual(
+      expect.objectContaining({
+        provider: 'codex',
+        agentId: 'custom-codex',
+        agentCommand: '/opt/bin/codex',
+        materializationMode: 'provider-native',
+      })
+    );
+  });
+
+  it('extracts generic capability launch metadata from opened sessions', () => {
+    expect(
+      extractAgentCapabilitySessionMetadata({
+        agentCapability: {
+          provider: 'codex',
+          hash: 'hash-1',
+          warnings: ['warn-1'],
+        },
+      })
+    ).toEqual({
+      provider: 'codex',
+      hash: 'hash-1',
+      warnings: ['warn-1'],
     });
   });
 });

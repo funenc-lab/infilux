@@ -237,6 +237,48 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
   });
 
+  it('prefers the Codex skill root when duplicate skill definitions exist in the same scope', () => {
+    const projection = buildCodexSessionProjection(
+      {
+        cwd: '/repo/worktrees/feat-a',
+        kind: 'agent',
+        shell: 'codex',
+        args: ['resume', 'codex-session-1'],
+      },
+      [
+        {
+          id: 'legacy-skill:skill-creator',
+          kind: 'legacy-skill',
+          name: 'Skill Creator',
+          description: 'Create skills',
+          sourceScope: 'worktree',
+          sourcePath: '/repo/worktrees/feat-a/.claude/skills/skill-creator/SKILL.md',
+          sourcePaths: [
+            '/repo/worktrees/feat-a/.agents/skills/skill-creator/SKILL.md',
+            '/repo/worktrees/feat-a/.claude/skills/skill-creator/SKILL.md',
+            '/repo/worktrees/feat-a/.codex/skills/skill-creator/SKILL.md',
+          ],
+          isAvailable: true,
+          isConfigurable: true,
+        },
+      ],
+      createResolvedPolicy({
+        allowedCapabilityIds: ['legacy-skill:skill-creator'],
+      }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(true);
+    expect(projection.sessionOverrides?.args).toEqual(
+      expect.arrayContaining([
+        '-c',
+        'skills.config=[{enabled = true, path = "/repo/worktrees/feat-a/.codex/skills/skill-creator/SKILL.md"}]',
+        'resume',
+        'codex-session-1',
+      ])
+    );
+  });
+
   it('warns and prefers the personal configuration when the same MCP id exists in both scopes', () => {
     const projection = buildCodexSessionProjection(
       {

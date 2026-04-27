@@ -3690,17 +3690,27 @@ export function AgentPanel({
             }}
             onClaudePolicyStateChange={(policyState) => {
               if (
-                session.claudePolicyHash === policyState.hash &&
-                session.claudePolicyStale === false &&
-                JSON.stringify(session.claudePolicyWarnings ?? []) ===
+                session.agentCapabilityHash === policyState.hash &&
+                session.agentCapabilityStale === false &&
+                JSON.stringify(session.agentCapabilityWarnings ?? []) ===
                   JSON.stringify(policyState.warnings)
               ) {
                 return;
               }
+              const isClaudeCapabilityState =
+                !policyState.provider || policyState.provider === 'claude';
               updateSession(sessionId, {
-                claudePolicyHash: policyState.hash,
-                claudePolicyWarnings: policyState.warnings,
-                claudePolicyStale: false,
+                agentCapabilityProvider: policyState.provider,
+                agentCapabilityHash: policyState.hash,
+                agentCapabilityWarnings: policyState.warnings,
+                agentCapabilityStale: false,
+                ...(isClaudeCapabilityState
+                  ? {
+                      claudePolicyHash: policyState.hash,
+                      claudePolicyWarnings: policyState.warnings,
+                      claudePolicyStale: false,
+                    }
+                  : {}),
               });
             }}
             onSplit={() => groupId && handleSplit(groupId)}

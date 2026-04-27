@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { McpServerConfig } from '@shared/types';
 import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { listClaudeCapabilityCatalog } from '../CapabilityCatalogService';
@@ -160,11 +161,31 @@ describe('listClaudeCapabilityCatalog', () => {
             'personal-global': { command: 'uvx', args: ['personal-global'] },
           },
         }),
-        readLocalProjectSettings: async () => ({
-          mcpServers: {
-            'personal-local': { command: 'uvx', args: ['personal-local'] },
-          },
-        }),
+        readLocalProjectSettings: async (workspacePath) => {
+          if (workspacePath === repoPath) {
+            const mcpServers: Record<string, McpServerConfig> = {
+              'personal-claude-project': {
+                command: 'uvx',
+                args: ['personal-claude-project'],
+              },
+            };
+            return {
+              mcpServers,
+            };
+          }
+          if (workspacePath === worktreePath) {
+            const mcpServers: Record<string, McpServerConfig> = {
+              'personal-claude-worktree': {
+                command: 'uvx',
+                args: ['personal-claude-worktree'],
+              },
+            };
+            return {
+              mcpServers,
+            };
+          }
+          return null;
+        },
         readLocalGeminiSettings: async () => ({
           mcpServers: {
             'personal-gemini-global': { command: 'uvx', args: ['personal-gemini-global'] },
@@ -298,8 +319,13 @@ describe('listClaudeCapabilityCatalog', () => {
           sourcePath: join(rootDir, '.codex', 'config.toml'),
         }),
         expect.objectContaining({
-          id: 'personal-local',
-          sourceScope: 'user',
+          id: 'personal-claude-project',
+          sourceScope: 'project',
+          transportType: 'stdio',
+        }),
+        expect.objectContaining({
+          id: 'personal-claude-worktree',
+          sourceScope: 'worktree',
           transportType: 'stdio',
         }),
         expect.objectContaining({
