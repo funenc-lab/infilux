@@ -76,10 +76,13 @@ Example App
 
 ## Project Origin
 
-Infilux is the continuation of the same project that was previously presented as **EnsoAI**.
+Infilux is a continued, secondary development of the project that was previously presented as
+**EnsoAI**.
 
-The rename covers the product-facing brand and the primary repository identity, but it does not
-represent a restart or a fork. The current canonical project locations are:
+The current app is built on the earlier EnsoAI codebase and product direction, then continues
+under the Infilux name with updated repository ownership, runtime identity, documentation, and
+release infrastructure. It is not a from-scratch rewrite. The current canonical project locations
+are:
 
 - **Repository (SSH)**: `git@github.com:funenc-lab/infilux.git`
 - **Repository (HTTPS)**: `https://github.com/funenc-lab/infilux`
@@ -90,6 +93,7 @@ represent a restart or a fork. The current canonical project locations are:
 - The active product name is now **Infilux**
 - The main GitHub repository has moved to `funenc-lab/infilux`
 - New architecture and product documentation now use the Infilux name consistently
+- Ongoing development, packaging, and support now happen under the Infilux identity
 
 ### What may still look old
 
@@ -104,6 +108,7 @@ identifiers, for example:
 ### Continuity
 
 - the codebase continues from the same project lineage
+- the current implementation is based on the earlier EnsoAI codebase and has continued from there
 - release history and historical references are still relevant
 - existing users of the earlier EnsoAI-branded project are in the right place
 
@@ -116,9 +121,9 @@ When there is a naming mismatch, treat **Infilux** as the current official name 
 
 ### Install Options
 
-> Infilux is the active product name. GitHub Releases is the canonical distribution source. Some package-manager channels are still maintained manually under legacy `ensoai` or `J3n5en.EnsoAI` identifiers and may lag behind the latest GitHub release.
+> Infilux is the active product name. GitHub Releases is the canonical and currently documented distribution source.
 
-### Primary Download
+### Recommended Download
 
 Download the installer for your platform from [GitHub Releases](https://github.com/funenc-lab/infilux/releases/latest):
 
@@ -133,29 +138,10 @@ Download the installer for your platform from [GitHub Releases](https://github.c
 
 For release automation details, quality gates, and the local repair path, see [`docs/release-process.md`](docs/release-process.md).
 
-### Legacy Package Manager Channels
+### Package Manager Status
 
-These channels are not part of the primary GitHub Releases gate. They keep historical identifiers and are updated manually when maintained.
-
-**macOS (Homebrew)**
-
-```bash
-brew tap j3n5en/ensoai
-brew install --cask ensoai
-```
-
-**Windows (Scoop)**
-
-```powershell
-scoop bucket add ensoai https://github.com/J3n5en/scoop-ensoai
-scoop install ensoai
-```
-
-**Windows (Winget)**
-
-```powershell
-winget install J3n5en.EnsoAI
-```
+Homebrew, Scoop, and Winget are not documented as supported installation paths for the current Infilux releases.
+Do not rely on legacy `ensoai` or `J3n5en.EnsoAI` package-manager identifiers unless a maintainer explicitly announces that a channel has been revalidated for a specific release.
 
 ### Build from Source
 
@@ -192,8 +178,31 @@ Built-in support:
 - **Cursor** - Cursor's AI agent (`cursor-agent`)
 - **Droid** - Factory CLI for AI-powered CI/CD
 - **Auggie** - Augment Code's AI assistant
+- **OpenCode** - OpenCode AI coding agent
 
 You can also add custom agents by specifying the CLI command.
+
+---
+
+### Skill And MCP Policy Controls
+
+Infilux can discover and control the skills, commands, subagents, and MCP servers that are projected into supported agent sessions.
+
+- Browse discovered Claude capabilities, shared MCP servers, and personal MCP servers from a dedicated settings surface
+- Set a global baseline, repository policy, and worktree-specific override for Skill and MCP access
+- Open per-session launch options for supported agents before creating a new session
+- See stale-policy notices when running sessions need to be restarted to pick up changed Skill or MCP settings
+
+---
+
+### Agent Session Canvas And Subagents
+
+The agent panel supports both focused session work and multi-session monitoring.
+
+- Keep multiple sessions for the same worktree available in tabs or a tiled canvas view
+- Inspect session-scoped Codex subagents without leaving the active agent panel
+- Route notification-driven sessions back into the chat canvas instead of losing the current workspace context
+- Keep session-backed chat panels mounted so returning to an idle worktree is fast and predictable
 
 ---
 
@@ -250,6 +259,8 @@ Use Infilux for orchestration, then jump into VS Code, Cursor, Ghostty, or other
 
 - Command palette access for panel control and workspace actions
 - Multi-window support for parallel repository work
+- Startup diagnostics for agent sessions and clearer failure states when runtime resources are exhausted
+- Deferred file panels show a recoverable error state instead of leaving the workspace blank when loading fails
 - Theme sync with terminal themes
 - Keyboard shortcuts for tab switching and workspace navigation
 - Settings persistence for recovery and repeatability

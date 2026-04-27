@@ -8,7 +8,7 @@ GitHub Releases is the primary publishing path for Infilux.
 - The main workflow runs repository quality gates before packaging (`pnpm typecheck`, `pnpm lint`, `pnpm test`)
 - GitHub Actions builds platform artifacts and uploads them to the draft GitHub release created by `electron-builder`
 - The workflow merges `latest-mac.yml`, verifies remote runtime assets, generates release notes from the uploaded asset list, and publishes the release
-- Legacy package-manager sync is intentionally decoupled from the GitHub Releases main pipeline and is maintained manually
+- Package-manager publication is not part of the GitHub Releases gate and is not advertised as a supported installation path unless it has been explicitly revalidated for the target release
 
 ## Automated GitHub Releases Flow
 
@@ -69,10 +69,11 @@ npx electron-builder --linux --publish never
 
 Upload the required artifacts with `gh release upload` after the local build completes.
 
-## Legacy Package Manager Maintenance
+## Package Manager Notes
 
-The workflow `.github/workflows/update-package-managers.yml` is a manual maintenance workflow for legacy external channels that still depend on historical `EnsoAI` identifiers and repositories.
+The workflow `.github/workflows/update-package-managers.yml` is a historical manual maintenance helper for external channels that still depend on legacy `EnsoAI` identifiers and repositories.
 
 - It is not triggered by `.github/workflows/build.yml`
 - It is not part of the primary GitHub Releases success criteria
-- Run it manually only after the GitHub release is live and only if you intentionally maintain those external channels
+- Do not include package-manager channels in public installation docs unless the channel has been revalidated against the current GitHub release artifacts
+- Run it manually only after the GitHub release is live and only if you intentionally maintain and verify those external channels
