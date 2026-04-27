@@ -5,7 +5,7 @@
 GitHub Releases is the primary publishing path for Infilux.
 
 - `push` a tag matching `v*` to trigger the main release workflow
-- The main workflow runs repository quality gates before packaging (`pnpm typecheck`, `pnpm lint`, `pnpm test`)
+- The main workflow runs repository quality gates before packaging (`pnpm typecheck`, `pnpm lint`, `pnpm test:coverage`)
 - GitHub Actions builds platform artifacts and uploads them to the draft GitHub release created by `electron-builder`
 - The workflow merges `latest-mac.yml`, verifies remote runtime assets, generates release notes from the uploaded asset list, and publishes the release
 - Package-manager publication is not part of the GitHub Releases gate and is not advertised as a supported installation path unless it has been explicitly revalidated for the target release

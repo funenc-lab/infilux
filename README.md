@@ -200,6 +200,7 @@ Infilux can discover and control the skills, commands, subagents, and MCP server
 The agent panel supports both focused session work and multi-session monitoring.
 
 - Keep multiple sessions for the same worktree available in tabs or a tiled canvas view
+- Switch the display mode in General Settings to show worktree agent sessions on an infinite canvas instead of tabs
 - Inspect session-scoped Codex subagents without leaving the active agent panel
 - Route notification-driven sessions back into the chat canvas instead of losing the current workspace context
 - Keep session-backed chat panels mounted so returning to an idle worktree is fast and predictable
@@ -329,7 +330,7 @@ Infilux focuses on **Git Worktree + AI Agent** collaboration. It's not meant to 
 <details>
 <summary><strong>Which AI Agents are supported?</strong></summary>
 
-Built-in support for Claude, Codex, Gemini, Cursor Agent, Droid, and Auggie. You can also add any CLI-based agent in settings by specifying the launch command.
+Built-in support for Claude, Codex, Gemini, Cursor Agent, Droid, Auggie, and OpenCode. You can also add any CLI-based agent in settings by specifying the launch command.
 
 </details>
 

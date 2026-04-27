@@ -195,6 +195,7 @@ Infilux 可以发现并控制投影到受支持 Agent 会话中的 skill、comma
 Agent 面板同时支持聚焦单会话工作和多会话监控。
 
 - 同一个 worktree 下的多个会话可以用标签或平铺画布方式查看
+- 可在 General Settings 中切换为 infinite canvas mode，用画布替代标签展示 worktree Agent 会话
 - 在不离开当前 Agent 面板的情况下查看会话级 Codex subagent
 - 由通知定位的会话会回到 chat canvas，而不是打断当前 workspace 语境
 - session-backed chat panel 会保持挂载，回到空闲 worktree 时恢复更稳定
@@ -324,7 +325,7 @@ Infilux 专注于 **Git Worktree + AI Agent** 的协作场景。它不是要替�
 <details>
 <summary><strong>支持哪些 AI Agent？</strong></summary>
 
-内置支持 Claude、Codex、Gemini、Cursor Agent、Droid、Auggie。你也可以在设置中添加任意支持 CLI 的 Agent，只需指定启动命令即可。
+内置支持 Claude、Codex、Gemini、Cursor Agent、Droid、Auggie、OpenCode。你也可以在设置中添加任意支持 CLI 的 Agent，只需指定启动命令即可。
 
 </details>
 
