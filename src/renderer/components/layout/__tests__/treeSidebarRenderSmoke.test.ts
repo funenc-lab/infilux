@@ -21,6 +21,7 @@ vi.mock('lucide-react', () => {
     RefreshCw: icon,
     Search: icon,
     Settings2: icon,
+    Sparkles: icon,
     X: icon,
   };
 });
