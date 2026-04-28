@@ -345,6 +345,50 @@ describe('SessionSubagentInspector', () => {
     expect(markup).toContain('Claude does not expose subagent tracking in Infilux yet.');
   });
 
+  it('uses fallback live subagents while the provider session id is still resolving', () => {
+    const fallbackSubagent = createSubagent({
+      rootThreadId: 'codex-root-thread-1',
+      summary: 'Inspect the failing tests',
+    });
+    transcriptState.data = {
+      threadId: 'child-thread-1',
+      entries: [
+        {
+          id: 'entry-1',
+          text: 'Fallback transcript body',
+          kind: 'message',
+          role: 'assistant',
+          timestamp: Date.parse('2026-04-21T10:00:00.000Z'),
+        },
+      ],
+    };
+
+    const markup = renderToStaticMarkup(
+      React.createElement(SessionSubagentInspector, {
+        sessionName: 'Codex Main',
+        agentLabel: 'Codex',
+        sessionCwd: '/repo/worktree',
+        providerSessionId: 'ui-session-1',
+        viewState: {
+          kind: 'pending',
+          provider: 'codex',
+          reason: 'provider-session-pending',
+        },
+        subagents: [fallbackSubagent],
+        selectedThreadId: 'child-thread-1',
+        onSelectThread: () => undefined,
+        onClose: () => undefined,
+      })
+    );
+
+    expect(markup).toContain('role="tablist"');
+    expect(markup).toContain('Worker 1');
+    expect(markup).toContain('Inspect the failing tests');
+    expect(markup).toContain('data-agent-terminal-mode="transcript"');
+    expect(markup).toContain('Fallback transcript body');
+    expect(markup).not.toContain('Subagent session is still resolving');
+  });
+
   it('keeps transcript content mounted while a cached tab refresh is in flight', () => {
     sessionSubagentState.items = [createSubagent()];
     transcriptState.data = {

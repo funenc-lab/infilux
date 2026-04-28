@@ -15,6 +15,8 @@ describe('AgentPanel live subagent polling contract', () => {
     );
     expect(agentPanelSource).toContain('useSessionSubagentsBySession({');
     expect(agentPanelSource).toContain('sessionScopedSubagentsBySessionId[session.id] ?? []');
+    expect(agentPanelSource).toContain('getDisplayableSessionSubagents({');
+    expect(agentPanelSource).toContain('allowUnresolvedProviderFallback:');
   });
 
   it('hydrates inspector content with dedicated session-scoped polling', () => {

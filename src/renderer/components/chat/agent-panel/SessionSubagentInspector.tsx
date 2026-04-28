@@ -267,16 +267,16 @@ export function SessionSubagentInspector({
   const isCompactLayout = layoutMode === 'compact';
   const isStackedLayout = layoutMode === 'stacked';
   const resolvedSubagents = useMemo(() => {
-    if (viewState.kind !== 'supported') {
+    if (viewState.kind === 'unsupported') {
       return [];
     }
 
-    if (sessionSubagents.length > 0 || !isLoadingSessionSubagents) {
+    if (sessionSubagents.length > 0) {
       return sessionSubagents;
     }
 
     return subagents;
-  }, [isLoadingSessionSubagents, sessionSubagents, subagents, viewState.kind]);
+  }, [sessionSubagents, subagents, viewState.kind]);
   const selectedSubagent = useMemo(
     () =>
       resolvedSubagents.find((subagent) => subagent.threadId === selectedThreadId) ??
@@ -284,9 +284,7 @@ export function SessionSubagentInspector({
       null,
     [resolvedSubagents, selectedThreadId]
   );
-  const { data, isLoading, isRefreshing, error } = useSubagentTranscript(
-    viewState.kind === 'supported' ? selectedSubagent : null
-  );
+  const { data, isLoading, isRefreshing, error } = useSubagentTranscript(selectedSubagent);
   const transcriptIdentity = data?.threadId ?? selectedSubagent?.threadId ?? null;
   const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE_ENTRY_COUNT);
 
@@ -388,7 +386,7 @@ export function SessionSubagentInspector({
     ]
   );
   const EmptyStateIcon = viewState.kind === 'pending' ? TerminalSquare : Bot;
-  const hasSupportedSubagents = viewState.kind === 'supported' && resolvedSubagents.length > 0;
+  const hasInspectableSubagents = resolvedSubagents.length > 0;
   const resolvedSurfaceColor = surfaceColor && surfaceColor !== 'transparent' ? surfaceColor : null;
   const prefersDarkEditorSurface = resolvedSurfaceColor
     ? isDarkSurfaceColor(resolvedSurfaceColor)
@@ -555,7 +553,7 @@ export function SessionSubagentInspector({
                     <span className={terminalCountClassName}>terminal-view</span>
                   </div>
                 )}
-                {viewState.kind !== 'supported' ? (
+                {viewState.kind !== 'supported' && !hasInspectableSubagents ? (
                   <div className={cn('mt-1 font-mono text-[11px]', mutedTextClassName)}>
                     {copy.title}
                   </div>
@@ -577,10 +575,10 @@ export function SessionSubagentInspector({
           <div
             className={cn(
               'p-3 sm:p-4',
-              hasSupportedSubagents ? 'min-h-0 flex-1 overflow-hidden' : 'overflow-visible'
+              hasInspectableSubagents ? 'min-h-0 flex-1 overflow-hidden' : 'overflow-visible'
             )}
           >
-            {hasSupportedSubagents ? (
+            {hasInspectableSubagents ? (
               <div className={cn('grid h-full min-h-0', contentGridClassName)}>
                 <div
                   className={cn(

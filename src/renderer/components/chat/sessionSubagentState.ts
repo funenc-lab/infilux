@@ -32,6 +32,15 @@ interface ResolveSessionSubagentViewStateOptions {
   isRemoteExecution?: boolean;
 }
 
+interface GetDisplayableSessionSubagentsOptions {
+  agentId?: string;
+  agentCommand?: string;
+  uiSessionId?: string;
+  providerSessionId?: string;
+  subagents: LiveAgentSubagent[];
+  allowUnresolvedProviderFallback?: boolean;
+}
+
 function normalizeAgentBaseId(agentIdOrCommand?: string): string {
   return (agentIdOrCommand ?? '')
     .replace(/-(hapi|happy)$/, '')
@@ -133,6 +142,34 @@ export function getMatchedSessionSubagents(
   return subagents.filter(
     (subagent) => subagent.provider === provider && subagent.rootThreadId === providerSessionId
   );
+}
+
+export function getDisplayableSessionSubagents({
+  agentId,
+  agentCommand,
+  uiSessionId,
+  providerSessionId,
+  subagents,
+  allowUnresolvedProviderFallback = false,
+}: GetDisplayableSessionSubagentsOptions): LiveAgentSubagent[] {
+  const matchedSubagents = getMatchedSessionSubagents(
+    agentId,
+    agentCommand,
+    providerSessionId,
+    subagents
+  );
+  if (matchedSubagents.length > 0) {
+    return matchedSubagents;
+  }
+
+  const provider = resolveSessionSubagentProvider(agentId, agentCommand);
+  const providerSessionIsUnresolved =
+    Boolean(uiSessionId) && Boolean(providerSessionId) && providerSessionId === uiSessionId;
+  if (!provider || !allowUnresolvedProviderFallback || !providerSessionIsUnresolved) {
+    return matchedSubagents;
+  }
+
+  return subagents.filter((subagent) => subagent.provider === provider);
 }
 
 export function supportsSessionSubagentTracking(agentId?: string, agentCommand?: string): boolean {

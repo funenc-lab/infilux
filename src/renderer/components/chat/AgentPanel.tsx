@@ -139,7 +139,7 @@ import {
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
 import { shouldShowSessionPersistenceNotice } from './sessionPersistenceNoticePolicy';
 import {
-  getMatchedSessionSubagents,
+  getDisplayableSessionSubagents,
   resolveSessionSubagentViewState,
   supportsSessionSubagentTracking,
 } from './sessionSubagentState';
@@ -1180,21 +1180,40 @@ export function AgentPanel({
       supportsSessionSubagentTracking(session.agentId, session.agentCommand)
     );
   const liveSubagentsByWorktree = useLiveSubagents(shouldPollLiveSubagents ? [cwd] : []);
+  const trackableSessionCountByWorktree = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const session of currentWorktreeSessions) {
+      if (!supportsSessionSubagentTracking(session.agentId, session.agentCommand)) {
+        continue;
+      }
+
+      const normalizedPath = normalizePath(session.cwd);
+      counts.set(normalizedPath, (counts.get(normalizedPath) ?? 0) + 1);
+    }
+
+    return counts;
+  }, [currentWorktreeSessions]);
   const displayedSessionSubagentsBySessionId = useMemo(() => {
     return Object.fromEntries(
       currentWorktreeSessions.map((session) => {
-        const sessionWorktreeSubagents =
-          liveSubagentsByWorktree.get(normalizePath(session.cwd)) ?? [];
-        const matchedSessionSubagents = getMatchedSessionSubagents(
-          session.agentId,
-          session.agentCommand,
-          session.sessionId,
-          sessionWorktreeSubagents
-        );
+        const normalizedSessionCwd = normalizePath(session.cwd);
+        const sessionWorktreeSubagents = liveSubagentsByWorktree.get(normalizedSessionCwd) ?? [];
+        const displayableSessionSubagents = getDisplayableSessionSubagents({
+          agentId: session.agentId,
+          agentCommand: session.agentCommand,
+          uiSessionId: session.id,
+          providerSessionId: session.sessionId,
+          subagents: sessionWorktreeSubagents,
+          allowUnresolvedProviderFallback:
+            (trackableSessionCountByWorktree.get(normalizedSessionCwd) ?? 0) === 1,
+        });
         const sessionScopedSubagents = sessionScopedSubagentsBySessionId[session.id] ?? [];
         const displayedSessionSubagents =
           inspectorSubagentsBySessionId[session.id] ??
-          (sessionScopedSubagents.length > 0 ? sessionScopedSubagents : matchedSessionSubagents);
+          (sessionScopedSubagents.length > 0
+            ? sessionScopedSubagents
+            : displayableSessionSubagents);
 
         return [session.id, displayedSessionSubagents];
       })
@@ -1204,6 +1223,7 @@ export function AgentPanel({
     inspectorSubagentsBySessionId,
     liveSubagentsByWorktree,
     sessionScopedSubagentsBySessionId,
+    trackableSessionCountByWorktree,
   ]);
   const sessionSubagentTriggerPresentationBySessionId = useMemo(() => {
     return Object.fromEntries(

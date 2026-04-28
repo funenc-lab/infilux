@@ -1,6 +1,7 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { describe, expect, it } from 'vitest';
 import {
+  getDisplayableSessionSubagents,
   getMatchedSessionSubagents,
   resolveSessionSubagentProvider,
   resolveSessionSubagentViewState,
@@ -88,5 +89,39 @@ describe('sessionSubagentState', () => {
         }),
       ])
     ).toEqual([expect.objectContaining({ threadId: 'child-thread-1' })]);
+  });
+
+  it('falls back to worktree live subagents while the sole codex session provider id is unresolved', () => {
+    expect(
+      getDisplayableSessionSubagents({
+        agentId: 'codex',
+        agentCommand: 'codex',
+        uiSessionId: 'ui-session-1',
+        providerSessionId: 'ui-session-1',
+        allowUnresolvedProviderFallback: true,
+        subagents: [
+          createSubagent({
+            rootThreadId: 'codex-root-thread-1',
+          }),
+        ],
+      })
+    ).toEqual([expect.objectContaining({ rootThreadId: 'codex-root-thread-1' })]);
+  });
+
+  it('does not fall back to live subagents when unresolved provider ownership is ambiguous', () => {
+    expect(
+      getDisplayableSessionSubagents({
+        agentId: 'codex',
+        agentCommand: 'codex',
+        uiSessionId: 'ui-session-1',
+        providerSessionId: 'ui-session-1',
+        allowUnresolvedProviderFallback: false,
+        subagents: [
+          createSubagent({
+            rootThreadId: 'codex-root-thread-1',
+          }),
+        ],
+      })
+    ).toEqual([]);
   });
 });
