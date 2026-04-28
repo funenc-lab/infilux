@@ -116,4 +116,14 @@ describe('resolveAgentCanvasWorkspaceGroupColumnSpan', () => {
     expect(resolveAgentCanvasWorkspaceGroupColumnSpan(0, 640)).toBe(12);
     expect(resolveAgentCanvasWorkspaceGroupColumnSpan(2, 640)).toBe(12);
   });
+
+  it('widens compact workspace groups on medium canvases so tiles stay readable', () => {
+    expect(resolveAgentCanvasWorkspaceGroupColumnSpan(0, 960)).toBe(6);
+    expect(resolveAgentCanvasWorkspaceGroupColumnSpan(1, 960)).toBe(6);
+  });
+
+  it('widens multi-session workspace groups on medium canvases so inner columns meet the tile width policy', () => {
+    expect(resolveAgentCanvasWorkspaceGroupColumnSpan(2, 960)).toBe(12);
+    expect(resolveAgentCanvasWorkspaceGroupColumnSpan(4, 960)).toBe(12);
+  });
 });

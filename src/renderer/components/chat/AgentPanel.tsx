@@ -49,6 +49,7 @@ import { useShallow } from 'zustand/shallow';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
+import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { toastManager } from '@/components/ui/toast';
 import { areLiveSubagentListsEqual, useLiveSubagents } from '@/hooks/useLiveSubagents';
@@ -65,7 +66,7 @@ import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { buildAgentSessionInventory } from '@/stores/agentSessionInventory';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
-import { useAgentStatusStore } from '@/stores/agentStatus';
+import { resolveAgentStatusForSession, useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
@@ -1067,10 +1068,6 @@ export function AgentPanel({
     () => subagentScopeSessions.map((session) => session.id),
     [subagentScopeSessions]
   );
-  const currentWorktreeSessionIds = useMemo(
-    () => currentWorktreeSessions.map((session) => session.id),
-    [currentWorktreeSessions]
-  );
   const sessionSubagentViewStateBySessionId = useMemo(() => {
     return Object.fromEntries(
       subagentScopeSessions.map((session) => [
@@ -1376,24 +1373,41 @@ export function AgentPanel({
   const sessionActivityStateById = useMemo(
     () =>
       buildSessionActivityStateBySessionId({
-        sessions: currentWorktreeSessions,
+        sessions: subagentScopeSessions,
         runtimeStates: sessionRuntimeStates,
         subagentsByWorktree: liveSubagentsByWorktree,
       }),
-    [currentWorktreeSessions, liveSubagentsByWorktree, sessionRuntimeStates]
+    [liveSubagentsByWorktree, sessionRuntimeStates, subagentScopeSessions]
+  );
+  const currentWorktreeSessionActivityStateById = useMemo(
+    () =>
+      isWorkspaceCanvasDisplayMode
+        ? buildSessionActivityStateBySessionId({
+            sessions: currentWorktreeSessions,
+            runtimeStates: sessionRuntimeStates,
+            subagentsByWorktree: liveSubagentsByWorktree,
+          })
+        : sessionActivityStateById,
+    [
+      currentWorktreeSessions,
+      isWorkspaceCanvasDisplayMode,
+      liveSubagentsByWorktree,
+      sessionActivityStateById,
+      sessionRuntimeStates,
+    ]
   );
   const derivedWorktreeActivityState = useMemo(
-    () => getHighestSessionActivityState(Object.values(sessionActivityStateById)),
-    [sessionActivityStateById]
+    () => getHighestSessionActivityState(Object.values(currentWorktreeSessionActivityStateById)),
+    [currentWorktreeSessionActivityStateById]
   );
   const currentWorktreeAgentStatuses = useAgentStatusStore(
     useShallow((state) => {
       const nextStatuses: typeof state.statuses = {};
 
-      for (const sessionId of currentWorktreeSessionIds) {
-        const status = state.statuses[sessionId];
+      for (const session of currentWorktreeSessions) {
+        const status = resolveAgentStatusForSession(state.statuses, session);
         if (status) {
-          nextStatuses[sessionId] = status;
+          nextStatuses[session.id] = status;
         }
       }
 
@@ -2049,7 +2063,10 @@ export function AgentPanel({
   const handleStartFreshSession = useCallback(
     (session: Session, groupId: string) => {
       void (async () => {
-        const status = currentWorktreeAgentStatuses[session.id];
+        const status = resolveAgentStatusForSession(
+          useAgentStatusStore.getState().statuses,
+          session
+        );
         const openFiles = getOpenFilePathsForWorktree(session.cwd);
         const contextWindow = status?.contextWindow;
         const currentUsage = contextWindow?.currentUsage;
@@ -2106,7 +2123,7 @@ export function AgentPanel({
         );
       })();
     },
-    [currentWorktreeAgentStatuses, getOpenFilePathsForWorktree, handleNewSessionWithAgent]
+    [getOpenFilePathsForWorktree, handleNewSessionWithAgent]
   );
 
   useEffect(() => {
@@ -3869,6 +3886,7 @@ export function AgentPanel({
     const sessionSubagentViewState = sessionSubagentViewStateBySessionId[session.id];
     const sessionSubagentTriggerPresentation =
       sessionSubagentTriggerPresentationBySessionId[session.id];
+    const sessionActivityState = sessionActivityStateById[session.id] ?? 'idle';
     const isSessionSubagentInspectorOpen = openSessionSubagentInspectorId === session.id;
     const isCanvasFloatingSession = isCanvasDisplayMode && session.id === canvasFloatingSessionId;
     const sessionContentHost = ensureCanvasSessionContentHost(sessionId);
@@ -3887,6 +3905,13 @@ export function AgentPanel({
         : tileWorktreeLabel;
     const renderSessionHeaderSummary = () => (
       <div className="flex min-w-0 items-center gap-2">
+        {isCanvasDisplayMode ? (
+          sessionActivityState === 'idle' ? (
+            <span className="h-1.5 w-1.5 shrink-0 rounded-[0.25rem] bg-[color:var(--control-idle)]" />
+          ) : (
+            <ActivityIndicator state={sessionActivityState} size="sm" className="relative z-10" />
+          )
+        ) : null}
         {isWorkspaceCanvasDisplayMode ? (
           <span
             className={cn(
@@ -4015,7 +4040,7 @@ export function AgentPanel({
           className={cn(
             'relative min-h-0',
             isCanvasDisplayMode
-              ? 'flex-1 overflow-hidden rounded-xl border border-border/60 bg-background/20'
+              ? 'agent-canvas-session-terminal flex-1 overflow-hidden rounded-xl'
               : 'h-full'
           )}
         >
@@ -4185,16 +4210,17 @@ export function AgentPanel({
         key={sessionId}
         id={buildSessionPanelDomId(sessionId)}
         {...(isCanvasDisplayMode ? { [AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE]: 'true' } : undefined)}
+        data-agent-session-id={isCanvasDisplayMode ? session.id : undefined}
+        data-agent-activity-state={isCanvasDisplayMode ? sessionActivityState : undefined}
         className={cn(
           isCanvasDisplayMode
-            ? 'control-panel-muted flex h-full min-h-0 overflow-hidden rounded-2xl border p-2 shadow-sm transition-colors'
+            ? 'agent-canvas-session-tile flex h-full min-h-0 overflow-hidden rounded-2xl p-2 transition-colors'
             : shouldShow
               ? 'absolute top-0 h-full'
               : 'absolute top-0 h-full opacity-0 pointer-events-none',
           shouldDimCanvasTile && 'opacity-35',
           canRenderCanvasFloatingSessionInPortal && 'opacity-0 pointer-events-none',
-          isCanvasDisplayMode &&
-            (isFocusedSession ? 'border-primary/60 ring-1 ring-primary/40' : 'border-border/70')
+          isCanvasDisplayMode && isFocusedSession && 'agent-canvas-session-tile-active'
         )}
         style={
           isCanvasDisplayMode
@@ -4233,7 +4259,7 @@ export function AgentPanel({
         {createPortal(
           <div
             {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
-            className="fixed z-30 flex flex-col overflow-hidden rounded-[20px] border border-primary/50 bg-background shadow-2xl pointer-events-auto no-drag"
+            className="agent-canvas-floating-frame fixed z-30 flex flex-col overflow-hidden rounded-[20px] border pointer-events-auto no-drag"
             style={
               canvasFloatingFrame
                 ? {
@@ -4328,14 +4354,14 @@ export function AgentPanel({
             data-agent-canvas-worktree-group={group.groupKey}
             data-agent-canvas-repo-path={normalizePath(group.repoPath)}
             data-agent-canvas-worktree-path={normalizePath(group.worktreePath)}
-            className="flex min-w-0 flex-none scroll-mt-3 flex-col gap-2"
+            className="agent-canvas-worktree-group flex min-w-0 flex-none scroll-mt-3 flex-col gap-2"
             style={{ gridColumn: `span ${groupColumnSpan} / span ${groupColumnSpan}` }}
           >
             <div
               {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
               className={cn(
-                'control-panel-muted flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2',
-                group.isCurrentWorktree && 'border-primary/40'
+                'agent-canvas-worktree-header flex min-w-0 items-center justify-between gap-3 rounded-xl px-3 py-2',
+                group.isCurrentWorktree && 'agent-canvas-worktree-header-current'
               )}
               title={`${group.repoPath}\n${group.worktreePath}`}
             >
@@ -4383,7 +4409,7 @@ export function AgentPanel({
               ) : (
                 <div
                   {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
-                  className="control-panel-muted col-span-full flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 text-sm text-muted-foreground"
+                  className="agent-canvas-empty-group col-span-full flex flex-col items-center justify-center gap-3 rounded-xl text-sm text-muted-foreground"
                   style={{ minHeight: AGENT_CANVAS_WORKSPACE_EMPTY_GROUP_HEIGHT }}
                 >
                   <span>{t('No agent sessions')}</span>
@@ -4618,7 +4644,7 @@ export function AgentPanel({
         className={cn(
           'absolute left-2 right-2 z-0',
           isCanvasDisplayMode
-            ? 'top-14 bottom-2 overflow-auto overscroll-contain touch-none'
+            ? 'agent-canvas-viewport top-14 bottom-2 overflow-auto overscroll-contain touch-none'
             : 'top-2',
           isCanvasDisplayMode &&
             (isCanvasLocked
@@ -4662,7 +4688,7 @@ export function AgentPanel({
             >
               <div
                 className={cn(
-                  'gap-3 transition-transform duration-150 ease-out motion-reduce:transition-none',
+                  'agent-canvas-board gap-3 transition-transform duration-150 ease-out motion-reduce:transition-none',
                   isWorkspaceCanvasDisplayMode ? 'min-h-full w-full' : 'h-full w-full',
                   isWorkspaceCanvasDisplayMode ? 'grid auto-rows-max' : 'grid'
                 )}

@@ -512,6 +512,85 @@
     background: color-mix(in oklch, var(--control-surface-muted) 82%, var(--background) 18%);
   }
 
+  .agent-canvas-viewport {
+    border-radius: 1rem;
+    background:
+      linear-gradient(
+          to right,
+          color-mix(in oklch, var(--control-border-soft) 10%, transparent) 1px,
+          transparent 1px
+        )
+        center / 5rem 5rem,
+      linear-gradient(
+          to bottom,
+          color-mix(in oklch, var(--control-border-soft) 8%, transparent) 1px,
+          transparent 1px
+        )
+        center / 5rem 5rem,
+      color-mix(in oklch, var(--background) 96%, var(--control-surface-muted) 4%);
+  }
+
+  .agent-canvas-board {
+    padding: 0.125rem;
+  }
+
+  .agent-canvas-worktree-group {
+    border: 1px solid color-mix(in oklch, var(--control-border-soft) 54%, transparent);
+    border-radius: 1.25rem;
+    background: color-mix(in oklch, var(--control-surface-muted) 42%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent);
+    padding: 0.5rem;
+  }
+
+  .agent-canvas-worktree-header {
+    min-height: 2.75rem;
+    background: color-mix(in oklch, var(--control-surface) 54%, transparent);
+    box-shadow: inset 0 -1px 0
+      color-mix(in oklch, var(--control-border-soft) 36%, transparent);
+  }
+
+  .agent-canvas-worktree-header-current {
+    background: color-mix(in oklch, var(--primary) 8%, var(--control-surface) 92%);
+    box-shadow:
+      inset 0 -1px 0 color-mix(in oklch, var(--primary) 24%, transparent),
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 6%, transparent);
+  }
+
+  .agent-canvas-session-tile {
+    border: 1px solid transparent;
+    background: color-mix(in oklch, var(--control-surface-muted) 82%, var(--background) 18%);
+    box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 5%, transparent);
+  }
+
+  .agent-canvas-session-tile:hover {
+    border-color: color-mix(in oklch, var(--primary) 20%, var(--control-border-soft) 80%);
+    background: color-mix(in oklch, var(--control-surface-muted) 90%, var(--background) 10%);
+  }
+
+  .agent-canvas-session-tile-active {
+    border-color: color-mix(in oklch, var(--primary) 60%, var(--control-border-soft) 40%);
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent),
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 7%, transparent);
+  }
+
+  .agent-canvas-session-terminal {
+    background: color-mix(in oklch, var(--background) 88%, var(--control-surface) 12%);
+  }
+
+  .agent-canvas-empty-group {
+    background: color-mix(in oklch, var(--control-surface-muted) 44%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent);
+  }
+
+  .agent-canvas-floating-frame {
+    border-color: color-mix(in oklch, var(--primary) 54%, var(--control-border-soft) 46%);
+    background: color-mix(in oklch, var(--background) 96%, var(--control-surface) 4%);
+    box-shadow:
+      0 1rem 3rem color-mix(in oklch, var(--background) 68%, transparent),
+      0 0 0 1px color-mix(in oklch, var(--primary) 18%, transparent);
+  }
+
   .control-input {
     border: 1px solid var(--control-border-soft);
     background: color-mix(in oklch, var(--background) 92%, var(--muted) 8%);

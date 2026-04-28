@@ -46,6 +46,22 @@ interface AgentStatusStore {
   getStatus: (sessionId: string) => StatusData | undefined;
 }
 
+interface AgentStatusSessionRef {
+  id: string;
+  sessionId?: string | null;
+}
+
+export function resolveAgentStatusForSession(
+  statuses: Record<string, StatusData>,
+  session: AgentStatusSessionRef | null | undefined
+): StatusData | undefined {
+  if (!session) {
+    return undefined;
+  }
+
+  return statuses[session.id] ?? (session.sessionId ? statuses[session.sessionId] : undefined);
+}
+
 export const useAgentStatusStore = create<AgentStatusStore>((set, get) => ({
   statuses: {},
 

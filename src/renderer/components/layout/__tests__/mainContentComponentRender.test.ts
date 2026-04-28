@@ -655,6 +655,36 @@ describe('MainContent component render', () => {
     await mounted.unmount();
   });
 
+  it('keeps the global canvas agent panel mounted across repository worktree switches', async () => {
+    settingsState.agentSessionDisplayMode = 'global-canvas';
+
+    const mounted = await mountMainContent('chat', {
+      repoPath: '/repo/alpha',
+      worktreePath: '/repo/alpha/worktrees/current',
+      sourceControlRootPath: '/repo/alpha/worktrees/current',
+      reviewRootPath: '/repo/alpha/worktrees/current',
+      openInPath: '/repo/alpha/worktrees/current',
+    });
+    const firstPanel = mounted.container.querySelector('[data-panel="agent"]');
+    const firstMountId = firstPanel?.getAttribute('data-mount-id');
+
+    await mounted.render('chat', {
+      repoPath: '/repo/beta',
+      worktreePath: '/repo/beta/worktrees/current',
+      sourceControlRootPath: '/repo/beta/worktrees/current',
+      reviewRootPath: '/repo/beta/worktrees/current',
+      openInPath: '/repo/beta/worktrees/current',
+    });
+
+    const nextPanel = mounted.container.querySelector('[data-panel="agent"]');
+
+    expect(firstMountId).toBeTruthy();
+    expect(nextPanel?.getAttribute('data-mount-id')).toBe(firstMountId);
+    expect(nextPanel?.getAttribute('data-cwd')).toBe('/repo/beta/worktrees/current');
+
+    await mounted.unmount();
+  });
+
   it('keeps cached chat panels loaded for inactive worktrees so session views survive worktree switches', async () => {
     const markup = await renderMainContentPanels({
       cachedChatPanelPaths: ['/repo/main/worktrees/older'],

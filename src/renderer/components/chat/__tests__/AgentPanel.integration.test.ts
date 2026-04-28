@@ -993,6 +993,90 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('marks workspace canvas session tiles with their own activity state without polluting current worktree activity', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const firstSession = createSession({
+      id: 'session-worktree-a',
+      sessionId: 'provider-worktree-a',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-a',
+      name: 'Gemini A',
+    });
+    const secondSession = createSession({
+      id: 'session-worktree-b',
+      sessionId: 'provider-worktree-b',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-b',
+      name: 'Gemini B',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [firstSession, secondSession],
+      activeIds: {
+        '/repo/worktree-a': firstSession.id,
+        '/repo/worktree-b': secondSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-worktree-a',
+              sessionIds: [firstSession.id],
+              activeSessionId: firstSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-a',
+          flexPercents: [100],
+        },
+        '/repo/worktree-b': {
+          groups: [
+            {
+              id: 'group-worktree-b',
+              sessionIds: [secondSession.id],
+              activeSessionId: secondSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-b',
+          flexPercents: [100],
+        },
+      },
+      runtimeStates: {
+        [secondSession.id]: {
+          outputState: 'idle',
+          lastActivityAt: 1,
+          wasActiveWhenOutputting: false,
+          waitingForInput: false,
+          hasCompletedTaskUnread: true,
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+      ],
+    });
+
+    const currentTile = mounted.container.querySelector(
+      '[data-agent-session-id="session-worktree-a"]'
+    );
+    const otherTile = mounted.container.querySelector(
+      '[data-agent-session-id="session-worktree-b"]'
+    );
+
+    expect(currentTile?.getAttribute('data-agent-activity-state')).toBe('idle');
+    expect(otherTile?.getAttribute('data-agent-activity-state')).toBe('completed');
+    expect(testState.worktreeActivity.setDerivedActivityState).toHaveBeenLastCalledWith(
+      '/repo/worktree-a',
+      'idle'
+    );
+
+    await mounted.unmount();
+  });
+
   it('activates a workspace canvas session launched from a worktree group', async () => {
     testState.settings.agentSessionDisplayMode = 'global-canvas';
 

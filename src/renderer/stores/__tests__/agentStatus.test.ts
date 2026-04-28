@@ -233,4 +233,25 @@ describe('agent status store', () => {
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  it('resolves provider-session status for UI sessions', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_710_000_000_789);
+
+    const { resolveAgentStatusForSession, useAgentStatusStore } = await import('../agentStatus');
+    const store = useAgentStatusStore.getState();
+
+    store.updateStatus('provider-1', {
+      version: '1.2.3',
+    });
+
+    expect(
+      resolveAgentStatusForSession(useAgentStatusStore.getState().statuses, {
+        id: 'session-1',
+        sessionId: 'provider-1',
+      })
+    ).toEqual({
+      version: '1.2.3',
+      updatedAt: 1_710_000_000_789,
+    });
+  });
 });

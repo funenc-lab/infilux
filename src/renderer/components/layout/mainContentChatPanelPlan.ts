@@ -21,7 +21,7 @@ export function resolveMainContentChatPanelEntryKey(
   agentSessionDisplayMode: AgentSessionDisplayMode
 ): string {
   if (agentSessionDisplayMode === 'global-canvas' && entry.isCurrent) {
-    return `chat:workspace:${normalizePath(entry.repoPath)}`;
+    return 'chat:workspace:all';
   }
 
   return `chat:${entry.worktreePath}`;

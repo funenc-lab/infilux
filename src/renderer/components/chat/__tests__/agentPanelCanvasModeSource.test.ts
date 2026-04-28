@@ -110,16 +110,16 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain("t('New Session in {{name}}'");
     expect(agentPanelSource).toContain('handleNewSession(groupLaunchTarget)');
     expect(agentPanelSource).toContain(
-      `            <div
-              {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
-              className={cn(
-                'control-panel-muted flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2'`
+      "'agent-canvas-worktree-header flex min-w-0 items-center justify-between gap-3 rounded-xl px-3 py-2'"
+    );
+    expect(agentPanelSource).toContain(
+      "group.isCurrentWorktree && 'agent-canvas-worktree-header-current'"
     );
     expect(agentPanelSource).toContain(
       'const groupColumnSpan = resolveAgentCanvasWorkspaceGroupColumnSpan'
     );
     expect(agentPanelSource).toContain(
-      'className="flex min-w-0 flex-none scroll-mt-3 flex-col gap-2"'
+      'className="agent-canvas-worktree-group flex min-w-0 flex-none scroll-mt-3 flex-col gap-2"'
     );
     expect(agentPanelSource).toContain(
       `style={{ gridColumn: \`span \${groupColumnSpan} / span \${groupColumnSpan}\` }}`
@@ -133,7 +133,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain(
       `                <div
                   {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
-                  className="control-panel-muted col-span-full flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 text-sm text-muted-foreground"`
+                  className="agent-canvas-empty-group col-span-full flex flex-col items-center justify-center gap-3 rounded-xl text-sm text-muted-foreground"`
     );
     expect(agentPanelSource).toContain("t('No agent sessions')");
     expect(agentPanelSource).toContain(
@@ -156,6 +156,12 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain(
       "isWorkspaceCanvasDisplayMode ? 'grid auto-rows-max' : 'grid'"
     );
+    expect(agentPanelSource).toContain("'agent-canvas-viewport top-14 bottom-2");
+    expect(agentPanelSource).toContain("'agent-canvas-board gap-3");
+    expect(agentPanelSource).toContain("'agent-canvas-session-terminal flex-1");
+    expect(agentPanelSource).toContain("'agent-canvas-session-tile flex h-full");
+    expect(agentPanelSource).toContain("'agent-canvas-session-tile-active'");
+    expect(agentPanelSource).toContain('"agent-canvas-floating-frame fixed z-30');
     expect(agentPanelSource).toContain('handleCanvasViewportWheel');
     expect(agentPanelSource).toContain('canvasLockedByWorktree');
     expect(agentPanelSource).toContain('isCanvasLocked');

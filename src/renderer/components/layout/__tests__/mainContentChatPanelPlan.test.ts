@@ -92,20 +92,30 @@ describe('mainContentChatPanelPlan', () => {
     ]);
   });
 
-  it('uses a repository-scoped key for the current global canvas panel', () => {
-    expect(
-      resolveMainContentChatPanelEntryKey(
-        {
-          repoPath: '/repo',
-          worktreePath: '/repo/worktrees/current',
-          isCurrent: true,
-          isVisible: true,
-          isActive: true,
-          showFallback: true,
-        },
-        'global-canvas'
-      )
-    ).toBe('chat:workspace:/repo');
+  it('uses one global key for the current global canvas panel across repositories', () => {
+    const firstRepoEntry = {
+      repoPath: '/repo-a',
+      worktreePath: '/repo-a/worktrees/current',
+      isCurrent: true,
+      isVisible: true,
+      isActive: true,
+      showFallback: true,
+    };
+    const secondRepoEntry = {
+      repoPath: '/repo-b',
+      worktreePath: '/repo-b/worktrees/current',
+      isCurrent: true,
+      isVisible: true,
+      isActive: true,
+      showFallback: true,
+    };
+
+    expect(resolveMainContentChatPanelEntryKey(firstRepoEntry, 'global-canvas')).toBe(
+      'chat:workspace:all'
+    );
+    expect(resolveMainContentChatPanelEntryKey(secondRepoEntry, 'global-canvas')).toBe(
+      'chat:workspace:all'
+    );
   });
 
   it('keeps worktree-scoped keys for non-global canvas modes and cached panels', () => {
