@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const diagnosticsTestDoubles = vi.hoisted(() => {
   const execFile = vi.fn();
+  const readdirSync = vi.fn();
   const logError = vi.fn();
   const logWarn = vi.fn();
   const logInfo = vi.fn();
@@ -12,6 +13,7 @@ const diagnosticsTestDoubles = vi.hoisted(() => {
 
   function reset() {
     execFile.mockReset();
+    readdirSync.mockReset();
     logError.mockReset();
     logWarn.mockReset();
     logInfo.mockReset();
@@ -34,6 +36,7 @@ const diagnosticsTestDoubles = vi.hoisted(() => {
         );
       }
     );
+    readdirSync.mockImplementation(() => ['0', '1', '2']);
     getLogDiagnostics.mockResolvedValue({
       path: '/tmp/logs/infilux-2026-04-21.log',
       lines: ['line-1', 'line-2'],
@@ -50,6 +53,7 @@ const diagnosticsTestDoubles = vi.hoisted(() => {
 
   return {
     execFile,
+    readdirSync,
     logError,
     logWarn,
     logInfo,
@@ -63,6 +67,10 @@ const diagnosticsTestDoubles = vi.hoisted(() => {
 
 vi.mock('node:child_process', () => ({
   execFile: diagnosticsTestDoubles.execFile,
+}));
+
+vi.mock('node:fs', () => ({
+  readdirSync: diagnosticsTestDoubles.readdirSync,
 }));
 
 vi.mock('../logger', () => ({
@@ -177,7 +185,7 @@ describe('mainProcessDiagnostics', () => {
     vi.useRealTimers();
   });
 
-  it('records lsof failures without aborting the snapshot', async () => {
+  it('falls back to in-process fd totals when lsof cannot spawn', async () => {
     diagnosticsTestDoubles.execFile.mockImplementationOnce(
       (
         _command: string,
@@ -190,15 +198,16 @@ describe('mainProcessDiagnostics', () => {
         callback(error, '', '');
       }
     );
+    diagnosticsTestDoubles.readdirSync.mockReturnValueOnce(['0', '1', '2', '3']);
 
     const diagnostics = await import('../mainProcessDiagnostics');
     diagnostics.resetMainProcessDiagnosticsForTests();
     const snapshot = await diagnostics.captureMainProcessDiagnosticsSnapshot(250);
 
     expect(snapshot.openFileDescriptors).toEqual({
-      total: null,
+      total: 4,
       byType: {},
-      command: 'lsof',
+      command: 'lsof+/dev/fd',
       timeoutMs: 250,
       error: 'spawn EBADF',
       errorCode: 'EBADF',

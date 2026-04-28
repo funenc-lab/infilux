@@ -56,6 +56,11 @@ async function loadTodoStore(options?: {
 }) {
   vi.resetModules();
 
+  const emitTodoPersistenceFailure = vi.fn();
+  vi.doMock('@/lib/todoPersistenceEvents', () => ({
+    emitTodoPersistenceFailure,
+  }));
+
   const localStorageMock = createLocalStorageMock(
     options?.storedValue
       ? {
@@ -90,6 +95,7 @@ async function loadTodoStore(options?: {
 
   return {
     ...module,
+    emitTodoPersistenceFailure,
     localStorageMock,
     todoApi,
   };
@@ -113,7 +119,9 @@ describe('todo store', () => {
 
     expect(env.todoApi.migrate).toHaveBeenCalledWith('{"repo":[]}');
     expect(env.localStorageMock.removeItem).toHaveBeenCalledWith(STORAGE_KEYS.TODO_BOARDS);
-    expect(logSpy).toHaveBeenCalledWith('[TodoStore] Migrated localStorage data to SQLite');
+    expect(logSpy).toHaveBeenCalledWith(
+      '[TodoStore] Migrated localStorage data to shared todo storage'
+    );
 
     const state = env.useTodoStore.getState();
     const firstMissingTasks = env.selectTasks(state, '/Repo/Missing');
@@ -170,7 +178,48 @@ describe('todo store', () => {
     );
   });
 
-  it('optimistically mutates tasks and reports IPC persistence failures', async () => {
+  it('persists project context when adding and updating tasks', async () => {
+    const env = await loadTodoStore({ randomId: 'task-context' });
+    const store = env.useTodoStore.getState();
+    const initialContext = {
+      repoPath: '/repo/main',
+      worktreePath: '/repo/worktree',
+      files: [{ path: 'src/renderer/App.tsx', label: 'App.tsx' }],
+      directories: [{ path: 'src/renderer/components', label: 'components' }],
+    };
+
+    const newTask = store.addTask('/Repo/Main', {
+      title: 'Use context',
+      description: 'Attach project context',
+      priority: 'medium',
+      status: 'todo',
+      context: initialContext,
+    });
+
+    expect(newTask.context).toEqual(initialContext);
+    expect(env.todoApi.addTask).toHaveBeenCalledWith(
+      '/repo/main',
+      expect.objectContaining({ context: initialContext })
+    );
+
+    const nextContext = {
+      repoPath: '/repo/main',
+      worktreePath: '/repo/other-worktree',
+      files: [{ path: 'src/main/index.ts' }],
+      directories: [{ path: 'src/main' }],
+    };
+
+    store.updateTask('/repo/main', 'task-context', {
+      context: nextContext,
+    });
+
+    expect(env.useTodoStore.getState().tasks['/repo/main'][0]?.context).toEqual(nextContext);
+    expect(env.todoApi.updateTask).toHaveBeenCalledWith('/repo/main', 'task-context', {
+      context: nextContext,
+    });
+  });
+
+  it('rolls back optimistic task mutations and reports IPC persistence failures', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
     const env = await loadTodoStore({
@@ -204,12 +253,13 @@ describe('todo store', () => {
       autoExecute: {},
     });
 
-    const store = env.useTodoStore.getState();
+    let store = env.useTodoStore.getState();
     const newTask = store.addTask('/Repo/Main', {
       title: 'New task',
       description: 'Persist later',
       priority: 'high',
       status: 'todo',
+      agentId: 'gemini',
     });
 
     expect(newTask).toMatchObject({
@@ -218,33 +268,41 @@ describe('todo store', () => {
       description: 'Persist later',
       priority: 'high',
       status: 'todo',
+      agentId: 'gemini',
       order: 2,
       createdAt: 1000,
       updatedAt: 1000,
     });
     expect(env.todoApi.addTask).toHaveBeenCalledWith('/repo/main', newTask);
-    expect(env.useTodoStore.getState().tasks['/repo/main']).toContainEqual(newTask);
+    await flushPromises();
+    expect(env.useTodoStore.getState().tasks['/repo/main']).not.toContainEqual(newTask);
 
     dateNowSpy.mockReturnValue(2000);
+    store = env.useTodoStore.getState();
     store.updateTask('/repo/main', 'todo-0', {
       title: 'Updated title',
       sessionId: 'session-1',
     });
+    await flushPromises();
 
     dateNowSpy.mockReturnValue(3000);
+    store = env.useTodoStore.getState();
     store.moveTask('/repo/main', 'doing-0', 'done', 4);
+    await flushPromises();
 
     dateNowSpy.mockReturnValue(4000);
-    store.reorderTasks('/repo/main', 'todo', ['task-new', 'todo-1', 'todo-0']);
+    store = env.useTodoStore.getState();
+    store.reorderTasks('/repo/main', 'todo', ['todo-1', 'todo-0']);
+    await flushPromises();
 
+    store = env.useTodoStore.getState();
     store.deleteTask('/repo/main', 'todo-1');
+    await flushPromises();
 
     store.updateTask('/repo/missing', 'task-x', { title: 'noop' });
     store.deleteTask('/repo/missing', 'task-x');
     store.moveTask('/repo/missing', 'task-x', 'done', 0);
     store.reorderTasks('/repo/missing', 'todo', ['task-x']);
-
-    await flushPromises();
 
     expect(env.todoApi.updateTask).toHaveBeenCalledWith('/repo/main', 'todo-0', {
       title: 'Updated title',
@@ -252,7 +310,6 @@ describe('todo store', () => {
     });
     expect(env.todoApi.moveTask).toHaveBeenCalledWith('/repo/main', 'doing-0', 'done', 4);
     expect(env.todoApi.reorderTasks).toHaveBeenCalledWith('/repo/main', 'todo', [
-      'task-new',
       'todo-1',
       'todo-0',
     ]);
@@ -260,21 +317,19 @@ describe('todo store', () => {
 
     const repoTasks = env.useTodoStore.getState().tasks['/repo/main'];
     expect(repoTasks.find((task) => task.id === 'todo-0')).toMatchObject({
-      title: 'Updated title',
-      sessionId: 'session-1',
-      order: 2,
-      updatedAt: 4000,
+      title: 'Task todo-0',
+      order: 0,
+      updatedAt: 1,
     });
     expect(repoTasks.find((task) => task.id === 'doing-0')).toMatchObject({
-      status: 'done',
-      order: 4,
-      updatedAt: 3000,
-    });
-    expect(repoTasks.find((task) => task.id === 'task-new')).toMatchObject({
+      status: 'in-progress',
       order: 0,
-      updatedAt: 4000,
+      updatedAt: 1,
     });
-    expect(repoTasks.some((task) => task.id === 'todo-1')).toBe(false);
+    expect(repoTasks.find((task) => task.id === 'todo-1')).toMatchObject({
+      order: 1,
+      updatedAt: 1,
+    });
 
     expect(errorSpy).toHaveBeenCalledWith('[TodoStore] addTask IPC failed:', expect.any(Error));
     expect(errorSpy).toHaveBeenCalledWith('[TodoStore] updateTask IPC failed:', expect.any(Error));
@@ -284,6 +339,31 @@ describe('todo store', () => {
       expect.any(Error)
     );
     expect(errorSpy).toHaveBeenCalledWith('[TodoStore] deleteTask IPC failed:', expect.any(Error));
+    expect(env.emitTodoPersistenceFailure).toHaveBeenCalledWith({
+      errorMessage: 'add failed',
+      operation: 'add',
+      repoPath: '/repo/main',
+    });
+    expect(env.emitTodoPersistenceFailure).toHaveBeenCalledWith({
+      errorMessage: 'update failed',
+      operation: 'update',
+      repoPath: '/repo/main',
+    });
+    expect(env.emitTodoPersistenceFailure).toHaveBeenCalledWith({
+      errorMessage: 'move failed',
+      operation: 'move',
+      repoPath: '/repo/main',
+    });
+    expect(env.emitTodoPersistenceFailure).toHaveBeenCalledWith({
+      errorMessage: 'reorder failed',
+      operation: 'reorder',
+      repoPath: '/repo/main',
+    });
+    expect(env.emitTodoPersistenceFailure).toHaveBeenCalledWith({
+      errorMessage: 'delete failed',
+      operation: 'delete',
+      repoPath: '/repo/main',
+    });
   });
 
   it('manages auto-execute queues and no-op branches for missing repos', async () => {

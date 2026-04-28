@@ -2,32 +2,32 @@ import { useEffect, useRef } from 'react';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { addToast, toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
-import { consumeClaudeProviderSwitch, isClaudeProviderMatch } from '@/lib/claudeProvider';
+import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { useSettingsStore } from '@/stores/settings';
 
-export function useClaudeProviderListener(
+export function useAgentProviderProfileListener(
   setSettingsCategory: (category: SettingsCategory) => void,
   setScrollToProvider: (scroll: boolean) => void,
   openSettings: () => void,
   setPendingProviderAction: (action: 'preview' | 'save' | null) => void
 ) {
   const { t } = useI18n();
-  const claudeProviders = useSettingsStore((s) => s.claudeCodeIntegration.providers);
+  const agentProviders = useSettingsStore((s) => s.agentIntegration.providers);
   const enableProviderWatcher = useSettingsStore(
-    (s) => s.claudeCodeIntegration.enableProviderWatcher ?? true
+    (s) => s.agentIntegration.enableProviderWatcher ?? true
   );
   const providerToastRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
 
   useEffect(() => {
-    const cleanup = window.electronAPI.claudeProvider.onSettingsChanged((data) => {
+    const cleanup = agentProviderProfileAdapter.subscribeToExternalChanges(undefined, (data) => {
       // Skip if provider watcher is disabled
       if (!enableProviderWatcher) return;
 
       const { extracted } = data;
       if (!extracted?.baseUrl) return;
 
-      if (consumeClaudeProviderSwitch(extracted)) {
+      if (agentProviderProfileAdapter.consumeSwitch(extracted)) {
         return;
       }
 
@@ -37,7 +37,9 @@ export function useClaudeProviderListener(
       }
 
       // Check if the new config matches any saved provider
-      const matched = claudeProviders.find((p) => isClaudeProviderMatch(p, extracted));
+      const matched = agentProviders.find((p) =>
+        agentProviderProfileAdapter.isActiveProfile(p, extracted)
+      );
 
       if (matched) {
         // Switched to a known provider
@@ -109,7 +111,7 @@ export function useClaudeProviderListener(
       cleanup();
     };
   }, [
-    claudeProviders,
+    agentProviders,
     t,
     openSettings,
     setSettingsCategory,

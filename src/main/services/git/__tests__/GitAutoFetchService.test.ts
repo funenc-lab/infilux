@@ -271,6 +271,63 @@ describe('GitAutoFetchService', () => {
     expect(gitAutoFetchTestDoubles.watch).not.toHaveBeenCalled();
   });
 
+  it('backs off auto fetch after resource exhaustion and aborts the current batch', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const firstRepoPath = '/repo-resource-a';
+    const secondRepoPath = '/repo-resource-b';
+    const resourceError = new Error('spawn EBADF');
+
+    const send = vi.fn();
+    const window = {
+      on: vi.fn(),
+      off: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        send,
+      },
+    };
+
+    gitAutoFetchTestDoubles.fetch.mockRejectedValueOnce(resourceError);
+
+    const gitAutoFetchService = await loadGitAutoFetchService();
+
+    gitAutoFetchService.init(window as never);
+    gitAutoFetchService.registerWorktree(firstRepoPath);
+    gitAutoFetchService.registerWorktree(secondRepoPath);
+    gitAutoFetchService.setEnabled(true);
+
+    const service = gitAutoFetchService as unknown as {
+      fetchAll: () => Promise<void>;
+    };
+
+    await service.fetchAll();
+
+    expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledTimes(1);
+    expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledWith(firstRepoPath);
+    expect(gitAutoFetchTestDoubles.fetch).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Suspending git auto fetch after resource exhaustion:',
+      expect.objectContaining({
+        repositoryPath: firstRepoPath,
+        errorCode: 'EBADF',
+      })
+    );
+
+    gitAutoFetchTestDoubles.fetch.mockResolvedValue(undefined);
+    await service.fetchAll();
+
+    expect(gitAutoFetchTestDoubles.fetch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    await service.fetchAll();
+
+    expect(gitAutoFetchTestDoubles.fetch).toHaveBeenCalledTimes(3);
+    expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledWith(firstRepoPath);
+    expect(gitAutoFetchTestDoubles.GitService).toHaveBeenCalledWith(secondRepoPath);
+  });
+
   it('cancels the deferred startup fetch when cleanup runs before the timer fires', async () => {
     const window = {
       on: vi.fn(),

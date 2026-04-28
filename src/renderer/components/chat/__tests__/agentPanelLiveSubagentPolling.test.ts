@@ -8,8 +8,9 @@ describe('AgentPanel live subagent polling contract', () => {
     expect(agentPanelSource).toContain(
       'const shouldPollLiveSubagents =\n' +
         '    isActive &&\n' +
-        '    currentWorktreeSessions.some((session) =>'
+        '    subagentScopeSessions.some((session) =>'
     );
+    expect(agentPanelSource).toContain('shouldPollLiveSubagents ? subagentScopeWorktreePaths : []');
     expect(agentPanelSource).toContain(
       'supportsSessionSubagentTracking(session.agentId, session.agentCommand)'
     );

@@ -4,6 +4,7 @@ import { TEMP_REPO_ID } from '../../constants';
 
 const restoreWorktreeAgentSessions = vi.fn(() => Promise.resolve([]));
 const restoreWorktreeSessions = vi.fn(() => Promise.resolve({ items: [] }));
+const getSessions = vi.fn((): Array<{ id: string; repoPath: string; cwd: string }> => []);
 const upsertRecoveredSession = vi.fn();
 const updateGroupState = vi.fn();
 
@@ -14,11 +15,13 @@ vi.mock('@/components/chat/agentSessionRecovery', () => ({
 vi.mock('@/stores/agentSessions', () => ({
   useAgentSessionsStore: (
     selector: (state: {
+      getSessions: typeof getSessions;
       upsertRecoveredSession: typeof upsertRecoveredSession;
       updateGroupState: typeof updateGroupState;
     }) => unknown
   ) =>
     selector({
+      getSessions,
       upsertRecoveredSession,
       updateGroupState,
     }),
@@ -49,6 +52,8 @@ describe('useStartupAgentSessionRecovery', () => {
   beforeEach(() => {
     restoreWorktreeAgentSessions.mockClear();
     restoreWorktreeSessions.mockClear();
+    getSessions.mockReset();
+    getSessions.mockReturnValue([]);
     upsertRecoveredSession.mockClear();
     updateGroupState.mockClear();
 
@@ -87,6 +92,30 @@ describe('useStartupAgentSessionRecovery', () => {
       upsertRecoveredSession,
       updateGroupState,
     });
+  });
+
+  it('skips prewarm when the startup worktree already has agent sessions in memory', async () => {
+    getSessions.mockReturnValue([
+      {
+        id: 'session-1',
+        repoPath: '/repo',
+        cwd: '/repo/.worktrees/feature-a',
+      },
+    ]);
+    const { useStartupAgentSessionRecovery } = await loadHook();
+    const activeWorktree = makeWorktree('/repo/.worktrees/feature-a');
+
+    useStartupAgentSessionRecovery({
+      selectedRepo: '/repo',
+      activeWorktree,
+      selectedRepoCanLoad: true,
+      worktreesFetched: true,
+      worktreesFetching: false,
+      availableWorktreePaths: ['/repo', '/repo/.worktrees/feature-a'],
+    });
+
+    expect(getSessions).toHaveBeenCalledWith('/repo', '/repo/.worktrees/feature-a');
+    expect(restoreWorktreeAgentSessions).not.toHaveBeenCalled();
   });
 
   it('skips prewarm when the active worktree path has not been validated by the loaded worktree list', async () => {

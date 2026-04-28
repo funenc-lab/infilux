@@ -1,21 +1,8 @@
-import type { AIProvider, ModelId, ReasoningEffort } from '@shared/types';
+import type { TodoPolishRequest, TodoPolishResult } from '@shared/types';
 import { parseCLIOutput, spawnCLI } from './providers';
 
-export interface TodoPolishOptions {
-  text: string; // Raw requirement text to polish
-  timeout: number; // in seconds
-  provider: AIProvider;
-  model: ModelId;
-  reasoningEffort?: ReasoningEffort;
-  prompt?: string; // Custom prompt template (with {text} placeholder)
-}
-
-export interface TodoPolishResult {
-  success: boolean;
-  title?: string;
-  description?: string;
-  error?: string;
-}
+export type TodoPolishOptions = TodoPolishRequest;
+export type { TodoPolishResult };
 
 /** Strip markdown code fence from AI output */
 function stripCodeFence(text: string): string {

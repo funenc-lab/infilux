@@ -3,9 +3,9 @@ import { normalizeLocale } from '@shared/i18n';
 import type { ProxySettings } from '@shared/types';
 import type {
   AgentDetectionStatus,
+  AgentIntegrationSettings,
   AgentSettings,
   BranchNameGeneratorSettings,
-  ClaudeCodeIntegrationSettings,
   CodeReviewSettings,
   CommitMessageGeneratorSettings,
   EditorKeybindings,
@@ -148,8 +148,8 @@ export const defaultStatusLineFieldSettings: StatusLineFieldSettings = {
   version: false,
 };
 
-// Default Claude Code integration settings
-export const defaultClaudeCodeIntegrationSettings: ClaudeCodeIntegrationSettings = {
+// Default agent integration settings
+export const defaultAgentIntegrationSettings: AgentIntegrationSettings = {
   enabled: true,
   selectionChangedDebounce: 300,
   atMentionedKeybinding: { key: 'm', meta: true, shift: true }, // Cmd/Ctrl+Shift+M

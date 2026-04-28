@@ -81,8 +81,8 @@ describe('main settings handlers', () => {
     registerSettingsHandlers();
 
     const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
-    const first = { version: 1, claudeCodeIntegration: { enableProviderWatcher: true } };
-    const second = { version: 2, claudeCodeIntegration: { enableProviderWatcher: true } };
+    const first = { version: 1, agentIntegration: { enableProviderWatcher: true } };
+    const second = { version: 2, agentIntegration: { enableProviderWatcher: true } };
 
     await writeHandler?.({}, first);
     await writeHandler?.({}, second);
@@ -106,7 +106,7 @@ describe('main settings handlers', () => {
     const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
 
     for (let seq = 1; seq <= 12; seq += 1) {
-      await writeHandler?.({}, { seq, claudeCodeIntegration: { enableProviderWatcher: true } });
+      await writeHandler?.({}, { seq, agentIntegration: { enableProviderWatcher: true } });
       await vi.advanceTimersByTimeAsync(400);
     }
 
@@ -117,7 +117,7 @@ describe('main settings handlers', () => {
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledTimes(1);
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledWith({
       seq: 12,
-      claudeCodeIntegration: { enableProviderWatcher: true },
+      agentIntegration: { enableProviderWatcher: true },
     });
   });
 
@@ -127,17 +127,17 @@ describe('main settings handlers', () => {
 
     const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
 
-    await writeHandler?.({}, { claudeCodeIntegration: { enableProviderWatcher: false } });
+    await writeHandler?.({}, { agentIntegration: { enableProviderWatcher: false } });
     expect(settingsTestDoubles.toggleClaudeProviderWatcher).toHaveBeenCalledWith(false);
 
-    await writeHandler?.({}, { claudeCodeIntegration: { enableProviderWatcher: false } });
+    await writeHandler?.({}, { agentIntegration: { enableProviderWatcher: false } });
     expect(settingsTestDoubles.toggleClaudeProviderWatcher).toHaveBeenCalledTimes(1);
 
     settingsTestDoubles.getBeforeQuitHandler()?.();
 
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledTimes(1);
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledWith({
-      claudeCodeIntegration: { enableProviderWatcher: false },
+      agentIntegration: { enableProviderWatcher: false },
     });
   });
 
@@ -212,7 +212,7 @@ describe('main settings handlers', () => {
         {
           'enso-settings': {
             state: {
-              claudeCodeIntegration: {
+              agentIntegration: {
                 enableProviderWatcher: 'invalid',
               },
             },
@@ -235,7 +235,7 @@ describe('main settings handlers', () => {
     const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
 
     await expect(
-      writeHandler?.({}, { claudeCodeIntegration: { enableProviderWatcher: false } })
+      writeHandler?.({}, { agentIntegration: { enableProviderWatcher: false } })
     ).resolves.toBe(false);
 
     await vi.advanceTimersByTimeAsync(6000);
@@ -251,18 +251,18 @@ describe('main settings handlers', () => {
     const writeHandler = settingsTestDoubles.handlers.get(IPC_CHANNELS.SETTINGS_WRITE);
 
     for (let seq = 1; seq <= 11; seq += 1) {
-      await writeHandler?.({}, { seq, claudeCodeIntegration: { enableProviderWatcher: true } });
+      await writeHandler?.({}, { seq, agentIntegration: { enableProviderWatcher: true } });
       await vi.advanceTimersByTimeAsync(460);
     }
 
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledTimes(1);
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledWith({
       seq: 11,
-      claudeCodeIntegration: { enableProviderWatcher: true },
+      agentIntegration: { enableProviderWatcher: true },
     });
     expect(settingsTestDoubles.writeSharedSettingsToSession).toHaveBeenCalledWith({
       seq: 11,
-      claudeCodeIntegration: { enableProviderWatcher: true },
+      agentIntegration: { enableProviderWatcher: true },
     });
   });
 
@@ -480,10 +480,7 @@ describe('main settings handlers', () => {
       IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_APPLY
     );
 
-    await writeHandler?.(
-      {},
-      { pending: true, claudeCodeIntegration: { enableProviderWatcher: true } }
-    );
+    await writeHandler?.({}, { pending: true, agentIntegration: { enableProviderWatcher: true } });
     expect(settingsTestDoubles.writeSharedSettings).not.toHaveBeenCalled();
 
     await expect(applyImportHandler?.({}, '/tmp/import-now.json')).resolves.toEqual({
@@ -496,7 +493,7 @@ describe('main settings handlers', () => {
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledTimes(1);
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenLastCalledWith({
       pending: true,
-      claudeCodeIntegration: {
+      agentIntegration: {
         enableProviderWatcher: true,
       },
       'enso-settings': {
@@ -723,7 +720,7 @@ describe('main settings handlers', () => {
     settingsTestDoubles.readSharedSettings.mockReturnValue({
       'enso-settings': {
         state: {
-          claudeCodeIntegration: {
+          agentIntegration: {
             enableProviderWatcher: true,
           },
           theme: 'system',
@@ -738,7 +735,7 @@ describe('main settings handlers', () => {
         return JSON.stringify({
           'enso-settings': {
             state: {
-              claudeCodeIntegration: {
+              agentIntegration: {
                 enableProviderWatcher: false,
               },
               theme: 'dark',
@@ -781,7 +778,7 @@ describe('main settings handlers', () => {
     expect(settingsTestDoubles.writeSharedSettings).toHaveBeenCalledWith({
       'enso-settings': {
         state: {
-          claudeCodeIntegration: {
+          agentIntegration: {
             enableProviderWatcher: false,
           },
           theme: 'dark',
@@ -794,7 +791,7 @@ describe('main settings handlers', () => {
     expect(settingsTestDoubles.writeSharedSettingsToSession).toHaveBeenCalledWith({
       'enso-settings': {
         state: {
-          claudeCodeIntegration: {
+          agentIntegration: {
             enableProviderWatcher: false,
           },
           theme: 'dark',
@@ -837,7 +834,7 @@ describe('main settings handlers', () => {
     settingsTestDoubles.readSharedSettings.mockReturnValue({
       'enso-settings': {
         state: {
-          claudeCodeIntegration: {
+          agentIntegration: {
             enableProviderWatcher: true,
           },
           theme: 'system',
@@ -848,7 +845,7 @@ describe('main settings handlers', () => {
       JSON.stringify({
         'enso-settings': {
           state: {
-            claudeCodeIntegration: {
+            agentIntegration: {
               enableProviderWatcher: false,
             },
             theme: 'dark',

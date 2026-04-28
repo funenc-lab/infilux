@@ -37,7 +37,7 @@ function createCurrentState(): SettingsState {
       merge: key('m'),
       clear: key('k'),
     },
-    claudeCodeIntegration: {
+    agentIntegration: {
       enabled: true,
       selectionChangedDebounce: 300,
       atMentionedKeybinding: key('m'),
@@ -230,6 +230,15 @@ describe('migrateSettings', () => {
     expect(
       migrateSettings(
         {
+          agentSessionDisplayMode: 'global-canvas' as never,
+        },
+        currentState
+      ).agentSessionDisplayMode
+    ).toBe('global-canvas');
+
+    expect(
+      migrateSettings(
+        {
           agentSessionDisplayMode: 'mosaic' as never,
         },
         currentState
@@ -350,30 +359,41 @@ describe('migrateSettings', () => {
     });
   });
 
-  it('migrates legacy enhanced input auto-popup booleans and repairs inconsistent stop hook state', () => {
+  it('normalizes enhanced input auto-popup values and repairs inconsistent stop hook state', () => {
     const currentState = createCurrentState();
 
-    const legacyTrue = migrateSettings(
+    const invalidBoolean = migrateSettings(
       {
-        claudeCodeIntegration: {
+        agentIntegration: {
           enhancedInputAutoPopup: true as never,
           stopHookEnabled: true,
         } as never,
       },
       currentState
     );
-    expect(legacyTrue.claudeCodeIntegration.enhancedInputAutoPopup).toBe('hideWhileRunning');
+    expect(invalidBoolean.agentIntegration.enhancedInputAutoPopup).toBe('manual');
+
+    const validMode = migrateSettings(
+      {
+        agentIntegration: {
+          enhancedInputAutoPopup: 'hideWhileRunning' as never,
+          stopHookEnabled: true,
+        } as never,
+      },
+      currentState
+    );
+    expect(validMode.agentIntegration.enhancedInputAutoPopup).toBe('hideWhileRunning');
 
     const inconsistent = migrateSettings(
       {
-        claudeCodeIntegration: {
+        agentIntegration: {
           enhancedInputAutoPopup: 'hideWhileRunning' as never,
           stopHookEnabled: false,
         } as never,
       },
       currentState
     );
-    expect(inconsistent.claudeCodeIntegration.enhancedInputAutoPopup).toBe('always');
+    expect(inconsistent.agentIntegration.enhancedInputAutoPopup).toBe('always');
   });
 
   it('falls back to manual auto session rollover when the persisted mode is invalid', () => {
@@ -381,14 +401,14 @@ describe('migrateSettings', () => {
 
     const result = migrateSettings(
       {
-        claudeCodeIntegration: {
+        agentIntegration: {
           autoSessionRollover: 'always' as never,
         } as never,
       },
       currentState
     );
 
-    expect(result.claudeCodeIntegration.autoSessionRollover).toBe('manual');
+    expect(result.agentIntegration.autoSessionRollover).toBe('manual');
   });
 
   it('migrates legacy sync-terminal theme values into system mode with terminal accent sync', () => {
@@ -652,8 +672,8 @@ describe('migrateSettings', () => {
         ...currentState.xtermKeybindings,
         newTab: key('n'),
       },
-      claudeCodeIntegration: {
-        ...currentState.claudeCodeIntegration,
+      agentIntegration: {
+        ...currentState.agentIntegration,
         enhancedInputAutoPopup: false as never,
       },
     };
@@ -665,7 +685,7 @@ describe('migrateSettings', () => {
       closeTab: key('w'),
       clear: key('k'),
     });
-    expect(result.claudeCodeIntegration.enhancedInputAutoPopup).toBe('manual');
+    expect(result.agentIntegration.enhancedInputAutoPopup).toBe('manual');
   });
 
   it('keeps current remote profiles when persisted remote settings omit the profile list', () => {

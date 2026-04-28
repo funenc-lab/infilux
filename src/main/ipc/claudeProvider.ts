@@ -16,39 +16,50 @@ import {
 } from '../services/remote/RemoteEnvironmentService';
 import { resolveRepositoryRuntimeContext } from '../services/repository/RepositoryContextResolver';
 
-export function registerClaudeProviderHandlers(): void {
-  // 读取当前 Claude settings
-  ipcMain.handle(IPC_CHANNELS.CLAUDE_PROVIDER_READ_SETTINGS, async (_, repoPath?: string) => {
-    const context = resolveRepositoryRuntimeContext(repoPath);
-    if (context.kind === 'remote') {
-      const settings = await readRepositoryClaudeSettings(repoPath);
-      const extracted = extractProviderFromClaudeSettings(settings);
-      return { settings, extracted };
-    }
-
-    const settings = readClaudeSettings();
-    const extracted = extractProviderFromSettings();
+async function readProviderSettings(repoPath?: string) {
+  const context = resolveRepositoryRuntimeContext(repoPath);
+  if (context.kind === 'remote') {
+    const settings = await readRepositoryClaudeSettings(repoPath);
+    const extracted = extractProviderFromClaudeSettings(settings);
     return { settings, extracted };
-  });
+  }
 
-  // 应用 Provider 配置
-  ipcMain.handle(
-    IPC_CHANNELS.CLAUDE_PROVIDER_APPLY,
-    async (_, repoPath: string | undefined, provider: ClaudeProvider) => {
-      const context = resolveRepositoryRuntimeContext(repoPath);
-      if (context.kind === 'remote') {
-        const settings = (await readRepositoryClaudeSettings(repoPath)) ?? {};
-        return writeRepositoryClaudeSettings(
-          repoPath,
-          applyProviderToClaudeSettings(settings, provider)
-        );
-      }
-      return applyProvider(provider);
-    }
-  );
+  const settings = readClaudeSettings();
+  const extracted = extractProviderFromSettings();
+  return { settings, extracted };
 }
 
-// Keep a reference to the window for dynamic watcher toggling
+async function applyProviderSettings(
+  repoPath: string | undefined,
+  provider: ClaudeProvider
+): Promise<boolean> {
+  const context = resolveRepositoryRuntimeContext(repoPath);
+  if (context.kind === 'remote') {
+    const settings = (await readRepositoryClaudeSettings(repoPath)) ?? {};
+    return writeRepositoryClaudeSettings(
+      repoPath,
+      applyProviderToClaudeSettings(settings, provider)
+    );
+  }
+  return applyProvider(provider);
+}
+
+export function registerClaudeProviderHandlers(): void {
+  for (const channel of [
+    IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS,
+    IPC_CHANNELS.CLAUDE_PROVIDER_READ_SETTINGS,
+  ]) {
+    ipcMain.handle(channel, async (_, repoPath?: string) => readProviderSettings(repoPath));
+  }
+
+  for (const channel of [IPC_CHANNELS.AGENT_PROVIDER_APPLY, IPC_CHANNELS.CLAUDE_PROVIDER_APPLY]) {
+    ipcMain.handle(channel, async (_, repoPath: string | undefined, provider: ClaudeProvider) =>
+      applyProviderSettings(repoPath, provider)
+    );
+  }
+}
+
+// Keep a reference to the window for dynamic watcher toggling.
 let watcherWindow: BrowserWindow | null = null;
 
 /**

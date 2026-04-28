@@ -317,6 +317,10 @@ describe('preload bridge', () => {
         run: () => api.session.attach({ sessionId: 'session-1', readOnly: false } as never),
         expected: [IPC_CHANNELS.SESSION_ATTACH, { sessionId: 'session-1', readOnly: false }],
       },
+      {
+        run: () => api.session.getRuntimeInfo('session-1'),
+        expected: [IPC_CHANNELS.SESSION_GET_RUNTIME_INFO, 'session-1'],
+      },
       { run: () => api.agent.list(), expected: [IPC_CHANNELS.AGENT_LIST] },
       {
         run: () => api.agentSubagent.listLive({ cwds: ['/repo/worktree'] }),
@@ -426,13 +430,39 @@ describe('preload bridge', () => {
         run: () =>
           api.todo.aiPolish({
             text: 'Draft',
-            timeout: 1_000,
-            provider: 'claude',
+            timeout: 60,
+            provider: 'claude-code',
             model: 'sonnet',
           }),
         expected: [
           IPC_CHANNELS.TODO_AI_POLISH,
-          { text: 'Draft', timeout: 1_000, provider: 'claude', model: 'sonnet' },
+          { text: 'Draft', timeout: 60, provider: 'claude-code', model: 'sonnet' },
+        ],
+      },
+      {
+        run: () =>
+          api.todo.aiGenerateTasks({
+            text: 'Plan the workflow',
+            timeout: 60,
+            provider: 'codex-cli',
+            model: 'gpt-5.2',
+            repoPath: '/repo',
+            worktreePath: '/repo/worktree',
+            agents: [{ agentId: 'codex', command: 'codex', name: 'Codex' }],
+            maxTasks: 4,
+          }),
+        expected: [
+          IPC_CHANNELS.TODO_AI_GENERATE_TASKS,
+          {
+            text: 'Plan the workflow',
+            timeout: 60,
+            provider: 'codex-cli',
+            model: 'gpt-5.2',
+            repoPath: '/repo',
+            worktreePath: '/repo/worktree',
+            agents: [{ agentId: 'codex', command: 'codex', name: 'Codex' }],
+            maxTasks: 4,
+          },
         ],
       },
       {
@@ -466,6 +496,14 @@ describe('preload bridge', () => {
       {
         run: () => api.claudeProvider.apply('/repo', { provider: 'claude' } as never),
         expected: [IPC_CHANNELS.CLAUDE_PROVIDER_APPLY, '/repo', { provider: 'claude' }],
+      },
+      {
+        run: () => api.agentProvider.readSettings('/repo'),
+        expected: [IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS, '/repo'],
+      },
+      {
+        run: () => api.agentProvider.apply('/repo', { provider: 'claude' } as never),
+        expected: [IPC_CHANNELS.AGENT_PROVIDER_APPLY, '/repo', { provider: 'claude' }],
       },
       {
         run: () => api.claudeConfig.projectTrust.ensureWorkspaceTrusted('/repo/worktree'),
@@ -546,6 +584,10 @@ describe('preload bridge', () => {
           IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP,
           { message: '[agent-startup][renderer][pty-1] first-output' },
         ],
+      },
+      {
+        run: () => api.tokenUsage.getProjectUsage({ projectPaths: ['/repo/app'] }),
+        expected: [IPC_CHANNELS.TOKEN_USAGE_PROJECTS_GET, { projectPaths: ['/repo/app'] }],
       },
       { run: () => api.log.getPath(), expected: [IPC_CHANNELS.LOG_GET_PATH] },
     ];
@@ -1079,6 +1121,13 @@ describe('preload bridge', () => {
         channel: IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED,
         register: (callback: (value: unknown) => void) =>
           api.claudeProvider.onSettingsChanged(callback as never),
+        emitted: [{ settings: {}, extracted: {} }],
+        expected: [{ settings: {}, extracted: {} }],
+      },
+      {
+        channel: IPC_CHANNELS.AGENT_PROVIDER_SETTINGS_CHANGED,
+        register: (callback: (value: unknown) => void) =>
+          api.agentProvider.onSettingsChanged(callback as never),
         emitted: [{ settings: {}, extracted: {} }],
         expected: [{ settings: {}, extracted: {} }],
       },

@@ -9,7 +9,8 @@ import type {
   ModelId,
   ReasoningEffort,
 } from '@shared/types';
-import { getEnvForCommand, getShellForCommand } from '../../utils/shell';
+import { AI_PROVIDER_CATALOG } from '@shared/types';
+import { getEnvForCommand } from '../../utils/shell';
 
 export type { AIProvider, ModelId, ReasoningEffort } from '@shared/types';
 
@@ -29,6 +30,12 @@ export interface CLISpawnOptions {
 export interface CLISpawnResult {
   proc: ChildProcess;
   kill: () => void;
+}
+
+interface AIProviderAdapter {
+  command: string;
+  buildArgs: (options: CLISpawnOptions) => string[];
+  parseOutput: (stdout: string) => ParsedCLIResult;
 }
 
 function buildClaudeArgs(options: CLISpawnOptions): string[] {
@@ -113,37 +120,11 @@ function buildCursorArgs(options: CLISpawnOptions): string[] {
 }
 
 export function spawnCLI(options: CLISpawnOptions): CLISpawnResult {
-  const { shell, args: shellArgs } = getShellForCommand();
   const env = getEnvForCommand();
+  const adapter = getAIProviderAdapter(options.provider);
+  const cliArgs = adapter.buildArgs(options);
 
-  let cliCommand: string;
-  let cliArgs: string[];
-
-  switch (options.provider) {
-    case 'claude-code':
-      cliCommand = 'claude';
-      cliArgs = buildClaudeArgs(options);
-      break;
-    case 'codex-cli':
-      cliCommand = 'codex';
-      cliArgs = buildCodexArgs(options);
-      break;
-    case 'gemini-cli':
-      cliCommand = 'gemini';
-      cliArgs = buildGeminiArgs(options);
-      break;
-    case 'cursor-cli':
-      cliCommand = 'agent';
-      cliArgs = buildCursorArgs(options);
-      break;
-    default:
-      cliCommand = 'claude';
-      cliArgs = buildClaudeArgs(options);
-  }
-
-  const fullCommand = `${cliCommand} ${cliArgs.join(' ')}`;
-
-  const proc = spawn(shell, [...shellArgs, fullCommand], {
+  const proc = spawn(adapter.command, cliArgs, {
     cwd: options.cwd,
     env: env as NodeJS.ProcessEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -201,8 +182,8 @@ export function parseClaudeJsonOutput(stdout: string): ParsedCLIResult {
   try {
     let jsonStr = stripAnsi(stdout).trim();
 
-    // Claude CLI 2.1.20 及更早版本输出 JSON 数组: [{init}, {assistant}, {result}]
-    // Claude CLI 2.1.22+ 输出单个 JSON 对象: {result}
+    // Claude CLI 2.1.20 and older emit a JSON array: [{init}, {assistant}, {result}].
+    // Claude CLI 2.1.22+ emits a single JSON object: {result}.
     if (jsonStr.startsWith('[')) {
       const arrayStart = jsonStr.indexOf('[');
       const arrayEnd = jsonStr.lastIndexOf(']');
@@ -220,7 +201,7 @@ export function parseClaudeJsonOutput(stdout: string): ParsedCLIResult {
       }
     }
 
-    // 单个 JSON 对象格式 (Claude CLI 2.1.22+)
+    // Single JSON object format (Claude CLI 2.1.22+).
     const jsonStart = jsonStr.indexOf('{');
     const jsonEnd = jsonStr.lastIndexOf('}');
 
@@ -310,17 +291,37 @@ export function parseGeminiJsonOutput(stdout: string): ParsedCLIResult {
   }
 }
 
-export function parseCLIOutput(provider: AIProvider, stdout: string): ParsedCLIResult {
-  switch (provider) {
-    case 'claude-code':
-      return parseClaudeJsonOutput(stdout);
-    case 'codex-cli':
-      return parseCodexOutput(stdout);
-    case 'cursor-cli':
-      return parseCursorOutput(stdout);
-    case 'gemini-cli':
-      return parseGeminiJsonOutput(stdout);
-    default:
-      return parseClaudeJsonOutput(stdout);
+export const AI_PROVIDER_ADAPTERS = {
+  'claude-code': {
+    command: AI_PROVIDER_CATALOG['claude-code'].command,
+    buildArgs: buildClaudeArgs,
+    parseOutput: parseClaudeJsonOutput,
+  },
+  'codex-cli': {
+    command: AI_PROVIDER_CATALOG['codex-cli'].command,
+    buildArgs: buildCodexArgs,
+    parseOutput: parseCodexOutput,
+  },
+  'cursor-cli': {
+    command: AI_PROVIDER_CATALOG['cursor-cli'].command,
+    buildArgs: buildCursorArgs,
+    parseOutput: parseCursorOutput,
+  },
+  'gemini-cli': {
+    command: AI_PROVIDER_CATALOG['gemini-cli'].command,
+    buildArgs: buildGeminiArgs,
+    parseOutput: parseGeminiJsonOutput,
+  },
+} satisfies Record<AIProvider, AIProviderAdapter>;
+
+function getAIProviderAdapter(provider: AIProvider): AIProviderAdapter {
+  const adapter = AI_PROVIDER_ADAPTERS[provider];
+  if (!adapter) {
+    throw new Error(`Unsupported AI provider: ${String(provider)}`);
   }
+  return adapter;
+}
+
+export function parseCLIOutput(provider: AIProvider, stdout: string): ParsedCLIResult {
+  return getAIProviderAdapter(provider).parseOutput(stdout);
 }

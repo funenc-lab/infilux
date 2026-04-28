@@ -105,7 +105,7 @@ function sanitizeAgentSessionDisplayMode(
   value: unknown,
   fallback: AgentSessionDisplayMode
 ): AgentSessionDisplayMode {
-  return value === 'canvas' || value === 'tab' ? value : fallback;
+  return value === 'canvas' || value === 'global-canvas' || value === 'tab' ? value : fallback;
 }
 
 function sanitizeThemeTokenSet(value: unknown, fallback: ThemeTokenSet): ThemeTokenSet {
@@ -329,8 +329,7 @@ export function migrateSettings(
   // Migrate xterm keybindings from legacy formats
   const migratedXtermKeybindings = migrateXtermKeybindings(persisted, currentState);
 
-  // Migrate Claude Code integration settings
-  const migratedClaudeCodeIntegration = migrateClaudeCodeIntegration(persisted, currentState);
+  const normalizedAgentIntegration = normalizeAgentIntegration(persisted, currentState);
 
   // Filter agent detection status to only include enabled agents
   const migratedAgentDetectionStatus = Object.fromEntries(
@@ -417,7 +416,7 @@ export function migrateSettings(
       ...currentState.editorSettings,
       ...persisted.editorSettings,
     },
-    claudeCodeIntegration: migratedClaudeCodeIntegration,
+    agentIntegration: normalizedAgentIntegration,
     commitMessageGenerator: {
       ...currentState.commitMessageGenerator,
       ...persisted.commitMessageGenerator,
@@ -522,27 +521,33 @@ function migrateXtermKeybindings(
   };
 }
 
-/**
- * Migrate Claude Code integration settings
- */
-function migrateClaudeCodeIntegration(
+function normalizeEnhancedInputAutoPopup(
+  value: unknown,
+  fallback: SettingsState['agentIntegration']['enhancedInputAutoPopup']
+): SettingsState['agentIntegration']['enhancedInputAutoPopup'] {
+  return value === 'always' || value === 'hideWhileRunning' || value === 'manual'
+    ? value
+    : fallback;
+}
+
+function normalizeAgentIntegration(
   persisted: Partial<SettingsState>,
   currentState: SettingsState
-): SettingsState['claudeCodeIntegration'] {
+): SettingsState['agentIntegration'] {
+  const persistedIntegration = persisted.agentIntegration;
   const merged = {
-    ...currentState.claudeCodeIntegration,
-    ...persisted.claudeCodeIntegration,
+    ...currentState.agentIntegration,
+    ...persistedIntegration,
     statusLineFields: {
-      ...currentState.claudeCodeIntegration.statusLineFields,
-      ...persisted.claudeCodeIntegration?.statusLineFields,
+      ...currentState.agentIntegration.statusLineFields,
+      ...persistedIntegration?.statusLineFields,
     },
   };
 
-  // Migrate legacy boolean enhancedInputAutoPopup to new enum value
-  const legacyAutoPopup = persisted.claudeCodeIntegration?.enhancedInputAutoPopup;
-  if (typeof legacyAutoPopup === 'boolean') {
-    merged.enhancedInputAutoPopup = legacyAutoPopup ? 'hideWhileRunning' : 'manual';
-  }
+  merged.enhancedInputAutoPopup = normalizeEnhancedInputAutoPopup(
+    persistedIntegration?.enhancedInputAutoPopup,
+    currentState.agentIntegration.enhancedInputAutoPopup
+  );
 
   // Fix inconsistent state: hideWhileRunning requires stopHookEnabled
   if (merged.enhancedInputAutoPopup === 'hideWhileRunning' && !merged.stopHookEnabled) {
@@ -550,7 +555,7 @@ function migrateClaudeCodeIntegration(
   }
 
   if (merged.autoSessionRollover !== 'manual' && merged.autoSessionRollover !== 'critical') {
-    merged.autoSessionRollover = currentState.claudeCodeIntegration.autoSessionRollover;
+    merged.autoSessionRollover = currentState.agentIntegration.autoSessionRollover;
   }
 
   return merged;

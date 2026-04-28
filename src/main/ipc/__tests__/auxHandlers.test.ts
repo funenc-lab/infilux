@@ -42,7 +42,9 @@ const auxTestDoubles = vi.hoisted(() => {
   const deleteTodoTask = vi.fn();
   const moveTodoTask = vi.fn();
   const reorderTodoTasks = vi.fn();
+  const migrateTodoBoardsFromLocalStorage = vi.fn();
   const polishTodoTask = vi.fn();
+  const generateTodoTasks = vi.fn();
 
   const sessionDestroyAll = vi.fn();
   const sessionDestroyAllAndWait = vi.fn();
@@ -104,11 +106,25 @@ const auxTestDoubles = vi.hoisted(() => {
     moveTodoTask.mockResolvedValue({ moved: true });
     reorderTodoTasks.mockReset();
     reorderTodoTasks.mockResolvedValue({ reordered: true });
+    migrateTodoBoardsFromLocalStorage.mockReset();
+    migrateTodoBoardsFromLocalStorage.mockReturnValue({ migratedTaskCount: 1 });
     polishTodoTask.mockReset();
     polishTodoTask.mockResolvedValue({
       success: true,
       title: 'Polished title',
       description: 'Polished description',
+    });
+    generateTodoTasks.mockReset();
+    generateTodoTasks.mockResolvedValue({
+      success: true,
+      tasks: [
+        {
+          title: 'Generated task',
+          description: 'Generated description',
+          priority: 'medium',
+          agentId: 'codex',
+        },
+      ],
     });
 
     sessionDestroyAll.mockReset();
@@ -145,7 +161,9 @@ const auxTestDoubles = vi.hoisted(() => {
     deleteTodoTask,
     moveTodoTask,
     reorderTodoTasks,
+    migrateTodoBoardsFromLocalStorage,
     polishTodoTask,
+    generateTodoTasks,
     sessionDestroyAll,
     sessionDestroyAllAndWait,
     registerSessionHandlers,
@@ -172,6 +190,7 @@ vi.mock('../../services/LocalSessionManager', () => ({
     deleteTodoTask: auxTestDoubles.deleteTodoTask,
     moveTodoTask: auxTestDoubles.moveTodoTask,
     reorderTodoTasks: auxTestDoubles.reorderTodoTasks,
+    migrateTodoBoardsFromLocalStorage: auxTestDoubles.migrateTodoBoardsFromLocalStorage,
   },
 }));
 
@@ -212,6 +231,7 @@ vi.mock('../../services/agent/AgentRegistry', () => ({
 }));
 
 vi.mock('../../services/ai', () => ({
+  generateTodoTasks: auxTestDoubles.generateTodoTasks,
   polishTodoTask: auxTestDoubles.polishTodoTask,
 }));
 
@@ -393,24 +413,13 @@ describe('auxiliary IPC handlers', () => {
     expect(auxTestDoubles.AgentRegistry).toHaveBeenCalledWith(auxTestDoubles.BUILTIN_AGENTS);
   });
 
-  it('registers todo handlers, waits for initialization before migration and exposes cleanup helpers', async () => {
-    let resolveInitialize!: () => void;
-    auxTestDoubles.initializeTodo.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveInitialize = resolve;
-        })
-    );
-
+  it('registers todo handlers, migrates localStorage into shared state, and exposes cleanup helpers', async () => {
     const { cleanupTodo, cleanupTodoSync, registerTodoHandlers } = await import('../todo');
     registerTodoHandlers();
 
-    const migratePromise = getHandler(IPC_CHANNELS.TODO_MIGRATE)({}, '{"boards":[]}');
-    await Promise.resolve();
-    expect(auxTestDoubles.migrateFromLocalStorage).not.toHaveBeenCalled();
-
-    resolveInitialize();
-    expect(await migratePromise).toEqual({ migrated: true });
+    expect(await getHandler(IPC_CHANNELS.TODO_MIGRATE)({}, '{"boards":[]}')).toEqual({
+      migratedTaskCount: 1,
+    });
 
     expect(await getHandler(IPC_CHANNELS.TODO_GET_TASKS)({}, '/repo')).toEqual([{ id: 'task-1' }]);
     expect(
@@ -423,10 +432,22 @@ describe('auxiliary IPC handlers', () => {
         order: 1,
         createdAt: 1,
         updatedAt: 1,
+        context: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktree',
+          files: [{ path: 'src/main/index.ts' }],
+        },
       })
     ).toEqual({ id: 'task-1' });
     expect(
-      await getHandler(IPC_CHANNELS.TODO_UPDATE_TASK)({}, '/repo', 'task-1', { status: 'doing' })
+      await getHandler(IPC_CHANNELS.TODO_UPDATE_TASK)({}, '/repo', 'task-1', {
+        status: 'doing',
+        context: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktree',
+          files: [{ path: 'src/renderer/App.tsx', label: 'App.tsx' }],
+        },
+      })
     ).toEqual({ updated: true });
     expect(await getHandler(IPC_CHANNELS.TODO_DELETE_TASK)({}, '/repo', 'task-1')).toEqual({
       deleted: true,
@@ -446,7 +467,7 @@ describe('auxiliary IPC handlers', () => {
         {},
         {
           text: 'Polish this task',
-          timeout: 1000,
+          timeout: 60,
           provider: 'claude-code',
           model: 'sonnet',
           reasoningEffort: 'medium',
@@ -458,6 +479,45 @@ describe('auxiliary IPC handlers', () => {
       title: 'Polished title',
       description: 'Polished description',
     });
+    expect(
+      await getHandler(IPC_CHANNELS.TODO_AI_GENERATE_TASKS)(
+        {},
+        {
+          text: 'Create a project plan',
+          timeout: 60,
+          provider: 'codex-cli',
+          model: 'gpt-5.2',
+          reasoningEffort: 'medium',
+          repoPath: '/repo',
+          worktreePath: '/repo/worktree',
+          context: {
+            repoPath: '/repo',
+            worktreePath: '/repo/worktree',
+            files: [{ path: 'src/renderer/App.tsx', label: 'App.tsx' }],
+            directories: [{ path: 'src/renderer/components/todo', label: 'todo' }],
+          },
+          agents: [
+            {
+              agentId: 'codex',
+              command: 'codex',
+              isDefault: true,
+              name: 'Codex',
+            },
+          ],
+          maxTasks: 5,
+        }
+      )
+    ).toEqual({
+      success: true,
+      tasks: [
+        {
+          title: 'Generated task',
+          description: 'Generated description',
+          priority: 'medium',
+          agentId: 'codex',
+        },
+      ],
+    });
 
     await cleanupTodo();
     cleanupTodoSync();
@@ -465,18 +525,127 @@ describe('auxiliary IPC handlers', () => {
     expect(auxTestDoubles.getTodoTasks).toHaveBeenCalledWith('/repo');
     expect(auxTestDoubles.addTodoTask).toHaveBeenCalledWith(
       '/repo',
-      expect.objectContaining({ id: 'task-1' })
+      expect.objectContaining({
+        id: 'task-1',
+        context: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktree',
+          files: [{ path: 'src/main/index.ts' }],
+        },
+      })
+    );
+    expect(auxTestDoubles.updateTodoTask).toHaveBeenCalledWith(
+      '/repo',
+      'task-1',
+      expect.objectContaining({
+        context: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktree',
+          files: [{ path: 'src/renderer/App.tsx', label: 'App.tsx' }],
+        },
+      })
     );
     expect(auxTestDoubles.polishTodoTask).toHaveBeenCalledWith({
       text: 'Polish this task',
-      timeout: 1000,
+      timeout: 60,
       provider: 'claude-code',
       model: 'sonnet',
       reasoningEffort: 'medium',
       prompt: 'keep it concise',
     });
+    expect(auxTestDoubles.generateTodoTasks).toHaveBeenCalledWith({
+      text: 'Create a project plan',
+      timeout: 60,
+      provider: 'codex-cli',
+      model: 'gpt-5.2',
+      reasoningEffort: 'medium',
+      repoPath: '/repo',
+      worktreePath: '/repo/worktree',
+      context: {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktree',
+        files: [{ path: 'src/renderer/App.tsx', label: 'App.tsx' }],
+        directories: [{ path: 'src/renderer/components/todo', label: 'todo' }],
+      },
+      agents: [
+        {
+          agentId: 'codex',
+          command: 'codex',
+          isDefault: true,
+          name: 'Codex',
+        },
+      ],
+      maxTasks: 5,
+    });
+    expect(auxTestDoubles.initializeTodo).not.toHaveBeenCalled();
+    expect(auxTestDoubles.migrateTodoBoardsFromLocalStorage).toHaveBeenCalledWith('{"boards":[]}');
+    expect(auxTestDoubles.migrateFromLocalStorage).not.toHaveBeenCalled();
     expect(auxTestDoubles.closeTodo).toHaveBeenCalledTimes(1);
     expect(auxTestDoubles.closeTodoSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects invalid todo AI polish provider and model payloads at the IPC boundary', async () => {
+    const { registerTodoHandlers } = await import('../todo');
+    registerTodoHandlers();
+
+    await expect(
+      getHandler(IPC_CHANNELS.TODO_AI_POLISH)(
+        {},
+        {
+          text: 'Polish this task',
+          timeout: 60,
+          provider: 'claude-code; rm -rf /',
+          model: 'sonnet',
+        }
+      )
+    ).rejects.toThrow('Unsupported AI provider');
+
+    await expect(
+      getHandler(IPC_CHANNELS.TODO_AI_POLISH)(
+        {},
+        {
+          text: 'Polish this task',
+          timeout: 60,
+          provider: 'claude-code',
+          model: 'gpt-5.2',
+        }
+      )
+    ).rejects.toThrow('Unsupported model');
+
+    expect(auxTestDoubles.polishTodoTask).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid todo AI task generation provider and agent payloads at the IPC boundary', async () => {
+    const { registerTodoHandlers } = await import('../todo');
+    registerTodoHandlers();
+
+    await expect(
+      getHandler(IPC_CHANNELS.TODO_AI_GENERATE_TASKS)(
+        {},
+        {
+          text: 'Plan this work',
+          timeout: 60,
+          provider: 'codex-cli',
+          model: 'sonnet',
+          agents: [],
+        }
+      )
+    ).rejects.toThrow('Unsupported model');
+
+    await expect(
+      getHandler(IPC_CHANNELS.TODO_AI_GENERATE_TASKS)(
+        {},
+        {
+          text: 'Plan this work',
+          timeout: 60,
+          provider: 'codex-cli',
+          model: 'gpt-5.2',
+          agents: [{ agentId: '', command: 'codex', name: 'Codex' }],
+        }
+      )
+    ).rejects.toThrow('Todo AI generate agent id must be a non-empty string');
+
+    expect(auxTestDoubles.generateTodoTasks).not.toHaveBeenCalled();
   });
 
   it('re-exports terminal handlers from the session module', async () => {

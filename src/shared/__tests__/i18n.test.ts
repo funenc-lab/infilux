@@ -49,6 +49,27 @@ describe('shared i18n helpers', () => {
     );
   });
 
+  it('translates generic agent integration settings copy in zh locale', () => {
+    const integrationKeys = [
+      'Agent Integrations',
+      'Configure provider routing and CLI-specific integration features',
+      'Claude Code IDE Bridge',
+      'Start the WebSocket bridge for Claude Code editor context and hooks',
+      'Agent Providers',
+      'Configure API provider settings for supported agent CLIs',
+      'Manage API provider profiles for supported agent CLIs',
+      'Watch supported provider settings files for external changes',
+    ] as const;
+
+    for (const key of integrationKeys) {
+      expect(getTranslation('zh', key)).not.toBe(key);
+    }
+
+    expect(getTranslation('zh', 'Agent Integrations')).toBe('Agent \u96c6\u6210');
+    expect(getTranslation('zh', 'Agent Providers')).toBe('Agent Provider \u914d\u7f6e');
+    expect(getTranslation('zh', 'Claude Code IDE Bridge')).toBe('Claude Code IDE \u6865\u63a5');
+  });
+
   it('keeps app resource panel copy translated in zh locale', () => {
     const resourcePanelKeys = [
       'App runtime status',
@@ -58,6 +79,22 @@ describe('shared i18n helpers', () => {
       'Open runtime activity and resource controls',
       'Monitor sessions, terminals, and runtime pressure',
       'Unable to load resources.',
+      'Usage Analytics',
+      'Project Scope',
+      'Token Analytics',
+      'Review project token usage across tracked providers.',
+      'Break down input, output, cache, and reasoning tokens by project and provider.',
+      'Project Totals',
+      'Tracked Projects',
+      'Provider Coverage',
+      'Total tokens',
+      'Provider issues',
+      'Input tokens',
+      'Output tokens',
+      'Cache tokens',
+      'Reasoning tokens',
+      'Scanning token usage...',
+      'Refreshing token usage',
       'Unable to execute action.',
       'Loading resources...',
       'Resource action failed',

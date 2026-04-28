@@ -410,7 +410,12 @@ export function useXterm({
         };
       },
       resizeSession: (sessionId, size) => {
-        void window.electronAPI.session.resize(sessionId, size);
+        void window.electronAPI.session.resize(sessionId, size).catch((error) => {
+          console.warn('[xterm] Failed to resize session viewport', {
+            sessionId,
+            error,
+          });
+        });
       },
       runtimeState: runtimeStateRef.current,
       sessionId: ptyIdRef.current,
@@ -826,7 +831,7 @@ export function useXterm({
 
     // Custom key handler
     terminal.attachCustomKeyEventHandler((event) => {
-      // IME 组合输入期间必须放行，否则会导致中文输入异常
+      // Let IME composition events pass through so composed input is not interrupted.
       if (event.isComposing || event.keyCode === 229) {
         return true;
       }
@@ -1098,7 +1103,7 @@ export function useXterm({
         backendSessionId,
         cwd: createOptions.cwd,
         getRemoteStatus: (connectionId) => window.electronAPI.remote.getStatus(connectionId),
-        getLocalActivity: (sessionId) => window.electronAPI.session.getActivity(sessionId),
+        getLocalRuntimeInfo: (sessionId) => window.electronAPI.session.getRuntimeInfo(sessionId),
         allowUntrackedLocalAttach:
           kind === 'agent' && persistOnDisconnect && getRendererEnvironment().platform === 'win32',
       });

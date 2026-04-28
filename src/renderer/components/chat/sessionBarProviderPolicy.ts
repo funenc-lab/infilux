@@ -1,24 +1,12 @@
-import { getAgentInputBaseId } from './agentInputMode';
+import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 
 interface SessionBarProviderSwitcherSessionLike {
   agentId?: string;
   agentCommand?: string;
 }
 
-export function supportsClaudeProviderSwitcher(
+export function supportsAgentProviderProfileSwitcher(
   session: SessionBarProviderSwitcherSessionLike | null | undefined
 ): boolean {
-  if (!session) {
-    return true;
-  }
-
-  const candidates = [session.agentId, session.agentCommand].filter(
-    (value): value is string => typeof value === 'string' && value.trim().length > 0
-  );
-
-  if (candidates.length === 0) {
-    return true;
-  }
-
-  return candidates.some((value) => getAgentInputBaseId(value) === 'claude');
+  return agentProviderProfileAdapter.supportsSession(session);
 }

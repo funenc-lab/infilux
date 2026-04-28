@@ -215,13 +215,13 @@ vi.mock('@/i18n', () => ({
 
 vi.mock('../hooks', () => ({
   useAgentSessionNotifications: vi.fn(),
+  useAgentProviderProfileListener: vi.fn(),
   useAppLifecycle: () => ({
     confirmCloseAndRespond,
     cancelCloseAndRespond,
   }),
   useBackgroundImage: vi.fn(),
   useClaudeIntegration: vi.fn(),
-  useClaudeProviderListener: vi.fn(),
   useCodeReviewContinue: vi.fn(),
   useFileDragDrop: () => ({
     isFileDragOver: false,

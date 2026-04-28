@@ -25,7 +25,7 @@ describe('input settings menu policy', () => {
     expect(inputSettingsSource).toContain("t('Fallback Composer')");
     expect(inputSettingsSource).toContain("t('Claude and Codex now use native terminal input')");
     expect(inputSettingsSource).not.toContain("t('Enhanced Input')");
-    expect(inputSettingsSource).toContain('claudeCodeIntegration.enhancedInputEnabled');
-    expect(inputSettingsSource).toContain('claudeCodeIntegration.enhancedInputAutoPopup');
+    expect(inputSettingsSource).toContain('agentIntegration.enhancedInputEnabled');
+    expect(inputSettingsSource).toContain('agentIntegration.enhancedInputAutoPopup');
   });
 });

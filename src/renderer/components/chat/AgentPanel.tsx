@@ -1,10 +1,13 @@
-import type {
-  AIProvider,
-  ClaudePolicyConfig,
-  LiveAgentSubagent,
-  PersistentAgentSessionRecord,
+import {
+  type AIProvider,
+  BUILTIN_AGENT_CATALOG,
+  BUILTIN_AGENT_IDS,
+  type ClaudePolicyConfig,
+  type LiveAgentSubagent,
+  type PersistentAgentSessionRecord,
 } from '@shared/types';
 import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
+import { getDisplayPathBasename } from '@shared/utils/path';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { resolveTmuxServerNameForPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
 import {
@@ -13,6 +16,7 @@ import {
   ChevronDown,
   Crosshair,
   Diamond,
+  GitBranch,
   Lock,
   LockOpen,
   Maximize2,
@@ -59,16 +63,19 @@ import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
+import { buildAgentSessionInventory } from '@/stores/agentSessionInventory';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useEditorStore } from '@/stores/editor';
-import { BUILTIN_AGENT_IDS, useSettingsStore } from '@/stores/settings';
+import { useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
+import { selectTasks, useTodoStore } from '@/stores/todo';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { buildConsoleButtonStyle, buildConsoleTypographyModel } from '../layout/consoleTypography';
 import { AgentCloseSessionDialog } from './AgentCloseSessionDialog';
 import { AgentGroup } from './AgentGroup';
+import { AgentSessionControlCenter } from './AgentSessionControlCenter';
 import { AgentTerminal } from './AgentTerminal';
 import { AgentPanelEmptyState } from './agent-panel/AgentPanelEmptyState';
 import { SessionSubagentInspector } from './agent-panel/SessionSubagentInspector';
@@ -86,9 +93,19 @@ import {
 } from './agentCanvasInteractionPolicy';
 import {
   AGENT_CANVAS_GRID_COLUMN_UNITS,
+  AGENT_CANVAS_WORKSPACE_EMPTY_GROUP_HEIGHT,
+  AGENT_CANVAS_WORKSPACE_TILE_ROW_SIZE,
   resolveAgentCanvasColumnCount,
   resolveAgentCanvasTileColumnSpan,
+  resolveAgentCanvasWorkspaceColumnCount,
+  resolveAgentCanvasWorkspaceGroupColumnSpan,
 } from './agentCanvasLayout';
+import { resolveAgentCanvasFocusedSessionId } from './agentCanvasSessionFocus';
+import {
+  type AgentCanvasWorktreeCandidate,
+  buildAgentCanvasSessionGroupKey,
+  resolveAgentCanvasSessionGroups,
+} from './agentCanvasSessionScope';
 import {
   AGENT_CANVAS_ZOOM_DEFAULT,
   AGENT_CANVAS_ZOOM_MAX,
@@ -97,6 +114,7 @@ import {
   clampAgentCanvasScrollPosition,
   formatAgentCanvasZoomPercent,
   resolveAgentCanvasCenteredScrollPosition,
+  resolveAgentCanvasElementFocusTarget,
   resolveAgentCanvasFloatingFrame,
   resolveAgentCanvasFloatingTerminalFontScale,
   resolveAgentCanvasFocusScrollPosition,
@@ -104,6 +122,7 @@ import {
   resolveAgentCanvasViewportMetrics,
   resolveAgentCanvasViewportSyncPosition,
   resolveAgentCanvasWheelZoomDelta,
+  resolveAgentCanvasWorktreeGroupScrollBehavior,
   resolveAgentCanvasZoomScrollPosition,
   resolveAgentCanvasZoomTerminalFontScale,
   stepAgentCanvasZoom,
@@ -115,7 +134,14 @@ import {
   resolveAgentInputUnavailableReason,
 } from './agentInputAvailability';
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
-import { collectMountedAgentSessionIds } from './agentPanelMountPolicy';
+import {
+  collectMountedAgentSessionIds,
+  resolveMountedAgentPanelSessionIds,
+} from './agentPanelMountPolicy';
+import {
+  type AgentSessionLaunchTarget,
+  resolveAgentSessionLaunchTarget,
+} from './agentSessionLaunchTarget';
 import {
   buildAgentSessionPlacementIndex,
   resolveAgentGroupPositions,
@@ -159,27 +185,30 @@ export interface AgentPanelProps {
   repoPath: string; // repository path (workspace identifier)
   cwd: string; // current worktree path
   isActive?: boolean;
+  isCurrentWorktreePanel?: boolean;
   canvasRecenterOnActivateToken?: number;
+  canvasRecenterWorktreePath?: string | null;
   canvasFocusOnActivateToken?: number;
   canvasFocusSessionId?: string | null;
+  workspaceCanvasWorktrees?: AgentCanvasWorktreeCandidate[];
 }
 
 // Agent display names and commands
-const AGENT_INFO: Record<string, { name: string; command: string }> = {
-  claude: { name: 'Claude', command: 'claude' },
-  codex: { name: 'Codex', command: 'codex' },
-  droid: { name: 'Droid', command: 'droid' },
-  gemini: { name: 'Gemini', command: 'gemini' },
-  auggie: { name: 'Auggie', command: 'auggie' },
-  cursor: { name: 'Cursor', command: 'cursor-agent' },
-  opencode: { name: 'OpenCode', command: 'opencode' },
-};
+const AGENT_INFO: Record<string, { name: string; command: string }> = Object.fromEntries(
+  BUILTIN_AGENT_IDS.map((id) => [
+    id,
+    {
+      name: BUILTIN_AGENT_CATALOG[id].name,
+      command: BUILTIN_AGENT_CATALOG[id].command,
+    },
+  ])
+) as Record<string, { name: string; command: string }>;
 
 interface SessionLaunchPolicyDialogState {
   agentId: string;
   agentCommand: string;
   agentLabel: string;
-  targetGroupId?: string;
+  target?: AgentSessionLaunchTarget;
   initialPolicy?: ClaudePolicyConfig | null;
 }
 
@@ -499,22 +528,27 @@ export function AgentPanel({
   repoPath,
   cwd,
   isActive = false,
+  isCurrentWorktreePanel = true,
   canvasRecenterOnActivateToken = 0,
+  canvasRecenterWorktreePath = null,
   canvasFocusOnActivateToken = 0,
   canvasFocusSessionId = null,
+  workspaceCanvasWorktrees = [],
 }: AgentPanelProps) {
   const { t } = useI18n();
   const platform = getRendererEnvironment().platform;
   const isWindows = platform === 'win32';
-  const panelRef = useRef<HTMLDivElement>(null); // 容器引用
+  const panelRef = useRef<HTMLDivElement>(null); // Container ref
   const canvasViewportRef = useRef<HTMLDivElement>(null);
   const canvasPanStateRef = useRef<CanvasPanState>(createInitialCanvasPanState());
   const canvasWheelZoomStateRef = useRef<CanvasWheelZoomState>(createInitialCanvasWheelZoomState());
   const canvasSessionContentHostByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const canvasWorktreeGroupElementByKeyRef = useRef<Map<string, HTMLElement>>(new Map());
   const canvasViewportPositionByWorktreeRef = useRef<Record<string, CanvasViewportPosition>>({});
   const canvasViewportSnapshotByWorktreeRef = useRef<Record<string, CanvasViewportSnapshot>>({});
   const canvasViewportRestoreReadyWorktreeKeyRef = useRef<string | null>(null);
   const lastHandledCanvasFocusRequestTokenRef = useRef<number | null>(null);
+  const lastHandledWorkspaceCanvasRecenterTokenRef = useRef<number | null>(null);
   const lastCanvasZoomStorageKeyRef = useRef<string | null>(null);
   const lastCanvasZoomByWorktreeRef = useRef<Record<string, number>>({});
   const spacePressedRef = useRef(false);
@@ -526,7 +560,7 @@ export function AgentPanel({
     hapiSettings,
     autoCreateSessionOnActivate,
     autoCreateSessionOnTempActivate,
-    claudeCodeIntegration,
+    agentIntegration,
     terminalTheme,
     fontFamily,
     fontSize,
@@ -536,7 +570,7 @@ export function AgentPanel({
     confirmBeforeClosingAgentSession,
     quickTerminalEnabled,
     quickTerminalOpen,
-    setClaudeCodeIntegration,
+    setAgentIntegration,
     setQuickTerminalOpen,
   } = useSettingsStore(
     useShallow((state) => ({
@@ -547,7 +581,7 @@ export function AgentPanel({
       hapiSettings: state.hapiSettings,
       autoCreateSessionOnActivate: state.autoCreateSessionOnActivate,
       autoCreateSessionOnTempActivate: state.autoCreateSessionOnTempActivate,
-      claudeCodeIntegration: state.claudeCodeIntegration,
+      agentIntegration: state.agentIntegration,
       terminalTheme: state.terminalTheme,
       fontFamily: state.fontFamily,
       fontSize: state.fontSize,
@@ -557,7 +591,7 @@ export function AgentPanel({
       confirmBeforeClosingAgentSession: state.confirmBeforeClosingAgentSession,
       quickTerminalEnabled: state.quickTerminal.enabled ?? true,
       quickTerminalOpen: state.quickTerminal.isOpen,
-      setClaudeCodeIntegration: state.setClaudeCodeIntegration,
+      setAgentIntegration: state.setAgentIntegration,
       setQuickTerminalOpen: state.setQuickTerminalOpen,
     }))
   );
@@ -568,17 +602,16 @@ export function AgentPanel({
   const [isEnablingSessionPersistence, setIsEnablingSessionPersistence] = useState(false);
   const [isCanvasPanning, setIsCanvasPanning] = useState(false);
 
-  // 用于强制重新创建 QuickTerminalModal 的 key
-  // 当功能被禁用再启用时递增，确保创建全新的 terminal
+  // Forces QuickTerminalModal to recreate after the feature is re-enabled.
   const [quickTerminalMountKey, setQuickTerminalMountKey] = useState(0);
   const prevQuickTerminalEnabled = useRef(quickTerminalEnabled);
   useEffect(() => {
     if (quickTerminalEnabled && !prevQuickTerminalEnabled.current) {
-      // 功能从禁用变为启用，递增 key 强制重新创建
+      // Recreate the terminal when the feature changes from disabled to enabled.
       setQuickTerminalMountKey((k) => k + 1);
     }
     if (!quickTerminalEnabled && prevQuickTerminalEnabled.current) {
-      // 功能从启用变为禁用，清理 session
+      // Clean up the session when the feature changes from enabled to disabled.
       if (currentQuickTerminalSession) {
         window.electronAPI.session.kill(currentQuickTerminalSession).catch(console.error);
       }
@@ -598,7 +631,7 @@ export function AgentPanel({
     if (backgroundImageEnabled) return 'transparent';
     return getXtermTheme(terminalTheme)?.background ?? defaultDarkTheme.background;
   }, [backgroundImageEnabled, terminalTheme]);
-  const statusLineEnabled = claudeCodeIntegration.statusLineEnabled;
+  const statusLineEnabled = agentIntegration.statusLineEnabled;
   const defaultAgentId = useMemo(() => getDefaultAgentId(agentSettings), [agentSettings]);
   const isRemoteRepo = useMemo(() => isRemoteVirtualPath(repoPath), [repoPath]);
   const { setAgentCount, registerAgentCloseHandler } = useWorktreeActivityStore();
@@ -624,15 +657,15 @@ export function AgentPanel({
 
   const handleQuickTerminalSessionInit = useCallback(
     (sessionId: string) => {
-      // 总是更新 session，覆盖可能存在的旧记录（对应已销毁的 PTY）
+      // Always replace stale records that may point at a destroyed PTY.
       setQuickTerminalSession(cwd, sessionId);
     },
     [cwd, setQuickTerminalSession]
   );
 
-  // 监听终端会话状态
+  // Track terminal session state.
   useEffect(() => {
-    // 只要有 session 存在就认为是 active（有 PTY 在运行）
+    // A recorded session means there is an active PTY.
     setHasRunningProcess(!!currentQuickTerminalSession);
   }, [currentQuickTerminalSession]);
 
@@ -702,12 +735,12 @@ export function AgentPanel({
       }
       const inputState = getEnhancedInputState(sessionId);
       return (
-        claudeCodeIntegration.enhancedInputEnabled ||
+        agentIntegration.enhancedInputEnabled ||
         inputState.open ||
         inputState.attachments.length > 0
       );
     },
-    [allSessions, claudeCodeIntegration.enhancedInputEnabled, getEnhancedInputState]
+    [allSessions, agentIntegration.enhancedInputEnabled, getEnhancedInputState]
   );
 
   // Group states from store (persists across component remounts)
@@ -739,25 +772,25 @@ export function AgentPanel({
       isSessionPersistenceEnabledForHost({
         cwd,
         platform,
-        tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
+        tmuxEnabled: agentIntegration.tmuxEnabled,
       }),
-    [cwd, platform, claudeCodeIntegration.tmuxEnabled]
+    [cwd, platform, agentIntegration.tmuxEnabled]
   );
   const showSessionPersistenceNotice = useMemo(
     () =>
       shouldShowSessionPersistenceNotice({
         isRemoteRepo,
         platform,
-        tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
+        tmuxEnabled: agentIntegration.tmuxEnabled,
         tmuxInstalled,
       }),
-    [claudeCodeIntegration.tmuxEnabled, isRemoteRepo, platform, tmuxInstalled]
+    [agentIntegration.tmuxEnabled, isRemoteRepo, platform, tmuxInstalled]
   );
 
   useEffect(() => {
     let cancelled = false;
 
-    if (isRemoteRepo || isWindows || claudeCodeIntegration.tmuxEnabled) {
+    if (isRemoteRepo || isWindows || agentIntegration.tmuxEnabled) {
       setTmuxInstalled(null);
       return () => {
         cancelled = true;
@@ -783,7 +816,7 @@ export function AgentPanel({
     return () => {
       cancelled = true;
     };
-  }, [claudeCodeIntegration.tmuxEnabled, isRemoteRepo, isWindows, repoPath]);
+  }, [agentIntegration.tmuxEnabled, isRemoteRepo, isWindows, repoPath]);
 
   const handleEnableSessionPersistence = useCallback(() => {
     setIsEnablingSessionPersistence(true);
@@ -802,7 +835,7 @@ export function AgentPanel({
         }
 
         setTmuxInstalled(true);
-        setClaudeCodeIntegration({ tmuxEnabled: true });
+        setAgentIntegration({ tmuxEnabled: true });
         toastManager.add({
           type: 'success',
           title: t('Tmux Session'),
@@ -821,7 +854,7 @@ export function AgentPanel({
       .finally(() => {
         setIsEnablingSessionPersistence(false);
       });
-  }, [repoPath, setClaudeCodeIntegration, t]);
+  }, [repoPath, setAgentIntegration, t]);
 
   const pauseQuickTerminalFocusLock = useCallback(() => {
     if (quickTerminalFocusLeaseRef.current.release) return;
@@ -843,9 +876,8 @@ export function AgentPanel({
 
     if (!shouldRestore || !pausedSessionId) return;
 
-    // 关闭覆盖层后，需要先等本轮状态提交和 overlay 卸载完成，
-    // 再等下一帧让浏览器完成焦点结算，否则 restore 时 isFocusLocked()
-    // 仍可能读取到旧的 pause 状态，导致恢复被短路。
+    // Wait for state commit, overlay unmount, and browser focus settlement before restoring.
+    // Otherwise restore can still read the previous paused lock state and no-op.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         restoreFocusIfLocked(pausedSessionId);
@@ -889,10 +921,10 @@ export function AgentPanel({
       window.electronAPI.session.kill(currentQuickTerminalSession).catch(console.error);
     }
 
-    // 关闭 modal
+    // Close the modal.
     setQuickTerminalOpen(false);
 
-    // 清除 session 记录
+    // Clear the session record.
     if (currentQuickTerminalSession) {
       removeQuickTerminalSession(cwd);
     }
@@ -975,13 +1007,73 @@ export function AgentPanel({
       .filter((session) => matchesAgentSessionScope(session, repoPath, cwd))
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
   }, [allSessions, repoPath, cwd]);
+  const shouldSuppressWorkspaceCanvasPanel =
+    agentSessionDisplayMode === 'global-canvas' && !isCurrentWorktreePanel;
+  const isWorkspaceCanvasDisplayMode =
+    agentSessionDisplayMode === 'global-canvas' && isCurrentWorktreePanel;
+  const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas' || isWorkspaceCanvasDisplayMode;
+  const agentSessionActiveIds = useAgentSessionsStore((state) => state.activeIds);
+  const todoTasks = useTodoStore((state) => selectTasks(state, repoPath));
+  const agentSessionControlInventory = useMemo(() => {
+    return buildAgentSessionInventory({
+      activeIds: agentSessionActiveIds,
+      filters: isWorkspaceCanvasDisplayMode ? { repoPath } : { repoPath, cwd },
+      runtimeStates: sessionRuntimeStates,
+      sessions: allSessions,
+      tasks: todoTasks,
+    });
+  }, [
+    agentSessionActiveIds,
+    allSessions,
+    cwd,
+    isWorkspaceCanvasDisplayMode,
+    repoPath,
+    sessionRuntimeStates,
+    todoTasks,
+  ]);
+  const agentSessionControlScopeLabel = useMemo(() => {
+    if (isWorkspaceCanvasDisplayMode) {
+      return t('Repository workspace');
+    }
+    const agentSessionControlWorktreePath = cwd;
+    const worktreeLabel =
+      getDisplayPathBasename(agentSessionControlWorktreePath) || agentSessionControlWorktreePath;
+    return t('Current worktree: {{name}}', { name: worktreeLabel });
+  }, [cwd, isWorkspaceCanvasDisplayMode, t]);
+  const canvasSessionGroups = useMemo(
+    () =>
+      resolveAgentCanvasSessionGroups({
+        currentWorktreePath: cwd,
+        repoPath,
+        scope: isWorkspaceCanvasDisplayMode ? 'workspace' : 'worktree',
+        sessions: allSessions,
+        worktrees: workspaceCanvasWorktrees,
+      }),
+    [allSessions, cwd, isWorkspaceCanvasDisplayMode, repoPath, workspaceCanvasWorktrees]
+  );
+  const canvasSessions = useMemo(
+    () => canvasSessionGroups.flatMap((group) => group.sessions),
+    [canvasSessionGroups]
+  );
+  const canvasSessionIds = useMemo(
+    () => canvasSessions.map((session) => session.id),
+    [canvasSessions]
+  );
+  const subagentScopeSessions = useMemo(
+    () => (isWorkspaceCanvasDisplayMode ? canvasSessions : currentWorktreeSessions),
+    [canvasSessions, currentWorktreeSessions, isWorkspaceCanvasDisplayMode]
+  );
+  const subagentScopeSessionIds = useMemo(
+    () => subagentScopeSessions.map((session) => session.id),
+    [subagentScopeSessions]
+  );
   const currentWorktreeSessionIds = useMemo(
     () => currentWorktreeSessions.map((session) => session.id),
     [currentWorktreeSessions]
   );
   const sessionSubagentViewStateBySessionId = useMemo(() => {
     return Object.fromEntries(
-      currentWorktreeSessions.map((session) => [
+      subagentScopeSessions.map((session) => [
         session.id,
         resolveSessionSubagentViewState({
           agentId: session.agentId,
@@ -993,28 +1085,28 @@ export function AgentPanel({
         }),
       ])
     );
-  }, [currentWorktreeSessions]);
+  }, [subagentScopeSessions]);
   const shouldPollSessionSubagents =
     isActive &&
-    currentWorktreeSessions.some(
+    subagentScopeSessions.some(
       (session) => sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported'
     );
   const sessionSubagentPollTargets = useMemo(
     () =>
-      currentWorktreeSessions.map((session) => ({
+      subagentScopeSessions.map((session) => ({
         sessionId: session.id,
         cwd: session.cwd,
         providerSessionId: session.sessionId,
         enabled: sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported',
       })),
-    [currentWorktreeSessions, sessionSubagentViewStateBySessionId]
+    [subagentScopeSessions, sessionSubagentViewStateBySessionId]
   );
   const { itemsBySessionId: sessionScopedSubagentsBySessionId } = useSessionSubagentsBySession({
     enabled: shouldPollSessionSubagents,
     targets: sessionSubagentPollTargets,
   });
   useEffect(() => {
-    const activeSessionIdSet = new Set(currentWorktreeSessionIds);
+    const activeSessionIdSet = new Set(subagentScopeSessionIds);
 
     setOpenSessionSubagentInspectorId((current) =>
       current && activeSessionIdSet.has(current) ? current : null
@@ -1049,7 +1141,7 @@ export function AgentPanel({
 
       return changed ? next : current;
     });
-  }, [currentWorktreeSessionIds]);
+  }, [subagentScopeSessionIds]);
   const handleSessionInspectorSubagentsChange = useCallback(
     (sessionId: string, subagents: LiveAgentSubagent[]) => {
       setInspectorSubagentsBySessionId((current) => {
@@ -1076,7 +1168,20 @@ export function AgentPanel({
     },
     []
   );
+  const sessionPlacementById = useMemo(
+    () => buildAgentSessionPlacementIndex(worktreeGroupStates),
+    [worktreeGroupStates]
+  );
   const currentGroupIdBySessionId = useMemo(() => {
+    if (isWorkspaceCanvasDisplayMode) {
+      return new Map(
+        Array.from(sessionPlacementById.entries(), ([sessionId, placement]) => [
+          sessionId,
+          placement.groupId,
+        ])
+      );
+    }
+
     const groupIds = new Map<string, string>();
     for (const group of currentGroupState.groups) {
       for (const sessionId of group.sessionIds) {
@@ -1084,25 +1189,25 @@ export function AgentPanel({
       }
     }
     return groupIds;
-  }, [currentGroupState.groups]);
+  }, [currentGroupState.groups, isWorkspaceCanvasDisplayMode, sessionPlacementById]);
+  const [workspaceCanvasFocusedSessionId, setWorkspaceCanvasFocusedSessionId] = useState<
+    string | null
+  >(null);
   const canvasFocusedSessionId = useMemo(() => {
-    if (
-      persistedActiveSessionId &&
-      currentWorktreeSessions.some((session) => session.id === persistedActiveSessionId)
-    ) {
-      return persistedActiveSessionId;
-    }
-
-    const groupActiveSessionId = getCurrentActiveSessionId();
-    if (
-      groupActiveSessionId &&
-      currentWorktreeSessions.some((session) => session.id === groupActiveSessionId)
-    ) {
-      return groupActiveSessionId;
-    }
-
-    return currentWorktreeSessions[0]?.id ?? null;
-  }, [currentWorktreeSessions, getCurrentActiveSessionId, persistedActiveSessionId]);
+    return resolveAgentCanvasFocusedSessionId({
+      canvasSessionIds,
+      groupActiveSessionId: getCurrentActiveSessionId(),
+      isWorkspaceCanvasDisplayMode,
+      persistedActiveSessionId,
+      workspaceCanvasFocusedSessionId,
+    });
+  }, [
+    canvasSessionIds,
+    getCurrentActiveSessionId,
+    isWorkspaceCanvasDisplayMode,
+    persistedActiveSessionId,
+    workspaceCanvasFocusedSessionId,
+  ]);
   const [canvasZoomByWorktree, setCanvasZoomByWorktree] = useState<Record<string, number>>({});
   const [canvasLockedByWorktree, setCanvasLockedByWorktree] = useState<Record<string, boolean>>({});
   const [canvasFloatingSessionIdByWorktree, setCanvasFloatingSessionIdByWorktree] = useState<
@@ -1116,20 +1221,28 @@ export function AgentPanel({
   } | null>(null);
   const [canvasViewportWidth, setCanvasViewportWidth] = useState<number | null>(null);
   const canvasColumnCount = useMemo(
-    () => resolveAgentCanvasColumnCount(currentWorktreeSessions.length, canvasViewportWidth),
-    [canvasViewportWidth, currentWorktreeSessions.length]
+    () => resolveAgentCanvasColumnCount(canvasSessions.length, canvasViewportWidth),
+    [canvasSessions.length, canvasViewportWidth]
   );
   const canvasTileColumnSpanBySessionId = useMemo(() => {
     const spans = new Map<string, number>();
-    currentWorktreeSessions.forEach((session, index) => {
-      spans.set(
-        session.id,
-        resolveAgentCanvasTileColumnSpan(currentWorktreeSessions.length, index, canvasColumnCount)
-      );
-    });
+    for (const group of canvasSessionGroups) {
+      const groupColumnCount = isWorkspaceCanvasDisplayMode
+        ? resolveAgentCanvasWorkspaceColumnCount(group.sessions.length, canvasViewportWidth)
+        : canvasColumnCount;
+      group.sessions.forEach((session, index) => {
+        spans.set(
+          session.id,
+          resolveAgentCanvasTileColumnSpan(group.sessions.length, index, groupColumnCount)
+        );
+      });
+    }
     return spans;
-  }, [canvasColumnCount, currentWorktreeSessions]);
-  const canvasZoomStorageKey = useMemo(() => normalizePath(cwd), [cwd]);
+  }, [canvasColumnCount, canvasSessionGroups, canvasViewportWidth, isWorkspaceCanvasDisplayMode]);
+  const canvasZoomStorageKey = useMemo(
+    () => (isWorkspaceCanvasDisplayMode ? 'workspace' : normalizePath(cwd)),
+    [cwd, isWorkspaceCanvasDisplayMode]
+  );
   const canvasZoom = useMemo(
     () => canvasZoomByWorktree[canvasZoomStorageKey] ?? AGENT_CANVAS_ZOOM_DEFAULT,
     [canvasZoomByWorktree, canvasZoomStorageKey]
@@ -1173,17 +1286,28 @@ export function AgentPanel({
     () => resolveAgentCanvasZoomTerminalFontScale(canvasZoom),
     [canvasZoom]
   );
-  const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas';
+  const subagentScopeWorktreePaths = useMemo(() => {
+    const paths = new Map<string, string>();
+    for (const session of subagentScopeSessions) {
+      const normalizedPath = normalizePath(session.cwd);
+      if (!paths.has(normalizedPath)) {
+        paths.set(normalizedPath, session.cwd);
+      }
+    }
+    return Array.from(paths.values());
+  }, [subagentScopeSessions]);
   const shouldPollLiveSubagents =
     isActive &&
-    currentWorktreeSessions.some((session) =>
+    subagentScopeSessions.some((session) =>
       supportsSessionSubagentTracking(session.agentId, session.agentCommand)
     );
-  const liveSubagentsByWorktree = useLiveSubagents(shouldPollLiveSubagents ? [cwd] : []);
+  const liveSubagentsByWorktree = useLiveSubagents(
+    shouldPollLiveSubagents ? subagentScopeWorktreePaths : []
+  );
   const trackableSessionCountByWorktree = useMemo(() => {
     const counts = new Map<string, number>();
 
-    for (const session of currentWorktreeSessions) {
+    for (const session of subagentScopeSessions) {
       if (!supportsSessionSubagentTracking(session.agentId, session.agentCommand)) {
         continue;
       }
@@ -1193,10 +1317,10 @@ export function AgentPanel({
     }
 
     return counts;
-  }, [currentWorktreeSessions]);
+  }, [subagentScopeSessions]);
   const displayedSessionSubagentsBySessionId = useMemo(() => {
     return Object.fromEntries(
-      currentWorktreeSessions.map((session) => {
+      subagentScopeSessions.map((session) => {
         const normalizedSessionCwd = normalizePath(session.cwd);
         const sessionWorktreeSubagents = liveSubagentsByWorktree.get(normalizedSessionCwd) ?? [];
         const displayableSessionSubagents = getDisplayableSessionSubagents({
@@ -1219,15 +1343,15 @@ export function AgentPanel({
       })
     );
   }, [
-    currentWorktreeSessions,
     inspectorSubagentsBySessionId,
     liveSubagentsByWorktree,
     sessionScopedSubagentsBySessionId,
+    subagentScopeSessions,
     trackableSessionCountByWorktree,
   ]);
   const sessionSubagentTriggerPresentationBySessionId = useMemo(() => {
     return Object.fromEntries(
-      currentWorktreeSessions.map((session) => [
+      subagentScopeSessions.map((session) => [
         session.id,
         resolveSessionSubagentTriggerPresentation(
           sessionSubagentViewStateBySessionId[session.id],
@@ -1236,9 +1360,9 @@ export function AgentPanel({
       ])
     );
   }, [
-    currentWorktreeSessions,
     displayedSessionSubagentsBySessionId,
     sessionSubagentViewStateBySessionId,
+    subagentScopeSessions,
   ]);
   useEffect(() => {
     setOpenSessionSubagentInspectorId((current) => {
@@ -1400,6 +1524,10 @@ export function AgentPanel({
   }, [cleanupRemovedPersistentRecord, persistableSessions]);
 
   useEffect(() => {
+    if (isWorkspaceCanvasDisplayMode) {
+      return;
+    }
+
     void restoreWorktreeAgentSessions({
       repoPath,
       cwd,
@@ -1409,7 +1537,7 @@ export function AgentPanel({
     }).catch((error) => {
       console.error('[AgentPanel] Failed to restore worktree sessions', error);
     });
-  }, [cwd, repoPath, updateGroupState, upsertRecoveredSession]);
+  }, [cwd, isWorkspaceCanvasDisplayMode, repoPath, updateGroupState, upsertRecoveredSession]);
 
   // Sync activeIds from store to group state when changed externally (e.g., from RunningProjectsPopover)
   useEffect(() => {
@@ -1639,7 +1767,7 @@ export function AgentPanel({
   ]);
 
   const ensureAgentLaunchable = useCallback(
-    async (agentId: string) => {
+    async (agentId: string, targetRepoPath = repoPath) => {
       if (!isRemoteRepo) {
         return true;
       }
@@ -1655,9 +1783,14 @@ export function AgentPanel({
           },
           {
             detectCli: (nextAgentId, customAgent, customPath) =>
-              window.electronAPI.cli.detectOne(repoPath, nextAgentId, customAgent, customPath),
-            checkHapi: () => window.electronAPI.hapi.checkGlobal(repoPath, false),
-            checkHappy: () => window.electronAPI.happy.checkGlobal(repoPath, false),
+              window.electronAPI.cli.detectOne(
+                targetRepoPath,
+                nextAgentId,
+                customAgent,
+                customPath
+              ),
+            checkHapi: () => window.electronAPI.hapi.checkGlobal(targetRepoPath, false),
+            checkHappy: () => window.electronAPI.happy.checkGlobal(targetRepoPath, false),
           }
         );
 
@@ -1726,17 +1859,58 @@ export function AgentPanel({
     ]
   );
 
+  const addSessionToGroup = useCallback(
+    (worktreePath: string, sessionId: string, targetGroupId?: string) => {
+      updateGroupState(worktreePath, (state) => {
+        const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
+        if (!groupId) {
+          const newGroup: AgentGroupType = {
+            id: crypto.randomUUID(),
+            sessionIds: [sessionId],
+            activeSessionId: sessionId,
+          };
+          return {
+            groups: [newGroup],
+            activeGroupId: newGroup.id,
+            flexPercents: [100],
+          };
+        }
+
+        return {
+          ...state,
+          groups: state.groups.map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  sessionIds: [...group.sessionIds, sessionId],
+                  activeSessionId: sessionId,
+                }
+              : group
+          ),
+        };
+      });
+    },
+    [updateGroupState]
+  );
+
   // Handle new session in active group
   const handleNewSession = useCallback(
-    (targetGroupId?: string, sessionOverrides: Partial<Session> = {}) => {
+    (target?: string | AgentSessionLaunchTarget, sessionOverrides: Partial<Session> = {}) => {
       void (async () => {
-        if (!(await ensureAgentLaunchable(defaultAgentId))) {
+        const launchTarget = resolveAgentSessionLaunchTarget({
+          currentRepoPath: repoPath,
+          currentWorktreePath: cwd,
+          sessionOverrides,
+          target,
+        });
+
+        if (!(await ensureAgentLaunchable(defaultAgentId, launchTarget.repoPath))) {
           return;
         }
 
         const newSession = createSessionWithOverrides(
-          repoPath,
-          cwd,
+          launchTarget.repoPath,
+          launchTarget.worktreePath,
           defaultAgentId,
           customAgents,
           agentSettings,
@@ -1746,44 +1920,20 @@ export function AgentPanel({
         addSession(newSession);
 
         const baseAgentId = defaultAgentId.replace(/-hapi$/, '').replace(/-happy$/, '');
-        const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
+        const autoPopupMode = agentIntegration.enhancedInputAutoPopup;
         if (
           baseAgentId === 'claude' &&
           !supportsAgentNativeTerminalInput(defaultAgentId) &&
-          claudeCodeIntegration.enhancedInputEnabled &&
+          agentIntegration.enhancedInputEnabled &&
           (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
         ) {
           setEnhancedInputOpen(newSession.id, true);
         }
 
-        updateCurrentGroupState((state) => {
-          const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
-          if (!groupId) {
-            const newGroup: AgentGroupType = {
-              id: crypto.randomUUID(),
-              sessionIds: [newSession.id],
-              activeSessionId: newSession.id,
-            };
-            return {
-              groups: [newGroup],
-              activeGroupId: newGroup.id,
-              flexPercents: [100],
-            };
-          }
-
-          return {
-            ...state,
-            groups: state.groups.map((g) =>
-              g.id === groupId
-                ? {
-                    ...g,
-                    sessionIds: [...g.sessionIds, newSession.id],
-                    activeSessionId: newSession.id,
-                  }
-                : g
-            ),
-          };
-        });
+        addSessionToGroup(launchTarget.worktreePath, newSession.id, launchTarget.groupId);
+        if (isWorkspaceCanvasDisplayMode) {
+          setWorkspaceCanvasFocusedSessionId(newSession.id);
+        }
       })();
     },
     [
@@ -1794,11 +1944,12 @@ export function AgentPanel({
       agentSettings,
       sessionPersistenceEnabled,
       addSession,
-      updateCurrentGroupState,
-      claudeCodeIntegration.enhancedInputEnabled,
-      claudeCodeIntegration.enhancedInputAutoPopup,
+      addSessionToGroup,
+      agentIntegration.enhancedInputEnabled,
+      agentIntegration.enhancedInputAutoPopup,
       setEnhancedInputOpen,
       ensureAgentLaunchable,
+      isWorkspaceCanvasDisplayMode,
     ]
   );
 
@@ -1806,17 +1957,24 @@ export function AgentPanel({
     (
       agentId: string,
       _agentCommand: string,
-      targetGroupId?: string,
+      target?: string | AgentSessionLaunchTarget,
       sessionOverrides: Partial<Session> = {}
     ) => {
       void (async () => {
-        if (!(await ensureAgentLaunchable(agentId))) {
+        const launchTarget = resolveAgentSessionLaunchTarget({
+          currentRepoPath: repoPath,
+          currentWorktreePath: cwd,
+          sessionOverrides,
+          target,
+        });
+
+        if (!(await ensureAgentLaunchable(agentId, launchTarget.repoPath))) {
           return;
         }
 
         const newSession = createSessionWithOverrides(
-          repoPath,
-          cwd,
+          launchTarget.repoPath,
+          launchTarget.worktreePath,
           agentId,
           customAgents,
           agentSettings,
@@ -1826,44 +1984,20 @@ export function AgentPanel({
         addSession(newSession);
 
         const baseId = agentId.replace(/-hapi$/, '').replace(/-happy$/, '');
-        const autoPopupMode = claudeCodeIntegration.enhancedInputAutoPopup;
+        const autoPopupMode = agentIntegration.enhancedInputAutoPopup;
         if (
           baseId === 'claude' &&
           !supportsAgentNativeTerminalInput(agentId) &&
-          claudeCodeIntegration.enhancedInputEnabled &&
+          agentIntegration.enhancedInputEnabled &&
           (autoPopupMode === 'always' || autoPopupMode === 'hideWhileRunning')
         ) {
           setEnhancedInputOpen(newSession.id, true);
         }
 
-        updateCurrentGroupState((state) => {
-          const groupId = targetGroupId || state.activeGroupId || state.groups[0]?.id;
-          if (!groupId) {
-            const newGroup: AgentGroupType = {
-              id: crypto.randomUUID(),
-              sessionIds: [newSession.id],
-              activeSessionId: newSession.id,
-            };
-            return {
-              groups: [newGroup],
-              activeGroupId: newGroup.id,
-              flexPercents: [100],
-            };
-          }
-
-          return {
-            ...state,
-            groups: state.groups.map((g) =>
-              g.id === groupId
-                ? {
-                    ...g,
-                    sessionIds: [...g.sessionIds, newSession.id],
-                    activeSessionId: newSession.id,
-                  }
-                : g
-            ),
-          };
-        });
+        addSessionToGroup(launchTarget.worktreePath, newSession.id, launchTarget.groupId);
+        if (isWorkspaceCanvasDisplayMode) {
+          setWorkspaceCanvasFocusedSessionId(newSession.id);
+        }
       })();
     },
     [
@@ -1873,21 +2007,22 @@ export function AgentPanel({
       agentSettings,
       sessionPersistenceEnabled,
       addSession,
-      updateCurrentGroupState,
+      addSessionToGroup,
       ensureAgentLaunchable,
-      claudeCodeIntegration.enhancedInputEnabled,
-      claudeCodeIntegration.enhancedInputAutoPopup,
+      agentIntegration.enhancedInputEnabled,
+      agentIntegration.enhancedInputAutoPopup,
       setEnhancedInputOpen,
+      isWorkspaceCanvasDisplayMode,
     ]
   );
 
   const handleOpenSessionLaunchOptions = useCallback(
-    (agentId: string, agentCommand: string, targetGroupId?: string) => {
+    (agentId: string, agentCommand: string, target?: string | AgentSessionLaunchTarget) => {
       setSessionLaunchPolicyDialog({
         agentId,
         agentCommand,
         agentLabel: getAgentDisplayLabel(agentId, customAgents),
-        targetGroupId,
+        target: typeof target === 'string' ? { groupId: target } : target,
       });
     },
     [customAgents]
@@ -1902,7 +2037,7 @@ export function AgentPanel({
       handleNewSessionWithAgent(
         sessionLaunchPolicyDialog.agentId,
         sessionLaunchPolicyDialog.agentCommand,
-        sessionLaunchPolicyDialog.targetGroupId,
+        sessionLaunchPolicyDialog.target,
         {
           claudeSessionPolicy: policy,
         }
@@ -1956,10 +2091,19 @@ export function AgentPanel({
           openFiles,
         });
 
-        handleNewSessionWithAgent(session.agentId, session.agentCommand, groupId, {
-          activated: true,
-          pendingCommand: handoffPrompt,
-        });
+        handleNewSessionWithAgent(
+          session.agentId,
+          session.agentCommand,
+          {
+            groupId,
+            repoPath: session.repoPath,
+            worktreePath: session.cwd,
+          },
+          {
+            activated: true,
+            pendingCommand: handoffPrompt,
+          }
+        );
       })();
     },
     [currentWorktreeAgentStatuses, getOpenFilePathsForWorktree, handleNewSessionWithAgent]
@@ -1971,7 +2115,7 @@ export function AgentPanel({
     }
 
     const target = findAutoSessionRolloverTarget({
-      mode: claudeCodeIntegration.autoSessionRollover,
+      mode: agentIntegration.autoSessionRollover,
       groupState: currentGroupState,
       sessions: currentWorktreeSessions,
       statuses: currentWorktreeAgentStatuses,
@@ -1988,15 +2132,18 @@ export function AgentPanel({
     currentGroupState,
     currentWorktreeSessions,
     currentWorktreeAgentStatuses,
-    claudeCodeIntegration.autoSessionRollover,
+    agentIntegration.autoSessionRollover,
     handleStartFreshSession,
   ]);
 
   const removeSessionFromUi = useCallback(
     (id: string, groupId?: string) => {
+      const session = allSessions.find((item) => item.id === id);
+      const targetCwd = isWorkspaceCanvasDisplayMode ? (session?.cwd ?? cwd) : cwd;
+
       removeSession(id);
 
-      updateCurrentGroupState((state) => {
+      updateGroupState(targetCwd, (state) => {
         const targetGroupId = groupId || state.groups.find((g) => g.sessionIds.includes(id))?.id;
         if (!targetGroupId) return state;
 
@@ -2045,7 +2192,7 @@ export function AgentPanel({
         };
       });
     },
-    [removeSession, updateCurrentGroupState]
+    [allSessions, cwd, isWorkspaceCanvasDisplayMode, removeSession, updateGroupState]
   );
 
   const handleCloseSessionNow = useCallback(
@@ -2102,6 +2249,19 @@ export function AgentPanel({
     },
     [markSessionExited]
   );
+  const setCanvasWorktreeGroupElement = useCallback(
+    (groupKey: string, element: HTMLElement | null) => {
+      const normalizedGroupKey = normalizePath(groupKey);
+
+      if (element) {
+        canvasWorktreeGroupElementByKeyRef.current.set(normalizedGroupKey, element);
+        return;
+      }
+
+      canvasWorktreeGroupElementByKeyRef.current.delete(normalizedGroupKey);
+    },
+    []
+  );
   const readCanvasSessionFocusTarget = useCallback(
     (
       id: string,
@@ -2118,16 +2278,39 @@ export function AgentPanel({
       }
 
       const sessionPanelRect = sessionPanel.getBoundingClientRect();
-      if (sessionPanelRect.width <= 0 || sessionPanelRect.height <= 0) {
+      return resolveAgentCanvasElementFocusTarget({
+        elementRect: sessionPanelRect,
+        scrollLeft: viewport.scrollLeft,
+        scrollTop: viewport.scrollTop,
+        viewportRect,
+      });
+    },
+    []
+  );
+  const readCanvasWorktreeGroupFocusTarget = useCallback(
+    (
+      groupKey: string,
+      viewportRect: DOMRect | Pick<DOMRect, 'left' | 'top'>
+    ): AgentCanvasFocusTarget | null => {
+      const viewport = canvasViewportRef.current;
+      if (!viewport) {
         return null;
       }
 
-      return {
-        height: sessionPanelRect.height,
-        left: viewport.scrollLeft + sessionPanelRect.left - viewportRect.left,
-        top: viewport.scrollTop + sessionPanelRect.top - viewportRect.top,
-        width: sessionPanelRect.width,
-      };
+      const normalizedGroupKey = normalizePath(groupKey);
+      const worktreeGroupElement =
+        canvasWorktreeGroupElementByKeyRef.current.get(normalizedGroupKey);
+      if (!worktreeGroupElement || !worktreeGroupElement.isConnected) {
+        canvasWorktreeGroupElementByKeyRef.current.delete(normalizedGroupKey);
+        return null;
+      }
+
+      return resolveAgentCanvasElementFocusTarget({
+        elementRect: worktreeGroupElement.getBoundingClientRect(),
+        scrollLeft: viewport.scrollLeft,
+        scrollTop: viewport.scrollTop,
+        viewportRect,
+      });
     },
     []
   );
@@ -2174,13 +2357,68 @@ export function AgentPanel({
     },
     [canvasZoomStorageKey, isCanvasDisplayMode, isCanvasLocked, readCanvasSessionFocusTarget]
   );
+  const focusCanvasViewportOnWorktreeGroup = useCallback(
+    (targetRepoPath: string, worktreePath: string): boolean => {
+      if (!isWorkspaceCanvasDisplayMode || !isCanvasDisplayMode || isCanvasLocked) {
+        return false;
+      }
+
+      const viewport = canvasViewportRef.current;
+      if (!viewport) {
+        return false;
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const groupKey = buildAgentCanvasSessionGroupKey(targetRepoPath, worktreePath);
+      const focusTarget = readCanvasWorktreeGroupFocusTarget(groupKey, viewportRect);
+      if (!focusTarget) {
+        return false;
+      }
+
+      const nextPosition = resolveAgentCanvasFocusScrollPosition({
+        clientHeight: viewport.clientHeight,
+        clientWidth: viewport.clientWidth,
+        currentScrollLeft: viewport.scrollLeft,
+        currentScrollTop: viewport.scrollTop,
+        scrollHeight: viewport.scrollHeight,
+        scrollWidth: viewport.scrollWidth,
+        targetHeight: focusTarget.height,
+        targetLeft: focusTarget.left,
+        targetTop: focusTarget.top,
+        targetWidth: focusTarget.width,
+      });
+      viewport.scrollTo({
+        left: nextPosition.left,
+        top: nextPosition.top,
+        behavior: resolveAgentCanvasWorktreeGroupScrollBehavior(),
+      });
+      canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = nextPosition;
+      canvasViewportSnapshotByWorktreeRef.current[canvasZoomStorageKey] =
+        readCanvasViewportSnapshot(viewport);
+      canvasViewportRestoreReadyWorktreeKeyRef.current = canvasZoomStorageKey;
+      return true;
+    },
+    [
+      canvasZoomStorageKey,
+      isCanvasDisplayMode,
+      isCanvasLocked,
+      isWorkspaceCanvasDisplayMode,
+      readCanvasWorktreeGroupFocusTarget,
+    ]
+  );
 
   // Handle session selection
   const handleSelectSession = useCallback(
     (id: string, groupId?: string, options?: SelectSessionOptions) => {
-      setActiveId(cwd, id);
+      const targetSession = allSessions.find((session) => session.id === id);
+      const targetCwd = isWorkspaceCanvasDisplayMode ? (targetSession?.cwd ?? cwd) : cwd;
 
-      updateCurrentGroupState((state) => {
+      setActiveId(targetCwd, id);
+      if (isWorkspaceCanvasDisplayMode) {
+        setWorkspaceCanvasFocusedSessionId((current) => (current === id ? current : id));
+      }
+
+      updateGroupState(targetCwd, (state) => {
         const targetGroupId = groupId || state.groups.find((g) => g.sessionIds.includes(id))?.id;
         if (!targetGroupId) return state;
 
@@ -2197,7 +2435,23 @@ export function AgentPanel({
         focusCanvasViewportOnSession(id);
       }
     },
-    [cwd, focusCanvasViewportOnSession, setActiveId, updateCurrentGroupState]
+    [
+      allSessions,
+      cwd,
+      focusCanvasViewportOnSession,
+      isWorkspaceCanvasDisplayMode,
+      setActiveId,
+      updateGroupState,
+    ]
+  );
+
+  const handleFocusSessionFromControlCenter = useCallback(
+    (sessionId: string) => {
+      handleSelectSession(sessionId, currentGroupIdBySessionId.get(sessionId), {
+        focusCanvasViewport: isCanvasDisplayMode,
+      });
+    },
+    [currentGroupIdBySessionId, handleSelectSession, isCanvasDisplayMode]
   );
 
   // Enhanced input sender ref (unchanged)
@@ -2239,47 +2493,36 @@ export function AgentPanel({
     }));
   }, [groups, activeGroupId, cwd, setActiveId, updateCurrentGroupState]);
   const handleNextCanvasSession = useCallback(() => {
-    if (currentWorktreeSessions.length <= 1) {
+    if (canvasSessions.length <= 1) {
       return;
     }
 
-    const currentIndex = currentWorktreeSessions.findIndex(
+    const currentIndex = canvasSessions.findIndex(
       (session) => session.id === canvasFocusedSessionId
     );
     const baseIndex = currentIndex >= 0 ? currentIndex : 0;
-    const nextSession = currentWorktreeSessions[(baseIndex + 1) % currentWorktreeSessions.length];
+    const nextSession = canvasSessions[(baseIndex + 1) % canvasSessions.length];
 
     handleSelectSession(nextSession.id, currentGroupIdBySessionId.get(nextSession.id), {
       focusCanvasViewport: true,
     });
-  }, [
-    canvasFocusedSessionId,
-    currentGroupIdBySessionId,
-    currentWorktreeSessions,
-    handleSelectSession,
-  ]);
+  }, [canvasFocusedSessionId, canvasSessions, currentGroupIdBySessionId, handleSelectSession]);
   const handlePrevCanvasSession = useCallback(() => {
-    if (currentWorktreeSessions.length <= 1) {
+    if (canvasSessions.length <= 1) {
       return;
     }
 
-    const currentIndex = currentWorktreeSessions.findIndex(
+    const currentIndex = canvasSessions.findIndex(
       (session) => session.id === canvasFocusedSessionId
     );
     const baseIndex = currentIndex >= 0 ? currentIndex : 0;
-    const prevIndex =
-      baseIndex <= 0 ? currentWorktreeSessions.length - 1 : Math.max(baseIndex - 1, 0);
-    const prevSession = currentWorktreeSessions[prevIndex];
+    const prevIndex = baseIndex <= 0 ? canvasSessions.length - 1 : Math.max(baseIndex - 1, 0);
+    const prevSession = canvasSessions[prevIndex];
 
     handleSelectSession(prevSession.id, currentGroupIdBySessionId.get(prevSession.id), {
       focusCanvasViewport: true,
     });
-  }, [
-    canvasFocusedSessionId,
-    currentGroupIdBySessionId,
-    currentWorktreeSessions,
-    handleSelectSession,
-  ]);
+  }, [canvasFocusedSessionId, canvasSessions, currentGroupIdBySessionId, handleSelectSession]);
   const setCanvasZoomForCurrentWorktree = useCallback(
     (updater: number | ((current: number) => number)) => {
       setCanvasZoomByWorktree((prev) => {
@@ -2747,9 +2990,57 @@ export function AgentPanel({
     isActive,
     isCanvasDisplayMode,
     readCanvasViewportSnapshot,
-    recenterOnActivateToken: canvasRecenterOnActivateToken,
+    recenterOnActivateToken: isWorkspaceCanvasDisplayMode ? 0 : canvasRecenterOnActivateToken,
     viewportRef: canvasViewportRef,
   });
+  useEffect(() => {
+    if (
+      !isWorkspaceCanvasDisplayMode ||
+      !isCanvasDisplayMode ||
+      !isActive ||
+      canvasRecenterOnActivateToken <= 0
+    ) {
+      return;
+    }
+
+    if (lastHandledWorkspaceCanvasRecenterTokenRef.current === canvasRecenterOnActivateToken) {
+      return;
+    }
+
+    const targetRepoPath = repoPath;
+    const targetWorktreePath = canvasRecenterWorktreePath ?? cwd;
+    const targetGroupKey = buildAgentCanvasSessionGroupKey(targetRepoPath, targetWorktreePath);
+    const hasTargetGroup = canvasSessionGroups.some((group) => group.groupKey === targetGroupKey);
+    if (!hasTargetGroup) {
+      return;
+    }
+
+    let cancelled = false;
+    const frameId = requestAnimationFrame(() => {
+      if (cancelled) {
+        return;
+      }
+
+      if (focusCanvasViewportOnWorktreeGroup(targetRepoPath, targetWorktreePath)) {
+        lastHandledWorkspaceCanvasRecenterTokenRef.current = canvasRecenterOnActivateToken;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+    };
+  }, [
+    canvasRecenterOnActivateToken,
+    canvasRecenterWorktreePath,
+    canvasSessionGroups,
+    cwd,
+    focusCanvasViewportOnWorktreeGroup,
+    isActive,
+    isCanvasDisplayMode,
+    isWorkspaceCanvasDisplayMode,
+    repoPath,
+  ]);
   useEffect(() => {
     if (
       !isCanvasDisplayMode ||
@@ -2765,6 +3056,9 @@ export function AgentPanel({
     }
 
     lastHandledCanvasFocusRequestTokenRef.current = canvasFocusOnActivateToken;
+    if (isWorkspaceCanvasDisplayMode) {
+      setWorkspaceCanvasFocusedSessionId(canvasFocusSessionId);
+    }
     let cancelled = false;
     const frameId = requestAnimationFrame(() => {
       if (cancelled) {
@@ -2784,6 +3078,7 @@ export function AgentPanel({
     focusCanvasViewportOnSession,
     isActive,
     isCanvasDisplayMode,
+    isWorkspaceCanvasDisplayMode,
   ]);
   useEffect(() => {
     if (!isCanvasDisplayMode) {
@@ -3294,7 +3589,8 @@ export function AgentPanel({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return;
       if (pendingCloseSession) return;
-      const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas';
+      const isCanvasKeyboardMode =
+        agentSessionDisplayMode === 'canvas' || agentSessionDisplayMode === 'global-canvas';
 
       if (matchesKeybinding(e, xtermKeybindings.newTab)) {
         e.preventDefault();
@@ -3304,7 +3600,7 @@ export function AgentPanel({
 
       if (matchesKeybinding(e, xtermKeybindings.closeTab)) {
         e.preventDefault();
-        if (isCanvasDisplayMode) {
+        if (isCanvasKeyboardMode) {
           if (canvasFocusedSessionId) {
             handleCloseSession(
               canvasFocusedSessionId,
@@ -3322,7 +3618,7 @@ export function AgentPanel({
 
       if (matchesKeybinding(e, xtermKeybindings.nextTab)) {
         e.preventDefault();
-        if (isCanvasDisplayMode) {
+        if (isCanvasKeyboardMode) {
           handleNextCanvasSession();
           return;
         }
@@ -3332,7 +3628,7 @@ export function AgentPanel({
 
       if (matchesKeybinding(e, xtermKeybindings.prevTab)) {
         e.preventDefault();
-        if (isCanvasDisplayMode) {
+        if (isCanvasKeyboardMode) {
           handlePrevCanvasSession();
           return;
         }
@@ -3341,9 +3637,9 @@ export function AgentPanel({
       }
 
       if (e.metaKey && e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
-        if (isCanvasDisplayMode) {
+        if (isCanvasKeyboardMode) {
           const index = Number.parseInt(e.key, 10) - 1;
-          const targetSession = currentWorktreeSessions[index];
+          const targetSession = canvasSessions[index];
           if (targetSession) {
             e.preventDefault();
             handleSelectSession(targetSession.id, currentGroupIdBySessionId.get(targetSession.id), {
@@ -3372,8 +3668,8 @@ export function AgentPanel({
     activeGroupId,
     agentSessionDisplayMode,
     canvasFocusedSessionId,
+    canvasSessions,
     currentGroupIdBySessionId,
-    currentWorktreeSessions,
     xtermKeybindings,
     handleNewSession,
     handleCloseSession,
@@ -3384,12 +3680,12 @@ export function AgentPanel({
     handleSelectSession,
   ]);
 
-  // Quick Terminal 快捷键监听
+  // Quick Terminal keyboard shortcut.
   useEffect(() => {
     if (!isActive) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+` 或 Cmd+` (Mac)
+      // Ctrl+` or Cmd+` on macOS.
       if ((e.ctrlKey || e.metaKey) && e.key === '`') {
         e.preventDefault();
         handleToggleQuickTerminal();
@@ -3407,25 +3703,26 @@ export function AgentPanel({
     }
     return max;
   }, [statusLineHeightsByGroupId]);
-  const mountedCurrentWorktreeSessionIds = useMemo(() => {
-    const orderedIds = currentWorktreeSessions.map((session) => session.id);
-    const seen = new Set(orderedIds);
-
-    for (const sessionId of globalSessionIds) {
-      if (!seen.has(sessionId)) {
-        orderedIds.push(sessionId);
-      }
-    }
-
-    return orderedIds;
-  }, [currentWorktreeSessions, globalSessionIds]);
+  const mountedCurrentWorktreeSessionIds = useMemo(
+    () =>
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        currentWorktreeSessions,
+        globalSessionIds,
+        isWorkspaceCanvasDisplayMode,
+        suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel,
+      }),
+    [
+      canvasSessions,
+      currentWorktreeSessions,
+      globalSessionIds,
+      isWorkspaceCanvasDisplayMode,
+      shouldSuppressWorkspaceCanvasPanel,
+    ]
+  );
   const sessionById = useMemo(
     () => new Map(allSessions.map((session) => [session.id, session])),
     [allSessions]
-  );
-  const sessionPlacementById = useMemo(
-    () => buildAgentSessionPlacementIndex(worktreeGroupStates),
-    [worktreeGroupStates]
   );
   const defaultAgentLabel = getAgentDisplayLabel(defaultAgentId, customAgents);
   const emptyStateModel = useMemo(
@@ -3503,7 +3800,9 @@ export function AgentPanel({
   const hasAnyGroups = groups.length > 0;
 
   // Check if current worktree has no sessions (for empty state overlay)
-  const showEmptyState = !hasAnyGroups && currentWorktreeSessions.length === 0;
+  const showEmptyState = isWorkspaceCanvasDisplayMode
+    ? canvasSessionGroups.length === 0
+    : !shouldSuppressWorkspaceCanvasPanel && !hasAnyGroups && currentWorktreeSessions.length === 0;
 
   // Get current worktree's group positions for terminal placement
   const currentGroupPositions = resolveAgentGroupPositions(currentGroupState);
@@ -3517,7 +3816,7 @@ export function AgentPanel({
     const placement = sessionPlacementById.get(sessionId);
 
     // Determine if this session belongs to current worktree
-    const isCurrentWorktree = isCurrentRepo && pathsEqual(session.cwd, cwd);
+    const isCurrentWorktree = pathsEqual(session.cwd, cwd);
 
     // Calculate position - if no group info, use full width
     let left = 0;
@@ -3534,13 +3833,16 @@ export function AgentPanel({
 
     const isGroupActive = groupId === currentGroupState.activeGroupId;
     const isFocusedSession = session.id === canvasFocusedSessionId;
+    const isCanvasSessionVisible = isWorkspaceCanvasDisplayMode
+      ? true
+      : isCurrentRepo && isCurrentWorktree;
     const isTerminalActive = isCanvasDisplayMode
-      ? isActive && isCurrentWorktree && isFocusedSession
+      ? isActive && isCanvasSessionVisible && isFocusedSession
       : isActive && isCurrentWorktree && isSessionVisible && isGroupActive;
 
-    // Only show terminals from current repo + current worktree + active session
-    const shouldShow =
-      isCurrentRepo && isCurrentWorktree && (isCanvasDisplayMode || isSessionVisible);
+    const shouldShow = isWorkspaceCanvasDisplayMode
+      ? true
+      : isCurrentRepo && isCurrentWorktree && (isCanvasDisplayMode || isSessionVisible);
     const canMerge = placement ? placement.groupIndex > 0 : false;
     const sessionAvailability = resolveAgentInputAvailability({
       backendSessionId: session.backendSessionId,
@@ -3577,9 +3879,32 @@ export function AgentPanel({
       sessionContentHost !== null && isCanvasFloatingSession && canvasFloatingFrame !== null;
     const shouldDimCanvasTile =
       isCanvasDisplayMode && canvasFloatingSessionId !== null && !isCanvasFloatingSession;
+    const tileRepoLabel = getDisplayPathBasename(session.repoPath) || session.repoPath;
+    const tileWorktreeLabel = getDisplayPathBasename(session.cwd) || session.cwd;
+    const tileLocationLabel =
+      tileRepoLabel && tileRepoLabel !== tileWorktreeLabel
+        ? `${tileRepoLabel} / ${tileWorktreeLabel}`
+        : tileWorktreeLabel;
     const renderSessionHeaderSummary = () => (
       <div className="flex min-w-0 items-center gap-2">
-        <span className="control-chip shrink-0 max-w-[45%] gap-1.5 truncate">
+        {isWorkspaceCanvasDisplayMode ? (
+          <span
+            className={cn(
+              'control-chip shrink-0 max-w-[34%] gap-1.5 truncate',
+              isCurrentWorktree && 'control-chip-strong'
+            )}
+            title={`${session.repoPath}\n${session.cwd}`}
+          >
+            <GitBranch className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{tileLocationLabel}</span>
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            'control-chip shrink-0 gap-1.5 truncate',
+            isWorkspaceCanvasDisplayMode ? 'max-w-[30%]' : 'max-w-[45%]'
+          )}
+        >
           {renderAgentLabelIcon(session.agentId)}
           <span className="truncate">{tileAgentLabel}</span>
         </span>
@@ -3701,7 +4026,7 @@ export function AgentPanel({
           <AgentTerminal
             id={session.id}
             createdAt={session.createdAt}
-            repoPath={repoPath}
+            repoPath={isWorkspaceCanvasDisplayMode ? session.repoPath : repoPath}
             cwd={session.cwd}
             sessionId={session.sessionId || session.id}
             backendSessionId={session.backendSessionId}
@@ -3968,6 +4293,118 @@ export function AgentPanel({
       </Fragment>
     );
   });
+  const renderedSessionPanelById = new Map<string, React.ReactNode>();
+  mountedCurrentWorktreeSessionIds.forEach((sessionId, index) => {
+    const panel = renderedSessionPanels[index];
+    if (panel) {
+      renderedSessionPanelById.set(sessionId, panel);
+    }
+  });
+  const globalNewSessionLabel = isWorkspaceCanvasDisplayMode
+    ? t('New in Current Worktree')
+    : t('New Session');
+  const workspaceCanvasSessionGroupSections = isWorkspaceCanvasDisplayMode
+    ? canvasSessionGroups.map((group) => {
+        const groupColumnSpan = resolveAgentCanvasWorkspaceGroupColumnSpan(
+          group.sessions.length,
+          canvasViewportWidth
+        );
+        const repoLabel = getDisplayPathBasename(group.repoPath) || group.repoPath;
+        const worktreeLabel = getDisplayPathBasename(group.worktreePath) || group.worktreePath;
+        const groupLocationLabel =
+          repoLabel && repoLabel !== worktreeLabel
+            ? `${repoLabel} / ${worktreeLabel}`
+            : worktreeLabel;
+        const groupLaunchTarget: AgentSessionLaunchTarget = {
+          repoPath: group.repoPath,
+          worktreePath: group.worktreePath,
+        };
+        const groupNewSessionLabel = t('New Session in {{name}}', { name: worktreeLabel });
+
+        return (
+          <section
+            key={group.groupKey}
+            ref={(element) => setCanvasWorktreeGroupElement(group.groupKey, element)}
+            data-agent-canvas-worktree-group={group.groupKey}
+            data-agent-canvas-repo-path={normalizePath(group.repoPath)}
+            data-agent-canvas-worktree-path={normalizePath(group.worktreePath)}
+            className="flex min-w-0 flex-none scroll-mt-3 flex-col gap-2"
+            style={{ gridColumn: `span ${groupColumnSpan} / span ${groupColumnSpan}` }}
+          >
+            <div
+              {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+              className={cn(
+                'control-panel-muted flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2',
+                group.isCurrentWorktree && 'border-primary/40'
+              )}
+              title={`${group.repoPath}\n${group.worktreePath}`}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+                  {groupLocationLabel}
+                </span>
+                {group.isCurrentWorktree ? (
+                  <span className="control-chip control-chip-strong shrink-0">
+                    {t('Current Worktree')}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="control-chip shrink-0">
+                  {t('{{count}} agent sessions', { count: group.sessions.length })}
+                </span>
+                <button
+                  type="button"
+                  className="control-panel flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/30"
+                  aria-label={groupNewSessionLabel}
+                  title={groupNewSessionLabel}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleNewSession(groupLaunchTarget);
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div
+              className="grid min-h-0 gap-3"
+              style={{
+                gridTemplateColumns: `repeat(${AGENT_CANVAS_GRID_COLUMN_UNITS}, minmax(0, 1fr))`,
+                gridAutoRows:
+                  group.sessions.length > 0
+                    ? AGENT_CANVAS_WORKSPACE_TILE_ROW_SIZE
+                    : `${AGENT_CANVAS_WORKSPACE_EMPTY_GROUP_HEIGHT}px`,
+              }}
+            >
+              {group.sessions.length > 0 ? (
+                group.sessions.map((session) => renderedSessionPanelById.get(session.id) ?? null)
+              ) : (
+                <div
+                  {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+                  className="control-panel-muted col-span-full flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 text-sm text-muted-foreground"
+                  style={{ minHeight: AGENT_CANVAS_WORKSPACE_EMPTY_GROUP_HEIGHT }}
+                >
+                  <span>{t('No agent sessions')}</span>
+                  <button
+                    type="button"
+                    className="control-panel inline-flex h-8 items-center gap-2 rounded-lg px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/30"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleNewSession(groupLaunchTarget);
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t('New Session')}
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      })
+    : null;
 
   return (
     <div
@@ -4000,7 +4437,7 @@ export function AgentPanel({
           profiles={emptyStateProfiles}
         />
       ) : null}
-      {isCanvasDisplayMode && currentWorktreeSessions.length > 0 ? (
+      {isCanvasDisplayMode && canvasSessionGroups.length > 0 ? (
         <div className="absolute inset-x-2 top-2 z-10 flex items-center justify-end gap-2">
           <div className="flex items-center justify-end gap-2">
             <div className="control-panel-muted pointer-events-auto flex items-center gap-1 rounded-xl p-1">
@@ -4076,13 +4513,20 @@ export function AgentPanel({
                   <Terminal className="h-4 w-4" />
                 </button>
               ) : null}
+              <AgentSessionControlCenter
+                inventoryItems={agentSessionControlInventory}
+                onFocusSession={handleFocusSessionFromControlCenter}
+                scopeLabel={agentSessionControlScopeLabel}
+              />
               <button
                 type="button"
                 className="control-panel-muted pointer-events-auto inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/30"
+                aria-label={globalNewSessionLabel}
+                title={globalNewSessionLabel}
                 onClick={() => handleNewSession()}
               >
                 <Plus className="h-4 w-4" />
-                {t('New Session')}
+                {globalNewSessionLabel}
               </button>
               <Menu>
                 <MenuTrigger
@@ -4167,9 +4611,7 @@ export function AgentPanel({
           );
         })}
 
-      {/* All terminals - rendered in a SINGLE container with stable sessionId keys */}
-      {/* This container is NOT inside any worktree-specific wrapper, ensuring stable mounting */}
-      {/* All sessions across ALL repos are rendered here to keep them mounted */}
+      {/* Mounted terminals use stable sessionId keys to preserve PTY attachments across view changes. */}
       {/* bottom is dynamically set based on StatusLine height */}
       <div
         ref={canvasViewportRef}
@@ -4219,15 +4661,27 @@ export function AgentPanel({
               }}
             >
               <div
-                className="grid h-full w-full gap-3 transition-transform duration-150 ease-out motion-reduce:transition-none"
+                className={cn(
+                  'gap-3 transition-transform duration-150 ease-out motion-reduce:transition-none',
+                  isWorkspaceCanvasDisplayMode ? 'min-h-full w-full' : 'h-full w-full',
+                  isWorkspaceCanvasDisplayMode ? 'grid auto-rows-max' : 'grid'
+                )}
                 style={{
                   transform: `scale(${canvasViewportMetrics.zoom})`,
                   transformOrigin: 'center center',
-                  gridTemplateColumns: `repeat(${AGENT_CANVAS_GRID_COLUMN_UNITS}, minmax(0, 1fr))`,
-                  gridAutoRows: 'minmax(0, 1fr)',
+                  ...(isWorkspaceCanvasDisplayMode
+                    ? {
+                        gridTemplateColumns: `repeat(${AGENT_CANVAS_GRID_COLUMN_UNITS}, minmax(0, 1fr))`,
+                      }
+                    : {
+                        gridTemplateColumns: `repeat(${AGENT_CANVAS_GRID_COLUMN_UNITS}, minmax(0, 1fr))`,
+                        gridAutoRows: 'minmax(0, 1fr)',
+                      }),
                 }}
               >
-                {renderedSessionPanels}
+                {isWorkspaceCanvasDisplayMode
+                  ? workspaceCanvasSessionGroupSections
+                  : renderedSessionPanels}
               </div>
             </div>
           </div>
@@ -4263,7 +4717,7 @@ export function AgentPanel({
             activeSession == null
               ? undefined
               : sessionSubagentTriggerPresentationBySessionId[activeSession.id];
-          const activeSessionToolbarAccessory =
+          const activeSessionSubagentToolbarAccessory =
             activeSession != null && activeSessionSubagentViewState != null
               ? (() => {
                   if (!activeSessionSubagentTriggerPresentation?.visible) {
@@ -4283,6 +4737,20 @@ export function AgentPanel({
                   );
                 })()
               : null;
+          const activeSessionToolbarAccessory =
+            isActiveGroup || activeSessionSubagentToolbarAccessory ? (
+              <div className="flex items-center gap-1">
+                {isActiveGroup ? (
+                  <AgentSessionControlCenter
+                    inventoryItems={agentSessionControlInventory}
+                    onFocusSession={handleFocusSessionFromControlCenter}
+                    scopeLabel={agentSessionControlScopeLabel}
+                    buttonClassName="h-8 w-8 rounded-lg"
+                  />
+                ) : null}
+                {activeSessionSubagentToolbarAccessory}
+              </div>
+            ) : null;
           const canSendToActiveSession = activeSessionAvailability === 'ready';
           const activeSessionSendLabel =
             activeSessionAvailability === 'awaiting-session'
@@ -4394,7 +4862,7 @@ export function AgentPanel({
           }
         }}
       />
-      {/* Quick Terminal Modal - 始终挂载以保持 terminal 运行状态 */}
+      {/* Quick Terminal Modal - always mounted to keep the terminal alive */}
       {quickTerminalEnabled && (
         <QuickTerminalModal
           key={`quick-terminal-${quickTerminalMountKey}`}

@@ -34,6 +34,7 @@ export function useStartupAgentSessionRecovery({
   worktreesFetching,
   availableWorktreePaths,
 }: UseStartupAgentSessionRecoveryOptions): void {
+  const getAgentSessions = useAgentSessionsStore((state) => state.getSessions);
   const upsertRecoveredSession = useAgentSessionsStore((state) => state.upsertRecoveredSession);
   const updateGroupState = useAgentSessionsStore((state) => state.updateGroupState);
   const activeWorktreePath = activeWorktree?.path ?? null;
@@ -46,6 +47,9 @@ export function useStartupAgentSessionRecovery({
       return;
     }
     if (!hasValidatedActiveWorktreePath(activeWorktreePath, availableWorktreePaths)) {
+      return;
+    }
+    if (getAgentSessions(selectedRepo, activeWorktreePath).length > 0) {
       return;
     }
 
@@ -64,6 +68,7 @@ export function useStartupAgentSessionRecovery({
   }, [
     activeWorktreePath,
     availableWorktreePaths,
+    getAgentSessions,
     selectedRepo,
     selectedRepoCanLoad,
     updateGroupState,

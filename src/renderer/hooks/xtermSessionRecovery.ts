@@ -1,11 +1,11 @@
-import type { RemoteConnectionStatus, SessionKind } from '@shared/types';
+import type { RemoteConnectionStatus, SessionKind, SessionRuntimeInfo } from '@shared/types';
 import { isRemoteVirtualPath, parseRemoteVirtualPath } from '@shared/utils/remotePath';
 
 interface ResolveReusableBackendSessionIdParams {
   backendSessionId?: string;
   cwd?: string;
   getRemoteStatus: (connectionId: string) => Promise<Pick<RemoteConnectionStatus, 'connected'>>;
-  getLocalActivity?: (sessionId: string) => Promise<boolean>;
+  getLocalRuntimeInfo?: (sessionId: string) => Promise<SessionRuntimeInfo | null>;
   allowUntrackedLocalAttach?: boolean;
 }
 
@@ -104,7 +104,7 @@ export async function resolveReusableBackendSessionId({
   backendSessionId,
   cwd,
   getRemoteStatus,
-  getLocalActivity,
+  getLocalRuntimeInfo,
   allowUntrackedLocalAttach = false,
 }: ResolveReusableBackendSessionIdParams): Promise<string | undefined> {
   if (!backendSessionId) {
@@ -116,13 +116,13 @@ export async function resolveReusableBackendSessionId({
       return backendSessionId;
     }
 
-    if (!cwd || !getLocalActivity) {
+    if (!cwd || !getLocalRuntimeInfo) {
       return backendSessionId;
     }
 
     try {
-      const hasActivity = await getLocalActivity(backendSessionId);
-      return hasActivity ? backendSessionId : undefined;
+      const runtimeInfo = await getLocalRuntimeInfo(backendSessionId);
+      return runtimeInfo?.isAlive === true ? backendSessionId : undefined;
     } catch {
       return undefined;
     }

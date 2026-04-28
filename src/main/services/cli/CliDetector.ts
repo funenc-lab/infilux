@@ -1,4 +1,10 @@
-import type { AgentCliInfo, BuiltinAgentId, CustomAgent } from '@shared/types';
+import {
+  type AgentCliInfo,
+  BUILTIN_AGENT_CATALOG,
+  BUILTIN_AGENT_IDS,
+  type BuiltinAgentId,
+  type CustomAgent,
+} from '@shared/types';
 import { execInPty } from '../../utils/shell';
 
 const isWindows = process.platform === 'win32';
@@ -22,57 +28,13 @@ interface BuiltinAgentConfig {
   versionRegex?: RegExp;
 }
 
-const BUILTIN_AGENT_CONFIGS: BuiltinAgentConfig[] = [
-  {
-    id: 'claude',
-    name: 'Claude',
-    command: 'claude',
-    versionFlag: '--version',
-    versionRegex: /(\d+\.\d+\.\d+)/,
-  },
-  {
-    id: 'codex',
-    name: 'Codex',
-    command: 'codex',
-    versionFlag: '--version',
-    versionRegex: /(\d+\.\d+\.\d+)/,
-  },
-  {
-    id: 'droid',
-    name: 'Droid',
-    command: 'droid',
-    versionFlag: '--version',
-    versionRegex: /(\d+\.\d+\.\d+)/,
-  },
-  {
-    id: 'gemini',
-    name: 'Gemini',
-    command: 'gemini',
-    versionFlag: '--version',
-    versionRegex: /(\d+\.\d+\.\d+)/,
-  },
-  {
-    id: 'auggie',
-    name: 'Auggie',
-    command: 'auggie',
-    versionFlag: '--version',
-    versionRegex: /(\d+\.\d+\.\d+)/,
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor',
-    command: 'cursor-agent',
-    versionFlag: '--version',
-    versionRegex: /(\d+\.\d+\.\d+)/,
-  },
-  {
-    id: 'opencode',
-    name: 'OpenCode',
-    command: 'opencode',
-    versionFlag: '--version',
-    versionRegex: /(\d+\.\d+\.\d+)/,
-  },
-];
+const BUILTIN_AGENT_CONFIGS: BuiltinAgentConfig[] = BUILTIN_AGENT_IDS.map((id) => ({
+  id,
+  name: BUILTIN_AGENT_CATALOG[id].name,
+  command: BUILTIN_AGENT_CATALOG[id].command,
+  versionFlag: '--version',
+  versionRegex: /(\d+\.\d+\.\d+)/,
+}));
 
 class CliDetector {
   private async detectBuiltin(

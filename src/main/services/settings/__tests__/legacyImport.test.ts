@@ -17,7 +17,7 @@ describe('legacySettingsImport', () => {
           state: {
             theme: 'system',
             language: 'en',
-            claudeCodeIntegration: {
+            agentIntegration: {
               enableProviderWatcher: true,
             },
           },
@@ -28,7 +28,7 @@ describe('legacySettingsImport', () => {
           state: {
             theme: 'dark',
             language: 'zh',
-            claudeCodeIntegration: {
+            agentIntegration: {
               enableProviderWatcher: false,
             },
           },
@@ -42,7 +42,7 @@ describe('legacySettingsImport', () => {
     expect(preview.truncated).toBe(false);
     expect(preview.diffs).toEqual([
       {
-        path: 'claudeCodeIntegration.enableProviderWatcher',
+        path: 'agentIntegration.enableProviderWatcher',
         currentValue: 'true',
         importedValue: 'false',
       },

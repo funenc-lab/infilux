@@ -178,15 +178,15 @@ export function useAgentSessionNotifications({
           agentSessionsStore.markTaskCompletedUnread(session.id);
         }
 
-        const claudeCodeIntegration = useSettingsStore.getState().claudeCodeIntegration;
+        const agentIntegration = useSettingsStore.getState().agentIntegration;
         const activityState = useWorktreeActivityStore.getState().getActivityState(session.cwd);
         const shouldAutoPopup =
           session.agentId === 'claude' &&
           !supportsAgentNativeTerminalInput(session.agentId) &&
-          claudeCodeIntegration.enhancedInputEnabled &&
-          (claudeCodeIntegration.enhancedInputAutoPopup === 'always' ||
-            claudeCodeIntegration.enhancedInputAutoPopup === 'hideWhileRunning') &&
-          claudeCodeIntegration.stopHookEnabled &&
+          agentIntegration.enhancedInputEnabled &&
+          (agentIntegration.enhancedInputAutoPopup === 'always' ||
+            agentIntegration.enhancedInputAutoPopup === 'hideWhileRunning') &&
+          agentIntegration.stopHookEnabled &&
           activityState !== 'waiting_input';
 
         if (shouldAutoPopup) {

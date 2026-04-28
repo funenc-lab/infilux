@@ -244,6 +244,7 @@ describe('useWorktreeSelection', () => {
     await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
 
     expect(setActiveTab).toHaveBeenCalledWith('terminal');
+    expect(restoreWorktreeSessions).not.toHaveBeenCalled();
   });
 
   it('falls back to chat instead of restoring the file tab when switching worktrees', async () => {

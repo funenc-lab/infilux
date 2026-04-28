@@ -8,7 +8,12 @@ import { searchService } from '../services/search/SearchService';
 export function registerSearchHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SEARCH_FILES, async (_, params: FileSearchParams) => {
     if (isRemoteVirtualPath(params.rootPath)) {
-      return remoteRepositoryBackend.searchFiles(params.rootPath, params.query, params.maxResults);
+      return remoteRepositoryBackend.searchFiles(
+        params.rootPath,
+        params.query,
+        params.maxResults,
+        params.includeDirectories === true
+      );
     }
     const results = await searchService.searchFiles(params);
     return results;

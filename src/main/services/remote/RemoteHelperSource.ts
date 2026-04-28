@@ -304,7 +304,7 @@ function execCommand(command, args, options = {}) {
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
-        reject(new Error(stderr.trim() || stdout.trim() || (command + ' 已退出，退出码 ' + code)));
+        reject(new Error(stderr.trim() || stdout.trim() || (command + ' exited with code ' + code)));
       }
     });
   });
@@ -703,8 +703,8 @@ function parseLog(stdout) {
     .split(GIT_LOG_RECORD_SEPARATOR)
     .filter((record) => record.trim().length > 0)
     .map((record) => {
-      // 远程 helper 运行在独立源码字符串中，这里的字段顺序必须与
-      // GIT_LOG_PRETTY_FORMAT 和 src/main/services/git/gitLogFormat.ts 保持同步。
+      // This helper runs as a standalone source string, so the field order must
+      // stay in sync with GIT_LOG_PRETTY_FORMAT and src/main/services/git/gitLogFormat.ts.
       const parts = record.split(GIT_LOG_FIELD_SEPARATOR);
       const message = (parts[4] || '').trim();
       const fullMessage = (parts[5] || '').trim() || message;
@@ -1518,21 +1518,67 @@ async function worktreeContinueMerge(workdir, message, cleanupOptions) {
   }
 }
 
-async function searchFiles(rootPath, query, maxResults = 100) {
+function getSearchScore(relativePath, name, query) {
+  if (!query) {
+    return 0;
+  }
+  const normalizedQuery = query.toLowerCase();
+  const normalizedPath = relativePath.toLowerCase();
+  const normalizedName = name.toLowerCase();
+  if (normalizedName === normalizedQuery || normalizedPath === normalizedQuery) {
+    return 1000;
+  }
+  if (normalizedName.startsWith(normalizedQuery)) {
+    return 900;
+  }
+  if (normalizedName.includes(normalizedQuery) || normalizedPath.includes(normalizedQuery)) {
+    return 100;
+  }
+  return 0;
+}
+
+function deriveSearchDirectories(rootPath, relativePaths) {
+  const directories = new Map();
+  for (const relativePath of relativePaths) {
+    const parts = relativePath.split('/').filter(Boolean);
+    for (let index = 1; index < parts.length; index += 1) {
+      const directoryRelativePath = parts.slice(0, index).join('/');
+      if (directories.has(directoryRelativePath)) {
+        continue;
+      }
+      directories.set(directoryRelativePath, {
+        kind: 'directory',
+        path: normalize(path.join(rootPath, directoryRelativePath)),
+        relativePath: directoryRelativePath,
+        name: parts[index - 1],
+      });
+    }
+  }
+  return Array.from(directories.values());
+}
+
+async function searchFiles(rootPath, query, maxResults = 100, includeDirectories = false) {
   const { stdout } = await execCommand('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
     cwd: rootPath,
   });
-  const entries = stdout
+  const relativePaths = stdout
     .split('\n')
     .map((item) => item.trim())
-    .filter(Boolean)
+    .filter(Boolean);
+  const files = relativePaths.map((item) => ({
+    ...(includeDirectories ? { kind: 'file' } : {}),
+    path: normalize(path.join(rootPath, item)),
+    relativePath: item,
+    name: path.basename(item),
+  }));
+  const searchItems = includeDirectories ? [...files, ...deriveSearchDirectories(rootPath, relativePaths)] : files;
+  const entries = searchItems
     .map((item) => ({
-      path: normalize(path.join(rootPath, item)),
-      relativePath: item,
-      name: path.basename(item),
-      score: query ? (item.toLowerCase().includes(query.toLowerCase()) ? 100 : 0) : 0,
+      ...item,
+      score: getSearchScore(item.relativePath, item.name, query),
     }))
     .filter((entry) => !query || entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.relativePath.localeCompare(right.relativePath))
     .slice(0, maxResults);
   return entries;
 }
@@ -1646,11 +1692,11 @@ function loadNodePty() {
     cachedNodePtyLoadError = null;
   } catch (error) {
     cachedNodePty = null;
-    let detail = 'node-pty 未安装或加载失败';
+    let detail = 'node-pty is not installed or failed to load';
     if (error instanceof Error && error.message) {
-      detail = 'node-pty 加载失败: ' + error.message;
+      detail = 'node-pty load failed: ' + error.message;
     }
-    cachedNodePtyLoadError = detail + '，请重新安装 Linux 远端运行时 bundle';
+    cachedNodePtyLoadError = detail + '. Reinstall the Linux remote runtime bundle.';
   }
 
   return cachedNodePty;
@@ -1665,7 +1711,7 @@ function getPtyStatus() {
 }
 
 function createPtyUnavailableError(reason) {
-  const detail = reason || cachedNodePtyLoadError || 'Linux PTY 不可用';
+  const detail = reason || cachedNodePtyLoadError || 'Linux PTY is unavailable';
   return new Error(REMOTE_PTY_UNAVAILABLE + ': ' + detail);
 }
 
@@ -1981,7 +2027,7 @@ async function execInConfiguredShell(command, options = {}) {
         resolve(cleaned);
         return;
       }
-      const error = new Error(cleaned || ('命令退出，退出码 ' + exitCode));
+      const error = new Error(cleaned || ('Command exited with code ' + exitCode));
       error.stdout = cleaned;
       reject(error);
     });
@@ -2777,7 +2823,7 @@ async function createAndAttachSession(options = {}) {
 async function attachSession(sessionId) {
   const session = state.sessions.get(sessionId);
   if (!session) {
-    throw new Error('远程会话不存在: ' + sessionId);
+    throw new Error('Remote session does not exist: ' + sessionId);
   }
 
   const replay = session.replay;
@@ -2802,7 +2848,7 @@ async function attachSession(sessionId) {
 async function resumeSession(sessionId) {
   const session = state.sessions.get(sessionId);
   if (!session) {
-    throw new Error('远程会话不存在: ' + sessionId);
+    throw new Error('Remote session does not exist: ' + sessionId);
   }
 
   const replay = session.replay;
@@ -2856,7 +2902,7 @@ async function killSession(sessionId) {
 async function writeSession(sessionId, data) {
   const session = state.sessions.get(sessionId);
   if (!session || !session.writable) {
-    throw new Error('远程会话不存在: ' + sessionId);
+    throw new Error('Remote session does not exist: ' + sessionId);
   }
   session.writable.write(data);
   return { success: true };
@@ -2949,7 +2995,7 @@ async function dispatchRequest(stream, message, authState) {
     const ok = await authenticateDaemon(message.params && message.params.token);
     authState.authenticated = ok;
     if (!ok) {
-      replyError(stream, message.id, new Error('远程 daemon 鉴权失败'));
+      replyError(stream, message.id, new Error('Remote daemon authentication failed'));
       stream.destroy();
       return;
     }
@@ -2962,13 +3008,13 @@ async function dispatchRequest(stream, message, authState) {
   }
 
   if (!authState.authenticated) {
-    replyError(stream, message.id, new Error('远程 daemon 尚未鉴权'));
+    replyError(stream, message.id, new Error('Remote daemon is not authenticated'));
     return;
   }
 
   const handler = handlers[method];
   if (!handler) {
-    replyError(stream, message.id, new Error('不支持的 server 方法: ' + method));
+    replyError(stream, message.id, new Error('Unsupported server method: ' + method));
     return;
   }
 
@@ -3061,7 +3107,7 @@ async function requestDaemon(info, method, params = {}) {
     socket.on('close', () => {
       if (!finished) {
         finished = true;
-        reject(new Error('远程 daemon 连接已关闭'));
+        reject(new Error('Remote daemon connection closed'));
       }
     });
   });
@@ -3094,7 +3140,7 @@ async function ensureDaemon() {
     } catch {}
   }
 
-  throw new Error('远程 daemon 启动超时');
+  throw new Error('Remote daemon startup timed out');
 }
 
 function pipeBidirectional(source, target) {
@@ -3211,7 +3257,7 @@ async function startDaemon() {
 
   const address = server.address();
   if (!address || typeof address === 'string') {
-    throw new Error('远程 daemon 地址无效');
+    throw new Error('Remote daemon address is invalid');
   }
 
   await writeDaemonInfo({
@@ -3301,7 +3347,8 @@ const handlers = {
   'worktree:abortMerge': ({ rootPath }) => worktreeAbortMerge(rootPath),
   'worktree:continueMerge': ({ rootPath, message, cleanupOptions }) =>
     worktreeContinueMerge(rootPath, message, cleanupOptions),
-  'search:files': ({ rootPath, query, maxResults }) => searchFiles(rootPath, query, maxResults),
+  'search:files': ({ rootPath, query, maxResults, includeDirectories }) =>
+    searchFiles(rootPath, query, maxResults, includeDirectories),
   'search:content': ({
     rootPath,
     query,
@@ -3376,7 +3423,7 @@ async function main() {
     return;
   }
 
-  throw new Error('不支持的远程服务模式');
+  throw new Error('Unsupported remote service mode');
 }
 
 main().catch((error) => {

@@ -29,7 +29,7 @@ let groupStates: Record<
     groups: Array<{ id: string; sessionIds: string[]; activeSessionId: string | null }>;
   }
 > = {};
-let claudeCodeIntegration = {
+let agentIntegration = {
   enhancedInputAutoPopup: 'always' as const,
   enhancedInputEnabled: true,
   stopHookEnabled: true,
@@ -59,7 +59,7 @@ const useAgentSessionsStore = {
 
 const useSettingsStore = {
   getState: () => ({
-    claudeCodeIntegration,
+    agentIntegration,
   }),
 };
 
@@ -163,7 +163,7 @@ describe('useAgentSessionNotifications', () => {
     activeIds = {};
     groupStates = {};
     nativeTerminalAgentIds = new Set<string>();
-    claudeCodeIntegration = {
+    agentIntegration = {
       enhancedInputAutoPopup: 'always',
       enhancedInputEnabled: true,
       stopHookEnabled: true,

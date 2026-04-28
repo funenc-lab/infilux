@@ -1,4 +1,4 @@
-import type { BuiltinAgentId } from '@shared/types';
+import { BUILTIN_AGENT_CATALOG, BUILTIN_AGENT_IDS, type BuiltinAgentId } from '@shared/types';
 import type { FontWeight } from '@/stores/settings';
 
 export type SettingsCategory =
@@ -32,22 +32,15 @@ export const fontWeightOptions: { value: FontWeight; label: string }[] = [
 // Auto save delay default (in milliseconds)
 export const AUTO_SAVE_DELAY_DEFAULT = 1000;
 
-export const BUILTIN_AGENT_INFO: Record<BuiltinAgentId, { name: string; description: string }> = {
-  claude: { name: 'Claude', description: 'Anthropic Claude Code CLI' },
-  codex: { name: 'Codex', description: 'OpenAI Codex CLI' },
-  droid: { name: 'Droid', description: 'Droid AI CLI' },
-  gemini: { name: 'Gemini', description: 'Google Gemini CLI' },
-  auggie: { name: 'Auggie', description: 'Augment Code CLI' },
-  cursor: { name: 'Cursor', description: 'Cursor Agent CLI' },
-  opencode: { name: 'OpenCode', description: 'OpenCode AI CLI' },
-};
+export const BUILTIN_AGENT_INFO: Record<BuiltinAgentId, { name: string; description: string }> =
+  Object.fromEntries(
+    BUILTIN_AGENT_IDS.map((id) => [
+      id,
+      {
+        name: BUILTIN_AGENT_CATALOG[id].name,
+        description: BUILTIN_AGENT_CATALOG[id].description,
+      },
+    ])
+  ) as Record<BuiltinAgentId, { name: string; description: string }>;
 
-export const BUILTIN_AGENTS: BuiltinAgentId[] = [
-  'claude',
-  'codex',
-  'droid',
-  'gemini',
-  'auggie',
-  'cursor',
-  'opencode',
-];
+export const BUILTIN_AGENTS: BuiltinAgentId[] = [...BUILTIN_AGENT_IDS];

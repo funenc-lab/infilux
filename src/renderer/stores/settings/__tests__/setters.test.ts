@@ -417,12 +417,12 @@ describe('settings store setters', () => {
       enabled: true,
     };
 
-    store.addClaudeProvider(providerA);
-    store.addClaudeProvider(providerB);
-    store.updateClaudeProvider('provider-b', { name: 'Provider B Updated' });
-    store.reorderClaudeProviders(1, 0);
-    store.setClaudeProviderEnabled('provider-a', false);
-    store.setClaudeProviderOrder([
+    store.addAgentProvider(providerA);
+    store.addAgentProvider(providerB);
+    store.updateAgentProvider('provider-b', { name: 'Provider B Updated' });
+    store.reorderAgentProviders(1, 0);
+    store.setAgentProviderEnabled('provider-a', false);
+    store.setAgentProviderOrder([
       {
         ...providerB,
         name: 'Provider B Updated',
@@ -495,7 +495,7 @@ describe('settings store setters', () => {
       },
     ]);
     expect(state.agentSettings['custom-agent']?.isDefault).toBe(true);
-    expect(state.claudeCodeIntegration.providers).toEqual([
+    expect(state.agentIntegration.providers).toEqual([
       expect.objectContaining({
         id: 'provider-b',
         name: 'Provider B Updated',
@@ -534,7 +534,7 @@ describe('settings store setters', () => {
       isOpen: true,
     });
 
-    store.removeClaudeProvider('provider-a');
+    store.removeAgentProvider('provider-a');
     store.removeRemoteProfile('profile-a');
     store.removeHostMapping('github.com');
     store.removeMcpServer('stdio-server');
@@ -543,7 +543,7 @@ describe('settings store setters', () => {
     store.removeCustomAgent('custom-agent');
 
     state = env.useSettingsStore.getState();
-    expect(state.claudeCodeIntegration.providers).toHaveLength(1);
+    expect(state.agentIntegration.providers).toHaveLength(1);
     expect(state.remoteSettings.profiles).toEqual([]);
     expect(state.gitClone.hostMappings.some((mapping) => mapping.pattern === 'github.com')).toBe(
       false
@@ -612,7 +612,7 @@ describe('settings store setters', () => {
     store.setLayoutMode('columns');
     store.setFileTreeDisplayMode('current');
     store.setRepositoryListDisplayMode('tabs');
-    store.setAgentSessionDisplayMode('canvas');
+    store.setAgentSessionDisplayMode('global-canvas');
     store.setActivePresetTheme('warm-graphite');
     store.setActiveCustomTheme('missing-theme');
 
@@ -647,7 +647,7 @@ describe('settings store setters', () => {
     expect(state.layoutMode).toBe('columns');
     expect(state.fileTreeDisplayMode).toBe('current');
     expect(state.repositoryListDisplayMode).toBe('tabs');
-    expect(state.agentSessionDisplayMode).toBe('canvas');
+    expect(state.agentSessionDisplayMode).toBe('global-canvas');
     expect(state.activeThemeSelection).toEqual({
       kind: 'custom',
       customThemeId: presetThemeId,
@@ -774,7 +774,7 @@ describe('settings store setters', () => {
     store.setAgentNotificationEnabled(false);
     store.setAgentNotificationDelay(12);
     store.setAgentNotificationEnterDelay(18);
-    store.setClaudeCodeIntegration({
+    store.setAgentIntegration({
       enabled: false,
       statusLineEnabled: true,
     });
@@ -922,7 +922,7 @@ describe('settings store setters', () => {
     expect(state.agentNotificationEnabled).toBe(false);
     expect(state.agentNotificationDelay).toBe(12);
     expect(state.agentNotificationEnterDelay).toBe(18);
-    expect(state.claudeCodeIntegration).toMatchObject({
+    expect(state.agentIntegration).toMatchObject({
       enabled: false,
       statusLineEnabled: true,
     });

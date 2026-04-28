@@ -7,6 +7,7 @@ import type {
   PersistentAgentRuntimeState,
   SessionRuntimeState,
 } from '@shared/types';
+import { TASK_COMPLETION_MARKER } from '@shared/types/agent';
 import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
@@ -31,6 +32,7 @@ import {
 } from '@/hooks/xtermClipboard';
 import { useI18n } from '@/i18n';
 import { shouldPersistAgentSessionOnDisconnect } from '@/lib/agentSessionPersistence';
+import { emitRendererAgentStop } from '@/lib/agentStopEvents';
 import { showRendererNotification } from '@/lib/electronNotification';
 import {
   buildChatInputToastCopy,
@@ -249,7 +251,7 @@ export function AgentTerminal({
     agentNotificationEnterDelay,
     hapiSettings,
     shellConfig,
-    claudeCodeIntegration,
+    agentIntegration,
   } = useSettingsStore(
     useShallow((state) => ({
       agentNotificationEnabled: state.agentNotificationEnabled,
@@ -257,7 +259,7 @@ export function AgentTerminal({
       agentNotificationEnterDelay: state.agentNotificationEnterDelay,
       hapiSettings: state.hapiSettings,
       shellConfig: state.shellConfig,
-      claudeCodeIntegration: state.claudeCodeIntegration,
+      agentIntegration: state.agentIntegration,
     }))
   );
   const { data: runtimeContext } = useRepositoryRuntimeContext(cwd);
@@ -331,7 +333,7 @@ export function AgentTerminal({
       return;
     }
 
-    if (!claudeCodeIntegration.enabled) {
+    if (!agentIntegration.enabled) {
       setClaudeIdeStatus({
         enabled: false,
         port: null,
@@ -369,7 +371,7 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [agentCommand, claudeCodeIntegration.enabled, cwd, isReadOnlyTranscript]);
+  }, [agentCommand, agentIntegration.enabled, cwd, isReadOnlyTranscript]);
   useEffect(() => {
     let cancelled = false;
     hasAutoConfirmedTrustPromptRef.current = false;
@@ -824,8 +826,8 @@ export function AgentTerminal({
         newState === 'outputting' &&
         agentId === 'claude' &&
         !supportsNativeTerminalInput &&
-        claudeCodeIntegration.enhancedInputEnabled &&
-        claudeCodeIntegration.enhancedInputAutoPopup === 'hideWhileRunning'
+        agentIntegration.enhancedInputEnabled &&
+        agentIntegration.enhancedInputAutoPopup === 'hideWhileRunning'
       ) {
         onEnhancedInputOpenChange?.(false);
       }
@@ -840,7 +842,7 @@ export function AgentTerminal({
       setOutputState,
       agentId,
       supportsNativeTerminalInput,
-      claudeCodeIntegration,
+      agentIntegration,
       flushQueuedTerminalAttachmentInsert,
       onEnhancedInputOpenChange,
     ]
@@ -878,11 +880,7 @@ export function AgentTerminal({
       return isActive;
     }
 
-    if (
-      agentCommand.startsWith('claude') &&
-      claudeCodeIntegration.enabled &&
-      claudeIdeStatus === null
-    ) {
+    if (agentCommand.startsWith('claude') && agentIntegration.enabled && claudeIdeStatus === null) {
       return false;
     }
     if (
@@ -906,7 +904,7 @@ export function AgentTerminal({
     isReadOnlyTranscript,
     isActive,
     agentCommand,
-    claudeCodeIntegration.enabled,
+    agentIntegration.enabled,
     claudeIdeStatus,
     claudeWorkspaceTrusted,
     isRemoteExecution,
@@ -1030,7 +1028,7 @@ export function AgentTerminal({
       isRemoteExecution,
       executionPlatform,
       enableIdeIntegration: claudeIdeStatus?.canUseIde ?? false,
-      tmuxEnabled: claudeCodeIntegration.tmuxEnabled,
+      tmuxEnabled: agentIntegration.tmuxEnabled,
       resolvedShell,
       terminalSessionId,
       runtimeChannel,
@@ -1062,7 +1060,7 @@ export function AgentTerminal({
     hapiGlobalInstalled,
     isRemoteExecution,
     executionPlatform,
-    claudeCodeIntegration.tmuxEnabled,
+    agentIntegration.tmuxEnabled,
     resolvedShell,
     terminalSessionId,
     runtimeChannel,
@@ -1072,8 +1070,19 @@ export function AgentTerminal({
 
   // Preserve exited sessions in the UI so users can inspect the final output and state.
   const handleExit = useCallback(() => {
+    const stopSessionId = sessionId || id;
+    if (stopSessionId) {
+      emitRendererAgentStop({
+        sessionId: stopSessionId,
+        cwd,
+        source: 'renderer-terminal',
+        taskCompletionStatus: currentOutputBlockRef.current.includes(TASK_COMPLETION_MARKER)
+          ? 'completed'
+          : 'unknown',
+      });
+    }
     onExit?.();
-  }, [onExit]);
+  }, [cwd, id, onExit, sessionId]);
 
   // Track output for error detection and idle notification
   const handleData = useCallback(
@@ -1139,7 +1148,7 @@ export function AgentTerminal({
       }
 
       const stopHookEnabledForSession =
-        claudeCodeIntegration.stopHookEnabled && agentCommand.startsWith('claude');
+        agentIntegration.stopHookEnabled && agentCommand.startsWith('claude');
 
       if (!agentNotificationEnabled || !isWaitingForIdleRef.current || stopHookEnabledForSession)
         return;
@@ -1182,7 +1191,7 @@ export function AgentTerminal({
       cwd,
       agentNotificationEnabled,
       agentNotificationDelay,
-      claudeCodeIntegration.stopHookEnabled,
+      agentIntegration.stopHookEnabled,
       scheduleInterruptOutputStateReset,
       terminalSessionId,
       t,
@@ -1222,7 +1231,7 @@ export function AgentTerminal({
         agentId === 'claude' &&
         !supportsNativeTerminalInput
       ) {
-        if (claudeCodeIntegration.enhancedInputEnabled) {
+        if (agentIntegration.enhancedInputEnabled) {
           setEnhancedInputOpen(!enhancedInputOpen);
           return false; // Block the key event only when enhanced input is enabled
         }
@@ -1353,7 +1362,7 @@ export function AgentTerminal({
       terminalSessionId,
       agentId,
       supportsNativeTerminalInput,
-      claudeCodeIntegration.enhancedInputEnabled,
+      agentIntegration.enhancedInputEnabled,
       enhancedInputOpen,
       setEnhancedInputOpen,
       scheduleInterruptOutputStateReset,
@@ -1455,6 +1464,16 @@ export function AgentTerminal({
         isRemoteExecution,
         runtimeState,
       });
+  const isAgentStartupReadinessPending =
+    !isReadOnlyTranscript &&
+    ((agentCommand.startsWith('claude') && !isRemoteExecution && claudeWorkspaceTrusted === null) ||
+      (agentCommand.startsWith('claude') && agentIntegration.enabled && claudeIdeStatus === null) ||
+      (!isRemoteExecution && !resolvedShell) ||
+      (environment === 'hapi' && hapiGlobalInstalled === null));
+  const shouldShowAgentStartupOverlay =
+    !isReadOnlyTranscript &&
+    (isActive || hasPendingCommand) &&
+    (isLoading || isAgentStartupReadinessPending);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
 
@@ -1771,28 +1790,19 @@ export function AgentTerminal({
           <ArrowDown className="h-4 w-4" />
         </button>
       )}
-      {!isReadOnlyTranscript &&
-        (isLoading ||
-          (agentCommand.startsWith('claude') &&
-            !isRemoteExecution &&
-            claudeWorkspaceTrusted === null) ||
-          (agentCommand.startsWith('claude') &&
-            claudeCodeIntegration.enabled &&
-            claudeIdeStatus === null) ||
-          (!isRemoteExecution && !resolvedShell) ||
-          (environment === 'hapi' && hapiGlobalInstalled === null)) && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3">
-              <div
-                className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"
-                style={{ color: settings.theme.foreground, opacity: 0.5 }}
-              />
-              <span style={{ color: settings.theme.foreground, opacity: 0.5 }} className="text-sm">
-                {t('Loading {{agent}}...', { agent: agentCommand })}
-              </span>
-            </div>
+      {shouldShowAgentStartupOverlay && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div
+              className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"
+              style={{ color: settings.theme.foreground, opacity: 0.5 }}
+            />
+            <span style={{ color: settings.theme.foreground, opacity: 0.5 }} className="text-sm">
+              {t('Loading {{agent}}...', { agent: agentCommand })}
+            </span>
           </div>
-        )}
+        </div>
+      )}
       {terminalOverlayState && (
         <div className="absolute inset-0 flex items-center justify-center bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px]">
           <div className="control-floating-muted rounded-xl px-4 py-3 text-center">

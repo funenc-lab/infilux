@@ -11,6 +11,8 @@ import type {
   AppResourceSnapshot,
   ClaudeCapabilityCatalog,
   ClaudePolicyCatalogRequest,
+  ClaudeProvider,
+  ClaudeSettings,
   CloneProgress,
   CloneResult,
   CommitFileChange,
@@ -31,6 +33,7 @@ import type {
   FileSearchParams,
   FileSearchResult,
   FileTempSaveResult,
+  GetProjectTokenUsageRequest,
   GhCliStatus,
   GitAutoFetchCompletedPayload,
   GitBranch,
@@ -48,6 +51,7 @@ import type {
   PersistentAgentSessionRecord,
   PrepareClaudePolicyLaunchRequest,
   PrepareClaudePolicyLaunchResult,
+  ProjectTokenUsageSnapshot,
   ProxySettings,
   PullRequest,
   RecentEditorProject,
@@ -70,7 +74,9 @@ import type {
   SessionExitEvent,
   SessionOpenResult,
   SessionResizeOptions,
+  SessionRuntimeInfo,
   SessionStateEvent,
+  SessionTodoTask,
   ShellConfig,
   ShellInfo,
   TempWorkspaceCheckResult,
@@ -83,6 +89,11 @@ import type {
   TmuxKillSessionRequest,
   TmuxScrollClientRequest,
   TmuxScrollClientResult,
+  TodoGenerateTasksRequest,
+  TodoGenerateTasksResult,
+  TodoMigrationResult,
+  TodoPolishRequest,
+  TodoPolishResult,
   UpdaterStateSnapshot,
   UpdateStatus,
   ValidateLocalPathResult,
@@ -110,6 +121,41 @@ import { createSessionEventRouter } from './sessionEventRouter';
 
 const REMOTE_PATH_PREFIX = '/__enso_remote__';
 const sessionEventRouter = createSessionEventRouter(ipcRenderer);
+
+type AgentProviderSettingsSnapshot = {
+  settings: ClaudeSettings | null;
+  extracted: Partial<ClaudeProvider> | null;
+};
+
+function createAgentProviderBridge(channels: {
+  readSettings: string;
+  apply: string;
+  settingsChanged: string;
+}) {
+  return {
+    readSettings: (repoPath?: string): Promise<AgentProviderSettingsSnapshot> =>
+      ipcRenderer.invoke(channels.readSettings, repoPath),
+    apply: (repoPath: string | undefined, provider: ClaudeProvider): Promise<boolean> =>
+      ipcRenderer.invoke(channels.apply, repoPath, provider),
+    onSettingsChanged: (callback: (data: AgentProviderSettingsSnapshot) => void): (() => void) => {
+      const handler = (_: unknown, data: AgentProviderSettingsSnapshot) => callback(data);
+      ipcRenderer.on(channels.settingsChanged, handler);
+      return () => ipcRenderer.off(channels.settingsChanged, handler);
+    },
+  };
+}
+
+const agentProviderBridge = createAgentProviderBridge({
+  readSettings: IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS,
+  apply: IPC_CHANNELS.AGENT_PROVIDER_APPLY,
+  settingsChanged: IPC_CHANNELS.AGENT_PROVIDER_SETTINGS_CHANGED,
+});
+
+const claudeProviderBridge = createAgentProviderBridge({
+  readSettings: IPC_CHANNELS.CLAUDE_PROVIDER_READ_SETTINGS,
+  apply: IPC_CHANNELS.CLAUDE_PROVIDER_APPLY,
+  settingsChanged: IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED,
+});
 
 const electronAPI = {
   // Git
@@ -470,6 +516,8 @@ const electronAPI = {
     list: (): Promise<SessionDescriptor[]> => ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
     getActivity: (sessionId: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_ACTIVITY, sessionId),
+    getRuntimeInfo: (sessionId: string): Promise<SessionRuntimeInfo | null> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO, sessionId),
     onData: (callback: (event: SessionDataEvent) => void): (() => void) =>
       sessionEventRouter.onData(callback),
     onExit: (callback: (event: SessionExitEvent) => void): (() => void) =>
@@ -789,23 +837,17 @@ const electronAPI = {
   todo: {
     getTasks: (repoPath: string): Promise<unknown[]> =>
       ipcRenderer.invoke(IPC_CHANNELS.TODO_GET_TASKS, repoPath),
-    addTask: (
-      repoPath: string,
-      task: {
-        id: string;
-        title: string;
-        description: string;
-        priority: string;
-        status: string;
-        order: number;
-        createdAt: number;
-        updatedAt: number;
-      }
-    ): Promise<unknown> => ipcRenderer.invoke(IPC_CHANNELS.TODO_ADD_TASK, repoPath, task),
+    addTask: (repoPath: string, task: SessionTodoTask): Promise<unknown> =>
+      ipcRenderer.invoke(IPC_CHANNELS.TODO_ADD_TASK, repoPath, task),
     updateTask: (
       repoPath: string,
       taskId: string,
-      updates: { title?: string; description?: string; priority?: string; status?: string }
+      updates: Partial<
+        Pick<
+          SessionTodoTask,
+          'title' | 'description' | 'priority' | 'status' | 'agentId' | 'sessionId' | 'context'
+        >
+      >
     ): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.TODO_UPDATE_TASK, repoPath, taskId, updates),
     deleteTask: (repoPath: string, taskId: string): Promise<void> =>
@@ -819,17 +861,12 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.TODO_MOVE_TASK, repoPath, taskId, newStatus, newOrder),
     reorderTasks: (repoPath: string, status: string, orderedIds: string[]): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.TODO_REORDER_TASKS, repoPath, status, orderedIds),
-    migrate: (boardsJson: string): Promise<void> =>
+    migrate: (boardsJson: string): Promise<TodoMigrationResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.TODO_MIGRATE, boardsJson),
-    aiPolish: (options: {
-      text: string;
-      timeout: number;
-      provider: string;
-      model: string;
-      reasoningEffort?: string;
-      prompt?: string;
-    }): Promise<{ success: boolean; title?: string; description?: string; error?: string }> =>
+    aiPolish: (options: TodoPolishRequest): Promise<TodoPolishResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.TODO_AI_POLISH, options),
+    aiGenerateTasks: (options: TodoGenerateTasksRequest): Promise<TodoGenerateTasksResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.TODO_AI_GENERATE_TASKS, options),
   },
 
   // Environment
@@ -1023,30 +1060,11 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.MCP_PERMISSION_REQUEST_HOOK_STATUS),
   },
 
+  // Agent Provider
+  agentProvider: agentProviderBridge,
+
   // Claude Provider
-  claudeProvider: {
-    readSettings: (
-      repoPath?: string
-    ): Promise<{
-      settings: import('@shared/types').ClaudeSettings | null;
-      extracted: Partial<import('@shared/types').ClaudeProvider> | null;
-    }> => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_PROVIDER_READ_SETTINGS, repoPath),
-    apply: (
-      repoPath: string | undefined,
-      provider: import('@shared/types').ClaudeProvider
-    ): Promise<boolean> =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_PROVIDER_APPLY, repoPath, provider),
-    onSettingsChanged: (
-      callback: (data: {
-        settings: import('@shared/types').ClaudeSettings | null;
-        extracted: Partial<import('@shared/types').ClaudeProvider> | null;
-      }) => void
-    ): (() => void) => {
-      const handler = (_: unknown, data: Parameters<typeof callback>[0]) => callback(data);
-      ipcRenderer.on(IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED, handler);
-      return () => ipcRenderer.off(IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED, handler);
-    },
-  },
+  claudeProvider: claudeProviderBridge,
 
   claudePolicy: {
     catalog: {
@@ -1324,6 +1342,12 @@ const electronAPI = {
       ipcRenderer.on(IPC_CHANNELS.WEB_INSPECTOR_DATA, handler);
       return () => ipcRenderer.off(IPC_CHANNELS.WEB_INSPECTOR_DATA, handler);
     },
+  },
+
+  // Token Usage
+  tokenUsage: {
+    getProjectUsage: (request?: GetProjectTokenUsageRequest): Promise<ProjectTokenUsageSnapshot> =>
+      ipcRenderer.invoke(IPC_CHANNELS.TOKEN_USAGE_PROJECTS_GET, request),
   },
 
   // Logging

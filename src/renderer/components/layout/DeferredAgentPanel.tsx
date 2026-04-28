@@ -7,6 +7,27 @@ import { useDeferredReady } from './useDeferredReady';
 
 type AgentPanelComponent = React.ComponentType<AgentPanelProps>;
 
+let cachedAgentPanelComponent: AgentPanelComponent | null = null;
+let agentPanelComponentPromise: Promise<AgentPanelComponent> | null = null;
+
+function loadAgentPanelComponent(): Promise<AgentPanelComponent> {
+  if (cachedAgentPanelComponent) {
+    return Promise.resolve(cachedAgentPanelComponent);
+  }
+
+  agentPanelComponentPromise ??= import('@/components/chat/AgentPanel')
+    .then((module) => {
+      cachedAgentPanelComponent = module.AgentPanel as AgentPanelComponent;
+      return cachedAgentPanelComponent;
+    })
+    .catch((error: unknown) => {
+      agentPanelComponentPromise = null;
+      throw error;
+    });
+
+  return agentPanelComponentPromise;
+}
+
 interface DeferredAgentPanelProps extends AgentPanelProps {
   shouldLoad?: boolean;
   showFallback?: boolean;
@@ -20,7 +41,9 @@ export function DeferredAgentPanel({
   ...props
 }: DeferredAgentPanelProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<AgentPanelComponent | null>(null);
+  const [Component, setComponent] = useState<AgentPanelComponent | null>(
+    () => cachedAgentPanelComponent
+  );
 
   useEffect(() => {
     if (!shouldLoad || Component) {
@@ -28,12 +51,16 @@ export function DeferredAgentPanel({
     }
 
     let cancelled = false;
-    import('@/components/chat/AgentPanel').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.AgentPanel as AgentPanelComponent);
-    });
+    loadAgentPanelComponent()
+      .then((LoadedComponent) => {
+        if (cancelled) {
+          return;
+        }
+        setComponent(() => LoadedComponent);
+      })
+      .catch((error: unknown) => {
+        console.error('[DeferredAgentPanel] Failed to load AgentPanel', error);
+      });
 
     return () => {
       cancelled = true;

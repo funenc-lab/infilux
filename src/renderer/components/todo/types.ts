@@ -1,5 +1,13 @@
+import type {
+  TodoTaskContext,
+  TodoTaskContextDirectory,
+  TodoTaskContextFile,
+} from '@shared/types/todo';
+
 export type TaskPriority = 'low' | 'medium' | 'high';
 export type TaskStatus = 'todo' | 'in-progress' | 'done';
+
+export type { TodoTaskContext, TodoTaskContextDirectory, TodoTaskContextFile };
 
 export interface TodoTask {
   id: string;
@@ -10,8 +18,12 @@ export interface TodoTask {
   createdAt: number;
   updatedAt: number;
   order: number;
+  /** Preferred agent for this task. When omitted, auto-execute picks from queue settings. */
+  agentId?: string;
   /** ID of the session executing this task (set when auto-execute starts) */
   sessionId?: string;
+  /** Structured project context supplied to agents when this task starts a session. */
+  context?: TodoTaskContext;
 }
 
 export const TASK_STATUS_LIST: TaskStatus[] = ['todo', 'in-progress', 'done'];

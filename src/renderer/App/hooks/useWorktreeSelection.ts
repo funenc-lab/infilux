@@ -171,7 +171,12 @@ export function useWorktreeSelection(
       setActiveWorktree(worktree);
       requestAgentCanvasRecenter?.(worktree.path);
 
-      if (targetRepoPath) {
+      const hasAgentSessions =
+        targetRepoPath !== null && targetRepoPath !== undefined
+          ? getAgentSessions(targetRepoPath, worktree.path).length > 0
+          : false;
+
+      if (targetRepoPath && !hasAgentSessions) {
         void restoreWorktreeAgentSessions({
           repoPath: targetRepoPath,
           cwd: worktree.path,
@@ -182,11 +187,6 @@ export function useWorktreeSelection(
           console.error('[useWorktreeSelection] Failed to prewarm agent sessions', error);
         });
       }
-
-      const hasAgentSessions =
-        targetRepoPath !== null && targetRepoPath !== undefined
-          ? getAgentSessions(targetRepoPath, worktree.path).length > 0
-          : false;
 
       // Show the agent empty state when the worktree has no session context yet.
       const savedTab = hasAgentSessions

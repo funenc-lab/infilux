@@ -13,6 +13,7 @@ import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { AppResourceStatusPopover } from './AppResourceStatusPopover';
 import { BrandMark } from './BrandMark';
+import { TokenUsagePopover } from './TokenUsagePopover';
 import { WindowControls } from './WindowControls';
 
 // Platform detection is kept at module scope to avoid conditional hooks.
@@ -112,6 +113,7 @@ export function WindowTitleBar({ onOpenSettings }: WindowTitleBarProps) {
           </TitleBarMenuPopup>
         </Menu>
 
+        <TokenUsagePopover className={iconButtonClass} />
         <AppResourceStatusPopover className={iconButtonClass} />
 
         <WindowControls />

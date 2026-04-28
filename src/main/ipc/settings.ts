@@ -72,7 +72,7 @@ export function flushSettings(): boolean {
 function getProviderWatcherEnabled(
   data: Record<string, unknown> | null | undefined
 ): boolean | undefined {
-  const directIntegration = data?.claudeCodeIntegration;
+  const directIntegration = data?.agentIntegration;
   if (typeof directIntegration === 'object' && directIntegration !== null) {
     const directEnabled = (directIntegration as { enableProviderWatcher?: unknown })
       .enableProviderWatcher;
@@ -87,7 +87,7 @@ function getProviderWatcherEnabled(
   }
 
   const state = (settingsSlice as { state?: Record<string, unknown> }).state;
-  const integration = state?.claudeCodeIntegration;
+  const integration = state?.agentIntegration;
   if (typeof integration !== 'object' || integration === null) {
     return undefined;
   }

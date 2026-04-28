@@ -1,5 +1,6 @@
 export * from './agent';
 export * from './agentCapability';
+export * from './agentCatalog';
 export * from './agentInput';
 export * from './agentSession';
 export * from './agentSubagent';
@@ -24,5 +25,7 @@ export * from './shell';
 export * from './tempWorkspace';
 export * from './terminal';
 export * from './tmux';
+export * from './todo';
+export * from './tokenUsage';
 export * from './updater';
 export * from './worktree';

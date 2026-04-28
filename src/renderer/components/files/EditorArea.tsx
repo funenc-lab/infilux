@@ -166,7 +166,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
     fontSize,
     editorSettings,
     editorKeybindings,
-    claudeCodeIntegration,
+    agentIntegration,
     backgroundImageEnabled,
   } = useSettingsStore();
   const activeCustomTheme = useMemo(
@@ -1105,7 +1105,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
       }
 
       // Send selection_changed notification to Claude Code (debounced)
-      if (claudeCodeIntegration.enabled) {
+      if (agentIntegration.enabled) {
         if (selectionDebounceRef.current) {
           clearTimeout(selectionDebounceRef.current);
         }
@@ -1126,7 +1126,7 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
               isEmpty: selection.isEmpty(),
             },
           });
-        }, claudeCodeIntegration.selectionChangedDebounce);
+        }, agentIntegration.selectionChangedDebounce);
       }
     });
 
@@ -1172,8 +1172,8 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
     setCurrentCursorLine,
     write,
     focus,
-    claudeCodeIntegration.enabled,
-    claudeCodeIntegration.selectionChangedDebounce,
+    agentIntegration.enabled,
+    agentIntegration.selectionChangedDebounce,
   ]);
 
   const handleEditorChange = useCallback(

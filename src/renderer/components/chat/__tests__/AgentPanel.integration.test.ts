@@ -58,7 +58,7 @@ const testState = vi.hoisted(() => ({
     },
     autoCreateSessionOnActivate: false,
     autoCreateSessionOnTempActivate: false,
-    claudeCodeIntegration: {
+    agentIntegration: {
       tmuxEnabled: false,
       enhancedInputEnabled: true,
       enhancedInputAutoPopup: 'manual',
@@ -80,8 +80,8 @@ const testState = vi.hoisted(() => ({
       enabled: false,
       isOpen: false,
     },
-    setClaudeCodeIntegration: vi.fn((updates: Record<string, unknown>) => {
-      Object.assign(testState.settings.claudeCodeIntegration, updates);
+    setAgentIntegration: vi.fn((updates: Record<string, unknown>) => {
+      Object.assign(testState.settings.agentIntegration, updates);
     }),
     setQuickTerminalOpen: vi.fn((open: boolean) => {
       testState.settings.quickTerminal.isOpen = open;
@@ -157,10 +157,11 @@ vi.mock('../useAgentCanvasViewportRestore', () => ({
 }));
 
 vi.mock('../AgentTerminal', () => ({
-  AgentTerminal: (props: { id?: string }) =>
+  AgentTerminal: (props: { id?: string; isActive?: boolean }) =>
     React.createElement('div', {
       'data-testid': 'agent-terminal',
       'data-session-id': props.id ?? '',
+      'data-active': String(Boolean(props.isActive)),
     }),
 }));
 
@@ -486,6 +487,12 @@ async function clickByTestId(container: HTMLElement, testId: string) {
   const target = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
   expect(target).not.toBeNull();
 
+  await clickElement(target);
+}
+
+async function clickElement(target: HTMLElement | null) {
+  expect(target).not.toBeNull();
+
   await act(async () => {
     target?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await flushMicrotasks();
@@ -564,7 +571,7 @@ describe('AgentPanel integration', () => {
     testState.settings.customAgents = [];
     testState.settings.autoCreateSessionOnActivate = false;
     testState.settings.autoCreateSessionOnTempActivate = false;
-    testState.settings.claudeCodeIntegration = {
+    testState.settings.agentIntegration = {
       tmuxEnabled: false,
       enhancedInputEnabled: true,
       enhancedInputAutoPopup: 'manual',
@@ -578,7 +585,7 @@ describe('AgentPanel integration', () => {
       enabled: false,
       isOpen: false,
     };
-    testState.settings.setClaudeCodeIntegration.mockClear();
+    testState.settings.setAgentIntegration.mockClear();
     testState.settings.setQuickTerminalOpen.mockClear();
 
     testState.electronAPI.restoreWorktreeSessions.mockReset();
@@ -701,6 +708,30 @@ describe('AgentPanel integration', () => {
         '[data-testid="agent-terminal"][data-session-id="recovered-session-1"]'
       )
     ).not.toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('does not run panel-scoped recovery while hosting the workspace canvas', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+      ],
+    });
+
+    expect(testState.electronAPI.restoreWorktreeSessions).not.toHaveBeenCalled();
+
+    await mounted.rerender({
+      cwd: '/repo/worktree-b',
+      canvasRecenterOnActivateToken: 1,
+      canvasRecenterWorktreePath: '/repo/worktree-b',
+    });
+
+    expect(testState.electronAPI.restoreWorktreeSessions).not.toHaveBeenCalled();
 
     await mounted.unmount();
   });
@@ -869,6 +900,152 @@ describe('AgentPanel integration', () => {
         .querySelector('[data-testid="status-line"]')
         ?.getAttribute('data-session-id')
     ).toBe('session-b');
+
+    await mounted.unmount();
+  });
+
+  it('does not activate workspace canvas terminals when the current worktree changes', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const firstSession = createSession({
+      id: 'session-worktree-a',
+      sessionId: 'provider-worktree-a',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-a',
+      name: 'Gemini A',
+    });
+    const secondSession = createSession({
+      id: 'session-worktree-b',
+      sessionId: 'provider-worktree-b',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-b',
+      name: 'Gemini B',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [firstSession, secondSession],
+      activeIds: {
+        '/repo/worktree-a': firstSession.id,
+        '/repo/worktree-b': secondSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-worktree-a',
+              sessionIds: [firstSession.id],
+              activeSessionId: firstSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-a',
+          flexPercents: [100],
+        },
+        '/repo/worktree-b': {
+          groups: [
+            {
+              id: 'group-worktree-b',
+              sessionIds: [secondSession.id],
+              activeSessionId: secondSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-b',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+      ],
+    });
+
+    expect(
+      mounted.container
+        .querySelector('[data-session-id="session-worktree-a"]')
+        ?.getAttribute('data-active')
+    ).toBe('false');
+    expect(
+      mounted.container
+        .querySelector('[data-session-id="session-worktree-b"]')
+        ?.getAttribute('data-active')
+    ).toBe('false');
+
+    await mounted.rerender({
+      cwd: '/repo/worktree-b',
+      canvasRecenterOnActivateToken: 1,
+      canvasRecenterWorktreePath: '/repo/worktree-b',
+    });
+
+    expect(
+      mounted.container
+        .querySelector('[data-session-id="session-worktree-a"]')
+        ?.getAttribute('data-active')
+    ).toBe('false');
+    expect(
+      mounted.container
+        .querySelector('[data-session-id="session-worktree-b"]')
+        ?.getAttribute('data-active')
+    ).toBe('false');
+
+    await mounted.unmount();
+  });
+
+  it('activates a workspace canvas session launched from a worktree group', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const existingSession = createSession({
+      id: 'session-existing-worktree-a',
+      sessionId: 'provider-existing-worktree-a',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-a',
+      name: 'Gemini A',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [existingSession],
+      activeIds: {
+        '/repo/worktree-a': existingSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-existing-worktree-a',
+              sessionIds: [existingSession.id],
+              activeSessionId: existingSession.id,
+            },
+          ],
+          activeGroupId: 'group-existing-worktree-a',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+      ],
+    });
+
+    await clickElement(
+      mounted.container.querySelector('button[aria-label="New Session in worktree-b"]')
+    );
+
+    const launchedSession = useAgentSessionsStore
+      .getState()
+      .sessions.find((session) => session.cwd === '/repo/worktree-b');
+
+    expect(launchedSession).toEqual(expect.objectContaining({ cwd: '/repo/worktree-b' }));
+    expect(
+      mounted.container
+        .querySelector(`[data-session-id="${launchedSession?.id}"]`)
+        ?.getAttribute('data-active')
+    ).toBe('true');
 
     await mounted.unmount();
   });

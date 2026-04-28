@@ -10,7 +10,7 @@ interface ResolveChatPanelRetentionStateOptions {
   sessionCount: number;
   hasAttentionSignal?: boolean;
   hasLiveActivity?: boolean;
-  latestActivityAt?: number | null;
+  idleSinceAt?: number | null;
   now?: number;
   inactivityThresholdMs?: number;
 }
@@ -28,7 +28,7 @@ export function resolveChatPanelRetentionState({
   sessionCount,
   hasAttentionSignal = false,
   hasLiveActivity = false,
-  latestActivityAt = null,
+  idleSinceAt = null,
   now = Date.now(),
   inactivityThresholdMs = CHAT_PANEL_INACTIVITY_THRESHOLD_MS,
 }: ResolveChatPanelRetentionStateOptions): ChatPanelRetentionState {
@@ -40,11 +40,11 @@ export function resolveChatPanelRetentionState({
     return 'cold';
   }
 
-  if (latestActivityAt === null) {
+  if (idleSinceAt === null) {
     return 'warm';
   }
 
-  if (typeof latestActivityAt === 'number' && now - latestActivityAt <= inactivityThresholdMs) {
+  if (typeof idleSinceAt === 'number' && now - idleSinceAt <= inactivityThresholdMs) {
     return 'warm';
   }
 

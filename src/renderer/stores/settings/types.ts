@@ -11,6 +11,7 @@ import type {
   ReasoningEffort,
   ShellConfig,
 } from '@shared/types';
+import { BUILTIN_AGENT_IDS as SHARED_BUILTIN_AGENT_IDS } from '@shared/types/agentCatalog';
 
 // Theme types
 export type Theme = 'light' | 'dark' | 'system';
@@ -81,7 +82,7 @@ export type RepositoryListDisplayMode = 'tabs' | 'list';
 
 export type SettingsDisplayMode = 'tab' | 'draggable-modal';
 
-export type AgentSessionDisplayMode = 'tab' | 'canvas';
+export type AgentSessionDisplayMode = 'tab' | 'canvas' | 'global-canvas';
 
 // Terminal types
 export type FontWeight =
@@ -248,8 +249,8 @@ export interface StatusLineFieldSettings {
 
 export type AutoSessionRolloverMode = 'manual' | 'critical';
 
-// Claude Code integration settings
-export interface ClaudeCodeIntegrationSettings {
+// Agent integration settings
+export interface AgentIntegrationSettings {
   enabled: boolean;
   selectionChangedDebounce: number; // in milliseconds
   atMentionedKeybinding: TerminalKeybinding;
@@ -259,10 +260,10 @@ export interface ClaudeCodeIntegrationSettings {
   statusLineFields: StatusLineFieldSettings; // Which fields to display in status line
   tmuxEnabled: boolean; // Enable tmux session wrapping for persistent terminal sessions
   showProviderSwitcher: boolean; // Show provider switcher in SessionBar
-  enableProviderWatcher: boolean; // Enable watcher for Claude Code settings.json changes
+  enableProviderWatcher: boolean; // Enable watcher for supported provider settings changes
   enableProviderDisableFeature: boolean; // Enable/disable the provider temporary disable feature
   providers: import('@shared/types').ClaudeProvider[];
-  enhancedInputEnabled: boolean; // Enable enhanced input panel for Claude Code
+  enhancedInputEnabled: boolean; // Enable enhanced input panel for supported agent CLIs
   enhancedInputAutoPopup: 'always' | 'hideWhileRunning' | 'manual'; // Enhanced input auto popup mode
   autoSessionRollover: AutoSessionRolloverMode; // Automatic fresh session rollover policy
 }
@@ -413,8 +414,8 @@ export interface SettingsState {
   agentNotificationDelay: number; // in seconds
   agentNotificationEnterDelay: number; // delay after Enter before starting idle timer
 
-  // Claude Code Integration
-  claudeCodeIntegration: ClaudeCodeIntegrationSettings;
+  // Agent Integration
+  agentIntegration: AgentIntegrationSettings;
 
   // AI Features
   commitMessageGenerator: CommitMessageGeneratorSettings;
@@ -553,17 +554,17 @@ export interface SettingsState {
   setAgentNotificationDelay: (delay: number) => void;
   setAgentNotificationEnterDelay: (delay: number) => void;
 
-  // Setters - Claude Code Integration
-  setClaudeCodeIntegration: (settings: Partial<ClaudeCodeIntegrationSettings>) => void;
-  addClaudeProvider: (provider: import('@shared/types').ClaudeProvider) => void;
-  updateClaudeProvider: (
+  // Setters - Agent Integration
+  setAgentIntegration: (settings: Partial<AgentIntegrationSettings>) => void;
+  addAgentProvider: (provider: import('@shared/types').ClaudeProvider) => void;
+  updateAgentProvider: (
     id: string,
     updates: Partial<import('@shared/types').ClaudeProvider>
   ) => void;
-  removeClaudeProvider: (id: string) => void;
-  reorderClaudeProviders: (fromIndex: number, toIndex: number) => void;
-  setClaudeProviderEnabled: (id: string, enabled: boolean) => void;
-  setClaudeProviderOrder: (providers: import('@shared/types').ClaudeProvider[]) => void;
+  removeAgentProvider: (id: string) => void;
+  reorderAgentProviders: (fromIndex: number, toIndex: number) => void;
+  setAgentProviderEnabled: (id: string, enabled: boolean) => void;
+  setAgentProviderOrder: (providers: import('@shared/types').ClaudeProvider[]) => void;
 
   // Setters - AI Features
   setCommitMessageGenerator: (settings: Partial<CommitMessageGeneratorSettings>) => void;
@@ -660,12 +661,4 @@ export interface SettingsState {
 export type { AIProvider, ReasoningEffort } from '@shared/types';
 
 // Builtin agent IDs
-export const BUILTIN_AGENT_IDS: BuiltinAgentId[] = [
-  'claude',
-  'codex',
-  'droid',
-  'gemini',
-  'auggie',
-  'cursor',
-  'opencode',
-];
+export const BUILTIN_AGENT_IDS: BuiltinAgentId[] = [...SHARED_BUILTIN_AGENT_IDS];

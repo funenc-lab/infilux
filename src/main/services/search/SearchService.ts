@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { basename, relative } from 'node:path';
+import { readdir } from 'node:fs/promises';
+import { basename, join, relative } from 'node:path';
 import type {
   ContentSearchMatch,
   ContentSearchParams,
@@ -13,8 +14,8 @@ import { killProcessTree } from '../../utils/processUtils';
 const MAX_FILE_RESULTS = 100;
 const MAX_CONTENT_RESULTS = 500;
 const SEARCH_TIMEOUT_MS = 10000;
+const MAX_FILESYSTEM_FALLBACK_ENTRIES = 20000;
 
-// 统一的排除规则
 const EXCLUDE_GLOBS = [
   '!node_modules/**',
   '!dist/**',
@@ -25,23 +26,38 @@ const EXCLUDE_GLOBS = [
 ];
 
 const rgPath = originalRgPath.replace(/\.asar([\\/])/, '.asar.unpacked$1');
+const ripgrepCandidates = rgPath === 'rg' ? ['rg'] : [rgPath, 'rg'];
+const failedRipgrepCandidates = new Set<string>();
+let preferredRipgrepCandidate: string | undefined;
 
-// 模糊匹配分数计算
+interface FileEntry {
+  path: string;
+  name: string;
+  relativePath: string;
+}
+
+interface RipgrepFilesResult {
+  files: FileEntry[];
+  retryable: boolean;
+}
+
+interface FilesystemDirectoryEntry {
+  name: string;
+  isDirectory: () => boolean;
+  isFile: () => boolean;
+}
+
 function fuzzyMatch(query: string, target: string): number {
   const queryLower = query.toLowerCase();
   const targetLower = target.toLowerCase();
 
-  // 精确匹配
   if (targetLower === queryLower) return 1000;
 
-  // 包含匹配
   if (targetLower.includes(queryLower)) {
-    // 前缀匹配得分更高
     if (targetLower.startsWith(queryLower)) return 900;
     return 800 - targetLower.indexOf(queryLower);
   }
 
-  // 模糊匹配（连续字符）
   let score = 0;
   let queryIndex = 0;
   let consecutiveBonus = 0;
@@ -56,7 +72,6 @@ function fuzzyMatch(query: string, target: string): number {
     }
   }
 
-  // 所有字符都匹配到才算有效
   if (queryIndex === queryLower.length) {
     return score;
   }
@@ -64,17 +79,110 @@ function fuzzyMatch(query: string, target: string): number {
   return 0;
 }
 
-// 使用 ripgrep 获取所有文件列表
-async function getAllFilesWithRipgrep(
+function normalizeRelativePath(rootPath: string, filePath: string): string {
+  return relative(rootPath, filePath).replace(/\\/g, '/');
+}
+
+function isExcludedPath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, '/');
+  return (
+    normalized === '.git' ||
+    normalized.startsWith('.git/') ||
+    normalized === 'node_modules' ||
+    normalized.startsWith('node_modules/') ||
+    normalized === 'dist' ||
+    normalized.startsWith('dist/') ||
+    normalized === 'build' ||
+    normalized.startsWith('build/') ||
+    normalized.endsWith('.lock') ||
+    normalized === 'package-lock.json'
+  );
+}
+
+function getDirectoryEntries(
+  rootPath: string,
+  files: readonly { relativePath: string }[]
+): FileSearchResult[] {
+  const directories = new Map<string, FileSearchResult>();
+
+  for (const file of files) {
+    const parts = file.relativePath.split('/').filter(Boolean);
+    for (let index = 1; index < parts.length; index += 1) {
+      const relativePath = parts.slice(0, index).join('/');
+      if (directories.has(relativePath)) {
+        continue;
+      }
+      directories.set(relativePath, {
+        kind: 'directory',
+        path: join(rootPath, ...parts.slice(0, index)),
+        name: parts[index - 1] ?? relativePath,
+        relativePath,
+        score: 0,
+      });
+    }
+  }
+
+  return [...directories.values()];
+}
+
+async function getAllFilesWithFilesystemFallback(rootPath: string): Promise<FileEntry[]> {
+  const files: FileEntry[] = [];
+
+  async function walk(directoryPath: string): Promise<void> {
+    if (files.length >= MAX_FILESYSTEM_FALLBACK_ENTRIES) {
+      return;
+    }
+
+    let entries: FilesystemDirectoryEntry[];
+    try {
+      entries = await readdir(directoryPath, { withFileTypes: true, encoding: 'utf8' });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (files.length >= MAX_FILESYSTEM_FALLBACK_ENTRIES) {
+        return;
+      }
+
+      const fullPath = join(directoryPath, entry.name);
+      const relativePath = normalizeRelativePath(rootPath, fullPath);
+      if (!relativePath || isExcludedPath(relativePath)) {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      files.push({
+        path: fullPath,
+        name: entry.name,
+        relativePath,
+      });
+    }
+  }
+
+  await walk(rootPath);
+  return files;
+}
+
+async function getAllFilesWithRipgrepBinary(
+  binaryPath: string,
   rootPath: string
-): Promise<{ path: string; name: string; relativePath: string }[]> {
+): Promise<RipgrepFilesResult> {
   return new Promise((resolve) => {
     const args = ['--files', ...EXCLUDE_GLOBS.flatMap((g) => ['--glob', g]), rootPath];
 
-    const files: { path: string; name: string; relativePath: string }[] = [];
+    const files: FileEntry[] = [];
     let buffer = '';
 
-    const rg = spawn(rgPath, args);
+    const rg = spawn(binaryPath, args);
 
     rg.stdout.on('data', (data) => {
       buffer += data.toString();
@@ -88,7 +196,7 @@ async function getAllFilesWithRipgrep(
         files.push({
           path: filePath,
           name: basename(filePath),
-          relativePath: relative(rootPath, filePath),
+          relativePath: normalizeRelativePath(rootPath, filePath),
         });
       }
     });
@@ -98,55 +206,78 @@ async function getAllFilesWithRipgrep(
       rg.removeAllListeners('close');
       rg.removeAllListeners('error');
       killProcessTree(rg);
-      resolve(files);
+      resolve({ files, retryable: false });
     }, SEARCH_TIMEOUT_MS);
 
     rg.on('close', () => {
       clearTimeout(timeoutId);
+      preferredRipgrepCandidate = binaryPath;
 
-      // 处理最后一行
       if (buffer.trim()) {
         const filePath = buffer.trim();
         files.push({
           path: filePath,
           name: basename(filePath),
-          relativePath: relative(rootPath, filePath),
+          relativePath: normalizeRelativePath(rootPath, filePath),
         });
       }
 
-      resolve(files);
+      resolve({ files, retryable: false });
     });
 
     rg.on('error', (err) => {
       clearTimeout(timeoutId);
-      console.error('[SearchService] ripgrep --files spawn error:', err.message);
-      resolve([]);
+      if (!failedRipgrepCandidates.has(binaryPath)) {
+        failedRipgrepCandidates.add(binaryPath);
+        console.error('[SearchService] ripgrep --files spawn error:', err.message);
+      }
+      resolve({ files: [], retryable: true });
     });
   });
 }
 
+async function getAllFiles(rootPath: string): Promise<FileEntry[]> {
+  const candidates = preferredRipgrepCandidate
+    ? [
+        preferredRipgrepCandidate,
+        ...ripgrepCandidates.filter((candidate) => candidate !== preferredRipgrepCandidate),
+      ]
+    : ripgrepCandidates;
+
+  for (const candidate of candidates) {
+    const result = await getAllFilesWithRipgrepBinary(candidate, rootPath);
+    if (!result.retryable) {
+      return result.files;
+    }
+  }
+
+  return getAllFilesWithFilesystemFallback(rootPath);
+}
+
 export class SearchService {
-  // 文件名搜索（使用 ripgrep --files）
   async searchFiles(params: FileSearchParams): Promise<FileSearchResult[]> {
-    const { rootPath, query, maxResults = MAX_FILE_RESULTS } = params;
+    const { rootPath, query, maxResults = MAX_FILE_RESULTS, includeDirectories = false } = params;
 
-    const allFiles = await getAllFilesWithRipgrep(rootPath);
+    const allFiles = await getAllFiles(rootPath);
+    const searchableEntries: FileSearchResult[] = includeDirectories
+      ? [
+          ...allFiles.map((file) => ({ ...file, kind: 'file' as const, score: 0 })),
+          ...getDirectoryEntries(rootPath, allFiles),
+        ]
+      : allFiles.map((file) => ({ ...file, score: 0 }));
 
-    // Empty query: return files sorted by path (shallow files first)
     if (!query.trim()) {
-      return allFiles
-        .map((file) => ({ ...file, score: 0 }))
+      return searchableEntries
         .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
         .slice(0, maxResults);
     }
 
-    // Fuzzy match and rank
-    const scoredResults = allFiles
-      .map((file) => {
-        const nameScore = fuzzyMatch(query, file.name);
-        const pathScore = fuzzyMatch(query, file.relativePath) * 0.8;
+    const scoredResults = searchableEntries
+      .map((entry) => {
+        const nameScore = fuzzyMatch(query, entry.name);
+        const pathScore = fuzzyMatch(query, entry.relativePath) * 0.8;
         return {
-          ...file,
+          ...entry,
           score: Math.max(nameScore, pathScore),
         };
       })
@@ -157,7 +288,6 @@ export class SearchService {
     return scoredResults;
   }
 
-  // 内容搜索（使用 ripgrep）
   async searchContent(params: ContentSearchParams): Promise<ContentSearchResult> {
     const {
       rootPath,
@@ -185,10 +315,8 @@ export class SearchService {
         '1M',
       ];
 
-      // 忽略常见目录
       args.push(...EXCLUDE_GLOBS.flatMap((g) => ['--glob', g]));
 
-      // ripgrep 默认遵循 .gitignore，如果不使用则添加 --no-ignore
       if (!useGitignore) args.push('--no-ignore');
 
       if (!caseSensitive) args.push('-i');
@@ -237,7 +365,7 @@ export class SearchService {
               }
             }
           } catch {
-            // 忽略解析错误
+            // Ignore malformed JSON lines from ripgrep.
           }
         }
       });
@@ -263,7 +391,6 @@ export class SearchService {
       rg.on('close', (code) => {
         clearTimeout(timeoutId);
 
-        // 处理最后一行
         if (buffer.trim()) {
           try {
             const json = JSON.parse(buffer);

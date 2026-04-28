@@ -429,6 +429,7 @@ describe('supporting IPC handlers', () => {
           rootPath: '/repo',
           query: 'abc',
           maxResults: 5,
+          includeDirectories: true,
         }
       )
     ).toEqual([{ path: 'local.ts' }]);
@@ -449,6 +450,7 @@ describe('supporting IPC handlers', () => {
           rootPath: '/__remote__/repo',
           query: 'abc',
           maxResults: 5,
+          includeDirectories: true,
         }
       )
     ).toEqual([{ path: 'remote.ts' }]);
@@ -463,7 +465,18 @@ describe('supporting IPC handlers', () => {
     ).toEqual([{ path: 'remote.ts', line: 3 }]);
 
     expect(handlerTestDoubles.searchFiles).toHaveBeenCalledTimes(1);
-    expect(handlerTestDoubles.remoteSearchFiles).toHaveBeenCalledWith('/__remote__/repo', 'abc', 5);
+    expect(handlerTestDoubles.searchFiles).toHaveBeenCalledWith({
+      rootPath: '/repo',
+      query: 'abc',
+      maxResults: 5,
+      includeDirectories: true,
+    });
+    expect(handlerTestDoubles.remoteSearchFiles).toHaveBeenCalledWith(
+      '/__remote__/repo',
+      'abc',
+      5,
+      true
+    );
     expect(handlerTestDoubles.remoteSearchContent).toHaveBeenCalledWith({
       rootPath: '/__remote__/repo',
       query: 'needle',

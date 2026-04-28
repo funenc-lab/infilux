@@ -384,6 +384,41 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('does not clear live session bindings when a recovered record is missing binding ids', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-1',
+      sessionId: 'provider-live',
+      backendSessionId: 'backend-live',
+      name: 'Codex',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      persistenceEnabled: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        backendSessionId: undefined,
+        providerSessionId: undefined,
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        sessionId: 'provider-live',
+        backendSessionId: 'backend-live',
+      }),
+    ]);
+  });
+
   it('restores persisted group layout, enhanced input draft, and unread runtime markers', async () => {
     const persistedPayload = {
       sessions: [

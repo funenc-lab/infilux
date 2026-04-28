@@ -5,6 +5,7 @@ import type { TabId } from '@/App/constants';
 import { OpenInMenu } from '@/components/app/OpenInMenu';
 import { AppResourceStatusPopover } from '@/components/layout/AppResourceStatusPopover';
 import { RunningProjectsPopover } from '@/components/layout/RunningProjectsPopover';
+import { TokenUsagePopover } from '@/components/layout/TokenUsagePopover';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { springFast } from '@/lib/motion';
@@ -171,7 +172,12 @@ export function MainContentTopbar({
           </div>
 
           <div className="control-topbar-actions-cluster">
-            {isMac ? <AppResourceStatusPopover className={headerButtonClass} /> : null}
+            {isMac ? (
+              <>
+                <TokenUsagePopover className={headerButtonClass} />
+                <AppResourceStatusPopover className={headerButtonClass} />
+              </>
+            ) : null}
             <button
               type="button"
               data-active={isSettingsActive ? 'true' : 'false'}

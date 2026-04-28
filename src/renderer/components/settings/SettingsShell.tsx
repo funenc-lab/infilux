@@ -60,7 +60,7 @@ export function SettingsShell({
         { id: 'agent', icon: Bot, label: t('Agent') },
         { id: 'ai', icon: Sparkles, label: t('AI') },
         { id: 'input', icon: Paperclip, label: t('Advanced Features') },
-        { id: 'integration', icon: Link, label: t('Claude Integration') },
+        { id: 'integration', icon: Link, label: t('Agent Integrations') },
         { id: 'hapi', icon: Share2, label: t('Remote Sharing') },
         { id: 'remote', icon: Server, label: t('Remote Connection') },
         { id: 'webInspector', icon: Globe, label: t('Web Inspector') },

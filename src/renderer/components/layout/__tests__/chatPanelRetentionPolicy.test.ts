@@ -30,6 +30,38 @@ describe('chatPanelRetentionPolicy', () => {
     ]);
   });
 
+  it('does not cap session-backed chat panels with the ordinary warm-cache limit', () => {
+    const activePaths = new Set([
+      '/repo/worktrees/current',
+      '/repo/worktrees/older-a',
+      '/repo/worktrees/older-b',
+      '/repo/worktrees/older-c',
+      '/repo/worktrees/older-d',
+      '/repo/worktrees/older-e',
+    ]);
+
+    expect(
+      updateRetainedChatPanelPaths({
+        previousPaths: [
+          '/repo/worktrees/older-a',
+          '/repo/worktrees/older-b',
+          '/repo/worktrees/older-c',
+          '/repo/worktrees/older-d',
+        ],
+        activePath: '/repo/worktrees/current',
+        hasActivity: (path) => activePaths.has(path),
+        sessionBackedPaths: ['/repo/worktrees/older-d', '/repo/worktrees/older-e'],
+      })
+    ).toEqual([
+      '/repo/worktrees/current',
+      '/repo/worktrees/older-a',
+      '/repo/worktrees/older-b',
+      '/repo/worktrees/older-c',
+      '/repo/worktrees/older-d',
+      '/repo/worktrees/older-e',
+    ]);
+  });
+
   it('still removes worktrees whose chat activity is gone', () => {
     expect(
       updateRetainedChatPanelPaths({

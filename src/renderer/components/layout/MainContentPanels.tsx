@@ -4,9 +4,11 @@ import { GitBranch, RectangleEllipsis, Sparkles } from 'lucide-react';
 import type { TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
 import { normalizePath } from '@/App/storage';
+import type { AgentCanvasWorktreeCandidate } from '@/components/chat/agentCanvasSessionScope';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
+import type { AgentSessionDisplayMode } from '@/stores/settings';
 import { ControlStateActionButton } from './ControlStateActionButton';
 import { ControlStateCard } from './ControlStateCard';
 import { DeferredAgentPanel } from './DeferredAgentPanel';
@@ -16,7 +18,10 @@ import { DeferredSettingsContent } from './DeferredSettingsContent';
 import { DeferredSourceControlPanel } from './DeferredSourceControlPanel';
 import { DeferredTerminalPanel } from './DeferredTerminalPanel';
 import { DeferredTodoPanel } from './DeferredTodoPanel';
-import { resolveMainContentChatPanelPlan } from './mainContentChatPanelPlan';
+import {
+  resolveMainContentChatPanelEntryKey,
+  resolveMainContentChatPanelPlan,
+} from './mainContentChatPanelPlan';
 import { SubagentTranscriptPanel } from './SubagentTranscriptPanel';
 
 type FileTreeDisplayMode = 'legacy' | 'current';
@@ -43,6 +48,8 @@ export interface MainContentPanelsProps {
   shouldRenderCurrentTerminalPanel: boolean;
   shouldRenderCurrentFilePanel: boolean;
   cachedChatPanelPaths: string[];
+  workspaceCanvasWorktrees?: AgentCanvasWorktreeCandidate[];
+  agentSessionDisplayMode: AgentSessionDisplayMode;
   cachedTerminalPanelPaths: string[];
   cachedFilePanelPaths: string[];
   fileTreeDisplayMode: FileTreeDisplayMode;
@@ -135,6 +142,8 @@ export function MainContentPanels({
   shouldRenderCurrentTerminalPanel,
   shouldRenderCurrentFilePanel,
   cachedChatPanelPaths,
+  workspaceCanvasWorktrees = [],
+  agentSessionDisplayMode,
   cachedTerminalPanelPaths,
   cachedFilePanelPaths,
   fileTreeDisplayMode,
@@ -184,6 +193,8 @@ export function MainContentPanels({
           normalizePath(entry.worktreePath) === normalizePath(chatCanvasRecenterWorktreePath)
             ? chatCanvasRecenterToken
             : 0;
+        const canvasRecenterWorktreePathForEntry =
+          canvasRecenterOnActivateToken > 0 ? chatCanvasRecenterWorktreePath : null;
         const canvasFocusOnActivateToken =
           entry.isCurrent &&
           chatCanvasFocusToken > 0 &&
@@ -196,7 +207,7 @@ export function MainContentPanels({
 
         return (
           <div
-            key={`chat:${entry.worktreePath}`}
+            key={resolveMainContentChatPanelEntryKey(entry, agentSessionDisplayMode)}
             className={cn(
               'absolute inset-0',
               innerBg,
@@ -212,9 +223,12 @@ export function MainContentPanels({
               repoPath={entry.repoPath}
               cwd={entry.worktreePath}
               isActive={entry.isActive}
+              isCurrentWorktreePanel={entry.isCurrent}
               canvasRecenterOnActivateToken={canvasRecenterOnActivateToken}
+              canvasRecenterWorktreePath={canvasRecenterWorktreePathForEntry}
               canvasFocusOnActivateToken={canvasFocusOnActivateToken}
               canvasFocusSessionId={canvasFocusSessionIdForEntry}
+              workspaceCanvasWorktrees={workspaceCanvasWorktrees}
               shouldLoad
               showFallback={entry.showFallback}
             />

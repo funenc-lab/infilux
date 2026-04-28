@@ -16,6 +16,67 @@ const rendererZhTranslations: Record<string, string> = {
   'Bring to Front': decodeEscapedUnicode('\\u7f6e\\u4e8e\\u524d\\u53f0'),
   'Back to Canvas': decodeEscapedUnicode('\\u8fd4\\u56de\\u753b\\u5e03'),
   'Dismiss Floating Session': decodeEscapedUnicode('\\u6536\\u8d77\\u60ac\\u6d6e\\u4f1a\\u8bdd'),
+  'Tab Layout': decodeEscapedUnicode('\\u6807\\u7b7e\\u5e03\\u5c40'),
+  'Worktree Canvas': decodeEscapedUnicode('Worktree \\u753b\\u5e03'),
+  'Repository Canvas': decodeEscapedUnicode('\\u4ed3\\u5e93\\u753b\\u5e03'),
+  'Workspace Canvas': decodeEscapedUnicode('\\u5de5\\u4f5c\\u533a\\u753b\\u5e03'),
+  'Show sessions as tabs inside the active worktree': decodeEscapedUnicode(
+    '\\u5728\\u5f53\\u524d Worktree \\u5185\\u4ee5\\u6807\\u7b7e\\u663e\\u793a\\u4f1a\\u8bdd'
+  ),
+  'Show the active worktree sessions on an infinite canvas': decodeEscapedUnicode(
+    '\\u5728\\u65e0\\u9650\\u753b\\u5e03\\u4e2d\\u663e\\u793a\\u5f53\\u524d Worktree \\u4f1a\\u8bdd'
+  ),
+  'Show all agent sessions in the current repository, grouped by worktree': decodeEscapedUnicode(
+    '\\u5728\\u5f53\\u524d\\u4ed3\\u5e93\\u4e2d\\u6309 Worktree \\u5206\\u7ec4\\u663e\\u793a\\u6240\\u6709 Agent \\u4f1a\\u8bdd'
+  ),
+  'Show all agent sessions across worktrees, grouped by worktree': decodeEscapedUnicode(
+    '\\u5728\\u6240\\u6709 Worktree \\u4e2d\\u6309 Worktree \\u5206\\u7ec4\\u663e\\u793a\\u6240\\u6709 Agent \\u4f1a\\u8bdd'
+  ),
+  'Show active worktrees and agent sessions on one shared canvas': decodeEscapedUnicode(
+    '\\u5728\\u4e00\\u4e2a\\u5171\\u4eab\\u753b\\u5e03\\u4e2d\\u663e\\u793a\\u6d3b\\u8dc3 Worktree \\u548c Agent \\u4f1a\\u8bdd'
+  ),
+  'Choose how agent sessions are displayed': decodeEscapedUnicode(
+    '\\u9009\\u62e9 Agent \\u4f1a\\u8bdd\\u7684\\u5c55\\u793a\\u65b9\\u5f0f'
+  ),
+  'Current Worktree': decodeEscapedUnicode('\\u5f53\\u524d Worktree'),
+  'Repository workspace': decodeEscapedUnicode('\\u4ed3\\u5e93\\u5de5\\u4f5c\\u533a'),
+  'Current worktree: {{name}}': decodeEscapedUnicode('\\u5f53\\u524d Worktree\\uff1a{{name}}'),
+  'Agent Sessions': decodeEscapedUnicode('Agent \\u4f1a\\u8bdd'),
+  'Needs Attention': decodeEscapedUnicode('\\u9700\\u8981\\u5904\\u7406'),
+  'Running Sessions': decodeEscapedUnicode('\\u8fd0\\u884c\\u4e2d\\u4f1a\\u8bdd'),
+  'Idle Sessions': decodeEscapedUnicode('\\u7a7a\\u95f2\\u4f1a\\u8bdd'),
+  'Ended Sessions': decodeEscapedUnicode('\\u5df2\\u7ed3\\u675f\\u4f1a\\u8bdd'),
+  'Review waiting sessions': decodeEscapedUnicode(
+    '\\u5904\\u7406\\u7b49\\u5f85\\u8f93\\u5165\\u7684\\u4f1a\\u8bdd'
+  ),
+  'Inspect unread results': decodeEscapedUnicode('\\u67e5\\u770b\\u672a\\u8bfb\\u7ed3\\u679c'),
+  'Review stale sessions': decodeEscapedUnicode(
+    '\\u68c0\\u67e5\\u9700\\u5237\\u65b0\\u7684\\u4f1a\\u8bdd'
+  ),
+  'Monitor running sessions': decodeEscapedUnicode(
+    '\\u89c2\\u5bdf\\u8fd0\\u884c\\u4e2d\\u4f1a\\u8bdd'
+  ),
+  'All sessions idle': decodeEscapedUnicode('\\u5168\\u90e8\\u4f1a\\u8bdd\\u7a7a\\u95f2'),
+  'No active sessions': decodeEscapedUnicode('\\u6ca1\\u6709\\u6d3b\\u52a8\\u4f1a\\u8bdd'),
+  'No agent sessions': decodeEscapedUnicode('\\u6682\\u65e0 Agent \\u4f1a\\u8bdd'),
+  'New in Current Worktree': decodeEscapedUnicode('\\u5728\\u5f53\\u524d Worktree \\u65b0\\u5efa'),
+  'New Session in {{name}}': decodeEscapedUnicode('\\u5728 {{name}} \\u65b0\\u5efa Session'),
+  '{{count}} agent sessions': decodeEscapedUnicode('{{count}} \\u4e2a Agent \\u4f1a\\u8bdd'),
+  '{{count}} total': decodeEscapedUnicode('\\u5171 {{count}} \\u4e2a'),
+  '{{count}} running': decodeEscapedUnicode('{{count}} \\u4e2a\\u8fd0\\u884c\\u4e2d'),
+  '{{count}} waiting': decodeEscapedUnicode('{{count}} \\u4e2a\\u7b49\\u5f85\\u8f93\\u5165'),
+  'Start an agent session to track its status here.': decodeEscapedUnicode(
+    '\\u542f\\u52a8 Agent \\u4f1a\\u8bdd\\u540e\\uff0c\\u53ef\\u5728\\u6b64\\u8ddf\\u8e2a\\u72b6\\u6001\\u3002'
+  ),
+  'Task: {{title}}': decodeEscapedUnicode('\\u4efb\\u52a1\\uff1a{{title}}'),
+  'Move task': decodeEscapedUnicode('\\u79fb\\u52a8\\u4efb\\u52a1'),
+  Running: decodeEscapedUnicode('\\u8fd0\\u884c\\u4e2d'),
+  Waiting: decodeEscapedUnicode('\\u7b49\\u5f85'),
+  Unread: decodeEscapedUnicode('\\u672a\\u8bfb'),
+  Idle: decodeEscapedUnicode('\\u7a7a\\u95f2'),
+  Dead: decodeEscapedUnicode('\\u5df2\\u7ec8\\u6b62'),
+  Active: decodeEscapedUnicode('\\u5f53\\u524d'),
+  Stale: decodeEscapedUnicode('\\u9700\\u5237\\u65b0'),
   Attachment: decodeEscapedUnicode('\\u9644\\u4ef6'),
   Attachments: decodeEscapedUnicode('\\u9644\\u4ef6'),
   'Attachment paste unavailable': decodeEscapedUnicode(
@@ -30,7 +91,7 @@ const rendererZhTranslations: Record<string, string> = {
   ),
   '{{label}} must be smaller than {{limit}} MB to paste into the agent input. Largest pasted file: {{size}} MB.':
     decodeEscapedUnicode(
-      '\\{\\{label\\}\\} \\u5fc5\\u987b\\u5c0f\\u4e8e \\{\\{limit\\}\\} MB \\u624d\\u80fd\\u7c98\\u8d34\\u5230 Agent \\u8f93\\u5165\\u6846\\u3002\\u5f53\\u524d\\u7c98\\u8d34\\u6587\\u4ef6\\u4e2d\\u6700\\u5927\\u7684\\u662f \\{\\{size\\}\\} MB\\u3002'
+      '{{label}} \\u5fc5\\u987b\\u5c0f\\u4e8e {{limit}} MB \\u624d\\u80fd\\u7c98\\u8d34\\u5230 Agent \\u8f93\\u5165\\u6846\\u3002\\u5f53\\u524d\\u7c98\\u8d34\\u6587\\u4ef6\\u4e2d\\u6700\\u5927\\u7684\\u662f {{size}} MB\\u3002'
     ),
   'Tree sidebar actions': decodeEscapedUnicode('\\u6811\\u5f62\\u4fa7\\u680f\\u64cd\\u4f5c'),
   'Show all worktrees': decodeEscapedUnicode('\\u663e\\u793a\\u5168\\u90e8\\u5de5\\u4f5c\\u6811'),
@@ -43,7 +104,14 @@ const rendererZhTranslations: Record<string, string> = {
   'File sidebar actions': decodeEscapedUnicode('\\u6587\\u4ef6\\u4fa7\\u680f\\u64cd\\u4f5c'),
   'Expand Temp Sessions': decodeEscapedUnicode('\\u5c55\\u5f00\\u4e34\\u65f6\\u4f1a\\u8bdd'),
   'Search Files': decodeEscapedUnicode('\\u641c\\u7d22\\u6587\\u4ef6'),
-  '{{count}} minutes': decodeEscapedUnicode('\\{\\{count\\}\\} \\u5206\\u949f'),
+  'Searching files...': decodeEscapedUnicode('\\u6b63\\u5728\\u641c\\u7d22\\u6587\\u4ef6...'),
+  'Searching files and directories...': decodeEscapedUnicode(
+    '\\u6b63\\u5728\\u641c\\u7d22\\u6587\\u4ef6\\u548c\\u76ee\\u5f55...'
+  ),
+  'No files or directories found': decodeEscapedUnicode(
+    '\\u672a\\u627e\\u5230\\u6587\\u4ef6\\u6216\\u76ee\\u5f55'
+  ),
+  '{{count}} minutes': decodeEscapedUnicode('{{count}} \\u5206\\u949f'),
   'Chat panel retention': decodeEscapedUnicode(
     '\\u804a\\u5929\\u9762\\u677f\\u4fdd\\u7559\\u65f6\\u957f'
   ),
@@ -62,6 +130,141 @@ const rendererZhTranslations: Record<string, string> = {
   'Detect automatically': decodeEscapedUnicode('\\u81ea\\u52a8\\u68c0\\u6d4b'),
   'Choose settings file': decodeEscapedUnicode('\\u9009\\u62e9\\u8bbe\\u7f6e\\u6587\\u4ef6'),
   'Typical paths': decodeEscapedUnicode('\\u5e38\\u89c1\\u8def\\u5f84'),
+  'Auto Execute Agent': decodeEscapedUnicode('\\u81ea\\u52a8\\u6267\\u884c Agent'),
+  'Auto: {{agent}}': decodeEscapedUnicode('\\u81ea\\u52a8\\uff1a{{agent}}'),
+  'Auto execute with {{agent}}': decodeEscapedUnicode(
+    '\\u4f7f\\u7528 {{agent}} \\u81ea\\u52a8\\u6267\\u884c'
+  ),
+  'Auto Select': decodeEscapedUnicode('\\u81ea\\u52a8\\u9009\\u62e9'),
+  'Executing with {{agent}}...': decodeEscapedUnicode(
+    '\\u6b63\\u5728\\u4f7f\\u7528 {{agent}} \\u6267\\u884c...'
+  ),
+  Run: decodeEscapedUnicode('\\u8fd0\\u884c'),
+  'Task Agent': decodeEscapedUnicode('\\u4efb\\u52a1 Agent'),
+  'Task details and execution context.': decodeEscapedUnicode(
+    '\\u4efb\\u52a1\\u8be6\\u60c5\\u4e0e\\u6267\\u884c\\u4e0a\\u4e0b\\u6587\\u3002'
+  ),
+  'Basic Details': decodeEscapedUnicode('\\u57fa\\u672c\\u4fe1\\u606f'),
+  'Execution Settings': decodeEscapedUnicode('\\u6267\\u884c\\u8bbe\\u7f6e'),
+  'AI Tasks': decodeEscapedUnicode('AI \\u4efb\\u52a1'),
+  'Plan Tasks with AI': decodeEscapedUnicode('\\u7528 AI \\u89c4\\u5212\\u4efb\\u52a1'),
+  'Describe the work and review generated tasks before creating them.': decodeEscapedUnicode(
+    '\\u63cf\\u8ff0\\u8981\\u5b8c\\u6210\\u7684\\u5de5\\u4f5c\\uff0c\\u521b\\u5efa\\u524d\\u5148\\u68c0\\u67e5\\u751f\\u6210\\u7684\\u4efb\\u52a1\\u3002'
+  ),
+  'Work request': decodeEscapedUnicode('\\u5de5\\u4f5c\\u9700\\u6c42'),
+  'Describe the goal, constraints, and expected outcome...': decodeEscapedUnicode(
+    '\\u63cf\\u8ff0\\u76ee\\u6807\\u3001\\u7ea6\\u675f\\u548c\\u9884\\u671f\\u7ed3\\u679c...'
+  ),
+  'Describe the goal, constraints, and @files to include...': decodeEscapedUnicode(
+    '\\u63cf\\u8ff0\\u76ee\\u6807\\u3001\\u7ea6\\u675f\\u548c\\u8981\\u5f15\\u5165\\u7684 @\\u6587\\u4ef6...'
+  ),
+  'Describe the goal, constraints, and @context to include...': decodeEscapedUnicode(
+    '\\u63cf\\u8ff0\\u76ee\\u6807\\u3001\\u7ea6\\u675f\\u548c\\u8981\\u5f15\\u5165\\u7684 @\\u4e0a\\u4e0b\\u6587...'
+  ),
+  'Failed to generate tasks': decodeEscapedUnicode('\\u751f\\u6210\\u4efb\\u52a1\\u5931\\u8d25'),
+  '{{count}} enabled agents': decodeEscapedUnicode('{{count}} \\u4e2a\\u5df2\\u542f\\u7528 Agent'),
+  '{{count}} generated tasks': decodeEscapedUnicode(
+    '{{count}} \\u4e2a\\u751f\\u6210\\u4efb\\u52a1'
+  ),
+  'No generated tasks': decodeEscapedUnicode('\\u6682\\u65e0\\u751f\\u6210\\u4efb\\u52a1'),
+  'Generate Tasks': decodeEscapedUnicode('\\u751f\\u6210\\u4efb\\u52a1'),
+  'No tasks yet': decodeEscapedUnicode('\\u6682\\u65e0\\u4efb\\u52a1'),
+  'Generate tasks from a work request, or create one manually.': decodeEscapedUnicode(
+    '\\u6839\\u636e\\u5de5\\u4f5c\\u9700\\u6c42\\u751f\\u6210\\u4efb\\u52a1\\uff0c\\u6216\\u624b\\u52a8\\u521b\\u5efa\\u4e00\\u4e2a\\u4efb\\u52a1\\u3002'
+  ),
+  Task: decodeEscapedUnicode('\\u4efb\\u52a1'),
+  'Tasks created': decodeEscapedUnicode('\\u4efb\\u52a1\\u5df2\\u521b\\u5efa'),
+  'Created {{count}} tasks': decodeEscapedUnicode(
+    '\\u5df2\\u521b\\u5efa {{count}} \\u4e2a\\u4efb\\u52a1'
+  ),
+  'Create selected tasks': decodeEscapedUnicode('\\u521b\\u5efa\\u9009\\u4e2d\\u4efb\\u52a1'),
+  'Code implementation fit': decodeEscapedUnicode('\\u9002\\u5408\\u4ee3\\u7801\\u5b9e\\u73b0'),
+  'Code review fit': decodeEscapedUnicode('\\u9002\\u5408\\u4ee3\\u7801\\u5ba1\\u67e5'),
+  'Research and context fit': decodeEscapedUnicode(
+    '\\u9002\\u5408\\u8c03\\u7814\\u548c\\u4e0a\\u4e0b\\u6587\\u5206\\u6790'
+  ),
+  'Large context fit': decodeEscapedUnicode('\\u9002\\u5408\\u5927\\u4e0a\\u4e0b\\u6587'),
+  'Default agent': decodeEscapedUnicode('\\u9ed8\\u8ba4 Agent'),
+  'Task agent selection': decodeEscapedUnicode('\\u4efb\\u52a1\\u6307\\u5b9a Agent'),
+  'Manual selection': decodeEscapedUnicode('\\u624b\\u52a8\\u9009\\u62e9'),
+  'Task Context': decodeEscapedUnicode('\\u4efb\\u52a1\\u4e0a\\u4e0b\\u6587'),
+  'Attach current worktree': decodeEscapedUnicode('\\u7ed1\\u5b9a\\u5f53\\u524d Worktree'),
+  'Attach file context': decodeEscapedUnicode('\\u7ed1\\u5b9a\\u6587\\u4ef6\\u4e0a\\u4e0b\\u6587'),
+  'Attach directory context': decodeEscapedUnicode(
+    '\\u7ed1\\u5b9a\\u76ee\\u5f55\\u4e0a\\u4e0b\\u6587'
+  ),
+  'No active file': decodeEscapedUnicode('\\u672a\\u6253\\u5f00\\u6d3b\\u52a8\\u6587\\u4ef6'),
+  'No referenced directories': decodeEscapedUnicode('\\u672a\\u5f15\\u7528\\u76ee\\u5f55'),
+  'No worktree selected': decodeEscapedUnicode('\\u672a\\u9009\\u62e9 Worktree'),
+  'No ready tasks': decodeEscapedUnicode('\\u6682\\u65e0\\u53ef\\u6267\\u884c\\u4efb\\u52a1'),
+  '{{count}} tasks': decodeEscapedUnicode('{{count}} \\u4e2a\\u4efb\\u52a1'),
+  '{{count}} directories': decodeEscapedUnicode('{{count}} \\u4e2a\\u76ee\\u5f55'),
+  'Completion {{percent}}%': decodeEscapedUnicode('\\u5b8c\\u6210\\u7387 {{percent}}%'),
+  Plan: decodeEscapedUnicode('\\u8ba1\\u5212'),
+  'Review execution order, agent assignment, and blockers before starting.': decodeEscapedUnicode(
+    '\\u542f\\u52a8\\u524d\\u68c0\\u67e5\\u6267\\u884c\\u987a\\u5e8f\\u3001Agent \\u5206\\u914d\\u548c\\u963b\\u585e\\u9879\\u3002'
+  ),
+  Ready: decodeEscapedUnicode('\\u5c31\\u7eea'),
+  Blocked: decodeEscapedUnicode('\\u963b\\u585e'),
+  Parallel: decodeEscapedUnicode('\\u5e76\\u884c'),
+  Progress: decodeEscapedUnicode('\\u8fdb\\u5ea6'),
+  'Waiting for dependency': decodeEscapedUnicode('\\u7b49\\u5f85\\u4f9d\\u8d56'),
+  'Waiting for dependencies': decodeEscapedUnicode('\\u7b49\\u5f85\\u4f9d\\u8d56'),
+  'Missing dependency': decodeEscapedUnicode('\\u7f3a\\u5931\\u4f9d\\u8d56'),
+  'Todo change was not saved': decodeEscapedUnicode('Todo \\u53d8\\u66f4\\u672a\\u4fdd\\u5b58'),
+  'Unable to load token usage.': decodeEscapedUnicode(
+    '\\u65e0\\u6cd5\\u52a0\\u8f7d token \\u7528\\u91cf\\u3002'
+  ),
+  'Usage Analytics': decodeEscapedUnicode('\\u7528\\u91cf\\u5206\\u6790'),
+  'Project Scope': decodeEscapedUnicode('\\u9879\\u76ee\\u7ef4\\u5ea6'),
+  'Token Analytics': decodeEscapedUnicode('Token \\u7edf\\u8ba1'),
+  'Review project token usage across tracked providers.': decodeEscapedUnicode(
+    '\\u67e5\\u770b\\u5df2\\u8ddf\\u8e2a provider \\u7684\\u9879\\u76ee token \\u7528\\u91cf\\u3002'
+  ),
+  'Break down input, output, cache, and reasoning tokens by project and provider.':
+    decodeEscapedUnicode(
+      '\\u6309\\u9879\\u76ee\\u4e0e provider \\u6c47\\u603b\\u8f93\\u5165\\u3001\\u8f93\\u51fa\\u3001\\u7f13\\u5b58\\u548c\\u63a8\\u7406 token\\u3002'
+    ),
+  'Project Totals': decodeEscapedUnicode('\\u9879\\u76ee\\u6c47\\u603b'),
+  'Tracked Projects': decodeEscapedUnicode('\\u5df2\\u8ddf\\u8e2a\\u9879\\u76ee'),
+  'Provider Coverage': decodeEscapedUnicode('Provider \\u8986\\u76d6'),
+  'Total tokens': decodeEscapedUnicode('Token \\u603b\\u91cf'),
+  'Provider issues': decodeEscapedUnicode('Provider \\u95ee\\u9898'),
+  'Input tokens': decodeEscapedUnicode('\\u8f93\\u5165 token'),
+  'Output tokens': decodeEscapedUnicode('\\u8f93\\u51fa token'),
+  'Cache tokens': decodeEscapedUnicode('\\u7f13\\u5b58 token'),
+  'Reasoning tokens': decodeEscapedUnicode('\\u63a8\\u7406 token'),
+  'Scanning token usage...': decodeEscapedUnicode(
+    '\\u6b63\\u5728\\u626b\\u63cf token \\u7528\\u91cf...'
+  ),
+  'Token Usage': decodeEscapedUnicode('Token \\u7528\\u91cf'),
+  'Refresh token usage': decodeEscapedUnicode('\\u5237\\u65b0 token \\u7528\\u91cf'),
+  'Refreshing token usage': decodeEscapedUnicode(
+    '\\u6b63\\u5728\\u5237\\u65b0 token \\u7528\\u91cf'
+  ),
+  Refreshing: decodeEscapedUnicode('\\u6b63\\u5728\\u5237\\u65b0'),
+  'Loading token usage...': decodeEscapedUnicode(
+    '\\u6b63\\u5728\\u52a0\\u8f7d token \\u7528\\u91cf...'
+  ),
+  'No token usage has been recorded for tracked providers.': decodeEscapedUnicode(
+    '\\u5df2\\u8ddf\\u8e2a\\u7684 provider \\u6682\\u65e0 token \\u7528\\u91cf\\u8bb0\\u5f55\\u3002'
+  ),
+  'Task creation failed. The local change was rolled back.': decodeEscapedUnicode(
+    '\\u4efb\\u52a1\\u521b\\u5efa\\u5931\\u8d25\\uff0c\\u672c\\u5730\\u53d8\\u66f4\\u5df2\\u56de\\u6eda\\u3002'
+  ),
+  'Task update failed. The local change was rolled back.': decodeEscapedUnicode(
+    '\\u4efb\\u52a1\\u66f4\\u65b0\\u5931\\u8d25\\uff0c\\u672c\\u5730\\u53d8\\u66f4\\u5df2\\u56de\\u6eda\\u3002'
+  ),
+  'Task deletion failed. The local change was restored.': decodeEscapedUnicode(
+    '\\u4efb\\u52a1\\u5220\\u9664\\u5931\\u8d25\\uff0c\\u672c\\u5730\\u53d8\\u66f4\\u5df2\\u6062\\u590d\\u3002'
+  ),
+  'Task move failed. The local change was rolled back.': decodeEscapedUnicode(
+    '\\u4efb\\u52a1\\u79fb\\u52a8\\u5931\\u8d25\\uff0c\\u672c\\u5730\\u53d8\\u66f4\\u5df2\\u56de\\u6eda\\u3002'
+  ),
+  'Task reorder failed. The local order was restored.': decodeEscapedUnicode(
+    '\\u4efb\\u52a1\\u6392\\u5e8f\\u5931\\u8d25\\uff0c\\u672c\\u5730\\u987a\\u5e8f\\u5df2\\u6062\\u590d\\u3002'
+  ),
+  'Details: {{message}}': decodeEscapedUnicode('\\u8be6\\u60c5\\uff1a{{message}}'),
 };
 
 function getRendererTranslation(locale: Locale, key: string): string {

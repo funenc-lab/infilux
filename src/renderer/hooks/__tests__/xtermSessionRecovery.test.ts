@@ -24,56 +24,64 @@ describe('resolveReusableBackendSessionId', () => {
     expect(getRemoteStatus).not.toHaveBeenCalled();
   });
 
-  it('keeps the existing backend session id for local terminals', async () => {
+  it('keeps the existing backend session id for live but idle local terminals', async () => {
     const getRemoteStatus = vi.fn();
-    const getLocalActivity = vi.fn().mockResolvedValue(true);
+    const getLocalRuntimeInfo = vi.fn().mockResolvedValue({
+      pid: 1234,
+      isActive: false,
+      isAlive: true,
+    });
 
     await expect(
       resolveReusableBackendSessionId({
         backendSessionId: 'backend-1',
         cwd: '/repo',
         getRemoteStatus,
-        getLocalActivity,
+        getLocalRuntimeInfo,
       })
     ).resolves.toBe('backend-1');
 
     expect(getRemoteStatus).not.toHaveBeenCalled();
-    expect(getLocalActivity).toHaveBeenCalledWith('backend-1');
+    expect(getLocalRuntimeInfo).toHaveBeenCalledWith('backend-1');
   });
 
-  it('drops the existing backend session id for local terminals when the session is stale', async () => {
+  it('drops the existing backend session id for local terminals when the process is gone', async () => {
     const getRemoteStatus = vi.fn();
-    const getLocalActivity = vi.fn().mockResolvedValue(false);
+    const getLocalRuntimeInfo = vi.fn().mockResolvedValue({
+      pid: 1234,
+      isActive: false,
+      isAlive: false,
+    });
 
     await expect(
       resolveReusableBackendSessionId({
         backendSessionId: 'backend-stale',
         cwd: '/repo',
         getRemoteStatus,
-        getLocalActivity,
+        getLocalRuntimeInfo,
       })
     ).resolves.toBeUndefined();
 
     expect(getRemoteStatus).not.toHaveBeenCalled();
-    expect(getLocalActivity).toHaveBeenCalledWith('backend-stale');
+    expect(getLocalRuntimeInfo).toHaveBeenCalledWith('backend-stale');
   });
 
   it('keeps the existing backend session id for local persistent recovery when untracked attach is allowed', async () => {
     const getRemoteStatus = vi.fn();
-    const getLocalActivity = vi.fn().mockResolvedValue(false);
+    const getLocalRuntimeInfo = vi.fn().mockResolvedValue(null);
 
     await expect(
       resolveReusableBackendSessionId({
         backendSessionId: 'supervisor-session-1',
         cwd: 'C:/repo',
         getRemoteStatus,
-        getLocalActivity,
+        getLocalRuntimeInfo,
         allowUntrackedLocalAttach: true,
       })
     ).resolves.toBe('supervisor-session-1');
 
     expect(getRemoteStatus).not.toHaveBeenCalled();
-    expect(getLocalActivity).not.toHaveBeenCalled();
+    expect(getLocalRuntimeInfo).not.toHaveBeenCalled();
   });
 
   it('keeps the existing backend session id when cwd is missing', async () => {

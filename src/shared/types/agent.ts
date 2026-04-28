@@ -46,6 +46,7 @@ export const TASK_COMPLETION_MARKER = '[ENSO_TASK_COMPLETE]';
 export interface AgentStopNotificationData {
   sessionId: string;
   cwd?: string;
+  source?: 'main-hook' | 'renderer-terminal';
   /** Task completion status from session log analysis */
   taskCompletionStatus?: 'completed' | 'unknown';
 }

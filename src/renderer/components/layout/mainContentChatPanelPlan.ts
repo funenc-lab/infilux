@@ -1,5 +1,6 @@
 import type { TabId } from '@/App/constants';
 import { normalizePath } from '@/App/storage';
+import type { AgentSessionDisplayMode } from '@/stores/settings';
 
 interface RetainedChatContext {
   repoPath: string;
@@ -13,6 +14,17 @@ export interface MainContentChatPanelEntry {
   repoPath: string;
   showFallback: boolean;
   worktreePath: string;
+}
+
+export function resolveMainContentChatPanelEntryKey(
+  entry: MainContentChatPanelEntry,
+  agentSessionDisplayMode: AgentSessionDisplayMode
+): string {
+  if (agentSessionDisplayMode === 'global-canvas' && entry.isCurrent) {
+    return `chat:workspace:${normalizePath(entry.repoPath)}`;
+  }
+
+  return `chat:${entry.worktreePath}`;
 }
 
 interface ResolveMainContentChatPanelPlanOptions {

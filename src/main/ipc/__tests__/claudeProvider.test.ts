@@ -110,6 +110,26 @@ describe('Claude provider IPC handlers', () => {
     vi.restoreAllMocks();
   });
 
+  it('registers generic agent provider channels against the provider implementation', async () => {
+    const { registerClaudeProviderHandlers } = await import('../claudeProvider');
+    registerClaudeProviderHandlers();
+
+    expect(await getHandler(IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS)({})).toEqual({
+      settings: { env: { provider: 'local-provider' } },
+      extracted: { provider: 'local-provider' },
+    });
+
+    expect(
+      await getHandler(IPC_CHANNELS.AGENT_PROVIDER_APPLY)({}, undefined, {
+        provider: 'openai',
+      })
+    ).toBe(true);
+
+    expect(claudeProviderTestDoubles.applyProvider).toHaveBeenCalledWith({
+      provider: 'openai',
+    });
+  });
+
   it('reads and applies local Claude provider settings', async () => {
     const { registerClaudeProviderHandlers } = await import('../claudeProvider');
     registerClaudeProviderHandlers();

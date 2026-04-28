@@ -514,7 +514,8 @@ export class RemoteRepositoryBackend {
   async searchFiles(
     rootPath: string,
     query: string,
-    maxResults?: number
+    maxResults?: number,
+    includeDirectories?: boolean
   ): Promise<FileSearchResult[]> {
     const { connectionId, remotePath } = toRemotePath(rootPath);
     const entries = await remoteConnectionManager.call<FileSearchResult[]>(
@@ -524,6 +525,7 @@ export class RemoteRepositoryBackend {
         rootPath: remotePath,
         query,
         maxResults,
+        includeDirectories,
       }
     );
     return entries.map((entry) => ({

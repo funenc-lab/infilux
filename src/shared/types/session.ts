@@ -50,6 +50,12 @@ export interface SessionDescriptor {
   metadata?: Record<string, unknown>;
 }
 
+export interface SessionRuntimeInfo {
+  pid: number | null;
+  isActive: boolean | null;
+  isAlive: boolean | null;
+}
+
 export interface SessionOpenResult {
   session: SessionDescriptor;
   replay?: string;

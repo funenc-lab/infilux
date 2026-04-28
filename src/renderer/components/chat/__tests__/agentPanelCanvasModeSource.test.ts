@@ -13,9 +13,34 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('lastHandledCanvasFocusRequestTokenRef');
     expect(agentPanelSource).toContain('agentSessionDisplayMode');
     expect(agentPanelSource).toContain("agentSessionDisplayMode === 'canvas'");
+    expect(agentPanelSource).toContain("agentSessionDisplayMode === 'global-canvas'");
+    expect(agentPanelSource).toContain('isCurrentWorktreePanel');
+    expect(agentPanelSource).toContain('shouldSuppressWorkspaceCanvasPanel');
+    expect(agentPanelSource).toContain('isWorkspaceCanvasDisplayMode');
+    expect(agentPanelSource).toContain('resolveAgentCanvasSessionGroups');
+    expect(agentPanelSource).toContain('resolveMountedAgentPanelSessionIds');
+    expect(agentPanelSource).toContain(
+      "scope: isWorkspaceCanvasDisplayMode ? 'workspace' : 'worktree'"
+    );
+    expect(agentPanelSource).toContain('canvasSessionGroups');
+    expect(agentPanelSource).toContain('canvasSessions');
+    expect(agentPanelSource).toContain('workspaceCanvasWorktrees');
+    expect(agentPanelSource).toContain('subagentScopeSessions');
+    expect(agentPanelSource).toContain(
+      'suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel'
+    );
+    expect(agentPanelSource).toContain(
+      'isWorkspaceCanvasDisplayMode ? canvasSessions : currentWorktreeSessions'
+    );
+    expect(agentPanelSource).toContain('subagentScopeWorktreePaths');
+    expect(agentPanelSource).toContain('workspaceCanvasFocusedSessionId');
     expect(agentPanelSource).toContain('AGENT_CANVAS_GRID_COLUMN_UNITS');
     expect(agentPanelSource).toContain('resolveAgentCanvasColumnCount');
     expect(agentPanelSource).toContain('resolveAgentCanvasTileColumnSpan');
+    expect(agentPanelSource).toContain('resolveAgentCanvasWorkspaceColumnCount');
+    expect(agentPanelSource).toContain('resolveAgentCanvasWorkspaceGroupColumnSpan');
+    expect(agentPanelSource).toContain('AGENT_CANVAS_WORKSPACE_TILE_ROW_SIZE');
+    expect(agentPanelSource).toContain('AGENT_CANVAS_WORKSPACE_EMPTY_GROUP_HEIGHT');
     expect(agentPanelSource).toContain('resolveAgentCanvasViewportMetrics');
     expect(agentPanelSource).toContain('canvasViewportRef');
     expect(agentPanelSource).toContain('canvasPanStateRef');
@@ -34,6 +59,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('resolveAgentCanvasFloatingFrame');
     expect(agentPanelSource).toContain('resolveAgentCanvasFloatingTerminalFontScale');
     expect(agentPanelSource).toContain('resolveAgentCanvasFocusScrollPosition');
+    expect(agentPanelSource).toContain('resolveAgentCanvasElementFocusTarget');
     expect(agentPanelSource).toContain('resolveAgentCanvasScrollBehavior');
     expect(agentPanelSource).toContain('useAgentCanvasViewportRestore');
     expect(agentPanelSource).toContain('resolveAgentCanvasViewportSyncPosition');
@@ -67,8 +93,68 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('canvasZoomTerminalFontScale');
     expect(agentPanelSource).toContain('terminalFontScale');
     expect(agentPanelSource).toContain('canvasTileColumnSpanBySessionId');
+    expect(agentPanelSource).toContain('const groupColumnCount = isWorkspaceCanvasDisplayMode');
+    expect(agentPanelSource).toContain('workspaceCanvasSessionGroupSections');
+    expect(agentPanelSource).toContain('canvasRecenterWorktreePath');
+    expect(agentPanelSource).toContain('lastHandledWorkspaceCanvasRecenterTokenRef');
+    expect(agentPanelSource).toContain('canvasWorktreeGroupElementByKeyRef');
+    expect(agentPanelSource).toContain('setCanvasWorktreeGroupElement');
+    expect(agentPanelSource).toContain('readCanvasWorktreeGroupFocusTarget');
+    expect(agentPanelSource).toContain('focusCanvasViewportOnWorktreeGroup');
+    expect(agentPanelSource).toContain('buildAgentCanvasSessionGroupKey');
+    expect(agentPanelSource).toContain('data-agent-canvas-repo-path');
+    expect(agentPanelSource).toContain('data-agent-canvas-worktree-path');
+    expect(agentPanelSource).toContain('type AgentSessionLaunchTarget');
+    expect(agentPanelSource).toContain('resolveAgentSessionLaunchTarget');
+    expect(agentPanelSource).toContain('const groupLaunchTarget: AgentSessionLaunchTarget');
+    expect(agentPanelSource).toContain("t('New Session in {{name}}'");
+    expect(agentPanelSource).toContain('handleNewSession(groupLaunchTarget)');
+    expect(agentPanelSource).toContain(
+      `            <div
+              {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+              className={cn(
+                'control-panel-muted flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2'`
+    );
+    expect(agentPanelSource).toContain(
+      'const groupColumnSpan = resolveAgentCanvasWorkspaceGroupColumnSpan'
+    );
+    expect(agentPanelSource).toContain(
+      'className="flex min-w-0 flex-none scroll-mt-3 flex-col gap-2"'
+    );
+    expect(agentPanelSource).toContain(
+      `style={{ gridColumn: \`span \${groupColumnSpan} / span \${groupColumnSpan}\` }}`
+    );
+    expect(agentPanelSource).toContain('gridAutoRows:');
+    expect(agentPanelSource).toContain('? AGENT_CANVAS_WORKSPACE_TILE_ROW_SIZE');
+    expect(agentPanelSource).toContain('AGENT_CANVAS_WORKSPACE_EMPTY_GROUP_HEIGHT}px');
+    expect(agentPanelSource).toContain(
+      'style={{ minHeight: AGENT_CANVAS_WORKSPACE_EMPTY_GROUP_HEIGHT }}'
+    );
+    expect(agentPanelSource).toContain(
+      `                <div
+                  {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+                  className="control-panel-muted col-span-full flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 text-sm text-muted-foreground"`
+    );
+    expect(agentPanelSource).toContain("t('No agent sessions')");
+    expect(agentPanelSource).toContain(
+      'recenterOnActivateToken: isWorkspaceCanvasDisplayMode ? 0 : canvasRecenterOnActivateToken'
+    );
+    expect(agentPanelSource).toContain("t('Current Worktree')");
+    expect(agentPanelSource).toContain("t('{{count}} agent sessions'");
+    expect(agentPanelSource).toContain('getDisplayPathBasename(session.cwd)');
+    expect(agentPanelSource).toContain('getDisplayPathBasename(session.repoPath)');
+    expect(agentPanelSource).toContain('<GitBranch className="h-3.5 w-3.5 shrink-0" />');
+    expect(agentPanelSource).toContain(
+      'repoPath={isWorkspaceCanvasDisplayMode ? session.repoPath : repoPath}'
+    );
     expect(agentPanelSource).toContain(
       `gridColumn: \`span \${canvasTileColumnSpan} / span \${canvasTileColumnSpan}\``
+    );
+    expect(agentPanelSource).toContain(
+      "isWorkspaceCanvasDisplayMode ? 'min-h-full w-full' : 'h-full w-full'"
+    );
+    expect(agentPanelSource).toContain(
+      "isWorkspaceCanvasDisplayMode ? 'grid auto-rows-max' : 'grid'"
     );
     expect(agentPanelSource).toContain('handleCanvasViewportWheel');
     expect(agentPanelSource).toContain('canvasLockedByWorktree');
@@ -79,7 +165,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain("t('Unlock Canvas')");
     expect(agentPanelSource).toContain('Lock');
     expect(agentPanelSource).toContain('LockOpen');
-    expect(agentPanelSource).toContain('currentWorktreeSessions.length > 0');
+    expect(agentPanelSource).toContain('canvasSessionGroups.length > 0');
     expect(agentPanelSource).toContain("t('Zoom Out')");
     expect(agentPanelSource).toContain("t('Reset Zoom')");
     expect(agentPanelSource).toContain("t('Zoom In')");
@@ -88,6 +174,10 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('onClick={handleCenterCanvasViewport}');
     expect(agentPanelSource).toContain("aria-label={t('Quick Terminal')}");
     expect(agentPanelSource).toContain('<Terminal className="h-4 w-4" />');
+    expect(agentPanelSource).toContain(
+      'const globalNewSessionLabel = isWorkspaceCanvasDisplayMode'
+    );
+    expect(agentPanelSource).toContain("t('New in Current Worktree')");
     expect(agentPanelSource).toContain("t('Choose session agent')");
     expect(agentPanelSource).toContain("t('Select Agent')");
     expect(agentPanelSource).toContain("t('Agent profiles')");
@@ -100,7 +190,10 @@ describe('AgentPanel canvas mode source', () => {
     );
     expect(agentPanelSource).toContain('const renderSessionHeaderSummary = () => (');
     expect(agentPanelSource).toContain('flex min-w-0 items-center gap-2');
-    expect(agentPanelSource).toContain('control-chip shrink-0 max-w-[45%] gap-1.5 truncate');
+    expect(agentPanelSource).toContain('control-chip shrink-0 max-w-[34%] gap-1.5 truncate');
+    expect(agentPanelSource).toContain(
+      "isWorkspaceCanvasDisplayMode ? 'max-w-[30%]' : 'max-w-[45%]'"
+    );
     expect(agentPanelSource).toContain('function renderAgentLabelIcon(agentId: string)');
     expect(agentPanelSource).toContain("case 'claude':");
     expect(agentPanelSource).toContain('<Sparkles className="h-3.5 w-3.5 shrink-0" />');
@@ -133,6 +226,9 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('buildSessionPanelDomId(id)');
     expect(agentPanelSource).toContain('canvasFloatingSessionId ? nextBounds : null');
     expect(agentPanelSource).toContain('mountedCurrentWorktreeSessionIds');
+    expect(agentPanelSource).not.toContain(
+      'return isActive ? canvasSessions.map((session) => session.id) : []'
+    );
     expect(agentPanelSource).toContain('diffPersistentAgentSessionRecords');
     expect(agentPanelSource).toContain('currentWorktreeAgentStatuses');
     expect(agentPanelSource).toContain('useAgentStatusStore(');

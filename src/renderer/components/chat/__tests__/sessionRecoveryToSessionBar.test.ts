@@ -11,12 +11,12 @@ declare global {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const settingsStoreState = {
-  claudeCodeIntegration: {
+  agentIntegration: {
     providers: [],
     showProviderSwitcher: false,
     enableProviderDisableFeature: false,
   },
-  setClaudeProviderEnabled: vi.fn(),
+  setAgentProviderEnabled: vi.fn(),
   agentSettings: {},
   agentDetectionStatus: {},
   customAgents: [],

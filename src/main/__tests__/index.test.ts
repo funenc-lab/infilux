@@ -148,6 +148,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const readPersistentAgentSessions = vi.fn(() => []);
   const todoInitialize = vi.fn(async () => undefined);
   const todoExportAllTasks = vi.fn(async () => [{ id: 'board-1' }]);
+  const todoClose = vi.fn(async () => undefined);
   const webInspectorSetMainWindow = vi.fn();
   const logInfo = vi.fn();
   const initLogger = vi.fn();
@@ -471,6 +472,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       readPersistentAgentSessions,
       todoInitialize,
       todoExportAllTasks,
+      todoClose,
       webInspectorSetMainWindow,
       logInfo,
       initLogger,
@@ -537,6 +539,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     readPersistentAgentSessions.mockReturnValue([]);
     todoInitialize.mockResolvedValue(undefined);
     todoExportAllTasks.mockResolvedValue([{ id: 'board-1' }]);
+    todoClose.mockResolvedValue(undefined);
     persistentAgentSessionRepositoryInitialize.mockResolvedValue(undefined);
     autoUpdaterIsQuittingForUpdate.mockReturnValue(false);
     customProtocolUriToPath.mockImplementation((_url: string) => '/mock/image.png');
@@ -678,6 +681,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     readPersistentAgentSessions,
     todoInitialize,
     todoExportAllTasks,
+    todoClose,
     webInspectorSetMainWindow,
     logInfo,
     initLogger,
@@ -877,6 +881,7 @@ vi.mock('../services/settings/legacyImport', () => ({
 vi.mock('../services/todo/TodoService', () => ({
   initialize: mainIndexTestDoubles.todoInitialize,
   exportAllTasks: mainIndexTestDoubles.todoExportAllTasks,
+  close: mainIndexTestDoubles.todoClose,
 }));
 
 vi.mock('sqlite3', () => ({
@@ -1560,7 +1565,7 @@ describe('main entry', () => {
           },
         },
       },
-      claudeCodeIntegration: {
+      agentIntegration: {
         enableProviderWatcher: false,
       },
     });

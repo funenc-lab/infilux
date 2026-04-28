@@ -12,6 +12,11 @@ export {
 } from './commit-message';
 export type { AIProvider, ModelId, ReasoningEffort } from './providers';
 export {
+  generateTodoTasks,
+  type TodoGenerateTasksOptions,
+  type TodoGenerateTasksResult,
+} from './todo-generate';
+export {
   polishTodoTask,
   type TodoPolishOptions,
   type TodoPolishResult,

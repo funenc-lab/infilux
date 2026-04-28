@@ -389,6 +389,7 @@ export async function startClaudeIdeBridge(
                   window.webContents.send(IPC_CHANNELS.AGENT_STOP_NOTIFICATION, {
                     sessionId,
                     cwd: data.cwd,
+                    source: 'main-hook',
                     taskCompletionStatus,
                   });
                 }

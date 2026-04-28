@@ -1,2 +1,1 @@
-export { ProviderDialog } from './ProviderDialog';
-export { ProviderList } from './ProviderList';
+export { ProviderDialog, ProviderList } from '../agent-provider';

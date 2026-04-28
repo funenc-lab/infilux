@@ -13,7 +13,7 @@ interface SettingsDialogProps {
   onOpenChange?: (open: boolean) => void;
   /** Initial category to show when dialog opens */
   initialCategory?: SettingsCategory;
-  /** Scroll to Claude Provider section (only works with integration category) */
+  /** Scroll to the provider section (only works with integration category) */
   scrollToProvider?: boolean;
 }
 

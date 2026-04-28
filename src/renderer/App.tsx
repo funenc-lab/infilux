@@ -24,11 +24,11 @@ import {
 } from './App/constants';
 import { resolveFileSidebarVisibility } from './App/fileSidebarVisibilityPolicy';
 import {
+  useAgentProviderProfileListener,
   useAgentSessionNotifications,
   useAppLifecycle,
   useBackgroundImage,
   useClaudeIntegration,
-  useClaudeProviderListener,
   useCodeReviewContinue,
   useFileDragDrop,
   useGroupSync,
@@ -73,6 +73,7 @@ import { switchWorktreeByPath } from './App/worktreePathSelection';
 import { clearRemovedWorktreeUiState } from './App/worktreeRemovalCleanup';
 import { shouldPruneSavedWorktreePath } from './App/worktreeRestorePolicy';
 import { resolvePreferredWorktreeSelection } from './App/worktreeSelectionPolicy';
+import type { AgentCanvasWorktreeCandidate } from './components/chat/agentCanvasSessionScope';
 import { DevToolsOverlay } from './components/DevToolsOverlay';
 import { FileSidebar } from './components/files/FileSidebar';
 import { createInitialFileSidebarTrackingState } from './components/files/fileTreeTrackingState';
@@ -497,25 +498,25 @@ export default function App() {
     onSwitchActiveWorktree: useCallback(() => {
       const activities = useWorktreeActivityStore.getState().activities;
 
-      // 获取所有有活跃 agent 会话的 worktree 路径（跨所有仓库）
+      // Collect worktree paths with active agent sessions across all repositories.
       const activeWorktreePaths = Object.entries(activities)
         .filter(([, activity]) => activity.agentCount > 0)
         .map(([path]) => path)
-        .sort(); // 确保顺序稳定
+        .sort(); // Keep ordering stable.
 
-      // 边界检查：少于 2 个活跃 worktree 时无需切换
+      // Nothing to switch when fewer than two worktrees have active agents.
       if (activeWorktreePaths.length < 2) {
         return;
       }
 
-      // 找到当前 worktree 在列表中的位置
+      // Locate the current worktree in the active list.
       const currentPath = activeWorktree?.path ?? '';
       const currentIndex = activeWorktreePaths.indexOf(currentPath);
 
-      // 计算下一个索引（循环）
+      // Advance to the next active worktree, wrapping around.
       const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % activeWorktreePaths.length;
 
-      // 切换到下一个 worktree（使用 ref 调用跨仓库切换函数）
+      // Switch through the cross-repository worktree ref.
       const nextWorktreePath = activeWorktreePaths[nextIndex];
       switchWorktreePathRef.current?.(nextWorktreePath);
     }, [activeWorktree?.path, switchWorktreePathRef.current]),
@@ -529,7 +530,7 @@ export default function App() {
   const { confirmCloseAndRespond, cancelCloseAndRespond } = useAppLifecycle(
     panelState.setCloseDialogOpen
   );
-  useClaudeProviderListener(
+  useAgentProviderProfileListener(
     setSettingsCategory,
     setScrollToProvider,
     openSettings,
@@ -759,6 +760,44 @@ export default function App() {
       }),
     [selectedRepo, activeWorktree, safeWorktrees, repoWorktreeMap]
   );
+  const workspaceCanvasWorktrees = useMemo<AgentCanvasWorktreeCandidate[]>(() => {
+    const repositoryPathKeys = new Set(
+      repositories.map((repository) => normalizePath(repository.path))
+    );
+    const worktreesByKey = new Map<string, AgentCanvasWorktreeCandidate>();
+
+    const addWorktree = (
+      repoPath: string | null | undefined,
+      worktreePath: string | null | undefined
+    ) => {
+      if (!repoPath || !worktreePath) {
+        return;
+      }
+
+      const normalizedRepoPath = normalizePath(repoPath);
+      if (repoPath !== TEMP_REPO_ID && !repositoryPathKeys.has(normalizedRepoPath)) {
+        return;
+      }
+
+      const groupKey = `${normalizedRepoPath}::${normalizePath(worktreePath)}`;
+      if (worktreesByKey.has(groupKey)) {
+        return;
+      }
+
+      worktreesByKey.set(groupKey, {
+        repoPath,
+        worktreePath,
+      });
+    };
+
+    for (const [repoPath, worktreePath] of Object.entries(repoWorktreeMap)) {
+      addWorktree(repoPath, worktreePath);
+    }
+
+    addWorktree(mainContentRepoPath, activeWorktree?.path);
+
+    return Array.from(worktreesByKey.values());
+  }, [activeWorktree?.path, mainContentRepoPath, repoWorktreeMap, repositories]);
   const cachedSelectedRepoWorktrees = useMemo(() => {
     const cachedWorktrees = queryClient.getQueryData<GitWorktree[]>(
       worktreeQueryKeys.list(worktreeRepoPath)
@@ -1673,6 +1712,7 @@ export default function App() {
           chatCanvasFocusToken={agentCanvasFocusRequest.token}
           chatCanvasFocusWorktreePath={agentCanvasFocusRequest.worktreePath}
           chatCanvasFocusSessionId={agentCanvasFocusRequest.sessionId}
+          workspaceCanvasWorktrees={workspaceCanvasWorktrees}
           selectedSubagent={activeSelectedSubagent}
           onCloseSelectedSubagent={() => {
             if (!activeWorktree) {

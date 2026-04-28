@@ -8,6 +8,8 @@ const FETCH_INTERVAL_MS = 3 * 60 * 1000;
 const HEAD_POLL_INTERVAL_MS = 5 * 1000;
 const MIN_FOCUS_INTERVAL_MS = 1 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 30_000;
+const RESOURCE_EXHAUSTION_BACKOFF_MS = 10 * 60 * 1000;
+const RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EBADF', 'EMFILE', 'ENFILE']);
 
 type HeadTrackingState = {
   repositoryPath: string;
@@ -87,6 +89,22 @@ function readHeadSignature(headPath: string): string | null {
   }
 }
 
+function getResourceExhaustionErrorCode(error: unknown): string | null {
+  const nodeError = error as NodeJS.ErrnoException;
+  if (typeof nodeError?.code === 'string' && RESOURCE_EXHAUSTION_ERROR_CODES.has(nodeError.code)) {
+    return nodeError.code;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  for (const errorCode of RESOURCE_EXHAUSTION_ERROR_CODES) {
+    if (message.includes(errorCode)) {
+      return errorCode;
+    }
+  }
+
+  return null;
+}
+
 class GitAutoFetchService {
   private mainWindow: BrowserWindow | null = null;
   private intervalId: NodeJS.Timeout | null = null;
@@ -99,6 +117,7 @@ class GitAutoFetchService {
   private fetching = false;
   private onFocusHandler: (() => void) | null = null;
   private trackedHeadStates: Map<string, HeadTrackingState> = new Map();
+  private resourceBackoffUntil = 0;
 
   init(window: BrowserWindow): void {
     if (this.mainWindow) {
@@ -140,6 +159,7 @@ class GitAutoFetchService {
     this.enabled = false;
     this.fetching = false;
     this.lastFetchTime = 0;
+    this.resourceBackoffUntil = 0;
   }
 
   start(): void {
@@ -178,6 +198,7 @@ class GitAutoFetchService {
 
     this.stop();
     this.fetching = false;
+    this.resourceBackoffUntil = 0;
   }
 
   registerWorktree(path: string): void {
@@ -234,6 +255,10 @@ class GitAutoFetchService {
       return;
     }
 
+    if (this.resourceBackoffUntil > Date.now()) {
+      return;
+    }
+
     this.fetching = true;
     const completedRepositoryPaths = new Set<string>();
 
@@ -268,6 +293,17 @@ class GitAutoFetchService {
             );
           await Promise.all(submodulePromises);
         } catch (error) {
+          const resourceErrorCode = getResourceExhaustionErrorCode(error);
+          if (resourceErrorCode) {
+            this.resourceBackoffUntil = Date.now() + RESOURCE_EXHAUSTION_BACKOFF_MS;
+            console.warn('Suspending git auto fetch after resource exhaustion:', {
+              repositoryPath,
+              errorCode: resourceErrorCode,
+              backoffUntil: new Date(this.resourceBackoffUntil).toISOString(),
+            });
+            break;
+          }
+
           console.debug(`Auto fetch failed for ${repositoryPath}:`, error);
         }
       }

@@ -31,6 +31,7 @@ const indexTestDoubles = vi.hoisted(() => {
   const registerTempWorkspaceHandlers = vi.fn();
   const registerTmuxHandlers = vi.fn();
   const registerTodoHandlers = vi.fn();
+  const registerTokenUsageHandlers = vi.fn();
 
   const cleanupExecInPtys = vi.fn();
   const cleanupExecInPtysSync = vi.fn();
@@ -88,6 +89,7 @@ const indexTestDoubles = vi.hoisted(() => {
       registerTempWorkspaceHandlers,
       registerTmuxHandlers,
       registerTodoHandlers,
+      registerTokenUsageHandlers,
       cleanupExecInPtys,
       cleanupExecInPtysSync,
       cleanupHapi,
@@ -159,6 +161,7 @@ const indexTestDoubles = vi.hoisted(() => {
     registerTempWorkspaceHandlers,
     registerTmuxHandlers,
     registerTodoHandlers,
+    registerTokenUsageHandlers,
     cleanupExecInPtys,
     cleanupExecInPtysSync,
     cleanupHapi,
@@ -355,6 +358,10 @@ vi.mock('../todo', () => ({
   registerTodoHandlers: indexTestDoubles.registerTodoHandlers,
 }));
 
+vi.mock('../tokenUsage', () => ({
+  registerTokenUsageHandlers: indexTestDoubles.registerTokenUsageHandlers,
+}));
+
 vi.mock('../updater', () => ({
   registerUpdaterHandlers: indexTestDoubles.registerUpdaterHandlers,
 }));
@@ -410,6 +417,7 @@ describe('ipc index', () => {
       indexTestDoubles.registerAgentHandlers,
       indexTestDoubles.registerAgentSubagentHandlers,
       indexTestDoubles.registerAgentSessionHandlers,
+      indexTestDoubles.registerTokenUsageHandlers,
       indexTestDoubles.registerDialogHandlers,
       indexTestDoubles.registerAppHandlers,
       indexTestDoubles.registerCliHandlers,

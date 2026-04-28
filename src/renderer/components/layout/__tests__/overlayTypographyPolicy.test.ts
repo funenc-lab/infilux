@@ -56,11 +56,11 @@ const promptEditorDialogSource = readFileSync(
   'utf8'
 );
 const providerDialogSource = readFileSync(
-  resolve(currentDir, '../../settings/claude-provider/ProviderDialog.tsx'),
+  resolve(currentDir, '../../settings/agent-provider/ProviderDialog.tsx'),
   'utf8'
 );
 const providerListSource = readFileSync(
-  resolve(currentDir, '../../settings/claude-provider/ProviderList.tsx'),
+  resolve(currentDir, '../../settings/agent-provider/ProviderList.tsx'),
   'utf8'
 );
 

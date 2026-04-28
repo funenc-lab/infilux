@@ -215,8 +215,8 @@ export function StatusLine({ sessionId, onHeightChange, onRequestFreshSession }:
   const session = useAgentSessionsStore((state) =>
     sessionId ? state.sessions.find((item) => item.id === sessionId) : undefined
   );
-  const { claudeCodeIntegration } = useSettingsStore();
-  const { statusLineEnabled, statusLineFields } = claudeCodeIntegration;
+  const { agentIntegration } = useSettingsStore();
+  const { statusLineEnabled, statusLineFields } = agentIntegration;
   const { t } = useI18n();
   const inputAvailability = useMemo(
     () =>

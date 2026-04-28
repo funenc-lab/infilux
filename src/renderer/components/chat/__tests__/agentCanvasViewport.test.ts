@@ -383,6 +383,55 @@ describe('agent canvas viewport helpers', () => {
     expect(module?.resolveAgentCanvasScrollBehavior(true)).toBe('auto');
   });
 
+  it('uses immediate scrolling for workspace worktree group focusing', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(module?.resolveAgentCanvasWorktreeGroupScrollBehavior()).toBe('auto');
+  });
+
+  it('resolves a focus target from viewport and element geometry', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasElementFocusTarget({
+        elementRect: {
+          height: 240,
+          left: 460,
+          top: 380,
+          width: 360,
+        },
+        scrollLeft: 120,
+        scrollTop: 80,
+        viewportRect: {
+          left: 200,
+          top: 100,
+        },
+      })
+    ).toEqual({
+      height: 240,
+      left: 380,
+      top: 360,
+      width: 360,
+    });
+
+    expect(
+      module?.resolveAgentCanvasElementFocusTarget({
+        elementRect: {
+          height: 0,
+          left: 460,
+          top: 380,
+          width: 360,
+        },
+        scrollLeft: 120,
+        scrollTop: 80,
+        viewportRect: {
+          left: 200,
+          top: 100,
+        },
+      })
+    ).toBeNull();
+  });
+
   it('resolves a focus zoom that makes the target occupy 80% of the viewport without shrinking', async () => {
     const module = await import('../agentCanvasViewport').catch(() => null);
 

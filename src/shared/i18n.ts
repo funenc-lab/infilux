@@ -574,6 +574,7 @@ export const zhTranslations: Record<string, string> = {
   'Branch {{branch}} is now tracking origin/{{branch}}':
     '分支 {{branch}} 现在跟踪 origin/{{branch}}',
   Refresh: '刷新',
+  Refreshing: '正在刷新',
   'Refresh enabled agents': '刷新已启用的 Agent',
   'Refresh terminal': '刷新终端',
   'File Already Exists': '文件已存在',
@@ -1203,15 +1204,21 @@ export const zhTranslations: Record<string, string> = {
   // Integration settings
   Integration: '集成',
   'Claude Integration': 'Claude 集成',
+  'Agent Integrations': 'Agent \u96c6\u6210',
+  'Configure provider routing and CLI-specific integration features':
+    '\u914d\u7f6e Provider \u8def\u7531\u548c CLI \u4e13\u5c5e\u96c6\u6210\u529f\u80fd',
   'Automatic Session Rollover': '自动会话切换',
   'Manual only': '仅手动',
   'Auto on critical context': '上下文临界时自动切换',
   'Choose whether a fresh session should start automatically when context usage becomes critical.':
     '选择当上下文使用接近临界时，是否应自动启动一个新会话。',
   'Claude Code Integration': 'Claude Code 集成',
+  'Claude Code IDE Bridge': 'Claude Code IDE \u6865\u63a5',
   'Advanced Features': '高级特性',
   'Connect to Claude Code CLI for enhanced IDE features':
     '连接 Claude Code CLI 以获得增强的 IDE 功能',
+  'Start the WebSocket bridge for Claude Code editor context and hooks':
+    '\u542f\u52a8 WebSocket \u6865\u63a5\uff0c\u7528\u4e8e Claude Code \u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c hooks',
   'Configure enhanced drafts and attachment routing for agent sessions':
     '配置 Agent 会话的增强草稿输入与附件路由行为',
   'Configure fallback composer controls for providers without native terminal input':
@@ -1810,12 +1817,17 @@ export const zhTranslations: Record<string, string> = {
     '新建 Worktree 的默认目录，留空则使用 ~/infilux/workspaces',
   // Claude Provider
   'Claude Provider': 'Claude \u63d0\u4f9b\u65b9',
+  'Agent Providers': 'Agent Provider \u914d\u7f6e',
   'Add Provider': '添加配置',
   'Edit Provider': '编辑配置',
   'Current config not saved': '当前配置未保存',
   'No providers configured': '暂无配置',
   'Configure Claude API provider settings': '配置 Claude API Provider 设置',
   'Manage Claude API provider configurations': '管理 Claude API Provider 配置',
+  'Configure API provider settings for supported agent CLIs':
+    '\u914d\u7f6e\u53d7\u652f\u6301 Agent CLI \u7684 API Provider \u8bbe\u7f6e',
+  'Manage API provider profiles for supported agent CLIs':
+    '\u7ba1\u7406\u53d7\u652f\u6301 Agent CLI \u7684 API Provider \u914d\u7f6e',
   'e.g., Official API': '例如：官方 API',
   'Base URL': 'Base URL',
   'Auth Token': 'Auth Token',
@@ -1832,6 +1844,8 @@ export const zhTranslations: Record<string, string> = {
     '在 SessionBar 上显示 Provider 切换器，方便快速切换',
   'Provider Watcher': 'Provider 监听',
   'Watch Claude Code settings.json for external changes': '监听 Claude Code 配置文件的外部变化',
+  'Watch supported provider settings files for external changes':
+    '\u76d1\u542c\u53d7\u652f\u6301 Provider \u914d\u7f6e\u6587\u4ef6\u7684\u5916\u90e8\u53d8\u66f4',
   'Select Provider': 'Switch Provider',
   'Click to enable this Provider': '单击启用该 Provider',
   'Click to disable this Provider': '单击临时禁用该 Provider',
@@ -2454,6 +2468,30 @@ export const zhTranslations: Record<string, string> = {
   'Monitor sessions, terminals, and runtime pressure':
     '\u76d1\u63a7\u4f1a\u8bdd\u3001\u7ec8\u7aef\u4e0e\u8fd0\u884c\u65f6\u538b\u529b',
   'Unable to load resources.': '\u65e0\u6cd5\u52a0\u8f7d\u8d44\u6e90\u3002',
+  'Usage Analytics': '\u7528\u91cf\u5206\u6790',
+  'Project Scope': '\u9879\u76ee\u7ef4\u5ea6',
+  'Token Analytics': 'Token \u7edf\u8ba1',
+  'Review project token usage across tracked providers.':
+    '\u67e5\u770b\u5df2\u8ddf\u8e2a provider \u7684\u9879\u76ee token \u7528\u91cf\u3002',
+  'Break down input, output, cache, and reasoning tokens by project and provider.':
+    '\u6309\u9879\u76ee\u4e0e provider \u6c47\u603b\u8f93\u5165\u3001\u8f93\u51fa\u3001\u7f13\u5b58\u548c\u63a8\u7406 token\u3002',
+  'Project Totals': '\u9879\u76ee\u6c47\u603b',
+  'Tracked Projects': '\u5df2\u8ddf\u8e2a\u9879\u76ee',
+  'Provider Coverage': 'Provider \u8986\u76d6',
+  'Total tokens': 'Token \u603b\u91cf',
+  'Provider issues': 'Provider \u95ee\u9898',
+  'Input tokens': '\u8f93\u5165 token',
+  'Output tokens': '\u8f93\u51fa token',
+  'Cache tokens': '\u7f13\u5b58 token',
+  'Reasoning tokens': '\u63a8\u7406 token',
+  'Scanning token usage...': '\u6b63\u5728\u626b\u63cf token \u7528\u91cf...',
+  'Token Usage': 'Token \u7528\u91cf',
+  'Refresh token usage': '\u5237\u65b0 token \u7528\u91cf',
+  'Refreshing token usage': '\u6b63\u5728\u5237\u65b0 token \u7528\u91cf',
+  'Loading token usage...': '\u6b63\u5728\u52a0\u8f7d token \u7528\u91cf...',
+  'Unable to load token usage.': '\u65e0\u6cd5\u52a0\u8f7d token \u7528\u91cf\u3002',
+  'No token usage has been recorded for tracked providers.':
+    '\u5df2\u8ddf\u8e2a\u7684 provider \u6682\u65e0 token \u7528\u91cf\u8bb0\u5f55\u3002',
   'Unable to execute action.': '\u65e0\u6cd5\u6267\u884c\u64cd\u4f5c\u3002',
   'Loading resources...': '\u6b63\u5728\u52a0\u8f7d\u8d44\u6e90...',
   'Resource action failed': '\u8d44\u6e90\u64cd\u4f5c\u5931\u8d25',

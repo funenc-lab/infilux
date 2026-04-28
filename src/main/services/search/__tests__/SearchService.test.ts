@@ -115,6 +115,93 @@ describe('SearchService', () => {
     ]);
   });
 
+  it('includes derived directory entries when requested', async () => {
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const directoryPromise = service.searchFiles({
+      rootPath: '/repo',
+      query: 'components',
+      maxResults: 5,
+      includeDirectories: true,
+    });
+
+    const proc = searchServiceTestDoubles.processes[0];
+    if (!proc) {
+      throw new Error('Missing directory search process');
+    }
+    proc.stdout.emit(
+      'data',
+      '/repo/src/index.ts\n/repo/src/components/Button.tsx\n/repo/src/components/forms/Input.tsx\n'
+    );
+    proc.emit('close', 0);
+
+    const results = await directoryPromise;
+    expect(results[0]).toEqual(
+      expect.objectContaining({
+        kind: 'directory',
+        name: 'components',
+        path: '/repo/src/components',
+        relativePath: 'src/components',
+      })
+    );
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'file',
+          path: '/repo/src/components/Button.tsx',
+        }),
+        expect.objectContaining({
+          kind: 'file',
+          path: '/repo/src/components/forms/Input.tsx',
+        }),
+      ])
+    );
+  });
+
+  it('falls back to the PATH ripgrep binary when the bundled binary is missing', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const fallbackPromise = service.searchFiles({
+      rootPath: '/repo',
+      query: 'App',
+      maxResults: 5,
+    });
+
+    const missingBundledProc = searchServiceTestDoubles.processes[0];
+    if (!missingBundledProc) {
+      throw new Error('Missing bundled ripgrep process');
+    }
+    missingBundledProc.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const pathRipgrepProc = searchServiceTestDoubles.processes[1];
+    if (!pathRipgrepProc) {
+      throw new Error('Missing PATH ripgrep process');
+    }
+    pathRipgrepProc.stdout.emit('data', '/repo/src/App.tsx\n');
+    pathRipgrepProc.emit('close', 0);
+
+    await expect(fallbackPromise).resolves.toEqual([
+      expect.objectContaining({
+        path: '/repo/src/App.tsx',
+        relativePath: 'src/App.tsx',
+      }),
+    ]);
+    expect(searchServiceTestDoubles.spawn).toHaveBeenNthCalledWith(
+      1,
+      '/mock/node_modules/@vscode/ripgrep/bin/rg',
+      expect.any(Array)
+    );
+    expect(searchServiceTestDoubles.spawn).toHaveBeenNthCalledWith(2, 'rg', expect.any(Array));
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[SearchService] ripgrep --files spawn error:',
+      'spawn ENOENT'
+    );
+  });
+
   it('parses ripgrep JSON content matches and respects truncation', async () => {
     const { SearchService } = await import('../SearchService');
     const service = new SearchService();

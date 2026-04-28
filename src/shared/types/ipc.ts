@@ -124,6 +124,7 @@ export const IPC_CHANNELS = {
   SESSION_RESIZE: 'session:resize',
   SESSION_LIST: 'session:list',
   SESSION_GET_ACTIVITY: 'session:getActivity',
+  SESSION_GET_RUNTIME_INFO: 'session:getRuntimeInfo',
   SESSION_DATA: 'session:data',
   SESSION_EXIT: 'session:exit',
   SESSION_STATE: 'session:state',
@@ -146,6 +147,9 @@ export const IPC_CHANNELS = {
   AGENT_ASK_USER_QUESTION_NOTIFICATION: 'agent:askUserQuestion:notification',
   AGENT_PRE_TOOL_USE_NOTIFICATION: 'agent:preToolUse:notification',
   AGENT_STATUS_UPDATE: 'agent:status:update',
+
+  // Token Usage
+  TOKEN_USAGE_PROJECTS_GET: 'tokenUsage:projects:get',
 
   // App
   APP_GET_PATH: 'app:getPath',
@@ -268,7 +272,12 @@ export const IPC_CHANNELS = {
   MCP_PERMISSION_REQUEST_HOOK_SET: 'mcp:permissionRequestHook:set',
   MCP_PERMISSION_REQUEST_HOOK_STATUS: 'mcp:permissionRequestHook:status',
 
-  // Claude Provider
+  // Agent Provider
+  AGENT_PROVIDER_READ_SETTINGS: 'agent:provider:readSettings',
+  AGENT_PROVIDER_APPLY: 'agent:provider:apply',
+  AGENT_PROVIDER_SETTINGS_CHANGED: 'agent:provider:settingsChanged',
+
+  // Claude Provider Compatibility
   CLAUDE_PROVIDER_READ_SETTINGS: 'claude:provider:readSettings',
   CLAUDE_PROVIDER_APPLY: 'claude:provider:apply',
   CLAUDE_PROVIDER_SETTINGS_CHANGED: 'claude:provider:settingsChanged',
@@ -343,6 +352,7 @@ export const IPC_CHANNELS = {
   TODO_REORDER_TASKS: 'todo:reorderTasks',
   TODO_MIGRATE: 'todo:migrate',
   TODO_AI_POLISH: 'todo:aiPolish',
+  TODO_AI_GENERATE_TASKS: 'todo:aiGenerateTasks',
 
   // Logging
   LOG_UPDATE_CONFIG: 'log:update-config',

@@ -24,11 +24,7 @@ import {
 import { toastManager } from '@/components/ui/toast';
 import { useDetectedApps, useOpenWith } from '@/hooks/useAppDetector';
 import { useI18n } from '@/i18n';
-import {
-  clearClaudeProviderSwitch,
-  isClaudeProviderMatch,
-  markClaudeProviderSwitch,
-} from '@/lib/claudeProvider';
+import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
@@ -270,31 +266,36 @@ export function ActionPanel({
   // Recent commands
   const { recentIds, addRecentCommand } = useRecentCommands();
 
-  // Claude Provider
+  // Agent providers
   const queryClient = useQueryClient();
-  const providers = useSettingsStore((s) => s.claudeCodeIntegration.providers);
+  const providers = useSettingsStore((s) => s.agentIntegration.providers);
+  const providerSettingsQueryKey = React.useMemo(
+    () => agentProviderProfileAdapter.queryKey(repoPath),
+    [repoPath]
+  );
 
-  const { data: claudeData } = useQuery({
-    queryKey: ['claude-settings', repoPath ?? null],
-    queryFn: () => window.electronAPI.claudeProvider.readSettings(repoPath),
-    enabled: open, // 只在面板打开时查询
+  const { data: providerData } = useQuery({
+    queryKey: providerSettingsQueryKey,
+    queryFn: () => agentProviderProfileAdapter.readCurrent(repoPath),
+    enabled: open,
   });
 
   const activeProvider = React.useMemo(() => {
-    const currentConfig = claudeData?.extracted;
+    const currentConfig = providerData?.extracted;
     if (!currentConfig) return null;
-    return providers.find((p) => isClaudeProviderMatch(p, currentConfig)) ?? null;
-  }, [providers, claudeData?.extracted]);
+    return (
+      providers.find((p) => agentProviderProfileAdapter.isActiveProfile(p, currentConfig)) ?? null
+    );
+  }, [providers, providerData?.extracted]);
 
   const applyProvider = useMutation({
-    mutationFn: (provider: ClaudeProvider) =>
-      window.electronAPI.claudeProvider.apply(repoPath, provider),
+    mutationFn: (provider: ClaudeProvider) => agentProviderProfileAdapter.apply(repoPath, provider),
     onSuccess: (success, provider) => {
       if (!success) {
-        clearClaudeProviderSwitch();
+        agentProviderProfileAdapter.clearSwitch();
         return;
       }
-      queryClient.invalidateQueries({ queryKey: ['claude-settings', repoPath ?? null] });
+      queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
       const successCopy = buildSettingsWorkflowToastCopy(
         {
           action: 'provider-switch',
@@ -310,24 +311,24 @@ export function ActionPanel({
       });
     },
     onError: () => {
-      clearClaudeProviderSwitch();
+      agentProviderProfileAdapter.clearSwitch();
     },
   });
 
   const actionGroups: ActionGroup[] = React.useMemo(() => {
     const groups: ActionGroup[] = [];
 
-    // Claude Provider group (only show if providers exist)
+    // Agent provider group (only shown when provider profiles exist)
     if (providers.length > 0) {
       groups.push({
-        label: 'Claude Provider',
+        label: t('Agent Providers'),
         items: providers.map((provider) => ({
-          id: `claude-provider-${provider.id}`,
+          id: `agent-provider-${provider.id}`,
           label: provider.name,
           icon: activeProvider?.id === provider.id ? CheckCircle : Circle,
           action: () => {
             if (activeProvider?.id !== provider.id) {
-              markClaudeProviderSwitch(provider);
+              agentProviderProfileAdapter.markSwitch(provider);
               applyProvider.mutate(provider);
             }
           },

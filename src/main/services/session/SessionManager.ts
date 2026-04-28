@@ -8,6 +8,7 @@ import {
   type SessionDescriptor,
   type SessionExitEvent,
   type SessionOpenResult,
+  type SessionRuntimeInfo,
   type SessionRuntimeState,
   type SessionStateEvent,
 } from '@shared/types';
@@ -37,12 +38,6 @@ interface ManagedSessionRecord extends SessionDescriptor {
   pendingHostReplayDedup?: boolean;
   streamState?: 'buffering' | 'attaching' | 'live';
   pendingExit?: SessionExitEvent;
-}
-
-interface SessionRuntimeInfo {
-  pid: number | null;
-  isActive: boolean | null;
-  isAlive: boolean | null;
 }
 
 const MAX_SESSION_REPLAY_CHARS = 65_536;

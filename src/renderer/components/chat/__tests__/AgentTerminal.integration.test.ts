@@ -69,7 +69,7 @@ const testState = vi.hoisted(() => ({
     shellConfig: {
       defaultShell: 'zsh',
     },
-    claudeCodeIntegration: {
+    agentIntegration: {
       enabled: false,
       tmuxEnabled: false,
       enhancedInputEnabled: true,
@@ -182,7 +182,8 @@ vi.mock('@/hooks/xtermClipboard', () => ({
 
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
-    t: (value: string) => value,
+    t: (value: string, vars?: Record<string, string | number>) =>
+      value.replace(/\{\{(\w+)\}\}/g, (_match, key) => String(vars?.[key] ?? '')),
   }),
 }));
 
@@ -347,7 +348,7 @@ describe('AgentTerminal integration', () => {
     testState.settingsStore.agentNotificationEnterDelay = 0;
     testState.settingsStore.hapiSettings = { cliApiToken: '' };
     testState.settingsStore.shellConfig = { defaultShell: 'zsh' };
-    testState.settingsStore.claudeCodeIntegration = {
+    testState.settingsStore.agentIntegration = {
       enabled: false,
       tmuxEnabled: false,
       enhancedInputEnabled: true,
@@ -558,6 +559,30 @@ describe('AgentTerminal integration', () => {
 
     expect(sender?.('Ping agent', [])).toBe(false);
     expect(testState.electronAPI.agentInputDispatch).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('does not show the startup overlay for inactive local agent terminals while shell resolution is pending', async () => {
+    testState.electronAPI.shellResolveForCommand.mockReturnValue(new Promise(() => undefined));
+
+    const mounted = await mountAgentTerminal({
+      isActive: false,
+    });
+
+    expect(mounted.container.textContent).not.toContain('Loading codex...');
+
+    await mounted.unmount();
+  });
+
+  it('does not show the startup overlay for inactive agent terminals that are still loading', async () => {
+    testState.xtermResult.isLoading = true;
+
+    const mounted = await mountAgentTerminal({
+      isActive: false,
+    });
+
+    expect(mounted.container.textContent).not.toContain('Loading codex...');
 
     await mounted.unmount();
   });

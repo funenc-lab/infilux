@@ -48,6 +48,7 @@ import { registerShellHandlers } from './shell';
 import { registerTempWorkspaceHandlers } from './tempWorkspace';
 import { cleanupTmuxSync, registerTmuxHandlers } from './tmux';
 import { cleanupTodo, cleanupTodoSync, registerTodoHandlers } from './todo';
+import { registerTokenUsageHandlers } from './tokenUsage';
 import { registerUpdaterHandlers } from './updater';
 import { registerWebInspectorHandlers } from './webInspector';
 import { clearAllWorktreeServices, registerWorktreeHandlers } from './worktree';
@@ -115,6 +116,7 @@ export function registerIpcHandlers(): void {
   registerAgentHandlers();
   registerAgentSubagentHandlers();
   registerAgentSessionHandlers();
+  registerTokenUsageHandlers();
   registerDialogHandlers();
   registerAppHandlers();
   registerCliHandlers();

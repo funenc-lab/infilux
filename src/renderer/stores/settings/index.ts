@@ -14,9 +14,9 @@ import {
   normalizeChatPanelInactivityThresholdMinutes,
 } from './chatPanelInactivityThresholdPolicy';
 import {
+  defaultAgentIntegrationSettings,
   defaultAgentSettings,
   defaultBranchNameGeneratorSettings,
-  defaultClaudeCodeIntegrationSettings,
   defaultCodeReviewSettings,
   defaultCommitMessageGeneratorSettings,
   defaultEditorKeybindings,
@@ -119,8 +119,8 @@ function getInitialState() {
     agentNotificationDelay: 5,
     agentNotificationEnterDelay: 5,
 
-    // Claude Code Integration
-    claudeCodeIntegration: defaultClaudeCodeIntegrationSettings,
+    // Agent Integration
+    agentIntegration: defaultAgentIntegrationSettings,
 
     // AI Features
     commitMessageGenerator: defaultCommitMessageGeneratorSettings,
@@ -507,66 +507,66 @@ export const useSettingsStore = create<SettingsState>()(
       setAgentNotificationEnterDelay: (agentNotificationEnterDelay) =>
         set({ agentNotificationEnterDelay }),
 
-      // Claude Code Integration Setters
-      setClaudeCodeIntegration: (settings) =>
+      // Agent Integration Setters
+      setAgentIntegration: (settings) =>
         set((state) => ({
-          claudeCodeIntegration: { ...state.claudeCodeIntegration, ...settings },
+          agentIntegration: { ...state.agentIntegration, ...settings },
         })),
 
-      addClaudeProvider: (provider) =>
+      addAgentProvider: (provider) =>
         set((state) => ({
-          claudeCodeIntegration: {
-            ...state.claudeCodeIntegration,
-            providers: [...state.claudeCodeIntegration.providers, provider],
+          agentIntegration: {
+            ...state.agentIntegration,
+            providers: [...state.agentIntegration.providers, provider],
           },
         })),
 
-      updateClaudeProvider: (id, updates) =>
+      updateAgentProvider: (id, updates) =>
         set((state) => ({
-          claudeCodeIntegration: {
-            ...state.claudeCodeIntegration,
-            providers: state.claudeCodeIntegration.providers.map((p) =>
+          agentIntegration: {
+            ...state.agentIntegration,
+            providers: state.agentIntegration.providers.map((p) =>
               p.id === id ? { ...p, ...updates } : p
             ),
           },
         })),
 
-      removeClaudeProvider: (id) =>
+      removeAgentProvider: (id) =>
         set((state) => ({
-          claudeCodeIntegration: {
-            ...state.claudeCodeIntegration,
-            providers: state.claudeCodeIntegration.providers.filter((p) => p.id !== id),
+          agentIntegration: {
+            ...state.agentIntegration,
+            providers: state.agentIntegration.providers.filter((p) => p.id !== id),
           },
         })),
 
-      reorderClaudeProviders: (fromIndex, toIndex) =>
+      reorderAgentProviders: (fromIndex, toIndex) =>
         set((state) => {
-          const providers = [...state.claudeCodeIntegration.providers];
+          const providers = [...state.agentIntegration.providers];
           const [removed] = providers.splice(fromIndex, 1);
           providers.splice(toIndex, 0, removed);
           const reordered = providers.map((p, index) => ({ ...p, displayOrder: index }));
           return {
-            claudeCodeIntegration: {
-              ...state.claudeCodeIntegration,
+            agentIntegration: {
+              ...state.agentIntegration,
               providers: reordered,
             },
           };
         }),
 
-      setClaudeProviderEnabled: (id, enabled) =>
+      setAgentProviderEnabled: (id, enabled) =>
         set((state) => ({
-          claudeCodeIntegration: {
-            ...state.claudeCodeIntegration,
-            providers: state.claudeCodeIntegration.providers.map((p) =>
+          agentIntegration: {
+            ...state.agentIntegration,
+            providers: state.agentIntegration.providers.map((p) =>
               p.id === id ? { ...p, enabled } : p
             ),
           },
         })),
 
-      setClaudeProviderOrder: (providers) =>
+      setAgentProviderOrder: (providers) =>
         set((state) => ({
-          claudeCodeIntegration: {
-            ...state.claudeCodeIntegration,
+          agentIntegration: {
+            ...state.agentIntegration,
             providers: providers.map((p, index) => ({ ...p, displayOrder: index })),
           },
         })),

@@ -4,7 +4,7 @@ import { useSettingsStore } from '@/stores/settings';
 
 export function InputSettings() {
   const { t } = useI18n();
-  const { claudeCodeIntegration, setClaudeCodeIntegration } = useSettingsStore();
+  const { agentIntegration, setAgentIntegration } = useSettingsStore();
 
   return (
     <div className="space-y-6">
@@ -34,12 +34,12 @@ export function InputSettings() {
           </p>
         </div>
         <Switch
-          checked={claudeCodeIntegration.enhancedInputEnabled ?? true}
-          onCheckedChange={(checked) => setClaudeCodeIntegration({ enhancedInputEnabled: checked })}
+          checked={agentIntegration.enhancedInputEnabled ?? true}
+          onCheckedChange={(checked) => setAgentIntegration({ enhancedInputEnabled: checked })}
         />
       </div>
 
-      {claudeCodeIntegration.enhancedInputEnabled && (
+      {agentIntegration.enhancedInputEnabled && (
         <div className="ml-4 space-y-2 border-l-2 border-muted pl-4">
           <span className="text-xs font-medium text-muted-foreground">{t('Display Mode')}</span>
           <div className="space-y-1">
@@ -47,8 +47,8 @@ export function InputSettings() {
               <input
                 type="radio"
                 name="enhancedInputAutoPopup"
-                checked={claudeCodeIntegration.enhancedInputAutoPopup === 'manual'}
-                onChange={() => setClaudeCodeIntegration({ enhancedInputAutoPopup: 'manual' })}
+                checked={agentIntegration.enhancedInputAutoPopup === 'manual'}
+                onChange={() => setAgentIntegration({ enhancedInputAutoPopup: 'manual' })}
                 className="h-4 w-4 mt-0.5 shrink-0"
               />
               <div className="space-y-0.5">
@@ -62,8 +62,8 @@ export function InputSettings() {
               <input
                 type="radio"
                 name="enhancedInputAutoPopup"
-                checked={claudeCodeIntegration.enhancedInputAutoPopup === 'always'}
-                onChange={() => setClaudeCodeIntegration({ enhancedInputAutoPopup: 'always' })}
+                checked={agentIntegration.enhancedInputAutoPopup === 'always'}
+                onChange={() => setAgentIntegration({ enhancedInputAutoPopup: 'always' })}
                 className="h-4 w-4 mt-0.5 shrink-0"
               />
               <div className="space-y-0.5">
@@ -74,19 +74,17 @@ export function InputSettings() {
               </div>
             </label>
             <label
-              className={`flex items-start gap-2 rounded-md p-2 ${!claudeCodeIntegration.stopHookEnabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted/50 cursor-pointer'}`}
+              className={`flex items-start gap-2 rounded-md p-2 ${!agentIntegration.stopHookEnabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted/50 cursor-pointer'}`}
             >
               <input
                 type="radio"
                 name="enhancedInputAutoPopup"
                 checked={
-                  (claudeCodeIntegration.enhancedInputAutoPopup ?? 'hideWhileRunning') ===
+                  (agentIntegration.enhancedInputAutoPopup ?? 'hideWhileRunning') ===
                   'hideWhileRunning'
                 }
-                onChange={() =>
-                  setClaudeCodeIntegration({ enhancedInputAutoPopup: 'hideWhileRunning' })
-                }
-                disabled={!claudeCodeIntegration.stopHookEnabled}
+                onChange={() => setAgentIntegration({ enhancedInputAutoPopup: 'hideWhileRunning' })}
+                disabled={!agentIntegration.stopHookEnabled}
                 className="h-4 w-4 mt-0.5 shrink-0"
               />
               <div className="space-y-0.5">

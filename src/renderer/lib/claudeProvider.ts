@@ -27,8 +27,8 @@ export function isClaudeProviderMatch(
   const authToken = normalizeValue(current.authToken);
   if (!baseUrl || !authToken) return false;
 
-  // 仅匹配 Base URL、Auth Token 和三个默认模型字段
-  // 忽略 model 和 smallFastModel，因为用户切换模型时会修改 model 字段导致匹配失败
+  // Match the stable provider identity fields only.
+  // Ignore model shortcuts because users can change them during normal CLI usage.
   return (
     normalizeValue(provider.baseUrl) === baseUrl &&
     normalizeValue(provider.authToken) === authToken &&

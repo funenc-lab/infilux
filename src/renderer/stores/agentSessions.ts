@@ -21,7 +21,13 @@ import {
 } from '@/components/chat/sessionTitleText';
 import type { AgentGroupState } from '@/components/chat/types';
 import { createInitialGroupState } from '@/components/chat/types';
+import type { TodoTask } from '@/components/todo/types';
 import { isSessionPersistable } from '@/lib/agentSessionPersistence';
+import {
+  type AgentSessionInventoryFilters,
+  type AgentSessionInventoryItem,
+  buildAgentSessionInventory,
+} from './agentSessionInventory';
 import { useAgentStatusStore } from './agentStatus';
 
 // Global storage key for all sessions across all repos
@@ -139,6 +145,10 @@ interface AgentSessionsState {
   getAggregatedByWorktree: (cwd: string) => AggregatedOutputState;
   getAggregatedByRepo: (repoPath: string) => AggregatedOutputState;
   getAggregatedGlobal: () => AggregatedOutputState;
+  getSessionInventory: (
+    filters?: AgentSessionInventoryFilters,
+    tasks?: TodoTask[]
+  ) => AgentSessionInventoryItem[];
 }
 
 function buildEqualFlexPercents(groupCount: number): number[] {
@@ -323,6 +333,16 @@ function markSessionCapabilityStale(session: Session): Session {
     agentCapabilityStale: true,
     ...(isTrackedClaudePolicySession(session) ? { claudePolicyStale: true } : {}),
   };
+}
+
+function hasSessionUpdates(session: Session, updates: Partial<Session>): boolean {
+  for (const key of Object.keys(updates) as (keyof Session)[]) {
+    if (session[key] !== updates[key]) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function loadFromStorage(): PersistedAgentSessionsSnapshot {
@@ -513,9 +533,23 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
       }),
 
     updateSession: (id, updates) =>
-      set((state) => ({
-        sessions: state.sessions.map((s) => (s.id === id ? { ...s, ...updates } : s)),
-      })),
+      set((state) => {
+        let didUpdate = false;
+        const sessions = state.sessions.map((session) => {
+          if (session.id !== id) {
+            return session;
+          }
+
+          if (!hasSessionUpdates(session, updates)) {
+            return session;
+          }
+
+          didUpdate = true;
+          return { ...session, ...updates };
+        });
+
+        return didUpdate ? { sessions } : state;
+      }),
 
     markClaudePolicyStaleGlobally: () =>
       set((state) => ({
@@ -716,8 +750,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         const existing = state.sessions.find((session) => session.id === record.uiSessionId);
         const recoveredSession: Session = {
           id: record.uiSessionId,
-          sessionId: record.providerSessionId ?? record.uiSessionId,
-          backendSessionId: record.backendSessionId,
+          sessionId: record.providerSessionId ?? existing?.sessionId ?? record.uiSessionId,
+          backendSessionId: record.backendSessionId ?? existing?.backendSessionId,
           createdAt: record.createdAt,
           name: getStoredSessionName(record.displayName, record.agentId),
           agentId: record.agentId,
@@ -1096,6 +1130,17 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
     getAggregatedGlobal: () => {
       const state = get();
       return computeAggregatedState(state.sessions, state.runtimeStates);
+    },
+
+    getSessionInventory: (filters, tasks) => {
+      const state = get();
+      return buildAgentSessionInventory({
+        sessions: state.sessions,
+        activeIds: state.activeIds,
+        runtimeStates: state.runtimeStates,
+        filters,
+        tasks,
+      });
     },
 
     // Enhanced input state actions

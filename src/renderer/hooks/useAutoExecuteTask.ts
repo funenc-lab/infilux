@@ -1,7 +1,15 @@
 import type { AgentStopNotificationData } from '@shared/types/agent';
 import { TASK_COMPLETION_MARKER } from '@shared/types/agent';
 import { useCallback, useEffect, useRef } from 'react';
+import { normalizePath } from '@/App/storage';
+import { resolveAutoExecuteAgentChoice } from '@/components/todo/agentCapabilities';
+import {
+  buildTodoTaskExecutionContext,
+  buildTodoTaskPrompt,
+} from '@/components/todo/todoTaskContext';
+import type { TodoTaskContext } from '@/components/todo/types';
 import type { ResolvedAgent } from '@/components/todo/useEnabledAgents';
+import { onRendererAgentStop } from '@/lib/agentStopEvents';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { INITIAL_AUTO_EXECUTE, useTodoStore } from '@/stores/todo';
 
@@ -16,20 +24,41 @@ function findUISessionId(cliSessionId: string): string | undefined {
   return session?.id;
 }
 
+function isClaudeLikeSession(sessionId: string | undefined): boolean {
+  if (!sessionId) {
+    return false;
+  }
+
+  const session = useAgentSessionsStore.getState().sessions.find((item) => item.id === sessionId);
+  const agentId = session?.agentId.toLowerCase() ?? '';
+  const agentCommand = session?.agentCommand.toLowerCase().trim() ?? '';
+  return (
+    agentId === 'claude' ||
+    agentId.startsWith('claude-') ||
+    agentCommand === 'claude' ||
+    agentCommand.startsWith('claude ')
+  );
+}
+
 /**
  * Build prompt with auto-execute rules
  */
-export function buildAutoExecutePrompt(title: string, description?: string): string {
+export function buildAutoExecutePrompt(
+  title: string,
+  description?: string,
+  context?: TodoTaskContext
+): string {
+  const taskPrompt = buildTodoTaskPrompt(title, description, context);
   return `
-${title}
-
-${description || ''}
+${taskPrompt}
 
 ---
 [AUTO-EXECUTE RULES - MUST FOLLOW]
 1. When task is complete, output the following marker on a separate line at the end of your response: ${TASK_COMPLETION_MARKER}
 2. Do NOT call AskUserQuestion tool. Do NOT ask user to choose options. Directly select and execute the best approach.
 3. Solve problems autonomously. Do NOT interrupt the workflow to wait for user input.
+4. Run the relevant project validation commands before completion, such as typecheck, lint, tests, or the nearest targeted equivalent.
+5. Do not print the completion marker until validation has passed or you have clearly reported the blocking validation failure.
 `.trim();
 }
 
@@ -44,9 +73,11 @@ export function useAutoExecuteTask(
   repoPath: string,
   worktreePath: string | undefined,
   onSwitchToAgent?: () => void,
-  enabledAgents?: ResolvedAgent[]
+  enabledAgents?: ResolvedAgent[],
+  selectedAgentId?: string
 ) {
-  const autoExecute = useTodoStore((s) => s.autoExecute[repoPath] ?? INITIAL_AUTO_EXECUTE);
+  const repoKey = normalizePath(repoPath);
+  const autoExecute = useTodoStore((s) => s.autoExecute[repoKey] ?? INITIAL_AUTO_EXECUTE);
   const advanceQueue = useTodoStore((s) => s.advanceQueue);
   const stopAutoExecute = useTodoStore((s) => s.stopAutoExecute);
   const updateTask = useTodoStore((s) => s.updateTask);
@@ -58,29 +89,48 @@ export function useAutoExecuteTask(
   // Execute a single task
   const executeTask = useCallback(
     (taskId: string) => {
-      if (!worktreePath || !enabledAgents || enabledAgents.length === 0) {
-        stopAutoExecute(repoPath);
+      if (!enabledAgents || enabledAgents.length === 0) {
+        stopAutoExecute(repoKey);
         return;
       }
 
-      const tasks = useTodoStore.getState().tasks[repoPath] ?? [];
+      const tasks = useTodoStore.getState().tasks[repoKey] ?? [];
       const task = tasks.find((t) => t.id === taskId);
       if (!task) {
         // Task was deleted - skip to next in queue
-        const nextTaskId = advanceQueue(repoPath);
+        const nextTaskId = advanceQueue(repoKey);
         if (nextTaskId) {
           executeTaskRef.current(nextTaskId);
         } else {
-          stopAutoExecute(repoPath);
+          stopAutoExecute(repoKey);
         }
         return;
       }
 
-      // Build prompt with auto-execute rules
-      const taskContext = buildAutoExecutePrompt(task.title, task.description);
+      const taskExecutionContext = buildTodoTaskExecutionContext(task, {
+        repoPath: repoKey,
+        worktreePath,
+      });
+      const executionWorktreePath = taskExecutionContext?.worktreePath ?? worktreePath;
+      if (!executionWorktreePath) {
+        stopAutoExecute(repoKey);
+        return;
+      }
 
-      // Use default agent or first available
-      const agent = enabledAgents.find((a) => a.isDefault) ?? enabledAgents[0];
+      // Build prompt with auto-execute rules
+      const taskContext = buildAutoExecutePrompt(
+        task.title,
+        task.description,
+        taskExecutionContext
+      );
+
+      const agentChoice = resolveAutoExecuteAgentChoice({
+        agents: enabledAgents,
+        selectedAgentId,
+        tasks: [task],
+      });
+      const agent =
+        agentChoice.agent ?? enabledAgents.find((item) => item.isDefault) ?? enabledAgents[0];
 
       const sessionId = crypto.randomUUID();
 
@@ -95,22 +145,23 @@ export function useAutoExecuteTask(
         customPath: agent.customPath,
         customArgs: agent.customArgs,
         initialized: false,
-        repoPath,
-        cwd: worktreePath,
+        repoPath: repoKey,
+        cwd: executionWorktreePath,
         environment: agent.environment,
         pendingCommand: taskContext,
       });
 
       // Update task status and link session
-      updateTask(repoPath, taskId, { status: 'in-progress', sessionId });
-      setCurrentExecution(repoPath, taskId, sessionId);
+      updateTask(repoKey, taskId, { status: 'in-progress', sessionId });
+      setCurrentExecution(repoKey, taskId, sessionId);
 
       onSwitchToAgent?.();
     },
     [
-      repoPath,
+      repoKey,
       worktreePath,
       enabledAgents,
+      selectedAgentId,
       updateTask,
       setCurrentExecution,
       onSwitchToAgent,
@@ -129,9 +180,9 @@ export function useAutoExecuteTask(
     (data: AgentStopNotificationData) => {
       // Read latest state to avoid stale closure
       const currentAutoExecute =
-        useTodoStore.getState().autoExecute[repoPath] ?? INITIAL_AUTO_EXECUTE;
+        useTodoStore.getState().autoExecute[repoKey] ?? INITIAL_AUTO_EXECUTE;
 
-      if (!worktreePath || !currentAutoExecute.running) return;
+      if (!currentAutoExecute.running) return;
 
       // Match CLI session ID to our UI session ID
       const uiSessionId = findUISessionId(data.sessionId);
@@ -140,22 +191,30 @@ export function useAutoExecuteTask(
       const currentTaskId = currentAutoExecute.currentTaskId;
       if (!currentTaskId) return;
 
+      if (
+        data.source === 'renderer-terminal' &&
+        data.taskCompletionStatus !== 'completed' &&
+        isClaudeLikeSession(uiSessionId)
+      ) {
+        return;
+      }
+
       if (data.taskCompletionStatus === 'completed') {
         // Completion marker detected - mark done and advance
-        updateTask(repoPath, currentTaskId, { status: 'done', sessionId: undefined });
-        const nextTaskId = advanceQueue(repoPath);
+        updateTask(repoKey, currentTaskId, { status: 'done', sessionId: undefined });
+        const nextTaskId = advanceQueue(repoKey);
         if (nextTaskId && enabledAgents && enabledAgents.length > 0) {
           executeTaskRef.current(nextTaskId);
         } else {
-          stopAutoExecute(repoPath);
+          stopAutoExecute(repoKey);
         }
       } else {
         // No completion marker - revert task and stop
-        updateTask(repoPath, currentTaskId, { status: 'todo', sessionId: undefined });
-        stopAutoExecute(repoPath);
+        updateTask(repoKey, currentTaskId, { status: 'todo', sessionId: undefined });
+        stopAutoExecute(repoKey);
       }
     },
-    [repoPath, worktreePath, updateTask, advanceQueue, stopAutoExecute, enabledAgents]
+    [repoKey, updateTask, advanceQueue, stopAutoExecute, enabledAgents]
   );
 
   // Use ref for handler to avoid re-subscription on every callback change
@@ -174,49 +233,75 @@ export function useAutoExecuteTask(
       const [firstTaskId, ...rest] = taskIds;
 
       // Queue only remaining tasks (exclude the first one being executed now)
-      useTodoStore.getState().startAutoExecute(repoPath, rest);
+      useTodoStore.getState().startAutoExecute(repoKey, rest);
 
       // Execute first task
       executeTask(firstTaskId);
     },
-    [repoPath, enabledAgents, executeTask]
+    [repoKey, enabledAgents, executeTask]
   );
 
   // Stop auto-execute
   const stop = useCallback(() => {
-    stopAutoExecute(repoPath);
-  }, [repoPath, stopAutoExecute]);
+    stopAutoExecute(repoKey);
+  }, [repoKey, stopAutoExecute]);
+
+  const skipCurrentTask = useCallback(() => {
+    const currentAutoExecute = useTodoStore.getState().autoExecute[repoKey] ?? INITIAL_AUTO_EXECUTE;
+
+    if (!currentAutoExecute.running || !currentAutoExecute.currentTaskId) {
+      return;
+    }
+
+    updateTask(repoKey, currentAutoExecute.currentTaskId, {
+      status: 'todo',
+      sessionId: undefined,
+    });
+
+    const nextTaskId = advanceQueue(repoKey);
+    if (nextTaskId && enabledAgents && enabledAgents.length > 0) {
+      executeTaskRef.current(nextTaskId);
+      return;
+    }
+
+    stopAutoExecute(repoKey);
+  }, [advanceQueue, enabledAgents, repoKey, stopAutoExecute, updateTask]);
 
   // Reorder queue
   const reorderQueue = useCallback(
     (fromIndex: number, toIndex: number) => {
-      useTodoStore.getState().reorderAutoExecuteQueue(repoPath, fromIndex, toIndex);
+      useTodoStore.getState().reorderAutoExecuteQueue(repoKey, fromIndex, toIndex);
     },
-    [repoPath]
+    [repoKey]
   );
 
   // Remove from queue
   const removeFromQueue = useCallback(
     (taskId: string) => {
-      useTodoStore.getState().removeFromAutoExecuteQueue(repoPath, taskId);
+      useTodoStore.getState().removeFromAutoExecuteQueue(repoKey, taskId);
     },
-    [repoPath]
+    [repoKey]
   );
 
   // Listen for agent stop events - only subscribe when running
   useEffect(() => {
     if (!autoExecute?.running) return;
 
-    const unsubscribe = window.electronAPI.notification.onAgentStop((data) =>
+    const unsubscribeMain = window.electronAPI.notification.onAgentStop((data) =>
       handleAgentStopRef.current(data)
     );
-    return unsubscribe;
+    const unsubscribeRenderer = onRendererAgentStop((data) => handleAgentStopRef.current(data));
+    return () => {
+      unsubscribeMain();
+      unsubscribeRenderer();
+    };
   }, [autoExecute?.running]);
 
   return {
     autoExecute,
     startAutoExecute,
     stop,
+    skipCurrentTask,
     reorderQueue,
     removeFromQueue,
     executeTask,

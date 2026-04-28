@@ -1,15 +1,23 @@
 /* @vitest-environment jsdom */
 
 import type { LiveAgentSubagent } from '@shared/types';
-import React from 'react';
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TabId } from '@/App/constants';
+
+declare global {
+  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
+}
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 type SettingsState = {
   settingsDisplayMode: 'tab' | 'draggable-modal';
   setSettingsDisplayMode: (mode: 'tab' | 'draggable-modal') => void;
   fileTreeDisplayMode: 'legacy' | 'current';
+  agentSessionDisplayMode: 'tab' | 'canvas' | 'global-canvas';
   chatPanelInactivityThresholdMinutes: number;
   retainSessionBackedChatPanels: boolean;
   todoEnabled: boolean;
@@ -59,6 +67,7 @@ const settingsState: SettingsState = {
   settingsDisplayMode: 'tab',
   setSettingsDisplayMode: vi.fn(),
   fileTreeDisplayMode: 'legacy',
+  agentSessionDisplayMode: 'tab',
   chatPanelInactivityThresholdMinutes: 5,
   retainSessionBackedChatPanels: true,
   todoEnabled: false,
@@ -84,6 +93,7 @@ const worktreeActivityState: WorktreeActivityState = {
 
 const liveSubagentsByWorktree = new Map<string, LiveAgentSubagent[]>();
 const useLiveSubagentsMock = vi.fn(() => liveSubagentsByWorktree);
+let mockPanelMountId = 0;
 
 function setWindowElectronEnv(
   env?: Partial<{
@@ -108,14 +118,41 @@ function renderMockPanel(
   props: Record<string, unknown>,
   extraAttributes?: Record<string, string>
 ) {
+  const mountIdRef = React.useRef<number>(0);
+  if (mountIdRef.current === 0) {
+    mockPanelMountId += 1;
+    mountIdRef.current = mockPanelMountId;
+  }
+
+  const workspaceCanvasWorktrees = Array.isArray(props.workspaceCanvasWorktrees)
+    ? props.workspaceCanvasWorktrees
+    : [];
+
   return React.createElement('div', {
     'data-panel': panel,
+    'data-mount-id': String(mountIdRef.current),
     'data-active': String(props.isActive ?? false),
     'data-tree-enabled': String(props.treeEnabled ?? ''),
+    'data-workspace-canvas-worktree-count': String(workspaceCanvasWorktrees.length),
+    'data-workspace-canvas-worktrees': workspaceCanvasWorktrees
+      .map((item) => {
+        if (!item || typeof item !== 'object') {
+          return '';
+        }
+
+        const candidate = item as { repoPath?: unknown; worktreePath?: unknown };
+        return typeof candidate.repoPath === 'string' && typeof candidate.worktreePath === 'string'
+          ? `${candidate.repoPath}::${candidate.worktreePath}`
+          : '';
+      })
+      .filter(Boolean)
+      .join('|'),
     'data-canvas-recenter-token':
       typeof props.canvasRecenterOnActivateToken === 'number'
         ? String(props.canvasRecenterOnActivateToken)
         : '',
+    'data-canvas-recenter-worktree-path':
+      typeof props.canvasRecenterWorktreePath === 'string' ? props.canvasRecenterWorktreePath : '',
     'data-canvas-focus-token':
       typeof props.canvasFocusOnActivateToken === 'number'
         ? String(props.canvasFocusOnActivateToken)
@@ -137,8 +174,11 @@ vi.mock('lucide-react', () => {
   return {
     Activity: icon('Activity'),
     AlertCircle: icon('AlertCircle'),
+    AlertTriangle: icon('AlertTriangle'),
+    ChartNoAxesColumnIncreasing: icon('ChartNoAxesColumnIncreasing'),
     ChevronRight: icon('ChevronRight'),
     FileCode: icon('FileCode'),
+    FolderGit2: icon('FolderGit2'),
     FolderOpen: icon('FolderOpen'),
     Gauge: icon('Gauge'),
     GitBranch: icon('GitBranch'),
@@ -334,8 +374,10 @@ vi.mock('../DeferredDiffReviewModal', () => ({
 
 describe('MainContent component render', () => {
   beforeEach(() => {
+    mockPanelMountId = 0;
     settingsState.settingsDisplayMode = 'tab';
     settingsState.fileTreeDisplayMode = 'legacy';
+    settingsState.agentSessionDisplayMode = 'tab';
     settingsState.retainSessionBackedChatPanels = true;
     settingsState.todoEnabled = false;
     settingsState.backgroundImageEnabled = false;
@@ -359,6 +401,11 @@ describe('MainContent component render', () => {
     });
   });
 
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.useRealTimers();
+  });
+
   async function renderMainContent(
     activeTab: TabId,
     overrides?: Partial<MainContentProps>
@@ -376,6 +423,52 @@ describe('MainContent component render', () => {
         ...overrides,
       })
     );
+  }
+
+  async function mountMainContent(
+    initialActiveTab: TabId,
+    overrides?: Partial<MainContentProps>
+  ): Promise<{
+    container: HTMLElement;
+    render: (activeTab: TabId, nextOverrides?: Partial<MainContentProps>) => Promise<void>;
+    unmount: () => Promise<void>;
+  }> {
+    const { MainContent } = await import('../MainContent');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+
+    const render = async (activeTab: TabId, nextOverrides?: Partial<MainContentProps>) => {
+      await act(async () => {
+        root.render(
+          React.createElement(MainContent, {
+            activeTab,
+            onTabChange: vi.fn(),
+            repoPath: '/repo/main',
+            worktreePath: '/repo/main/worktrees/current',
+            sourceControlRootPath: '/repo/main/worktrees/current',
+            reviewRootPath: '/repo/main/worktrees/current',
+            openInPath: '/repo/main/worktrees/current',
+            ...overrides,
+            ...nextOverrides,
+          })
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    };
+
+    await render(initialActiveTab);
+
+    return {
+      container,
+      render,
+      async unmount() {
+        await act(async () => {
+          root.unmount();
+        });
+      },
+    };
   }
 
   async function renderMainContentPanels(
@@ -403,6 +496,8 @@ describe('MainContent component render', () => {
         shouldRenderCurrentTerminalPanel: false,
         shouldRenderCurrentFilePanel: false,
         cachedChatPanelPaths: [],
+        workspaceCanvasWorktrees: [],
+        agentSessionDisplayMode: 'tab',
         cachedTerminalPanelPaths: [],
         cachedFilePanelPaths: [],
         fileTreeDisplayMode: 'legacy',
@@ -537,6 +632,29 @@ describe('MainContent component render', () => {
     expect(markup).not.toContain('data-panel="terminal"');
   });
 
+  it('keeps the global canvas agent panel mounted across worktree switches', async () => {
+    settingsState.agentSessionDisplayMode = 'global-canvas';
+
+    const mounted = await mountMainContent('chat');
+    const firstPanel = mounted.container.querySelector('[data-panel="agent"]');
+    const firstMountId = firstPanel?.getAttribute('data-mount-id');
+
+    await mounted.render('chat', {
+      worktreePath: '/repo/main/worktrees/next',
+      sourceControlRootPath: '/repo/main/worktrees/next',
+      reviewRootPath: '/repo/main/worktrees/next',
+      openInPath: '/repo/main/worktrees/next',
+    });
+
+    const nextPanel = mounted.container.querySelector('[data-panel="agent"]');
+
+    expect(firstMountId).toBeTruthy();
+    expect(nextPanel?.getAttribute('data-mount-id')).toBe(firstMountId);
+    expect(nextPanel?.getAttribute('data-cwd')).toBe('/repo/main/worktrees/next');
+
+    await mounted.unmount();
+  });
+
   it('keeps cached chat panels loaded for inactive worktrees so session views survive worktree switches', async () => {
     const markup = await renderMainContentPanels({
       cachedChatPanelPaths: ['/repo/main/worktrees/older'],
@@ -556,6 +674,28 @@ describe('MainContent component render', () => {
     );
   });
 
+  it('passes workspace canvas worktrees to every retained chat panel', async () => {
+    const markup = await renderMainContentPanels({
+      cachedChatPanelPaths: ['/repo/main/worktrees/older'],
+      getRepoPathForWorktree: () => '/repo/main',
+      workspaceCanvasWorktrees: [
+        {
+          repoPath: '/repo/main',
+          worktreePath: '/repo/main/worktrees/current',
+        },
+        {
+          repoPath: '/repo/main',
+          worktreePath: '/repo/main/worktrees/older',
+        },
+      ],
+    });
+
+    expect(markup.match(/data-workspace-canvas-worktree-count="2"/g)).toHaveLength(2);
+    expect(markup).toContain(
+      'data-workspace-canvas-worktrees="/repo/main::/repo/main/worktrees/current|/repo/main::/repo/main/worktrees/older"'
+    );
+  });
+
   it('passes the recenter token only to the current chat panel that matches the requested worktree', async () => {
     const markup = await renderMainContentPanels({
       cachedChatPanelPaths: ['/repo/main/worktrees/older'],
@@ -567,7 +707,13 @@ describe('MainContent component render', () => {
       /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"[^>]*data-canvas-recenter-token="7"|<div data-panel="agent"[^>]*data-canvas-recenter-token="7"[^>]*data-cwd="\/repo\/main\/worktrees\/current"/
     );
     expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"[^>]*data-canvas-recenter-worktree-path="\/repo\/main\/worktrees\/current"|<div data-panel="agent"[^>]*data-canvas-recenter-worktree-path="\/repo\/main\/worktrees\/current"[^>]*data-cwd="\/repo\/main\/worktrees\/current"/
+    );
+    expect(markup).toMatch(
       /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-canvas-recenter-token="0"|<div data-panel="agent"[^>]*data-canvas-recenter-token="0"[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
+    );
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-canvas-recenter-worktree-path=""|<div data-panel="agent"[^>]*data-canvas-recenter-worktree-path=""[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
     );
   });
 
@@ -799,7 +945,7 @@ describe('MainContent component render', () => {
     vi.useRealTimers();
   });
 
-  it('releases the current agent panel after cooldown when session-backed retention is disabled', async () => {
+  it('does not release an inactive agent panel solely because session activity is stale', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'));
     settingsState.retainSessionBackedChatPanels = false;
@@ -821,10 +967,72 @@ describe('MainContent component render', () => {
 
     const markup = await renderMainContent('source-control');
 
-    expect(markup).not.toContain('data-panel="agent"');
+    expect(markup).toContain('data-panel="agent"');
+    expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="source-control"');
 
     vi.useRealTimers();
+  });
+
+  it('starts the idle chat cooldown when the user switches away from the chat tab', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'));
+    settingsState.retainSessionBackedChatPanels = false;
+
+    agentSessionsState.sessions = [
+      {
+        id: 'session-1',
+        repoPath: '/repo/main',
+        cwd: '/repo/main/worktrees/current',
+        initialized: true,
+      },
+    ];
+    agentSessionsState.runtimeStates = {
+      'session-1': {
+        outputState: 'idle',
+        lastActivityAt: Date.now() - 10 * 60 * 1000,
+      },
+    };
+
+    const { container, render, unmount } = await mountMainContent('chat');
+
+    expect(container.querySelector('[data-panel="agent"]')).not.toBeNull();
+
+    await render('source-control');
+    expect(container.querySelector('[data-panel="agent"]')).not.toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-panel="agent"]')).toBeNull();
+
+    await unmount();
+  });
+
+  it('keeps every session-backed worktree mounted beyond the warm-cache limit', async () => {
+    agentSessionsState.sessions = [
+      '/repo/main/worktrees/current',
+      '/repo/main/worktrees/older-a',
+      '/repo/main/worktrees/older-b',
+      '/repo/main/worktrees/older-c',
+      '/repo/main/worktrees/older-d',
+      '/repo/main/worktrees/older-e',
+    ].map((cwd, index) => ({
+      id: `session-${index}`,
+      repoPath: '/repo/main',
+      cwd,
+      initialized: true,
+    }));
+
+    const { container, unmount } = await mountMainContent('chat');
+
+    expect(container.querySelectorAll('[data-panel="agent"]')).toHaveLength(6);
+    expect(container.innerHTML).toContain('data-cwd="/repo/main/worktrees/older-e"');
+
+    await unmount();
   });
 
   it('retains the current terminal panel while inactive when the current worktree still has terminal activity', async () => {

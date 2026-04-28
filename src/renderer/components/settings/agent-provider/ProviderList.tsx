@@ -27,11 +27,7 @@ import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
-import {
-  clearClaudeProviderSwitch,
-  isClaudeProviderMatch,
-  markClaudeProviderSwitch,
-} from '@/lib/claudeProvider';
+import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -68,7 +64,7 @@ function ProviderItem({
   const controls = useDragControls();
   const isDraggingRef = React.useRef(false);
 
-  // 当 enableProviderDisableFeature 为 false 时，视为所有 Provider 都启用
+  // Treat all providers as enabled when temporary disabling is turned off.
   const effectiveIsDisabled = enableProviderDisableFeature ? isDisabled : false;
 
   return (
@@ -86,7 +82,7 @@ function ProviderItem({
             : 'cursor-pointer border-transparent hover:bg-muted/40'
       )}
       onClick={() => {
-        // 如果刚刚在拖拽手柄上释放，不触发选中
+        // Ignore the click that follows a drag-handle release.
         if (isDraggingRef.current) {
           isDraggingRef.current = false;
           return;
@@ -181,59 +177,65 @@ function ProviderItem({
 export function ProviderList({ className, repoPath }: ProviderListProps) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const providers = useSettingsStore((s) => s.claudeCodeIntegration.providers);
-  const removeClaudeProvider = useSettingsStore((s) => s.removeClaudeProvider);
+  const providers = useSettingsStore((s) => s.agentIntegration.providers);
+  const removeAgentProvider = useSettingsStore((s) => s.removeAgentProvider);
   const shouldPoll = useShouldPoll();
   const enableProviderDisableFeature = useSettingsStore(
-    (s) => s.claudeCodeIntegration.enableProviderDisableFeature
+    (s) => s.agentIntegration.enableProviderDisableFeature
   );
 
-  const setClaudeProviderEnabled = useSettingsStore((s) => s.setClaudeProviderEnabled);
-  const setClaudeProviderOrder = useSettingsStore((s) => s.setClaudeProviderOrder);
+  const setAgentProviderEnabled = useSettingsStore((s) => s.setAgentProviderEnabled);
+  const setAgentProviderOrder = useSettingsStore((s) => s.setAgentProviderOrder);
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingProvider, setEditingProvider] = React.useState<ClaudeProvider | null>(null);
   const [saveFromCurrent, setSaveFromCurrent] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const providerSettingsQueryKey = React.useMemo(
+    () => agentProviderProfileAdapter.queryKey(repoPath),
+    [repoPath]
+  );
 
-  // 读取当前 Claude settings（窗口空闲时停止轮询）
-  const { data: claudeData } = useQuery({
-    queryKey: ['claude-settings', repoPath ?? null],
-    queryFn: () => window.electronAPI.claudeProvider.readSettings(repoPath),
+  // Read the current provider settings and stop polling while the window is idle.
+  const { data: providerData } = useQuery({
+    queryKey: providerSettingsQueryKey,
+    queryFn: () => agentProviderProfileAdapter.readCurrent(repoPath),
     refetchInterval: shouldPoll ? 30000 : false,
   });
 
-  // 监听 settings.json 文件变化事件（由主进程 fs.watch 触发）
-  // 当外部工具（如 cc-switch）修改配置时，立即刷新数据
-  // 窗口空闲时停止监听以节省资源
+  // Listen for settings.json changes emitted by the main-process watcher.
+  // Refresh immediately when external tools such as cc-switch modify the config.
+  // Stop listening while the window is idle to reduce background work.
   React.useEffect(() => {
     if (!shouldPoll) return;
 
-    const cleanup = window.electronAPI.claudeProvider.onSettingsChanged(() => {
-      queryClient.invalidateQueries({ queryKey: ['claude-settings', repoPath ?? null] });
+    const cleanup = agentProviderProfileAdapter.subscribeToExternalChanges(repoPath, () => {
+      queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
     });
     return cleanup;
-  }, [queryClient, repoPath, shouldPoll]);
+  }, [providerSettingsQueryKey, queryClient, repoPath, shouldPoll]);
 
-  // 计算当前激活的 Provider
+  // Compute the currently active provider.
   const activeProvider = React.useMemo(() => {
-    const currentConfig = claudeData?.extracted;
+    const currentConfig = providerData?.extracted;
     if (!currentConfig) return null;
-    return providers.find((p) => isClaudeProviderMatch(p, currentConfig)) ?? null;
-  }, [providers, claudeData?.extracted]);
+    return (
+      providers.find((p) => agentProviderProfileAdapter.isActiveProfile(p, currentConfig)) ?? null
+    );
+  }, [providers, providerData?.extracted]);
 
-  // 检查当前配置是否未保存
+  // Check whether the current config has not been saved as a provider profile.
   const hasUnsavedConfig = React.useMemo(() => {
-    if (!claudeData?.extracted?.baseUrl) return false;
+    if (!providerData?.extracted?.baseUrl) return false;
     return !activeProvider;
-  }, [claudeData?.extracted, activeProvider]);
+  }, [providerData?.extracted, activeProvider]);
 
-  // 切换 Provider
+  // Switch provider.
   const handleSwitch = async (provider: ClaudeProvider) => {
-    markClaudeProviderSwitch(provider);
-    const success = await window.electronAPI.claudeProvider.apply(repoPath, provider);
+    agentProviderProfileAdapter.markSwitch(provider);
+    const success = await agentProviderProfileAdapter.apply(repoPath, provider);
     if (success) {
-      queryClient.invalidateQueries({ queryKey: ['claude-settings', repoPath ?? null] });
+      queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
       const copy = buildSettingsWorkflowToastCopy(
         {
           action: 'provider-switch',
@@ -248,40 +250,40 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         description: copy.description,
       });
     } else {
-      clearClaudeProviderSwitch();
+      agentProviderProfileAdapter.clearSwitch();
     }
   };
 
-  // 编辑 Provider
+  // Edit provider.
   const handleEdit = (provider: ClaudeProvider) => {
     setEditingProvider(provider);
     setSaveFromCurrent(false);
     setDialogOpen(true);
   };
 
-  // 删除 Provider
+  // Delete provider.
   const handleDelete = (provider: ClaudeProvider) => {
-    removeClaudeProvider(provider.id);
+    removeAgentProvider(provider.id);
   };
 
-  // 处理拖拽重排序
+  // Handle drag reordering.
   const handleReorder = (newProviders: ClaudeProvider[]) => {
-    setClaudeProviderOrder(newProviders);
+    setAgentProviderOrder(newProviders);
   };
 
   const handleToggleEnabled = (provider: ClaudeProvider, e: React.MouseEvent) => {
     e.stopPropagation();
-    setClaudeProviderEnabled(provider.id, provider.enabled === false);
+    setAgentProviderEnabled(provider.id, provider.enabled === false);
   };
 
-  // 新建 Provider
+  // Add provider.
   const handleAdd = () => {
     setEditingProvider(null);
     setSaveFromCurrent(false);
     setDialogOpen(true);
   };
 
-  // 从当前配置保存
+  // Save from the current config.
   const handleSaveFromCurrent = () => {
     setEditingProvider(null);
     setSaveFromCurrent(true);
@@ -307,7 +309,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
 
   return (
     <div className={cn('space-y-3', className)}>
-      {hasUnsavedConfig && claudeData?.extracted && (
+      {hasUnsavedConfig && providerData?.extracted && (
         <div className="flex items-center justify-between rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
           <span className="text-sm text-muted-foreground">{t('Current config not saved')}</span>
           <div className="flex items-center gap-2">
@@ -365,7 +367,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         provider={editingProvider}
-        initialValues={saveFromCurrent ? claudeData?.extracted : undefined}
+        initialValues={saveFromCurrent ? providerData?.extracted : undefined}
       />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -376,18 +378,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
           <DialogPanel>
             <pre className="max-h-[420px] whitespace-pre-wrap rounded-lg border border-border/70 bg-muted/35 p-3 text-xs text-muted-foreground">
               {JSON.stringify(
-                {
-                  env: {
-                    ANTHROPIC_BASE_URL: claudeData?.settings?.env?.ANTHROPIC_BASE_URL,
-                    ANTHROPIC_AUTH_TOKEN: claudeData?.settings?.env?.ANTHROPIC_AUTH_TOKEN,
-                    ANTHROPIC_DEFAULT_SONNET_MODEL:
-                      claudeData?.settings?.env?.ANTHROPIC_DEFAULT_SONNET_MODEL,
-                    ANTHROPIC_DEFAULT_OPUS_MODEL:
-                      claudeData?.settings?.env?.ANTHROPIC_DEFAULT_OPUS_MODEL,
-                    ANTHROPIC_DEFAULT_HAIKU_MODEL:
-                      claudeData?.settings?.env?.ANTHROPIC_DEFAULT_HAIKU_MODEL,
-                  },
-                },
+                agentProviderProfileAdapter.buildPreview(providerData?.settings),
                 null,
                 2
               )}

@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { formatDiagnosticsDirectoryName, sanitizeDiagnosticsText } from '@shared/utils/diagnostics';
@@ -155,6 +156,14 @@ function execFileAsync(
   });
 }
 
+function captureOwnOpenFileDescriptorTotal(): number | null {
+  try {
+    return readdirSync('/dev/fd').filter((entry) => /^\d+$/.test(entry)).length;
+  } catch {
+    return null;
+  }
+}
+
 async function captureOpenFileDescriptorSnapshot(
   pid: number,
   timeoutMs: number
@@ -196,10 +205,11 @@ async function captureOpenFileDescriptorSnapshot(
     };
   } catch (error) {
     const nodeError = error as NodeJS.ErrnoException;
+    const fallbackTotal = pid === process.pid ? captureOwnOpenFileDescriptorTotal() : null;
     return {
-      total: null,
+      total: fallbackTotal,
       byType: {},
-      command,
+      command: fallbackTotal === null ? command : `${command}+/dev/fd`,
       timeoutMs,
       error: error instanceof Error ? error.message : String(error),
       errorCode: typeof nodeError.code === 'string' ? nodeError.code : null,

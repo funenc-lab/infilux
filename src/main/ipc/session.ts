@@ -144,6 +144,10 @@ export function registerSessionHandlers(): void {
     return sessionManager.getActivity(sessionId);
   });
 
+  ipcMain.handle(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO, async (_, sessionId: string) => {
+    return sessionManager.getSessionRuntimeInfo(sessionId);
+  });
+
   // Compatibility wrappers for legacy terminal callers while renderer migrates.
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_CREATE,

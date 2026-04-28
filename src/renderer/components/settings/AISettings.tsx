@@ -22,57 +22,17 @@ import {
   useSettingsStore,
   validateCodeReviewPrompt,
 } from '@/stores/settings';
-
-// Provider options
-const PROVIDERS: { value: AIProvider; label: string }[] = [
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'codex-cli', label: 'Codex CLI' },
-  { value: 'cursor-cli', label: 'Cursor CLI' },
-  { value: 'gemini-cli', label: 'Gemini CLI' },
-];
-
-// Model options per provider
-const MODELS_BY_PROVIDER: Record<AIProvider, { value: string; label: string }[]> = {
-  'claude-code': [
-    { value: 'haiku', label: 'Haiku' },
-    { value: 'sonnet', label: 'Sonnet' },
-    { value: 'opus', label: 'Opus' },
-  ],
-  'codex-cli': [
-    { value: 'gpt-5.2', label: 'GPT-5.2' },
-    { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
-  ],
-  'cursor-cli': [
-    { value: 'auto', label: 'Auto' },
-    { value: 'composer-1', label: 'Composer 1' },
-    { value: 'gpt-5.2', label: 'GPT-5.2' },
-    { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
-    { value: 'opus-4.6', label: 'Opus 4.6' },
-  ],
-  'gemini-cli': [
-    { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
-    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
-  ],
-};
-
-// Reasoning effort options for Codex CLI
-const REASONING_EFFORTS: { value: string; label: string }[] = [
-  { value: 'none', label: 'None' },
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'xHigh' },
-];
+import {
+  AI_MODEL_OPTIONS_BY_PROVIDER,
+  AI_PROVIDER_OPTIONS,
+  getDefaultModel,
+  getModelLabel,
+  getProviderLabel,
+  REASONING_EFFORT_OPTIONS,
+} from './aiProviderOptions';
 
 const PROMPT_TEXTAREA_CLASS =
   'control-input h-40 w-full rounded-md bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50';
-
-// Get default model for provider
-function getDefaultModel(provider: AIProvider): string {
-  const models = MODELS_BY_PROVIDER[provider];
-  return models[0]?.value ?? 'haiku';
-}
 
 export function AISettings() {
   const { t, locale } = useI18n();
@@ -180,12 +140,11 @@ export function AISettings() {
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue>
-                      {PROVIDERS.find((p) => p.value === commitMessageGenerator.provider)?.label ??
-                        'Claude Code'}
+                      {getProviderLabel(commitMessageGenerator.provider ?? 'claude-code')}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {PROVIDERS.map((p) => (
+                    {AI_PROVIDER_OPTIONS.map((p) => (
                       <SelectItem key={p.value} value={p.value}>
                         {p.label}
                       </SelectItem>
@@ -206,19 +165,20 @@ export function AISettings() {
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue>
-                      {MODELS_BY_PROVIDER[commitMessageGenerator.provider ?? 'claude-code']?.find(
-                        (m) => m.value === commitMessageGenerator.model
-                      )?.label ?? commitMessageGenerator.model}
+                      {getModelLabel(
+                        commitMessageGenerator.provider ?? 'claude-code',
+                        commitMessageGenerator.model
+                      )}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {MODELS_BY_PROVIDER[commitMessageGenerator.provider ?? 'claude-code']?.map(
-                      (m) => (
-                        <SelectItem key={m.value} value={m.value}>
-                          {m.label}
-                        </SelectItem>
-                      )
-                    )}
+                    {AI_MODEL_OPTIONS_BY_PROVIDER[
+                      commitMessageGenerator.provider ?? 'claude-code'
+                    ]?.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
                   </SelectPopup>
                 </Select>
                 <p className="text-xs text-muted-foreground">
@@ -240,13 +200,13 @@ export function AISettings() {
                   >
                     <SelectTrigger className="w-40">
                       <SelectValue>
-                        {REASONING_EFFORTS.find(
+                        {REASONING_EFFORT_OPTIONS.find(
                           (r) => r.value === (commitMessageGenerator.reasoningEffort ?? 'medium')
                         )?.label ?? 'Medium'}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
-                      {REASONING_EFFORTS.map((r) => (
+                      {REASONING_EFFORT_OPTIONS.map((r) => (
                         <SelectItem key={r.value} value={r.value}>
                           {r.label}
                         </SelectItem>
@@ -380,12 +340,11 @@ export function AISettings() {
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue>
-                      {PROVIDERS.find((p) => p.value === codeReview.provider)?.label ??
-                        'Claude Code'}
+                      {getProviderLabel(codeReview.provider ?? 'claude-code')}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {PROVIDERS.map((p) => (
+                    {AI_PROVIDER_OPTIONS.map((p) => (
                       <SelectItem key={p.value} value={p.value}>
                         {p.label}
                       </SelectItem>
@@ -411,17 +370,17 @@ export function AISettings() {
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue>
-                      {MODELS_BY_PROVIDER[codeReview.provider ?? 'claude-code']?.find(
-                        (m) => m.value === codeReview.model
-                      )?.label ?? codeReview.model}
+                      {getModelLabel(codeReview.provider ?? 'claude-code', codeReview.model)}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {MODELS_BY_PROVIDER[codeReview.provider ?? 'claude-code']?.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
+                    {AI_MODEL_OPTIONS_BY_PROVIDER[codeReview.provider ?? 'claude-code']?.map(
+                      (m) => (
+                        <SelectItem key={m.value} value={m.value}>
+                          {m.label}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectPopup>
                 </Select>
                 <p className="text-xs text-muted-foreground">{t('Model for code review')}</p>
@@ -441,13 +400,13 @@ export function AISettings() {
                   >
                     <SelectTrigger className="w-40">
                       <SelectValue>
-                        {REASONING_EFFORTS.find(
+                        {REASONING_EFFORT_OPTIONS.find(
                           (r) => r.value === (codeReview.reasoningEffort ?? 'medium')
                         )?.label ?? 'Medium'}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
-                      {REASONING_EFFORTS.map((r) => (
+                      {REASONING_EFFORT_OPTIONS.map((r) => (
                         <SelectItem key={r.value} value={r.value}>
                           {r.label}
                         </SelectItem>
@@ -466,9 +425,9 @@ export function AISettings() {
               <span className="text-sm font-medium">{t('Language')}</span>
               <div className="space-y-1.5">
                 <Input
-                  value={codeReview.language ?? '中文'}
+                  value={codeReview.language ?? '\u4e2d\u6587'}
                   onChange={(e) => setCodeReview({ language: e.target.value })}
-                  placeholder="中文"
+                  placeholder="\u4e2d\u6587"
                   className="w-32"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -576,12 +535,11 @@ export function AISettings() {
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue>
-                      {PROVIDERS.find((p) => p.value === branchNameGenerator.provider)?.label ??
-                        'Claude Code'}
+                      {getProviderLabel(branchNameGenerator.provider ?? 'claude-code')}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {PROVIDERS.map((p) => (
+                    {AI_PROVIDER_OPTIONS.map((p) => (
                       <SelectItem key={p.value} value={p.value}>
                         {p.label}
                       </SelectItem>
@@ -602,13 +560,16 @@ export function AISettings() {
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue>
-                      {MODELS_BY_PROVIDER[branchNameGenerator.provider ?? 'claude-code']?.find(
-                        (m) => m.value === branchNameGenerator.model
-                      )?.label ?? branchNameGenerator.model}
+                      {getModelLabel(
+                        branchNameGenerator.provider ?? 'claude-code',
+                        branchNameGenerator.model
+                      )}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {MODELS_BY_PROVIDER[branchNameGenerator.provider ?? 'claude-code']?.map((m) => (
+                    {AI_MODEL_OPTIONS_BY_PROVIDER[
+                      branchNameGenerator.provider ?? 'claude-code'
+                    ]?.map((m) => (
                       <SelectItem key={m.value} value={m.value}>
                         {m.label}
                       </SelectItem>
@@ -634,13 +595,13 @@ export function AISettings() {
                   >
                     <SelectTrigger className="w-40">
                       <SelectValue>
-                        {REASONING_EFFORTS.find(
+                        {REASONING_EFFORT_OPTIONS.find(
                           (r) => r.value === (branchNameGenerator.reasoningEffort ?? 'medium')
                         )?.label ?? 'Medium'}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
-                      {REASONING_EFFORTS.map((r) => (
+                      {REASONING_EFFORT_OPTIONS.map((r) => (
                         <SelectItem key={r.value} value={r.value}>
                           {r.label}
                         </SelectItem>
@@ -729,12 +690,11 @@ export function AISettings() {
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue>
-                      {PROVIDERS.find((p) => p.value === todoPolish.provider)?.label ??
-                        'Claude Code'}
+                      {getProviderLabel(todoPolish.provider ?? 'claude-code')}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {PROVIDERS.map((p) => (
+                    {AI_PROVIDER_OPTIONS.map((p) => (
                       <SelectItem key={p.value} value={p.value}>
                         {p.label}
                       </SelectItem>
@@ -755,17 +715,17 @@ export function AISettings() {
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue>
-                      {MODELS_BY_PROVIDER[todoPolish.provider ?? 'claude-code']?.find(
-                        (m) => m.value === todoPolish.model
-                      )?.label ?? todoPolish.model}
+                      {getModelLabel(todoPolish.provider ?? 'claude-code', todoPolish.model)}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {MODELS_BY_PROVIDER[todoPolish.provider ?? 'claude-code']?.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
+                    {AI_MODEL_OPTIONS_BY_PROVIDER[todoPolish.provider ?? 'claude-code']?.map(
+                      (m) => (
+                        <SelectItem key={m.value} value={m.value}>
+                          {m.label}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectPopup>
                 </Select>
                 <p className="text-xs text-muted-foreground">
@@ -787,13 +747,13 @@ export function AISettings() {
                   >
                     <SelectTrigger className="w-40">
                       <SelectValue>
-                        {REASONING_EFFORTS.find(
+                        {REASONING_EFFORT_OPTIONS.find(
                           (r) => r.value === (todoPolish.reasoningEffort ?? 'medium')
                         )?.label ?? 'Medium'}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
-                      {REASONING_EFFORTS.map((r) => (
+                      {REASONING_EFFORT_OPTIONS.map((r) => (
                         <SelectItem key={r.value} value={r.value}>
                           {r.label}
                         </SelectItem>

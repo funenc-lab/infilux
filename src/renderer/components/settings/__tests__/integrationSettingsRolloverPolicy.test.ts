@@ -13,9 +13,7 @@ describe('integration settings rollover policy', () => {
   it('exposes automatic session rollover controls alongside the status line context warnings', () => {
     expect(integrationSettingsSource).toContain('autoSessionRollover');
     expect(integrationSettingsSource).toContain("t('Automatic Session Rollover')");
-    expect(integrationSettingsSource).toContain(
-      'value={claudeCodeIntegration.autoSessionRollover}'
-    );
+    expect(integrationSettingsSource).toContain('value={agentIntegration.autoSessionRollover}');
     expect(integrationSettingsSource).toContain('value="manual"');
     expect(integrationSettingsSource).toContain('value="critical"');
   });

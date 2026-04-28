@@ -2,6 +2,10 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { normalizePath, STORAGE_KEYS } from '@/App/storage';
 import type { AutoExecuteState, TaskStatus, TodoTask } from '@/components/todo/types';
+import {
+  emitTodoPersistenceFailure,
+  type TodoPersistenceOperation,
+} from '@/lib/todoPersistenceEvents';
 
 const EMPTY_TASKS: TodoTask[] = [];
 
@@ -24,7 +28,12 @@ interface TodoState {
   updateTask: (
     repoPath: string,
     taskId: string,
-    updates: Partial<Pick<TodoTask, 'title' | 'description' | 'priority' | 'status' | 'sessionId'>>
+    updates: Partial<
+      Pick<
+        TodoTask,
+        'title' | 'description' | 'priority' | 'status' | 'agentId' | 'sessionId' | 'context'
+      >
+    >
   ) => void;
   deleteTask: (repoPath: string, taskId: string) => void;
   moveTask: (repoPath: string, taskId: string, newStatus: TaskStatus, newOrder: number) => void;
@@ -51,14 +60,30 @@ function getKey(repoPath: string): string {
   return normalizePath(repoPath);
 }
 
-/** One-time migration from localStorage to SQLite */
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function reportPersistenceFailure(
+  operation: TodoPersistenceOperation,
+  repoPath: string,
+  error: unknown
+): void {
+  emitTodoPersistenceFailure({
+    operation,
+    repoPath,
+    errorMessage: getErrorMessage(error),
+  });
+}
+
+/** One-time migration from localStorage to shared todo storage */
 async function migrateLocalStorage(): Promise<void> {
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.TODO_BOARDS);
     if (!saved) return;
     await window.electronAPI.todo.migrate(saved);
     localStorage.removeItem(STORAGE_KEYS.TODO_BOARDS);
-    console.log('[TodoStore] Migrated localStorage data to SQLite');
+    console.log('[TodoStore] Migrated localStorage data to shared todo storage');
   } catch (err) {
     console.error('[TodoStore] Migration failed:', err);
   }
@@ -104,6 +129,8 @@ export const useTodoStore = create<TodoState>()(
         description: taskData.description,
         priority: taskData.priority,
         status: taskData.status,
+        ...(taskData.agentId ? { agentId: taskData.agentId } : {}),
+        ...(taskData.context !== undefined ? { context: taskData.context } : {}),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         order: maxOrder + 1,
@@ -114,10 +141,16 @@ export const useTodoStore = create<TodoState>()(
         tasks: { ...state.tasks, [key]: [...(state.tasks[key] ?? []), newTask] },
       }));
 
-      // Persist to SQLite
-      window.electronAPI.todo
-        .addTask(key, newTask)
-        .catch((err) => console.error('[TodoStore] addTask IPC failed:', err));
+      window.electronAPI.todo.addTask(key, newTask).catch((err) => {
+        console.error('[TodoStore] addTask IPC failed:', err);
+        set((state) => ({
+          tasks: {
+            ...state.tasks,
+            [key]: (state.tasks[key] ?? []).filter((task) => task.id !== newTask.id),
+          },
+        }));
+        reportPersistenceFailure('add', key, err);
+      });
 
       return newTask;
     },
@@ -126,6 +159,8 @@ export const useTodoStore = create<TodoState>()(
       const key = getKey(repoPath);
       const existing = get().tasks[key];
       if (!existing) return;
+      const previousTask = existing.find((task) => task.id === taskId);
+      if (!previousTask) return;
 
       const now = Date.now();
       set((state) => ({
@@ -137,15 +172,26 @@ export const useTodoStore = create<TodoState>()(
         },
       }));
 
-      window.electronAPI.todo
-        .updateTask(key, taskId, updates)
-        .catch((err) => console.error('[TodoStore] updateTask IPC failed:', err));
+      window.electronAPI.todo.updateTask(key, taskId, updates).catch((err) => {
+        console.error('[TodoStore] updateTask IPC failed:', err);
+        set((state) => ({
+          tasks: {
+            ...state.tasks,
+            [key]: (state.tasks[key] ?? []).map((task) =>
+              task.id === taskId ? previousTask : task
+            ),
+          },
+        }));
+        reportPersistenceFailure('update', key, err);
+      });
     },
 
     deleteTask: (repoPath, taskId) => {
       const key = getKey(repoPath);
       const existing = get().tasks[key];
       if (!existing) return;
+      const deletedTask = existing.find((task) => task.id === taskId);
+      if (!deletedTask) return;
 
       set((state) => ({
         tasks: {
@@ -154,15 +200,30 @@ export const useTodoStore = create<TodoState>()(
         },
       }));
 
-      window.electronAPI.todo
-        .deleteTask(key, taskId)
-        .catch((err) => console.error('[TodoStore] deleteTask IPC failed:', err));
+      window.electronAPI.todo.deleteTask(key, taskId).catch((err) => {
+        console.error('[TodoStore] deleteTask IPC failed:', err);
+        set((state) => {
+          const currentTasks = state.tasks[key] ?? [];
+          if (currentTasks.some((task) => task.id === taskId)) {
+            return state;
+          }
+          return {
+            tasks: {
+              ...state.tasks,
+              [key]: [...currentTasks, deletedTask],
+            },
+          };
+        });
+        reportPersistenceFailure('delete', key, err);
+      });
     },
 
     moveTask: (repoPath, taskId, newStatus, newOrder) => {
       const key = getKey(repoPath);
       const existing = get().tasks[key];
       if (!existing) return;
+      const previousTask = existing.find((task) => task.id === taskId);
+      if (!previousTask) return;
 
       const now = Date.now();
       set((state) => ({
@@ -174,15 +235,25 @@ export const useTodoStore = create<TodoState>()(
         },
       }));
 
-      window.electronAPI.todo
-        .moveTask(key, taskId, newStatus, newOrder)
-        .catch((err) => console.error('[TodoStore] moveTask IPC failed:', err));
+      window.electronAPI.todo.moveTask(key, taskId, newStatus, newOrder).catch((err) => {
+        console.error('[TodoStore] moveTask IPC failed:', err);
+        set((state) => ({
+          tasks: {
+            ...state.tasks,
+            [key]: (state.tasks[key] ?? []).map((task) =>
+              task.id === taskId ? previousTask : task
+            ),
+          },
+        }));
+        reportPersistenceFailure('move', key, err);
+      });
     },
 
     reorderTasks: (repoPath, status, orderedIds) => {
       const key = getKey(repoPath);
       const existing = get().tasks[key];
       if (!existing) return;
+      const previousTasks = existing;
 
       const orderMap = new Map(orderedIds.map((id, i) => [id, i]));
       const now = Date.now();
@@ -198,9 +269,16 @@ export const useTodoStore = create<TodoState>()(
         },
       }));
 
-      window.electronAPI.todo
-        .reorderTasks(key, status, orderedIds)
-        .catch((err) => console.error('[TodoStore] reorderTasks IPC failed:', err));
+      window.electronAPI.todo.reorderTasks(key, status, orderedIds).catch((err) => {
+        console.error('[TodoStore] reorderTasks IPC failed:', err);
+        set((state) => ({
+          tasks: {
+            ...state.tasks,
+            [key]: previousTasks,
+          },
+        }));
+        reportPersistenceFailure('reorder', key, err);
+      });
     },
 
     // Auto-Execute Actions

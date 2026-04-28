@@ -1,9 +1,11 @@
-import type {
-  AgentCapabilityProvider,
-  ClaudePolicyConfig,
-  ClaudePolicyMaterializationMode,
-  ClaudeProvider,
-  PersistentAgentRuntimeState,
+import {
+  type AgentCapabilityProvider,
+  BUILTIN_AGENT_CATALOG,
+  BUILTIN_AGENT_IDS,
+  type ClaudePolicyConfig,
+  type ClaudePolicyMaterializationMode,
+  type ClaudeProvider,
+  type PersistentAgentRuntimeState,
 } from '@shared/types';
 import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
@@ -31,11 +33,7 @@ import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSessionOutputState, useSessionTaskCompletionNotice } from '@/hooks/useOutputState';
 import { useI18n } from '@/i18n';
-import {
-  clearClaudeProviderSwitch,
-  isClaudeProviderMatch,
-  markClaudeProviderSwitch,
-} from '@/lib/claudeProvider';
+import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
@@ -50,7 +48,7 @@ import {
 } from './controlButtonStyles';
 import type { SessionActivityState } from './sessionActivityState';
 import { getSessionDisplayName, getSessionHoverTitle } from './sessionBarLabels';
-import { supportsClaudeProviderSwitcher } from './sessionBarProviderPolicy';
+import { supportsAgentProviderProfileSwitcher } from './sessionBarProviderPolicy';
 
 const STORAGE_KEY = 'enso-session-bar';
 const EDGE_THRESHOLD = 20; // pixels from edge
@@ -174,15 +172,15 @@ function clampFloatingBarState(
 }
 
 // Agent display names and commands
-const AGENT_INFO: Record<string, { name: string; command: string }> = {
-  claude: { name: 'Claude', command: 'claude' },
-  codex: { name: 'Codex', command: 'codex' },
-  droid: { name: 'Droid', command: 'droid' },
-  gemini: { name: 'Gemini', command: 'gemini' },
-  auggie: { name: 'Auggie', command: 'auggie' },
-  cursor: { name: 'Cursor', command: 'cursor-agent' },
-  opencode: { name: 'OpenCode', command: 'opencode' },
-};
+const AGENT_INFO: Record<string, { name: string; command: string }> = Object.fromEntries(
+  BUILTIN_AGENT_IDS.map((id) => [
+    id,
+    {
+      name: BUILTIN_AGENT_CATALOG[id].name,
+      command: BUILTIN_AGENT_CATALOG[id].command,
+    },
+  ])
+) as Record<string, { name: string; command: string }>;
 const SESSION_BAR_PROVIDER_MENU_ITEM_CLASS_NAME = `${CHAT_MENU_ITEM_BASE_CLASS_NAME} mt-1 rounded-xl px-3 py-2 text-sm text-foreground`;
 const SESSION_BAR_MENU_UTILITY_BUTTON_CLASS_NAME = `${CHAT_MENU_UTILITY_ICON_BUTTON_CLASS_NAME} rounded-md`;
 
@@ -223,7 +221,7 @@ interface ProviderMenuItemProps {
   providers: ClaudeProvider[];
   onApplyProvider: (provider: ClaudeProvider) => void;
   onCloseMenu: () => void;
-  setClaudeProviderEnabled: (id: string, enabled: boolean) => void;
+  setAgentProviderEnabled: (id: string, enabled: boolean) => void;
   enableProviderDisableFeature: boolean;
   t: (key: string) => string;
 }
@@ -237,7 +235,7 @@ const ProviderMenuItem = React.memo(function ProviderMenuItem({
   providers,
   onApplyProvider,
   onCloseMenu,
-  setClaudeProviderEnabled,
+  setAgentProviderEnabled,
   enableProviderDisableFeature,
   t,
 }: ProviderMenuItemProps) {
@@ -254,7 +252,7 @@ const ProviderMenuItem = React.memo(function ProviderMenuItem({
     (e: React.MouseEvent) => {
       e.stopPropagation();
       const isCurrentlyEnabled = provider.enabled !== false;
-      setClaudeProviderEnabled(provider.id, !isCurrentlyEnabled);
+      setAgentProviderEnabled(provider.id, !isCurrentlyEnabled);
 
       // Automatically switch away from the active provider when it becomes disabled.
       if (isCurrentlyEnabled && activeProviderId === provider.id) {
@@ -266,7 +264,7 @@ const ProviderMenuItem = React.memo(function ProviderMenuItem({
         }
       }
     },
-    [provider, activeProviderId, providers, setClaudeProviderEnabled, onApplyProvider]
+    [provider, activeProviderId, providers, setAgentProviderEnabled, onApplyProvider]
   );
 
   return (
@@ -553,50 +551,56 @@ export function SessionBar({
 
   // Provider query and switching logic.
   const queryClient = useQueryClient();
-  const providers = useSettingsStore((s) => s.claudeCodeIntegration.providers);
+  const providers = useSettingsStore((s) => s.agentIntegration.providers);
   const showProviderSwitcher = useSettingsStore(
-    (s) => s.claudeCodeIntegration.showProviderSwitcher ?? true
+    (s) => s.agentIntegration.showProviderSwitcher ?? true
   );
-  const setClaudeProviderEnabled = useSettingsStore((s) => s.setClaudeProviderEnabled);
+  const setAgentProviderEnabled = useSettingsStore((s) => s.setAgentProviderEnabled);
   const enableProviderDisableFeature = useSettingsStore(
-    (s) => s.claudeCodeIntegration.enableProviderDisableFeature ?? true
+    (s) => s.agentIntegration.enableProviderDisableFeature ?? true
   );
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions]
   );
-  const showClaudeProviderSwitcher = useMemo(
-    () => showProviderSwitcher && supportsClaudeProviderSwitcher(activeSession),
+  const showAgentProviderProfileSwitcher = useMemo(
+    () => showProviderSwitcher && supportsAgentProviderProfileSwitcher(activeSession),
     [activeSession, showProviderSwitcher]
   );
   const showPolicyStaleNotice = Boolean(
     activeSession?.agentCapabilityStale || activeSession?.claudePolicyStale
   );
 
-  const { data: claudeData } = useQuery({
-    queryKey: ['claude-settings', repoPath ?? null],
-    queryFn: () => window.electronAPI.claudeProvider.readSettings(repoPath),
-    enabled: !state.collapsed && showClaudeProviderSwitcher,
+  const providerSettingsQueryKey = useMemo(
+    () => agentProviderProfileAdapter.queryKey(repoPath),
+    [repoPath]
+  );
+
+  const { data: providerData } = useQuery({
+    queryKey: providerSettingsQueryKey,
+    queryFn: () => agentProviderProfileAdapter.readCurrent(repoPath),
+    enabled: !state.collapsed && showAgentProviderProfileSwitcher,
     staleTime: 30000,
   });
 
   // Resolve the currently active provider from the extracted config.
   const activeProvider = useMemo(() => {
-    if (!showClaudeProviderSwitcher) {
+    if (!showAgentProviderProfileSwitcher) {
       return null;
     }
-    const currentConfig = claudeData?.extracted;
+    const currentConfig = providerData?.extracted;
     if (!currentConfig) return null;
-    return providers.find((p) => isClaudeProviderMatch(p, currentConfig)) ?? null;
-  }, [providers, claudeData?.extracted, showClaudeProviderSwitcher]);
+    return (
+      providers.find((p) => agentProviderProfileAdapter.isActiveProfile(p, currentConfig)) ?? null
+    );
+  }, [providers, providerData?.extracted, showAgentProviderProfileSwitcher]);
 
   // Provider switching mutation.
   const applyProvider = useMutation({
-    mutationFn: (provider: ClaudeProvider) =>
-      window.electronAPI.claudeProvider.apply(repoPath, provider),
+    mutationFn: (provider: ClaudeProvider) => agentProviderProfileAdapter.apply(repoPath, provider),
     onSuccess: (success, provider) => {
       if (!success) {
-        clearClaudeProviderSwitch();
+        agentProviderProfileAdapter.clearSwitch();
         const errorCopy = buildSettingsWorkflowToastCopy(
           { action: 'provider-switch', phase: 'error' },
           t
@@ -608,7 +612,7 @@ export function SessionBar({
         });
         return;
       }
-      queryClient.invalidateQueries({ queryKey: ['claude-settings', repoPath ?? null] });
+      queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
       const successCopy = buildSettingsWorkflowToastCopy(
         {
           action: 'provider-switch',
@@ -624,7 +628,7 @@ export function SessionBar({
       });
     },
     onError: (error) => {
-      clearClaudeProviderSwitch();
+      agentProviderProfileAdapter.clearSwitch();
       const errorCopy = buildSettingsWorkflowToastCopy(
         {
           action: 'provider-switch',
@@ -644,7 +648,7 @@ export function SessionBar({
   // Stable provider mutation wrapper.
   const handleApplyProvider = useCallback(
     (provider: ClaudeProvider) => {
-      markClaudeProviderSwitch(provider);
+      agentProviderProfileAdapter.markSwitch(provider);
       applyProvider.mutate(provider);
     },
     [applyProvider]
@@ -1033,10 +1037,10 @@ export function SessionBar({
   );
 
   useEffect(() => {
-    if (!showClaudeProviderSwitcher && showProviderMenu) {
+    if (!showAgentProviderProfileSwitcher && showProviderMenu) {
       setShowProviderMenu(false);
     }
-  }, [showClaudeProviderSwitcher, showProviderMenu]);
+  }, [showAgentProviderProfileSwitcher, showProviderMenu]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -1306,7 +1310,7 @@ export function SessionBar({
                   )}
                 </div>
 
-                {!state.collapsed && showClaudeProviderSwitcher && (
+                {!state.collapsed && showAgentProviderProfileSwitcher && (
                   <>
                     <div className="control-divider mx-1 h-4 w-px" />
 
@@ -1389,7 +1393,7 @@ export function SessionBar({
                                   providers={providers}
                                   onApplyProvider={handleApplyProvider}
                                   onCloseMenu={handleCloseProviderMenu}
-                                  setClaudeProviderEnabled={setClaudeProviderEnabled}
+                                  setAgentProviderEnabled={setAgentProviderEnabled}
                                   enableProviderDisableFeature={enableProviderDisableFeature}
                                   t={t}
                                 />

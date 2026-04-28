@@ -19,12 +19,12 @@ function getClaudeSettingsPath(): string {
 let settingsWatcher: fs.FSWatcher | null = null;
 let debounceTimer: NodeJS.Timeout | null = null;
 let maxWaitTimer: NodeJS.Timeout | null = null;
-let lastProviderSnapshot: string | null = null; // 上次 Provider 配置快照
-let lastMtimeMs: number | null = null; // 文件最后修改时间
-let lastFileSize: number | null = null; // 文件大小
+let lastProviderSnapshot: string | null = null; // Previous provider config snapshot.
+let lastMtimeMs: number | null = null; // Last file modification time.
+let lastFileSize: number | null = null; // Last file size.
 
 /**
- * 比较 Provider 配置是否变化
+ * Compare whether the provider config has changed.
  */
 function hasProviderChanged(extracted: Partial<ClaudeProvider> | null): boolean {
   const currentSnapshot = JSON.stringify(extracted);
@@ -35,11 +35,22 @@ function hasProviderChanged(extracted: Partial<ClaudeProvider> | null): boolean 
   return true;
 }
 
+function notifyProviderSettingsChanged(
+  window: BrowserWindow,
+  payload: {
+    settings: ClaudeSettings | null;
+    extracted: Partial<ClaudeProvider> | null;
+  }
+): void {
+  window.webContents.send(IPC_CHANNELS.AGENT_PROVIDER_SETTINGS_CHANGED, payload);
+  window.webContents.send(IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED, payload);
+}
+
 /**
- * 监听 ~/.claude/settings.json 的变化
+ * Watch ~/.claude/settings.json for changes.
  */
 export function watchClaudeSettings(window: BrowserWindow): void {
-  // 防止重复监听
+  // Avoid duplicate watchers.
   if (settingsWatcher) {
     settingsWatcher.close();
   }
@@ -47,7 +58,7 @@ export function watchClaudeSettings(window: BrowserWindow): void {
   const settingsPath = getClaudeSettingsPath();
   const configDir = getClaudeConfigDir();
 
-  // 确保目录存在，否则无法监听
+  // Ensure the directory exists before watching it.
   if (!fs.existsSync(configDir)) {
     try {
       fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
@@ -57,18 +68,18 @@ export function watchClaudeSettings(window: BrowserWindow): void {
     }
   }
 
-  // 初始化快照
+  // Initialize the snapshot.
   lastProviderSnapshot = JSON.stringify(extractProviderFromSettings());
 
-  // 监听目录而不是文件，因为很多编辑器保存时会先删除文件再新建
+  // Watch the directory because many editors replace the settings file on save.
   try {
     settingsWatcher = fs.watch(configDir, (eventType, filename) => {
-      // filename 在某些平台上可能为 null，需要做健壮性检查
+      // filename can be null on some platforms.
       if (filename && filename === 'settings.json') {
         console.log(`[ClaudeProviderManager] Detected ${filename} change (${eventType})`);
 
         const processChange = () => {
-          // 清理计时器
+          // Clear pending timers.
           if (debounceTimer) {
             clearTimeout(debounceTimer);
             debounceTimer = null;
@@ -78,20 +89,19 @@ export function watchClaudeSettings(window: BrowserWindow): void {
             maxWaitTimer = null;
           }
 
-          // 检查窗口是否已销毁
+          // Skip notifications after the window is destroyed.
           if (window.isDestroyed()) {
             console.log('[ClaudeProviderManager] Window destroyed, skipping notification');
             return;
           }
 
-          // 检查文件元数据，避免无意义读取
+          // Avoid unnecessary reads when file metadata did not change.
           try {
             if (fs.existsSync(settingsPath)) {
               const stats = fs.statSync(settingsPath);
               const currentMtime = stats.mtimeMs;
               const currentSize = stats.size;
 
-              // 如果文件未实际变化（相同修改时间和大小），跳过
               if (
                 lastMtimeMs !== null &&
                 lastFileSize !== null &&
@@ -109,15 +119,14 @@ export function watchClaudeSettings(window: BrowserWindow): void {
             console.warn('[ClaudeProviderManager] Failed to check file stats:', err);
           }
 
-          // 读取新配置
+          // Read the updated settings.
           try {
             const settings = readClaudeSettings();
             const extracted = extractProviderFromSettings();
 
-            // 仅在 Provider 配置实际变化时推送通知
             if (hasProviderChanged(extracted)) {
               console.log('[ClaudeProviderManager] Provider config changed, notifying frontend');
-              window.webContents.send(IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED, {
+              notifyProviderSettingsChanged(window, {
                 settings,
                 extracted,
               });
@@ -131,25 +140,25 @@ export function watchClaudeSettings(window: BrowserWindow): void {
           }
         };
 
-        // 防抖处理：合并短时间内的多次事件
+        // Debounce bursts of filesystem events.
         if (debounceTimer) {
           clearTimeout(debounceTimer);
         }
 
-        // 如果没有 maxWait 计时器在运行，启动一个
+        // Start a max-wait timer when no one is running.
         if (!maxWaitTimer) {
           maxWaitTimer = setTimeout(() => {
             processChange();
-          }, 2000); // 最多等待 2 秒
+          }, 2000); // Wait up to 2 seconds.
         }
 
         debounceTimer = setTimeout(() => {
           processChange();
-        }, 400); // 400ms 防抖延迟
+        }, 400); // 400ms debounce delay.
       }
     });
 
-    // 监听 watcher 错误事件
+    // Listen for watcher errors.
     settingsWatcher.on('error', (err) => {
       console.error('[ClaudeProviderManager] Watcher error:', err);
     });
@@ -161,7 +170,7 @@ export function watchClaudeSettings(window: BrowserWindow): void {
 }
 
 /**
- * 停止监听
+ * Stop watching settings changes.
  */
 export function unwatchClaudeSettings(): void {
   if (debounceTimer) {
@@ -182,7 +191,7 @@ export function unwatchClaudeSettings(): void {
 }
 
 /**
- * 读取 ~/.claude/settings.json
+ * Read ~/.claude/settings.json.
  */
 export function readClaudeSettings(): ClaudeSettings | null {
   try {
@@ -199,9 +208,10 @@ export function readClaudeSettings(): ClaudeSettings | null {
 }
 
 /**
- * 从当前 settings.json 提取 Provider 相关字段
- * 用于配置匹配和"保存为新配置"功能
- * 注意：不提取 model 和 smallFastModel 字段，因为这些字段会被用户临时切换模型而改变
+ * Extract provider-related fields from the current settings.json.
+ * Used for profile matching and saving the current config as a profile.
+ * Model shortcut fields are intentionally skipped because users can change
+ * them temporarily during normal CLI usage.
  */
 export function extractProviderFromSettings(): Partial<ClaudeProvider> | null {
   const settings = readClaudeSettings();
@@ -225,15 +235,15 @@ export function extractProviderFromClaudeSettings(
 }
 
 /**
- * 应用 Provider 配置到 ~/.claude/settings.json
- * 只更新 Provider 相关字段，保留其他配置
+ * Apply provider config to ~/.claude/settings.json.
+ * Only provider-related fields are updated; other settings are preserved.
  */
 export function applyProvider(provider: ClaudeProvider): boolean {
   try {
     const settingsPath = getClaudeSettingsPath();
     let settings: ClaudeSettings = {};
 
-    // 读取现有配置
+    // Read existing settings.
     if (fs.existsSync(settingsPath)) {
       const content = fs.readFileSync(settingsPath, 'utf-8');
       settings = JSON.parse(content);
@@ -241,13 +251,13 @@ export function applyProvider(provider: ClaudeProvider): boolean {
 
     settings = applyProviderToClaudeSettings(settings, provider);
 
-    // 确保目录存在
+    // Ensure the config directory exists.
     const configDir = getClaudeConfigDir();
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
     }
 
-    // 写入配置
+    // Write updated settings.
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), {
       mode: 0o600,
     });

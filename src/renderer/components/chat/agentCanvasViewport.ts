@@ -97,6 +97,10 @@ export function resolveAgentCanvasScrollBehavior(prefersReducedMotion: boolean):
   return prefersReducedMotion ? 'auto' : 'smooth';
 }
 
+export function resolveAgentCanvasWorktreeGroupScrollBehavior(): ScrollBehavior {
+  return 'auto';
+}
+
 export function resolveAgentCanvasViewportMetrics(value: number): {
   framePercent: number;
   planePercent: number;
@@ -455,6 +459,43 @@ export function resolveAgentCanvasFocusScrollPosition(dimensions: {
   return {
     left: Math.min(Math.max(unclampedLeft, 0), maxLeft),
     top: Math.min(Math.max(unclampedTop, 0), maxTop),
+  };
+}
+
+export function resolveAgentCanvasElementFocusTarget(dimensions: {
+  elementRect: {
+    height: number;
+    left: number;
+    top: number;
+    width: number;
+  };
+  scrollLeft: number;
+  scrollTop: number;
+  viewportRect: {
+    left: number;
+    top: number;
+  };
+}): AgentCanvasFocusTarget | null {
+  if (
+    dimensions.elementRect.height <= 0 ||
+    dimensions.elementRect.width <= 0 ||
+    !Number.isFinite(dimensions.elementRect.height) ||
+    !Number.isFinite(dimensions.elementRect.left) ||
+    !Number.isFinite(dimensions.elementRect.top) ||
+    !Number.isFinite(dimensions.elementRect.width) ||
+    !Number.isFinite(dimensions.scrollLeft) ||
+    !Number.isFinite(dimensions.scrollTop) ||
+    !Number.isFinite(dimensions.viewportRect.left) ||
+    !Number.isFinite(dimensions.viewportRect.top)
+  ) {
+    return null;
+  }
+
+  return {
+    height: dimensions.elementRect.height,
+    left: dimensions.elementRect.left - dimensions.viewportRect.left + dimensions.scrollLeft,
+    top: dimensions.elementRect.top - dimensions.viewportRect.top + dimensions.scrollTop,
+    width: dimensions.elementRect.width,
   };
 }
 

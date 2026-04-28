@@ -35,8 +35,9 @@ describe('main content topbar policy', () => {
     expect(openInMenuSource).not.toContain('text-[12px]');
   });
 
-  it('keeps the app runtime status entry available from the shared main topbar', () => {
+  it('keeps runtime and token usage entries available from the shared main topbar', () => {
     expect(mainContentSource).toContain('AppResourceStatusPopover');
+    expect(mainContentSource).toContain('TokenUsagePopover');
   });
 
   it('keeps collapsed sidebar expansion actions out of the topbar', () => {

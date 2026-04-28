@@ -19,14 +19,14 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
-import { ProviderList } from './claude-provider';
+import { ProviderList } from './agent-provider';
 import { KeybindingInput } from './KeybindingsSettings';
 import { McpSection } from './mcp';
 import { PluginsSection } from './plugins';
 import { PromptsSection } from './prompts';
 
 interface IntegrationSettingsProps {
-  /** Scroll to Claude Provider section on mount */
+  /** Scroll to the provider section on mount */
   scrollToProvider?: boolean;
   repoPath?: string;
 }
@@ -34,7 +34,7 @@ interface IntegrationSettingsProps {
 export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationSettingsProps) {
   const { t } = useI18n();
   const providerRef = React.useRef<HTMLDivElement>(null);
-  const { claudeCodeIntegration, setClaudeCodeIntegration } = useSettingsStore();
+  const { agentIntegration, setAgentIntegration } = useSettingsStore();
   const [bridgePort, setBridgePort] = React.useState<number | null>(null);
   const [showDependencyDialog, setShowDependencyDialog] = React.useState(false);
   const [tmuxError, setTmuxError] = React.useState<string | null>(null);
@@ -51,14 +51,14 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
 
   // Fetch bridge status on mount and when enabled changes
   React.useEffect(() => {
-    if (claudeCodeIntegration.enabled) {
+    if (agentIntegration.enabled) {
       window.electronAPI.mcp.getStatus().then((status) => {
         setBridgePort(status.port);
       });
     } else {
       setBridgePort(null);
     }
-  }, [claudeCodeIntegration.enabled]);
+  }, [agentIntegration.enabled]);
 
   // Scroll to provider section when requested
   React.useEffect(() => {
@@ -75,43 +75,41 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
 
   const handleEnabledChange = (checked: boolean) => {
     // Just update the settings - App.tsx useEffect will handle the bridge
-    setClaudeCodeIntegration({ enabled: checked });
+    setAgentIntegration({ enabled: checked });
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-medium">{t('Claude Code Integration')}</h3>
+        <h3 className="text-lg font-medium">{t('Agent Integrations')}</h3>
         <p className="text-sm text-muted-foreground">
-          {t('Connect to Claude Code CLI for enhanced IDE features')}
+          {t('Configure provider routing and CLI-specific integration features')}
         </p>
       </div>
 
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
-          <span className="text-sm font-medium">{t('Enable Integration')}</span>
+          <span className="text-sm font-medium">{t('Claude Code IDE Bridge')}</span>
           <p className="text-xs text-muted-foreground">
-            {t('Start WebSocket server for Claude Code connection')}
+            {t('Start the WebSocket bridge for Claude Code editor context and hooks')}
             {bridgePort && ` (Port: ${bridgePort})`}
           </p>
         </div>
-        <Switch checked={claudeCodeIntegration.enabled} onCheckedChange={handleEnabledChange} />
+        <Switch checked={agentIntegration.enabled} onCheckedChange={handleEnabledChange} />
       </div>
 
-      {claudeCodeIntegration.enabled && (
+      {agentIntegration.enabled && (
         <div className="mt-4 space-y-4 border-t pt-4">
           {/* Selection Changed Debounce */}
           <div className="settings-field-row">
             <span className="text-sm font-medium">{t('Debounce Time')}</span>
             <div className="space-y-1.5">
               <Select
-                value={String(claudeCodeIntegration.selectionChangedDebounce)}
-                onValueChange={(v) =>
-                  setClaudeCodeIntegration({ selectionChangedDebounce: Number(v) })
-                }
+                value={String(agentIntegration.selectionChangedDebounce)}
+                onValueChange={(v) => setAgentIntegration({ selectionChangedDebounce: Number(v) })}
               >
                 <SelectTrigger className="w-32">
-                  <SelectValue>{claudeCodeIntegration.selectionChangedDebounce}ms</SelectValue>
+                  <SelectValue>{agentIntegration.selectionChangedDebounce}ms</SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
                   {debounceOptions.map((opt) => (
@@ -132,8 +130,8 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
             <span className="text-sm font-medium mt-2">{t('Mention Shortcut')}</span>
             <div className="space-y-1.5">
               <KeybindingInput
-                value={claudeCodeIntegration.atMentionedKeybinding}
-                onChange={(binding) => setClaudeCodeIntegration({ atMentionedKeybinding: binding })}
+                value={agentIntegration.atMentionedKeybinding}
+                onChange={(binding) => setAgentIntegration({ atMentionedKeybinding: binding })}
               />
               <p className="text-xs text-muted-foreground">
                 {t('Send selected code range to Claude Code')}
@@ -150,16 +148,13 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
               </p>
             </div>
             <Switch
-              checked={claudeCodeIntegration.stopHookEnabled}
+              checked={agentIntegration.stopHookEnabled}
               onCheckedChange={(checked) => {
-                if (
-                  !checked &&
-                  claudeCodeIntegration.enhancedInputAutoPopup === 'hideWhileRunning'
-                ) {
+                if (!checked && agentIntegration.enhancedInputAutoPopup === 'hideWhileRunning') {
                   // Show dependency dialog when disabling and hideWhileRunning is selected
                   setShowDependencyDialog(true);
                 } else {
-                  setClaudeCodeIntegration({ stopHookEnabled: checked });
+                  setAgentIntegration({ stopHookEnabled: checked });
                 }
               }}
             />
@@ -182,7 +177,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                     <Button
                       {...props}
                       onClick={() => {
-                        setClaudeCodeIntegration({
+                        setAgentIntegration({
                           stopHookEnabled: false,
                           enhancedInputAutoPopup: 'always',
                         });
@@ -206,9 +201,9 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
               </p>
             </div>
             <Switch
-              checked={claudeCodeIntegration.permissionRequestHookEnabled}
+              checked={agentIntegration.permissionRequestHookEnabled}
               onCheckedChange={(checked) =>
-                setClaudeCodeIntegration({ permissionRequestHookEnabled: checked })
+                setAgentIntegration({ permissionRequestHookEnabled: checked })
               }
             />
           </div>
@@ -222,10 +217,8 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
               </p>
             </div>
             <Switch
-              checked={claudeCodeIntegration.statusLineEnabled}
-              onCheckedChange={(checked) =>
-                setClaudeCodeIntegration({ statusLineEnabled: checked })
-              }
+              checked={agentIntegration.statusLineEnabled}
+              onCheckedChange={(checked) => setAgentIntegration({ statusLineEnabled: checked })}
             />
           </div>
 
@@ -233,9 +226,9 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
             <span className="text-sm font-medium">{t('Automatic Session Rollover')}</span>
             <div className="space-y-1.5">
               <Select
-                value={claudeCodeIntegration.autoSessionRollover}
+                value={agentIntegration.autoSessionRollover}
                 onValueChange={(value) =>
-                  setClaudeCodeIntegration({
+                  setAgentIntegration({
                     autoSessionRollover: value as 'manual' | 'critical',
                   })
                 }
@@ -257,7 +250,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
           </div>
 
           {/* Status Line Fields */}
-          {claudeCodeIntegration.statusLineEnabled && (
+          {agentIntegration.statusLineEnabled && (
             <div className="ml-4 space-y-2 border-l-2 border-muted pl-4">
               <span className="text-xs font-medium text-muted-foreground">
                 {t('Display Fields')}
@@ -266,11 +259,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.model ?? true}
+                    checked={agentIntegration.statusLineFields?.model ?? true}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           model: e.target.checked,
                         },
                       })
@@ -282,11 +275,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.context ?? true}
+                    checked={agentIntegration.statusLineFields?.context ?? true}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           context: e.target.checked,
                         },
                       })
@@ -298,11 +291,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.cost ?? true}
+                    checked={agentIntegration.statusLineFields?.cost ?? true}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           cost: e.target.checked,
                         },
                       })
@@ -314,11 +307,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.duration ?? false}
+                    checked={agentIntegration.statusLineFields?.duration ?? false}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           duration: e.target.checked,
                         },
                       })
@@ -330,11 +323,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.lines ?? false}
+                    checked={agentIntegration.statusLineFields?.lines ?? false}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           lines: e.target.checked,
                         },
                       })
@@ -346,11 +339,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.tokens ?? false}
+                    checked={agentIntegration.statusLineFields?.tokens ?? false}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           tokens: e.target.checked,
                         },
                       })
@@ -362,11 +355,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.cache ?? false}
+                    checked={agentIntegration.statusLineFields?.cache ?? false}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           cache: e.target.checked,
                         },
                       })
@@ -378,11 +371,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.apiTime ?? false}
+                    checked={agentIntegration.statusLineFields?.apiTime ?? false}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           apiTime: e.target.checked,
                         },
                       })
@@ -394,11 +387,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.currentDir ?? false}
+                    checked={agentIntegration.statusLineFields?.currentDir ?? false}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           currentDir: e.target.checked,
                         },
                       })
@@ -410,11 +403,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.projectDir ?? false}
+                    checked={agentIntegration.statusLineFields?.projectDir ?? false}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           projectDir: e.target.checked,
                         },
                       })
@@ -426,11 +419,11 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={claudeCodeIntegration.statusLineFields?.version ?? false}
+                    checked={agentIntegration.statusLineFields?.version ?? false}
                     onChange={(e) =>
-                      setClaudeCodeIntegration({
+                      setAgentIntegration({
                         statusLineFields: {
-                          ...claudeCodeIntegration.statusLineFields,
+                          ...agentIntegration.statusLineFields,
                           version: e.target.checked,
                         },
                       })
@@ -454,7 +447,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                   </p>
                 </div>
                 <Switch
-                  checked={claudeCodeIntegration.tmuxEnabled}
+                  checked={agentIntegration.tmuxEnabled}
                   onCheckedChange={async (checked) => {
                     if (checked) {
                       setTmuxError(null);
@@ -465,7 +458,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                       }
                     }
                     setTmuxError(null);
-                    setClaudeCodeIntegration({ tmuxEnabled: checked });
+                    setAgentIntegration({ tmuxEnabled: checked });
                   }}
                 />
               </div>
@@ -485,10 +478,8 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
             </p>
           </div>
           <Switch
-            checked={claudeCodeIntegration.showProviderSwitcher ?? true}
-            onCheckedChange={(checked) =>
-              setClaudeCodeIntegration({ showProviderSwitcher: checked })
-            }
+            checked={agentIntegration.showProviderSwitcher ?? true}
+            onCheckedChange={(checked) => setAgentIntegration({ showProviderSwitcher: checked })}
           />
         </div>
 
@@ -497,14 +488,12 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
           <div className="space-y-0.5">
             <span className="text-sm font-medium">{t('Provider Watcher')}</span>
             <p className="text-xs text-muted-foreground">
-              {t('Watch Claude Code settings.json for external changes')}
+              {t('Watch supported provider settings files for external changes')}
             </p>
           </div>
           <Switch
-            checked={claudeCodeIntegration.enableProviderWatcher ?? true}
-            onCheckedChange={(checked) =>
-              setClaudeCodeIntegration({ enableProviderWatcher: checked })
-            }
+            checked={agentIntegration.enableProviderWatcher ?? true}
+            onCheckedChange={(checked) => setAgentIntegration({ enableProviderWatcher: checked })}
           />
         </div>
 
@@ -517,19 +506,19 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
             </p>
           </div>
           <Switch
-            checked={claudeCodeIntegration.enableProviderDisableFeature ?? true}
+            checked={agentIntegration.enableProviderDisableFeature ?? true}
             onCheckedChange={(checked) =>
-              setClaudeCodeIntegration({ enableProviderDisableFeature: checked })
+              setAgentIntegration({ enableProviderDisableFeature: checked })
             }
           />
         </div>
 
-        {/* Claude Provider */}
+        {/* Agent Providers */}
         <div ref={providerRef}>
           <div className="mb-3">
-            <span className="text-sm font-medium">{t('Claude Provider')}</span>
+            <span className="text-sm font-medium">{t('Agent Providers')}</span>
             <p className="text-xs text-muted-foreground">
-              {t('Manage Claude API provider configurations')}
+              {t('Manage API provider profiles for supported agent CLIs')}
             </p>
           </div>
           <ProviderList repoPath={repoPath} />

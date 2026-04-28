@@ -21,6 +21,7 @@ import {
   FileText,
   FolderOpen,
   LayoutList,
+  MonitorUp,
   Pencil,
   Plus,
   RefreshCw,
@@ -69,6 +70,7 @@ import { useI18n } from '@/i18n';
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { cn } from '@/lib/utils';
 import {
+  type AgentSessionDisplayMode,
   type FileTreeDisplayMode,
   type LayoutMode,
   type RepositoryListDisplayMode,
@@ -129,6 +131,7 @@ function SettingsOptionCard({
   return (
     <button
       type="button"
+      aria-pressed={isSelected}
       onClick={onClick}
       className={cn(
         'group relative flex min-w-0 items-start gap-3 rounded-lg border border-transparent px-3 py-3 text-left transition-colors',
@@ -311,6 +314,31 @@ export function GeneralSettings() {
       icon: TableProperties,
       label: t('Tabs'),
       description: t('Horizontal tabs for quick switching'),
+    },
+  ];
+  const agentSessionDisplayModeOptions: {
+    value: AgentSessionDisplayMode;
+    icon: React.ElementType;
+    label: string;
+    description: string;
+  }[] = [
+    {
+      value: 'tab',
+      icon: Terminal,
+      label: t('Tab Layout'),
+      description: t('Show sessions as tabs inside the active worktree'),
+    },
+    {
+      value: 'canvas',
+      icon: Columns3,
+      label: t('Worktree Canvas'),
+      description: t('Show the active worktree sessions on an infinite canvas'),
+    },
+    {
+      value: 'global-canvas',
+      icon: MonitorUp,
+      label: t('Workspace Canvas'),
+      description: t('Show active worktrees and agent sessions on one shared canvas'),
     },
   ];
 
@@ -846,21 +874,25 @@ export function GeneralSettings() {
       <div className="border-t pt-4">
         <h3 className="text-lg font-medium">{t('Agent Session Display')}</h3>
         <p className="text-sm text-muted-foreground">
-          {t('Choose how worktree agent sessions are displayed')}
+          {t('Choose how agent sessions are displayed')}
         </p>
       </div>
 
-      <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Canvas Layout')}</span>
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {t('Show worktree agent sessions on an infinite canvas instead of tabs')}
-          </p>
-          <Switch
-            checked={agentSessionDisplayMode === 'canvas'}
-            onCheckedChange={(checked) => setAgentSessionDisplayMode(checked ? 'canvas' : 'tab')}
+      <div
+        className="grid gap-3 md:grid-cols-3"
+        role="group"
+        aria-label={t('Agent Session Display')}
+      >
+        {agentSessionDisplayModeOptions.map((option) => (
+          <SettingsOptionCard
+            key={option.value}
+            icon={option.icon}
+            label={option.label}
+            description={option.description}
+            isSelected={agentSessionDisplayMode === option.value}
+            onClick={() => setAgentSessionDisplayMode(option.value)}
           />
-        </div>
+        ))}
       </div>
 
       <div className="border-t pt-4">

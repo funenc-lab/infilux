@@ -30,42 +30,42 @@ describe('panelRetentionPolicy', () => {
     ).toBe(true);
   });
 
-  it('classifies recent idle chat sessions as warm and stale ones as cold', () => {
+  it('classifies idle chat sessions from the inactive-panel timestamp', () => {
     const now = Date.UTC(2026, 3, 9, 12, 0, 0);
 
     expect(
       resolveChatPanelRetentionState({
         sessionCount: 1,
-        latestActivityAt: now - CHAT_PANEL_INACTIVITY_THRESHOLD_MS + 1000,
+        idleSinceAt: now - CHAT_PANEL_INACTIVITY_THRESHOLD_MS + 1000,
         now,
       })
     ).toBe('warm');
     expect(
       resolveChatPanelRetentionState({
         sessionCount: 1,
-        latestActivityAt: now - CHAT_PANEL_INACTIVITY_THRESHOLD_MS - 1000,
+        idleSinceAt: now - CHAT_PANEL_INACTIVITY_THRESHOLD_MS - 1000,
         now,
       })
     ).toBe('cold');
   });
 
-  it('defaults session history without a runtime timestamp to warm retention', () => {
+  it('defaults mounted chat panels without an inactive timestamp to warm retention', () => {
     expect(
       resolveChatPanelRetentionState({
         sessionCount: 1,
-        latestActivityAt: null,
+        idleSinceAt: null,
       })
     ).toBe('warm');
   });
 
-  it('respects custom inactivity thresholds from settings', () => {
+  it('respects custom inactivity thresholds from settings after the panel becomes inactive', () => {
     const now = Date.UTC(2026, 3, 9, 12, 0, 0);
-    const latestActivityAt = now - toChatPanelInactivityThresholdMs(8);
+    const idleSinceAt = now - toChatPanelInactivityThresholdMs(8);
 
     expect(
       resolveChatPanelRetentionState({
         sessionCount: 1,
-        latestActivityAt,
+        idleSinceAt,
         now,
         inactivityThresholdMs: toChatPanelInactivityThresholdMs(10),
       })
@@ -74,7 +74,7 @@ describe('panelRetentionPolicy', () => {
     expect(
       resolveChatPanelRetentionState({
         sessionCount: 1,
-        latestActivityAt,
+        idleSinceAt,
         now,
         inactivityThresholdMs: toChatPanelInactivityThresholdMs(5),
       })

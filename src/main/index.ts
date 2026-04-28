@@ -665,6 +665,8 @@ async function migrateLegacyTodoIfNeeded(): Promise<void> {
     markLegacyTodoMigrated();
   } catch (error) {
     console.warn('[migration] Failed to migrate legacy todo.db:', error);
+  } finally {
+    await todoService.close();
   }
 }
 
@@ -1542,11 +1544,10 @@ app.whenReady().then(async () => {
   webInspectorServer.setMainWindow(mainWindow);
   recordMainStartupStage('main-window-created');
 
-  // Initialize Claude Provider Watcher (only when enableProviderWatcher is true)
+  // Initialize the provider watcher when provider watching is enabled.
   const appSettings = readSettings();
   const providerWatcherEnabled =
-    (appSettings?.claudeCodeIntegration as Record<string, unknown>)?.enableProviderWatcher !==
-    false;
+    (appSettings?.agentIntegration as Record<string, unknown>)?.enableProviderWatcher !== false;
   initClaudeProviderWatcher(mainWindow, providerWatcherEnabled);
 
   // IMPORTANT: Set up did-finish-load handler BEFORE handling command line args

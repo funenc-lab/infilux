@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
 import { normalizePath, pathsEqual } from '@/App/storage';
+import type { AgentCanvasWorktreeCandidate } from '@/components/chat/agentCanvasSessionScope';
 import {
   buildSessionActivityStateBySessionId,
   getHighestSessionActivityState,
@@ -21,6 +22,10 @@ import { toChatPanelInactivityThresholdMs } from '@/stores/settings/chatPanelIna
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
+import {
+  getNextChatPanelRetentionExpiryDelayMs,
+  resolveChatPanelIdleSinceByWorktree,
+} from './chatPanelIdleRetentionPolicy';
 import { updateRetainedChatPanelPaths } from './chatPanelRetentionPolicy';
 import { DeferredDiffReviewModal } from './DeferredDiffReviewModal';
 import { updateRetainedFilePanelPaths } from './filePanelLruPolicy';
@@ -69,6 +74,7 @@ export interface MainContentProps {
   selectedSubagent?: LiveAgentSubagent | null;
   onCloseSelectedSubagent?: () => void;
   onStartupBlockingReady?: (key: StartupBlockingKey) => void;
+  workspaceCanvasWorktrees?: AgentCanvasWorktreeCandidate[];
 }
 
 function getValueForWorktreePath<T>(values: Record<string, T>, targetWorktreePath: string) {
@@ -133,11 +139,13 @@ export function MainContent({
   selectedSubagent = null,
   onCloseSelectedSubagent,
   onStartupBlockingReady,
+  workspaceCanvasWorktrees = [],
 }: MainContentProps) {
   const { t } = useI18n();
   const settingsDisplayMode = useSettingsStore((state) => state.settingsDisplayMode);
   const setSettingsDisplayMode = useSettingsStore((state) => state.setSettingsDisplayMode);
   const fileTreeDisplayMode = useSettingsStore((state) => state.fileTreeDisplayMode);
+  const agentSessionDisplayMode = useSettingsStore((state) => state.agentSessionDisplayMode);
   const chatPanelInactivityThresholdMinutes = useSettingsStore(
     (state) => state.chatPanelInactivityThresholdMinutes
   );
@@ -213,6 +221,10 @@ export function MainContent({
   const [retainedChatPanelPaths, setRetainedChatPanelPaths] = useState<string[]>([]);
   const [retainedTerminalPanelPaths, setRetainedTerminalPanelPaths] = useState<string[]>([]);
   const [retainedFilePanelPaths, setRetainedFilePanelPaths] = useState<string[]>([]);
+  const [chatPanelIdleSinceByWorktree, setChatPanelIdleSinceByWorktree] = useState<
+    Record<string, number>
+  >({});
+  const [chatPanelRetentionNow, setChatPanelRetentionNow] = useState(() => Date.now());
   const syncedDerivedActivityPathsRef = useRef<string[]>([]);
 
   useEffect(() => {
@@ -420,27 +432,30 @@ export function MainContent({
     [repoPath, retainedChatContext, sessions, worktreePath]
   );
 
-  const getChatRetentionStateForWorktree = useCallback(
+  const sessionBackedChatPanelPaths = useMemo(
+    () => sessions.map((session) => session.cwd).filter((path): path is string => Boolean(path)),
+    [sessions]
+  );
+  const trackedChatPanelPaths = useMemo(
+    () =>
+      [
+        currentWorktreePath,
+        retainedChatContext?.worktreePath ?? null,
+        ...retainedChatPanelPaths,
+        ...sessionBackedChatPanelPaths,
+      ].filter((path): path is string => Boolean(path)),
+    [currentWorktreePath, retainedChatContext, retainedChatPanelPaths, sessionBackedChatPanelPaths]
+  );
+  const activeChatWorktreePath =
+    activeTab === 'chat' && hasActiveWorktree ? currentWorktreePath : null;
+  const getChatSessionSnapshotForWorktree = useCallback(
     (targetWorktreePath: string) => {
-      const matchingSessions = initializedSessions.filter((session) =>
+      const matchingSessions = sessions.filter((session) =>
         pathsEqual(session.cwd, targetWorktreePath)
       );
       const activity = getValueForWorktreePath(worktreeActivities, targetWorktreePath);
       const sessionActivityState =
         getValueForWorktreePath(sessionActivityStateByWorktree, targetWorktreePath) ?? 'idle';
-      const latestActivityAt = matchingSessions.reduce<number | null>(
-        (latestTimestamp, session) => {
-          const nextTimestamp = sessionRuntimeStates[session.id]?.lastActivityAt;
-          if (typeof nextTimestamp !== 'number') {
-            return latestTimestamp;
-          }
-          if (latestTimestamp === null || nextTimestamp > latestTimestamp) {
-            return nextTimestamp;
-          }
-          return latestTimestamp;
-        },
-        null
-      );
       const hasAttentionSignal =
         sessionActivityState === 'waiting_input' || sessionActivityState === 'completed';
       const hasLiveActivity =
@@ -450,22 +465,34 @@ export function MainContent({
           (session) => sessionRuntimeStates[session.id]?.outputState === 'outputting'
         );
 
-      return resolveChatPanelRetentionState({
+      return {
         sessionCount: matchingSessions.length,
-        latestActivityAt,
         hasAttentionSignal,
         hasLiveActivity,
+      };
+    },
+    [sessionActivityStateByWorktree, sessionRuntimeStates, sessions, worktreeActivities]
+  );
+
+  const getChatRetentionStateForWorktree = useCallback(
+    (targetWorktreePath: string) => {
+      const sessionSnapshot = getChatSessionSnapshotForWorktree(targetWorktreePath);
+
+      return resolveChatPanelRetentionState({
+        ...sessionSnapshot,
+        idleSinceAt:
+          getValueForWorktreePath(chatPanelIdleSinceByWorktree, targetWorktreePath) ?? null,
         inactivityThresholdMs: toChatPanelInactivityThresholdMs(
           chatPanelInactivityThresholdMinutes
         ),
+        now: chatPanelRetentionNow,
       });
     },
     [
+      chatPanelIdleSinceByWorktree,
       chatPanelInactivityThresholdMinutes,
-      initializedSessions,
-      sessionActivityStateByWorktree,
-      sessionRuntimeStates,
-      worktreeActivities,
+      chatPanelRetentionNow,
+      getChatSessionSnapshotForWorktree,
     ]
   );
   const getChatSessionCountForWorktree = useCallback(
@@ -580,6 +607,40 @@ export function MainContent({
   }, [clearDerivedActivityState]);
 
   useEffect(() => {
+    setChatPanelIdleSinceByWorktree((previousIdleSinceByWorktree) =>
+      resolveChatPanelIdleSinceByWorktree({
+        previousIdleSinceByWorktree,
+        trackedWorktreePaths: trackedChatPanelPaths,
+        activeChatWorktreePath,
+        getSessionSnapshot: getChatSessionSnapshotForWorktree,
+      })
+    );
+  }, [activeChatWorktreePath, getChatSessionSnapshotForWorktree, trackedChatPanelPaths]);
+
+  useEffect(() => {
+    const now = Date.now();
+    setChatPanelRetentionNow(now);
+
+    const delayMs = getNextChatPanelRetentionExpiryDelayMs({
+      idleSinceByWorktree: chatPanelIdleSinceByWorktree,
+      inactivityThresholdMs: toChatPanelInactivityThresholdMs(chatPanelInactivityThresholdMinutes),
+      now,
+    });
+
+    if (delayMs === null) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setChatPanelRetentionNow(Date.now());
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [chatPanelIdleSinceByWorktree, chatPanelInactivityThresholdMinutes]);
+
+  useEffect(() => {
     setRetainedChatPanelPaths((previousPaths) =>
       updateRetainedChatPanelPaths({
         previousPaths,
@@ -590,6 +651,7 @@ export function MainContent({
             sessionCount: getChatSessionCountForWorktree(worktreePath),
             retainSessionBackedPanels: retainSessionBackedChatPanels,
           }),
+        sessionBackedPaths: retainSessionBackedChatPanels ? sessionBackedChatPanelPaths : [],
       })
     );
   }, [
@@ -597,6 +659,7 @@ export function MainContent({
     getChatRetentionStateForWorktree,
     getChatSessionCountForWorktree,
     retainSessionBackedChatPanels,
+    sessionBackedChatPanelPaths,
   ]);
 
   useEffect(() => {
@@ -668,6 +731,8 @@ export function MainContent({
         shouldRenderCurrentTerminalPanel={shouldRenderCurrentTerminalPanel}
         shouldRenderCurrentFilePanel={shouldRenderCurrentFilePanel}
         cachedChatPanelPaths={cachedChatPanelPaths}
+        workspaceCanvasWorktrees={workspaceCanvasWorktrees}
+        agentSessionDisplayMode={agentSessionDisplayMode}
         cachedTerminalPanelPaths={cachedTerminalPanelPaths}
         cachedFilePanelPaths={cachedFilePanelPaths}
         fileTreeDisplayMode={fileTreeDisplayMode}

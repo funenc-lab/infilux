@@ -31,12 +31,12 @@ export function ProviderDialog({
   initialValues,
 }: ProviderDialogProps) {
   const { t } = useI18n();
-  const addClaudeProvider = useSettingsStore((s) => s.addClaudeProvider);
-  const updateClaudeProvider = useSettingsStore((s) => s.updateClaudeProvider);
+  const addAgentProvider = useSettingsStore((s) => s.addAgentProvider);
+  const updateAgentProvider = useSettingsStore((s) => s.updateAgentProvider);
 
   const isEditing = !!provider;
 
-  // 表单状态
+  // Form state
   const [showToken, setShowToken] = React.useState(false);
   const [name, setName] = React.useState('');
   const [baseUrl, setBaseUrl] = React.useState('');
@@ -47,7 +47,7 @@ export function ProviderDialog({
   const [defaultOpusModel, setDefaultOpusModel] = React.useState('');
   const [defaultHaikuModel, setDefaultHaikuModel] = React.useState('');
 
-  // 初始化表单
+  // Initialize form values when the dialog opens.
   React.useEffect(() => {
     if (open) {
       setShowToken(false);
@@ -61,8 +61,8 @@ export function ProviderDialog({
         setDefaultOpusModel(provider.defaultOpusModel ?? '');
         setDefaultHaikuModel(provider.defaultHaikuModel ?? '');
       } else if (initialValues) {
-        // 从当前配置保存时，忽略 model 和 smallFastModel 字段
-        // 这些字段仅在用户手动添加配置时才设置
+        // Ignore model shortcuts when saving from the current config.
+        // These fields are only set when users manually add a profile.
         setName('');
         setBaseUrl(initialValues.baseUrl ?? '');
         setAuthToken(initialValues.authToken ?? '');
@@ -103,9 +103,9 @@ export function ProviderDialog({
     };
 
     if (isEditing) {
-      updateClaudeProvider(provider.id, providerData);
+      updateAgentProvider(provider.id, providerData);
     } else {
-      addClaudeProvider(providerData);
+      addAgentProvider(providerData);
     }
 
     onOpenChange(false);
@@ -119,12 +119,12 @@ export function ProviderDialog({
         <DialogHeader>
           <DialogTitle>{isEditing ? t('Edit Provider') : t('Add Provider')}</DialogTitle>
           <DialogDescription className="ui-type-panel-description">
-            {t('Configure Claude API provider settings')}
+            {t('Configure API provider settings for supported agent CLIs')}
           </DialogDescription>
         </DialogHeader>
 
         <DialogPanel className="space-y-4">
-          {/* 名称 */}
+          {/* Name */}
           <Field>
             <FieldLabel>{t('Name')} *</FieldLabel>
             <Input
@@ -165,7 +165,7 @@ export function ProviderDialog({
             </div>
           </Field>
 
-          {/* 可选字段 - 折叠区域 */}
+          {/* Optional fields */}
           <details className="group">
             <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
               {t('Advanced Options')}

@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Pencil, Play, Trash2 } from 'lucide-react';
+import { FileText, Folder, FolderGit2, GripVertical, Pencil, Play, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { normalizePath } from '@/App/storage';
@@ -8,25 +8,14 @@ import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useTodoStore } from '@/stores/todo';
-import type { TaskPriority, TodoTask } from './types';
+import {
+  buildTodoTaskExecutionContext,
+  buildTodoTaskPrompt,
+  getPathDisplayName,
+} from './todoTaskContext';
+import { getTaskRelativeTimeLabel, TODO_PRIORITY_META } from './todoViewModel';
+import type { TodoTask } from './types';
 import { type ResolvedAgent, useEnabledAgents } from './useEnabledAgents';
-
-const PRIORITY_DOT: Record<TaskPriority, string> = {
-  low: 'bg-info',
-  medium: 'bg-warning',
-  high: 'bg-destructive',
-};
-
-function formatRelativeTime(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 interface TaskCardProps {
   task: TodoTask;
@@ -49,11 +38,27 @@ export function TaskCard({
 }: TaskCardProps) {
   const { t } = useI18n();
   const enabledAgents = useEnabledAgents();
+  const assignedAgent = task.agentId
+    ? enabledAgents.find((agent) => agent.agentId === task.agentId)
+    : undefined;
+  const assignedAgentName = assignedAgent?.name ?? task.agentId;
+  const priorityMeta = TODO_PRIORITY_META[task.priority];
+  const updatedAtLabel = getTaskRelativeTimeLabel(task.updatedAt);
+  const executionContext = buildTodoTaskExecutionContext(task, { repoPath, worktreePath });
+  const launchWorktreePath = executionContext?.worktreePath ?? worktreePath;
+  const contextFileCount = executionContext?.files?.length ?? 0;
+  const contextDirectoryCount = executionContext?.directories?.length ?? 0;
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const portalRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  const canLaunchTask = Boolean(launchWorktreePath && enabledAgents.length > 0);
+  const launchButtonTitle = !launchWorktreePath
+    ? t('Please select a worktree first')
+    : enabledAgents.length === 0
+      ? t('No enabled agents')
+      : t('Launch Agent');
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -94,17 +99,17 @@ export function TaskCard({
 
   const handleLaunchWithAgent = useCallback(
     (agent: ResolvedAgent) => {
-      if (!worktreePath) return;
+      if (!launchWorktreePath) return;
 
       const id = crypto.randomUUID();
       // Build task context for sending to agent
-      const taskContext = task.description ? `${task.title}\n\n${task.description}` : task.title;
+      const taskContext = buildTodoTaskPrompt(task.title, task.description, executionContext);
 
       // Use setState callback to ensure all updates happen in the same batch
       useAgentSessionsStore.setState((state) => {
         // Calculate displayOrder: max order in same worktree + 1
         const worktreeSessions = state.sessions.filter(
-          (s) => s.repoPath === repoPath && s.cwd === worktreePath
+          (s) => s.repoPath === repoPath && s.cwd === launchWorktreePath
         );
         const maxOrder = worktreeSessions.reduce(
           (max, s) => Math.max(max, s.displayOrder ?? 0),
@@ -121,7 +126,7 @@ export function TaskCard({
           customArgs: agent.customArgs,
           initialized: false,
           repoPath,
-          cwd: worktreePath,
+          cwd: launchWorktreePath,
           environment: agent.environment,
           displayOrder: maxOrder + 1,
           // Store command to send after agent is ready
@@ -130,7 +135,7 @@ export function TaskCard({
 
         return {
           sessions: [...state.sessions, newSession],
-          activeIds: { ...state.activeIds, [normalizePath(worktreePath)]: id },
+          activeIds: { ...state.activeIds, [normalizePath(launchWorktreePath)]: id },
           // Initialize enhanced input state (closed)
           enhancedInputStates: {
             ...state.enhancedInputStates,
@@ -147,7 +152,7 @@ export function TaskCard({
       setShowAgentMenu(false);
       onSwitchToAgent?.();
     },
-    [worktreePath, task, repoPath, onSwitchToAgent]
+    [executionContext, launchWorktreePath, task, repoPath, onSwitchToAgent]
   );
 
   return (
@@ -155,113 +160,177 @@ export function TaskCard({
       ref={setNodeRef}
       style={style}
       className={cn(
-        'group flex items-center gap-1.5 border-b border-border/50 px-2 py-1.5 transition-colors hover:bg-accent/50',
+        'group control-panel-muted flex min-w-0 flex-col gap-2 rounded-lg px-2.5 py-2.5 transition-colors hover:border-primary/24 hover:bg-accent/18',
         isDragging && 'opacity-50',
-        isOverlay && 'control-floating rounded-md border'
+        isOverlay && 'control-floating border-primary/30 bg-popover'
       )}
     >
-      {/* Drag handle */}
-      <button
-        type="button"
-        className="flex h-4 w-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="h-3 w-3" />
-      </button>
+      <div className="flex min-w-0 items-start gap-2">
+        <button
+          type="button"
+          className="mt-0.5 flex h-5 w-5 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent/58 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+          aria-label={t('Move task')}
+          title={t('Move task')}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
 
-      {/* Priority dot */}
-      <span className={cn('h-2 w-2 shrink-0 rounded-full', PRIORITY_DOT[task.priority])} />
-
-      {/* Title + description */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="truncate text-sm text-foreground">{task.title}</span>
-          {task.description && (
-            <span className="hidden truncate text-xs text-muted-foreground/60 sm:inline">
-              — {task.description}
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex min-w-0 items-start justify-between gap-2">
+            <span className="line-clamp-2 min-w-0 text-sm font-medium leading-5 text-foreground">
+              {task.title}
             </span>
+
+            <div className="flex shrink-0 items-center gap-0.5">
+              {task.status !== 'done' && onSwitchToAgent && (
+                <div className="relative" ref={menuRef}>
+                  <button
+                    ref={triggerRef}
+                    type="button"
+                    onClick={() => {
+                      if (!canLaunchTask) return;
+                      setShowAgentMenu((v) => !v);
+                    }}
+                    disabled={!canLaunchTask}
+                    className="flex h-6 shrink-0 items-center justify-center gap-1 rounded-md border border-border/70 bg-background/70 px-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={launchButtonTitle}
+                    title={launchButtonTitle}
+                  >
+                    <Play className="h-3 w-3" />
+                    <span className="hidden sm:inline">{t('Run')}</span>
+                  </button>
+
+                  {showAgentMenu &&
+                    enabledAgents.length > 0 &&
+                    createPortal(
+                      <div
+                        ref={portalRef}
+                        className="fixed z-[9999] min-w-36"
+                        style={{
+                          top: menuPos.top,
+                          left: menuPos.left,
+                          transform: 'translate(-100%, -100%)',
+                        }}
+                      >
+                        <div className="control-menu rounded-lg p-1">
+                          <div className="px-2 py-1">
+                            <span className="control-menu-label text-muted-foreground">
+                              {t('Select Agent')}
+                            </span>
+                          </div>
+                          {enabledAgents.map((agent) => (
+                            <button
+                              type="button"
+                              key={agent.agentId}
+                              onClick={() => handleLaunchWithAgent(agent)}
+                              className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 whitespace-nowrap"
+                            >
+                              <span>{agent.name}</span>
+                              {agent.isDefault && (
+                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                  ({t('Default')})
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>,
+                      document.body
+                    )}
+                </div>
+              )}
+              <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={t('Edit Task')}
+                  title={t('Edit')}
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={t('Delete Task')}
+                  title={t('Delete')}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {task.description && (
+            <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
+              {task.description}
+            </p>
           )}
         </div>
       </div>
 
-      {/* Time */}
-      <span className="shrink-0 text-[10px] text-muted-foreground/50">
-        {formatRelativeTime(task.updatedAt)}
-      </span>
-
-      {/* Actions */}
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-        {task.status !== 'done' && onSwitchToAgent && (
-          <div className="relative" ref={menuRef}>
-            <button
-              ref={triggerRef}
-              type="button"
-              onClick={() => {
-                if (!worktreePath) return;
-                setShowAgentMenu((v) => !v);
-              }}
-              disabled={!worktreePath}
-              className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              title={worktreePath ? t('Launch Agent') : t('Please select a worktree first')}
-            >
-              <Play className="h-3 w-3" />
-            </button>
-
-            {/* Agent selection menu - rendered via portal to avoid ScrollArea clipping */}
-            {showAgentMenu &&
-              enabledAgents.length > 0 &&
-              createPortal(
-                <div
-                  ref={portalRef}
-                  className="fixed z-[9999] min-w-36"
-                  style={{
-                    top: menuPos.top,
-                    left: menuPos.left,
-                    transform: 'translate(-100%, -100%)',
-                  }}
-                >
-                  <div className="control-menu rounded-lg p-1">
-                    <div className="px-2 py-1">
-                      <span className="text-xs text-muted-foreground">{t('Select Agent')}</span>
-                    </div>
-                    {enabledAgents.map((agent) => (
-                      <button
-                        type="button"
-                        key={agent.agentId}
-                        onClick={() => handleLaunchWithAgent(agent)}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
-                      >
-                        <span>{agent.name}</span>
-                        {agent.isDefault && (
-                          <span className="shrink-0 text-[10px] text-muted-foreground">
-                            ({t('Default')})
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>,
-                document.body
-              )}
-          </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 pl-7">
+        <span
+          className={cn(
+            'inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium',
+            priorityMeta.chipClassName
+          )}
+          title={t('Priority')}
+        >
+          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', priorityMeta.dotClassName)} />
+          {t(priorityMeta.label)}
+        </span>
+        {assignedAgentName && (
+          <span
+            className="inline-flex max-w-28 items-center rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            title={t('Task Agent')}
+          >
+            <span className="truncate">{assignedAgentName}</span>
+          </span>
         )}
-        <button
-          type="button"
-          onClick={onEdit}
-          className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          title={t('Edit')}
-        >
-          <Pencil className="h-3 w-3" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-          title={t('Delete')}
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
+        {executionContext?.worktreePath && (
+          <span
+            className="inline-flex max-w-28 items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            title={`${t('Worktree')}: ${executionContext.worktreePath}`}
+          >
+            <FolderGit2 className="h-3 w-3 shrink-0" />
+            <span className="truncate">{getPathDisplayName(executionContext.worktreePath)}</span>
+          </span>
+        )}
+        {contextFileCount > 0 && (
+          <span
+            className="inline-flex max-w-28 items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            title={(executionContext?.files ?? []).map((file) => file.path).join('\n')}
+          >
+            <FileText className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {contextFileCount === 1
+                ? getPathDisplayName(executionContext?.files?.[0]?.path)
+                : t('{{count}} files', { count: contextFileCount })}
+            </span>
+          </span>
+        )}
+        {contextDirectoryCount > 0 && (
+          <span
+            className="inline-flex max-w-28 items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            title={(executionContext?.directories ?? [])
+              .map((directory) => directory.path)
+              .join('\n')}
+          >
+            <Folder className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {contextDirectoryCount === 1
+                ? getPathDisplayName(executionContext?.directories?.[0]?.path)
+                : t('{{count}} directories', { count: contextDirectoryCount })}
+            </span>
+          </span>
+        )}
+        <span className="shrink-0 text-[10px] text-muted-foreground/70">
+          {t(updatedAtLabel.key, updatedAtLabel.params)}
+        </span>
       </div>
     </div>
   );

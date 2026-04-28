@@ -14,6 +14,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const resize = vi.fn();
   const list = vi.fn();
   const getActivity = vi.fn();
+  const getSessionRuntimeInfo = vi.fn();
   const destroyAllLocal = vi.fn();
   const destroyAllLocalAndWait = vi.fn();
   const prepareAgentCapabilityLaunch = vi.fn();
@@ -47,6 +48,13 @@ const sessionTestDoubles = vi.hoisted(() => {
 
     getActivity.mockReset();
     getActivity.mockResolvedValue({ active: true });
+
+    getSessionRuntimeInfo.mockReset();
+    getSessionRuntimeInfo.mockResolvedValue({
+      pid: 1234,
+      isActive: false,
+      isAlive: true,
+    });
 
     destroyAllLocal.mockReset();
     destroyAllLocalAndWait.mockReset();
@@ -98,6 +106,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     resize,
     list,
     getActivity,
+    getSessionRuntimeInfo,
     destroyAllLocal,
     destroyAllLocalAndWait,
     prepareAgentCapabilityLaunch,
@@ -123,6 +132,7 @@ vi.mock('../../services/session/SessionManager', () => ({
     resize: sessionTestDoubles.resize,
     list: sessionTestDoubles.list,
     getActivity: sessionTestDoubles.getActivity,
+    getSessionRuntimeInfo: sessionTestDoubles.getSessionRuntimeInfo,
     destroyAllLocal: sessionTestDoubles.destroyAllLocal,
     destroyAllLocalAndWait: sessionTestDoubles.destroyAllLocalAndWait,
   },
@@ -198,6 +208,7 @@ describe('session IPC handlers', () => {
     const resizeHandler = getHandler(IPC_CHANNELS.SESSION_RESIZE);
     const listHandler = getHandler(IPC_CHANNELS.SESSION_LIST);
     const activityHandler = getHandler(IPC_CHANNELS.SESSION_GET_ACTIVITY);
+    const runtimeInfoHandler = getHandler(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO);
 
     expect(await createHandler(event, { cwd: '/repo', shell: '/bin/zsh' })).toEqual({
       session: {
@@ -213,6 +224,11 @@ describe('session IPC handlers', () => {
     await resizeHandler({}, 'session-1', { cols: 120, rows: 40 });
     expect(await listHandler(event)).toEqual([{ sessionId: 'session-1' }]);
     expect(await activityHandler({}, 'session-1')).toEqual({ active: true });
+    expect(await runtimeInfoHandler({}, 'session-1')).toEqual({
+      pid: 1234,
+      isActive: false,
+      isAlive: true,
+    });
 
     expect(sessionTestDoubles.create).toHaveBeenCalledWith(event.sender, {
       cwd: '/repo',
@@ -228,6 +244,7 @@ describe('session IPC handlers', () => {
     expect(sessionTestDoubles.resize).toHaveBeenCalledWith('session-1', 120, 40);
     expect(sessionTestDoubles.list).toHaveBeenCalledWith(event.sender);
     expect(sessionTestDoubles.getActivity).toHaveBeenCalledWith('session-1');
+    expect(sessionTestDoubles.getSessionRuntimeInfo).toHaveBeenCalledWith('session-1');
 
     destroyAllTerminals();
     await destroyAllTerminalsAndWait();

@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collectMountedAgentSessionIds } from '../agentPanelMountPolicy';
+import {
+  collectMountedAgentSessionIds,
+  resolveMountedAgentPanelSessionIds,
+} from '../agentPanelMountPolicy';
 
 describe('collectMountedAgentSessionIds', () => {
   beforeEach(() => {
@@ -48,5 +51,41 @@ describe('collectMountedAgentSessionIds', () => {
         '/users/tanzv/development/git/lads-gateway/worktrees/feat-skill-mcp'
       )
     ).toEqual(['session-a']);
+  });
+});
+
+describe('resolveMountedAgentPanelSessionIds', () => {
+  it('suppresses retained non-host panels while the workspace canvas host owns all sessions', () => {
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [{ id: 'worktree-a' }, { id: 'worktree-b' }],
+        currentWorktreeSessions: [{ id: 'worktree-b' }],
+        globalSessionIds: ['worktree-b'],
+        isWorkspaceCanvasDisplayMode: false,
+        suppressSessionMounting: true,
+      })
+    ).toEqual([]);
+  });
+
+  it('keeps every workspace canvas session mounted independently from active panel state', () => {
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [{ id: 'worktree-a' }, { id: 'worktree-b' }],
+        currentWorktreeSessions: [{ id: 'worktree-a' }],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+      })
+    ).toEqual(['worktree-a', 'worktree-b']);
+  });
+
+  it('preserves existing current-worktree mount ordering with cached hidden sessions', () => {
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [{ id: 'worktree-a' }],
+        currentWorktreeSessions: [{ id: 'worktree-a' }, { id: 'worktree-a-second' }],
+        globalSessionIds: ['worktree-a-second', 'hidden-session'],
+        isWorkspaceCanvasDisplayMode: false,
+      })
+    ).toEqual(['worktree-a', 'worktree-a-second', 'hidden-session']);
   });
 });

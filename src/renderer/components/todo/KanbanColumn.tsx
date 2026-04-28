@@ -2,10 +2,12 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Plus } from 'lucide-react';
 import { useMemo } from 'react';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { TaskCard } from './TaskCard';
+import { TODO_STATUS_META } from './todoViewModel';
 import type { TaskStatus, TodoTask } from './types';
 
 interface KanbanColumnProps {
@@ -35,32 +37,44 @@ export function KanbanColumn({
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
 
   const { setNodeRef, isOver } = useDroppable({ id: status });
+  const statusMeta = TODO_STATUS_META[status];
 
   return (
-    <div className="flex min-w-[240px] flex-1 flex-col border-r border-border/50 last:border-r-0">
-      {/* Column header */}
-      <div className="flex items-center justify-between border-b border-border/50 px-2 py-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium text-foreground">{title}</span>
-          <span className="text-[10px] text-muted-foreground/60">{tasks.length}</span>
+    <section
+      className={cn(
+        'control-panel flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl transition-colors',
+        isOver && 'border-primary/36 bg-accent/10'
+      )}
+      aria-label={title}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-xs font-semibold text-foreground">{title}</span>
+            <span className={cn(statusMeta.chipClassName, 'px-2 py-0.5 text-[10px]')}>
+              {tasks.length}
+            </span>
+          </div>
         </div>
         <button
           aria-label={t('New Task')}
           type="button"
           onClick={onAddTask}
-          className="flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground/60 hover:bg-accent/50 hover:text-foreground transition-colors"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/58 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           title={t('New Task')}
         >
-          <Plus className="h-3 w-3" />
+          <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
 
-      {/* Task list */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
           <div
             ref={setNodeRef}
-            className={cn('flex min-h-[60px] flex-col transition-colors', isOver && 'bg-accent/10')}
+            className={cn(
+              'flex min-h-full flex-col gap-2 p-2 transition-colors',
+              isOver && 'bg-accent/10'
+            )}
           >
             {tasks.map((task) => (
               <TaskCard
@@ -74,13 +88,17 @@ export function KanbanColumn({
               />
             ))}
             {tasks.length === 0 && (
-              <div className="flex items-center justify-center py-6 text-xs text-muted-foreground/50">
-                {t('No tasks')}
+              <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-6 text-center">
+                <span className="text-xs font-medium text-muted-foreground">{t('No tasks')}</span>
+                <Button size="xs" variant="ghost" className="gap-1" onClick={onAddTask}>
+                  <Plus className="h-3.5 w-3.5" />
+                  {t('New Task')}
+                </Button>
               </div>
             )}
           </div>
         </SortableContext>
       </ScrollArea>
-    </div>
+    </section>
   );
 }

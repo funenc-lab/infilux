@@ -83,6 +83,12 @@ describe('LocalSessionManager', () => {
       order: 0,
       createdAt: 1,
       updatedAt: 1,
+      context: {
+        repoPath,
+        worktreePath: '/repo/worktree',
+        files: [{ path: 'src/main/index.ts', label: 'index.ts' }],
+        directories: [{ path: 'src/main', label: 'main' }],
+      },
     };
     localSessionManagerTestDoubles.readSharedTodoTasks.mockReturnValue([baseTask]);
 
@@ -113,6 +119,12 @@ describe('LocalSessionManager', () => {
     localSessionManager.updateTodoTask(repoPath, 'task-1', {
       title: 'Updated title',
       status: 'doing',
+      context: {
+        repoPath,
+        worktreePath: '/repo/other-worktree',
+        files: [{ path: 'src/renderer/App.tsx' }],
+        directories: [{ path: 'src/renderer/components' }],
+      },
     });
     localSessionManager.deleteTodoTask(repoPath, 'task-2');
     localSessionManager.moveTodoTask(repoPath, 'task-1', 'done', 9);
@@ -139,6 +151,12 @@ describe('LocalSessionManager', () => {
       title: 'Updated title',
       status: 'doing',
       updatedAt: 123456,
+      context: {
+        repoPath,
+        worktreePath: '/repo/other-worktree',
+        files: [{ path: 'src/renderer/App.tsx' }],
+        directories: [{ path: 'src/renderer/components' }],
+      },
     });
     expect(deleteCall.todos[repoPath]).toEqual([currentState.todos[repoPath][0]]);
     expect(moveCall.todos[repoPath][0]).toEqual({
@@ -153,5 +171,97 @@ describe('LocalSessionManager', () => {
       updatedAt: 123456,
     });
     expect(reorderCall.todos[repoPath][1]).toEqual(currentState.todos[repoPath][1]);
+  });
+
+  it('migrates legacy localStorage todo boards into shared todo state', async () => {
+    const repoPath = '/repo';
+    const existingTask = {
+      id: 'task-1',
+      title: 'Existing task',
+      description: '',
+      priority: 'medium',
+      status: 'todo',
+      order: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const currentState = {
+      updatedAt: 1,
+      todos: {
+        [repoPath]: [existingTask],
+      },
+    };
+
+    localSessionManagerTestDoubles.updateSharedSessionState.mockImplementation((updater) =>
+      updater(currentState)
+    );
+
+    const { localSessionManager } = await import('../LocalSessionManager');
+    const result = localSessionManager.migrateTodoBoardsFromLocalStorage(
+      JSON.stringify({
+        [repoPath]: {
+          tasks: [
+            {
+              id: 'task-1',
+              title: 'Duplicate ignored',
+            },
+            {
+              id: 'task-2',
+              title: 'Migrated task',
+              description: 'Body',
+              priority: 'urgent',
+              status: 'doing',
+              createdAt: 10,
+              updatedAt: 11,
+              order: 4,
+              sessionId: 'session-1',
+              agentId: 'gemini',
+              context: {
+                repoPath,
+                worktreePath: '/repo/worktree',
+                files: [{ path: 'src/main/index.ts', label: 'index.ts' }],
+                directories: [{ path: 'src/main', label: 'main' }],
+              },
+            },
+            {
+              id: '',
+              title: 'Invalid task',
+            },
+          ],
+        },
+      })
+    );
+
+    const migrationCall =
+      localSessionManagerTestDoubles.updateSharedSessionState.mock.results[0]?.value;
+
+    expect(result).toEqual({ migratedTaskCount: 1 });
+    expect(migrationCall).toEqual({
+      ...currentState,
+      updatedAt: 123456,
+      todos: {
+        [repoPath]: [
+          existingTask,
+          {
+            id: 'task-2',
+            title: 'Migrated task',
+            description: 'Body',
+            priority: 'medium',
+            status: 'in-progress',
+            order: 4,
+            createdAt: 10,
+            updatedAt: 11,
+            sessionId: 'session-1',
+            agentId: 'gemini',
+            context: {
+              repoPath,
+              worktreePath: '/repo/worktree',
+              files: [{ path: 'src/main/index.ts', label: 'index.ts' }],
+              directories: [{ path: 'src/main', label: 'main' }],
+            },
+          },
+        ],
+      },
+    });
   });
 });
