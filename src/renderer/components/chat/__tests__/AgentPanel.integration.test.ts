@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import type { PersistentAgentSessionRecord, RestoreWorktreeSessionsResult } from '@shared/types';
+import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -147,7 +148,11 @@ vi.mock('@/i18n', () => ({
 }));
 
 vi.mock('../agentAvailability', () => ({
-  probeRemoteAgentAvailability: vi.fn(async () => true),
+  probeRemoteAgentAvailability: vi.fn(async (request: { agentId: string }) => ({
+    available: true,
+    environment: 'native',
+    baseId: request.agentId,
+  })),
   resolvePersistedInstalledAgents: () => new Set(testState.installedAgents),
   resolveRemoteInstalledAgents: vi.fn(async () => new Set(testState.installedAgents)),
 }));
@@ -1130,6 +1135,177 @@ describe('AgentPanel integration', () => {
         .querySelector(`[data-session-id="${launchedSession?.id}"]`)
         ?.getAttribute('data-active')
     ).toBe('true');
+
+    await mounted.unmount();
+  });
+
+  it('uses the launch target worktree when probing remote workspace canvas sessions', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const { probeRemoteAgentAvailability } = await import('../agentAvailability');
+    const probeRemoteAgentAvailabilityMock = vi.mocked(probeRemoteAgentAvailability);
+    probeRemoteAgentAvailabilityMock.mockClear();
+
+    const remoteRepoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
+    const remoteWorktreePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktrees/feature-a');
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: remoteRepoPath, worktreePath: remoteWorktreePath },
+      ],
+    });
+
+    await clickElement(
+      mounted.container.querySelector('button[aria-label="New Session in feature-a"]')
+    );
+
+    const launchedSession = useAgentSessionsStore
+      .getState()
+      .sessions.find((session) => session.cwd === remoteWorktreePath);
+
+    expect(probeRemoteAgentAvailabilityMock).toHaveBeenCalledTimes(1);
+    expect(launchedSession).toEqual(
+      expect.objectContaining({
+        repoPath: remoteRepoPath,
+        cwd: remoteWorktreePath,
+        persistenceEnabled: false,
+      })
+    );
+
+    await mounted.unmount();
+  });
+
+  it('keeps a floating workspace canvas session open for non-current worktrees', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const firstSession = createSession({
+      id: 'session-worktree-a',
+      sessionId: 'provider-worktree-a',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-a',
+      name: 'Gemini A',
+    });
+    const secondSession = createSession({
+      id: 'session-worktree-b',
+      sessionId: 'provider-worktree-b',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-b',
+      name: 'Gemini B',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [firstSession, secondSession],
+      activeIds: {
+        '/repo/worktree-a': firstSession.id,
+        '/repo/worktree-b': secondSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-worktree-a',
+              sessionIds: [firstSession.id],
+              activeSessionId: firstSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-a',
+          flexPercents: [100],
+        },
+        '/repo/worktree-b': {
+          groups: [
+            {
+              id: 'group-worktree-b',
+              sessionIds: [secondSession.id],
+              activeSessionId: secondSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-b',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+      ],
+    });
+
+    const secondTile = mounted.container.querySelector(
+      '[data-agent-session-id="session-worktree-b"]'
+    );
+    await clickElement(secondTile?.querySelector('button[aria-label="Bring to Front"]') ?? null);
+
+    expect(document.body.querySelector('.agent-canvas-floating-frame')).not.toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('counts every visible workspace canvas session in the control center', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const currentRepoSession = createSession({
+      id: 'session-current-repo',
+      sessionId: 'provider-current-repo',
+      repoPath: '/repo',
+      cwd: '/repo/worktree-a',
+      name: 'Current Repo Session',
+    });
+    const otherRepoSession = createSession({
+      id: 'session-other-repo',
+      sessionId: 'provider-other-repo',
+      repoPath: '/other',
+      cwd: '/other/worktree',
+      name: 'Other Repo Session',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [currentRepoSession, otherRepoSession],
+      activeIds: {
+        '/repo/worktree-a': currentRepoSession.id,
+        '/other/worktree': otherRepoSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-current-repo',
+              sessionIds: [currentRepoSession.id],
+              activeSessionId: currentRepoSession.id,
+            },
+          ],
+          activeGroupId: 'group-current-repo',
+          flexPercents: [100],
+        },
+        '/other/worktree': {
+          groups: [
+            {
+              id: 'group-other-repo',
+              sessionIds: [otherRepoSession.id],
+              activeSessionId: otherRepoSession.id,
+            },
+          ],
+          activeGroupId: 'group-other-repo',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/other', worktreePath: '/other/worktree' },
+      ],
+    });
+
+    const controlButton = mounted.container.querySelector('button[aria-label="Agent Sessions"]');
+
+    expect(controlButton?.textContent).toContain('2');
 
     await mounted.unmount();
   });

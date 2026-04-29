@@ -453,6 +453,22 @@ function createSessionWithOverrides(
   };
 }
 
+function resolveLaunchTargetSessionPersistence({
+  platform,
+  tmuxEnabled,
+  worktreePath,
+}: {
+  platform: string;
+  tmuxEnabled: boolean;
+  worktreePath: string;
+}): boolean {
+  return isSessionPersistenceEnabledForHost({
+    cwd: worktreePath,
+    platform,
+    tmuxEnabled,
+  });
+}
+
 /**
  * Measures the combined height of the bottom bar (EnhancedInput + StatusLine)
  * and reports it so the terminal container can leave enough space.
@@ -1013,34 +1029,6 @@ export function AgentPanel({
   const isWorkspaceCanvasDisplayMode =
     agentSessionDisplayMode === 'global-canvas' && isCurrentWorktreePanel;
   const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas' || isWorkspaceCanvasDisplayMode;
-  const agentSessionActiveIds = useAgentSessionsStore((state) => state.activeIds);
-  const todoTasks = useTodoStore((state) => selectTasks(state, repoPath));
-  const agentSessionControlInventory = useMemo(() => {
-    return buildAgentSessionInventory({
-      activeIds: agentSessionActiveIds,
-      filters: isWorkspaceCanvasDisplayMode ? { repoPath } : { repoPath, cwd },
-      runtimeStates: sessionRuntimeStates,
-      sessions: allSessions,
-      tasks: todoTasks,
-    });
-  }, [
-    agentSessionActiveIds,
-    allSessions,
-    cwd,
-    isWorkspaceCanvasDisplayMode,
-    repoPath,
-    sessionRuntimeStates,
-    todoTasks,
-  ]);
-  const agentSessionControlScopeLabel = useMemo(() => {
-    if (isWorkspaceCanvasDisplayMode) {
-      return t('Repository workspace');
-    }
-    const agentSessionControlWorktreePath = cwd;
-    const worktreeLabel =
-      getDisplayPathBasename(agentSessionControlWorktreePath) || agentSessionControlWorktreePath;
-    return t('Current worktree: {{name}}', { name: worktreeLabel });
-  }, [cwd, isWorkspaceCanvasDisplayMode, t]);
   const canvasSessionGroups = useMemo(
     () =>
       resolveAgentCanvasSessionGroups({
@@ -1060,6 +1048,35 @@ export function AgentPanel({
     () => canvasSessions.map((session) => session.id),
     [canvasSessions]
   );
+  const agentSessionActiveIds = useAgentSessionsStore((state) => state.activeIds);
+  const todoTasks = useTodoStore((state) => selectTasks(state, repoPath));
+  const agentSessionControlInventory = useMemo(() => {
+    return buildAgentSessionInventory({
+      activeIds: agentSessionActiveIds,
+      filters: isWorkspaceCanvasDisplayMode ? {} : { repoPath, cwd },
+      runtimeStates: sessionRuntimeStates,
+      sessions: isWorkspaceCanvasDisplayMode ? canvasSessions : allSessions,
+      tasks: todoTasks,
+    });
+  }, [
+    agentSessionActiveIds,
+    allSessions,
+    canvasSessions,
+    cwd,
+    isWorkspaceCanvasDisplayMode,
+    repoPath,
+    sessionRuntimeStates,
+    todoTasks,
+  ]);
+  const agentSessionControlScopeLabel = useMemo(() => {
+    if (isWorkspaceCanvasDisplayMode) {
+      return t('Repository workspace');
+    }
+    const agentSessionControlWorktreePath = cwd;
+    const worktreeLabel =
+      getDisplayPathBasename(agentSessionControlWorktreePath) || agentSessionControlWorktreePath;
+    return t('Current worktree: {{name}}', { name: worktreeLabel });
+  }, [cwd, isWorkspaceCanvasDisplayMode, t]);
   const subagentScopeSessions = useMemo(
     () => (isWorkspaceCanvasDisplayMode ? canvasSessions : currentWorktreeSessions),
     [canvasSessions, currentWorktreeSessions, isWorkspaceCanvasDisplayMode]
@@ -1781,8 +1798,8 @@ export function AgentPanel({
   ]);
 
   const ensureAgentLaunchable = useCallback(
-    async (agentId: string, targetRepoPath = repoPath) => {
-      if (!isRemoteRepo) {
+    async (agentId: string, targetRepoPath: string) => {
+      if (!isRemoteVirtualPath(targetRepoPath)) {
         return true;
       }
 
@@ -1862,15 +1879,7 @@ export function AgentPanel({
         return false;
       }
     },
-    [
-      agentSettings,
-      customAgents,
-      hapiSettings.enabled,
-      hapiSettings.happyEnabled,
-      isRemoteRepo,
-      repoPath,
-      t,
-    ]
+    [agentSettings, customAgents, hapiSettings.enabled, hapiSettings.happyEnabled, t]
   );
 
   const addSessionToGroup = useCallback(
@@ -1922,13 +1931,18 @@ export function AgentPanel({
           return;
         }
 
+        const launchPersistenceEnabled = resolveLaunchTargetSessionPersistence({
+          platform,
+          tmuxEnabled: agentIntegration.tmuxEnabled,
+          worktreePath: launchTarget.worktreePath,
+        });
         const newSession = createSessionWithOverrides(
           launchTarget.repoPath,
           launchTarget.worktreePath,
           defaultAgentId,
           customAgents,
           agentSettings,
-          sessionPersistenceEnabled,
+          launchPersistenceEnabled,
           sessionOverrides
         );
         addSession(newSession);
@@ -1956,9 +1970,10 @@ export function AgentPanel({
       defaultAgentId,
       customAgents,
       agentSettings,
-      sessionPersistenceEnabled,
+      platform,
       addSession,
       addSessionToGroup,
+      agentIntegration.tmuxEnabled,
       agentIntegration.enhancedInputEnabled,
       agentIntegration.enhancedInputAutoPopup,
       setEnhancedInputOpen,
@@ -1986,13 +2001,18 @@ export function AgentPanel({
           return;
         }
 
+        const launchPersistenceEnabled = resolveLaunchTargetSessionPersistence({
+          platform,
+          tmuxEnabled: agentIntegration.tmuxEnabled,
+          worktreePath: launchTarget.worktreePath,
+        });
         const newSession = createSessionWithOverrides(
           launchTarget.repoPath,
           launchTarget.worktreePath,
           agentId,
           customAgents,
           agentSettings,
-          sessionPersistenceEnabled,
+          launchPersistenceEnabled,
           sessionOverrides
         );
         addSession(newSession);
@@ -2019,10 +2039,11 @@ export function AgentPanel({
       cwd,
       customAgents,
       agentSettings,
-      sessionPersistenceEnabled,
+      platform,
       addSession,
       addSessionToGroup,
       ensureAgentLaunchable,
+      agentIntegration.tmuxEnabled,
       agentIntegration.enhancedInputEnabled,
       agentIntegration.enhancedInputAutoPopup,
       setEnhancedInputOpen,
@@ -3190,13 +3211,17 @@ export function AgentPanel({
   useEffect(() => {
     if (
       canvasFloatingSessionId &&
-      !currentWorktreeSessions.some((session) => session.id === canvasFloatingSessionId)
+      !(isWorkspaceCanvasDisplayMode ? canvasSessions : currentWorktreeSessions).some(
+        (session) => session.id === canvasFloatingSessionId
+      )
     ) {
       setCanvasFloatingSessionIdForCurrentWorktree(null);
     }
   }, [
     canvasFloatingSessionId,
+    canvasSessions,
     currentWorktreeSessions,
+    isWorkspaceCanvasDisplayMode,
     setCanvasFloatingSessionIdForCurrentWorktree,
   ]);
   useEffect(() => {
@@ -3359,7 +3384,7 @@ export function AgentPanel({
       }
 
       void (async () => {
-        if (!(await ensureAgentLaunchable(defaultAgentId))) {
+        if (!(await ensureAgentLaunchable(defaultAgentId, repoPath))) {
           return;
         }
 
