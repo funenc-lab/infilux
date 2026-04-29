@@ -146,6 +146,8 @@ describe('SharedSessionState', () => {
                 { id: 'todo-1', title: 'First', status: 'done', order: 1 },
                 { id: 'todo-3', title: 'Third', status: 'todo', order: 3 },
               ],
+              '/repo-b': [{ id: 'todo-b', title: 'Other', status: 'todo', order: 0 }],
+              '/repo-empty': [],
             },
           });
         }
@@ -212,6 +214,8 @@ describe('SharedSessionState', () => {
           { id: 'todo-1', title: 'First', status: 'done', order: 1 },
           { id: 'todo-3', title: 'Third', status: 'todo', order: 3 },
         ],
+        '/repo-b': [{ id: 'todo-b', title: 'Other', status: 'todo', order: 0 }],
+        '/repo-empty': [],
       },
     });
 
@@ -219,6 +223,15 @@ describe('SharedSessionState', () => {
       'todo-1',
       'todo-2',
       'todo-3',
+    ]);
+    expect(
+      sharedState.readSharedTodoProjects().map((project) => ({
+        repoPath: project.repoPath,
+        taskIds: project.tasks.map((task) => task.id),
+      }))
+    ).toEqual([
+      { repoPath: '/repo', taskIds: ['todo-1', 'todo-2', 'todo-3'] },
+      { repoPath: '/repo-b', taskIds: ['todo-b'] },
     ]);
 
     sharedState.writeSharedLocalStorageSnapshot({ sidebar: 'collapsed' });

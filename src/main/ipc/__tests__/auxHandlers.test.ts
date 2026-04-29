@@ -36,6 +36,7 @@ const auxTestDoubles = vi.hoisted(() => {
   const migrateFromLocalStorage = vi.fn();
   const closeTodo = vi.fn();
   const closeTodoSync = vi.fn();
+  const getAllTodoProjects = vi.fn();
   const getTodoTasks = vi.fn();
   const addTodoTask = vi.fn();
   const updateTodoTask = vi.fn();
@@ -94,6 +95,8 @@ const auxTestDoubles = vi.hoisted(() => {
     closeTodo.mockReset();
     closeTodo.mockResolvedValue(undefined);
     closeTodoSync.mockReset();
+    getAllTodoProjects.mockReset();
+    getAllTodoProjects.mockReturnValue([{ repoPath: '/repo', tasks: [{ id: 'task-1' }] }]);
     getTodoTasks.mockReset();
     getTodoTasks.mockReturnValue([{ id: 'task-1' }]);
     addTodoTask.mockReset();
@@ -155,6 +158,7 @@ const auxTestDoubles = vi.hoisted(() => {
     migrateFromLocalStorage,
     closeTodo,
     closeTodoSync,
+    getAllTodoProjects,
     getTodoTasks,
     addTodoTask,
     updateTodoTask,
@@ -184,6 +188,7 @@ vi.mock('../../services/LocalSessionManager', () => ({
     getSessionState: auxTestDoubles.getSessionState,
     syncLocalStorage: auxTestDoubles.syncLocalStorage,
     importLegacyLocalStorage: auxTestDoubles.importLegacyLocalStorage,
+    getAllTodoProjects: auxTestDoubles.getAllTodoProjects,
     getTodoTasks: auxTestDoubles.getTodoTasks,
     addTodoTask: auxTestDoubles.addTodoTask,
     updateTodoTask: auxTestDoubles.updateTodoTask,
@@ -422,6 +427,9 @@ describe('auxiliary IPC handlers', () => {
     });
 
     expect(await getHandler(IPC_CHANNELS.TODO_GET_TASKS)({}, '/repo')).toEqual([{ id: 'task-1' }]);
+    expect(await getHandler(IPC_CHANNELS.TODO_GET_ALL_PROJECTS)({})).toEqual([
+      { repoPath: '/repo', tasks: [{ id: 'task-1' }] },
+    ]);
     expect(
       await getHandler(IPC_CHANNELS.TODO_ADD_TASK)({}, '/repo', {
         id: 'task-1',
@@ -493,6 +501,11 @@ describe('auxiliary IPC handlers', () => {
           context: {
             repoPath: '/repo',
             worktreePath: '/repo/worktree',
+            dependencyTaskIds: ['task-1', 'task-1', ' '],
+            executionGate: {
+              approvedAt: 123,
+              requiresApproval: true,
+            },
             files: [{ path: 'src/renderer/App.tsx', label: 'App.tsx' }],
             directories: [{ path: 'src/renderer/components/todo', label: 'todo' }],
           },
@@ -522,6 +535,7 @@ describe('auxiliary IPC handlers', () => {
     await cleanupTodo();
     cleanupTodoSync();
 
+    expect(auxTestDoubles.getAllTodoProjects).toHaveBeenCalledWith();
     expect(auxTestDoubles.getTodoTasks).toHaveBeenCalledWith('/repo');
     expect(auxTestDoubles.addTodoTask).toHaveBeenCalledWith(
       '/repo',
@@ -564,6 +578,11 @@ describe('auxiliary IPC handlers', () => {
       context: {
         repoPath: '/repo',
         worktreePath: '/repo/worktree',
+        dependencyTaskIds: ['task-1'],
+        executionGate: {
+          approvedAt: 123,
+          requiresApproval: true,
+        },
         files: [{ path: 'src/renderer/App.tsx', label: 'App.tsx' }],
         directories: [{ path: 'src/renderer/components/todo', label: 'todo' }],
       },

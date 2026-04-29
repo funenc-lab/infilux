@@ -40,6 +40,7 @@ async function flushPromises() {
 async function loadTodoStore(options?: {
   storedValue?: string;
   migrateImpl?: (saved: string) => Promise<void>;
+  getAllProjectsImpl?: () => Promise<Array<{ repoPath: string; tasks: TodoTask[] }>>;
   getTasksImpl?: (repoPath: string) => Promise<TodoTask[]>;
   addTaskImpl?: (repoPath: string, task: TodoTask) => Promise<void>;
   updateTaskImpl?: (repoPath: string, taskId: string, updates: unknown) => Promise<void>;
@@ -71,6 +72,7 @@ async function loadTodoStore(options?: {
 
   const todoApi = {
     migrate: vi.fn(options?.migrateImpl ?? (async () => {})),
+    getAllProjects: vi.fn(options?.getAllProjectsImpl ?? (async () => [])),
     getTasks: vi.fn(options?.getTasksImpl ?? (async () => [])),
     addTask: vi.fn(options?.addTaskImpl ?? (async () => {})),
     updateTask: vi.fn(options?.updateTaskImpl ?? (async () => {})),
@@ -178,12 +180,52 @@ describe('todo store', () => {
     );
   });
 
+  it('loads all project tasks into the shared task cache once and keeps retry open on failure', async () => {
+    const mainTasks = [createTask({ id: 'task-main', title: 'Main task' })];
+    const otherTasks = [createTask({ id: 'task-other', title: 'Other task' })];
+    const env = await loadTodoStore({
+      getAllProjectsImpl: async () => [
+        { repoPath: '/Repo/Main/', tasks: mainTasks },
+        { repoPath: '/repo/other', tasks: otherTasks },
+      ],
+    });
+    const store = env.useTodoStore.getState();
+
+    await store.loadAllProjects();
+    await store.loadAllProjects();
+
+    expect(env.todoApi.getAllProjects).toHaveBeenCalledTimes(1);
+    expect(env.useTodoStore.getState().tasks).toMatchObject({
+      '/repo/main': mainTasks,
+      '/repo/other': otherTasks,
+    });
+    expect(env.useTodoStore.getState()._loaded.has('/repo/main')).toBe(true);
+    expect(env.useTodoStore.getState()._loaded.has('/repo/other')).toBe(true);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failingEnv = await loadTodoStore({
+      getAllProjectsImpl: async () => {
+        throw new Error('global load failed');
+      },
+    });
+
+    await failingEnv.useTodoStore.getState().loadAllProjects();
+    await failingEnv.useTodoStore.getState().loadAllProjects();
+
+    expect(failingEnv.todoApi.getAllProjects).toHaveBeenCalledTimes(2);
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[TodoStore] Failed to load all project tasks:',
+      expect.any(Error)
+    );
+  });
+
   it('persists project context when adding and updating tasks', async () => {
     const env = await loadTodoStore({ randomId: 'task-context' });
     const store = env.useTodoStore.getState();
     const initialContext = {
       repoPath: '/repo/main',
       worktreePath: '/repo/worktree',
+      dependencyTaskIds: ['task-base'],
       files: [{ path: 'src/renderer/App.tsx', label: 'App.tsx' }],
       directories: [{ path: 'src/renderer/components', label: 'components' }],
     };
@@ -205,6 +247,7 @@ describe('todo store', () => {
     const nextContext = {
       repoPath: '/repo/main',
       worktreePath: '/repo/other-worktree',
+      dependencyTaskIds: ['task-base', 'task-review'],
       files: [{ path: 'src/main/index.ts' }],
       directories: [{ path: 'src/main' }],
     };

@@ -1,6 +1,16 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { FileText, Folder, FolderGit2, GripVertical, Pencil, Play, Trash2 } from 'lucide-react';
+import {
+  FileText,
+  Folder,
+  FolderGit2,
+  GripVertical,
+  ListChecks,
+  Pencil,
+  Play,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { normalizePath } from '@/App/storage';
@@ -12,6 +22,7 @@ import {
   buildTodoTaskExecutionContext,
   buildTodoTaskPrompt,
   getPathDisplayName,
+  getTodoTaskApprovalState,
 } from './todoTaskContext';
 import { getTaskRelativeTimeLabel, TODO_PRIORITY_META } from './todoViewModel';
 import type { TodoTask } from './types';
@@ -48,6 +59,8 @@ export function TaskCard({
   const launchWorktreePath = executionContext?.worktreePath ?? worktreePath;
   const contextFileCount = executionContext?.files?.length ?? 0;
   const contextDirectoryCount = executionContext?.directories?.length ?? 0;
+  const dependencyTaskCount = executionContext?.dependencyTaskIds?.length ?? 0;
+  const approvalState = getTodoTaskApprovalState(executionContext);
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const portalRef = useRef<HTMLDivElement>(null);
@@ -298,6 +311,33 @@ export function TaskCard({
           >
             <FolderGit2 className="h-3 w-3 shrink-0" />
             <span className="truncate">{getPathDisplayName(executionContext.worktreePath)}</span>
+          </span>
+        )}
+        {dependencyTaskCount > 0 && (
+          <span
+            className="inline-flex max-w-28 items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            title={(executionContext?.dependencyTaskIds ?? []).join('\n')}
+          >
+            <ListChecks className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {t('Depends {{count}}', { count: dependencyTaskCount })}
+            </span>
+          </span>
+        )}
+        {approvalState !== 'none' && (
+          <span
+            className={cn(
+              'inline-flex max-w-28 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px]',
+              approvalState === 'approved'
+                ? 'border-success/30 text-success'
+                : 'border-warning/40 text-warning'
+            )}
+            title={approvalState === 'approved' ? t('Approved') : t('Approval Required')}
+          >
+            <ShieldCheck className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {approvalState === 'approved' ? t('Approved') : t('Approval Required')}
+            </span>
           </span>
         )}
         {contextFileCount > 0 && (

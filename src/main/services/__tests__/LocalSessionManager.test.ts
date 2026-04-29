@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const localSessionManagerTestDoubles = vi.hoisted(() => {
   const getSharedLocalStorageSnapshot = vi.fn();
   const markLegacyLocalStorageMigrated = vi.fn();
+  const readSharedTodoProjects = vi.fn();
   const readSharedTodoTasks = vi.fn();
   const updateSharedSessionState = vi.fn();
   const writeSharedLocalStorageSnapshot = vi.fn();
@@ -10,6 +11,7 @@ const localSessionManagerTestDoubles = vi.hoisted(() => {
   function reset() {
     getSharedLocalStorageSnapshot.mockReset();
     markLegacyLocalStorageMigrated.mockReset();
+    readSharedTodoProjects.mockReset();
     readSharedTodoTasks.mockReset();
     updateSharedSessionState.mockReset();
     writeSharedLocalStorageSnapshot.mockReset();
@@ -18,6 +20,7 @@ const localSessionManagerTestDoubles = vi.hoisted(() => {
   return {
     getSharedLocalStorageSnapshot,
     markLegacyLocalStorageMigrated,
+    readSharedTodoProjects,
     readSharedTodoTasks,
     updateSharedSessionState,
     writeSharedLocalStorageSnapshot,
@@ -28,6 +31,7 @@ const localSessionManagerTestDoubles = vi.hoisted(() => {
 vi.mock('../SharedSessionState', () => ({
   getSharedLocalStorageSnapshot: localSessionManagerTestDoubles.getSharedLocalStorageSnapshot,
   markLegacyLocalStorageMigrated: localSessionManagerTestDoubles.markLegacyLocalStorageMigrated,
+  readSharedTodoProjects: localSessionManagerTestDoubles.readSharedTodoProjects,
   readSharedTodoTasks: localSessionManagerTestDoubles.readSharedTodoTasks,
   updateSharedSessionState: localSessionManagerTestDoubles.updateSharedSessionState,
   writeSharedLocalStorageSnapshot: localSessionManagerTestDoubles.writeSharedLocalStorageSnapshot,
@@ -86,11 +90,21 @@ describe('LocalSessionManager', () => {
       context: {
         repoPath,
         worktreePath: '/repo/worktree',
+        dependencyTaskIds: ['task-0'],
+        executionGate: {
+          requiresApproval: true,
+        },
         files: [{ path: 'src/main/index.ts', label: 'index.ts' }],
         directories: [{ path: 'src/main', label: 'main' }],
       },
     };
     localSessionManagerTestDoubles.readSharedTodoTasks.mockReturnValue([baseTask]);
+    localSessionManagerTestDoubles.readSharedTodoProjects.mockReturnValue([
+      {
+        repoPath,
+        tasks: [baseTask],
+      },
+    ]);
 
     const currentState = {
       updatedAt: 1,
@@ -114,6 +128,12 @@ describe('LocalSessionManager', () => {
     const { localSessionManager } = await import('../LocalSessionManager');
 
     expect(localSessionManager.getTodoTasks(repoPath)).toEqual([baseTask]);
+    expect(localSessionManager.getAllTodoProjects()).toEqual([
+      {
+        repoPath,
+        tasks: [baseTask],
+      },
+    ]);
     expect(localSessionManager.addTodoTask(repoPath, baseTask)).toEqual(baseTask);
 
     localSessionManager.updateTodoTask(repoPath, 'task-1', {
@@ -122,6 +142,11 @@ describe('LocalSessionManager', () => {
       context: {
         repoPath,
         worktreePath: '/repo/other-worktree',
+        dependencyTaskIds: ['task-0', 'task-0', ' '],
+        executionGate: {
+          approvedAt: 123,
+          requiresApproval: true,
+        },
         files: [{ path: 'src/renderer/App.tsx' }],
         directories: [{ path: 'src/renderer/components' }],
       },
@@ -154,6 +179,11 @@ describe('LocalSessionManager', () => {
       context: {
         repoPath,
         worktreePath: '/repo/other-worktree',
+        dependencyTaskIds: ['task-0'],
+        executionGate: {
+          approvedAt: 123,
+          requiresApproval: true,
+        },
         files: [{ path: 'src/renderer/App.tsx' }],
         directories: [{ path: 'src/renderer/components' }],
       },
@@ -219,6 +249,11 @@ describe('LocalSessionManager', () => {
               context: {
                 repoPath,
                 worktreePath: '/repo/worktree',
+                dependencyTaskIds: ['task-1', 'task-1'],
+                executionGate: {
+                  approvedAt: Number.NaN,
+                  requiresApproval: true,
+                },
                 files: [{ path: 'src/main/index.ts', label: 'index.ts' }],
                 directories: [{ path: 'src/main', label: 'main' }],
               },
@@ -256,6 +291,10 @@ describe('LocalSessionManager', () => {
             context: {
               repoPath,
               worktreePath: '/repo/worktree',
+              dependencyTaskIds: ['task-1'],
+              executionGate: {
+                requiresApproval: true,
+              },
               files: [{ path: 'src/main/index.ts', label: 'index.ts' }],
               directories: [{ path: 'src/main', label: 'main' }],
             },

@@ -1,6 +1,6 @@
 import type { FileSearchResult, ModelId } from '@shared/types';
-import { FileText, Folder, FolderGit2, Loader2, Sparkles } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { FileText, Folder, FolderGit2, ListChecks, Loader2, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -34,7 +34,13 @@ import {
   mergeTodoContextMentionSelection,
   type TodoContextMentionSelection,
 } from './todoContextMentions';
-import { createTodoContextFile, getPathDisplayName, hasTodoTaskContext } from './todoTaskContext';
+import {
+  createTodoContextFile,
+  getPathDisplayName,
+  getTodoTaskApprovalState,
+  getTodoTaskDependencyIds,
+  hasTodoTaskContext,
+} from './todoTaskContext';
 import type { TaskPriority, TaskStatus, TodoTask } from './types';
 import { useEnabledAgents } from './useEnabledAgents';
 
@@ -45,6 +51,7 @@ interface TaskDialogProps {
   defaultStatus: TaskStatus;
   repoPath: string;
   worktreePath?: string;
+  availableTasks?: readonly TodoTask[];
 }
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
@@ -60,6 +67,7 @@ export function TaskDialog({
   defaultStatus,
   repoPath,
   worktreePath,
+  availableTasks = [],
 }: TaskDialogProps) {
   const { t } = useI18n();
   const addTask = useTodoStore((s) => s.addTask);
@@ -72,6 +80,8 @@ export function TaskDialog({
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [agentId, setAgentId] = useState(AUTO_EXECUTE_AGENT_AUTO_VALUE);
+  const [requiresApproval, setRequiresApproval] = useState(false);
+  const [approvalApprovedAt, setApprovalApprovedAt] = useState<number | undefined>();
   const [attachWorktree, setAttachWorktree] = useState(false);
   const [contextWorktreePath, setContextWorktreePath] = useState<string | undefined>();
   const [attachFile, setAttachFile] = useState(false);
@@ -80,6 +90,7 @@ export function TaskDialog({
     directories: [],
     files: [],
   });
+  const [dependencyTaskIds, setDependencyTaskIds] = useState<string[]>([]);
   const [isPolishing, setIsPolishing] = useState(false);
   const didInitializeOpenStateRef = useRef(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -87,6 +98,31 @@ export function TaskDialog({
   const searchRootPath = worktreePath ?? repoPath;
   const contextFiles = contextSelection.files;
   const contextDirectories = contextSelection.directories;
+  const dependencyOptions = useMemo(() => {
+    const currentTaskId = task?.id;
+    const knownTaskIds = new Set<string>();
+    const taskOptions = availableTasks
+      .filter((candidate) => candidate.id !== currentTaskId)
+      .map((candidate) => {
+        knownTaskIds.add(candidate.id);
+        return {
+          id: candidate.id,
+          title: candidate.title,
+          isMissing: false,
+        };
+      });
+    const missingOptions = dependencyTaskIds
+      .filter((dependencyTaskId) => dependencyTaskId !== currentTaskId)
+      .filter((dependencyTaskId) => !knownTaskIds.has(dependencyTaskId))
+      .map((dependencyTaskId) => ({
+        id: dependencyTaskId,
+        title: dependencyTaskId,
+        isMissing: true,
+      }));
+
+    return [...taskOptions, ...missingOptions];
+  }, [availableTasks, dependencyTaskIds, task?.id]);
+  const selectedDependencyTaskIds = useMemo(() => new Set(dependencyTaskIds), [dependencyTaskIds]);
 
   const handleMentionSelected = useCallback((item: FileSearchResult) => {
     setContextSelection((current) => mergeTodoContextMentionSelection(current, item));
@@ -152,12 +188,15 @@ export function TaskDialog({
       setDescription(task.description);
       setPriority(task.priority);
       setAgentId(task.agentId ?? AUTO_EXECUTE_AGENT_AUTO_VALUE);
+      setRequiresApproval(getTodoTaskApprovalState(task.context) !== 'none');
+      setApprovalApprovedAt(task.context?.executionGate?.approvedAt);
       setAttachWorktree(Boolean(task.context?.worktreePath));
       setContextWorktreePath(task.context?.worktreePath ?? worktreePath);
       setContextSelection({
         directories: task.context?.directories ?? [],
         files: task.context?.files ?? [],
       });
+      setDependencyTaskIds(getTodoTaskDependencyIds(task.context, task.id));
       setAttachFile((task.context?.files?.length ?? 0) > 0);
       setAttachDirectory((task.context?.directories?.length ?? 0) > 0);
     } else {
@@ -165,21 +204,36 @@ export function TaskDialog({
       setDescription('');
       setPriority('medium');
       setAgentId(AUTO_EXECUTE_AGENT_AUTO_VALUE);
+      setRequiresApproval(false);
+      setApprovalApprovedAt(undefined);
       setAttachWorktree(Boolean(worktreePath));
       setContextWorktreePath(worktreePath);
       setContextSelection({
         directories: [],
         files: activeTabPath ? [createTodoContextFile(activeTabPath)] : [],
       });
+      setDependencyTaskIds([]);
       setAttachFile(Boolean(activeTabPath));
       setAttachDirectory(false);
     }
   }, [activeTabPath, closeDescriptionMention, closeTitleMention, open, task, worktreePath]);
 
   const buildTaskContext = useCallback(() => {
+    const normalizedDependencyTaskIds = getTodoTaskDependencyIds({ dependencyTaskIds }, task?.id);
     const context = {
       repoPath,
+      ...(requiresApproval
+        ? {
+            executionGate: {
+              requiresApproval: true,
+              ...(approvalApprovedAt !== undefined ? { approvedAt: approvalApprovedAt } : {}),
+            },
+          }
+        : {}),
       ...(attachWorktree && contextWorktreePath ? { worktreePath: contextWorktreePath } : {}),
+      ...(normalizedDependencyTaskIds.length > 0
+        ? { dependencyTaskIds: normalizedDependencyTaskIds }
+        : {}),
       ...(attachFile && contextFiles.length > 0 ? { files: contextFiles } : {}),
       ...(attachDirectory && contextDirectories.length > 0
         ? { directories: contextDirectories }
@@ -190,11 +244,34 @@ export function TaskDialog({
     attachDirectory,
     attachFile,
     attachWorktree,
+    approvalApprovedAt,
     contextDirectories,
     contextFiles,
     contextWorktreePath,
+    dependencyTaskIds,
     repoPath,
+    requiresApproval,
+    task?.id,
   ]);
+
+  const handleDependencyTaskChange = useCallback(
+    (dependencyTaskId: string, checked: boolean) => {
+      setDependencyTaskIds((current) => {
+        const normalized = getTodoTaskDependencyIds({ dependencyTaskIds: current }, task?.id);
+        if (!checked) {
+          return normalized.filter((id) => id !== dependencyTaskId);
+        }
+
+        return getTodoTaskDependencyIds(
+          {
+            dependencyTaskIds: [...normalized, dependencyTaskId],
+          },
+          task?.id
+        );
+      });
+    },
+    [task?.id]
+  );
 
   const handleSubmit = useCallback(() => {
     const trimmedTitle = title.trim();
@@ -467,6 +544,29 @@ export function TaskDialog({
                   </div>
                 )}
               </div>
+
+              <label className="mt-3 flex min-w-0 items-start gap-2 border-t border-border/60 pt-3 text-sm">
+                <Checkbox
+                  checked={requiresApproval}
+                  onCheckedChange={(checked) => {
+                    const isChecked = checked === true;
+                    setRequiresApproval(isChecked);
+                    if (!isChecked) {
+                      setApprovalApprovedAt(undefined);
+                    }
+                  }}
+                />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-foreground">
+                    {t('Require approval before auto execute')}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {approvalApprovedAt !== undefined
+                      ? t('Approved')
+                      : t('Auto execute will wait until you approve this task.')}
+                  </span>
+                </span>
+              </label>
             </section>
 
             <section className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/10 px-3 py-3">
@@ -495,6 +595,50 @@ export function TaskDialog({
                   </span>
                 </span>
               </label>
+              <div className="flex min-w-0 flex-col gap-2 border-t border-border/60 pt-2">
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1 text-sm font-medium text-foreground">
+                    <ListChecks className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{t('Dependencies')}</span>
+                  </span>
+                  {dependencyTaskIds.length > 0 && (
+                    <span className="shrink-0 rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {t('{{count}} dependencies', { count: dependencyTaskIds.length })}
+                    </span>
+                  )}
+                </div>
+                {dependencyOptions.length > 0 ? (
+                  <div className="flex max-h-32 min-w-0 flex-col gap-1 overflow-y-auto pr-1">
+                    {dependencyOptions.map((dependencyOption) => (
+                      <label
+                        key={dependencyOption.id}
+                        className="flex min-w-0 items-start gap-2 rounded-md px-1 py-1 text-sm transition-colors hover:bg-accent/30"
+                      >
+                        <Checkbox
+                          checked={selectedDependencyTaskIds.has(dependencyOption.id)}
+                          onCheckedChange={(checked) =>
+                            handleDependencyTaskChange(dependencyOption.id, checked === true)
+                          }
+                        />
+                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="line-clamp-1 text-foreground">
+                            {dependencyOption.title}
+                          </span>
+                          {dependencyOption.isMissing && (
+                            <span className="text-xs text-muted-foreground">
+                              {t('Missing dependency')}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    {t('No dependency tasks available')}
+                  </span>
+                )}
+              </div>
               <label className="flex min-w-0 items-start gap-2 text-sm">
                 <Checkbox
                   checked={attachFile}

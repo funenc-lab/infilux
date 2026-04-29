@@ -347,6 +347,7 @@ export const IPC_CHANNELS = {
   CLOUDFLARED_STATUS_CHANGED: 'cloudflared:statusChanged',
 
   // Todo
+  TODO_GET_ALL_PROJECTS: 'todo:getAllProjects',
   TODO_GET_TASKS: 'todo:getTasks',
   TODO_ADD_TASK: 'todo:addTask',
   TODO_UPDATE_TASK: 'todo:updateTask',

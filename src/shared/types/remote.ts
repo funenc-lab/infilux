@@ -180,6 +180,11 @@ export interface SessionTodoTask {
   context?: TodoTaskContext;
 }
 
+export interface SessionTodoProject {
+  repoPath: string;
+  tasks: SessionTodoTask[];
+}
+
 export interface SessionStorageDocument {
   version: 2;
   updatedAt: number;

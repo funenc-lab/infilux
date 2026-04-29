@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTodoBoardSummary,
+  buildTodoDecisionCenterSummary,
   getAutoExecuteDisabledReason,
   getTaskRelativeTimeLabel,
   getTodoBoardHeaderStats,
@@ -23,6 +24,7 @@ function createTask(overrides: Partial<TodoTask> & Pick<TodoTask, 'id'>): TodoTa
     order: overrides.order ?? 0,
     ...(overrides.agentId ? { agentId: overrides.agentId } : {}),
     ...(overrides.sessionId ? { sessionId: overrides.sessionId } : {}),
+    ...(overrides.context ? { context: overrides.context } : {}),
   };
 }
 
@@ -192,5 +194,129 @@ describe('todoViewModel', () => {
   it('keeps status and priority metadata complete for the board view', () => {
     expect(Object.keys(TODO_STATUS_META)).toEqual(['todo', 'in-progress', 'done']);
     expect(Object.keys(TODO_PRIORITY_META)).toEqual(['low', 'medium', 'high']);
+  });
+
+  it('builds a global decision center summary across loaded repositories', () => {
+    const summary = buildTodoDecisionCenterSummary([
+      {
+        repoPath: '/repo/current',
+        isCurrent: true,
+        autoExecute: {
+          running: true,
+          queue: ['current-ready'],
+          currentTaskId: 'running',
+          currentSessionId: 'session-1',
+        },
+        tasks: [
+          createTask({ id: 'finished', status: 'done' }),
+          createTask({ id: 'running', status: 'in-progress' }),
+          createTask({
+            id: 'current-ready',
+            status: 'todo',
+            priority: 'high',
+            agentId: 'codex',
+            context: { dependencyTaskIds: ['finished'] },
+          }),
+          createTask({
+            id: 'needs-approval',
+            status: 'todo',
+            context: { executionGate: { requiresApproval: true } },
+          }),
+        ],
+      },
+      {
+        repoPath: '/repo/other',
+        autoExecute: {
+          running: false,
+          queue: [],
+          currentTaskId: null,
+          currentSessionId: null,
+        },
+        tasks: [
+          createTask({ id: 'other-done', status: 'done' }),
+          createTask({ id: 'other-ready', status: 'todo', agentId: 'gemini' }),
+          createTask({
+            id: 'blocked-dependency',
+            status: 'todo',
+            context: { dependencyTaskIds: ['missing-task'] },
+          }),
+        ],
+      },
+    ]);
+
+    expect(summary).toMatchObject({
+      projectCount: 2,
+      totalTaskCount: 7,
+      openTaskCount: 5,
+      readyTaskCount: 2,
+      blockedTaskCount: 2,
+      approvalPendingTaskCount: 1,
+      dependencyBlockedTaskCount: 1,
+      runningTaskCount: 1,
+      runningProjectCount: 1,
+    });
+    expect(summary.execution.nextAction).toBe('monitor-running');
+    expect(summary.execution.dispatchableTasks.map((task) => task.taskId)).toEqual([
+      'current-ready',
+      'other-ready',
+    ]);
+    expect(summary.execution.interventionTasks.map((task) => task.taskId)).toEqual([
+      'needs-approval',
+      'blocked-dependency',
+    ]);
+    expect(summary.execution.runningTasks.map((task) => task.taskId)).toEqual(['running']);
+    expect(summary.execution.runningTasks[0]).toMatchObject({
+      repoPath: '/repo/current',
+      repoName: 'current',
+      title: 'Task running',
+      agentId: 'auto',
+      agentLabel: 'Auto Select',
+      sessionId: 'session-1',
+    });
+    expect(summary.execution.agentLoads).toEqual([
+      {
+        agentId: 'auto',
+        label: 'Auto Select',
+        projectCount: 1,
+        readyTaskCount: 0,
+        runningTaskCount: 1,
+      },
+      {
+        agentId: 'codex',
+        label: 'codex',
+        projectCount: 1,
+        readyTaskCount: 1,
+        runningTaskCount: 0,
+      },
+      {
+        agentId: 'gemini',
+        label: 'gemini',
+        projectCount: 1,
+        readyTaskCount: 1,
+        runningTaskCount: 0,
+      },
+    ]);
+    expect(summary.projects.map((project) => project.repoPath)).toEqual([
+      '/repo/current',
+      '/repo/other',
+    ]);
+    expect(summary.projects[0]).toMatchObject({
+      repoName: 'current',
+      isCurrent: true,
+      status: 'running',
+      readyTaskCount: 1,
+      blockedTaskCount: 1,
+      approvalPendingTaskCount: 1,
+      dependencyBlockedTaskCount: 0,
+      autoExecuteRunning: true,
+    });
+    expect(summary.projects[1]).toMatchObject({
+      repoName: 'other',
+      status: 'blocked',
+      readyTaskCount: 1,
+      blockedTaskCount: 1,
+      dependencyBlockedTaskCount: 1,
+      autoExecuteRunning: false,
+    });
   });
 });

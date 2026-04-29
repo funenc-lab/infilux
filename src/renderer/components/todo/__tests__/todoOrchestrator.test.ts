@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { AUTO_EXECUTE_AGENT_AUTO_VALUE } from '../agentCapabilities';
-import { buildTodoOrchestrationPlan, getExecutableTodoTaskIds } from '../todoOrchestrator';
+import {
+  buildTodoOrchestrationPlan,
+  getExecutableTodoTaskIds,
+  getTodoTaskDependenciesFromContext,
+} from '../todoOrchestrator';
 import type { TodoTask } from '../types';
 import type { ResolvedAgent } from '../useEnabledAgents';
 
@@ -174,6 +178,109 @@ describe('todoOrchestrator', () => {
       pendingTaskCount: 2,
       blockedTaskCount: 1,
       progressPercent: 25,
+    });
+  });
+
+  it('derives task dependencies from task context', () => {
+    expect(
+      getTodoTaskDependenciesFromContext([
+        createTask({ id: 'api', status: 'todo' }),
+        createTask({
+          id: 'release',
+          status: 'todo',
+          context: { dependencyTaskIds: ['api', 'api', ' '] },
+        }),
+      ])
+    ).toEqual([{ taskId: 'release', dependsOnTaskId: 'api' }]);
+  });
+
+  it('uses task context dependencies when explicit dependencies are not provided', () => {
+    const plan = buildTodoOrchestrationPlan({
+      allTasks: [
+        createTask({ id: 'api', status: 'todo' }),
+        createTask({
+          id: 'release',
+          status: 'todo',
+          context: { dependencyTaskIds: ['api'] },
+        }),
+      ],
+      candidateTasks: [
+        createTask({
+          id: 'release',
+          status: 'todo',
+          context: { dependencyTaskIds: ['api'] },
+        }),
+      ],
+      enabledAgents: [codexAgent],
+      running: false,
+      worktreePath: '/repo/worktree',
+    });
+
+    expect(plan.status).toBe('blocked');
+    expect(plan.readyTasks).toEqual([]);
+    expect(plan.blockedTasks[0].blockedByTaskIds).toEqual(['api']);
+    expect(plan.dependencyIssues).toEqual([
+      {
+        taskId: 'release',
+        dependsOnTaskId: 'api',
+        reason: 'Waiting for dependency',
+      },
+    ]);
+  });
+
+  it('blocks approval-gated tasks until the manual approval gate is cleared', () => {
+    const plan = buildTodoOrchestrationPlan({
+      candidateTasks: [
+        createTask({
+          id: 'release',
+          status: 'todo',
+          context: {
+            executionGate: {
+              requiresApproval: true,
+            },
+          } as unknown as TodoTask['context'],
+        }),
+      ],
+      enabledAgents: [codexAgent],
+      running: false,
+      worktreePath: '/repo/worktree',
+    });
+
+    expect(plan.status).toBe('blocked');
+    expect(plan.blockers).toEqual(['Waiting for approval']);
+    expect(plan.readyTasks).toEqual([]);
+    expect(plan.blockedTasks[0]).toMatchObject({
+      approvalPending: true,
+      blockers: ['Waiting for approval'],
+      canRun: false,
+    });
+  });
+
+  it('allows approval-gated tasks after manual approval is recorded', () => {
+    const plan = buildTodoOrchestrationPlan({
+      candidateTasks: [
+        createTask({
+          id: 'release',
+          status: 'todo',
+          context: {
+            executionGate: {
+              approvedAt: 123,
+              requiresApproval: true,
+            },
+          } as unknown as TodoTask['context'],
+        }),
+      ],
+      enabledAgents: [codexAgent],
+      running: false,
+      worktreePath: '/repo/worktree',
+    });
+
+    expect(plan.status).toBe('ready');
+    expect(plan.blockers).toEqual([]);
+    expect(plan.readyTasks[0]).toMatchObject({
+      approvalPending: false,
+      approvalRequired: true,
+      canRun: true,
     });
   });
 

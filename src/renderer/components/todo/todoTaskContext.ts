@@ -3,11 +3,15 @@ import type {
   TodoTaskContext,
   TodoTaskContextDirectory,
   TodoTaskContextFile,
+  TodoTaskExecutionGate,
 } from './types';
+
+export type TodoTaskApprovalState = 'approved' | 'none' | 'pending';
 
 export interface TodoTaskContextFallback {
   repoPath?: string;
   worktreePath?: string;
+  dependencyTaskIds?: readonly string[];
   files?: readonly TodoTaskContextFile[];
   directories?: readonly TodoTaskContextDirectory[];
 }
@@ -37,6 +41,41 @@ function dedupePathRefs<T extends TodoTaskContextDirectory | TodoTaskContextFile
   return result;
 }
 
+function dedupeStringRefs(values: readonly string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values ?? []) {
+    const normalized = nonEmpty(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function normalizeTodoTaskExecutionGate(
+  executionGate: TodoTaskExecutionGate | undefined
+): TodoTaskExecutionGate | undefined {
+  if (!executionGate?.requiresApproval) {
+    return undefined;
+  }
+
+  const approvedAt =
+    typeof executionGate.approvedAt === 'number' && Number.isFinite(executionGate.approvedAt)
+      ? executionGate.approvedAt
+      : undefined;
+
+  return {
+    requiresApproval: true,
+    ...(approvedAt !== undefined ? { approvedAt } : {}),
+  };
+}
+
 function normalizeDirectoryPath(path: string): string {
   return path.trim().replace(/[\\/]+$/g, '');
 }
@@ -64,10 +103,46 @@ export function getPathDisplayName(path: string | undefined): string {
   return normalized.split(/[/\\]/).filter(Boolean).pop() ?? normalized;
 }
 
+export function getTodoTaskDependencyIds(
+  context: { dependencyTaskIds?: readonly string[] } | undefined,
+  excludedTaskId?: string
+): string[] {
+  const excluded = nonEmpty(excludedTaskId);
+  return dedupeStringRefs(context?.dependencyTaskIds).filter(
+    (dependencyTaskId) => dependencyTaskId !== excluded
+  );
+}
+
+export function getTodoTaskApprovalState(
+  context: { executionGate?: TodoTaskExecutionGate } | undefined
+): TodoTaskApprovalState {
+  const executionGate = normalizeTodoTaskExecutionGate(context?.executionGate);
+  if (!executionGate?.requiresApproval) {
+    return 'none';
+  }
+
+  return typeof executionGate.approvedAt === 'number' ? 'approved' : 'pending';
+}
+
+export function buildApprovedTodoTaskContext(
+  context: TodoTaskContext | undefined,
+  approvedAt: number
+): TodoTaskContext {
+  return {
+    ...(context ?? {}),
+    executionGate: {
+      requiresApproval: true,
+      approvedAt,
+    },
+  };
+}
+
 export function hasTodoTaskContext(context: TodoTaskContext | undefined): boolean {
   return Boolean(
     nonEmpty(context?.repoPath) ||
       nonEmpty(context?.worktreePath) ||
+      getTodoTaskDependencyIds(context).length > 0 ||
+      getTodoTaskApprovalState(context) !== 'none' ||
       dedupePathRefs(context?.files).length > 0 ||
       dedupePathRefs(context?.directories).length > 0
   );
@@ -80,6 +155,10 @@ export function buildTodoTaskExecutionContext(
   const context = task.context;
   const files = dedupePathRefs(context?.files ?? fallback.files);
   const directories = dedupePathRefs(context?.directories ?? fallback.directories);
+  const dependencyTaskIds = getTodoTaskDependencyIds({
+    dependencyTaskIds: context?.dependencyTaskIds ?? fallback.dependencyTaskIds,
+  });
+  const executionGate = normalizeTodoTaskExecutionGate(context?.executionGate);
   const next: TodoTaskContext = {};
 
   const repoPath = nonEmpty(context?.repoPath) ?? nonEmpty(fallback.repoPath);
@@ -90,6 +169,12 @@ export function buildTodoTaskExecutionContext(
   }
   if (worktreePath) {
     next.worktreePath = worktreePath;
+  }
+  if (dependencyTaskIds.length > 0) {
+    next.dependencyTaskIds = dependencyTaskIds;
+  }
+  if (executionGate) {
+    next.executionGate = executionGate;
   }
   if (files.length > 0) {
     next.files = files;
@@ -109,6 +194,8 @@ export function buildTodoTaskContextBlock(context: TodoTaskContext | undefined):
   const lines = ['---', '[TASK CONTEXT]'];
   const repoPath = nonEmpty(context?.repoPath);
   const worktreePath = nonEmpty(context?.worktreePath);
+  const dependencyTaskIds = getTodoTaskDependencyIds(context);
+  const approvalState = getTodoTaskApprovalState(context);
   const files = dedupePathRefs(context?.files);
   const directories = dedupePathRefs(context?.directories);
 
@@ -117,6 +204,16 @@ export function buildTodoTaskContextBlock(context: TodoTaskContext | undefined):
   }
   if (worktreePath) {
     lines.push(`Worktree: ${worktreePath}`);
+  }
+  if (dependencyTaskIds.length > 0) {
+    lines.push('Task dependencies:');
+    for (const dependencyTaskId of dependencyTaskIds) {
+      lines.push(`- ${dependencyTaskId}`);
+    }
+  }
+  if (approvalState !== 'none') {
+    lines.push('Execution gates:');
+    lines.push(`- Manual approval: ${approvalState}`);
   }
   if (files.length > 0) {
     lines.push('Related files:');

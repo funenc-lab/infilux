@@ -1,4 +1,5 @@
 import { type AutoExecuteAgentChoice, resolveAutoExecuteAgentChoice } from './agentCapabilities';
+import { getTodoTaskApprovalState, getTodoTaskDependencyIds } from './todoTaskContext';
 import type { TodoTask } from './types';
 import type { ResolvedAgent } from './useEnabledAgents';
 
@@ -32,6 +33,8 @@ export interface TodoOrchestrationTaskPlan {
   assignmentMode: AutoExecuteAgentChoice['mode'];
   assignmentReason: string;
   dependencyIds: string[];
+  approvalRequired: boolean;
+  approvalPending: boolean;
   blockedByTaskIds: string[];
   blockedByMissingTaskIds: string[];
   blockers: string[];
@@ -86,6 +89,17 @@ function normalizeMaxParallelTasks(value: number | undefined): number {
 
 function hasTaskWorktreeContext(task: TodoTask): boolean {
   return typeof task.context?.worktreePath === 'string' && task.context.worktreePath.trim() !== '';
+}
+
+export function getTodoTaskDependenciesFromContext(
+  tasks: readonly TodoTask[]
+): TodoTaskDependency[] {
+  return tasks.flatMap((task) =>
+    getTodoTaskDependencyIds(task.context, task.id).map((dependsOnTaskId) => ({
+      taskId: task.id,
+      dependsOnTaskId,
+    }))
+  );
 }
 
 function buildDependencyState({
@@ -146,6 +160,7 @@ function buildPlanTask({
     selectedAgentId,
     tasks: [task],
   });
+  const approvalState = getTodoTaskApprovalState(task.context);
   const dependencyState = buildDependencyState({
     dependencies,
     task,
@@ -153,6 +168,7 @@ function buildPlanTask({
   });
   const blockers = [
     ...(choice.agent ? [] : [choice.reason]),
+    ...(approvalState === 'pending' ? ['Waiting for approval'] : []),
     ...dependencyState.blockedByTaskIds.map(() => 'Waiting for dependency'),
     ...dependencyState.blockedByMissingTaskIds.map(() => 'Missing dependency'),
   ];
@@ -164,6 +180,8 @@ function buildPlanTask({
     assignmentMode: choice.mode,
     assignmentReason: choice.reason,
     dependencyIds: dependencyState.dependencyIds,
+    approvalRequired: approvalState !== 'none',
+    approvalPending: approvalState === 'pending',
     blockedByTaskIds: dependencyState.blockedByTaskIds,
     blockedByMissingTaskIds: dependencyState.blockedByMissingTaskIds,
     blockers,
@@ -201,7 +219,7 @@ export function buildTodoOrchestrationPlan({
   allTasks,
   candidateTasks,
   currentTaskId,
-  dependencies = [],
+  dependencies,
   enabledAgents,
   maxParallelTasks,
   queue = [],
@@ -212,6 +230,7 @@ export function buildTodoOrchestrationPlan({
   const agents = [...enabledAgents];
   const tasksForContext = allTasks ?? candidateTasks;
   const taskById = new Map(tasksForContext.map((task) => [task.id, task]));
+  const taskDependencies = dependencies ?? getTodoTaskDependenciesFromContext(tasksForContext);
   const blockers: string[] = [];
   const normalizedMaxParallelTasks = normalizeMaxParallelTasks(maxParallelTasks);
   const hasExecutableWorktreeContext =
@@ -236,7 +255,7 @@ export function buildTodoOrchestrationPlan({
     : candidateTasks.map((task, index) =>
         buildPlanTask({
           agents,
-          dependencies,
+          dependencies: taskDependencies,
           selectedAgentId,
           sequence: index + 1,
           task,
@@ -251,7 +270,7 @@ export function buildTodoOrchestrationPlan({
   const currentTaskPlan = currentTask
     ? buildPlanTask({
         agents,
-        dependencies,
+        dependencies: taskDependencies,
         selectedAgentId,
         sequence: 1,
         task: currentTask,
@@ -266,7 +285,7 @@ export function buildTodoOrchestrationPlan({
           if (!task) return null;
           return buildPlanTask({
             agents,
-            dependencies,
+            dependencies: taskDependencies,
             selectedAgentId,
             sequence: index + 2,
             task,
@@ -297,12 +316,20 @@ export function buildTodoOrchestrationPlan({
       })),
     ]);
 
+  const hasApprovalBlockedTasks = blockedTasks.some((taskPlan) => taskPlan.approvalPending);
   const hasDependencyBlockedTasks = blockedTasks.some(
     (taskPlan) =>
       taskPlan.blockedByTaskIds.length > 0 || taskPlan.blockedByMissingTaskIds.length > 0
   );
 
-  if (!running && blockers.length === 0 && readyTasks.length === 0 && hasDependencyBlockedTasks) {
+  if (!running && blockers.length === 0 && readyTasks.length === 0 && hasApprovalBlockedTasks) {
+    blockers.push('Waiting for approval');
+  } else if (
+    !running &&
+    blockers.length === 0 &&
+    readyTasks.length === 0 &&
+    hasDependencyBlockedTasks
+  ) {
     blockers.push('Waiting for dependencies');
   } else if (!running && blockers.length === 0 && readyTasks.length === 0) {
     blockers.push('No ready tasks');

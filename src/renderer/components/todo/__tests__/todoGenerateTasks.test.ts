@@ -251,6 +251,33 @@ describe('todo generated task helpers', () => {
     ).toContain('Related directories:\n- src/renderer/components/todo (todo)');
   });
 
+  it('renders task dependencies in task execution prompts', () => {
+    expect(
+      buildTodoTaskContextBlock({
+        dependencyTaskIds: ['api', 'release'],
+      })
+    ).toContain('Task dependencies:\n- api\n- release');
+  });
+
+  it('renders manual approval gates in task execution prompts', () => {
+    expect(
+      buildTodoTaskContextBlock({
+        executionGate: {
+          requiresApproval: true,
+        },
+      } as Parameters<typeof buildTodoTaskContextBlock>[0])
+    ).toContain('Execution gates:\n- Manual approval: pending');
+
+    expect(
+      buildTodoTaskContextBlock({
+        executionGate: {
+          approvedAt: 123,
+          requiresApproval: true,
+        },
+      } as Parameters<typeof buildTodoTaskContextBlock>[0])
+    ).toContain('Execution gates:\n- Manual approval: approved');
+  });
+
   it('builds AI task generation requests without reusing the polish prompt', () => {
     expect(
       buildTodoGenerateTasksRequest({

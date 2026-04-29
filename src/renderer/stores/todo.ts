@@ -16,10 +16,14 @@ interface TodoState {
   /** Track which repos have been loaded from DB */
   _loaded: Set<string>;
 
+  /** Track whether the global todo project index has been loaded */
+  _allProjectsLoaded: boolean;
+
   /** Auto-execute state per repo path */
   autoExecute: Record<string, AutoExecuteState>;
 
   // Task Actions
+  loadAllProjects: () => Promise<void>;
   loadTasks: (repoPath: string) => Promise<void>;
   addTask: (
     repoPath: string,
@@ -76,6 +80,20 @@ function reportPersistenceFailure(
   });
 }
 
+interface TodoProjectTasks {
+  repoPath: string;
+  tasks: TodoTask[];
+}
+
+function isTodoProjectTasks(value: unknown): value is TodoProjectTasks {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return typeof record.repoPath === 'string' && Array.isArray(record.tasks);
+}
+
 /** One-time migration from localStorage to shared todo storage */
 async function migrateLocalStorage(): Promise<void> {
   try {
@@ -96,7 +114,38 @@ export const useTodoStore = create<TodoState>()(
   subscribeWithSelector((set, get) => ({
     tasks: {},
     _loaded: new Set<string>(),
+    _allProjectsLoaded: false,
     autoExecute: {},
+
+    loadAllProjects: async () => {
+      if (get()._allProjectsLoaded) return;
+
+      try {
+        const projects = (await window.electronAPI.todo.getAllProjects()).filter(
+          isTodoProjectTasks
+        );
+        set((state) => {
+          const nextTasks = { ...state.tasks };
+          const newLoaded = new Set(state._loaded);
+
+          for (const project of projects) {
+            const key = getKey(project.repoPath);
+            if (!newLoaded.has(key) || nextTasks[key] === undefined) {
+              nextTasks[key] = project.tasks;
+            }
+            newLoaded.add(key);
+          }
+
+          return {
+            tasks: nextTasks,
+            _loaded: newLoaded,
+            _allProjectsLoaded: true,
+          };
+        });
+      } catch (err) {
+        console.error('[TodoStore] Failed to load all project tasks:', err);
+      }
+    },
 
     loadTasks: async (repoPath) => {
       const key = getKey(repoPath);

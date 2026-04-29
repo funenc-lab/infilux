@@ -2,12 +2,18 @@ import type {
   TodoTaskContext,
   TodoTaskContextDirectory,
   TodoTaskContextFile,
+  TodoTaskExecutionGate,
 } from '@shared/types/todo';
 
 export type TaskPriority = 'low' | 'medium' | 'high';
 export type TaskStatus = 'todo' | 'in-progress' | 'done';
 
-export type { TodoTaskContext, TodoTaskContextDirectory, TodoTaskContextFile };
+export type {
+  TodoTaskContext,
+  TodoTaskContextDirectory,
+  TodoTaskExecutionGate,
+  TodoTaskContextFile,
+};
 
 export interface TodoTask {
   id: string;

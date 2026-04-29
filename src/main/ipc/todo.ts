@@ -14,6 +14,7 @@ import {
   type TodoTaskContext,
   type TodoTaskContextDirectory,
   type TodoTaskContextFile,
+  type TodoTaskExecutionGate,
 } from '@shared/types';
 import { ipcMain } from 'electron';
 import { generateTodoTasks, polishTodoTask } from '../services/ai';
@@ -41,6 +42,7 @@ const MAX_TODO_POLISH_TIMEOUT_SECONDS = 600;
 const MAX_TODO_POLISH_PROMPT_LENGTH = 20_000;
 const MAX_TODO_GENERATE_TASKS = 12;
 const MAX_TODO_GENERATE_AGENT_COUNT = 64;
+const MAX_TODO_GENERATE_DEPENDENCY_COUNT = 100;
 const MAX_TODO_GENERATE_CONTEXT_FILE_COUNT = 30;
 const MAX_TODO_GENERATE_CONTEXT_DIRECTORY_COUNT = 30;
 const MAX_TODO_GENERATE_TEXT_LENGTH = 60_000;
@@ -186,6 +188,55 @@ function normalizeTodoTaskContextPathRef<T extends TodoTaskContextDirectory | To
   return (label ? { path, label } : { path }) as T;
 }
 
+function normalizeTodoTaskContextDependencyIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Todo AI generate context dependency ids must be an array');
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of value.slice(0, MAX_TODO_GENERATE_DEPENDENCY_COUNT)) {
+    const dependencyTaskId = normalizeOptionalString(
+      item,
+      'Todo AI generate context dependency id',
+      MAX_TODO_GENERATE_LABEL_LENGTH
+    );
+    if (!dependencyTaskId || seen.has(dependencyTaskId)) {
+      continue;
+    }
+
+    seen.add(dependencyTaskId);
+    result.push(dependencyTaskId);
+  }
+
+  return result;
+}
+
+function normalizeTodoTaskExecutionGate(value: unknown): TodoTaskExecutionGate | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Todo AI generate context execution gate must be an object');
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.requiresApproval !== true) {
+    return undefined;
+  }
+
+  const approvedAt =
+    typeof record.approvedAt === 'number' && Number.isFinite(record.approvedAt)
+      ? record.approvedAt
+      : undefined;
+
+  return {
+    requiresApproval: true,
+    ...(approvedAt !== undefined ? { approvedAt } : {}),
+  };
+}
+
 function normalizeTodoTaskContext(value: unknown): TodoTaskContext | undefined {
   if (value === undefined || value === null) {
     return undefined;
@@ -205,8 +256,14 @@ function normalizeTodoTaskContext(value: unknown): TodoTaskContext | undefined {
     'Todo AI generate context worktree path',
     MAX_TODO_GENERATE_PATH_LENGTH
   );
+  let dependencyTaskIds: string[] | undefined;
+  const executionGate = normalizeTodoTaskExecutionGate(record.executionGate);
   let files: TodoTaskContextFile[] | undefined;
   let directories: TodoTaskContextDirectory[] | undefined;
+
+  if (record.dependencyTaskIds !== undefined) {
+    dependencyTaskIds = normalizeTodoTaskContextDependencyIds(record.dependencyTaskIds);
+  }
 
   if (record.files !== undefined) {
     if (!Array.isArray(record.files)) {
@@ -236,6 +293,8 @@ function normalizeTodoTaskContext(value: unknown): TodoTaskContext | undefined {
   const context: TodoTaskContext = {
     ...(repoPath ? { repoPath } : {}),
     ...(worktreePath ? { worktreePath } : {}),
+    ...(dependencyTaskIds && dependencyTaskIds.length > 0 ? { dependencyTaskIds } : {}),
+    ...(executionGate ? { executionGate } : {}),
     ...(files && files.length > 0 ? { files } : {}),
     ...(directories && directories.length > 0 ? { directories } : {}),
   };
@@ -356,6 +415,10 @@ function normalizeTodoGenerateTasksOptions(
 }
 
 export function registerTodoHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.TODO_GET_ALL_PROJECTS, async () => {
+    return localSessionManager.getAllTodoProjects();
+  });
+
   ipcMain.handle(IPC_CHANNELS.TODO_GET_TASKS, async (_, repoPath: string) => {
     return localSessionManager.getTodoTasks(repoPath);
   });

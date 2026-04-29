@@ -78,6 +78,7 @@ import type {
   SessionResizeOptions,
   SessionRuntimeInfo,
   SessionStateEvent,
+  SessionTodoProject,
   SessionTodoTask,
   ShellConfig,
   ShellInfo,
@@ -841,6 +842,8 @@ const electronAPI = {
 
   // Todo
   todo: {
+    getAllProjects: (): Promise<SessionTodoProject[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.TODO_GET_ALL_PROJECTS),
     getTasks: (repoPath: string): Promise<unknown[]> =>
       ipcRenderer.invoke(IPC_CHANNELS.TODO_GET_TASKS, repoPath),
     addTask: (repoPath: string, task: SessionTodoTask): Promise<unknown> =>

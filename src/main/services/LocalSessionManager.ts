@@ -1,13 +1,16 @@
 import type {
+  SessionTodoProject,
   SessionTodoTask,
   TodoMigrationResult,
   TodoTaskContext,
   TodoTaskContextDirectory,
   TodoTaskContextFile,
+  TodoTaskExecutionGate,
 } from '@shared/types';
 import {
   getSharedLocalStorageSnapshot,
   markLegacyLocalStorageMigrated,
+  readSharedTodoProjects,
   readSharedTodoTasks,
   updateSharedSessionState,
   writeSharedLocalStorageSnapshot,
@@ -88,6 +91,43 @@ function normalizeTodoTaskContextRefs<T extends TodoTaskContextDirectory | TodoT
     .filter((ref): ref is T => ref !== null);
 }
 
+function normalizeStringRefs(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of value) {
+    const normalized = normalizeNonEmptyString(item);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function normalizeTodoTaskExecutionGate(value: unknown): TodoTaskExecutionGate | undefined {
+  if (!isRecord(value) || value.requiresApproval !== true) {
+    return undefined;
+  }
+
+  const approvedAt =
+    typeof value.approvedAt === 'number' && Number.isFinite(value.approvedAt)
+      ? value.approvedAt
+      : undefined;
+
+  return {
+    requiresApproval: true,
+    ...(approvedAt !== undefined ? { approvedAt } : {}),
+  };
+}
+
 function normalizeTodoTaskContext(value: unknown): TodoTaskContext | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -96,6 +136,8 @@ function normalizeTodoTaskContext(value: unknown): TodoTaskContext | undefined {
   const context: TodoTaskContext = {};
   const repoPath = normalizeNonEmptyString(value.repoPath);
   const worktreePath = normalizeNonEmptyString(value.worktreePath);
+  const dependencyTaskIds = normalizeStringRefs(value.dependencyTaskIds);
+  const executionGate = normalizeTodoTaskExecutionGate(value.executionGate);
   const files = normalizeTodoTaskContextRefs<TodoTaskContextFile>(value.files);
   const directories = normalizeTodoTaskContextRefs<TodoTaskContextDirectory>(value.directories);
 
@@ -105,6 +147,12 @@ function normalizeTodoTaskContext(value: unknown): TodoTaskContext | undefined {
   if (worktreePath) {
     context.worktreePath = worktreePath;
   }
+  if (dependencyTaskIds.length > 0) {
+    context.dependencyTaskIds = dependencyTaskIds;
+  }
+  if (executionGate) {
+    context.executionGate = executionGate;
+  }
   if (files.length > 0) {
     context.files = files;
   }
@@ -112,7 +160,12 @@ function normalizeTodoTaskContext(value: unknown): TodoTaskContext | undefined {
     context.directories = directories;
   }
 
-  return context.repoPath || context.worktreePath || context.files || context.directories
+  return context.repoPath ||
+    context.worktreePath ||
+    context.dependencyTaskIds ||
+    context.executionGate ||
+    context.files ||
+    context.directories
     ? context
     : undefined;
 }
@@ -148,6 +201,39 @@ function normalizeLegacyTodoTask(value: unknown, fallbackOrder: number, fallback
   }
 
   return task;
+}
+
+function normalizeTodoTaskForSession(task: SessionTodoTask): SessionTodoTask {
+  const context = normalizeTodoTaskContext(task.context);
+  if (context) {
+    return { ...task, context };
+  }
+
+  const { context: _context, ...taskWithoutContext } = task;
+  return taskWithoutContext;
+}
+
+function normalizeTodoTaskUpdates(
+  updates: Partial<
+    Pick<
+      SessionTodoTask,
+      'title' | 'description' | 'priority' | 'status' | 'agentId' | 'sessionId' | 'context'
+    >
+  >
+): Partial<
+  Pick<
+    SessionTodoTask,
+    'title' | 'description' | 'priority' | 'status' | 'agentId' | 'sessionId' | 'context'
+  >
+> {
+  if (!Object.hasOwn(updates, 'context')) {
+    return updates;
+  }
+
+  return {
+    ...updates,
+    context: normalizeTodoTaskContext(updates.context),
+  };
 }
 
 function parseLegacyTodoBoards(boardsJson: string): LegacyTodoBoards {
@@ -221,16 +307,21 @@ export class LocalSessionManager {
     return readSharedTodoTasks(repoPath);
   }
 
+  getAllTodoProjects(): SessionTodoProject[] {
+    return readSharedTodoProjects();
+  }
+
   addTodoTask(repoPath: string, task: SessionTodoTask): SessionTodoTask {
+    const normalizedTask = normalizeTodoTaskForSession(task);
     updateSharedSessionState((current) => ({
       ...current,
       updatedAt: now(),
       todos: {
         ...current.todos,
-        [repoPath]: [...(current.todos[repoPath] ?? []), task],
+        [repoPath]: [...(current.todos[repoPath] ?? []), normalizedTask],
       },
     }));
-    return task;
+    return normalizedTask;
   }
 
   updateTodoTask(
@@ -243,13 +334,14 @@ export class LocalSessionManager {
       >
     >
   ): void {
+    const normalizedUpdates = normalizeTodoTaskUpdates(updates);
     updateSharedSessionState((current) => ({
       ...current,
       updatedAt: now(),
       todos: {
         ...current.todos,
         [repoPath]: (current.todos[repoPath] ?? []).map((task) =>
-          task.id === taskId ? { ...task, ...updates, updatedAt: now() } : task
+          task.id === taskId ? { ...task, ...normalizedUpdates, updatedAt: now() } : task
         ),
       },
     }));

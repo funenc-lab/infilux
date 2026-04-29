@@ -8,9 +8,16 @@ export interface TodoTaskContextDirectory {
   label?: string;
 }
 
+export interface TodoTaskExecutionGate {
+  requiresApproval?: boolean;
+  approvedAt?: number;
+}
+
 export interface TodoTaskContext {
   repoPath?: string;
   worktreePath?: string;
+  dependencyTaskIds?: string[];
+  executionGate?: TodoTaskExecutionGate;
   files?: TodoTaskContextFile[];
   directories?: TodoTaskContextDirectory[];
 }

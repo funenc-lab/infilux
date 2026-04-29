@@ -42,6 +42,7 @@ import { KanbanColumn } from './KanbanColumn';
 import { TaskCard } from './TaskCard';
 import { TaskDialog } from './TaskDialog';
 import { buildTodoOrchestrationPlan, getExecutableTodoTaskIds } from './todoOrchestrator';
+import { buildApprovedTodoTaskContext } from './todoTaskContext';
 import {
   buildTodoBoardSummary,
   getAutoExecuteDisabledReason,
@@ -65,6 +66,7 @@ export function KanbanBoard({ repoPath, worktreePath, onSwitchToAgent }: KanbanB
   const tasks = useTodoStore((s) => selectTasks(s, repoPath));
   const moveTask = useTodoStore((s) => s.moveTask);
   const reorderTasks = useTodoStore((s) => s.reorderTasks);
+  const updateTask = useTodoStore((s) => s.updateTask);
   const loadTasks = useTodoStore((s) => s.loadTasks);
   const enabledAgents = useEnabledAgents();
   const [selectedAutoExecuteAgentId, setSelectedAutoExecuteAgentId] = useState<string>(
@@ -359,6 +361,18 @@ export function KanbanBoard({ repoPath, worktreePath, onSwitchToAgent }: KanbanB
     setPlanPreviewOpen(true);
   }, [orchestrationPlan.canStart]);
 
+  const handleApproveTask = useCallback(
+    (taskId: string) => {
+      const task = tasks.find((candidate) => candidate.id === taskId);
+      if (!task) return;
+
+      updateTask(repoPath, taskId, {
+        context: buildApprovedTodoTaskContext(task.context, Date.now()),
+      });
+    },
+    [repoPath, tasks, updateTask]
+  );
+
   useEffect(() => {
     if (selectedAutoExecuteAgentId === AUTO_EXECUTE_AGENT_AUTO_VALUE) return;
     if (enabledAgents.some((agent) => agent.agentId === selectedAutoExecuteAgentId)) return;
@@ -521,6 +535,7 @@ export function KanbanBoard({ repoPath, worktreePath, onSwitchToAgent }: KanbanB
         {showExecutionSection && (
           <ExecutionControlPanel
             canReviewPlan={canReviewPlan}
+            onApproveTask={handleApproveTask}
             onRemoveQueuedTask={removeFromQueue}
             onReviewPlan={handleRequestAutoExecute}
             onSkipCurrentTask={skipCurrentTask}
@@ -612,6 +627,7 @@ export function KanbanBoard({ repoPath, worktreePath, onSwitchToAgent }: KanbanB
         defaultStatus={defaultStatus}
         repoPath={repoPath}
         worktreePath={worktreePath}
+        availableTasks={displayTasks}
       />
       <GenerateTasksDialog
         open={generateDialogOpen}

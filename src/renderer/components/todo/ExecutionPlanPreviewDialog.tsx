@@ -49,7 +49,9 @@ function TaskPlanRow({ indexLabel, taskPlan, tone = 'neutral' }: TaskPlanRowProp
         )}
       </div>
       <div className="flex max-w-32 shrink-0 flex-col items-end gap-1 text-right text-[10px]">
-        {taskPlan.agent ? (
+        {blockerLabel ? (
+          <span className="max-w-full truncate text-warning">{t(blockerLabel)}</span>
+        ) : taskPlan.agent ? (
           <>
             <span className="max-w-full truncate text-foreground">{taskPlan.agent.name}</span>
             <span className="max-w-full truncate text-muted-foreground">

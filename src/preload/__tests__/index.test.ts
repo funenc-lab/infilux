@@ -427,6 +427,10 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_APPLY, '/tmp/settings.json'],
       },
       {
+        run: () => api.todo.getAllProjects(),
+        expected: [IPC_CHANNELS.TODO_GET_ALL_PROJECTS],
+      },
+      {
         run: () =>
           api.todo.aiPolish({
             text: 'Draft',

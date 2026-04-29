@@ -4,6 +4,7 @@ import {
   Clock3,
   ListOrdered,
   Play,
+  ShieldCheck,
   SkipForward,
   Square,
   X,
@@ -16,6 +17,7 @@ import type { TodoOrchestrationPlan, TodoOrchestrationTaskPlan } from './todoOrc
 
 interface ExecutionControlPanelProps {
   canReviewPlan: boolean;
+  onApproveTask: (taskId: string) => void;
   onRemoveQueuedTask: (taskId: string) => void;
   onReviewPlan: () => void;
   onSkipCurrentTask: () => void;
@@ -82,7 +84,9 @@ function TaskPlanList({ action, emptyLabel, limit, plans, tone = 'neutral' }: Ta
               {taskPlan.task.title}
             </span>
             <span className="flex min-w-0 shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
-              {taskPlan.agent ? (
+              {taskPlan.blockers.length > 0 ? (
+                <span>{t(taskPlan.blockers[0] ?? taskPlan.assignmentReason)}</span>
+              ) : taskPlan.agent ? (
                 <span className="max-w-28 truncate">{taskPlan.agent.name}</span>
               ) : (
                 <span>{t(taskPlan.blockers[0] ?? taskPlan.assignmentReason)}</span>
@@ -103,6 +107,7 @@ function TaskPlanList({ action, emptyLabel, limit, plans, tone = 'neutral' }: Ta
 
 export function ExecutionControlPanel({
   canReviewPlan,
+  onApproveTask,
   onRemoveQueuedTask,
   onReviewPlan,
   onSkipCurrentTask,
@@ -245,6 +250,19 @@ export function ExecutionControlPanel({
                 </span>
               </div>
               <TaskPlanList
+                action={(taskPlan) =>
+                  taskPlan.approvalPending ? (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="h-5 gap-1 px-1.5 text-[10px]"
+                      onClick={() => onApproveTask(taskPlan.task.id)}
+                    >
+                      <ShieldCheck className="h-3 w-3" />
+                      {t('Approve')}
+                    </Button>
+                  ) : null
+                }
                 emptyLabel={
                   plan.blockers.length > 0
                     ? t(plan.blockers[0] ?? 'No ready tasks')

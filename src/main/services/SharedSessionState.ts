@@ -4,6 +4,7 @@ import { RUNTIME_STATE_DIRNAME, SESSION_STATE_FILENAME, SETTINGS_FILENAME } from
 import type {
   PersistentAgentSessionRecord,
   SessionStorageDocument,
+  SessionTodoProject,
   SessionTodoTask,
 } from '@shared/types';
 import { resolveAppRuntimeChannel } from '@shared/utils/runtimeIdentity';
@@ -241,12 +242,26 @@ export function updatePersistentAgentSessions(
 }
 
 export function readSharedTodoTasks(repoPath: string): SessionTodoTask[] {
-  return [...(readSharedSessionState().todos[repoPath] ?? [])].sort((a, b) => {
+  return sortTodoTasks(readSharedSessionState().todos[repoPath] ?? []);
+}
+
+function sortTodoTasks(tasks: readonly SessionTodoTask[]): SessionTodoTask[] {
+  return [...tasks].sort((a, b) => {
     if (a.status !== b.status) {
       return a.status.localeCompare(b.status);
     }
     return a.order - b.order;
   });
+}
+
+export function readSharedTodoProjects(): SessionTodoProject[] {
+  return Object.entries(readSharedSessionState().todos)
+    .map(([repoPath, tasks]) => ({
+      repoPath,
+      tasks: sortTodoTasks(tasks),
+    }))
+    .filter((project) => project.tasks.length > 0)
+    .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
 }
 
 export function writeSharedSettingsToSession(data: Record<string, unknown>): void {
