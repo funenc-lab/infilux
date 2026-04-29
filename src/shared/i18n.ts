@@ -1882,6 +1882,10 @@ export const zhTranslations: Record<string, string> = {
   'Save and switch detected provider profiles for supported Agent CLIs':
     '\u4fdd\u5b58\u5e76\u5207\u6362\u53d7\u652f\u6301 Agent CLI \u68c0\u6d4b\u5230\u7684 Provider \u914d\u7f6e',
   'No saved provider profiles': '\u6682\u65e0\u5df2\u4fdd\u5b58\u7684 Provider \u914d\u7f6e',
+  '{{count}} saved provider profiles':
+    '{{count}} \u4e2a\u5df2\u4fdd\u5b58\u7684 Provider \u914d\u7f6e',
+  '{{count}} switchable': '{{count}} \u4e2a\u53ef\u5207\u6362',
+  '{{count}} waiting for provider adapter': '{{count}} \u4e2a\u7b49\u5f85 provider adapter',
   'Approve task': '批准任务',
   'Review task': '查看任务',
   'Current config not saved': '当前配置未保存',

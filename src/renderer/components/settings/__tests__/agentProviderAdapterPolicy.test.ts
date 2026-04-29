@@ -73,6 +73,13 @@ describe('agent provider adapter policy', () => {
     expect(providerListSource).toContain('Provider profile already saved as {{name}}');
   });
 
+  it('surfaces saved provider capability status in the settings provider list', () => {
+    expect(providerListSource).toContain('buildAgentProviderProfileListSummary');
+    expect(providerListSource).toContain('{{count}} saved provider profiles');
+    expect(providerListSource).toContain('{{count}} switchable');
+    expect(providerListSource).toContain('{{count}} waiting for provider adapter');
+  });
+
   it('keeps the action panel free of direct Claude provider bridge calls', () => {
     expect(actionPanelSource).toContain('agentProviderProfileAdapter');
     expect(actionPanelSource).not.toContain('window.electronAPI.claudeProvider');

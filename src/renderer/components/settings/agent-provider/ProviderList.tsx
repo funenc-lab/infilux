@@ -29,12 +29,14 @@ import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
 import {
   agentProviderProfileAdapter,
+  agentProviderProfileRegistry,
   getAgentProviderProfileAdapter,
 } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { ProviderDialog } from './ProviderDialog';
+import { buildAgentProviderProfileListSummary } from './providerListModel';
 
 interface ProviderListProps {
   className?: string;
@@ -198,6 +200,17 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   const shouldPoll = useShouldPoll();
   const enableProviderDisableFeature = useSettingsStore(
     (s) => s.agentIntegration.enableProviderDisableFeature
+  );
+  const providerCapabilitySummary = React.useMemo(
+    () =>
+      buildAgentProviderProfileListSummary(
+        providers,
+        agentProviderProfileRegistry.map((adapter) => ({
+          providerId: adapter.providerId,
+          supportsProfiles: adapter.supportsProfiles,
+        }))
+      ),
+    [providers]
   );
 
   const setAgentProviderEnabled = useSettingsStore((s) => s.setAgentProviderEnabled);
@@ -440,6 +453,28 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
           </div>
         )}
       </div>
+
+      {providers.length > 0 && (
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="rounded-md border border-border/60 px-2 py-1">
+            {t('{{count}} saved provider profiles', {
+              count: providerCapabilitySummary.savedCount,
+            })}
+          </span>
+          <span className="rounded-md border border-border/60 px-2 py-1">
+            {t('{{count}} switchable', {
+              count: providerCapabilitySummary.switchableCount,
+            })}
+          </span>
+          {providerCapabilitySummary.waitingForAdapterCount > 0 && (
+            <span className="rounded-md border border-warning/30 bg-warning/8 px-2 py-1 text-warning">
+              {t('{{count}} waiting for provider adapter', {
+                count: providerCapabilitySummary.waitingForAdapterCount,
+              })}
+            </span>
+          )}
+        </div>
+      )}
 
       {providers.length > 0 ? (
         <Reorder.Group
