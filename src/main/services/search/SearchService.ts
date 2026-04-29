@@ -174,10 +174,15 @@ async function getAllFilesWithFilesystemFallback(rootPath: string): Promise<File
 
 async function getAllFilesWithRipgrepBinary(
   binaryPath: string,
-  rootPath: string
+  rootPath: string,
+  useGitignore: boolean
 ): Promise<RipgrepFilesResult> {
   return new Promise((resolve) => {
-    const args = ['--files', ...EXCLUDE_GLOBS.flatMap((g) => ['--glob', g]), rootPath];
+    const args = ['--files'];
+    if (!useGitignore) {
+      args.push('--no-ignore');
+    }
+    args.push(...EXCLUDE_GLOBS.flatMap((g) => ['--glob', g]), rootPath);
 
     const files: FileEntry[] = [];
     let buffer = '';
@@ -236,7 +241,7 @@ async function getAllFilesWithRipgrepBinary(
   });
 }
 
-async function getAllFiles(rootPath: string): Promise<FileEntry[]> {
+async function getAllFiles(rootPath: string, useGitignore: boolean): Promise<FileEntry[]> {
   const candidates = preferredRipgrepCandidate
     ? [
         preferredRipgrepCandidate,
@@ -245,7 +250,7 @@ async function getAllFiles(rootPath: string): Promise<FileEntry[]> {
     : ripgrepCandidates;
 
   for (const candidate of candidates) {
-    const result = await getAllFilesWithRipgrepBinary(candidate, rootPath);
+    const result = await getAllFilesWithRipgrepBinary(candidate, rootPath, useGitignore);
     if (!result.retryable) {
       return result.files;
     }
@@ -256,9 +261,15 @@ async function getAllFiles(rootPath: string): Promise<FileEntry[]> {
 
 export class SearchService {
   async searchFiles(params: FileSearchParams): Promise<FileSearchResult[]> {
-    const { rootPath, query, maxResults = MAX_FILE_RESULTS, includeDirectories = false } = params;
+    const {
+      rootPath,
+      query,
+      maxResults = MAX_FILE_RESULTS,
+      includeDirectories = false,
+      useGitignore = true,
+    } = params;
 
-    const allFiles = await getAllFiles(rootPath);
+    const allFiles = await getAllFiles(rootPath, useGitignore);
     const searchableEntries: FileSearchResult[] = includeDirectories
       ? [
           ...allFiles.map((file) => ({ ...file, kind: 'file' as const, score: 0 })),
@@ -415,6 +426,9 @@ export class SearchService {
           }
         }
 
+        const error =
+          code === 2 && stderr && totalMatches === 0 ? 'Invalid search expression' : undefined;
+
         if (code === 2 && stderr) {
           console.error('[SearchService] ripgrep error:', stderr);
         }
@@ -424,6 +438,7 @@ export class SearchService {
           totalMatches,
           totalFiles: fileSet.size,
           truncated,
+          ...(error ? { error } : {}),
         });
       });
 

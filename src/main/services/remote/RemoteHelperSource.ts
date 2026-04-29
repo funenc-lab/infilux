@@ -260,6 +260,7 @@ function execCommand(command, args, options = {}) {
       Number.isFinite(options.outputLimit) && options.outputLimit > 0
         ? options.outputLimit
         : EXEC_COMMAND_OUTPUT_LIMIT_CHARS;
+    const allowedExitCodes = Array.isArray(options.allowedExitCodes) ? options.allowedExitCodes : [0];
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: { ...process.env, ...(options.env || {}) },
@@ -301,8 +302,8 @@ function execCommand(command, args, options = {}) {
       }
       settled = true;
       clearTimeout(timer);
-      if (code === 0) {
-        resolve({ stdout, stderr });
+      if (allowedExitCodes.includes(code)) {
+        resolve({ stdout, stderr, code });
       } else {
         reject(new Error(stderr.trim() || stdout.trim() || (command + ' exited with code ' + code)));
       }
@@ -1557,10 +1558,10 @@ function deriveSearchDirectories(rootPath, relativePaths) {
   return Array.from(directories.values());
 }
 
-async function searchFiles(rootPath, query, maxResults = 100, includeDirectories = false) {
-  const { stdout } = await execCommand('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
-    cwd: rootPath,
-  });
+async function searchFiles(rootPath, query, maxResults = 100, includeDirectories = false, useGitignore = true) {
+  const args = ['ls-files', '--cached', '--others'];
+  if (useGitignore) args.push('--exclude-standard');
+  const { stdout } = await execCommand('git', args, { cwd: rootPath });
   const relativePaths = stdout
     .split('\n')
     .map((item) => item.trim())
@@ -1600,7 +1601,10 @@ async function searchContent(
   if (filePattern) args.push('--glob', filePattern);
   if (!useGitignore) args.push('--no-ignore');
   args.push(query, '.');
-  const { stdout } = await execCommand('rg', args, { cwd: rootPath });
+  const { stdout, code } = await execCommand('rg', args, {
+    cwd: rootPath,
+    allowedExitCodes: [0, 1, 2],
+  });
   const matches = stdout
     .split('\n')
     .map((line) => line.trim())
@@ -1619,11 +1623,13 @@ async function searchContent(
       };
     })
     .filter(Boolean);
+  const limitedMatches = matches.slice(0, maxResults);
   return {
-    matches,
+    matches: limitedMatches,
     totalMatches: matches.length,
     totalFiles: new Set(matches.map((item) => item.path)).size,
-    truncated: false,
+    truncated: matches.length > limitedMatches.length,
+    error: code === 2 && matches.length === 0 ? 'Invalid search expression' : undefined,
   };
 }
 
@@ -3347,8 +3353,8 @@ const handlers = {
   'worktree:abortMerge': ({ rootPath }) => worktreeAbortMerge(rootPath),
   'worktree:continueMerge': ({ rootPath, message, cleanupOptions }) =>
     worktreeContinueMerge(rootPath, message, cleanupOptions),
-  'search:files': ({ rootPath, query, maxResults, includeDirectories }) =>
-    searchFiles(rootPath, query, maxResults, includeDirectories),
+  'search:files': ({ rootPath, query, maxResults, includeDirectories, useGitignore }) =>
+    searchFiles(rootPath, query, maxResults, includeDirectories, useGitignore),
   'search:content': ({
     rootPath,
     query,

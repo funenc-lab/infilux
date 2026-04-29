@@ -7,6 +7,7 @@ import type {
   FileDiff,
   FileEntry,
   FileReadResult,
+  FileSearchParams,
   FileSearchResult,
   GitBranch,
   GitLogEntry,
@@ -511,12 +512,8 @@ export class RemoteRepositoryBackend {
     );
   }
 
-  async searchFiles(
-    rootPath: string,
-    query: string,
-    maxResults?: number,
-    includeDirectories?: boolean
-  ): Promise<FileSearchResult[]> {
+  async searchFiles(params: FileSearchParams): Promise<FileSearchResult[]> {
+    const { rootPath, query, maxResults, includeDirectories, useGitignore } = params;
     const { connectionId, remotePath } = toRemotePath(rootPath);
     const entries = await remoteConnectionManager.call<FileSearchResult[]>(
       connectionId,
@@ -526,6 +523,7 @@ export class RemoteRepositoryBackend {
         query,
         maxResults,
         includeDirectories,
+        useGitignore,
       }
     );
     return entries.map((entry) => ({

@@ -19,6 +19,7 @@ export interface GlobalSearchState {
   contentResults: ContentSearchResult | null;
   selectedIndex: number;
   isLoading: boolean;
+  error: string | null;
 }
 
 const DEFAULT_OPTIONS: SearchOptions = {
@@ -38,10 +39,12 @@ export function useGlobalSearch(rootPath: string | undefined) {
     contentResults: null,
     selectedIndex: 0,
     isLoading: false,
+    error: null,
   });
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const requestIdRef = useRef(0);
 
   // Keep refs to latest state values for use in debounced callbacks
   const stateRef = useRef(state);
@@ -50,23 +53,33 @@ export function useGlobalSearch(rootPath: string | undefined) {
   const search = useCallback(
     async (query: string, mode: SearchMode, options: SearchOptions) => {
       if (!rootPath || !query.trim()) {
+        requestIdRef.current += 1;
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
         setState((prev) => ({
           ...prev,
           fileResults: [],
           contentResults: null,
           selectedIndex: 0,
           isLoading: false,
+          error: null,
         }));
         return;
       }
 
-      // Cancel previous request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      abortControllerRef.current = new AbortController();
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
 
-      setState((prev) => ({ ...prev, isLoading: true }));
+      const isCurrentRequest = () =>
+        requestIdRef.current === requestId && !abortController.signal.aborted;
+
+      setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
       try {
         if (mode === 'files') {
@@ -76,12 +89,16 @@ export function useGlobalSearch(rootPath: string | undefined) {
             maxResults: 100,
             useGitignore: options.useGitignore,
           });
+          if (!isCurrentRequest()) {
+            return;
+          }
           setState((prev) => ({
             ...prev,
             fileResults: results,
             contentResults: null,
             selectedIndex: 0,
             isLoading: false,
+            error: null,
           }));
         } else {
           const results = await window.electronAPI.search.content({
@@ -94,16 +111,23 @@ export function useGlobalSearch(rootPath: string | undefined) {
             filePattern: options.filePattern || undefined,
             useGitignore: options.useGitignore,
           });
+          if (!isCurrentRequest()) {
+            return;
+          }
           setState((prev) => ({
             ...prev,
             fileResults: [],
             contentResults: results,
             selectedIndex: 0,
             isLoading: false,
+            error: results.error ?? null,
           }));
         }
       } catch {
-        setState((prev) => ({ ...prev, isLoading: false }));
+        if (!isCurrentRequest()) {
+          return;
+        }
+        setState((prev) => ({ ...prev, isLoading: false, error: 'Search failed' }));
       }
     },
     [rootPath]
@@ -173,6 +197,7 @@ export function useGlobalSearch(rootPath: string | undefined) {
   }, [state.mode, state.fileResults, state.contentResults, state.selectedIndex]);
 
   const reset = useCallback(() => {
+    requestIdRef.current += 1;
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
@@ -187,6 +212,7 @@ export function useGlobalSearch(rootPath: string | undefined) {
       contentResults: null,
       selectedIndex: 0,
       isLoading: false,
+      error: null,
     });
   }, []);
 
@@ -199,6 +225,7 @@ export function useGlobalSearch(rootPath: string | undefined) {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      requestIdRef.current += 1;
     };
   }, []);
 

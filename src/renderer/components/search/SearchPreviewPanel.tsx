@@ -90,18 +90,33 @@ export function SearchPreviewPanel({ path, line, query }: SearchPreviewPanelProp
       return;
     }
 
+    let cancelled = false;
     setIsLoading(true);
+    setContent(null);
     window.electronAPI.file
       .read(path)
       .then(({ content }) => {
+        if (cancelled) {
+          return;
+        }
         setContent(content);
       })
       .catch(() => {
+        if (cancelled) {
+          return;
+        }
         setContent(null);
       })
       .finally(() => {
+        if (cancelled) {
+          return;
+        }
         setIsLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [path]);
 
   // Apply highlights to editor

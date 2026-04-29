@@ -202,6 +202,36 @@ describe('SearchService', () => {
     );
   });
 
+  it('passes --no-ignore to ripgrep file listing when gitignore filtering is disabled', async () => {
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const promise = service.searchFiles({
+      rootPath: '/repo',
+      query: 'generated',
+      maxResults: 5,
+      useGitignore: false,
+    });
+
+    const proc = searchServiceTestDoubles.processes[0];
+    if (!proc) {
+      throw new Error('Missing file search process');
+    }
+    proc.stdout.emit('data', '/repo/generated/output.ts\n');
+    proc.emit('close', 0);
+
+    await expect(promise).resolves.toEqual([
+      expect.objectContaining({
+        path: '/repo/generated/output.ts',
+        relativePath: 'generated/output.ts',
+      }),
+    ]);
+    expect(searchServiceTestDoubles.spawn).toHaveBeenCalledWith(
+      '/mock/node_modules/@vscode/ripgrep/bin/rg',
+      expect.arrayContaining(['--files', '--no-ignore', '/repo'])
+    );
+  });
+
   it('parses ripgrep JSON content matches and respects truncation', async () => {
     const { SearchService } = await import('../SearchService');
     const service = new SearchService();
@@ -331,6 +361,34 @@ describe('SearchService', () => {
     });
 
     expect(errorSpy).toHaveBeenCalledWith('[SearchService] ripgrep error:', 'rg syntax warning');
+  });
+
+  it('returns an error payload for invalid ripgrep content queries', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const promise = service.searchContent({
+      rootPath: '/repo',
+      query: '[',
+      regex: true,
+    });
+
+    const proc = searchServiceTestDoubles.processes[0];
+    if (!proc) {
+      throw new Error('Missing invalid regex search process');
+    }
+    proc.stderr.emit('data', 'regex parse error');
+    proc.emit('close', 2);
+
+    await expect(promise).resolves.toEqual({
+      matches: [],
+      totalMatches: 0,
+      totalFiles: 0,
+      truncated: false,
+      error: 'Invalid search expression',
+    });
+    expect(errorSpy).toHaveBeenCalledWith('[SearchService] ripgrep error:', 'regex parse error');
   });
 
   it('returns empty content results on spawn error and kills timed out searches', async () => {

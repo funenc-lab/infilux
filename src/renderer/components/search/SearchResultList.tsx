@@ -16,6 +16,7 @@ interface SearchResultListProps {
   onSelect: (index: number) => void;
   onOpen: (item: FileSearchResult | ContentSearchMatch) => void;
   query: string;
+  error?: string | null;
 }
 
 const SEARCH_RESULT_OPTION_CLASS_NAME =
@@ -79,6 +80,7 @@ export function SearchResultList({
   onSelect,
   onOpen,
   query,
+  error,
 }: SearchResultListProps) {
   const { t } = useI18n();
   const editorSettings = useSettingsStore(useShallow((s) => s.editorSettings));
@@ -104,6 +106,14 @@ export function SearchResultList({
     },
     [onOpen]
   );
+
+  if (error) {
+    return (
+      <div className="flex h-full items-center justify-center px-4 text-center text-sm text-destructive">
+        {t('Error')}: {error}
+      </div>
+    );
+  }
 
   if (mode === 'files') {
     if (fileResults.length === 0) {

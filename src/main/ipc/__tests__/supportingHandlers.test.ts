@@ -451,6 +451,7 @@ describe('supporting IPC handlers', () => {
           query: 'abc',
           maxResults: 5,
           includeDirectories: true,
+          useGitignore: false,
         }
       )
     ).toEqual([{ path: 'remote.ts' }]);
@@ -471,12 +472,13 @@ describe('supporting IPC handlers', () => {
       maxResults: 5,
       includeDirectories: true,
     });
-    expect(handlerTestDoubles.remoteSearchFiles).toHaveBeenCalledWith(
-      '/__remote__/repo',
-      'abc',
-      5,
-      true
-    );
+    expect(handlerTestDoubles.remoteSearchFiles).toHaveBeenCalledWith({
+      rootPath: '/__remote__/repo',
+      query: 'abc',
+      maxResults: 5,
+      includeDirectories: true,
+      useGitignore: false,
+    });
     expect(handlerTestDoubles.remoteSearchContent).toHaveBeenCalledWith({
       rootPath: '/__remote__/repo',
       query: 'needle',

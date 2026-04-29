@@ -29,4 +29,23 @@ describe('getRemoteServerSource', () => {
       "typeof serverName === 'string' && serverName.length > 0 ? serverName : 'enso';"
     );
   });
+
+  it('keeps remote search behavior aligned with the shared search contract', () => {
+    const source = getRemoteServerSource(buildAppRuntimeIdentity('test'));
+
+    expect(source).toContain(
+      'async function searchFiles(rootPath, query, maxResults = 100, includeDirectories = false, useGitignore = true)'
+    );
+    expect(source).toContain("if (useGitignore) args.push('--exclude-standard');");
+    expect(source).toContain("if (!useGitignore) args.push('--no-ignore');");
+    expect(source).toContain('allowedExitCodes: [0, 1, 2]');
+    expect(source).toContain(
+      "error: code === 2 && matches.length === 0 ? 'Invalid search expression' : undefined"
+    );
+    expect(source).toContain('const limitedMatches = matches.slice(0, maxResults);');
+    expect(source).toContain('truncated: matches.length > limitedMatches.length');
+    expect(source).toContain(
+      "'search:files': ({ rootPath, query, maxResults, includeDirectories, useGitignore }) =>"
+    );
+  });
 });

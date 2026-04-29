@@ -43,4 +43,5 @@ export interface ContentSearchResult {
   totalMatches: number;
   totalFiles: number;
   truncated: boolean;
+  error?: string;
 }

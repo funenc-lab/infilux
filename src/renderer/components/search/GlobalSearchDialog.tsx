@@ -58,6 +58,7 @@ export function GlobalSearchDialog({
     contentResults,
     selectedIndex,
     isLoading,
+    error,
     setQuery,
     setMode,
     setOptions,
@@ -325,6 +326,7 @@ export function GlobalSearchDialog({
                   onSelect={setSelectedIndex}
                   onOpen={handleItemSelect}
                   query={query}
+                  error={error}
                 />
               </div>
 
