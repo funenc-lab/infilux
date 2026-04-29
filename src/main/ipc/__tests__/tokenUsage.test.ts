@@ -60,6 +60,7 @@ describe('token usage IPC handlers', () => {
     const request = {
       projectPaths: ['/repo/app'],
       includeSessions: true,
+      forceRefresh: true,
     };
 
     const handler = getHandler(IPC_CHANNELS.TOKEN_USAGE_PROJECTS_GET);

@@ -589,6 +589,14 @@ describe('preload bridge', () => {
         run: () => api.tokenUsage.getProjectUsage({ projectPaths: ['/repo/app'] }),
         expected: [IPC_CHANNELS.TOKEN_USAGE_PROJECTS_GET, { projectPaths: ['/repo/app'] }],
       },
+      {
+        run: () =>
+          api.tokenUsage.getProjectUsage({ projectPaths: ['/repo/app'], forceRefresh: true }),
+        expected: [
+          IPC_CHANNELS.TOKEN_USAGE_PROJECTS_GET,
+          { projectPaths: ['/repo/app'], forceRefresh: true },
+        ],
+      },
       { run: () => api.log.getPath(), expected: [IPC_CHANNELS.LOG_GET_PATH] },
     ];
 

@@ -16,8 +16,15 @@ export function ProjectTokenUsageSummary({
   loading,
   snapshot,
 }: ProjectTokenUsageSummaryProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const model = useMemo(() => buildProjectTokenUsageSummaryModel(snapshot), [snapshot]);
+  const freshnessTime = model.freshness
+    ? new Intl.DateTimeFormat(locale, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }).format(new Date(model.freshness.generatedAt))
+    : null;
 
   if (loading && !snapshot) {
     return null;
@@ -39,18 +46,50 @@ export function ProjectTokenUsageSummary({
               {model.providerIssueCountLabel}
             </span>
           </div>
+          {model.freshness && freshnessTime ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2 pt-1">
+              <span
+                className={cn(
+                  'control-chip',
+                  model.freshness.tone === 'fresh' &&
+                    'border-primary/32 bg-primary/8 text-foreground',
+                  model.freshness.tone === 'cached' &&
+                    'border-border/56 bg-[color:color-mix(in_oklch,var(--control-surface)_54%,transparent)] text-muted-foreground',
+                  model.freshness.tone === 'refreshing' &&
+                    'border-warning/36 bg-warning/10 text-warning-foreground'
+                )}
+              >
+                {t(model.freshness.statusLabel)}
+              </span>
+              <span className="ui-type-meta min-w-0 text-muted-foreground/72">
+                {t('Updated {{time}}', { time: freshnessTime })}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
 
       {model.hasUsage ? (
-        <dl className="mt-4 grid gap-y-3 border-y border-border/55 py-3 sm:grid-cols-4 sm:divide-x sm:divide-border/45">
-          {model.summaryMetrics.map((metric) => (
-            <div key={metric.key} className="min-w-0 sm:px-3 sm:first:pl-0 sm:last:pr-0">
-              <dt className="ui-type-meta text-muted-foreground/64">{t(metric.label)}</dt>
-              <dd className="ui-type-block-title mt-1 truncate text-foreground">{metric.value}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="mt-4 grid gap-3 border-y border-border/55 py-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+          <dl className="grid gap-3 sm:grid-cols-2">
+            {model.primaryMetrics.map((metric) => (
+              <div key={metric.key} className="min-w-0">
+                <dt className="ui-type-meta text-muted-foreground/64">{t(metric.label)}</dt>
+                <dd className="ui-type-block-title mt-1 truncate text-foreground">
+                  {metric.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <dl className="grid gap-2 sm:grid-cols-3 lg:border-s lg:border-border/45 lg:ps-3">
+            {model.secondaryMetrics.map((metric) => (
+              <div key={metric.key} className="min-w-0">
+                <dt className="ui-type-meta text-muted-foreground/60">{t(metric.label)}</dt>
+                <dd className="ui-type-meta mt-1 truncate text-foreground">{metric.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       ) : null}
 
       {errorMessage ? (
@@ -60,13 +99,17 @@ export function ProjectTokenUsageSummary({
         </div>
       ) : null}
 
-      {!loading && !errorMessage && model.projects.length === 0 ? (
-        <div className="ui-type-meta mt-4 rounded-md border border-border/45 bg-[color:color-mix(in_oklch,var(--control-surface)_50%,transparent)] px-3 py-2 text-muted-foreground/78">
-          {t('No token usage has been recorded for tracked providers.')}
+      {!loading && !errorMessage && model.emptyState ? (
+        <div className="mt-4 rounded-lg border border-border/45 bg-[color:color-mix(in_oklch,var(--control-surface)_50%,transparent)] px-3 py-3">
+          <div className="ui-type-block-title text-foreground">{t(model.emptyState.title)}</div>
+          <p className="ui-type-meta mt-1 text-muted-foreground/78">
+            {t(model.emptyState.description)}
+          </p>
+          <p className="ui-type-meta mt-1 text-muted-foreground/68">{t(model.emptyState.detail)}</p>
         </div>
       ) : null}
 
-      {model.projects.length > 0 ? (
+      {model.hasUsage && model.projects.length > 0 ? (
         <div className="mt-5 space-y-3.5">
           <div className="flex items-center gap-3">
             <div className="ui-type-label text-muted-foreground/72">{t('Tracked Projects')}</div>
@@ -102,23 +145,47 @@ export function ProjectTokenUsageSummary({
                   </div>
                 </div>
 
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[color:color-mix(in_oklch,var(--border)_46%,transparent)]">
+                <div
+                  className="mt-3 h-1.5 overflow-hidden rounded-full bg-[color:color-mix(in_oklch,var(--border)_46%,transparent)]"
+                  role="meter"
+                  aria-label={t('Project usage share')}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={project.sharePercent}
+                >
                   <div
                     className="h-full rounded-full bg-[color:color-mix(in_oklch,var(--primary)_64%,var(--support)_36%)]"
                     style={{ width: project.shareWidth }}
                   />
                 </div>
 
-                <dl className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-4">
-                  {project.tokenMetrics.map((metric) => (
-                    <div key={metric.key} className="min-w-0">
-                      <dt className="ui-type-meta text-muted-foreground/60">{t(metric.label)}</dt>
-                      <dd className="ui-type-block-title mt-0.5 truncate text-foreground">
-                        {metric.value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+                <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+                  <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+                    {project.primaryTokenMetrics.map((metric) => (
+                      <div key={metric.key} className="min-w-0">
+                        <dt className="ui-type-meta text-muted-foreground/60">{t(metric.label)}</dt>
+                        <dd className="ui-type-block-title mt-0.5 truncate text-foreground">
+                          {metric.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <dl className="grid gap-2 sm:grid-cols-3">
+                    {project.secondaryTokenMetrics.map((metric) => (
+                      <div
+                        key={metric.key}
+                        className="min-w-0 rounded-md border border-border/42 bg-[color:color-mix(in_oklch,var(--control-surface)_44%,transparent)] px-2 py-1.5"
+                      >
+                        <dt className="ui-type-meta truncate text-muted-foreground/58">
+                          {t(metric.label)}
+                        </dt>
+                        <dd className="ui-type-meta mt-0.5 truncate text-foreground">
+                          {metric.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
               </article>
             ))}
           </div>
@@ -132,19 +199,27 @@ export function ProjectTokenUsageSummary({
             <div className="h-px flex-1 bg-border/50" />
             <span className="control-chip">{model.providerIssueCountLabel}</span>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid gap-2">
             {model.providerStatuses.map((status) => (
-              <span
+              <div
                 key={status.key}
                 className={cn(
-                  'control-chip',
+                  'rounded-md border border-border/45 bg-[color:color-mix(in_oklch,var(--control-surface)_44%,transparent)] px-3 py-2',
                   status.tone === 'warning' &&
                     'border-warning/36 bg-warning/10 text-warning-foreground',
                   status.tone === 'destructive' &&
                     'border-destructive/34 bg-destructive/8 text-destructive'
                 )}
-                title={status.reason}
-              >{`${status.label}: ${status.statusLabel}`}</span>
+              >
+                <div className="ui-type-block-title min-w-0 break-words">
+                  {status.label}: {t(status.statusLabel)}
+                </div>
+                {status.reason ? (
+                  <p className="ui-type-meta mt-1 min-w-0 break-words text-muted-foreground/72">
+                    {t(status.reason)}
+                  </p>
+                ) : null}
+              </div>
             ))}
           </div>
         </div>

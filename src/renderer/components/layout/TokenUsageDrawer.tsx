@@ -1,4 +1,5 @@
 import type { AppResourceSnapshot, ProjectTokenUsageSnapshot } from '@shared/types';
+import { createProjectTokenUsageRequestKey } from '@shared/utils/tokenUsage';
 import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,10 @@ interface TokenUsageDrawerProps {
   open: boolean;
 }
 
+interface LoadTokenUsageOptions {
+  forceRefresh?: boolean;
+}
+
 function TokenUsageLoadingState() {
   const { t } = useI18n();
   const loadingLabel = t('Scanning token usage...');
@@ -31,7 +36,8 @@ function TokenUsageLoadingState() {
           <Skeleton className="h-3 w-28" />
           <Skeleton className="h-7 w-44 rounded-md" />
         </div>
-        <div className="grid gap-2 sm:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <Skeleton className="h-12 rounded-md" />
           <Skeleton className="h-12 rounded-md" />
           <Skeleton className="h-12 rounded-md" />
           <Skeleton className="h-12 rounded-md" />
@@ -44,7 +50,8 @@ function TokenUsageLoadingState() {
           <Skeleton className="h-4 w-2/5 rounded-md" />
           <Skeleton className="h-3 w-3/4" />
           <Skeleton className="h-2 w-full rounded-full" />
-          <div className="grid gap-2 sm:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <Skeleton className="h-9 rounded-md" />
             <Skeleton className="h-9 rounded-md" />
             <Skeleton className="h-9 rounded-md" />
             <Skeleton className="h-9 rounded-md" />
@@ -69,50 +76,59 @@ export function TokenUsageDrawer({ open }: TokenUsageDrawerProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const requestSequenceRef = useRef(0);
   const inFlightLoadRef = useRef<Promise<void> | null>(null);
+  const currentRequestKeyRef = useRef<string | null>(null);
 
-  const loadTokenUsage = useCallback(async () => {
-    if (inFlightLoadRef.current) {
-      return inFlightLoadRef.current;
-    }
-
-    const requestId = requestSequenceRef.current + 1;
-    requestSequenceRef.current = requestId;
-    setLoading(true);
-    setErrorMessage(null);
-
-    const loadPromise = (async () => {
-      let resourceSnapshot: AppResourceSnapshot | null = null;
-
-      try {
-        resourceSnapshot = await window.electronAPI.app.getResourceSnapshot();
-      } catch {
-        resourceSnapshot = null;
+  const loadTokenUsage = useCallback(
+    async (options: LoadTokenUsageOptions = {}) => {
+      if (inFlightLoadRef.current) {
+        return inFlightLoadRef.current;
       }
 
-      try {
-        const nextSnapshot = await window.electronAPI.tokenUsage.getProjectUsage(
-          buildProjectTokenUsageRequest(resourceSnapshot)
-        );
-        if (requestSequenceRef.current !== requestId) {
-          return;
-        }
-        setSnapshot(nextSnapshot);
-      } catch (error) {
-        if (requestSequenceRef.current !== requestId) {
-          return;
-        }
-        setErrorMessage(error instanceof Error ? error.message : t('Unable to load token usage.'));
-      } finally {
-        if (requestSequenceRef.current === requestId) {
-          setLoading(false);
-        }
-        inFlightLoadRef.current = null;
-      }
-    })();
+      const requestId = requestSequenceRef.current + 1;
+      requestSequenceRef.current = requestId;
+      setLoading(true);
+      setErrorMessage(null);
 
-    inFlightLoadRef.current = loadPromise;
-    return loadPromise;
-  }, [t]);
+      const loadPromise = (async () => {
+        let resourceSnapshot: AppResourceSnapshot | null = null;
+
+        try {
+          resourceSnapshot = await window.electronAPI.app.getResourceSnapshot();
+        } catch {
+          resourceSnapshot = null;
+        }
+
+        try {
+          const usageRequest = buildProjectTokenUsageRequest(resourceSnapshot);
+          currentRequestKeyRef.current = createProjectTokenUsageRequestKey(usageRequest);
+          const nextSnapshot = await window.electronAPI.tokenUsage.getProjectUsage({
+            ...usageRequest,
+            ...(options.forceRefresh ? { forceRefresh: true } : {}),
+          });
+          if (requestSequenceRef.current !== requestId) {
+            return;
+          }
+          setSnapshot(nextSnapshot);
+        } catch (error) {
+          if (requestSequenceRef.current !== requestId) {
+            return;
+          }
+          setErrorMessage(
+            error instanceof Error ? error.message : t('Unable to load token usage.')
+          );
+        } finally {
+          if (requestSequenceRef.current === requestId) {
+            setLoading(false);
+          }
+          inFlightLoadRef.current = null;
+        }
+      })();
+
+      inFlightLoadRef.current = loadPromise;
+      return loadPromise;
+    },
+    [t]
+  );
 
   useEffect(() => {
     if (!open) {
@@ -121,6 +137,22 @@ export function TokenUsageDrawer({ open }: TokenUsageDrawerProps) {
 
     void loadTokenUsage();
   }, [loadTokenUsage, open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    return window.electronAPI.tokenUsage.onProjectUsageUpdated((event) => {
+      if (createProjectTokenUsageRequestKey(event.request) !== currentRequestKeyRef.current) {
+        return;
+      }
+
+      setSnapshot(event.snapshot);
+      setErrorMessage(null);
+      setLoading(false);
+    });
+  }, [open]);
 
   const initialLoading = loading && !snapshot;
   const refreshLabel = loading ? t('Refreshing') : t('Refresh');
@@ -147,7 +179,7 @@ export function TokenUsageDrawer({ open }: TokenUsageDrawerProps) {
               variant="ghost"
               size="sm"
               className="h-8 shrink-0 gap-2 rounded-md px-2.5 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => void loadTokenUsage()}
+              onClick={() => void loadTokenUsage({ forceRefresh: true })}
               aria-label={refreshDescription}
               title={refreshDescription}
               disabled={loading}

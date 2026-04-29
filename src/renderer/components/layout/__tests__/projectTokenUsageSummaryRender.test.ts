@@ -34,12 +34,20 @@ describe('ProjectTokenUsageSummary render', () => {
   it('renders summary metrics, project share, and provider coverage as separate sections', () => {
     const snapshot: ProjectTokenUsageSnapshot = {
       generatedAt: 1,
+      freshness: {
+        source: 'scan',
+        cachedAt: 1,
+        cacheTtlMs: 60_000,
+        isStale: false,
+        backgroundRefresh: false,
+      },
       providerStatuses: [
         {
           providerId: 'gemini-cli',
           agentFamily: 'gemini',
           label: 'Gemini CLI',
           status: 'unsupported',
+          reason: 'No stable token usage log was found for this provider.',
         },
       ],
       projects: [
@@ -70,17 +78,59 @@ describe('ProjectTokenUsageSummary render', () => {
     );
 
     expect(markup).toContain('Project Totals');
+    expect(markup).toContain('Fresh scan');
+    expect(markup).toContain('Updated');
     expect(markup).toContain('Tracked Projects');
     expect(markup).toContain('Provider Coverage');
     expect(markup).toContain('Input tokens');
     expect(markup).toContain('Output tokens');
-    expect(markup).toContain('Cache tokens');
+    expect(markup).toContain('Prompt cache tokens');
+    expect(markup).toContain('Cached input tokens');
     expect(markup).toContain('Reasoning tokens');
     expect(markup).toContain('1.0K');
     expect(markup).toContain('100%');
     expect(markup).toContain('900');
     expect(markup).toContain('100');
     expect(markup).toContain('Gemini CLI: Unsupported');
+    expect(markup).toContain('No stable token usage log was found for this provider.');
     expect(markup).not.toContain('Refresh token usage');
+  });
+
+  it('renders diagnostic empty state copy when no usage is recorded', () => {
+    const snapshot: ProjectTokenUsageSnapshot = {
+      generatedAt: 1,
+      freshness: {
+        source: 'cache',
+        cachedAt: 1,
+        cacheTtlMs: 60_000,
+        isStale: true,
+        backgroundRefresh: true,
+      },
+      providerStatuses: [
+        {
+          providerId: 'codex-cli',
+          agentFamily: 'codex',
+          label: 'Codex CLI',
+          status: 'not-found',
+          reason: 'Codex usage log directory was not found.',
+        },
+      ],
+      projects: [],
+    };
+
+    const markup = renderToStaticMarkup(
+      React.createElement(ProjectTokenUsageSummary, {
+        snapshot,
+        loading: false,
+        errorMessage: null,
+      })
+    );
+
+    expect(markup).toContain('Refreshing cached data');
+    expect(markup).toContain('No token usage recorded');
+    expect(markup).toContain('No token usage has been recorded for tracked providers.');
+    expect(markup).toContain('Open or refresh a supported agent session to populate this scope.');
+    expect(markup).toContain('Codex CLI: No data');
+    expect(markup).toContain('Codex usage log directory was not found.');
   });
 });

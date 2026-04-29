@@ -46,8 +46,7 @@ export function buildTokenUsageCounts(input: Partial<TokenUsageCounts>): TokenUs
       counts.inputTokens +
       counts.outputTokens +
       counts.cacheCreationInputTokens +
-      counts.cacheReadInputTokens +
-      counts.reasoningOutputTokens;
+      counts.cacheReadInputTokens;
   }
 
   return counts;
@@ -86,6 +85,31 @@ function isSameOrChildPath(candidatePath: string, projectPath: string): boolean 
   return candidate === project || candidate.startsWith(`${project}/`);
 }
 
+function findMostSpecificMatchingProjectPath(
+  session: TokenUsageSessionSummary,
+  projectPaths: string[] | undefined
+): string | undefined {
+  if (!projectPaths?.length) {
+    return undefined;
+  }
+
+  let matchedProject: string | undefined;
+  for (const projectPath of projectPaths) {
+    const matchesProject =
+      isSameOrChildPath(session.projectPath, projectPath) ||
+      isSameOrChildPath(session.cwd, projectPath);
+    if (!matchesProject) {
+      continue;
+    }
+
+    if (!matchedProject || projectPath.length > matchedProject.length) {
+      matchedProject = projectPath;
+    }
+  }
+
+  return matchedProject;
+}
+
 function resolveProjectPath(
   session: TokenUsageSessionSummary,
   projectPaths: string[] | undefined
@@ -94,11 +118,7 @@ function resolveProjectPath(
     return normalizeUsagePath(session.projectPath || session.cwd);
   }
 
-  const matchedProject = projectPaths.find(
-    (projectPath) =>
-      isSameOrChildPath(session.projectPath, projectPath) ||
-      isSameOrChildPath(session.cwd, projectPath)
-  );
+  const matchedProject = findMostSpecificMatchingProjectPath(session, projectPaths);
   return normalizeUsagePath(matchedProject ?? session.projectPath);
 }
 
@@ -110,11 +130,7 @@ function shouldIncludeSession(
     return true;
   }
 
-  return projectPaths.some(
-    (projectPath) =>
-      isSameOrChildPath(session.projectPath, projectPath) ||
-      isSameOrChildPath(session.cwd, projectPath)
-  );
+  return findMostSpecificMatchingProjectPath(session, projectPaths) !== undefined;
 }
 
 function compareProjects(left: TokenUsageProjectSummary, right: TokenUsageProjectSummary): number {

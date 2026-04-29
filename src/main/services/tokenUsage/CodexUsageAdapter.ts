@@ -75,9 +75,11 @@ function readCodexCounts(info: Record<string, unknown>): TokenUsageCounts | null
   const outputTokens = readNumber(usageRecord.output_tokens);
   const cachedInputTokens = readNumber(usageRecord.cached_input_tokens);
   const reasoningOutputTokens = readNumber(usageRecord.reasoning_output_tokens);
+  const reportedTotalTokens = usageRecord.total_tokens;
   const totalTokens =
-    readNumber(usageRecord.total_tokens) ||
-    inputTokens + outputTokens + cachedInputTokens + reasoningOutputTokens;
+    typeof reportedTotalTokens === 'number' && Number.isFinite(reportedTotalTokens)
+      ? reportedTotalTokens
+      : inputTokens + outputTokens;
 
   return {
     inputTokens,

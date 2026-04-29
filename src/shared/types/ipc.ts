@@ -150,6 +150,9 @@ export const IPC_CHANNELS = {
 
   // Token Usage
   TOKEN_USAGE_PROJECTS_GET: 'tokenUsage:projects:get',
+  TOKEN_USAGE_PROJECTS_SUBSCRIBE: 'tokenUsage:projects:subscribe',
+  TOKEN_USAGE_PROJECTS_UNSUBSCRIBE: 'tokenUsage:projects:unsubscribe',
+  TOKEN_USAGE_PROJECTS_UPDATED: 'tokenUsage:projects:updated',
 
   // App
   APP_GET_PATH: 'app:getPath',

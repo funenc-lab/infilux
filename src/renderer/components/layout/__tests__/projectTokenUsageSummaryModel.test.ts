@@ -6,6 +6,13 @@ describe('projectTokenUsageSummaryModel', () => {
   it('builds compact project rows and unsupported provider status items', () => {
     const snapshot: ProjectTokenUsageSnapshot = {
       generatedAt: 1,
+      freshness: {
+        source: 'scan',
+        cachedAt: 1,
+        cacheTtlMs: 60_000,
+        isStale: false,
+        backgroundRefresh: false,
+      },
       providerStatuses: [
         {
           providerId: 'codex-cli',
@@ -56,13 +63,19 @@ describe('projectTokenUsageSummaryModel', () => {
       ],
     };
 
-    expect(buildProjectTokenUsageSummaryModel(snapshot)).toEqual({
+    expect(buildProjectTokenUsageSummaryModel(snapshot)).toMatchObject({
       hasUsage: true,
+      hasProjects: true,
       totalTokensLabel: '1.7K',
       projectCountLabel: '1 project',
       sessionCountLabel: '2 sessions',
       providerIssueCountLabel: '1 provider issue',
-      summaryMetrics: [
+      freshness: {
+        statusLabel: 'Fresh scan',
+        tone: 'fresh',
+        generatedAt: 1,
+      },
+      primaryMetrics: [
         {
           key: 'input',
           label: 'Input tokens',
@@ -73,10 +86,17 @@ describe('projectTokenUsageSummaryModel', () => {
           label: 'Output tokens',
           value: '300',
         },
+      ],
+      secondaryMetrics: [
         {
-          key: 'cache',
-          label: 'Cache tokens',
-          value: '500',
+          key: 'prompt-cache',
+          label: 'Prompt cache tokens',
+          value: '100',
+        },
+        {
+          key: 'cached-input',
+          label: 'Cached input tokens',
+          value: '400',
         },
         {
           key: 'reasoning',
@@ -93,7 +113,7 @@ describe('projectTokenUsageSummaryModel', () => {
           sharePercent: 100,
           sharePercentLabel: '100%',
           shareWidth: '100%',
-          tokenMetrics: [
+          primaryTokenMetrics: [
             {
               key: 'input',
               label: 'Input tokens',
@@ -104,10 +124,17 @@ describe('projectTokenUsageSummaryModel', () => {
               label: 'Output tokens',
               value: '300',
             },
+          ],
+          secondaryTokenMetrics: [
             {
-              key: 'cache',
-              label: 'Cache tokens',
-              value: '500',
+              key: 'prompt-cache',
+              label: 'Prompt cache tokens',
+              value: '100',
+            },
+            {
+              key: 'cached-input',
+              label: 'Cached input tokens',
+              value: '400',
             },
             {
               key: 'reasoning',
@@ -128,17 +155,20 @@ describe('projectTokenUsageSummaryModel', () => {
           reason: 'No stable token usage log was found for this provider.',
         },
       ],
+      emptyState: null,
     });
   });
 
   it('returns an empty model when no snapshot has been loaded', () => {
     expect(buildProjectTokenUsageSummaryModel(null)).toEqual({
       hasUsage: false,
+      hasProjects: false,
       totalTokensLabel: '0',
       projectCountLabel: '0 projects',
       sessionCountLabel: '0 sessions',
       providerIssueCountLabel: '0 provider issues',
-      summaryMetrics: [
+      freshness: null,
+      primaryMetrics: [
         {
           key: 'input',
           label: 'Input tokens',
@@ -149,9 +179,16 @@ describe('projectTokenUsageSummaryModel', () => {
           label: 'Output tokens',
           value: '0',
         },
+      ],
+      secondaryMetrics: [
         {
-          key: 'cache',
-          label: 'Cache tokens',
+          key: 'prompt-cache',
+          label: 'Prompt cache tokens',
+          value: '0',
+        },
+        {
+          key: 'cached-input',
+          label: 'Cached input tokens',
           value: '0',
         },
         {
@@ -162,6 +199,11 @@ describe('projectTokenUsageSummaryModel', () => {
       ],
       projects: [],
       providerStatuses: [],
+      emptyState: {
+        title: 'No token usage recorded',
+        description: 'No token usage has been recorded for tracked providers.',
+        detail: 'Open or refresh a supported agent session to populate this scope.',
+      },
     });
   });
 

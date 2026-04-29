@@ -1,6 +1,10 @@
 /* @vitest-environment jsdom */
 
-import type { AppResourceSnapshot, ProjectTokenUsageSnapshot } from '@shared/types';
+import type {
+  AppResourceSnapshot,
+  ProjectTokenUsageSnapshot,
+  ProjectTokenUsageUpdatedEvent,
+} from '@shared/types';
 import React, { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -127,6 +131,27 @@ function mountDrawer(open: boolean) {
   };
 }
 
+function installElectronApi(options: {
+  getResourceSnapshot: () => Promise<AppResourceSnapshot>;
+  getProjectUsage: () => Promise<ProjectTokenUsageSnapshot>;
+  onProjectUsageUpdated?: (callback: (event: ProjectTokenUsageUpdatedEvent) => void) => () => void;
+}) {
+  const onProjectUsageUpdated = options.onProjectUsageUpdated ?? vi.fn(() => () => undefined);
+
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: {
+      app: {
+        getResourceSnapshot: options.getResourceSnapshot,
+      },
+      tokenUsage: {
+        getProjectUsage: options.getProjectUsage,
+        onProjectUsageUpdated,
+      },
+    },
+  });
+}
+
 describe('TokenUsageDrawer', () => {
   afterEach(() => {
     document.body.innerHTML = '';
@@ -138,17 +163,7 @@ describe('TokenUsageDrawer', () => {
     const getResourceSnapshot = vi.fn().mockResolvedValue(resourceSnapshot);
     const getProjectUsage = vi.fn().mockResolvedValue(tokenSnapshot);
 
-    Object.defineProperty(window, 'electronAPI', {
-      configurable: true,
-      value: {
-        app: {
-          getResourceSnapshot,
-        },
-        tokenUsage: {
-          getProjectUsage,
-        },
-      },
-    });
+    installElectronApi({ getResourceSnapshot, getProjectUsage });
 
     localStorage.setItem('enso-repositories', JSON.stringify([{ path: '/repo/app' }]));
 
@@ -178,21 +193,47 @@ describe('TokenUsageDrawer', () => {
     }
   });
 
+  it('forces a fresh token usage request from the refresh action', async () => {
+    const getResourceSnapshot = vi.fn().mockResolvedValue(resourceSnapshot);
+    const getProjectUsage = vi.fn().mockResolvedValue(tokenSnapshot);
+
+    installElectronApi({ getResourceSnapshot, getProjectUsage });
+
+    localStorage.setItem('enso-repositories', JSON.stringify([{ path: '/repo/app' }]));
+
+    const view = mountDrawer(true);
+
+    try {
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const refreshButton = view.container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Refresh token usage"]'
+      );
+      expect(refreshButton).not.toBeNull();
+
+      await act(async () => {
+        refreshButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getProjectUsage).toHaveBeenLastCalledWith({
+        projectPaths: ['/repo/app', '/repo/session-worktree'],
+        forceRefresh: true,
+      });
+    } finally {
+      view.unmount();
+    }
+  });
+
   it('uses compact scoped copy in the drawer header', async () => {
     const getResourceSnapshot = vi.fn().mockResolvedValue(resourceSnapshot);
     const getProjectUsage = vi.fn().mockResolvedValue(tokenSnapshot);
 
-    Object.defineProperty(window, 'electronAPI', {
-      configurable: true,
-      value: {
-        app: {
-          getResourceSnapshot,
-        },
-        tokenUsage: {
-          getProjectUsage,
-        },
-      },
-    });
+    installElectronApi({ getResourceSnapshot, getProjectUsage });
 
     const view = mountDrawer(true);
 
@@ -220,17 +261,7 @@ describe('TokenUsageDrawer', () => {
     const getResourceSnapshot = vi.fn().mockResolvedValue(resourceSnapshot);
     const getProjectUsage = vi.fn(() => new Promise<ProjectTokenUsageSnapshot>(() => {}));
 
-    Object.defineProperty(window, 'electronAPI', {
-      configurable: true,
-      value: {
-        app: {
-          getResourceSnapshot,
-        },
-        tokenUsage: {
-          getProjectUsage,
-        },
-      },
-    });
+    installElectronApi({ getResourceSnapshot, getProjectUsage });
 
     const view = mountDrawer(true);
 

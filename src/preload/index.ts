@@ -52,6 +52,7 @@ import type {
   PrepareClaudePolicyLaunchRequest,
   PrepareClaudePolicyLaunchResult,
   ProjectTokenUsageSnapshot,
+  ProjectTokenUsageUpdatedEvent,
   ProxySettings,
   PullRequest,
   RecentEditorProject,
@@ -1348,6 +1349,17 @@ const electronAPI = {
   tokenUsage: {
     getProjectUsage: (request?: GetProjectTokenUsageRequest): Promise<ProjectTokenUsageSnapshot> =>
       ipcRenderer.invoke(IPC_CHANNELS.TOKEN_USAGE_PROJECTS_GET, request),
+    onProjectUsageUpdated: (
+      callback: (event: ProjectTokenUsageUpdatedEvent) => void
+    ): (() => void) => {
+      const handler = (_: unknown, event: ProjectTokenUsageUpdatedEvent) => callback(event);
+      void ipcRenderer.invoke(IPC_CHANNELS.TOKEN_USAGE_PROJECTS_SUBSCRIBE);
+      ipcRenderer.on(IPC_CHANNELS.TOKEN_USAGE_PROJECTS_UPDATED, handler);
+      return () => {
+        ipcRenderer.off(IPC_CHANNELS.TOKEN_USAGE_PROJECTS_UPDATED, handler);
+        void ipcRenderer.invoke(IPC_CHANNELS.TOKEN_USAGE_PROJECTS_UNSUBSCRIBE);
+      };
+    },
   },
 
   // Logging

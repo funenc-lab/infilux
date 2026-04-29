@@ -13,7 +13,8 @@ export interface ProjectTokenUsageSummaryProjectModel {
   sharePercent: number;
   sharePercentLabel: string;
   shareWidth: string;
-  tokenMetrics: ProjectTokenUsageSummaryMetricModel[];
+  primaryTokenMetrics: ProjectTokenUsageSummaryMetricModel[];
+  secondaryTokenMetrics: ProjectTokenUsageSummaryMetricModel[];
   providerLabel: string;
   sessionLabel: string;
 }
@@ -32,15 +33,31 @@ export interface ProjectTokenUsageProviderStatusModel {
   reason?: string;
 }
 
+export interface ProjectTokenUsageFreshnessModel {
+  statusLabel: string;
+  generatedAt: number;
+  tone: 'fresh' | 'cached' | 'refreshing';
+}
+
+export interface ProjectTokenUsageEmptyStateModel {
+  title: string;
+  description: string;
+  detail: string;
+}
+
 export interface ProjectTokenUsageSummaryModel {
   hasUsage: boolean;
+  hasProjects: boolean;
   totalTokensLabel: string;
   projectCountLabel: string;
   sessionCountLabel: string;
   providerIssueCountLabel: string;
-  summaryMetrics: ProjectTokenUsageSummaryMetricModel[];
+  freshness: ProjectTokenUsageFreshnessModel | null;
+  primaryMetrics: ProjectTokenUsageSummaryMetricModel[];
+  secondaryMetrics: ProjectTokenUsageSummaryMetricModel[];
   projects: ProjectTokenUsageSummaryProjectModel[];
   providerStatuses: ProjectTokenUsageProviderStatusModel[];
+  emptyState: ProjectTokenUsageEmptyStateModel | null;
 }
 
 function formatCompactNumber(value: number): string {
@@ -62,8 +79,8 @@ function getProjectTitle(projectPath: string): string {
   return parts.at(-1) ?? projectPath;
 }
 
-function getCacheTokenCount(counts: TokenUsageCounts): number {
-  return counts.cacheCreationInputTokens + counts.cacheReadInputTokens + counts.cachedInputTokens;
+function getPromptCacheTokenCount(counts: TokenUsageCounts): number {
+  return counts.cacheCreationInputTokens + counts.cacheReadInputTokens;
 }
 
 function getEmptyTokenUsageCounts(): TokenUsageCounts {
@@ -105,7 +122,25 @@ function getSharePercent(projectTotal: number, snapshotTotal: number): number {
     return 0;
   }
 
-  return Math.min(100, Math.max(1, Math.round((projectTotal / snapshotTotal) * 100)));
+  return Math.min(100, Math.round((projectTotal / snapshotTotal) * 100));
+}
+
+function getSharePercentLabel(projectTotal: number, snapshotTotal: number): string {
+  if (snapshotTotal <= 0 || projectTotal <= 0) {
+    return '0%';
+  }
+
+  const rawPercent = (projectTotal / snapshotTotal) * 100;
+  const roundedPercent = Math.min(100, Math.round(rawPercent));
+  return roundedPercent === 0 ? '<1%' : `${roundedPercent}%`;
+}
+
+function getShareWidth(projectTotal: number, snapshotTotal: number): string {
+  if (snapshotTotal <= 0 || projectTotal <= 0) {
+    return '0%';
+  }
+
+  return `${Math.min(100, (projectTotal / snapshotTotal) * 100)}%`;
 }
 
 function buildTokenBreakdownMetrics(
@@ -123,9 +158,14 @@ function buildTokenBreakdownMetrics(
       value: formatCompactNumber(counts.outputTokens),
     },
     {
-      key: 'cache',
-      label: 'Cache tokens',
-      value: formatCompactNumber(getCacheTokenCount(counts)),
+      key: 'prompt-cache',
+      label: 'Prompt cache tokens',
+      value: formatCompactNumber(getPromptCacheTokenCount(counts)),
+    },
+    {
+      key: 'cached-input',
+      label: 'Cached input tokens',
+      value: formatCompactNumber(counts.cachedInputTokens),
     },
     {
       key: 'reasoning',
@@ -135,11 +175,23 @@ function buildTokenBreakdownMetrics(
   ];
 }
 
+function splitTokenBreakdownMetrics(counts: TokenUsageCounts): {
+  primaryMetrics: ProjectTokenUsageSummaryMetricModel[];
+  secondaryMetrics: ProjectTokenUsageSummaryMetricModel[];
+} {
+  const metrics = buildTokenBreakdownMetrics(counts);
+  return {
+    primaryMetrics: metrics.slice(0, 2),
+    secondaryMetrics: metrics.slice(2),
+  };
+}
+
 function toProjectModel(
   project: TokenUsageProjectSummary,
   snapshotTotalTokens: number
 ): ProjectTokenUsageSummaryProjectModel {
   const sharePercent = getSharePercent(project.totals.totalTokens, snapshotTotalTokens);
+  const { primaryMetrics, secondaryMetrics } = splitTokenBreakdownMetrics(project.totals);
 
   return {
     key: project.projectPath,
@@ -147,9 +199,10 @@ function toProjectModel(
     pathLabel: project.projectPath,
     totalTokensLabel: formatCompactNumber(project.totals.totalTokens),
     sharePercent,
-    sharePercentLabel: `${sharePercent}%`,
-    shareWidth: `${sharePercent}%`,
-    tokenMetrics: buildTokenBreakdownMetrics(project.totals),
+    sharePercentLabel: getSharePercentLabel(project.totals.totalTokens, snapshotTotalTokens),
+    shareWidth: getShareWidth(project.totals.totalTokens, snapshotTotalTokens),
+    primaryTokenMetrics: primaryMetrics,
+    secondaryTokenMetrics: secondaryMetrics,
     providerLabel: getProviderLabel(project),
     sessionLabel: formatCountLabel(project.sessionCount, 'session', 'sessions'),
   };
@@ -188,10 +241,45 @@ function toProviderStatusModel(
   };
 }
 
+function buildFreshnessModel(snapshot: ProjectTokenUsageSnapshot): ProjectTokenUsageFreshnessModel {
+  if (snapshot.freshness?.backgroundRefresh) {
+    return {
+      statusLabel: 'Refreshing cached data',
+      generatedAt: snapshot.generatedAt,
+      tone: 'refreshing',
+    };
+  }
+
+  if (snapshot.freshness?.source === 'cache') {
+    return {
+      statusLabel: 'Cached snapshot',
+      generatedAt: snapshot.generatedAt,
+      tone: 'cached',
+    };
+  }
+
+  return {
+    statusLabel: 'Fresh scan',
+    generatedAt: snapshot.generatedAt,
+    tone: 'fresh',
+  };
+}
+
+function buildEmptyState(): ProjectTokenUsageEmptyStateModel {
+  return {
+    title: 'No token usage recorded',
+    description: 'No token usage has been recorded for tracked providers.',
+    detail: 'Open or refresh a supported agent session to populate this scope.',
+  };
+}
+
 export function buildProjectTokenUsageSummaryModel(
   snapshot: ProjectTokenUsageSnapshot | null,
   maxProjects = Number.POSITIVE_INFINITY
 ): ProjectTokenUsageSummaryModel {
+  const emptyCounts = getEmptyTokenUsageCounts();
+  const emptyMetrics = splitTokenBreakdownMetrics(emptyCounts);
+
   if (!snapshot) {
     const totalTokensLabel = '0';
     const projectCountLabel = '0 projects';
@@ -199,13 +287,17 @@ export function buildProjectTokenUsageSummaryModel(
 
     return {
       hasUsage: false,
+      hasProjects: false,
       totalTokensLabel,
       projectCountLabel,
       sessionCountLabel,
       providerIssueCountLabel: '0 provider issues',
-      summaryMetrics: buildTokenBreakdownMetrics(getEmptyTokenUsageCounts()),
+      freshness: null,
+      primaryMetrics: emptyMetrics.primaryMetrics,
+      secondaryMetrics: emptyMetrics.secondaryMetrics,
       projects: [],
       providerStatuses: [],
+      emptyState: buildEmptyState(),
     };
   }
 
@@ -223,9 +315,12 @@ export function buildProjectTokenUsageSummaryModel(
   const totalTokensLabel = formatCompactNumber(totalCounts.totalTokens);
   const projectCountLabel = formatCountLabel(snapshot.projects.length, 'project', 'projects');
   const sessionCountLabel = formatCountLabel(totalSessionCount, 'session', 'sessions');
+  const hasUsage = totalCounts.totalTokens > 0;
+  const totalMetrics = splitTokenBreakdownMetrics(totalCounts);
 
   return {
-    hasUsage: snapshot.projects.length > 0,
+    hasUsage,
+    hasProjects: snapshot.projects.length > 0,
     totalTokensLabel,
     projectCountLabel,
     sessionCountLabel,
@@ -234,10 +329,13 @@ export function buildProjectTokenUsageSummaryModel(
       'provider issue',
       'provider issues'
     ),
-    summaryMetrics: buildTokenBreakdownMetrics(totalCounts),
+    freshness: buildFreshnessModel(snapshot),
+    primaryMetrics: totalMetrics.primaryMetrics,
+    secondaryMetrics: totalMetrics.secondaryMetrics,
     projects: snapshot.projects
       .slice(0, maxProjects)
       .map((project) => toProjectModel(project, totalCounts.totalTokens)),
     providerStatuses,
+    emptyState: hasUsage ? null : buildEmptyState(),
   };
 }

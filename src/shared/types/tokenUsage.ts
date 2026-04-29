@@ -65,10 +65,27 @@ export interface TokenUsageProjectSummary {
 export interface GetProjectTokenUsageRequest {
   projectPaths?: string[];
   includeSessions?: boolean;
+  forceRefresh?: boolean;
+}
+
+export type ProjectTokenUsageSnapshotFreshnessSource = 'scan' | 'cache';
+
+export interface ProjectTokenUsageSnapshotFreshness {
+  source: ProjectTokenUsageSnapshotFreshnessSource;
+  cachedAt: number;
+  cacheTtlMs: number;
+  isStale: boolean;
+  backgroundRefresh: boolean;
 }
 
 export interface ProjectTokenUsageSnapshot {
   generatedAt: number;
+  freshness?: ProjectTokenUsageSnapshotFreshness;
   providerStatuses: TokenUsageProviderStatus[];
   projects: TokenUsageProjectSummary[];
+}
+
+export interface ProjectTokenUsageUpdatedEvent {
+  request: GetProjectTokenUsageRequest;
+  snapshot: ProjectTokenUsageSnapshot;
 }
