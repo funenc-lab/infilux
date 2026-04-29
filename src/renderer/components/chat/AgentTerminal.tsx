@@ -1169,7 +1169,7 @@ export function AgentTerminal({
           if (!terminalSessionId) return;
           const notificationCopy = buildChatNotificationCopy(
             {
-              action: 'command-completed',
+              action: 'command-output-ready',
               command: agentCommand,
               body: notificationBody,
             },

@@ -6,6 +6,7 @@ const notificationListeners: {
   askUserQuestion?: (payload: { sessionId: string; toolInput: unknown; cwd?: string }) => void;
   click?: (sessionId: string) => void;
   preToolUse?: (payload: { sessionId: string; toolName: string; cwd?: string }) => void;
+  rendererStop?: (payload: AgentStopNotificationData) => void;
   stop?: (payload: AgentStopNotificationData) => void;
 } = {};
 
@@ -111,6 +112,13 @@ vi.mock('@/lib/electronNotification', () => ({
   showRendererNotification,
 }));
 
+vi.mock('@/lib/agentStopEvents', () => ({
+  onRendererAgentStop: (callback: (payload: AgentStopNotificationData) => void) => {
+    notificationListeners.rendererStop = callback;
+    return vi.fn();
+  },
+}));
+
 vi.mock('@/stores/agentSessions', () => ({
   useAgentSessionsStore,
 }));
@@ -171,6 +179,7 @@ describe('useAgentSessionNotifications', () => {
     notificationListeners.askUserQuestion = undefined;
     notificationListeners.click = undefined;
     notificationListeners.preToolUse = undefined;
+    notificationListeners.rendererStop = undefined;
     notificationListeners.stop = undefined;
     focusSession.mockReset();
     setWaitingForInput.mockReset();
@@ -238,7 +247,7 @@ describe('useAgentSessionNotifications', () => {
     expect(switchWorktreePath).toHaveBeenCalledWith('/repo/worktree-b');
   });
 
-  it('marks completed runs unread, clears waiting state, and auto-opens enhanced input when configured', async () => {
+  it('marks completed tasks unread, clears waiting state, and auto-opens enhanced input when configured', async () => {
     sessions = [
       makeSession({
         id: 'session-1',
@@ -265,6 +274,70 @@ describe('useAgentSessionNotifications', () => {
     expect(showRendererNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 'session-1',
+        title: 'Claude completed',
+      })
+    );
+  });
+
+  it('keeps unknown stop events as output-ready instead of task-completed', async () => {
+    sessions = [
+      makeSession({
+        id: 'session-1',
+        sessionId: 'provider-1',
+        terminalTitle: 'Feature work',
+      }),
+    ];
+
+    await registerHook({
+      activeTab: 'terminal',
+      activeWorktreePath: '/repo/other-worktree',
+      hasSelectedSubagent: false,
+    });
+
+    notificationListeners.stop?.({
+      sessionId: 'provider-1',
+      taskCompletionStatus: 'unknown',
+    });
+
+    expect(setWaitingForInput).toHaveBeenCalledWith('session-1', false);
+    expect(setOutputState).toHaveBeenCalledWith('session-1', 'idle', false);
+    expect(markTaskCompletedUnread).not.toHaveBeenCalled();
+    expect(showRendererNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        title: 'Claude output ready',
+      })
+    );
+  });
+
+  it('handles renderer terminal stop events for non-Claude sessions', async () => {
+    sessions = [
+      makeSession({
+        id: 'session-codex',
+        sessionId: 'session-codex',
+        agentId: 'codex',
+        agentCommand: 'codex',
+      }),
+    ];
+
+    await registerHook({
+      activeTab: 'terminal',
+      activeWorktreePath: '/repo/other-worktree',
+      hasSelectedSubagent: false,
+    });
+
+    notificationListeners.rendererStop?.({
+      sessionId: 'session-codex',
+      source: 'renderer-terminal',
+      taskCompletionStatus: 'completed',
+    });
+
+    expect(setOutputState).toHaveBeenCalledWith('session-codex', 'idle', false);
+    expect(markTaskCompletedUnread).toHaveBeenCalledWith('session-codex');
+    expect(showRendererNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-codex',
+        title: 'Codex completed',
       })
     );
   });

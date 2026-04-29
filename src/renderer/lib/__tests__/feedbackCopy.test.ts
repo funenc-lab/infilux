@@ -301,6 +301,18 @@ describe('buildChatNotificationCopy', () => {
     });
   });
 
+  it('returns output-ready notification copy for stopped commands without task completion', () => {
+    expect(
+      buildChatNotificationCopy(
+        { action: 'command-output-ready', command: 'claude', body: 'my-project' },
+        t
+      )
+    ).toEqual({
+      title: 'claude output ready',
+      body: 'my-project',
+    });
+  });
+
   it('returns waiting input notification copy', () => {
     expect(
       buildChatNotificationCopy(

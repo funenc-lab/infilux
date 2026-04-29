@@ -4,6 +4,7 @@ import { normalizePath, pathsEqual } from '@/App/storage';
 import { supportsAgentNativeTerminalInput } from '@/components/chat/agentInputMode';
 import type { Session } from '@/components/chat/SessionBar';
 import { useI18n } from '@/i18n';
+import { onRendererAgentStop } from '@/lib/agentStopEvents';
 import {
   onAgentStopNotification,
   onAskUserQuestionNotification,
@@ -44,6 +45,17 @@ const AGENT_NOTIFICATION_NAME_BY_ID: Record<string, string> = {
 function getNotificationAgentName(session: Session): string {
   const baseAgentId = session.agentId.replace(/-(hapi|happy)$/, '');
   return AGENT_NOTIFICATION_NAME_BY_ID[baseAgentId] ?? session.agentCommand;
+}
+
+function isClaudeLikeSession(session: Session): boolean {
+  const agentId = session.agentId.toLowerCase();
+  const agentCommand = session.agentCommand.toLowerCase().trim();
+  return (
+    agentId === 'claude' ||
+    agentId.startsWith('claude-') ||
+    agentCommand === 'claude' ||
+    agentCommand.startsWith('claude ')
+  );
 }
 
 function findSessionByNotificationId(incomingSessionId: string): Session | undefined {
@@ -160,56 +172,70 @@ export function useAgentSessionNotifications({
       });
     });
 
-    const unsubscribeStop = onAgentStopNotification(
-      ({ sessionId, taskCompletionStatus }: AgentStopNotificationData) => {
-        const session = findSessionByNotificationId(sessionId);
-        if (!session) {
-          return;
-        }
-
-        const activeView = activeViewRef.current;
-        const isViewingSession = isSessionCurrentlyVisible(session, activeView);
-        const agentSessionsStore = useAgentSessionsStore.getState();
-
-        agentSessionsStore.setWaitingForInput(session.id, false);
-        agentSessionsStore.setOutputState(session.id, 'idle', isViewingSession);
-
-        if (taskCompletionStatus === 'completed' && !isViewingSession) {
-          agentSessionsStore.markTaskCompletedUnread(session.id);
-        }
-
-        const agentIntegration = useSettingsStore.getState().agentIntegration;
-        const activityState = useWorktreeActivityStore.getState().getActivityState(session.cwd);
-        const shouldAutoPopup =
-          session.agentId === 'claude' &&
-          !supportsAgentNativeTerminalInput(session.agentId) &&
-          agentIntegration.enhancedInputEnabled &&
-          (agentIntegration.enhancedInputAutoPopup === 'always' ||
-            agentIntegration.enhancedInputAutoPopup === 'hideWhileRunning') &&
-          agentIntegration.stopHookEnabled &&
-          activityState !== 'waiting_input';
-
-        if (shouldAutoPopup) {
-          agentSessionsStore.setEnhancedInputOpen(session.id, true);
-        }
-
-        const projectName = session.cwd.split('/').pop() || 'Unknown';
-        const notificationCopy = buildChatNotificationCopy(
-          {
-            action: 'command-completed',
-            command: getNotificationAgentName(session),
-            body: session.terminalTitle || projectName,
-          },
-          translateRef.current
-        );
-
-        void showRendererNotification({
-          title: notificationCopy.title,
-          body: notificationCopy.body,
-          sessionId: session.id,
-        });
+    const handleAgentStop = ({
+      sessionId,
+      source,
+      taskCompletionStatus,
+    }: AgentStopNotificationData) => {
+      const session = findSessionByNotificationId(sessionId);
+      if (!session) {
+        return;
       }
-    );
+
+      const agentIntegration = useSettingsStore.getState().agentIntegration;
+      if (
+        source === 'renderer-terminal' &&
+        agentIntegration.stopHookEnabled &&
+        isClaudeLikeSession(session)
+      ) {
+        return;
+      }
+
+      const activeView = activeViewRef.current;
+      const isViewingSession = isSessionCurrentlyVisible(session, activeView);
+      const agentSessionsStore = useAgentSessionsStore.getState();
+      const taskCompleted = taskCompletionStatus === 'completed';
+
+      agentSessionsStore.setWaitingForInput(session.id, false);
+      agentSessionsStore.setOutputState(session.id, 'idle', isViewingSession);
+
+      if (taskCompleted && !isViewingSession) {
+        agentSessionsStore.markTaskCompletedUnread(session.id);
+      }
+
+      const activityState = useWorktreeActivityStore.getState().getActivityState(session.cwd);
+      const shouldAutoPopup =
+        session.agentId === 'claude' &&
+        !supportsAgentNativeTerminalInput(session.agentId) &&
+        agentIntegration.enhancedInputEnabled &&
+        (agentIntegration.enhancedInputAutoPopup === 'always' ||
+          agentIntegration.enhancedInputAutoPopup === 'hideWhileRunning') &&
+        agentIntegration.stopHookEnabled &&
+        activityState !== 'waiting_input';
+
+      if (shouldAutoPopup) {
+        agentSessionsStore.setEnhancedInputOpen(session.id, true);
+      }
+
+      const projectName = session.cwd.split('/').pop() || 'Unknown';
+      const notificationCopy = buildChatNotificationCopy(
+        {
+          action: taskCompleted ? 'command-completed' : 'command-output-ready',
+          command: getNotificationAgentName(session),
+          body: session.terminalTitle || projectName,
+        },
+        translateRef.current
+      );
+
+      void showRendererNotification({
+        title: notificationCopy.title,
+        body: notificationCopy.body,
+        sessionId: session.id,
+      });
+    };
+
+    const unsubscribeStop = onAgentStopNotification(handleAgentStop);
+    const unsubscribeRendererStop = onRendererAgentStop(handleAgentStop);
 
     const unsubscribeAskUserQuestion = onAskUserQuestionNotification(({ sessionId, toolInput }) => {
       const session = findSessionByNotificationId(sessionId);
@@ -259,6 +285,7 @@ export function useAgentSessionNotifications({
     return () => {
       unsubscribeNotificationClick();
       unsubscribeStop();
+      unsubscribeRendererStop();
       unsubscribeAskUserQuestion();
       unsubscribePreToolUse();
     };

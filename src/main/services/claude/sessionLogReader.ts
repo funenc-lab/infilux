@@ -126,6 +126,9 @@ export async function readLastAssistantMessages(
 export function checkTaskCompletion(messages: string[]): {
   completed: boolean;
 } {
-  const combinedText = messages.join('\n');
-  return { completed: combinedText.includes(TASK_COMPLETION_MARKER) };
+  return {
+    completed: messages.some((message) =>
+      message.split(/\r?\n/).some((line) => line.trim() === TASK_COMPLETION_MARKER)
+    ),
+  };
 }

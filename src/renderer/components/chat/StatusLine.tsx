@@ -26,7 +26,11 @@ import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
-import { type StatusData, useAgentStatusStore } from '@/stores/agentStatus';
+import {
+  resolveAgentStatusForSession,
+  type StatusData,
+  useAgentStatusStore,
+} from '@/stores/agentStatus';
 import { type StatusLineFieldSettings, useSettingsStore } from '@/stores/settings';
 import {
   resolveAgentInputAvailability,
@@ -209,11 +213,11 @@ function DirItem({ path, icon, label }: DirItemProps) {
 export function StatusLine({ sessionId, onHeightChange, onRequestFreshSession }: StatusLineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastReportedHeightRef = useRef<number | null>(null);
-  const status = useAgentStatusStore((state) =>
-    sessionId ? state.statuses[sessionId] : undefined
-  );
   const session = useAgentSessionsStore((state) =>
     sessionId ? state.sessions.find((item) => item.id === sessionId) : undefined
+  );
+  const status = useAgentStatusStore((state) =>
+    resolveAgentStatusForSession(state.statuses, session)
   );
   const { agentIntegration } = useSettingsStore();
   const { statusLineEnabled, statusLineFields } = agentIntegration;

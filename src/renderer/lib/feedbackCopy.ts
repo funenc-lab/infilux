@@ -51,6 +51,7 @@ type ChatInputToastInput =
 
 type ChatNotificationInput =
   | { action: 'command-completed'; command: string; body: string }
+  | { action: 'command-output-ready'; command: string; body: string }
   | { action: 'waiting-input'; command: string; preview?: string };
 
 type WorkspaceToastInput = { action: 'repository-hide'; phase: 'success' };
@@ -286,6 +287,12 @@ export function buildChatNotificationCopy(
     case 'command-completed':
       return {
         title: t('{{command}} completed', { command: input.command }),
+        body: input.body,
+      };
+
+    case 'command-output-ready':
+      return {
+        title: t('{{command}} output ready', { command: input.command }),
         body: input.body,
       };
 
