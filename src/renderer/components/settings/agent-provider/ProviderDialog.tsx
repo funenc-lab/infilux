@@ -26,6 +26,7 @@ import { getAgentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
 import { AI_PROVIDER_OPTIONS } from '../aiProviderOptions';
+import { canSaveProviderProfileDraft } from './providerDialogModel';
 
 interface ProviderDialogProps {
   open: boolean;
@@ -160,8 +161,13 @@ export function ProviderDialog({
   };
 
   const selectedAdapter = getAgentProviderProfileAdapter(providerId);
-  const isValid =
-    selectedAdapter.supportsProfiles && name.trim() && baseUrl.trim() && authToken.trim();
+  const isValid = canSaveProviderProfileDraft({
+    adapterSupportsProfiles: selectedAdapter.supportsProfiles,
+    authToken,
+    baseUrl,
+    name,
+    source,
+  });
   const isClaudeCode = providerId === 'claude-code';
   const isSavingCurrentConfig = !isEditing && source === 'current';
 
@@ -210,7 +216,9 @@ export function ProviderDialog({
             </Select>
             {!selectedAdapter.supportsProfiles && (
               <p className="text-xs text-muted-foreground">
-                {t('Provider profile switching is not available for this AI tool yet.')}
+                {isSavingCurrentConfig
+                  ? t('Provider profile switching is not available for this AI tool yet.')
+                  : t('This profile can be saved, but switching waits for this provider adapter.')}
               </p>
             )}
           </Field>

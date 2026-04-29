@@ -1864,6 +1864,8 @@ export const zhTranslations: Record<string, string> = {
   'Settings adapter': '设置适配器',
   'Provider profile switching is not available for this AI tool yet.':
     '该 AI 工具暂不支持 Provider 配置切换。',
+  'This profile can be saved, but switching waits for this provider adapter.':
+    '\u53ef\u4ee5\u5148\u4fdd\u5b58\u8be5 Provider \u914d\u7f6e\uff0c\u5207\u6362\u80fd\u529b\u9700\u7b49\u5f85\u5bf9\u5e94 provider adapter\u3002',
   'Current CLI Config Detected': '\u5df2\u68c0\u6d4b\u5230\u5f53\u524d CLI \u914d\u7f6e',
   'Save Current CLI Config': '\u4fdd\u5b58\u5f53\u524d CLI \u914d\u7f6e',
   'Manual Add Provider': '\u624b\u52a8\u6dfb\u52a0 Provider',
