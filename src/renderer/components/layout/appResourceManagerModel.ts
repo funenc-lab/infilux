@@ -178,7 +178,66 @@ function buildSessionMetrics(
       label: translate('Backend'),
       value: resource.backend,
     },
+    {
+      key: 'runtime-state',
+      label: translate('Runtime state'),
+      value: formatSessionRuntimeState(resource.runtimeState, translate),
+    },
+    {
+      key: 'activity',
+      label: translate('Activity'),
+      value: formatNullableBoolean(resource.isActive, {
+        trueLabel: translate('Active'),
+        falseLabel: translate('Idle'),
+        unknownLabel: translate('Unknown'),
+      }),
+    },
+    {
+      key: 'liveness',
+      label: translate('Liveness'),
+      value: formatNullableBoolean(resource.isAlive, {
+        trueLabel: translate('Alive'),
+        falseLabel: translate('Missing'),
+        unknownLabel: translate('Unknown'),
+      }),
+    },
+    {
+      key: 'reclaimable',
+      label: translate('Reclaimable'),
+      value: resource.reclaimable ? translate('Yes') : translate('No'),
+    },
   ];
+}
+
+function formatNullableBoolean(
+  value: boolean | null,
+  labels: {
+    trueLabel: string;
+    falseLabel: string;
+    unknownLabel: string;
+  }
+): string {
+  if (value === null) {
+    return labels.unknownLabel;
+  }
+
+  return value ? labels.trueLabel : labels.falseLabel;
+}
+
+function formatSessionRuntimeState(
+  runtimeState: AppSessionResource['runtimeState'],
+  translate: Translate
+): string {
+  switch (runtimeState) {
+    case 'dead':
+      return translate('Dead');
+    case 'reconnecting':
+      return translate('Reconnecting');
+    case 'live':
+      return translate('Live');
+    default:
+      return translate('Unknown');
+  }
 }
 
 function buildServiceMetrics(

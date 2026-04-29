@@ -185,6 +185,78 @@ describe('appResourceManagerModel', () => {
     });
   });
 
+  it('exposes session runtime, activity, liveness, and reclaimability metrics', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'session:session-local-stale',
+          kind: 'session',
+          group: 'sessions',
+          status: 'stopped',
+          sessionId: 'session-local-stale',
+          sessionKind: 'terminal',
+          backend: 'local',
+          cwd: '/repo/stale',
+          createdAt: 15,
+          pid: 4445,
+          isActive: false,
+          isAlive: false,
+          reclaimable: true,
+          runtimeState: 'dead',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+      ],
+    };
+
+    const sections = buildAppResourceManagerSections(snapshot as never, t);
+    const sessionMetrics = sections[0]?.items[0]?.metrics;
+
+    expect(sessionMetrics).toEqual([
+      {
+        key: 'cwd',
+        label: 'Working directory',
+        value: '/repo/stale',
+      },
+      {
+        key: 'backend',
+        label: 'Backend',
+        value: 'local',
+      },
+      {
+        key: 'runtime-state',
+        label: 'Runtime state',
+        value: 'Dead',
+      },
+      {
+        key: 'activity',
+        label: 'Activity',
+        value: 'Idle',
+      },
+      {
+        key: 'liveness',
+        label: 'Liveness',
+        value: 'Missing',
+      },
+      {
+        key: 'reclaimable',
+        label: 'Reclaimable',
+        value: 'Yes',
+      },
+    ]);
+  });
+
   it('builds an enabled bulk reclaim action for stale sessions only', () => {
     const snapshot = {
       capturedAt: 100,
