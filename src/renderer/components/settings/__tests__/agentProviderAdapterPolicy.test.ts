@@ -56,8 +56,21 @@ describe('agent provider adapter policy', () => {
 
   it('keeps provider dialog implementation under the generic provider UI folder', () => {
     expect(providerDialogSource).toContain(
-      'Configure API provider settings for supported agent CLIs'
+      'Save and switch detected provider profiles for supported Agent CLIs'
     );
+    expect(providerDialogSource).toContain('Save Current CLI Config');
+    expect(providerDialogSource).toContain('Manual provider settings are for custom gateways');
+    expect(providerDialogSource).toContain('buildDefaultProviderProfileName');
+    expect(providerDialogSource).toContain('Provider Type');
+    expect(providerDialogSource).not.toContain('ClaudeProvider');
+    expect(providerListSource).not.toContain('ClaudeProvider');
+  });
+
+  it('makes detected CLI settings the primary provider profile workflow', () => {
+    expect(providerListSource).toContain('Current CLI Config Detected');
+    expect(providerListSource).toContain('Save Current CLI Config');
+    expect(providerListSource).toContain('Manual Add Provider');
+    expect(providerListSource).toContain('Provider profile already saved as {{name}}');
   });
 
   it('keeps the action panel free of direct Claude provider bridge calls', () => {

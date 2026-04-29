@@ -1,20 +1,8 @@
-/**
- * Claude provider config
- * Used to manage multiple Claude API configurations.
- */
-export interface ClaudeProvider {
-  id: string;
-  name: string;
-  baseUrl: string;
-  authToken: string;
-  model?: string;
-  smallFastModel?: string;
-  defaultSonnetModel?: string;
-  defaultOpusModel?: string;
-  defaultHaikuModel?: string;
-  displayOrder?: number; // Display order (used for drag sorting)
-  enabled?: boolean; // Whether enabled (default: true)
-}
+import type { AgentProviderProfile } from './agentProviderProfile';
+
+export type ClaudeProvider = Omit<AgentProviderProfile, 'providerId'> & {
+  providerId?: 'claude-code';
+};
 
 /**
  * `env` field shape in Claude `settings.json`

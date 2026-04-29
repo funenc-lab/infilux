@@ -1,4 +1,4 @@
-import type { ClaudeProvider } from '@shared/types';
+import type { AgentProviderProfile } from '@shared/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Reorder, useDragControls } from 'framer-motion';
 import {
@@ -27,7 +27,10 @@ import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
-import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
+import {
+  agentProviderProfileAdapter,
+  getAgentProviderProfileAdapter,
+} from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -39,14 +42,14 @@ interface ProviderListProps {
 }
 
 interface ProviderItemProps {
-  provider: ClaudeProvider;
+  provider: AgentProviderProfile;
   isActive: boolean;
   isDisabled: boolean;
   enableProviderDisableFeature: boolean;
-  onSwitch: (provider: ClaudeProvider) => void;
-  onToggleEnabled: (provider: ClaudeProvider, e: React.MouseEvent) => void;
-  onEdit: (provider: ClaudeProvider) => void;
-  onDelete: (provider: ClaudeProvider) => void;
+  onSwitch: (provider: AgentProviderProfile) => void;
+  onToggleEnabled: (provider: AgentProviderProfile, e: React.MouseEvent) => void;
+  onEdit: (provider: AgentProviderProfile) => void;
+  onDelete: (provider: AgentProviderProfile) => void;
   t: (key: string) => string;
 }
 
@@ -63,9 +66,11 @@ function ProviderItem({
 }: ProviderItemProps) {
   const controls = useDragControls();
   const isDraggingRef = React.useRef(false);
+  const profileAdapter = getAgentProviderProfileAdapter(provider.providerId);
 
   // Treat all providers as enabled when temporary disabling is turned off.
   const effectiveIsDisabled = enableProviderDisableFeature ? isDisabled : false;
+  const canSwitch = profileAdapter.supportsProfiles;
 
   return (
     <Reorder.Item
@@ -77,7 +82,7 @@ function ProviderItem({
         'group flex items-center justify-between rounded-lg border px-3 py-2.5 transition-colors',
         isActive
           ? 'border-border bg-muted/45 text-foreground'
-          : effectiveIsDisabled
+          : effectiveIsDisabled || !canSwitch
             ? 'border-transparent opacity-60'
             : 'cursor-pointer border-transparent hover:bg-muted/40'
       )}
@@ -87,10 +92,15 @@ function ProviderItem({
           isDraggingRef.current = false;
           return;
         }
-        !isActive && !effectiveIsDisabled && onSwitch(provider);
+        !isActive && !effectiveIsDisabled && canSwitch && onSwitch(provider);
       }}
       onKeyDown={(e) => {
-        if (!isActive && !effectiveIsDisabled && (e.key === 'Enter' || e.key === ' ')) {
+        if (
+          !isActive &&
+          !effectiveIsDisabled &&
+          canSwitch &&
+          (e.key === 'Enter' || e.key === ' ')
+        ) {
           e.preventDefault();
           onSwitch(provider);
         }
@@ -117,14 +127,20 @@ function ProviderItem({
           <Circle className="h-4 w-4 text-muted-foreground" />
         )}
 
-        <span
-          className={cn(
-            'ui-type-block-title truncate text-sm font-medium',
-            effectiveIsDisabled && 'text-muted-foreground line-through'
-          )}
-        >
-          {provider.name}
-        </span>
+        <div className="min-w-0">
+          <span
+            className={cn(
+              'ui-type-block-title block truncate text-sm font-medium',
+              effectiveIsDisabled && 'text-muted-foreground line-through'
+            )}
+          >
+            {provider.name}
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {profileAdapter.label}
+            {!profileAdapter.supportsProfiles ? ` · ${t('Waiting for provider adapter')}` : ''}
+          </span>
+        </div>
       </div>
 
       <div className="ml-3 flex shrink-0 items-center gap-1">
@@ -188,9 +204,12 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   const setAgentProviderOrder = useSettingsStore((s) => s.setAgentProviderOrder);
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
-  const [editingProvider, setEditingProvider] = React.useState<ClaudeProvider | null>(null);
+  const [editingProvider, setEditingProvider] = React.useState<AgentProviderProfile | null>(null);
   const [saveFromCurrent, setSaveFromCurrent] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [pendingDetectedAction, setPendingDetectedAction] = React.useState<
+    'preview' | 'save' | null
+  >(null);
   const providerSettingsQueryKey = React.useMemo(
     () => agentProviderProfileAdapter.queryKey(repoPath),
     [repoPath]
@@ -224,14 +243,33 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
     );
   }, [providers, providerData?.extracted]);
 
+  const detectedProviderId = providerData?.providerId ?? providerData?.extracted?.providerId;
+  const detectedProviderLabel = detectedProviderId
+    ? getAgentProviderProfileAdapter(detectedProviderId).label
+    : null;
+  const hasDetectedConfig = Boolean(providerData?.extracted?.baseUrl);
+  const hasCompleteDetectedConfig = Boolean(
+    providerData?.extracted?.baseUrl && providerData.extracted.authToken
+  );
+
   // Check whether the current config has not been saved as a provider profile.
   const hasUnsavedConfig = React.useMemo(() => {
-    if (!providerData?.extracted?.baseUrl) return false;
+    if (!hasCompleteDetectedConfig) return false;
     return !activeProvider;
-  }, [providerData?.extracted, activeProvider]);
+  }, [hasCompleteDetectedConfig, activeProvider]);
+
+  const detectedConfigStatus = React.useMemo(() => {
+    if (activeProvider) {
+      return t('Provider profile already saved as {{name}}', { name: activeProvider.name });
+    }
+    if (!hasCompleteDetectedConfig) {
+      return t('Detected CLI config is missing required provider credentials.');
+    }
+    return t('Current config not saved');
+  }, [activeProvider, hasCompleteDetectedConfig, t]);
 
   // Switch provider.
-  const handleSwitch = async (provider: ClaudeProvider) => {
+  const handleSwitch = async (provider: AgentProviderProfile) => {
     agentProviderProfileAdapter.markSwitch(provider);
     const success = await agentProviderProfileAdapter.apply(repoPath, provider);
     if (success) {
@@ -250,28 +288,40 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         description: copy.description,
       });
     } else {
-      agentProviderProfileAdapter.clearSwitch();
+      agentProviderProfileAdapter.clearSwitch(provider.providerId);
+      const copy = buildSettingsWorkflowToastCopy(
+        {
+          action: 'provider-switch',
+          phase: 'error',
+        },
+        t
+      );
+      toastManager.add({
+        type: 'error',
+        title: copy.title,
+        description: t('Provider profile switching is not available for this AI tool yet.'),
+      });
     }
   };
 
   // Edit provider.
-  const handleEdit = (provider: ClaudeProvider) => {
+  const handleEdit = (provider: AgentProviderProfile) => {
     setEditingProvider(provider);
     setSaveFromCurrent(false);
     setDialogOpen(true);
   };
 
   // Delete provider.
-  const handleDelete = (provider: ClaudeProvider) => {
+  const handleDelete = (provider: AgentProviderProfile) => {
     removeAgentProvider(provider.id);
   };
 
   // Handle drag reordering.
-  const handleReorder = (newProviders: ClaudeProvider[]) => {
+  const handleReorder = (newProviders: AgentProviderProfile[]) => {
     setAgentProviderOrder(newProviders);
   };
 
-  const handleToggleEnabled = (provider: ClaudeProvider, e: React.MouseEvent) => {
+  const handleToggleEnabled = (provider: AgentProviderProfile, e: React.MouseEvent) => {
     e.stopPropagation();
     setAgentProviderEnabled(provider.id, provider.enabled === false);
   };
@@ -284,18 +334,59 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   };
 
   // Save from the current config.
-  const handleSaveFromCurrent = () => {
+  const handleSaveFromCurrent = React.useCallback(() => {
+    if (!hasCompleteDetectedConfig) {
+      return false;
+    }
+
     setEditingProvider(null);
     setSaveFromCurrent(true);
     setDialogOpen(true);
-  };
+    return true;
+  }, [hasCompleteDetectedConfig]);
+
+  const handlePreviewCurrent = React.useCallback(() => {
+    if (!hasDetectedConfig) {
+      return false;
+    }
+
+    setPreviewOpen(true);
+    return true;
+  }, [hasDetectedConfig]);
 
   React.useEffect(() => {
-    const handlePreviewOpen = () => setPreviewOpen(true);
+    if (!pendingDetectedAction) {
+      return;
+    }
+
+    if (pendingDetectedAction === 'preview') {
+      if (handlePreviewCurrent()) {
+        setPendingDetectedAction(null);
+      }
+      return;
+    }
+
+    if (handleSaveFromCurrent()) {
+      setPendingDetectedAction(null);
+      return;
+    }
+
+    if (hasDetectedConfig) {
+      setPreviewOpen(true);
+      setPendingDetectedAction(null);
+    }
+  }, [handlePreviewCurrent, handleSaveFromCurrent, hasDetectedConfig, pendingDetectedAction]);
+
+  React.useEffect(() => {
+    const handlePreviewOpen = () => {
+      if (!handlePreviewCurrent()) {
+        setPendingDetectedAction('preview');
+      }
+    };
     const handleSaveOpen = () => {
-      setEditingProvider(null);
-      setSaveFromCurrent(true);
-      setDialogOpen(true);
+      if (!handleSaveFromCurrent()) {
+        setPendingDetectedAction('save');
+      }
     };
 
     window.addEventListener('open-settings-provider-preview', handlePreviewOpen);
@@ -305,25 +396,50 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
       window.removeEventListener('open-settings-provider-preview', handlePreviewOpen);
       window.removeEventListener('open-settings-provider-save', handleSaveOpen);
     };
-  }, []);
+  }, [handlePreviewCurrent, handleSaveFromCurrent]);
 
   return (
     <div className={cn('space-y-3', className)}>
-      {hasUnsavedConfig && providerData?.extracted && (
-        <div className="flex items-center justify-between rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
-          <span className="text-sm text-muted-foreground">{t('Current config not saved')}</span>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="xs" className="h-6" onClick={() => setPreviewOpen(true)}>
-              <Eye className="mr-1 h-3.5 w-3.5" />
-              {t('Preview')}
-            </Button>
-            <Button variant="outline" size="xs" className="h-6" onClick={handleSaveFromCurrent}>
-              <Save className="mr-1.5 h-3.5 w-3.5" />
-              {t('Save')}
-            </Button>
+      <div className="rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
+        {hasDetectedConfig ? (
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 space-y-0.5">
+              <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                <span className="truncate">{t('Current CLI Config Detected')}</span>
+                {detectedProviderLabel && (
+                  <span className="shrink-0 rounded-md border border-border/70 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {detectedProviderLabel}
+                  </span>
+                )}
+              </div>
+              <p className="truncate text-xs text-muted-foreground">{detectedConfigStatus}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="ghost" size="xs" className="h-6" onClick={handlePreviewCurrent}>
+                <Eye className="mr-1 h-3.5 w-3.5" />
+                {t('Preview')}
+              </Button>
+              {hasUnsavedConfig && (
+                <Button variant="default" size="xs" className="h-6" onClick={handleSaveFromCurrent}>
+                  <Save className="mr-1.5 h-3.5 w-3.5" />
+                  {t('Save Current CLI Config')}
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 space-y-0.5">
+              <div className="text-sm font-medium">
+                {t('No supported CLI provider config detected yet.')}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('Open a supported Agent CLI once, then save the detected configuration here.')}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
       {providers.length > 0 ? (
         <Reorder.Group
@@ -354,13 +470,13 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         </Reorder.Group>
       ) : (
         <div className="py-4 text-center text-sm text-muted-foreground">
-          {t('No providers configured')}
+          {t('No saved provider profiles')}
         </div>
       )}
 
       <Button variant="outline" size="sm" className="w-full" onClick={handleAdd}>
         <Plus className="mr-1.5 h-3.5 w-3.5" />
-        {t('Add Provider')}
+        {t('Manual Add Provider')}
       </Button>
 
       <ProviderDialog
@@ -368,6 +484,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         onOpenChange={setDialogOpen}
         provider={editingProvider}
         initialValues={saveFromCurrent ? providerData?.extracted : undefined}
+        source={saveFromCurrent ? 'current' : 'manual'}
       />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -378,7 +495,10 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
           <DialogPanel>
             <pre className="max-h-[420px] whitespace-pre-wrap rounded-lg border border-border/70 bg-muted/35 p-3 text-xs text-muted-foreground">
               {JSON.stringify(
-                agentProviderProfileAdapter.buildPreview(providerData?.settings),
+                agentProviderProfileAdapter.buildPreview(
+                  providerData?.settings,
+                  detectedProviderId
+                ),
                 null,
                 2
               )}
@@ -386,9 +506,11 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
           </DialogPanel>
           <DialogFooter variant="default">
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" className="h-8" onClick={handleSaveFromCurrent}>
-                {t('Save')}
-              </Button>
+              {hasUnsavedConfig && (
+                <Button size="sm" variant="outline" className="h-8" onClick={handleSaveFromCurrent}>
+                  {t('Save')}
+                </Button>
+              )}
               <Button size="sm" className="h-8" onClick={() => setPreviewOpen(false)}>
                 {t('Close')}
               </Button>

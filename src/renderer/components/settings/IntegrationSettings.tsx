@@ -8,6 +8,7 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -20,6 +21,7 @@ import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { ProviderList } from './agent-provider';
+import { resolveAgentIntegrationCapabilityModel } from './agentIntegrationCapabilityModel';
 import { KeybindingInput } from './KeybindingsSettings';
 import { McpSection } from './mcp';
 import { PluginsSection } from './plugins';
@@ -39,6 +41,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
   const [showDependencyDialog, setShowDependencyDialog] = React.useState(false);
   const [tmuxError, setTmuxError] = React.useState<string | null>(null);
   const isWindows = window.electronAPI?.env?.platform === 'win32';
+  const capabilityModel = React.useMemo(() => resolveAgentIntegrationCapabilityModel(), []);
 
   const debounceOptions = React.useMemo(
     () =>
@@ -100,6 +103,51 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
 
       {agentIntegration.enabled && (
         <div className="mt-4 space-y-4 border-t pt-4">
+          <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
+            <div className="space-y-1">
+              <h4 className="text-sm font-medium">{t('Agent capability coverage')}</h4>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.'
+                )}
+              </p>
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {capabilityModel.capabilities.map((capability) => (
+                <div
+                  key={capability.id}
+                  className="min-w-0 rounded-md border border-border/70 bg-background/45 px-2.5 py-2"
+                >
+                  <div className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="truncate text-xs font-medium">{t(capability.titleKey)}</span>
+                    <Badge variant="success" size="sm">
+                      {capability.supportedProviderLabels.join(', ')}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t(capability.descriptionKey)}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Badge variant="info" size="sm">
+                      {t('Currently supported by {{providers}}', {
+                        providers: capability.supportedProviderLabels.join(', '),
+                      })}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      size="sm"
+                      title={t('Unsupported providers: {{providers}}', {
+                        providers: capability.unsupportedProviderLabels.join(', '),
+                      })}
+                    >
+                      {t('Waiting for provider adapter')}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Selection Changed Debounce */}
           <div className="settings-field-row">
             <span className="text-sm font-medium">{t('Debounce Time')}</span>
@@ -120,7 +168,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 </SelectPopup>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {t('Delay before sending selection changes to Claude Code')}
+                {t('Delay before sending selection changes to supported editor bridges')}
               </p>
             </div>
           </div>
@@ -134,7 +182,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
                 onChange={(binding) => setAgentIntegration({ atMentionedKeybinding: binding })}
               />
               <p className="text-xs text-muted-foreground">
-                {t('Send selected code range to Claude Code')}
+                {t('Send selected code range to supported editor bridges')}
               </p>
             </div>
           </div>
@@ -144,7 +192,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
             <div className="space-y-0.5">
               <span className="text-sm font-medium">{t('Enhanced Notification')}</span>
               <p className="text-xs text-muted-foreground">
-                {t('Use Claude Stop hook for precise agent completion notifications')}
+                {t('Use provider completion hooks for precise agent completion notifications')}
               </p>
             </div>
             <Switch
@@ -197,7 +245,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
             <div className="space-y-0.5">
               <span className="text-sm font-medium">{t('Ask User Question Notification')}</span>
               <p className="text-xs text-muted-foreground">
-                {t('Notify when Claude asks a question (requires PermissionRequest hook)')}
+                {t('Notify when a supported agent asks for input or permission')}
               </p>
             </div>
             <Switch
@@ -213,7 +261,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
             <div className="space-y-0.5">
               <span className="text-sm font-medium">{t('Status Line')}</span>
               <p className="text-xs text-muted-foreground">
-                {t('Show agent status (model, context, cost) at bottom of terminal')}
+                {t('Show supported agent telemetry (model, context, cost) at bottom of terminal')}
               </p>
             </div>
             <Switch
@@ -518,7 +566,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
           <div className="mb-3">
             <span className="text-sm font-medium">{t('Agent Providers')}</span>
             <p className="text-xs text-muted-foreground">
-              {t('Manage API provider profiles for supported agent CLIs')}
+              {t('Save and switch detected provider profiles for supported Agent CLIs')}
             </p>
           </div>
           <ProviderList repoPath={repoPath} />

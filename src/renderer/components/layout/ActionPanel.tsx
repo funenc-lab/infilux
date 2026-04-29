@@ -1,4 +1,4 @@
-import type { ClaudeProvider, GitWorktree } from '@shared/types';
+import type { AgentProviderProfile, GitWorktree } from '@shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle,
@@ -287,12 +287,17 @@ export function ActionPanel({
       providers.find((p) => agentProviderProfileAdapter.isActiveProfile(p, currentConfig)) ?? null
     );
   }, [providers, providerData?.extracted]);
+  const switchableProviders = React.useMemo(
+    () => agentProviderProfileAdapter.getSwitchableProfiles(providers),
+    [providers]
+  );
 
   const applyProvider = useMutation({
-    mutationFn: (provider: ClaudeProvider) => agentProviderProfileAdapter.apply(repoPath, provider),
+    mutationFn: (provider: AgentProviderProfile) =>
+      agentProviderProfileAdapter.apply(repoPath, provider),
     onSuccess: (success, provider) => {
       if (!success) {
-        agentProviderProfileAdapter.clearSwitch();
+        agentProviderProfileAdapter.clearSwitch(provider.providerId);
         return;
       }
       queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
@@ -310,8 +315,8 @@ export function ActionPanel({
         description: successCopy.description,
       });
     },
-    onError: () => {
-      agentProviderProfileAdapter.clearSwitch();
+    onError: (_error, provider) => {
+      agentProviderProfileAdapter.clearSwitch(provider.providerId);
     },
   });
 
@@ -319,10 +324,10 @@ export function ActionPanel({
     const groups: ActionGroup[] = [];
 
     // Agent provider group (only shown when provider profiles exist)
-    if (providers.length > 0) {
+    if (switchableProviders.length > 0) {
       groups.push({
         label: t('Agent Providers'),
-        items: providers.map((provider) => ({
+        items: switchableProviders.map((provider) => ({
           id: `agent-provider-${provider.id}`,
           label: provider.name,
           icon: activeProvider?.id === provider.id ? CheckCircle : Circle,
@@ -469,7 +474,7 @@ export function ActionPanel({
 
     return groups;
   }, [
-    providers,
+    switchableProviders,
     activeProvider,
     applyProvider,
     t,

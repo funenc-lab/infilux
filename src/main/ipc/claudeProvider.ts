@@ -1,4 +1,4 @@
-import type { ClaudeProvider } from '@shared/types';
+import type { AgentProviderProfile, ClaudeProvider } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { type BrowserWindow, ipcMain } from 'electron';
 import {
@@ -31,17 +31,22 @@ async function readProviderSettings(repoPath?: string) {
 
 async function applyProviderSettings(
   repoPath: string | undefined,
-  provider: ClaudeProvider
+  provider: AgentProviderProfile | ClaudeProvider
 ): Promise<boolean> {
+  if ('providerId' in provider && provider.providerId && provider.providerId !== 'claude-code') {
+    return false;
+  }
+
+  const claudeProvider = provider as ClaudeProvider;
   const context = resolveRepositoryRuntimeContext(repoPath);
   if (context.kind === 'remote') {
     const settings = (await readRepositoryClaudeSettings(repoPath)) ?? {};
     return writeRepositoryClaudeSettings(
       repoPath,
-      applyProviderToClaudeSettings(settings, provider)
+      applyProviderToClaudeSettings(settings, claudeProvider)
     );
   }
-  return applyProvider(provider);
+  return applyProvider(claudeProvider);
 }
 
 export function registerClaudeProviderHandlers(): void {
@@ -53,8 +58,10 @@ export function registerClaudeProviderHandlers(): void {
   }
 
   for (const channel of [IPC_CHANNELS.AGENT_PROVIDER_APPLY, IPC_CHANNELS.CLAUDE_PROVIDER_APPLY]) {
-    ipcMain.handle(channel, async (_, repoPath: string | undefined, provider: ClaudeProvider) =>
-      applyProviderSettings(repoPath, provider)
+    ipcMain.handle(
+      channel,
+      async (_, repoPath: string | undefined, provider: AgentProviderProfile | ClaudeProvider) =>
+        applyProviderSettings(repoPath, provider)
     );
   }
 }

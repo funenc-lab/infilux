@@ -1,4 +1,5 @@
 import { normalizeLocale } from '@shared/i18n';
+import { normalizeAgentProviderProfileList } from '@shared/types';
 import { resolvePresetThemeTokens } from '@/lib/appTheme';
 import { normalizeChatPanelInactivityThresholdMinutes } from './chatPanelInactivityThresholdPolicy';
 import { getDefaultUIFontFamily } from './defaults';
@@ -535,9 +536,13 @@ function normalizeAgentIntegration(
   currentState: SettingsState
 ): SettingsState['agentIntegration'] {
   const persistedIntegration = persisted.agentIntegration;
+  const normalizedProviders = normalizeAgentProviderProfileList(
+    persistedIntegration?.providers ?? currentState.agentIntegration.providers
+  );
   const merged = {
     ...currentState.agentIntegration,
     ...persistedIntegration,
+    providers: normalizedProviders,
     statusLineFields: {
       ...currentState.agentIntegration.statusLineFields,
       ...persistedIntegration?.statusLineFields,

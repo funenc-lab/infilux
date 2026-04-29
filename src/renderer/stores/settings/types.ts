@@ -1,5 +1,7 @@
 import type { Locale } from '@shared/i18n';
 import type {
+  AgentProviderProfile,
+  AgentProviderProfileInput,
   AIProvider,
   BuiltinAgentId,
   ConnectionProfile,
@@ -262,7 +264,7 @@ export interface AgentIntegrationSettings {
   showProviderSwitcher: boolean; // Show provider switcher in SessionBar
   enableProviderWatcher: boolean; // Enable watcher for supported provider settings changes
   enableProviderDisableFeature: boolean; // Enable/disable the provider temporary disable feature
-  providers: import('@shared/types').ClaudeProvider[];
+  providers: AgentProviderProfile[];
   enhancedInputEnabled: boolean; // Enable enhanced input panel for supported agent CLIs
   enhancedInputAutoPopup: 'always' | 'hideWhileRunning' | 'manual'; // Enhanced input auto popup mode
   autoSessionRollover: AutoSessionRolloverMode; // Automatic fresh session rollover policy
@@ -556,15 +558,12 @@ export interface SettingsState {
 
   // Setters - Agent Integration
   setAgentIntegration: (settings: Partial<AgentIntegrationSettings>) => void;
-  addAgentProvider: (provider: import('@shared/types').ClaudeProvider) => void;
-  updateAgentProvider: (
-    id: string,
-    updates: Partial<import('@shared/types').ClaudeProvider>
-  ) => void;
+  addAgentProvider: (provider: AgentProviderProfileInput) => void;
+  updateAgentProvider: (id: string, updates: Partial<AgentProviderProfileInput>) => void;
   removeAgentProvider: (id: string) => void;
   reorderAgentProviders: (fromIndex: number, toIndex: number) => void;
   setAgentProviderEnabled: (id: string, enabled: boolean) => void;
-  setAgentProviderOrder: (providers: import('@shared/types').ClaudeProvider[]) => void;
+  setAgentProviderOrder: (providers: AgentProviderProfileInput[]) => void;
 
   // Setters - AI Features
   setCommitMessageGenerator: (settings: Partial<CommitMessageGeneratorSettings>) => void;

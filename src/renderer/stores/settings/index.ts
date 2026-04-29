@@ -1,5 +1,6 @@
 import { normalizeLocale } from '@shared/i18n';
 import type { CustomAgent, McpServer, PromptPreset } from '@shared/types';
+import { normalizeAgentProviderProfileInput } from '@shared/types';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import {
@@ -514,20 +515,31 @@ export const useSettingsStore = create<SettingsState>()(
         })),
 
       addAgentProvider: (provider) =>
-        set((state) => ({
-          agentIntegration: {
-            ...state.agentIntegration,
-            providers: [...state.agentIntegration.providers, provider],
-          },
-        })),
+        set((state) => {
+          const normalizedProvider = normalizeAgentProviderProfileInput(provider);
+          if (!normalizedProvider) {
+            return state;
+          }
+
+          return {
+            agentIntegration: {
+              ...state.agentIntegration,
+              providers: [...state.agentIntegration.providers, normalizedProvider],
+            },
+          };
+        }),
 
       updateAgentProvider: (id, updates) =>
         set((state) => ({
           agentIntegration: {
             ...state.agentIntegration,
-            providers: state.agentIntegration.providers.map((p) =>
-              p.id === id ? { ...p, ...updates } : p
-            ),
+            providers: state.agentIntegration.providers.map((p) => {
+              if (p.id !== id) {
+                return p;
+              }
+
+              return normalizeAgentProviderProfileInput({ ...p, ...updates }) ?? p;
+            }),
           },
         })),
 
@@ -567,7 +579,9 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           agentIntegration: {
             ...state.agentIntegration,
-            providers: providers.map((p, index) => ({ ...p, displayOrder: index })),
+            providers: providers
+              .map((p, index) => normalizeAgentProviderProfileInput({ ...p, displayOrder: index }))
+              .filter((p): p is NonNullable<typeof p> => p !== null),
           },
         })),
 

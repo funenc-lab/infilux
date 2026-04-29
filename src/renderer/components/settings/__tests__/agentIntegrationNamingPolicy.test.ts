@@ -24,7 +24,7 @@ describe('agent integration naming policy', () => {
     expect(integrationSettingsSource).toContain("t('Claude Code IDE Bridge')");
     expect(integrationSettingsSource).toContain("t('Agent Providers')");
     expect(integrationSettingsSource).toContain(
-      "t('Manage API provider profiles for supported agent CLIs')"
+      "t('Save and switch detected provider profiles for supported Agent CLIs')"
     );
     expect(integrationSettingsSource).not.toContain("t('Claude Code Integration')");
     expect(integrationSettingsSource).not.toContain(

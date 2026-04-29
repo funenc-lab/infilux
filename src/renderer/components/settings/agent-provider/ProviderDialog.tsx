@@ -1,4 +1,4 @@
-import type { ClaudeProvider } from '@shared/types';
+import { type AgentProviderProfile, AI_PROVIDER_CATALOG, type AIProvider } from '@shared/types';
 import { Eye, EyeOff } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
@@ -14,14 +14,53 @@ import {
 } from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useI18n } from '@/i18n';
+import { getAgentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
+import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
+import { AI_PROVIDER_OPTIONS } from '../aiProviderOptions';
 
 interface ProviderDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  provider?: ClaudeProvider | null;
-  initialValues?: Partial<ClaudeProvider> | null;
+  provider?: AgentProviderProfile | null;
+  initialValues?: Partial<AgentProviderProfile> | null;
+  source?: 'current' | 'manual';
+}
+
+const BASE_URL_PLACEHOLDERS: Record<AIProvider, string> = {
+  'claude-code': 'https://api.anthropic.com',
+  'codex-cli': 'https://api.openai.com/v1',
+  'cursor-cli': 'https://api.cursor.com',
+  'gemini-cli': 'https://generativelanguage.googleapis.com',
+};
+
+const AUTH_TOKEN_PLACEHOLDERS: Record<AIProvider, string> = {
+  'claude-code': 'sk-ant-...',
+  'codex-cli': 'sk-...',
+  'cursor-cli': 'key-...',
+  'gemini-cli': 'AIza...',
+};
+
+export function buildDefaultProviderProfileName(providerId: AIProvider, baseUrl?: string): string {
+  const providerLabel = AI_PROVIDER_CATALOG[providerId].label;
+  if (!baseUrl) {
+    return `${providerLabel} Current`;
+  }
+
+  try {
+    const hostname = new URL(baseUrl).hostname;
+    return hostname ? `${providerLabel} - ${hostname}` : `${providerLabel} Current`;
+  } catch {
+    return `${providerLabel} Current`;
+  }
 }
 
 export function ProviderDialog({
@@ -29,6 +68,7 @@ export function ProviderDialog({
   onOpenChange,
   provider,
   initialValues,
+  source = 'manual',
 }: ProviderDialogProps) {
   const { t } = useI18n();
   const addAgentProvider = useSettingsStore((s) => s.addAgentProvider);
@@ -36,8 +76,8 @@ export function ProviderDialog({
 
   const isEditing = !!provider;
 
-  // Form state
   const [showToken, setShowToken] = React.useState(false);
+  const [providerId, setProviderId] = React.useState<AIProvider>('claude-code');
   const [name, setName] = React.useState('');
   const [baseUrl, setBaseUrl] = React.useState('');
   const [authToken, setAuthToken] = React.useState('');
@@ -52,6 +92,7 @@ export function ProviderDialog({
     if (open) {
       setShowToken(false);
       if (provider) {
+        setProviderId(provider.providerId);
         setName(provider.name);
         setBaseUrl(provider.baseUrl);
         setAuthToken(provider.authToken);
@@ -63,7 +104,12 @@ export function ProviderDialog({
       } else if (initialValues) {
         // Ignore model shortcuts when saving from the current config.
         // These fields are only set when users manually add a profile.
-        setName('');
+        const nextProviderId = initialValues.providerId ?? 'claude-code';
+        setProviderId(nextProviderId);
+        setName(
+          initialValues.name ??
+            buildDefaultProviderProfileName(nextProviderId, initialValues.baseUrl)
+        );
         setBaseUrl(initialValues.baseUrl ?? '');
         setAuthToken(initialValues.authToken ?? '');
         setModel('');
@@ -72,6 +118,7 @@ export function ProviderDialog({
         setDefaultOpusModel(initialValues.defaultOpusModel ?? '');
         setDefaultHaikuModel(initialValues.defaultHaikuModel ?? '');
       } else {
+        setProviderId('claude-code');
         setName('');
         setBaseUrl('');
         setAuthToken('');
@@ -89,9 +136,10 @@ export function ProviderDialog({
       return;
     }
 
-    const providerData: ClaudeProvider = {
+    const providerData: AgentProviderProfile = {
       id: provider?.id ?? crypto.randomUUID(),
       ...(provider && { enabled: provider.enabled, displayOrder: provider.displayOrder }),
+      providerId,
       name: name.trim(),
       baseUrl: baseUrl.trim(),
       authToken: authToken.trim(),
@@ -111,20 +159,62 @@ export function ProviderDialog({
     onOpenChange(false);
   };
 
-  const isValid = name.trim() && baseUrl.trim() && authToken.trim();
+  const selectedAdapter = getAgentProviderProfileAdapter(providerId);
+  const isValid =
+    selectedAdapter.supportsProfiles && name.trim() && baseUrl.trim() && authToken.trim();
+  const isClaudeCode = providerId === 'claude-code';
+  const isSavingCurrentConfig = !isEditing && source === 'current';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup zIndexLevel="nested">
         <DialogHeader>
-          <DialogTitle>{isEditing ? t('Edit Provider') : t('Add Provider')}</DialogTitle>
+          <DialogTitle>
+            {isEditing
+              ? t('Edit Provider')
+              : isSavingCurrentConfig
+                ? t('Save Current CLI Config')
+                : t('Manual Add Provider')}
+          </DialogTitle>
           <DialogDescription className="ui-type-panel-description">
-            {t('Configure API provider settings for supported agent CLIs')}
+            {isSavingCurrentConfig
+              ? t('Save and switch detected provider profiles for supported Agent CLIs')
+              : t(
+                  'Manual provider settings are for custom gateways and unsupported auto-detection cases.'
+                )}
           </DialogDescription>
         </DialogHeader>
 
         <DialogPanel className="space-y-4">
-          {/* Name */}
+          <Field>
+            <FieldLabel>{t('Provider Type')} *</FieldLabel>
+            <Select
+              value={providerId}
+              onValueChange={(value) => setProviderId(value as AIProvider)}
+              disabled={isEditing}
+            >
+              <SelectTrigger>
+                <SelectValue>{AI_PROVIDER_CATALOG[providerId].label}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                {AI_PROVIDER_OPTIONS.map((option) => {
+                  const adapter = getAgentProviderProfileAdapter(option.value);
+                  return (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                      {!adapter.supportsProfiles ? ` · ${t('Waiting for provider adapter')}` : ''}
+                    </SelectItem>
+                  );
+                })}
+              </SelectPopup>
+            </Select>
+            {!selectedAdapter.supportsProfiles && (
+              <p className="text-xs text-muted-foreground">
+                {t('Provider profile switching is not available for this AI tool yet.')}
+              </p>
+            )}
+          </Field>
+
           <Field>
             <FieldLabel>{t('Name')} *</FieldLabel>
             <Input
@@ -140,11 +230,10 @@ export function ProviderDialog({
             <Input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.anthropic.com"
+              placeholder={BASE_URL_PLACEHOLDERS[providerId]}
             />
           </Field>
 
-          {/* Auth Token */}
           <Field>
             <FieldLabel>{t('Auth Token')} *</FieldLabel>
             <div className="relative w-full">
@@ -152,7 +241,7 @@ export function ProviderDialog({
                 type={showToken ? 'text' : 'password'}
                 value={authToken}
                 onChange={(e) => setAuthToken(e.target.value)}
-                placeholder="sk-ant-..."
+                placeholder={AUTH_TOKEN_PLACEHOLDERS[providerId]}
                 className="pr-10"
               />
               <button
@@ -165,61 +254,59 @@ export function ProviderDialog({
             </div>
           </Field>
 
-          {/* Optional fields */}
           <details className="group">
             <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
               {t('Advanced Options')}
             </summary>
             <div className="mt-3 space-y-3">
-              {/* Model */}
               <Field>
                 <FieldLabel>{t('Model')}</FieldLabel>
                 <Input
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder="opus / sonnet / haiku"
+                  placeholder={AI_PROVIDER_CATALOG[providerId].defaultModel}
                 />
               </Field>
 
-              {/* Small Fast Model */}
-              <Field>
-                <FieldLabel>{t('Small/Fast Model')}</FieldLabel>
-                <Input
-                  value={smallFastModel}
-                  onChange={(e) => setSmallFastModel(e.target.value)}
-                  placeholder="claude-3-haiku-..."
-                />
-              </Field>
+              {isClaudeCode && (
+                <>
+                  <Field>
+                    <FieldLabel>{t('Small/Fast Model')}</FieldLabel>
+                    <Input
+                      value={smallFastModel}
+                      onChange={(e) => setSmallFastModel(e.target.value)}
+                      placeholder="claude-3-haiku-..."
+                    />
+                  </Field>
 
-              {/* Default Sonnet Model */}
-              <Field>
-                <FieldLabel>{t('Sonnet Model')}</FieldLabel>
-                <Input
-                  value={defaultSonnetModel}
-                  onChange={(e) => setDefaultSonnetModel(e.target.value)}
-                  placeholder="claude-sonnet-4-..."
-                />
-              </Field>
+                  <Field>
+                    <FieldLabel>{t('Sonnet Model')}</FieldLabel>
+                    <Input
+                      value={defaultSonnetModel}
+                      onChange={(e) => setDefaultSonnetModel(e.target.value)}
+                      placeholder="claude-sonnet-4-..."
+                    />
+                  </Field>
 
-              {/* Default Opus Model */}
-              <Field>
-                <FieldLabel>{t('Opus Model')}</FieldLabel>
-                <Input
-                  value={defaultOpusModel}
-                  onChange={(e) => setDefaultOpusModel(e.target.value)}
-                  placeholder="claude-opus-4-..."
-                />
-              </Field>
+                  <Field>
+                    <FieldLabel>{t('Opus Model')}</FieldLabel>
+                    <Input
+                      value={defaultOpusModel}
+                      onChange={(e) => setDefaultOpusModel(e.target.value)}
+                      placeholder="claude-opus-4-..."
+                    />
+                  </Field>
 
-              {/* Default Haiku Model */}
-              <Field>
-                <FieldLabel>{t('Haiku Model')}</FieldLabel>
-                <Input
-                  value={defaultHaikuModel}
-                  onChange={(e) => setDefaultHaikuModel(e.target.value)}
-                  placeholder="claude-3-haiku-..."
-                />
-              </Field>
+                  <Field>
+                    <FieldLabel>{t('Haiku Model')}</FieldLabel>
+                    <Input
+                      value={defaultHaikuModel}
+                      onChange={(e) => setDefaultHaikuModel(e.target.value)}
+                      placeholder="claude-3-haiku-..."
+                    />
+                  </Field>
+                </>
+              )}
             </div>
           </details>
         </DialogPanel>

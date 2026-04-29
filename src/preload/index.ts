@@ -5,6 +5,7 @@ import type {
   AgentCliInfo,
   AgentInputDispatchRequest,
   AgentMetadata,
+  AgentProviderProfile,
   AppCloseRequestPayload,
   AppResourceActionRequest,
   AppResourceActionResult,
@@ -125,7 +126,9 @@ const sessionEventRouter = createSessionEventRouter(ipcRenderer);
 
 type AgentProviderSettingsSnapshot = {
   settings: ClaudeSettings | null;
-  extracted: Partial<ClaudeProvider> | null;
+  extracted: Partial<AgentProviderProfile> | null;
+  providerId?: AgentProviderProfile['providerId'];
+  supported?: boolean;
 };
 
 function createAgentProviderBridge(channels: {
@@ -136,8 +139,10 @@ function createAgentProviderBridge(channels: {
   return {
     readSettings: (repoPath?: string): Promise<AgentProviderSettingsSnapshot> =>
       ipcRenderer.invoke(channels.readSettings, repoPath),
-    apply: (repoPath: string | undefined, provider: ClaudeProvider): Promise<boolean> =>
-      ipcRenderer.invoke(channels.apply, repoPath, provider),
+    apply: (
+      repoPath: string | undefined,
+      provider: AgentProviderProfile | ClaudeProvider
+    ): Promise<boolean> => ipcRenderer.invoke(channels.apply, repoPath, provider),
     onSettingsChanged: (callback: (data: AgentProviderSettingsSnapshot) => void): (() => void) => {
       const handler = (_: unknown, data: AgentProviderSettingsSnapshot) => callback(data);
       ipcRenderer.on(channels.settingsChanged, handler);

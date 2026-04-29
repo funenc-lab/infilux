@@ -411,6 +411,62 @@ describe('migrateSettings', () => {
     expect(result.agentIntegration.autoSessionRollover).toBe('manual');
   });
 
+  it('normalizes legacy and generic agent provider profiles during migration', () => {
+    const currentState = createCurrentState();
+
+    const result = migrateSettings(
+      {
+        agentIntegration: {
+          ...currentState.agentIntegration,
+          providers: [
+            {
+              id: 'legacy-claude',
+              name: 'Legacy Claude',
+              baseUrl: 'https://api.anthropic.com',
+              authToken: 'claude-token',
+              defaultSonnetModel: 'claude-sonnet',
+            },
+            {
+              id: 'codex-profile',
+              name: 'Codex Profile',
+              providerId: 'codex-cli',
+              baseUrl: 'https://api.openai.com/v1',
+              authToken: 'codex-token',
+              model: 'gpt-5.2',
+              enabled: false,
+            },
+            {
+              id: '',
+              name: 'Invalid Profile',
+              providerId: 'gemini-cli',
+              baseUrl: 'https://generativelanguage.googleapis.com',
+              authToken: 'gemini-token',
+            },
+          ],
+        } as never,
+      },
+      currentState
+    );
+
+    expect(result.agentIntegration.providers).toEqual([
+      expect.objectContaining({
+        id: 'legacy-claude',
+        providerId: 'claude-code',
+        baseUrl: 'https://api.anthropic.com',
+        authToken: 'claude-token',
+        defaultSonnetModel: 'claude-sonnet',
+      }),
+      expect.objectContaining({
+        id: 'codex-profile',
+        providerId: 'codex-cli',
+        baseUrl: 'https://api.openai.com/v1',
+        authToken: 'codex-token',
+        model: 'gpt-5.2',
+        enabled: false,
+      }),
+    ]);
+  });
+
   it('migrates legacy sync-terminal theme values into system mode with terminal accent sync', () => {
     const result = migrateSettings(
       {

@@ -5,10 +5,18 @@ import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
+import { type AgentToolRoutingOption, resolveAgentToolRoutingModel } from './agentToolRoutingModel';
 import { BUILTIN_AGENT_INFO, BUILTIN_AGENTS } from './constants';
 
 const itemVariants = {
@@ -24,6 +32,26 @@ function getAgentRowClassName(isDimmed = false): string {
     'flex items-center justify-between rounded-lg border border-border/80 bg-muted/20 px-3 py-2',
     isDimmed && 'opacity-50'
   );
+}
+
+function getCommandSourceLabel(source: AgentToolRoutingOption['commandSource']): string {
+  if (source === 'custom-path') {
+    return 'Custom path';
+  }
+  if (source === 'custom-agent') {
+    return 'Custom agent';
+  }
+  return 'Default command';
+}
+
+function getStatusLabel(status: AgentToolRoutingOption['status']): string {
+  if (status === 'installed') {
+    return 'Installed';
+  }
+  if (status === 'not-installed') {
+    return 'Not installed';
+  }
+  return 'Not detected';
 }
 
 type AgentFormProps =
@@ -301,6 +329,33 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
     }
   };
 
+  const toolRoutingModel = React.useMemo(
+    () =>
+      resolveAgentToolRoutingModel({
+        agentSettings,
+        agentDetectionStatus,
+        customAgents,
+        hapiEnabled: hapiSettings.enabled,
+        happyEnabled: hapiSettings.happyEnabled,
+      }),
+    [
+      agentSettings,
+      agentDetectionStatus,
+      customAgents,
+      hapiSettings.enabled,
+      hapiSettings.happyEnabled,
+    ]
+  );
+
+  const handleDefaultAgentChange = React.useCallback(
+    (agentId: string | null) => {
+      if (agentId && toolRoutingModel.options.some((option) => option.agentId === agentId)) {
+        setAgentDefault(agentId);
+      }
+    },
+    [setAgentDefault, toolRoutingModel.options]
+  );
+
   const handleAddAgent = (agent: Omit<CustomAgent, 'id'>) => {
     const id = `custom-${Date.now()}`;
     addCustomAgent({ ...agent, id });
@@ -404,6 +459,72 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
           'New sessions use the default agent. Long-press the plus to pick another enabled agent. Local session recovery depends on the tmux setting.'
         )}
       </p>
+
+      <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <h4 className="text-sm font-medium">{t('Default AI tool')}</h4>
+            <p className="text-xs text-muted-foreground">
+              {t('New sessions use this tool unless another enabled agent is selected at launch.')}
+            </p>
+          </div>
+          <Select
+            value={toolRoutingModel.defaultAgentId}
+            onValueChange={handleDefaultAgentChange}
+            disabled={toolRoutingModel.options.length === 0}
+          >
+            <SelectTrigger className="w-full sm:w-64">
+              <SelectValue placeholder={t('No enabled AI tools')} />
+            </SelectTrigger>
+            <SelectPopup>
+              {toolRoutingModel.options.map((option) => (
+                <SelectItem key={option.agentId} value={option.agentId}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
+
+        {toolRoutingModel.defaultOption ? (
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+            <div className="min-w-0 rounded-md border border-border/70 bg-background/45 px-2.5 py-2">
+              <div className="text-muted-foreground">{t('Runtime')}</div>
+              <div className="mt-1 truncate font-medium">
+                {t(toolRoutingModel.defaultOption.runtimeLabel)}
+              </div>
+            </div>
+            <div className="min-w-0 rounded-md border border-border/70 bg-background/45 px-2.5 py-2">
+              <div className="text-muted-foreground">{t('Provider profile')}</div>
+              <div className="mt-1 truncate font-medium">
+                {t(toolRoutingModel.defaultOption.providerLabel)}
+              </div>
+            </div>
+            <div className="min-w-0 rounded-md border border-border/70 bg-background/45 px-2.5 py-2">
+              <div className="text-muted-foreground">{t('Command source')}</div>
+              <div className="mt-1 truncate font-medium">
+                {t(getCommandSourceLabel(toolRoutingModel.defaultOption.commandSource))}
+              </div>
+            </div>
+            <div className="min-w-0 rounded-md border border-border/70 bg-background/45 px-2.5 py-2 sm:col-span-2">
+              <div className="text-muted-foreground">{t('Command')}</div>
+              <code className="mt-1 block truncate font-mono text-foreground">
+                {toolRoutingModel.defaultOption.command}
+              </code>
+            </div>
+            <div className="min-w-0 rounded-md border border-border/70 bg-background/45 px-2.5 py-2">
+              <div className="text-muted-foreground">{t('Status')}</div>
+              <div className="mt-1 truncate font-medium">
+                {t(getStatusLabel(toolRoutingModel.defaultOption.status))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {t('Enable at least one agent before choosing a default AI tool.')}
+          </p>
+        )}
+      </div>
 
       {/* Enabled Agents */}
       <div>

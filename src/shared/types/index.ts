@@ -2,6 +2,7 @@ export * from './agent';
 export * from './agentCapability';
 export * from './agentCatalog';
 export * from './agentInput';
+export * from './agentProviderProfile';
 export * from './agentSession';
 export * from './agentSubagent';
 export * from './ai';
