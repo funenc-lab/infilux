@@ -36,6 +36,25 @@ vi.mock('@/components/ui/toast', () => ({
   },
 }));
 
+vi.mock('../SidebarToolbarTooltip', () => ({
+  SidebarToolbarTooltip: ({
+    label,
+    shortcut,
+    children,
+  }: {
+    label?: React.ReactNode;
+    shortcut?: React.ReactNode;
+    children?: React.ReactNode;
+  }) =>
+    React.createElement(
+      'span',
+      { 'data-testid': 'sidebar-toolbar-tooltip' },
+      children,
+      label,
+      shortcut
+    ),
+}));
+
 vi.mock('@/hooks/useWorktree', () => ({
   useWorktreeListMultiple: vi.fn(() => ({
     worktreesMap: {},
@@ -43,6 +62,17 @@ vi.mock('@/hooks/useWorktree', () => ({
 }));
 
 vi.mock('@/lib/keybinding', () => ({
+  formatKeybindingDisplay: vi.fn(
+    (binding: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean }) => {
+      const parts: string[] = [];
+      if (binding.meta) parts.push('Cmd');
+      if (binding.ctrl) parts.push('Ctrl');
+      if (binding.alt) parts.push('Alt');
+      if (binding.shift) parts.push('Shift');
+      parts.push(binding.key.toUpperCase());
+      return parts.join('+');
+    }
+  ),
   matchesKeybinding: vi.fn(() => false),
 }));
 
@@ -114,5 +144,21 @@ describe('RunningProjectsPopover', () => {
       );
 
     expect(render).not.toThrow();
+  });
+
+  it('includes the configured running projects shortcut in the toolbar tooltip', async () => {
+    const { RunningProjectsPopover } = await import('../RunningProjectsPopover');
+
+    settingsState.globalKeybindings = {
+      runningProjects: { key: 'l', meta: true },
+    };
+
+    const markup = renderToStaticMarkup(
+      React.createElement(RunningProjectsPopover, {
+        onSelectWorktreeByPath: vi.fn(),
+      })
+    );
+
+    expect(markup).toContain('Cmd+L');
   });
 });

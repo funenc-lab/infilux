@@ -373,6 +373,7 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).toContain('import { SidebarToolbarTooltip }');
     expect(temporaryWorkspacePanelSource).toContain('import { SidebarToolbarTooltip }');
     expect(runningProjectsSource).toContain('import { SidebarToolbarTooltip }');
+    expect(runningProjectsSource).toContain('formatKeybindingDisplay');
     expect(fileTreeSource).toContain('import { SidebarToolbarTooltip }');
     expect(treeSidebarSource).toContain("<SidebarToolbarTooltip label={t('Manage repositories')}>");
     expect(treeSidebarSource).toContain('<SidebarToolbarTooltip label={refreshProjectsLabel}>');
@@ -381,10 +382,19 @@ describe('sidebar design policy', () => {
       "<SidebarToolbarTooltip label={t('Refresh temp sessions')}>"
     );
     expect(runningProjectsSource).toContain(
-      '<SidebarToolbarTooltip label={runningProjectsTooltip}>'
+      '<SidebarToolbarTooltip label={runningProjectsTooltip} shortcut={runningProjectsShortcut}>'
     );
     expect(fileTreeSource).toContain('<SidebarToolbarTooltip label={refreshFilesLabel}>');
+    expect(fileTreeSource).toContain('control-file-tree-toolbar');
+    expect(fileTreeSource).toContain('data-role="create"');
+    expect(fileTreeSource).toContain('data-role="data"');
+    expect(fileTreeSource).toContain('data-role="search"');
     expect(globalsSource).toContain('.control-sidebar-tooltip-trigger {');
+    expect(globalsSource).toContain('.control-sidebar-tooltip-shortcut {');
+    expect(globalsSource).toContain('.control-file-tree-toolbar {');
+    expect(globalsSource).toContain(
+      '.control-sidebar-toolbutton.control-collapsed-sidebar-secondary {'
+    );
   });
 
   it('marks refreshing top controls with explicit busy state instead of relying on static icons', () => {

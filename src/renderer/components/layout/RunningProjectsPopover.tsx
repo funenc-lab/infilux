@@ -19,7 +19,7 @@ import { toastManager } from '@/components/ui/toast';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
-import { matchesKeybinding } from '@/lib/keybinding';
+import { formatKeybindingDisplay, matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
@@ -184,6 +184,7 @@ export function RunningProjectsPopover({
     totalRunning > 0
       ? t('Running projects: {{count}}', { count: totalRunning })
       : t('No running projects');
+  const runningProjectsShortcut = formatKeybindingDisplay(runningProjectsKeybinding);
 
   const handleSelectItem = useCallback(
     async (item: SelectableItem) => {
@@ -306,7 +307,7 @@ export function RunningProjectsPopover({
 
   return (
     <>
-      <SidebarToolbarTooltip label={runningProjectsTooltip}>
+      <SidebarToolbarTooltip label={runningProjectsTooltip} shortcut={runningProjectsShortcut}>
         <span
           className="control-toolbar-badge-anchor"
           data-state={totalRunning > 0 ? 'active' : 'idle'}

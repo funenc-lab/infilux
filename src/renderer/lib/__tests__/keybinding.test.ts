@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { TerminalKeybinding } from '@/stores/settings';
-import { codeToKey, getKeyFromEvent, matchesKeybinding } from '../keybinding';
+import {
+  codeToKey,
+  formatKeybindingDisplay,
+  getKeyFromEvent,
+  matchesKeybinding,
+} from '../keybinding';
 
 function createKeyboardEvent(
   overrides: Partial<KeyboardEvent> & Pick<KeyboardEvent, 'code' | 'key'>
@@ -28,6 +33,14 @@ describe('keybinding', () => {
   it('prefers code-derived keys and falls back to the event key', () => {
     expect(getKeyFromEvent(createKeyboardEvent({ code: 'KeyP', key: 'π' }))).toBe('p');
     expect(getKeyFromEvent(createKeyboardEvent({ code: 'UnknownKey', key: 'Ω' }))).toBe('ω');
+  });
+
+  it('formats keybindings for compact tooltip labels', () => {
+    expect(formatKeybindingDisplay({ key: 'l', meta: true })).toBe('Cmd+L');
+    expect(formatKeybindingDisplay({ key: 'enter', ctrl: true, shift: true })).toBe(
+      'Ctrl+Shift+enter'
+    );
+    expect(formatKeybindingDisplay({ key: ' ' })).toBe('');
   });
 
   it('matches keyboard events against all modifier combinations', () => {

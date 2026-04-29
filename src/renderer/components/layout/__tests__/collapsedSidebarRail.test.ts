@@ -97,6 +97,12 @@ describe('CollapsedSidebarRail', () => {
           icon: ActionIcon,
           onSelect: vi.fn(),
         },
+        secondaryAction: {
+          id: 'add',
+          label: 'Add Repository',
+          icon: ActionIcon,
+          onSelect: vi.fn(),
+        },
         actions: [
           {
             id: 'refresh',
@@ -109,9 +115,12 @@ describe('CollapsedSidebarRail', () => {
     );
 
     expect(markup).toContain('data-slot="collapsed-sidebar-primary-button"');
+    expect(markup).toContain('data-slot="collapsed-sidebar-secondary-button"');
     expect(markup).toContain('data-slot="collapsed-sidebar-menu-button"');
     expect(markup).toContain('Expand Repository');
+    expect(markup).toContain('Add Repository');
     expect(markup).toContain('Repository actions');
     expect(markup).toContain('data-icon="more-horizontal"');
+    expect(markup).not.toContain('data-icon="expand-indicator"');
   });
 });

@@ -80,13 +80,13 @@ export function TemporaryWorkspacePanel({
         onSelect: () => onExpand?.(),
         disabled: !onExpand,
       }}
+      secondaryAction={{
+        id: 'new-temp-session',
+        label: t('New Temp Session'),
+        icon: Plus,
+        onSelect: onCreate,
+      }}
       actions={[
-        {
-          id: 'new-temp-session',
-          label: t('New Temp Session'),
-          icon: Plus,
-          onSelect: onCreate,
-        },
         {
           id: 'refresh-temp-sessions',
           label: t('Refresh'),

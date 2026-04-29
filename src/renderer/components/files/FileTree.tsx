@@ -1164,79 +1164,88 @@ export function FileTree({
         onKeyDown={handleTreeKeyDown}
       >
         {/* Toolbar */}
-        <div className="sticky top-0 z-10 flex h-12 items-center justify-between gap-1 border-b border-border/60 bg-background/95 px-3 backdrop-blur-sm">
-          {onToggleCollapse && (
-            <SidebarToolbarTooltip label={t('Collapse file tree')}>
-              <button
-                type="button"
-                onClick={onToggleCollapse}
-                className="control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
-                aria-label={t('Collapse file tree')}
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </button>
-            </SidebarToolbarTooltip>
-          )}
-          <div className="flex items-center gap-1">
-            <SidebarToolbarTooltip label={t('New File')}>
-              <button
-                type="button"
-                onClick={() => {
-                  const targetPath = getCreateTargetPath();
-                  if (targetPath) onCreateFile(targetPath);
-                }}
-                className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
-                aria-label={t('New File')}
-              >
-                <FilePlus className="h-4 w-4" />
-              </button>
-            </SidebarToolbarTooltip>
-            <SidebarToolbarTooltip label={t('New Folder')}>
-              <button
-                type="button"
-                onClick={() => {
-                  const targetPath = getCreateTargetPath();
-                  if (targetPath) onCreateDirectory(targetPath);
-                }}
-                className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
-                aria-label={t('New Folder')}
-              >
-                <FolderPlus className="h-4 w-4" />
-              </button>
-            </SidebarToolbarTooltip>
-            <SidebarToolbarTooltip label={refreshFilesLabel}>
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
-                aria-label={refreshFilesLabel}
-                aria-busy={isLoading || undefined}
-                data-state={isLoading ? 'busy' : 'idle'}
-              >
-                <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
-              </button>
-            </SidebarToolbarTooltip>
-            <SidebarToolbarTooltip label={t('Collapse all folders')}>
-              <button
-                type="button"
-                onClick={handleCollapseAll}
-                className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
-                aria-label={t('Collapse all folders')}
-              >
-                <SquareMinus className="h-4 w-4" />
-              </button>
-            </SidebarToolbarTooltip>
-            {onOpenSearch && (
-              <SidebarToolbarTooltip label={t('Search files')}>
+        <div className="control-sidebar-header control-file-tree-toolbar drag-region">
+          <div className="control-sidebar-heading no-drag" aria-hidden="true" />
+          <div className="control-sidebar-toolbar no-drag">
+            {onToggleCollapse ? (
+              <div className="control-sidebar-toolbar-group" data-role="panel">
+                <SidebarToolbarTooltip label={t('Collapse file tree')}>
+                  <button
+                    type="button"
+                    onClick={onToggleCollapse}
+                    className="control-sidebar-toolbutton no-drag"
+                    aria-label={t('Collapse file tree')}
+                  >
+                    <PanelLeftClose className="h-3.5 w-3.5" />
+                  </button>
+                </SidebarToolbarTooltip>
+              </div>
+            ) : null}
+            <div className="control-sidebar-toolbar-group" data-role="create">
+              <SidebarToolbarTooltip label={t('New File')}>
                 <button
                   type="button"
-                  onClick={onOpenSearch}
-                  className="control-icon-button flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
-                  aria-label={t('Search files')}
+                  onClick={() => {
+                    const targetPath = getCreateTargetPath();
+                    if (targetPath) onCreateFile(targetPath);
+                  }}
+                  className="control-sidebar-toolbutton no-drag"
+                  aria-label={t('New File')}
                 >
-                  <Search className="h-4 w-4" />
+                  <FilePlus className="h-3.5 w-3.5" />
                 </button>
               </SidebarToolbarTooltip>
+              <SidebarToolbarTooltip label={t('New Folder')}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetPath = getCreateTargetPath();
+                    if (targetPath) onCreateDirectory(targetPath);
+                  }}
+                  className="control-sidebar-toolbutton no-drag"
+                  aria-label={t('New Folder')}
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+            <div className="control-sidebar-toolbar-group" data-role="data">
+              <SidebarToolbarTooltip label={refreshFilesLabel}>
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  className="control-sidebar-toolbutton no-drag"
+                  aria-label={refreshFilesLabel}
+                  aria-busy={isLoading || undefined}
+                  data-state={isLoading ? 'busy' : 'idle'}
+                >
+                  <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+                </button>
+              </SidebarToolbarTooltip>
+              <SidebarToolbarTooltip label={t('Collapse all folders')}>
+                <button
+                  type="button"
+                  onClick={handleCollapseAll}
+                  className="control-sidebar-toolbutton no-drag"
+                  aria-label={t('Collapse all folders')}
+                >
+                  <SquareMinus className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+            {onOpenSearch && (
+              <div className="control-sidebar-toolbar-group" data-role="search">
+                <SidebarToolbarTooltip label={t('Search files')}>
+                  <button
+                    type="button"
+                    onClick={onOpenSearch}
+                    className="control-sidebar-toolbutton no-drag"
+                    aria-label={t('Search files')}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                  </button>
+                </SidebarToolbarTooltip>
+              </div>
             )}
           </div>
         </div>

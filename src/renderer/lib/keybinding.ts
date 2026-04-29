@@ -44,6 +44,19 @@ export function getKeyFromEvent(e: KeyboardEvent): string {
   return codeToKey(e.code) || e.key.toLowerCase();
 }
 
+export function formatKeybindingDisplay(binding: TerminalKeybinding): string {
+  const key = binding.key.trim();
+  if (!key) return '';
+
+  const parts: string[] = [];
+  if (binding.meta) parts.push('Cmd');
+  if (binding.ctrl) parts.push('Ctrl');
+  if (binding.alt) parts.push('Alt');
+  if (binding.shift) parts.push('Shift');
+  parts.push(key.length === 1 ? key.toUpperCase() : key);
+  return parts.join('+');
+}
+
 // Check if a keyboard event matches a keybinding
 export function matchesKeybinding(e: KeyboardEvent, binding: TerminalKeybinding): boolean {
   const key = getKeyFromEvent(e);

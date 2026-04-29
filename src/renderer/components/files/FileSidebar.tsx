@@ -480,19 +480,18 @@ export function FileSidebar({
             icon: PanelLeftOpen,
             onSelect: onExpand,
           }}
+          secondaryAction={{
+            id: 'search-files',
+            label: t('Search Files'),
+            icon: Search,
+            onSelect: () => handleOpenSearch(),
+          }}
           actions={[
-            {
-              id: 'search-files',
-              label: t('Search Files'),
-              icon: Search,
-              onSelect: () => handleOpenSearch(),
-            },
             {
               id: 'new-file',
               label: t('New File'),
               icon: FilePlus,
               onSelect: () => handleCreateFile(rootPath),
-              separatorBefore: true,
             },
             {
               id: 'new-folder',

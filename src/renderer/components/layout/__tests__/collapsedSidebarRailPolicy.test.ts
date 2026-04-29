@@ -45,4 +45,13 @@ describe('collapsed sidebar rail policy', () => {
     );
     expect(fileSidebarSource).toMatch(/label: t\('Expand File Sidebar'\),\s+icon: PanelLeftOpen,/s);
   });
+
+  it('keeps one high-frequency secondary action visible in collapsed rails', () => {
+    expect(treeSidebarSource).toContain('secondaryAction={{');
+    expect(treeSidebarSource).toContain("id: 'manage-repositories'");
+    expect(repositorySidebarSource).toContain("id: 'add-repository'");
+    expect(worktreePanelSource).toContain("id: 'new-worktree'");
+    expect(temporaryWorkspacePanelSource).toContain("id: 'new-temp-session'");
+    expect(fileSidebarSource).toContain("id: 'search-files'");
+  });
 });

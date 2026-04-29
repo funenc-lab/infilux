@@ -270,13 +270,13 @@ export function WorktreePanel({
         onSelect: () => onExpand?.(),
         disabled: !onExpand,
       }}
+      secondaryAction={{
+        id: 'new-worktree',
+        label: t('New Worktree'),
+        icon: Plus,
+        onSelect: () => setCreateDialogOpen(true),
+      }}
       actions={[
-        {
-          id: 'new-worktree',
-          label: t('New Worktree'),
-          icon: Plus,
-          onSelect: () => setCreateDialogOpen(true),
-        },
         {
           id: 'refresh-worktree',
           label: t('Refresh'),

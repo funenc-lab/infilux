@@ -1355,13 +1355,13 @@ export function TreeSidebar({
         onSelect: () => onExpand?.(),
         disabled: !onExpand,
       }}
+      secondaryAction={{
+        id: 'manage-repositories',
+        label: t('Repositories'),
+        icon: List,
+        onSelect: () => setRepoManagerOpen(true),
+      }}
       actions={[
-        {
-          id: 'manage-repositories',
-          label: t('Repositories'),
-          icon: List,
-          onSelect: () => setRepoManagerOpen(true),
-        },
         {
           id: 'refresh-tree-sidebar',
           label: t('Refresh'),

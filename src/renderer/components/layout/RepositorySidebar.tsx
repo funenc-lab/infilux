@@ -429,14 +429,13 @@ export function RepositorySidebar({
         onSelect: () => onExpand?.(),
         disabled: !onExpand,
       }}
-      actions={[
-        {
-          id: 'add-repository',
-          label: t('Add Repository'),
-          icon: Plus,
-          onSelect: onAddRepository,
-        },
-      ]}
+      secondaryAction={{
+        id: 'add-repository',
+        label: t('Add Repository'),
+        icon: Plus,
+        onSelect: onAddRepository,
+      }}
+      actions={[]}
     />
   ) : (
     <aside

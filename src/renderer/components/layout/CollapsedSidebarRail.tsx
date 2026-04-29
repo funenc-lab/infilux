@@ -17,6 +17,7 @@ interface CollapsedSidebarRailProps {
   triggerTitle: string;
   icon: ElementType;
   primaryAction?: CollapsedSidebarRailAction;
+  secondaryAction?: CollapsedSidebarRailAction;
   actions: readonly CollapsedSidebarRailAction[];
   className?: string;
   popupClassName?: string;
@@ -27,11 +28,13 @@ export function CollapsedSidebarRail({
   triggerTitle,
   icon: Icon,
   primaryAction,
+  secondaryAction,
   actions,
   className,
   popupClassName,
 }: CollapsedSidebarRailProps) {
   const PrimaryIcon = primaryAction?.icon ?? Icon;
+  const SecondaryIcon = secondaryAction?.icon;
 
   const actionMenuItems = actions.map((action, index) => {
     const ActionIcon = action.icon;
@@ -91,18 +94,24 @@ export function CollapsedSidebarRail({
           >
             <span
               data-slot="collapsed-sidebar-trigger-icon"
-              className="relative inline-flex h-4.5 w-4.5 items-center justify-center"
+              className="inline-flex h-4.5 w-4.5 items-center justify-center"
             >
               <PrimaryIcon className="h-4 w-4" />
-              <span
-                data-slot="collapsed-sidebar-expand-indicator"
-                aria-hidden="true"
-                className="absolute -right-1 -bottom-1 inline-flex h-3 w-3 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground shadow-sm"
-              >
-                <ChevronRight className="h-2 w-2" />
-              </span>
             </span>
           </button>
+          {secondaryAction && SecondaryIcon ? (
+            <button
+              type="button"
+              className="control-sidebar-toolbutton control-collapsed-sidebar-secondary flex h-8 w-8 items-center justify-center"
+              title={secondaryAction.label}
+              aria-label={secondaryAction.label}
+              onClick={secondaryAction.onSelect}
+              disabled={secondaryAction.disabled}
+              data-slot="collapsed-sidebar-secondary-button"
+            >
+              <SecondaryIcon className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
           {actions.length > 0 ? (
             <Menu>
               <MenuTrigger
