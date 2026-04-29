@@ -811,6 +811,20 @@ export const zhTranslations: Record<string, string> = {
   Columns: '三栏',
   'Committing...': '提交中...',
   'Configure available AI Agent CLI tools': '配置可用的 AI Agent CLI 工具',
+  'Default AI tool': '\u9ed8\u8ba4 AI \u5de5\u5177',
+  'New sessions use this tool unless another enabled agent is selected at launch.':
+    '\u65b0\u4f1a\u8bdd\u9ed8\u8ba4\u4f7f\u7528\u6b64\u5de5\u5177\uff0c\u9664\u975e\u542f\u52a8\u65f6\u9009\u62e9\u5176\u4ed6\u5df2\u542f\u7528\u7684 Agent\u3002',
+  'No enabled AI tools': '\u6ca1\u6709\u5df2\u542f\u7528\u7684 AI \u5de5\u5177',
+  'Provider profile': 'Provider \u914d\u7f6e',
+  'Command source': '\u547d\u4ee4\u6765\u6e90',
+  'Custom path': '\u81ea\u5b9a\u4e49\u8def\u5f84',
+  'Custom agent': '\u81ea\u5b9a\u4e49 Agent',
+  'Default command': '\u9ed8\u8ba4\u547d\u4ee4',
+  'Enable at least one agent before choosing a default AI tool.':
+    '\u8bf7\u5148\u542f\u7528\u81f3\u5c11\u4e00\u4e2a Agent\uff0c\u518d\u9009\u62e9\u9ed8\u8ba4 AI \u5de5\u5177\u3002',
+  Native: '\u672c\u5730',
+  'CLI managed': 'CLI \u7ba1\u7406',
+  'Custom CLI': '\u81ea\u5b9a\u4e49 CLI',
   Detect: '检测',
   Detached: '分离',
   'Detached HEAD': '分离 HEAD',
@@ -849,6 +863,7 @@ export const zhTranslations: Record<string, string> = {
   Window: '窗口',
   '(default)': '(默认)',
   '{{command}} completed': '{{command}} 已完成',
+  '{{command}} output ready': '{{command}} \u8f93\u51fa\u5df2\u5c31\u7eea',
   '{{count}} lines': '{{count}} 行',
   '{{count}} seconds': '{{count}} 秒',
   '{{count}} minutes ago': '{{count}} 分钟前',
@@ -1219,6 +1234,25 @@ export const zhTranslations: Record<string, string> = {
     '连接 Claude Code CLI 以获得增强的 IDE 功能',
   'Start the WebSocket bridge for Claude Code editor context and hooks':
     '\u542f\u52a8 WebSocket \u6865\u63a5\uff0c\u7528\u4e8e Claude Code \u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c hooks',
+  'Agent capability coverage': 'Agent \u80fd\u529b\u8986\u76d6',
+  'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.':
+    '\u8fd9\u4e9b\u63a7\u5236\u9879\u57fa\u4e8e provider \u80fd\u529b\uff0c\u800c\u4e0d\u662f\u5047\u8bbe\u6240\u6709 AI \u5de5\u5177\u90fd\u652f\u6301\u76f8\u540c hooks\u3002',
+  'Currently supported by {{providers}}': '\u5f53\u524d\u652f\u6301\uff1a{{providers}}',
+  'Waiting for provider adapter': '\u7b49\u5f85 provider adapter',
+  'Unsupported providers: {{providers}}':
+    '\u6682\u4e0d\u652f\u6301\u7684 providers\uff1a{{providers}}',
+  'Editor context bridge': '\u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u6865\u63a5',
+  'Send editor selection and @mention context to supported agent IDE bridges.':
+    '\u5c06\u7f16\u8f91\u5668\u9009\u533a\u548c @mention \u4e0a\u4e0b\u6587\u53d1\u9001\u5230\u53d7\u652f\u6301\u7684 Agent IDE \u6865\u63a5\u3002',
+  'Completion notifications': '\u5b8c\u6210\u901a\u77e5',
+  'Use provider lifecycle hooks when available, then fall back to terminal completion markers.':
+    '\u53ef\u7528\u65f6\u4f7f\u7528 provider \u751f\u547d\u5468\u671f hooks\uff0c\u5426\u5219\u56de\u9000\u5230\u7ec8\u7aef\u5b8c\u6210\u6807\u8bb0\u3002',
+  'Question notifications': '\u63d0\u95ee\u901a\u77e5',
+  'Notify when a supported agent requests user input or permission.':
+    '\u5f53\u53d7\u652f\u6301\u7684 Agent \u8bf7\u6c42\u7528\u6237\u8f93\u5165\u6216\u6743\u9650\u65f6\u901a\u77e5\u3002',
+  'Status telemetry': '\u72b6\u6001\u9065\u6d4b',
+  'Show supported agent telemetry such as model, context, and cost at the bottom of the terminal.':
+    '\u5728\u7ec8\u7aef\u5e95\u90e8\u663e\u793a\u53d7\u652f\u6301 Agent \u7684\u6a21\u578b\u3001\u4e0a\u4e0b\u6587\u3001\u6210\u672c\u7b49\u9065\u6d4b\u4fe1\u606f\u3002',
   'Configure enhanced drafts and attachment routing for agent sessions':
     '配置 Agent 会话的增强草稿输入与附件路由行为',
   'Configure fallback composer controls for providers without native terminal input':
@@ -1231,11 +1265,17 @@ export const zhTranslations: Record<string, string> = {
   'Debounce Time': '防抖时间',
   'Delay before sending selection changes to Claude Code':
     '发送选区变化到 Claude Code 前的延迟时间',
+  'Delay before sending selection changes to supported editor bridges':
+    '\u53d1\u9001\u9009\u533a\u53d8\u5316\u5230\u53d7\u652f\u6301\u7f16\u8f91\u5668\u6865\u63a5\u524d\u7684\u5ef6\u8fdf',
   'Mention Shortcut': '提及快捷键',
   'Send selected code range to Claude Code': '将选中的代码范围发送到 Claude Code',
+  'Send selected code range to supported editor bridges':
+    '\u5c06\u9009\u4e2d\u7684\u4ee3\u7801\u8303\u56f4\u53d1\u9001\u5230\u53d7\u652f\u6301\u7684\u7f16\u8f91\u5668\u6865\u63a5',
   'Enhanced Notification': '增强通知',
   'Use Claude Stop hook for precise agent completion notifications':
     '使用 Claude Stop hook 获取精确的 Agent 完成通知',
+  'Use provider completion hooks for precise agent completion notifications':
+    '\u4f7f\u7528 provider \u5b8c\u6210 hooks \u83b7\u53d6\u7cbe\u786e\u7684 Agent \u5b8c\u6210\u901a\u77e5',
   'Enhanced Input': '增强输入',
   'Fallback Composer': '回退编辑器',
   'Insert attachments': '插入附件',
@@ -1820,6 +1860,26 @@ export const zhTranslations: Record<string, string> = {
   'Agent Providers': 'Agent Provider \u914d\u7f6e',
   'Add Provider': '添加配置',
   'Edit Provider': '编辑配置',
+  'Provider Type': 'Provider 类型',
+  'Settings adapter': '设置适配器',
+  'Provider profile switching is not available for this AI tool yet.':
+    '该 AI 工具暂不支持 Provider 配置切换。',
+  'Current CLI Config Detected': '\u5df2\u68c0\u6d4b\u5230\u5f53\u524d CLI \u914d\u7f6e',
+  'Save Current CLI Config': '\u4fdd\u5b58\u5f53\u524d CLI \u914d\u7f6e',
+  'Manual Add Provider': '\u624b\u52a8\u6dfb\u52a0 Provider',
+  'Manual provider settings are for custom gateways and unsupported auto-detection cases.':
+    '\u624b\u52a8 Provider \u8bbe\u7f6e\u7528\u4e8e\u81ea\u5b9a\u4e49\u7f51\u5173\u6216\u6682\u4e0d\u652f\u6301\u81ea\u52a8\u68c0\u6d4b\u7684\u573a\u666f\u3002',
+  'Provider profile already saved as {{name}}':
+    '\u5df2\u4fdd\u5b58\u4e3a Provider \u914d\u7f6e {{name}}',
+  'Detected CLI config is missing required provider credentials.':
+    '\u68c0\u6d4b\u5230\u7684 CLI \u914d\u7f6e\u7f3a\u5c11\u5fc5\u9700\u7684 Provider \u51ed\u636e\u3002',
+  'No supported CLI provider config detected yet.':
+    '\u5c1a\u672a\u68c0\u6d4b\u5230\u53d7\u652f\u6301\u7684 CLI Provider \u914d\u7f6e\u3002',
+  'Open a supported Agent CLI once, then save the detected configuration here.':
+    '\u5148\u6253\u5f00\u4e00\u6b21\u53d7\u652f\u6301\u7684 Agent CLI\uff0c\u518d\u5728\u8fd9\u91cc\u4fdd\u5b58\u68c0\u6d4b\u5230\u7684\u914d\u7f6e\u3002',
+  'Save and switch detected provider profiles for supported Agent CLIs':
+    '\u4fdd\u5b58\u5e76\u5207\u6362\u53d7\u652f\u6301 Agent CLI \u68c0\u6d4b\u5230\u7684 Provider \u914d\u7f6e',
+  'No saved provider profiles': '\u6682\u65e0\u5df2\u4fdd\u5b58\u7684 Provider \u914d\u7f6e',
   'Current config not saved': '当前配置未保存',
   'No providers configured': '暂无配置',
   'Configure Claude API provider settings': '配置 Claude API Provider 设置',
@@ -2292,9 +2352,13 @@ export const zhTranslations: Record<string, string> = {
   'Ask User Question Notification': '用户提问通知',
   'Notify when Claude asks a question (requires PermissionRequest hook)':
     'Claude 提问时通知（需要 PermissionRequest hook）',
+  'Notify when a supported agent asks for input or permission':
+    '\u53d7\u652f\u6301\u7684 Agent \u8bf7\u6c42\u8f93\u5165\u6216\u6743\u9650\u65f6\u901a\u77e5',
   'Status Line': '状态栏',
   'Show agent status (model, context, cost) at bottom of terminal':
     '在终端底部显示 Agent 状态（模型、上下文、成本）',
+  'Show supported agent telemetry (model, context, cost) at bottom of terminal':
+    '\u5728\u7ec8\u7aef\u5e95\u90e8\u663e\u793a\u53d7\u652f\u6301 Agent \u9065\u6d4b\uff08\u6a21\u578b\u3001\u4e0a\u4e0b\u6587\u3001\u6210\u672c\uff09',
   'Display Fields': '显示字段',
   Context: '上下文',
   Cost: '成本',
@@ -2483,11 +2547,37 @@ export const zhTranslations: Record<string, string> = {
   'Input tokens': '\u8f93\u5165 token',
   'Output tokens': '\u8f93\u51fa token',
   'Cache tokens': '\u7f13\u5b58 token',
+  'Prompt cache tokens': '\u63d0\u793a\u8bcd\u7f13\u5b58 token',
+  'Cached input tokens': '\u7f13\u5b58\u8f93\u5165 token',
   'Reasoning tokens': '\u63a8\u7406 token',
   'Scanning token usage...': '\u6b63\u5728\u626b\u63cf token \u7528\u91cf...',
   'Token Usage': 'Token \u7528\u91cf',
   'Refresh token usage': '\u5237\u65b0 token \u7528\u91cf',
   'Refreshing token usage': '\u6b63\u5728\u5237\u65b0 token \u7528\u91cf',
+  'Fresh scan': '\u6700\u65b0\u626b\u63cf',
+  'Cached snapshot': '\u7f13\u5b58\u5feb\u7167',
+  'Refreshing cached data': '\u6b63\u5728\u5237\u65b0\u7f13\u5b58\u6570\u636e',
+  'Updated {{time}}': '\u66f4\u65b0\u4e8e {{time}}',
+  'No token usage recorded': '\u6682\u65e0 token \u7528\u91cf\u8bb0\u5f55',
+  'Open or refresh a supported agent session to populate this scope.':
+    '\u6253\u5f00\u6216\u5237\u65b0\u53d7\u652f\u6301\u7684 Agent \u4f1a\u8bdd\u4ee5\u586b\u5145\u5f53\u524d\u8303\u56f4\u3002',
+  'Review provider coverage for missing or unsupported sources.':
+    '\u68c0\u67e5 provider \u8986\u76d6\uff0c\u4ee5\u786e\u8ba4\u7f3a\u5931\u6216\u4e0d\u652f\u6301\u7684\u6765\u6e90\u3002',
+  'Project usage share': '\u9879\u76ee\u7528\u91cf\u5360\u6bd4',
+  Unsupported: '\u4e0d\u652f\u6301',
+  'No data': '\u65e0\u6570\u636e',
+  'Codex usage log directory was not found.':
+    'Codex \u7528\u91cf\u65e5\u5fd7\u76ee\u5f55\u672a\u627e\u5230\u3002',
+  'No Codex usage JSONL files were found.':
+    '\u672a\u627e\u5230 Codex \u7528\u91cf JSONL \u6587\u4ef6\u3002',
+  'Claude usage log directory was not found.':
+    'Claude \u7528\u91cf\u65e5\u5fd7\u76ee\u5f55\u672a\u627e\u5230\u3002',
+  'No Claude usage JSONL files were found.':
+    '\u672a\u627e\u5230 Claude \u7528\u91cf JSONL \u6587\u4ef6\u3002',
+  'No stable token usage log was found for this provider.':
+    '\u6b64 provider \u6682\u65e0\u7a33\u5b9a\u7684 token \u7528\u91cf\u65e5\u5fd7\u3002',
+  'Custom agents need a provider adapter before token usage can be trusted.':
+    '\u81ea\u5b9a\u4e49 Agent \u9700\u8981 provider adapter \u540e\u624d\u80fd\u4fe1\u4efb token \u7528\u91cf\u3002',
   'Loading token usage...': '\u6b63\u5728\u52a0\u8f7d token \u7528\u91cf...',
   'Unable to load token usage.': '\u65e0\u6cd5\u52a0\u8f7d token \u7528\u91cf\u3002',
   'No token usage has been recorded for tracked providers.':
@@ -2566,6 +2656,37 @@ export const zhTranslations: Record<string, string> = {
   'Startup failed': '\u542f\u52a8\u5931\u8d25',
   'The workspace did not finish loading. Check renderer logs and restart.':
     '\u5de5\u4f5c\u533a\u672a\u80fd\u5b8c\u6210\u52a0\u8f7d\u3002\u8bf7\u68c0\u67e5 renderer \u65e5\u5fd7\u5e76\u91cd\u542f\u3002',
+  'Refreshing files': '\u6b63\u5728\u5237\u65b0\u6587\u4ef6',
+  'Refresh files': '\u5237\u65b0\u6587\u4ef6',
+  'Collapse repository sidebar': '\u6536\u8d77\u4ed3\u5e93\u4fa7\u8fb9\u680f',
+  'Expand repository sidebar': '\u5c55\u5f00\u4ed3\u5e93\u4fa7\u8fb9\u680f',
+  'Running projects: {{count}}': '\u8fd0\u884c\u4e2d\u7684\u9879\u76ee\uff1a{{count}}',
+  'Refresh temp sessions': '\u5237\u65b0\u4e34\u65f6\u4f1a\u8bdd',
+  'Collapse temp sessions sidebar': '\u6536\u8d77\u4e34\u65f6\u4f1a\u8bdd\u4fa7\u8fb9\u680f',
+  'Refreshing projects': '\u6b63\u5728\u5237\u65b0\u9879\u76ee',
+  'Refresh projects': '\u5237\u65b0\u9879\u76ee',
+  'Manage repositories': '\u7ba1\u7406\u4ed3\u5e93',
+  'Collapse sidebar': '\u6536\u8d77\u4fa7\u8fb9\u680f',
+  'Remote unavailable': '\u8fdc\u7a0b\u4e0d\u53ef\u7528',
+  'Refreshing worktrees': '\u6b63\u5728\u5237\u65b0 Worktree',
+  'Refresh worktrees': '\u5237\u65b0 Worktree',
+  'Collapse worktree sidebar': '\u6536\u8d77 Worktree \u4fa7\u8fb9\u680f',
+  'Decision Center': '\u51b3\u7b56\u4e2d\u5fc3',
+  'Global Todo': '\u5168\u5c40 Todo',
+  'Loaded Projects': '\u5df2\u52a0\u8f7d\u9879\u76ee',
+  'Execution Overview': '\u6267\u884c\u6982\u89c8',
+  'Dispatch ready tasks': '\u5206\u53d1\u5c31\u7eea\u4efb\u52a1',
+  Dispatch: '\u5206\u53d1',
+  'No interventions': '\u65e0\u9700\u5e72\u9884',
+  'No running tasks': '\u6682\u65e0\u8fd0\u884c\u4efb\u52a1',
+  'No agent load': '\u6682\u65e0 Agent \u8d1f\u8f7d',
+  Projects: '\u9879\u76ee',
+  'Open Tasks': '\u672a\u5b8c\u6210\u4efb\u52a1',
+  Approvals: '\u5ba1\u6279',
+  Dependencies: '\u4f9d\u8d56',
+  'No loaded projects': '\u6682\u65e0\u5df2\u52a0\u8f7d\u9879\u76ee',
+  'Select a repository to load its Todo tasks into this center.':
+    '\u9009\u62e9\u4e00\u4e2a\u4ed3\u5e93\uff0c\u5c06\u5176 Todo \u4efb\u52a1\u52a0\u8f7d\u5230\u8fd9\u4e2a\u4e2d\u5fc3\u3002',
   'View session subagents': '\u67e5\u770b\u5f53\u524d\u4f1a\u8bdd\u7684\u5b50 agent',
   'Subagents are not ready yet': '\u5b50 agent \u8fd8\u672a\u51c6\u5907\u597d',
   'Run this session once before opening its subagent window.':

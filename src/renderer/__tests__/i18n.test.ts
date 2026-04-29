@@ -57,7 +57,26 @@ function TranslationProbe() {
     React.createElement('span', { id: 'token-refreshing' }, t('Refreshing token usage')),
     React.createElement('span', { id: 'token-scan' }, t('Scanning token usage...')),
     React.createElement('span', { id: 'token-input' }, t('Input tokens')),
-    React.createElement('span', { id: 'token-provider' }, t('Provider Coverage'))
+    React.createElement('span', { id: 'token-prompt-cache' }, t('Prompt cache tokens')),
+    React.createElement('span', { id: 'token-cached-input' }, t('Cached input tokens')),
+    React.createElement('span', { id: 'token-fresh' }, t('Fresh scan')),
+    React.createElement('span', { id: 'token-cached' }, t('Cached snapshot')),
+    React.createElement('span', { id: 'token-refreshing-cache' }, t('Refreshing cached data')),
+    React.createElement('span', { id: 'token-updated' }, t('Updated {{time}}', { time: '09:30' })),
+    React.createElement('span', { id: 'token-empty-title' }, t('No token usage recorded')),
+    React.createElement(
+      'span',
+      { id: 'token-empty-detail' },
+      t('Open or refresh a supported agent session to populate this scope.')
+    ),
+    React.createElement('span', { id: 'token-provider' }, t('Provider Coverage')),
+    React.createElement('span', { id: 'decision-center' }, t('Decision Center')),
+    React.createElement('span', { id: 'global-todo' }, t('Global Todo')),
+    React.createElement('span', { id: 'ready-dispatch' }, t('Ready to Dispatch')),
+    React.createElement('span', { id: 'running-now' }, t('Running Now')),
+    React.createElement('span', { id: 'active-count' }, t('{{count}} active', { count: 2 })),
+    React.createElement('span', { id: 'open-tasks' }, t('Open Tasks')),
+    React.createElement('span', { id: 'approvals' }, t('Approvals'))
   );
 }
 
@@ -117,6 +136,29 @@ describe('renderer i18n', () => {
       '\u6b63\u5728\u626b\u63cf token \u7528\u91cf...'
     );
     expect(container.querySelector('#token-input')?.textContent).toBe('\u8f93\u5165 token');
+    expect(container.querySelector('#token-fresh')?.textContent).toBe('\u6700\u65b0\u626b\u63cf');
+    expect(container.querySelector('#token-cached')?.textContent).toBe('\u7f13\u5b58\u5feb\u7167');
+    expect(container.querySelector('#token-refreshing-cache')?.textContent).toBe(
+      '\u6b63\u5728\u5237\u65b0\u7f13\u5b58\u6570\u636e'
+    );
+    expect(container.querySelector('#token-updated')?.textContent).toBe('\u66f4\u65b0\u4e8e 09:30');
+    expect(container.querySelector('#token-empty-title')?.textContent).toBe(
+      '\u6682\u65e0 token \u7528\u91cf\u8bb0\u5f55'
+    );
+    expect(container.querySelector('#token-empty-detail')?.textContent).toBe(
+      '\u6253\u5f00\u6216\u5237\u65b0\u53d7\u652f\u6301\u7684 Agent \u4f1a\u8bdd\u4ee5\u586b\u5145\u5f53\u524d\u8303\u56f4\u3002'
+    );
     expect(container.querySelector('#token-provider')?.textContent).toBe('Provider \u8986\u76d6');
+    expect(container.querySelector('#decision-center')?.textContent).toBe(
+      '\u51b3\u7b56\u4e2d\u5fc3'
+    );
+    expect(container.querySelector('#global-todo')?.textContent).toBe('\u5168\u5c40\u5f85\u529e');
+    expect(container.querySelector('#ready-dispatch')?.textContent).toBe('\u53ef\u6d3e\u53d1');
+    expect(container.querySelector('#running-now')?.textContent).toBe('\u6b63\u5728\u6267\u884c');
+    expect(container.querySelector('#active-count')?.textContent).toBe('2 \u4e2a\u6d3b\u52a8');
+    expect(container.querySelector('#open-tasks')?.textContent).toBe(
+      '\u672a\u5b8c\u6210\u4efb\u52a1'
+    );
+    expect(container.querySelector('#approvals')?.textContent).toBe('\u5ba1\u6279');
   });
 });

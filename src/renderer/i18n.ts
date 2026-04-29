@@ -102,6 +102,31 @@ const rendererZhTranslations: Record<string, string> = {
   'Worktree panel actions': decodeEscapedUnicode('Worktree \\u9762\\u677f\\u64cd\\u4f5c'),
   'Temp session actions': decodeEscapedUnicode('\\u4e34\\u65f6\\u4f1a\\u8bdd\\u64cd\\u4f5c'),
   'File sidebar actions': decodeEscapedUnicode('\\u6587\\u4ef6\\u4fa7\\u680f\\u64cd\\u4f5c'),
+  'Refreshing files': decodeEscapedUnicode('\\u6b63\\u5728\\u5237\\u65b0\\u6587\\u4ef6'),
+  'Refresh files': decodeEscapedUnicode('\\u5237\\u65b0\\u6587\\u4ef6'),
+  'Collapse repository sidebar': decodeEscapedUnicode(
+    '\\u6298\\u53e0\\u4ed3\\u5e93\\u4fa7\\u8fb9\\u680f'
+  ),
+  'Running projects: {{count}}': decodeEscapedUnicode(
+    '\\u8fd0\\u884c\\u4e2d\\u9879\\u76ee\\uff1a{{count}}'
+  ),
+  'Refresh temp sessions': decodeEscapedUnicode('\\u5237\\u65b0\\u4e34\\u65f6\\u4f1a\\u8bdd'),
+  'Collapse temp sessions sidebar': decodeEscapedUnicode(
+    '\\u6298\\u53e0\\u4e34\\u65f6\\u4f1a\\u8bdd\\u4fa7\\u8fb9\\u680f'
+  ),
+  'Refreshing projects': decodeEscapedUnicode('\\u6b63\\u5728\\u5237\\u65b0\\u9879\\u76ee'),
+  'Refresh projects': decodeEscapedUnicode('\\u5237\\u65b0\\u9879\\u76ee'),
+  'Manage repositories': decodeEscapedUnicode('\\u7ba1\\u7406\\u4ed3\\u5e93'),
+  'Collapse sidebar': decodeEscapedUnicode('\\u6298\\u53e0\\u4fa7\\u8fb9\\u680f'),
+  'Remote unavailable': decodeEscapedUnicode('\\u8fdc\\u7a0b\\u4e0d\\u53ef\\u7528'),
+  'Refreshing worktrees': decodeEscapedUnicode('\\u6b63\\u5728\\u5237\\u65b0 Worktree'),
+  'Refresh worktrees': decodeEscapedUnicode('\\u5237\\u65b0 Worktree'),
+  'Expand repository sidebar': decodeEscapedUnicode(
+    '\\u5c55\\u5f00\\u4ed3\\u5e93\\u4fa7\\u8fb9\\u680f'
+  ),
+  'Collapse worktree sidebar': decodeEscapedUnicode(
+    '\\u6298\\u53e0 Worktree \\u4fa7\\u8fb9\\u680f'
+  ),
   'Expand Temp Sessions': decodeEscapedUnicode('\\u5c55\\u5f00\\u4e34\\u65f6\\u4f1a\\u8bdd'),
   'Search Files': decodeEscapedUnicode('\\u641c\\u7d22\\u6587\\u4ef6'),
   'Searching files...': decodeEscapedUnicode('\\u6b63\\u5728\\u641c\\u7d22\\u6587\\u4ef6...'),
@@ -134,6 +159,39 @@ const rendererZhTranslations: Record<string, string> = {
   'Auto: {{agent}}': decodeEscapedUnicode('\\u81ea\\u52a8\\uff1a{{agent}}'),
   'Auto execute with {{agent}}': decodeEscapedUnicode(
     '\\u4f7f\\u7528 {{agent}} \\u81ea\\u52a8\\u6267\\u884c'
+  ),
+  'Decision Center': decodeEscapedUnicode('\\u51b3\\u7b56\\u4e2d\\u5fc3'),
+  'Global Todo': decodeEscapedUnicode('\\u5168\\u5c40\\u5f85\\u529e'),
+  'Loaded Projects': decodeEscapedUnicode('\\u5df2\\u52a0\\u8f7d\\u9879\\u76ee'),
+  Projects: decodeEscapedUnicode('\\u9879\\u76ee'),
+  'Open Tasks': decodeEscapedUnicode('\\u672a\\u5b8c\\u6210\\u4efb\\u52a1'),
+  'Ready Tasks': decodeEscapedUnicode('\\u53ef\\u6267\\u884c\\u4efb\\u52a1'),
+  'Blocked Tasks': decodeEscapedUnicode('\\u963b\\u585e\\u4efb\\u52a1'),
+  Approvals: decodeEscapedUnicode('\\u5ba1\\u6279'),
+  'Execution Overview': decodeEscapedUnicode('\\u6267\\u884c\\u6982\\u89c8'),
+  'Dispatch Next': decodeEscapedUnicode('\\u4e0b\\u4e00\\u6b65\\u6d3e\\u53d1'),
+  'Monitor Running': decodeEscapedUnicode('\\u76d1\\u63a7\\u6267\\u884c\\u4e2d'),
+  'Request Approval': decodeEscapedUnicode('\\u8bf7\\u6c42\\u5ba1\\u6279'),
+  'Resolve Dependencies': decodeEscapedUnicode('\\u5904\\u7406\\u4f9d\\u8d56'),
+  Dispatch: decodeEscapedUnicode('\\u6d3e\\u53d1'),
+  'Dispatch ready tasks': decodeEscapedUnicode('\\u6d3e\\u53d1\\u53ef\\u6267\\u884c\\u4efb\\u52a1'),
+  'Ready to Dispatch': decodeEscapedUnicode('\\u53ef\\u6d3e\\u53d1'),
+  'Needs Intervention': decodeEscapedUnicode('\\u9700\\u8981\\u5e72\\u9884'),
+  'Running Now': decodeEscapedUnicode('\\u6b63\\u5728\\u6267\\u884c'),
+  '{{count}} ready': decodeEscapedUnicode('{{count}} \\u4e2a\\u5c31\\u7eea'),
+  '{{count}} blocked': decodeEscapedUnicode('{{count}} \\u4e2a\\u963b\\u585e'),
+  '{{count}} active': decodeEscapedUnicode('{{count}} \\u4e2a\\u6d3b\\u52a8'),
+  'Dispatch Queue': decodeEscapedUnicode('\\u6d3e\\u53d1\\u961f\\u5217'),
+  Interventions: decodeEscapedUnicode('\\u5e72\\u9884\\u9879'),
+  'No interventions': decodeEscapedUnicode('\\u6682\\u65e0\\u5e72\\u9884\\u9879'),
+  'Dependency Blocked': decodeEscapedUnicode('\\u4f9d\\u8d56\\u963b\\u585e'),
+  'No running tasks': decodeEscapedUnicode('\\u6682\\u65e0\\u8fd0\\u884c\\u4e2d\\u4efb\\u52a1'),
+  'Agent Load': decodeEscapedUnicode('Agent \\u8d1f\\u8f7d'),
+  'No agent load': decodeEscapedUnicode('\\u6682\\u65e0 Agent \\u8d1f\\u8f7d'),
+  'Project State': decodeEscapedUnicode('\\u9879\\u76ee\\u72b6\\u6001'),
+  'No loaded projects': decodeEscapedUnicode('\\u6682\\u65e0\\u5df2\\u52a0\\u8f7d\\u9879\\u76ee'),
+  'Select a repository to load its Todo tasks into this center.': decodeEscapedUnicode(
+    '\\u9009\\u62e9\\u4e00\\u4e2a\\u4ed3\\u5e93\\u540e\\uff0c\\u5176 Todo \\u4efb\\u52a1\\u4f1a\\u52a0\\u8f7d\\u5230\\u6b64\\u4e2d\\u5fc3\\u3002'
   ),
   'Auto Select': decodeEscapedUnicode('\\u81ea\\u52a8\\u9009\\u62e9'),
   'Executing with {{agent}}...': decodeEscapedUnicode(
@@ -188,6 +246,12 @@ const rendererZhTranslations: Record<string, string> = {
   'Task agent selection': decodeEscapedUnicode('\\u4efb\\u52a1\\u6307\\u5b9a Agent'),
   'Manual selection': decodeEscapedUnicode('\\u624b\\u52a8\\u9009\\u62e9'),
   'Task Context': decodeEscapedUnicode('\\u4efb\\u52a1\\u4e0a\\u4e0b\\u6587'),
+  Dependencies: decodeEscapedUnicode('\\u4f9d\\u8d56\\u4efb\\u52a1'),
+  '{{count}} dependencies': decodeEscapedUnicode('{{count}} \\u4e2a\\u4f9d\\u8d56'),
+  'Depends {{count}}': decodeEscapedUnicode('\\u4f9d\\u8d56 {{count}}'),
+  'No dependency tasks available': decodeEscapedUnicode(
+    '\\u6682\\u65e0\\u53ef\\u9009\\u4f9d\\u8d56\\u4efb\\u52a1'
+  ),
   'Attach current worktree': decodeEscapedUnicode('\\u7ed1\\u5b9a\\u5f53\\u524d Worktree'),
   'Attach file context': decodeEscapedUnicode('\\u7ed1\\u5b9a\\u6587\\u4ef6\\u4e0a\\u4e0b\\u6587'),
   'Attach directory context': decodeEscapedUnicode(
@@ -211,6 +275,16 @@ const rendererZhTranslations: Record<string, string> = {
   'Waiting for dependency': decodeEscapedUnicode('\\u7b49\\u5f85\\u4f9d\\u8d56'),
   'Waiting for dependencies': decodeEscapedUnicode('\\u7b49\\u5f85\\u4f9d\\u8d56'),
   'Missing dependency': decodeEscapedUnicode('\\u7f3a\\u5931\\u4f9d\\u8d56'),
+  Approve: decodeEscapedUnicode('\\u6279\\u51c6'),
+  Approved: decodeEscapedUnicode('\\u5df2\\u6279\\u51c6'),
+  'Approval Required': decodeEscapedUnicode('\\u9700\\u8981\\u6279\\u51c6'),
+  'Waiting for approval': decodeEscapedUnicode('\\u7b49\\u5f85\\u6279\\u51c6'),
+  'Require approval before auto execute': decodeEscapedUnicode(
+    '\\u81ea\\u52a8\\u6267\\u884c\\u524d\\u9700\\u8981\\u6279\\u51c6'
+  ),
+  'Auto execute will wait until you approve this task.': decodeEscapedUnicode(
+    '\\u81ea\\u52a8\\u6267\\u884c\\u4f1a\\u7b49\\u5f85\\u4f60\\u6279\\u51c6\\u8be5\\u4efb\\u52a1\\u3002'
+  ),
   'Todo change was not saved': decodeEscapedUnicode('Todo \\u53d8\\u66f4\\u672a\\u4fdd\\u5b58'),
   'Unable to load token usage.': decodeEscapedUnicode(
     '\\u65e0\\u6cd5\\u52a0\\u8f7d token \\u7528\\u91cf\\u3002'
@@ -233,6 +307,8 @@ const rendererZhTranslations: Record<string, string> = {
   'Input tokens': decodeEscapedUnicode('\\u8f93\\u5165 token'),
   'Output tokens': decodeEscapedUnicode('\\u8f93\\u51fa token'),
   'Cache tokens': decodeEscapedUnicode('\\u7f13\\u5b58 token'),
+  'Prompt cache tokens': decodeEscapedUnicode('\\u63d0\\u793a\\u8bcd\\u7f13\\u5b58 token'),
+  'Cached input tokens': decodeEscapedUnicode('\\u7f13\\u5b58\\u8f93\\u5165 token'),
   'Reasoning tokens': decodeEscapedUnicode('\\u63a8\\u7406 token'),
   'Scanning token usage...': decodeEscapedUnicode(
     '\\u6b63\\u5728\\u626b\\u63cf token \\u7528\\u91cf...'
@@ -241,6 +317,42 @@ const rendererZhTranslations: Record<string, string> = {
   'Refresh token usage': decodeEscapedUnicode('\\u5237\\u65b0 token \\u7528\\u91cf'),
   'Refreshing token usage': decodeEscapedUnicode(
     '\\u6b63\\u5728\\u5237\\u65b0 token \\u7528\\u91cf'
+  ),
+  'Fresh scan': decodeEscapedUnicode('\\u6700\\u65b0\\u626b\\u63cf'),
+  'Cached snapshot': decodeEscapedUnicode('\\u7f13\\u5b58\\u5feb\\u7167'),
+  'Refreshing cached data': decodeEscapedUnicode(
+    '\\u6b63\\u5728\\u5237\\u65b0\\u7f13\\u5b58\\u6570\\u636e'
+  ),
+  'Updated {{time}}': decodeEscapedUnicode('\\u66f4\\u65b0\\u4e8e {{time}}'),
+  'No token usage recorded': decodeEscapedUnicode(
+    '\\u6682\\u65e0 token \\u7528\\u91cf\\u8bb0\\u5f55'
+  ),
+  'Open or refresh a supported agent session to populate this scope.': decodeEscapedUnicode(
+    '\\u6253\\u5f00\\u6216\\u5237\\u65b0\\u53d7\\u652f\\u6301\\u7684 Agent \\u4f1a\\u8bdd\\u4ee5\\u586b\\u5145\\u5f53\\u524d\\u8303\\u56f4\\u3002'
+  ),
+  'Review provider coverage for missing or unsupported sources.': decodeEscapedUnicode(
+    '\\u68c0\\u67e5 provider \\u8986\\u76d6\\uff0c\\u4ee5\\u786e\\u8ba4\\u7f3a\\u5931\\u6216\\u4e0d\\u652f\\u6301\\u7684\\u6765\\u6e90\\u3002'
+  ),
+  'Project usage share': decodeEscapedUnicode('\\u9879\\u76ee\\u7528\\u91cf\\u5360\\u6bd4'),
+  Unsupported: decodeEscapedUnicode('\\u4e0d\\u652f\\u6301'),
+  'No data': decodeEscapedUnicode('\\u65e0\\u6570\\u636e'),
+  'Codex usage log directory was not found.': decodeEscapedUnicode(
+    'Codex \\u7528\\u91cf\\u65e5\\u5fd7\\u76ee\\u5f55\\u672a\\u627e\\u5230\\u3002'
+  ),
+  'No Codex usage JSONL files were found.': decodeEscapedUnicode(
+    '\\u672a\\u627e\\u5230 Codex \\u7528\\u91cf JSONL \\u6587\\u4ef6\\u3002'
+  ),
+  'Claude usage log directory was not found.': decodeEscapedUnicode(
+    'Claude \\u7528\\u91cf\\u65e5\\u5fd7\\u76ee\\u5f55\\u672a\\u627e\\u5230\\u3002'
+  ),
+  'No Claude usage JSONL files were found.': decodeEscapedUnicode(
+    '\\u672a\\u627e\\u5230 Claude \\u7528\\u91cf JSONL \\u6587\\u4ef6\\u3002'
+  ),
+  'No stable token usage log was found for this provider.': decodeEscapedUnicode(
+    '\\u6b64 provider \\u6682\\u65e0\\u7a33\\u5b9a\\u7684 token \\u7528\\u91cf\\u65e5\\u5fd7\\u3002'
+  ),
+  'Custom agents need a provider adapter before token usage can be trusted.': decodeEscapedUnicode(
+    '\\u81ea\\u5b9a\\u4e49 Agent \\u9700\\u8981 provider adapter \\u540e\\u624d\\u80fd\\u4fe1\\u4efb token \\u7528\\u91cf\\u3002'
   ),
   Refreshing: decodeEscapedUnicode('\\u6b63\\u5728\\u5237\\u65b0'),
   'Loading token usage...': decodeEscapedUnicode(

@@ -55,10 +55,39 @@ describe('shared i18n helpers', () => {
       'Configure provider routing and CLI-specific integration features',
       'Claude Code IDE Bridge',
       'Start the WebSocket bridge for Claude Code editor context and hooks',
+      'Agent capability coverage',
+      'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.',
+      'Currently supported by {{providers}}',
+      'Waiting for provider adapter',
+      'Unsupported providers: {{providers}}',
+      'Editor context bridge',
+      'Send editor selection and @mention context to supported agent IDE bridges.',
+      'Completion notifications',
+      'Use provider lifecycle hooks when available, then fall back to terminal completion markers.',
+      'Question notifications',
+      'Notify when a supported agent requests user input or permission.',
+      'Status telemetry',
+      'Show supported agent telemetry such as model, context, and cost at the bottom of the terminal.',
+      'Delay before sending selection changes to supported editor bridges',
+      'Send selected code range to supported editor bridges',
+      'Use provider completion hooks for precise agent completion notifications',
+      'Notify when a supported agent asks for input or permission',
+      'Show supported agent telemetry (model, context, cost) at bottom of terminal',
       'Agent Providers',
       'Configure API provider settings for supported agent CLIs',
       'Manage API provider profiles for supported agent CLIs',
       'Watch supported provider settings files for external changes',
+      'Provider Type',
+      'Settings adapter',
+      'Provider profile switching is not available for this AI tool yet.',
+      'Current CLI Config Detected',
+      'Save Current CLI Config',
+      'Manual Add Provider',
+      'Manual provider settings are for custom gateways and unsupported auto-detection cases.',
+      'Provider profile already saved as {{name}}',
+      'No supported CLI provider config detected yet.',
+      'Open a supported Agent CLI once, then save the detected configuration here.',
+      'Save and switch detected provider profiles for supported Agent CLIs',
     ] as const;
 
     for (const key of integrationKeys) {
@@ -68,6 +97,27 @@ describe('shared i18n helpers', () => {
     expect(getTranslation('zh', 'Agent Integrations')).toBe('Agent \u96c6\u6210');
     expect(getTranslation('zh', 'Agent Providers')).toBe('Agent Provider \u914d\u7f6e');
     expect(getTranslation('zh', 'Claude Code IDE Bridge')).toBe('Claude Code IDE \u6865\u63a5');
+  });
+
+  it('translates generic agent tool routing copy in zh locale', () => {
+    const agentToolRoutingKeys = [
+      'Default AI tool',
+      'New sessions use this tool unless another enabled agent is selected at launch.',
+      'No enabled AI tools',
+      'Provider profile',
+      'Command source',
+      'Custom path',
+      'Custom agent',
+      'Default command',
+      'Enable at least one agent before choosing a default AI tool.',
+      'Native',
+      'CLI managed',
+      'Custom CLI',
+    ] as const;
+
+    for (const key of agentToolRoutingKeys) {
+      expect(getTranslation('zh', key)).not.toBe(key);
+    }
   });
 
   it('keeps app resource panel copy translated in zh locale', () => {
@@ -92,7 +142,25 @@ describe('shared i18n helpers', () => {
       'Input tokens',
       'Output tokens',
       'Cache tokens',
+      'Prompt cache tokens',
+      'Cached input tokens',
       'Reasoning tokens',
+      'Fresh scan',
+      'Cached snapshot',
+      'Refreshing cached data',
+      'Updated {{time}}',
+      'No token usage recorded',
+      'Open or refresh a supported agent session to populate this scope.',
+      'Review provider coverage for missing or unsupported sources.',
+      'Project usage share',
+      'Unsupported',
+      'No data',
+      'Codex usage log directory was not found.',
+      'No Codex usage JSONL files were found.',
+      'Claude usage log directory was not found.',
+      'No Claude usage JSONL files were found.',
+      'No stable token usage log was found for this provider.',
+      'Custom agents need a provider adapter before token usage can be trusted.',
       'Scanning token usage...',
       'Refreshing token usage',
       'Unable to execute action.',
