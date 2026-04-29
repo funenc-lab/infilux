@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 import { shouldPollSidebarDiffStats } from './sidebarDiffPollingPolicy';
 import { WorktreeItem } from './worktree-panel/WorktreeItem';
 import { resolveWorktreeLoadErrorState } from './worktreeLoadErrorState';
@@ -249,26 +250,32 @@ export function WorktreePanel({
     return () => clearInterval(interval);
   }, [diffStatPathKey, fetchDiffStats, shouldPollDiffStats]);
 
+  const isToolbarRefreshActive = !!isLoading && !inactiveRemote;
+  const refreshWorktreesLabel = inactiveRemote
+    ? t('Remote unavailable')
+    : isToolbarRefreshActive
+      ? t('Refreshing worktrees')
+      : t('Refresh worktrees');
+
   const sidebarBody = collapsed ? (
     <CollapsedSidebarRail
       label="Worktree Panel"
       triggerTitle={t('Worktree panel actions')}
       icon={GitBranch}
       popupClassName="min-w-[208px]"
+      primaryAction={{
+        id: 'expand-worktree',
+        label: t('Expand Worktree'),
+        icon: PanelLeftOpen,
+        onSelect: () => onExpand?.(),
+        disabled: !onExpand,
+      }}
       actions={[
-        {
-          id: 'expand-worktree',
-          label: t('Expand Worktree'),
-          icon: PanelLeftOpen,
-          onSelect: () => onExpand?.(),
-          disabled: !onExpand,
-        },
         {
           id: 'new-worktree',
           label: t('New Worktree'),
           icon: Plus,
           onSelect: () => setCreateDialogOpen(true),
-          separatorBefore: true,
         },
         {
           id: 'refresh-worktree',
@@ -284,35 +291,51 @@ export function WorktreePanel({
       <div className={cn('control-sidebar-header drag-region', repositoryCollapsed && 'pl-[70px]')}>
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          {repositoryCollapsed && onExpandRepository && (
-            <button
-              type="button"
-              className="control-sidebar-toolbutton no-drag"
-              onClick={onExpandRepository}
-              title={t('Expand Repository')}
-            >
-              <PanelLeftOpen className="h-3.5 w-3.5" />
-            </button>
-          )}
-          <button
-            type="button"
-            className="control-sidebar-toolbutton no-drag"
-            onClick={onRefresh}
-            title={t('Refresh')}
-            disabled={inactiveRemote}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-          {onCollapse && (
-            <button
-              type="button"
-              className="control-sidebar-toolbutton no-drag"
-              onClick={onCollapse}
-              title={t('Collapse')}
-            >
-              <PanelLeftClose className="h-3.5 w-3.5" />
-            </button>
-          )}
+          {repositoryCollapsed && onExpandRepository ? (
+            <div className="control-sidebar-toolbar-group" data-role="context">
+              <SidebarToolbarTooltip label={t('Expand repository sidebar')}>
+                <button
+                  type="button"
+                  className="control-sidebar-toolbutton no-drag"
+                  onClick={onExpandRepository}
+                  aria-label={t('Expand repository sidebar')}
+                >
+                  <PanelLeftOpen className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+          ) : null}
+          <div className="control-sidebar-toolbar-group" data-role="data">
+            <SidebarToolbarTooltip label={refreshWorktreesLabel}>
+              <button
+                type="button"
+                className="control-sidebar-toolbutton no-drag"
+                onClick={onRefresh}
+                aria-label={refreshWorktreesLabel}
+                aria-busy={isToolbarRefreshActive || undefined}
+                data-state={isToolbarRefreshActive ? 'busy' : inactiveRemote ? 'disabled' : 'idle'}
+                disabled={inactiveRemote}
+              >
+                <RefreshCw
+                  className={cn('h-3.5 w-3.5', isToolbarRefreshActive && 'animate-spin')}
+                />
+              </button>
+            </SidebarToolbarTooltip>
+          </div>
+          {onCollapse ? (
+            <div className="control-sidebar-toolbar-group" data-role="panel">
+              <SidebarToolbarTooltip label={t('Collapse worktree sidebar')}>
+                <button
+                  type="button"
+                  className="control-sidebar-toolbutton no-drag"
+                  onClick={onCollapse}
+                  aria-label={t('Collapse worktree sidebar')}
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+          ) : null}
         </div>
       </div>
 

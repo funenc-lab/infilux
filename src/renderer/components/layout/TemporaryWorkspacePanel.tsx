@@ -19,6 +19,7 @@ import { sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 
 interface TemporaryWorkspacePanelProps {
   items: TempWorkspaceItem[];
@@ -72,20 +73,19 @@ export function TemporaryWorkspacePanel({
       triggerTitle={t('Temp session actions')}
       icon={FolderGit2}
       popupClassName="min-w-[208px]"
+      primaryAction={{
+        id: 'expand-temp-sessions',
+        label: t('Expand Temp Sessions'),
+        icon: PanelLeftOpen,
+        onSelect: () => onExpand?.(),
+        disabled: !onExpand,
+      }}
       actions={[
-        {
-          id: 'expand-temp-sessions',
-          label: t('Expand Temp Sessions'),
-          icon: PanelLeftOpen,
-          onSelect: () => onExpand?.(),
-          disabled: !onExpand,
-        },
         {
           id: 'new-temp-session',
           label: t('New Temp Session'),
           icon: Plus,
           onSelect: onCreate,
-          separatorBefore: true,
         },
         {
           id: 'refresh-temp-sessions',
@@ -100,26 +100,33 @@ export function TemporaryWorkspacePanel({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          <button
-            type="button"
-            className="control-sidebar-toolbutton no-drag"
-            onClick={onRefresh}
-            aria-label={t('Refresh')}
-            title={t('Refresh')}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-          {onCollapse && (
-            <button
-              type="button"
-              className="control-sidebar-toolbutton no-drag"
-              onClick={onCollapse}
-              aria-label={t('Collapse')}
-              title={t('Collapse')}
-            >
-              <PanelLeftClose className="h-3.5 w-3.5" />
-            </button>
-          )}
+          <div className="control-sidebar-toolbar-group" data-role="data">
+            <SidebarToolbarTooltip label={t('Refresh temp sessions')}>
+              <button
+                type="button"
+                className="control-sidebar-toolbutton no-drag"
+                onClick={onRefresh}
+                aria-label={t('Refresh temp sessions')}
+                data-state="idle"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+            </SidebarToolbarTooltip>
+          </div>
+          {onCollapse ? (
+            <div className="control-sidebar-toolbar-group" data-role="panel">
+              <SidebarToolbarTooltip label={t('Collapse temp sessions sidebar')}>
+                <button
+                  type="button"
+                  className="control-sidebar-toolbutton no-drag"
+                  onClick={onCollapse}
+                  aria-label={t('Collapse temp sessions sidebar')}
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+          ) : null}
         </div>
       </div>
 

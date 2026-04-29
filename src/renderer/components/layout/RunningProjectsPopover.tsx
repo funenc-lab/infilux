@@ -26,6 +26,7 @@ import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { defaultGlobalKeybindings, useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 
 interface RunningProjectsPopoverProps {
   onSelectWorktreeByPath: (worktreePath: string) => Promise<void> | void;
@@ -177,6 +178,12 @@ export function RunningProjectsPopover({
   }, [filteredProjects]);
 
   const totalRunning = groupedProjects.length;
+  const runningProjectsLabel =
+    totalRunning > 0 ? `${t('Running Projects')} (${totalRunning})` : t('Running Projects');
+  const runningProjectsTooltip =
+    totalRunning > 0
+      ? t('Running projects: {{count}}', { count: totalRunning })
+      : t('No running projects');
 
   const handleSelectItem = useCallback(
     async (item: SelectableItem) => {
@@ -299,26 +306,29 @@ export function RunningProjectsPopover({
 
   return (
     <>
-      <span className="control-toolbar-badge-anchor">
-        <button
-          type="button"
-          className="control-sidebar-toolbutton no-drag"
-          data-open={open ? 'true' : 'false'}
-          aria-pressed={open}
-          aria-label={
-            totalRunning > 0 ? `${t('Running Projects')} (${totalRunning})` : t('Running Projects')
-          }
-          title={t('Running Projects')}
-          onClick={() => setOpen(true)}
+      <SidebarToolbarTooltip label={runningProjectsTooltip}>
+        <span
+          className="control-toolbar-badge-anchor"
+          data-state={totalRunning > 0 ? 'active' : 'idle'}
         >
-          <Activity className="h-4 w-4" />
-        </button>
-        {showBadge && totalRunning > 0 && (
-          <span className="control-badge control-badge-live control-toolbar-badge control-toolbar-badge-green">
-            {totalRunning}
-          </span>
-        )}
-      </span>
+          <button
+            type="button"
+            className="control-sidebar-toolbutton no-drag"
+            data-open={open ? 'true' : 'false'}
+            data-state={totalRunning > 0 ? 'active' : 'idle'}
+            aria-pressed={open}
+            aria-label={runningProjectsLabel}
+            onClick={() => setOpen(true)}
+          >
+            <Activity className="h-4 w-4" />
+          </button>
+          {showBadge && totalRunning > 0 && (
+            <span className="control-badge control-badge-live control-toolbar-badge control-toolbar-badge-green">
+              {totalRunning}
+            </span>
+          )}
+        </span>
+      </SidebarToolbarTooltip>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogPopup className="sm:max-w-2xl p-0 overflow-visible" showCloseButton={false}>

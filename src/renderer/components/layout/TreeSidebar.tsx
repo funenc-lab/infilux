@@ -87,6 +87,7 @@ import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummary';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 import { shouldPollSidebarDiffStats } from './sidebarDiffPollingPolicy';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 import { TempWorkspaceTreeItem } from './tree-sidebar/TempWorkspaceTreeItem';
@@ -1336,6 +1337,10 @@ export function TreeSidebar({
     selectedRepo === TEMP_REPO_ID &&
     !!activeWorktree &&
     safeTempWorkspaces.some((item) => item.path === activeWorktree.path);
+  const isToolbarRefreshActive = selectedRepoLoading || selectedRepoFetching;
+  const refreshProjectsLabel = isToolbarRefreshActive
+    ? t('Refreshing projects')
+    : t('Refresh projects');
 
   const sidebarBody = collapsed ? (
     <CollapsedSidebarRail
@@ -1343,20 +1348,19 @@ export function TreeSidebar({
       triggerTitle={t('Tree sidebar actions')}
       icon={GitBranch}
       popupClassName="min-w-[208px]"
+      primaryAction={{
+        id: 'expand-sidebar',
+        label: t('Expand Sidebar'),
+        icon: PanelLeftOpen,
+        onSelect: () => onExpand?.(),
+        disabled: !onExpand,
+      }}
       actions={[
-        {
-          id: 'expand-sidebar',
-          label: t('Expand Sidebar'),
-          icon: PanelLeftOpen,
-          onSelect: () => onExpand?.(),
-          disabled: !onExpand,
-        },
         {
           id: 'manage-repositories',
           label: t('Repositories'),
           icon: List,
           onSelect: () => setRepoManagerOpen(true),
-          separatorBefore: true,
         },
         {
           id: 'refresh-tree-sidebar',
@@ -1387,45 +1391,57 @@ export function TreeSidebar({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          <div className="control-sidebar-toolbar-group">
-            {/* Manage repositories button */}
-            <button
-              type="button"
-              className="control-sidebar-toolbutton no-drag"
-              onClick={() => setRepoManagerOpen(true)}
-              title={t('Repositories')}
-            >
-              <List className="h-3.5 w-3.5" />
-            </button>
-            {/* Refresh button */}
-            <button
-              type="button"
-              className="control-sidebar-toolbutton no-drag"
-              onClick={() => {
-                onRefresh();
-                refetchExpandedWorktrees();
-              }}
-              title={t('Refresh')}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <div className="control-sidebar-toolbar-group">
+          <div className="control-sidebar-toolbar-group" data-role="context">
             <RunningProjectsPopover
               onSelectWorktreeByPath={onSwitchWorktreeByPath || (() => {})}
               onSwitchTab={onSwitchTab}
             />
-            {onCollapse && (
+            {/* Manage repositories button */}
+            <SidebarToolbarTooltip label={t('Manage repositories')}>
               <button
                 type="button"
                 className="control-sidebar-toolbutton no-drag"
-                onClick={onCollapse}
-                title={t('Collapse')}
+                onClick={() => setRepoManagerOpen(true)}
+                aria-label={t('Manage repositories')}
               >
-                <PanelLeftClose className="h-3.5 w-3.5" />
+                <List className="h-3.5 w-3.5" />
               </button>
-            )}
+            </SidebarToolbarTooltip>
           </div>
+          <div className="control-sidebar-toolbar-group" data-role="data">
+            {/* Refresh button */}
+            <SidebarToolbarTooltip label={refreshProjectsLabel}>
+              <button
+                type="button"
+                className="control-sidebar-toolbutton no-drag"
+                onClick={() => {
+                  onRefresh();
+                  refetchExpandedWorktrees();
+                }}
+                aria-label={refreshProjectsLabel}
+                aria-busy={isToolbarRefreshActive || undefined}
+                data-state={isToolbarRefreshActive ? 'busy' : 'idle'}
+              >
+                <RefreshCw
+                  className={cn('h-3.5 w-3.5', isToolbarRefreshActive && 'animate-spin')}
+                />
+              </button>
+            </SidebarToolbarTooltip>
+          </div>
+          {onCollapse ? (
+            <div className="control-sidebar-toolbar-group" data-role="panel">
+              <SidebarToolbarTooltip label={t('Collapse sidebar')}>
+                <button
+                  type="button"
+                  className="control-sidebar-toolbutton no-drag"
+                  onClick={onCollapse}
+                  aria-label={t('Collapse sidebar')}
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+          ) : null}
         </div>
       </div>
 

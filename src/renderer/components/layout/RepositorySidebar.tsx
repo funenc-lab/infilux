@@ -58,6 +58,7 @@ import {
   RepositoryTreeItem,
 } from './repository-sidebar/RepositoryTreeItem';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 
 export interface RepositorySidebarProps {
@@ -421,20 +422,19 @@ export function RepositorySidebar({
       triggerTitle={t('Repository sidebar actions')}
       icon={FolderGit2}
       popupClassName="min-w-[196px]"
+      primaryAction={{
+        id: 'expand-repository',
+        label: t('Expand Repository'),
+        icon: PanelLeftOpen,
+        onSelect: () => onExpand?.(),
+        disabled: !onExpand,
+      }}
       actions={[
-        {
-          id: 'expand-repository',
-          label: t('Expand Repository'),
-          icon: PanelLeftOpen,
-          onSelect: () => onExpand?.(),
-          disabled: !onExpand,
-        },
         {
           id: 'add-repository',
           label: t('Add Repository'),
           icon: Plus,
           onSelect: onAddRepository,
-          separatorBefore: true,
         },
       ]}
     />
@@ -449,24 +449,28 @@ export function RepositorySidebar({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          <div className="control-sidebar-toolbar-group">
-            {onSwitchWorktreeByPath && (
+          {onSwitchWorktreeByPath ? (
+            <div className="control-sidebar-toolbar-group" data-role="context">
               <RunningProjectsPopover
                 onSelectWorktreeByPath={onSwitchWorktreeByPath}
                 onSwitchTab={onSwitchTab}
               />
-            )}
-            {onCollapse && (
-              <button
-                type="button"
-                className="control-sidebar-toolbutton no-drag"
-                onClick={onCollapse}
-                title={t('Collapse')}
-              >
-                <PanelLeftClose className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+            </div>
+          ) : null}
+          {onCollapse ? (
+            <div className="control-sidebar-toolbar-group" data-role="panel">
+              <SidebarToolbarTooltip label={t('Collapse repository sidebar')}>
+                <button
+                  type="button"
+                  className="control-sidebar-toolbutton no-drag"
+                  onClick={onCollapse}
+                  aria-label={t('Collapse repository sidebar')}
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+          ) : null}
         </div>
       </div>
 

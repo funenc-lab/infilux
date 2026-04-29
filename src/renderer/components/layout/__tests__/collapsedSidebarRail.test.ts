@@ -7,6 +7,8 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('lucide-react', () => ({
   ChevronRight: (props: React.SVGProps<SVGSVGElement>) =>
     React.createElement('svg', { ...props, 'data-icon': 'expand-indicator' }),
+  MoreHorizontal: (props: React.SVGProps<SVGSVGElement>) =>
+    React.createElement('svg', { ...props, 'data-icon': 'more-horizontal' }),
 }));
 
 vi.mock('@/components/ui/menu', () => ({
@@ -79,5 +81,37 @@ describe('CollapsedSidebarRail', () => {
     expect(markup).toContain('data-slot="collapsed-sidebar-expand-indicator"');
     expect(markup).toContain('data-icon="trigger"');
     expect(markup).toContain('data-icon="expand-indicator"');
+  });
+
+  it('renders a direct primary expand action when provided', async () => {
+    const { CollapsedSidebarRail } = await import('../CollapsedSidebarRail');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(CollapsedSidebarRail, {
+        label: 'Repository',
+        triggerTitle: 'Repository actions',
+        icon: TriggerIcon,
+        primaryAction: {
+          id: 'expand',
+          label: 'Expand Repository',
+          icon: ActionIcon,
+          onSelect: vi.fn(),
+        },
+        actions: [
+          {
+            id: 'refresh',
+            label: 'Refresh',
+            icon: ActionIcon,
+            onSelect: vi.fn(),
+          },
+        ],
+      })
+    );
+
+    expect(markup).toContain('data-slot="collapsed-sidebar-primary-button"');
+    expect(markup).toContain('data-slot="collapsed-sidebar-menu-button"');
+    expect(markup).toContain('Expand Repository');
+    expect(markup).toContain('Repository actions');
+    expect(markup).toContain('data-icon="more-horizontal"');
   });
 });

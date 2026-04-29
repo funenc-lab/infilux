@@ -474,13 +474,13 @@ export function FileSidebar({
           triggerTitle={t('File sidebar actions')}
           icon={FileCode}
           popupClassName="min-w-[208px]"
+          primaryAction={{
+            id: 'expand-file-sidebar',
+            label: t('Expand File Sidebar'),
+            icon: PanelLeftOpen,
+            onSelect: onExpand,
+          }}
           actions={[
-            {
-              id: 'expand-file-sidebar',
-              label: t('Expand File Sidebar'),
-              icon: PanelLeftOpen,
-              onSelect: onExpand,
-            },
             {
               id: 'search-files',
               label: t('Search Files'),

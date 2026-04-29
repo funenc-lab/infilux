@@ -15,6 +15,7 @@ const temporaryWorkspacePanelSource = readFileSync(
   resolve(currentDir, '../TemporaryWorkspacePanel.tsx'),
   'utf8'
 );
+const fileTreeSource = readFileSync(resolve(currentDir, '../../files/FileTree.tsx'), 'utf8');
 const worktreeTreeItemSource = readFileSync(
   resolve(currentDir, '../tree-sidebar/WorktreeTreeItem.tsx'),
   'utf8'
@@ -348,8 +349,9 @@ describe('sidebar design policy', () => {
   it('keeps the running projects trigger neutral and reserves live color for the badge', () => {
     expect(runningProjectsSource).not.toContain("totalRunning > 0 && 'text-foreground'");
     expect(runningProjectsSource).not.toContain('data-emphasis={totalRunning > 0 ?');
-    expect(runningProjectsSource).toContain('<span className="control-toolbar-badge-anchor">');
+    expect(runningProjectsSource).toContain('className="control-toolbar-badge-anchor"');
     expect(runningProjectsSource).toContain("data-open={open ? 'true' : 'false'}");
+    expect(runningProjectsSource).toContain("data-state={totalRunning > 0 ? 'active' : 'idle'}");
     expect(globalsSource).toContain('.control-sidebar-toolbutton[data-open="true"]');
     expect(globalsSource).toContain('var(--control-surface-muted) 16%');
     expect(globalsSource).not.toContain(
@@ -360,6 +362,41 @@ describe('sidebar design policy', () => {
     );
     expect(globalsSource).toContain('.control-toolbar-badge {');
     expect(globalsSource).toContain('.control-toolbar-badge-anchor {');
+  });
+
+  it('uses shared tooltip affordances for icon-only sidebar top controls', () => {
+    expect(treeSidebarSource).toContain('import { SidebarToolbarTooltip }');
+    expect(repositorySidebarSource).toContain('import { SidebarToolbarTooltip }');
+    expect(worktreePanelSource).toContain('import { SidebarToolbarTooltip }');
+    expect(temporaryWorkspacePanelSource).toContain('import { SidebarToolbarTooltip }');
+    expect(runningProjectsSource).toContain('import { SidebarToolbarTooltip }');
+    expect(fileTreeSource).toContain('import { SidebarToolbarTooltip }');
+    expect(treeSidebarSource).toContain("<SidebarToolbarTooltip label={t('Manage repositories')}>");
+    expect(treeSidebarSource).toContain('<SidebarToolbarTooltip label={refreshProjectsLabel}>');
+    expect(worktreePanelSource).toContain('<SidebarToolbarTooltip label={refreshWorktreesLabel}>');
+    expect(temporaryWorkspacePanelSource).toContain(
+      "<SidebarToolbarTooltip label={t('Refresh temp sessions')}>"
+    );
+    expect(runningProjectsSource).toContain(
+      '<SidebarToolbarTooltip label={runningProjectsTooltip}>'
+    );
+    expect(fileTreeSource).toContain('<SidebarToolbarTooltip label={refreshFilesLabel}>');
+    expect(globalsSource).toContain('.control-sidebar-tooltip-trigger {');
+  });
+
+  it('marks refreshing top controls with explicit busy state instead of relying on static icons', () => {
+    expect(treeSidebarSource).toContain('const refreshProjectsLabel = isToolbarRefreshActive');
+    expect(treeSidebarSource).toContain("data-state={isToolbarRefreshActive ? 'busy' : 'idle'}");
+    expect(treeSidebarSource).toContain("isToolbarRefreshActive && 'animate-spin'");
+    expect(worktreePanelSource).toContain('const refreshWorktreesLabel = inactiveRemote');
+    expect(worktreePanelSource).toContain(
+      "isToolbarRefreshActive ? 'busy' : inactiveRemote ? 'disabled' : 'idle'"
+    );
+    expect(worktreePanelSource).toContain("isToolbarRefreshActive && 'animate-spin'");
+    expect(fileTreeSource).toContain("data-state={isLoading ? 'busy' : 'idle'}");
+    expect(fileTreeSource).toContain("isLoading && 'animate-spin'");
+    expect(globalsSource).toContain('.control-sidebar-toolbutton[data-state="busy"],');
+    expect(globalsSource).toContain('.control-icon-button[data-state="busy"]');
   });
 
   it('keeps inline empty states from indenting deeper than worktree rows', () => {
@@ -539,6 +576,10 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('--control-tree-tail-opacity: 0.24;');
     expect(globalsSource).toContain('pointer-events: none;');
     expect(globalsSource).toContain('pointer-events: auto;');
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-node-kind="worktree"][data-active="worktree"]\n    .control-tree-tail[data-role="action"] {'
+    );
+    expect(globalsSource).toContain('opacity: 0.58;');
     expect(repositorySidebarSource).toContain(
       'control-tree-action flex h-6 w-6 shrink-0 items-center justify-center rounded-md'
     );
