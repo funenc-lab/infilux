@@ -4,14 +4,15 @@ import { describe, expect, it } from 'vitest';
 import { WorktreeActivityMarker } from '../WorktreeActivityMarker';
 
 describe('WorktreeActivityMarker', () => {
-  it('renders a status dot with accessible labels and no visible text', () => {
+  it('renders a state-specific marker with accessible labels and no visible text', () => {
     const markup = renderToStaticMarkup(
       React.createElement(WorktreeActivityMarker, { state: 'running' })
     );
 
     expect(markup).toContain('aria-label="Running"');
     expect(markup).toContain('title="Running"');
-    expect(markup).toContain('control-tree-state-dot');
+    expect(markup).toContain('control-tree-state-marker');
+    expect(markup).toContain('data-state="running"');
     expect(markup).not.toContain('>Running<');
   });
 

@@ -18,8 +18,8 @@ describe('activityStatus', () => {
     });
 
     expect(getActivityStateMeta('completed')).toEqual({
-      shortLabel: 'DONE',
-      label: 'Completed',
+      shortLabel: 'READY',
+      label: 'Review ready',
       chipClassName: 'control-chip-done',
       dotClassName: 'bg-[color:var(--control-done)]',
     });

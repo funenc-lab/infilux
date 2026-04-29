@@ -37,8 +37,8 @@ const ACTIVITY_STATE_META: Record<ActivityVisualState, ActivityStateMeta> = {
     dotClassName: 'bg-[color:var(--control-wait)]',
   },
   completed: {
-    shortLabel: 'DONE',
-    label: 'Completed',
+    shortLabel: 'READY',
+    label: 'Review ready',
     chipClassName: 'control-chip-done',
     dotClassName: 'bg-[color:var(--control-done)]',
   },

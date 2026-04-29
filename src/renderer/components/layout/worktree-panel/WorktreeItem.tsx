@@ -1,7 +1,7 @@
 import type { GitBranch as GitBranchType, GitWorktree } from '@shared/types';
 import { getDisplayPath } from '@shared/utils/path';
 import { Copy, FolderOpen, GitBranch, GitMerge, Sparkles, Terminal, Trash2, X } from 'lucide-react';
-import { memo, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
 import { WorktreeActivityMarker } from '@/components/layout/WorktreeActivityMarker';
 import { toastManager } from '@/components/ui/toast';
@@ -13,6 +13,7 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { buildWorktreeActivitySummary, buildWorktreeInlineItems } from '../worktreeRowSignals';
 
 const DEFAULT_ACTIVITY = Object.freeze({
   agentCount: 0,
@@ -111,16 +112,10 @@ export const WorktreeItem = memo(function WorktreeItem({
     (s) => s.clearTaskCompletedUnreadByWorktree
   );
   const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
-  const hasDiffStats = diffStats.insertions > 0 || diffStats.deletions > 0;
   const hasCompletedTaskNotice = useWorktreeTaskCompletionNotice(worktree.path);
   const totalActivityCount = activity.agentCount + activity.terminalCount;
   const ActivityIcon = activity.agentCount > 0 ? Sparkles : Terminal;
-  const activitySummary = [
-    activity.agentCount > 0 ? `${activity.agentCount} ${t('agents')}` : null,
-    activity.terminalCount > 0 ? `${activity.terminalCount} ${t('terminals')}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  const activitySummary = buildWorktreeActivitySummary(activity, t);
 
   const handleCopyPath = useCallback(async () => {
     try {
@@ -183,90 +178,19 @@ export const WorktreeItem = memo(function WorktreeItem({
     }
   }, [menuOpen, menuPosition]);
 
-  const inlineItems = [
-    isMain
-      ? {
-          key: 'main',
-          priority: 'medium' as const,
-          content: <span className="control-tree-flag control-tree-flag-main">{t('Main')}</span>,
-        }
-      : !isPrunable && isMerged
-        ? {
-            key: 'merged',
-            priority: 'medium' as const,
-            content: (
-              <span className="control-tree-flag control-tree-flag-merged">{t('Merged')}</span>
-            ),
-          }
-        : null,
-    hasDiffStats
-      ? {
-          key: 'diff',
-          priority: 'critical' as const,
-          content: (
-            <span className="control-tree-diff-badge" data-kind="diff">
-              {diffStats.insertions > 0 ? (
-                <span className="control-tree-diff-positive">+{diffStats.insertions}</span>
-              ) : null}
-              {diffStats.deletions > 0 ? (
-                <span className="control-tree-diff-negative">-{diffStats.deletions}</span>
-              ) : null}
-            </span>
-          ),
-        }
-      : null,
-    ahead > 0 || behind > 0
-      ? {
-          key: 'sync',
-          priority: 'critical' as const,
-          content: (
-            <span className="control-tree-sync-inline" data-kind="sync">
-              {ahead > 0 ? (
-                <span className="control-tree-sync-inline-segment">
-                  <span className="control-tree-metric-prefix">^</span>
-                  <span className="control-tree-metric-value">{ahead}</span>
-                </span>
-              ) : null}
-              {ahead > 0 && behind > 0 ? <span className="control-tree-separator">/</span> : null}
-              {behind > 0 ? (
-                <span className="control-tree-sync-inline-segment">
-                  <span className="control-tree-metric-prefix">v</span>
-                  <span className="control-tree-metric-value">{behind}</span>
-                </span>
-              ) : null}
-            </span>
-          ),
-        }
-      : null,
-    totalActivityCount > 0
-      ? {
-          key: 'agents',
-          priority: 'low' as const,
-          content: (
-            <span className="control-tree-metric" title={activitySummary}>
-              <ActivityIcon className="control-tree-metric-icon" aria-hidden="true" />
-              <span className="control-tree-metric-value">{totalActivityCount}</span>
-              <span className="sr-only">{activitySummary}</span>
-            </span>
-          ),
-        }
-      : null,
-    hasCompletedTaskNotice
-      ? {
-          key: 'completed',
-          priority: 'low' as const,
-          content: <span className="control-task-completion-dot" />,
-        }
-      : null,
-  ].filter(
-    (
-      item
-    ): item is {
-      key: string;
-      priority: 'critical' | 'medium' | 'low';
-      content: ReactElement;
-    } => item !== null
-  );
+  const inlineItems = buildWorktreeInlineItems({
+    t,
+    isMain,
+    isPrunable,
+    isMerged,
+    diffStats,
+    ahead,
+    behind,
+    totalActivityCount,
+    ActivityIcon,
+    activitySummary,
+    hasCompletedTaskNotice,
+  });
   const hasSyncAction =
     Boolean(!tracking && currentBranch && handlePublish) ||
     Boolean(tracking && (ahead > 0 || behind > 0) && handleSync);
@@ -343,6 +267,12 @@ export const WorktreeItem = memo(function WorktreeItem({
                     {branchDisplay}
                   </span>
                 </div>
+                <span
+                  className="control-tree-subtitle min-w-0 truncate"
+                  title={displayWorktreePath}
+                >
+                  {displayWorktreePath}
+                </span>
               </div>
               {inlineItems.length > 0 ? (
                 <div className="control-tree-inline-signals">

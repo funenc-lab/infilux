@@ -11,6 +11,7 @@ function readSource(relativePath: string): string {
 export const treeSidebarSource = [
   readSource('../TreeSidebar.tsx'),
   readSource('../repository-sidebar/RepositoryTreeSummary.tsx'),
+  readSource('../worktreeRowSignals.tsx'),
   readSource('../tree-sidebar/TempWorkspaceTreeItem.tsx'),
   readSource('../tree-sidebar/WorktreeTreeItem.tsx'),
 ].join('\n');

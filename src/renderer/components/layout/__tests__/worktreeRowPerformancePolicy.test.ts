@@ -14,6 +14,13 @@ const worktreePanelItemSource = readFileSync(
 );
 
 describe('worktree row performance policy', () => {
+  it('keeps shared worktree row signals in a single model helper', () => {
+    expect(treeSidebarWorktreeItemSource).toContain('buildWorktreeInlineItems');
+    expect(worktreePanelItemSource).toContain('buildWorktreeInlineItems');
+    expect(treeSidebarWorktreeItemSource).not.toContain("key: 'diff'");
+    expect(worktreePanelItemSource).not.toContain("key: 'diff'");
+  });
+
   it('keeps tree sidebar worktree rows on path-scoped subscriptions only', () => {
     expect(treeSidebarWorktreeItemSource).not.toContain('useWorktreeOutputState(worktree.path);');
     expect(treeSidebarWorktreeItemSource).toContain(

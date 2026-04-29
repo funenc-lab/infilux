@@ -122,13 +122,15 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).toContain(
       'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
-    expect(treeSidebarSource).not.toContain('title={displayWorktreePath}');
-    expect(treeSidebarSource).not.toContain('{displayWorktreePath}');
+    expect(treeSidebarSource).toContain('title={displayWorktreePath}');
+    expect(treeSidebarSource).toContain('{displayWorktreePath}');
+    expect(treeSidebarSource).toContain('control-tree-subtitle min-w-0 truncate');
     expect(worktreePanelSource).toContain(
       'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
-    expect(worktreePanelSource).not.toContain('title={displayWorktreePath}');
-    expect(worktreePanelSource).not.toContain('{displayWorktreePath}');
+    expect(worktreePanelSource).toContain('title={displayWorktreePath}');
+    expect(worktreePanelSource).toContain('{displayWorktreePath}');
+    expect(worktreePanelSource).toContain('control-tree-subtitle min-w-0 truncate');
     expect(treeSidebarSource).not.toContain('pl-11');
     expect(repositorySidebarSource).not.toContain('pl-[1.375rem]');
   });
@@ -195,11 +197,12 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('justify-content: flex-end;');
     expect(globalsSource).toContain('container-type: inline-size;');
     expect(globalsSource).toContain('@container (max-width: 18rem) {');
-    expect(globalsSource).toContain('max-width: none;');
+    expect(globalsSource).not.toContain('max-width: none;');
+    expect(globalsSource).toContain('max-width: min(52%, 8.5rem);');
     expect(globalsSource).toContain('width: 0;');
     expect(globalsSource).toContain('flex: 0 0 auto;');
     expect(globalsSource).toContain('margin-left: auto;');
-    expect(globalsSource).toContain('overflow: visible;');
+    expect(globalsSource).toContain('overflow: hidden;');
     expect(treeSidebarSource).toContain('control-tree-diff-positive');
     expect(treeSidebarSource).toContain('control-tree-diff-negative');
     expect(worktreePanelSource).toContain('control-tree-diff-positive');
@@ -254,14 +257,14 @@ describe('sidebar design policy', () => {
     expect(worktreeTreeItemSource).toContain(
       'const totalActivityCount = activity.agentCount + activity.terminalCount;'
     );
-    expect(worktreeTreeItemSource).toContain('control-tree-metric-icon');
+    expect(treeSidebarSource).toContain('control-tree-metric-icon');
     expect(worktreeTreeItemSource).not.toContain(
       '<span className="control-tree-metric-label">{t(\'agents\')}</span>'
     );
     expect(worktreeTreeItemSource).not.toContain(
       '<span className="control-tree-metric-label">{t(\'terminals\')}</span>'
     );
-    expect(worktreePanelItemSource).toContain('control-tree-metric-icon');
+    expect(worktreePanelSource).toContain('control-tree-metric-icon');
     expect(worktreePanelItemSource).toContain(
       'const totalActivityCount = activity.agentCount + activity.terminalCount;'
     );

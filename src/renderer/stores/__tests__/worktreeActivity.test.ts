@@ -9,6 +9,7 @@ type PreToolUseNotification = {
 type AgentStopNotification = {
   sessionId: string;
   cwd?: string;
+  taskCompletionStatus?: 'completed' | 'unknown';
 };
 
 type AskUserQuestionNotification = {
@@ -381,6 +382,7 @@ describe('worktree activity store', () => {
 
     emitStop({
       sessionId: 'session-provider-1',
+      taskCompletionStatus: 'completed',
     });
     expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe(
       'completed'
@@ -404,6 +406,7 @@ describe('worktree activity store', () => {
     emitStop({
       sessionId: 'session-direct',
       cwd: '/repo/direct',
+      taskCompletionStatus: 'completed',
     });
     expect(useWorktreeActivityStore.getState().getActivityState('/repo/direct')).toBe('completed');
 
@@ -426,5 +429,65 @@ describe('worktree activity store', () => {
     expect(unsubscribePreToolUse).toHaveBeenCalledTimes(1);
     expect(unsubscribeStop).toHaveBeenCalledTimes(1);
     expect(unsubscribeAsk).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mark unknown stop notifications as completed activity', async () => {
+    const unsubscribeStop = vi.fn();
+    const unsubscribePreToolUse = vi.fn();
+    const unsubscribeAsk = vi.fn();
+    let stopListener: ((data: AgentStopNotification) => void) | null = null;
+    let preToolUseListener: ((data: PreToolUseNotification) => void) | null = null;
+
+    vi.doMock('@/lib/electronNotification', () => ({
+      onAgentStopNotification: vi.fn((callback) => {
+        stopListener = callback;
+        return unsubscribeStop;
+      }),
+      onPreToolUseNotification: vi.fn((callback) => {
+        preToolUseListener = callback;
+        return unsubscribePreToolUse;
+      }),
+      onAskUserQuestionNotification: vi.fn(() => unsubscribeAsk),
+    }));
+
+    vi.doMock('../agentSessions', () => ({
+      useAgentSessionsStore: {
+        getState: () => ({
+          clearTaskCompletedUnread: vi.fn(),
+          sessions: [
+            {
+              id: 'session-ui-1',
+              sessionId: 'session-provider-1',
+              cwd: '/repo/worktree',
+            },
+          ],
+        }),
+      },
+    }));
+
+    const { initAgentActivityListener, useWorktreeActivityStore } = await import(
+      '../worktreeActivity'
+    );
+
+    const cleanup = initAgentActivityListener();
+    if (preToolUseListener == null || stopListener == null) {
+      throw new Error('Expected activity listeners to be registered');
+    }
+    const emitPreToolUse: (data: PreToolUseNotification) => void = preToolUseListener;
+    const emitStop: (data: AgentStopNotification) => void = stopListener;
+
+    emitPreToolUse({
+      sessionId: 'session-provider-1',
+      toolName: 'UserPromptSubmit',
+    });
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe('running');
+
+    emitStop({
+      sessionId: 'session-provider-1',
+      taskCompletionStatus: 'unknown',
+    });
+    expect(useWorktreeActivityStore.getState().getActivityState('/repo/worktree')).toBe('idle');
+
+    cleanup();
   });
 });

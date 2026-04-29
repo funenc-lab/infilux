@@ -519,30 +519,37 @@ export function initAgentActivityListener(): () => void {
     }
   );
 
-  // Listen for agent stop notification -> set 'completed'
-  const unsubStop = onAgentStopNotification((data: { sessionId: string; cwd?: string }) => {
-    // Try to get cwd from data, or fallback to finding it from session
-    let cwd = data.cwd;
-    if (!cwd) {
-      // Fallback: find session by sessionId to get cwd
-      const session = useAgentSessionsStore
-        .getState()
-        .sessions.find((s) => s.sessionId === data.sessionId || s.id === data.sessionId);
-      if (session?.cwd) {
-        cwd = session.cwd;
-        console.log(
-          `[WorktreeActivity] Stop hook found cwd from session: ${cwd.split('/').slice(-2).join('/')}`
-        );
-      } else {
-        console.warn(
-          `[WorktreeActivity] Stop hook missing cwd: session ${data.sessionId.slice(0, 8)}`
-        );
+  // Listen for agent stop notification and only mark confirmed task completions.
+  const unsubStop = onAgentStopNotification(
+    (data: { sessionId: string; cwd?: string; taskCompletionStatus?: 'completed' | 'unknown' }) => {
+      // Try to get cwd from data, or fallback to finding it from session
+      let cwd = data.cwd;
+      if (!cwd) {
+        // Fallback: find session by sessionId to get cwd
+        const session = useAgentSessionsStore
+          .getState()
+          .sessions.find((s) => s.sessionId === data.sessionId || s.id === data.sessionId);
+        if (session?.cwd) {
+          cwd = session.cwd;
+          console.log(
+            `[WorktreeActivity] Stop hook found cwd from session: ${cwd.split('/').slice(-2).join('/')}`
+          );
+        } else {
+          console.warn(
+            `[WorktreeActivity] Stop hook missing cwd: session ${data.sessionId.slice(0, 8)}`
+          );
+          return;
+        }
+      }
+
+      if (data.taskCompletionStatus === 'completed') {
+        useWorktreeActivityStore.getState().setActivityState(cwd, 'completed');
         return;
       }
-    }
 
-    useWorktreeActivityStore.getState().setActivityState(cwd, 'completed');
-  });
+      useWorktreeActivityStore.getState().clearActivityState(cwd);
+    }
+  );
 
   // Listen for ask user question notification -> set 'waiting_input'
   const unsubAsk = onAskUserQuestionNotification((data: { sessionId: string; cwd?: string }) => {

@@ -15,15 +15,15 @@ const worktreePanelItemSource = readFileSync(
 const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.css'), 'utf8');
 
 describe('worktree sidebar cleanup policy', () => {
-  it('keeps worktree rows focused on branch identity while retaining the path for row actions', () => {
+  it('keeps worktree rows focused on branch identity while exposing path context', () => {
     expect(worktreeTreeItemSource).toContain('control-tree-title min-w-0 flex-1 truncate');
     expect(worktreeTreeItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
     expect(worktreeTreeItemSource).not.toContain('control-tree-meta control-tree-meta-row min-w-0');
     expect(worktreeTreeItemSource).toContain(
       'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
-    expect(worktreeTreeItemSource).not.toContain('title={displayWorktreePath}');
-    expect(worktreeTreeItemSource).not.toContain('{displayWorktreePath}');
+    expect(worktreeTreeItemSource).toContain('title={displayWorktreePath}');
+    expect(worktreeTreeItemSource).toContain('{displayWorktreePath}');
     expect(worktreePanelItemSource).toContain('control-tree-title min-w-0 flex-1 truncate');
     expect(worktreePanelItemSource).toContain('<WorktreeActivityMarker state={activityState} />');
     expect(worktreePanelItemSource).not.toContain(
@@ -32,8 +32,8 @@ describe('worktree sidebar cleanup policy', () => {
     expect(worktreePanelItemSource).toContain(
       'const displayWorktreePath = getDisplayPath(worktree.path);'
     );
-    expect(worktreePanelItemSource).not.toContain('title={displayWorktreePath}');
-    expect(worktreePanelItemSource).not.toContain('{displayWorktreePath}');
+    expect(worktreePanelItemSource).toContain('title={displayWorktreePath}');
+    expect(worktreePanelItemSource).toContain('{displayWorktreePath}');
   });
 
   it('keeps worktree tails collapsed until hover or focus to preserve row density', () => {

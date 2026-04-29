@@ -5,5 +5,6 @@ import { fileURLToPath } from 'node:url';
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const worktreePanelPath = resolve(currentDir, '../WorktreePanel.tsx');
 const worktreeItemPath = resolve(currentDir, '../worktree-panel/WorktreeItem.tsx');
+const worktreeRowSignalsPath = resolve(currentDir, '../worktreeRowSignals.tsx');
 
-export const worktreePanelSource = `${readFileSync(worktreePanelPath, 'utf8')}\n${readFileSync(worktreeItemPath, 'utf8')}`;
+export const worktreePanelSource = `${readFileSync(worktreePanelPath, 'utf8')}\n${readFileSync(worktreeRowSignalsPath, 'utf8')}\n${readFileSync(worktreeItemPath, 'utf8')}`;
