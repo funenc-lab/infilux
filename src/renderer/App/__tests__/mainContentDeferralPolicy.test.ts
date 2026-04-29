@@ -16,4 +16,13 @@ describe('App main content deferral policy', () => {
     expect(source).not.toContain("import { MainContent } from './components/layout/MainContent';");
     expect(source).toContain('<DeferredMainContent');
   });
+
+  it('keeps global todo repository switching inside the main content routing boundary', () => {
+    const source = readAppSource();
+
+    expect(source).toContain('const handleSwitchTodoRepository = useCallback');
+    expect(source).toContain('handleSelectRepo(repoPath, { activateRemote: true });');
+    expect(source).toContain("setActiveTab('todo');");
+    expect(source).toContain('onSwitchRepository={handleSwitchTodoRepository}');
+  });
 });

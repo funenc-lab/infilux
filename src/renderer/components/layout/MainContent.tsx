@@ -56,6 +56,7 @@ export interface MainContentProps {
   fileSidebarCollapsed?: boolean;
   onExpandWorktree?: () => void;
   onExpandFileSidebar?: () => void;
+  onSwitchRepository?: (repoPath: string) => void;
   onSwitchWorktree?: (worktreePath: string) => void;
   onSwitchTab?: (tab: TabId) => void;
   isSettingsActive?: boolean;
@@ -121,6 +122,7 @@ export function MainContent({
   fileSidebarCollapsed = false,
   onExpandWorktree,
   onExpandFileSidebar,
+  onSwitchRepository,
   onSwitchWorktree,
   onSwitchTab,
   isSettingsActive = false,
@@ -754,6 +756,7 @@ export function MainContent({
         chatCanvasFocusWorktreePath={chatCanvasFocusWorktreePath}
         chatCanvasFocusSessionId={chatCanvasFocusSessionId}
         onTabChange={onTabChange}
+        onSwitchRepository={onSwitchRepository}
         selectedSubagent={selectedSubagent}
         onCloseSelectedSubagent={onCloseSelectedSubagent}
         onStartupBlockingReady={onStartupBlockingReady}

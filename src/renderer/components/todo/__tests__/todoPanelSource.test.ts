@@ -19,4 +19,16 @@ describe('TodoPanel source policy', () => {
     expect(source).toContain('onDispatchReadyTasks={handleDispatchReadyTasks}');
     expect(source).toContain('canDispatchReadyTasks={canDispatchReadyTasks}');
   });
+
+  it('wires global intervention actions to approval updates and task focus requests', () => {
+    expect(source).toContain('buildApprovedTodoTaskContext');
+    expect(source).toContain('const updateTask = useTodoStore');
+    expect(source).toContain('const [focusTaskRequest, setFocusTaskRequest]');
+    expect(source).toContain('const handleApproveGlobalTask = useCallback');
+    expect(source).toContain('const handleFocusGlobalTask = useCallback');
+    expect(source).toContain('onApproveTask={handleApproveGlobalTask}');
+    expect(source).toContain('onFocusTask={handleFocusGlobalTask}');
+    expect(source).toContain('focusTaskRequest={focusTaskRequest}');
+    expect(source).toContain('onSwitchRepository?.(repoKey);');
+  });
 });

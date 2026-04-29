@@ -74,6 +74,8 @@ function TranslationProbe() {
     React.createElement('span', { id: 'global-todo' }, t('Global Todo')),
     React.createElement('span', { id: 'ready-dispatch' }, t('Ready to Dispatch')),
     React.createElement('span', { id: 'running-now' }, t('Running Now')),
+    React.createElement('span', { id: 'approve-task' }, t('Approve task')),
+    React.createElement('span', { id: 'review-task' }, t('Review task')),
     React.createElement('span', { id: 'active-count' }, t('{{count}} active', { count: 2 })),
     React.createElement('span', { id: 'open-tasks' }, t('Open Tasks')),
     React.createElement('span', { id: 'approvals' }, t('Approvals'))
@@ -155,6 +157,8 @@ describe('renderer i18n', () => {
     expect(container.querySelector('#global-todo')?.textContent).toBe('\u5168\u5c40\u5f85\u529e');
     expect(container.querySelector('#ready-dispatch')?.textContent).toBe('\u53ef\u6d3e\u53d1');
     expect(container.querySelector('#running-now')?.textContent).toBe('\u6b63\u5728\u6267\u884c');
+    expect(container.querySelector('#approve-task')?.textContent).toBe('\u6279\u51c6\u4efb\u52a1');
+    expect(container.querySelector('#review-task')?.textContent).toBe('\u67e5\u770b\u4efb\u52a1');
     expect(container.querySelector('#active-count')?.textContent).toBe('2 \u4e2a\u6d3b\u52a8');
     expect(container.querySelector('#open-tasks')?.textContent).toBe(
       '\u672a\u5b8c\u6210\u4efb\u52a1'

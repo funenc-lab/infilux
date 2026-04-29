@@ -71,6 +71,7 @@ export interface MainContentPanelsProps {
   chatCanvasFocusWorktreePath?: string | null;
   chatCanvasFocusSessionId?: string | null;
   onTabChange: (tab: TabId) => void;
+  onSwitchRepository?: (repoPath: string) => void;
   selectedSubagent?: LiveAgentSubagent | null;
   onCloseSelectedSubagent?: () => void;
   onStartupBlockingReady?: (key: StartupBlockingKey) => void;
@@ -165,6 +166,7 @@ export function MainContentPanels({
   chatCanvasFocusWorktreePath = null,
   chatCanvasFocusSessionId = null,
   onTabChange,
+  onSwitchRepository,
   selectedSubagent = null,
   onCloseSelectedSubagent,
   onStartupBlockingReady,
@@ -397,6 +399,7 @@ export function MainContentPanels({
             repoPath={repoPath}
             worktreePath={worktreePath}
             isActive={activeTab === 'todo'}
+            onSwitchRepository={onSwitchRepository}
             onSwitchToAgent={() => onTabChange('chat')}
           />
         </div>

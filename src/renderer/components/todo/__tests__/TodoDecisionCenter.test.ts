@@ -105,6 +105,15 @@ const summary: TodoDecisionCenterTestSummary = {
         dependencyTaskIds: [],
         isCurrentProject: false,
       },
+      {
+        repoPath: '/repo/other',
+        repoName: 'other',
+        taskId: 'task-dependency',
+        title: 'Unblock release task',
+        reasons: ['dependency'],
+        dependencyTaskIds: ['task-approval'],
+        isCurrentProject: false,
+      },
     ],
     runningTasks: [
       {
@@ -195,6 +204,7 @@ describe('TodoDecisionCenter', () => {
     expect(markup).toContain('Implement dispatcher');
     expect(markup).toContain('Needs Intervention');
     expect(markup).toContain('Review migration');
+    expect(markup).toContain('Unblock release task');
     expect(markup).toContain('Running Now');
     expect(markup).toContain('Apply schema change');
     expect(markup).toContain('1 active');
@@ -229,6 +239,39 @@ describe('TodoDecisionCenter', () => {
     });
 
     expect(onDispatchReadyTasks).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it('calls global intervention handlers from approval and dependency actions', () => {
+    const onApproveTask = vi.fn();
+    const onFocusTask = vi.fn();
+    const { container, root } = renderInteractive(
+      React.createElement(TodoDecisionCenter, {
+        summary,
+        onApproveTask,
+        onFocusTask,
+      })
+    );
+
+    const approveButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Approve task"]'
+    );
+    const reviewButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Review task"]'
+    );
+    expect(approveButton).not.toBeNull();
+    expect(reviewButton).not.toBeNull();
+
+    act(() => {
+      approveButton?.click();
+      reviewButton?.click();
+    });
+
+    expect(onApproveTask).toHaveBeenCalledWith('/repo/other', 'task-approval');
+    expect(onFocusTask).toHaveBeenCalledWith('/repo/other', 'task-dependency');
 
     act(() => {
       root.unmount();

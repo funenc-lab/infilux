@@ -276,9 +276,11 @@ const rendererZhTranslations: Record<string, string> = {
   'Waiting for dependencies': decodeEscapedUnicode('\\u7b49\\u5f85\\u4f9d\\u8d56'),
   'Missing dependency': decodeEscapedUnicode('\\u7f3a\\u5931\\u4f9d\\u8d56'),
   Approve: decodeEscapedUnicode('\\u6279\\u51c6'),
+  'Approve task': decodeEscapedUnicode('\\u6279\\u51c6\\u4efb\\u52a1'),
   Approved: decodeEscapedUnicode('\\u5df2\\u6279\\u51c6'),
   'Approval Required': decodeEscapedUnicode('\\u9700\\u8981\\u6279\\u51c6'),
   'Waiting for approval': decodeEscapedUnicode('\\u7b49\\u5f85\\u6279\\u51c6'),
+  'Review task': decodeEscapedUnicode('\\u67e5\\u770b\\u4efb\\u52a1'),
   'Require approval before auto execute': decodeEscapedUnicode(
     '\\u81ea\\u52a8\\u6267\\u884c\\u524d\\u9700\\u8981\\u6279\\u51c6'
   ),

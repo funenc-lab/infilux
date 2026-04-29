@@ -1,14 +1,15 @@
 import type { AgentStopNotificationData } from '@shared/types/agent';
 import { KanbanSquare } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizePath } from '@/App/storage';
 import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { useI18n } from '@/i18n';
 import { onRendererAgentStop } from '@/lib/agentStopEvents';
 import { useTodoStore } from '@/stores/todo';
-import { KanbanBoard } from './KanbanBoard';
+import { KanbanBoard, type TodoTaskFocusRequest } from './KanbanBoard';
 import { TodoDecisionCenter } from './TodoDecisionCenter';
 import { handleTodoAutoExecuteStop, startTodoGlobalAutoExecute } from './todoAutoExecuteRuntime';
+import { buildApprovedTodoTaskContext } from './todoTaskContext';
 import { buildTodoDecisionCenterSummary } from './todoViewModel';
 import { useEnabledAgents } from './useEnabledAgents';
 
@@ -16,15 +17,23 @@ export interface TodoPanelProps {
   repoPath?: string;
   worktreePath?: string;
   isActive?: boolean;
+  onSwitchRepository?: (repoPath: string) => void;
   onSwitchToAgent?: () => void;
 }
 
-export function TodoPanel({ repoPath, worktreePath, onSwitchToAgent }: TodoPanelProps) {
+export function TodoPanel({
+  repoPath,
+  worktreePath,
+  onSwitchRepository,
+  onSwitchToAgent,
+}: TodoPanelProps) {
   const { t } = useI18n();
   const tasksByRepo = useTodoStore((state) => state.tasks);
   const autoExecuteByRepo = useTodoStore((state) => state.autoExecute);
   const loadAllProjects = useTodoStore((state) => state.loadAllProjects);
+  const updateTask = useTodoStore((state) => state.updateTask);
   const enabledAgents = useEnabledAgents();
+  const [focusTaskRequest, setFocusTaskRequest] = useState<TodoTaskFocusRequest | null>(null);
   const currentRepoKey = useMemo(
     () => (repoPath ? normalizePath(repoPath) : undefined),
     [repoPath]
@@ -83,6 +92,37 @@ export function TodoPanel({ repoPath, worktreePath, onSwitchToAgent }: TodoPanel
     worktreePathByRepo,
   ]);
 
+  const handleApproveGlobalTask = useCallback(
+    (repoPath: string, taskId: string) => {
+      const repoKey = normalizePath(repoPath);
+      const task = (tasksByRepo[repoKey] ?? []).find((candidate) => candidate.id === taskId);
+      if (!task) {
+        return;
+      }
+
+      updateTask(repoKey, taskId, {
+        context: buildApprovedTodoTaskContext(task.context, Date.now()),
+      });
+    },
+    [tasksByRepo, updateTask]
+  );
+
+  const handleFocusGlobalTask = useCallback(
+    (repoPath: string, taskId: string) => {
+      const repoKey = normalizePath(repoPath);
+      setFocusTaskRequest((previousRequest) => ({
+        repoPath: repoKey,
+        taskId,
+        token: (previousRequest?.token ?? 0) + 1,
+      }));
+
+      if (repoKey !== currentRepoKey) {
+        onSwitchRepository?.(repoKey);
+      }
+    },
+    [currentRepoKey, onSwitchRepository]
+  );
+
   const handleGlobalAgentStop = useCallback(
     (data: AgentStopNotificationData) => {
       handleTodoAutoExecuteStop({
@@ -121,7 +161,9 @@ export function TodoPanel({ repoPath, worktreePath, onSwitchToAgent }: TodoPanel
       <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
         <TodoDecisionCenter
           canDispatchReadyTasks={canDispatchReadyTasks}
+          onApproveTask={handleApproveGlobalTask}
           onDispatchReadyTasks={handleDispatchReadyTasks}
+          onFocusTask={handleFocusGlobalTask}
           summary={decisionSummary}
         />
         <div className="min-h-0 flex-1">
@@ -141,13 +183,16 @@ export function TodoPanel({ repoPath, worktreePath, onSwitchToAgent }: TodoPanel
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <TodoDecisionCenter
         canDispatchReadyTasks={canDispatchReadyTasks}
+        onApproveTask={handleApproveGlobalTask}
         onDispatchReadyTasks={handleDispatchReadyTasks}
+        onFocusTask={handleFocusGlobalTask}
         summary={decisionSummary}
       />
       <div className="min-h-0 flex-1 overflow-hidden">
         <KanbanBoard
           repoPath={repoPath}
           worktreePath={worktreePath}
+          focusTaskRequest={focusTaskRequest}
           onSwitchToAgent={onSwitchToAgent}
         />
       </div>

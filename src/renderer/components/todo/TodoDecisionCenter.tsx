@@ -25,7 +25,9 @@ import type {
 
 interface TodoDecisionCenterProps {
   canDispatchReadyTasks?: boolean;
+  onApproveTask?: (repoPath: string, taskId: string) => void;
   onDispatchReadyTasks?: () => void;
+  onFocusTask?: (repoPath: string, taskId: string) => void;
   summary: TodoDecisionCenterSummary;
 }
 
@@ -165,23 +167,36 @@ function ActionLane({
   );
 }
 
-function TaskItem({ chips, title }: { chips: readonly TaskItemChip[]; title: string }) {
+function TaskItem({
+  action,
+  chips,
+  title,
+}: {
+  action?: ReactNode;
+  chips: readonly TaskItemChip[];
+  title: string;
+}) {
   const { t } = useI18n();
 
   return (
     <div className="min-w-0 rounded-md border border-border/45 bg-control-surface/45 px-2.5 py-2">
-      <div className="truncate text-xs font-semibold text-foreground" title={title}>
-        {title}
-      </div>
-      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
-        {chips.map((chip, index) => (
-          <span
-            key={`${chip.labelKey ?? chip.text ?? 'chip'}:${index}`}
-            className={cn('control-chip px-1.5 py-0 text-[10px]', chip.className)}
-          >
-            {chip.labelKey ? t(chip.labelKey) : chip.text}
-          </span>
-        ))}
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-semibold text-foreground" title={title}>
+            {title}
+          </div>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+            {chips.map((chip, index) => (
+              <span
+                key={`${chip.labelKey ?? chip.text ?? 'chip'}:${index}`}
+                className={cn('control-chip px-1.5 py-0 text-[10px]', chip.className)}
+              >
+                {chip.labelKey ? t(chip.labelKey) : chip.text}
+              </span>
+            ))}
+          </div>
+        </div>
+        {action ? <div className="flex shrink-0 items-center gap-1">{action}</div> : null}
       </div>
     </div>
   );
@@ -213,7 +228,9 @@ function SupportSection({
 
 export function TodoDecisionCenter({
   canDispatchReadyTasks = false,
+  onApproveTask,
   onDispatchReadyTasks,
+  onFocusTask,
   summary,
 }: TodoDecisionCenterProps) {
   const { t } = useI18n();
@@ -368,21 +385,57 @@ export function TodoDecisionCenter({
             tone="warning"
           >
             {visibleInterventionTasks.length > 0 ? (
-              visibleInterventionTasks.map((task) => (
-                <TaskItem
-                  key={`${task.repoPath}:${task.taskId}`}
-                  chips={[
-                    {
-                      labelKey: task.reasons.includes('approval')
-                        ? 'Approval Required'
-                        : 'Dependency Blocked',
-                      className: 'control-chip-wait',
-                    },
-                    { text: task.repoName },
-                  ]}
-                  title={task.title}
-                />
-              ))
+              visibleInterventionTasks.map((task) => {
+                const hasApprovalBlocker = task.reasons.includes('approval');
+                const hasDependencyBlocker = task.reasons.includes('dependency');
+                const hasInterventionAction = Boolean(
+                  (hasApprovalBlocker && onApproveTask) || (hasDependencyBlocker && onFocusTask)
+                );
+
+                return (
+                  <TaskItem
+                    key={`${task.repoPath}:${task.taskId}`}
+                    action={
+                      hasInterventionAction ? (
+                        <>
+                          {hasApprovalBlocker && onApproveTask ? (
+                            <Button
+                              aria-label={t('Approve task')}
+                              className="h-6 gap-1 px-2 text-[10px]"
+                              onClick={() => onApproveTask(task.repoPath, task.taskId)}
+                              size="xs"
+                              variant="secondary"
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              {t('Approve')}
+                            </Button>
+                          ) : null}
+                          {hasDependencyBlocker && onFocusTask ? (
+                            <Button
+                              aria-label={t('Review task')}
+                              className="h-6 gap-1 px-2 text-[10px]"
+                              onClick={() => onFocusTask(task.repoPath, task.taskId)}
+                              size="xs"
+                              variant="outline"
+                            >
+                              <Route className="h-3 w-3" />
+                              {t('Open')}
+                            </Button>
+                          ) : null}
+                        </>
+                      ) : undefined
+                    }
+                    chips={[
+                      {
+                        labelKey: hasApprovalBlocker ? 'Approval Required' : 'Dependency Blocked',
+                        className: 'control-chip-wait',
+                      },
+                      { text: task.repoName },
+                    ]}
+                    title={task.title}
+                  />
+                );
+              })
             ) : (
               <div className="text-xs text-muted-foreground">{t('No interventions')}</div>
             )}

@@ -14,6 +14,7 @@ import {
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { ListOrdered, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { normalizePath } from '@/App/storage';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -58,10 +59,22 @@ import { useTodoPersistenceNotifications } from './useTodoPersistenceNotificatio
 interface KanbanBoardProps {
   repoPath: string;
   worktreePath?: string;
+  focusTaskRequest?: TodoTaskFocusRequest | null;
   onSwitchToAgent?: () => void;
 }
 
-export function KanbanBoard({ repoPath, worktreePath, onSwitchToAgent }: KanbanBoardProps) {
+export interface TodoTaskFocusRequest {
+  repoPath: string;
+  taskId: string;
+  token: number;
+}
+
+export function KanbanBoard({
+  repoPath,
+  worktreePath,
+  focusTaskRequest,
+  onSwitchToAgent,
+}: KanbanBoardProps) {
   const { t } = useI18n();
   const tasks = useTodoStore((s) => selectTasks(s, repoPath));
   const moveTask = useTodoStore((s) => s.moveTask);
@@ -97,6 +110,7 @@ export function KanbanBoard({ repoPath, worktreePath, onSwitchToAgent }: KanbanB
 
   // Snapshot of tasks at drag start for cancel rollback
   const dragStartSnapshotRef = useRef<TodoTask[] | null>(null);
+  const handledFocusTaskTokenRef = useRef<number | null>(null);
 
   // Merge pending move into displayed tasks
   const displayTasks = useMemo(() => {
@@ -117,6 +131,27 @@ export function KanbanBoard({ repoPath, worktreePath, onSwitchToAgent }: KanbanB
     () => (activeId ? (displayTasks.find((t) => t.id === activeId) ?? null) : null),
     [activeId, displayTasks]
   );
+
+  useEffect(() => {
+    if (!focusTaskRequest) {
+      return;
+    }
+    if (handledFocusTaskTokenRef.current === focusTaskRequest.token) {
+      return;
+    }
+    if (normalizePath(focusTaskRequest.repoPath) !== normalizePath(repoPath)) {
+      return;
+    }
+
+    const task = tasks.find((candidate) => candidate.id === focusTaskRequest.taskId);
+    if (!task) {
+      return;
+    }
+
+    handledFocusTaskTokenRef.current = focusTaskRequest.token;
+    setEditingTask(task);
+    setDialogOpen(true);
+  }, [focusTaskRequest, repoPath, tasks]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

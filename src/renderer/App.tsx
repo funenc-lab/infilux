@@ -995,6 +995,14 @@ export default function App() {
     ]
   );
 
+  const handleSwitchTodoRepository = useCallback(
+    (repoPath: string) => {
+      handleSelectRepo(repoPath, { activateRemote: true });
+      setActiveTab('todo');
+    },
+    [handleSelectRepo, setActiveTab]
+  );
+
   const closeAgentSessions = useWorktreeActivityStore((s) => s.closeAgentSessions);
   const closeTerminalSessions = useWorktreeActivityStore((s) => s.closeTerminalSessions);
   const clearWorktreeActivity = useWorktreeActivityStore((s) => s.clearWorktree);
@@ -1697,6 +1705,7 @@ export default function App() {
           onExpandFileSidebar={
             shouldRenderFileSidebar ? () => setFileSidebarCollapsed(false) : undefined
           }
+          onSwitchRepository={handleSwitchTodoRepository}
           onSwitchWorktree={handleSwitchWorktreePath}
           onSwitchTab={handleTabChange}
           isSettingsActive={

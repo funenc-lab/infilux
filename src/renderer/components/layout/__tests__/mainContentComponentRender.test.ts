@@ -163,6 +163,7 @@ function renderMockPanel(
     'data-show-fallback': String(props.showFallback ?? false),
     'data-root-path': typeof props.rootPath === 'string' ? props.rootPath : '',
     'data-cwd': typeof props.cwd === 'string' ? props.cwd : '',
+    'data-has-on-switch-repository': String(typeof props.onSwitchRepository === 'function'),
     ...extraAttributes,
   });
 }
@@ -724,6 +725,18 @@ describe('MainContent component render', () => {
     expect(markup).toContain(
       'data-workspace-canvas-worktrees="/repo/main::/repo/main/worktrees/current|/repo/main::/repo/main/worktrees/older"'
     );
+  });
+
+  it('passes repository switching to the todo panel for global task focus', async () => {
+    const markup = await renderMainContentPanels({
+      activeTab: 'todo',
+      todoEnabled: true,
+      shouldRenderTodo: true,
+      onSwitchRepository: vi.fn(),
+    } as Partial<MainContentPanelsProps>);
+
+    expect(markup).toContain('data-panel="todo"');
+    expect(markup).toContain('data-has-on-switch-repository="true"');
   });
 
   it('passes the recenter token only to the current chat panel that matches the requested worktree', async () => {
