@@ -538,6 +538,10 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.SEARCH_CONTENT, { repoPath: '/repo', query: 'TODO' }],
       },
       {
+        run: () => api.search.cancel({ requestId: 'search-1' }),
+        expected: [IPC_CHANNELS.SEARCH_CANCEL, { requestId: 'search-1' }],
+      },
+      {
         run: () =>
           api.hapi.start({
             webappPort: 3000,

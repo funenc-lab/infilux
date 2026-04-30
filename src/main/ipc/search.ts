@@ -1,4 +1,4 @@
-import type { ContentSearchParams, FileSearchParams } from '@shared/types';
+import type { ContentSearchParams, FileSearchParams, SearchCancelParams } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain } from 'electron';
 import { isRemoteVirtualPath } from '../services/remote/RemotePath';
@@ -20,5 +20,15 @@ export function registerSearchHandlers(): void {
     }
     const results = await searchService.searchContent(params);
     return results;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SEARCH_CANCEL, async (_, params: SearchCancelParams) => {
+    if (!params?.requestId) {
+      return false;
+    }
+    if (searchService.cancelSearch(params.requestId)) {
+      return true;
+    }
+    return remoteRepositoryBackend.cancelSearch(params.requestId);
   });
 }

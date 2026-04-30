@@ -34,7 +34,13 @@ describe('getRemoteServerSource', () => {
     const source = getRemoteServerSource(buildAppRuntimeIdentity('test'));
 
     expect(source).toContain(
-      'async function searchFiles(rootPath, query, maxResults = 100, includeDirectories = false, useGitignore = true)'
+      'async function searchFiles(rootPath, query, maxResults = 100, includeDirectories = false, useGitignore = true, requestId)'
+    );
+    expect(source).toContain('activeSearches: new Map()');
+    expect(source).toContain('registerActiveSearch(requestId, child)');
+    expect(source).toContain('function fuzzyMatch(query, target)');
+    expect(source).toContain(
+      'return Math.max(fuzzyMatch(query, name), fuzzyMatch(query, relativePath) * 0.8);'
     );
     expect(source).toContain("if (useGitignore) args.push('--exclude-standard');");
     expect(source).toContain("if (!useGitignore) args.push('--no-ignore');");
@@ -45,7 +51,8 @@ describe('getRemoteServerSource', () => {
     expect(source).toContain('const limitedMatches = matches.slice(0, maxResults);');
     expect(source).toContain('truncated: matches.length > limitedMatches.length');
     expect(source).toContain(
-      "'search:files': ({ rootPath, query, maxResults, includeDirectories, useGitignore }) =>"
+      "'search:files': ({ rootPath, query, maxResults, includeDirectories, useGitignore, requestId }) =>"
     );
+    expect(source).toContain("'search:cancel': ({ requestId }) => cancelSearch(requestId)");
   });
 });

@@ -26,13 +26,54 @@ import { remoteConnectionManager } from './RemoteConnectionManager';
 import { createRemoteError } from './RemoteI18n';
 import { isRemoteVirtualPath, parseRemoteVirtualPath, toRemoteVirtualPath } from './RemotePath';
 
+const REMOTE_SEARCH_CANCEL_TIMEOUT_MS = 5000;
+
+interface ActiveRemoteSearch {
+  connectionId: string;
+}
+
 function toRemotePath(inputPath: string): { connectionId: string; remotePath: string } {
   return parseRemoteVirtualPath(inputPath);
 }
 
 export class RemoteRepositoryBackend {
+  private readonly activeSearches = new Map<string, ActiveRemoteSearch>();
+
   private toVirtualPath(connectionId: string, remotePath: string): string {
     return toRemoteVirtualPath(connectionId, remotePath);
+  }
+
+  private trackSearchRequest(requestId: string | undefined, connectionId: string): () => void {
+    if (!requestId) {
+      return () => undefined;
+    }
+
+    const activeSearch: ActiveRemoteSearch = { connectionId };
+    this.activeSearches.set(requestId, activeSearch);
+    return () => {
+      if (this.activeSearches.get(requestId) === activeSearch) {
+        this.activeSearches.delete(requestId);
+      }
+    };
+  }
+
+  async cancelSearch(requestId: string): Promise<boolean> {
+    const activeSearch = this.activeSearches.get(requestId);
+    if (!activeSearch) {
+      return false;
+    }
+
+    this.activeSearches.delete(requestId);
+    try {
+      return await remoteConnectionManager.call<boolean>(
+        activeSearch.connectionId,
+        'search:cancel',
+        { requestId },
+        REMOTE_SEARCH_CANCEL_TIMEOUT_MS
+      );
+    } catch {
+      return false;
+    }
   }
 
   private toRemoteRelativePath(
@@ -513,27 +554,34 @@ export class RemoteRepositoryBackend {
   }
 
   async searchFiles(params: FileSearchParams): Promise<FileSearchResult[]> {
-    const { rootPath, query, maxResults, includeDirectories, useGitignore } = params;
+    const { requestId, rootPath, query, maxResults, includeDirectories, useGitignore } = params;
     const { connectionId, remotePath } = toRemotePath(rootPath);
-    const entries = await remoteConnectionManager.call<FileSearchResult[]>(
-      connectionId,
-      'search:files',
-      {
-        rootPath: remotePath,
-        query,
-        maxResults,
-        includeDirectories,
-        useGitignore,
-      }
-    );
-    return entries.map((entry) => ({
-      ...entry,
-      path: this.toVirtualPath(connectionId, entry.path),
-    }));
+    const cleanup = this.trackSearchRequest(requestId, connectionId);
+    try {
+      const entries = await remoteConnectionManager.call<FileSearchResult[]>(
+        connectionId,
+        'search:files',
+        {
+          rootPath: remotePath,
+          query,
+          maxResults,
+          includeDirectories,
+          useGitignore,
+          requestId,
+        }
+      );
+      return entries.map((entry) => ({
+        ...entry,
+        path: this.toVirtualPath(connectionId, entry.path),
+      }));
+    } finally {
+      cleanup();
+    }
   }
 
   async searchContent(params: ContentSearchParams): Promise<ContentSearchResult> {
     const {
+      requestId,
       rootPath,
       query,
       maxResults,
@@ -544,27 +592,33 @@ export class RemoteRepositoryBackend {
       useGitignore,
     } = params;
     const { connectionId, remotePath } = toRemotePath(rootPath);
-    const result = await remoteConnectionManager.call<ContentSearchResult>(
-      connectionId,
-      'search:content',
-      {
-        rootPath: remotePath,
-        query,
-        maxResults,
-        caseSensitive,
-        wholeWord,
-        regex,
-        filePattern,
-        useGitignore,
-      }
-    );
-    return {
-      ...result,
-      matches: result.matches.map((match) => ({
-        ...match,
-        path: this.toVirtualPath(connectionId, match.path),
-      })),
-    };
+    const cleanup = this.trackSearchRequest(requestId, connectionId);
+    try {
+      const result = await remoteConnectionManager.call<ContentSearchResult>(
+        connectionId,
+        'search:content',
+        {
+          rootPath: remotePath,
+          query,
+          maxResults,
+          caseSensitive,
+          wholeWord,
+          regex,
+          filePattern,
+          useGitignore,
+          requestId,
+        }
+      );
+      return {
+        ...result,
+        matches: result.matches.map((match) => ({
+          ...match,
+          path: this.toVirtualPath(connectionId, match.path),
+        })),
+      };
+    } finally {
+      cleanup();
+    }
   }
 
   async createBranch(workdir: string, name: string, startPoint?: string): Promise<void> {

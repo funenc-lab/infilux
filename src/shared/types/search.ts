@@ -1,4 +1,5 @@
 export interface FileSearchParams {
+  requestId?: string;
   rootPath: string;
   query: string;
   maxResults?: number;
@@ -7,6 +8,7 @@ export interface FileSearchParams {
 }
 
 export interface ContentSearchParams {
+  requestId?: string;
   rootPath: string;
   query: string;
   maxResults?: number;
@@ -44,4 +46,8 @@ export interface ContentSearchResult {
   totalFiles: number;
   truncated: boolean;
   error?: string;
+}
+
+export interface SearchCancelParams {
+  requestId: string;
 }

@@ -15,6 +15,7 @@ const MAX_FILE_RESULTS = 100;
 const MAX_CONTENT_RESULTS = 500;
 const SEARCH_TIMEOUT_MS = 10000;
 const MAX_FILESYSTEM_FALLBACK_ENTRIES = 20000;
+const FILE_LIST_CACHE_TTL_MS = 2500;
 
 const EXCLUDE_GLOBS = [
   '!node_modules/**',
@@ -39,6 +40,23 @@ interface FileEntry {
 interface RipgrepFilesResult {
   files: FileEntry[];
   retryable: boolean;
+  cacheable: boolean;
+}
+
+interface ActiveSearch {
+  cancel: () => void;
+}
+
+type RegisterActiveSearch = (activeSearch: ActiveSearch) => () => void;
+
+interface FileListResult {
+  files: FileEntry[];
+  cacheable: boolean;
+}
+
+interface FileListCacheEntry {
+  files: FileEntry[];
+  expiresAt: number;
 }
 
 interface FilesystemDirectoryEntry {
@@ -81,6 +99,10 @@ function fuzzyMatch(query: string, target: string): number {
 
 function normalizeRelativePath(rootPath: string, filePath: string): string {
   return relative(rootPath, filePath).replace(/\\/g, '/');
+}
+
+function getFileListCacheKey(rootPath: string, useGitignore: boolean): string {
+  return `${rootPath}\0${useGitignore ? 'gitignore' : 'all'}`;
 }
 
 function isExcludedPath(relativePath: string): boolean {
@@ -175,7 +197,8 @@ async function getAllFilesWithFilesystemFallback(rootPath: string): Promise<File
 async function getAllFilesWithRipgrepBinary(
   binaryPath: string,
   rootPath: string,
-  useGitignore: boolean
+  useGitignore: boolean,
+  registerActiveSearch?: RegisterActiveSearch
 ): Promise<RipgrepFilesResult> {
   return new Promise((resolve) => {
     const args = ['--files'];
@@ -188,6 +211,28 @@ async function getAllFilesWithRipgrepBinary(
     let buffer = '';
 
     const rg = spawn(binaryPath, args);
+    let settled = false;
+    let timeoutId: NodeJS.Timeout | undefined;
+    let unregisterActiveSearch: () => void = () => undefined;
+
+    const cleanup = () => {
+      rg.stdout.removeAllListeners('data');
+      rg.removeAllListeners('close');
+      rg.removeAllListeners('error');
+      unregisterActiveSearch();
+    };
+
+    const finish = (result: RipgrepFilesResult) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      cleanup();
+      resolve(result);
+    };
 
     rg.stdout.on('data', (data) => {
       buffer += data.toString();
@@ -206,16 +251,20 @@ async function getAllFilesWithRipgrepBinary(
       }
     });
 
-    const timeoutId = setTimeout(() => {
-      rg.stdout.removeAllListeners('data');
-      rg.removeAllListeners('close');
-      rg.removeAllListeners('error');
+    timeoutId = setTimeout(() => {
       killProcessTree(rg);
-      resolve({ files, retryable: false });
+      finish({ files, retryable: false, cacheable: false });
     }, SEARCH_TIMEOUT_MS);
 
+    unregisterActiveSearch =
+      registerActiveSearch?.({
+        cancel: () => {
+          killProcessTree(rg);
+          finish({ files: [], retryable: false, cacheable: false });
+        },
+      }) ?? unregisterActiveSearch;
+
     rg.on('close', () => {
-      clearTimeout(timeoutId);
       preferredRipgrepCandidate = binaryPath;
 
       if (buffer.trim()) {
@@ -227,21 +276,24 @@ async function getAllFilesWithRipgrepBinary(
         });
       }
 
-      resolve({ files, retryable: false });
+      finish({ files, retryable: false, cacheable: true });
     });
 
     rg.on('error', (err) => {
-      clearTimeout(timeoutId);
       if (!failedRipgrepCandidates.has(binaryPath)) {
         failedRipgrepCandidates.add(binaryPath);
         console.error('[SearchService] ripgrep --files spawn error:', err.message);
       }
-      resolve({ files: [], retryable: true });
+      finish({ files: [], retryable: true, cacheable: false });
     });
   });
 }
 
-async function getAllFiles(rootPath: string, useGitignore: boolean): Promise<FileEntry[]> {
+async function getAllFiles(
+  rootPath: string,
+  useGitignore: boolean,
+  registerActiveSearch?: RegisterActiveSearch
+): Promise<FileListResult> {
   const candidates = preferredRipgrepCandidate
     ? [
         preferredRipgrepCandidate,
@@ -250,18 +302,82 @@ async function getAllFiles(rootPath: string, useGitignore: boolean): Promise<Fil
     : ripgrepCandidates;
 
   for (const candidate of candidates) {
-    const result = await getAllFilesWithRipgrepBinary(candidate, rootPath, useGitignore);
+    const result = await getAllFilesWithRipgrepBinary(
+      candidate,
+      rootPath,
+      useGitignore,
+      registerActiveSearch
+    );
     if (!result.retryable) {
-      return result.files;
+      return {
+        files: result.files,
+        cacheable: result.cacheable,
+      };
     }
   }
 
-  return getAllFilesWithFilesystemFallback(rootPath);
+  return {
+    files: await getAllFilesWithFilesystemFallback(rootPath),
+    cacheable: true,
+  };
 }
 
 export class SearchService {
+  private readonly activeSearches = new Map<string, ActiveSearch>();
+  private readonly fileListCache = new Map<string, FileListCacheEntry>();
+
+  cancelSearch(requestId: string): boolean {
+    const activeSearch = this.activeSearches.get(requestId);
+    if (!activeSearch) {
+      return false;
+    }
+    activeSearch.cancel();
+    return true;
+  }
+
+  private registerActiveSearch(
+    requestId: string | undefined,
+    activeSearch: ActiveSearch
+  ): () => void {
+    if (!requestId) {
+      return () => undefined;
+    }
+
+    this.activeSearches.get(requestId)?.cancel();
+    this.activeSearches.set(requestId, activeSearch);
+
+    return () => {
+      if (this.activeSearches.get(requestId) === activeSearch) {
+        this.activeSearches.delete(requestId);
+      }
+    };
+  }
+
+  private getCachedFileList(rootPath: string, useGitignore: boolean): FileEntry[] | null {
+    const cacheKey = getFileListCacheKey(rootPath, useGitignore);
+    const cacheEntry = this.fileListCache.get(cacheKey);
+    if (!cacheEntry) {
+      return null;
+    }
+
+    if (cacheEntry.expiresAt <= Date.now()) {
+      this.fileListCache.delete(cacheKey);
+      return null;
+    }
+
+    return cacheEntry.files;
+  }
+
+  private setCachedFileList(rootPath: string, useGitignore: boolean, files: FileEntry[]): void {
+    this.fileListCache.set(getFileListCacheKey(rootPath, useGitignore), {
+      files,
+      expiresAt: Date.now() + FILE_LIST_CACHE_TTL_MS,
+    });
+  }
+
   async searchFiles(params: FileSearchParams): Promise<FileSearchResult[]> {
     const {
+      requestId,
       rootPath,
       query,
       maxResults = MAX_FILE_RESULTS,
@@ -269,7 +385,16 @@ export class SearchService {
       useGitignore = true,
     } = params;
 
-    const allFiles = await getAllFiles(rootPath, useGitignore);
+    let allFiles = this.getCachedFileList(rootPath, useGitignore);
+    if (!allFiles) {
+      const fileListResult = await getAllFiles(rootPath, useGitignore, (activeSearch) =>
+        this.registerActiveSearch(requestId, activeSearch)
+      );
+      allFiles = fileListResult.files;
+      if (fileListResult.cacheable) {
+        this.setCachedFileList(rootPath, useGitignore, allFiles);
+      }
+    }
     const searchableEntries: FileSearchResult[] = includeDirectories
       ? [
           ...allFiles.map((file) => ({ ...file, kind: 'file' as const, score: 0 })),
@@ -301,6 +426,7 @@ export class SearchService {
 
   async searchContent(params: ContentSearchParams): Promise<ContentSearchResult> {
     const {
+      requestId,
       rootPath,
       query,
       maxResults = MAX_CONTENT_RESULTS,
@@ -345,6 +471,29 @@ export class SearchService {
 
       const rg = spawn(rgPath, args);
       let buffer = '';
+      let settled = false;
+      let timeoutId: NodeJS.Timeout | undefined;
+      let unregisterActiveSearch: () => void = () => undefined;
+
+      const cleanup = () => {
+        rg.stdout.removeAllListeners('data');
+        rg.stderr.removeAllListeners('data');
+        rg.removeAllListeners('close');
+        rg.removeAllListeners('error');
+        unregisterActiveSearch();
+      };
+
+      const finish = (result: ContentSearchResult) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        cleanup();
+        resolve(result);
+      };
 
       rg.stdout.on('data', (data) => {
         buffer += data.toString();
@@ -385,13 +534,9 @@ export class SearchService {
         stderr += data.toString();
       });
 
-      const timeoutId = setTimeout(() => {
-        rg.stdout.removeAllListeners('data');
-        rg.stderr.removeAllListeners('data');
-        rg.removeAllListeners('close');
-        rg.removeAllListeners('error');
+      timeoutId = setTimeout(() => {
         killProcessTree(rg);
-        resolve({
+        finish({
           matches,
           totalMatches,
           totalFiles: fileSet.size,
@@ -399,9 +544,19 @@ export class SearchService {
         });
       }, SEARCH_TIMEOUT_MS);
 
-      rg.on('close', (code) => {
-        clearTimeout(timeoutId);
+      unregisterActiveSearch = this.registerActiveSearch(requestId, {
+        cancel: () => {
+          killProcessTree(rg);
+          finish({
+            matches: [],
+            totalMatches: 0,
+            totalFiles: 0,
+            truncated: true,
+          });
+        },
+      });
 
+      rg.on('close', (code) => {
         if (buffer.trim()) {
           try {
             const json = JSON.parse(buffer);
@@ -433,7 +588,7 @@ export class SearchService {
           console.error('[SearchService] ripgrep error:', stderr);
         }
 
-        resolve({
+        finish({
           matches,
           totalMatches,
           totalFiles: fileSet.size,
@@ -443,9 +598,8 @@ export class SearchService {
       });
 
       rg.on('error', (err) => {
-        clearTimeout(timeoutId);
         console.error('[SearchService] ripgrep spawn error:', err.message);
-        resolve({
+        finish({
           matches: [],
           totalMatches: 0,
           totalFiles: 0,

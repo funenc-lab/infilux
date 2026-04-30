@@ -7,7 +7,7 @@ import {
   GIT_LOG_RECORD_SEPARATOR,
 } from '../git/gitLogFormat';
 
-export const REMOTE_SERVER_VERSION = '0.4.0';
+export const REMOTE_SERVER_VERSION = '0.4.1';
 export const REMOTE_HELPER_VERSION = REMOTE_SERVER_VERSION;
 
 const REMOTE_DAEMON_INFO_FILE = `${APP_RUNTIME_NAMESPACE}-remote-daemon.json`;
@@ -31,6 +31,7 @@ const state = {
   clients: new Set(),
   sessions: new Map(),
   watchers: new Map(),
+  activeSearches: new Map(),
 };
 
 const REMOTE_SERVER_VERSION = ${JSON.stringify(REMOTE_SERVER_VERSION)};
@@ -269,6 +270,7 @@ function execCommand(command, args, options = {}) {
     let stdout = '';
     let stderr = '';
     let settled = false;
+    const unregisterActiveSearch = registerActiveSearch(options.requestId, child);
 
     const finishError = (error) => {
       if (settled) {
@@ -276,6 +278,7 @@ function execCommand(command, args, options = {}) {
       }
       settled = true;
       clearTimeout(timer);
+      unregisterActiveSearch();
       reject(error);
     };
 
@@ -302,6 +305,7 @@ function execCommand(command, args, options = {}) {
       }
       settled = true;
       clearTimeout(timer);
+      unregisterActiveSearch();
       if (allowedExitCodes.includes(code)) {
         resolve({ stdout, stderr, code });
       } else {
@@ -309,6 +313,43 @@ function execCommand(command, args, options = {}) {
       }
     });
   });
+}
+
+function registerActiveSearch(requestId, child) {
+  if (typeof requestId !== 'string' || requestId.length === 0) {
+    return () => {};
+  }
+
+  const existing = state.activeSearches.get(requestId);
+  if (existing && existing !== child) {
+    try {
+      existing.kill('SIGKILL');
+    } catch {}
+  }
+
+  state.activeSearches.set(requestId, child);
+  return () => {
+    if (state.activeSearches.get(requestId) === child) {
+      state.activeSearches.delete(requestId);
+    }
+  };
+}
+
+function cancelSearch(requestId) {
+  if (typeof requestId !== 'string' || requestId.length === 0) {
+    return false;
+  }
+
+  const child = state.activeSearches.get(requestId);
+  if (!child) {
+    return false;
+  }
+
+  state.activeSearches.delete(requestId);
+  try {
+    child.kill('SIGKILL');
+  } catch {}
+  return true;
 }
 
 async function listDirectory(dirPath) {
@@ -1519,23 +1560,39 @@ async function worktreeContinueMerge(workdir, message, cleanupOptions) {
   }
 }
 
+function fuzzyMatch(query, target) {
+  const queryLower = query.toLowerCase();
+  const targetLower = target.toLowerCase();
+
+  if (targetLower === queryLower) return 1000;
+
+  if (targetLower.includes(queryLower)) {
+    if (targetLower.startsWith(queryLower)) return 900;
+    return 800 - targetLower.indexOf(queryLower);
+  }
+
+  let score = 0;
+  let queryIndex = 0;
+  let consecutiveBonus = 0;
+
+  for (let index = 0; index < targetLower.length && queryIndex < queryLower.length; index += 1) {
+    if (targetLower[index] === queryLower[queryIndex]) {
+      score += 10 + consecutiveBonus;
+      consecutiveBonus += 5;
+      queryIndex += 1;
+    } else {
+      consecutiveBonus = 0;
+    }
+  }
+
+  return queryIndex === queryLower.length ? score : 0;
+}
+
 function getSearchScore(relativePath, name, query) {
-  if (!query) {
+  if (!query.trim()) {
     return 0;
   }
-  const normalizedQuery = query.toLowerCase();
-  const normalizedPath = relativePath.toLowerCase();
-  const normalizedName = name.toLowerCase();
-  if (normalizedName === normalizedQuery || normalizedPath === normalizedQuery) {
-    return 1000;
-  }
-  if (normalizedName.startsWith(normalizedQuery)) {
-    return 900;
-  }
-  if (normalizedName.includes(normalizedQuery) || normalizedPath.includes(normalizedQuery)) {
-    return 100;
-  }
-  return 0;
+  return Math.max(fuzzyMatch(query, name), fuzzyMatch(query, relativePath) * 0.8);
 }
 
 function deriveSearchDirectories(rootPath, relativePaths) {
@@ -1558,10 +1615,10 @@ function deriveSearchDirectories(rootPath, relativePaths) {
   return Array.from(directories.values());
 }
 
-async function searchFiles(rootPath, query, maxResults = 100, includeDirectories = false, useGitignore = true) {
+async function searchFiles(rootPath, query, maxResults = 100, includeDirectories = false, useGitignore = true, requestId) {
   const args = ['ls-files', '--cached', '--others'];
   if (useGitignore) args.push('--exclude-standard');
-  const { stdout } = await execCommand('git', args, { cwd: rootPath });
+  const { stdout } = await execCommand('git', args, { cwd: rootPath, requestId });
   const relativePaths = stdout
     .split('\n')
     .map((item) => item.trim())
@@ -1592,7 +1649,8 @@ async function searchContent(
   wholeWord = false,
   regex = false,
   filePattern,
-  useGitignore = true
+  useGitignore = true,
+  requestId
 ) {
   const args = ['-n', '--column', '-I', '-m', String(maxResults)];
   if (!caseSensitive) args.push('-i');
@@ -1604,6 +1662,7 @@ async function searchContent(
   const { stdout, code } = await execCommand('rg', args, {
     cwd: rootPath,
     allowedExitCodes: [0, 1, 2],
+    requestId,
   });
   const matches = stdout
     .split('\n')
@@ -3282,6 +3341,12 @@ async function startDaemon() {
       killChildTree(session);
     }
     state.sessions.clear();
+    for (const child of state.activeSearches.values()) {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+    }
+    state.activeSearches.clear();
     for (const client of state.clients) {
       client.destroy();
     }
@@ -3353,8 +3418,8 @@ const handlers = {
   'worktree:abortMerge': ({ rootPath }) => worktreeAbortMerge(rootPath),
   'worktree:continueMerge': ({ rootPath, message, cleanupOptions }) =>
     worktreeContinueMerge(rootPath, message, cleanupOptions),
-  'search:files': ({ rootPath, query, maxResults, includeDirectories, useGitignore }) =>
-    searchFiles(rootPath, query, maxResults, includeDirectories, useGitignore),
+  'search:files': ({ rootPath, query, maxResults, includeDirectories, useGitignore, requestId }) =>
+    searchFiles(rootPath, query, maxResults, includeDirectories, useGitignore, requestId),
   'search:content': ({
     rootPath,
     query,
@@ -3364,7 +3429,9 @@ const handlers = {
     regex,
     filePattern,
     useGitignore,
-  }) => searchContent(rootPath, query, maxResults, caseSensitive, wholeWord, regex, filePattern, useGitignore),
+    requestId,
+  }) => searchContent(rootPath, query, maxResults, caseSensitive, wholeWord, regex, filePattern, useGitignore, requestId),
+  'search:cancel': ({ requestId }) => cancelSearch(requestId),
   'shell:detect': () => detectUnixShells(),
   'shell:resolveForCommand': ({ config }) => {
     const resolved = resolveShellConfig(config);

@@ -19,9 +19,11 @@ const handlerTestDoubles = vi.hoisted(() => {
   const isRemoteVirtualPath = vi.fn((input: string) => input.startsWith('/__remote__/'));
   const remoteSearchFiles = vi.fn();
   const remoteSearchContent = vi.fn();
+  const remoteCancelSearch = vi.fn();
 
   const searchFiles = vi.fn();
   const searchContent = vi.fn();
+  const cancelSearch = vi.fn();
 
   const shellOpenPath = vi.fn();
   const appGetPath = vi.fn();
@@ -106,11 +108,15 @@ const handlerTestDoubles = vi.hoisted(() => {
     remoteSearchFiles.mockResolvedValue([{ path: 'remote.ts' }]);
     remoteSearchContent.mockReset();
     remoteSearchContent.mockResolvedValue([{ path: 'remote.ts', line: 3 }]);
+    remoteCancelSearch.mockReset();
+    remoteCancelSearch.mockResolvedValue(false);
 
     searchFiles.mockReset();
     searchFiles.mockResolvedValue([{ path: 'local.ts' }]);
     searchContent.mockReset();
     searchContent.mockResolvedValue([{ path: 'local.ts', line: 7 }]);
+    cancelSearch.mockReset();
+    cancelSearch.mockReturnValue(true);
 
     shellOpenPath.mockReset();
     shellOpenPath.mockResolvedValue('');
@@ -191,8 +197,10 @@ const handlerTestDoubles = vi.hoisted(() => {
     isRemoteVirtualPath,
     remoteSearchFiles,
     remoteSearchContent,
+    remoteCancelSearch,
     searchFiles,
     searchContent,
+    cancelSearch,
     shellOpenPath,
     appGetPath,
     initLogger,
@@ -296,6 +304,7 @@ vi.mock('../../services/remote/RemoteRepositoryBackend', () => ({
   remoteRepositoryBackend: {
     searchFiles: handlerTestDoubles.remoteSearchFiles,
     searchContent: handlerTestDoubles.remoteSearchContent,
+    cancelSearch: handlerTestDoubles.remoteCancelSearch,
   },
 }));
 
@@ -303,6 +312,7 @@ vi.mock('../../services/search/SearchService', () => ({
   searchService: {
     searchFiles: handlerTestDoubles.searchFiles,
     searchContent: handlerTestDoubles.searchContent,
+    cancelSearch: handlerTestDoubles.cancelSearch,
   },
 }));
 
@@ -483,6 +493,16 @@ describe('supporting IPC handlers', () => {
       rootPath: '/__remote__/repo',
       query: 'needle',
     });
+
+    expect(await getHandler(IPC_CHANNELS.SEARCH_CANCEL)({}, { requestId: 'search-1' })).toBe(true);
+    expect(handlerTestDoubles.cancelSearch).toHaveBeenCalledWith('search-1');
+
+    handlerTestDoubles.cancelSearch.mockReturnValueOnce(false);
+    handlerTestDoubles.remoteCancelSearch.mockResolvedValueOnce(true);
+    expect(await getHandler(IPC_CHANNELS.SEARCH_CANCEL)({}, { requestId: 'remote-search-1' })).toBe(
+      true
+    );
+    expect(handlerTestDoubles.remoteCancelSearch).toHaveBeenCalledWith('remote-search-1');
   });
 
   it('updates logging, opens the log folder and returns the current log file path', async () => {

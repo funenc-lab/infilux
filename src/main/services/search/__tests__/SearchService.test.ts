@@ -42,7 +42,7 @@ vi.mock('node:child_process', () => ({
   spawn: searchServiceTestDoubles.spawn,
 }));
 
-vi.mock('../../utils/processUtils', () => ({
+vi.mock('../../../utils/processUtils', () => ({
   killProcessTree: searchServiceTestDoubles.killProcessTree,
 }));
 
@@ -100,19 +100,13 @@ describe('SearchService', () => {
       maxResults: 5,
     });
 
-    const fuzzyProc = searchServiceTestDoubles.processes[1];
-    if (!fuzzyProc) {
-      throw new Error('Missing fuzzy search process');
-    }
-    fuzzyProc.stdout.emit('data', '/repo/src/index.ts\n/repo/docs/guide.md\n');
-    fuzzyProc.emit('close', 0);
-
     await expect(fuzzyPromise).resolves.toEqual([
       expect.objectContaining({
         path: '/repo/src/index.ts',
         name: 'index.ts',
       }),
     ]);
+    expect(searchServiceTestDoubles.spawn).toHaveBeenCalledTimes(1);
   });
 
   it('includes derived directory entries when requested', async () => {
@@ -230,6 +224,76 @@ describe('SearchService', () => {
       '/mock/node_modules/@vscode/ripgrep/bin/rg',
       expect.arrayContaining(['--files', '--no-ignore', '/repo'])
     );
+  });
+
+  it('reuses a short-lived file listing cache for repeated file queries', async () => {
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const firstPromise = service.searchFiles({
+      rootPath: '/repo',
+      query: 'app',
+      maxResults: 5,
+    });
+
+    const proc = searchServiceTestDoubles.processes[0];
+    if (!proc) {
+      throw new Error('Missing cache warmup search process');
+    }
+    proc.stdout.emit('data', '/repo/src/App.tsx\n/repo/src/Button.tsx\n');
+    proc.emit('close', 0);
+
+    await expect(firstPromise).resolves.toEqual([
+      expect.objectContaining({
+        path: '/repo/src/App.tsx',
+      }),
+    ]);
+
+    const secondResults = await service.searchFiles({
+      rootPath: '/repo',
+      query: 'btn',
+      maxResults: 5,
+    });
+
+    expect(secondResults).toEqual([
+      expect.objectContaining({
+        path: '/repo/src/Button.tsx',
+      }),
+    ]);
+    expect(searchServiceTestDoubles.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache cancelled file listings', async () => {
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const cancelledPromise = service.searchFiles({
+      requestId: 'cancel-cache',
+      rootPath: '/repo',
+      query: 'app',
+      maxResults: 5,
+    });
+    expect(service.cancelSearch('cancel-cache')).toBe(true);
+    await expect(cancelledPromise).resolves.toEqual([]);
+
+    const nextPromise = service.searchFiles({
+      rootPath: '/repo',
+      query: 'app',
+      maxResults: 5,
+    });
+    const proc = searchServiceTestDoubles.processes[1];
+    if (!proc) {
+      throw new Error('Missing follow-up file search process');
+    }
+    proc.stdout.emit('data', '/repo/src/App.tsx\n');
+    proc.emit('close', 0);
+
+    await expect(nextPromise).resolves.toEqual([
+      expect.objectContaining({
+        path: '/repo/src/App.tsx',
+      }),
+    ]);
+    expect(searchServiceTestDoubles.spawn).toHaveBeenCalledTimes(2);
   });
 
   it('parses ripgrep JSON content matches and respects truncation', async () => {
@@ -432,5 +496,52 @@ describe('SearchService', () => {
     expect(timeoutProc.stdout.listenerCount('data')).toBe(0);
 
     expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it('cancels active ripgrep searches by request id', async () => {
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const filePromise = service.searchFiles({
+      requestId: 'files-1',
+      rootPath: '/repo',
+      query: 'component',
+    });
+    const fileProc = searchServiceTestDoubles.processes[0];
+    if (!fileProc) {
+      throw new Error('Missing cancellable file search process');
+    }
+
+    expect(service.cancelSearch('files-1')).toBe(true);
+    await expect(filePromise).resolves.toEqual([]);
+    expect(searchServiceTestDoubles.killProcessTree).toHaveBeenCalledWith(fileProc);
+    expect(fileProc.listenerCount('close')).toBe(0);
+    expect(fileProc.listenerCount('error')).toBe(0);
+    expect(fileProc.stdout.listenerCount('data')).toBe(0);
+
+    const contentPromise = service.searchContent({
+      requestId: 'content-1',
+      rootPath: '/repo',
+      query: 'needle',
+    });
+    const contentProc = searchServiceTestDoubles.processes[1];
+    if (!contentProc) {
+      throw new Error('Missing cancellable content search process');
+    }
+
+    expect(service.cancelSearch('content-1')).toBe(true);
+    await expect(contentPromise).resolves.toEqual({
+      matches: [],
+      totalMatches: 0,
+      totalFiles: 0,
+      truncated: true,
+    });
+    expect(searchServiceTestDoubles.killProcessTree).toHaveBeenCalledWith(contentProc);
+    expect(contentProc.listenerCount('close')).toBe(0);
+    expect(contentProc.listenerCount('error')).toBe(0);
+    expect(contentProc.stdout.listenerCount('data')).toBe(0);
+    expect(contentProc.stderr.listenerCount('data')).toBe(0);
+
+    expect(service.cancelSearch('content-1')).toBe(false);
   });
 });

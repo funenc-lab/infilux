@@ -322,6 +322,7 @@ export const IPC_CHANNELS = {
   // Search
   SEARCH_FILES: 'search:files',
   SEARCH_CONTENT: 'search:content',
+  SEARCH_CANCEL: 'search:cancel',
 
   // Hapi Remote Sharing
   HAPI_CHECK_GLOBAL: 'hapi:checkGlobal',

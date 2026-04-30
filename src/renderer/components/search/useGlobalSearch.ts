@@ -42,21 +42,28 @@ export function useGlobalSearch(rootPath: string | undefined) {
     error: null,
   });
 
-  const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const requestIdRef = useRef(0);
+  const requestGenerationRef = useRef(0);
+  const activeRequestIdRef = useRef<string | null>(null);
 
   // Keep refs to latest state values for use in debounced callbacks
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  const cancelActiveSearch = useCallback(() => {
+    const requestId = activeRequestIdRef.current;
+    if (!requestId) {
+      return;
+    }
+    activeRequestIdRef.current = null;
+    void window.electronAPI.search.cancel({ requestId }).catch(() => undefined);
+  }, []);
+
   const search = useCallback(
     async (query: string, mode: SearchMode, options: SearchOptions) => {
       if (!rootPath || !query.trim()) {
-        requestIdRef.current += 1;
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
+        requestGenerationRef.current += 1;
+        cancelActiveSearch();
         setState((prev) => ({
           ...prev,
           fileResults: [],
@@ -68,16 +75,21 @@ export function useGlobalSearch(rootPath: string | undefined) {
         return;
       }
 
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      const requestId = requestIdRef.current + 1;
-      requestIdRef.current = requestId;
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
+      cancelActiveSearch();
+      const requestGeneration = requestGenerationRef.current + 1;
+      requestGenerationRef.current = requestGeneration;
+      const requestId = `global-search-${requestGeneration}`;
+      activeRequestIdRef.current = requestId;
 
       const isCurrentRequest = () =>
-        requestIdRef.current === requestId && !abortController.signal.aborted;
+        requestGenerationRef.current === requestGeneration &&
+        activeRequestIdRef.current === requestId;
+
+      const clearActiveRequest = () => {
+        if (activeRequestIdRef.current === requestId) {
+          activeRequestIdRef.current = null;
+        }
+      };
 
       setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
@@ -88,10 +100,12 @@ export function useGlobalSearch(rootPath: string | undefined) {
             query,
             maxResults: 100,
             useGitignore: options.useGitignore,
+            requestId,
           });
           if (!isCurrentRequest()) {
             return;
           }
+          clearActiveRequest();
           setState((prev) => ({
             ...prev,
             fileResults: results,
@@ -110,10 +124,12 @@ export function useGlobalSearch(rootPath: string | undefined) {
             regex: options.regex,
             filePattern: options.filePattern || undefined,
             useGitignore: options.useGitignore,
+            requestId,
           });
           if (!isCurrentRequest()) {
             return;
           }
+          clearActiveRequest();
           setState((prev) => ({
             ...prev,
             fileResults: [],
@@ -127,26 +143,55 @@ export function useGlobalSearch(rootPath: string | undefined) {
         if (!isCurrentRequest()) {
           return;
         }
+        clearActiveRequest();
         setState((prev) => ({ ...prev, isLoading: false, error: 'Search failed' }));
       }
     },
-    [rootPath]
+    [cancelActiveSearch, rootPath]
   );
 
   const setQuery = useCallback(
     (query: string) => {
-      setState((prev) => ({ ...prev, query }));
-
-      // Debounce search using stateRef to get latest mode/options
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
+
+      const hasActiveSearch = activeRequestIdRef.current !== null;
+
+      if (!query.trim()) {
+        cancelActiveSearch();
+        setState((prev) => ({
+          ...prev,
+          query,
+          fileResults: [],
+          contentResults: null,
+          selectedIndex: 0,
+          isLoading: false,
+          error: null,
+        }));
+        return;
+      }
+
+      if (hasActiveSearch) {
+        cancelActiveSearch();
+      }
+
+      setState((prev) => ({
+        ...prev,
+        query,
+        selectedIndex: 0,
+        isLoading: hasActiveSearch ? false : prev.isLoading,
+        error: hasActiveSearch ? null : prev.error,
+      }));
+
+      // Debounce search using stateRef to get latest mode/options
       debounceTimerRef.current = setTimeout(() => {
         const { mode, options } = stateRef.current;
         search(query, mode, options);
       }, 300);
     },
-    [search]
+    [cancelActiveSearch, search]
   );
 
   const setMode = useCallback(
@@ -197,13 +242,11 @@ export function useGlobalSearch(rootPath: string | undefined) {
   }, [state.mode, state.fileResults, state.contentResults, state.selectedIndex]);
 
   const reset = useCallback(() => {
-    requestIdRef.current += 1;
+    requestGenerationRef.current += 1;
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    cancelActiveSearch();
     setState({
       mode: 'content',
       query: '',
@@ -214,7 +257,7 @@ export function useGlobalSearch(rootPath: string | undefined) {
       isLoading: false,
       error: null,
     });
-  }, []);
+  }, [cancelActiveSearch]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -222,12 +265,10 @@ export function useGlobalSearch(rootPath: string | undefined) {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      requestIdRef.current += 1;
+      requestGenerationRef.current += 1;
+      cancelActiveSearch();
     };
-  }, []);
+  }, [cancelActiveSearch]);
 
   return {
     ...state,

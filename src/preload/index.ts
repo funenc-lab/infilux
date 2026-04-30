@@ -68,6 +68,7 @@ import type {
   ResolvedClaudePolicy,
   RestoreWorktreeSessionsRequest,
   RuntimeMemorySnapshot,
+  SearchCancelParams,
   SessionAttachOptions,
   SessionAttachResult,
   SessionCreateOptions,
@@ -1180,6 +1181,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.SEARCH_FILES, params),
     content: (params: ContentSearchParams): Promise<ContentSearchResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.SEARCH_CONTENT, params),
+    cancel: (params: SearchCancelParams): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SEARCH_CANCEL, params),
   },
 
   // Hapi Remote Sharing
