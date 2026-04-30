@@ -101,6 +101,45 @@ describe('resolveMountedAgentPanelSessionIds', () => {
     ).toEqual(['session-0', 'session-10', 'session-12', 'session-13', 'session-14']);
   });
 
+  it('keeps idle workspace canvas mount slots stable when visual group order changes', () => {
+    const canvasSessions = Array.from({ length: 14 }, (_, index) => ({
+      id: `session-${index}`,
+      repoPath: '/repo',
+      cwd: `/repo/worktree-${index}`,
+      createdAt: index,
+    }));
+    const currentWorktreeFirstSessions = [
+      canvasSessions[9],
+      ...canvasSessions.filter((session) => session.id !== 'session-9'),
+    ];
+    const expectedMountedSessionIds = [
+      'session-0',
+      'session-1',
+      'session-10',
+      'session-11',
+      'session-12',
+      'session-13',
+      'session-2',
+      'session-3',
+      'session-4',
+      'session-5',
+      'session-6',
+      'session-7',
+    ];
+
+    expect(
+      new Set(
+        resolveMountedAgentPanelSessionIds({
+          canvasSessions: currentWorktreeFirstSessions,
+          currentWorktreeSessions: [],
+          globalSessionIds: [],
+          isWorkspaceCanvasDisplayMode: true,
+          workspaceCanvasTerminalMountLimit: 12,
+        })
+      )
+    ).toEqual(new Set(expectedMountedSessionIds));
+  });
+
   it('keeps workspace canvas attention mounts within the terminal budget by priority', () => {
     const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
       id: `session-${index}`,

@@ -327,7 +327,7 @@ describe('agent canvas session scope', () => {
     ]);
   });
 
-  it('keeps the current worktree ahead of other idle workspace groups when smart ordering is enabled', () => {
+  it('keeps idle workspace groups stable by path when the current worktree changes', () => {
     expect(
       resolveAgentCanvasSessionGroups({
         currentWorktreePath: '/repo/worktree-b',
@@ -350,10 +350,10 @@ describe('agent canvas session scope', () => {
           'idle-b': 'idle',
         },
       }).map((group) => group.worktreePath)
-    ).toEqual(['/repo/worktree-b', '/repo/worktree-a']);
+    ).toEqual(['/repo/worktree-a', '/repo/worktree-b']);
   });
 
-  it('uses recent activity as the workspace group tiebreaker after activity and current worktree', () => {
+  it('uses recent activity as the workspace group tiebreaker after activity', () => {
     expect(
       resolveAgentCanvasSessionGroups({
         currentWorktreePath: '/repo/worktree-a',
@@ -387,7 +387,7 @@ describe('agent canvas session scope', () => {
           'idle-c': 30,
         },
       }).map((group) => group.worktreePath)
-    ).toEqual(['/repo/worktree-a', '/repo/worktree-c', '/repo/worktree-b']);
+    ).toEqual(['/repo/worktree-c', '/repo/worktree-b', '/repo/worktree-a']);
   });
 
   it('orders sessions inside workspace groups by activity before display order', () => {

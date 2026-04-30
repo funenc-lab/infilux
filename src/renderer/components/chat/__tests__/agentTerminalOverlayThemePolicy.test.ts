@@ -13,4 +13,12 @@ describe('agent terminal overlay theme policy', () => {
       'bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px]'
     );
   });
+
+  it('uses a polite themed startup overlay for active loading terminals', () => {
+    expect(agentTerminalSource).toContain('data-agent-terminal-startup-overlay="true"');
+    expect(agentTerminalSource).toContain('role="status"');
+    expect(agentTerminalSource).toContain('aria-live="polite"');
+    expect(agentTerminalSource).toContain('backdrop-blur-[1px]');
+    expect(agentTerminalSource).toContain('border-b-transparent border-r-transparent');
+  });
 });

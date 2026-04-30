@@ -187,10 +187,6 @@ export function resolveAgentCanvasSessionGroups<TSession extends AgentCanvasSess
         return activityDelta;
       }
 
-      if (isSmartWorkspaceOrderingEnabled && left.isCurrentWorktree !== right.isCurrentWorktree) {
-        return right.isCurrentWorktree ? 1 : -1;
-      }
-
       const lastActivityDelta =
         getCanvasSessionGroupLastActivityAt(right, canvasSessionLastActivityAtById) -
         getCanvasSessionGroupLastActivityAt(left, canvasSessionLastActivityAtById);

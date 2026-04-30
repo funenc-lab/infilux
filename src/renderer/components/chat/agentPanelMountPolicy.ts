@@ -1,3 +1,4 @@
+import { normalizePath } from '@/App/storage';
 import { matchesAgentSessionScope } from './agentSessionScope';
 import { getSessionActivityStatePriority, type SessionActivityState } from './sessionActivityState';
 
@@ -10,7 +11,11 @@ interface SessionMountCandidate {
 }
 
 interface MountedAgentPanelSessionCandidate {
+  createdAt?: number;
+  cwd?: string;
+  displayOrder?: number;
   id: string;
+  repoPath?: string;
 }
 
 interface ResolveMountedAgentPanelSessionIdsOptions<
@@ -46,6 +51,69 @@ function addSessionId(
 
 function hasMountBudget(selectedSessionIds: Set<string>, limit: number): boolean {
   return selectedSessionIds.size < limit;
+}
+
+function compareOptionalPath(left: string | undefined, right: string | undefined): number {
+  if (left && right) {
+    return normalizePath(left).localeCompare(normalizePath(right));
+  }
+
+  if (left) {
+    return -1;
+  }
+
+  if (right) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function compareOptionalNumber(left: number | undefined, right: number | undefined): number {
+  if (Number.isFinite(left) && Number.isFinite(right)) {
+    return Number(left) - Number(right);
+  }
+
+  if (Number.isFinite(left)) {
+    return -1;
+  }
+
+  if (Number.isFinite(right)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function compareStableMountOrder<TSession extends MountedAgentPanelSessionCandidate>(
+  left: { index: number; session: TSession },
+  right: { index: number; session: TSession }
+): number {
+  const repoDelta = compareOptionalPath(left.session.repoPath, right.session.repoPath);
+  if (repoDelta !== 0) {
+    return repoDelta;
+  }
+
+  const cwdDelta = compareOptionalPath(left.session.cwd, right.session.cwd);
+  if (cwdDelta !== 0) {
+    return cwdDelta;
+  }
+
+  const displayOrderDelta = compareOptionalNumber(
+    left.session.displayOrder,
+    right.session.displayOrder
+  );
+  if (displayOrderDelta !== 0) {
+    return displayOrderDelta;
+  }
+
+  const createdAtDelta = compareOptionalNumber(left.session.createdAt, right.session.createdAt);
+  if (createdAtDelta !== 0) {
+    return createdAtDelta;
+  }
+
+  const idDelta = left.session.id.localeCompare(right.session.id);
+  return idDelta !== 0 ? idDelta : left.index - right.index;
 }
 
 function resolveWorkspaceCanvasMountedSessionIds<
@@ -84,7 +152,7 @@ function resolveWorkspaceCanvasMountedSessionIds<
     .filter((item) => item.priority > 0 && !selectedSessionIds.has(item.session.id))
     .sort((left, right) => {
       const priorityDelta = right.priority - left.priority;
-      return priorityDelta !== 0 ? priorityDelta : left.index - right.index;
+      return priorityDelta !== 0 ? priorityDelta : compareStableMountOrder(left, right);
     });
 
   for (const item of attentionSessions) {
@@ -96,7 +164,7 @@ function resolveWorkspaceCanvasMountedSessionIds<
 
   const idleSessions = rankedSessions
     .filter((item) => item.priority === 0 && !selectedSessionIds.has(item.session.id))
-    .sort((left, right) => left.index - right.index);
+    .sort(compareStableMountOrder);
 
   for (const item of idleSessions) {
     if (!hasMountBudget(selectedSessionIds, limit)) {

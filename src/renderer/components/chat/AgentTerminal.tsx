@@ -1791,13 +1791,35 @@ export function AgentTerminal({
         </button>
       )}
       {shouldShowAgentStartupOverlay && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div
-              className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"
-              style={{ color: settings.theme.foreground, opacity: 0.5 }}
-            />
-            <span style={{ color: settings.theme.foreground, opacity: 0.5 }} className="text-sm">
+        <div
+          className="absolute inset-0 flex items-center justify-center backdrop-blur-[1px]"
+          data-agent-terminal-startup-overlay="true"
+          role="status"
+          aria-live="polite"
+          style={{
+            backgroundColor: `color-mix(in oklch, ${settings.theme.background} 72%, transparent)`,
+          }}
+        >
+          <div
+            className="control-panel-muted flex min-w-[11rem] flex-col items-center gap-2.5 rounded-xl px-4 py-3"
+            style={{
+              backgroundColor: `color-mix(in oklch, ${settings.theme.background} 86%, var(--control-surface) 14%)`,
+            }}
+          >
+            <div className="relative h-7 w-7" aria-hidden="true">
+              <div
+                className="absolute inset-0 rounded-full border border-current opacity-15"
+                style={{ color: settings.theme.foreground }}
+              />
+              <div
+                className="absolute inset-0 animate-spin rounded-full border-2 border-current border-b-transparent border-r-transparent"
+                style={{ color: settings.theme.foreground, opacity: 0.68 }}
+              />
+            </div>
+            <span
+              style={{ color: settings.theme.foreground, opacity: 0.72 }}
+              className="max-w-[18rem] truncate text-xs font-medium"
+            >
               {t('Loading {{agent}}...', { agent: agentCommand })}
             </span>
           </div>

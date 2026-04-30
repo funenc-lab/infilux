@@ -587,6 +587,20 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('renders the startup overlay as a polite status for active loading terminals', async () => {
+    testState.xtermResult.isLoading = true;
+
+    const mounted = await mountAgentTerminal();
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('role')).toBe('status');
+    expect(overlay?.getAttribute('aria-live')).toBe('polite');
+    expect(overlay?.textContent).toContain('Loading codex...');
+
+    await mounted.unmount();
+  });
+
   it('opens the search bar on Ctrl+F and focuses it on repeated Ctrl+F', async () => {
     const mounted = await mountAgentTerminal();
 

@@ -1204,7 +1204,7 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
-  it('orders idle workspace canvas groups by current worktree and recent activity', async () => {
+  it('orders idle workspace canvas groups by recent activity without current worktree churn', async () => {
     testState.settings.agentSessionDisplayMode = 'global-canvas';
 
     const currentSession = createSession({
@@ -1303,7 +1303,7 @@ describe('AgentPanel integration', () => {
       Array.from(mounted.container.querySelectorAll('[data-agent-canvas-worktree-group]')).map(
         (group) => group.getAttribute('data-agent-canvas-worktree-path')
       )
-    ).toEqual(['/repo/worktree-a', '/repo/worktree-c', '/repo/worktree-b']);
+    ).toEqual(['/repo/worktree-c', '/repo/worktree-b', '/repo/worktree-a']);
 
     await mounted.unmount();
   });
@@ -1599,6 +1599,66 @@ describe('AgentPanel integration', () => {
 
     await mounted.unmount();
   });
+
+  it('keeps workspace canvas terminal mounts stable when switching the current worktree', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const sessions = Array.from({ length: 14 }, (_, index) =>
+      createSession({
+        id: `session-${index}`,
+        sessionId: `provider-${index}`,
+        backendSessionId: `backend-${index}`,
+        repoPath: '/repo',
+        cwd: `/repo/worktree-${index}`,
+        name: `Gemini ${index}`,
+      })
+    );
+
+    useAgentSessionsStore.setState({
+      sessions,
+      activeIds: Object.fromEntries(sessions.map((session) => [session.cwd, session.id])),
+      groupStates: Object.fromEntries(
+        sessions.map((session, index) => [
+          session.cwd,
+          {
+            groups: [
+              {
+                id: `group-${index}`,
+                sessionIds: [session.id],
+                activeSessionId: session.id,
+              },
+            ],
+            activeGroupId: `group-${index}`,
+            flexPercents: [100],
+          },
+        ])
+      ),
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-0',
+      workspaceCanvasWorktrees: sessions.map((session) => ({
+        repoPath: session.repoPath,
+        worktreePath: session.cwd,
+      })),
+    });
+    const getMountedSessionIds = () =>
+      Array.from(mounted.container.querySelectorAll('[data-testid="agent-terminal"]'))
+        .map((terminal) => terminal.getAttribute('data-session-id'))
+        .filter((sessionId): sessionId is string => sessionId !== null);
+
+    const mountedSessionIdsBeforeSwitch = getMountedSessionIds();
+
+    await mounted.rerender({
+      cwd: '/repo/worktree-9',
+    });
+
+    const mountedSessionIdsAfterSwitch = getMountedSessionIds();
+    expect(mountedSessionIdsAfterSwitch).toHaveLength(mountedSessionIdsBeforeSwitch.length);
+    expect(new Set(mountedSessionIdsAfterSwitch)).toEqual(new Set(mountedSessionIdsBeforeSwitch));
+
+    await mounted.unmount();
+  }, 20000);
 
   it('requires confirmation before closing a session when the setting is enabled', async () => {
     testState.settings.confirmBeforeClosingAgentSession = true;
