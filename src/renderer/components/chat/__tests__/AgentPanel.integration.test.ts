@@ -488,6 +488,26 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
+let nextAnimationFrameId = 1;
+let animationFrameQueue: Array<{ callback: FrameRequestCallback; id: number }> = [];
+
+function flushAnimationFramesUntilIdle(maxFrameBatches = 1) {
+  for (let index = 0; index < maxFrameBatches && animationFrameQueue.length > 0; index += 1) {
+    const queue = animationFrameQueue;
+    animationFrameQueue = [];
+
+    for (const entry of queue) {
+      entry.callback(performance.now());
+    }
+  }
+}
+
+async function flushRenderTasks() {
+  await flushMicrotasks();
+  flushAnimationFramesUntilIdle();
+  await flushMicrotasks();
+}
+
 async function clickByTestId(container: HTMLElement, testId: string) {
   const target = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
   expect(target).not.toBeNull();
@@ -500,7 +520,7 @@ async function clickElement(target: HTMLElement | null) {
 
   await act(async () => {
     target?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await flushMicrotasks();
+    await flushRenderTasks();
   });
 }
 
@@ -527,7 +547,7 @@ async function mountAgentPanel(
 
     await act(async () => {
       root.render(React.createElement(AgentPanel, currentProps));
-      await flushMicrotasks();
+      await flushRenderTasks();
     });
   };
 
@@ -539,7 +559,7 @@ async function mountAgentPanel(
     unmount: async () => {
       await act(async () => {
         root.unmount();
-        await flushMicrotasks();
+        await flushRenderTasks();
       });
       container.remove();
     },
@@ -548,6 +568,9 @@ async function mountAgentPanel(
 
 describe('AgentPanel integration', () => {
   beforeEach(() => {
+    nextAnimationFrameId = 1;
+    animationFrameQueue = [];
+
     localStorage.clear();
     resetWorktreeAgentSessionRecoveryCacheForTests();
     resetAgentSessionsStore();
@@ -649,10 +672,13 @@ describe('AgentPanel integration', () => {
     );
 
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
+      const id = nextAnimationFrameId++;
+      animationFrameQueue.push({ callback, id });
+      return id;
     });
-    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      animationFrameQueue = animationFrameQueue.filter((entry) => entry.id !== id);
+    });
     vi.stubGlobal('matchMedia', () => ({
       matches: false,
       media: '',
@@ -666,6 +692,7 @@ describe('AgentPanel integration', () => {
   });
 
   afterEach(() => {
+    animationFrameQueue = [];
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
   });
@@ -1082,6 +1109,205 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('orders workspace canvas worktree groups by session activity', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const idleSession = createSession({
+      id: 'session-idle',
+      sessionId: 'provider-idle',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-a',
+      name: 'Gemini Idle',
+    });
+    const secondIdleSession = createSession({
+      id: 'session-second-idle',
+      sessionId: 'provider-second-idle',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-b',
+      name: 'Gemini Second Idle',
+    });
+    const completedSession = createSession({
+      id: 'session-completed',
+      sessionId: 'provider-completed',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-c',
+      name: 'Gemini Completed',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [idleSession, secondIdleSession, completedSession],
+      activeIds: {
+        '/repo/worktree-a': idleSession.id,
+        '/repo/worktree-b': secondIdleSession.id,
+        '/repo/worktree-c': completedSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-idle',
+              sessionIds: [idleSession.id],
+              activeSessionId: idleSession.id,
+            },
+          ],
+          activeGroupId: 'group-idle',
+          flexPercents: [100],
+        },
+        '/repo/worktree-b': {
+          groups: [
+            {
+              id: 'group-second-idle',
+              sessionIds: [secondIdleSession.id],
+              activeSessionId: secondIdleSession.id,
+            },
+          ],
+          activeGroupId: 'group-second-idle',
+          flexPercents: [100],
+        },
+        '/repo/worktree-c': {
+          groups: [
+            {
+              id: 'group-completed',
+              sessionIds: [completedSession.id],
+              activeSessionId: completedSession.id,
+            },
+          ],
+          activeGroupId: 'group-completed',
+          flexPercents: [100],
+        },
+      },
+      runtimeStates: {
+        [completedSession.id]: {
+          outputState: 'idle',
+          lastActivityAt: 1,
+          wasActiveWhenOutputting: false,
+          hasCompletedTaskUnread: true,
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-c' },
+      ],
+    });
+
+    expect(
+      Array.from(mounted.container.querySelectorAll('[data-agent-canvas-worktree-group]')).map(
+        (group) => group.getAttribute('data-agent-canvas-worktree-path')
+      )
+    ).toEqual(['/repo/worktree-c', '/repo/worktree-a', '/repo/worktree-b']);
+
+    await mounted.unmount();
+  });
+
+  it('orders idle workspace canvas groups by current worktree and recent activity', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const currentSession = createSession({
+      id: 'session-current-idle',
+      sessionId: 'provider-current-idle',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-a',
+      name: 'Gemini Current Idle',
+    });
+    const olderSession = createSession({
+      id: 'session-older-idle',
+      sessionId: 'provider-older-idle',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-b',
+      name: 'Gemini Older Idle',
+    });
+    const newerSession = createSession({
+      id: 'session-newer-idle',
+      sessionId: 'provider-newer-idle',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-c',
+      name: 'Gemini Newer Idle',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [currentSession, olderSession, newerSession],
+      activeIds: {
+        '/repo/worktree-a': currentSession.id,
+        '/repo/worktree-b': olderSession.id,
+        '/repo/worktree-c': newerSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-current-idle',
+              sessionIds: [currentSession.id],
+              activeSessionId: currentSession.id,
+            },
+          ],
+          activeGroupId: 'group-current-idle',
+          flexPercents: [100],
+        },
+        '/repo/worktree-b': {
+          groups: [
+            {
+              id: 'group-older-idle',
+              sessionIds: [olderSession.id],
+              activeSessionId: olderSession.id,
+            },
+          ],
+          activeGroupId: 'group-older-idle',
+          flexPercents: [100],
+        },
+        '/repo/worktree-c': {
+          groups: [
+            {
+              id: 'group-newer-idle',
+              sessionIds: [newerSession.id],
+              activeSessionId: newerSession.id,
+            },
+          ],
+          activeGroupId: 'group-newer-idle',
+          flexPercents: [100],
+        },
+      },
+      runtimeStates: {
+        [currentSession.id]: {
+          outputState: 'idle',
+          lastActivityAt: 10,
+          wasActiveWhenOutputting: false,
+        },
+        [olderSession.id]: {
+          outputState: 'idle',
+          lastActivityAt: 20,
+          wasActiveWhenOutputting: false,
+        },
+        [newerSession.id]: {
+          outputState: 'idle',
+          lastActivityAt: 30,
+          wasActiveWhenOutputting: false,
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-c' },
+      ],
+    });
+
+    expect(
+      Array.from(mounted.container.querySelectorAll('[data-agent-canvas-worktree-group]')).map(
+        (group) => group.getAttribute('data-agent-canvas-worktree-path')
+      )
+    ).toEqual(['/repo/worktree-a', '/repo/worktree-c', '/repo/worktree-b']);
+
+    await mounted.unmount();
+  });
+
   it('activates a workspace canvas session launched from a worktree group', async () => {
     testState.settings.agentSessionDisplayMode = 'global-canvas';
 
@@ -1306,6 +1532,70 @@ describe('AgentPanel integration', () => {
     const controlButton = mounted.container.querySelector('button[aria-label="Agent Sessions"]');
 
     expect(controlButton?.textContent).toContain('2');
+
+    await mounted.unmount();
+  });
+
+  it('keeps every workspace canvas tile visible while limiting mounted terminals', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const sessions = Array.from({ length: 14 }, (_, index) =>
+      createSession({
+        id: `session-${index}`,
+        sessionId: `provider-${index}`,
+        backendSessionId: `backend-${index}`,
+        repoPath: '/repo',
+        cwd: `/repo/worktree-${index}`,
+        name: `Gemini ${index}`,
+      })
+    );
+
+    useAgentSessionsStore.setState({
+      sessions,
+      activeIds: Object.fromEntries(sessions.map((session) => [session.cwd, session.id])),
+      groupStates: Object.fromEntries(
+        sessions.map((session, index) => [
+          session.cwd,
+          {
+            groups: [
+              {
+                id: `group-${index}`,
+                sessionIds: [session.id],
+                activeSessionId: session.id,
+              },
+            ],
+            activeGroupId: `group-${index}`,
+            flexPercents: [100],
+          },
+        ])
+      ),
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-0',
+      workspaceCanvasWorktrees: sessions.map((session) => ({
+        repoPath: session.repoPath,
+        worktreePath: session.cwd,
+      })),
+    });
+
+    expect(mounted.container.querySelectorAll('[data-agent-session-id]')).toHaveLength(14);
+    expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(12);
+
+    const deferredTile = mounted.container.querySelector<HTMLElement>(
+      '[data-agent-canvas-deferred="true"]'
+    );
+    const deferredSessionId = deferredTile?.getAttribute('data-agent-session-id');
+    const openDeferredTileButton =
+      deferredTile?.querySelector<HTMLElement>('button[aria-label="Bring to Front"]') ?? null;
+    await clickElement(openDeferredTileButton);
+
+    expect(
+      document.body.querySelector(
+        `[data-testid="agent-terminal"][data-session-id="${deferredSessionId}"]`
+      )
+    ).not.toBeNull();
+    expect(document.body.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(12);
 
     await mounted.unmount();
   });

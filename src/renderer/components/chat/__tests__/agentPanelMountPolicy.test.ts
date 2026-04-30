@@ -78,6 +78,78 @@ describe('resolveMountedAgentPanelSessionIds', () => {
     ).toEqual(['worktree-a', 'worktree-b']);
   });
 
+  it('limits idle workspace canvas terminal mounts while preserving focused and attention sessions', () => {
+    const workspaceCanvasTerminalMountLimit = 5;
+    const canvasSessions = Array.from({ length: 15 }, (_, index) => ({
+      id: `session-${index}`,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        canvasFocusedSessionId: 'session-14',
+        sessionActivityStateById: {
+          'session-10': 'running',
+          'session-12': 'waiting_input',
+          'session-13': 'completed',
+        },
+        workspaceCanvasTerminalMountLimit,
+      })
+    ).toEqual(['session-0', 'session-10', 'session-12', 'session-13', 'session-14']);
+  });
+
+  it('keeps workspace canvas attention mounts within the terminal budget by priority', () => {
+    const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        sessionActivityStateById: {
+          'session-0': 'completed',
+          'session-1': 'completed',
+          'session-2': 'running',
+          'session-3': 'waiting_input',
+          'session-4': 'completed',
+          'session-5': 'running',
+          'session-6': 'waiting_input',
+          'session-7': 'running',
+        },
+        workspaceCanvasTerminalMountLimit: 4,
+      })
+    ).toEqual(['session-2', 'session-3', 'session-5', 'session-6']);
+  });
+
+  it('reserves workspace canvas terminal budget for focused sessions before attention sessions', () => {
+    const canvasSessions = Array.from({ length: 5 }, (_, index) => ({
+      id: `session-${index}`,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        canvasFocusedSessionId: 'session-4',
+        sessionActivityStateById: {
+          'session-0': 'waiting_input',
+          'session-1': 'waiting_input',
+          'session-2': 'running',
+          'session-3': 'running',
+        },
+        workspaceCanvasTerminalMountLimit: 3,
+      })
+    ).toEqual(['session-0', 'session-1', 'session-4']);
+  });
+
   it('preserves existing current-worktree mount ordering with cached hidden sessions', () => {
     expect(
       resolveMountedAgentPanelSessionIds({

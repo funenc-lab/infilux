@@ -74,4 +74,11 @@ describe('agent canvas style policy', () => {
     expect(sessionTileRule).toContain('border: 1px solid transparent');
     expect(sessionTileRule).not.toMatch(/border:\s*1px solid color-mix/);
   });
+
+  it('uses browser rendering containment for off-screen workspace canvas groups', () => {
+    const worktreeGroupRule = readCssRuleBody('.agent-canvas-worktree-group');
+
+    expect(worktreeGroupRule).toContain('content-visibility: auto');
+    expect(worktreeGroupRule).toContain('contain-intrinsic-size');
+  });
 });

@@ -1,5 +1,6 @@
 import { normalizePath, pathsEqual } from '@/App/storage';
 import { matchesAgentSessionScope } from './agentSessionScope';
+import { getSessionActivityStatePriority, type SessionActivityState } from './sessionActivityState';
 
 export type AgentCanvasSessionScope = 'worktree' | 'workspace';
 
@@ -29,13 +30,34 @@ interface ResolveAgentCanvasSessionGroupsOptions<TSession extends AgentCanvasSes
   repoPath: string;
   scope: AgentCanvasSessionScope;
   sessions: TSession[];
+  sessionActivityStateById?: Record<string, SessionActivityState>;
+  sessionLastActivityAtById?: Record<string, number>;
   worktrees?: AgentCanvasWorktreeCandidate[];
 }
 
 function compareCanvasSessions<TSession extends AgentCanvasSessionCandidate>(
   left: TSession,
-  right: TSession
+  right: TSession,
+  sessionActivityStateById?: Record<string, SessionActivityState>,
+  sessionLastActivityAtById?: Record<string, number>
 ): number {
+  if (sessionActivityStateById) {
+    const activityDelta =
+      getSessionActivityStatePriority(sessionActivityStateById[right.id] ?? 'idle') -
+      getSessionActivityStatePriority(sessionActivityStateById[left.id] ?? 'idle');
+    if (activityDelta !== 0) {
+      return activityDelta;
+    }
+  }
+
+  if (sessionLastActivityAtById) {
+    const lastActivityDelta =
+      (sessionLastActivityAtById[right.id] ?? 0) - (sessionLastActivityAtById[left.id] ?? 0);
+    if (lastActivityDelta !== 0) {
+      return lastActivityDelta;
+    }
+  }
+
   const orderDelta = (left.displayOrder ?? 0) - (right.displayOrder ?? 0);
   if (orderDelta !== 0) {
     return orderDelta;
@@ -49,6 +71,39 @@ function compareCanvasSessions<TSession extends AgentCanvasSessionCandidate>(
   return left.id.localeCompare(right.id);
 }
 
+function getCanvasSessionGroupActivityPriority<TSession extends AgentCanvasSessionCandidate>(
+  group: AgentCanvasSessionGroup<TSession>,
+  sessionActivityStateById?: Record<string, SessionActivityState>
+): number {
+  if (!sessionActivityStateById) {
+    return 0;
+  }
+
+  let highestPriority = 0;
+  for (const session of group.sessions) {
+    highestPriority = Math.max(
+      highestPriority,
+      getSessionActivityStatePriority(sessionActivityStateById[session.id] ?? 'idle')
+    );
+  }
+  return highestPriority;
+}
+
+function getCanvasSessionGroupLastActivityAt<TSession extends AgentCanvasSessionCandidate>(
+  group: AgentCanvasSessionGroup<TSession>,
+  sessionLastActivityAtById?: Record<string, number>
+): number {
+  if (!sessionLastActivityAtById) {
+    return 0;
+  }
+
+  let latestActivityAt = 0;
+  for (const session of group.sessions) {
+    latestActivityAt = Math.max(latestActivityAt, sessionLastActivityAtById[session.id] ?? 0);
+  }
+  return latestActivityAt;
+}
+
 export function buildAgentCanvasSessionGroupKey(repoPath: string, worktreePath: string): string {
   return `${normalizePath(repoPath)}::${normalizePath(worktreePath)}`;
 }
@@ -58,8 +113,18 @@ export function resolveAgentCanvasSessionGroups<TSession extends AgentCanvasSess
   repoPath,
   scope,
   sessions,
+  sessionActivityStateById,
+  sessionLastActivityAtById,
   worktrees = [],
 }: ResolveAgentCanvasSessionGroupsOptions<TSession>): AgentCanvasSessionGroup<TSession>[] {
+  const isSmartWorkspaceOrderingEnabled =
+    scope === 'workspace' && Boolean(sessionActivityStateById || sessionLastActivityAtById);
+  const canvasSessionActivityStateById = isSmartWorkspaceOrderingEnabled
+    ? sessionActivityStateById
+    : undefined;
+  const canvasSessionLastActivityAtById = isSmartWorkspaceOrderingEnabled
+    ? sessionLastActivityAtById
+    : undefined;
   const scopedSessions = sessions.filter((session) =>
     scope === 'workspace' ? true : matchesAgentSessionScope(session, repoPath, currentWorktreePath)
   );
@@ -105,9 +170,34 @@ export function resolveAgentCanvasSessionGroups<TSession extends AgentCanvasSess
   return Array.from(groupedByWorktree.values())
     .map((group) => ({
       ...group,
-      sessions: [...group.sessions].sort(compareCanvasSessions),
+      sessions: [...group.sessions].sort((left, right) =>
+        compareCanvasSessions(
+          left,
+          right,
+          canvasSessionActivityStateById,
+          canvasSessionLastActivityAtById
+        )
+      ),
     }))
     .sort((left, right) => {
+      const activityDelta =
+        getCanvasSessionGroupActivityPriority(right, canvasSessionActivityStateById) -
+        getCanvasSessionGroupActivityPriority(left, canvasSessionActivityStateById);
+      if (activityDelta !== 0) {
+        return activityDelta;
+      }
+
+      if (isSmartWorkspaceOrderingEnabled && left.isCurrentWorktree !== right.isCurrentWorktree) {
+        return right.isCurrentWorktree ? 1 : -1;
+      }
+
+      const lastActivityDelta =
+        getCanvasSessionGroupLastActivityAt(right, canvasSessionLastActivityAtById) -
+        getCanvasSessionGroupLastActivityAt(left, canvasSessionLastActivityAtById);
+      if (lastActivityDelta !== 0) {
+        return lastActivityDelta;
+      }
+
       const repoDelta = normalizePath(left.repoPath).localeCompare(normalizePath(right.repoPath));
       if (repoDelta !== 0) {
         return repoDelta;

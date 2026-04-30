@@ -1,4 +1,7 @@
 import { matchesAgentSessionScope } from './agentSessionScope';
+import { getSessionActivityStatePriority, type SessionActivityState } from './sessionActivityState';
+
+export const DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT = 12;
 
 interface SessionMountCandidate {
   id: string;
@@ -13,11 +16,98 @@ interface MountedAgentPanelSessionCandidate {
 interface ResolveMountedAgentPanelSessionIdsOptions<
   TSession extends MountedAgentPanelSessionCandidate,
 > {
+  canvasFloatingSessionId?: string | null;
+  canvasFocusedSessionId?: string | null;
   canvasSessions: TSession[];
   currentWorktreeSessions: TSession[];
   globalSessionIds: Iterable<string>;
   isWorkspaceCanvasDisplayMode?: boolean;
+  sessionActivityStateById?: Record<string, SessionActivityState>;
   suppressSessionMounting?: boolean;
+  workspaceCanvasTerminalMountLimit?: number;
+}
+
+function normalizeWorkspaceCanvasTerminalMountLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) {
+    return DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT;
+  }
+  return Math.max(0, Math.floor(limit ?? DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT));
+}
+
+function addSessionId(
+  set: Set<string>,
+  sessionId: string | null | undefined,
+  validSessionIds: Set<string>
+): void {
+  if (sessionId && validSessionIds.has(sessionId)) {
+    set.add(sessionId);
+  }
+}
+
+function hasMountBudget(selectedSessionIds: Set<string>, limit: number): boolean {
+  return selectedSessionIds.size < limit;
+}
+
+function resolveWorkspaceCanvasMountedSessionIds<
+  TSession extends MountedAgentPanelSessionCandidate,
+>({
+  canvasFloatingSessionId,
+  canvasFocusedSessionId,
+  canvasSessions,
+  sessionActivityStateById = {},
+  workspaceCanvasTerminalMountLimit,
+}: Pick<
+  ResolveMountedAgentPanelSessionIdsOptions<TSession>,
+  | 'canvasFloatingSessionId'
+  | 'canvasFocusedSessionId'
+  | 'canvasSessions'
+  | 'sessionActivityStateById'
+  | 'workspaceCanvasTerminalMountLimit'
+>): string[] {
+  const limit = normalizeWorkspaceCanvasTerminalMountLimit(workspaceCanvasTerminalMountLimit);
+  if (canvasSessions.length <= limit) {
+    return canvasSessions.map((session) => session.id);
+  }
+
+  const validSessionIds = new Set(canvasSessions.map((session) => session.id));
+  const selectedSessionIds = new Set<string>();
+  addSessionId(selectedSessionIds, canvasFocusedSessionId, validSessionIds);
+  addSessionId(selectedSessionIds, canvasFloatingSessionId, validSessionIds);
+
+  const rankedSessions = canvasSessions.map((session, index) => ({
+    index,
+    priority: getSessionActivityStatePriority(sessionActivityStateById[session.id] ?? 'idle'),
+    session,
+  }));
+
+  const attentionSessions = rankedSessions
+    .filter((item) => item.priority > 0 && !selectedSessionIds.has(item.session.id))
+    .sort((left, right) => {
+      const priorityDelta = right.priority - left.priority;
+      return priorityDelta !== 0 ? priorityDelta : left.index - right.index;
+    });
+
+  for (const item of attentionSessions) {
+    if (!hasMountBudget(selectedSessionIds, limit)) {
+      break;
+    }
+    selectedSessionIds.add(item.session.id);
+  }
+
+  const idleSessions = rankedSessions
+    .filter((item) => item.priority === 0 && !selectedSessionIds.has(item.session.id))
+    .sort((left, right) => left.index - right.index);
+
+  for (const item of idleSessions) {
+    if (!hasMountBudget(selectedSessionIds, limit)) {
+      break;
+    }
+    selectedSessionIds.add(item.session.id);
+  }
+
+  return canvasSessions
+    .filter((session) => selectedSessionIds.has(session.id))
+    .map((session) => session.id);
 }
 
 export function collectMountedAgentSessionIds(
@@ -34,17 +124,27 @@ export function resolveMountedAgentPanelSessionIds<
   TSession extends MountedAgentPanelSessionCandidate,
 >({
   canvasSessions,
+  canvasFloatingSessionId,
+  canvasFocusedSessionId,
   currentWorktreeSessions,
   globalSessionIds,
   isWorkspaceCanvasDisplayMode,
+  sessionActivityStateById,
   suppressSessionMounting,
+  workspaceCanvasTerminalMountLimit,
 }: ResolveMountedAgentPanelSessionIdsOptions<TSession>): string[] {
   if (suppressSessionMounting) {
     return [];
   }
 
   if (isWorkspaceCanvasDisplayMode) {
-    return canvasSessions.map((session) => session.id);
+    return resolveWorkspaceCanvasMountedSessionIds({
+      canvasFloatingSessionId,
+      canvasFocusedSessionId,
+      canvasSessions,
+      sessionActivityStateById,
+      workspaceCanvasTerminalMountLimit,
+    });
   }
 
   const orderedIds = currentWorktreeSessions.map((session) => session.id);

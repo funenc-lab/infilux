@@ -137,6 +137,7 @@ import {
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import {
   collectMountedAgentSessionIds,
+  DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
 import {
@@ -1029,57 +1030,9 @@ export function AgentPanel({
   const isWorkspaceCanvasDisplayMode =
     agentSessionDisplayMode === 'global-canvas' && isCurrentWorktreePanel;
   const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas' || isWorkspaceCanvasDisplayMode;
-  const canvasSessionGroups = useMemo(
-    () =>
-      resolveAgentCanvasSessionGroups({
-        currentWorktreePath: cwd,
-        repoPath,
-        scope: isWorkspaceCanvasDisplayMode ? 'workspace' : 'worktree',
-        sessions: allSessions,
-        worktrees: workspaceCanvasWorktrees,
-      }),
-    [allSessions, cwd, isWorkspaceCanvasDisplayMode, repoPath, workspaceCanvasWorktrees]
-  );
-  const canvasSessions = useMemo(
-    () => canvasSessionGroups.flatMap((group) => group.sessions),
-    [canvasSessionGroups]
-  );
-  const canvasSessionIds = useMemo(
-    () => canvasSessions.map((session) => session.id),
-    [canvasSessions]
-  );
-  const agentSessionActiveIds = useAgentSessionsStore((state) => state.activeIds);
-  const todoTasks = useTodoStore((state) => selectTasks(state, repoPath));
-  const agentSessionControlInventory = useMemo(() => {
-    return buildAgentSessionInventory({
-      activeIds: agentSessionActiveIds,
-      filters: isWorkspaceCanvasDisplayMode ? {} : { repoPath, cwd },
-      runtimeStates: sessionRuntimeStates,
-      sessions: isWorkspaceCanvasDisplayMode ? canvasSessions : allSessions,
-      tasks: todoTasks,
-    });
-  }, [
-    agentSessionActiveIds,
-    allSessions,
-    canvasSessions,
-    cwd,
-    isWorkspaceCanvasDisplayMode,
-    repoPath,
-    sessionRuntimeStates,
-    todoTasks,
-  ]);
-  const agentSessionControlScopeLabel = useMemo(() => {
-    if (isWorkspaceCanvasDisplayMode) {
-      return t('Repository workspace');
-    }
-    const agentSessionControlWorktreePath = cwd;
-    const worktreeLabel =
-      getDisplayPathBasename(agentSessionControlWorktreePath) || agentSessionControlWorktreePath;
-    return t('Current worktree: {{name}}', { name: worktreeLabel });
-  }, [cwd, isWorkspaceCanvasDisplayMode, t]);
   const subagentScopeSessions = useMemo(
-    () => (isWorkspaceCanvasDisplayMode ? canvasSessions : currentWorktreeSessions),
-    [canvasSessions, currentWorktreeSessions, isWorkspaceCanvasDisplayMode]
+    () => (isWorkspaceCanvasDisplayMode ? allSessions : currentWorktreeSessions),
+    [allSessions, currentWorktreeSessions, isWorkspaceCanvasDisplayMode]
   );
   const subagentScopeSessionIds = useMemo(
     () => subagentScopeSessions.map((session) => session.id),
@@ -1182,6 +1135,101 @@ export function AgentPanel({
     },
     []
   );
+  const subagentScopeWorktreePaths = useMemo(() => {
+    const paths = new Map<string, string>();
+    for (const session of subagentScopeSessions) {
+      const normalizedPath = normalizePath(session.cwd);
+      if (!paths.has(normalizedPath)) {
+        paths.set(normalizedPath, session.cwd);
+      }
+    }
+    return Array.from(paths.values());
+  }, [subagentScopeSessions]);
+  const shouldPollLiveSubagents =
+    isActive &&
+    subagentScopeSessions.some((session) =>
+      supportsSessionSubagentTracking(session.agentId, session.agentCommand)
+    );
+  const liveSubagentsByWorktree = useLiveSubagents(
+    shouldPollLiveSubagents ? subagentScopeWorktreePaths : []
+  );
+  const sessionActivityStateById = useMemo(
+    () =>
+      buildSessionActivityStateBySessionId({
+        sessions: subagentScopeSessions,
+        runtimeStates: sessionRuntimeStates,
+        subagentsByWorktree: liveSubagentsByWorktree,
+      }),
+    [liveSubagentsByWorktree, sessionRuntimeStates, subagentScopeSessions]
+  );
+  const sessionLastActivityAtById = useMemo(
+    () =>
+      Object.fromEntries(
+        subagentScopeSessions.map((session) => [
+          session.id,
+          sessionRuntimeStates[session.id]?.lastActivityAt ?? session.createdAt ?? 0,
+        ])
+      ),
+    [sessionRuntimeStates, subagentScopeSessions]
+  );
+  const canvasSessionGroups = useMemo(
+    () =>
+      resolveAgentCanvasSessionGroups({
+        currentWorktreePath: cwd,
+        repoPath,
+        scope: isWorkspaceCanvasDisplayMode ? 'workspace' : 'worktree',
+        sessions: allSessions,
+        sessionActivityStateById,
+        sessionLastActivityAtById,
+        worktrees: workspaceCanvasWorktrees,
+      }),
+    [
+      allSessions,
+      cwd,
+      isWorkspaceCanvasDisplayMode,
+      repoPath,
+      sessionActivityStateById,
+      sessionLastActivityAtById,
+      workspaceCanvasWorktrees,
+    ]
+  );
+  const canvasSessions = useMemo(
+    () => canvasSessionGroups.flatMap((group) => group.sessions),
+    [canvasSessionGroups]
+  );
+  const canvasSessionIds = useMemo(
+    () => canvasSessions.map((session) => session.id),
+    [canvasSessions]
+  );
+  const agentSessionActiveIds = useAgentSessionsStore((state) => state.activeIds);
+  const todoTasks = useTodoStore((state) => selectTasks(state, repoPath));
+  const agentSessionControlInventory = useMemo(() => {
+    return buildAgentSessionInventory({
+      activeIds: agentSessionActiveIds,
+      filters: isWorkspaceCanvasDisplayMode ? {} : { repoPath, cwd },
+      runtimeStates: sessionRuntimeStates,
+      sessions: isWorkspaceCanvasDisplayMode ? canvasSessions : allSessions,
+      tasks: todoTasks,
+    });
+  }, [
+    agentSessionActiveIds,
+    allSessions,
+    canvasSessions,
+    cwd,
+    isWorkspaceCanvasDisplayMode,
+    repoPath,
+    sessionRuntimeStates,
+    todoTasks,
+  ]);
+  const agentSessionControlScopeLabel = useMemo(() => {
+    if (isWorkspaceCanvasDisplayMode) {
+      return t('Repository workspace');
+    }
+    const agentSessionControlWorktreePath = cwd;
+    const worktreeLabel =
+      getDisplayPathBasename(agentSessionControlWorktreePath) || agentSessionControlWorktreePath;
+    return t('Current worktree: {{name}}', { name: worktreeLabel });
+  }, [cwd, isWorkspaceCanvasDisplayMode, t]);
   const sessionPlacementById = useMemo(
     () => buildAgentSessionPlacementIndex(worktreeGroupStates),
     [worktreeGroupStates]
@@ -1300,24 +1348,6 @@ export function AgentPanel({
     () => resolveAgentCanvasZoomTerminalFontScale(canvasZoom),
     [canvasZoom]
   );
-  const subagentScopeWorktreePaths = useMemo(() => {
-    const paths = new Map<string, string>();
-    for (const session of subagentScopeSessions) {
-      const normalizedPath = normalizePath(session.cwd);
-      if (!paths.has(normalizedPath)) {
-        paths.set(normalizedPath, session.cwd);
-      }
-    }
-    return Array.from(paths.values());
-  }, [subagentScopeSessions]);
-  const shouldPollLiveSubagents =
-    isActive &&
-    subagentScopeSessions.some((session) =>
-      supportsSessionSubagentTracking(session.agentId, session.agentCommand)
-    );
-  const liveSubagentsByWorktree = useLiveSubagents(
-    shouldPollLiveSubagents ? subagentScopeWorktreePaths : []
-  );
   const trackableSessionCountByWorktree = useMemo(() => {
     const counts = new Map<string, number>();
 
@@ -1387,15 +1417,6 @@ export function AgentPanel({
       return sessionSubagentTriggerPresentationBySessionId[current]?.visible ? current : null;
     });
   }, [sessionSubagentTriggerPresentationBySessionId]);
-  const sessionActivityStateById = useMemo(
-    () =>
-      buildSessionActivityStateBySessionId({
-        sessions: subagentScopeSessions,
-        runtimeStates: sessionRuntimeStates,
-        subagentsByWorktree: liveSubagentsByWorktree,
-      }),
-    [liveSubagentsByWorktree, sessionRuntimeStates, subagentScopeSessions]
-  );
   const currentWorktreeSessionActivityStateById = useMemo(
     () =>
       isWorkspaceCanvasDisplayMode
@@ -3748,17 +3769,24 @@ export function AgentPanel({
   const mountedCurrentWorktreeSessionIds = useMemo(
     () =>
       resolveMountedAgentPanelSessionIds({
+        canvasFloatingSessionId,
+        canvasFocusedSessionId,
         canvasSessions,
         currentWorktreeSessions,
         globalSessionIds,
         isWorkspaceCanvasDisplayMode,
+        sessionActivityStateById,
         suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel,
+        workspaceCanvasTerminalMountLimit: DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
       }),
     [
+      canvasFloatingSessionId,
+      canvasFocusedSessionId,
       canvasSessions,
       currentWorktreeSessions,
       globalSessionIds,
       isWorkspaceCanvasDisplayMode,
+      sessionActivityStateById,
       shouldSuppressWorkspaceCanvasPanel,
     ]
   );
@@ -4351,6 +4379,95 @@ export function AgentPanel({
       renderedSessionPanelById.set(sessionId, panel);
     }
   });
+  const renderWorkspaceCanvasDeferredSessionTile = (session: Session) => {
+    const groupId = currentGroupIdBySessionId.get(session.id);
+    const sessionActivityState = sessionActivityStateById[session.id] ?? 'idle';
+    const canvasTileColumnSpan =
+      canvasTileColumnSpanBySessionId.get(session.id) ??
+      AGENT_CANVAS_GRID_COLUMN_UNITS / Math.max(canvasColumnCount, 1);
+    const tileRepoLabel = getDisplayPathBasename(session.repoPath) || session.repoPath;
+    const tileWorktreeLabel = getDisplayPathBasename(session.cwd) || session.cwd;
+    const tileLocationLabel =
+      tileRepoLabel && tileRepoLabel !== tileWorktreeLabel
+        ? `${tileRepoLabel} / ${tileWorktreeLabel}`
+        : tileWorktreeLabel;
+    const tileAgentLabel = getAgentDisplayLabel(session.agentId, customAgents);
+    const isFocusedSession = session.id === canvasFocusedSessionId;
+    const shouldDimCanvasTile =
+      isCanvasDisplayMode &&
+      canvasFloatingSessionId !== null &&
+      session.id !== canvasFloatingSessionId;
+
+    return (
+      <div
+        key={session.id}
+        id={buildSessionPanelDomId(session.id)}
+        {...{ [AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE]: 'true' }}
+        data-agent-session-id={session.id}
+        data-agent-activity-state={sessionActivityState}
+        data-agent-canvas-deferred="true"
+        className={cn(
+          'agent-canvas-session-tile flex h-full min-h-0 overflow-hidden rounded-2xl p-2 transition-colors',
+          shouldDimCanvasTile && 'opacity-35',
+          isFocusedSession && 'agent-canvas-session-tile-active'
+        )}
+        style={{ gridColumn: `span ${canvasTileColumnSpan} / span ${canvasTileColumnSpan}` }}
+        onMouseDownCapture={() => handleSelectSession(session.id, groupId)}
+      >
+        <div className="flex h-full min-w-0 flex-1 flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/35 p-3">
+          <button
+            type="button"
+            {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+            className="min-w-0 rounded-lg text-left transition-colors hover:bg-accent/20"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenCanvasFloatingSession(session.id, groupId);
+            }}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              {sessionActivityState === 'idle' ? (
+                <span className="h-1.5 w-1.5 shrink-0 rounded-[0.25rem] bg-[color:var(--control-idle)]" />
+              ) : (
+                <ActivityIndicator
+                  state={sessionActivityState}
+                  size="sm"
+                  className="relative z-10"
+                />
+              )}
+              <span className="control-chip max-w-[38%] shrink-0 gap-1.5 truncate">
+                <GitBranch className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{tileLocationLabel}</span>
+              </span>
+              <span className="control-chip max-w-[30%] shrink-0 gap-1.5 truncate">
+                {renderAgentLabelIcon(session.agentId)}
+                <span className="truncate">{tileAgentLabel}</span>
+              </span>
+            </div>
+            <div className="mt-2 min-w-0 truncate text-sm font-semibold text-foreground">
+              {session.name}
+            </div>
+          </button>
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <span className="control-chip shrink-0">{t('Paused')}</span>
+            <button
+              type="button"
+              {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+              className="control-panel inline-flex h-8 shrink-0 items-center gap-2 rounded-lg px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/30"
+              aria-label={t('Bring to Front')}
+              title={t('Bring to Front')}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleOpenCanvasFloatingSession(session.id, groupId);
+              }}
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              {t('Open')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
   const globalNewSessionLabel = isWorkspaceCanvasDisplayMode
     ? t('New in Current Worktree')
     : t('New Session');
@@ -4430,7 +4547,11 @@ export function AgentPanel({
               }}
             >
               {group.sessions.length > 0 ? (
-                group.sessions.map((session) => renderedSessionPanelById.get(session.id) ?? null)
+                group.sessions.map(
+                  (session) =>
+                    renderedSessionPanelById.get(session.id) ??
+                    renderWorkspaceCanvasDeferredSessionTile(session)
+                )
               ) : (
                 <div
                   {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}

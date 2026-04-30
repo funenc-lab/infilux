@@ -38,7 +38,7 @@ interface BuildSessionActivityStateBySessionIdOptions {
   subagentsByWorktree: Map<string, LiveAgentSubagent[]>;
 }
 
-function getSessionActivityStatePriority(state: SessionActivityState): number {
+export function getSessionActivityStatePriority(state: SessionActivityState): number {
   switch (state) {
     case 'waiting_input':
       return 3;
