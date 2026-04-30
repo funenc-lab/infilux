@@ -13,15 +13,17 @@ export class TmuxSessionHost implements PersistentSessionHost {
   constructor(private readonly runtimeChannel: AppRuntimeChannel = getAppRuntimeChannel()) {}
 
   async probeSession(record: PersistentAgentSessionRecord): Promise<PersistentAgentRuntimeState> {
-    if (record.lastKnownState === 'dead') {
-      return 'dead';
-    }
-
     const serverName = resolveTmuxServerNameForPersistentAgentHostSessionKey(
       record.hostSessionKey,
       this.runtimeChannel
     );
-    const exists = await tmuxDetector.hasSession(record.hostSessionKey, serverName);
-    return exists ? 'live' : 'missing-host-session';
+    const probeStatus = await tmuxDetector.probeSession(record.hostSessionKey, serverName);
+    if (probeStatus === 'exists') {
+      return 'live';
+    }
+    if (probeStatus === 'failed') {
+      return record.lastKnownState;
+    }
+    return record.lastKnownState === 'dead' ? 'dead' : 'missing-host-session';
   }
 }

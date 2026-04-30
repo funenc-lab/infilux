@@ -1,4 +1,4 @@
-import type { LucideIcon } from 'lucide-react';
+import { Sparkles, Terminal } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 type Translate = (value: string) => string;
@@ -27,9 +27,7 @@ interface BuildWorktreeInlineItemsOptions {
   diffStats: WorktreeDiffStats;
   ahead: number;
   behind: number;
-  totalActivityCount: number;
-  ActivityIcon: LucideIcon;
-  activitySummary: string;
+  activity: WorktreeActivityCounts;
   hasCompletedTaskNotice: boolean;
 }
 
@@ -57,12 +55,12 @@ export function buildWorktreeInlineItems({
   diffStats,
   ahead,
   behind,
-  totalActivityCount,
-  ActivityIcon,
-  activitySummary,
+  activity,
   hasCompletedTaskNotice,
 }: BuildWorktreeInlineItemsOptions): WorktreeInlineItem[] {
   const hasDiffStats = diffStats.insertions > 0 || diffStats.deletions > 0;
+  const agentSummary = `${activity.agentCount} ${t('agents')}`;
+  const terminalSummary = `${activity.terminalCount} ${t('terminals')}`;
 
   return [
     isMain
@@ -119,15 +117,28 @@ export function buildWorktreeInlineItems({
           ),
         }
       : null,
-    totalActivityCount > 0
+    activity.agentCount > 0
       ? {
           key: 'agents',
           priority: 'low' as const,
           content: (
-            <span className="control-tree-metric" title={activitySummary}>
-              <ActivityIcon className="control-tree-metric-icon" aria-hidden="true" />
-              <span className="control-tree-metric-value">{totalActivityCount}</span>
-              <span className="sr-only">{activitySummary}</span>
+            <span className="control-tree-metric" title={agentSummary} data-kind="agents">
+              <Sparkles className="control-tree-metric-icon" aria-hidden="true" />
+              <span className="control-tree-metric-value">{activity.agentCount}</span>
+              <span className="sr-only">{agentSummary}</span>
+            </span>
+          ),
+        }
+      : null,
+    activity.terminalCount > 0
+      ? {
+          key: 'terminals',
+          priority: 'low' as const,
+          content: (
+            <span className="control-tree-metric" title={terminalSummary} data-kind="terminals">
+              <Terminal className="control-tree-metric-icon" aria-hidden="true" />
+              <span className="control-tree-metric-value">{activity.terminalCount}</span>
+              <span className="sr-only">{terminalSummary}</span>
             </span>
           ),
         }

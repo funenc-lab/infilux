@@ -21,6 +21,29 @@ describe('worktree row performance policy', () => {
     expect(worktreePanelItemSource).not.toContain("key: 'diff'");
   });
 
+  it('keeps memoized worktree rows from retaining stale event handlers', () => {
+    const callbackComparisons = [
+      'onClick',
+      'onDelete',
+      'onEditPolicy',
+      'onMerge',
+      'onDragStart',
+      'onDragEnd',
+      'onDragOver',
+      'onDragLeave',
+      'onDrop',
+    ];
+
+    for (const callbackName of callbackComparisons) {
+      expect(treeSidebarWorktreeItemSource).toContain(
+        `previousProps.${callbackName} === nextProps.${callbackName}`
+      );
+      expect(worktreePanelItemSource).toContain(
+        `previousProps.${callbackName} === nextProps.${callbackName}`
+      );
+    }
+  });
+
   it('keeps tree sidebar worktree rows on path-scoped subscriptions only', () => {
     expect(treeSidebarWorktreeItemSource).not.toContain('useWorktreeOutputState(worktree.path);');
     expect(treeSidebarWorktreeItemSource).toContain(

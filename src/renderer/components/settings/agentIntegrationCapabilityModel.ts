@@ -1,6 +1,7 @@
 import { AI_PROVIDER_CATALOG, type AIProvider } from '@shared/types';
 
 export type AgentIntegrationCapabilityId =
+  | 'provider-switching'
   | 'editor-context'
   | 'completion-notification'
   | 'question-notification'
@@ -28,6 +29,13 @@ interface CapabilityDefinition {
 }
 
 const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
+  {
+    id: 'provider-switching',
+    titleKey: 'Provider profile switching',
+    descriptionKey:
+      'Save and switch supported Agent CLI provider profiles from settings and SessionBar.',
+    supportedProviders: ['claude-code', 'codex-cli', 'gemini-cli'],
+  },
   {
     id: 'editor-context',
     titleKey: 'Editor context bridge',

@@ -13,7 +13,6 @@ import type {
   ClaudeCapabilityCatalog,
   ClaudePolicyCatalogRequest,
   ClaudeProvider,
-  ClaudeSettings,
   CloneProgress,
   CloneResult,
   CommitFileChange,
@@ -127,7 +126,7 @@ const REMOTE_PATH_PREFIX = '/__enso_remote__';
 const sessionEventRouter = createSessionEventRouter(ipcRenderer);
 
 type AgentProviderSettingsSnapshot = {
-  settings: ClaudeSettings | null;
+  settings: unknown | null;
   extracted: Partial<AgentProviderProfile> | null;
   providerId?: AgentProviderProfile['providerId'];
   supported?: boolean;
@@ -139,8 +138,13 @@ function createAgentProviderBridge(channels: {
   settingsChanged: string;
 }) {
   return {
-    readSettings: (repoPath?: string): Promise<AgentProviderSettingsSnapshot> =>
-      ipcRenderer.invoke(channels.readSettings, repoPath),
+    readSettings: (
+      repoPath?: string,
+      providerId?: AgentProviderProfile['providerId']
+    ): Promise<AgentProviderSettingsSnapshot> =>
+      providerId
+        ? ipcRenderer.invoke(channels.readSettings, repoPath, providerId)
+        : ipcRenderer.invoke(channels.readSettings, repoPath),
     apply: (
       repoPath: string | undefined,
       provider: AgentProviderProfile | ClaudeProvider

@@ -16,6 +16,8 @@ const LIST_PANES_FORMAT = '#{pane_id}\t#{pane_active}\t#{pane_in_mode}';
 const TMUX_HEALTHCHECK_SESSION_PREFIX = 'infilux-healthcheck';
 const TMUX_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 
+export type TmuxSessionProbeStatus = 'exists' | 'missing' | 'failed';
+
 function isResourceExhaustionError(error: unknown): error is NodeJS.ErrnoException {
   const nodeError = error as NodeJS.ErrnoException;
   return (
@@ -181,6 +183,29 @@ class TmuxDetector {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  async probeSession(name: string, serverName?: string): Promise<TmuxSessionProbeStatus> {
+    if (isWindows || !name) {
+      return 'missing';
+    }
+
+    try {
+      const resolvedServerName = resolveTmuxServerName(serverName);
+      const stdout = await execInPty(
+        buildTmuxShellCommand(resolvedServerName, `list-sessions -F ${shellQuote('#S')}`),
+        {
+          timeout: TMUX_COMMAND_TIMEOUT_MS,
+        }
+      );
+      const sessionNames = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      return sessionNames.includes(name) ? 'exists' : 'missing';
+    } catch {
+      return 'failed';
     }
   }
 

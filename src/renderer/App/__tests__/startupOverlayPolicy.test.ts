@@ -66,6 +66,21 @@ describe('startupOverlayPolicy', () => {
     ).toEqual(['repository-sidebar', 'worktree-panel']);
   });
 
+  it('waits for the AI center panel when the cross-project task tab is restored', () => {
+    expect(
+      resolveInitialStartupBlockingKeys({
+        layoutMode: 'columns',
+        repositoryCollapsed: false,
+        worktreeCollapsed: false,
+        isTempRepo: false,
+        activeTab: 'ai-center',
+        hasActiveWorktree: true,
+        hasSelectedSubagent: false,
+        settingsDisplayMode: 'tab',
+      })
+    ).toEqual(['repository-sidebar', 'worktree-panel', 'ai-center-panel']);
+  });
+
   it('removes ready keys idempotently', () => {
     expect(
       markStartupBlockingKeyReady(

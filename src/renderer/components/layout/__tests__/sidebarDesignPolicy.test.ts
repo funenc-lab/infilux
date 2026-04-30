@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { buildWorktreeInlineItems } from '../worktreeRowSignals';
 import { repositorySidebarSource } from './repositorySidebarSource';
 import { treeSidebarSource } from './treeSidebarSource';
 import { worktreePanelSource } from './worktreePanelSource';
@@ -16,15 +18,40 @@ const temporaryWorkspacePanelSource = readFileSync(
   'utf8'
 );
 const fileTreeSource = readFileSync(resolve(currentDir, '../../files/FileTree.tsx'), 'utf8');
-const worktreeTreeItemSource = readFileSync(
-  resolve(currentDir, '../tree-sidebar/WorktreeTreeItem.tsx'),
-  'utf8'
-);
-const worktreePanelItemSource = readFileSync(
-  resolve(currentDir, '../worktree-panel/WorktreeItem.tsx'),
-  'utf8'
-);
 const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.css'), 'utf8');
+
+function buildTestWorktreeInlineItems(
+  overrides: Partial<Parameters<typeof buildWorktreeInlineItems>[0]> = {}
+) {
+  return buildWorktreeInlineItems({
+    t: (value) => value,
+    isMain: false,
+    isPrunable: false,
+    isMerged: false,
+    diffStats: {
+      insertions: 0,
+      deletions: 0,
+    },
+    ahead: 0,
+    behind: 0,
+    activity: {
+      agentCount: 0,
+      terminalCount: 0,
+    },
+    hasCompletedTaskNotice: false,
+    ...overrides,
+  });
+}
+
+function renderInlineItem(items: ReturnType<typeof buildWorktreeInlineItems>, key: string): string {
+  const item = items.find((candidate) => candidate.key === key);
+
+  if (!item) {
+    throw new Error(`Missing worktree inline item: ${key}`);
+  }
+
+  return renderToStaticMarkup(item.content);
+}
 
 describe('sidebar design policy', () => {
   it('keeps sidebar headers action-led instead of repeating section labels', () => {
@@ -45,6 +72,17 @@ describe('sidebar design policy', () => {
     expect(temporaryWorkspacePanelSource).toContain(
       '<div className="control-sidebar-heading no-drag" aria-hidden="true" />'
     );
+  });
+
+  it('keeps sidebar source files aligned with code language and typography policy', () => {
+    expect(treeSidebarSource).not.toMatch(/\p{Script=Han}/u);
+    expect(repositorySidebarSource).not.toMatch(/\p{Script=Han}/u);
+    expect(worktreePanelSource).not.toMatch(/\p{Script=Han}/u);
+
+    expect(treeSidebarSource).not.toContain('tracking-[-');
+    expect(repositorySidebarSource).not.toContain('tracking-[-');
+    expect(worktreePanelSource).not.toContain('tracking-[-');
+    expect(globalsSource).not.toMatch(/letter-spacing:\s*-/);
   });
 
   it('keeps worktree rows aligned with the tree-row language instead of panel cards', () => {
@@ -136,32 +174,38 @@ describe('sidebar design policy', () => {
   });
 
   it('prioritizes git decision signals ahead of runtime counters inside worktree rails', () => {
-    expect(treeSidebarSource).toContain('control-tree-diff-badge');
-    expect(worktreePanelSource).toContain('control-tree-diff-badge');
-    expect(treeSidebarSource).toContain('control-tree-inline-signals');
-    expect(worktreePanelSource).toContain('control-tree-inline-signals');
-    expect(treeSidebarSource).not.toContain('control-tree-signal-row');
-    expect(worktreePanelSource).not.toContain('control-tree-signal-row');
-    expect(treeSidebarSource).toContain(
-      'const totalActivityCount = activity.agentCount + activity.terminalCount;'
-    );
-    expect(worktreePanelSource).toContain(
-      'const totalActivityCount = activity.agentCount + activity.terminalCount;'
-    );
-    expect(treeSidebarSource).toContain("key: 'diff'");
-    expect(worktreePanelSource).toContain("key: 'diff'");
-    expect(treeSidebarSource.indexOf("key: 'sync'")).toBeGreaterThan(
-      treeSidebarSource.indexOf("key: 'diff'")
-    );
-    expect(treeSidebarSource.indexOf("key: 'agents'")).toBeGreaterThan(
-      treeSidebarSource.indexOf("key: 'sync'")
-    );
-    expect(worktreePanelSource.indexOf("key: 'sync'")).toBeGreaterThan(
-      worktreePanelSource.indexOf("key: 'diff'")
-    );
-    expect(worktreePanelSource.indexOf("key: 'agents'")).toBeGreaterThan(
-      worktreePanelSource.indexOf("key: 'sync'")
-    );
+    const items = buildTestWorktreeInlineItems({
+      diffStats: {
+        insertions: 12,
+        deletions: 4,
+      },
+      ahead: 2,
+      behind: 1,
+      activity: {
+        agentCount: 3,
+        terminalCount: 5,
+      },
+      hasCompletedTaskNotice: true,
+    });
+
+    expect(items.map((item) => item.key)).toEqual([
+      'diff',
+      'sync',
+      'agents',
+      'terminals',
+      'completed',
+    ]);
+    expect(items.map((item) => item.priority)).toEqual([
+      'critical',
+      'critical',
+      'low',
+      'low',
+      'low',
+    ]);
+    expect(renderInlineItem(items, 'diff')).toContain('data-kind="diff"');
+    expect(renderInlineItem(items, 'sync')).toContain('data-kind="sync"');
+    expect(renderInlineItem(items, 'agents')).toContain('data-kind="agents"');
+    expect(renderInlineItem(items, 'terminals')).toContain('data-kind="terminals"');
   });
 
   it('keeps dense git rail copy compact instead of repeating diff and sync labels', () => {
@@ -244,39 +288,31 @@ describe('sidebar design policy', () => {
   });
 
   it('keeps worktree runtime presence inline as counters instead of a named agent child row', () => {
-    expect(treeSidebarSource).toContain("key: 'agents'");
-    expect(treeSidebarSource).not.toContain("key: 'terminals'");
-    expect(treeSidebarSource).toContain('control-tree-inline-signals');
-    expect(treeSidebarSource).not.toContain('<WorktreeAgentSummary');
-    expect(treeSidebarSource).not.toContain('<WorktreeAgentChildren');
-    expect(treeSidebarSource).not.toContain('useLiveSubagents(');
-    expect(treeSidebarSource).not.toContain('buildActiveSessionMapByWorktree(');
-    expect(treeSidebarSource).not.toContain('session={activeSession}');
-    expect(treeSidebarSource).not.toContain('subagents={liveSubagents}');
-    expect(treeSidebarSource).not.toContain('className="pl-5"');
-    expect(worktreeTreeItemSource).toContain(
-      'const totalActivityCount = activity.agentCount + activity.terminalCount;'
-    );
-    expect(treeSidebarSource).toContain('control-tree-metric-icon');
-    expect(worktreeTreeItemSource).not.toContain(
-      '<span className="control-tree-metric-label">{t(\'agents\')}</span>'
-    );
-    expect(worktreeTreeItemSource).not.toContain(
-      '<span className="control-tree-metric-label">{t(\'terminals\')}</span>'
-    );
-    expect(worktreePanelSource).toContain('control-tree-metric-icon');
-    expect(worktreePanelItemSource).toContain(
-      'const totalActivityCount = activity.agentCount + activity.terminalCount;'
-    );
-    expect(worktreePanelSource).not.toContain("key: 'terminals'");
-    expect(worktreePanelSource).toContain('control-tree-inline-signals');
-    expect(worktreePanelSource).not.toContain('<WorktreeAgentChildren');
-    expect(worktreePanelItemSource).not.toContain(
-      '<span className="control-tree-metric-label">{t(\'agents\')}</span>'
-    );
-    expect(worktreePanelItemSource).not.toContain(
-      '<span className="control-tree-metric-label">{t(\'terminals\')}</span>'
-    );
+    const items = buildTestWorktreeInlineItems({
+      activity: {
+        agentCount: 2,
+        terminalCount: 4,
+      },
+    });
+
+    expect(items.map((item) => item.key)).toEqual(['agents', 'terminals']);
+
+    const agentsMarkup = renderInlineItem(items, 'agents');
+    expect(agentsMarkup).toContain('class="control-tree-metric"');
+    expect(agentsMarkup).toContain('data-kind="agents"');
+    expect(agentsMarkup).toContain('control-tree-metric-icon');
+    expect(agentsMarkup).toContain('control-tree-metric-value">2</span>');
+    expect(agentsMarkup).toContain('2 agents');
+    expect(agentsMarkup).not.toContain('control-tree-metric-label');
+
+    const terminalsMarkup = renderInlineItem(items, 'terminals');
+    expect(terminalsMarkup).toContain('class="control-tree-metric"');
+    expect(terminalsMarkup).toContain('data-kind="terminals"');
+    expect(terminalsMarkup).toContain('control-tree-metric-icon');
+    expect(terminalsMarkup).toContain('control-tree-metric-value">4</span>');
+    expect(terminalsMarkup).toContain('4 terminals');
+    expect(terminalsMarkup).not.toContain('control-tree-metric-label');
+
     expect(globalsSource).toContain('.control-tree-metric-icon {');
   });
 
@@ -381,9 +417,12 @@ describe('sidebar design policy', () => {
     expect(temporaryWorkspacePanelSource).toContain(
       "<SidebarToolbarTooltip label={t('Refresh temp sessions')}>"
     );
-    expect(runningProjectsSource).toContain(
-      '<SidebarToolbarTooltip label={runningProjectsTooltip} shortcut={runningProjectsShortcut}>'
-    );
+    expect(runningProjectsSource).toContain('<SidebarToolbarTooltip');
+    expect(runningProjectsSource).toContain('label={runningProjectsTooltip}');
+    expect(runningProjectsSource).toContain('shortcut={runningProjectsShortcut}');
+    expect(runningProjectsSource).toContain('side={tooltipSide}');
+    expect(runningProjectsSource).toContain('align={tooltipAlign}');
+    expect(runningProjectsSource).toContain('sideOffset={tooltipSideOffset}');
     expect(fileTreeSource).toContain('<SidebarToolbarTooltip label={refreshFilesLabel}>');
     expect(fileTreeSource).toContain('control-file-tree-toolbar');
     expect(fileTreeSource).toContain('data-role="create"');
@@ -395,6 +434,47 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       '.control-sidebar-toolbutton.control-collapsed-sidebar-secondary {'
     );
+  });
+
+  it('keeps panel collapse controls first in expanded sidebar toolbars', () => {
+    expect(treeSidebarSource.indexOf('data-role="panel"')).toBeLessThan(
+      treeSidebarSource.indexOf('data-role="context"')
+    );
+    expect(treeSidebarSource.indexOf('data-role="panel"')).toBeLessThan(
+      treeSidebarSource.indexOf('data-role="data"')
+    );
+    expect(repositorySidebarSource.indexOf('data-role="panel"')).toBeLessThan(
+      repositorySidebarSource.indexOf('data-role="context"')
+    );
+    expect(worktreePanelSource.indexOf('data-role="panel"')).toBeLessThan(
+      worktreePanelSource.indexOf('data-role="data"')
+    );
+    expect(temporaryWorkspacePanelSource.indexOf('data-role="panel"')).toBeLessThan(
+      temporaryWorkspacePanelSource.indexOf('data-role="data"')
+    );
+    expect(fileTreeSource.indexOf('data-role="panel"')).toBeLessThan(
+      fileTreeSource.indexOf('data-role="create"')
+    );
+  });
+
+  it('locks collapsed sidebar rail actions to the expected visual order', () => {
+    const primaryOrderIndex = globalsSource.indexOf(
+      '.control-collapsed-sidebar-primary-action {\n    order: 0;'
+    );
+    const contextOrderIndex = globalsSource.indexOf(
+      '.control-collapsed-sidebar-context-action {\n    order: 1;'
+    );
+    const secondaryOrderIndex = globalsSource.indexOf(
+      '.control-collapsed-sidebar-secondary-action {\n    order: 2;'
+    );
+    const menuOrderIndex = globalsSource.indexOf(
+      '.control-collapsed-sidebar-menu-action {\n    order: 3;'
+    );
+
+    expect(primaryOrderIndex).toBeGreaterThanOrEqual(0);
+    expect(contextOrderIndex).toBeGreaterThan(primaryOrderIndex);
+    expect(secondaryOrderIndex).toBeGreaterThan(contextOrderIndex);
+    expect(menuOrderIndex).toBeGreaterThan(secondaryOrderIndex);
   });
 
   it('marks refreshing top controls with explicit busy state instead of relying on static icons', () => {

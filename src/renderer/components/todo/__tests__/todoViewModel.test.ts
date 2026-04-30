@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildAiCenterSummary,
   buildTodoBoardSummary,
-  buildTodoDecisionCenterSummary,
   getAutoExecuteDisabledReason,
   getTaskRelativeTimeLabel,
   getTodoBoardHeaderStats,
@@ -197,7 +197,7 @@ describe('todoViewModel', () => {
   });
 
   it('builds a global decision center summary across loaded repositories', () => {
-    const summary = buildTodoDecisionCenterSummary([
+    const summary = buildAiCenterSummary([
       {
         repoPath: '/repo/current',
         isCurrent: true,

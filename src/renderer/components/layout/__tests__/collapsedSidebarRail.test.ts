@@ -37,6 +37,33 @@ vi.mock('@/components/ui/menu', () => ({
     React.createElement(React.Fragment, null, render as React.ReactNode),
 }));
 
+vi.mock('../SidebarToolbarTooltip', () => ({
+  SidebarToolbarTooltip: ({
+    label,
+    side,
+    align,
+    sideOffset,
+    children,
+  }: {
+    label: React.ReactNode;
+    side?: string;
+    align?: string;
+    sideOffset?: number;
+    children?: React.ReactNode;
+  }) =>
+    React.createElement(
+      'span',
+      {
+        'data-label': typeof label === 'string' ? label : undefined,
+        'data-side': side,
+        'data-align': align,
+        'data-side-offset': sideOffset,
+        'data-slot': 'sidebar-toolbar-tooltip',
+      },
+      children as React.ReactNode
+    ),
+}));
+
 function TriggerIcon(props: React.SVGProps<SVGSVGElement>) {
   return React.createElement('svg', { ...props, 'data-icon': 'trigger' });
 }
@@ -91,6 +118,10 @@ describe('CollapsedSidebarRail', () => {
         label: 'Repository',
         triggerTitle: 'Repository actions',
         icon: TriggerIcon,
+        contextAction: React.createElement('button', {
+          type: 'button',
+          'data-slot': 'custom-running-projects',
+        }),
         primaryAction: {
           id: 'expand',
           label: 'Expand Repository',
@@ -114,8 +145,24 @@ describe('CollapsedSidebarRail', () => {
       })
     );
 
-    expect(markup).toContain('data-slot="collapsed-sidebar-primary-button"');
+    const primaryIndex = markup.indexOf('data-slot="collapsed-sidebar-primary-button"');
+    const contextIndex = markup.indexOf('data-slot="collapsed-sidebar-context-action"');
+    const secondaryIndex = markup.indexOf('data-slot="collapsed-sidebar-secondary-action"');
+    const menuIndex = markup.indexOf('data-slot="collapsed-sidebar-menu-action"');
+
+    expect(primaryIndex).toBeGreaterThanOrEqual(0);
+    expect(contextIndex).toBeGreaterThan(primaryIndex);
+    expect(secondaryIndex).toBeGreaterThan(contextIndex);
+    expect(menuIndex).toBeGreaterThan(secondaryIndex);
+    expect(markup).toContain('data-slot="collapsed-sidebar-primary-action"');
+    expect(markup).toContain('control-collapsed-sidebar-context-action');
+    expect(markup).toContain('data-slot="collapsed-sidebar-context-action"');
+    expect(markup).toContain('data-slot="custom-running-projects"');
     expect(markup).toContain('data-slot="collapsed-sidebar-secondary-button"');
+    expect(markup).toContain('data-slot="sidebar-toolbar-tooltip"');
+    expect(markup).toContain('data-label="Add Repository"');
+    expect(markup).toContain('data-side="inline-end"');
+    expect(markup).toContain('data-align="center"');
     expect(markup).toContain('data-slot="collapsed-sidebar-menu-button"');
     expect(markup).toContain('Expand Repository');
     expect(markup).toContain('Add Repository');

@@ -163,6 +163,7 @@ function renderMockPanel(
     'data-show-fallback': String(props.showFallback ?? false),
     'data-root-path': typeof props.rootPath === 'string' ? props.rootPath : '',
     'data-cwd': typeof props.cwd === 'string' ? props.cwd : '',
+    'data-scope': typeof props.scope === 'string' ? props.scope : '',
     'data-has-on-switch-repository': String(typeof props.onSwitchRepository === 'function'),
     ...extraAttributes,
   });
@@ -176,6 +177,7 @@ vi.mock('lucide-react', () => {
     Activity: icon('Activity'),
     AlertCircle: icon('AlertCircle'),
     AlertTriangle: icon('AlertTriangle'),
+    BrainCircuit: icon('BrainCircuit'),
     ChartNoAxesColumnIncreasing: icon('ChartNoAxesColumnIncreasing'),
     ChevronRight: icon('ChevronRight'),
     FileCode: icon('FileCode'),
@@ -332,6 +334,13 @@ vi.mock('@/stores/terminalWrite', () => ({
 
 vi.mock('../DeferredAgentPanel', () => ({
   DeferredAgentPanel: (props: Record<string, unknown>) => renderMockPanel('agent', props),
+}));
+
+vi.mock('../DeferredAiCenterPanel', () => ({
+  DeferredAiCenterPanel: (props: Record<string, unknown>) =>
+    renderMockPanel('ai-center', props, {
+      'data-has-on-open-project-task': String(typeof props.onOpenProjectTask === 'function'),
+    }),
 }));
 
 vi.mock('../DeferredTerminalPanel', () => ({
@@ -508,6 +517,7 @@ describe('MainContent component render', () => {
         sourceControlEmptyDescription: undefined,
         todoEnabled: false,
         shouldRenderTodo: false,
+        shouldRenderAiCenter: false,
         shouldRenderSettings: false,
         settingsDisplayMode: 'tab',
         setSettingsDisplayMode: vi.fn(),
@@ -536,11 +546,8 @@ describe('MainContent component render', () => {
       React.createElement(MainContentTopbar, {
         bgImageEnabled: false,
         needsTrafficLightPadding: false,
-        repositoryCollapsed: false,
         fileSidebarCollapsed: false,
         onExpandFileSidebar: vi.fn(),
-        onSwitchWorktree: vi.fn(),
-        onSwitchTab: vi.fn(),
         tabs: [],
         activeTab: 'chat',
         onTabChange: vi.fn(),
@@ -631,6 +638,25 @@ describe('MainContent component render', () => {
 
     expect(markup).toContain('data-panel="agent"');
     expect(markup).not.toContain('data-panel="terminal"');
+  });
+
+  it('keeps project todo in the top-level tabs and leaves AI center to the sidebar', async () => {
+    settingsState.todoEnabled = true;
+
+    const markup = await renderMainContent('chat');
+
+    expect(markup).toContain('Project Todo');
+    expect(markup).not.toContain('AI Center');
+  });
+
+  it('renders the AI center tab as a separate global orchestration panel', async () => {
+    settingsState.todoEnabled = true;
+
+    const markup = await renderMainContent('ai-center');
+
+    expect(markup).toContain('data-panel="ai-center"');
+    expect(markup).toContain('data-active="true"');
+    expect(markup).toContain('data-has-on-open-project-task="true"');
   });
 
   it('keeps the global canvas agent panel mounted across worktree switches', async () => {
@@ -727,16 +753,34 @@ describe('MainContent component render', () => {
     );
   });
 
-  it('passes repository switching to the todo panel for global task focus', async () => {
+  it('passes project task opening to the AI center for cross-project focus', async () => {
     const markup = await renderMainContentPanels({
-      activeTab: 'todo',
+      activeTab: 'ai-center',
       todoEnabled: true,
-      shouldRenderTodo: true,
+      shouldRenderAiCenter: true,
       onSwitchRepository: vi.fn(),
     } as Partial<MainContentPanelsProps>);
 
-    expect(markup).toContain('data-panel="todo"');
-    expect(markup).toContain('data-has-on-switch-repository="true"');
+    expect(markup).toContain('data-panel="ai-center"');
+    expect(markup).toContain('data-has-on-open-project-task="true"');
+  });
+
+  it('renders project todo and AI center as separate entries', async () => {
+    const projectMarkup = await renderMainContentPanels({
+      activeTab: 'todo',
+      todoEnabled: true,
+      shouldRenderTodo: true,
+    });
+    const aiCenterMarkup = await renderMainContentPanels({
+      activeTab: 'ai-center',
+      todoEnabled: true,
+      shouldRenderAiCenter: true,
+    });
+
+    expect(projectMarkup).toContain('data-panel="todo"');
+    expect(projectMarkup).toContain('data-active="true"');
+    expect(aiCenterMarkup).toContain('data-panel="ai-center"');
+    expect(aiCenterMarkup).toContain('data-active="true"');
   });
 
   it('passes the recenter token only to the current chat panel that matches the requested worktree', async () => {
@@ -776,13 +820,12 @@ describe('MainContent component render', () => {
     );
   });
 
-  it('does not render a duplicated Panels menu when sidebars are collapsed', async () => {
+  it('does not render collapsed sidebar controls in the main topbar', async () => {
     const markup = await renderMainContentTopbar({
-      repositoryCollapsed: true,
       fileSidebarCollapsed: true,
     });
 
-    expect(markup).toContain('data-component="RunningProjectsPopover"');
+    expect(markup).not.toContain('data-component="RunningProjectsPopover"');
     expect(markup).not.toContain('Panels');
     expect(markup).not.toContain('Expand Repository');
     expect(markup).not.toContain('Expand Worktree');

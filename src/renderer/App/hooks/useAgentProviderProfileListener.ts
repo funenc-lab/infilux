@@ -5,12 +5,13 @@ import { useI18n } from '@/i18n';
 import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { useSettingsStore } from '@/stores/settings';
+import type { PendingProviderAction } from './useSettingsState';
 
 export function useAgentProviderProfileListener(
   setSettingsCategory: (category: SettingsCategory) => void,
   setScrollToProvider: (scroll: boolean) => void,
   openSettings: () => void,
-  setPendingProviderAction: (action: 'preview' | 'save' | null) => void
+  setPendingProviderAction: (action: PendingProviderAction) => void
 ) {
   const { t } = useI18n();
   const agentProviders = useSettingsStore((s) => s.agentIntegration.providers);
@@ -26,6 +27,7 @@ export function useAgentProviderProfileListener(
 
       const { extracted } = data;
       if (!extracted?.baseUrl) return;
+      const providerId = data.providerId ?? extracted.providerId;
 
       if (agentProviderProfileAdapter.consumeSwitch(extracted)) {
         return;
@@ -76,7 +78,7 @@ export function useAgentProviderProfileListener(
                 setSettingsCategory('integration');
                 setScrollToProvider(true);
                 openSettings();
-                setPendingProviderAction('preview');
+                setPendingProviderAction({ action: 'preview', providerId });
               },
               variant: 'ghost',
             },
@@ -86,7 +88,7 @@ export function useAgentProviderProfileListener(
                 setSettingsCategory('integration');
                 setScrollToProvider(true);
                 openSettings();
-                setPendingProviderAction('save');
+                setPendingProviderAction({ action: 'save', providerId });
               },
               variant: 'outline',
             },

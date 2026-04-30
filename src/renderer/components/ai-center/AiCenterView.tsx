@@ -1,11 +1,11 @@
 import {
   Activity,
   AlertTriangle,
+  BrainCircuit,
   CheckCircle2,
   CircleDot,
   ClipboardList,
   FolderGit2,
-  Gauge,
   ListChecks,
   type LucideIcon,
   Play,
@@ -18,20 +18,21 @@ import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type {
-  TodoDecisionCenterNextAction,
-  TodoDecisionCenterProjectStatus,
-  TodoDecisionCenterSummary,
-} from './todoViewModel';
+  AiCenterNextAction,
+  AiCenterProjectStatus,
+  AiCenterSummary,
+} from '../todo/todoViewModel';
 
-interface TodoDecisionCenterProps {
+interface AiCenterViewProps {
   canDispatchReadyTasks?: boolean;
   onApproveTask?: (repoPath: string, taskId: string) => void;
   onDispatchReadyTasks?: () => void;
   onFocusTask?: (repoPath: string, taskId: string) => void;
-  summary: TodoDecisionCenterSummary;
+  onOpenTask?: (repoPath: string, taskId: string) => void;
+  summary: AiCenterSummary;
 }
 
-interface DecisionCenterStat {
+interface AiCenterStat {
   id: string;
   labelKey: string;
   value: number;
@@ -59,7 +60,7 @@ const PROJECT_ROW_LIMIT = 6;
 const EXECUTION_ROW_LIMIT = 3;
 
 const PROJECT_STATUS_META: Record<
-  TodoDecisionCenterProjectStatus,
+  AiCenterProjectStatus,
   {
     labelKey: string;
     chipClassName: string;
@@ -93,7 +94,7 @@ const PROJECT_STATUS_META: Record<
   },
 };
 
-const NEXT_ACTION_LABELS: Record<TodoDecisionCenterNextAction, string> = {
+const NEXT_ACTION_LABELS: Record<AiCenterNextAction, string> = {
   'dispatch-ready': 'Dispatch Next',
   idle: 'Idle',
   'monitor-running': 'Monitor Running',
@@ -101,7 +102,7 @@ const NEXT_ACTION_LABELS: Record<TodoDecisionCenterNextAction, string> = {
   'resolve-dependencies': 'Resolve Dependencies',
 };
 
-function getStatClassName(tone: DecisionCenterStat['tone']): string {
+function getStatClassName(tone: AiCenterStat['tone']): string {
   if (tone === 'ready') return 'border-success/26 bg-success/7';
   if (tone === 'warning') return 'border-warning/32 bg-warning/8';
   if (tone === 'live') return 'border-info/28 bg-info/8';
@@ -114,7 +115,7 @@ function getActionLaneClassName(tone: ActionLaneProps['tone']): string {
   return 'border-info/26 bg-info/7';
 }
 
-function DecisionStat({ icon: Icon, labelKey, tone, value }: DecisionCenterStat) {
+function AiCenterStatCard({ icon: Icon, labelKey, tone, value }: AiCenterStat) {
   const { t } = useI18n();
 
   return (
@@ -202,6 +203,23 @@ function TaskItem({
   );
 }
 
+function OpenTaskButton({ onOpen }: { onOpen: () => void }) {
+  const { t } = useI18n();
+
+  return (
+    <Button
+      aria-label={t('Open task')}
+      className="h-6 gap-1 px-2 text-[10px]"
+      onClick={onOpen}
+      size="xs"
+      variant="outline"
+    >
+      <Route className="h-3 w-3" />
+      {t('Open')}
+    </Button>
+  );
+}
+
 function SupportSection({
   children,
   icon: Icon,
@@ -226,15 +244,16 @@ function SupportSection({
   );
 }
 
-export function TodoDecisionCenter({
+export function AiCenterView({
   canDispatchReadyTasks = false,
   onApproveTask,
   onDispatchReadyTasks,
   onFocusTask,
+  onOpenTask,
   summary,
-}: TodoDecisionCenterProps) {
+}: AiCenterViewProps) {
   const { t } = useI18n();
-  const stats = useMemo<DecisionCenterStat[]>(
+  const stats = useMemo<AiCenterStat[]>(
     () => [
       {
         id: 'open',
@@ -297,20 +316,18 @@ export function TodoDecisionCenter({
   return (
     <section
       className="control-panel m-3 mb-0 shrink-0 rounded-xl px-4 py-3"
-      aria-label={t('Decision Center')}
+      aria-label={t('AI Center')}
     >
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="control-panel-muted flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-foreground">
-            <Gauge className="h-4 w-4" />
+            <BrainCircuit className="h-4 w-4" />
           </div>
           <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase text-muted-foreground">
-              {t('Global Todo')}
+              {t('Cross-project AI orchestration')}
             </div>
-            <h2 className="truncate text-sm font-semibold text-foreground">
-              {t('Decision Center')}
-            </h2>
+            <h2 className="truncate text-sm font-semibold text-foreground">{t('AI Center')}</h2>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
@@ -328,7 +345,7 @@ export function TodoDecisionCenter({
 
       <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
         {stats.map((stat) => (
-          <DecisionStat key={stat.id} {...stat} />
+          <AiCenterStatCard key={stat.id} {...stat} />
         ))}
       </div>
 
@@ -368,6 +385,11 @@ export function TodoDecisionCenter({
               visibleDispatchTasks.map((task) => (
                 <TaskItem
                   key={`${task.repoPath}:${task.taskId}`}
+                  action={
+                    onOpenTask ? (
+                      <OpenTaskButton onOpen={() => onOpenTask(task.repoPath, task.taskId)} />
+                    ) : undefined
+                  }
                   chips={[{ text: task.repoName }, { text: `${t('Agent')} ${task.agentLabel}` }]}
                   title={task.title}
                 />
@@ -389,7 +411,9 @@ export function TodoDecisionCenter({
                 const hasApprovalBlocker = task.reasons.includes('approval');
                 const hasDependencyBlocker = task.reasons.includes('dependency');
                 const hasInterventionAction = Boolean(
-                  (hasApprovalBlocker && onApproveTask) || (hasDependencyBlocker && onFocusTask)
+                  onOpenTask ||
+                    (hasApprovalBlocker && onApproveTask) ||
+                    (hasDependencyBlocker && onFocusTask)
                 );
 
                 return (
@@ -398,6 +422,9 @@ export function TodoDecisionCenter({
                     action={
                       hasInterventionAction ? (
                         <>
+                          {onOpenTask ? (
+                            <OpenTaskButton onOpen={() => onOpenTask(task.repoPath, task.taskId)} />
+                          ) : null}
                           {hasApprovalBlocker && onApproveTask ? (
                             <Button
                               aria-label={t('Approve task')}
@@ -452,6 +479,11 @@ export function TodoDecisionCenter({
               visibleRunningTasks.map((task) => (
                 <TaskItem
                   key={`${task.repoPath}:${task.taskId}`}
+                  action={
+                    onOpenTask ? (
+                      <OpenTaskButton onOpen={() => onOpenTask(task.repoPath, task.taskId)} />
+                    ) : undefined
+                  }
                   chips={[{ text: task.repoName }, { text: `${t('Agent')} ${task.agentLabel}` }]}
                   title={task.title}
                 />
@@ -583,7 +615,7 @@ export function TodoDecisionCenter({
         <div className="control-panel-muted mt-3 rounded-lg px-3 py-3">
           <div className="text-xs font-semibold text-foreground">{t('No loaded projects')}</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {t('Select a repository to load its Todo tasks into this center.')}
+            {t('Select a repository to load project tasks into this center.')}
           </div>
         </div>
       )}

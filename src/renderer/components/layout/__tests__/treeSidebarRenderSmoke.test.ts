@@ -1,12 +1,13 @@
 import type { GitWorktree } from '@shared/types';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ALL_GROUP_ID } from '@/App/constants';
 
 vi.mock('lucide-react', () => {
   const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
   return {
+    BrainCircuit: icon,
     ChevronRight: icon,
     Clock: icon,
     EyeOff: icon,
@@ -70,8 +71,8 @@ vi.mock('@/App/storage', async () => {
 });
 
 vi.mock('@/stores/settings', () => ({
-  useSettingsStore: (selector: (state: { hideGroups: boolean }) => unknown) =>
-    selector({ hideGroups: false }),
+  useSettingsStore: (selector: (state: { hideGroups: boolean; todoEnabled: boolean }) => unknown) =>
+    selector({ hideGroups: false, todoEnabled: true }),
 }));
 
 const agentSessionsState = {
@@ -192,7 +193,13 @@ vi.mock('../tree-sidebar/WorktreeTreeItem', () => ({
     React.createElement('div', { 'data-worktree-item': worktree.path }),
 }));
 
+let TreeSidebar: typeof import('../TreeSidebar').TreeSidebar;
+
 describe('TreeSidebar render smoke', () => {
+  beforeAll(async () => {
+    ({ TreeSidebar } = await import('../TreeSidebar'));
+  }, 30000);
+
   beforeEach(() => {
     agentSessionsState.sessions = [];
     agentSessionsState.activeIds = {};
@@ -202,9 +209,8 @@ describe('TreeSidebar render smoke', () => {
     worktreeActivityState.fetchDiffStats.mockReset();
   });
 
-  it('renders a selected repository row without throwing at runtime', async () => {
-    const { TreeSidebar } = await import('../TreeSidebar');
-
+  it('renders a selected repository row without throwing at runtime', () => {
+    const onSwitchTab = vi.fn();
     const markup = renderToStaticMarkup(
       React.createElement(TreeSidebar, {
         repositories: [
@@ -255,16 +261,16 @@ describe('TreeSidebar render smoke', () => {
         })),
         onUpdateGroup: vi.fn(),
         onDeleteGroup: vi.fn(),
+        onSwitchTab,
       })
     );
 
     expect(markup).toContain('data-running-projects="true"');
+    expect(markup).toContain('aria-label="AI Center"');
     expect(markup).not.toContain('data-sidebar-empty="No matches"');
   });
 
-  it('restores persisted repository expansion state on first render', async () => {
-    const { TreeSidebar } = await import('../TreeSidebar');
-
+  it('restores persisted repository expansion state on first render', () => {
     const markup = renderToStaticMarkup(
       React.createElement(TreeSidebar, {
         repositories: [
@@ -322,9 +328,7 @@ describe('TreeSidebar render smoke', () => {
     expect(markup).toContain('data-worktree-item="/repo-a"');
   });
 
-  it('does not show search-empty copy when the active group is empty without a search filter', async () => {
-    const { TreeSidebar } = await import('../TreeSidebar');
-
+  it('does not show search-empty copy when the active group is empty without a search filter', () => {
     const markup = renderToStaticMarkup(
       React.createElement(TreeSidebar, {
         repositories: [

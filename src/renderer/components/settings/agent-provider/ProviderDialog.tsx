@@ -26,7 +26,7 @@ import { getAgentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
 import { AI_PROVIDER_OPTIONS } from '../aiProviderOptions';
-import { canSaveProviderProfileDraft } from './providerDialogModel';
+import { buildProviderProfileFromDraft, canSaveProviderProfileDraft } from './providerDialogModel';
 
 interface ProviderDialogProps {
   open: boolean;
@@ -103,8 +103,7 @@ export function ProviderDialog({
         setDefaultOpusModel(provider.defaultOpusModel ?? '');
         setDefaultHaikuModel(provider.defaultHaikuModel ?? '');
       } else if (initialValues) {
-        // Ignore model shortcuts when saving from the current config.
-        // These fields are only set when users manually add a profile.
+        // Current config snapshots should not copy transient shortcut fields into new profiles.
         const nextProviderId = initialValues.providerId ?? 'claude-code';
         setProviderId(nextProviderId);
         setName(
@@ -137,19 +136,25 @@ export function ProviderDialog({
       return;
     }
 
-    const providerData: AgentProviderProfile = {
-      id: provider?.id ?? crypto.randomUUID(),
-      ...(provider && { enabled: provider.enabled, displayOrder: provider.displayOrder }),
+    const providerData = buildProviderProfileFromDraft({
+      authToken,
+      baseUrl,
+      defaultHaikuModel,
+      defaultOpusModel,
+      defaultSonnetModel,
+      existingProfile: provider
+        ? {
+            displayOrder: provider.displayOrder,
+            enabled: provider.enabled,
+            id: provider.id,
+          }
+        : null,
+      generateId: () => crypto.randomUUID(),
+      model,
+      name,
       providerId,
-      name: name.trim(),
-      baseUrl: baseUrl.trim(),
-      authToken: authToken.trim(),
-      model: model.trim() || undefined,
-      smallFastModel: smallFastModel.trim() || undefined,
-      defaultSonnetModel: defaultSonnetModel.trim() || undefined,
-      defaultOpusModel: defaultOpusModel.trim() || undefined,
-      defaultHaikuModel: defaultHaikuModel.trim() || undefined,
-    };
+      smallFastModel,
+    });
 
     if (isEditing) {
       updateAgentProvider(provider.id, providerData);
@@ -170,6 +175,7 @@ export function ProviderDialog({
   });
   const isClaudeCode = providerId === 'claude-code';
   const isSavingCurrentConfig = !isEditing && source === 'current';
+  const providerTypeLocked = isSavingCurrentConfig;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -197,7 +203,7 @@ export function ProviderDialog({
             <Select
               value={providerId}
               onValueChange={(value) => setProviderId(value as AIProvider)}
-              disabled={isEditing}
+              disabled={providerTypeLocked}
             >
               <SelectTrigger>
                 <SelectValue>{AI_PROVIDER_CATALOG[providerId].label}</SelectValue>

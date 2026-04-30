@@ -140,6 +140,7 @@ import {
   DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
+import { reconcileAgentSessionExit } from './agentSessionExitReconciliation';
 import {
   type AgentSessionLaunchTarget,
   resolveAgentSessionLaunchTarget,
@@ -2304,7 +2305,13 @@ export function AgentPanel({
 
   const handleSessionExit = useCallback(
     (id: string, _groupId?: string) => {
-      markSessionExited(id);
+      void reconcileAgentSessionExit({
+        sessionId: id,
+        getSession: (sessionId) =>
+          useAgentSessionsStore.getState().sessions.find((session) => session.id === sessionId),
+        reconcileSession: window.electronAPI.agentSession.reconcile,
+        markSessionExited,
+      });
     },
     [markSessionExited]
   );

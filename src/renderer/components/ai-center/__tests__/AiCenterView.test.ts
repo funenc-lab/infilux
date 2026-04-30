@@ -4,8 +4,8 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TodoDecisionCenter } from '../TodoDecisionCenter';
-import type { TodoDecisionCenterSummary } from '../todoViewModel';
+import type { AiCenterSummary } from '../../todo/todoViewModel';
+import { AiCenterView } from '../AiCenterView';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -24,7 +24,7 @@ vi.mock('lucide-react', () => {
     CircleDot: icon('CircleDot'),
     ClipboardList: icon('ClipboardList'),
     FolderGit2: icon('FolderGit2'),
-    Gauge: icon('Gauge'),
+    BrainCircuit: icon('BrainCircuit'),
     ListChecks: icon('ListChecks'),
     Play: icon('Play'),
     Route: icon('Route'),
@@ -56,8 +56,8 @@ function renderInteractive(element: React.ReactElement): { container: HTMLDivEle
   return { container, root };
 }
 
-type TodoDecisionCenterTestSummary = TodoDecisionCenterSummary & {
-  execution: TodoDecisionCenterSummary['execution'] & {
+type AiCenterTestSummary = AiCenterSummary & {
+  execution: AiCenterSummary['execution'] & {
     runningTasks: Array<{
       repoPath: string;
       repoName: string;
@@ -71,7 +71,7 @@ type TodoDecisionCenterTestSummary = TodoDecisionCenterSummary & {
   };
 };
 
-const summary: TodoDecisionCenterTestSummary = {
+const summary: AiCenterTestSummary = {
   projectCount: 2,
   totalTaskCount: 7,
   openTaskCount: 5,
@@ -181,17 +181,17 @@ const summary: TodoDecisionCenterTestSummary = {
   ],
 };
 
-describe('TodoDecisionCenter', () => {
+describe('AiCenterView', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
   });
 
-  it('renders global decision metrics and per-project intervention state', () => {
-    const markup = renderToStaticMarkup(React.createElement(TodoDecisionCenter, { summary }));
+  it('renders AI center metrics and per-project intervention state', () => {
+    const markup = renderToStaticMarkup(React.createElement(AiCenterView, { summary }));
 
-    expect(markup).toContain('Decision Center');
-    expect(markup).toContain('Global Todo');
+    expect(markup).toContain('AI Center');
+    expect(markup).toContain('Cross-project AI orchestration');
     expect(markup).toContain('Loaded Projects');
     expect(markup).toContain('Open Tasks');
     expect(markup).toContain('Ready Tasks');
@@ -221,7 +221,7 @@ describe('TodoDecisionCenter', () => {
   it('calls the global dispatch handler from the execution overview action', () => {
     const onDispatchReadyTasks = vi.fn();
     const { container, root } = renderInteractive(
-      React.createElement(TodoDecisionCenter, {
+      React.createElement(AiCenterView, {
         summary,
         canDispatchReadyTasks: true,
         onDispatchReadyTasks,
@@ -249,7 +249,7 @@ describe('TodoDecisionCenter', () => {
     const onApproveTask = vi.fn();
     const onFocusTask = vi.fn();
     const { container, root } = renderInteractive(
-      React.createElement(TodoDecisionCenter, {
+      React.createElement(AiCenterView, {
         summary,
         onApproveTask,
         onFocusTask,
@@ -272,6 +272,36 @@ describe('TodoDecisionCenter', () => {
 
     expect(onApproveTask).toHaveBeenCalledWith('/repo/other', 'task-approval');
     expect(onFocusTask).toHaveBeenCalledWith('/repo/other', 'task-dependency');
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it('opens task details from every global execution lane', () => {
+    const onOpenTask = vi.fn();
+    const { container, root } = renderInteractive(
+      React.createElement(AiCenterView, {
+        summary,
+        onOpenTask,
+      })
+    );
+
+    const openButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button[aria-label="Open task"]')
+    );
+    expect(openButtons).toHaveLength(4);
+
+    act(() => {
+      for (const button of openButtons) {
+        button.click();
+      }
+    });
+
+    expect(onOpenTask).toHaveBeenNthCalledWith(1, '/repo/current', 'task-ready');
+    expect(onOpenTask).toHaveBeenNthCalledWith(2, '/repo/other', 'task-approval');
+    expect(onOpenTask).toHaveBeenNthCalledWith(3, '/repo/other', 'task-dependency');
+    expect(onOpenTask).toHaveBeenNthCalledWith(4, '/repo/current', 'task-running');
 
     act(() => {
       root.unmount();

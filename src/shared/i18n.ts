@@ -2679,8 +2679,10 @@ export const zhTranslations: Record<string, string> = {
   'Refreshing worktrees': '\u6b63\u5728\u5237\u65b0 Worktree',
   'Refresh worktrees': '\u5237\u65b0 Worktree',
   'Collapse worktree sidebar': '\u6536\u8d77 Worktree \u4fa7\u8fb9\u680f',
-  'Decision Center': '\u51b3\u7b56\u4e2d\u5fc3',
-  'Global Todo': '\u5168\u5c40 Todo',
+  'AI Center': 'AI \u667a\u80fd\u4e2d\u5fc3',
+  'Cross-project AI orchestration': '\u8de8\u9879\u76ee AI \u7f16\u6392',
+  'Unable to load AI Center': '\u65e0\u6cd5\u52a0\u8f7d AI \u667a\u80fd\u4e2d\u5fc3',
+  'Loading AI Center': '\u6b63\u5728\u52a0\u8f7d AI \u667a\u80fd\u4e2d\u5fc3',
   'Loaded Projects': '\u5df2\u52a0\u8f7d\u9879\u76ee',
   'Execution Overview': '\u6267\u884c\u6982\u89c8',
   'Dispatch ready tasks': '\u5206\u53d1\u5c31\u7eea\u4efb\u52a1',
@@ -2693,8 +2695,8 @@ export const zhTranslations: Record<string, string> = {
   Approvals: '\u5ba1\u6279',
   Dependencies: '\u4f9d\u8d56',
   'No loaded projects': '\u6682\u65e0\u5df2\u52a0\u8f7d\u9879\u76ee',
-  'Select a repository to load its Todo tasks into this center.':
-    '\u9009\u62e9\u4e00\u4e2a\u4ed3\u5e93\uff0c\u5c06\u5176 Todo \u4efb\u52a1\u52a0\u8f7d\u5230\u8fd9\u4e2a\u4e2d\u5fc3\u3002',
+  'Select a repository to load project tasks into this center.':
+    '\u9009\u62e9\u4e00\u4e2a\u4ed3\u5e93\uff0c\u5c06\u9879\u76ee\u4efb\u52a1\u52a0\u8f7d\u5230\u8fd9\u4e2a\u4e2d\u5fc3\u3002',
   'View session subagents': '\u67e5\u770b\u5f53\u524d\u4f1a\u8bdd\u7684\u5b50 agent',
   'Subagents are not ready yet': '\u5b50 agent \u8fd8\u672a\u51c6\u5907\u597d',
   'Run this session once before opening its subagent window.':

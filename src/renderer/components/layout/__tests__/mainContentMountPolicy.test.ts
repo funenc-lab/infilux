@@ -11,14 +11,17 @@ describe('mainContentMountPolicy', () => {
   it('unmounts non-critical panels when they are inactive', () => {
     expect(shouldKeepMountedTab('source-control')).toBe(false);
     expect(shouldKeepMountedTab('todo')).toBe(false);
+    expect(shouldKeepMountedTab('ai-center')).toBe(false);
     expect(shouldKeepMountedTab('settings')).toBe(false);
     expect(shouldRenderTabPanel('source-control', 'chat')).toBe(false);
+    expect(shouldRenderTabPanel('ai-center', 'todo')).toBe(false);
     expect(shouldRenderTabPanel('settings', 'terminal')).toBe(false);
   });
 
   it('always renders the active panel', () => {
     expect(shouldRenderTabPanel('source-control', 'source-control')).toBe(true);
     expect(shouldRenderTabPanel('todo', 'todo')).toBe(true);
+    expect(shouldRenderTabPanel('ai-center', 'ai-center')).toBe(true);
     expect(shouldRenderTabPanel('settings', 'settings')).toBe(true);
   });
 });

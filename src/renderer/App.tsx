@@ -1434,12 +1434,18 @@ export default function App() {
     if (!isSettingsOpen) return;
     if (!pendingProviderAction) return;
 
+    const pendingActionKind =
+      typeof pendingProviderAction === 'string'
+        ? pendingProviderAction
+        : pendingProviderAction.action;
+    const pendingProviderId =
+      typeof pendingProviderAction === 'string' ? undefined : pendingProviderAction.providerId;
     const eventName =
-      pendingProviderAction === 'preview'
+      pendingActionKind === 'preview'
         ? 'open-settings-provider-preview'
         : 'open-settings-provider-save';
 
-    window.dispatchEvent(new CustomEvent(eventName));
+    window.dispatchEvent(new CustomEvent(eventName, { detail: { providerId: pendingProviderId } }));
     setPendingProviderAction(null);
   }, [
     settingsDisplayMode,
@@ -1516,6 +1522,7 @@ export default function App() {
                 onDeleteGroup={handleDeleteGroup}
                 onMoveToGroup={handleMoveToGroup}
                 onSwitchTab={setActiveTab}
+                isAiCenterActive={activeTab === 'ai-center'}
                 onSwitchWorktreeByPath={handleSwitchWorktreePath}
                 onOpenAgentThread={handleOpenAgentThread}
                 onOpenSubagentTranscript={handleOpenSubagentTranscript}
@@ -1579,6 +1586,7 @@ export default function App() {
                   onDeleteGroup={handleDeleteGroup}
                   onMoveToGroup={handleMoveToGroup}
                   onSwitchTab={setActiveTab}
+                  isAiCenterActive={activeTab === 'ai-center'}
                   onSwitchWorktreeByPath={handleSwitchWorktreePath}
                   isSettingsActive={activeTab === 'settings'}
                   onToggleSettings={toggleSettings}
@@ -1634,6 +1642,7 @@ export default function App() {
                     activeWorktree={activeWorktree}
                     branches={branches}
                     projectName={selectedRepo ? getDisplayPathBasename(selectedRepo) : ''}
+                    repositoryPath={selectedRepo}
                     inactiveRemote={inactiveSelectedRemoteRepo}
                     remoteStatus={selectedRemoteStatus}
                     isLoading={worktreesLoading || shouldShowWorktreePanelLoading}

@@ -220,7 +220,24 @@ export const getStoredTabMap = (): Record<string, TabId> => {
   const saved = localStorage.getItem(STORAGE_KEYS.WORKTREE_TABS);
   if (saved) {
     try {
-      return JSON.parse(saved) as Record<string, TabId>;
+      const parsed = JSON.parse(saved) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {};
+      }
+
+      const normalized: Record<string, TabId> = {};
+      for (const [worktreePath, tabId] of Object.entries(parsed)) {
+        if (typeof tabId !== 'string') {
+          continue;
+        }
+
+        const normalizedTabId = normalizeStoredTabId(tabId);
+        if (normalizedTabId) {
+          normalized[worktreePath] = normalizedTabId;
+        }
+      }
+
+      return normalized;
     } catch {
       return {};
     }
@@ -259,7 +276,20 @@ export const saveWorktreeOrderMap = (orderMap: Record<string, Record<string, num
 };
 
 // Panel tab order: array of TabId
-const VALID_TAB_IDS = new Set<TabId>(DEFAULT_TAB_ORDER);
+const TOP_LEVEL_TAB_IDS = new Set<TabId>(DEFAULT_TAB_ORDER);
+const RESTORABLE_TAB_IDS = new Set<TabId>([...DEFAULT_TAB_ORDER, 'ai-center', 'settings']);
+
+function normalizeStoredTabId(tabId: string): TabId | null {
+  if (tabId === 'global-todo') {
+    return 'ai-center';
+  }
+
+  if (RESTORABLE_TAB_IDS.has(tabId as TabId)) {
+    return tabId as TabId;
+  }
+
+  return null;
+}
 
 const normalizeTabOrder = (order: unknown): TabId[] => {
   if (!Array.isArray(order)) {
@@ -270,7 +300,7 @@ const normalizeTabOrder = (order: unknown): TabId[] => {
   const seen = new Set<TabId>();
 
   for (const id of order) {
-    if (typeof id === 'string' && VALID_TAB_IDS.has(id as TabId)) {
+    if (typeof id === 'string' && TOP_LEVEL_TAB_IDS.has(id as TabId)) {
       const typedId = id as TabId;
       if (!seen.has(typedId)) {
         next.push(typedId);

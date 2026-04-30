@@ -58,20 +58,20 @@ export interface TodoBoardSummary {
   statusCounts: Record<TaskStatus, number>;
 }
 
-export type TodoDecisionCenterProjectStatus = 'blocked' | 'done' | 'idle' | 'ready' | 'running';
+export type AiCenterProjectStatus = 'blocked' | 'done' | 'idle' | 'ready' | 'running';
 
-export interface TodoDecisionCenterProjectInput {
+export interface AiCenterProjectInput {
   repoPath: string;
   tasks: readonly TodoTask[];
   autoExecute?: AutoExecuteState;
   isCurrent?: boolean;
 }
 
-export interface TodoDecisionCenterProjectSummary extends TodoBoardSummary {
+export interface AiCenterProjectSummary extends TodoBoardSummary {
   repoPath: string;
   repoName: string;
   isCurrent: boolean;
-  status: TodoDecisionCenterProjectStatus;
+  status: AiCenterProjectStatus;
   readyTaskCount: number;
   blockedTaskCount: number;
   approvalPendingTaskCount: number;
@@ -80,7 +80,7 @@ export interface TodoDecisionCenterProjectSummary extends TodoBoardSummary {
   autoExecuteRunning: boolean;
 }
 
-export interface TodoDecisionCenterSummary {
+export interface AiCenterSummary {
   projectCount: number;
   totalTaskCount: number;
   openTaskCount: number;
@@ -90,20 +90,20 @@ export interface TodoDecisionCenterSummary {
   dependencyBlockedTaskCount: number;
   runningTaskCount: number;
   runningProjectCount: number;
-  execution: TodoDecisionCenterExecutionSummary;
-  projects: TodoDecisionCenterProjectSummary[];
+  execution: AiCenterExecutionSummary;
+  projects: AiCenterProjectSummary[];
 }
 
-export type TodoDecisionCenterNextAction =
+export type AiCenterNextAction =
   | 'dispatch-ready'
   | 'idle'
   | 'monitor-running'
   | 'request-approval'
   | 'resolve-dependencies';
 
-export type TodoDecisionCenterInterventionReason = 'approval' | 'dependency';
+export type AiCenterInterventionReason = 'approval' | 'dependency';
 
-export interface TodoDecisionCenterDispatchableTask {
+export interface AiCenterDispatchableTask {
   repoPath: string;
   repoName: string;
   isCurrentProject: boolean;
@@ -114,17 +114,17 @@ export interface TodoDecisionCenterDispatchableTask {
   agentLabel: string;
 }
 
-export interface TodoDecisionCenterInterventionTask {
+export interface AiCenterInterventionTask {
   repoPath: string;
   repoName: string;
   isCurrentProject: boolean;
   taskId: string;
   title: string;
-  reasons: TodoDecisionCenterInterventionReason[];
+  reasons: AiCenterInterventionReason[];
   dependencyTaskIds: string[];
 }
 
-export interface TodoDecisionCenterRunningTask {
+export interface AiCenterRunningTask {
   repoPath: string;
   repoName: string;
   isCurrentProject: boolean;
@@ -135,7 +135,7 @@ export interface TodoDecisionCenterRunningTask {
   sessionId?: string;
 }
 
-export interface TodoDecisionCenterAgentLoad {
+export interface AiCenterAgentLoad {
   agentId: string;
   label: string;
   projectCount: number;
@@ -143,12 +143,12 @@ export interface TodoDecisionCenterAgentLoad {
   runningTaskCount: number;
 }
 
-export interface TodoDecisionCenterExecutionSummary {
-  nextAction: TodoDecisionCenterNextAction;
-  dispatchableTasks: TodoDecisionCenterDispatchableTask[];
-  interventionTasks: TodoDecisionCenterInterventionTask[];
-  runningTasks: TodoDecisionCenterRunningTask[];
-  agentLoads: TodoDecisionCenterAgentLoad[];
+export interface AiCenterExecutionSummary {
+  nextAction: AiCenterNextAction;
+  dispatchableTasks: AiCenterDispatchableTask[];
+  interventionTasks: AiCenterInterventionTask[];
+  runningTasks: AiCenterRunningTask[];
+  agentLoads: AiCenterAgentLoad[];
 }
 
 export type AutoExecuteDisabledReason = 'worktree' | 'agents' | 'tasks';
@@ -258,12 +258,12 @@ function getAgentAssignment(task: TodoTask): { agentId: string; agentLabel: stri
   };
 }
 
-function getTodoDecisionCenterProjectStatus(
+function getAiCenterProjectStatus(
   project: Pick<
-    TodoDecisionCenterProjectSummary,
+    AiCenterProjectSummary,
     'autoExecuteRunning' | 'blockedTaskCount' | 'openTaskCount' | 'readyTaskCount'
   >
-): TodoDecisionCenterProjectStatus {
+): AiCenterProjectStatus {
   if (project.autoExecuteRunning) return 'running';
   if (project.blockedTaskCount > 0) return 'blocked';
   if (project.readyTaskCount > 0) return 'ready';
@@ -271,7 +271,7 @@ function getTodoDecisionCenterProjectStatus(
   return 'done';
 }
 
-function getTodoDecisionCenterProjectRank(project: TodoDecisionCenterProjectSummary): number {
+function getAiCenterProjectRank(project: AiCenterProjectSummary): number {
   if (project.isCurrent) return -1;
   if (project.status === 'running') return 0;
   if (project.status === 'blocked') return 1;
@@ -280,12 +280,12 @@ function getTodoDecisionCenterProjectRank(project: TodoDecisionCenterProjectSumm
   return 4;
 }
 
-function buildTodoDecisionCenterProjectSummary({
+function buildAiCenterProjectSummary({
   autoExecute,
   isCurrent = false,
   repoPath,
   tasks,
-}: TodoDecisionCenterProjectInput): TodoDecisionCenterProjectSummary {
+}: AiCenterProjectInput): AiCenterProjectSummary {
   const boardSummary = buildTodoBoardSummary(tasks);
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   let readyTaskCount = 0;
@@ -336,7 +336,7 @@ function buildTodoDecisionCenterProjectSummary({
 
   return {
     ...partialSummary,
-    status: getTodoDecisionCenterProjectStatus(partialSummary),
+    status: getAiCenterProjectStatus(partialSummary),
   };
 }
 
@@ -346,14 +346,14 @@ const PRIORITY_RANK: Record<TaskPriority, number> = {
   low: 2,
 };
 
-function buildTodoDecisionCenterExecutionSummary(
-  projects: readonly TodoDecisionCenterProjectInput[],
-  projectSummaries: readonly TodoDecisionCenterProjectSummary[]
-): TodoDecisionCenterExecutionSummary {
+function buildAiCenterExecutionSummary(
+  projects: readonly AiCenterProjectInput[],
+  projectSummaries: readonly AiCenterProjectSummary[]
+): AiCenterExecutionSummary {
   const summaryByRepoPath = new Map(projectSummaries.map((project) => [project.repoPath, project]));
-  const dispatchableTasks: TodoDecisionCenterDispatchableTask[] = [];
-  const interventionTasks: TodoDecisionCenterInterventionTask[] = [];
-  const runningTasks: TodoDecisionCenterRunningTask[] = [];
+  const dispatchableTasks: AiCenterDispatchableTask[] = [];
+  const interventionTasks: AiCenterInterventionTask[] = [];
+  const runningTasks: AiCenterRunningTask[] = [];
   const agentLoadById = new Map<
     string,
     {
@@ -514,11 +514,9 @@ function buildTodoDecisionCenterExecutionSummary(
   };
 }
 
-export function buildTodoDecisionCenterSummary(
-  projects: readonly TodoDecisionCenterProjectInput[]
-): TodoDecisionCenterSummary {
-  const projectSummaries = projects.map(buildTodoDecisionCenterProjectSummary).sort((a, b) => {
-    const rankDelta = getTodoDecisionCenterProjectRank(a) - getTodoDecisionCenterProjectRank(b);
+export function buildAiCenterSummary(projects: readonly AiCenterProjectInput[]): AiCenterSummary {
+  const projectSummaries = projects.map(buildAiCenterProjectSummary).sort((a, b) => {
+    const rankDelta = getAiCenterProjectRank(a) - getAiCenterProjectRank(b);
     if (rankDelta !== 0) return rankDelta;
     if (a.openTaskCount !== b.openTaskCount) return b.openTaskCount - a.openTaskCount;
     return a.repoName.localeCompare(b.repoName);
@@ -540,7 +538,7 @@ export function buildTodoDecisionCenterSummary(
     ),
     runningTaskCount: projectSummaries.reduce((sum, project) => sum + project.runningTaskCount, 0),
     runningProjectCount: projectSummaries.filter((project) => project.autoExecuteRunning).length,
-    execution: buildTodoDecisionCenterExecutionSummary(projects, projectSummaries),
+    execution: buildAiCenterExecutionSummary(projects, projectSummaries),
     projects: projectSummaries,
   };
 }

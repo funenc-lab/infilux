@@ -67,13 +67,34 @@ describe('SupervisorSessionHost', () => {
     expect(supervisorSessionHostTestDoubles.hasSession).toHaveBeenCalledWith('host-fallback');
   });
 
-  it('preserves dead records without probing the runtime again', async () => {
+  it('revives stale dead records when the supervisor runtime still has the backend session', async () => {
     const host = new SupervisorSessionHost();
     const record = makeRecord({
       lastKnownState: 'dead',
     });
 
+    await expect(host.probeSession(record)).resolves.toBe('live');
+    expect(supervisorSessionHostTestDoubles.hasSession).toHaveBeenCalledWith('backend-1');
+  });
+
+  it('keeps dead records dead when the supervisor runtime session is missing', async () => {
+    const host = new SupervisorSessionHost();
+    const record = makeRecord({
+      lastKnownState: 'dead',
+    });
+    supervisorSessionHostTestDoubles.hasSession.mockResolvedValueOnce(false);
+
     await expect(host.probeSession(record)).resolves.toBe('dead');
-    expect(supervisorSessionHostTestDoubles.hasSession).not.toHaveBeenCalled();
+    expect(supervisorSessionHostTestDoubles.hasSession).toHaveBeenCalledWith('backend-1');
+  });
+
+  it('preserves the previous state when supervisor probing fails', async () => {
+    const host = new SupervisorSessionHost();
+    const record = makeRecord({
+      lastKnownState: 'live',
+    });
+    supervisorSessionHostTestDoubles.hasSession.mockRejectedValueOnce(new Error('probe failed'));
+
+    await expect(host.probeSession(record)).resolves.toBe('live');
   });
 });

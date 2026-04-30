@@ -1,4 +1,4 @@
-import type { PersistentAgentSessionRecord } from '@shared/types';
+import type { PersistentAgentRuntimeState, PersistentAgentSessionRecord } from '@shared/types';
 import {
   supportsAgentCapabilityPolicyLaunch,
   supportsClaudeCapabilityPolicyLaunch,
@@ -101,7 +101,7 @@ interface AgentSessionsState {
   markClaudePolicyStaleGlobally: () => void;
   markClaudePolicyStaleForRepo: (repoPath: string) => void;
   markClaudePolicyStaleForWorktree: (repoPath: string, worktreePath: string) => void;
-  markSessionExited: (id: string) => void;
+  markSessionExited: (id: string, recoveryState?: PersistentAgentRuntimeState) => void;
   setActiveId: (cwd: string, sessionId: string | null) => void;
   focusSession: (sessionId: string) => void;
   reorderSessions: (repoPath: string, cwd: string, fromIndex: number, toIndex: number) => void;
@@ -583,7 +583,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         ),
       })),
 
-    markSessionExited: (id) =>
+    markSessionExited: (id, recoveryState = 'dead') =>
       set((state) => {
         const session = state.sessions.find((item) => item.id === id);
         if (!session) {
@@ -611,7 +611,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
               ? {
                   ...item,
                   backendSessionId: undefined,
-                  recoveryState: 'dead',
+                  recoveryState,
                 }
               : item
           ),

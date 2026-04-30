@@ -160,8 +160,19 @@ const rendererZhTranslations: Record<string, string> = {
   'Auto execute with {{agent}}': decodeEscapedUnicode(
     '\\u4f7f\\u7528 {{agent}} \\u81ea\\u52a8\\u6267\\u884c'
   ),
-  'Decision Center': decodeEscapedUnicode('\\u51b3\\u7b56\\u4e2d\\u5fc3'),
-  'Global Todo': decodeEscapedUnicode('\\u5168\\u5c40\\u5f85\\u529e'),
+  'AI Center': decodeEscapedUnicode('AI \\u667a\\u80fd\\u4e2d\\u5fc3'),
+  'Cross-project AI orchestration': decodeEscapedUnicode('\\u8de8\\u9879\\u76ee AI \\u7f16\\u6392'),
+  'Unable to load AI Center': decodeEscapedUnicode(
+    '\\u65e0\\u6cd5\\u52a0\\u8f7d AI \\u667a\\u80fd\\u4e2d\\u5fc3'
+  ),
+  'Loading AI Center': decodeEscapedUnicode(
+    '\\u6b63\\u5728\\u52a0\\u8f7d AI \\u667a\\u80fd\\u4e2d\\u5fc3'
+  ),
+  'Project Todo': decodeEscapedUnicode('\\u9879\\u76ee\\u5f85\\u529e'),
+  'Current project': decodeEscapedUnicode('\\u5f53\\u524d\\u9879\\u76ee'),
+  'No project selected': decodeEscapedUnicode('\\u672a\\u9009\\u62e9\\u9879\\u76ee'),
+  'Task board': decodeEscapedUnicode('\\u4efb\\u52a1\\u770b\\u677f'),
+  'Unable to load tasks': decodeEscapedUnicode('\\u65e0\\u6cd5\\u52a0\\u8f7d\\u4efb\\u52a1'),
   'Loaded Projects': decodeEscapedUnicode('\\u5df2\\u52a0\\u8f7d\\u9879\\u76ee'),
   Projects: decodeEscapedUnicode('\\u9879\\u76ee'),
   'Open Tasks': decodeEscapedUnicode('\\u672a\\u5b8c\\u6210\\u4efb\\u52a1'),
@@ -174,10 +185,14 @@ const rendererZhTranslations: Record<string, string> = {
   'Request Approval': decodeEscapedUnicode('\\u8bf7\\u6c42\\u5ba1\\u6279'),
   'Resolve Dependencies': decodeEscapedUnicode('\\u5904\\u7406\\u4f9d\\u8d56'),
   Dispatch: decodeEscapedUnicode('\\u6d3e\\u53d1'),
+  Open: decodeEscapedUnicode('\\u6253\\u5f00'),
+  Paused: decodeEscapedUnicode('\\u5df2\\u6682\\u505c'),
   'Dispatch ready tasks': decodeEscapedUnicode('\\u6d3e\\u53d1\\u53ef\\u6267\\u884c\\u4efb\\u52a1'),
   'Ready to Dispatch': decodeEscapedUnicode('\\u53ef\\u6d3e\\u53d1'),
   'Needs Intervention': decodeEscapedUnicode('\\u9700\\u8981\\u5e72\\u9884'),
   'Running Now': decodeEscapedUnicode('\\u6b63\\u5728\\u6267\\u884c'),
+  'Open task': decodeEscapedUnicode('\\u6253\\u5f00\\u4efb\\u52a1'),
+  '{{count}} open': decodeEscapedUnicode('{{count}} \\u4e2a\\u672a\\u5b8c\\u6210'),
   '{{count}} ready': decodeEscapedUnicode('{{count}} \\u4e2a\\u5c31\\u7eea'),
   '{{count}} blocked': decodeEscapedUnicode('{{count}} \\u4e2a\\u963b\\u585e'),
   '{{count}} active': decodeEscapedUnicode('{{count}} \\u4e2a\\u6d3b\\u52a8'),
@@ -190,8 +205,8 @@ const rendererZhTranslations: Record<string, string> = {
   'No agent load': decodeEscapedUnicode('\\u6682\\u65e0 Agent \\u8d1f\\u8f7d'),
   'Project State': decodeEscapedUnicode('\\u9879\\u76ee\\u72b6\\u6001'),
   'No loaded projects': decodeEscapedUnicode('\\u6682\\u65e0\\u5df2\\u52a0\\u8f7d\\u9879\\u76ee'),
-  'Select a repository to load its Todo tasks into this center.': decodeEscapedUnicode(
-    '\\u9009\\u62e9\\u4e00\\u4e2a\\u4ed3\\u5e93\\u540e\\uff0c\\u5176 Todo \\u4efb\\u52a1\\u4f1a\\u52a0\\u8f7d\\u5230\\u6b64\\u4e2d\\u5fc3\\u3002'
+  'Select a repository to load project tasks into this center.': decodeEscapedUnicode(
+    '\\u9009\\u62e9\\u4e00\\u4e2a\\u4ed3\\u5e93\\u540e\\uff0c\\u9879\\u76ee\\u4efb\\u52a1\\u4f1a\\u52a0\\u8f7d\\u5230\\u6b64\\u4e2d\\u5fc3\\u3002'
   ),
   'Auto Select': decodeEscapedUnicode('\\u81ea\\u52a8\\u9009\\u62e9'),
   'Executing with {{agent}}...': decodeEscapedUnicode(

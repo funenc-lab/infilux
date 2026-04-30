@@ -47,6 +47,16 @@ describe('agent provider adapter policy', () => {
     expect(readFileSync(agentProviderEntryPath, 'utf8')).not.toContain('claude-provider');
   });
 
+  it('keeps provider profile management ahead of the Claude-only bridge controls', () => {
+    expect(integrationSettingsSource.indexOf("t('Agent Providers')")).toBeGreaterThanOrEqual(0);
+    expect(integrationSettingsSource.indexOf("t('Claude Code IDE Bridge')")).toBeGreaterThanOrEqual(
+      0
+    );
+    expect(integrationSettingsSource.indexOf("t('Agent Providers')")).toBeLessThan(
+      integrationSettingsSource.indexOf("t('Claude Code IDE Bridge')")
+    );
+  });
+
   it('keeps the settings provider list free of direct Claude bridge calls', () => {
     expect(providerListSource).toContain('agentProviderProfileAdapter');
     expect(providerListSource).not.toContain('window.electronAPI.claudeProvider');
@@ -62,8 +72,15 @@ describe('agent provider adapter policy', () => {
     expect(providerDialogSource).toContain('Manual provider settings are for custom gateways');
     expect(providerDialogSource).toContain('buildDefaultProviderProfileName');
     expect(providerDialogSource).toContain('Provider Type');
+    expect(providerDialogSource).not.toContain('disabled={isEditing}');
     expect(providerDialogSource).not.toContain('ClaudeProvider');
     expect(providerListSource).not.toContain('ClaudeProvider');
+  });
+
+  it('lets provider list inspect the selected provider type instead of defaulting to Claude', () => {
+    expect(providerListSource).toContain('selectedProviderId');
+    expect(providerListSource).toContain('queryKey(repoPath, selectedProviderId)');
+    expect(providerListSource).toContain('readCurrent(repoPath, selectedProviderId)');
   });
 
   it('makes detected CLI settings the primary provider profile workflow', () => {
@@ -101,5 +118,14 @@ describe('agent provider adapter policy', () => {
     expect(providerListenerSource).toContain('agentProviderProfileAdapter');
     expect(providerListenerSource).not.toContain('window.electronAPI.claudeProvider');
     expect(providerListenerSource).not.toContain('isClaudeProviderMatch');
+  });
+
+  it('preserves the detected provider type when opening provider actions from notifications', () => {
+    expect(providerListenerSource).toContain(
+      'const providerId = data.providerId ?? extracted.providerId'
+    );
+    expect(appSource).toContain('detail: { providerId: pendingProviderId }');
+    expect(providerListSource).toContain('resolveProviderIdFromActionEvent');
+    expect(providerListSource).toContain('setSelectedProviderId(providerId)');
   });
 });

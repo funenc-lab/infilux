@@ -18,6 +18,7 @@ vi.mock('lucide-react', () => {
   return {
     AlertTriangle: icon('AlertTriangle'),
     FileCode: icon('FileCode'),
+    KanbanSquare: icon('KanbanSquare'),
     RefreshCw: icon('RefreshCw'),
   };
 });
@@ -59,7 +60,7 @@ vi.mock('../useDeferredComponentLoader', () => ({
   useDeferredComponentLoader: () => loaderMocks.state,
 }));
 
-describe('Deferred file panel load errors', () => {
+describe('Deferred panel load states', () => {
   beforeEach(() => {
     loaderMocks.state.Component = null;
     loaderMocks.state.error = new Error('chunk unavailable');
@@ -101,5 +102,39 @@ describe('Deferred file panel load errors', () => {
     expect(markup).toContain('chunk unavailable');
     expect(markup).toContain('Retry');
     expect(markup).not.toContain('Preparing active file workspace');
+  });
+
+  it('shows a recoverable error instead of the TodoPanel loading placeholder', async () => {
+    const { DeferredTodoPanel } = await import('../DeferredTodoPanel');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(DeferredTodoPanel, {
+        shouldLoad: true,
+        repoPath: '/repo',
+      })
+    );
+
+    expect(markup).toContain('Unable to load tasks');
+    expect(markup).toContain('Unable to load resources.');
+    expect(markup).toContain('chunk unavailable');
+    expect(markup).toContain('Retry');
+    expect(markup).not.toContain('Loading tasks');
+  });
+
+  it('shows the TodoPanel loading fallback while the chunk is pending', async () => {
+    loaderMocks.state.error = null;
+    const { DeferredTodoPanel } = await import('../DeferredTodoPanel');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(DeferredTodoPanel, {
+        shouldLoad: true,
+        repoPath: '/repo',
+      })
+    );
+
+    expect(markup).toContain('Task board');
+    expect(markup).toContain('Loading tasks');
+    expect(markup).not.toContain('Unable to load tasks');
+    expect(markup).not.toContain('Preparing the kanban board');
   });
 });

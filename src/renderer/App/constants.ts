@@ -4,7 +4,14 @@ import type { WorkspaceKind } from '@shared/types';
 export const panelTransition = { type: 'spring' as const, stiffness: 400, damping: 30 };
 
 // Tab types
-export type TabId = 'chat' | 'file' | 'terminal' | 'source-control' | 'todo' | 'settings';
+export type TabId =
+  | 'chat'
+  | 'file'
+  | 'terminal'
+  | 'source-control'
+  | 'todo'
+  | 'ai-center'
+  | 'settings';
 
 // Tab metadata configuration
 export interface TabConfig {

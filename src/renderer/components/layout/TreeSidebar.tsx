@@ -6,6 +6,7 @@ import type {
 } from '@shared/types';
 import { getDisplayPath, getDisplayPathBasename, isWslUncPath } from '@shared/utils/path';
 import {
+  BrainCircuit,
   ChevronRight,
   Clock,
   EyeOff,
@@ -86,6 +87,7 @@ import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummary';
+import { SidebarAiCenterButton } from './SidebarAiCenterButton';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 import { shouldPollSidebarDiffStats } from './sidebarDiffPollingPolicy';
@@ -172,6 +174,7 @@ export interface TreeSidebarProps {
   onDeleteGroup: (groupId: string) => void;
   onMoveToGroup?: (repoPath: string, groupId: string | null) => void;
   onSwitchTab?: (tab: TabId) => void;
+  isAiCenterActive?: boolean;
   onSwitchWorktreeByPath?: (path: string) => Promise<void> | void;
   onOpenAgentThread?: (worktree: GitWorktree, sessionId: string) => void;
   onOpenSubagentTranscript?: (
@@ -230,6 +233,7 @@ export function TreeSidebar({
   onDeleteGroup,
   onMoveToGroup,
   onSwitchTab,
+  isAiCenterActive = false,
   onSwitchWorktreeByPath,
   onOpenAgentThread: _onOpenAgentThread,
   onOpenSubagentTranscript: _onOpenSubagentTranscript,
@@ -247,6 +251,7 @@ export function TreeSidebar({
 }: TreeSidebarProps) {
   const { t, tNode } = useI18n();
   const hideGroups = useSettingsStore((s) => s.hideGroups);
+  const todoEnabled = useSettingsStore((s) => s.todoEnabled);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAgentWorktreesOnly, setShowAgentWorktreesOnly] = useState(false);
   const [agentFilterCreatedWorktrees, setAgentFilterCreatedWorktrees] = useState<
@@ -274,13 +279,30 @@ export function TreeSidebar({
   }, []);
 
   const activeGroup = groups.find((g) => g.id === activeGroupId);
+  const [repoSettingsMap, setRepoSettingsMap] = useState<Record<string, RepositorySettings>>(
+    getStoredRepositorySettings
+  );
+  const refreshRepoSettings = useCallback(() => {
+    setRepoSettingsMap(getStoredRepositorySettings());
+  }, []);
+  useEffect(() => {
+    refreshRepoSettings();
+  }, [refreshRepoSettings]);
+  const visibleRepos = useMemo(
+    () =>
+      repositories.filter((repo) => {
+        const settings = repoSettingsMap[normalizePath(repo.path)] || DEFAULT_REPOSITORY_SETTINGS;
+        return !settings.hidden;
+      }),
+    [repositories, repoSettingsMap]
+  );
   const repositoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const group of groups) {
-      counts[group.id] = repositories.filter((r) => r.groupId === group.id).length;
+      counts[group.id] = visibleRepos.filter((repo) => repo.groupId === group.id).length;
     }
     return counts;
-  }, [groups, repositories]);
+  }, [groups, visibleRepos]);
   const safeTempWorkspaces = useMemo(
     () => sanitizeTempWorkspaceItems(tempWorkspaces),
     [tempWorkspaces]
@@ -305,10 +327,10 @@ export function TreeSidebar({
   const expandedRepos = useMemo(() => new Set(expandedRepoList), [expandedRepoList]);
   const expandedRepoPaths = useMemo(
     () =>
-      repositories
+      visibleRepos
         .filter((repo) => expandedRepos.has(normalizePath(repo.path)))
         .map((repo) => repo.path),
-    [expandedRepos, repositories]
+    [expandedRepos, visibleRepos]
   );
 
   useEffect(() => {
@@ -374,17 +396,6 @@ export function TreeSidebar({
   const markClaudePolicyStaleForWorktree = useAgentSessionsStore(
     (s) => s.markClaudePolicyStaleForWorktree
   );
-
-  // Cached repository settings to avoid repeated localStorage reads
-  const [repoSettingsMap, setRepoSettingsMap] = useState<Record<string, RepositorySettings>>(
-    getStoredRepositorySettings
-  );
-  const refreshRepoSettings = useCallback(() => {
-    setRepoSettingsMap(getStoredRepositorySettings());
-  }, []);
-  useEffect(() => {
-    refreshRepoSettings();
-  }, [refreshRepoSettings]);
 
   // Create worktree dialog (triggered from context menu)
   const [createWorktreeDialogOpen, setCreateWorktreeDialogOpen] = useState(false);
@@ -794,7 +805,7 @@ export function TreeSidebar({
   };
 
   /**
-   * 解析搜索语法：当前仅支持 `:active`，其余内容继续作为仓库 / worktree 搜索词。
+   * Parses sidebar search tokens. Only `:active` is special; the rest stays as repository or worktree text.
    */
   const parsedSearch = useMemo(() => {
     const tokens = searchQuery.trim().split(/\s+/).filter(Boolean);
@@ -822,14 +833,6 @@ export function TreeSidebar({
     }
     return map;
   }, [repositories]);
-  const visibleRepos = useMemo(
-    () =>
-      repositories.filter((repo) => {
-        const settings = repoSettingsMap[normalizePath(repo.path)] || DEFAULT_REPOSITORY_SETTINGS;
-        return !settings.hidden;
-      }),
-    [repositories, repoSettingsMap]
-  );
   const searchableRepos = useMemo(
     () =>
       activeGroupId === ALL_GROUP_ID
@@ -1341,6 +1344,10 @@ export function TreeSidebar({
   const refreshProjectsLabel = isToolbarRefreshActive
     ? t('Refreshing projects')
     : t('Refresh projects');
+  const handleOpenAiCenter = useCallback(() => {
+    onSwitchTab?.('ai-center');
+  }, [onSwitchTab]);
+  const showAiCenterEntry = todoEnabled && Boolean(onSwitchTab);
 
   const sidebarBody = collapsed ? (
     <CollapsedSidebarRail
@@ -1348,6 +1355,15 @@ export function TreeSidebar({
       triggerTitle={t('Tree sidebar actions')}
       icon={GitBranch}
       popupClassName="min-w-[208px]"
+      contextAction={
+        <RunningProjectsPopover
+          onSelectWorktreeByPath={onSwitchWorktreeByPath || (() => {})}
+          onSwitchTab={onSwitchTab}
+          tooltipSide="inline-end"
+          tooltipAlign="center"
+          tooltipSideOffset={8}
+        />
+      }
       primaryAction={{
         id: 'expand-sidebar',
         label: t('Expand Sidebar'),
@@ -1356,12 +1372,23 @@ export function TreeSidebar({
         disabled: !onExpand,
       }}
       secondaryAction={{
-        id: 'manage-repositories',
-        label: t('Repositories'),
-        icon: List,
-        onSelect: () => setRepoManagerOpen(true),
+        id: showAiCenterEntry ? 'ai-center' : 'manage-repositories',
+        label: showAiCenterEntry ? t('AI Center') : t('Repositories'),
+        icon: showAiCenterEntry ? BrainCircuit : List,
+        onSelect: showAiCenterEntry ? handleOpenAiCenter : () => setRepoManagerOpen(true),
+        active: showAiCenterEntry ? isAiCenterActive : false,
       }}
       actions={[
+        ...(showAiCenterEntry
+          ? [
+              {
+                id: 'manage-repositories',
+                label: t('Repositories'),
+                icon: List,
+                onSelect: () => setRepoManagerOpen(true),
+              },
+            ]
+          : []),
         {
           id: 'refresh-tree-sidebar',
           label: t('Refresh'),
@@ -1391,11 +1418,28 @@ export function TreeSidebar({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
+          {onCollapse ? (
+            <div className="control-sidebar-toolbar-group" data-role="panel">
+              <SidebarToolbarTooltip label={t('Collapse sidebar')}>
+                <button
+                  type="button"
+                  className="control-sidebar-toolbutton no-drag"
+                  onClick={onCollapse}
+                  aria-label={t('Collapse sidebar')}
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+          ) : null}
           <div className="control-sidebar-toolbar-group" data-role="context">
             <RunningProjectsPopover
               onSelectWorktreeByPath={onSwitchWorktreeByPath || (() => {})}
               onSwitchTab={onSwitchTab}
             />
+            {showAiCenterEntry ? (
+              <SidebarAiCenterButton active={isAiCenterActive} onSelect={handleOpenAiCenter} />
+            ) : null}
             {/* Manage repositories button */}
             <SidebarToolbarTooltip label={t('Manage repositories')}>
               <button
@@ -1428,20 +1472,6 @@ export function TreeSidebar({
               </button>
             </SidebarToolbarTooltip>
           </div>
-          {onCollapse ? (
-            <div className="control-sidebar-toolbar-group" data-role="panel">
-              <SidebarToolbarTooltip label={t('Collapse sidebar')}>
-                <button
-                  type="button"
-                  className="control-sidebar-toolbutton no-drag"
-                  onClick={onCollapse}
-                  aria-label={t('Collapse sidebar')}
-                >
-                  <PanelLeftClose className="h-3.5 w-3.5" />
-                </button>
-              </SidebarToolbarTooltip>
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -1451,7 +1481,7 @@ export function TreeSidebar({
             groups={groups}
             activeGroupId={activeGroupId}
             repositoryCounts={repositoryCounts}
-            totalCount={repositories.length}
+            totalCount={visibleRepos.length}
             onSelectGroup={onSwitchGroup}
             onEditGroup={() => setEditGroupDialogOpen(true)}
             onAddGroup={() => setCreateGroupDialogOpen(true)}
@@ -1624,7 +1654,7 @@ export function TreeSidebar({
           </div>
         )}
 
-        {repositories.length === 0 ? (
+        {visibleRepos.length === 0 ? (
           <div className="flex h-full items-start justify-start px-2 py-3">
             <SidebarEmptyState
               icon={<FolderGit2 className="h-4.5 w-4.5" />}
@@ -1641,7 +1671,7 @@ export function TreeSidebar({
                   }}
                   variant="default"
                   size="sm"
-                  className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
+                  className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-normal"
                 >
                   <Plus className="h-4 w-4" />
                   {t('Add Repository')}
@@ -2041,7 +2071,12 @@ export function TreeSidebar({
       {repoSettingsTarget && (
         <RepositorySettingsDialog
           open={repoSettingsOpen}
-          onOpenChange={setRepoSettingsOpen}
+          onOpenChange={(nextOpen) => {
+            setRepoSettingsOpen(nextOpen);
+            if (!nextOpen) {
+              refreshRepoSettings();
+            }
+          }}
           repoPath={repoSettingsTarget.path}
           repoName={repoSettingsTarget.name}
         />

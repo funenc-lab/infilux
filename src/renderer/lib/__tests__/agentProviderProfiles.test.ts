@@ -9,9 +9,10 @@ import {
   type AgentProviderProfileAdapter,
   type AgentProviderProfileSnapshot,
   agentProviderProfileRegistry,
-  buildClaudeCodeProviderPreview,
   createAgentProviderProfileRegistryFacade,
   createClaudeCodeProviderProfileAdapter,
+  createCodexCliProviderProfileAdapter,
+  createGeminiCliProviderProfileAdapter,
   getAgentProviderProfileAdapter,
 } from '../agentProviderProfiles';
 
@@ -140,26 +141,164 @@ describe('agent provider profiles', () => {
     expect(adapter.consumeSwitch(provider)).toBe(true);
   });
 
-  it('builds Claude Code previews without leaking unrelated settings fields', () => {
+  it('ignores non-Claude generic settings events in the Claude Code adapter', () => {
+    const settingsChangedCallbacks: Array<(snapshot: ClaudeProviderSnapshot) => void> = [];
+    const adapter = createClaudeCodeProviderProfileAdapter({
+      readSettings: vi.fn(async () => ({
+        settings: null,
+        extracted: null,
+      })),
+      apply: vi.fn(async () => true),
+      onSettingsChanged: vi.fn((callback: (snapshot: ClaudeProviderSnapshot) => void) => {
+        settingsChangedCallbacks.push(callback);
+        return () => undefined;
+      }),
+    });
+    const callback = vi.fn();
+
+    adapter.subscribeToExternalChanges('/repo', callback);
+    const settingsChangedCallback = settingsChangedCallbacks[0];
+    if (!settingsChangedCallback) {
+      throw new Error('Expected settings change callback to be registered');
+    }
+    settingsChangedCallback({
+      providerId: 'codex-cli',
+      settings: null,
+      extracted: {
+        providerId: 'codex-cli',
+        baseUrl: 'https://api.openai.com/v1',
+        authToken: 'codex-token',
+      },
+      supported: true,
+    });
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('builds Claude Code previews without leaking secrets or unrelated settings fields', () => {
     const settings: ClaudeSettings = {
       env: {
         ANTHROPIC_BASE_URL: 'https://api.example.com',
-        ANTHROPIC_AUTH_TOKEN: 'secret-token',
+        ANTHROPIC_AUTH_TOKEN: '[redacted]',
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet',
         EXTRA_FIELD: 'ignored',
       },
       hooks: { Stop: [] },
     };
 
-    expect(buildClaudeCodeProviderPreview(settings)).toEqual({
+    expect(getAgentProviderProfileAdapter('claude-code').buildPreview(settings)).toEqual({
       env: {
         ANTHROPIC_BASE_URL: 'https://api.example.com',
-        ANTHROPIC_AUTH_TOKEN: 'secret-token',
+        ANTHROPIC_AUTH_TOKEN: '[redacted]',
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet',
         ANTHROPIC_DEFAULT_OPUS_MODEL: undefined,
         ANTHROPIC_DEFAULT_HAIKU_MODEL: undefined,
       },
     });
+  });
+
+  it('adapts Codex CLI provider IO behind the generic adapter contract', async () => {
+    const readSnapshot: TestProviderSnapshot = {
+      providerId: 'codex-cli',
+      settings: { configToml: 'model_provider = "infilux_provider"' },
+      extracted: {
+        providerId: 'codex-cli',
+        baseUrl: 'https://api.openai.com/v1',
+        authToken: 'codex-token',
+      },
+      supported: true,
+    };
+    const readSettings = vi.fn(async (): Promise<TestProviderSnapshot> => readSnapshot);
+    const apply = vi.fn(async (): Promise<boolean> => true);
+    const settingsChangedCallbacks: Array<(snapshot: TestProviderSnapshot) => void> = [];
+    const onSettingsChanged = vi.fn((callback: (snapshot: TestProviderSnapshot) => void) => {
+      settingsChangedCallbacks.push(callback);
+      return () => undefined;
+    });
+    const codexProfile: AgentProviderProfile = {
+      id: 'codex-provider',
+      name: 'Codex Provider',
+      providerId: 'codex-cli',
+      baseUrl: 'https://api.openai.com/v1',
+      authToken: 'codex-token',
+    };
+    const adapter = createCodexCliProviderProfileAdapter({
+      readSettings,
+      apply,
+      onSettingsChanged,
+    });
+    const callback = vi.fn();
+
+    await expect(adapter.readCurrent('/repo')).resolves.toEqual(readSnapshot);
+    await expect(adapter.apply('/repo', codexProfile)).resolves.toBe(true);
+    adapter.subscribeToExternalChanges('/repo', callback);
+
+    expect(adapter.id).toBe('codex-cli');
+    expect(adapter.supportsProfiles).toBe(true);
+    expect(adapter.queryKey('/repo')).toEqual(['agent-provider-settings', 'codex-cli', '/repo']);
+    expect(adapter.supportsSession({ agentId: 'codex', agentCommand: 'codex' })).toBe(true);
+    expect(adapter.supportsSession({ agentId: 'claude', agentCommand: 'claude' })).toBe(false);
+    expect(adapter.isActiveProfile(codexProfile, readSnapshot.extracted)).toBe(true);
+    expect(readSettings).toHaveBeenCalledWith('/repo', 'codex-cli');
+    expect(apply).toHaveBeenCalledWith('/repo', codexProfile);
+    const settingsChangedCallback = settingsChangedCallbacks[0];
+    if (!settingsChangedCallback) {
+      throw new Error('Expected settings change callback to be registered');
+    }
+    settingsChangedCallback(readSnapshot);
+    expect(callback).toHaveBeenCalledWith(readSnapshot);
+  });
+
+  it('adapts Gemini CLI provider IO behind the generic adapter contract', async () => {
+    const readSnapshot: TestProviderSnapshot = {
+      providerId: 'gemini-cli',
+      settings: { envText: 'GEMINI_API_KEY="gemini-token"' },
+      extracted: {
+        providerId: 'gemini-cli',
+        baseUrl: 'https://generativelanguage.googleapis.com',
+        authToken: 'gemini-token',
+      },
+      supported: true,
+    };
+    const readSettings = vi.fn(async (): Promise<TestProviderSnapshot> => readSnapshot);
+    const apply = vi.fn(async (): Promise<boolean> => true);
+    const settingsChangedCallbacks: Array<(snapshot: TestProviderSnapshot) => void> = [];
+    const onSettingsChanged = vi.fn((callback: (snapshot: TestProviderSnapshot) => void) => {
+      settingsChangedCallbacks.push(callback);
+      return () => undefined;
+    });
+    const geminiProfile: AgentProviderProfile = {
+      id: 'gemini-provider',
+      name: 'Gemini Provider',
+      providerId: 'gemini-cli',
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      authToken: 'gemini-token',
+    };
+    const adapter = createGeminiCliProviderProfileAdapter({
+      readSettings,
+      apply,
+      onSettingsChanged,
+    });
+    const callback = vi.fn();
+
+    await expect(adapter.readCurrent('/repo')).resolves.toEqual(readSnapshot);
+    await expect(adapter.apply('/repo', geminiProfile)).resolves.toBe(true);
+    adapter.subscribeToExternalChanges('/repo', callback);
+
+    expect(adapter.id).toBe('gemini-cli');
+    expect(adapter.supportsProfiles).toBe(true);
+    expect(adapter.queryKey('/repo')).toEqual(['agent-provider-settings', 'gemini-cli', '/repo']);
+    expect(adapter.supportsSession({ agentId: 'gemini', agentCommand: 'gemini' })).toBe(true);
+    expect(adapter.supportsSession({ agentId: 'codex', agentCommand: 'codex' })).toBe(false);
+    expect(adapter.isActiveProfile(geminiProfile, readSnapshot.extracted)).toBe(true);
+    expect(readSettings).toHaveBeenCalledWith('/repo', 'gemini-cli');
+    expect(apply).toHaveBeenCalledWith('/repo', geminiProfile);
+    const settingsChangedCallback = settingsChangedCallbacks[0];
+    if (!settingsChangedCallback) {
+      throw new Error('Expected settings change callback to be registered');
+    }
+    settingsChangedCallback(readSnapshot);
+    expect(callback).toHaveBeenCalledWith(readSnapshot);
   });
 
   it('registers every catalog provider behind an explicit adapter contract', async () => {
@@ -182,15 +321,24 @@ describe('agent provider profiles', () => {
     };
     const codexAdapter = getAgentProviderProfileAdapter('codex-cli');
 
-    expect(codexAdapter.supportsProfiles).toBe(false);
-    expect(codexAdapter.supportsSession({ agentId: 'codex', agentCommand: 'codex' })).toBe(false);
-    await expect(codexAdapter.readCurrent('/repo')).resolves.toEqual({
-      providerId: 'codex-cli',
-      settings: null,
-      extracted: null,
-      supported: false,
-    });
-    await expect(codexAdapter.apply('/repo', codexProfile)).resolves.toBe(false);
+    expect(codexAdapter.supportsProfiles).toBe(true);
+    expect(codexAdapter.supportsSession({ agentId: 'codex', agentCommand: 'codex' })).toBe(true);
+    expect(codexAdapter.supportsSession({ agentId: 'gemini', agentCommand: 'gemini' })).toBe(false);
+    expect(codexAdapter.isActiveProfile(codexProfile, codexProfile)).toBe(true);
+
+    const geminiProfile: AgentProviderProfile = {
+      id: 'gemini-provider',
+      name: 'Gemini Provider',
+      providerId: 'gemini-cli',
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      authToken: 'token',
+    };
+    const geminiAdapter = getAgentProviderProfileAdapter('gemini-cli');
+
+    expect(geminiAdapter.supportsProfiles).toBe(true);
+    expect(geminiAdapter.supportsSession({ agentId: 'gemini', agentCommand: 'gemini' })).toBe(true);
+    expect(geminiAdapter.supportsSession({ agentId: 'codex', agentCommand: 'codex' })).toBe(false);
+    expect(geminiAdapter.isActiveProfile(geminiProfile, geminiProfile)).toBe(true);
   });
 
   it('uses the registry facade to detect the current config across supported provider adapters', async () => {
@@ -215,11 +363,13 @@ describe('agent provider profiles', () => {
     });
     const geminiHarness = createTestAdapterHarness({
       providerId: 'gemini-cli',
-      supportsProfiles: false,
+      supportsProfiles: true,
       snapshot: {
-        settings: null,
-        extracted: null,
-        supported: false,
+        settings: { provider: 'gemini' },
+        extracted: {
+          baseUrl: 'https://generativelanguage.googleapis.com',
+          authToken: 'gemini-token',
+        },
       },
     });
     const facade = createAgentProviderProfileRegistryFacade([
@@ -247,7 +397,102 @@ describe('agent provider profiles', () => {
     ]);
     expect(claudeHarness.adapter.readCurrent).toHaveBeenCalledWith('/repo');
     expect(codexHarness.adapter.readCurrent).toHaveBeenCalledWith('/repo');
-    expect(geminiHarness.adapter.readCurrent).not.toHaveBeenCalled();
+    expect(geminiHarness.adapter.readCurrent).toHaveBeenCalledWith('/repo');
+  });
+
+  it('lists every supported provider config instead of collapsing detection to the first hit', async () => {
+    const claudeHarness = createTestAdapterHarness({
+      providerId: 'claude-code',
+      supportsProfiles: true,
+      snapshot: {
+        settings: { provider: 'claude' },
+        extracted: {
+          baseUrl: 'https://api.anthropic.com',
+          authToken: 'claude-token',
+        },
+      },
+    });
+    const codexHarness = createTestAdapterHarness({
+      providerId: 'codex-cli',
+      supportsProfiles: true,
+      snapshot: {
+        settings: { provider: 'codex' },
+        extracted: {
+          baseUrl: 'https://api.openai.com/v1',
+          authToken: 'codex-token',
+        },
+      },
+    });
+    const cursorHarness = createTestAdapterHarness({
+      providerId: 'cursor-cli',
+      supportsProfiles: false,
+      snapshot: {
+        settings: null,
+        extracted: null,
+        supported: false,
+      },
+    });
+    const facade = createAgentProviderProfileRegistryFacade([
+      claudeHarness.adapter,
+      codexHarness.adapter,
+      cursorHarness.adapter,
+    ]);
+
+    await expect(facade.readAllCurrent('/repo')).resolves.toEqual([
+      {
+        providerId: 'claude-code',
+        supported: true,
+        settings: { provider: 'claude' },
+        extracted: {
+          providerId: 'claude-code',
+          baseUrl: 'https://api.anthropic.com',
+          authToken: 'claude-token',
+        },
+      },
+      {
+        providerId: 'codex-cli',
+        supported: true,
+        settings: { provider: 'codex' },
+        extracted: {
+          providerId: 'codex-cli',
+          baseUrl: 'https://api.openai.com/v1',
+          authToken: 'codex-token',
+        },
+      },
+    ]);
+    expect(cursorHarness.adapter.readCurrent).not.toHaveBeenCalled();
+  });
+
+  it('redacts generic provider preview secrets', () => {
+    const codexAdapter = getAgentProviderProfileAdapter('codex-cli');
+    const geminiAdapter = getAgentProviderProfileAdapter('gemini-cli');
+
+    expect(
+      codexAdapter.buildPreview({
+        configToml: [
+          'model_provider = "infilux_provider"',
+          'experimental_bearer_token = "codex-token"',
+        ].join('\n'),
+      })
+    ).toEqual({
+      configToml: [
+        'model_provider = "infilux_provider"',
+        'experimental_bearer_token = "[redacted]"',
+      ].join('\n'),
+    });
+    expect(
+      geminiAdapter.buildPreview({
+        envText: [
+          'GEMINI_API_KEY="gemini-token"',
+          'GOOGLE_GEMINI_BASE_URL="https://api.example.com"',
+        ].join('\n'),
+      })
+    ).toEqual({
+      envText: [
+        'GEMINI_API_KEY="[redacted]"',
+        'GOOGLE_GEMINI_BASE_URL="https://api.example.com"',
+      ].join('\n'),
+    });
   });
 
   it('normalizes registry change events and only subscribes supported provider adapters', () => {
@@ -269,11 +514,10 @@ describe('agent provider profiles', () => {
     });
     const geminiHarness = createTestAdapterHarness({
       providerId: 'gemini-cli',
-      supportsProfiles: false,
+      supportsProfiles: true,
       snapshot: {
         settings: null,
         extracted: null,
-        supported: false,
       },
     });
     const callback = vi.fn();
@@ -310,12 +554,15 @@ describe('agent provider profiles', () => {
       '/repo',
       expect.any(Function)
     );
-    expect(geminiHarness.adapter.subscribeToExternalChanges).not.toHaveBeenCalled();
+    expect(geminiHarness.adapter.subscribeToExternalChanges).toHaveBeenCalledWith(
+      '/repo',
+      expect.any(Function)
+    );
 
     cleanup();
 
     expect(claudeHarness.cleanup).toHaveBeenCalledTimes(1);
     expect(codexHarness.cleanup).toHaveBeenCalledTimes(1);
-    expect(geminiHarness.cleanup).not.toHaveBeenCalled();
+    expect(geminiHarness.cleanup).toHaveBeenCalledTimes(1);
   });
 });

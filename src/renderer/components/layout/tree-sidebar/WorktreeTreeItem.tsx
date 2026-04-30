@@ -23,7 +23,8 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
-import { buildWorktreeActivitySummary, buildWorktreeInlineItems } from '../worktreeRowSignals';
+import { useCompletedWorktreeActivityClear } from '../useCompletedWorktreeActivityClear';
+import { buildWorktreeInlineItems } from '../worktreeRowSignals';
 
 const DEFAULT_ACTIVITY = Object.freeze({
   agentCount: 0,
@@ -68,7 +69,16 @@ function areWorktreeTreeItemPropsEqual(
     previousWorktree.isLocked === nextWorktree.isLocked &&
     previousWorktree.prunable === nextWorktree.prunable &&
     previousProps.isActive === nextProps.isActive &&
+    previousProps.onClick === nextProps.onClick &&
+    previousProps.onDelete === nextProps.onDelete &&
+    previousProps.onEditPolicy === nextProps.onEditPolicy &&
+    previousProps.onMerge === nextProps.onMerge &&
     previousProps.draggable === nextProps.draggable &&
+    previousProps.onDragStart === nextProps.onDragStart &&
+    previousProps.onDragEnd === nextProps.onDragEnd &&
+    previousProps.onDragOver === nextProps.onDragOver &&
+    previousProps.onDragLeave === nextProps.onDragLeave &&
+    previousProps.onDrop === nextProps.onDrop &&
     previousProps.showDropIndicator === nextProps.showDropIndicator &&
     previousProps.dropDirection === nextProps.dropDirection &&
     previousProps.branches === nextProps.branches
@@ -122,21 +132,11 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
   );
   const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
   const hasCompletedTaskNotice = useWorktreeTaskCompletionNotice(worktree.path);
-  const totalActivityCount = activity.agentCount + activity.terminalCount;
-  const ActivityIcon = activity.agentCount > 0 ? Sparkles : Terminal;
-  const activitySummary = buildWorktreeActivitySummary(activity, t);
-
-  const COMPLETED_STATE_DURATION_MS = 5000;
-  useEffect(() => {
-    if (isActive && activityState === 'completed') {
-      const timer = setTimeout(() => {
-        useWorktreeActivityStore.getState().clearActivityState(worktree.path);
-      }, COMPLETED_STATE_DURATION_MS);
-      return () => clearTimeout(timer);
-    }
-
-    return undefined;
-  }, [isActive, activityState, worktree.path]);
+  useCompletedWorktreeActivityClear({
+    activityState,
+    isActive,
+    worktreePath: worktree.path,
+  });
 
   const {
     ahead: aheadCount,
@@ -224,9 +224,7 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
     diffStats,
     ahead: aheadCount,
     behind: behindCount,
-    totalActivityCount,
-    ActivityIcon,
-    activitySummary,
+    activity,
     hasCompletedTaskNotice,
   });
   const hasSyncAction =

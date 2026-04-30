@@ -1,10 +1,9 @@
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { MessageSquare, Settings } from 'lucide-react';
 import type { ElementType } from 'react';
 import type { TabId } from '@/App/constants';
 import { OpenInMenu } from '@/components/app/OpenInMenu';
 import { AppResourceStatusPopover } from '@/components/layout/AppResourceStatusPopover';
-import { RunningProjectsPopover } from '@/components/layout/RunningProjectsPopover';
 import { TokenUsagePopover } from '@/components/layout/TokenUsagePopover';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
@@ -22,11 +21,8 @@ export interface MainContentTopbarTab {
 interface MainContentTopbarProps {
   bgImageEnabled: boolean;
   needsTrafficLightPadding: boolean;
-  repositoryCollapsed: boolean;
   fileSidebarCollapsed: boolean;
   onExpandFileSidebar?: () => void;
-  onSwitchWorktree?: (worktreePath: string) => void;
-  onSwitchTab?: (tab: TabId) => void;
   tabs: MainContentTopbarTab[];
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
@@ -50,11 +46,8 @@ interface MainContentTopbarProps {
 export function MainContentTopbar({
   bgImageEnabled,
   needsTrafficLightPadding,
-  repositoryCollapsed,
   fileSidebarCollapsed,
   onExpandFileSidebar,
-  onSwitchWorktree,
-  onSwitchTab,
   tabs,
   activeTab,
   onTabChange,
@@ -76,7 +69,6 @@ export function MainContentTopbar({
 }: MainContentTopbarProps) {
   const { t } = useI18n();
   const headerButtonClass = 'control-topbar-action';
-  const showRunningProjectsPopover = repositoryCollapsed && onSwitchWorktree && onSwitchTab;
 
   return (
     <header
@@ -89,25 +81,6 @@ export function MainContentTopbar({
       <div className="control-topbar no-drag">
         <div className="control-topbar-main">
           <div className="control-topbar-nav">
-            <AnimatePresence mode="popLayout">
-              {showRunningProjectsPopover ? (
-                <motion.div
-                  key="toolbar-running-projects"
-                  initial={{ width: 0, opacity: 0 }}
-                  animate={{ width: 'auto', opacity: 1 }}
-                  exit={{ width: 0, opacity: 0 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                  className="flex items-center gap-2 overflow-hidden"
-                >
-                  <RunningProjectsPopover
-                    onSelectWorktreeByPath={onSwitchWorktree}
-                    onSwitchTab={onSwitchTab}
-                    showBadge={false}
-                  />
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-
             <div className="min-w-0 flex-1 overflow-hidden">
               <div className="control-topbar-tabs">
                 {tabs.map((tab, index) => {

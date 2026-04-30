@@ -56,6 +56,17 @@ interface ClaudeCodeProviderBridge {
   ) => () => void;
 }
 
+interface GenericProviderBridge {
+  readSettings: (
+    repoPath: string | undefined,
+    providerId: AIProvider
+  ) => Promise<AgentProviderProfileSnapshot<AgentProviderProfile, unknown>>;
+  apply: (repoPath: string | undefined, provider: AgentProviderProfile) => Promise<boolean>;
+  onSettingsChanged: (
+    callback: (snapshot: AgentProviderProfileSnapshot<AgentProviderProfile, unknown>) => void
+  ) => () => void;
+}
+
 type AnyAgentProviderProfileAdapter = AgentProviderProfileAdapter<AgentProviderProfile, unknown>;
 
 const SESSION_PROVIDER_IDS: Record<string, AIProvider> = {
@@ -94,6 +105,13 @@ export function supportsClaudeCodeProviderSession(
   }
 
   return candidates.some((value) => getAgentInputBaseId(value) === 'claude');
+}
+
+function supportsProviderSession(
+  providerId: AIProvider,
+  session?: AgentProviderProfileSession | null
+): boolean {
+  return resolveProviderIdForSession(session) === providerId;
 }
 
 function createUnsupportedProviderProfileAdapter(
@@ -153,6 +171,103 @@ function getProviderId(profileOrProviderId?: AgentProviderProfile | AIProvider |
   return profileOrProviderId?.providerId ?? 'claude-code';
 }
 
+function normalizeText(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function isSensitivePreviewKey(key: string): boolean {
+  return /token|key|secret|password/u.test(key.toLowerCase());
+}
+
+function redactSensitivePreviewString(value: string): string {
+  return value
+    .split('\n')
+    .map((line) => {
+      const assignment = line.match(/^(\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*)(.*)$/u);
+      if (!assignment) {
+        return line;
+      }
+
+      const [, prefix, key] = assignment;
+      return key && isSensitivePreviewKey(key) ? `${prefix}"[redacted]"` : line;
+    })
+    .join('\n');
+}
+
+function redactProviderPreviewValue(value: unknown, keyHint = ''): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return isSensitivePreviewKey(keyHint) ? '[redacted]' : redactSensitivePreviewString(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactProviderPreviewValue(entry, keyHint));
+  }
+
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, redactProviderPreviewValue(entry, key)])
+    );
+  }
+
+  return value;
+}
+
+function isGenericProviderProfileMatch(
+  profile: AgentProviderProfile,
+  current?: Partial<AgentProviderProfile> | null
+): boolean {
+  if (!current) {
+    return false;
+  }
+
+  return (
+    profile.providerId === current.providerId &&
+    normalizeText(profile.baseUrl) === normalizeText(current.baseUrl) &&
+    normalizeText(profile.authToken) === normalizeText(current.authToken)
+  );
+}
+
+const PROVIDER_SWITCH_WINDOW_MS = 5000;
+const pendingProviderSwitches = new Map<
+  AIProvider,
+  { profile: AgentProviderProfile; timestamp: number }
+>();
+
+function markProviderSwitch(profile: AgentProviderProfile): void {
+  pendingProviderSwitches.set(profile.providerId, { profile, timestamp: Date.now() });
+}
+
+function consumeProviderSwitch(
+  providerId: AIProvider,
+  current?: Partial<AgentProviderProfile> | null
+): boolean {
+  const pendingSwitch = pendingProviderSwitches.get(providerId);
+  if (!pendingSwitch) {
+    return false;
+  }
+
+  if (Date.now() - pendingSwitch.timestamp > PROVIDER_SWITCH_WINDOW_MS) {
+    pendingProviderSwitches.delete(providerId);
+    return false;
+  }
+
+  if (!isGenericProviderProfileMatch(pendingSwitch.profile, current)) {
+    return false;
+  }
+
+  pendingProviderSwitches.delete(providerId);
+  return true;
+}
+
+function clearProviderSwitch(providerId: AIProvider): void {
+  pendingProviderSwitches.delete(providerId);
+}
+
 function withClaudeCodeProviderId(
   snapshot: AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>
 ): AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings> {
@@ -182,7 +297,13 @@ export function createClaudeCodeProviderProfileAdapter(
     readCurrent: async (repoPath?: string) =>
       withClaudeCodeProviderId(await bridge.readSettings(repoPath)),
     subscribeToExternalChanges: (_repoPath, callback) =>
-      bridge.onSettingsChanged((snapshot) => callback(withClaudeCodeProviderId(snapshot))),
+      bridge.onSettingsChanged((snapshot) => {
+        const snapshotProviderId = snapshot.providerId ?? snapshot.extracted?.providerId;
+        if (snapshotProviderId && snapshotProviderId !== 'claude-code') {
+          return;
+        }
+        callback(withClaudeCodeProviderId(snapshot));
+      }),
     apply: (repoPath, provider) =>
       bridge.apply(repoPath, { ...provider, providerId: 'claude-code' }),
     isActiveProfile: (profile, current) =>
@@ -192,12 +313,93 @@ export function createClaudeCodeProviderProfileAdapter(
     markSwitch: (profile) => markClaudeProviderSwitch({ ...profile, providerId: 'claude-code' }),
     consumeSwitch: consumeClaudeProviderSwitch,
     clearSwitch: clearClaudeProviderSwitch,
-    buildPreview: buildClaudeCodeProviderPreview,
+    buildPreview: (settings) =>
+      redactProviderPreviewValue(buildClaudeCodeProviderPreview(settings)),
   };
 }
 
+function withGenericProviderId<TSettings>(
+  providerId: AIProvider,
+  snapshot: AgentProviderProfileSnapshot<AgentProviderProfile, TSettings>
+): AgentProviderProfileSnapshot<AgentProviderProfile, TSettings> {
+  return {
+    ...snapshot,
+    providerId,
+    supported: true,
+    extracted: snapshot.extracted
+      ? {
+          ...snapshot.extracted,
+          providerId,
+        }
+      : null,
+  };
+}
+
+function createGenericCliProviderProfileAdapter(
+  providerId: AIProvider,
+  bridge: GenericProviderBridge
+): AgentProviderProfileAdapter<AgentProviderProfile, unknown> {
+  return {
+    id: providerId,
+    providerId,
+    label: AI_PROVIDER_CATALOG[providerId].label,
+    supportsProfiles: true,
+    queryKey: (repoPath?: string) =>
+      ['agent-provider-settings', providerId, repoPath ?? null] as const,
+    readCurrent: async (repoPath?: string) =>
+      withGenericProviderId(providerId, await bridge.readSettings(repoPath, providerId)),
+    subscribeToExternalChanges: (_repoPath, callback) =>
+      bridge.onSettingsChanged((snapshot) => {
+        const snapshotProviderId = snapshot.providerId ?? snapshot.extracted?.providerId;
+        if (snapshotProviderId && snapshotProviderId !== providerId) {
+          return;
+        }
+        callback(withGenericProviderId(providerId, snapshot));
+      }),
+    apply: (repoPath, provider) => bridge.apply(repoPath, provider),
+    isActiveProfile: isGenericProviderProfileMatch,
+    supportsSession: (session) => supportsProviderSession(providerId, session),
+    markSwitch: markProviderSwitch,
+    consumeSwitch: (current) => consumeProviderSwitch(providerId, current),
+    clearSwitch: () => clearProviderSwitch(providerId),
+    buildPreview: (settings) => redactProviderPreviewValue(settings ?? null),
+  };
+}
+
+export function createCodexCliProviderProfileAdapter(
+  bridge: GenericProviderBridge
+): AgentProviderProfileAdapter<AgentProviderProfile, unknown> {
+  return createGenericCliProviderProfileAdapter('codex-cli', bridge);
+}
+
+export function createGeminiCliProviderProfileAdapter(
+  bridge: GenericProviderBridge
+): AgentProviderProfileAdapter<AgentProviderProfile, unknown> {
+  return createGenericCliProviderProfileAdapter('gemini-cli', bridge);
+}
+
 export const claudeCodeProviderProfileAdapter = createClaudeCodeProviderProfileAdapter({
-  readSettings: (repoPath) => window.electronAPI.agentProvider.readSettings(repoPath),
+  readSettings: (repoPath) =>
+    window.electronAPI.agentProvider.readSettings(repoPath, 'claude-code') as Promise<
+      AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>
+    >,
+  apply: (repoPath, provider) => window.electronAPI.agentProvider.apply(repoPath, provider),
+  onSettingsChanged: (callback) =>
+    window.electronAPI.agentProvider.onSettingsChanged((snapshot) =>
+      callback(snapshot as AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>)
+    ),
+});
+
+export const codexCliProviderProfileAdapter = createCodexCliProviderProfileAdapter({
+  readSettings: (repoPath, providerId) =>
+    window.electronAPI.agentProvider.readSettings(repoPath, providerId),
+  apply: (repoPath, provider) => window.electronAPI.agentProvider.apply(repoPath, provider),
+  onSettingsChanged: (callback) => window.electronAPI.agentProvider.onSettingsChanged(callback),
+});
+
+export const geminiCliProviderProfileAdapter = createGeminiCliProviderProfileAdapter({
+  readSettings: (repoPath, providerId) =>
+    window.electronAPI.agentProvider.readSettings(repoPath, providerId),
   apply: (repoPath, provider) => window.electronAPI.agentProvider.apply(repoPath, provider),
   onSettingsChanged: (callback) => window.electronAPI.agentProvider.onSettingsChanged(callback),
 });
@@ -209,7 +411,11 @@ for (const providerId of AI_PROVIDERS) {
     providerId,
     providerId === 'claude-code'
       ? (claudeCodeProviderProfileAdapter as AnyAgentProviderProfileAdapter)
-      : (createUnsupportedProviderProfileAdapter(providerId) as AnyAgentProviderProfileAdapter)
+      : providerId === 'codex-cli'
+        ? (codexCliProviderProfileAdapter as AnyAgentProviderProfileAdapter)
+        : providerId === 'gemini-cli'
+          ? (geminiCliProviderProfileAdapter as AnyAgentProviderProfileAdapter)
+          : (createUnsupportedProviderProfileAdapter(providerId) as AnyAgentProviderProfileAdapter)
   );
 }
 
@@ -321,6 +527,28 @@ export function createAgentProviderProfileRegistryFacade(
     );
   };
 
+  const readAllCurrent = async (
+    repoPath: string | undefined
+  ): Promise<AgentProviderProfileSnapshot<AgentProviderProfile, unknown>[]> => {
+    const snapshots = await Promise.all(
+      supportedAdapters().map(async (adapter) => {
+        try {
+          return await readSingleCurrent(repoPath, adapter);
+        } catch (error) {
+          console.warn(
+            `[AgentProviderProfiles] Failed to read ${adapter.providerId} settings:`,
+            error
+          );
+          return null;
+        }
+      })
+    );
+    return snapshots.filter(
+      (snapshot): snapshot is AgentProviderProfileSnapshot<AgentProviderProfile, unknown> =>
+        snapshot !== null
+    );
+  };
+
   return {
     id: 'agent-provider-profile-registry',
     queryKey: (repoPath?: string, providerId?: AIProvider) =>
@@ -331,6 +559,7 @@ export function createAgentProviderProfileRegistryFacade(
       providerId
         ? readSingleCurrent(repoPath, resolveAdapter(providerId))
         : readRegistryCurrent(repoPath),
+    readAllCurrent,
     subscribeToExternalChanges: (
       repoPath: string | undefined,
       callback: (snapshot: AgentProviderProfileSnapshot<AgentProviderProfile, unknown>) => void,

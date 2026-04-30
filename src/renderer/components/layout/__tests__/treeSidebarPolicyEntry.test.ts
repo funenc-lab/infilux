@@ -9,6 +9,11 @@ const worktreeTreeItemSource = readFileSync(
   resolve(currentDir, '../tree-sidebar/WorktreeTreeItem.tsx'),
   'utf8'
 );
+const worktreePanelSource = readFileSync(resolve(currentDir, '../WorktreePanel.tsx'), 'utf8');
+const worktreePanelItemSource = readFileSync(
+  resolve(currentDir, '../worktree-panel/WorktreeItem.tsx'),
+  'utf8'
+);
 
 describe('tree sidebar policy entry', () => {
   it('adds a direct project policy entry to the repository context menu', () => {
@@ -19,5 +24,9 @@ describe('tree sidebar policy entry', () => {
   it('adds a direct worktree policy entry to the worktree context menu', () => {
     expect(worktreeTreeItemSource).toContain("{t('Worktree Configuration')}");
     expect(worktreeTreeItemSource).toContain('onEditPolicy();');
+    expect(worktreePanelItemSource).toContain("{t('Worktree Configuration')}");
+    expect(worktreePanelItemSource).toContain('onEditPolicy();');
+    expect(worktreePanelSource).toContain('setWorktreePolicyOpen(true)');
+    expect(worktreePanelSource).toContain('ClaudePolicyEditorDialog');
   });
 });

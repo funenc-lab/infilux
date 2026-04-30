@@ -1,4 +1,9 @@
-import type { AgentProviderProfile } from '@shared/types';
+import {
+  type AgentProviderProfile,
+  AI_PROVIDER_CATALOG,
+  type AIProvider,
+  isAIProvider,
+} from '@shared/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Reorder, useDragControls } from 'framer-motion';
 import {
@@ -23,6 +28,13 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
@@ -35,6 +47,7 @@ import {
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
+import { AI_PROVIDER_OPTIONS } from '../aiProviderOptions';
 import { ProviderDialog } from './ProviderDialog';
 import { buildAgentProviderProfileListSummary } from './providerListModel';
 
@@ -53,6 +66,15 @@ interface ProviderItemProps {
   onEdit: (provider: AgentProviderProfile) => void;
   onDelete: (provider: AgentProviderProfile) => void;
   t: (key: string) => string;
+}
+
+function resolveProviderIdFromActionEvent(event: Event): AIProvider | null {
+  if (!(event instanceof CustomEvent)) {
+    return null;
+  }
+
+  const detail = event.detail as { providerId?: unknown } | null;
+  return isAIProvider(detail?.providerId) ? detail.providerId : null;
 }
 
 function ProviderItem({
@@ -220,18 +242,19 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   const [editingProvider, setEditingProvider] = React.useState<AgentProviderProfile | null>(null);
   const [saveFromCurrent, setSaveFromCurrent] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [selectedProviderId, setSelectedProviderId] = React.useState<AIProvider>('claude-code');
   const [pendingDetectedAction, setPendingDetectedAction] = React.useState<
     'preview' | 'save' | null
   >(null);
   const providerSettingsQueryKey = React.useMemo(
-    () => agentProviderProfileAdapter.queryKey(repoPath),
-    [repoPath]
+    () => agentProviderProfileAdapter.queryKey(repoPath, selectedProviderId),
+    [repoPath, selectedProviderId]
   );
 
   // Read the current provider settings and stop polling while the window is idle.
   const { data: providerData } = useQuery({
     queryKey: providerSettingsQueryKey,
-    queryFn: () => agentProviderProfileAdapter.readCurrent(repoPath),
+    queryFn: () => agentProviderProfileAdapter.readCurrent(repoPath, selectedProviderId),
     refetchInterval: shouldPoll ? 30000 : false,
   });
 
@@ -241,11 +264,15 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   React.useEffect(() => {
     if (!shouldPoll) return;
 
-    const cleanup = agentProviderProfileAdapter.subscribeToExternalChanges(repoPath, () => {
-      queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
-    });
+    const cleanup = agentProviderProfileAdapter.subscribeToExternalChanges(
+      repoPath,
+      () => {
+        queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
+      },
+      selectedProviderId
+    );
     return cleanup;
-  }, [providerSettingsQueryKey, queryClient, repoPath, shouldPoll]);
+  }, [providerSettingsQueryKey, queryClient, repoPath, selectedProviderId, shouldPoll]);
 
   // Compute the currently active provider.
   const activeProvider = React.useMemo(() => {
@@ -256,7 +283,8 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
     );
   }, [providers, providerData?.extracted]);
 
-  const detectedProviderId = providerData?.providerId ?? providerData?.extracted?.providerId;
+  const detectedProviderId =
+    providerData?.providerId ?? providerData?.extracted?.providerId ?? selectedProviderId;
   const detectedProviderLabel = detectedProviderId
     ? getAgentProviderProfileAdapter(detectedProviderId).label
     : null;
@@ -283,10 +311,12 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
 
   // Switch provider.
   const handleSwitch = async (provider: AgentProviderProfile) => {
+    const targetQueryKey = agentProviderProfileAdapter.queryKey(repoPath, provider.providerId);
     agentProviderProfileAdapter.markSwitch(provider);
     const success = await agentProviderProfileAdapter.apply(repoPath, provider);
     if (success) {
-      queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
+      setSelectedProviderId(provider.providerId);
+      queryClient.invalidateQueries({ queryKey: targetQueryKey });
       const copy = buildSettingsWorkflowToastCopy(
         {
           action: 'provider-switch',
@@ -391,15 +421,25 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   }, [handlePreviewCurrent, handleSaveFromCurrent, hasDetectedConfig, pendingDetectedAction]);
 
   React.useEffect(() => {
-    const handlePreviewOpen = () => {
-      if (!handlePreviewCurrent()) {
-        setPendingDetectedAction('preview');
+    const openDetectedProviderAction = (event: Event, action: 'preview' | 'save') => {
+      const providerId = resolveProviderIdFromActionEvent(event);
+      if (providerId && providerId !== selectedProviderId) {
+        setSelectedProviderId(providerId);
+        setPendingDetectedAction(action);
+        return;
+      }
+
+      const opened = action === 'preview' ? handlePreviewCurrent() : handleSaveFromCurrent();
+      if (!opened) {
+        setPendingDetectedAction(action);
       }
     };
-    const handleSaveOpen = () => {
-      if (!handleSaveFromCurrent()) {
-        setPendingDetectedAction('save');
-      }
+
+    const handlePreviewOpen = (event: Event) => {
+      openDetectedProviderAction(event, 'preview');
+    };
+    const handleSaveOpen = (event: Event) => {
+      openDetectedProviderAction(event, 'save');
     };
 
     window.addEventListener('open-settings-provider-preview', handlePreviewOpen);
@@ -409,11 +449,38 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
       window.removeEventListener('open-settings-provider-preview', handlePreviewOpen);
       window.removeEventListener('open-settings-provider-save', handleSaveOpen);
     };
-  }, [handlePreviewCurrent, handleSaveFromCurrent]);
+  }, [handlePreviewCurrent, handleSaveFromCurrent, selectedProviderId]);
 
   return (
     <div className={cn('space-y-3', className)}>
-      <div className="rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
+      <div className="space-y-3 rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-0.5">
+            <span className="text-xs font-medium text-muted-foreground">{t('Provider Type')}</span>
+            <p className="text-xs text-muted-foreground">
+              {t('Save and switch detected provider profiles for supported Agent CLIs')}
+            </p>
+          </div>
+          <Select
+            value={selectedProviderId}
+            onValueChange={(value) => setSelectedProviderId(value as AIProvider)}
+          >
+            <SelectTrigger className="h-8 w-44">
+              <SelectValue>{AI_PROVIDER_CATALOG[selectedProviderId].label}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {AI_PROVIDER_OPTIONS.map((option) => {
+                const adapter = getAgentProviderProfileAdapter(option.value);
+                return (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                    {!adapter.supportsProfiles ? ` · ${t('Waiting for provider adapter')}` : ''}
+                  </SelectItem>
+                );
+              })}
+            </SelectPopup>
+          </Select>
+        </div>
         {hasDetectedConfig ? (
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 space-y-0.5">
@@ -518,7 +585,9 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         provider={editingProvider}
-        initialValues={saveFromCurrent ? providerData?.extracted : undefined}
+        initialValues={
+          saveFromCurrent ? providerData?.extracted : { providerId: selectedProviderId }
+        }
         source={saveFromCurrent ? 'current' : 'manual'}
       />
 

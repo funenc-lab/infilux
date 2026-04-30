@@ -1,6 +1,16 @@
 import type { GitBranch as GitBranchType, GitWorktree } from '@shared/types';
 import { getDisplayPath } from '@shared/utils/path';
-import { Copy, FolderOpen, GitBranch, GitMerge, Sparkles, Terminal, Trash2, X } from 'lucide-react';
+import {
+  Copy,
+  FolderOpen,
+  GitBranch,
+  GitMerge,
+  Settings2,
+  Sparkles,
+  Terminal,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
 import { WorktreeActivityMarker } from '@/components/layout/WorktreeActivityMarker';
@@ -13,7 +23,8 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
-import { buildWorktreeActivitySummary, buildWorktreeInlineItems } from '../worktreeRowSignals';
+import { useCompletedWorktreeActivityClear } from '../useCompletedWorktreeActivityClear';
+import { buildWorktreeInlineItems } from '../worktreeRowSignals';
 
 const DEFAULT_ACTIVITY = Object.freeze({
   agentCount: 0,
@@ -30,6 +41,7 @@ interface WorktreeItemProps {
   isActive: boolean;
   onClick: () => void;
   onDelete: () => void;
+  onEditPolicy?: () => void;
   onMerge?: () => void;
   // Drag reorder props
   draggable?: boolean;
@@ -55,7 +67,16 @@ function areWorktreeItemPropsEqual(previousProps: WorktreeItemProps, nextProps: 
     previousWorktree.isLocked === nextWorktree.isLocked &&
     previousWorktree.prunable === nextWorktree.prunable &&
     previousProps.isActive === nextProps.isActive &&
+    previousProps.onClick === nextProps.onClick &&
+    previousProps.onDelete === nextProps.onDelete &&
+    previousProps.onEditPolicy === nextProps.onEditPolicy &&
+    previousProps.onMerge === nextProps.onMerge &&
     previousProps.draggable === nextProps.draggable &&
+    previousProps.onDragStart === nextProps.onDragStart &&
+    previousProps.onDragEnd === nextProps.onDragEnd &&
+    previousProps.onDragOver === nextProps.onDragOver &&
+    previousProps.onDragLeave === nextProps.onDragLeave &&
+    previousProps.onDrop === nextProps.onDrop &&
     previousProps.showDropIndicator === nextProps.showDropIndicator &&
     previousProps.dropDirection === nextProps.dropDirection &&
     previousProps.branches === nextProps.branches
@@ -67,6 +88,7 @@ export const WorktreeItem = memo(function WorktreeItem({
   isActive,
   onClick,
   onDelete,
+  onEditPolicy,
   onMerge,
   draggable,
   onDragStart,
@@ -113,9 +135,11 @@ export const WorktreeItem = memo(function WorktreeItem({
   );
   const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
   const hasCompletedTaskNotice = useWorktreeTaskCompletionNotice(worktree.path);
-  const totalActivityCount = activity.agentCount + activity.terminalCount;
-  const ActivityIcon = activity.agentCount > 0 ? Sparkles : Terminal;
-  const activitySummary = buildWorktreeActivitySummary(activity, t);
+  useCompletedWorktreeActivityClear({
+    activityState,
+    isActive,
+    worktreePath: worktree.path,
+  });
 
   const handleCopyPath = useCallback(async () => {
     try {
@@ -186,9 +210,7 @@ export const WorktreeItem = memo(function WorktreeItem({
     diffStats,
     ahead,
     behind,
-    totalActivityCount,
-    ActivityIcon,
-    activitySummary,
+    activity,
     hasCompletedTaskNotice,
   });
   const hasSyncAction =
@@ -417,6 +439,21 @@ export const WorktreeItem = memo(function WorktreeItem({
               <Copy className="h-4 w-4" />
               {t('Copy Path')}
             </button>
+
+            {onEditPolicy ? (
+              <button
+                type="button"
+                className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onEditPolicy();
+                }}
+                role="menuitem"
+              >
+                <Settings2 className="h-4 w-4" />
+                {t('Worktree Configuration')}
+              </button>
+            ) : null}
 
             {/* Merge to Branch */}
             {onMerge && !isMain && !isPrunable && (

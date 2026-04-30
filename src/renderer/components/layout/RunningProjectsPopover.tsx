@@ -11,7 +11,7 @@ import {
   Terminal,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TabId } from '@/App/constants';
 import type { Session } from '@/components/chat/SessionBar';
 import { Dialog, DialogPopup } from '@/components/ui/dialog';
@@ -28,10 +28,15 @@ import { useTerminalStore } from '@/stores/terminal';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 
+type SidebarToolbarTooltipProps = ComponentProps<typeof SidebarToolbarTooltip>;
+
 interface RunningProjectsPopoverProps {
   onSelectWorktreeByPath: (worktreePath: string) => Promise<void> | void;
   onSwitchTab?: (tab: TabId) => void;
   showBadge?: boolean;
+  tooltipSide?: SidebarToolbarTooltipProps['side'];
+  tooltipAlign?: SidebarToolbarTooltipProps['align'];
+  tooltipSideOffset?: SidebarToolbarTooltipProps['sideOffset'];
 }
 
 interface GroupedProject {
@@ -58,6 +63,9 @@ export function RunningProjectsPopover({
   onSelectWorktreeByPath,
   onSwitchTab,
   showBadge = true,
+  tooltipSide,
+  tooltipAlign,
+  tooltipSideOffset,
 }: RunningProjectsPopoverProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -307,7 +315,13 @@ export function RunningProjectsPopover({
 
   return (
     <>
-      <SidebarToolbarTooltip label={runningProjectsTooltip} shortcut={runningProjectsShortcut}>
+      <SidebarToolbarTooltip
+        label={runningProjectsTooltip}
+        shortcut={runningProjectsShortcut}
+        side={tooltipSide}
+        align={tooltipAlign}
+        sideOffset={tooltipSideOffset}
+      >
         <span
           className="control-toolbar-badge-anchor"
           data-state={totalRunning > 0 ? 'active' : 'idle'}

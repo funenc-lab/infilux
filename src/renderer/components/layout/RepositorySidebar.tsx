@@ -1,6 +1,7 @@
 import { isWslUncPath } from '@shared/utils/path';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import {
+  BrainCircuit,
   ChevronRight,
   Clock,
   FolderGit2,
@@ -21,8 +22,11 @@ import {
   UNGROUPED_SECTION_ID,
 } from '@/App/constants';
 import {
+  DEFAULT_REPOSITORY_SETTINGS,
   getStoredGroupCollapsedState,
+  getStoredRepositorySettings,
   normalizePath,
+  type RepositorySettings,
   saveGroupCollapsedState,
 } from '@/App/storage';
 import {
@@ -57,6 +61,7 @@ import {
   type RepositoryTreeItemRepository as Repository,
   RepositoryTreeItem,
 } from './repository-sidebar/RepositoryTreeItem';
+import { SidebarAiCenterButton } from './SidebarAiCenterButton';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
@@ -83,6 +88,7 @@ export interface RepositorySidebarProps {
   onDeleteGroup: (groupId: string) => void;
   onMoveToGroup?: (repoPath: string, groupId: string | null) => void;
   onSwitchTab?: (tab: TabId) => void;
+  isAiCenterActive?: boolean;
   onSwitchWorktreeByPath?: (path: string) => Promise<void> | void;
   /** Whether a file is being dragged over the sidebar (from App.tsx global handler) */
   isFileDragOver?: boolean;
@@ -114,6 +120,7 @@ export function RepositorySidebar({
   onDeleteGroup,
   onMoveToGroup,
   onSwitchTab,
+  isAiCenterActive = false,
   onSwitchWorktreeByPath,
   isFileDragOver,
   temporaryWorkspaceEnabled = false,
@@ -123,6 +130,7 @@ export function RepositorySidebar({
 }: RepositorySidebarProps) {
   const { t } = useI18n();
   const hideGroups = useSettingsStore((s) => s.hideGroups);
+  const todoEnabled = useSettingsStore((s) => s.todoEnabled);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -139,6 +147,16 @@ export function RepositorySidebar({
   const [repoSettingsTarget, setRepoSettingsTarget] = useState<Repository | null>(null);
   const [createGroupDialogOpen, setCreateGroupDialogOpen] = useState(false);
   const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
+  const [repoSettingsMap, setRepoSettingsMap] = useState<Record<string, RepositorySettings>>(
+    getStoredRepositorySettings
+  );
+  const refreshRepoSettings = useCallback(() => {
+    setRepoSettingsMap(getStoredRepositorySettings());
+  }, []);
+
+  useEffect(() => {
+    refreshRepoSettings();
+  }, [refreshRepoSettings]);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() =>
     getStoredGroupCollapsedState()
@@ -153,13 +171,21 @@ export function RepositorySidebar({
   }, []);
 
   const activeGroup = groups.find((g) => g.id === activeGroupId);
+  const visibleRepos = useMemo(
+    () =>
+      repositories.filter((repo) => {
+        const settings = repoSettingsMap[normalizePath(repo.path)] || DEFAULT_REPOSITORY_SETTINGS;
+        return !settings.hidden;
+      }),
+    [repositories, repoSettingsMap]
+  );
   const repositoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const group of groups) {
-      counts[group.id] = repositories.filter((r) => r.groupId === group.id).length;
+      counts[group.id] = visibleRepos.filter((repo) => repo.groupId === group.id).length;
     }
     return counts;
-  }, [groups, repositories]);
+  }, [groups, visibleRepos]);
 
   // Drag reorder
   const draggedIndexRef = useRef<number | null>(null);
@@ -291,7 +317,8 @@ export function RepositorySidebar({
   );
 
   /**
-   * 解析搜索语法：当前仅支持 `:active`，其余内容继续作为仓库名称搜索词。
+   * Parses sidebar search syntax. Only `:active` is recognized; other tokens
+   * continue to behave as repository name search text.
    */
   const parsedSearch = useMemo(() => {
     const tokens = searchQuery.trim().split(/\s+/).filter(Boolean);
@@ -312,7 +339,7 @@ export function RepositorySidebar({
     };
   }, [searchQuery]);
 
-  const allRepoPaths = useMemo(() => repositories.map((repo) => repo.path), [repositories]);
+  const allRepoPaths = useMemo(() => visibleRepos.map((repo) => repo.path), [visibleRepos]);
   const allRepoWorktreePrefetchInputs = useMemo(
     () =>
       buildTreeSidebarWorktreePrefetchInputs({
@@ -331,7 +358,7 @@ export function RepositorySidebar({
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
 
   const filteredRepos = useMemo(() => {
-    let filtered = repositories;
+    let filtered = visibleRepos;
     if (activeGroupId !== ALL_GROUP_ID) {
       filtered = filtered.filter((r) => r.groupId === activeGroupId);
     }
@@ -353,7 +380,7 @@ export function RepositorySidebar({
       repo,
       originalIndex: repositories.indexOf(repo),
     }));
-  }, [repositories, activeGroupId, parsedSearch, activePathSet, allRepoWorktreesMap]);
+  }, [activeGroupId, activePathSet, allRepoWorktreesMap, parsedSearch, repositories, visibleRepos]);
 
   const groupedSections = useMemo(() => {
     if (!showSections) return [];
@@ -366,10 +393,10 @@ export function RepositorySidebar({
       repos: Array<{ repo: Repository; originalIndex: number }>;
     }> = [];
 
-    // Build sections for each group (in order)
+    // Build sections for each group in display order.
     const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
     for (const group of sortedGroups) {
-      const groupRepos = repositories
+      const groupRepos = visibleRepos
         .filter((r) => r.groupId === group.id)
         .map((repo) => ({ repo, originalIndex: repositories.indexOf(repo) }));
       if (groupRepos.length > 0) {
@@ -383,8 +410,8 @@ export function RepositorySidebar({
       }
     }
 
-    // Ungrouped section
-    const ungroupedRepos = repositories
+    // Ungrouped section.
+    const ungroupedRepos = visibleRepos
       .filter((r) => !r.groupId)
       .map((repo) => ({ repo, originalIndex: repositories.indexOf(repo) }));
     if (ungroupedRepos.length > 0) {
@@ -398,7 +425,7 @@ export function RepositorySidebar({
     }
 
     return sections;
-  }, [showSections, groups, repositories, t]);
+  }, [showSections, groups, repositories, t, visibleRepos]);
 
   const handleOpenRepoActions = useCallback(
     (event: MouseEvent<HTMLButtonElement>, repo: Repository) => {
@@ -415,6 +442,10 @@ export function RepositorySidebar({
     },
     []
   );
+  const handleOpenAiCenter = useCallback(() => {
+    onSwitchTab?.('ai-center');
+  }, [onSwitchTab]);
+  const showAiCenterEntry = todoEnabled && Boolean(onSwitchTab);
 
   const sidebarBody = collapsed ? (
     <CollapsedSidebarRail
@@ -422,6 +453,17 @@ export function RepositorySidebar({
       triggerTitle={t('Repository sidebar actions')}
       icon={FolderGit2}
       popupClassName="min-w-[196px]"
+      contextAction={
+        onSwitchWorktreeByPath ? (
+          <RunningProjectsPopover
+            onSelectWorktreeByPath={onSwitchWorktreeByPath}
+            onSwitchTab={onSwitchTab}
+            tooltipSide="inline-end"
+            tooltipAlign="center"
+            tooltipSideOffset={8}
+          />
+        ) : null
+      }
       primaryAction={{
         id: 'expand-repository',
         label: t('Expand Repository'),
@@ -430,12 +472,24 @@ export function RepositorySidebar({
         disabled: !onExpand,
       }}
       secondaryAction={{
-        id: 'add-repository',
-        label: t('Add Repository'),
-        icon: Plus,
-        onSelect: onAddRepository,
+        id: showAiCenterEntry ? 'ai-center' : 'add-repository',
+        label: showAiCenterEntry ? t('AI Center') : t('Add Repository'),
+        icon: showAiCenterEntry ? BrainCircuit : Plus,
+        onSelect: showAiCenterEntry ? handleOpenAiCenter : onAddRepository,
+        active: showAiCenterEntry ? isAiCenterActive : false,
       }}
-      actions={[]}
+      actions={
+        showAiCenterEntry
+          ? [
+              {
+                id: 'add-repository',
+                label: t('Add Repository'),
+                icon: Plus,
+                onSelect: onAddRepository,
+              },
+            ]
+          : []
+      }
     />
   ) : (
     <aside
@@ -448,14 +502,6 @@ export function RepositorySidebar({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          {onSwitchWorktreeByPath ? (
-            <div className="control-sidebar-toolbar-group" data-role="context">
-              <RunningProjectsPopover
-                onSelectWorktreeByPath={onSwitchWorktreeByPath}
-                onSwitchTab={onSwitchTab}
-              />
-            </div>
-          ) : null}
           {onCollapse ? (
             <div className="control-sidebar-toolbar-group" data-role="panel">
               <SidebarToolbarTooltip label={t('Collapse repository sidebar')}>
@@ -470,17 +516,30 @@ export function RepositorySidebar({
               </SidebarToolbarTooltip>
             </div>
           ) : null}
+          {onSwitchWorktreeByPath || showAiCenterEntry ? (
+            <div className="control-sidebar-toolbar-group" data-role="context">
+              {onSwitchWorktreeByPath ? (
+                <RunningProjectsPopover
+                  onSelectWorktreeByPath={onSwitchWorktreeByPath}
+                  onSwitchTab={onSwitchTab}
+                />
+              ) : null}
+              {showAiCenterEntry ? (
+                <SidebarAiCenterButton active={isAiCenterActive} onSelect={handleOpenAiCenter} />
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {/* Group Selector - only show when groups are not hidden */}
+      {/* Group selector, shown only when groups are enabled. */}
       <div className="control-sidebar-strip">
         {!hideGroups && (
           <GroupSelector
             groups={groups}
             activeGroupId={activeGroupId}
             repositoryCounts={repositoryCounts}
-            totalCount={repositories.length}
+            totalCount={visibleRepos.length}
             onSelectGroup={onSwitchGroup}
             onEditGroup={() => setEditGroupDialogOpen(true)}
             onAddGroup={() => setCreateGroupDialogOpen(true)}
@@ -585,7 +644,7 @@ export function RepositorySidebar({
               }
             />
           </div>
-        ) : repositories.length === 0 ? (
+        ) : visibleRepos.length === 0 ? (
           <div className="flex h-full items-start justify-start px-2 py-3">
             <SidebarEmptyState
               icon={<FolderGit2 className="h-4.5 w-4.5" />}
@@ -602,7 +661,7 @@ export function RepositorySidebar({
                   }}
                   variant="default"
                   size="sm"
-                  className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
+                  className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-normal"
                 >
                   <Plus className="h-4 w-4" />
                   {t('Add Repository')}
@@ -762,7 +821,7 @@ export function RepositorySidebar({
             aria-label={t('Repository actions')}
             onKeyDown={(e) => handleMenuNavigationKeyDown(e, () => setMenuOpen(false))}
           >
-            {/* Move to Group - only show when groups are not hidden */}
+            {/* Move to Group, shown only when groups are enabled. */}
             {!hideGroups && onMoveToGroup && groups.length > 0 && (
               <MoveToGroupSubmenu
                 groups={groups}
@@ -842,7 +901,12 @@ export function RepositorySidebar({
       {repoSettingsTarget && (
         <RepositorySettingsDialog
           open={repoSettingsOpen}
-          onOpenChange={setRepoSettingsOpen}
+          onOpenChange={(nextOpen) => {
+            setRepoSettingsOpen(nextOpen);
+            if (!nextOpen) {
+              refreshRepoSettings();
+            }
+          }}
           repoPath={repoSettingsTarget.path}
           repoName={repoSettingsTarget.name}
         />

@@ -1,5 +1,5 @@
 import type { LiveAgentSubagent } from '@shared/types';
-import { FileCode, GitBranch, KanbanSquare, Sparkles, Terminal } from 'lucide-react';
+import { BrainCircuit, FileCode, GitBranch, KanbanSquare, Sparkles, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
@@ -123,8 +123,6 @@ export function MainContent({
   onExpandWorktree,
   onExpandFileSidebar,
   onSwitchRepository,
-  onSwitchWorktree,
-  onSwitchTab,
   isSettingsActive = false,
   settingsCategory,
   onCategoryChange,
@@ -205,12 +203,14 @@ export function MainContent({
     file: { icon: FileCode, label: t('File') },
     terminal: { icon: Terminal, label: t('Terminal') },
     'source-control': { icon: GitBranch, label: t('Version Control') },
-    todo: { icon: KanbanSquare, label: t('Todo') },
+    todo: { icon: KanbanSquare, label: t('Project Todo') },
+    'ai-center': { icon: BrainCircuit, label: t('AI Center') },
   };
 
   const tabs = tabOrder
     .filter(
-      (id): id is Exclude<TabId, 'settings'> => id !== 'settings' && (id !== 'todo' || todoEnabled)
+      (id): id is Exclude<TabId, 'settings'> =>
+        id !== 'settings' && id !== 'ai-center' && (id !== 'todo' || todoEnabled)
     )
     .map((id) => ({
       id,
@@ -575,6 +575,7 @@ export function MainContent({
 
   const shouldRenderSourceControl = shouldRenderTabPanel('source-control', activeTab);
   const shouldRenderTodo = shouldRenderTabPanel('todo', activeTab);
+  const shouldRenderAiCenter = shouldRenderTabPanel('ai-center', activeTab);
   const shouldRenderSettings = shouldRenderTabPanel('settings', activeTab);
 
   useEffect(() => {
@@ -692,11 +693,8 @@ export function MainContent({
       <MainContentTopbar
         bgImageEnabled={bgImageEnabled}
         needsTrafficLightPadding={needsTrafficLightPadding}
-        repositoryCollapsed={repositoryCollapsed}
         fileSidebarCollapsed={fileSidebarCollapsed}
         onExpandFileSidebar={onExpandFileSidebar}
-        onSwitchWorktree={onSwitchWorktree}
-        onSwitchTab={onSwitchTab}
         tabs={tabs}
         activeTab={activeTab}
         onTabChange={onTabChange}
@@ -744,6 +742,7 @@ export function MainContent({
         sourceControlEmptyDescription={sourceControlEmptyDescription}
         todoEnabled={todoEnabled}
         shouldRenderTodo={shouldRenderTodo}
+        shouldRenderAiCenter={shouldRenderAiCenter}
         shouldRenderSettings={shouldRenderSettings}
         settingsDisplayMode={settingsDisplayMode}
         setSettingsDisplayMode={setSettingsDisplayMode}

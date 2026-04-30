@@ -1,6 +1,7 @@
 import type { AgentStopNotificationData } from '@shared/types/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@/components/chat/SessionBar';
+import type { TabId } from '../../constants';
 
 const notificationListeners: {
   askUserQuestion?: (payload: { sessionId: string; toolInput: unknown; cwd?: string }) => void;
@@ -149,7 +150,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 
 async function registerHook(
   overrides: Partial<{
-    activeTab: 'chat' | 'file' | 'terminal' | 'source-control' | 'settings' | 'todo';
+    activeTab: TabId;
     activeWorktreePath: string | null;
     hasSelectedSubagent: boolean;
   }> = {}

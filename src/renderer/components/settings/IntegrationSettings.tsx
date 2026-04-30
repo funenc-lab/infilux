@@ -90,6 +90,58 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
         </p>
       </div>
 
+      <div ref={providerRef} className="space-y-4 border-t pt-4">
+        <div>
+          <span className="text-sm font-medium">{t('Agent Providers')}</span>
+          <p className="text-xs text-muted-foreground">
+            {t('Save and switch detected provider profiles for supported Agent CLIs')}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <span className="text-sm font-medium">{t('Provider Switcher')}</span>
+            <p className="text-xs text-muted-foreground">
+              {t('Show provider switcher in SessionBar for quick switching')}
+            </p>
+          </div>
+          <Switch
+            checked={agentIntegration.showProviderSwitcher ?? true}
+            onCheckedChange={(checked) => setAgentIntegration({ showProviderSwitcher: checked })}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <span className="text-sm font-medium">{t('Provider Watcher')}</span>
+            <p className="text-xs text-muted-foreground">
+              {t('Watch supported provider settings files for external changes')}
+            </p>
+          </div>
+          <Switch
+            checked={agentIntegration.enableProviderWatcher ?? true}
+            onCheckedChange={(checked) => setAgentIntegration({ enableProviderWatcher: checked })}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <span className="text-sm font-medium">{t('Provider Disable Feature')}</span>
+            <p className="text-xs text-muted-foreground">
+              {t('Allow temporarily disabling individual providers')}
+            </p>
+          </div>
+          <Switch
+            checked={agentIntegration.enableProviderDisableFeature ?? true}
+            onCheckedChange={(checked) =>
+              setAgentIntegration({ enableProviderDisableFeature: checked })
+            }
+          />
+        </div>
+
+        <ProviderList repoPath={repoPath} />
+      </div>
+
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
           <span className="text-sm font-medium">{t('Claude Code IDE Bridge')}</span>
@@ -515,63 +567,6 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
           )}
         </div>
       )}
-
-      <div className="space-y-4 border-t pt-4">
-        {/* Provider Switcher in SessionBar */}
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-sm font-medium">{t('Provider Switcher')}</span>
-            <p className="text-xs text-muted-foreground">
-              {t('Show provider switcher in SessionBar for quick switching')}
-            </p>
-          </div>
-          <Switch
-            checked={agentIntegration.showProviderSwitcher ?? true}
-            onCheckedChange={(checked) => setAgentIntegration({ showProviderSwitcher: checked })}
-          />
-        </div>
-
-        {/* Provider Watcher */}
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-sm font-medium">{t('Provider Watcher')}</span>
-            <p className="text-xs text-muted-foreground">
-              {t('Watch supported provider settings files for external changes')}
-            </p>
-          </div>
-          <Switch
-            checked={agentIntegration.enableProviderWatcher ?? true}
-            onCheckedChange={(checked) => setAgentIntegration({ enableProviderWatcher: checked })}
-          />
-        </div>
-
-        {/* Provider Disable Feature */}
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-sm font-medium">{t('Provider Disable Feature')}</span>
-            <p className="text-xs text-muted-foreground">
-              {t('Allow temporarily disabling individual providers')}
-            </p>
-          </div>
-          <Switch
-            checked={agentIntegration.enableProviderDisableFeature ?? true}
-            onCheckedChange={(checked) =>
-              setAgentIntegration({ enableProviderDisableFeature: checked })
-            }
-          />
-        </div>
-
-        {/* Agent Providers */}
-        <div ref={providerRef}>
-          <div className="mb-3">
-            <span className="text-sm font-medium">{t('Agent Providers')}</span>
-            <p className="text-xs text-muted-foreground">
-              {t('Save and switch detected provider profiles for supported Agent CLIs')}
-            </p>
-          </div>
-          <ProviderList repoPath={repoPath} />
-        </div>
-      </div>
 
       {/* MCP Servers */}
       <McpSection repoPath={repoPath} />

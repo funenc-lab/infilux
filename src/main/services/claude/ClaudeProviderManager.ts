@@ -42,8 +42,19 @@ function notifyProviderSettingsChanged(
     extracted: Partial<ClaudeProvider> | null;
   }
 ): void {
-  window.webContents.send(IPC_CHANNELS.AGENT_PROVIDER_SETTINGS_CHANGED, payload);
-  window.webContents.send(IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED, payload);
+  const providerPayload = {
+    providerId: 'claude-code' as const,
+    settings: payload.settings,
+    extracted: payload.extracted
+      ? {
+          ...payload.extracted,
+          providerId: 'claude-code' as const,
+        }
+      : null,
+    supported: true,
+  };
+  window.webContents.send(IPC_CHANNELS.AGENT_PROVIDER_SETTINGS_CHANGED, providerPayload);
+  window.webContents.send(IPC_CHANNELS.CLAUDE_PROVIDER_SETTINGS_CHANGED, providerPayload);
 }
 
 /**

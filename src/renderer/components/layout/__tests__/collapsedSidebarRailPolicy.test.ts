@@ -16,6 +16,10 @@ const temporaryWorkspacePanelSource = readFileSync(
   'utf8'
 );
 const fileSidebarSource = readFileSync(resolve(currentDir, '../../files/FileSidebar.tsx'), 'utf8');
+const collapsedSidebarRailSource = readFileSync(
+  resolve(currentDir, '../CollapsedSidebarRail.tsx'),
+  'utf8'
+);
 
 describe('collapsed sidebar rail policy', () => {
   it('keeps collapsed panels mounted and passes collapsed state through App layout', () => {
@@ -48,10 +52,27 @@ describe('collapsed sidebar rail policy', () => {
 
   it('keeps one high-frequency secondary action visible in collapsed rails', () => {
     expect(treeSidebarSource).toContain('secondaryAction={{');
+    expect(treeSidebarSource).toContain('contextAction={');
+    expect(treeSidebarSource).toContain('<RunningProjectsPopover');
     expect(treeSidebarSource).toContain("id: 'manage-repositories'");
+    expect(repositorySidebarSource).toContain('contextAction={');
+    expect(repositorySidebarSource).toContain('<RunningProjectsPopover');
     expect(repositorySidebarSource).toContain("id: 'add-repository'");
     expect(worktreePanelSource).toContain("id: 'new-worktree'");
     expect(temporaryWorkspacePanelSource).toContain("id: 'new-temp-session'");
     expect(fileSidebarSource).toContain("id: 'search-files'");
+    expect(collapsedSidebarRailSource).toContain('<SidebarToolbarTooltip');
+    expect(collapsedSidebarRailSource).toContain('side="inline-end"');
+    expect(collapsedSidebarRailSource).toContain('control-collapsed-sidebar-context-action');
+    expect(collapsedSidebarRailSource).toContain('data-slot="collapsed-sidebar-context-action"');
+    expect(collapsedSidebarRailSource).toContain('data-slot="collapsed-sidebar-secondary-button"');
+  });
+
+  it('keeps collapsed expand controls before runtime context actions', () => {
+    expect(
+      collapsedSidebarRailSource.indexOf('data-slot="collapsed-sidebar-primary-action"')
+    ).toBeLessThan(
+      collapsedSidebarRailSource.indexOf('data-slot="collapsed-sidebar-context-action"')
+    );
   });
 });

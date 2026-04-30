@@ -506,6 +506,10 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS, '/repo'],
       },
       {
+        run: () => api.agentProvider.readSettings('/repo', 'codex-cli'),
+        expected: [IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS, '/repo', 'codex-cli'],
+      },
+      {
         run: () => api.agentProvider.apply('/repo', { provider: 'claude' } as never),
         expected: [IPC_CHANNELS.AGENT_PROVIDER_APPLY, '/repo', { provider: 'claude' }],
       },

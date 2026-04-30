@@ -298,17 +298,32 @@ vi.mock('../../components/layout/BackgroundLayer', () => ({
 vi.mock('../../components/layout/DeferredMainContent', () => ({
   DeferredMainContent: ({
     onStartupBlockingReady,
+    onSwitchRepository,
   }: {
     onStartupBlockingReady: (key: 'file-panel') => void;
+    onSwitchRepository: (repoPath: string) => void;
   }) =>
     React.createElement(
-      'button',
-      {
-        type: 'button',
-        'data-testid': 'main-content-ready',
-        onClick: () => onStartupBlockingReady('file-panel'),
-      },
-      'main-content-ready'
+      'div',
+      { 'data-testid': 'deferred-main-content' },
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          'data-testid': 'main-content-ready',
+          onClick: () => onStartupBlockingReady('file-panel'),
+        },
+        'main-content-ready'
+      ),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          'data-testid': 'switch-todo-repository',
+          onClick: () => onSwitchRepository('/repo/from-todo'),
+        },
+        'switch-todo-repository'
+      )
     ),
 }));
 
@@ -701,6 +716,27 @@ describe('App integration', () => {
       | Record<string, TabId>
       | ((previous: Record<string, TabId>) => Record<string, TabId>);
     const nextTabMap = mockStatefulUpdater(worktreeTabUpdater, { [WORKTREE.path]: 'terminal' });
+    expect(nextTabMap[WORKTREE.path]).toBe('file');
+  });
+
+  it('routes AI center project task openings through the main content boundary', async () => {
+    ({ container, root } = await renderApp());
+    const appContainer = getRenderedContainer(container);
+
+    expect(appContainer.querySelector('[data-testid="deferred-main-content"]')).not.toBeNull();
+
+    await act(async () => {
+      click(appContainer, '[data-testid="switch-todo-repository"]');
+    });
+
+    expect(setSelectedRepoState).toHaveBeenCalledWith('/repo/from-todo');
+    expect(setActiveWorktree).toHaveBeenCalledWith(null);
+    expect(setActiveTab).toHaveBeenLastCalledWith('todo');
+
+    const worktreeTabUpdater = setWorktreeTabMap.mock.calls[0]?.[0] as
+      | Record<string, TabId>
+      | ((previous: Record<string, TabId>) => Record<string, TabId>);
+    const nextTabMap = mockStatefulUpdater(worktreeTabUpdater, {});
     expect(nextTabMap[WORKTREE.path]).toBe('file');
   });
 });

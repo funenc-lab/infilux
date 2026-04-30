@@ -1,17 +1,20 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { getDisplayPathBasename } from '@shared/utils/path';
 import { GitBranch, RectangleEllipsis, Sparkles } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
 import type { TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
 import { normalizePath } from '@/App/storage';
 import type { AgentCanvasWorktreeCandidate } from '@/components/chat/agentCanvasSessionScope';
 import type { SettingsCategory } from '@/components/settings/constants';
+import type { TodoTaskFocusRequest } from '@/components/todo/KanbanBoard';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { AgentSessionDisplayMode } from '@/stores/settings';
 import { ControlStateActionButton } from './ControlStateActionButton';
 import { ControlStateCard } from './ControlStateCard';
 import { DeferredAgentPanel } from './DeferredAgentPanel';
+import { DeferredAiCenterPanel } from './DeferredAiCenterPanel';
 import { DeferredCurrentFilePanel } from './DeferredCurrentFilePanel';
 import { DeferredFilePanel } from './DeferredFilePanel';
 import { DeferredSettingsContent } from './DeferredSettingsContent';
@@ -59,6 +62,7 @@ export interface MainContentPanelsProps {
   sourceControlEmptyDescription?: string;
   todoEnabled: boolean;
   shouldRenderTodo: boolean;
+  shouldRenderAiCenter?: boolean;
   shouldRenderSettings: boolean;
   settingsDisplayMode: SettingsDisplayMode;
   setSettingsDisplayMode: (mode: SettingsDisplayMode) => void;
@@ -154,6 +158,7 @@ export function MainContentPanels({
   sourceControlEmptyDescription,
   todoEnabled,
   shouldRenderTodo,
+  shouldRenderAiCenter = false,
   shouldRenderSettings,
   settingsDisplayMode,
   setSettingsDisplayMode,
@@ -173,6 +178,28 @@ export function MainContentPanels({
 }: MainContentPanelsProps) {
   const { t } = useI18n();
   const repoLabel = getPathLabel(repoPath);
+  const isTodoTabActive = activeTab === 'todo';
+  const isAiCenterTabActive = activeTab === 'ai-center';
+  const currentRepoKey = repoPath ? normalizePath(repoPath) : null;
+  const [todoFocusRequest, setTodoFocusRequest] = useState<TodoTaskFocusRequest | null>(null);
+  const todoFocusRequestTokenRef = useRef(0);
+  const handleOpenAiCenterTask = useCallback(
+    (taskRepoPath: string, taskId: string) => {
+      const taskRepoKey = normalizePath(taskRepoPath);
+      todoFocusRequestTokenRef.current += 1;
+      setTodoFocusRequest({
+        repoPath: taskRepoKey,
+        taskId,
+        token: todoFocusRequestTokenRef.current,
+      });
+
+      if (taskRepoKey !== currentRepoKey) {
+        onSwitchRepository?.(taskRepoKey);
+      }
+      onTabChange('todo');
+    },
+    [currentRepoKey, onSwitchRepository, onTabChange]
+  );
   const showSubagentTranscript =
     Boolean(selectedSubagent) && activeTab === 'chat' && hasActiveWorktree;
   const chatPanelEntries = resolveMainContentChatPanelPlan({
@@ -390,7 +417,7 @@ export function MainContentPanels({
           className={cn(
             'absolute inset-0',
             innerBg,
-            activeTab === 'todo' ? 'z-10' : 'invisible pointer-events-none z-0'
+            isTodoTabActive ? 'z-10' : 'invisible pointer-events-none z-0'
           )}
         >
           <DeferredTodoPanel
@@ -398,8 +425,28 @@ export function MainContentPanels({
             shouldLoad={shouldRenderTodo}
             repoPath={repoPath}
             worktreePath={worktreePath}
-            isActive={activeTab === 'todo'}
-            onSwitchRepository={onSwitchRepository}
+            isActive={isTodoTabActive}
+            focusTaskRequest={todoFocusRequest}
+            onSwitchToAgent={() => onTabChange('chat')}
+          />
+        </div>
+      ) : null}
+
+      {todoEnabled && shouldRenderAiCenter ? (
+        <div
+          className={cn(
+            'absolute inset-0',
+            innerBg,
+            isAiCenterTabActive ? 'z-10' : 'invisible pointer-events-none z-0'
+          )}
+        >
+          <DeferredAiCenterPanel
+            onReady={() => onStartupBlockingReady?.('ai-center-panel')}
+            shouldLoad={shouldRenderAiCenter}
+            currentRepoPath={repoPath}
+            currentWorktreePath={worktreePath}
+            isActive={isAiCenterTabActive}
+            onOpenProjectTask={handleOpenAiCenterTask}
             onSwitchToAgent={() => onTabChange('chat')}
           />
         </div>

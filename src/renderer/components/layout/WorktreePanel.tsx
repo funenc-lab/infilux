@@ -9,6 +9,14 @@ import { LayoutGroup } from 'framer-motion';
 import { GitBranch, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  getClaudeGlobalPolicy,
+  getClaudeProjectPolicy,
+  getClaudeWorktreePolicy,
+  saveClaudeWorktreePolicy,
+} from '@/App/storage';
+import { ClaudePolicyEditorDialog } from '@/components/settings/claude-policy';
+import { hasClaudePolicyConfigChanges } from '@/components/settings/claude-policy/model';
+import {
   AlertDialog,
   AlertDialogClose,
   AlertDialogDescription,
@@ -23,6 +31,7 @@ import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useI18n } from '@/i18n';
 import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { SidebarEmptyState } from './SidebarEmptyState';
@@ -37,6 +46,7 @@ export interface WorktreePanelProps {
   activeWorktree: GitWorktree | null;
   branches: GitBranchType[];
   projectName: string;
+  repositoryPath?: string | null;
   inactiveRemote?: boolean;
   remoteStatus?: RemoteConnectionStatus | null;
   isLoading?: boolean;
@@ -72,6 +82,7 @@ export function WorktreePanel({
   activeWorktree,
   branches,
   projectName,
+  repositoryPath = null,
   inactiveRemote = false,
   remoteStatus = null,
   isLoading,
@@ -99,6 +110,8 @@ export function WorktreePanel({
   const [searchQuery, setSearchQuery] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [worktreeToDelete, setWorktreeToDelete] = useState<GitWorktree | null>(null);
+  const [worktreePolicyOpen, setWorktreePolicyOpen] = useState(false);
+  const [worktreePolicyTarget, setWorktreePolicyTarget] = useState<GitWorktree | null>(null);
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [forceDelete, setForceDelete] = useState(false);
   const deleteWorktreeName = worktreeToDelete?.branch || t('Detached');
@@ -117,6 +130,9 @@ export function WorktreePanel({
   const draggedIndexRef = useRef<number | null>(null);
   const dragImageRef = useRef<HTMLDivElement | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const markClaudePolicyStaleForWorktree = useAgentSessionsStore(
+    (s) => s.markClaudePolicyStaleForWorktree
+  );
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, index: number, worktree: GitWorktree) => {
@@ -213,6 +229,7 @@ export function WorktreePanel({
   // Get the main worktree path for git operations
   const mainWorktree = safeWorktrees.find((wt) => wt.isMainWorktree);
   const workdir = mainWorktree?.path || '';
+  const policyRepoPath = repositoryPath || workdir;
 
   const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
   const shouldPoll = useShouldPoll();
@@ -291,18 +308,32 @@ export function WorktreePanel({
       <div className={cn('control-sidebar-header drag-region', repositoryCollapsed && 'pl-[70px]')}>
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          {repositoryCollapsed && onExpandRepository ? (
-            <div className="control-sidebar-toolbar-group" data-role="context">
-              <SidebarToolbarTooltip label={t('Expand repository sidebar')}>
-                <button
-                  type="button"
-                  className="control-sidebar-toolbutton no-drag"
-                  onClick={onExpandRepository}
-                  aria-label={t('Expand repository sidebar')}
-                >
-                  <PanelLeftOpen className="h-3.5 w-3.5" />
-                </button>
-              </SidebarToolbarTooltip>
+          {onCollapse || (repositoryCollapsed && onExpandRepository) ? (
+            <div className="control-sidebar-toolbar-group" data-role="panel">
+              {onCollapse ? (
+                <SidebarToolbarTooltip label={t('Collapse worktree sidebar')}>
+                  <button
+                    type="button"
+                    className="control-sidebar-toolbutton no-drag"
+                    onClick={onCollapse}
+                    aria-label={t('Collapse worktree sidebar')}
+                  >
+                    <PanelLeftClose className="h-3.5 w-3.5" />
+                  </button>
+                </SidebarToolbarTooltip>
+              ) : null}
+              {repositoryCollapsed && onExpandRepository ? (
+                <SidebarToolbarTooltip label={t('Expand repository sidebar')}>
+                  <button
+                    type="button"
+                    className="control-sidebar-toolbutton no-drag"
+                    onClick={onExpandRepository}
+                    aria-label={t('Expand repository sidebar')}
+                  >
+                    <PanelLeftOpen className="h-3.5 w-3.5" />
+                  </button>
+                </SidebarToolbarTooltip>
+              ) : null}
             </div>
           ) : null}
           <div className="control-sidebar-toolbar-group" data-role="data">
@@ -322,20 +353,6 @@ export function WorktreePanel({
               </button>
             </SidebarToolbarTooltip>
           </div>
-          {onCollapse ? (
-            <div className="control-sidebar-toolbar-group" data-role="panel">
-              <SidebarToolbarTooltip label={t('Collapse worktree sidebar')}>
-                <button
-                  type="button"
-                  className="control-sidebar-toolbutton no-drag"
-                  onClick={onCollapse}
-                  aria-label={t('Collapse worktree sidebar')}
-                >
-                  <PanelLeftClose className="h-3.5 w-3.5" />
-                </button>
-              </SidebarToolbarTooltip>
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -422,7 +439,7 @@ export function WorktreePanel({
                       onClick={onInitGit}
                       variant="default"
                       size="sm"
-                      className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
+                      className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-normal"
                     >
                       <GitBranch className="h-4 w-4" />
                       {t('Initialize repository')}
@@ -483,7 +500,7 @@ export function WorktreePanel({
                       <Button
                         variant="default"
                         size="sm"
-                        className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-[-0.01em]"
+                        className="control-action-button control-action-button-primary min-w-0 rounded-lg px-3.5 text-sm font-semibold tracking-normal"
                       >
                         <Plus className="h-4 w-4" />
                         {t('Create Worktree')}
@@ -507,6 +524,14 @@ export function WorktreePanel({
                       isActive={activeWorktree?.path === worktree.path}
                       onClick={() => onSelectWorktree(worktree)}
                       onDelete={() => setWorktreeToDelete(worktree)}
+                      onEditPolicy={
+                        policyRepoPath
+                          ? () => {
+                              setWorktreePolicyTarget(worktree);
+                              setWorktreePolicyOpen(true);
+                            }
+                          : undefined
+                      }
                       onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
                       draggable={!searchQuery && !!onReorderWorktrees}
                       onDragStart={(e) => handleDragStart(e, originalIndex, worktree)}
@@ -558,6 +583,37 @@ export function WorktreePanel({
         isLoading={isCreating}
         onSubmit={onCreateWorktree}
       />
+
+      {worktreePolicyTarget && policyRepoPath ? (
+        <ClaudePolicyEditorDialog
+          open={worktreePolicyOpen}
+          onOpenChange={(nextOpen) => {
+            setWorktreePolicyOpen(nextOpen);
+            if (!nextOpen) {
+              setWorktreePolicyTarget(null);
+            }
+          }}
+          scope="worktree"
+          globalPolicy={getClaudeGlobalPolicy()}
+          repoPath={policyRepoPath}
+          repoName={projectName}
+          worktreePath={worktreePolicyTarget.path}
+          worktreeName={worktreePolicyTarget.branch || worktreePolicyTarget.path}
+          projectPolicy={getClaudeProjectPolicy(policyRepoPath)}
+          worktreePolicy={getClaudeWorktreePolicy(worktreePolicyTarget.path)}
+          onSave={(nextPolicy) => {
+            const currentPolicy = getClaudeWorktreePolicy(worktreePolicyTarget.path);
+            const changed = hasClaudePolicyConfigChanges(currentPolicy, nextPolicy);
+            saveClaudeWorktreePolicy(
+              worktreePolicyTarget.path,
+              nextPolicy as Parameters<typeof saveClaudeWorktreePolicy>[1]
+            );
+            if (changed) {
+              markClaudePolicyStaleForWorktree(policyRepoPath, worktreePolicyTarget.path);
+            }
+          }}
+        />
+      ) : null}
 
       {/* Delete confirmation dialog */}
       <AlertDialog

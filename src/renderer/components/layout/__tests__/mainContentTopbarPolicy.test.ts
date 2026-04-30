@@ -40,8 +40,8 @@ describe('main content topbar policy', () => {
     expect(mainContentSource).toContain('TokenUsagePopover');
   });
 
-  it('keeps collapsed sidebar expansion actions out of the topbar', () => {
-    expect(mainContentSource).toContain('RunningProjectsPopover');
+  it('keeps collapsed sidebar controls out of the topbar', () => {
+    expect(mainContentSource).not.toContain('RunningProjectsPopover');
     expect(mainContentSource).not.toContain("title={t('Panels')}");
     expect(mainContentSource).not.toContain("aria-label={t('Panels')}");
     expect(mainContentSource).not.toContain("t('Expand Repository')");

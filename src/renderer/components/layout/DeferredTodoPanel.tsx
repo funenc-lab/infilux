@@ -1,11 +1,21 @@
 import { KanbanSquare } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { TodoPanelProps } from '@/components/todo/TodoPanel';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { DeferredPanelLoadError } from './DeferredPanelLoadError';
+import { useDeferredComponentLoader } from './useDeferredComponentLoader';
 import { useDeferredReady } from './useDeferredReady';
 
 type TodoPanelComponent = React.ComponentType<TodoPanelProps>;
+type TodoPanelModule = typeof import('@/components/todo/TodoPanel');
+
+function loadTodoPanelModule(): Promise<TodoPanelModule> {
+  return import('@/components/todo/TodoPanel');
+}
+
+function selectTodoPanelComponent(module: TodoPanelModule): TodoPanelComponent {
+  return module.TodoPanel as TodoPanelComponent;
+}
 
 interface DeferredTodoPanelProps extends TodoPanelProps {
   shouldLoad?: boolean;
@@ -18,25 +28,12 @@ export function DeferredTodoPanel({
   ...props
 }: DeferredTodoPanelProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<TodoPanelComponent | null>(null);
-
-  useEffect(() => {
-    if (!shouldLoad || Component) {
-      return;
-    }
-
-    let cancelled = false;
-    import('@/components/todo/TodoPanel').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.TodoPanel as TodoPanelComponent);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldLoad, Component]);
+  const { Component, error, retry } = useDeferredComponentLoader<TodoPanelModule, TodoPanelProps>({
+    shouldLoad,
+    load: loadTodoPanelModule,
+    selectComponent: selectTodoPanelComponent,
+    errorLabel: 'TodoPanel',
+  });
 
   useDeferredReady(Boolean(Component), onReady);
 
@@ -44,12 +41,24 @@ export function DeferredTodoPanel({
     return <Component {...props} />;
   }
 
+  if (error) {
+    return (
+      <DeferredPanelLoadError
+        eyebrow={t('Todo')}
+        title={t('Unable to load tasks')}
+        description={t('Unable to load resources.')}
+        error={error}
+        onRetry={retry}
+      />
+    );
+  }
+
   return (
     <DeferredPanelFallback
       icon={<KanbanSquare className="h-5 w-5" />}
       eyebrow={t('Todo')}
-      title={t('Loading tasks')}
-      description={t('Preparing the kanban board')}
+      title={t('Task board')}
+      description={t('Loading tasks')}
     />
   );
 }

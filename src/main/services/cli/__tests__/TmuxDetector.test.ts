@@ -194,6 +194,26 @@ describe('TmuxDetector', () => {
     );
   });
 
+  it('returns an explicit probe status for tmux session reconciliation', async () => {
+    setPlatform('linux');
+    tmuxDetectorTestDoubles.execInPty
+      .mockResolvedValueOnce('enso-live\nenso-other')
+      .mockResolvedValueOnce('enso-other')
+      .mockRejectedValueOnce(new Error('Detection timeout'));
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(tmuxDetector.probeSession('enso-live')).resolves.toBe('exists');
+    await expect(tmuxDetector.probeSession('enso-missing')).resolves.toBe('missing');
+    await expect(tmuxDetector.probeSession('enso-unknown')).resolves.toBe('failed');
+
+    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+      1,
+      `tmux -S '${testSocketPath}' list-sessions -F '#S'`,
+      { timeout: 5000 }
+    );
+  });
+
   it('keeps a healthy runtime server without resetting it', async () => {
     setPlatform('darwin');
     tmuxDetectorTestDoubles.execInPty.mockResolvedValueOnce('tmux 3.6a').mockResolvedValueOnce('');

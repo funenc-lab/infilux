@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { AgentRegistry, BUILTIN_AGENTS } from '../AgentRegistry';
 
 describe('AgentRegistry', () => {
-  it('exposes builtin agents and supports registration lifecycle operations', async () => {
-    const { AgentRegistry, BUILTIN_AGENTS } = await import('../AgentRegistry');
-
+  it('exposes builtin agents and supports registration lifecycle operations', () => {
     const registry = new AgentRegistry();
     expect(registry.list()).toEqual(BUILTIN_AGENTS);
     expect(registry.get('claude')).toEqual(BUILTIN_AGENTS[0]);
@@ -32,9 +31,7 @@ describe('AgentRegistry', () => {
     expect(registry.get('custom')).toBeUndefined();
   });
 
-  it('accepts custom builtin agents for isolated registries', async () => {
-    const { AgentRegistry } = await import('../AgentRegistry');
-
+  it('accepts custom builtin agents for isolated registries', () => {
     const builtin = {
       id: 'only-one',
       name: 'Only One',

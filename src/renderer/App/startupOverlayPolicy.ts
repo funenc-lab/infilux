@@ -2,6 +2,7 @@ import type { TabId } from './constants';
 
 export type StartupBlockingKey =
   | 'chat-panel'
+  | 'ai-center-panel'
   | 'file-panel'
   | 'repository-sidebar'
   | 'settings-panel'
@@ -40,6 +41,10 @@ interface ResolveStartupProgressOptions {
 }
 
 const STARTUP_BLOCKING_COPY: Record<StartupBlockingKey, StartupBlockingCopy> = {
+  'ai-center-panel': {
+    title: 'Loading AI Center',
+    description: 'Preparing cross-project task intelligence',
+  },
   'chat-panel': {
     title: 'Loading AI Agent',
     description: 'Preparing agent sessions and terminal workspace',
@@ -126,6 +131,9 @@ export function resolveInitialStartupBlockingKeys({
       break;
     case 'todo':
       keys.push('todo-panel');
+      break;
+    case 'ai-center':
+      keys.push('ai-center-panel');
       break;
     default:
       break;

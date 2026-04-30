@@ -40,15 +40,26 @@ vi.mock('../SidebarToolbarTooltip', () => ({
   SidebarToolbarTooltip: ({
     label,
     shortcut,
+    side,
+    align,
+    sideOffset,
     children,
   }: {
     label?: React.ReactNode;
     shortcut?: React.ReactNode;
+    side?: string;
+    align?: string;
+    sideOffset?: number;
     children?: React.ReactNode;
   }) =>
     React.createElement(
       'span',
-      { 'data-testid': 'sidebar-toolbar-tooltip' },
+      {
+        'data-align': align,
+        'data-side': side,
+        'data-side-offset': sideOffset,
+        'data-testid': 'sidebar-toolbar-tooltip',
+      },
       children,
       label,
       shortcut
@@ -160,5 +171,22 @@ describe('RunningProjectsPopover', () => {
     );
 
     expect(markup).toContain('Cmd+L');
+  });
+
+  it('passes compact rail tooltip placement through to the toolbar tooltip', async () => {
+    const { RunningProjectsPopover } = await import('../RunningProjectsPopover');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(RunningProjectsPopover, {
+        onSelectWorktreeByPath: vi.fn(),
+        tooltipSide: 'inline-end',
+        tooltipAlign: 'center',
+        tooltipSideOffset: 8,
+      })
+    );
+
+    expect(markup).toContain('data-side="inline-end"');
+    expect(markup).toContain('data-align="center"');
+    expect(markup).toContain('data-side-offset="8"');
   });
 });

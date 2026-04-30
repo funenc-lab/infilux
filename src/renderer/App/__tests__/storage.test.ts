@@ -59,6 +59,8 @@ describe('storage helpers', () => {
         'custom-bool-false': 'false',
         [envKey('WORKTREE_TABS')]: JSON.stringify({
           '/repo/current': 'file',
+          '/repo/legacy-global': 'global-todo',
+          '/repo/invalid': 'unknown',
         }),
         [envKey('ACTIVE_WORKTREES')]: JSON.stringify({
           '/repo': '/repo/worktrees/current',
@@ -80,6 +82,7 @@ describe('storage helpers', () => {
     expect(env.getStoredBoolean('missing-bool', true)).toBe(true);
     expect(env.getStoredTabMap()).toEqual({
       '/repo/current': 'file',
+      '/repo/legacy-global': 'ai-center',
     });
     expect(env.getStoredWorktreeMap()).toEqual({
       '/repo': '/repo/worktrees/current',

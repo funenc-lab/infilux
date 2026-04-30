@@ -70,10 +70,24 @@ function TranslationProbe() {
       t('Open or refresh a supported agent session to populate this scope.')
     ),
     React.createElement('span', { id: 'token-provider' }, t('Provider Coverage')),
-    React.createElement('span', { id: 'decision-center' }, t('Decision Center')),
-    React.createElement('span', { id: 'global-todo' }, t('Global Todo')),
+    React.createElement('span', { id: 'ai-center' }, t('AI Center')),
+    React.createElement(
+      'span',
+      { id: 'cross-project-ai-orchestration' },
+      t('Cross-project AI orchestration')
+    ),
+    React.createElement('span', { id: 'loading-ai-center' }, t('Loading AI Center')),
+    React.createElement('span', { id: 'project-todo' }, t('Project Todo')),
+    React.createElement('span', { id: 'current-project' }, t('Current project')),
+    React.createElement('span', { id: 'no-project-selected' }, t('No project selected')),
+    React.createElement('span', { id: 'task-board' }, t('Task board')),
+    React.createElement('span', { id: 'unable-load-tasks' }, t('Unable to load tasks')),
     React.createElement('span', { id: 'ready-dispatch' }, t('Ready to Dispatch')),
     React.createElement('span', { id: 'running-now' }, t('Running Now')),
+    React.createElement('span', { id: 'open' }, t('Open')),
+    React.createElement('span', { id: 'paused' }, t('Paused')),
+    React.createElement('span', { id: 'open-task' }, t('Open task')),
+    React.createElement('span', { id: 'open-count' }, t('{{count}} open', { count: 3 })),
     React.createElement('span', { id: 'approve-task' }, t('Approve task')),
     React.createElement('span', { id: 'review-task' }, t('Review task')),
     React.createElement('span', { id: 'active-count' }, t('{{count}} active', { count: 2 })),
@@ -151,12 +165,30 @@ describe('renderer i18n', () => {
       '\u6253\u5f00\u6216\u5237\u65b0\u53d7\u652f\u6301\u7684 Agent \u4f1a\u8bdd\u4ee5\u586b\u5145\u5f53\u524d\u8303\u56f4\u3002'
     );
     expect(container.querySelector('#token-provider')?.textContent).toBe('Provider \u8986\u76d6');
-    expect(container.querySelector('#decision-center')?.textContent).toBe(
-      '\u51b3\u7b56\u4e2d\u5fc3'
+    expect(container.querySelector('#ai-center')?.textContent).toBe('AI \u667a\u80fd\u4e2d\u5fc3');
+    expect(container.querySelector('#cross-project-ai-orchestration')?.textContent).toBe(
+      '\u8de8\u9879\u76ee AI \u7f16\u6392'
     );
-    expect(container.querySelector('#global-todo')?.textContent).toBe('\u5168\u5c40\u5f85\u529e');
+    expect(container.querySelector('#loading-ai-center')?.textContent).toBe(
+      '\u6b63\u5728\u52a0\u8f7d AI \u667a\u80fd\u4e2d\u5fc3'
+    );
+    expect(container.querySelector('#project-todo')?.textContent).toBe('\u9879\u76ee\u5f85\u529e');
+    expect(container.querySelector('#current-project')?.textContent).toBe(
+      '\u5f53\u524d\u9879\u76ee'
+    );
+    expect(container.querySelector('#no-project-selected')?.textContent).toBe(
+      '\u672a\u9009\u62e9\u9879\u76ee'
+    );
+    expect(container.querySelector('#task-board')?.textContent).toBe('\u4efb\u52a1\u770b\u677f');
+    expect(container.querySelector('#unable-load-tasks')?.textContent).toBe(
+      '\u65e0\u6cd5\u52a0\u8f7d\u4efb\u52a1'
+    );
     expect(container.querySelector('#ready-dispatch')?.textContent).toBe('\u53ef\u6d3e\u53d1');
     expect(container.querySelector('#running-now')?.textContent).toBe('\u6b63\u5728\u6267\u884c');
+    expect(container.querySelector('#open')?.textContent).toBe('\u6253\u5f00');
+    expect(container.querySelector('#paused')?.textContent).toBe('\u5df2\u6682\u505c');
+    expect(container.querySelector('#open-task')?.textContent).toBe('\u6253\u5f00\u4efb\u52a1');
+    expect(container.querySelector('#open-count')?.textContent).toBe('3 \u4e2a\u672a\u5b8c\u6210');
     expect(container.querySelector('#approve-task')?.textContent).toBe('\u6279\u51c6\u4efb\u52a1');
     expect(container.querySelector('#review-task')?.textContent).toBe('\u67e5\u770b\u4efb\u52a1');
     expect(container.querySelector('#active-count')?.textContent).toBe('2 \u4e2a\u6d3b\u52a8');

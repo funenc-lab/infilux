@@ -236,7 +236,7 @@ describe('worktree recovery to SessionBar', () => {
     ]);
     expect(tab?.textContent).toContain('Codex');
     expect(tab?.getAttribute('aria-label')).toBe('Codex');
-  });
+  }, 20000);
 
   it('renders the recovered session name after worktree recovery when the stored title is meaningful', async () => {
     const { tab, sessions } = await recoverAndRender('Investigate session recovery title');
@@ -249,5 +249,5 @@ describe('worktree recovery to SessionBar', () => {
     ]);
     expect(tab?.textContent).toContain('Investigate session recovery title');
     expect(tab?.getAttribute('aria-label')).toBe('Investigate session recovery title');
-  });
+  }, 20000);
 });

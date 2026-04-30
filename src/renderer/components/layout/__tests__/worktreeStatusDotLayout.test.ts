@@ -1,9 +1,14 @@
+/* @vitest-environment jsdom */
+
 import type { GitWorktree } from '@shared/types';
-import React from 'react';
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorktreeTreeItem } from '../tree-sidebar/WorktreeTreeItem';
 import { WorktreeItem } from '../worktree-panel/WorktreeItem';
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const WORKTREE: GitWorktree = {
   path: '/repo/.worktrees/feature-a',
@@ -101,6 +106,15 @@ function expectLeadingStatusDot(markup: string) {
 }
 
 describe('worktree status dot layout', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.clearAllTimers();
+    useWorktreeActivityStore.getState().clearActivityState.mockClear();
+    useWorktreeActivityStore.getState().activityStates = {
+      '/repo/.worktrees/feature-a': 'running',
+    };
+  });
+
   it('renders the tree sidebar status dot in a leading status slot instead of the title row', () => {
     const markup = renderToStaticMarkup(
       React.createElement(WorktreeTreeItem, {
@@ -125,5 +139,50 @@ describe('worktree status dot layout', () => {
     );
 
     expectLeadingStatusDot(markup);
+  });
+
+  it('clears completed state from both sidebar worktree row variants after the completion window', () => {
+    vi.useFakeTimers();
+    useWorktreeActivityStore.getState().activityStates = {
+      '/repo/.worktrees/feature-a': 'completed',
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+
+    act(() => {
+      root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(WorktreeTreeItem, {
+            worktree: WORKTREE,
+            isActive: true,
+            onClick: vi.fn(),
+            onDelete: vi.fn(),
+          }),
+          React.createElement(WorktreeItem, {
+            worktree: WORKTREE,
+            isActive: true,
+            onClick: vi.fn(),
+            onDelete: vi.fn(),
+          })
+        )
+      );
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(useWorktreeActivityStore.getState().clearActivityState).toHaveBeenCalledTimes(2);
+    expect(useWorktreeActivityStore.getState().clearActivityState).toHaveBeenCalledWith(
+      WORKTREE.path
+    );
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
   });
 });

@@ -1,8 +1,18 @@
+import type { AIProvider } from '@shared/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { useSettingsStore } from '@/stores/settings';
 import type { TabId } from '../constants';
 import { resolveWorktreeTabForPersistence } from '../settingsWorktreeTabPolicy';
+
+export type PendingProviderActionKind = 'preview' | 'save';
+
+export interface PendingProviderActionRequest {
+  action: PendingProviderActionKind;
+  providerId?: AIProvider;
+}
+
+export type PendingProviderAction = PendingProviderActionKind | PendingProviderActionRequest | null;
 
 export function useSettingsState(
   activeTab: TabId,
@@ -35,9 +45,7 @@ export function useSettingsState(
     }
   });
   const [scrollToProvider, setScrollToProvider] = useState(false);
-  const [pendingProviderAction, setPendingProviderAction] = useState<'preview' | 'save' | null>(
-    null
-  );
+  const [pendingProviderAction, setPendingProviderAction] = useState<PendingProviderAction>(null);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
 
   const settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
