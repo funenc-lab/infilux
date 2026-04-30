@@ -43,6 +43,11 @@ interface RipgrepFilesResult {
   cacheable: boolean;
 }
 
+interface RipgrepContentResult {
+  result: ContentSearchResult;
+  retryable: boolean;
+}
+
 interface ActiveSearch {
   cancel: () => void;
 }
@@ -103,6 +108,15 @@ function normalizeRelativePath(rootPath: string, filePath: string): string {
 
 function getFileListCacheKey(rootPath: string, useGitignore: boolean): string {
   return `${rootPath}\0${useGitignore ? 'gitignore' : 'all'}`;
+}
+
+function getRipgrepCandidateOrder(): string[] {
+  return preferredRipgrepCandidate
+    ? [
+        preferredRipgrepCandidate,
+        ...ripgrepCandidates.filter((candidate) => candidate !== preferredRipgrepCandidate),
+      ]
+    : ripgrepCandidates;
 }
 
 function isExcludedPath(relativePath: string): boolean {
@@ -201,7 +215,7 @@ async function getAllFilesWithRipgrepBinary(
   registerActiveSearch?: RegisterActiveSearch
 ): Promise<RipgrepFilesResult> {
   return new Promise((resolve) => {
-    const args = ['--files'];
+    const args = ['--files', '--hidden'];
     if (!useGitignore) {
       args.push('--no-ignore');
     }
@@ -294,14 +308,7 @@ async function getAllFiles(
   useGitignore: boolean,
   registerActiveSearch?: RegisterActiveSearch
 ): Promise<FileListResult> {
-  const candidates = preferredRipgrepCandidate
-    ? [
-        preferredRipgrepCandidate,
-        ...ripgrepCandidates.filter((candidate) => candidate !== preferredRipgrepCandidate),
-      ]
-    : ripgrepCandidates;
-
-  for (const candidate of candidates) {
+  for (const candidate of getRipgrepCandidateOrder()) {
     const result = await getAllFilesWithRipgrepBinary(
       candidate,
       rootPath,
@@ -441,35 +448,59 @@ export class SearchService {
       return { matches: [], totalMatches: 0, totalFiles: 0, truncated: false };
     }
 
+    const args = [
+      '--json',
+      '--line-number',
+      '--column',
+      '--hidden',
+      '--max-count',
+      '100',
+      '--max-filesize',
+      '1M',
+    ];
+
+    args.push(...EXCLUDE_GLOBS.flatMap((g) => ['--glob', g]));
+
+    if (!useGitignore) args.push('--no-ignore');
+
+    if (!caseSensitive) args.push('-i');
+    if (wholeWord) args.push('-w');
+    if (!regex) args.push('-F');
+    if (filePattern) args.push('--glob', filePattern);
+
+    args.push('--', query, rootPath);
+
+    for (const candidate of getRipgrepCandidateOrder()) {
+      const contentResult = await this.searchContentWithRipgrepBinary(
+        candidate,
+        args,
+        requestId,
+        rootPath,
+        maxResults
+      );
+      if (!contentResult.retryable) {
+        return contentResult.result;
+      }
+    }
+
+    return { matches: [], totalMatches: 0, totalFiles: 0, truncated: false };
+  }
+
+  private async searchContentWithRipgrepBinary(
+    binaryPath: string,
+    args: string[],
+    requestId: string | undefined,
+    rootPath: string,
+    maxResults: number
+  ): Promise<RipgrepContentResult> {
     return new Promise((resolve) => {
-      const args = [
-        '--json',
-        '--line-number',
-        '--column',
-        '--max-count',
-        '100',
-        '--max-filesize',
-        '1M',
-      ];
-
-      args.push(...EXCLUDE_GLOBS.flatMap((g) => ['--glob', g]));
-
-      if (!useGitignore) args.push('--no-ignore');
-
-      if (!caseSensitive) args.push('-i');
-      if (wholeWord) args.push('-w');
-      if (!regex) args.push('-F');
-      if (filePattern) args.push('--glob', filePattern);
-
-      args.push('--', query, rootPath);
-
       const matches: ContentSearchMatch[] = [];
       const fileSet = new Set<string>();
       let totalMatches = 0;
       let truncated = false;
       let stderr = '';
 
-      const rg = spawn(rgPath, args);
+      const rg = spawn(binaryPath, args);
       let buffer = '';
       let settled = false;
       let timeoutId: NodeJS.Timeout | undefined;
@@ -483,7 +514,7 @@ export class SearchService {
         unregisterActiveSearch();
       };
 
-      const finish = (result: ContentSearchResult) => {
+      const finish = (result: RipgrepContentResult) => {
         if (settled) {
           return;
         }
@@ -493,6 +524,10 @@ export class SearchService {
         }
         cleanup();
         resolve(result);
+      };
+
+      const finishContentSearch = (result: ContentSearchResult, retryable: boolean) => {
+        finish({ result, retryable });
       };
 
       rg.stdout.on('data', (data) => {
@@ -536,27 +571,35 @@ export class SearchService {
 
       timeoutId = setTimeout(() => {
         killProcessTree(rg);
-        finish({
-          matches,
-          totalMatches,
-          totalFiles: fileSet.size,
-          truncated: true,
-        });
+        finishContentSearch(
+          {
+            matches,
+            totalMatches,
+            totalFiles: fileSet.size,
+            truncated: true,
+          },
+          false
+        );
       }, SEARCH_TIMEOUT_MS);
 
       unregisterActiveSearch = this.registerActiveSearch(requestId, {
         cancel: () => {
           killProcessTree(rg);
-          finish({
-            matches: [],
-            totalMatches: 0,
-            totalFiles: 0,
-            truncated: true,
-          });
+          finishContentSearch(
+            {
+              matches: [],
+              totalMatches: 0,
+              totalFiles: 0,
+              truncated: true,
+            },
+            false
+          );
         },
       });
 
       rg.on('close', (code) => {
+        preferredRipgrepCandidate = binaryPath;
+
         if (buffer.trim()) {
           try {
             const json = JSON.parse(buffer);
@@ -588,23 +631,29 @@ export class SearchService {
           console.error('[SearchService] ripgrep error:', stderr);
         }
 
-        finish({
-          matches,
-          totalMatches,
-          totalFiles: fileSet.size,
-          truncated,
-          ...(error ? { error } : {}),
-        });
+        finishContentSearch(
+          {
+            matches,
+            totalMatches,
+            totalFiles: fileSet.size,
+            truncated,
+            ...(error ? { error } : {}),
+          },
+          false
+        );
       });
 
       rg.on('error', (err) => {
-        console.error('[SearchService] ripgrep spawn error:', err.message);
-        finish({
-          matches: [],
-          totalMatches: 0,
-          totalFiles: 0,
-          truncated: false,
-        });
+        console.error('[SearchService] ripgrep content spawn error:', err.message);
+        finishContentSearch(
+          {
+            matches: [],
+            totalMatches: 0,
+            totalFiles: 0,
+            truncated: false,
+          },
+          true
+        );
       });
     });
   }

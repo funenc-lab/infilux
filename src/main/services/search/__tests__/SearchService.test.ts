@@ -196,6 +196,69 @@ describe('SearchService', () => {
     );
   });
 
+  it('falls back to the PATH ripgrep binary when the bundled content search binary is missing', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const fallbackPromise = service.searchContent({
+      rootPath: '/repo',
+      query: 'Design Principles',
+      maxResults: 5,
+    });
+
+    const missingBundledProc = searchServiceTestDoubles.processes[0];
+    if (!missingBundledProc) {
+      throw new Error('Missing bundled ripgrep process');
+    }
+    missingBundledProc.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const pathRipgrepProc = searchServiceTestDoubles.processes[1];
+    if (!pathRipgrepProc) {
+      throw new Error('Missing PATH ripgrep process');
+    }
+    pathRipgrepProc.stdout.emit(
+      'data',
+      `${JSON.stringify({
+        type: 'match',
+        data: {
+          path: { text: '/repo/.impeccable.md' },
+          line_number: 12,
+          lines: { text: '### Design Principles\n' },
+          submatches: [{ start: 4, end: 21 }],
+        },
+      })}\n`
+    );
+    pathRipgrepProc.emit('close', 0);
+
+    await expect(fallbackPromise).resolves.toEqual({
+      matches: [
+        {
+          path: '/repo/.impeccable.md',
+          relativePath: '.impeccable.md',
+          line: 12,
+          column: 4,
+          matchLength: 17,
+          content: '### Design Principles',
+        },
+      ],
+      totalMatches: 1,
+      totalFiles: 1,
+      truncated: false,
+    });
+    expect(searchServiceTestDoubles.spawn).toHaveBeenNthCalledWith(
+      1,
+      '/mock/node_modules/@vscode/ripgrep/bin/rg',
+      expect.any(Array)
+    );
+    expect(searchServiceTestDoubles.spawn).toHaveBeenNthCalledWith(2, 'rg', expect.any(Array));
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[SearchService] ripgrep content spawn error:',
+      'spawn ENOENT'
+    );
+  });
+
   it('passes --no-ignore to ripgrep file listing when gitignore filtering is disabled', async () => {
     const { SearchService } = await import('../SearchService');
     const service = new SearchService();
@@ -223,6 +286,78 @@ describe('SearchService', () => {
     expect(searchServiceTestDoubles.spawn).toHaveBeenCalledWith(
       '/mock/node_modules/@vscode/ripgrep/bin/rg',
       expect.arrayContaining(['--files', '--no-ignore', '/repo'])
+    );
+  });
+
+  it('includes hidden files in file and content search scope while preserving explicit exclusions', async () => {
+    const { SearchService } = await import('../SearchService');
+    const service = new SearchService();
+
+    const fileSearchPromise = service.searchFiles({
+      rootPath: '/repo',
+      query: 'impeccable',
+      maxResults: 5,
+    });
+
+    const fileProc = searchServiceTestDoubles.processes[0];
+    if (!fileProc) {
+      throw new Error('Missing hidden file listing process');
+    }
+    fileProc.stdout.emit('data', '/repo/.impeccable.md\n');
+    fileProc.emit('close', 0);
+
+    await expect(fileSearchPromise).resolves.toEqual([
+      expect.objectContaining({
+        path: '/repo/.impeccable.md',
+        relativePath: '.impeccable.md',
+      }),
+    ]);
+    expect(searchServiceTestDoubles.spawn).toHaveBeenNthCalledWith(
+      1,
+      '/mock/node_modules/@vscode/ripgrep/bin/rg',
+      expect.arrayContaining(['--files', '--hidden', '--glob', '!.git/**'])
+    );
+
+    const contentSearchPromise = service.searchContent({
+      rootPath: '/repo',
+      query: 'Design Principles',
+      maxResults: 5,
+    });
+
+    const contentProc = searchServiceTestDoubles.processes[1];
+    if (!contentProc) {
+      throw new Error('Missing hidden content search process');
+    }
+    contentProc.stdout.emit(
+      'data',
+      `${JSON.stringify({
+        type: 'match',
+        data: {
+          path: { text: '/repo/.impeccable.md' },
+          line_number: 12,
+          lines: { text: '### Design Principles\n' },
+          submatches: [{ start: 4, end: 21 }],
+        },
+      })}\n`
+    );
+    contentProc.emit('close', 0);
+
+    await expect(contentSearchPromise).resolves.toEqual({
+      matches: [
+        expect.objectContaining({
+          path: '/repo/.impeccable.md',
+          relativePath: '.impeccable.md',
+          content: '### Design Principles',
+        }),
+      ],
+      totalMatches: 1,
+      totalFiles: 1,
+      truncated: false,
+    });
+    expect(searchServiceTestDoubles.spawn).toHaveBeenNthCalledWith(
+      2,
+      '/mock/node_modules/@vscode/ripgrep/bin/rg',
+      expect.arrayContaining(['--json', '--hidden', '--glob', '!.git/**'])
     );
   });
 
@@ -471,6 +606,13 @@ describe('SearchService', () => {
       throw new Error('Missing error search process');
     }
     errorProc.emit('error', new Error('spawn failed'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const fallbackErrorProc = searchServiceTestDoubles.processes[1];
+    if (!fallbackErrorProc) {
+      throw new Error('Missing fallback error search process');
+    }
+    fallbackErrorProc.emit('error', new Error('fallback spawn failed'));
 
     await expect(spawnErrorPromise).resolves.toEqual({
       matches: [],
@@ -483,7 +625,7 @@ describe('SearchService', () => {
       rootPath: '/repo',
       query: '',
     });
-    const timeoutProc = searchServiceTestDoubles.processes[1];
+    const timeoutProc = searchServiceTestDoubles.processes[2];
     if (!timeoutProc) {
       throw new Error('Missing timeout search process');
     }

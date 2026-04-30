@@ -44,6 +44,9 @@ describe('getRemoteServerSource', () => {
     );
     expect(source).toContain("if (useGitignore) args.push('--exclude-standard');");
     expect(source).toContain("if (!useGitignore) args.push('--no-ignore');");
+    expect(source).toContain(
+      "const args = ['-n', '--column', '-I', '--hidden', '-m', String(maxResults)];"
+    );
     expect(source).toContain('allowedExitCodes: [0, 1, 2]');
     expect(source).toContain(
       "error: code === 2 && matches.length === 0 ? 'Invalid search expression' : undefined"
