@@ -9,11 +9,22 @@ interface ReconcileAgentSessionExitOptions {
   markSessionExited: (sessionId: string, recoveryState?: PersistentAgentRuntimeState) => void;
 }
 
+export function shouldDeferPersistentSessionDeadState(
+  session: Session,
+  runtimeState: PersistentAgentRuntimeState
+): boolean {
+  return runtimeState === 'dead' && isSessionPersistable(session);
+}
+
 function resolveReconciledExitState(
   sessionId: string,
-  item: AgentSessionRestoreItem | null
+  item: AgentSessionRestoreItem | null,
+  fallbackState: PersistentAgentRuntimeState
 ): PersistentAgentRuntimeState {
-  if (!item || item.record.uiSessionId !== sessionId) {
+  if (!item) {
+    return fallbackState;
+  }
+  if (item.record.uiSessionId !== sessionId) {
     return 'dead';
   }
   return item.runtimeState;
@@ -33,7 +44,10 @@ export async function reconcileAgentSessionExit({
 
   try {
     const item = await reconcileSession(sessionId);
-    markSessionExited(sessionId, resolveReconciledExitState(sessionId, item));
+    markSessionExited(
+      sessionId,
+      resolveReconciledExitState(sessionId, item, session.recoveryState ?? 'live')
+    );
   } catch {
     markSessionExited(sessionId, session.recoveryState ?? 'live');
   }

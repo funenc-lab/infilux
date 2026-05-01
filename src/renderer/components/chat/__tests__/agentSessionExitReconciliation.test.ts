@@ -1,6 +1,9 @@
 import type { AgentSessionRestoreItem, PersistentAgentSessionRecord } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
-import { reconcileAgentSessionExit } from '../agentSessionExitReconciliation';
+import {
+  reconcileAgentSessionExit,
+  shouldDeferPersistentSessionDeadState,
+} from '../agentSessionExitReconciliation';
 import type { Session } from '../SessionBar';
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -95,9 +98,13 @@ describe('agentSessionExitReconciliation', () => {
     expect(markSessionExited).toHaveBeenCalledWith('session-1', 'dead');
   });
 
-  it('marks a persistent session dead when reconciliation does not find a matching record', async () => {
+  it('marks a persistent session dead when reconciliation returns a mismatched record', async () => {
     const markSessionExited = vi.fn();
-    const reconcileSession = vi.fn().mockResolvedValue(null);
+    const reconcileSession = vi.fn().mockResolvedValue(
+      makeRestoreItem({
+        record: makeRecord({ uiSessionId: 'other-session' }),
+      })
+    );
 
     await reconcileAgentSessionExit({
       sessionId: 'session-1',
@@ -136,5 +143,27 @@ describe('agentSessionExitReconciliation', () => {
     });
 
     expect(markSessionExited).toHaveBeenCalledWith('session-1', 'live');
+  });
+
+  it('preserves the current recoverable state when persistent session reconciliation has no record', async () => {
+    const markSessionExited = vi.fn();
+    const reconcileSession = vi.fn().mockResolvedValue(null);
+
+    await reconcileAgentSessionExit({
+      sessionId: 'session-1',
+      getSession: () => makeSession({ recoveryState: 'live' }),
+      reconcileSession,
+      markSessionExited,
+    });
+
+    expect(markSessionExited).toHaveBeenCalledWith('session-1', 'live');
+  });
+
+  it('defers dead runtime-state writes for persistable sessions until exit reconciliation completes', () => {
+    expect(shouldDeferPersistentSessionDeadState(makeSession(), 'dead')).toBe(true);
+    expect(
+      shouldDeferPersistentSessionDeadState(makeSession({ persistenceEnabled: false }), 'dead')
+    ).toBe(false);
+    expect(shouldDeferPersistentSessionDeadState(makeSession(), 'live')).toBe(false);
   });
 });

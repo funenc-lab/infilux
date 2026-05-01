@@ -1,5 +1,3 @@
-import type { PersistentAgentSessionRecord } from '@shared/types';
-import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const indexTestDoubles = vi.hoisted(() => {
@@ -44,7 +42,6 @@ const indexTestDoubles = vi.hoisted(() => {
   const stopClaudeCompletionsWatchers = vi.fn();
   const cleanupTempFiles = vi.fn();
   const cleanupTempFilesSync = vi.fn();
-  const cleanupTmuxSync = vi.fn();
   const stopAllCodeReviews = vi.fn();
   const clearAllGitServices = vi.fn();
   const clearAllWorktreeServices = vi.fn();
@@ -54,10 +51,6 @@ const indexTestDoubles = vi.hoisted(() => {
   const cleanupTodo = vi.fn();
   const cleanupTodoSync = vi.fn();
   const webInspectorStop = vi.fn();
-  const listCachedSessionsSync = vi.fn<() => PersistentAgentSessionRecord[]>(() => []);
-  const listSessions = vi.fn<() => Promise<PersistentAgentSessionRecord[]>>(() =>
-    Promise.resolve([])
-  );
 
   function reset() {
     const fns = [
@@ -101,7 +94,6 @@ const indexTestDoubles = vi.hoisted(() => {
       stopClaudeCompletionsWatchers,
       cleanupTempFiles,
       cleanupTempFilesSync,
-      cleanupTmuxSync,
       stopAllCodeReviews,
       clearAllGitServices,
       clearAllWorktreeServices,
@@ -111,8 +103,6 @@ const indexTestDoubles = vi.hoisted(() => {
       cleanupTodo,
       cleanupTodoSync,
       webInspectorStop,
-      listCachedSessionsSync,
-      listSessions,
     ];
 
     for (const fn of fns) {
@@ -128,8 +118,6 @@ const indexTestDoubles = vi.hoisted(() => {
     remoteCleanup.mockResolvedValue(undefined);
     cleanupTodo.mockResolvedValue(undefined);
     webInspectorStop.mockResolvedValue(undefined);
-    listCachedSessionsSync.mockReturnValue([]);
-    listSessions.mockResolvedValue([]);
   }
 
   return {
@@ -173,7 +161,6 @@ const indexTestDoubles = vi.hoisted(() => {
     stopClaudeCompletionsWatchers,
     cleanupTempFiles,
     cleanupTempFilesSync,
-    cleanupTmuxSync,
     stopAllCodeReviews,
     clearAllGitServices,
     clearAllWorktreeServices,
@@ -183,39 +170,10 @@ const indexTestDoubles = vi.hoisted(() => {
     cleanupTodo,
     cleanupTodoSync,
     webInspectorStop,
-    listCachedSessionsSync,
-    listSessions,
+    cleanupTmuxSync: vi.fn(),
     reset,
   };
 });
-
-function makePersistentAgentSessionRecord(
-  overrides: Partial<PersistentAgentSessionRecord> = {}
-): PersistentAgentSessionRecord {
-  return {
-    uiSessionId: 'session-1',
-    backendSessionId: 'backend-1',
-    providerSessionId: 'provider-1',
-    agentId: 'claude',
-    agentCommand: 'claude',
-    customPath: undefined,
-    customArgs: undefined,
-    environment: 'native',
-    repoPath: '/repo',
-    cwd: '/repo/worktree',
-    displayName: 'Claude',
-    activated: true,
-    initialized: true,
-    hostKind: 'tmux',
-    hostSessionKey: 'enso-session-1',
-    recoveryPolicy: 'auto',
-    createdAt: 10,
-    updatedAt: 11,
-    lastKnownState: 'live',
-    metadata: undefined,
-    ...overrides,
-  };
-}
 
 vi.mock('../../services/ai', () => ({
   stopAllCodeReviews: indexTestDoubles.stopAllCodeReviews,
@@ -348,7 +306,6 @@ vi.mock('../tempWorkspace', () => ({
 }));
 
 vi.mock('../tmux', () => ({
-  cleanupTmuxSync: indexTestDoubles.cleanupTmuxSync,
   registerTmuxHandlers: indexTestDoubles.registerTmuxHandlers,
 }));
 
@@ -381,13 +338,6 @@ vi.mock('../agentSubagent', () => ({
 
 vi.mock('../../services/SharedSessionState', () => ({
   readPersistentAgentSessions: vi.fn(() => []),
-}));
-
-vi.mock('../../services/session/PersistentAgentSessionService', () => ({
-  persistentAgentSessionService: {
-    listCachedSessionsSync: indexTestDoubles.listCachedSessionsSync,
-    listSessions: indexTestDoubles.listSessions,
-  },
 }));
 
 describe('ipc index', () => {
@@ -458,7 +408,7 @@ describe('ipc index', () => {
     expect(indexTestDoubles.stopAllFileWatchers).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.stopClaudeCompletionsWatchers).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.cleanupTempFiles).toHaveBeenCalledTimes(1);
-    expect(indexTestDoubles.cleanupTmuxSync).toHaveBeenCalledTimes(1);
+    expect(indexTestDoubles.cleanupTmuxSync).not.toHaveBeenCalled();
     expect(indexTestDoubles.webInspectorStop).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.stopAllCodeReviews).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.clearAllGitServices).toHaveBeenCalledTimes(1);
@@ -474,22 +424,6 @@ describe('ipc index', () => {
     expect(summary.hasTimeouts).toBe(false);
     expect(summary.failedLabels).toEqual([]);
     expect(summary.timedOutLabels).toEqual([]);
-  });
-
-  it('keeps tmux alive during async cleanup when persistent records require recovery', async () => {
-    indexTestDoubles.listCachedSessionsSync.mockReturnValue([]);
-    indexTestDoubles.listSessions.mockResolvedValue([
-      makePersistentAgentSessionRecord({
-        hostKind: 'tmux',
-        lastKnownState: 'live',
-      }),
-    ]);
-
-    const { cleanupAllResources } = await import('../index');
-    await cleanupAllResources();
-
-    expect(indexTestDoubles.listSessions).toHaveBeenCalledTimes(1);
-    expect(indexTestDoubles.cleanupTmuxSync).not.toHaveBeenCalled();
   });
 
   it('returns a cleanup summary when async tasks time out', async () => {
@@ -533,9 +467,8 @@ describe('ipc index', () => {
     expect(logSpy).toHaveBeenNthCalledWith(2, '[app] Sync cleanup done');
   });
 
-  it('keeps tmux alive during sync cleanup when persistent cache is not initialized yet', async () => {
+  it('never tears down the managed tmux server during app-wide sync cleanup', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    indexTestDoubles.listCachedSessionsSync.mockReturnValue([]);
 
     const { cleanupAllResourcesSync } = await import('../index');
     cleanupAllResourcesSync();
@@ -543,34 +476,5 @@ describe('ipc index', () => {
     expect(indexTestDoubles.cleanupTmuxSync).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenNthCalledWith(1, '[app] Sync cleanup starting...');
     expect(logSpy).toHaveBeenNthCalledWith(2, '[app] Sync cleanup done');
-  });
-
-  it('still cleans up the tmux server when cached records are missing host sessions', async () => {
-    indexTestDoubles.listCachedSessionsSync.mockReturnValue([
-      makePersistentAgentSessionRecord({
-        hostKind: 'tmux',
-        lastKnownState: 'missing-host-session',
-      }),
-    ]);
-
-    const { cleanupAllResourcesSync } = await import('../index');
-    cleanupAllResourcesSync();
-
-    expect(indexTestDoubles.cleanupTmuxSync).toHaveBeenCalledTimes(1);
-  });
-
-  it('ignores remote virtual-path tmux records when deciding sync cleanup', async () => {
-    indexTestDoubles.listCachedSessionsSync.mockReturnValue([
-      makePersistentAgentSessionRecord({
-        hostKind: 'tmux',
-        lastKnownState: 'live',
-        cwd: toRemoteVirtualPath('conn-1', '/repo/worktree'),
-      }),
-    ]);
-
-    const { cleanupAllResourcesSync } = await import('../index');
-    cleanupAllResourcesSync();
-
-    expect(indexTestDoubles.cleanupTmuxSync).toHaveBeenCalledTimes(1);
   });
 });

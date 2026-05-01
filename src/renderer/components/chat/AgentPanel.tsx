@@ -140,7 +140,10 @@ import {
   DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
-import { reconcileAgentSessionExit } from './agentSessionExitReconciliation';
+import {
+  reconcileAgentSessionExit,
+  shouldDeferPersistentSessionDeadState,
+} from './agentSessionExitReconciliation';
 import {
   type AgentSessionLaunchTarget,
   resolveAgentSessionLaunchTarget,
@@ -4165,6 +4168,7 @@ export function AgentPanel({
               updateSession(sessionId, { sessionId: providerSessionId });
             }}
             onRuntimeStateChange={(runtimeState) => {
+              if (shouldDeferPersistentSessionDeadState(session, runtimeState)) return;
               if (session.recoveryState === runtimeState) return;
               updateSession(sessionId, { recoveryState: runtimeState });
             }}

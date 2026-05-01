@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { execFile, spawnSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import type {
   TmuxCheckResult,
@@ -20,9 +20,26 @@ export type TmuxSessionProbeStatus = 'exists' | 'missing' | 'failed';
 
 function isResourceExhaustionError(error: unknown): error is NodeJS.ErrnoException {
   const nodeError = error as NodeJS.ErrnoException;
+  const message = error instanceof Error ? error.message : '';
   return (
-    typeof nodeError?.code === 'string' && TMUX_RESOURCE_EXHAUSTION_ERROR_CODES.has(nodeError.code)
+    (typeof nodeError?.code === 'string' &&
+      TMUX_RESOURCE_EXHAUSTION_ERROR_CODES.has(nodeError.code)) ||
+    message.includes('posix_openpt failed')
   );
+}
+
+function isMissingSessionProbeError(error: unknown): boolean {
+  const nodeError = error as NodeJS.ErrnoException & {
+    killed?: boolean;
+    signal?: NodeJS.Signals | null;
+  };
+  if (nodeError?.killed || nodeError?.signal) {
+    return false;
+  }
+  if (typeof nodeError?.code === 'number') {
+    return nodeError.code > 0;
+  }
+  return error instanceof Error && error.message.startsWith('Command exited with code ');
 }
 
 function toTmuxResourceExhaustionError(
@@ -54,15 +71,6 @@ function buildTmuxHealthcheckSessionName(): string {
   return `${TMUX_HEALTHCHECK_SESSION_PREFIX}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function buildTmuxHealthcheckCommand(serverName: string, sessionName: string): string {
-  return (
-    `${buildTmuxShellCommand(serverName, `-f /dev/null new-session -d -s ${shellQuote(sessionName)}`)} ` +
-    // Keep the probe session alive long enough for kill-session to observe it reliably.
-    `${shellQuote('printf infilux-healthcheck; sleep 1')} >/dev/null 2>&1 && ` +
-    `${buildTmuxShellCommand(serverName, `kill-session -t ${shellQuote(sessionName)}`)} >/dev/null 2>&1`
-  );
-}
-
 function resolveTmuxSocketPath(serverName: string): string {
   const homeDir = process.env.HOME || process.env.USERPROFILE || homedir();
   return buildManagedTmuxSocketPath(homeDir, serverName);
@@ -80,6 +88,28 @@ function ensureTmuxSocketDirectory(_serverName: string): void {
 function buildTmuxShellCommand(serverName: string, command: string): string {
   ensureTmuxSocketDirectory(serverName);
   return `tmux -S ${shellQuote(resolveTmuxSocketPath(serverName))} ${command}`;
+}
+
+function execTmux(serverName: string, args: string[]): Promise<string> {
+  ensureTmuxSocketDirectory(serverName);
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      'tmux',
+      ['-S', resolveTmuxSocketPath(serverName), ...args],
+      {
+        encoding: 'utf8',
+        timeout: TMUX_COMMAND_TIMEOUT_MS,
+      },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(stdout);
+      }
+    );
+  });
 }
 
 function normalizeScrollAmount(amount: number): number {
@@ -193,19 +223,10 @@ class TmuxDetector {
 
     try {
       const resolvedServerName = resolveTmuxServerName(serverName);
-      const stdout = await execInPty(
-        buildTmuxShellCommand(resolvedServerName, `list-sessions -F ${shellQuote('#S')}`),
-        {
-          timeout: TMUX_COMMAND_TIMEOUT_MS,
-        }
-      );
-      const sessionNames = stdout
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      return sessionNames.includes(name) ? 'exists' : 'missing';
-    } catch {
-      return 'failed';
+      await execTmux(resolvedServerName, ['has-session', '-t', name]);
+      return 'exists';
+    } catch (error) {
+      return isMissingSessionProbeError(error) ? 'missing' : 'failed';
     }
   }
 
@@ -366,23 +387,30 @@ class TmuxDetector {
   }
 
   private async probeServer(serverName: string): Promise<boolean> {
+    const healthcheckSessionName = buildTmuxHealthcheckSessionName();
     try {
-      await execInPty(buildTmuxHealthcheckCommand(serverName, buildTmuxHealthcheckSessionName()), {
-        timeout: TMUX_COMMAND_TIMEOUT_MS,
-      });
+      await execTmux(serverName, [
+        '-f',
+        '/dev/null',
+        'new-session',
+        '-d',
+        '-s',
+        healthcheckSessionName,
+        'sh',
+        '-lc',
+        'printf infilux-healthcheck; sleep 1',
+      ]);
       return true;
     } catch (error) {
       if (isResourceExhaustionError(error)) {
         throw toTmuxResourceExhaustionError(error, serverName, 'probing');
       }
       return false;
+    } finally {
+      await execTmux(serverName, ['kill-session', '-t', healthcheckSessionName]).catch(() => {
+        // Ignore missing or already-exited healthcheck sessions.
+      });
     }
-  }
-
-  private resetServer(serverName: string): void {
-    this.killServerSyncByName(serverName);
-    this.killResidualProcesses(serverName);
-    this.removeSocketFile(serverName);
   }
 
   private async ensureServerHealthyInternal(serverName: string): Promise<boolean> {
@@ -395,64 +423,7 @@ class TmuxDetector {
       return true;
     }
 
-    this.resetServer(serverName);
-    return this.probeServer(serverName);
-  }
-
-  private killServerSyncByName(serverName: string): void {
-    try {
-      ensureTmuxSocketDirectory(serverName);
-      spawnSync('tmux', ['-S', resolveTmuxSocketPath(serverName), 'kill-server'], {
-        timeout: 3000,
-        stdio: 'ignore',
-      });
-    } catch {
-      // Server may already be gone — ignore errors
-    }
-  }
-
-  private killResidualProcesses(serverName: string): void {
-    let stdout = '';
-
-    try {
-      const result = spawnSync('ps', ['-ax', '-o', 'pid=', '-o', 'command='], {
-        encoding: 'utf8',
-        timeout: 3000,
-      });
-      stdout = typeof result.stdout === 'string' ? result.stdout : '';
-    } catch {
-      return;
-    }
-
-    const marker = `tmux -S ${resolveTmuxSocketPath(serverName)}`;
-    const pids = stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.includes(marker))
-      .map((line) => {
-        const match = line.match(/^(\d+)/);
-        return match ? Number.parseInt(match[1], 10) : null;
-      })
-      .filter(
-        (value): value is number =>
-          value !== null && Number.isInteger(value) && value > 0 && value !== process.pid
-      );
-
-    for (const pid of pids) {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        // Ignore already-exited processes.
-      }
-    }
-  }
-
-  private removeSocketFile(serverName: string): void {
-    try {
-      rmSync(resolveTmuxSocketPath(serverName), { force: true });
-    } catch {
-      // Ignore missing or busy socket files.
-    }
+    return false;
   }
 }
 

@@ -1,8 +1,6 @@
-import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { stopAllCodeReviews } from '../services/ai';
 import { disposeClaudeIdeBridge } from '../services/claude/ClaudeIdeBridge';
 import { persistentAgentSessionRepository } from '../services/session/PersistentAgentSessionRepository';
-import { persistentAgentSessionService } from '../services/session/PersistentAgentSessionService';
 import { autoUpdaterService } from '../services/updater/AutoUpdater';
 import { webInspectorServer } from '../services/webInspector';
 import { cleanupExecInPtys, cleanupExecInPtysSync } from '../utils/shell';
@@ -46,7 +44,7 @@ import { registerSessionStorageHandlers } from './sessionStorage';
 import { registerSettingsHandlers } from './settings';
 import { registerShellHandlers } from './shell';
 import { registerTempWorkspaceHandlers } from './tempWorkspace';
-import { cleanupTmuxSync, registerTmuxHandlers } from './tmux';
+import { registerTmuxHandlers } from './tmux';
 import { cleanupTodo, cleanupTodoSync, registerTodoHandlers } from './todo';
 import { registerTokenUsageHandlers } from './tokenUsage';
 import { registerUpdaterHandlers } from './updater';
@@ -73,37 +71,6 @@ interface AsyncCleanupTask {
   label: string;
   timeoutMs: number;
   run: () => Promise<void>;
-}
-
-function hasRecoverableLocalTmuxSession(
-  sessions: ReturnType<typeof persistentAgentSessionService.listCachedSessionsSync>
-): boolean {
-  return sessions.some(
-    (session) =>
-      session.hostKind === 'tmux' &&
-      !isRemoteVirtualPath(session.cwd) &&
-      !isRemoteVirtualPath(session.repoPath) &&
-      (session.lastKnownState === 'live' || session.lastKnownState === 'reconnecting')
-  );
-}
-
-async function shouldCleanupTmuxServer(): Promise<boolean> {
-  try {
-    const sessions = await persistentAgentSessionService.listSessions();
-    return !hasRecoverableLocalTmuxSession(sessions);
-  } catch (error) {
-    console.warn('[cleanup] Failed to inspect persistent agent sessions:', error);
-    return shouldCleanupTmuxServerSync();
-  }
-}
-
-function shouldCleanupTmuxServerSync(): boolean {
-  const sessions = persistentAgentSessionService.listCachedSessionsSync();
-  if (sessions.length === 0) {
-    return false;
-  }
-
-  return !hasRecoverableLocalTmuxSession(sessions);
 }
 
 export function registerIpcHandlers(): void {
@@ -276,13 +243,8 @@ export async function cleanupAllResources(): Promise<CleanupSummary> {
     },
   ];
 
-  const shouldCleanupTmux = await shouldCleanupTmuxServer();
   const asyncResults = await Promise.all(asyncTasks.map((task) => runAsyncCleanupTask(task)));
   const syncResults: CleanupTaskResult[] = [];
-
-  if (shouldCleanupTmux) {
-    syncResults.push(runSyncCleanupTask('tmux', () => cleanupTmuxSync()));
-  }
 
   syncResults.push(runSyncCleanupTask('webInspector', () => webInspectorServer.stop()));
   syncResults.push(runSyncCleanupTask('codeReviews', () => stopAllCodeReviews()));
@@ -307,10 +269,6 @@ export function cleanupAllResourcesSync(): void {
 
   // Kill Hapi/Cloudflared processes (sync)
   cleanupHapiSync();
-
-  if (shouldCleanupTmuxServerSync()) {
-    cleanupTmuxSync();
-  }
 
   // Stop Web Inspector server (sync)
   webInspectorServer.stop();
