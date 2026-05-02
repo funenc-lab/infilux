@@ -9,8 +9,18 @@ import { AiCenterPanel } from '../AiCenterPanel';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const aiCenterPanelTestDoubles = vi.hoisted(() => {
+  const addSession = vi.fn();
   const loadAllProjects = vi.fn();
   const updateTask = vi.fn();
+  const enabledAgents = [] as Array<{
+    agentId: string;
+    command: string;
+    environment: 'hapi' | 'happy' | 'native';
+    isDefault: boolean;
+    name: string;
+    customPath?: string;
+    customArgs?: string;
+  }>;
   const state = {
     autoExecute: {},
     loadAllProjects,
@@ -19,6 +29,8 @@ const aiCenterPanelTestDoubles = vi.hoisted(() => {
   };
 
   function reset() {
+    addSession.mockReset();
+    enabledAgents.splice(0);
     loadAllProjects.mockReset();
     loadAllProjects.mockResolvedValue(undefined);
     updateTask.mockReset();
@@ -27,6 +39,8 @@ const aiCenterPanelTestDoubles = vi.hoisted(() => {
   }
 
   return {
+    addSession,
+    enabledAgents,
     loadAllProjects,
     reset,
     state,
@@ -39,6 +53,14 @@ vi.mock('@/stores/todo', () => ({
     selector(aiCenterPanelTestDoubles.state),
 }));
 
+vi.mock('@/stores/agentSessions', () => ({
+  useAgentSessionsStore: {
+    getState: () => ({
+      addSession: aiCenterPanelTestDoubles.addSession,
+    }),
+  },
+}));
+
 vi.mock('../../todo/todoAutoExecuteRuntime', () => ({
   handleTodoAutoExecuteStop: vi.fn(),
   startTodoGlobalAutoExecute: vi.fn(),
@@ -49,7 +71,7 @@ vi.mock('@/lib/agentStopEvents', () => ({
 }));
 
 vi.mock('../../todo/useEnabledAgents', () => ({
-  useEnabledAgents: () => [],
+  useEnabledAgents: () => aiCenterPanelTestDoubles.enabledAgents,
 }));
 
 vi.mock('@/i18n', () => ({
@@ -100,6 +122,9 @@ const mountedRoots: Root[] = [];
 describe('AiCenterPanel', () => {
   beforeEach(() => {
     aiCenterPanelTestDoubles.reset();
+    vi.stubGlobal('crypto', {
+      randomUUID: () => 'session-ai-center',
+    });
     aiCenterPanelTestDoubles.state.tasks = {
       '/repo/current': [
         createTask({
@@ -128,6 +153,7 @@ describe('AiCenterPanel', () => {
       });
     }
     document.body.innerHTML = '';
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -184,5 +210,53 @@ describe('AiCenterPanel', () => {
         },
       }
     );
+  });
+
+  it('opens an AI Center decision session with cross-project orchestration context', () => {
+    const onSwitchToAgent = vi.fn();
+    aiCenterPanelTestDoubles.enabledAgents.push({
+      agentId: 'codex',
+      command: 'codex',
+      environment: 'native',
+      isDefault: true,
+      name: 'Codex CLI',
+    });
+    const container = renderAiCenterPanel({
+      currentRepoPath: '/repo/current',
+      currentWorktreePath: '/repo/current/worktree',
+      onSwitchToAgent,
+    });
+
+    const askButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Ask AI Center"]'
+    );
+    expect(askButton).not.toBeNull();
+    expect(askButton?.disabled).toBe(false);
+
+    act(() => {
+      askButton?.click();
+    });
+
+    expect(aiCenterPanelTestDoubles.addSession).toHaveBeenCalledTimes(1);
+    expect(aiCenterPanelTestDoubles.addSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'session-ai-center',
+        sessionId: 'session-ai-center',
+        name: 'AI Center',
+        userRenamed: true,
+        agentId: 'codex',
+        agentCommand: 'codex',
+        initialized: false,
+        repoPath: '/repo/current',
+        cwd: '/repo/current/worktree',
+        environment: 'native',
+        pendingCommand: expect.stringContaining('[AI CENTER CONTEXT]'),
+      })
+    );
+    const session = aiCenterPanelTestDoubles.addSession.mock.calls[0]?.[0];
+    expect(session?.pendingCommand).toContain('Recommended action: dispatch-ready');
+    expect(session?.pendingCommand).toContain('- current: ready, open 1, ready 1, blocked 0');
+    expect(session?.pendingCommand).toContain('- other: blocked, open 1, ready 0, blocked 1');
+    expect(onSwitchToAgent).toHaveBeenCalledTimes(1);
   });
 });

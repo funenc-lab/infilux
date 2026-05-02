@@ -26,6 +26,7 @@ vi.mock('lucide-react', () => {
     FolderGit2: icon('FolderGit2'),
     BrainCircuit: icon('BrainCircuit'),
     ListChecks: icon('ListChecks'),
+    MessageSquareText: icon('MessageSquareText'),
     Play: icon('Play'),
     Route: icon('Route'),
     ShieldCheck: icon('ShieldCheck'),
@@ -181,6 +182,65 @@ const summary: AiCenterTestSummary = {
   ],
 };
 
+const decisionPlan = {
+  confidence: 'medium' as const,
+  dispatchBatches: [
+    {
+      agentId: 'codex',
+      agentLabel: 'Codex CLI',
+      tasks: [
+        {
+          repoPath: '/repo/current',
+          repoName: 'current',
+          taskId: 'task-ready',
+          title: 'Implement dispatcher',
+          priority: 'high',
+        },
+      ],
+    },
+  ],
+  headline: 'Dispatch ready tasks',
+  coordinationSignals: [
+    {
+      id: 'cross-project-dispatch',
+      kind: 'cross-project' as const,
+      severity: 'medium' as const,
+      label: 'Coordinate cross-project dispatch',
+      detail: '2 projects have ready tasks',
+    },
+    {
+      id: 'agent-reassignment',
+      kind: 'agent-coverage' as const,
+      severity: 'high' as const,
+      label: 'Reassign unavailable agent tasks',
+      detail: 'gemini',
+    },
+  ],
+  interventionItems: [
+    {
+      id: '/repo/other:task-approval',
+      label: 'Review migration',
+      detail: 'other: approval',
+    },
+  ],
+  monitoringItems: [
+    {
+      id: '/repo/current:task-running',
+      label: 'Apply schema change',
+      detail: 'current: Auto Select',
+    },
+  ],
+  recommendedAction: 'dispatch-ready' as const,
+  riskItems: [
+    {
+      id: 'blocked-tasks',
+      severity: 'medium' as const,
+      label: 'Blocked tasks need intervention',
+      detail: '2 blocked, 1 approvals, 1 dependencies',
+    },
+  ],
+};
+
 describe('AiCenterView', () => {
   afterEach(() => {
     document.body.innerHTML = '';
@@ -188,7 +248,9 @@ describe('AiCenterView', () => {
   });
 
   it('renders AI center metrics and per-project intervention state', () => {
-    const markup = renderToStaticMarkup(React.createElement(AiCenterView, { summary }));
+    const markup = renderToStaticMarkup(
+      React.createElement(AiCenterView, { decisionPlan, summary })
+    );
 
     expect(markup).toContain('AI Center');
     expect(markup).toContain('Cross-project AI orchestration');
@@ -216,6 +278,45 @@ describe('AiCenterView', () => {
     expect(markup).toContain('Running');
     expect(markup).toContain('other');
     expect(markup).toContain('Dependencies');
+    expect(markup).toContain('Decision Plan');
+    expect(markup).toContain('Recommended Action');
+    expect(markup).toContain('Medium confidence');
+    expect(markup).toContain('Dispatch Plan');
+    expect(markup).toContain('Codex CLI');
+    expect(markup).toContain('Coordination Signals');
+    expect(markup).toContain('Coordinate cross-project dispatch');
+    expect(markup).toContain('Reassign unavailable agent tasks');
+    expect(markup).toContain('agent-coverage');
+    expect(markup).toContain('Risk Review');
+    expect(markup).toContain('Blocked tasks need intervention');
+  });
+
+  it('opens the AI Center decision chat from the decision plan', () => {
+    const onOpenDecisionChat = vi.fn();
+    const { container, root } = renderInteractive(
+      React.createElement(AiCenterView, {
+        decisionPlan,
+        summary,
+        canOpenDecisionChat: true,
+        onOpenDecisionChat,
+      })
+    );
+
+    const askButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Ask AI Center"]'
+    );
+    expect(askButton).not.toBeNull();
+    expect(askButton?.disabled).toBe(false);
+
+    act(() => {
+      askButton?.click();
+    });
+
+    expect(onOpenDecisionChat).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.unmount();
+    });
   });
 
   it('calls the global dispatch handler from the execution overview action', () => {

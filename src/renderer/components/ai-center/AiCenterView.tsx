@@ -8,6 +8,7 @@ import {
   FolderGit2,
   ListChecks,
   type LucideIcon,
+  MessageSquareText,
   Play,
   Route,
   ShieldCheck,
@@ -22,11 +23,21 @@ import type {
   AiCenterProjectStatus,
   AiCenterSummary,
 } from '../todo/todoViewModel';
+import type {
+  AiCenterCoordinationSignal,
+  AiCenterDecisionConfidence,
+  AiCenterDecisionPlan,
+  AiCenterRecommendedAction,
+  AiCenterRiskSeverity,
+} from './aiCenterOrchestrator';
 
 interface AiCenterViewProps {
   canDispatchReadyTasks?: boolean;
+  canOpenDecisionChat?: boolean;
+  decisionPlan?: AiCenterDecisionPlan;
   onApproveTask?: (repoPath: string, taskId: string) => void;
   onDispatchReadyTasks?: () => void;
+  onOpenDecisionChat?: () => void;
   onFocusTask?: (repoPath: string, taskId: string) => void;
   onOpenTask?: (repoPath: string, taskId: string) => void;
   summary: AiCenterSummary;
@@ -102,6 +113,20 @@ const NEXT_ACTION_LABELS: Record<AiCenterNextAction, string> = {
   'resolve-dependencies': 'Resolve Dependencies',
 };
 
+const RECOMMENDED_ACTION_LABELS: Record<AiCenterRecommendedAction, string> = {
+  'approve-blockers': 'Approve blocked tasks',
+  'dispatch-ready': 'Dispatch ready tasks',
+  'monitor-running': 'Monitor running tasks',
+  'resolve-dependencies': 'Resolve task dependencies',
+  standby: 'Stand by',
+};
+
+const CONFIDENCE_LABELS: Record<AiCenterDecisionConfidence, string> = {
+  high: 'High confidence',
+  low: 'Low confidence',
+  medium: 'Medium confidence',
+};
+
 function getStatClassName(tone: AiCenterStat['tone']): string {
   if (tone === 'ready') return 'border-success/26 bg-success/7';
   if (tone === 'warning') return 'border-warning/32 bg-warning/8';
@@ -113,6 +138,18 @@ function getActionLaneClassName(tone: ActionLaneProps['tone']): string {
   if (tone === 'ready') return 'border-success/24 bg-success/6';
   if (tone === 'warning') return 'border-warning/30 bg-warning/8';
   return 'border-info/26 bg-info/7';
+}
+
+function getRiskClassName(severity: AiCenterRiskSeverity): string {
+  if (severity === 'high') return 'control-chip-wait';
+  if (severity === 'medium') return 'border-warning/28 bg-warning/10 text-warning';
+  return 'border-info/24 bg-info/8 text-info';
+}
+
+function getSignalClassName(severity: AiCenterRiskSeverity): string {
+  if (severity === 'high') return 'control-chip-wait';
+  if (severity === 'medium') return 'border-warning/28 bg-warning/10 text-warning';
+  return 'border-info/24 bg-info/8 text-info';
 }
 
 function AiCenterStatCard({ icon: Icon, labelKey, tone, value }: AiCenterStat) {
@@ -244,10 +281,207 @@ function SupportSection({
   );
 }
 
+function DecisionPlanSection({
+  canOpenDecisionChat,
+  decisionPlan,
+  onOpenDecisionChat,
+}: {
+  canOpenDecisionChat: boolean;
+  decisionPlan?: AiCenterDecisionPlan;
+  onOpenDecisionChat?: () => void;
+}) {
+  const { t } = useI18n();
+
+  if (!decisionPlan) {
+    return null;
+  }
+
+  const visibleBatches = decisionPlan.dispatchBatches.slice(0, 3);
+  const visibleRisks = decisionPlan.riskItems.slice(0, 3);
+  const hiddenBatchCount = Math.max(0, decisionPlan.dispatchBatches.length - visibleBatches.length);
+  const hiddenRiskCount = Math.max(0, decisionPlan.riskItems.length - visibleRisks.length);
+
+  return (
+    <div className="mt-3 control-panel-muted min-w-0 rounded-lg border border-info/24 bg-info/6 px-3 py-2.5">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-2">
+          <BrainCircuit className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase text-muted-foreground">
+              {t('Decision Plan')}
+            </div>
+            <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
+              {t(decisionPlan.headline)}
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <span className="control-chip">
+            {t('Recommended Action')}:{' '}
+            {t(RECOMMENDED_ACTION_LABELS[decisionPlan.recommendedAction])}
+          </span>
+          <span className="control-chip control-chip-done">
+            {t(CONFIDENCE_LABELS[decisionPlan.confidence])}
+          </span>
+          {onOpenDecisionChat ? (
+            <Button
+              aria-label={t('Ask AI Center')}
+              disabled={!canOpenDecisionChat}
+              onClick={onOpenDecisionChat}
+              size="xs"
+              variant="secondary"
+            >
+              <MessageSquareText className="h-3.5 w-3.5" />
+              {t('Ask AI Center')}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <div className="min-w-0 rounded-md border border-border/45 bg-control-surface/45 px-2.5 py-2">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <span className="truncate text-[10px] font-semibold uppercase text-muted-foreground">
+              {t('Dispatch Plan')}
+            </span>
+            <span className="control-chip px-1.5 py-0 text-[10px]">
+              {t('{{count}} batches', { count: decisionPlan.dispatchBatches.length })}
+            </span>
+          </div>
+          <div className="mt-2 min-w-0 space-y-1.5">
+            {visibleBatches.length > 0 ? (
+              visibleBatches.map((batch) => (
+                <div key={batch.agentId} className="min-w-0">
+                  <div className="flex min-w-0 items-center justify-between gap-2 text-xs">
+                    <span className="truncate font-semibold text-foreground">
+                      {batch.agentLabel}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {t('{{count}} tasks', { count: batch.tasks.length })}
+                    </span>
+                  </div>
+                  <div className="mt-1 min-w-0 space-y-1">
+                    {batch.tasks.slice(0, 2).map((task) => (
+                      <div
+                        key={`${task.repoPath}:${task.taskId}`}
+                        className="flex min-w-0 items-center gap-1.5 text-[11px]"
+                      >
+                        <span className="control-chip shrink-0 px-1.5 py-0 text-[10px]">
+                          {task.repoName}
+                        </span>
+                        <span className="min-w-0 truncate text-muted-foreground">{task.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground">{t('No dispatch plan')}</div>
+            )}
+            {hiddenBatchCount > 0 ? (
+              <div className="text-xs text-muted-foreground">
+                +{t('{{count}} more', { count: hiddenBatchCount })}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-md border border-border/45 bg-control-surface/45 px-2.5 py-2">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <span className="truncate text-[10px] font-semibold uppercase text-muted-foreground">
+              {t('Risk Review')}
+            </span>
+            <span className="control-chip px-1.5 py-0 text-[10px]">
+              {t('{{count}} risks', { count: decisionPlan.riskItems.length })}
+            </span>
+          </div>
+          <div className="mt-2 min-w-0 space-y-1.5">
+            {visibleRisks.length > 0 ? (
+              visibleRisks.map((risk) => (
+                <div key={risk.id} className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'control-chip shrink-0 px-1.5 py-0 text-[10px]',
+                        getRiskClassName(risk.severity)
+                      )}
+                    >
+                      {t(risk.severity)}
+                    </span>
+                    <span className="min-w-0 truncate text-xs font-semibold text-foreground">
+                      {risk.label}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    {risk.detail}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground">{t('No risks')}</div>
+            )}
+            {hiddenRiskCount > 0 ? (
+              <div className="text-xs text-muted-foreground">
+                +{t('{{count}} more', { count: hiddenRiskCount })}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CoordinationSignalsSection({
+  signals,
+}: {
+  signals: readonly AiCenterCoordinationSignal[];
+}) {
+  const { t } = useI18n();
+
+  if (signals.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 control-panel-muted min-w-0 rounded-lg border border-border/45 px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <BrainCircuit className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate text-[10px] font-semibold uppercase text-muted-foreground">
+          {t('Coordination Signals')}
+        </span>
+      </div>
+      <div className="mt-2 grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {signals.map((signal) => (
+          <div key={signal.id} className="min-w-0 rounded-md border border-border/45 px-2.5 py-2">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span
+                className={cn(
+                  'control-chip shrink-0 px-1.5 py-0 text-[10px]',
+                  getSignalClassName(signal.severity)
+                )}
+              >
+                {t(signal.kind)}
+              </span>
+              <span className="min-w-0 truncate text-xs font-semibold text-foreground">
+                {signal.label}
+              </span>
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{signal.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function AiCenterView({
   canDispatchReadyTasks = false,
+  canOpenDecisionChat = false,
+  decisionPlan,
   onApproveTask,
   onDispatchReadyTasks,
+  onOpenDecisionChat,
   onFocusTask,
   onOpenTask,
   summary,
@@ -348,6 +582,14 @@ export function AiCenterView({
           <AiCenterStatCard key={stat.id} {...stat} />
         ))}
       </div>
+
+      <DecisionPlanSection
+        canOpenDecisionChat={canOpenDecisionChat}
+        decisionPlan={decisionPlan}
+        onOpenDecisionChat={onOpenDecisionChat}
+      />
+
+      <CoordinationSignalsSection signals={decisionPlan?.coordinationSignals ?? []} />
 
       <div className="mt-3 min-w-0">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">

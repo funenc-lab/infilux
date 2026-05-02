@@ -2,6 +2,7 @@ import type { AgentStopNotificationData } from '@shared/types/agent';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { normalizePath } from '@/App/storage';
 import { onRendererAgentStop } from '@/lib/agentStopEvents';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useTodoStore } from '@/stores/todo';
 import {
   handleTodoAutoExecuteStop,
@@ -11,6 +12,7 @@ import { buildApprovedTodoTaskContext } from '../todo/todoTaskContext';
 import { buildAiCenterSummary } from '../todo/todoViewModel';
 import { useEnabledAgents } from '../todo/useEnabledAgents';
 import { AiCenterView } from './AiCenterView';
+import { buildAiCenterDecisionPlan, buildAiCenterSessionPrompt } from './aiCenterOrchestrator';
 
 export interface AiCenterPanelProps {
   currentRepoPath?: string;
@@ -56,6 +58,10 @@ export function AiCenterPanel({
       }))
     );
   }, [autoExecuteByRepo, currentRepoKey, tasksByRepo]);
+  const decisionPlan = useMemo(
+    () => buildAiCenterDecisionPlan({ agents: enabledAgents, summary }),
+    [enabledAgents, summary]
+  );
 
   const worktreePathByRepo = useMemo(
     () =>
@@ -70,6 +76,13 @@ export function AiCenterPanel({
     enabledAgents.length > 0 &&
     summary.execution.nextAction === 'dispatch-ready' &&
     summary.execution.dispatchableTasks.length > 0;
+  const selectedAgent =
+    enabledAgents.find((agent) => agent.isDefault) ?? enabledAgents[0] ?? undefined;
+  const fallbackProject =
+    summary.projects.find((project) => project.isCurrent) ?? summary.projects[0];
+  const decisionRepoPath = currentRepoKey ?? fallbackProject?.repoPath;
+  const decisionCwd = currentWorktreePath ?? decisionRepoPath;
+  const canOpenDecisionChat = Boolean(selectedAgent && decisionRepoPath && decisionCwd);
 
   const handleDispatchReadyTasks = useCallback(() => {
     if (!canDispatchReadyTasks) {
@@ -112,6 +125,43 @@ export function AiCenterPanel({
     [onOpenProjectTask]
   );
 
+  const handleOpenDecisionChat = useCallback(() => {
+    if (!selectedAgent || !decisionRepoPath || !decisionCwd) {
+      return;
+    }
+
+    const sessionId = crypto.randomUUID();
+    useAgentSessionsStore.getState().addSession({
+      id: sessionId,
+      sessionId,
+      name: 'AI Center',
+      userRenamed: true,
+      agentId: selectedAgent.agentId,
+      agentCommand: selectedAgent.command,
+      customPath: selectedAgent.customPath,
+      customArgs: selectedAgent.customArgs,
+      initialized: false,
+      repoPath: decisionRepoPath,
+      cwd: decisionCwd,
+      environment: selectedAgent.environment,
+      pendingCommand: buildAiCenterSessionPrompt({
+        currentRepoPath: decisionRepoPath,
+        currentWorktreePath: currentWorktreePath ?? decisionCwd,
+        plan: decisionPlan,
+        summary,
+      }),
+    });
+    onSwitchToAgent?.();
+  }, [
+    currentWorktreePath,
+    decisionCwd,
+    decisionPlan,
+    decisionRepoPath,
+    onSwitchToAgent,
+    selectedAgent,
+    summary,
+  ]);
+
   const handleAgentStop = useCallback(
     (data: AgentStopNotificationData) => {
       handleTodoAutoExecuteStop({
@@ -148,8 +198,11 @@ export function AiCenterPanel({
       <div className="min-h-0 flex-1 overflow-auto pb-3">
         <AiCenterView
           canDispatchReadyTasks={canDispatchReadyTasks}
+          canOpenDecisionChat={canOpenDecisionChat}
+          decisionPlan={decisionPlan}
           onApproveTask={handleApproveTask}
           onDispatchReadyTasks={handleDispatchReadyTasks}
+          onOpenDecisionChat={handleOpenDecisionChat}
           onFocusTask={handleOpenTask}
           onOpenTask={handleOpenTask}
           summary={summary}

@@ -187,7 +187,54 @@ const rendererZhTranslations: Record<string, string> = {
   Dispatch: decodeEscapedUnicode('\\u6d3e\\u53d1'),
   Open: decodeEscapedUnicode('\\u6253\\u5f00'),
   Paused: decodeEscapedUnicode('\\u5df2\\u6682\\u505c'),
+  'Decision Plan': decodeEscapedUnicode('\\u51b3\\u7b56\\u65b9\\u6848'),
+  'Recommended Action': decodeEscapedUnicode('\\u63a8\\u8350\\u52a8\\u4f5c'),
+  'Approve blocked tasks': decodeEscapedUnicode('\\u6279\\u51c6\\u963b\\u585e\\u4efb\\u52a1'),
   'Dispatch ready tasks': decodeEscapedUnicode('\\u6d3e\\u53d1\\u53ef\\u6267\\u884c\\u4efb\\u52a1'),
+  'Monitor running tasks': decodeEscapedUnicode('\\u76d1\\u63a7\\u8fd0\\u884c\\u4efb\\u52a1'),
+  'Resolve task dependencies': decodeEscapedUnicode('\\u5904\\u7406\\u4efb\\u52a1\\u4f9d\\u8d56'),
+  'Stand by': decodeEscapedUnicode('\\u5f85\\u547d'),
+  'High confidence': decodeEscapedUnicode('\\u9ad8\\u7f6e\\u4fe1\\u5ea6'),
+  'Medium confidence': decodeEscapedUnicode('\\u4e2d\\u7b49\\u7f6e\\u4fe1\\u5ea6'),
+  'Low confidence': decodeEscapedUnicode('\\u4f4e\\u7f6e\\u4fe1\\u5ea6'),
+  'Ask AI Center': decodeEscapedUnicode('\\u8be2\\u95ee AI \\u667a\\u80fd\\u4e2d\\u5fc3'),
+  'Dispatch Plan': decodeEscapedUnicode('\\u6d3e\\u53d1\\u65b9\\u6848'),
+  'Coordination Signals': decodeEscapedUnicode('\\u534f\\u540c\\u4fe1\\u53f7'),
+  'cross-project': decodeEscapedUnicode('\\u8de8\\u9879\\u76ee'),
+  'agent-coverage': decodeEscapedUnicode('Agent \\u8986\\u76d6'),
+  intervention: decodeEscapedUnicode('\\u5e72\\u9884'),
+  monitoring: decodeEscapedUnicode('\\u76d1\\u63a7'),
+  'task-splitting': decodeEscapedUnicode('\\u4efb\\u52a1\\u62c6\\u5206'),
+  'Coordinate cross-project dispatch': decodeEscapedUnicode(
+    '\\u534f\\u8c03\\u8de8\\u9879\\u76ee\\u6d3e\\u53d1'
+  ),
+  'Reassign unavailable agent tasks': decodeEscapedUnicode(
+    '\\u91cd\\u5206\\u4e0d\\u53ef\\u7528 Agent \\u7684\\u4efb\\u52a1'
+  ),
+  'Review intervention queue': decodeEscapedUnicode('\\u590d\\u6838\\u5e72\\u9884\\u961f\\u5217'),
+  'Monitor active executions': decodeEscapedUnicode(
+    '\\u76d1\\u63a7\\u6b63\\u5728\\u6267\\u884c\\u7684\\u4efb\\u52a1'
+  ),
+  'Split dispatch into staged batches': decodeEscapedUnicode(
+    '\\u5c06\\u6d3e\\u53d1\\u62c6\\u5206\\u4e3a\\u5206\\u9636\\u6279\\u6b21'
+  ),
+  'Risk Review': decodeEscapedUnicode('\\u98ce\\u9669\\u590d\\u6838'),
+  'No dispatch plan': decodeEscapedUnicode('\\u6682\\u65e0\\u6d3e\\u53d1\\u65b9\\u6848'),
+  'No risks': decodeEscapedUnicode('\\u6682\\u65e0\\u98ce\\u9669'),
+  '{{count}} batches': decodeEscapedUnicode('{{count}} \\u4e2a\\u6279\\u6b21'),
+  '{{count}} risks': decodeEscapedUnicode('{{count}} \\u4e2a\\u98ce\\u9669'),
+  high: decodeEscapedUnicode('\\u9ad8'),
+  medium: decodeEscapedUnicode('\\u4e2d'),
+  low: decodeEscapedUnicode('\\u4f4e'),
+  'Blocked tasks need intervention': decodeEscapedUnicode(
+    '\\u963b\\u585e\\u4efb\\u52a1\\u9700\\u8981\\u5e72\\u9884'
+  ),
+  'Some assigned agents are unavailable': decodeEscapedUnicode(
+    '\\u90e8\\u5206\\u6307\\u5b9a Agent \\u4e0d\\u53ef\\u7528'
+  ),
+  'Running task state is detached from auto-execute state': decodeEscapedUnicode(
+    '\\u8fd0\\u884c\\u4efb\\u52a1\\u72b6\\u6001\\u4e0e\\u81ea\\u52a8\\u6267\\u884c\\u72b6\\u6001\\u8131\\u8282'
+  ),
   'Ready to Dispatch': decodeEscapedUnicode('\\u53ef\\u6d3e\\u53d1'),
   'Needs Intervention': decodeEscapedUnicode('\\u9700\\u8981\\u5e72\\u9884'),
   'Running Now': decodeEscapedUnicode('\\u6b63\\u5728\\u6267\\u884c'),
