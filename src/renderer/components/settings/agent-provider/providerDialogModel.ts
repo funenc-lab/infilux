@@ -5,7 +5,6 @@ export interface ProviderProfileDraftValidationInput {
   authToken: string;
   baseUrl: string;
   name: string;
-  source: 'current' | 'manual';
 }
 
 export interface ProviderProfileDraftBuildInput {
@@ -27,14 +26,13 @@ export function canSaveProviderProfileDraft({
   authToken,
   baseUrl,
   name,
-  source,
 }: ProviderProfileDraftValidationInput): boolean {
   const hasRequiredFields = Boolean(name.trim() && baseUrl.trim() && authToken.trim());
   if (!hasRequiredFields) {
     return false;
   }
 
-  return source === 'manual' || adapterSupportsProfiles;
+  return adapterSupportsProfiles;
 }
 
 function optionalText(value: string): string | undefined {

@@ -5,6 +5,12 @@ export interface AgentProviderProfileCapability {
   supportsProfiles: boolean;
 }
 
+export interface AgentProviderDetectedConfig {
+  providerId?: AIProvider;
+  extracted?: Partial<AgentProviderProfile> | null;
+  supported?: boolean;
+}
+
 export interface AgentProviderProfileListSummary {
   savedCount: number;
   switchableCount: number;
@@ -50,6 +56,29 @@ export function buildAgentProviderProfileListSummary(
     switchableCount,
     waitingForAdapterCount,
   };
+}
+
+export function resolveDefaultProviderSelection(
+  detectedConfigs: readonly AgentProviderDetectedConfig[],
+  currentSelection: AIProvider,
+  manualSelection: boolean
+): AIProvider {
+  if (manualSelection) {
+    return currentSelection;
+  }
+
+  const completeDetectedConfig = detectedConfigs.find(
+    (config) =>
+      config.supported !== false &&
+      config.providerId &&
+      config.extracted?.baseUrl &&
+      config.extracted.authToken
+  );
+  const detectedConfig = detectedConfigs.find(
+    (config) => config.supported !== false && config.providerId && config.extracted?.baseUrl
+  );
+
+  return completeDetectedConfig?.providerId ?? detectedConfig?.providerId ?? currentSelection;
 }
 
 export function buildAgentProviderDetectionState({

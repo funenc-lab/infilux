@@ -8,7 +8,6 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -20,6 +19,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
+import { AgentCapabilityCoveragePanel } from './AgentCapabilityCoveragePanel';
 import { ProviderList } from './agent-provider';
 import { resolveAgentIntegrationCapabilityModel } from './agentIntegrationCapabilityModel';
 import { KeybindingInput } from './KeybindingsSettings';
@@ -155,50 +155,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
 
       {agentIntegration.enabled && (
         <div className="mt-4 space-y-4 border-t pt-4">
-          <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
-            <div className="space-y-1">
-              <h4 className="text-sm font-medium">{t('Agent capability coverage')}</h4>
-              <p className="text-xs text-muted-foreground">
-                {t(
-                  'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.'
-                )}
-              </p>
-            </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
-              {capabilityModel.capabilities.map((capability) => (
-                <div
-                  key={capability.id}
-                  className="min-w-0 rounded-md border border-border/70 bg-background/45 px-2.5 py-2"
-                >
-                  <div className="flex min-w-0 items-center justify-between gap-2">
-                    <span className="truncate text-xs font-medium">{t(capability.titleKey)}</span>
-                    <Badge variant="success" size="sm">
-                      {capability.supportedProviderLabels.join(', ')}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t(capability.descriptionKey)}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Badge variant="info" size="sm">
-                      {t('Currently supported by {{providers}}', {
-                        providers: capability.supportedProviderLabels.join(', '),
-                      })}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      size="sm"
-                      title={t('Unsupported providers: {{providers}}', {
-                        providers: capability.unsupportedProviderLabels.join(', '),
-                      })}
-                    >
-                      {t('Waiting for provider adapter')}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <AgentCapabilityCoveragePanel model={capabilityModel} />
 
           {/* Selection Changed Debounce */}
           <div className="settings-field-row">

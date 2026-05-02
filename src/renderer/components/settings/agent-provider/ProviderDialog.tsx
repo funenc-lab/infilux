@@ -166,12 +166,19 @@ export function ProviderDialog({
   };
 
   const selectedAdapter = getAgentProviderProfileAdapter(providerId);
+  const providerProfileOptions = React.useMemo(
+    () =>
+      AI_PROVIDER_OPTIONS.filter((option) => {
+        const adapter = getAgentProviderProfileAdapter(option.value);
+        return adapter.supportsProfiles;
+      }),
+    []
+  );
   const isValid = canSaveProviderProfileDraft({
     adapterSupportsProfiles: selectedAdapter.supportsProfiles,
     authToken,
     baseUrl,
     name,
-    source,
   });
   const isClaudeCode = providerId === 'claude-code';
   const isSavingCurrentConfig = !isEditing && source === 'current';
@@ -209,15 +216,11 @@ export function ProviderDialog({
                 <SelectValue>{AI_PROVIDER_CATALOG[providerId].label}</SelectValue>
               </SelectTrigger>
               <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
-                {AI_PROVIDER_OPTIONS.map((option) => {
-                  const adapter = getAgentProviderProfileAdapter(option.value);
-                  return (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                      {!adapter.supportsProfiles ? ` · ${t('Waiting for provider adapter')}` : ''}
-                    </SelectItem>
-                  );
-                })}
+                {providerProfileOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectPopup>
             </Select>
             {!selectedAdapter.supportsProfiles && (

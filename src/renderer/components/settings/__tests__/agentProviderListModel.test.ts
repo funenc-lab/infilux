@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAgentProviderDetectionState,
   buildAgentProviderProfileListSummary,
+  resolveDefaultProviderSelection,
 } from '../agent-provider/providerListModel';
 
 const profiles: AgentProviderProfile[] = [
@@ -98,5 +99,74 @@ describe('agent provider list model', () => {
       action: 'preview',
       statusKey: 'Provider profile switching is not available for this AI tool yet.',
     });
+  });
+
+  it('defaults provider selection to the first supported detected system config', () => {
+    expect(
+      resolveDefaultProviderSelection(
+        [
+          {
+            providerId: 'claude-code',
+            supported: true,
+            extracted: null,
+          },
+          {
+            providerId: 'codex-cli',
+            supported: true,
+            extracted: {
+              baseUrl: 'https://api.openai.com/v1',
+              authToken: 'codex-token',
+            },
+          },
+        ],
+        'claude-code',
+        false
+      )
+    ).toBe('codex-cli');
+  });
+
+  it('prefers complete system credentials over an earlier partial detected config', () => {
+    expect(
+      resolveDefaultProviderSelection(
+        [
+          {
+            providerId: 'claude-code',
+            supported: true,
+            extracted: {
+              baseUrl: 'https://api.anthropic.com',
+            },
+          },
+          {
+            providerId: 'gemini-cli',
+            supported: true,
+            extracted: {
+              baseUrl: 'https://generativelanguage.googleapis.com',
+              authToken: 'gemini-token',
+            },
+          },
+        ],
+        'claude-code',
+        false
+      )
+    ).toBe('gemini-cli');
+  });
+
+  it('preserves explicit provider selection when the user has already chosen one', () => {
+    expect(
+      resolveDefaultProviderSelection(
+        [
+          {
+            providerId: 'codex-cli',
+            supported: true,
+            extracted: {
+              baseUrl: 'https://api.openai.com/v1',
+              authToken: 'codex-token',
+            },
+          },
+        ],
+        'gemini-cli',
+        true
+      )
+    ).toBe('gemini-cli');
   });
 });

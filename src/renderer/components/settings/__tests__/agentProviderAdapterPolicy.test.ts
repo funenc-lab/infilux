@@ -83,6 +83,13 @@ describe('agent provider adapter policy', () => {
     expect(providerListSource).toContain('readCurrent(repoPath, selectedProviderId)');
   });
 
+  it('defaults provider configuration to detected system provider settings', () => {
+    expect(providerListSource).toContain('readAllCurrent(repoPath)');
+    expect(providerListSource).toContain('resolveDefaultProviderSelection');
+    expect(providerListSource).toContain('manualProviderSelection');
+    expect(providerListSource).toContain('setManualProviderSelection(true)');
+  });
+
   it('makes detected CLI settings the primary provider profile workflow', () => {
     expect(providerListSource).toContain('Current CLI Config Detected');
     expect(providerListSource).toContain('Save Current CLI Config');
@@ -95,6 +102,15 @@ describe('agent provider adapter policy', () => {
     expect(providerListSource).toContain('{{count}} saved provider profiles');
     expect(providerListSource).toContain('{{count}} switchable');
     expect(providerListSource).toContain('{{count}} waiting for provider adapter');
+  });
+
+  it('only offers provider profile types backed by working adapters', () => {
+    expect(providerListSource).toContain('providerProfileOptions');
+    expect(providerDialogSource).toContain('providerProfileOptions');
+    expect(providerListSource).toContain('adapter.supportsProfiles');
+    expect(providerDialogSource).toContain('adapter.supportsProfiles');
+    expect(providerListSource).toContain('providerProfileOptions.map');
+    expect(providerDialogSource).toContain('providerProfileOptions.map');
   });
 
   it('keeps the action panel free of direct Claude provider bridge calls', () => {

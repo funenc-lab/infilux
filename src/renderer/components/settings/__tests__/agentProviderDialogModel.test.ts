@@ -11,22 +11,11 @@ describe('agent provider dialog model', () => {
     name: 'Example Provider',
   };
 
-  it('allows manual provider profiles to be saved before switching adapter support exists', () => {
+  it('requires adapter support before saving manual provider profiles', () => {
     expect(
       canSaveProviderProfileDraft({
         ...completeDraft,
         adapterSupportsProfiles: false,
-        source: 'manual',
-      })
-    ).toBe(true);
-  });
-
-  it('keeps save-current guarded by real provider adapter support', () => {
-    expect(
-      canSaveProviderProfileDraft({
-        ...completeDraft,
-        adapterSupportsProfiles: false,
-        source: 'current',
       })
     ).toBe(false);
 
@@ -34,7 +23,22 @@ describe('agent provider dialog model', () => {
       canSaveProviderProfileDraft({
         ...completeDraft,
         adapterSupportsProfiles: true,
-        source: 'current',
+      })
+    ).toBe(true);
+  });
+
+  it('keeps detected config saves guarded by real provider adapter support', () => {
+    expect(
+      canSaveProviderProfileDraft({
+        ...completeDraft,
+        adapterSupportsProfiles: false,
+      })
+    ).toBe(false);
+
+    expect(
+      canSaveProviderProfileDraft({
+        ...completeDraft,
+        adapterSupportsProfiles: true,
       })
     ).toBe(true);
   });
@@ -46,7 +50,6 @@ describe('agent provider dialog model', () => {
         authToken: '',
         baseUrl: 'https://api.example.com',
         name: 'Example Provider',
-        source: 'manual',
       })
     ).toBe(false);
   });

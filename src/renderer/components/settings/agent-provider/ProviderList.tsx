@@ -49,7 +49,10 @@ import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { AI_PROVIDER_OPTIONS } from '../aiProviderOptions';
 import { ProviderDialog } from './ProviderDialog';
-import { buildAgentProviderProfileListSummary } from './providerListModel';
+import {
+  buildAgentProviderProfileListSummary,
+  resolveDefaultProviderSelection,
+} from './providerListModel';
 
 interface ProviderListProps {
   className?: string;
@@ -234,6 +237,14 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
       ),
     [providers]
   );
+  const providerProfileOptions = React.useMemo(
+    () =>
+      AI_PROVIDER_OPTIONS.filter((option) => {
+        const adapter = getAgentProviderProfileAdapter(option.value);
+        return adapter.supportsProfiles;
+      }),
+    []
+  );
 
   const setAgentProviderEnabled = useSettingsStore((s) => s.setAgentProviderEnabled);
   const setAgentProviderOrder = useSettingsStore((s) => s.setAgentProviderOrder);
@@ -243,13 +254,25 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   const [saveFromCurrent, setSaveFromCurrent] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [selectedProviderId, setSelectedProviderId] = React.useState<AIProvider>('claude-code');
+  const [manualProviderSelection, setManualProviderSelection] = React.useState(false);
   const [pendingDetectedAction, setPendingDetectedAction] = React.useState<
     'preview' | 'save' | null
   >(null);
+  const previousRepoPathRef = React.useRef(repoPath);
+  const detectedProviderConfigsQueryKey = React.useMemo(
+    () => ['agent-provider-settings', 'detected-defaults', repoPath ?? null] as const,
+    [repoPath]
+  );
   const providerSettingsQueryKey = React.useMemo(
     () => agentProviderProfileAdapter.queryKey(repoPath, selectedProviderId),
     [repoPath, selectedProviderId]
   );
+
+  const { data: detectedProviderConfigs = [] } = useQuery({
+    queryKey: detectedProviderConfigsQueryKey,
+    queryFn: () => agentProviderProfileAdapter.readAllCurrent(repoPath),
+    refetchInterval: shouldPoll ? 30000 : false,
+  });
 
   // Read the current provider settings and stop polling while the window is idle.
   const { data: providerData } = useQuery({
@@ -258,21 +281,41 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
     refetchInterval: shouldPoll ? 30000 : false,
   });
 
-  // Listen for settings.json changes emitted by the main-process watcher.
-  // Refresh immediately when external tools such as cc-switch modify the config.
-  // Stop listening while the window is idle to reduce background work.
+  React.useEffect(() => {
+    const nextProviderId = resolveDefaultProviderSelection(
+      detectedProviderConfigs,
+      selectedProviderId,
+      manualProviderSelection
+    );
+    if (nextProviderId !== selectedProviderId) {
+      setSelectedProviderId(nextProviderId);
+    }
+  }, [detectedProviderConfigs, manualProviderSelection, selectedProviderId]);
+
+  React.useEffect(() => {
+    if (previousRepoPathRef.current === repoPath) {
+      return;
+    }
+
+    previousRepoPathRef.current = repoPath;
+    setManualProviderSelection(false);
+  }, [repoPath]);
+
   React.useEffect(() => {
     if (!shouldPoll) return;
 
-    const cleanup = agentProviderProfileAdapter.subscribeToExternalChanges(
-      repoPath,
-      () => {
-        queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
-      },
-      selectedProviderId
-    );
+    const cleanup = agentProviderProfileAdapter.subscribeToExternalChanges(repoPath, () => {
+      queryClient.invalidateQueries({ queryKey: detectedProviderConfigsQueryKey });
+      queryClient.invalidateQueries({ queryKey: providerSettingsQueryKey });
+    });
     return cleanup;
-  }, [providerSettingsQueryKey, queryClient, repoPath, selectedProviderId, shouldPoll]);
+  }, [
+    detectedProviderConfigsQueryKey,
+    providerSettingsQueryKey,
+    queryClient,
+    repoPath,
+    shouldPoll,
+  ]);
 
   // Compute the currently active provider.
   const activeProvider = React.useMemo(() => {
@@ -315,6 +358,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
     agentProviderProfileAdapter.markSwitch(provider);
     const success = await agentProviderProfileAdapter.apply(repoPath, provider);
     if (success) {
+      setManualProviderSelection(true);
       setSelectedProviderId(provider.providerId);
       queryClient.invalidateQueries({ queryKey: targetQueryKey });
       const copy = buildSettingsWorkflowToastCopy(
@@ -423,6 +467,9 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   React.useEffect(() => {
     const openDetectedProviderAction = (event: Event, action: 'preview' | 'save') => {
       const providerId = resolveProviderIdFromActionEvent(event);
+      if (providerId) {
+        setManualProviderSelection(true);
+      }
       if (providerId && providerId !== selectedProviderId) {
         setSelectedProviderId(providerId);
         setPendingDetectedAction(action);
@@ -463,21 +510,20 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
           </div>
           <Select
             value={selectedProviderId}
-            onValueChange={(value) => setSelectedProviderId(value as AIProvider)}
+            onValueChange={(value) => {
+              setManualProviderSelection(true);
+              setSelectedProviderId(value as AIProvider);
+            }}
           >
             <SelectTrigger className="h-8 w-44">
               <SelectValue>{AI_PROVIDER_CATALOG[selectedProviderId].label}</SelectValue>
             </SelectTrigger>
             <SelectPopup>
-              {AI_PROVIDER_OPTIONS.map((option) => {
-                const adapter = getAgentProviderProfileAdapter(option.value);
-                return (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                    {!adapter.supportsProfiles ? ` · ${t('Waiting for provider adapter')}` : ''}
-                  </SelectItem>
-                );
-              })}
+              {providerProfileOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
             </SelectPopup>
           </Select>
         </div>
