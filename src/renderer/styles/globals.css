@@ -2210,6 +2210,16 @@
 
   .control-tree-node[data-node-kind='worktree'] .control-tree-primary-content-worktree {
     align-items: center;
+    display: grid;
+    grid-template-columns: var(--control-tree-glyph-slot-size) minmax(0, 1fr) fit-content(10rem);
+    column-gap: var(--control-tree-row-gap);
+    row-gap: 0.125rem;
+  }
+
+  .control-tree-node[data-node-kind='worktree']
+    .control-tree-primary-content-worktree
+    .control-tree-text-stack {
+    width: auto;
   }
 
   .control-tree-primary:focus-visible {
@@ -2730,15 +2740,18 @@
   .control-tree-inline-signals {
     display: inline-flex;
     min-width: 0;
-    max-width: min(52%, 8.5rem);
+    width: max-content;
+    max-width: 100%;
     flex: 0 0 auto;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
+    justify-self: end;
     gap: 0.25rem;
     margin-left: auto;
     padding-inline-start: 0.375rem;
-    overflow: hidden;
-    white-space: nowrap;
+    overflow: visible;
+    white-space: normal;
   }
 
   .control-tree-inline-signals > * {
@@ -2750,6 +2763,7 @@
     min-width: 0;
     align-items: center;
     flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   .control-tree-diff-badge {
@@ -2810,7 +2824,6 @@
   @container (max-width: 18rem) {
     .control-tree-inline-signals {
       gap: 0.15625rem;
-      max-width: min(46%, 7rem);
     }
 
     .control-tree-node[data-node-kind='worktree']
@@ -2832,10 +2845,6 @@
   }
 
   @container (max-width: 15rem) {
-    .control-tree-inline-signals {
-      max-width: min(40%, 5.75rem);
-    }
-
     .control-tree-node[data-node-kind='worktree']
       .control-tree-inline-item[data-signal-priority='medium'] {
       display: none;

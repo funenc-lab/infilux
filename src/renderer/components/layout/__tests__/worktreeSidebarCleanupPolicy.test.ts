@@ -72,4 +72,20 @@ describe('worktree sidebar cleanup policy', () => {
     expect(worktreeTreeItemSource).not.toContain("key: 'publish'");
     expect(worktreePanelItemSource).not.toContain("key: 'publish'");
   });
+
+  it('lets worktree inline signals wrap instead of clipping status information', () => {
+    expect(globalsSource).toContain(
+      'grid-template-columns: var(--control-tree-glyph-slot-size) minmax(0, 1fr) fit-content(10rem);'
+    );
+    expect(globalsSource).toContain('.control-tree-inline-signals {');
+    expect(globalsSource).toContain('flex-wrap: wrap;');
+    expect(globalsSource).toContain('overflow: visible;');
+    expect(globalsSource).toContain('white-space: normal;');
+    expect(globalsSource).toContain('width: max-content;');
+    expect(globalsSource).toContain('max-width: 100%;');
+    expect(globalsSource).toContain('.control-tree-inline-item {');
+    expect(globalsSource).toContain('white-space: nowrap;');
+    expect(globalsSource).toContain('justify-self: end;');
+    expect(globalsSource).not.toContain('max-width: min(52%, 8.5rem);');
+  });
 });

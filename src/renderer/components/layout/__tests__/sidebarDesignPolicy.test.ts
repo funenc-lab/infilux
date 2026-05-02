@@ -242,11 +242,17 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('container-type: inline-size;');
     expect(globalsSource).toContain('@container (max-width: 18rem) {');
     expect(globalsSource).not.toContain('max-width: none;');
-    expect(globalsSource).toContain('max-width: min(52%, 8.5rem);');
+    expect(globalsSource).toContain(
+      'grid-template-columns: var(--control-tree-glyph-slot-size) minmax(0, 1fr) fit-content(10rem);'
+    );
+    expect(globalsSource).toContain('width: max-content;');
+    expect(globalsSource).toContain('max-width: 100%;');
     expect(globalsSource).toContain('width: 0;');
     expect(globalsSource).toContain('flex: 0 0 auto;');
     expect(globalsSource).toContain('margin-left: auto;');
-    expect(globalsSource).toContain('overflow: hidden;');
+    expect(globalsSource).toContain('flex-wrap: wrap;');
+    expect(globalsSource).toContain('overflow: visible;');
+    expect(globalsSource).toContain('white-space: normal;');
     expect(treeSidebarSource).toContain('control-tree-diff-positive');
     expect(treeSidebarSource).toContain('control-tree-diff-negative');
     expect(worktreePanelSource).toContain('control-tree-diff-positive');
