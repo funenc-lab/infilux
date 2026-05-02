@@ -150,7 +150,7 @@ export function ConsoleEmptyState({
           <h2
             className={cn(
               'max-w-3xl text-balance text-[length:var(--console-text-title-size)] font-semibold text-foreground',
-              isEmbedded ? 'tracking-[-0.03em]' : 'tracking-[-0.038em]'
+              'tracking-normal'
             )}
             style={titleStyle}
           >

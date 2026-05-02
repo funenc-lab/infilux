@@ -502,6 +502,19 @@ export function RepositorySidebar({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
+          {onSwitchWorktreeByPath || showAiCenterEntry ? (
+            <div className="control-sidebar-toolbar-group" data-role="context">
+              {onSwitchWorktreeByPath ? (
+                <RunningProjectsPopover
+                  onSelectWorktreeByPath={onSwitchWorktreeByPath}
+                  onSwitchTab={onSwitchTab}
+                />
+              ) : null}
+              {showAiCenterEntry ? (
+                <SidebarAiCenterButton active={isAiCenterActive} onSelect={handleOpenAiCenter} />
+              ) : null}
+            </div>
+          ) : null}
           {onCollapse ? (
             <div className="control-sidebar-toolbar-group" data-role="panel">
               <SidebarToolbarTooltip label={t('Collapse repository sidebar')}>
@@ -514,19 +527,6 @@ export function RepositorySidebar({
                   <PanelLeftClose className="h-3.5 w-3.5" />
                 </button>
               </SidebarToolbarTooltip>
-            </div>
-          ) : null}
-          {onSwitchWorktreeByPath || showAiCenterEntry ? (
-            <div className="control-sidebar-toolbar-group" data-role="context">
-              {onSwitchWorktreeByPath ? (
-                <RunningProjectsPopover
-                  onSelectWorktreeByPath={onSwitchWorktreeByPath}
-                  onSwitchTab={onSwitchTab}
-                />
-              ) : null}
-              {showAiCenterEntry ? (
-                <SidebarAiCenterButton active={isAiCenterActive} onSelect={handleOpenAiCenter} />
-              ) : null}
             </div>
           ) : null}
         </div>

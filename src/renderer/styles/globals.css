@@ -107,6 +107,9 @@
     --ui-text-topbar-action-line-height: 1.0625rem;
     --ui-text-tree-meta-size: 0.6875rem;
     --ui-text-tree-meta-line-height: 1rem;
+    --control-shell-header-height: 2.375rem;
+    --control-button-header-size: 2.25rem;
+    --control-button-header-icon-size: 1rem;
     --background: oklch(0.982 0.004 250);
     --foreground: oklch(0.255 0.016 252);
     --card: oklch(0.992 0.003 250);
@@ -807,6 +810,13 @@
     padding-right: 0.125rem;
   }
 
+  .control-topbar-main .control-toolbar-badge-anchor,
+  .control-sidebar-header .control-toolbar-badge-anchor {
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
   .control-badge-wait {
     border-color: color-mix(
       in oklch,
@@ -1002,7 +1012,7 @@
   .control-titlebar,
   .control-topbar-main,
   .control-sidebar-header {
-    min-height: 2.375rem;
+    min-height: var(--control-shell-header-height);
   }
 
   .control-topbar-main {
@@ -1107,7 +1117,7 @@
 
   .control-topbar-action {
     display: inline-flex;
-    min-height: 2.25rem;
+    min-height: var(--control-button-header-size);
     align-items: center;
     justify-content: center;
     gap: 0.375rem;
@@ -1123,6 +1133,17 @@
       color 140ms ease,
       background-color 140ms ease,
       border-color 140ms ease;
+  }
+
+  .control-topbar-main .control-topbar-action {
+    height: var(--control-button-header-size);
+    min-height: var(--control-button-header-size);
+  }
+
+  .control-topbar-main .control-topbar-action > svg,
+  .control-sidebar-header .control-sidebar-toolbutton > svg {
+    height: var(--control-button-header-icon-size);
+    width: var(--control-button-header-icon-size);
   }
 
   .control-topbar-action:hover {
@@ -1437,14 +1458,19 @@
 
   .control-sidebar-header {
     display: flex;
-    min-height: 2.75rem;
+    min-height: var(--control-shell-header-height);
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
     overflow: visible;
-    padding-block: 0.25rem;
+    padding-block: 0;
     padding-inline: 0.75rem 0.5625rem;
     background: transparent;
+  }
+
+  .control-sidebar-header .control-sidebar-toolbutton {
+    height: var(--control-button-header-size);
+    width: var(--control-button-header-size);
   }
 
   .control-file-tree-toolbar {
@@ -1652,6 +1678,15 @@
       background-color 140ms ease,
       border-color 140ms ease,
       color 140ms ease;
+  }
+
+  .control-sidebar-toolbutton > svg,
+  .control-sidebar-footer-action > svg,
+  .control-sidebar .control-action-button > svg {
+    display: block;
+    flex: 0 0 auto;
+    align-self: center;
+    margin-inline: 0;
   }
 
   .control-sidebar-toolbutton:hover {

@@ -95,7 +95,7 @@ export function ControlStateCard({
               {eyebrow}
             </div>
             <h2
-              className="mt-2 max-w-[24ch] text-balance text-[1.24rem] font-semibold tracking-[-0.034em] text-foreground sm:text-[1.44rem]"
+              className="mt-2 max-w-[24ch] text-balance text-[1.24rem] font-semibold tracking-normal text-foreground sm:text-[1.44rem]"
               style={titleStyle}
             >
               {title}

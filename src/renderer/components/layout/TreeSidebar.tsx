@@ -1418,20 +1418,6 @@ export function TreeSidebar({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          {onCollapse ? (
-            <div className="control-sidebar-toolbar-group" data-role="panel">
-              <SidebarToolbarTooltip label={t('Collapse sidebar')}>
-                <button
-                  type="button"
-                  className="control-sidebar-toolbutton no-drag"
-                  onClick={onCollapse}
-                  aria-label={t('Collapse sidebar')}
-                >
-                  <PanelLeftClose className="h-3.5 w-3.5" />
-                </button>
-              </SidebarToolbarTooltip>
-            </div>
-          ) : null}
           <div className="control-sidebar-toolbar-group" data-role="context">
             <RunningProjectsPopover
               onSelectWorktreeByPath={onSwitchWorktreeByPath || (() => {})}
@@ -1472,6 +1458,20 @@ export function TreeSidebar({
               </button>
             </SidebarToolbarTooltip>
           </div>
+          {onCollapse ? (
+            <div className="control-sidebar-toolbar-group" data-role="panel">
+              <SidebarToolbarTooltip label={t('Collapse sidebar')}>
+                <button
+                  type="button"
+                  className="control-sidebar-toolbutton no-drag"
+                  onClick={onCollapse}
+                  aria-label={t('Collapse sidebar')}
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              </SidebarToolbarTooltip>
+            </div>
+          ) : null}
         </div>
       </div>
 

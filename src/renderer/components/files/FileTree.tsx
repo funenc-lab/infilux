@@ -1167,20 +1167,6 @@ export function FileTree({
         <div className="control-sidebar-header control-file-tree-toolbar drag-region">
           <div className="control-sidebar-heading no-drag" aria-hidden="true" />
           <div className="control-sidebar-toolbar no-drag">
-            {onToggleCollapse ? (
-              <div className="control-sidebar-toolbar-group" data-role="panel">
-                <SidebarToolbarTooltip label={t('Collapse file tree')}>
-                  <button
-                    type="button"
-                    onClick={onToggleCollapse}
-                    className="control-sidebar-toolbutton no-drag"
-                    aria-label={t('Collapse file tree')}
-                  >
-                    <PanelLeftClose className="h-3.5 w-3.5" />
-                  </button>
-                </SidebarToolbarTooltip>
-              </div>
-            ) : null}
             <div className="control-sidebar-toolbar-group" data-role="create">
               <SidebarToolbarTooltip label={t('New File')}>
                 <button
@@ -1247,6 +1233,20 @@ export function FileTree({
                 </SidebarToolbarTooltip>
               </div>
             )}
+            {onToggleCollapse ? (
+              <div className="control-sidebar-toolbar-group" data-role="panel">
+                <SidebarToolbarTooltip label={t('Collapse file tree')}>
+                  <button
+                    type="button"
+                    onClick={onToggleCollapse}
+                    className="control-sidebar-toolbutton no-drag"
+                    aria-label={t('Collapse file tree')}
+                  >
+                    <PanelLeftClose className="h-3.5 w-3.5" />
+                  </button>
+                </SidebarToolbarTooltip>
+              </div>
+            ) : null}
           </div>
         </div>
         {/* Tree nodes */}

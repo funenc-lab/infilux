@@ -308,34 +308,6 @@ export function WorktreePanel({
       <div className={cn('control-sidebar-header drag-region', repositoryCollapsed && 'pl-[70px]')}>
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
-          {onCollapse || (repositoryCollapsed && onExpandRepository) ? (
-            <div className="control-sidebar-toolbar-group" data-role="panel">
-              {onCollapse ? (
-                <SidebarToolbarTooltip label={t('Collapse worktree sidebar')}>
-                  <button
-                    type="button"
-                    className="control-sidebar-toolbutton no-drag"
-                    onClick={onCollapse}
-                    aria-label={t('Collapse worktree sidebar')}
-                  >
-                    <PanelLeftClose className="h-3.5 w-3.5" />
-                  </button>
-                </SidebarToolbarTooltip>
-              ) : null}
-              {repositoryCollapsed && onExpandRepository ? (
-                <SidebarToolbarTooltip label={t('Expand repository sidebar')}>
-                  <button
-                    type="button"
-                    className="control-sidebar-toolbutton no-drag"
-                    onClick={onExpandRepository}
-                    aria-label={t('Expand repository sidebar')}
-                  >
-                    <PanelLeftOpen className="h-3.5 w-3.5" />
-                  </button>
-                </SidebarToolbarTooltip>
-              ) : null}
-            </div>
-          ) : null}
           <div className="control-sidebar-toolbar-group" data-role="data">
             <SidebarToolbarTooltip label={refreshWorktreesLabel}>
               <button
@@ -353,6 +325,34 @@ export function WorktreePanel({
               </button>
             </SidebarToolbarTooltip>
           </div>
+          {onCollapse || (repositoryCollapsed && onExpandRepository) ? (
+            <div className="control-sidebar-toolbar-group" data-role="panel">
+              {repositoryCollapsed && onExpandRepository ? (
+                <SidebarToolbarTooltip label={t('Expand repository sidebar')}>
+                  <button
+                    type="button"
+                    className="control-sidebar-toolbutton no-drag"
+                    onClick={onExpandRepository}
+                    aria-label={t('Expand repository sidebar')}
+                  >
+                    <PanelLeftOpen className="h-3.5 w-3.5" />
+                  </button>
+                </SidebarToolbarTooltip>
+              ) : null}
+              {onCollapse ? (
+                <SidebarToolbarTooltip label={t('Collapse worktree sidebar')}>
+                  <button
+                    type="button"
+                    className="control-sidebar-toolbutton no-drag"
+                    onClick={onCollapse}
+                    aria-label={t('Collapse worktree sidebar')}
+                  >
+                    <PanelLeftClose className="h-3.5 w-3.5" />
+                  </button>
+                </SidebarToolbarTooltip>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 

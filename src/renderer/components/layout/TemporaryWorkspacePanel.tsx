@@ -100,6 +100,19 @@ export function TemporaryWorkspacePanel({
       <div className="control-sidebar-header drag-region">
         <div className="control-sidebar-heading no-drag" aria-hidden="true" />
         <div className="control-sidebar-toolbar no-drag">
+          <div className="control-sidebar-toolbar-group" data-role="data">
+            <SidebarToolbarTooltip label={t('Refresh temp sessions')}>
+              <button
+                type="button"
+                className="control-sidebar-toolbutton no-drag"
+                onClick={onRefresh}
+                aria-label={t('Refresh temp sessions')}
+                data-state="idle"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+            </SidebarToolbarTooltip>
+          </div>
           {onCollapse ? (
             <div className="control-sidebar-toolbar-group" data-role="panel">
               <SidebarToolbarTooltip label={t('Collapse temp sessions sidebar')}>
@@ -114,19 +127,6 @@ export function TemporaryWorkspacePanel({
               </SidebarToolbarTooltip>
             </div>
           ) : null}
-          <div className="control-sidebar-toolbar-group" data-role="data">
-            <SidebarToolbarTooltip label={t('Refresh temp sessions')}>
-              <button
-                type="button"
-                className="control-sidebar-toolbutton no-drag"
-                onClick={onRefresh}
-                aria-label={t('Refresh temp sessions')}
-                data-state="idle"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-              </button>
-            </SidebarToolbarTooltip>
-          </div>
         </div>
       </div>
 

@@ -35,7 +35,10 @@ describe('DeferredPanelFallback', () => {
 
     expect(markup).toContain('role="status"');
     expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('data-deferred-fallback="embedded"');
+    expect(markup).toContain('data-loading-layout="status-dock"');
     expect(markup).not.toContain('data-control-state-card=');
+    expect(markup).not.toContain('rounded-[18px]');
     expect(markup).toContain('motion-safe:animate-pulse');
   });
 
@@ -72,6 +75,7 @@ describe('DeferredPanelFallback', () => {
     );
 
     expect(markup).toContain('data-startup-fallback="true"');
+    expect(markup).toContain('data-loading-layout="status-dock"');
     expect(markup).toContain('class="flex min-h-screen items-center justify-center');
     expect(markup).not.toContain('data-control-state-card=');
     expect(markup).not.toContain('data-spinner="true"');

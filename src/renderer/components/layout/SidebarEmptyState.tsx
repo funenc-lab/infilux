@@ -34,7 +34,7 @@ export function SidebarEmptyState({
           ) : null}
           <h2
             className={cn(
-              'text-[0.96875rem] font-semibold tracking-[-0.02em] text-foreground',
+              'text-[0.96875rem] font-semibold tracking-normal text-foreground',
               label && 'mt-1'
             )}
           >

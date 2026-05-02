@@ -436,24 +436,30 @@ describe('sidebar design policy', () => {
     );
   });
 
-  it('keeps panel collapse controls first in expanded sidebar toolbars', () => {
-    expect(treeSidebarSource.indexOf('data-role="panel"')).toBeLessThan(
+  it('keeps panel collapse controls trailing in expanded sidebar toolbars', () => {
+    expect(treeSidebarSource.indexOf('data-role="panel"')).toBeGreaterThan(
       treeSidebarSource.indexOf('data-role="context"')
     );
-    expect(treeSidebarSource.indexOf('data-role="panel"')).toBeLessThan(
+    expect(treeSidebarSource.indexOf('data-role="panel"')).toBeGreaterThan(
       treeSidebarSource.indexOf('data-role="data"')
     );
-    expect(repositorySidebarSource.indexOf('data-role="panel"')).toBeLessThan(
+    expect(repositorySidebarSource.indexOf('data-role="panel"')).toBeGreaterThan(
       repositorySidebarSource.indexOf('data-role="context"')
     );
-    expect(worktreePanelSource.indexOf('data-role="panel"')).toBeLessThan(
+    expect(worktreePanelSource.indexOf('data-role="panel"')).toBeGreaterThan(
       worktreePanelSource.indexOf('data-role="data"')
     );
-    expect(temporaryWorkspacePanelSource.indexOf('data-role="panel"')).toBeLessThan(
+    expect(temporaryWorkspacePanelSource.indexOf('data-role="panel"')).toBeGreaterThan(
       temporaryWorkspacePanelSource.indexOf('data-role="data"')
     );
-    expect(fileTreeSource.indexOf('data-role="panel"')).toBeLessThan(
+    expect(fileTreeSource.indexOf('data-role="panel"')).toBeGreaterThan(
       fileTreeSource.indexOf('data-role="create"')
+    );
+    expect(fileTreeSource.indexOf('data-role="panel"')).toBeGreaterThan(
+      fileTreeSource.indexOf('data-role="data"')
+    );
+    expect(fileTreeSource.indexOf('data-role="panel"')).toBeGreaterThan(
+      fileTreeSource.indexOf('data-role="search"')
     );
   });
 
