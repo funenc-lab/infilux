@@ -151,6 +151,7 @@ const handlerTestDoubles = vi.hoisted(() => {
     updaterSetAutoUpdateEnabled.mockReset();
     updaterGetState.mockReset();
     updaterGetState.mockReturnValue({
+      isSupported: true,
       autoUpdateEnabled: true,
       status: null,
     });

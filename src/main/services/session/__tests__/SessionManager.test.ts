@@ -123,6 +123,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const persistentAbandonSession = vi.fn();
   const tmuxEnsureServerHealthy = vi.fn();
   const tmuxCaptureSessionHistory = vi.fn();
+  const tmuxKillSession = vi.fn();
   const logInfo = vi.fn();
   const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-session');
   const registerMainProcessDiagnosticsCollector = vi.fn(() => vi.fn());
@@ -196,6 +197,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     persistentAbandonSession,
     tmuxEnsureServerHealthy,
     tmuxCaptureSessionHistory,
+    tmuxKillSession,
     logInfo,
     requestMainProcessDiagnosticsCapture,
     registerMainProcessDiagnosticsCollector,
@@ -241,6 +243,7 @@ vi.mock('../../cli/TmuxDetector', () => ({
   tmuxDetector: {
     ensureServerHealthy: sessionTestDoubles.tmuxEnsureServerHealthy,
     captureSessionHistory: sessionTestDoubles.tmuxCaptureSessionHistory,
+    killSession: sessionTestDoubles.tmuxKillSession,
   },
 }));
 
@@ -371,6 +374,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.tmuxEnsureServerHealthy.mockResolvedValue(true);
     sessionTestDoubles.tmuxCaptureSessionHistory.mockReset();
     sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValue('');
+    sessionTestDoubles.tmuxKillSession.mockReset();
+    sessionTestDoubles.tmuxKillSession.mockResolvedValue(undefined);
     sessionTestDoubles.logInfo.mockReset();
     sessionTestDoubles.requestMainProcessDiagnosticsCapture.mockReset();
     sessionTestDoubles.requestMainProcessDiagnosticsCapture.mockReturnValue('diag-session');
@@ -848,6 +853,122 @@ describe('SessionManager', () => {
       pty.emitExit(sessionId, 0);
 
       expect(sessionTestDoubles.persistentAbandonSession).not.toHaveBeenCalled();
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('explicitly killing a persistent unix agent terminates its tmux host and abandons its record', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: '/repo-a',
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-1',
+        },
+        metadata: {
+          uiSessionId: 'ui-session-1',
+        },
+      });
+
+      await manager.kill(opened.session.sessionId);
+
+      expect(sessionTestDoubles.tmuxKillSession).toHaveBeenCalledWith(
+        'infilux-ui-session-1',
+        'infilux'
+      );
+      expect(sessionTestDoubles.persistentAbandonSession).toHaveBeenCalledWith('ui-session-1');
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('workdir cleanup explicitly terminates matching persistent unix agent hosts', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+
+    try {
+      await manager.create(1, {
+        cwd: '/Repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-root',
+        },
+        metadata: {
+          uiSessionId: 'ui-session-root',
+        },
+      });
+      await manager.create(1, {
+        cwd: '/Elsewhere',
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-other',
+        },
+        metadata: {
+          uiSessionId: 'ui-session-other',
+        },
+      });
+
+      await manager.killByWorkdir('/repo');
+
+      expect(sessionTestDoubles.tmuxKillSession).toHaveBeenCalledWith(
+        'infilux-ui-session-root',
+        'infilux'
+      );
+      expect(sessionTestDoubles.tmuxKillSession).not.toHaveBeenCalledWith(
+        'infilux-ui-session-other',
+        'infilux'
+      );
+      expect(sessionTestDoubles.persistentAbandonSession).toHaveBeenCalledWith('ui-session-root');
+      expect(sessionTestDoubles.persistentAbandonSession).not.toHaveBeenCalledWith(
+        'ui-session-other'
+      );
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('matches darwin workdir cleanup across private var path aliases', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: '/private/var/folders/demo/repo-main/worktree',
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-private-var',
+        },
+        metadata: {
+          uiSessionId: 'ui-session-private-var',
+        },
+      });
+
+      await manager.killByWorkdir('/var/folders/demo/repo-main');
+
+      expect(sessionTestDoubles.tmuxKillSession).toHaveBeenCalledWith(
+        'infilux-ui-session-private-var',
+        'infilux'
+      );
+      expect(manager.getSessionDescriptor(opened.session.sessionId)).toBeNull();
     } finally {
       platform.mockRestore();
     }

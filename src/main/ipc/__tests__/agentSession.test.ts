@@ -191,4 +191,46 @@ describe('agentSession IPC handlers', () => {
       restoreWorktreeHandler({}, { repoPath: '/repo', cwd: '/repo/worktree' })
     ).rejects.toThrow('restore failed');
   });
+
+  it('rejects malformed restore and persistent record payloads before service calls', async () => {
+    const { registerAgentSessionHandlers } = await import('../agentSession');
+    registerAgentSessionHandlers();
+
+    const restoreWorktreeHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RESTORE_WORKTREE);
+    const reconcileHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RECONCILE);
+    const resolveProviderSessionHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER);
+    const markPersistentHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT);
+    const abandonHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_ABANDON);
+
+    await expect(restoreWorktreeHandler({}, { repoPath: '/repo', cwd: '' })).rejects.toThrow(
+      'Invalid agent session restore request'
+    );
+    await expect(reconcileHandler({}, '')).rejects.toThrow('Invalid agent session id');
+    await expect(
+      resolveProviderSessionHandler(
+        {},
+        {
+          agentCommand: 'codex',
+          cwd: '/repo/worktree',
+          createdAt: '1',
+          observedAt: 2,
+        }
+      )
+    ).rejects.toThrow('Invalid agent provider session resolve request');
+    await expect(
+      markPersistentHandler(
+        {},
+        makeRecord({
+          hostKind: 'socket' as never,
+        })
+      )
+    ).rejects.toThrow('Invalid persistent agent session record');
+    await expect(abandonHandler({}, 42)).rejects.toThrow('Invalid agent session id');
+
+    expect(agentSessionTestDoubles.restoreWorktreeSessions).not.toHaveBeenCalled();
+    expect(agentSessionTestDoubles.reconcileSession).not.toHaveBeenCalled();
+    expect(agentSessionTestDoubles.resolveProviderSession).not.toHaveBeenCalled();
+    expect(agentSessionTestDoubles.upsertSession).not.toHaveBeenCalled();
+    expect(agentSessionTestDoubles.abandonSession).not.toHaveBeenCalled();
+  });
 });

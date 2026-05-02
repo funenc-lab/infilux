@@ -36,6 +36,15 @@ function createRecoverableRestoreResult(uiSessionId = 'session-1') {
   };
 }
 
+function createMixedRestoreResult() {
+  return {
+    items: [
+      ...createRecoverableRestoreResult('session-live').items,
+      ...createNonRecoverableRestoreResult('session-missing').items,
+    ],
+  };
+}
+
 function createNonRecoverableRestoreResult(
   uiSessionId = 'session-dead',
   runtimeState: 'dead' | 'missing-host-session' = 'missing-host-session'
@@ -385,6 +394,92 @@ describe('agentSessionRecovery', () => {
     expect(groupState.groups[0]).toMatchObject({
       sessionIds: ['session-missing'],
       activeSessionId: 'session-missing',
+    });
+  });
+
+  it('does not complete the recovery cache after metadata-only hydration so later host recovery can attach', async () => {
+    const restoreWorktreeSessions = vi
+      .fn()
+      .mockResolvedValueOnce(createNonRecoverableRestoreResult('session-missing'))
+      .mockResolvedValueOnce(createRecoverableRestoreResult('session-missing'));
+    const upsertRecoveredSession = vi.fn();
+    let groupState: AgentGroupState = createInitialGroupState();
+    const updateGroupState = vi.fn(
+      (_cwd: string, updater: (state: AgentGroupState) => AgentGroupState) => {
+        groupState = updater(groupState);
+      }
+    );
+
+    await expect(
+      restoreWorktreeAgentSessions({
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        restoreWorktreeSessions,
+        upsertRecoveredSession,
+        updateGroupState,
+      })
+    ).resolves.toEqual(['session-missing']);
+
+    await expect(
+      restoreWorktreeAgentSessions({
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        restoreWorktreeSessions,
+        upsertRecoveredSession,
+        updateGroupState,
+      })
+    ).resolves.toEqual(['session-missing']);
+
+    expect(restoreWorktreeSessions).toHaveBeenCalledTimes(2);
+    expect(upsertRecoveredSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'session-missing',
+        lastKnownState: 'live',
+      })
+    );
+    expect(groupState.groups[0]).toMatchObject({
+      sessionIds: ['session-missing'],
+      activeSessionId: 'session-missing',
+    });
+  });
+
+  it('keeps retrying when a restore batch mixes recoverable and metadata-only sessions', async () => {
+    const restoreWorktreeSessions = vi
+      .fn()
+      .mockResolvedValueOnce(createMixedRestoreResult())
+      .mockResolvedValueOnce(createRecoverableRestoreResult('session-missing'));
+    const upsertRecoveredSession = vi.fn();
+    let groupState: AgentGroupState = createInitialGroupState();
+    const updateGroupState = vi.fn(
+      (_cwd: string, updater: (state: AgentGroupState) => AgentGroupState) => {
+        groupState = updater(groupState);
+      }
+    );
+
+    await expect(
+      restoreWorktreeAgentSessions({
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        restoreWorktreeSessions,
+        upsertRecoveredSession,
+        updateGroupState,
+      })
+    ).resolves.toEqual(['session-live', 'session-missing']);
+
+    await expect(
+      restoreWorktreeAgentSessions({
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        restoreWorktreeSessions,
+        upsertRecoveredSession,
+        updateGroupState,
+      })
+    ).resolves.toEqual(['session-missing']);
+
+    expect(restoreWorktreeSessions).toHaveBeenCalledTimes(2);
+    expect(groupState.groups[0]).toMatchObject({
+      sessionIds: ['session-live', 'session-missing'],
+      activeSessionId: 'session-live',
     });
   });
 

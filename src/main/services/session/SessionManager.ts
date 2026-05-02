@@ -16,6 +16,7 @@ import {
   type AgentStartupTimelineLogger,
   createAgentStartupTimelineLogger,
 } from '@shared/utils/agentStartupTimeline';
+import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { BrowserWindow, type WebContents } from 'electron';
 import log from '../../utils/logger';
 import {
@@ -33,6 +34,7 @@ interface ManagedSessionRecord extends SessionDescriptor {
   attachedWindowIds: Set<number>;
   localRuntime?: 'pty' | 'supervisor';
   connectionId?: string;
+  hostSession?: SessionCreateOptions['hostSession'];
   runtimeState?: SessionRuntimeState;
   replayBuffer?: string;
   pendingHostReplayDedup?: boolean;
@@ -298,11 +300,10 @@ export class SessionManager {
       return;
     }
 
-    this.cleanupPersistentSessionRecord(session);
-
     if (session.backend === 'remote' && session.connectionId) {
       const connectionId = session.connectionId;
       const attachedWindowIds = new Set(session.attachedWindowIds);
+      await this.cleanupPersistentSessionForExplicitTermination(session);
       await this.ensureRemoteSubscriptions(session.connectionId);
       await remoteConnectionManager
         .call(connectionId, 'session:kill', { sessionId })
@@ -328,6 +329,7 @@ export class SessionManager {
 
     if (session.localRuntime === 'supervisor') {
       const attachedWindowIds = new Set(session.attachedWindowIds);
+      await this.cleanupPersistentSessionForExplicitTermination(session);
       await localSupervisorRuntime.killSession(sessionId).catch(() => {});
       this.sessions.delete(sessionId);
       this.emitExit(
@@ -341,8 +343,9 @@ export class SessionManager {
     }
 
     const attachedWindowIds = new Set(session.attachedWindowIds);
-    this.localPtyManager.destroy(sessionId);
     this.sessions.delete(sessionId);
+    this.localPtyManager.destroy(sessionId);
+    await this.cleanupPersistentSessionForExplicitTermination(session);
     this.emitExit(
       {
         sessionId,
@@ -519,15 +522,12 @@ export class SessionManager {
   }
 
   async killByWorkdir(workdir: string): Promise<void> {
-    const caseInsensitivePaths = process.platform === 'win32' || process.platform === 'darwin';
-    const normalizeForComparison = (value: string) => {
-      const normalized = value.replace(/\\/g, '/');
-      return caseInsensitivePaths ? normalized.toLowerCase() : normalized;
-    };
+    const platform =
+      process.platform === 'win32' || process.platform === 'darwin' ? process.platform : 'linux';
 
-    const normalized = normalizeForComparison(workdir);
+    const normalized = normalizeWorkspaceKey(workdir, platform);
     const matches = [...this.sessions.values()].filter((session) => {
-      const sessionCwd = normalizeForComparison(session.cwd);
+      const sessionCwd = normalizeWorkspaceKey(session.cwd, platform);
       return sessionCwd === normalized || sessionCwd.startsWith(`${normalized}/`);
     });
 
@@ -637,6 +637,7 @@ export class SessionManager {
       createdAt: now(),
       metadata: options.metadata,
       attachedWindowIds: new Set([windowId]),
+      ...(options.hostSession ? { hostSession: options.hostSession } : {}),
       replayBuffer: initialReplay,
       pendingHostReplayDedup: initialReplay.length > 0 && this.shouldSeedTmuxHostReplay(options),
       streamState: 'buffering',
@@ -1331,12 +1332,43 @@ export class SessionManager {
       return;
     }
 
+    void this.abandonPersistentSessionRecord(session);
+  }
+
+  private async cleanupPersistentSessionForExplicitTermination(
+    session: ManagedSessionRecord
+  ): Promise<void> {
+    await Promise.all([
+      this.terminateLocalHostSessionForExplicitTermination(session),
+      this.abandonPersistentSessionRecord(session),
+    ]);
+  }
+
+  private async terminateLocalHostSessionForExplicitTermination(
+    session: ManagedSessionRecord
+  ): Promise<void> {
+    if (session.backend !== 'local' || session.localRuntime !== 'pty') {
+      return;
+    }
+    if (session.kind !== 'agent' || session.hostSession?.kind !== 'tmux') {
+      return;
+    }
+
+    const { sessionName, serverName } = session.hostSession;
+    try {
+      await tmuxDetector.killSession(sessionName, serverName);
+    } catch (error) {
+      console.warn('[session] Failed to terminate persistent tmux host session:', error);
+    }
+  }
+
+  private async abandonPersistentSessionRecord(session: ManagedSessionRecord): Promise<void> {
     const uiSessionId = getPersistentUiSessionId(session.metadata);
     if (!uiSessionId) {
       return;
     }
 
-    void persistentAgentSessionService.abandonSession(uiSessionId).catch((error) => {
+    await persistentAgentSessionService.abandonSession(uiSessionId).catch((error) => {
       console.warn('[session] Failed to abandon persistent agent session record:', error);
     });
   }

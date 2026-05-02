@@ -4,12 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const tmuxDetectorTestDoubles = vi.hoisted(() => {
   const execFile = vi.fn();
   const execInPty = vi.fn();
+  const getEnvForCommand = vi.fn(() => ({ PATH: '/usr/bin:/bin:/opt/homebrew/bin' }));
   const spawnSync = vi.fn();
   const rmSync = vi.fn();
 
   function reset() {
     execFile.mockReset();
     execInPty.mockReset();
+    getEnvForCommand.mockReset();
+    getEnvForCommand.mockReturnValue({ PATH: '/usr/bin:/bin:/opt/homebrew/bin' });
     spawnSync.mockReset();
     rmSync.mockReset();
   }
@@ -17,6 +20,7 @@ const tmuxDetectorTestDoubles = vi.hoisted(() => {
   return {
     execFile,
     execInPty,
+    getEnvForCommand,
     spawnSync,
     rmSync,
     reset,
@@ -25,6 +29,7 @@ const tmuxDetectorTestDoubles = vi.hoisted(() => {
 
 vi.mock('../../../utils/shell', () => ({
   execInPty: tmuxDetectorTestDoubles.execInPty,
+  getEnvForCommand: tmuxDetectorTestDoubles.getEnvForCommand,
 }));
 
 vi.mock('node:child_process', () => ({
@@ -68,15 +73,18 @@ function mockExecFileSuccess(stdout = '') {
   );
 }
 
-function mockExecFileFailure(error: Error & { code?: string | number; killed?: boolean }) {
+function mockExecFileFailure(
+  error: Error & { code?: string | number; killed?: boolean },
+  stderr = ''
+) {
   tmuxDetectorTestDoubles.execFile.mockImplementationOnce(
     (
       _file: string,
       _args: string[],
       _options: Record<string, unknown>,
-      callback: (error: Error) => void
+      callback: (error: Error, stdout: string, stderr: string) => void
     ) => {
-      callback(error);
+      callback(error, '', stderr);
     }
   );
 }
@@ -115,9 +123,8 @@ describe('TmuxDetector', () => {
 
   it('checks tmux availability, parses versions, and respects the cache', async () => {
     setPlatform('darwin');
-    tmuxDetectorTestDoubles.execInPty
-      .mockResolvedValueOnce('tmux 3.4a')
-      .mockResolvedValueOnce('tmux master');
+    mockExecFileSuccess('tmux 3.4a');
+    mockExecFileSuccess('tmux master');
 
     const { tmuxDetector } = await import('../TmuxDetector');
 
@@ -134,18 +141,22 @@ describe('TmuxDetector', () => {
       version: undefined,
     });
 
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(1, 'tmux -V', {
-      timeout: 5000,
-    });
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(2);
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
+      1,
+      'tmux',
+      ['-V'],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
+    );
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenCalledTimes(2);
   });
 
   it('returns not installed on failures and ignores kill command errors', async () => {
     setPlatform('linux');
+    mockExecFileFailure(new Error('missing tmux'));
+    mockExecFileSuccess();
+    mockExecFileFailure(new Error('missing session'));
     tmuxDetectorTestDoubles.execInPty
-      .mockRejectedValueOnce(new Error('missing tmux'))
-      .mockResolvedValueOnce('')
-      .mockRejectedValueOnce(new Error('missing session'))
       .mockResolvedValueOnce('')
       .mockRejectedValueOnce(new Error('missing server'));
     tmuxDetectorTestDoubles.spawnSync.mockImplementationOnce(() => {
@@ -164,13 +175,17 @@ describe('TmuxDetector', () => {
     await expect(tmuxDetector.killServer()).resolves.toBeUndefined();
     expect(() => tmuxDetector.killServerSync()).not.toThrow();
 
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      'tmux',
+      ['-S', testSocketPath, 'kill-session', '-t', 'enso-session'],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
+    );
+    expect(
+      tmuxDetectorTestDoubles.execFile.mock.calls.filter((call) => call[1]?.[2] === 'kill-session')
+    ).toHaveLength(2);
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
       2,
-      `tmux -S '${testSocketPath}' kill-session -t 'enso-session'`,
-      { timeout: 5000 }
-    );
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
-      4,
       `tmux -S '${testSocketPath}' kill-server`,
       { timeout: 5000 }
     );
@@ -203,31 +218,37 @@ describe('TmuxDetector', () => {
 
   it('probes tmux session existence and treats missing sessions as false', async () => {
     setPlatform('linux');
-    tmuxDetectorTestDoubles.execInPty
-      .mockResolvedValueOnce('')
-      .mockRejectedValueOnce(new Error('missing session'));
+    mockExecFileSuccess();
+    mockExecFileFailure(new Error('missing session'));
 
     const { tmuxDetector } = await import('../TmuxDetector');
 
     await expect(tmuxDetector.hasSession('enso-live')).resolves.toBe(true);
     await expect(tmuxDetector.hasSession('enso-missing')).resolves.toBe(false);
 
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
       1,
-      `tmux -S '${testSocketPath}' has-session -t 'enso-live'`,
-      { timeout: 5000 }
+      'tmux',
+      ['-S', testSocketPath, 'has-session', '-t', 'enso-live'],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
     );
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
       2,
-      `tmux -S '${testSocketPath}' has-session -t 'enso-missing'`,
-      { timeout: 5000 }
+      'tmux',
+      ['-S', testSocketPath, 'has-session', '-t', 'enso-missing'],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
     );
   });
 
   it('returns an explicit probe status for tmux session reconciliation', async () => {
     setPlatform('linux');
     mockExecFileSuccess();
-    mockExecFileFailure(Object.assign(new Error('missing session'), { code: 1 }));
+    mockExecFileFailure(
+      Object.assign(new Error('missing session'), { code: 1 }),
+      "can't find session: enso-missing"
+    );
     mockExecFileFailure(Object.assign(new Error('timeout'), { killed: true }));
 
     const { tmuxDetector } = await import('../TmuxDetector');
@@ -240,17 +261,35 @@ describe('TmuxDetector', () => {
       1,
       'tmux',
       ['-S', testSocketPath, 'has-session', '-t', 'enso-live'],
-      {
-        encoding: 'utf8',
-        timeout: 5000,
-      },
+      expect.objectContaining({ encoding: 'utf8', timeout: 5000 }),
       expect.any(Function)
     );
   });
 
+  it('preserves state when tmux session probing cannot reach the server', async () => {
+    setPlatform('linux');
+    mockExecFileFailure(
+      Object.assign(new Error('tmux server unavailable'), { code: 1 }),
+      `error connecting to ${testSocketPath} (No such file or directory)`
+    );
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(tmuxDetector.probeSession('enso-unknown')).resolves.toBe('failed');
+  });
+
+  it('preserves state when tmux probing lacks a precise missing-session stderr', async () => {
+    setPlatform('linux');
+    mockExecFileFailure(new Error('Command exited with code 1'));
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(tmuxDetector.probeSession('enso-unknown')).resolves.toBe('failed');
+  });
+
   it('keeps a healthy runtime server without resetting it', async () => {
     setPlatform('darwin');
-    tmuxDetectorTestDoubles.execInPty.mockResolvedValueOnce('tmux 3.6a');
+    mockExecFileSuccess('tmux 3.6a');
     mockExecFileSuccess();
     mockExecFileSuccess();
 
@@ -258,11 +297,11 @@ describe('TmuxDetector', () => {
 
     await expect(tmuxDetector.ensureServerHealthy()).resolves.toBe(true);
 
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(1);
-    expect(tmuxDetectorTestDoubles.execFile.mock.calls[0]?.[1]).toEqual(
+    expect(tmuxDetectorTestDoubles.execInPty).not.toHaveBeenCalled();
+    expect(tmuxDetectorTestDoubles.execFile.mock.calls[1]?.[1]).toEqual(
       expect.arrayContaining(['-S', testSocketPath, '-f', '/dev/null', 'new-session', '-d', '-s'])
     );
-    expect(tmuxDetectorTestDoubles.execFile.mock.calls[1]?.[1]).toEqual(
+    expect(tmuxDetectorTestDoubles.execFile.mock.calls[2]?.[1]).toEqual(
       expect.arrayContaining(['-S', testSocketPath, 'kill-session', '-t'])
     );
     expect(tmuxDetectorTestDoubles.spawnSync).not.toHaveBeenCalled();
@@ -271,7 +310,7 @@ describe('TmuxDetector', () => {
 
   it('does not reset a broken runtime server from the recovery health check path', async () => {
     setPlatform('darwin');
-    tmuxDetectorTestDoubles.execInPty.mockResolvedValueOnce('tmux 3.6a');
+    mockExecFileSuccess('tmux 3.6a');
     mockExecFileFailure(new Error('broken server'));
     mockExecFileSuccess();
 
@@ -287,7 +326,7 @@ describe('TmuxDetector', () => {
     setPlatform('darwin');
     const error = new Error('spawn EAGAIN') as NodeJS.ErrnoException;
     error.code = 'EAGAIN';
-    tmuxDetectorTestDoubles.execInPty.mockResolvedValueOnce('tmux 3.6a');
+    mockExecFileSuccess('tmux 3.6a');
     mockExecFileFailure(error);
     mockExecFileSuccess();
 
@@ -310,14 +349,6 @@ describe('TmuxDetector', () => {
     });
     let healthcheckCount = 0;
 
-    tmuxDetectorTestDoubles.execInPty.mockImplementation((command: string) => {
-      if (command === 'tmux -V') {
-        return Promise.resolve('tmux 3.6a');
-      }
-
-      return Promise.resolve('');
-    });
-
     tmuxDetectorTestDoubles.execFile.mockImplementation(
       (
         _file: string,
@@ -325,6 +356,11 @@ describe('TmuxDetector', () => {
         _options: Record<string, unknown>,
         callback: (error: Error | null, stdout: string) => void
       ) => {
+        if (args.length === 1 && args[0] === '-V') {
+          callback(null, 'tmux 3.6a');
+          return;
+        }
+
         if (args.includes('new-session')) {
           healthcheckCount += 1;
           if (healthcheckCount === 1) {

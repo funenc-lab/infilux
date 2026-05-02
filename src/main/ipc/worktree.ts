@@ -45,7 +45,11 @@ export function registerWorktreeHandlers(): void {
     }
 
     const service = getWorktreeService(workdir);
-    const worktrees = await service.list();
+    const worktrees = await listLocalWorktrees(service, workdir);
+    if (!worktrees) {
+      return [];
+    }
+
     const repositoryPath = worktrees.find((worktree) => worktree.isMainWorktree)?.path ?? workdir;
     gitAutoFetchService.syncRepositoryWorktrees(
       repositoryPath,
@@ -164,4 +168,27 @@ export function registerWorktreeHandlers(): void {
       return service.continueMerge(workdir, message, cleanupOptions);
     }
   );
+}
+
+async function listLocalWorktrees(
+  service: WorktreeService,
+  workdir: string
+): Promise<Awaited<ReturnType<WorktreeService['list']>> | null> {
+  try {
+    return await service.list();
+  } catch (error) {
+    if (isNotGitRepositoryError(error)) {
+      clearWorktreeService(workdir);
+      return null;
+    }
+    throw error;
+  }
+}
+
+function isNotGitRepositoryError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.includes('not a git repository');
 }

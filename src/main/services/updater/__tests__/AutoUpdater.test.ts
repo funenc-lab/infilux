@@ -70,6 +70,7 @@ const updaterTestDoubles = vi.hoisted(() => {
   });
   const applyProxy = vi.fn();
   const registerUpdaterSession = vi.fn();
+  const existsSync = vi.fn();
   const isDev = { value: false };
   const logInfo = vi.fn();
   const logWarn = vi.fn();
@@ -87,6 +88,8 @@ const updaterTestDoubles = vi.hoisted(() => {
     applyProxy.mockReset();
     applyProxy.mockResolvedValue(undefined);
     registerUpdaterSession.mockReset();
+    existsSync.mockReset();
+    existsSync.mockReturnValue(true);
     isDev.value = false;
     logInfo.mockReset();
     logWarn.mockReset();
@@ -96,6 +99,7 @@ const updaterTestDoubles = vi.hoisted(() => {
     autoUpdater,
     applyProxy,
     registerUpdaterSession,
+    existsSync,
     isDev,
     logInfo,
     logWarn,
@@ -117,6 +121,10 @@ vi.mock('@electron-toolkit/utils', () => ({
   },
 }));
 
+vi.mock('node:fs', () => ({
+  existsSync: updaterTestDoubles.existsSync,
+}));
+
 vi.mock('../../proxy/ProxyConfig', () => ({
   applyProxy: updaterTestDoubles.applyProxy,
   registerUpdaterSession: updaterTestDoubles.registerUpdaterSession,
@@ -135,6 +143,10 @@ describe('AutoUpdaterService', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     updaterTestDoubles.reset();
+    Object.defineProperty(process, 'resourcesPath', {
+      configurable: true,
+      value: '/Applications/Infilux.app/Contents/Resources',
+    });
   });
 
   afterEach(() => {
@@ -262,12 +274,14 @@ describe('AutoUpdaterService', () => {
     autoUpdaterService.init(window as never, false);
 
     expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
       autoUpdateEnabled: false,
       status: null,
     });
 
     updaterTestDoubles.autoUpdater.emit('update-available', { version: '1.2.0' });
     expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
       autoUpdateEnabled: false,
       status: {
         status: 'available',
@@ -277,6 +291,7 @@ describe('AutoUpdaterService', () => {
 
     autoUpdaterService.setAutoUpdateEnabled(true);
     expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
       autoUpdateEnabled: true,
       status: {
         status: 'available',
@@ -287,6 +302,7 @@ describe('AutoUpdaterService', () => {
     updaterTestDoubles.autoUpdater.emit('update-downloaded', { version: '1.2.0' });
     updaterTestDoubles.autoUpdater.emit('error', new Error('ignored after download'));
     expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
       autoUpdateEnabled: true,
       status: {
         status: 'downloaded',
@@ -363,5 +379,67 @@ describe('AutoUpdaterService', () => {
     autoUpdaterService.cleanup();
     await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
     expect(updaterTestDoubles.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('disables update checks when packaged updater metadata is missing', async () => {
+    updaterTestDoubles.autoUpdater.checkForUpdates.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "ENOENT: no such file or directory, open '/Applications/Infilux.app/Contents/Resources/app-update.yml'"
+        ),
+        { code: 'ENOENT' }
+      )
+    );
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+
+    autoUpdaterService.init(window as never, true);
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(autoUpdaterService.getState()).toEqual({
+      isSupported: false,
+      autoUpdateEnabled: false,
+      status: {
+        status: 'error',
+        error: 'Auto update is not configured for this build.',
+      },
+    });
+    expect(errorSpy).not.toHaveBeenCalledWith('Failed to check for updates:', expect.any(Error));
+
+    updaterTestDoubles.autoUpdater.checkForUpdates.mockClear();
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
+    await autoUpdaterService.checkForUpdates();
+    expect(updaterTestDoubles.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it('skips electron-updater checks when packaged updater config is absent', async () => {
+    updaterTestDoubles.existsSync.mockReturnValue(false);
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+
+    autoUpdaterService.init(window as never, true);
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(updaterTestDoubles.existsSync).toHaveBeenCalledWith(
+      expect.stringContaining('app-update.yml')
+    );
+    expect(updaterTestDoubles.registerUpdaterSession).not.toHaveBeenCalled();
+    expect(updaterTestDoubles.applyProxy).not.toHaveBeenCalled();
+    expect(updaterTestDoubles.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+    expect(updaterTestDoubles.autoUpdater.autoDownload).toBe(false);
+    expect(updaterTestDoubles.autoUpdater.autoInstallOnAppQuit).toBe(false);
+    expect(autoUpdaterService.getState()).toEqual({
+      isSupported: false,
+      autoUpdateEnabled: false,
+      status: {
+        status: 'error',
+        error: 'Auto update is not configured for this build.',
+      },
+    });
+
+    await autoUpdaterService.checkForUpdates();
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
+    expect(updaterTestDoubles.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
   });
 });

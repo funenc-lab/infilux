@@ -7,6 +7,7 @@ import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSession
 
 const BUSY_TIMEOUT_MS = 3000;
 const STALE_PERSISTENT_SESSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+const MAX_METADATA_BYTES = 64 * 1024;
 
 interface PersistentAgentSessionRow {
   ui_session_id: string;
@@ -79,20 +80,89 @@ function dbClose(database: sqlite3.Database): Promise<void> {
   });
 }
 
-function safeParseMetadata(value: string | null): Record<string, unknown> | undefined {
-  if (!value) {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isOptionalString(value: unknown): value is string | null | undefined {
+  return value === null || value === undefined || typeof value === 'string';
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isValidEnvironment(value: unknown): value is PersistentAgentSessionRow['environment'] {
+  return value === 'native' || value === 'hapi' || value === 'happy';
+}
+
+function isValidHostKind(value: unknown): value is PersistentAgentSessionRow['host_kind'] {
+  return value === 'tmux' || value === 'supervisor';
+}
+
+function isValidRecoveryPolicy(
+  value: unknown
+): value is PersistentAgentSessionRow['recovery_policy'] {
+  return value === 'auto' || value === 'manual' || value === 'metadata-only';
+}
+
+function isValidRuntimeState(
+  value: unknown
+): value is PersistentAgentSessionRow['last_known_state'] {
+  return (
+    value === 'live' ||
+    value === 'reconnecting' ||
+    value === 'dead' ||
+    value === 'missing-host-session'
+  );
+}
+
+function safeParseMetadata(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_METADATA_BYTES) {
     return undefined;
   }
 
   try {
     const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined;
+    return isPlainObject(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }
 }
 
-function rowToRecord(row: PersistentAgentSessionRow): PersistentAgentSessionRecord {
+function rowToRecord(row: PersistentAgentSessionRow): PersistentAgentSessionRecord | null {
+  if (
+    !isNonEmptyString(row.ui_session_id) ||
+    !isOptionalString(row.backend_session_id) ||
+    !isOptionalString(row.provider_session_id) ||
+    !isNonEmptyString(row.agent_id) ||
+    !isNonEmptyString(row.agent_command) ||
+    !isOptionalString(row.custom_path) ||
+    !isOptionalString(row.custom_args) ||
+    !isValidEnvironment(row.environment) ||
+    !isNonEmptyString(row.repo_path) ||
+    !isNonEmptyString(row.cwd) ||
+    !isNonEmptyString(row.display_name) ||
+    !isFiniteNumber(row.activated) ||
+    !isFiniteNumber(row.initialized) ||
+    !isValidHostKind(row.host_kind) ||
+    !isNonEmptyString(row.host_session_key) ||
+    !isValidRecoveryPolicy(row.recovery_policy) ||
+    !isFiniteNumber(row.created_at) ||
+    !isFiniteNumber(row.updated_at) ||
+    !isValidRuntimeState(row.last_known_state)
+  ) {
+    return null;
+  }
+
   return {
     uiSessionId: row.ui_session_id,
     backendSessionId: row.backend_session_id ?? undefined,
@@ -314,7 +384,10 @@ export class PersistentAgentSessionRepository {
       this.getDb(),
       'SELECT * FROM persistent_agent_sessions ORDER BY updated_at DESC'
     );
-    this.cache = rows.map(rowToRecord);
+    this.cache = rows.flatMap((row) => {
+      const record = rowToRecord(row);
+      return record ? [record] : [];
+    });
   }
 
   private async pruneStaleSessions(now = Date.now()): Promise<void> {

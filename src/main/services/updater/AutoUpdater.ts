@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { is } from '@electron-toolkit/utils';
 import {
   IPC_CHANNELS,
@@ -19,9 +21,12 @@ const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const MIN_FOCUS_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
 type UpdaterRuntimeState = {
+  isSupported: boolean;
   autoUpdateEnabled: boolean;
   status: UpdateStatus | null;
 };
+
+const MISSING_UPDATE_CONFIG_MESSAGE = 'Auto update is not configured for this build.';
 
 function normalizeUpdateInfo(info: UpdateInfo | null | undefined): UpdateReleaseInfo | undefined {
   if (!info?.version) {
@@ -38,6 +43,7 @@ class AutoUpdaterService {
   private updateDownloaded = false;
   private _isQuittingForUpdate = false;
   private autoUpdateEnabled = true;
+  private isSupported = true;
   private currentStatus: UpdateStatus | null = null;
   private checkIntervalId: NodeJS.Timeout | null = null;
   private initialCheckTimeoutId: NodeJS.Timeout | null = null;
@@ -52,6 +58,11 @@ class AutoUpdaterService {
   ): void {
     this.attachWindow(window);
     this.autoUpdateEnabled = autoUpdateEnabled;
+
+    if (!hasPackagedUpdaterConfig()) {
+      this.disableUnsupportedUpdater();
+      return;
+    }
 
     // Register updater session so applyProxy() can configure it
     registerUpdaterSession(autoUpdater.netSession);
@@ -113,13 +124,17 @@ class AutoUpdaterService {
 
   async checkForUpdates(): Promise<void> {
     // Skip if update already downloaded to prevent race conditions
-    if (this.updateDownloaded) {
+    if (!this.isSupported || this.updateDownloaded) {
       return;
     }
     try {
       this.lastCheckTime = Date.now();
       await autoUpdater.checkForUpdates();
     } catch (error) {
+      if (isMissingUpdaterConfigError(error)) {
+        this.disableUnsupportedUpdater();
+        return;
+      }
       console.error('Failed to check for updates:', error);
     }
   }
@@ -153,6 +168,14 @@ class AutoUpdaterService {
   }
 
   setAutoUpdateEnabled(enabled: boolean): void {
+    if (!this.isSupported) {
+      this.autoUpdateEnabled = false;
+      autoUpdater.autoDownload = false;
+      autoUpdater.autoInstallOnAppQuit = false;
+      this.clearScheduledChecks();
+      return;
+    }
+
     this.autoUpdateEnabled = enabled;
     autoUpdater.autoDownload = enabled;
     autoUpdater.autoInstallOnAppQuit = enabled;
@@ -177,6 +200,7 @@ class AutoUpdaterService {
 
   getState(): UpdaterRuntimeState {
     return {
+      isSupported: this.isSupported,
       autoUpdateEnabled: this.autoUpdateEnabled,
       status: this.currentStatus,
     };
@@ -245,6 +269,32 @@ class AutoUpdaterService {
     }
     this.mainWindow = null;
   }
+
+  private disableUnsupportedUpdater(): void {
+    this.isSupported = false;
+    this.autoUpdateEnabled = false;
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    this.clearScheduledChecks();
+    this.sendStatus({
+      status: 'error',
+      error: MISSING_UPDATE_CONFIG_MESSAGE,
+    });
+  }
 }
 
 export const autoUpdaterService = new AutoUpdaterService();
+
+function isMissingUpdaterConfigError(error: unknown): boolean {
+  const nodeError = error as NodeJS.ErrnoException;
+  const message = error instanceof Error ? error.message : '';
+  return nodeError?.code === 'ENOENT' && message.includes('app-update.yml');
+}
+
+function hasPackagedUpdaterConfig(): boolean {
+  if (is.dev) {
+    return true;
+  }
+
+  return existsSync(join(process.resourcesPath, 'app-update.yml'));
+}

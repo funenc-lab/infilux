@@ -12,18 +12,19 @@ interface UseAppKeyboardShortcutsOptions {
   onSwitchActiveWorktree: () => void;
 }
 
-// 判断是否应跳过快捷键处理（可编辑场景、IME、快捷键录制）
+function getShortcutElementTarget(event: KeyboardEvent): HTMLElement | null {
+  return event.target instanceof HTMLElement ? event.target : null;
+}
+
+// Skip shortcut handling for editable contexts, IME input, and keybinding recording.
 function shouldSkipShortcut(e: KeyboardEvent): boolean {
-  // IME 组合输入中
   if (e.isComposing) return true;
 
-  const target = e.target as HTMLElement | null;
+  const target = getShortcutElementTarget(e);
   if (!target) return false;
 
-  // 快捷键录制模式
   if (target.hasAttribute('data-keybinding-recording')) return true;
 
-  // 输入框、文本区域、可编辑元素
   const tagName = target.tagName.toLowerCase();
   if (tagName === 'input' || tagName === 'textarea') return true;
   if (target.isContentEditable) return true;
@@ -57,7 +58,7 @@ export function useAppKeyboardShortcuts({
     const handleKeyDown = (e: KeyboardEvent) => {
       // Skip IME composition and keybinding recording
       if (e.isComposing) return;
-      const target = e.target as HTMLElement | null;
+      const target = getShortcutElementTarget(e);
       if (target?.hasAttribute('data-keybinding-recording')) return;
 
       const bindings = useSettingsStore.getState().mainTabKeybindings;
@@ -89,7 +90,7 @@ export function useAppKeyboardShortcuts({
     const handleKeyDown = (e: KeyboardEvent) => {
       // Skip IME composition and keybinding recording
       if (e.isComposing) return;
-      const target = e.target as HTMLElement | null;
+      const target = getShortcutElementTarget(e);
       if (target?.hasAttribute('data-keybinding-recording')) return;
 
       const bindings = useSettingsStore.getState().workspaceKeybindings;

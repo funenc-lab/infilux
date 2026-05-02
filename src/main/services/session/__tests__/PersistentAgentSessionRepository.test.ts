@@ -293,6 +293,32 @@ function makeRecord(
   };
 }
 
+function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
+  return {
+    ui_session_id: 'session-1',
+    backend_session_id: 'backend-1',
+    provider_session_id: 'provider-1',
+    agent_id: 'claude',
+    agent_command: 'claude',
+    custom_path: null,
+    custom_args: null,
+    environment: 'native',
+    repo_path: '/repo',
+    cwd: '/repo/worktree',
+    display_name: 'Claude',
+    activated: 1,
+    initialized: 1,
+    host_kind: 'tmux',
+    host_session_key: 'enso-session-1',
+    recovery_policy: 'auto',
+    created_at: 10,
+    updated_at: 11,
+    last_known_state: 'live',
+    metadata_json: null,
+    ...overrides,
+  };
+}
+
 function createTempHomeDir(prefix = 'persistent-agent-session-home-'): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
@@ -477,6 +503,46 @@ describe('PersistentAgentSessionRepository', () => {
         uiSessionId: 'session-restart',
         displayName: 'Recovered After Restart',
         updatedAt: 123,
+      }),
+    ]);
+  });
+
+  it('drops corrupted sqlite rows and ignores non-object metadata during cache refresh', async () => {
+    repositoryTestDoubles.state.rows.push(
+      makeRow({
+        ui_session_id: 'invalid-host-kind',
+        host_kind: 'socket' as never,
+        updated_at: 120,
+      }),
+      makeRow({
+        ui_session_id: 'invalid-metadata',
+        host_session_key: 'enso-session-2',
+        metadata_json: '[]',
+        updated_at: 110,
+      }),
+      makeRow({
+        ui_session_id: 'valid-metadata',
+        host_session_key: 'enso-session-3',
+        metadata_json: '{"prompt":"resume"}',
+        updated_at: 100,
+      })
+    );
+
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+
+    await repository.initialize();
+
+    await expect(repository.listSessions()).resolves.toEqual([
+      expect.objectContaining({
+        uiSessionId: 'invalid-metadata',
+        metadata: undefined,
+      }),
+      expect.objectContaining({
+        uiSessionId: 'valid-metadata',
+        metadata: { prompt: 'resume' },
       }),
     ]);
   });

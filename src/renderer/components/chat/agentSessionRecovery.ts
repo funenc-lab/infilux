@@ -134,13 +134,22 @@ export async function restoreWorktreeAgentSessions({
 
   const request = (async () => {
     const result = await restoreWorktreeSessions({ repoPath, cwd });
-    const restoredIds = result.items.map((item) => {
+    const restoredIds: string[] = [];
+    let hasRecoverableSession = false;
+    let hasPendingMetadataOnlySession = false;
+
+    for (const item of result.items) {
       upsertRecoveredSession(item.record);
-      return item.record.uiSessionId;
-    });
+      restoredIds.push(item.record.uiSessionId);
+      hasRecoverableSession = hasRecoverableSession || item.recoverable;
+      hasPendingMetadataOnlySession = hasPendingMetadataOnlySession || !item.recoverable;
+    }
 
     if (restoredIds.length > 0) {
       updateGroupState(cwd, (state) => mergeRecoveredSessionsIntoGroupState(state, restoredIds));
+    }
+
+    if (hasRecoverableSession && !hasPendingMetadataOnlySession) {
       completedRecoveryKeys.add(recoveryKey);
     }
     return restoredIds;

@@ -45,9 +45,6 @@ export function registerUpdaterHandlers(): void {
     }
 
     const { autoUpdaterService } = await import('../services/updater/AutoUpdater');
-    return {
-      isSupported: true,
-      ...autoUpdaterService.getState(),
-    } satisfies UpdaterStateSnapshot;
+    return autoUpdaterService.getState() satisfies UpdaterStateSnapshot;
   });
 }

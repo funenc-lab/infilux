@@ -8,7 +8,7 @@ import type {
 } from '@shared/types';
 import { buildManagedTmuxSocketDirPath, buildManagedTmuxSocketPath } from '@shared/utils/tmux';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
-import { execInPty } from '../../utils/shell';
+import { execInPty, getEnvForCommand } from '../../utils/shell';
 
 const isWindows = process.platform === 'win32';
 const TMUX_COMMAND_TIMEOUT_MS = 5000;
@@ -32,14 +32,27 @@ function isMissingSessionProbeError(error: unknown): boolean {
   const nodeError = error as NodeJS.ErrnoException & {
     killed?: boolean;
     signal?: NodeJS.Signals | null;
+    stderr?: string | Buffer;
   };
   if (nodeError?.killed || nodeError?.signal) {
     return false;
   }
-  if (typeof nodeError?.code === 'number') {
-    return nodeError.code > 0;
+  const stderr =
+    typeof nodeError?.stderr === 'string'
+      ? nodeError.stderr
+      : Buffer.isBuffer(nodeError?.stderr)
+        ? nodeError.stderr.toString('utf8')
+        : '';
+  if (stderr.includes("can't find session:")) {
+    return true;
   }
-  return error instanceof Error && error.message.startsWith('Command exited with code ');
+  if (stderr.includes('error connecting to')) {
+    return false;
+  }
+  if (typeof nodeError?.code === 'number') {
+    return false;
+  }
+  return false;
 }
 
 function toTmuxResourceExhaustionError(
@@ -93,16 +106,22 @@ function buildTmuxShellCommand(serverName: string, command: string): string {
 function execTmux(serverName: string, args: string[]): Promise<string> {
   ensureTmuxSocketDirectory(serverName);
 
+  return execTmuxCommand(['-S', resolveTmuxSocketPath(serverName), ...args]);
+}
+
+function execTmuxCommand(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'tmux',
-      ['-S', resolveTmuxSocketPath(serverName), ...args],
+      args,
       {
         encoding: 'utf8',
+        env: getEnvForCommand(),
         timeout: TMUX_COMMAND_TIMEOUT_MS,
       },
-      (error, stdout) => {
+      (error, stdout, stderr) => {
         if (error) {
+          (error as NodeJS.ErrnoException & { stderr?: string }).stderr = stderr;
           reject(error);
           return;
         }
@@ -167,7 +186,7 @@ class TmuxDetector {
     }
 
     try {
-      const stdout = await execInPty('tmux -V', { timeout: TMUX_COMMAND_TIMEOUT_MS });
+      const stdout = await execTmuxCommand(['-V']);
       const match = stdout.match(/tmux\s+(\d+\.\d+[a-z]?)/i);
       const result: TmuxCheckResult = {
         installed: true,
@@ -186,12 +205,7 @@ class TmuxDetector {
     if (isWindows) return;
     try {
       const resolvedServerName = resolveTmuxServerName(serverName);
-      await execInPty(
-        buildTmuxShellCommand(resolvedServerName, `kill-session -t ${shellQuote(name)}`),
-        {
-          timeout: TMUX_COMMAND_TIMEOUT_MS,
-        }
-      );
+      await execTmux(resolvedServerName, ['kill-session', '-t', name]);
     } catch {
       // Session may already be gone — ignore errors
     }
@@ -204,12 +218,7 @@ class TmuxDetector {
 
     try {
       const resolvedServerName = resolveTmuxServerName(serverName);
-      await execInPty(
-        buildTmuxShellCommand(resolvedServerName, `has-session -t ${shellQuote(name)}`),
-        {
-          timeout: TMUX_COMMAND_TIMEOUT_MS,
-        }
-      );
+      await execTmux(resolvedServerName, ['has-session', '-t', name]);
       return true;
     } catch {
       return false;

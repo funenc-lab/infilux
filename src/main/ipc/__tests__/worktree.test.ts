@@ -283,6 +283,51 @@ describe('worktree IPC handlers', () => {
     expect(worktreeTestDoubles.syncRepositoryWorktrees).not.toHaveBeenCalled();
   });
 
+  it('returns an empty list and clears cached services when an existing path is not a git repository', async () => {
+    const { registerWorktreeHandlers } = await import('../worktree');
+    registerWorktreeHandlers();
+
+    const listHandler = getHandler(IPC_CHANNELS.WORKTREE_LIST);
+
+    expect(await listHandler({}, '/repo')).toEqual([
+      { path: '/repo/main' },
+      { path: '/repo/feature-a' },
+    ]);
+    expect(worktreeTestDoubles.getService).toHaveBeenCalledTimes(1);
+
+    worktreeTestDoubles.serviceInstances
+      .get('/repo')
+      ?.list.mockRejectedValueOnce(
+        new Error('fatal: not a git repository (or any of the parent directories): .git')
+      );
+
+    await expect(listHandler({}, '/repo')).resolves.toEqual([]);
+    expect(worktreeTestDoubles.getService).toHaveBeenCalledTimes(1);
+    expect(worktreeTestDoubles.syncRepositoryWorktrees).toHaveBeenCalledTimes(1);
+
+    await expect(listHandler({}, '/repo')).resolves.toEqual([
+      { path: '/repo/main' },
+      { path: '/repo/feature-a' },
+    ]);
+    expect(worktreeTestDoubles.getService).toHaveBeenCalledTimes(2);
+    expect(worktreeTestDoubles.syncRepositoryWorktrees).toHaveBeenCalledTimes(2);
+  });
+
+  it('propagates unexpected local worktree list failures', async () => {
+    const { registerWorktreeHandlers } = await import('../worktree');
+    registerWorktreeHandlers();
+
+    const listHandler = getHandler(IPC_CHANNELS.WORKTREE_LIST);
+    await listHandler({}, '/repo');
+
+    worktreeTestDoubles.serviceInstances
+      .get('/repo')
+      ?.list.mockRejectedValueOnce(new Error('fatal: bad object refs/heads/main'));
+
+    await expect(listHandler({}, '/repo')).rejects.toThrow('bad object');
+    expect(worktreeTestDoubles.syncRepositoryWorktrees).toHaveBeenCalledTimes(1);
+  });
+
   it('adds and removes local worktrees after stopping dependent resources', async () => {
     vi.useFakeTimers();
 
