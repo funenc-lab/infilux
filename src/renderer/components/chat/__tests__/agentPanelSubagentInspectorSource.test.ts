@@ -40,6 +40,11 @@ describe('Agent panel subagent inspector wiring', () => {
     expect(triggerButtonSource).toContain('<Workflow className="h-4 w-4" />');
   });
 
+  it('keeps the trigger count badge inside the toolbar button bounds', () => {
+    expect(triggerButtonSource).not.toContain('-right-2 -top-2');
+    expect(triggerButtonSource).toContain('data-session-subagent-count-badge="true"');
+  });
+
   it('closes the floating inspector when the session layout mode changes', () => {
     expect(agentPanelSource).toContain(
       '// Keep the inspector scoped to the currently active session layout mode.'

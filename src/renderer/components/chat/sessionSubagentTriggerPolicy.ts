@@ -9,7 +9,7 @@ export function resolveSessionSubagentTriggerPresentation(
   viewState: SessionSubagentViewState | null | undefined,
   count: number
 ): SessionSubagentTriggerPresentation {
-  if (!viewState || viewState.kind === 'unsupported' || count <= 0) {
+  if (!viewState || viewState.kind === 'unsupported') {
     return {
       visible: false,
       emphasized: false,
@@ -18,6 +18,6 @@ export function resolveSessionSubagentTriggerPresentation(
 
   return {
     visible: true,
-    emphasized: viewState.kind === 'supported',
+    emphasized: viewState.kind === 'supported' && count > 0,
   };
 }

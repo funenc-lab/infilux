@@ -38,10 +38,13 @@ export function SessionSubagentTriggerButton({
       )}
       onClick={onClick}
     >
-      <span className="relative">
+      <span className="relative flex h-5 w-5 items-center justify-center">
         <Workflow className="h-4 w-4" />
         {count > 0 ? (
-          <span className="pointer-events-none absolute -right-2 -top-2 flex min-w-4 items-center justify-center rounded-full border border-background/80 bg-primary px-1 text-[9px] font-semibold leading-4 text-primary-foreground shadow-[0_0_0_2px_var(--background)]">
+          <span
+            data-session-subagent-count-badge="true"
+            className="pointer-events-none absolute right-0 top-0 flex h-3.5 min-w-3.5 translate-x-1/3 -translate-y-1/3 items-center justify-center rounded-full border border-background/80 bg-primary px-0.5 text-[8px] font-semibold leading-none text-primary-foreground shadow-[0_0_0_1px_var(--background)]"
+          >
             {count > 9 ? '9+' : count}
           </span>
         ) : null}

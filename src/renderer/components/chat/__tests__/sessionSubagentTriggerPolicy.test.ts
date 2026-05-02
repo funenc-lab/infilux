@@ -17,7 +17,7 @@ describe('session subagent trigger policy', () => {
     });
   });
 
-  it('hides the trigger while the session has no tracked subagent sessions', () => {
+  it('shows the trigger for trackable sessions before tracked subagents appear', () => {
     expect(
       resolveSessionSubagentTriggerPresentation(
         {
@@ -28,7 +28,7 @@ describe('session subagent trigger policy', () => {
         0
       )
     ).toEqual({
-      visible: false,
+      visible: true,
       emphasized: false,
     });
     expect(
@@ -40,7 +40,7 @@ describe('session subagent trigger policy', () => {
         0
       )
     ).toEqual({
-      visible: false,
+      visible: true,
       emphasized: false,
     });
   });
