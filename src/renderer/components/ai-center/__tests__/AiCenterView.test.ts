@@ -37,6 +37,7 @@ vi.mock('lucide-react', () => {
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
     t: (value: string, params?: Record<string, string | number>) => {
+      if (value === 'Approval Required') return 'Approval label';
       if (!params) return value;
       return value.replace(/\{\{(\w+)\}\}/g, (match, token) =>
         params[token] === undefined ? match : String(params[token])
@@ -55,6 +56,18 @@ function renderInteractive(element: React.ReactElement): { container: HTMLDivEle
   });
 
   return { container, root };
+}
+
+function getLabeledGroup(container: HTMLElement, label: string): HTMLElement {
+  const group = Array.from(container.querySelectorAll<HTMLElement>('[role="group"]')).find(
+    (element) => element.getAttribute('aria-label') === label
+  );
+
+  if (!group) {
+    throw new Error(`Missing group: ${label}`);
+  }
+
+  return group;
 }
 
 type AiCenterTestSummary = AiCenterSummary & {
@@ -221,6 +234,7 @@ const decisionPlan = {
       id: '/repo/other:task-approval',
       label: 'Review migration',
       detail: 'other: approval',
+      reasonLabelKeys: ['Approval Required'],
     },
   ],
   monitoringItems: [
@@ -283,12 +297,37 @@ describe('AiCenterView', () => {
     expect(markup).toContain('Medium confidence');
     expect(markup).toContain('Dispatch Plan');
     expect(markup).toContain('Codex CLI');
+    expect(markup).toContain('Approval label');
     expect(markup).toContain('Coordination Signals');
     expect(markup).toContain('Coordinate cross-project dispatch');
     expect(markup).toContain('Reassign unavailable agent tasks');
     expect(markup).toContain('agent-coverage');
     expect(markup).toContain('Risk Review');
     expect(markup).toContain('Blocked tasks need intervention');
+  });
+
+  it('renders decision worklist items in their matching queues', () => {
+    const { container, root } = renderInteractive(
+      React.createElement(AiCenterView, { decisionPlan, summary })
+    );
+
+    const decisionWorklist = getLabeledGroup(container, 'Decision Worklist');
+    expect(decisionWorklist.textContent).toContain('2 items');
+
+    const interventionQueue = getLabeledGroup(decisionWorklist, 'Intervention Queue');
+    expect(interventionQueue.textContent).toContain('Review migration');
+    expect(interventionQueue.textContent).toContain('Approval label');
+    expect(interventionQueue.textContent).not.toContain('approval');
+    expect(interventionQueue.textContent).not.toContain('Apply schema change');
+
+    const monitoringQueue = getLabeledGroup(decisionWorklist, 'Monitoring Queue');
+    expect(monitoringQueue.textContent).toContain('Apply schema change');
+    expect(monitoringQueue.textContent).toContain('current: Auto Select');
+    expect(monitoringQueue.textContent).not.toContain('Review migration');
+
+    act(() => {
+      root.unmount();
+    });
   });
 
   it('opens the AI Center decision chat from the decision plan', () => {

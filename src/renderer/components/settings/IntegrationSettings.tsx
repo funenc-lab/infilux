@@ -21,7 +21,11 @@ import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { AgentCapabilityCoveragePanel } from './AgentCapabilityCoveragePanel';
 import { ProviderList } from './agent-provider';
-import { resolveAgentIntegrationCapabilityModel } from './agentIntegrationCapabilityModel';
+import {
+  type AgentIntegrationCapability,
+  findAgentIntegrationCapability,
+  resolveAgentIntegrationCapabilityModel,
+} from './agentIntegrationCapabilityModel';
 import { KeybindingInput } from './KeybindingsSettings';
 import { McpSection } from './mcp';
 import { PluginsSection } from './plugins';
@@ -33,6 +37,31 @@ interface IntegrationSettingsProps {
   repoPath?: string;
 }
 
+interface CapabilitySupportNoteProps {
+  capability: AgentIntegrationCapability | null;
+}
+
+function CapabilitySupportNote({ capability }: CapabilitySupportNoteProps) {
+  const { t } = useI18n();
+
+  if (!capability) {
+    return null;
+  }
+
+  const supportedProviders = capability.supportedProviderLabels.join(', ');
+  const waitingProviderCount = capability.unsupportedProviderLabels.length;
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {t('Currently supported by {{providers}}', { providers: supportedProviders })}
+      {waitingProviderCount > 0 &&
+        ` · ${t('{{count}} waiting for provider adapter', {
+          count: waitingProviderCount,
+        })}`}
+    </p>
+  );
+}
+
 export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationSettingsProps) {
   const { t } = useI18n();
   const providerRef = React.useRef<HTMLDivElement>(null);
@@ -42,6 +71,22 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
   const [tmuxError, setTmuxError] = React.useState<string | null>(null);
   const isWindows = window.electronAPI?.env?.platform === 'win32';
   const capabilityModel = React.useMemo(() => resolveAgentIntegrationCapabilityModel(), []);
+  const editorContextCapability = React.useMemo(
+    () => findAgentIntegrationCapability(capabilityModel, 'editor-context'),
+    [capabilityModel]
+  );
+  const completionNotificationCapability = React.useMemo(
+    () => findAgentIntegrationCapability(capabilityModel, 'completion-notification'),
+    [capabilityModel]
+  );
+  const questionNotificationCapability = React.useMemo(
+    () => findAgentIntegrationCapability(capabilityModel, 'question-notification'),
+    [capabilityModel]
+  );
+  const statusTelemetryCapability = React.useMemo(
+    () => findAgentIntegrationCapability(capabilityModel, 'status-telemetry'),
+    [capabilityModel]
+  );
 
   const debounceOptions = React.useMemo(
     () =>
@@ -144,11 +189,12 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
 
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
-          <span className="text-sm font-medium">{t('Claude Code IDE Bridge')}</span>
+          <span className="text-sm font-medium">{t('Agent IDE Bridge')}</span>
           <p className="text-xs text-muted-foreground">
-            {t('Start the WebSocket bridge for Claude Code editor context and hooks')}
+            {t('Start provider-supported editor context and lifecycle hook bridges')}
             {bridgePort && ` (Port: ${bridgePort})`}
           </p>
+          <CapabilitySupportNote capability={editorContextCapability} />
         </div>
         <Switch checked={agentIntegration.enabled} onCheckedChange={handleEnabledChange} />
       </div>
@@ -179,6 +225,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
               <p className="text-xs text-muted-foreground">
                 {t('Delay before sending selection changes to supported editor bridges')}
               </p>
+              <CapabilitySupportNote capability={editorContextCapability} />
             </div>
           </div>
 
@@ -193,6 +240,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
               <p className="text-xs text-muted-foreground">
                 {t('Send selected code range to supported editor bridges')}
               </p>
+              <CapabilitySupportNote capability={editorContextCapability} />
             </div>
           </div>
 
@@ -203,6 +251,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
               <p className="text-xs text-muted-foreground">
                 {t('Use provider completion hooks for precise agent completion notifications')}
               </p>
+              <CapabilitySupportNote capability={completionNotificationCapability} />
             </div>
             <Switch
               checked={agentIntegration.stopHookEnabled}
@@ -256,6 +305,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
               <p className="text-xs text-muted-foreground">
                 {t('Notify when a supported agent asks for input or permission')}
               </p>
+              <CapabilitySupportNote capability={questionNotificationCapability} />
             </div>
             <Switch
               checked={agentIntegration.permissionRequestHookEnabled}
@@ -272,6 +322,7 @@ export function IntegrationSettings({ scrollToProvider, repoPath }: IntegrationS
               <p className="text-xs text-muted-foreground">
                 {t('Show supported agent telemetry (model, context, cost) at bottom of terminal')}
               </p>
+              <CapabilitySupportNote capability={statusTelemetryCapability} />
             </div>
             <Switch
               checked={agentIntegration.statusLineEnabled}

@@ -221,7 +221,7 @@ vi.mock('../hooks', () => ({
     cancelCloseAndRespond,
   }),
   useBackgroundImage: vi.fn(),
-  useClaudeIntegration: vi.fn(),
+  useAgentIdeBridgeIntegration: vi.fn(),
   useCodeReviewContinue: vi.fn(),
   useFileDragDrop: () => ({
     isFileDragOver: false,

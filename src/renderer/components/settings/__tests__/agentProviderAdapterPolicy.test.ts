@@ -49,11 +49,9 @@ describe('agent provider adapter policy', () => {
 
   it('keeps provider profile management ahead of the Claude-only bridge controls', () => {
     expect(integrationSettingsSource.indexOf("t('Agent Providers')")).toBeGreaterThanOrEqual(0);
-    expect(integrationSettingsSource.indexOf("t('Claude Code IDE Bridge')")).toBeGreaterThanOrEqual(
-      0
-    );
+    expect(integrationSettingsSource.indexOf("t('Agent IDE Bridge')")).toBeGreaterThanOrEqual(0);
     expect(integrationSettingsSource.indexOf("t('Agent Providers')")).toBeLessThan(
-      integrationSettingsSource.indexOf("t('Claude Code IDE Bridge')")
+      integrationSettingsSource.indexOf("t('Agent IDE Bridge')")
     );
   });
 

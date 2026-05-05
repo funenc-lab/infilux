@@ -92,7 +92,13 @@ function TranslationProbe() {
     React.createElement('span', { id: 'review-task' }, t('Review task')),
     React.createElement('span', { id: 'active-count' }, t('{{count}} active', { count: 2 })),
     React.createElement('span', { id: 'open-tasks' }, t('Open Tasks')),
-    React.createElement('span', { id: 'approvals' }, t('Approvals'))
+    React.createElement('span', { id: 'approvals' }, t('Approvals')),
+    React.createElement('span', { id: 'agent-ide-bridge' }, t('Agent IDE Bridge')),
+    React.createElement(
+      'span',
+      { id: 'agent-ide-bridge-detail' },
+      t('Start provider-supported editor context and lifecycle hook bridges')
+    )
   );
 }
 
@@ -196,5 +202,11 @@ describe('renderer i18n', () => {
       '\u672a\u5b8c\u6210\u4efb\u52a1'
     );
     expect(container.querySelector('#approvals')?.textContent).toBe('\u5ba1\u6279');
+    expect(container.querySelector('#agent-ide-bridge')?.textContent).toBe(
+      'Agent IDE \u6865\u63a5'
+    );
+    expect(container.querySelector('#agent-ide-bridge-detail')?.textContent).toBe(
+      '\u542f\u52a8 provider \u652f\u6301\u7684\u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c\u751f\u547d\u5468\u671f hook \u6865\u63a5'
+    );
   });
 });

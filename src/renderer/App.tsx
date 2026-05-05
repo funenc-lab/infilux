@@ -24,11 +24,11 @@ import {
 } from './App/constants';
 import { resolveFileSidebarVisibility } from './App/fileSidebarVisibilityPolicy';
 import {
+  useAgentIdeBridgeIntegration,
   useAgentProviderProfileListener,
   useAgentSessionNotifications,
   useAppLifecycle,
   useBackgroundImage,
-  useClaudeIntegration,
   useCodeReviewContinue,
   useFileDragDrop,
   useGroupSync,
@@ -870,7 +870,7 @@ export default function App() {
 
   useGroupSync(hideGroups, activeGroupId, groups, setActiveGroupId, saveActiveGroupId);
   useOpenPathListener(true, repositories, saveRepositories, setSelectedRepoState);
-  useClaudeIntegration(activeWorktree?.path ?? null, true);
+  useAgentIdeBridgeIntegration(activeWorktree?.path ?? null, true);
   useCodeReviewContinue(activeWorktree, handleTabChange);
   useWorktreeSync(
     safeWorktrees,

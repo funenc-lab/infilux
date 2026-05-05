@@ -26,6 +26,7 @@ import type {
 import type {
   AiCenterCoordinationSignal,
   AiCenterDecisionConfidence,
+  AiCenterDecisionItem,
   AiCenterDecisionPlan,
   AiCenterRecommendedAction,
   AiCenterRiskSeverity,
@@ -281,6 +282,37 @@ function SupportSection({
   );
 }
 
+function getInterventionItemDetail(item: AiCenterDecisionItem): string | undefined {
+  if (item.meta) return item.meta;
+  return item.reasonLabelKeys && item.reasonLabelKeys.length > 0 ? undefined : item.detail;
+}
+
+function InterventionWorklistItem({ item }: { item: AiCenterDecisionItem }) {
+  const { t } = useI18n();
+  const itemDetail = getInterventionItemDetail(item);
+
+  return (
+    <div className="min-w-0 rounded-md border border-warning/24 px-2 py-1.5">
+      <div className="truncate text-xs font-semibold text-foreground">{item.label}</div>
+      {item.reasonLabelKeys && item.reasonLabelKeys.length > 0 ? (
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
+          {item.reasonLabelKeys.map((reasonLabelKey) => (
+            <span
+              key={reasonLabelKey}
+              className="control-chip control-chip-wait px-1.5 py-0 text-[10px]"
+            >
+              {t(reasonLabelKey)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {itemDetail ? (
+        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{itemDetail}</div>
+      ) : null}
+    </div>
+  );
+}
+
 function DecisionPlanSection({
   canOpenDecisionChat,
   decisionPlan,
@@ -298,9 +330,18 @@ function DecisionPlanSection({
 
   const visibleBatches = decisionPlan.dispatchBatches.slice(0, 3);
   const visibleRisks = decisionPlan.riskItems.slice(0, 3);
+  const visibleInterventionItems = decisionPlan.interventionItems.slice(0, 3);
+  const visibleMonitoringItems = decisionPlan.monitoringItems.slice(0, 3);
   const hiddenBatchCount = Math.max(0, decisionPlan.dispatchBatches.length - visibleBatches.length);
   const hiddenRiskCount = Math.max(0, decisionPlan.riskItems.length - visibleRisks.length);
-
+  const hiddenInterventionCount = Math.max(
+    0,
+    decisionPlan.interventionItems.length - visibleInterventionItems.length
+  );
+  const hiddenMonitoringCount = Math.max(
+    0,
+    decisionPlan.monitoringItems.length - visibleMonitoringItems.length
+  );
   return (
     <div className="mt-3 control-panel-muted min-w-0 rounded-lg border border-info/24 bg-info/6 px-3 py-2.5">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
@@ -425,6 +466,76 @@ function DecisionPlanSection({
                 +{t('{{count}} more', { count: hiddenRiskCount })}
               </div>
             ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div
+        aria-label={t('Decision Worklist')}
+        className="mt-2 min-w-0 rounded-md border border-border/45 bg-control-surface/45 px-2.5 py-2"
+        role="group"
+      >
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <span className="truncate text-[10px] font-semibold uppercase text-muted-foreground">
+            {t('Decision Worklist')}
+          </span>
+          <span className="control-chip px-1.5 py-0 text-[10px]">
+            {t('{{count}} items', {
+              count: decisionPlan.interventionItems.length + decisionPlan.monitoringItems.length,
+            })}
+          </span>
+        </div>
+        <div className="mt-2 grid min-w-0 gap-2 md:grid-cols-2">
+          <div aria-label={t('Intervention Queue')} className="min-w-0" role="group">
+            <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+              <ShieldCheck className="h-3 w-3 shrink-0" />
+              <span className="truncate">{t('Intervention Queue')}</span>
+            </div>
+            <div className="mt-1.5 min-w-0 space-y-1.5">
+              {visibleInterventionItems.length > 0 ? (
+                visibleInterventionItems.map((item) => (
+                  <InterventionWorklistItem key={item.id} item={item} />
+                ))
+              ) : (
+                <div className="text-xs text-muted-foreground">{t('No interventions')}</div>
+              )}
+              {hiddenInterventionCount > 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  +{t('{{count}} more', { count: hiddenInterventionCount })}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div aria-label={t('Monitoring Queue')} className="min-w-0" role="group">
+            <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+              <Activity className="h-3 w-3 shrink-0" />
+              <span className="truncate">{t('Monitoring Queue')}</span>
+            </div>
+            <div className="mt-1.5 min-w-0 space-y-1.5">
+              {visibleMonitoringItems.length > 0 ? (
+                visibleMonitoringItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="min-w-0 rounded-md border border-info/22 px-2 py-1.5"
+                  >
+                    <div className="truncate text-xs font-semibold text-foreground">
+                      {item.label}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {item.detail}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-xs text-muted-foreground">{t('No running tasks')}</div>
+              )}
+              {hiddenMonitoringCount > 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  +{t('{{count}} more', { count: hiddenMonitoringCount })}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

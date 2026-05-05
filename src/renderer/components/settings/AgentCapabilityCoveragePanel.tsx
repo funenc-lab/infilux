@@ -39,7 +39,7 @@ export function AgentCapabilityCoveragePanel({ model }: AgentCapabilityCoverageP
 
   return (
     <div className="control-panel-muted space-y-3 rounded-lg p-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="space-y-1">
         <div className="min-w-0 space-y-1">
           <h4 className="text-sm font-medium">{t('Agent capability coverage')}</h4>
           <p className="max-w-[72ch] text-xs text-muted-foreground">
@@ -47,23 +47,6 @@ export function AgentCapabilityCoveragePanel({ model }: AgentCapabilityCoverageP
               'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.'
             )}
           </p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-1.5">
-          {model.fullCoverageProviderLabels.length > 0 && (
-            <span className="control-badge control-badge-success">
-              {t('Full coverage')}: {model.fullCoverageProviderLabels.join(', ')}
-            </span>
-          )}
-          {model.partialCoverageProviderLabels.length > 0 && (
-            <span className="control-badge control-badge-warning">
-              {t('Partial coverage')}: {model.partialCoverageProviderLabels.join(', ')}
-            </span>
-          )}
-          {model.noCoverageProviderLabels.length > 0 && (
-            <span className="control-badge">
-              {t('No coverage')}: {model.noCoverageProviderLabels.join(', ')}
-            </span>
-          )}
         </div>
       </div>
 

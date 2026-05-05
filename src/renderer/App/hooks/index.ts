@@ -1,8 +1,8 @@
+export { useAgentIdeBridgeIntegration } from './useAgentIdeBridgeIntegration';
 export { useAgentProviderProfileListener } from './useAgentProviderProfileListener';
 export { useAgentSessionNotifications } from './useAgentSessionNotifications';
 export { useAppLifecycle } from './useAppLifecycle';
 export { useBackgroundImage } from './useBackgroundImage';
-export { useClaudeIntegration } from './useClaudeIntegration';
 export { useCodeReviewContinue } from './useCodeReviewContinue';
 export { useFileDragDrop } from './useFileDragDrop';
 export { useGroupSync } from './useGroupSync';

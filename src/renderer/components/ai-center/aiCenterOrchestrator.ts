@@ -1,4 +1,8 @@
-import type { AiCenterSummary } from '../todo/todoViewModel';
+import type {
+  AiCenterInterventionReason,
+  AiCenterNextAction,
+  AiCenterSummary,
+} from '../todo/todoViewModel';
 import type { ResolvedAgent } from '../todo/useEnabledAgents';
 
 export type AiCenterRecommendedAction =
@@ -35,6 +39,8 @@ export interface AiCenterDecisionItem {
   id: string;
   label: string;
   detail: string;
+  meta?: string;
+  reasonLabelKeys?: string[];
 }
 
 export interface AiCenterRiskItem {
@@ -75,12 +81,10 @@ export interface BuildAiCenterSessionPromptOptions {
   summary: AiCenterSummary;
 }
 
-function resolveRecommendedAction(summary: AiCenterSummary): AiCenterRecommendedAction {
-  if (summary.execution.dispatchableTasks.length > 0) return 'dispatch-ready';
-  if (summary.execution.runningTasks.length > 0) return 'monitor-running';
-  if (summary.approvalPendingTaskCount > 0) return 'approve-blockers';
-  if (summary.dependencyBlockedTaskCount > 0) return 'resolve-dependencies';
-  return 'standby';
+function resolveRecommendedAction(nextAction: AiCenterNextAction): AiCenterRecommendedAction {
+  if (nextAction === 'request-approval') return 'approve-blockers';
+  if (nextAction === 'idle') return 'standby';
+  return nextAction;
 }
 
 function resolveHeadline(action: AiCenterRecommendedAction): string {
@@ -128,7 +132,14 @@ function buildInterventionItems(summary: AiCenterSummary): AiCenterDecisionItem[
     id: `${task.repoPath}:${task.taskId}`,
     label: task.title,
     detail: `${task.repoName}: ${task.reasons.join(', ')}`,
+    meta: task.repoName,
+    reasonLabelKeys: task.reasons.map(resolveInterventionReasonLabelKey),
   }));
+}
+
+function resolveInterventionReasonLabelKey(reason: AiCenterInterventionReason): string {
+  if (reason === 'approval') return 'Approval Required';
+  return 'Dependency Blocked';
 }
 
 function buildMonitoringItems(summary: AiCenterSummary): AiCenterDecisionItem[] {
@@ -262,7 +273,7 @@ export function buildAiCenterDecisionPlan({
   agents,
   summary,
 }: BuildAiCenterDecisionPlanOptions): AiCenterDecisionPlan {
-  const recommendedAction = resolveRecommendedAction(summary);
+  const recommendedAction = resolveRecommendedAction(summary.execution.nextAction);
 
   return {
     confidence: resolveConfidence(summary, agents),
@@ -308,6 +319,10 @@ export function buildAiCenterSessionPrompt({
   const coordinationLines = plan.coordinationSignals.map(
     (signal) => `- [${signal.kind}/${signal.severity}] ${signal.label}: ${signal.detail}`
   );
+  const decisionWorklistLines = [
+    ...plan.interventionItems.map((item) => `- Intervention: ${item.label} - ${item.detail}`),
+    ...plan.monitoringItems.map((item) => `- Monitor: ${item.label} - ${item.detail}`),
+  ];
 
   return `
 [AI CENTER CONTEXT]
@@ -327,6 +342,9 @@ ${interventionLines.length > 0 ? interventionLines.join('\n') : '- No interventi
 
 [RUNNING TASKS]
 ${runningLines.length > 0 ? runningLines.join('\n') : '- No running tasks'}
+
+[DECISION WORKLIST]
+${decisionWorklistLines.length > 0 ? decisionWorklistLines.join('\n') : '- No decision worklist items'}
 
 [COORDINATION SIGNALS]
 ${coordinationLines.length > 0 ? coordinationLines.join('\n') : '- No coordination signals'}

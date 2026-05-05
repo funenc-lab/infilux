@@ -1229,11 +1229,14 @@ export const zhTranslations: Record<string, string> = {
     '选择当上下文使用接近临界时，是否应自动启动一个新会话。',
   'Claude Code Integration': 'Claude Code 集成',
   'Claude Code IDE Bridge': 'Claude Code IDE \u6865\u63a5',
+  'Agent IDE Bridge': 'Agent IDE \u6865\u63a5',
   'Advanced Features': '高级特性',
   'Connect to Claude Code CLI for enhanced IDE features':
     '连接 Claude Code CLI 以获得增强的 IDE 功能',
   'Start the WebSocket bridge for Claude Code editor context and hooks':
     '\u542f\u52a8 WebSocket \u6865\u63a5\uff0c\u7528\u4e8e Claude Code \u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c hooks',
+  'Start provider-supported editor context and lifecycle hook bridges':
+    '\u542f\u52a8 provider \u652f\u6301\u7684\u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c\u751f\u547d\u5468\u671f hook \u6865\u63a5',
   'Agent capability coverage': 'Agent \u80fd\u529b\u8986\u76d6',
   'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.':
     '\u8fd9\u4e9b\u63a7\u5236\u9879\u57fa\u4e8e provider \u80fd\u529b\uff0c\u800c\u4e0d\u662f\u5047\u8bbe\u6240\u6709 AI \u5de5\u5177\u90fd\u652f\u6301\u76f8\u540c hooks\u3002',
@@ -2723,6 +2726,9 @@ export const zhTranslations: Record<string, string> = {
   'Split dispatch into staged batches':
     '\u5c06\u6d3e\u53d1\u62c6\u5206\u4e3a\u5206\u9636\u6279\u6b21',
   'Risk Review': '\u98ce\u9669\u590d\u6838',
+  'Decision Worklist': '\u51b3\u7b56\u5de5\u4f5c\u6e05\u5355',
+  'Intervention Queue': '\u5e72\u9884\u961f\u5217',
+  'Monitoring Queue': '\u76d1\u63a7\u961f\u5217',
   'No dispatch plan': '\u6682\u65e0\u6d3e\u53d1\u65b9\u6848',
   'No risks': '\u6682\u65e0\u98ce\u9669',
   '{{count}} batches': '{{count}} \u4e2a\u6279\u6b21',

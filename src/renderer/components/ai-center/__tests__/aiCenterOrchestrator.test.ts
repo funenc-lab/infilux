@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { AiCenterSummary } from '../../todo/todoViewModel';
+import type { AiCenterNextAction, AiCenterSummary } from '../../todo/todoViewModel';
 import type { ResolvedAgent } from '../../todo/useEnabledAgents';
-import { buildAiCenterDecisionPlan, buildAiCenterSessionPrompt } from '../aiCenterOrchestrator';
+import {
+  type AiCenterRecommendedAction,
+  buildAiCenterDecisionPlan,
+  buildAiCenterSessionPrompt,
+} from '../aiCenterOrchestrator';
 
 function agent(overrides: Partial<ResolvedAgent> & Pick<ResolvedAgent, 'agentId'>): ResolvedAgent {
   return {
@@ -143,6 +147,38 @@ const summary: AiCenterSummary = {
   ],
 };
 
+const nextActionCases: Array<{
+  headline: string;
+  nextAction: AiCenterNextAction;
+  recommendedAction: AiCenterRecommendedAction;
+}> = [
+  {
+    headline: 'Dispatch ready tasks',
+    nextAction: 'dispatch-ready',
+    recommendedAction: 'dispatch-ready',
+  },
+  {
+    headline: 'Monitor running tasks',
+    nextAction: 'monitor-running',
+    recommendedAction: 'monitor-running',
+  },
+  {
+    headline: 'Approve blocked tasks',
+    nextAction: 'request-approval',
+    recommendedAction: 'approve-blockers',
+  },
+  {
+    headline: 'Resolve task dependencies',
+    nextAction: 'resolve-dependencies',
+    recommendedAction: 'resolve-dependencies',
+  },
+  {
+    headline: 'Stand by',
+    nextAction: 'idle',
+    recommendedAction: 'standby',
+  },
+];
+
 describe('aiCenterOrchestrator', () => {
   it('builds a deterministic cross-project decision plan with dispatch batches and risks', () => {
     const plan = buildAiCenterDecisionPlan({
@@ -189,6 +225,9 @@ describe('aiCenterOrchestrator', () => {
       },
     ]);
     expect(plan.interventionItems).toHaveLength(1);
+    expect(plan.interventionItems[0]).toMatchObject({
+      reasonLabelKeys: ['Approval Required'],
+    });
     expect(plan.monitoringItems).toHaveLength(1);
     expect(plan.coordinationSignals).toEqual([
       expect.objectContaining({
@@ -223,6 +262,26 @@ describe('aiCenterOrchestrator', () => {
     ]);
   });
 
+  it.each(nextActionCases)('maps execution next action $nextAction to $recommendedAction', ({
+    headline,
+    nextAction,
+    recommendedAction,
+  }) => {
+    const plan = buildAiCenterDecisionPlan({
+      agents: [agent({ agentId: 'codex', name: 'Codex CLI' })],
+      summary: {
+        ...summary,
+        execution: {
+          ...summary.execution,
+          nextAction,
+        },
+      },
+    });
+
+    expect(plan.recommendedAction).toBe(recommendedAction);
+    expect(plan.headline).toBe(headline);
+  });
+
   it('builds a session prompt that includes project state and recommended actions', () => {
     const plan = buildAiCenterDecisionPlan({
       agents: [agent({ agentId: 'codex', name: 'Codex CLI' })],
@@ -242,6 +301,9 @@ describe('aiCenterOrchestrator', () => {
     expect(prompt).toContain('- current: running, open 3, ready 1, blocked 1');
     expect(prompt).toContain('- [Codex CLI] current/api: Implement API validation');
     expect(prompt).toContain('- [approval] current/approval: Approve migration');
+    expect(prompt).toContain('[DECISION WORKLIST]');
+    expect(prompt).toContain('- Intervention: Approve migration - current: approval');
+    expect(prompt).toContain('- Monitor: Apply schema change - current: Codex CLI');
     expect(prompt).toContain('[COORDINATION SIGNALS]');
     expect(prompt).toContain(
       '- [agent-coverage/high] Reassign unavailable agent tasks: claude, gemini'

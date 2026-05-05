@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { useSettingsStore } from '@/stores/settings';
 
-export function useClaudeIntegration(activeWorktreePath: string | null, enabled = true) {
+export function useAgentIdeBridgeIntegration(activeWorktreePath: string | null, enabled = true) {
   const agentIntegration = useSettingsStore((s) => s.agentIntegration);
 
-  // Sync Claude IDE Bridge with active worktree
+  // Sync the current provider-supported IDE bridge with the active worktree.
   useEffect(() => {
     if (!enabled) {
       window.electronAPI.mcp.setEnabled(false);

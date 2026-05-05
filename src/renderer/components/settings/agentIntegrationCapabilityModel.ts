@@ -210,3 +210,10 @@ export function resolveAgentIntegrationCapabilityModel(): AgentIntegrationCapabi
     capabilities,
   };
 }
+
+export function findAgentIntegrationCapability(
+  model: AgentIntegrationCapabilityModel,
+  capabilityId: AgentIntegrationCapabilityId
+): AgentIntegrationCapability | null {
+  return model.capabilities.find((capability) => capability.id === capabilityId) ?? null;
+}

@@ -53,8 +53,8 @@ describe('shared i18n helpers', () => {
     const integrationKeys = [
       'Agent Integrations',
       'Configure provider routing and CLI-specific integration features',
-      'Claude Code IDE Bridge',
-      'Start the WebSocket bridge for Claude Code editor context and hooks',
+      'Agent IDE Bridge',
+      'Start provider-supported editor context and lifecycle hook bridges',
       'Agent capability coverage',
       'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.',
       'Capability',
@@ -109,7 +109,7 @@ describe('shared i18n helpers', () => {
 
     expect(getTranslation('zh', 'Agent Integrations')).toBe('Agent \u96c6\u6210');
     expect(getTranslation('zh', 'Agent Providers')).toBe('Agent Provider \u914d\u7f6e');
-    expect(getTranslation('zh', 'Claude Code IDE Bridge')).toBe('Claude Code IDE \u6865\u63a5');
+    expect(getTranslation('zh', 'Agent IDE Bridge')).toBe('Agent IDE \u6865\u63a5');
   });
 
   it('translates generic agent tool routing copy in zh locale', () => {

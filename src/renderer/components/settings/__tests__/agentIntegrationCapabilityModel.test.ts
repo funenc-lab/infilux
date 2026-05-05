@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolveAgentIntegrationCapabilityModel } from '../agentIntegrationCapabilityModel';
+import {
+  findAgentIntegrationCapability,
+  resolveAgentIntegrationCapabilityModel,
+} from '../agentIntegrationCapabilityModel';
 
 describe('agent integration capability model', () => {
   it('describes provider-specific integration capabilities without implying universal support', () => {
@@ -107,5 +110,19 @@ describe('agent integration capability model', () => {
             capability.unsupportedProviderLabels.length === 3
         )
     ).toBe(true);
+  });
+
+  it('resolves capabilities by id for provider-scoped settings controls', () => {
+    const model = resolveAgentIntegrationCapabilityModel();
+
+    expect(
+      findAgentIntegrationCapability(model, 'editor-context')?.supportedProviderLabels
+    ).toEqual(['Claude Code']);
+    expect(
+      findAgentIntegrationCapability(model, 'completion-notification')?.unsupportedProviderLabels
+    ).toEqual(['Codex CLI', 'Cursor CLI', 'Gemini CLI']);
+    expect(findAgentIntegrationCapability(model, 'status-telemetry')?.supportedProviderCount).toBe(
+      1
+    );
   });
 });
