@@ -24,6 +24,21 @@ describe('shared i18n helpers', () => {
     expect(getTranslation('zh', 'Recommended font stack')).toBe('推荐字体方案');
     expect(getTranslation('zh', 'Custom font stack')).toBe('自定义字体栈');
     expect(getTranslation('zh', 'New Session')).toBe('新建会话');
+    expect(getTranslation('zh', 'Only show live Agent sessions')).toBe('仅显示活跃 Agent 会话');
+    expect(getTranslation('zh', 'Dispatch Result')).toBe('派发结果');
+    expect(getTranslation('zh', 'Started Projects')).toBe('已启动项目');
+    expect(getTranslation('zh', 'Skipped Tasks')).toBe('已跳过任务');
+    expect(
+      translate('zh', '{{count}} projects started', {
+        count: 2,
+      })
+    ).toBe('2 个项目已启动');
+    expect(translate('zh', '{{count}} skipped', { count: 1 })).toBe('1 个已跳过');
+    expect(getTranslation('zh', 'Project already running')).toBe('项目已在运行');
+    expect(getTranslation('zh', 'Task not found')).toBe('任务不存在');
+    expect(getTranslation('zh', 'Missing worktree')).toBe('缺少 worktree');
+    expect(getTranslation('zh', 'No enabled agents')).toBe('没有已启用的 Agent');
+    expect(getTranslation('zh', 'Start failed')).toBe('启动失败');
     expect(getTranslation('zh', 'Interface sample')).toBe('界面示例');
     expect(getTranslation('zh', 'Workspace control surface')).toBe('工作台控制界面');
     expect(getTranslation('zh', 'Graphite Black')).toBe('石墨黑');
@@ -64,12 +79,15 @@ describe('shared i18n helpers', () => {
       'Full coverage',
       'Partial coverage',
       'No coverage',
+      '{{count}} capabilities',
+      '{{count}} providers',
       '{{supported}}/{{total}} capabilities',
       '{{supported}}/{{total}} providers',
       '{{count}} gaps',
       'No gaps',
       'Provider coverage summary',
       'Capability coverage matrix',
+      'Capability coverage legend',
       'Currently supported by {{providers}}',
       'Waiting for provider adapter',
       'Unsupported providers: {{providers}}',

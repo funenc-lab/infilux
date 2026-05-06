@@ -5,6 +5,8 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ALL_GROUP_ID } from '@/App/constants';
+import type { Session } from '@/components/chat/SessionBar';
+import type { SessionRuntimeState } from '@/stores/agentSessions';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -18,6 +20,7 @@ let shouldPollValue = false;
 vi.mock('lucide-react', () => {
   const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
   return {
+    Activity: icon,
     ChevronRight: icon,
     Clock: icon,
     EyeOff: icon,
@@ -66,9 +69,14 @@ vi.mock('@/stores/settings', () => ({
     selector({ hideGroups: false }),
 }));
 
-const agentSessionsState = {
+const agentSessionsState: {
+  sessions: Session[];
+  activeIds: Record<string, string | null>;
+  runtimeStates: Record<string, SessionRuntimeState>;
+} = {
   sessions: [],
   activeIds: {},
+  runtimeStates: {},
 };
 
 vi.mock('@/stores/agentSessions', () => ({
@@ -91,6 +99,30 @@ const worktreeActivityState = {
   closeAgentSessions: vi.fn(),
   closeTerminalSessions: vi.fn(),
 };
+
+function agentSession(overrides: Partial<Session> & Pick<Session, 'id' | 'cwd'>): Session {
+  const { id, cwd, ...rest } = overrides;
+  return {
+    id,
+    name: rest.name ?? id,
+    agentId: rest.agentId ?? 'codex',
+    agentCommand: rest.agentCommand ?? 'codex',
+    initialized: rest.initialized ?? true,
+    repoPath: rest.repoPath ?? '/repo-a',
+    cwd,
+    environment: rest.environment ?? 'native',
+    ...rest,
+  };
+}
+
+function runtimeState(overrides: Partial<SessionRuntimeState> = {}): SessionRuntimeState {
+  return {
+    outputState: overrides.outputState ?? 'idle',
+    lastActivityAt: overrides.lastActivityAt ?? 1,
+    wasActiveWhenOutputting: overrides.wasActiveWhenOutputting ?? false,
+    ...overrides,
+  };
+}
 
 vi.mock('@/stores/worktreeActivity', () => ({
   useWorktreeActivityStore: (selector: (state: typeof worktreeActivityState) => unknown) =>
@@ -342,6 +374,21 @@ async function mountTreeSidebar(
 describe('TreeSidebar agent filter', () => {
   beforeEach(() => {
     shouldPollValue = false;
+    agentSessionsState.sessions = [];
+    agentSessionsState.activeIds = {};
+    agentSessionsState.runtimeStates = {};
+    agentSessionsState.sessions = [
+      agentSession({ id: 'running-repo-a', cwd: '/repo-a/agent-task' }),
+      agentSession({
+        id: 'running-temp',
+        cwd: '/tmp/temp-agent',
+        repoPath: '/tmp/temp-agent',
+      }),
+    ];
+    agentSessionsState.runtimeStates = {
+      'running-repo-a': runtimeState({ outputState: 'outputting' }),
+      'running-temp': runtimeState({ waitingForInput: true }),
+    };
     worktreeActivityState.activities = {
       '/repo-a/main': { agentCount: 0, terminalCount: 0 },
       '/repo-a/agent-task': { agentCount: 1, terminalCount: 0 },
@@ -366,7 +413,7 @@ describe('TreeSidebar agent filter', () => {
 
     try {
       const initialToggle = view.container.querySelector(
-        'button[title="Only show Agent worktrees"]'
+        'button[title="Only show live Agent sessions"]'
       ) as HTMLButtonElement | null;
       const searchInput = view.container.querySelector(
         'input[aria-label="Search projects"]'
@@ -402,29 +449,46 @@ describe('TreeSidebar agent filter', () => {
     }
   });
 
-  it('triggers worktree prefetch for non-expanded repos when the agent filter is enabled', async () => {
-    const view = await mountTreeSidebar();
+  it('filters by live agent session runtime state instead of persisted agent counts', async () => {
+    worktreeActivityState.activities = {
+      '/repo-a/main': { agentCount: 1, terminalCount: 0 },
+      '/repo-a/agent-task': { agentCount: 0, terminalCount: 0 },
+      '/repo-b/main': { agentCount: 0, terminalCount: 0 },
+      '/tmp/temp-agent': { agentCount: 0, terminalCount: 0 },
+      '/tmp/temp-idle': { agentCount: 0, terminalCount: 0 },
+    };
+    agentSessionsState.sessions = [
+      agentSession({ id: 'idle-session', cwd: '/repo-a/main' }),
+      agentSession({ id: 'running-session', cwd: '/repo-a/agent-task' }),
+    ];
+    agentSessionsState.runtimeStates = {
+      'idle-session': runtimeState({ outputState: 'idle' }),
+      'running-session': runtimeState({ outputState: 'outputting' }),
+    };
+
+    const view = await mountTreeSidebar({ activeWorktree: null });
 
     try {
-      useWorktreeListMultipleMock.mockClear();
-
       const toggle = view.container.querySelector(
-        'button[title="Only show Agent worktrees"]'
+        'button[title="Only show live Agent sessions"]'
       ) as HTMLButtonElement | null;
 
       await act(async () => {
         toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(useWorktreeListMultipleMock).toHaveBeenCalledWith(
-        expect.arrayContaining([expect.objectContaining({ repoPath: '/repo-b', enabled: true })])
-      );
+      expect(
+        view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')
+      ).not.toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
     } finally {
       view.unmount();
     }
   });
 
-  it('keeps the active worktree visible under the agent filter even without agent activity', async () => {
+  it('hides the active worktree under the agent filter when it has no live agent session', async () => {
+    agentSessionsState.sessions = [];
+    agentSessionsState.runtimeStates = {};
     worktreeActivityState.activities = {
       '/repo-a/main': { agentCount: 0, terminalCount: 0 },
       '/repo-a/agent-task': { agentCount: 0, terminalCount: 0 },
@@ -439,18 +503,37 @@ describe('TreeSidebar agent filter', () => {
 
     try {
       const toggle = view.container.querySelector(
-        'button[title="Only show Agent worktrees"]'
+        'button[title="Only show live Agent sessions"]'
       ) as HTMLButtonElement | null;
 
       await act(async () => {
         toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(view.container.textContent).toContain('Repo A');
-      expect(view.container.textContent).not.toContain('Repo B');
-      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).not.toBeNull();
-      expect(view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')).toBeNull();
-      expect(view.container.querySelector('[data-temp-item="temp-agent"]')).toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
+      expect(view.container.textContent).not.toContain('Repo A');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('triggers worktree prefetch for non-expanded repos when the agent filter is enabled', async () => {
+    const view = await mountTreeSidebar();
+
+    try {
+      useWorktreeListMultipleMock.mockClear();
+
+      const toggle = view.container.querySelector(
+        'button[title="Only show live Agent sessions"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(useWorktreeListMultipleMock).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ repoPath: '/repo-b', enabled: true })])
+      );
     } finally {
       view.unmount();
     }
@@ -462,7 +545,7 @@ describe('TreeSidebar agent filter', () => {
 
     try {
       const toggle = view.container.querySelector(
-        'button[title="Only show Agent worktrees"]'
+        'button[title="Only show live Agent sessions"]'
       ) as HTMLButtonElement | null;
 
       await act(async () => {

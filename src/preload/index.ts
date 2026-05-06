@@ -128,6 +128,7 @@ const sessionEventRouter = createSessionEventRouter(ipcRenderer);
 type AgentProviderSettingsSnapshot = {
   settings: unknown | null;
   extracted: Partial<AgentProviderProfile> | null;
+  detected?: boolean;
   providerId?: AgentProviderProfile['providerId'];
   supported?: boolean;
 };

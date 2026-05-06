@@ -83,6 +83,20 @@ function TranslationProbe() {
     React.createElement('span', { id: 'task-board' }, t('Task board')),
     React.createElement('span', { id: 'unable-load-tasks' }, t('Unable to load tasks')),
     React.createElement('span', { id: 'ready-dispatch' }, t('Ready to Dispatch')),
+    React.createElement('span', { id: 'dispatch-result' }, t('Dispatch Result')),
+    React.createElement('span', { id: 'started-projects' }, t('Started Projects')),
+    React.createElement('span', { id: 'skipped-tasks' }, t('Skipped Tasks')),
+    React.createElement(
+      'span',
+      { id: 'projects-started' },
+      t('{{count}} projects started', { count: 2 })
+    ),
+    React.createElement('span', { id: 'skipped-count' }, t('{{count}} skipped', { count: 1 })),
+    React.createElement('span', { id: 'project-running' }, t('Project already running')),
+    React.createElement('span', { id: 'task-not-found' }, t('Task not found')),
+    React.createElement('span', { id: 'missing-worktree' }, t('Missing worktree')),
+    React.createElement('span', { id: 'no-enabled-agents' }, t('No enabled agents')),
+    React.createElement('span', { id: 'start-failed' }, t('Start failed')),
     React.createElement('span', { id: 'running-now' }, t('Running Now')),
     React.createElement('span', { id: 'open' }, t('Open')),
     React.createElement('span', { id: 'paused' }, t('Paused')),
@@ -98,7 +112,8 @@ function TranslationProbe() {
       'span',
       { id: 'agent-ide-bridge-detail' },
       t('Start provider-supported editor context and lifecycle hook bridges')
-    )
+    ),
+    React.createElement('span', { id: 'live-agent-filter' }, t('Only show live Agent sessions'))
   );
 }
 
@@ -207,6 +222,9 @@ describe('renderer i18n', () => {
     );
     expect(container.querySelector('#agent-ide-bridge-detail')?.textContent).toBe(
       '\u542f\u52a8 provider \u652f\u6301\u7684\u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c\u751f\u547d\u5468\u671f hook \u6865\u63a5'
+    );
+    expect(container.querySelector('#live-agent-filter')?.textContent).toBe(
+      '\u4ec5\u663e\u793a\u6d3b\u8dc3 Agent \u4f1a\u8bdd'
     );
   });
 });

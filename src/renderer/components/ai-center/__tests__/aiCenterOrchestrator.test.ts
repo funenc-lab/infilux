@@ -33,16 +33,6 @@ const summary: AiCenterSummary = {
     nextAction: 'dispatch-ready',
     dispatchableTasks: [
       {
-        repoPath: '/repo/current',
-        repoName: 'current',
-        taskId: 'api',
-        title: 'Implement API validation',
-        priority: 'high',
-        agentId: 'codex',
-        agentLabel: 'Codex CLI',
-        isCurrentProject: true,
-      },
-      {
         repoPath: '/repo/other',
         repoName: 'other',
         taskId: 'audit',
@@ -61,6 +51,18 @@ const summary: AiCenterSummary = {
         agentId: 'gemini',
         agentLabel: 'Gemini CLI',
         isCurrentProject: false,
+      },
+    ],
+    deferredQueueTasks: [
+      {
+        repoPath: '/repo/current',
+        repoName: 'current',
+        taskId: 'api',
+        title: 'Implement API validation',
+        priority: 'high',
+        agentId: 'codex',
+        agentLabel: 'Codex CLI',
+        isCurrentProject: true,
       },
     ],
     interventionTasks: [
@@ -191,17 +193,6 @@ describe('aiCenterOrchestrator', () => {
     expect(plan.confidence).toBe('medium');
     expect(plan.dispatchBatches).toEqual([
       {
-        agentId: 'codex',
-        agentLabel: 'Codex CLI',
-        tasks: [
-          expect.objectContaining({
-            repoPath: '/repo/current',
-            taskId: 'api',
-            title: 'Implement API validation',
-          }),
-        ],
-      },
-      {
         agentId: 'claude',
         agentLabel: 'Claude Code',
         tasks: [
@@ -228,13 +219,20 @@ describe('aiCenterOrchestrator', () => {
     expect(plan.interventionItems[0]).toMatchObject({
       reasonLabelKeys: ['Approval Required'],
     });
-    expect(plan.monitoringItems).toHaveLength(1);
-    expect(plan.coordinationSignals).toEqual([
+    expect(plan.monitoringItems).toEqual([
       expect.objectContaining({
-        id: 'cross-project-dispatch',
-        kind: 'cross-project',
-        severity: 'medium',
+        agentLabel: 'Codex CLI',
+        detail: 'current: Codex CLI',
+        meta: 'current',
       }),
+    ]);
+    expect(plan.deferredQueueItems).toEqual([
+      expect.objectContaining({
+        label: 'Implement API validation',
+        detail: 'current: queued after current run',
+      }),
+    ]);
+    expect(plan.coordinationSignals).toEqual([
       expect.objectContaining({
         id: 'agent-reassignment',
         kind: 'agent-coverage',
@@ -249,11 +247,6 @@ describe('aiCenterOrchestrator', () => {
         id: 'active-monitoring',
         kind: 'monitoring',
         severity: 'medium',
-      }),
-      expect.objectContaining({
-        id: 'task-splitting',
-        kind: 'task-splitting',
-        severity: 'low',
       }),
     ]);
     expect(plan.riskItems).toEqual([
@@ -299,7 +292,10 @@ describe('aiCenterOrchestrator', () => {
     expect(prompt).toContain('Current repository: /repo/current');
     expect(prompt).toContain('Recommended action: dispatch-ready');
     expect(prompt).toContain('- current: running, open 3, ready 1, blocked 1');
-    expect(prompt).toContain('- [Codex CLI] current/api: Implement API validation');
+    expect(prompt).toContain('- [Claude Code] other/audit: Review auth flow');
+    expect(prompt).toContain(
+      '- Deferred: Implement API validation - current: queued after current run'
+    );
     expect(prompt).toContain('- [approval] current/approval: Approve migration');
     expect(prompt).toContain('[DECISION WORKLIST]');
     expect(prompt).toContain('- Intervention: Approve migration - current: approval');
@@ -309,7 +305,7 @@ describe('aiCenterOrchestrator', () => {
       '- [agent-coverage/high] Reassign unavailable agent tasks: claude, gemini'
     );
     expect(prompt).toContain(
-      '- [cross-project/medium] Coordinate cross-project dispatch: 2 projects have ready tasks'
+      '- [task-splitting/low] Split dispatch into staged batches: 2 ready tasks across 1 enabled agents'
     );
     expect(prompt).toContain('Use the current project Todo tasks as source of truth.');
   });

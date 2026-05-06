@@ -7,6 +7,7 @@ import { ALL_GROUP_ID } from '@/App/constants';
 vi.mock('lucide-react', () => {
   const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
   return {
+    Activity: icon,
     BrainCircuit: icon,
     ChevronRight: icon,
     Clock: icon,
@@ -78,6 +79,7 @@ vi.mock('@/stores/settings', () => ({
 const agentSessionsState = {
   sessions: [],
   activeIds: {},
+  runtimeStates: {},
 };
 
 vi.mock('@/stores/agentSessions', () => ({
@@ -203,6 +205,7 @@ describe('TreeSidebar render smoke', () => {
   beforeEach(() => {
     agentSessionsState.sessions = [];
     agentSessionsState.activeIds = {};
+    agentSessionsState.runtimeStates = {};
     worktreeActivityState.activities = {};
     worktreeActivityState.diffStats = {};
     worktreeActivityState.activityStates = {};

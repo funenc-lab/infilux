@@ -18,6 +18,7 @@ export interface AgentProviderProfileSnapshot<TProfile extends AgentProviderProf
   providerId?: AIProvider;
   settings: TSettings | null;
   extracted: Partial<TProfile> | null;
+  detected?: boolean;
   supported?: boolean;
 }
 
@@ -128,6 +129,7 @@ function createUnsupportedProviderProfileAdapter(
       providerId,
       settings: null,
       extracted: null,
+      detected: false,
       supported: false,
     }),
     subscribeToExternalChanges: () => () => undefined,
@@ -366,10 +368,47 @@ function createGenericCliProviderProfileAdapter(
   };
 }
 
+function createReadOnlyCliProviderProfileAdapter(
+  providerId: AIProvider,
+  bridge: GenericProviderBridge
+): AgentProviderProfileAdapter<AgentProviderProfile, unknown> {
+  return {
+    id: providerId,
+    providerId,
+    label: AI_PROVIDER_CATALOG[providerId].label,
+    supportsProfiles: false,
+    queryKey: (repoPath?: string) =>
+      ['agent-provider-settings', providerId, repoPath ?? null] as const,
+    readCurrent: async (repoPath?: string) =>
+      withGenericProviderId(providerId, await bridge.readSettings(repoPath, providerId)),
+    subscribeToExternalChanges: (_repoPath, callback) =>
+      bridge.onSettingsChanged((snapshot) => {
+        const snapshotProviderId = snapshot.providerId ?? snapshot.extracted?.providerId;
+        if (snapshotProviderId && snapshotProviderId !== providerId) {
+          return;
+        }
+        callback(withGenericProviderId(providerId, snapshot));
+      }),
+    apply: async () => false,
+    isActiveProfile: () => false,
+    supportsSession: () => false,
+    markSwitch: () => undefined,
+    consumeSwitch: () => false,
+    clearSwitch: () => undefined,
+    buildPreview: (settings) => redactProviderPreviewValue(settings ?? null),
+  };
+}
+
 export function createCodexCliProviderProfileAdapter(
   bridge: GenericProviderBridge
 ): AgentProviderProfileAdapter<AgentProviderProfile, unknown> {
   return createGenericCliProviderProfileAdapter('codex-cli', bridge);
+}
+
+export function createCursorCliProviderProfileAdapter(
+  bridge: GenericProviderBridge
+): AgentProviderProfileAdapter<AgentProviderProfile, unknown> {
+  return createReadOnlyCliProviderProfileAdapter('cursor-cli', bridge);
 }
 
 export function createGeminiCliProviderProfileAdapter(
@@ -404,6 +443,13 @@ export const geminiCliProviderProfileAdapter = createGeminiCliProviderProfileAda
   onSettingsChanged: (callback) => window.electronAPI.agentProvider.onSettingsChanged(callback),
 });
 
+export const cursorCliProviderProfileAdapter = createCursorCliProviderProfileAdapter({
+  readSettings: (repoPath, providerId) =>
+    window.electronAPI.agentProvider.readSettings(repoPath, providerId),
+  apply: (repoPath, provider) => window.electronAPI.agentProvider.apply(repoPath, provider),
+  onSettingsChanged: (callback) => window.electronAPI.agentProvider.onSettingsChanged(callback),
+});
+
 const providerProfileAdapters = new Map<AIProvider, AnyAgentProviderProfileAdapter>();
 
 for (const providerId of AI_PROVIDERS) {
@@ -413,9 +459,13 @@ for (const providerId of AI_PROVIDERS) {
       ? (claudeCodeProviderProfileAdapter as AnyAgentProviderProfileAdapter)
       : providerId === 'codex-cli'
         ? (codexCliProviderProfileAdapter as AnyAgentProviderProfileAdapter)
-        : providerId === 'gemini-cli'
-          ? (geminiCliProviderProfileAdapter as AnyAgentProviderProfileAdapter)
-          : (createUnsupportedProviderProfileAdapter(providerId) as AnyAgentProviderProfileAdapter)
+        : providerId === 'cursor-cli'
+          ? (cursorCliProviderProfileAdapter as AnyAgentProviderProfileAdapter)
+          : providerId === 'gemini-cli'
+            ? (geminiCliProviderProfileAdapter as AnyAgentProviderProfileAdapter)
+            : (createUnsupportedProviderProfileAdapter(
+                providerId
+              ) as AnyAgentProviderProfileAdapter)
   );
 }
 
@@ -531,7 +581,7 @@ export function createAgentProviderProfileRegistryFacade(
     repoPath: string | undefined
   ): Promise<AgentProviderProfileSnapshot<AgentProviderProfile, unknown>[]> => {
     const snapshots = await Promise.all(
-      supportedAdapters().map(async (adapter) => {
+      adapters.map(async (adapter) => {
         try {
           return await readSingleCurrent(repoPath, adapter);
         } catch (error) {
@@ -565,7 +615,7 @@ export function createAgentProviderProfileRegistryFacade(
       callback: (snapshot: AgentProviderProfileSnapshot<AgentProviderProfile, unknown>) => void,
       providerId?: AIProvider
     ) => {
-      const targets = providerId ? [resolveAdapter(providerId)] : supportedAdapters();
+      const targets = providerId ? [resolveAdapter(providerId)] : adapters;
       const cleanups = targets.map((adapter) =>
         adapter.subscribeToExternalChanges(repoPath, (snapshot) => {
           callback(normalizeProviderSnapshot(adapter, snapshot));

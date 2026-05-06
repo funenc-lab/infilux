@@ -11,6 +11,7 @@ interface AgentProviderSettingsWatcherOptions<TSettings> {
   fileName: string;
   readSettings: () => TSettings;
   extractProvider: (settings: TSettings) => Partial<AgentProviderProfile> | null;
+  isDetected?: (settings: TSettings, extracted: Partial<AgentProviderProfile> | null) => boolean;
 }
 
 export interface AgentProviderSettingsWatcher {
@@ -92,6 +93,7 @@ export function createAgentProviderSettingsWatcher<TSettings>(
       providerId: options.providerId,
       settings,
       extracted,
+      detected: options.isDetected ? options.isDetected(settings, extracted) : extracted !== null,
       supported: true,
     });
   };

@@ -59,6 +59,8 @@ interface CapabilityDefinition {
   supportedProviders: readonly AIProvider[];
 }
 
+const ALL_PROVIDER_IDS = Object.keys(AI_PROVIDER_CATALOG) as AIProvider[];
+
 const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
   {
     id: 'provider-switching',
@@ -78,7 +80,7 @@ const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
     titleKey: 'Completion notifications',
     descriptionKey:
       'Use provider lifecycle hooks when available, then fall back to terminal completion markers.',
-    supportedProviders: ['claude-code'],
+    supportedProviders: ALL_PROVIDER_IDS,
   },
   {
     id: 'question-notification',
@@ -94,8 +96,6 @@ const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
     supportedProviders: ['claude-code'],
   },
 ];
-
-const ALL_PROVIDER_IDS = Object.keys(AI_PROVIDER_CATALOG) as AIProvider[];
 
 function resolveProviderLabels(providerIds: readonly AIProvider[]): string[] {
   return providerIds.map((providerId) => AI_PROVIDER_CATALOG[providerId].label);

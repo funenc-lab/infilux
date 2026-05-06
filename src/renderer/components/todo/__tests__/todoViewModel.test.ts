@@ -255,10 +255,10 @@ describe('todoViewModel', () => {
       runningTaskCount: 1,
       runningProjectCount: 1,
     });
-    expect(summary.execution.nextAction).toBe('monitor-running');
-    expect(summary.execution.dispatchableTasks.map((task) => task.taskId)).toEqual([
+    expect(summary.execution.nextAction).toBe('dispatch-ready');
+    expect(summary.execution.dispatchableTasks.map((task) => task.taskId)).toEqual(['other-ready']);
+    expect(summary.execution.deferredQueueTasks.map((task) => task.taskId)).toEqual([
       'current-ready',
-      'other-ready',
     ]);
     expect(summary.execution.interventionTasks.map((task) => task.taskId)).toEqual([
       'needs-approval',
@@ -318,5 +318,34 @@ describe('todoViewModel', () => {
       dependencyBlockedTaskCount: 1,
       autoExecuteRunning: false,
     });
+  });
+
+  it('monitors running projects when all ready tasks are deferred behind active queues', () => {
+    const summary = buildAiCenterSummary([
+      {
+        repoPath: '/repo/current',
+        autoExecute: {
+          running: true,
+          queue: ['queued-follow-up'],
+          currentTaskId: 'running',
+          currentSessionId: 'session-1',
+        },
+        tasks: [
+          createTask({ id: 'running', status: 'in-progress' }),
+          createTask({
+            id: 'queued-follow-up',
+            status: 'todo',
+            priority: 'high',
+            agentId: 'codex',
+          }),
+        ],
+      },
+    ]);
+
+    expect(summary.execution.nextAction).toBe('monitor-running');
+    expect(summary.execution.dispatchableTasks).toEqual([]);
+    expect(summary.execution.deferredQueueTasks.map((task) => task.taskId)).toEqual([
+      'queued-follow-up',
+    ]);
   });
 });

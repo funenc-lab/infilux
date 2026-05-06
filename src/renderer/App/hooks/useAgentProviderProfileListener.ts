@@ -1,8 +1,12 @@
 import { useEffect, useRef } from 'react';
+import { buildAgentProviderDetectionState } from '@/components/settings/agent-provider/providerListModel';
 import type { SettingsCategory } from '@/components/settings/constants';
 import { addToast, toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
-import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
+import {
+  agentProviderProfileAdapter,
+  getAgentProviderProfileAdapter,
+} from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { useSettingsStore } from '@/stores/settings';
 import type { PendingProviderAction } from './useSettingsState';
@@ -26,8 +30,9 @@ export function useAgentProviderProfileListener(
       if (!enableProviderWatcher) return;
 
       const { extracted } = data;
-      if (!extracted?.baseUrl) return;
-      const providerId = data.providerId ?? extracted.providerId;
+      const providerId = data.providerId ?? extracted?.providerId;
+      const detected = data.detected ?? Boolean(extracted?.baseUrl);
+      if (!providerId || !detected) return;
 
       if (agentProviderProfileAdapter.consumeSwitch(extracted)) {
         return;
@@ -59,6 +64,12 @@ export function useAgentProviderProfileListener(
           description: copy.description,
         });
       } else {
+        const adapter = getAgentProviderProfileAdapter(providerId);
+        const detectionState = buildAgentProviderDetectionState({
+          hasDetectedConfig: detected,
+          hasAuthToken: Boolean(extracted?.authToken),
+          supportsProfiles: adapter.supportsProfiles,
+        });
         // New unsaved config detected
         const copy = buildSettingsWorkflowToastCopy(
           {
@@ -82,16 +93,20 @@ export function useAgentProviderProfileListener(
               },
               variant: 'ghost',
             },
-            {
-              label: t('Save'),
-              onClick: () => {
-                setSettingsCategory('integration');
-                setScrollToProvider(true);
-                openSettings();
-                setPendingProviderAction({ action: 'save', providerId });
-              },
-              variant: 'outline',
-            },
+            ...(detectionState.action === 'save'
+              ? [
+                  {
+                    label: t('Save'),
+                    onClick: () => {
+                      setSettingsCategory('integration');
+                      setScrollToProvider(true);
+                      openSettings();
+                      setPendingProviderAction({ action: 'save', providerId });
+                    },
+                    variant: 'outline' as const,
+                  },
+                ]
+              : []),
             {
               label: t('Open Settings'),
               onClick: () => {

@@ -153,7 +153,7 @@ describe('todoAutoExecuteRuntime', () => {
   });
 
   it('dispatches global ready tasks by repository without mixing queues', () => {
-    const startedCount = startTodoGlobalAutoExecute({
+    const result = startTodoGlobalAutoExecute({
       dispatchableTasks: [
         { repoPath: '/repo-a', taskId: 'a-1' },
         { repoPath: '/repo-a', taskId: 'a-2' },
@@ -162,7 +162,14 @@ describe('todoAutoExecuteRuntime', () => {
       enabledAgents: [codexAgent],
     });
 
-    expect(startedCount).toBe(2);
+    expect(result).toMatchObject({
+      skippedTasks: [],
+      startedCount: 2,
+      startedProjects: [
+        { repoPath: '/repo-a', taskIds: ['a-1', 'a-2'] },
+        { repoPath: '/repo-b', taskIds: ['b-1'] },
+      ],
+    });
     expect(useAgentSessionsStore.getState().sessions.map((session) => session.id)).toEqual([
       'session-a-1',
       'session-b-1',
@@ -181,5 +188,44 @@ describe('todoAutoExecuteRuntime', () => {
         currentSessionId: 'session-b-1',
       },
     });
+  });
+
+  it('reports skipped global dispatch tasks without overwriting running projects', () => {
+    useTodoStore.setState({
+      autoExecute: {
+        '/repo-a': {
+          running: true,
+          queue: ['a-2'],
+          currentTaskId: 'a-1',
+          currentSessionId: 'existing-session',
+        },
+      },
+    });
+
+    const result = startTodoGlobalAutoExecute({
+      dispatchableTasks: [
+        { repoPath: '/repo-a', taskId: 'a-2' },
+        { repoPath: '/repo-b', taskId: 'missing-task' },
+        { repoPath: '/repo-c', taskId: 'c-1' },
+      ],
+      enabledAgents: [codexAgent],
+    });
+
+    expect(result).toEqual({
+      skippedTasks: [
+        { repoPath: '/repo-a', taskId: 'a-2', reason: 'project-running' },
+        { repoPath: '/repo-b', taskId: 'missing-task', reason: 'missing-task' },
+        { repoPath: '/repo-c', taskId: 'c-1', reason: 'missing-task' },
+      ],
+      startedCount: 0,
+      startedProjects: [],
+    });
+    expect(useTodoStore.getState().autoExecute['/repo-a']).toMatchObject({
+      running: true,
+      queue: ['a-2'],
+      currentTaskId: 'a-1',
+      currentSessionId: 'existing-session',
+    });
+    expect(useAgentSessionsStore.getState().sessions).toEqual([]);
   });
 });

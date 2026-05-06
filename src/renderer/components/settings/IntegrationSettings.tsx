@@ -55,7 +55,7 @@ function CapabilitySupportNote({ capability }: CapabilitySupportNoteProps) {
     <p className="text-xs text-muted-foreground">
       {t('Currently supported by {{providers}}', { providers: supportedProviders })}
       {waitingProviderCount > 0 &&
-        ` · ${t('{{count}} waiting for provider adapter', {
+        ` - ${t('{{count}} waiting for provider adapter', {
           count: waitingProviderCount,
         })}`}
     </p>

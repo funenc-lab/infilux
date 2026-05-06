@@ -146,6 +146,7 @@ export interface AiCenterAgentLoad {
 export interface AiCenterExecutionSummary {
   nextAction: AiCenterNextAction;
   dispatchableTasks: AiCenterDispatchableTask[];
+  deferredQueueTasks: AiCenterDispatchableTask[];
   interventionTasks: AiCenterInterventionTask[];
   runningTasks: AiCenterRunningTask[];
   agentLoads: AiCenterAgentLoad[];
@@ -352,6 +353,7 @@ function buildAiCenterExecutionSummary(
 ): AiCenterExecutionSummary {
   const summaryByRepoPath = new Map(projectSummaries.map((project) => [project.repoPath, project]));
   const dispatchableTasks: AiCenterDispatchableTask[] = [];
+  const deferredQueueTasks: AiCenterDispatchableTask[] = [];
   const interventionTasks: AiCenterInterventionTask[] = [];
   const runningTasks: AiCenterRunningTask[] = [];
   const agentLoadById = new Map<
@@ -434,7 +436,7 @@ function buildAiCenterExecutionSummary(
       }
 
       const { agentId, agentLabel } = getAgentAssignment(task);
-      dispatchableTasks.push({
+      const dispatchableTask = {
         repoPath: projectInput.repoPath,
         repoName,
         isCurrentProject,
@@ -443,19 +445,27 @@ function buildAiCenterExecutionSummary(
         priority: task.priority,
         agentId,
         agentLabel,
-      });
+      };
+      if (projectInput.autoExecute?.running) {
+        deferredQueueTasks.push(dispatchableTask);
+      } else {
+        dispatchableTasks.push(dispatchableTask);
+      }
       recordAgentLoad(task, projectInput.repoPath, 'ready');
     }
   }
 
-  dispatchableTasks.sort((a, b) => {
+  const sortDispatchTasks = (a: AiCenterDispatchableTask, b: AiCenterDispatchableTask): number => {
     const priorityDelta = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     if (priorityDelta !== 0) return priorityDelta;
     if (a.isCurrentProject !== b.isCurrentProject) return a.isCurrentProject ? -1 : 1;
     const repoDelta = a.repoName.localeCompare(b.repoName);
     if (repoDelta !== 0) return repoDelta;
     return a.title.localeCompare(b.title);
-  });
+  };
+
+  dispatchableTasks.sort(sortDispatchTasks);
+  deferredQueueTasks.sort(sortDispatchTasks);
 
   interventionTasks.sort((a, b) => {
     const approvalDelta =
@@ -498,16 +508,19 @@ function buildAiCenterExecutionSummary(
 
   return {
     nextAction:
-      runningTaskCount > 0
-        ? 'monitor-running'
-        : dispatchableTasks.length > 0
-          ? 'dispatch-ready'
-          : approvalTaskCount > 0
-            ? 'request-approval'
-            : dependencyTaskCount > 0
-              ? 'resolve-dependencies'
-              : 'idle',
+      dispatchableTasks.length > 0
+        ? 'dispatch-ready'
+        : runningTaskCount > 0
+          ? 'monitor-running'
+          : deferredQueueTasks.length > 0
+            ? 'dispatch-ready'
+            : approvalTaskCount > 0
+              ? 'request-approval'
+              : dependencyTaskCount > 0
+                ? 'resolve-dependencies'
+                : 'idle',
     dispatchableTasks,
+    deferredQueueTasks,
     interventionTasks,
     runningTasks,
     agentLoads,

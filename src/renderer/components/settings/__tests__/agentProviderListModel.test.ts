@@ -131,6 +131,7 @@ describe('agent provider list model', () => {
         [
           {
             providerId: 'claude-code',
+            detected: true,
             supported: true,
             extracted: {
               baseUrl: 'https://api.anthropic.com',
@@ -138,6 +139,7 @@ describe('agent provider list model', () => {
           },
           {
             providerId: 'gemini-cli',
+            detected: true,
             supported: true,
             extracted: {
               baseUrl: 'https://generativelanguage.googleapis.com',
@@ -149,6 +151,25 @@ describe('agent provider list model', () => {
         false
       )
     ).toBe('gemini-cli');
+  });
+
+  it('can default to a detected read-only system provider when no switchable config is complete', () => {
+    expect(
+      resolveDefaultProviderSelection(
+        [
+          {
+            providerId: 'cursor-cli',
+            detected: true,
+            supported: true,
+            extracted: {
+              model: 'auto',
+            },
+          },
+        ],
+        'claude-code',
+        false
+      )
+    ).toBe('cursor-cli');
   });
 
   it('preserves explicit provider selection when the user has already chosen one', () => {

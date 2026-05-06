@@ -50,6 +50,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { AI_PROVIDER_OPTIONS } from '../aiProviderOptions';
 import { ProviderDialog } from './ProviderDialog';
 import {
+  buildAgentProviderDetectionState,
   buildAgentProviderProfileListSummary,
   resolveDefaultProviderSelection,
 } from './providerListModel';
@@ -237,14 +238,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
       ),
     [providers]
   );
-  const providerProfileOptions = React.useMemo(
-    () =>
-      AI_PROVIDER_OPTIONS.filter((option) => {
-        const adapter = getAgentProviderProfileAdapter(option.value);
-        return adapter.supportsProfiles;
-      }),
-    []
-  );
+  const providerSelectionOptions = React.useMemo(() => AI_PROVIDER_OPTIONS, []);
 
   const setAgentProviderEnabled = useSettingsStore((s) => s.setAgentProviderEnabled);
   const setAgentProviderOrder = useSettingsStore((s) => s.setAgentProviderOrder);
@@ -325,32 +319,32 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
       providers.find((p) => agentProviderProfileAdapter.isActiveProfile(p, currentConfig)) ?? null
     );
   }, [providers, providerData?.extracted]);
+  const selectedAdapter = React.useMemo(
+    () => getAgentProviderProfileAdapter(selectedProviderId),
+    [selectedProviderId]
+  );
 
   const detectedProviderId =
     providerData?.providerId ?? providerData?.extracted?.providerId ?? selectedProviderId;
   const detectedProviderLabel = detectedProviderId
     ? getAgentProviderProfileAdapter(detectedProviderId).label
     : null;
-  const hasDetectedConfig = Boolean(providerData?.extracted?.baseUrl);
-  const hasCompleteDetectedConfig = Boolean(
-    providerData?.extracted?.baseUrl && providerData.extracted.authToken
+  const hasDetectedConfig = providerData?.detected ?? Boolean(providerData?.extracted?.baseUrl);
+  const detectedConfigState = React.useMemo(
+    () =>
+      buildAgentProviderDetectionState({
+        activeProfileName: activeProvider?.name,
+        hasAuthToken: Boolean(providerData?.extracted?.authToken),
+        hasDetectedConfig,
+        supportsProfiles: selectedAdapter.supportsProfiles,
+      }),
+    [activeProvider?.name, hasDetectedConfig, providerData?.extracted?.authToken, selectedAdapter]
   );
-
-  // Check whether the current config has not been saved as a provider profile.
-  const hasUnsavedConfig = React.useMemo(() => {
-    if (!hasCompleteDetectedConfig) return false;
-    return !activeProvider;
-  }, [hasCompleteDetectedConfig, activeProvider]);
-
-  const detectedConfigStatus = React.useMemo(() => {
-    if (activeProvider) {
-      return t('Provider profile already saved as {{name}}', { name: activeProvider.name });
-    }
-    if (!hasCompleteDetectedConfig) {
-      return t('Detected CLI config is missing required provider credentials.');
-    }
-    return t('Current config not saved');
-  }, [activeProvider, hasCompleteDetectedConfig, t]);
+  const hasUnsavedConfig = detectedConfigState.action === 'save';
+  const detectedConfigStatus = t(
+    detectedConfigState.statusKey,
+    detectedConfigState.statusValues ?? {}
+  );
 
   // Switch provider.
   const handleSwitch = async (provider: AgentProviderProfile) => {
@@ -422,7 +416,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
 
   // Save from the current config.
   const handleSaveFromCurrent = React.useCallback(() => {
-    if (!hasCompleteDetectedConfig) {
+    if (!selectedAdapter.supportsProfiles || detectedConfigState.action !== 'save') {
       return false;
     }
 
@@ -430,7 +424,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
     setSaveFromCurrent(true);
     setDialogOpen(true);
     return true;
-  }, [hasCompleteDetectedConfig]);
+  }, [detectedConfigState.action, selectedAdapter.supportsProfiles]);
 
   const handlePreviewCurrent = React.useCallback(() => {
     if (!hasDetectedConfig) {
@@ -519,7 +513,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
               <SelectValue>{AI_PROVIDER_CATALOG[selectedProviderId].label}</SelectValue>
             </SelectTrigger>
             <SelectPopup>
-              {providerProfileOptions.map((option) => (
+              {providerSelectionOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -632,7 +626,9 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
         onOpenChange={setDialogOpen}
         provider={editingProvider}
         initialValues={
-          saveFromCurrent ? providerData?.extracted : { providerId: selectedProviderId }
+          saveFromCurrent
+            ? providerData?.extracted
+            : { providerId: selectedAdapter.supportsProfiles ? selectedProviderId : 'claude-code' }
         }
         source={saveFromCurrent ? 'current' : 'manual'}
       />

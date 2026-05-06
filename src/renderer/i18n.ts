@@ -98,6 +98,9 @@ const rendererZhTranslations: Record<string, string> = {
   'Only show Agent worktrees': decodeEscapedUnicode(
     '\\u4ec5\\u663e\\u793a Agent \\u5de5\\u4f5c\\u6811'
   ),
+  'Only show live Agent sessions': decodeEscapedUnicode(
+    '\\u4ec5\\u663e\\u793a\\u6d3b\\u8dc3 Agent \\u4f1a\\u8bdd'
+  ),
   'Agent worktrees': decodeEscapedUnicode('Agent \\u5de5\\u4f5c\\u6811'),
   'Worktree panel actions': decodeEscapedUnicode('Worktree \\u9762\\u677f\\u64cd\\u4f5c'),
   'Temp session actions': decodeEscapedUnicode('\\u4e34\\u65f6\\u4f1a\\u8bdd\\u64cd\\u4f5c'),
@@ -199,6 +202,20 @@ const rendererZhTranslations: Record<string, string> = {
   'Low confidence': decodeEscapedUnicode('\\u4f4e\\u7f6e\\u4fe1\\u5ea6'),
   'Ask AI Center': decodeEscapedUnicode('\\u8be2\\u95ee AI \\u667a\\u80fd\\u4e2d\\u5fc3'),
   'Dispatch Plan': decodeEscapedUnicode('\\u6d3e\\u53d1\\u65b9\\u6848'),
+  'Dispatch Result': decodeEscapedUnicode('\\u6d3e\\u53d1\\u7ed3\\u679c'),
+  'Started Projects': decodeEscapedUnicode('\\u5df2\\u542f\\u52a8\\u9879\\u76ee'),
+  'Skipped Tasks': decodeEscapedUnicode('\\u5df2\\u8df3\\u8fc7\\u4efb\\u52a1'),
+  '{{count}} projects started': decodeEscapedUnicode(
+    '{{count}} \\u4e2a\\u9879\\u76ee\\u5df2\\u542f\\u52a8'
+  ),
+  '{{count}} skipped': decodeEscapedUnicode('{{count}} \\u4e2a\\u5df2\\u8df3\\u8fc7'),
+  'No projects started': decodeEscapedUnicode('\\u6682\\u65e0\\u9879\\u76ee\\u542f\\u52a8'),
+  'No skipped tasks': decodeEscapedUnicode('\\u6682\\u65e0\\u8df3\\u8fc7\\u4efb\\u52a1'),
+  'Project already running': decodeEscapedUnicode('\\u9879\\u76ee\\u5df2\\u5728\\u8fd0\\u884c'),
+  'Task not found': decodeEscapedUnicode('\\u4efb\\u52a1\\u4e0d\\u5b58\\u5728'),
+  'Missing worktree': decodeEscapedUnicode('\\u7f3a\\u5c11 worktree'),
+  'No enabled agents': decodeEscapedUnicode('\\u6ca1\\u6709\\u5df2\\u542f\\u7528 Agent'),
+  'Start failed': decodeEscapedUnicode('\\u542f\\u52a8\\u5931\\u8d25'),
   'Coordination Signals': decodeEscapedUnicode('\\u534f\\u540c\\u4fe1\\u53f7'),
   'cross-project': decodeEscapedUnicode('\\u8de8\\u9879\\u76ee'),
   'agent-coverage': decodeEscapedUnicode('Agent \\u8986\\u76d6'),
@@ -222,6 +239,7 @@ const rendererZhTranslations: Record<string, string> = {
   'Decision Worklist': decodeEscapedUnicode('\\u51b3\\u7b56\\u5de5\\u4f5c\\u6e05\\u5355'),
   'Intervention Queue': decodeEscapedUnicode('\\u5e72\\u9884\\u961f\\u5217'),
   'Monitoring Queue': decodeEscapedUnicode('\\u76d1\\u63a7\\u961f\\u5217'),
+  'Deferred Queue': decodeEscapedUnicode('\\u5ef6\\u540e\\u961f\\u5217'),
   'No dispatch plan': decodeEscapedUnicode('\\u6682\\u65e0\\u6d3e\\u53d1\\u65b9\\u6848'),
   'No risks': decodeEscapedUnicode('\\u6682\\u65e0\\u98ce\\u9669'),
   '{{count}} batches': decodeEscapedUnicode('{{count}} \\u4e2a\\u6279\\u6b21'),
@@ -252,6 +270,7 @@ const rendererZhTranslations: Record<string, string> = {
   'No interventions': decodeEscapedUnicode('\\u6682\\u65e0\\u5e72\\u9884\\u9879'),
   'Dependency Blocked': decodeEscapedUnicode('\\u4f9d\\u8d56\\u963b\\u585e'),
   'No running tasks': decodeEscapedUnicode('\\u6682\\u65e0\\u8fd0\\u884c\\u4e2d\\u4efb\\u52a1'),
+  'No deferred tasks': decodeEscapedUnicode('\\u6682\\u65e0\\u5ef6\\u540e\\u4efb\\u52a1'),
   'Agent Load': decodeEscapedUnicode('Agent \\u8d1f\\u8f7d'),
   'No agent load': decodeEscapedUnicode('\\u6682\\u65e0 Agent \\u8d1f\\u8f7d'),
   'Project State': decodeEscapedUnicode('\\u9879\\u76ee\\u72b6\\u6001'),

@@ -38,6 +38,7 @@ vi.mock('@/i18n', () => ({
   useI18n: () => ({
     t: (value: string, params?: Record<string, string | number>) => {
       if (value === 'Approval Required') return 'Approval label';
+      if (value === 'Auto Select') return 'Auto label';
       if (!params) return value;
       return value.replace(/\{\{(\w+)\}\}/g, (match, token) =>
         params[token] === undefined ? match : String(params[token])
@@ -109,6 +110,7 @@ const summary: AiCenterTestSummary = {
         isCurrentProject: true,
       },
     ],
+    deferredQueueTasks: [],
     interventionTasks: [
       {
         repoPath: '/repo/other',
@@ -212,6 +214,7 @@ const decisionPlan = {
       ],
     },
   ],
+  deferredQueueItems: [],
   headline: 'Dispatch ready tasks',
   coordinationSignals: [
     {
@@ -242,6 +245,9 @@ const decisionPlan = {
       id: '/repo/current:task-running',
       label: 'Apply schema change',
       detail: 'current: Auto Select',
+      meta: 'current',
+      agentLabel: 'Auto Select',
+      agentLabelKey: 'Auto Select',
     },
   ],
   recommendedAction: 'dispatch-ready' as const,
@@ -322,7 +328,8 @@ describe('AiCenterView', () => {
 
     const monitoringQueue = getLabeledGroup(decisionWorklist, 'Monitoring Queue');
     expect(monitoringQueue.textContent).toContain('Apply schema change');
-    expect(monitoringQueue.textContent).toContain('current: Auto Select');
+    expect(monitoringQueue.textContent).toContain('current: Auto label');
+    expect(monitoringQueue.textContent).not.toContain('Auto Select');
     expect(monitoringQueue.textContent).not.toContain('Review migration');
 
     act(() => {
@@ -363,6 +370,78 @@ describe('AiCenterView', () => {
     const { container, root } = renderInteractive(
       React.createElement(AiCenterView, {
         summary,
+        canDispatchReadyTasks: true,
+        onDispatchReadyTasks,
+      })
+    );
+
+    const dispatchButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Dispatch ready tasks"]'
+    );
+    expect(dispatchButton).not.toBeNull();
+    expect(dispatchButton?.disabled).toBe(false);
+
+    act(() => {
+      dispatchButton?.click();
+    });
+
+    expect(onDispatchReadyTasks).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it('renders the latest global dispatch result with skipped reasons', () => {
+    const { container, root } = renderInteractive(
+      React.createElement(AiCenterView, {
+        summary,
+        dispatchResult: {
+          skippedTasks: [
+            {
+              repoPath: '/repo/current',
+              taskId: 'task-current-ready',
+              reason: 'project-running',
+            },
+            {
+              repoPath: '/repo/missing',
+              taskId: 'task-missing',
+              reason: 'missing-task',
+            },
+          ],
+          startedCount: 1,
+          startedProjects: [{ repoPath: '/repo/other', taskIds: ['task-other-ready'] }],
+        },
+      })
+    );
+
+    const dispatchResult = getLabeledGroup(container, 'Dispatch Result');
+    expect(dispatchResult.textContent).toContain('1 projects started');
+    expect(dispatchResult.textContent).toContain('Started Projects');
+    expect(dispatchResult.textContent).toContain('/repo/other');
+    expect(dispatchResult.textContent).toContain('task-other-ready');
+    expect(dispatchResult.textContent).toContain('Skipped Tasks');
+    expect(dispatchResult.textContent).toContain('/repo/current');
+    expect(dispatchResult.textContent).toContain('Project already running');
+    expect(dispatchResult.textContent).toContain('/repo/missing');
+    expect(dispatchResult.textContent).toContain('Task not found');
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it('keeps dispatch available for startable tasks while monitoring running projects', () => {
+    const onDispatchReadyTasks = vi.fn();
+    const { container, root } = renderInteractive(
+      React.createElement(AiCenterView, {
+        summary: {
+          ...summary,
+          execution: {
+            ...summary.execution,
+            nextAction: 'monitor-running',
+          },
+        },
         canDispatchReadyTasks: true,
         onDispatchReadyTasks,
       })

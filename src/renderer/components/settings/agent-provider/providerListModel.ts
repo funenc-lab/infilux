@@ -7,6 +7,8 @@ export interface AgentProviderProfileCapability {
 
 export interface AgentProviderDetectedConfig {
   providerId?: AIProvider;
+  detected?: boolean;
+  settings?: unknown | null;
   extracted?: Partial<AgentProviderProfile> | null;
   supported?: boolean;
 }
@@ -70,12 +72,16 @@ export function resolveDefaultProviderSelection(
   const completeDetectedConfig = detectedConfigs.find(
     (config) =>
       config.supported !== false &&
+      config.detected !== false &&
       config.providerId &&
       config.extracted?.baseUrl &&
       config.extracted.authToken
   );
   const detectedConfig = detectedConfigs.find(
-    (config) => config.supported !== false && config.providerId && config.extracted?.baseUrl
+    (config) =>
+      config.supported !== false &&
+      config.providerId &&
+      (config.detected === true || Boolean(config.extracted?.baseUrl))
   );
 
   return completeDetectedConfig?.providerId ?? detectedConfig?.providerId ?? currentSelection;

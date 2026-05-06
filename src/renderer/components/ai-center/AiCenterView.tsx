@@ -19,6 +19,10 @@ import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type {
+  TodoGlobalDispatchResult,
+  TodoGlobalDispatchSkipReason,
+} from '../todo/todoAutoExecuteRuntime';
+import type {
   AiCenterNextAction,
   AiCenterProjectStatus,
   AiCenterSummary,
@@ -36,6 +40,7 @@ interface AiCenterViewProps {
   canDispatchReadyTasks?: boolean;
   canOpenDecisionChat?: boolean;
   decisionPlan?: AiCenterDecisionPlan;
+  dispatchResult?: TodoGlobalDispatchResult;
   onApproveTask?: (repoPath: string, taskId: string) => void;
   onDispatchReadyTasks?: () => void;
   onOpenDecisionChat?: () => void;
@@ -126,6 +131,14 @@ const CONFIDENCE_LABELS: Record<AiCenterDecisionConfidence, string> = {
   high: 'High confidence',
   low: 'Low confidence',
   medium: 'Medium confidence',
+};
+
+const DISPATCH_SKIP_REASON_LABELS: Record<TodoGlobalDispatchSkipReason, string> = {
+  'missing-task': 'Task not found',
+  'missing-worktree': 'Missing worktree',
+  'no-enabled-agents': 'No enabled agents',
+  'project-running': 'Project already running',
+  'start-failed': 'Start failed',
 };
 
 function getStatClassName(tone: AiCenterStat['tone']): string {
@@ -313,6 +326,26 @@ function InterventionWorklistItem({ item }: { item: AiCenterDecisionItem }) {
   );
 }
 
+function getMonitoringItemDetail(item: AiCenterDecisionItem, t: (key: string) => string): string {
+  if (item.meta && item.agentLabel) {
+    return `${item.meta}: ${item.agentLabelKey ? t(item.agentLabelKey) : item.agentLabel}`;
+  }
+
+  return item.detail;
+}
+
+function MonitoringWorklistItem({ item }: { item: AiCenterDecisionItem }) {
+  const { t } = useI18n();
+  const itemDetail = getMonitoringItemDetail(item, t);
+
+  return (
+    <div className="min-w-0 rounded-md border border-info/22 px-2 py-1.5">
+      <div className="truncate text-xs font-semibold text-foreground">{item.label}</div>
+      <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{itemDetail}</div>
+    </div>
+  );
+}
+
 function DecisionPlanSection({
   canOpenDecisionChat,
   decisionPlan,
@@ -332,6 +365,7 @@ function DecisionPlanSection({
   const visibleRisks = decisionPlan.riskItems.slice(0, 3);
   const visibleInterventionItems = decisionPlan.interventionItems.slice(0, 3);
   const visibleMonitoringItems = decisionPlan.monitoringItems.slice(0, 3);
+  const visibleDeferredItems = decisionPlan.deferredQueueItems.slice(0, 3);
   const hiddenBatchCount = Math.max(0, decisionPlan.dispatchBatches.length - visibleBatches.length);
   const hiddenRiskCount = Math.max(0, decisionPlan.riskItems.length - visibleRisks.length);
   const hiddenInterventionCount = Math.max(
@@ -342,6 +376,14 @@ function DecisionPlanSection({
     0,
     decisionPlan.monitoringItems.length - visibleMonitoringItems.length
   );
+  const hiddenDeferredCount = Math.max(
+    0,
+    decisionPlan.deferredQueueItems.length - visibleDeferredItems.length
+  );
+  const worklistItemCount =
+    decisionPlan.interventionItems.length +
+    decisionPlan.monitoringItems.length +
+    decisionPlan.deferredQueueItems.length;
   return (
     <div className="mt-3 control-panel-muted min-w-0 rounded-lg border border-info/24 bg-info/6 px-3 py-2.5">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
@@ -481,11 +523,11 @@ function DecisionPlanSection({
           </span>
           <span className="control-chip px-1.5 py-0 text-[10px]">
             {t('{{count}} items', {
-              count: decisionPlan.interventionItems.length + decisionPlan.monitoringItems.length,
+              count: worklistItemCount,
             })}
           </span>
         </div>
-        <div className="mt-2 grid min-w-0 gap-2 md:grid-cols-2">
+        <div className="mt-2 grid min-w-0 gap-2 md:grid-cols-3">
           <div aria-label={t('Intervention Queue')} className="min-w-0" role="group">
             <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
               <ShieldCheck className="h-3 w-3 shrink-0" />
@@ -515,9 +557,30 @@ function DecisionPlanSection({
             <div className="mt-1.5 min-w-0 space-y-1.5">
               {visibleMonitoringItems.length > 0 ? (
                 visibleMonitoringItems.map((item) => (
+                  <MonitoringWorklistItem key={item.id} item={item} />
+                ))
+              ) : (
+                <div className="text-xs text-muted-foreground">{t('No running tasks')}</div>
+              )}
+              {hiddenMonitoringCount > 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  +{t('{{count}} more', { count: hiddenMonitoringCount })}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div aria-label={t('Deferred Queue')} className="min-w-0" role="group">
+            <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+              <ClipboardList className="h-3 w-3 shrink-0" />
+              <span className="truncate">{t('Deferred Queue')}</span>
+            </div>
+            <div className="mt-1.5 min-w-0 space-y-1.5">
+              {visibleDeferredItems.length > 0 ? (
+                visibleDeferredItems.map((item) => (
                   <div
                     key={item.id}
-                    className="min-w-0 rounded-md border border-info/22 px-2 py-1.5"
+                    className="min-w-0 rounded-md border border-border/45 px-2 py-1.5"
                   >
                     <div className="truncate text-xs font-semibold text-foreground">
                       {item.label}
@@ -528,11 +591,11 @@ function DecisionPlanSection({
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-muted-foreground">{t('No running tasks')}</div>
+                <div className="text-xs text-muted-foreground">{t('No deferred tasks')}</div>
               )}
-              {hiddenMonitoringCount > 0 ? (
+              {hiddenDeferredCount > 0 ? (
                 <div className="text-xs text-muted-foreground">
-                  +{t('{{count}} more', { count: hiddenMonitoringCount })}
+                  +{t('{{count}} more', { count: hiddenDeferredCount })}
                 </div>
               ) : null}
             </div>
@@ -586,10 +649,115 @@ function CoordinationSignalsSection({
   );
 }
 
+function DispatchResultSection({ result }: { result?: TodoGlobalDispatchResult }) {
+  const { t } = useI18n();
+
+  if (!result) {
+    return null;
+  }
+
+  const visibleStartedProjects = result.startedProjects.slice(0, 3);
+  const visibleSkippedTasks = result.skippedTasks.slice(0, 4);
+  const hiddenStartedCount = Math.max(
+    0,
+    result.startedProjects.length - visibleStartedProjects.length
+  );
+  const hiddenSkippedCount = Math.max(0, result.skippedTasks.length - visibleSkippedTasks.length);
+
+  return (
+    <div
+      aria-label={t('Dispatch Result')}
+      className="mt-3 control-panel-muted min-w-0 rounded-lg border border-border/45 px-3 py-2.5"
+      role="group"
+    >
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Route className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate text-[10px] font-semibold uppercase text-muted-foreground">
+            {t('Dispatch Result')}
+          </span>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <span className="control-chip control-chip-done">
+            {t('{{count}} projects started', { count: result.startedCount })}
+          </span>
+          <span
+            className={cn('control-chip', result.skippedTasks.length > 0 && 'control-chip-wait')}
+          >
+            {t('{{count}} skipped', { count: result.skippedTasks.length })}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-2 grid min-w-0 gap-2 md:grid-cols-2">
+        <div className="min-w-0 rounded-md border border-border/45 bg-control-surface/45 px-2.5 py-2">
+          <div className="truncate text-[10px] font-semibold uppercase text-muted-foreground">
+            {t('Started Projects')}
+          </div>
+          <div className="mt-1.5 min-w-0 space-y-1.5">
+            {visibleStartedProjects.length > 0 ? (
+              visibleStartedProjects.map((project) => (
+                <div key={project.repoPath} className="min-w-0">
+                  <div className="truncate text-xs font-semibold text-foreground">
+                    {project.repoPath}
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    {project.taskIds.join(', ')}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground">{t('No projects started')}</div>
+            )}
+            {hiddenStartedCount > 0 ? (
+              <div className="text-xs text-muted-foreground">
+                +{t('{{count}} more', { count: hiddenStartedCount })}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-md border border-border/45 bg-control-surface/45 px-2.5 py-2">
+          <div className="truncate text-[10px] font-semibold uppercase text-muted-foreground">
+            {t('Skipped Tasks')}
+          </div>
+          <div className="mt-1.5 min-w-0 space-y-1.5">
+            {visibleSkippedTasks.length > 0 ? (
+              visibleSkippedTasks.map((task) => (
+                <div key={`${task.repoPath}:${task.taskId}`} className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="min-w-0 truncate text-xs font-semibold text-foreground">
+                      {task.repoPath}
+                    </span>
+                    <span className="control-chip control-chip-wait shrink-0 px-1.5 py-0 text-[10px]">
+                      {t(DISPATCH_SKIP_REASON_LABELS[task.reason])}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    {task.taskId}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground">{t('No skipped tasks')}</div>
+            )}
+            {hiddenSkippedCount > 0 ? (
+              <div className="text-xs text-muted-foreground">
+                +{t('{{count}} more', { count: hiddenSkippedCount })}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AiCenterView({
   canDispatchReadyTasks = false,
   canOpenDecisionChat = false,
   decisionPlan,
+  dispatchResult,
   onApproveTask,
   onDispatchReadyTasks,
   onOpenDecisionChat,
@@ -654,9 +822,7 @@ export function AiCenterView({
   const visibleRunningTasks = summary.execution.runningTasks.slice(0, EXECUTION_ROW_LIMIT);
   const visibleAgentLoads = summary.execution.agentLoads.slice(0, EXECUTION_ROW_LIMIT);
   const dispatchActionEnabled =
-    canDispatchReadyTasks &&
-    summary.execution.nextAction === 'dispatch-ready' &&
-    summary.execution.dispatchableTasks.length > 0;
+    canDispatchReadyTasks && summary.execution.dispatchableTasks.length > 0;
 
   return (
     <section
@@ -701,6 +867,8 @@ export function AiCenterView({
       />
 
       <CoordinationSignalsSection signals={decisionPlan?.coordinationSignals ?? []} />
+
+      <DispatchResultSection result={dispatchResult} />
 
       <div className="mt-3 min-w-0">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">

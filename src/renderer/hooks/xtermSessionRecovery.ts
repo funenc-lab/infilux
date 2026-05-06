@@ -100,6 +100,37 @@ export function shouldRearmDeadSessionRecovery({
   return hasReceivedData || Boolean(replay && replay.length > 0);
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return typeof error === 'string' ? error : '';
+}
+
+export function shouldRetrySessionCreateWithoutHost({
+  error,
+  kind,
+  persistOnDisconnect,
+  hostSession,
+  hasFallback,
+}: {
+  error: unknown;
+  kind: SessionKind;
+  persistOnDisconnect: boolean;
+  hostSession?: { kind: 'tmux'; serverName: string; sessionName: string };
+  hasFallback: boolean;
+}): boolean {
+  if (!hasFallback || kind !== 'agent' || !persistOnDisconnect || hostSession?.kind !== 'tmux') {
+    return false;
+  }
+
+  const message = getErrorMessage(error);
+  return (
+    message.includes('Failed to recover tmux server:') ||
+    message.includes('System resources exhausted while checking tmux server:')
+  );
+}
+
 export async function resolveReusableBackendSessionId({
   backendSessionId,
   cwd,

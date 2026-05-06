@@ -48,6 +48,7 @@ import {
   shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
+  shouldRetrySessionCreateWithoutHost,
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions } from './xtermTerminalOptions';
 import { syncXtermViewportToSession } from './xtermViewportSync';
@@ -99,17 +100,27 @@ interface XtermStaticContent {
   identity?: string;
 }
 
+interface XtermCommandOptions {
+  shell: string;
+  args: string[];
+  fallbackCommand?: {
+    shell: string;
+    args: string[];
+  };
+}
+
+export interface XtermSessionCreateFallbackOptions {
+  command?: XtermCommandOptions;
+  env?: Record<string, string>;
+  hostSession?: SessionCreateOptions['hostSession'];
+  initialCommand?: string;
+  onRetry?: () => void;
+}
+
 export interface UseXtermOptions {
   backendSessionId?: string;
   cwd?: string;
-  command?: {
-    shell: string;
-    args: string[];
-    fallbackCommand?: {
-      shell: string;
-      args: string[];
-    };
-  };
+  command?: XtermCommandOptions;
   env?: Record<string, string>;
   hostSession?: SessionCreateOptions['hostSession'];
   metadata?: Record<string, unknown>;
@@ -121,6 +132,7 @@ export interface UseXtermOptions {
   persistOnDisconnect?: boolean;
   preferHostScrollback?: boolean;
   retryOnDeadSession?: boolean;
+  sessionCreateFallback?: XtermSessionCreateFallbackOptions;
   staticContent?: XtermStaticContent;
   onExit?: () => void;
   onData?: (data: string) => void;
@@ -245,6 +257,7 @@ export function useXterm({
   persistOnDisconnect = false,
   preferHostScrollback = false,
   retryOnDeadSession = true,
+  sessionCreateFallback,
   staticContent,
   onExit,
   onData,
@@ -996,27 +1009,48 @@ export function useXterm({
 
     try {
       const createRequestId = ++createRequestIdRef.current;
-      const createOptions = {
-        cwd: cwd || getRendererEnvironment().HOME,
-        // If command is provided (e.g., for agent), use shell/args directly
-        // Otherwise, use shellConfig from settings
-        ...(command
-          ? {
-              shell: command.shell,
-              args: command.args,
-              fallbackShell: command.fallbackCommand?.shell,
-              fallbackArgs: command.fallbackCommand?.args,
-            }
-          : { shellConfig }),
-        cols: terminal.cols,
-        rows: terminal.rows,
-        env,
-        hostSession,
-        metadata,
-        initialCommand: initialCommandRef.current,
-        kind,
-        persistOnDisconnect,
-      } as const;
+      const baseCwd = cwd || getRendererEnvironment().HOME;
+      const hasOwnOverride = <
+        K extends keyof XtermSessionCreateFallbackOptions,
+      >(
+        overrides: XtermSessionCreateFallbackOptions | undefined,
+        key: K
+      ): overrides is XtermSessionCreateFallbackOptions &
+        Required<Pick<XtermSessionCreateFallbackOptions, K>> =>
+        Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, key));
+      const buildCreateOptions = (
+        overrides?: XtermSessionCreateFallbackOptions
+      ): SessionCreateOptions => {
+        const nextCommand = hasOwnOverride(overrides, 'command') ? overrides.command : command;
+        const nextEnv = hasOwnOverride(overrides, 'env') ? overrides.env : env;
+        const nextHostSession = hasOwnOverride(overrides, 'hostSession')
+          ? overrides.hostSession
+          : hostSession;
+        const nextInitialCommand = hasOwnOverride(overrides, 'initialCommand')
+          ? overrides.initialCommand
+          : initialCommandRef.current;
+
+        return {
+          cwd: baseCwd,
+          ...(nextCommand
+            ? {
+                shell: nextCommand.shell,
+                args: nextCommand.args,
+                fallbackShell: nextCommand.fallbackCommand?.shell,
+                fallbackArgs: nextCommand.fallbackCommand?.args,
+              }
+            : { shellConfig }),
+          cols: terminal.cols,
+          rows: terminal.rows,
+          env: nextEnv,
+          hostSession: nextHostSession,
+          metadata,
+          initialCommand: nextInitialCommand,
+          kind,
+          persistOnDisconnect,
+        };
+      };
+      const createOptions = buildCreateOptions();
 
       const setCurrentSessionId = (sessionId: string) => {
         ptyIdRef.current = sessionId;
@@ -1082,19 +1116,46 @@ export function useXterm({
         });
       };
 
-      const createAndAttachSession = async () => {
-        agentStartupLoggerRef.current?.markStage('session-create-start');
-        const created = await window.electronAPI.session.create(createOptions);
-        agentStartupLoggerRef.current?.markStage('session-created');
+      const createAndAttachSessionWithOptions = async (
+        sessionCreateOptions: SessionCreateOptions,
+        stagePrefix: 'session-create' | 'session-create-fallback'
+      ) => {
+        agentStartupLoggerRef.current?.markStage(`${stagePrefix}-start`);
+        const created = await window.electronAPI.session.create(sessionCreateOptions);
+        agentStartupLoggerRef.current?.markStage(`${stagePrefix}-created`);
         const createdSessionId = created.session.sessionId;
         setCurrentSessionId(createdSessionId);
         subscribeToSession(createdSessionId);
-        if (isRemoteVirtualPath(createOptions.cwd)) {
+        if (isRemoteVirtualPath(sessionCreateOptions.cwd ?? '')) {
           return created;
         }
         const attached = await attachToSession(createdSessionId);
-        agentStartupLoggerRef.current?.markStage('session-attached');
+        agentStartupLoggerRef.current?.markStage(`${stagePrefix}-attached`);
         return attached;
+      };
+
+      const createAndAttachSession = async () => {
+        try {
+          return await createAndAttachSessionWithOptions(createOptions, 'session-create');
+        } catch (error) {
+          if (
+            !shouldRetrySessionCreateWithoutHost({
+              error,
+              kind,
+              persistOnDisconnect,
+              hostSession,
+              hasFallback: Boolean(sessionCreateFallback),
+            })
+          ) {
+            throw error;
+          }
+
+          sessionCreateFallback?.onRetry?.();
+          return createAndAttachSessionWithOptions(
+            buildCreateOptions(sessionCreateFallback),
+            'session-create-fallback'
+          );
+        }
       };
 
       let session: SessionDescriptor | null = null;
@@ -1197,6 +1258,7 @@ export function useXterm({
     effectiveTerminalRenderer,
     kind,
     persistOnDisconnect,
+    sessionCreateFallback,
     navigateToFile,
     loadRenderer,
     resetSessionBinding,

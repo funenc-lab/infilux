@@ -15,11 +15,16 @@ describe('agent integration capability model', () => {
       { providerId: 'gemini-cli', label: 'Gemini CLI' },
     ]);
     expect(model.totalCapabilityCount).toBe(5);
-    expect(model.supportedProviderLabels).toEqual(['Claude Code', 'Codex CLI', 'Gemini CLI']);
-    expect(model.unsupportedProviderLabels).toEqual(['Cursor CLI']);
+    expect(model.supportedProviderLabels).toEqual([
+      'Claude Code',
+      'Codex CLI',
+      'Cursor CLI',
+      'Gemini CLI',
+    ]);
+    expect(model.unsupportedProviderLabels).toEqual([]);
     expect(model.fullCoverageProviderLabels).toEqual(['Claude Code']);
-    expect(model.partialCoverageProviderLabels).toEqual(['Codex CLI', 'Gemini CLI']);
-    expect(model.noCoverageProviderLabels).toEqual(['Cursor CLI']);
+    expect(model.partialCoverageProviderLabels).toEqual(['Codex CLI', 'Cursor CLI', 'Gemini CLI']);
+    expect(model.noCoverageProviderLabels).toEqual([]);
     expect(
       model.providerCoverages.map(
         ({
@@ -46,23 +51,23 @@ describe('agent integration capability model', () => {
       },
       {
         label: 'Codex CLI',
+        supportedCapabilityCount: 2,
+        unsupportedCapabilityCount: 3,
+        coveragePercent: 40,
+        tone: 'partial',
+      },
+      {
+        label: 'Cursor CLI',
         supportedCapabilityCount: 1,
         unsupportedCapabilityCount: 4,
         coveragePercent: 20,
         tone: 'partial',
       },
       {
-        label: 'Cursor CLI',
-        supportedCapabilityCount: 0,
-        unsupportedCapabilityCount: 5,
-        coveragePercent: 0,
-        tone: 'pending',
-      },
-      {
         label: 'Gemini CLI',
-        supportedCapabilityCount: 1,
-        unsupportedCapabilityCount: 4,
-        coveragePercent: 20,
+        supportedCapabilityCount: 2,
+        unsupportedCapabilityCount: 3,
+        coveragePercent: 40,
         tone: 'partial',
       },
     ]);
@@ -91,10 +96,7 @@ describe('agent integration capability model', () => {
       { label: 'Gemini CLI', supported: true },
     ]);
     expect(
-      model.capabilities[1].providerStatuses.map(({ label, supported }) => ({
-        label,
-        supported,
-      }))
+      model.capabilities[1].providerStatuses.map(({ label, supported }) => ({ label, supported }))
     ).toEqual([
       { label: 'Claude Code', supported: true },
       { label: 'Codex CLI', supported: false },
@@ -102,14 +104,11 @@ describe('agent integration capability model', () => {
       { label: 'Gemini CLI', supported: false },
     ]);
     expect(
-      model.capabilities
-        .slice(1)
-        .every(
-          (capability) =>
-            capability.supportedProviderLabels.join(', ') === 'Claude Code' &&
-            capability.unsupportedProviderLabels.length === 3
-        )
-    ).toBe(true);
+      findAgentIntegrationCapability(model, 'editor-context')?.supportedProviderLabels
+    ).toEqual(['Claude Code']);
+    expect(
+      findAgentIntegrationCapability(model, 'completion-notification')?.supportedProviderLabels
+    ).toEqual(['Claude Code', 'Codex CLI', 'Cursor CLI', 'Gemini CLI']);
   });
 
   it('resolves capabilities by id for provider-scoped settings controls', () => {
@@ -120,7 +119,7 @@ describe('agent integration capability model', () => {
     ).toEqual(['Claude Code']);
     expect(
       findAgentIntegrationCapability(model, 'completion-notification')?.unsupportedProviderLabels
-    ).toEqual(['Codex CLI', 'Cursor CLI', 'Gemini CLI']);
+    ).toEqual([]);
     expect(findAgentIntegrationCapability(model, 'status-telemetry')?.supportedProviderCount).toBe(
       1
     );

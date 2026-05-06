@@ -6,6 +6,7 @@ import type {
 } from '@shared/types';
 import { getDisplayPath, getDisplayPathBasename, isWslUncPath } from '@shared/utils/path';
 import {
+  Activity,
   BrainCircuit,
   ChevronRight,
   Clock,
@@ -21,7 +22,6 @@ import {
   RefreshCw,
   Search,
   Settings2,
-  Sparkles,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -81,6 +81,7 @@ import { buildRemovalDialogCopy, buildWorkspaceToastCopy } from '@/lib/feedbackC
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
+import type { SessionRuntimeState } from '@/stores/agentSessions';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
@@ -132,6 +133,10 @@ function mergeWorktreesByPath(
   }
 
   return [...mergedWorktrees.values()];
+}
+
+function isLiveAgentSessionRuntimeState(state: SessionRuntimeState | undefined): boolean {
+  return state?.outputState === 'outputting' || state?.waitingForInput === true;
 }
 
 export interface TreeSidebarProps {
@@ -501,6 +506,8 @@ export function TreeSidebar({
 
   const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
   const activities = useWorktreeActivityStore((s) => s.activities);
+  const agentSessions = useAgentSessionsStore((s) => s.sessions);
+  const agentRuntimeStates = useAgentSessionsStore((s) => s.runtimeStates);
   const shouldPoll = useShouldPoll();
   const activePathSet = useMemo(
     () =>
@@ -882,12 +889,14 @@ export function TreeSidebar({
   const hasSearchFilter =
     parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0 || showAgentWorktreesOnly;
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
-  const hasAgentActivityForPath = useCallback(
-    (path: string) => {
-      const activity = activities[normalizePath(path)] ?? activities[path];
-      return activity !== undefined && activity.agentCount > 0;
-    },
-    [activities]
+  const liveAgentSessionPathSet = useMemo(
+    () =>
+      new Set(
+        agentSessions
+          .filter((session) => isLiveAgentSessionRuntimeState(agentRuntimeStates[session.id]))
+          .map((session) => normalizePath(session.cwd))
+      ),
+    [agentRuntimeStates, agentSessions]
   );
   const agentFilterCreatedPathSet = useMemo(() => {
     const createdPaths = new Set<string>();
@@ -900,21 +909,18 @@ export function TreeSidebar({
 
     return createdPaths;
   }, [agentFilterCreatedWorktrees]);
-  const activeWorktreePath = activeWorktree?.path ?? null;
   const hasAgentFilterVisibilityOverrideForPath = useCallback(
     (path: string) => {
       const normalizedPath = normalizePath(path);
-      return (
-        normalizedPath === (activeWorktreePath ? normalizePath(activeWorktreePath) : null) ||
-        agentFilterCreatedPathSet.has(normalizedPath)
-      );
+      return agentFilterCreatedPathSet.has(normalizedPath);
     },
-    [activeWorktreePath, agentFilterCreatedPathSet]
+    [agentFilterCreatedPathSet]
   );
   const matchesAgentWorktreeFilter = useCallback(
     (path: string) =>
-      hasAgentActivityForPath(path) || hasAgentFilterVisibilityOverrideForPath(path),
-    [hasAgentActivityForPath, hasAgentFilterVisibilityOverrideForPath]
+      liveAgentSessionPathSet.has(normalizePath(path)) ||
+      hasAgentFilterVisibilityOverrideForPath(path),
+    [hasAgentFilterVisibilityOverrideForPath, liveAgentSessionPathSet]
   );
   const filteredTempWorkspaces = useMemo(() => {
     return sortedTempWorkspaces.filter((item) => {
@@ -1522,13 +1528,13 @@ export function TreeSidebar({
             onClick={() => setShowAgentWorktreesOnly((previous) => !previous)}
             aria-pressed={showAgentWorktreesOnly}
             aria-label={
-              showAgentWorktreesOnly ? t('Show all worktrees') : t('Only show Agent worktrees')
+              showAgentWorktreesOnly ? t('Show all worktrees') : t('Only show live Agent sessions')
             }
             title={
-              showAgentWorktreesOnly ? t('Show all worktrees') : t('Only show Agent worktrees')
+              showAgentWorktreesOnly ? t('Show all worktrees') : t('Only show live Agent sessions')
             }
           >
-            <Sparkles className="h-3.5 w-3.5 shrink-0" />
+            <Activity className="h-3.5 w-3.5 shrink-0" />
             <span>{t('Agent')}</span>
           </button>
         </div>

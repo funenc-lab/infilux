@@ -21,6 +21,9 @@ const claudeProviderTestDoubles = vi.hoisted(() => {
   const applyCodexProvider = vi.fn();
   const watchCodexProviderSettings = vi.fn();
   const unwatchCodexProviderSettings = vi.fn();
+  const readCursorProviderSettings = vi.fn();
+  const watchCursorProviderSettings = vi.fn();
+  const unwatchCursorProviderSettings = vi.fn();
   const readGeminiProviderSettings = vi.fn();
   const applyGeminiProvider = vi.fn();
   const watchGeminiProviderSettings = vi.fn();
@@ -64,6 +67,19 @@ const claudeProviderTestDoubles = vi.hoisted(() => {
     applyCodexProvider.mockResolvedValue(true);
     watchCodexProviderSettings.mockReset();
     unwatchCodexProviderSettings.mockReset();
+    readCursorProviderSettings.mockReset();
+    readCursorProviderSettings.mockResolvedValue({
+      providerId: 'cursor-cli',
+      settings: { configJson: '{"model":"auto"}' },
+      extracted: {
+        providerId: 'cursor-cli',
+        model: 'auto',
+      },
+      detected: true,
+      supported: true,
+    });
+    watchCursorProviderSettings.mockReset();
+    unwatchCursorProviderSettings.mockReset();
     readGeminiProviderSettings.mockReset();
     readGeminiProviderSettings.mockResolvedValue({
       providerId: 'gemini-cli',
@@ -100,6 +116,9 @@ const claudeProviderTestDoubles = vi.hoisted(() => {
     applyCodexProvider,
     watchCodexProviderSettings,
     unwatchCodexProviderSettings,
+    readCursorProviderSettings,
+    watchCursorProviderSettings,
+    unwatchCursorProviderSettings,
     readGeminiProviderSettings,
     applyGeminiProvider,
     watchGeminiProviderSettings,
@@ -133,6 +152,12 @@ vi.mock('../../services/agentProvider/CodexProviderManager', () => ({
   readCodexProviderSettings: claudeProviderTestDoubles.readCodexProviderSettings,
   unwatchCodexProviderSettings: claudeProviderTestDoubles.unwatchCodexProviderSettings,
   watchCodexProviderSettings: claudeProviderTestDoubles.watchCodexProviderSettings,
+}));
+
+vi.mock('../../services/agentProvider/CursorProviderManager', () => ({
+  readCursorProviderSettings: claudeProviderTestDoubles.readCursorProviderSettings,
+  unwatchCursorProviderSettings: claudeProviderTestDoubles.unwatchCursorProviderSettings,
+  watchCursorProviderSettings: claudeProviderTestDoubles.watchCursorProviderSettings,
 }));
 
 vi.mock('../../services/agentProvider/GeminiProviderManager', () => ({
@@ -260,6 +285,34 @@ describe('Claude provider IPC handlers', () => {
     expect(claudeProviderTestDoubles.applyProvider).not.toHaveBeenCalled();
   });
 
+  it('routes generic Cursor provider reads through the Cursor provider implementation', async () => {
+    const { registerClaudeProviderHandlers } = await import('../claudeProvider');
+    registerClaudeProviderHandlers();
+
+    await expect(
+      getHandler(IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS)({}, '/repo', 'cursor-cli')
+    ).resolves.toEqual({
+      providerId: 'cursor-cli',
+      settings: { configJson: '{"model":"auto"}' },
+      extracted: {
+        providerId: 'cursor-cli',
+        model: 'auto',
+      },
+      detected: true,
+      supported: true,
+    });
+
+    await expect(
+      getHandler(IPC_CHANNELS.AGENT_PROVIDER_APPLY)({}, '/repo', {
+        providerId: 'cursor-cli',
+        authToken: 'cursor-token',
+        baseUrl: 'https://api.cursor.com',
+      })
+    ).resolves.toBe(false);
+
+    expect(claudeProviderTestDoubles.readCursorProviderSettings).toHaveBeenCalledWith('/repo');
+  });
+
   it('reads and applies local Claude provider settings', async () => {
     const { registerClaudeProviderHandlers } = await import('../claudeProvider');
     registerClaudeProviderHandlers();
@@ -347,6 +400,7 @@ describe('Claude provider IPC handlers', () => {
     initClaudeProviderWatcher(aliveWindow as never, true);
     expect(claudeProviderTestDoubles.watchClaudeSettings).toHaveBeenCalledWith(aliveWindow);
     expect(claudeProviderTestDoubles.watchCodexProviderSettings).toHaveBeenCalledWith(aliveWindow);
+    expect(claudeProviderTestDoubles.watchCursorProviderSettings).toHaveBeenCalledWith(aliveWindow);
     expect(claudeProviderTestDoubles.watchGeminiProviderSettings).toHaveBeenCalledWith(aliveWindow);
 
     initClaudeProviderWatcher(destroyedWindow as never, false);
@@ -354,17 +408,20 @@ describe('Claude provider IPC handlers', () => {
     expect(claudeProviderTestDoubles.watchClaudeSettings).toHaveBeenCalledTimes(1);
     expect(claudeProviderTestDoubles.unwatchClaudeSettings).toHaveBeenCalledTimes(1);
     expect(claudeProviderTestDoubles.unwatchCodexProviderSettings).toHaveBeenCalledTimes(1);
+    expect(claudeProviderTestDoubles.unwatchCursorProviderSettings).toHaveBeenCalledTimes(1);
     expect(claudeProviderTestDoubles.unwatchGeminiProviderSettings).toHaveBeenCalledTimes(1);
 
     toggleClaudeProviderWatcher(false);
     expect(claudeProviderTestDoubles.unwatchClaudeSettings).toHaveBeenCalledTimes(2);
     expect(claudeProviderTestDoubles.unwatchCodexProviderSettings).toHaveBeenCalledTimes(2);
+    expect(claudeProviderTestDoubles.unwatchCursorProviderSettings).toHaveBeenCalledTimes(2);
     expect(claudeProviderTestDoubles.unwatchGeminiProviderSettings).toHaveBeenCalledTimes(2);
 
     initClaudeProviderWatcher(aliveWindow as never, false);
     toggleClaudeProviderWatcher(true);
     expect(claudeProviderTestDoubles.watchClaudeSettings).toHaveBeenCalledTimes(2);
     expect(claudeProviderTestDoubles.watchCodexProviderSettings).toHaveBeenCalledTimes(2);
+    expect(claudeProviderTestDoubles.watchCursorProviderSettings).toHaveBeenCalledTimes(2);
     expect(claudeProviderTestDoubles.watchGeminiProviderSettings).toHaveBeenCalledTimes(2);
   });
 });

@@ -39,6 +39,8 @@ export interface AiCenterDecisionItem {
   id: string;
   label: string;
   detail: string;
+  agentLabel?: string;
+  agentLabelKey?: string;
   meta?: string;
   reasonLabelKeys?: string[];
 }
@@ -53,6 +55,7 @@ export interface AiCenterRiskItem {
 export interface AiCenterDecisionPlan {
   confidence: AiCenterDecisionConfidence;
   coordinationSignals: AiCenterCoordinationSignal[];
+  deferredQueueItems: AiCenterDecisionItem[];
   dispatchBatches: AiCenterDispatchBatch[];
   headline: string;
   interventionItems: AiCenterDecisionItem[];
@@ -127,6 +130,15 @@ function buildDispatchBatches(summary: AiCenterSummary): AiCenterDispatchBatch[]
   return Array.from(batches.values());
 }
 
+function buildDeferredQueueItems(summary: AiCenterSummary): AiCenterDecisionItem[] {
+  return summary.execution.deferredQueueTasks.map((task) => ({
+    id: `${task.repoPath}:${task.taskId}`,
+    label: task.title,
+    detail: `${task.repoName}: queued after current run`,
+    meta: task.repoName,
+  }));
+}
+
 function buildInterventionItems(summary: AiCenterSummary): AiCenterDecisionItem[] {
   return summary.execution.interventionTasks.map((task) => ({
     id: `${task.repoPath}:${task.taskId}`,
@@ -147,6 +159,9 @@ function buildMonitoringItems(summary: AiCenterSummary): AiCenterDecisionItem[] 
     id: `${task.repoPath}:${task.taskId}`,
     label: task.title,
     detail: `${task.repoName}: ${task.agentLabel}`,
+    meta: task.repoName,
+    agentLabel: task.agentLabel,
+    ...(task.agentId === 'auto' ? { agentLabelKey: 'Auto Select' } : {}),
   }));
 }
 
@@ -278,6 +293,7 @@ export function buildAiCenterDecisionPlan({
   return {
     confidence: resolveConfidence(summary, agents),
     coordinationSignals: buildCoordinationSignals(summary, agents),
+    deferredQueueItems: buildDeferredQueueItems(summary),
     dispatchBatches: buildDispatchBatches(summary),
     headline: resolveHeadline(recommendedAction),
     interventionItems: buildInterventionItems(summary),
@@ -322,6 +338,7 @@ export function buildAiCenterSessionPrompt({
   const decisionWorklistLines = [
     ...plan.interventionItems.map((item) => `- Intervention: ${item.label} - ${item.detail}`),
     ...plan.monitoringItems.map((item) => `- Monitor: ${item.label} - ${item.detail}`),
+    ...plan.deferredQueueItems.map((item) => `- Deferred: ${item.label} - ${item.detail}`),
   ];
 
   return `

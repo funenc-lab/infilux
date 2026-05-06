@@ -1,5 +1,5 @@
 import type { AgentStopNotificationData } from '@shared/types/agent';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizePath } from '@/App/storage';
 import { onRendererAgentStop } from '@/lib/agentStopEvents';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
@@ -7,6 +7,7 @@ import { useTodoStore } from '@/stores/todo';
 import {
   handleTodoAutoExecuteStop,
   startTodoGlobalAutoExecute,
+  type TodoGlobalDispatchResult,
 } from '../todo/todoAutoExecuteRuntime';
 import { buildApprovedTodoTaskContext } from '../todo/todoTaskContext';
 import { buildAiCenterSummary } from '../todo/todoViewModel';
@@ -33,6 +34,7 @@ export function AiCenterPanel({
   const loadAllProjects = useTodoStore((state) => state.loadAllProjects);
   const updateTask = useTodoStore((state) => state.updateTask);
   const enabledAgents = useEnabledAgents();
+  const [dispatchResult, setDispatchResult] = useState<TodoGlobalDispatchResult | undefined>();
   const currentRepoKey = useMemo(
     () => (currentRepoPath ? normalizePath(currentRepoPath) : undefined),
     [currentRepoPath]
@@ -73,9 +75,7 @@ export function AiCenterPanel({
     [autoExecuteByRepo]
   );
   const canDispatchReadyTasks =
-    enabledAgents.length > 0 &&
-    summary.execution.nextAction === 'dispatch-ready' &&
-    summary.execution.dispatchableTasks.length > 0;
+    enabledAgents.length > 0 && summary.execution.dispatchableTasks.length > 0;
   const selectedAgent =
     enabledAgents.find((agent) => agent.isDefault) ?? enabledAgents[0] ?? undefined;
   const fallbackProject =
@@ -89,12 +89,13 @@ export function AiCenterPanel({
       return;
     }
 
-    startTodoGlobalAutoExecute({
+    const result = startTodoGlobalAutoExecute({
       dispatchableTasks: summary.execution.dispatchableTasks,
       enabledAgents,
       onSwitchToAgent,
       worktreePathByRepo,
     });
+    setDispatchResult(result);
   }, [
     canDispatchReadyTasks,
     enabledAgents,
@@ -200,6 +201,7 @@ export function AiCenterPanel({
           canDispatchReadyTasks={canDispatchReadyTasks}
           canOpenDecisionChat={canOpenDecisionChat}
           decisionPlan={decisionPlan}
+          dispatchResult={dispatchResult}
           onApproveTask={handleApproveTask}
           onDispatchReadyTasks={handleDispatchReadyTasks}
           onOpenDecisionChat={handleOpenDecisionChat}

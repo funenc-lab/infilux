@@ -92,7 +92,7 @@ describe('agent provider adapter policy', () => {
     expect(providerListSource).toContain('Current CLI Config Detected');
     expect(providerListSource).toContain('Save Current CLI Config');
     expect(providerListSource).toContain('Manual Add Provider');
-    expect(providerListSource).toContain('Provider profile already saved as {{name}}');
+    expect(providerListSource).toContain('buildAgentProviderDetectionState');
   });
 
   it('surfaces saved provider capability status in the settings provider list', () => {
@@ -102,12 +102,12 @@ describe('agent provider adapter policy', () => {
     expect(providerListSource).toContain('{{count}} waiting for provider adapter');
   });
 
-  it('only offers provider profile types backed by working adapters', () => {
-    expect(providerListSource).toContain('providerProfileOptions');
+  it('lets the settings selector inspect every provider type while keeping manual saves adapter-gated', () => {
+    expect(providerListSource).toContain('providerSelectionOptions');
+    expect(providerListSource).toContain('AI_PROVIDER_OPTIONS');
+    expect(providerListSource).toContain('providerSelectionOptions.map');
     expect(providerDialogSource).toContain('providerProfileOptions');
-    expect(providerListSource).toContain('adapter.supportsProfiles');
     expect(providerDialogSource).toContain('adapter.supportsProfiles');
-    expect(providerListSource).toContain('providerProfileOptions.map');
     expect(providerDialogSource).toContain('providerProfileOptions.map');
   });
 

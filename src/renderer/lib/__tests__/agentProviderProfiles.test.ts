@@ -12,6 +12,7 @@ import {
   createAgentProviderProfileRegistryFacade,
   createClaudeCodeProviderProfileAdapter,
   createCodexCliProviderProfileAdapter,
+  createCursorCliProviderProfileAdapter,
   createGeminiCliProviderProfileAdapter,
   getAgentProviderProfileAdapter,
 } from '../agentProviderProfiles';
@@ -301,6 +302,58 @@ describe('agent provider profiles', () => {
     expect(callback).toHaveBeenCalledWith(readSnapshot);
   });
 
+  it('adapts Cursor CLI provider inspection behind a read-only adapter contract', async () => {
+    const readSnapshot: TestProviderSnapshot = {
+      providerId: 'cursor-cli',
+      settings: { configJson: '{"model":"auto"}' },
+      extracted: {
+        providerId: 'cursor-cli',
+        model: 'auto',
+      },
+      detected: true,
+      supported: true,
+    };
+    const readSettings = vi.fn(async (): Promise<TestProviderSnapshot> => readSnapshot);
+    const apply = vi.fn(async (): Promise<boolean> => true);
+    const settingsChangedCallbacks: Array<(snapshot: TestProviderSnapshot) => void> = [];
+    const onSettingsChanged = vi.fn((callback: (snapshot: TestProviderSnapshot) => void) => {
+      settingsChangedCallbacks.push(callback);
+      return () => undefined;
+    });
+    const adapter = createCursorCliProviderProfileAdapter({
+      readSettings,
+      apply,
+      onSettingsChanged,
+    });
+    const callback = vi.fn();
+
+    await expect(adapter.readCurrent('/repo')).resolves.toEqual(readSnapshot);
+    await expect(
+      adapter.apply('/repo', {
+        id: 'cursor-provider',
+        name: 'Cursor Provider',
+        providerId: 'cursor-cli',
+        baseUrl: 'https://api.cursor.com',
+        authToken: 'token',
+      })
+    ).resolves.toBe(false);
+    adapter.subscribeToExternalChanges('/repo', callback);
+
+    expect(adapter.id).toBe('cursor-cli');
+    expect(adapter.supportsProfiles).toBe(false);
+    expect(adapter.supportsSession({ agentId: 'cursor-agent', agentCommand: 'cursor-agent' })).toBe(
+      false
+    );
+    expect(readSettings).toHaveBeenCalledWith('/repo', 'cursor-cli');
+    expect(apply).not.toHaveBeenCalled();
+    const settingsChangedCallback = settingsChangedCallbacks[0];
+    if (!settingsChangedCallback) {
+      throw new Error('Expected settings change callback to be registered');
+    }
+    settingsChangedCallback(readSnapshot);
+    expect(callback).toHaveBeenCalledWith(readSnapshot);
+  });
+
   it('registers every catalog provider behind an explicit adapter contract', async () => {
     expect(agentProviderProfileRegistry.map((adapter) => adapter.providerId)).toEqual([
       ...AI_PROVIDERS,
@@ -339,6 +392,12 @@ describe('agent provider profiles', () => {
     expect(geminiAdapter.supportsSession({ agentId: 'gemini', agentCommand: 'gemini' })).toBe(true);
     expect(geminiAdapter.supportsSession({ agentId: 'codex', agentCommand: 'codex' })).toBe(false);
     expect(geminiAdapter.isActiveProfile(geminiProfile, geminiProfile)).toBe(true);
+
+    const cursorAdapter = getAgentProviderProfileAdapter('cursor-cli');
+    expect(cursorAdapter.supportsProfiles).toBe(false);
+    expect(
+      cursorAdapter.supportsSession({ agentId: 'cursor-agent', agentCommand: 'cursor-agent' })
+    ).toBe(false);
   });
 
   it('uses the registry facade to detect the current config across supported provider adapters', async () => {
@@ -400,7 +459,7 @@ describe('agent provider profiles', () => {
     expect(geminiHarness.adapter.readCurrent).toHaveBeenCalledWith('/repo');
   });
 
-  it('lists every supported provider config instead of collapsing detection to the first hit', async () => {
+  it('lists every detected provider config instead of collapsing detection to the first hit', async () => {
     const claudeHarness = createTestAdapterHarness({
       providerId: 'claude-code',
       supportsProfiles: true,
@@ -427,9 +486,12 @@ describe('agent provider profiles', () => {
       providerId: 'cursor-cli',
       supportsProfiles: false,
       snapshot: {
-        settings: null,
-        extracted: null,
-        supported: false,
+        settings: { provider: 'cursor' },
+        extracted: {
+          model: 'auto',
+        },
+        detected: true,
+        supported: true,
       },
     });
     const facade = createAgentProviderProfileRegistryFacade([
@@ -459,8 +521,18 @@ describe('agent provider profiles', () => {
           authToken: 'codex-token',
         },
       },
+      {
+        providerId: 'cursor-cli',
+        detected: true,
+        supported: true,
+        settings: { provider: 'cursor' },
+        extracted: {
+          providerId: 'cursor-cli',
+          model: 'auto',
+        },
+      },
     ]);
-    expect(cursorHarness.adapter.readCurrent).not.toHaveBeenCalled();
+    expect(cursorHarness.adapter.readCurrent).toHaveBeenCalledWith('/repo');
   });
 
   it('redacts generic provider preview secrets', () => {
@@ -495,7 +567,7 @@ describe('agent provider profiles', () => {
     });
   });
 
-  it('normalizes registry change events and only subscribes supported provider adapters', () => {
+  it('normalizes registry change events across every provider adapter', () => {
     const claudeHarness = createTestAdapterHarness({
       providerId: 'claude-code',
       supportsProfiles: true,
@@ -520,10 +592,21 @@ describe('agent provider profiles', () => {
         extracted: null,
       },
     });
+    const cursorHarness = createTestAdapterHarness({
+      providerId: 'cursor-cli',
+      supportsProfiles: false,
+      snapshot: {
+        settings: null,
+        extracted: null,
+        detected: false,
+        supported: true,
+      },
+    });
     const callback = vi.fn();
     const facade = createAgentProviderProfileRegistryFacade([
       claudeHarness.adapter,
       codexHarness.adapter,
+      cursorHarness.adapter,
       geminiHarness.adapter,
     ]);
 
@@ -554,6 +637,10 @@ describe('agent provider profiles', () => {
       '/repo',
       expect.any(Function)
     );
+    expect(cursorHarness.adapter.subscribeToExternalChanges).toHaveBeenCalledWith(
+      '/repo',
+      expect.any(Function)
+    );
     expect(geminiHarness.adapter.subscribeToExternalChanges).toHaveBeenCalledWith(
       '/repo',
       expect.any(Function)
@@ -563,6 +650,7 @@ describe('agent provider profiles', () => {
 
     expect(claudeHarness.cleanup).toHaveBeenCalledTimes(1);
     expect(codexHarness.cleanup).toHaveBeenCalledTimes(1);
+    expect(cursorHarness.cleanup).toHaveBeenCalledTimes(1);
     expect(geminiHarness.cleanup).toHaveBeenCalledTimes(1);
   });
 });

@@ -8,6 +8,11 @@ import {
   watchCodexProviderSettings,
 } from '../services/agentProvider/CodexProviderManager';
 import {
+  readCursorProviderSettings,
+  unwatchCursorProviderSettings,
+  watchCursorProviderSettings,
+} from '../services/agentProvider/CursorProviderManager';
+import {
   applyGeminiProvider,
   readGeminiProviderSettings,
   unwatchGeminiProviderSettings,
@@ -53,6 +58,10 @@ async function readProviderSettings(repoPath?: string, providerId?: AIProvider) 
 
   if (targetProviderId === 'gemini-cli') {
     return readGeminiProviderSettings(repoPath);
+  }
+
+  if (targetProviderId === 'cursor-cli') {
+    return readCursorProviderSettings(repoPath);
   }
 
   if (targetProviderId !== 'claude-code') {
@@ -120,12 +129,14 @@ let watcherWindow: BrowserWindow | null = null;
 function watchAgentProviderSettings(window: BrowserWindow): void {
   watchClaudeSettings(window);
   watchCodexProviderSettings(window);
+  watchCursorProviderSettings(window);
   watchGeminiProviderSettings(window);
 }
 
 function unwatchAgentProviderSettings(): void {
   unwatchClaudeSettings();
   unwatchCodexProviderSettings();
+  unwatchCursorProviderSettings();
   unwatchGeminiProviderSettings();
 }
 

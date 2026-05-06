@@ -149,27 +149,45 @@ describe('agent integration capability settings', () => {
     expect(container.textContent).toContain(
       'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.'
     );
+    expect(container.textContent).toContain('5 capabilities');
+    expect(container.textContent).toContain('4 providers');
+    expect(container.textContent).toContain('Provider coverage summary');
+    expect(container.textContent).toContain('Capability coverage matrix');
+    const legend = container.querySelector('[aria-label="Capability coverage legend"]');
+    expect(legend?.textContent).toContain('Supported');
+    expect(legend?.textContent).toContain('Adapter pending');
+    const providerSummary = container.querySelector(
+      '[aria-labelledby] [role="list"]'
+    ) as HTMLElement | null;
+    expect(providerSummary?.className).toContain('overflow-x-auto');
+    const matrixRegion = container.querySelector(
+      '[role="region"][aria-labelledby]'
+    ) as HTMLElement | null;
+    expect(matrixRegion?.className).toContain('max-h-[22rem]');
+    expect(matrixRegion?.className).toContain('overflow-auto');
+    const matrixHeader = matrixRegion?.querySelector('thead');
+    expect(matrixHeader?.className).toContain('sticky');
     expect(container.textContent).toContain('Claude Code');
     expect(container.textContent).toContain('5/5 capabilities');
     expect(container.textContent).toContain('Full coverage');
     expect(container.textContent).toContain('Codex CLI');
-    expect(container.textContent).toContain('1/5 capabilities');
+    expect(container.textContent).toContain('2/5 capabilities');
     expect(container.textContent).toContain('Partial coverage');
     expect(container.textContent).toContain('Cursor CLI');
-    expect(container.textContent).toContain('0/5 capabilities');
-    expect(container.textContent).toContain('No coverage');
+    expect(container.textContent).toContain('1/5 capabilities');
+    expect(container.textContent).not.toContain('Provider coverage summaryProvider');
 
     expect(getProgressbar(container, 'Claude Code: 5/5 capabilities')).toHaveProperty(
       'ariaValueNow',
       '100'
     );
-    expect(getProgressbar(container, 'Codex CLI: 1/5 capabilities')).toHaveProperty(
+    expect(getProgressbar(container, 'Codex CLI: 2/5 capabilities')).toHaveProperty(
+      'ariaValueNow',
+      '40'
+    );
+    expect(getProgressbar(container, 'Cursor CLI: 1/5 capabilities')).toHaveProperty(
       'ariaValueNow',
       '20'
-    );
-    expect(getProgressbar(container, 'Cursor CLI: 0/5 capabilities')).toHaveProperty(
-      'ariaValueNow',
-      '0'
     );
 
     act(() => {
@@ -181,7 +199,7 @@ describe('agent integration capability settings', () => {
     const { container, root } = mountIntegrationSettings();
 
     expect(container.textContent).toContain(
-      'Currently supported by Claude Code · 3 waiting for provider adapter'
+      'Currently supported by Claude Code - 3 waiting for provider adapter'
     );
     expect(container.textContent).toContain(
       'Delay before sending selection changes to supported editor bridges'

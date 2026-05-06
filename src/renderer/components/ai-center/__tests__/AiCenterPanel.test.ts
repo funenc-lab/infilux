@@ -3,6 +3,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { startTodoGlobalAutoExecute } from '../../todo/todoAutoExecuteRuntime';
 import type { TodoTaskContext } from '../../todo/types';
 import { AiCenterPanel } from '../AiCenterPanel';
 
@@ -63,7 +64,11 @@ vi.mock('@/stores/agentSessions', () => ({
 
 vi.mock('../../todo/todoAutoExecuteRuntime', () => ({
   handleTodoAutoExecuteStop: vi.fn(),
-  startTodoGlobalAutoExecute: vi.fn(),
+  startTodoGlobalAutoExecute: vi.fn(() => ({
+    skippedTasks: [],
+    startedCount: 0,
+    startedProjects: [],
+  })),
 }));
 
 vi.mock('@/lib/agentStopEvents', () => ({
@@ -125,6 +130,11 @@ describe('AiCenterPanel', () => {
     vi.stubGlobal('crypto', {
       randomUUID: () => 'session-ai-center',
     });
+    window.electronAPI = {
+      notification: {
+        onAgentStop: vi.fn(() => () => undefined),
+      },
+    } as never;
     aiCenterPanelTestDoubles.state.tasks = {
       '/repo/current': [
         createTask({
@@ -258,5 +268,126 @@ describe('AiCenterPanel', () => {
     expect(session?.pendingCommand).toContain('- current: ready, open 1, ready 1, blocked 0');
     expect(session?.pendingCommand).toContain('- other: blocked, open 1, ready 0, blocked 1');
     expect(onSwitchToAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches only startable idle-project tasks while another project is running', () => {
+    const onSwitchToAgent = vi.fn();
+    aiCenterPanelTestDoubles.enabledAgents.push({
+      agentId: 'codex',
+      command: 'codex',
+      environment: 'native',
+      isDefault: true,
+      name: 'Codex CLI',
+    });
+    aiCenterPanelTestDoubles.state.tasks = {
+      '/repo/current': [
+        createTask({
+          id: 'task-running',
+          status: 'in-progress',
+          title: 'Apply schema change',
+        }),
+        createTask({
+          id: 'task-current-ready',
+          title: 'Refine running project follow-up',
+        }),
+      ],
+      '/repo/other': [
+        createTask({
+          id: 'task-other-ready',
+          title: 'Implement idle project work',
+        }),
+      ],
+    };
+    aiCenterPanelTestDoubles.state.autoExecute = {
+      '/repo/current': {
+        running: true,
+        queue: ['task-current-ready'],
+        currentTaskId: 'task-running',
+        currentSessionId: 'session-running',
+      },
+    };
+    const container = renderAiCenterPanel({
+      currentRepoPath: '/repo/current',
+      currentWorktreePath: '/repo/current/worktree',
+      onSwitchToAgent,
+    });
+
+    const dispatchButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Dispatch ready tasks"]'
+    );
+    expect(dispatchButton).not.toBeNull();
+    expect(dispatchButton?.disabled).toBe(false);
+
+    act(() => {
+      dispatchButton?.click();
+    });
+
+    expect(startTodoGlobalAutoExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatchableTasks: [
+          expect.objectContaining({
+            repoPath: '/repo/other',
+            taskId: 'task-other-ready',
+          }),
+        ],
+      })
+    );
+    expect(startTodoGlobalAutoExecute).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatchableTasks: expect.arrayContaining([
+          expect.objectContaining({
+            repoPath: '/repo/current',
+            taskId: 'task-current-ready',
+          }),
+        ]),
+      })
+    );
+  });
+
+  it('shows the latest global dispatch result after dispatching tasks', () => {
+    vi.mocked(startTodoGlobalAutoExecute).mockReturnValueOnce({
+      skippedTasks: [
+        {
+          repoPath: '/repo/current',
+          taskId: 'task-current-ready',
+          reason: 'project-running',
+        },
+      ],
+      startedCount: 1,
+      startedProjects: [{ repoPath: '/repo/other', taskIds: ['task-other-ready'] }],
+    });
+    aiCenterPanelTestDoubles.enabledAgents.push({
+      agentId: 'codex',
+      command: 'codex',
+      environment: 'native',
+      isDefault: true,
+      name: 'Codex CLI',
+    });
+    aiCenterPanelTestDoubles.state.tasks = {
+      '/repo/other': [
+        createTask({
+          id: 'task-other-ready',
+          title: 'Implement idle project work',
+        }),
+      ],
+    };
+    const container = renderAiCenterPanel({
+      currentRepoPath: '/repo/current',
+      currentWorktreePath: '/repo/current/worktree',
+    });
+
+    const dispatchButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Dispatch ready tasks"]'
+    );
+
+    act(() => {
+      dispatchButton?.click();
+    });
+
+    expect(container.textContent).toContain('Dispatch Result');
+    expect(container.textContent).toContain('1 projects started');
+    expect(container.textContent).toContain('/repo/other');
+    expect(container.textContent).toContain('task-other-ready');
+    expect(container.textContent).toContain('Project already running');
   });
 });

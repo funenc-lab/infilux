@@ -2,6 +2,10 @@ import { IPC_CHANNELS } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { unwatchCodexProviderSettings, watchCodexProviderSettings } from '../CodexProviderManager';
 import {
+  unwatchCursorProviderSettings,
+  watchCursorProviderSettings,
+} from '../CursorProviderManager';
+import {
   unwatchGeminiProviderSettings,
   watchGeminiProviderSettings,
 } from '../GeminiProviderManager';
@@ -97,17 +101,22 @@ function createWindow() {
 
 describe('agent provider settings watchers', () => {
   const originalCodexConfigDir = process.env.CODEX_CONFIG_DIR;
+  const originalCursorConfigDir = process.env.CURSOR_CONFIG_DIR;
   const originalGeminiConfigDir = process.env.GEMINI_CONFIG_DIR;
+  const originalCursorApiKey = process.env.CURSOR_API_KEY;
 
   beforeEach(() => {
     vi.useFakeTimers();
     watcherTestDoubles.reset();
     process.env.CODEX_CONFIG_DIR = '/tmp/infilux-codex';
+    process.env.CURSOR_CONFIG_DIR = '/tmp/infilux-cursor';
+    process.env.CURSOR_API_KEY = 'cursor-token';
     process.env.GEMINI_CONFIG_DIR = '/tmp/infilux-gemini';
   });
 
   afterEach(() => {
     unwatchCodexProviderSettings();
+    unwatchCursorProviderSettings();
     unwatchGeminiProviderSettings();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -116,6 +125,16 @@ describe('agent provider settings watchers', () => {
       delete process.env.CODEX_CONFIG_DIR;
     } else {
       process.env.CODEX_CONFIG_DIR = originalCodexConfigDir;
+    }
+    if (originalCursorConfigDir === undefined) {
+      delete process.env.CURSOR_CONFIG_DIR;
+    } else {
+      process.env.CURSOR_CONFIG_DIR = originalCursorConfigDir;
+    }
+    if (originalCursorApiKey === undefined) {
+      delete process.env.CURSOR_API_KEY;
+    } else {
+      process.env.CURSOR_API_KEY = originalCursorApiKey;
     }
     if (originalGeminiConfigDir === undefined) {
       delete process.env.GEMINI_CONFIG_DIR;
@@ -166,11 +185,56 @@ describe('agent provider settings watchers', () => {
           authToken: 'next-token',
           model: 'gpt-5.2-codex',
         },
+        detected: true,
         supported: true,
       }
     );
 
     unwatchCodexProviderSettings();
+    expect(watcherTestDoubles.watcher.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies generic provider listeners when the local Cursor config changes', () => {
+    const window = createWindow();
+    watcherTestDoubles.setFile(
+      '/tmp/infilux-cursor/cli-config.json',
+      JSON.stringify({
+        model: 'auto',
+      })
+    );
+
+    watchCursorProviderSettings(window as never);
+    watcherTestDoubles.setFile(
+      '/tmp/infilux-cursor/cli-config.json',
+      JSON.stringify({
+        model: 'gpt-5.2',
+        permissions: {
+          bash: 'ask',
+        },
+      })
+    );
+    watcherTestDoubles.emitWatchedFileChange('cli-config.json');
+    vi.advanceTimersByTime(400);
+
+    expect(window.webContents.send).toHaveBeenCalledWith(
+      IPC_CHANNELS.AGENT_PROVIDER_SETTINGS_CHANGED,
+      {
+        providerId: 'cursor-cli',
+        settings: {
+          configPath: '/tmp/infilux-cursor/cli-config.json',
+          configJson: expect.stringContaining('"gpt-5.2"'),
+        },
+        extracted: {
+          providerId: 'cursor-cli',
+          authToken: 'cursor-token',
+          model: 'gpt-5.2',
+        },
+        detected: true,
+        supported: true,
+      }
+    );
+
+    unwatchCursorProviderSettings();
     expect(watcherTestDoubles.watcher.close).toHaveBeenCalledTimes(1);
   });
 
@@ -207,6 +271,7 @@ describe('agent provider settings watchers', () => {
           authToken: 'next-token',
           model: 'gemini-3-pro-preview',
         },
+        detected: true,
         supported: true,
       }
     );

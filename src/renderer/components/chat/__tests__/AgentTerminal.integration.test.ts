@@ -601,6 +601,47 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('passes a hostless fallback launch plan to useXterm for persistent tmux-backed codex sessions', async () => {
+    testState.settingsStore.agentIntegration.tmuxEnabled = true;
+
+    const mounted = await mountAgentTerminal({
+      initialized: true,
+      persistenceEnabled: true,
+      hostSessionKey: 'infilux-ui-session-1',
+      recoveryState: 'live',
+    });
+
+    const lastUseXtermCall = testState.useXtermOptions.at(-1) as
+      | {
+          hostSession?: Record<string, unknown>;
+          sessionCreateFallback?: {
+            hostSession?: Record<string, unknown>;
+            command?: {
+              shell: string;
+              args: string[];
+            };
+          };
+        }
+      | undefined;
+
+    expect(lastUseXtermCall?.hostSession).toEqual({
+      kind: 'tmux',
+      serverName: 'infilux',
+      sessionName: 'infilux-ui-session-1',
+    });
+    expect(lastUseXtermCall?.sessionCreateFallback?.hostSession).toBeUndefined();
+    expect(lastUseXtermCall?.sessionCreateFallback?.command).toEqual({
+      shell: 'codex',
+      args: ['resume', 'provider-session-1'],
+      fallbackCommand: {
+        shell: '/bin/zsh',
+        args: ['-lc', 'codex resume provider-session-1'],
+      },
+    });
+
+    await mounted.unmount();
+  });
+
   it('opens the search bar on Ctrl+F and focuses it on repeated Ctrl+F', async () => {
     const mounted = await mountAgentTerminal();
 

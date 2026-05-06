@@ -31,6 +31,30 @@ export interface TodoGlobalDispatchTask {
   taskId: string;
 }
 
+export type TodoGlobalDispatchSkipReason =
+  | 'missing-task'
+  | 'missing-worktree'
+  | 'no-enabled-agents'
+  | 'project-running'
+  | 'start-failed';
+
+export interface TodoGlobalDispatchStartedProject {
+  repoPath: string;
+  taskIds: string[];
+}
+
+export interface TodoGlobalDispatchSkippedTask {
+  repoPath: string;
+  taskId: string;
+  reason: TodoGlobalDispatchSkipReason;
+}
+
+export interface TodoGlobalDispatchResult {
+  skippedTasks: TodoGlobalDispatchSkippedTask[];
+  startedCount: number;
+  startedProjects: TodoGlobalDispatchStartedProject[];
+}
+
 export interface StartTodoGlobalAutoExecuteOptions {
   dispatchableTasks: readonly TodoGlobalDispatchTask[];
   enabledAgents?: readonly ResolvedAgent[];
@@ -271,9 +295,24 @@ export function startTodoGlobalAutoExecute({
   onSwitchToAgent,
   selectedAgentId,
   worktreePathByRepo,
-}: StartTodoGlobalAutoExecuteOptions): number {
-  if (dispatchableTasks.length === 0 || !hasAgents(enabledAgents)) {
-    return 0;
+}: StartTodoGlobalAutoExecuteOptions): TodoGlobalDispatchResult {
+  const result: TodoGlobalDispatchResult = {
+    skippedTasks: [],
+    startedCount: 0,
+    startedProjects: [],
+  };
+
+  if (dispatchableTasks.length === 0) {
+    return result;
+  }
+
+  if (!hasAgents(enabledAgents)) {
+    result.skippedTasks = dispatchableTasks.map((task) => ({
+      repoPath: normalizePath(task.repoPath),
+      taskId: task.taskId,
+      reason: 'no-enabled-agents',
+    }));
+    return result;
   }
 
   const taskIdsByRepo = new Map<string, string[]>();
@@ -284,23 +323,65 @@ export function startTodoGlobalAutoExecute({
     taskIdsByRepo.set(repoKey, taskIds);
   }
 
-  let startedCount = 0;
+  const todoStore = useTodoStore.getState();
+
   for (const [repoKey, taskIds] of taskIdsByRepo.entries()) {
+    const autoExecute = todoStore.autoExecute[repoKey] ?? INITIAL_AUTO_EXECUTE;
+    if (autoExecute.running) {
+      for (const taskId of taskIds) {
+        result.skippedTasks.push({ repoPath: repoKey, taskId, reason: 'project-running' });
+      }
+      continue;
+    }
+
+    const tasks = todoStore.tasks[repoKey] ?? [];
+    const startableTaskIds: string[] = [];
+    const fallbackWorktreePath = getRepoWorktreePath(repoKey, undefined, worktreePathByRepo);
+
+    for (const taskId of taskIds) {
+      const task = tasks.find((item) => item.id === taskId);
+      if (!task) {
+        result.skippedTasks.push({ repoPath: repoKey, taskId, reason: 'missing-task' });
+        continue;
+      }
+
+      const { worktreePath } = resolveTaskWorktreePath({
+        repoKey,
+        task,
+        worktreePath: fallbackWorktreePath,
+      });
+      if (!worktreePath) {
+        result.skippedTasks.push({ repoPath: repoKey, taskId, reason: 'missing-worktree' });
+        continue;
+      }
+
+      startableTaskIds.push(taskId);
+    }
+
+    if (startableTaskIds.length === 0) {
+      continue;
+    }
+
     const didStart = startTodoAutoExecuteQueue({
       enabledAgents,
       onSwitchToAgent,
       repoPath: repoKey,
       selectedAgentId,
-      taskIds,
-      worktreePath: getRepoWorktreePath(repoKey, undefined, worktreePathByRepo),
+      taskIds: startableTaskIds,
+      worktreePath: fallbackWorktreePath,
     });
 
     if (didStart) {
-      startedCount += 1;
+      result.startedCount += 1;
+      result.startedProjects.push({ repoPath: repoKey, taskIds: startableTaskIds });
+    } else {
+      for (const taskId of startableTaskIds) {
+        result.skippedTasks.push({ repoPath: repoKey, taskId, reason: 'start-failed' });
+      }
     }
   }
 
-  return startedCount;
+  return result;
 }
 
 export function handleTodoAutoExecuteStop({

@@ -4,6 +4,7 @@ import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
   resolveReusableBackendSessionId,
+  shouldRetrySessionCreateWithoutHost,
   shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
@@ -372,5 +373,55 @@ describe('shouldRearmDeadSessionRecovery', () => {
         replay: 'restored prompt',
       })
     ).toBe(true);
+  });
+});
+
+describe('shouldRetrySessionCreateWithoutHost', () => {
+  it('retries persistent agent sessions when tmux host recovery fails', () => {
+    expect(
+      shouldRetrySessionCreateWithoutHost({
+        error: new Error("Error invoking remote method 'session:create': Error: Failed to recover tmux server: infilux"),
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-1',
+        },
+        hasFallback: true,
+      })
+    ).toBe(true);
+  });
+
+  it('does not retry when no hostless fallback exists', () => {
+    expect(
+      shouldRetrySessionCreateWithoutHost({
+        error: new Error('Failed to recover tmux server: infilux'),
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-1',
+        },
+        hasFallback: false,
+      })
+    ).toBe(false);
+  });
+
+  it('does not retry unrelated terminal creation failures', () => {
+    expect(
+      shouldRetrySessionCreateWithoutHost({
+        error: new Error('Permission denied'),
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-ui-session-1',
+        },
+        hasFallback: true,
+      })
+    ).toBe(false);
   });
 });
