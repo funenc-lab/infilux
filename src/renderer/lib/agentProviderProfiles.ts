@@ -507,7 +507,7 @@ function normalizeProviderSnapshot<TSettings>(
 function hasDetectedProviderConfig(
   snapshot: AgentProviderProfileSnapshot<AgentProviderProfile, unknown>
 ): boolean {
-  return Boolean(snapshot.extracted?.baseUrl);
+  return snapshot.detected === true || Boolean(snapshot.extracted?.baseUrl);
 }
 
 export function createAgentProviderProfileRegistryFacade(

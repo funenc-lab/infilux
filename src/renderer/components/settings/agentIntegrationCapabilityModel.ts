@@ -1,6 +1,7 @@
 import { AI_PROVIDER_CATALOG, type AIProvider } from '@shared/types';
 
 export type AgentIntegrationCapabilityId =
+  | 'provider-config-detection'
   | 'provider-switching'
   | 'editor-context'
   | 'completion-notification'
@@ -62,6 +63,13 @@ interface CapabilityDefinition {
 const ALL_PROVIDER_IDS = Object.keys(AI_PROVIDER_CATALOG) as AIProvider[];
 
 const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
+  {
+    id: 'provider-config-detection',
+    titleKey: 'Provider config detection',
+    descriptionKey:
+      'Detect and preview supported CLI provider config files from the current environment.',
+    supportedProviders: ALL_PROVIDER_IDS,
+  },
   {
     id: 'provider-switching',
     titleKey: 'Provider profile switching',
