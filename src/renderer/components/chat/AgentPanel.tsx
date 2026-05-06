@@ -3,7 +3,6 @@ import {
   BUILTIN_AGENT_CATALOG,
   BUILTIN_AGENT_IDS,
   type ClaudePolicyConfig,
-  type LiveAgentSubagent,
   type PersistentAgentSessionRecord,
 } from '@shared/types';
 import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
@@ -52,7 +51,7 @@ import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { toastManager } from '@/components/ui/toast';
-import { areLiveSubagentListsEqual, useLiveSubagents } from '@/hooks/useLiveSubagents';
+import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useSessionSubagentsBySession } from '@/hooks/useSessionSubagentsBySession';
 import { useI18n } from '@/i18n';
 import {
@@ -710,9 +709,6 @@ export function AgentPanel({
   const [selectedSubagentThreadIdBySessionId, setSelectedSubagentThreadIdBySessionId] = useState<
     Record<string, string | null>
   >({});
-  const [inspectorSubagentsBySessionId, setInspectorSubagentsBySessionId] = useState<
-    Record<string, LiveAgentSubagent[]>
-  >({});
   const subagentInspectorDisplayModeRef = useRef(agentSessionDisplayMode);
 
   // Keep the inspector scoped to the currently active session layout mode.
@@ -1104,48 +1100,7 @@ export function AgentPanel({
 
       return changed ? next : current;
     });
-    setInspectorSubagentsBySessionId((current) => {
-      let changed = false;
-      const next: Record<string, LiveAgentSubagent[]> = {};
-
-      for (const [sessionId, subagents] of Object.entries(current)) {
-        if (!activeSessionIdSet.has(sessionId)) {
-          changed = true;
-          continue;
-        }
-
-        next[sessionId] = subagents;
-      }
-
-      return changed ? next : current;
-    });
   }, [subagentScopeSessionIds]);
-  const handleSessionInspectorSubagentsChange = useCallback(
-    (sessionId: string, subagents: LiveAgentSubagent[]) => {
-      setInspectorSubagentsBySessionId((current) => {
-        const existing = current[sessionId];
-        const hasExisting = Array.isArray(existing);
-
-        if (!hasExisting && subagents.length === 0) {
-          return current;
-        }
-
-        if (hasExisting && areLiveSubagentListsEqual(existing, subagents)) {
-          return current;
-        }
-
-        const next = { ...current };
-        if (subagents.length === 0) {
-          delete next[sessionId];
-        } else {
-          next[sessionId] = subagents;
-        }
-
-        return next;
-      });
-    },
-    []
-  );
   const subagentScopeWorktreePaths = useMemo(() => {
     const paths = new Map<string, string>();
     for (const session of subagentScopeSessions) {
@@ -1407,16 +1362,12 @@ export function AgentPanel({
         });
         const sessionScopedSubagents = sessionScopedSubagentsBySessionId[session.id] ?? [];
         const displayedSessionSubagents =
-          inspectorSubagentsBySessionId[session.id] ??
-          (sessionScopedSubagents.length > 0
-            ? sessionScopedSubagents
-            : displayableSessionSubagents);
+          sessionScopedSubagents.length > 0 ? sessionScopedSubagents : displayableSessionSubagents;
 
         return [session.id, displayedSessionSubagents];
       })
     );
   }, [
-    inspectorSubagentsBySessionId,
     liveSubagentsByWorktree,
     sessionScopedSubagentsBySessionId,
     subagentScopeSessions,
@@ -4319,9 +4270,6 @@ export function AgentPanel({
         subagents={displayedSessionSubagents}
         surfaceColor={terminalBgColor}
         selectedThreadId={selectedSubagentThreadIdBySessionId[session.id] ?? null}
-        onSubagentsChange={(subagents) =>
-          handleSessionInspectorSubagentsChange(session.id, subagents)
-        }
         onSelectThread={(threadId) => handleSelectSessionSubagentThread(session.id, threadId)}
         onClose={handleCloseSessionSubagentInspector}
       />

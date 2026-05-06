@@ -26,7 +26,6 @@ interface SessionSubagentInspectorProps {
   subagents: LiveAgentSubagent[];
   surfaceColor?: string;
   selectedThreadId?: string | null;
-  onSubagentsChange?: (subagents: LiveAgentSubagent[]) => void;
   onSelectThread: (threadId: string) => void;
   onClose: () => void;
 }
@@ -248,7 +247,6 @@ export function SessionSubagentInspector({
   subagents,
   surfaceColor,
   selectedThreadId = null,
-  onSubagentsChange,
   onSelectThread,
   onClose,
 }: SessionSubagentInspectorProps) {
@@ -271,12 +269,16 @@ export function SessionSubagentInspector({
       return [];
     }
 
-    if (sessionSubagents.length > 0) {
-      return sessionSubagents;
+    if (viewState.kind === 'supported') {
+      if (sessionSubagents.length > 0) {
+        return sessionSubagents;
+      }
+
+      return isLoadingSessionSubagents ? subagents : [];
     }
 
     return subagents;
-  }, [sessionSubagents, subagents, viewState.kind]);
+  }, [isLoadingSessionSubagents, sessionSubagents, subagents, viewState.kind]);
   const selectedSubagent = useMemo(
     () =>
       resolvedSubagents.find((subagent) => subagent.threadId === selectedThreadId) ??
@@ -300,10 +302,6 @@ export function SessionSubagentInspector({
       onSelectThread(resolvedSubagents[0]!.threadId);
     }
   }, [onSelectThread, resolvedSubagents, selectedThreadId, viewState.kind]);
-
-  useEffect(() => {
-    onSubagentsChange?.(resolvedSubagents);
-  }, [onSubagentsChange, resolvedSubagents]);
 
   useEffect(() => {
     if (transcriptIdentity === null) {

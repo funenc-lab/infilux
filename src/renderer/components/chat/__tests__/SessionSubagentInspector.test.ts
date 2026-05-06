@@ -389,6 +389,34 @@ describe('SessionSubagentInspector', () => {
     expect(markup).not.toContain('Subagent session is still resolving');
   });
 
+  it('does not keep rendering fallback subagents after a supported session resolves to an empty session-scoped result', () => {
+    const fallbackSubagent = createSubagent({
+      rootThreadId: 'codex-root-thread-1',
+      summary: 'Stale fallback task',
+    });
+
+    const markup = renderToStaticMarkup(
+      React.createElement(SessionSubagentInspector, {
+        sessionName: 'Codex Main',
+        agentLabel: 'Codex',
+        sessionCwd: '/repo/worktree',
+        providerSessionId: 'root-thread-1',
+        viewState: {
+          kind: 'supported',
+          provider: 'codex',
+        },
+        subagents: [fallbackSubagent],
+        selectedThreadId: null,
+        onSelectThread: () => undefined,
+        onClose: () => undefined,
+      })
+    );
+
+    expect(markup).toContain('No session subagents');
+    expect(markup).not.toContain('Worker 1');
+    expect(markup).not.toContain('Stale fallback task');
+  });
+
   it('keeps transcript content mounted while a cached tab refresh is in flight', () => {
     sessionSubagentState.items = [createSubagent()];
     transcriptState.data = {
