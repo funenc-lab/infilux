@@ -24,10 +24,7 @@ import { toastManager } from '@/components/ui/toast';
 import { useAgentProviderSessionDiscovery } from '@/hooks/useAgentProviderSessionDiscovery';
 import { useRepositoryRuntimeContext } from '@/hooks/useRepositoryRuntimeContext';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
-import {
-  type XtermSessionCreateFallbackOptions,
-  useXterm,
-} from '@/hooks/useXterm';
+import { useXterm, type XtermSessionCreateFallbackOptions } from '@/hooks/useXterm';
 import {
   copyTerminalSelectionToClipboard,
   readClipboardText,
@@ -451,6 +448,11 @@ export function AgentTerminal({
   );
 
   useEffect(() => {
+    const nextRecoveryIdentity = `${terminalSessionId ?? ''}:${hostSessionKey ?? ''}`;
+    if (!nextRecoveryIdentity && recoveryState !== 'missing-host-session') {
+      setShouldBypassHostSessionRecovery(false);
+      return;
+    }
     setShouldBypassHostSessionRecovery(recoveryState === 'missing-host-session');
   }, [hostSessionKey, recoveryState, terminalSessionId]);
   const resumeSessionId = sessionId ?? id;

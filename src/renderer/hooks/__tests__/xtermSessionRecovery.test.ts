@@ -4,11 +4,11 @@ import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
   resolveReusableBackendSessionId,
-  shouldRetrySessionCreateWithoutHost,
   shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
   shouldRetryDeadSessionRecovery,
+  shouldRetrySessionCreateWithoutHost,
 } from '../xtermSessionRecovery';
 
 describe('resolveReusableBackendSessionId', () => {
@@ -380,7 +380,9 @@ describe('shouldRetrySessionCreateWithoutHost', () => {
   it('retries persistent agent sessions when tmux host recovery fails', () => {
     expect(
       shouldRetrySessionCreateWithoutHost({
-        error: new Error("Error invoking remote method 'session:create': Error: Failed to recover tmux server: infilux"),
+        error: new Error(
+          "Error invoking remote method 'session:create': Error: Failed to recover tmux server: infilux"
+        ),
         kind: 'agent',
         persistOnDisconnect: true,
         hostSession: {

@@ -1010,14 +1010,12 @@ export function useXterm({
     try {
       const createRequestId = ++createRequestIdRef.current;
       const baseCwd = cwd || getRendererEnvironment().HOME;
-      const hasOwnOverride = <
-        K extends keyof XtermSessionCreateFallbackOptions,
-      >(
+      const hasOwnOverride = <K extends keyof XtermSessionCreateFallbackOptions>(
         overrides: XtermSessionCreateFallbackOptions | undefined,
         key: K
       ): overrides is XtermSessionCreateFallbackOptions &
         Required<Pick<XtermSessionCreateFallbackOptions, K>> =>
-        Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, key));
+        Boolean(overrides && Object.hasOwn(overrides, key));
       const buildCreateOptions = (
         overrides?: XtermSessionCreateFallbackOptions
       ): SessionCreateOptions => {
@@ -1211,7 +1209,7 @@ export function useXterm({
         subscribeToSession(session.sessionId);
       }
       activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
-        cwd: createOptions.cwd,
+        cwd: baseCwd,
         kind,
         persistOnDisconnect,
         sessionId: session.sessionId,
