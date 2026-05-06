@@ -539,7 +539,7 @@ export function createAgentProviderProfileRegistryFacade(
   const readRegistryCurrent = async (
     repoPath: string | undefined
   ): Promise<AgentProviderProfileSnapshot<AgentProviderProfile, unknown>> => {
-    const targets = supportedAdapters();
+    const targets = adapters;
     if (targets.length === 0) {
       return {
         settings: null,
