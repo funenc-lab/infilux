@@ -529,16 +529,9 @@
           to bottom,
           color-mix(in oklch, var(--control-border-soft) 8%, transparent) 1px,
           transparent 1px
-        )
+      )
         center / 5rem 5rem,
       color-mix(in oklch, var(--background) 96%, var(--control-surface-muted) 4%);
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .agent-canvas-viewport::-webkit-scrollbar {
-    width: 0;
-    height: 0;
   }
 
   .agent-canvas-board {
