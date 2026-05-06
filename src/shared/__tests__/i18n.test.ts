@@ -91,6 +91,8 @@ describe('shared i18n helpers', () => {
       'Currently supported by {{providers}}',
       'Waiting for provider adapter',
       'Unsupported providers: {{providers}}',
+      'Provider config detection',
+      'Detect and preview supported CLI provider config files from the current environment.',
       'Editor context bridge',
       'Send editor selection and @mention context to supported agent IDE bridges.',
       'Completion notifications',

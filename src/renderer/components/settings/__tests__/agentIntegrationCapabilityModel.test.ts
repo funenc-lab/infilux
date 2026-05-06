@@ -14,7 +14,7 @@ describe('agent integration capability model', () => {
       { providerId: 'cursor-cli', label: 'Cursor CLI' },
       { providerId: 'gemini-cli', label: 'Gemini CLI' },
     ]);
-    expect(model.totalCapabilityCount).toBe(5);
+    expect(model.totalCapabilityCount).toBe(6);
     expect(model.supportedProviderLabels).toEqual([
       'Claude Code',
       'Codex CLI',
@@ -44,34 +44,35 @@ describe('agent integration capability model', () => {
     ).toEqual([
       {
         label: 'Claude Code',
-        supportedCapabilityCount: 5,
+        supportedCapabilityCount: 6,
         unsupportedCapabilityCount: 0,
         coveragePercent: 100,
         tone: 'complete',
       },
       {
         label: 'Codex CLI',
-        supportedCapabilityCount: 2,
+        supportedCapabilityCount: 3,
         unsupportedCapabilityCount: 3,
-        coveragePercent: 40,
+        coveragePercent: 50,
         tone: 'partial',
       },
       {
         label: 'Cursor CLI',
-        supportedCapabilityCount: 1,
+        supportedCapabilityCount: 2,
         unsupportedCapabilityCount: 4,
-        coveragePercent: 20,
+        coveragePercent: 33,
         tone: 'partial',
       },
       {
         label: 'Gemini CLI',
-        supportedCapabilityCount: 2,
+        supportedCapabilityCount: 3,
         unsupportedCapabilityCount: 3,
-        coveragePercent: 40,
+        coveragePercent: 50,
         tone: 'partial',
       },
     ]);
     expect(model.capabilities.map((capability) => capability.id)).toEqual([
+      'provider-config-detection',
       'provider-switching',
       'editor-context',
       'completion-notification',
@@ -79,13 +80,19 @@ describe('agent integration capability model', () => {
       'status-telemetry',
     ]);
     expect(model.capabilities[0]).toMatchObject({
+      id: 'provider-config-detection',
+      supportedProviderCount: 4,
+      supportedProviderLabels: ['Claude Code', 'Codex CLI', 'Cursor CLI', 'Gemini CLI'],
+      unsupportedProviderLabels: [],
+    });
+    expect(model.capabilities[1]).toMatchObject({
       id: 'provider-switching',
       supportedProviderCount: 3,
       supportedProviderLabels: ['Claude Code', 'Codex CLI', 'Gemini CLI'],
       unsupportedProviderLabels: ['Cursor CLI'],
     });
     expect(
-      model.capabilities[0].providerStatuses.map(({ label, supported }) => ({
+      model.capabilities[1].providerStatuses.map(({ label, supported }) => ({
         label,
         supported,
       }))
@@ -96,7 +103,7 @@ describe('agent integration capability model', () => {
       { label: 'Gemini CLI', supported: true },
     ]);
     expect(
-      model.capabilities[1].providerStatuses.map(({ label, supported }) => ({ label, supported }))
+      model.capabilities[2].providerStatuses.map(({ label, supported }) => ({ label, supported }))
     ).toEqual([
       { label: 'Claude Code', supported: true },
       { label: 'Codex CLI', supported: false },

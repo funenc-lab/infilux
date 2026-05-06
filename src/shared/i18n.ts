@@ -1261,6 +1261,9 @@ export const zhTranslations: Record<string, string> = {
   'Waiting for provider adapter': '\u7b49\u5f85 provider adapter',
   'Unsupported providers: {{providers}}':
     '\u6682\u4e0d\u652f\u6301\u7684 providers\uff1a{{providers}}',
+  'Provider config detection': 'Provider \u914d\u7f6e\u68c0\u6d4b',
+  'Detect and preview supported CLI provider config files from the current environment.':
+    '\u4ece\u5f53\u524d\u73af\u5883\u68c0\u6d4b\u5e76\u9884\u89c8\u53d7\u652f\u6301 CLI \u7684 Provider \u914d\u7f6e\u6587\u4ef6\u3002',
   'Editor context bridge': '\u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u6865\u63a5',
   'Send editor selection and @mention context to supported agent IDE bridges.':
     '\u5c06\u7f16\u8f91\u5668\u9009\u533a\u548c @mention \u4e0a\u4e0b\u6587\u53d1\u9001\u5230\u53d7\u652f\u6301\u7684 Agent IDE \u6865\u63a5\u3002',
