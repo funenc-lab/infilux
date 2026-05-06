@@ -459,6 +459,44 @@ describe('agent provider profiles', () => {
     expect(geminiHarness.adapter.readCurrent).toHaveBeenCalledWith('/repo');
   });
 
+  it('lets registry detection fall back to detected read-only provider configs', async () => {
+    const claudeHarness = createTestAdapterHarness({
+      providerId: 'claude-code',
+      supportsProfiles: true,
+      snapshot: {
+        settings: { env: {} },
+        extracted: null,
+      },
+    });
+    const cursorHarness = createTestAdapterHarness({
+      providerId: 'cursor-cli',
+      supportsProfiles: false,
+      snapshot: {
+        settings: { provider: 'cursor' },
+        extracted: {
+          model: 'auto',
+        },
+        detected: true,
+        supported: true,
+      },
+    });
+    const facade = createAgentProviderProfileRegistryFacade([
+      claudeHarness.adapter,
+      cursorHarness.adapter,
+    ]);
+
+    await expect(facade.readCurrent('/repo')).resolves.toEqual({
+      providerId: 'cursor-cli',
+      detected: true,
+      supported: true,
+      settings: { provider: 'cursor' },
+      extracted: {
+        providerId: 'cursor-cli',
+        model: 'auto',
+      },
+    });
+  });
+
   it('lists every detected provider config instead of collapsing detection to the first hit', async () => {
     const claudeHarness = createTestAdapterHarness({
       providerId: 'claude-code',

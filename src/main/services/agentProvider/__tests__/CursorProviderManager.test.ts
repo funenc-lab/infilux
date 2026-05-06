@@ -80,6 +80,26 @@ describe('CursorProviderManager', () => {
     });
   });
 
+  it('extracts object-shaped Cursor model config', () => {
+    expect(
+      extractProviderFromCursorConfig(
+        JSON.stringify({
+          model: {
+            id: 'sonnet-4.5',
+            source: 'manual',
+          },
+        }),
+        {
+          CURSOR_API_KEY: 'cursor-token',
+        }
+      )
+    ).toEqual({
+      providerId: 'cursor-cli',
+      authToken: 'cursor-token',
+      model: 'sonnet-4.5',
+    });
+  });
+
   it('reads the local Cursor config through the configured Cursor config directory', async () => {
     writeFileSync(
       join(configDir, 'cli-config.json'),

@@ -35,6 +35,28 @@ function normalizeValue(value?: string): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function extractCursorModelId(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return normalizeValue(value);
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  for (const key of ['id', 'value', 'model', 'name']) {
+    const resolved = normalizeValue(
+      typeof candidate[key] === 'string' ? candidate[key] : undefined
+    );
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return undefined;
+}
+
 function parseCursorProviderConfig(
   content: string | null | undefined
 ): ParsedCursorProviderConfig | null {
@@ -62,7 +84,7 @@ export function extractProviderFromCursorConfig(
     return null;
   }
 
-  const model = normalizeValue(typeof parsed.model === 'string' ? parsed.model : undefined);
+  const model = extractCursorModelId(parsed.model);
   const authToken = normalizeValue(env.CURSOR_API_KEY);
 
   return {
