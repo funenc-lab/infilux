@@ -136,7 +136,7 @@ describe('agent provider adapter policy', () => {
 
   it('preserves the detected provider type when opening provider actions from notifications', () => {
     expect(providerListenerSource).toContain(
-      'const providerId = data.providerId ?? extracted.providerId'
+      'const providerId = data.providerId ?? extracted?.providerId'
     );
     expect(appSource).toContain('detail: { providerId: pendingProviderId }');
     expect(providerListSource).toContain('resolveProviderIdFromActionEvent');
