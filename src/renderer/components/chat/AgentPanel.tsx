@@ -88,6 +88,10 @@ import {
   resolveRemoteInstalledAgents,
 } from './agentAvailability';
 import {
+  areAgentCanvasActivityCountsEqual,
+  buildAgentCanvasActivityCounts,
+} from './agentCanvasActivityModel';
+import {
   AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE,
   AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
   shouldStartAgentCanvasPan,
@@ -741,6 +745,9 @@ export function AgentPanel({
   const clearDerivedActivityState = useWorktreeActivityStore(
     (state) => state.clearDerivedActivityState
   );
+  const workspaceCanvasActivityCountsRef = useRef(
+    buildAgentCanvasActivityCounts([] as typeof allSessions)
+  );
   const persistableSessions = useMemo(
     () => allSessions.filter((session) => isSessionPersistable(session)),
     [allSessions]
@@ -1206,7 +1213,25 @@ export function AgentPanel({
     [canvasSessions]
   );
   const agentSessionActiveIds = useAgentSessionsStore((state) => state.activeIds);
-  const todoTasks = useTodoStore((state) => selectTasks(state, repoPath));
+  const visibleCanvasRepoPaths = useMemo(() => {
+    const repoPaths = new Map<string, string>();
+    for (const session of canvasSessions) {
+      const normalizedRepoPath = normalizePath(session.repoPath);
+      if (!repoPaths.has(normalizedRepoPath)) {
+        repoPaths.set(normalizedRepoPath, session.repoPath);
+      }
+    }
+
+    if (!isWorkspaceCanvasDisplayMode) {
+      const normalizedRepoPath = normalizePath(repoPath);
+      repoPaths.set(normalizedRepoPath, repoPath);
+    }
+
+    return Array.from(repoPaths.values());
+  }, [canvasSessions, isWorkspaceCanvasDisplayMode, repoPath]);
+  const todoTasks = useTodoStore(
+    useShallow((state) => visibleCanvasRepoPaths.flatMap((path) => selectTasks(state, path)))
+  );
   const agentSessionControlInventory = useMemo(() => {
     return buildAgentSessionInventory({
       activeIds: agentSessionActiveIds,
@@ -1700,12 +1725,54 @@ export function AgentPanel({
 
   // Sync initialized agent session counts to worktree activity store
   useEffect(() => {
-    // Always set current worktree count (even if 0)
-    if (cwd) {
-      const count = allSessions.filter((s) => s.cwd === cwd && s.initialized).length;
-      setAgentCount(cwd, count);
+    if (isWorkspaceCanvasDisplayMode) {
+      const nextCounts = buildAgentCanvasActivityCounts(canvasSessions, workspaceCanvasWorktrees);
+      const previousCounts = workspaceCanvasActivityCountsRef.current;
+
+      if (areAgentCanvasActivityCountsEqual(previousCounts, nextCounts)) {
+        return;
+      }
+
+      for (const count of nextCounts) {
+        setAgentCount(count.worktreePath, count.count);
+      }
+
+      for (const previousCount of previousCounts) {
+        const stillVisible = nextCounts.some((count) =>
+          pathsEqual(count.worktreePath, previousCount.worktreePath)
+        );
+        if (!stillVisible) {
+          setAgentCount(previousCount.worktreePath, 0);
+        }
+      }
+
+      workspaceCanvasActivityCountsRef.current = nextCounts;
+      return;
     }
-  }, [allSessions, cwd, setAgentCount]);
+
+    const nextCount = allSessions.filter(
+      (session) => matchesAgentSessionScope(session, repoPath, cwd) && session.initialized
+    ).length;
+    setAgentCount(cwd, nextCount);
+
+    const previousCounts = workspaceCanvasActivityCountsRef.current;
+    if (previousCounts.length > 0) {
+      for (const previousCount of previousCounts) {
+        if (!pathsEqual(previousCount.worktreePath, cwd)) {
+          setAgentCount(previousCount.worktreePath, 0);
+        }
+      }
+      workspaceCanvasActivityCountsRef.current = [];
+    }
+  }, [
+    allSessions,
+    canvasSessions,
+    cwd,
+    isWorkspaceCanvasDisplayMode,
+    repoPath,
+    setAgentCount,
+    workspaceCanvasWorktrees,
+  ]);
 
   // Listen for code review continue conversation request
   const pendingContinueSessionId = useCodeReviewContinueStore(

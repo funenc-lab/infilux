@@ -10,6 +10,7 @@ import { useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useEditorStore } from '@/stores/editor';
 import { useTerminalStore } from '@/stores/terminal';
+import { useTodoStore } from '@/stores/todo';
 import { resetWorktreeAgentSessionRecoveryCacheForTests } from '../agentSessionRecovery';
 import type { Session } from '../SessionBar';
 
@@ -439,6 +440,15 @@ function resetCodeReviewContinueStore(): void {
   });
 }
 
+function resetTodoStore(): void {
+  useTodoStore.setState({
+    tasks: {},
+    _loaded: new Set<string>(),
+    _allProjectsLoaded: false,
+    autoExecute: {},
+  });
+}
+
 function createSession(overrides: Partial<Session> = {}): Session {
   return {
     id: 'session-1',
@@ -578,6 +588,7 @@ describe('AgentPanel integration', () => {
     resetEditorStore();
     resetAgentStatusStore();
     resetCodeReviewContinueStore();
+    resetTodoStore();
 
     testState.installedAgents = ['gemini'];
     testState.rendererEnvironment = {
@@ -1532,6 +1543,274 @@ describe('AgentPanel integration', () => {
     const controlButton = mounted.container.querySelector('button[aria-label="Agent Sessions"]');
 
     expect(controlButton?.textContent).toContain('2');
+
+    await mounted.unmount();
+  });
+
+  it('syncs workspace canvas agent counts for non-current worktrees', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const currentSession = createSession({
+      id: 'session-worktree-a',
+      sessionId: 'provider-worktree-a',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-a',
+      name: 'Gemini A',
+    });
+    const otherSession = createSession({
+      id: 'session-worktree-b',
+      sessionId: 'provider-worktree-b',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-b',
+      name: 'Gemini B',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [currentSession, otherSession],
+      activeIds: {
+        '/repo/worktree-a': currentSession.id,
+        '/repo/worktree-b': otherSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-worktree-a',
+              sessionIds: [currentSession.id],
+              activeSessionId: currentSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-a',
+          flexPercents: [100],
+        },
+        '/repo/worktree-b': {
+          groups: [
+            {
+              id: 'group-worktree-b',
+              sessionIds: [otherSession.id],
+              activeSessionId: otherSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-b',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+      ],
+    });
+
+    expect(testState.worktreeActivity.setAgentCount).toHaveBeenCalledWith('/repo/worktree-a', 1);
+    expect(testState.worktreeActivity.setAgentCount).toHaveBeenCalledWith('/repo/worktree-b', 1);
+
+    await mounted.unmount();
+  });
+
+  it('clears workspace canvas agent counts for visible worktrees without initialized sessions', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const currentSession = createSession({
+      id: 'session-worktree-a',
+      sessionId: 'provider-worktree-a',
+      backendSessionId: undefined,
+      cwd: '/repo/worktree-a',
+      name: 'Gemini A',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [currentSession],
+      activeIds: {
+        '/repo/worktree-a': currentSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-worktree-a',
+              sessionIds: [currentSession.id],
+              activeSessionId: currentSession.id,
+            },
+          ],
+          activeGroupId: 'group-worktree-a',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/repo', worktreePath: '/repo/worktree-b' },
+      ],
+    });
+
+    expect(testState.worktreeActivity.setAgentCount).toHaveBeenCalledWith('/repo/worktree-a', 1);
+    expect(testState.worktreeActivity.setAgentCount).toHaveBeenCalledWith('/repo/worktree-b', 0);
+
+    await mounted.unmount();
+  });
+
+  it('omits sessions from workspace canvas when their worktree is outside the canvas candidate set', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const attachedSession = createSession({
+      id: 'session-attached',
+      sessionId: 'provider-attached',
+      repoPath: '/repo',
+      cwd: '/repo/worktree-a',
+      name: 'Attached Session',
+    });
+    const removedSession = createSession({
+      id: 'session-removed',
+      sessionId: 'provider-removed',
+      repoPath: '/removed',
+      cwd: '/removed/worktree',
+      name: 'Removed Session',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [attachedSession, removedSession],
+      activeIds: {
+        '/repo/worktree-a': attachedSession.id,
+        '/removed/worktree': removedSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-attached',
+              sessionIds: [attachedSession.id],
+              activeSessionId: attachedSession.id,
+            },
+          ],
+          activeGroupId: 'group-attached',
+          flexPercents: [100],
+        },
+        '/removed/worktree': {
+          groups: [
+            {
+              id: 'group-removed',
+              sessionIds: [removedSession.id],
+              activeSessionId: removedSession.id,
+            },
+          ],
+          activeGroupId: 'group-removed',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [{ repoPath: '/repo', worktreePath: '/repo/worktree-a' }],
+    });
+
+    expect(
+      mounted.container.querySelector('[data-agent-session-id="session-attached"]')
+    ).not.toBeNull();
+    expect(mounted.container.querySelector('[data-agent-session-id="session-removed"]')).toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('attaches cross-repository task summaries in the workspace canvas control center', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const currentRepoSession = createSession({
+      id: 'session-current-repo',
+      sessionId: 'provider-current-repo',
+      repoPath: '/repo',
+      cwd: '/repo/worktree-a',
+      name: 'Current Repo Session',
+    });
+    const otherRepoSession = createSession({
+      id: 'session-other-repo',
+      sessionId: 'provider-other-repo',
+      repoPath: '/other',
+      cwd: '/other/worktree',
+      name: 'Other Repo Session',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [currentRepoSession, otherRepoSession],
+      activeIds: {
+        '/repo/worktree-a': currentRepoSession.id,
+        '/other/worktree': otherRepoSession.id,
+      },
+      groupStates: {
+        '/repo/worktree-a': {
+          groups: [
+            {
+              id: 'group-current-repo',
+              sessionIds: [currentRepoSession.id],
+              activeSessionId: currentRepoSession.id,
+            },
+          ],
+          activeGroupId: 'group-current-repo',
+          flexPercents: [100],
+        },
+        '/other/worktree': {
+          groups: [
+            {
+              id: 'group-other-repo',
+              sessionIds: [otherRepoSession.id],
+              activeSessionId: otherRepoSession.id,
+            },
+          ],
+          activeGroupId: 'group-other-repo',
+          flexPercents: [100],
+        },
+      },
+    });
+    useTodoStore.setState({
+      tasks: {
+        '/repo': [
+          {
+            id: 'task-current',
+            title: 'Current repo task',
+            description: '',
+            priority: 'medium',
+            status: 'in-progress',
+            createdAt: 1,
+            updatedAt: 1,
+            order: 0,
+            sessionId: currentRepoSession.id,
+          },
+        ],
+        '/other': [
+          {
+            id: 'task-other',
+            title: 'Other repo task',
+            description: '',
+            priority: 'high',
+            status: 'in-progress',
+            createdAt: 1,
+            updatedAt: 1,
+            order: 0,
+            sessionId: otherRepoSession.id,
+          },
+        ],
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-a',
+      workspaceCanvasWorktrees: [
+        { repoPath: '/repo', worktreePath: '/repo/worktree-a' },
+        { repoPath: '/other', worktreePath: '/other/worktree' },
+      ],
+    });
+
+    await clickElement(mounted.container.querySelector('button[aria-label="Agent Sessions"]'));
+
+    expect(document.body.textContent).toContain('Task: Current repo task');
+    expect(document.body.textContent).toContain('Task: Other repo task');
 
     await mounted.unmount();
   });

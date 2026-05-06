@@ -69,6 +69,7 @@ import {
 } from './App/storage';
 import { useAppKeyboardShortcuts } from './App/useAppKeyboardShortcuts';
 import { usePanelResize } from './App/usePanelResize';
+import { resolveWorkspaceCanvasWorktrees } from './App/workspaceCanvasWorktrees';
 import { switchWorktreeByPath } from './App/worktreePathSelection';
 import { clearRemovedWorktreeUiState } from './App/worktreeRemovalCleanup';
 import { shouldPruneSavedWorktreePath } from './App/worktreeRestorePolicy';
@@ -439,6 +440,7 @@ export default function App() {
   const worktreeError = useWorktreeStore((s) => s.error);
   const setWorktreeError = useWorktreeStore((s) => s.setError);
   const setAgentActiveId = useAgentSessionsStore((state) => state.setActiveId);
+  const agentSessions = useAgentSessionsStore((state) => state.sessions);
   const activeEditorTabPath = useEditorStore((s) => s.activeTabPath);
   const currentEditorWorktreePath = useEditorStore((s) => s.currentWorktreePath);
   const clearEditorWorktreeState = useEditorStore((s) => s.clearWorktreeState);
@@ -760,44 +762,17 @@ export default function App() {
       }),
     [selectedRepo, activeWorktree, safeWorktrees, repoWorktreeMap]
   );
-  const workspaceCanvasWorktrees = useMemo<AgentCanvasWorktreeCandidate[]>(() => {
-    const repositoryPathKeys = new Set(
-      repositories.map((repository) => normalizePath(repository.path))
-    );
-    const worktreesByKey = new Map<string, AgentCanvasWorktreeCandidate>();
-
-    const addWorktree = (
-      repoPath: string | null | undefined,
-      worktreePath: string | null | undefined
-    ) => {
-      if (!repoPath || !worktreePath) {
-        return;
-      }
-
-      const normalizedRepoPath = normalizePath(repoPath);
-      if (repoPath !== TEMP_REPO_ID && !repositoryPathKeys.has(normalizedRepoPath)) {
-        return;
-      }
-
-      const groupKey = `${normalizedRepoPath}::${normalizePath(worktreePath)}`;
-      if (worktreesByKey.has(groupKey)) {
-        return;
-      }
-
-      worktreesByKey.set(groupKey, {
-        repoPath,
-        worktreePath,
-      });
-    };
-
-    for (const [repoPath, worktreePath] of Object.entries(repoWorktreeMap)) {
-      addWorktree(repoPath, worktreePath);
-    }
-
-    addWorktree(mainContentRepoPath, activeWorktree?.path);
-
-    return Array.from(worktreesByKey.values());
-  }, [activeWorktree?.path, mainContentRepoPath, repoWorktreeMap, repositories]);
+  const workspaceCanvasWorktrees = useMemo<AgentCanvasWorktreeCandidate[]>(
+    () =>
+      resolveWorkspaceCanvasWorktrees({
+        activeWorktreePath: activeWorktree?.path,
+        mainContentRepoPath,
+        repositories,
+        repoWorktreeMap,
+        sessions: agentSessions,
+      }),
+    [activeWorktree?.path, agentSessions, mainContentRepoPath, repoWorktreeMap, repositories]
+  );
   const cachedSelectedRepoWorktrees = useMemo(() => {
     const cachedWorktrees = queryClient.getQueryData<GitWorktree[]>(
       worktreeQueryKeys.list(worktreeRepoPath)

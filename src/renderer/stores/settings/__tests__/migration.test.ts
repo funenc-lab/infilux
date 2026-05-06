@@ -411,6 +411,21 @@ describe('migrateSettings', () => {
     expect(result.agentIntegration.autoSessionRollover).toBe('manual');
   });
 
+  it('migrates legacy Claude Code tmux recovery settings into agent integration', () => {
+    const currentState = createCurrentState();
+
+    const result = migrateSettings(
+      {
+        claudeCodeIntegration: {
+          tmuxEnabled: true,
+        },
+      } as never,
+      currentState
+    );
+
+    expect(result.agentIntegration.tmuxEnabled).toBe(true);
+  });
+
   it('normalizes legacy and generic agent provider profiles during migration', () => {
     const currentState = createCurrentState();
 
@@ -805,6 +820,77 @@ describe('cleanupLegacyFields', () => {
       'enso-settings': {
         state: {
           untouched: true,
+        },
+      },
+    });
+  });
+
+  it('preserves legacy tmux recovery settings before removing the old integration field', async () => {
+    const read = vi.fn().mockResolvedValue({
+      'enso-settings': {
+        state: {
+          agentIntegration: {
+            enabled: true,
+          },
+          claudeCodeIntegration: {
+            tmuxEnabled: true,
+          },
+        },
+      },
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+
+    vi.stubGlobal('window', {
+      electronAPI: {
+        settings: { read, write },
+      },
+    });
+
+    await cleanupLegacyFields();
+
+    expect(write).toHaveBeenCalledWith({
+      'enso-settings': {
+        state: {
+          agentIntegration: {
+            enabled: true,
+            tmuxEnabled: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('keeps explicit agent integration tmux settings when removing the legacy field', async () => {
+    const read = vi.fn().mockResolvedValue({
+      'enso-settings': {
+        state: {
+          agentIntegration: {
+            enabled: true,
+            tmuxEnabled: false,
+          },
+          claudeCodeIntegration: {
+            tmuxEnabled: true,
+          },
+        },
+      },
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+
+    vi.stubGlobal('window', {
+      electronAPI: {
+        settings: { read, write },
+      },
+    });
+
+    await cleanupLegacyFields();
+
+    expect(write).toHaveBeenCalledWith({
+      'enso-settings': {
+        state: {
+          agentIntegration: {
+            enabled: true,
+            tmuxEnabled: false,
+          },
         },
       },
     });

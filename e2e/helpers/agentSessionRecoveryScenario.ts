@@ -14,6 +14,10 @@ import {
   buildPersistentAgentHostSessionKey,
 } from '../../src/shared/utils/runtimeIdentity';
 import { sanitizeRuntimeProfileName } from '../../src/shared/utils/runtimeProfile';
+import {
+  buildManagedTmuxSocketDirPath,
+  buildManagedTmuxSocketPath,
+} from '../../src/shared/utils/tmux';
 
 export const AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL: AppRuntimeChannel = 'dev';
 
@@ -58,8 +62,8 @@ function getScenarioRuntimeIdentity() {
   return buildAppRuntimeIdentity(AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL);
 }
 
-function getTmuxSocketArgs(): string[] {
-  return ['-L', getScenarioRuntimeIdentity().tmuxServerName, '-f', '/dev/null'];
+function getTmuxSocketArgs(homeDir: string): string[] {
+  return ['-S', buildManagedTmuxSocketPath(homeDir, getScenarioRuntimeIdentity().tmuxServerName)];
 }
 
 function buildRecoveryRuntimeRoot(homeDir: string, profileName: string): string {
@@ -106,14 +110,14 @@ async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
-function ensureTmuxSessionMissing(sessionName: string): void {
-  runCommand('tmux', [...getTmuxSocketArgs(), 'kill-session', '-t', sessionName], {
+function ensureTmuxSessionMissing(homeDir: string, sessionName: string): void {
+  runCommand('tmux', [...getTmuxSocketArgs(homeDir), 'kill-session', '-t', sessionName], {
     allowFailure: true,
   });
 }
 
-function assertTmuxSessionExists(sessionName: string): void {
-  runCommand('tmux', [...getTmuxSocketArgs(), 'has-session', '-t', sessionName]);
+function assertTmuxSessionExists(homeDir: string, sessionName: string): void {
+  runCommand('tmux', [...getTmuxSocketArgs(homeDir), 'has-session', '-t', sessionName]);
 }
 
 async function createGitRepositoryFixture(repoPath: string, worktreePath: string): Promise<void> {
@@ -132,6 +136,7 @@ async function createGitRepositoryFixture(repoPath: string, worktreePath: string
 }
 
 async function createTmuxRecoverySession(options: {
+  homeDir: string;
   rootDir: string;
   worktreePath: string;
   sessionName: string;
@@ -154,16 +159,18 @@ async function createTmuxRecoverySession(options: {
   await writeFile(scriptPath, scriptContent, 'utf8');
   await chmod(scriptPath, 0o755);
 
-  ensureTmuxSessionMissing(options.sessionName);
+  ensureTmuxSessionMissing(options.homeDir, options.sessionName);
   runCommand('tmux', [
-    ...getTmuxSocketArgs(),
+    ...getTmuxSocketArgs(options.homeDir),
+    '-f',
+    '/dev/null',
     'new-session',
     '-d',
     '-s',
     options.sessionName,
     scriptPath,
   ]);
-  assertTmuxSessionExists(options.sessionName);
+  assertTmuxSessionExists(options.homeDir, options.sessionName);
 }
 
 export function ensureTmuxAvailable(): void {
@@ -185,7 +192,8 @@ export function ensureTmuxAvailable(): void {
 }
 
 export async function createAgentSessionRecoveryScenario(): Promise<AgentSessionRecoveryScenario> {
-  const rootDir = await mkdtemp(join(tmpdir(), 'infilux-agent-recovery-'));
+  const tempRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
+  const rootDir = await mkdtemp(join(tempRoot, 'infilux-agent-recovery-'));
   const homeDir = join(rootDir, 'home');
   const workspaceRoot = join(rootDir, 'workspace');
   const repoPath = join(workspaceRoot, 'repo-main');
@@ -204,9 +212,11 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
   await mkdir(homeDir, { recursive: true });
   await mkdir(workspaceRoot, { recursive: true });
   await mkdir(runtimeRoot, { recursive: true });
+  await mkdir(buildManagedTmuxSocketDirPath(homeDir), { recursive: true });
 
   await createGitRepositoryFixture(repoPath, worktreePath);
   await createTmuxRecoverySession({
+    homeDir,
     rootDir,
     worktreePath,
     sessionName: tmuxSessionName,
@@ -283,7 +293,7 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
     tmuxSessionName,
     profileName,
     cleanup: async () => {
-      ensureTmuxSessionMissing(tmuxSessionName);
+      ensureTmuxSessionMissing(homeDir, tmuxSessionName);
       await rm(rootDir, { recursive: true, force: true });
     },
   };

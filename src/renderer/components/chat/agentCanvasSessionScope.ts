@@ -129,6 +129,7 @@ export function resolveAgentCanvasSessionGroups<TSession extends AgentCanvasSess
     scope === 'workspace' ? true : matchesAgentSessionScope(session, repoPath, currentWorktreePath)
   );
   const groupedByWorktree = new Map<string, AgentCanvasSessionGroup<TSession>>();
+  const workspaceGroupKeys = new Set<string>();
 
   if (scope === 'workspace') {
     for (const worktree of worktrees) {
@@ -146,11 +147,16 @@ export function resolveAgentCanvasSessionGroups<TSession extends AgentCanvasSess
         sessions: [],
         worktreePath: worktree.worktreePath,
       });
+      workspaceGroupKeys.add(groupKey);
     }
   }
 
   for (const session of scopedSessions) {
     const groupKey = buildAgentCanvasSessionGroupKey(session.repoPath, session.cwd);
+    if (scope === 'workspace' && worktrees.length > 0 && !workspaceGroupKeys.has(groupKey)) {
+      continue;
+    }
+
     const currentGroup = groupedByWorktree.get(groupKey);
     if (currentGroup) {
       currentGroup.sessions.push(session);

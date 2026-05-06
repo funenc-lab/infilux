@@ -15,6 +15,11 @@ import type {
 } from './types';
 
 type LegacyTheme = SettingsState['theme'] | 'sync-terminal';
+type LegacyClaudeCodeIntegrationSettings = {
+  claudeCodeIntegration?: {
+    tmuxEnabled?: unknown;
+  };
+};
 
 const COLOR_PRESETS: ColorPreset[] = [
   'graphite-ink',
@@ -77,6 +82,10 @@ function sanitizeBoolean(value: unknown, fallback: boolean): boolean {
 
 function sanitizeString(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function sanitizeColorPreset(value: unknown, fallback: ColorPreset): ColorPreset {
@@ -536,6 +545,9 @@ function normalizeAgentIntegration(
   currentState: SettingsState
 ): SettingsState['agentIntegration'] {
   const persistedIntegration = persisted.agentIntegration;
+  const legacyIntegration = (
+    persisted as Partial<SettingsState> & LegacyClaudeCodeIntegrationSettings
+  ).claudeCodeIntegration;
   const normalizedProviders = normalizeAgentProviderProfileList(
     persistedIntegration?.providers ?? currentState.agentIntegration.providers
   );
@@ -548,6 +560,14 @@ function normalizeAgentIntegration(
       ...persistedIntegration?.statusLineFields,
     },
   };
+  const persistedTmuxEnabled = persistedIntegration?.tmuxEnabled;
+  const legacyTmuxEnabled = legacyIntegration?.tmuxEnabled;
+  merged.tmuxEnabled =
+    typeof persistedTmuxEnabled === 'boolean'
+      ? persistedTmuxEnabled
+      : typeof legacyTmuxEnabled === 'boolean'
+        ? legacyTmuxEnabled
+        : currentState.agentIntegration.tmuxEnabled;
 
   merged.enhancedInputAutoPopup = normalizeEnhancedInputAutoPopup(
     persistedIntegration?.enhancedInputAutoPopup,
@@ -566,6 +586,28 @@ function normalizeAgentIntegration(
   return merged;
 }
 
+function preserveLegacyClaudeCodeIntegration(state: Record<string, unknown>): void {
+  const legacyIntegration = state.claudeCodeIntegration;
+  if (!isPlainRecord(legacyIntegration)) {
+    return;
+  }
+
+  const legacyTmuxEnabled = legacyIntegration.tmuxEnabled;
+  if (typeof legacyTmuxEnabled !== 'boolean') {
+    return;
+  }
+
+  const persistedIntegration = isPlainRecord(state.agentIntegration) ? state.agentIntegration : {};
+  if (typeof persistedIntegration.tmuxEnabled === 'boolean') {
+    return;
+  }
+
+  state.agentIntegration = {
+    ...persistedIntegration,
+    tmuxEnabled: legacyTmuxEnabled,
+  };
+}
+
 /**
  * Clean up legacy fields from persisted state
  * TODO: Remove this function after v1.0 release
@@ -579,10 +621,16 @@ export async function cleanupLegacyFields(): Promise<void> {
       | undefined;
 
     if (ensoSettings?.state) {
-      const legacyFields = ['terminalKeybindings', 'agentKeybindings', 'terminalPaneKeybindings'];
+      const legacyFields = [
+        'terminalKeybindings',
+        'agentKeybindings',
+        'terminalPaneKeybindings',
+        'claudeCodeIntegration',
+      ];
       const hasLegacy = legacyFields.some((f) => f in ensoSettings.state!);
 
       if (hasLegacy) {
+        preserveLegacyClaudeCodeIntegration(ensoSettings.state);
         for (const field of legacyFields) {
           delete ensoSettings.state[field];
         }

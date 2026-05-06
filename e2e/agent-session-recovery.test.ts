@@ -95,6 +95,7 @@ describe.sequential('electron agent session recovery', () => {
     const secondLaunch = await launchInfiluxForScenario(scenario);
 
     try {
+      await enableE2ETerminalHooks(secondLaunch.page);
       console.info('[e2e] waiting for second app repository/worktree');
       await waitForRepositoryAndWorktree(secondLaunch.page, scenario);
       await openRecoveredSessionAfterWorktreeSelection(secondLaunch.page, scenario);
@@ -228,6 +229,19 @@ async function collectRecoveryDiagnostics(
         }
       ).__tmuxScrollProbe;
       const selectedRepo = localStorage.getItem('enso-selected-repo');
+      const activeWorktreesSnapshot = localStorage.getItem('enso-active-worktrees');
+      const worktreeTabsSnapshot = localStorage.getItem('enso-worktree-tabs');
+      const agentSessionsSnapshot = localStorage.getItem('enso-agent-sessions');
+      const parseJson = (value: string | null): unknown => {
+        if (!value) {
+          return null;
+        }
+        try {
+          return JSON.parse(value) as unknown;
+        } catch {
+          return value;
+        }
+      };
       const recoverable = await window.electronAPI.agentSession.listRecoverable();
       const restoreResult = await window.electronAPI.agentSession.restoreWorktreeSessions({
         repoPath,
@@ -236,9 +250,32 @@ async function collectRecoveryDiagnostics(
       const tabTexts = Array.from(document.querySelectorAll('[role="tab"]')).map((node) =>
         node.textContent?.trim()
       );
+      const terminalPanels = Array.from(document.querySelectorAll('[id^="agent-session-panel-"]'))
+        .map((node) => ({
+          id: node.id,
+          text: node.textContent?.trim().slice(0, 200) ?? '',
+          visible:
+            node instanceof HTMLElement ? node.offsetWidth > 0 && node.offsetHeight > 0 : false,
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const activeWorktreeRows = Array.from(
+        document.querySelectorAll('[data-node-kind="worktree"]')
+      ).map((node) => ({
+        active: node.getAttribute('data-active'),
+        text: node.textContent?.trim().replace(/\s+/g, ' ').slice(0, 300) ?? '',
+      }));
+      const selectedTabs = Array.from(document.querySelectorAll('[aria-selected="true"]')).map(
+        (node) => ({
+          role: node.getAttribute('role'),
+          text: node.textContent?.trim().replace(/\s+/g, ' ').slice(0, 200) ?? '',
+        })
+      );
 
       return {
         selectedRepo,
+        activeWorktreesSnapshot: parseJson(activeWorktreesSnapshot),
+        worktreeTabsSnapshot: parseJson(worktreeTabsSnapshot),
+        agentSessionsSnapshot: parseJson(agentSessionsSnapshot),
         recoverableCount: recoverable.length,
         recoverableItems: recoverable.map((item) => ({
           uiSessionId: item.record.uiSessionId,
@@ -263,6 +300,9 @@ async function collectRecoveryDiagnostics(
         tmuxScrollProbe: tmuxScrollProbe ?? null,
         sessionTabPresent: tabTexts.includes(sessionDisplayName),
         tabTexts,
+        selectedTabs,
+        activeWorktreeRows,
+        terminalPanels,
         bodyText: document.body.innerText.slice(0, 2000),
       };
     },
@@ -391,10 +431,64 @@ function resolveTerminalLocator(
   return page.locator(`#${scenario.sessionPanelId} .xterm`).first();
 }
 
+async function enableE2ETerminalHooks(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, '__INFILUX_E2E_ENABLE__', {
+      configurable: true,
+      value: true,
+      writable: true,
+    });
+  });
+  await page.evaluate(() => {
+    Object.defineProperty(window, '__INFILUX_E2E_ENABLE__', {
+      configurable: true,
+      value: true,
+      writable: true,
+    });
+  });
+}
+
 async function readVisibleTerminalText(
   page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
   scenario: AgentSessionRecoveryScenario
 ): Promise<string> {
+  const bufferText = await page.evaluate(() => {
+    type E2EXtermBufferLine = {
+      translateToString: (trimRight?: boolean) => string;
+    };
+    type E2EXtermBuffer = {
+      getLine: (line: number) => E2EXtermBufferLine | undefined;
+      viewportY: number;
+    };
+    type E2EXterm = {
+      buffer?: {
+        active?: E2EXtermBuffer;
+      };
+      rows?: number;
+    };
+    const terminal = (
+      window as typeof window & {
+        __INFILUX_E2E_LAST_XTERM__?: E2EXterm;
+      }
+    ).__INFILUX_E2E_LAST_XTERM__;
+    const buffer = terminal?.buffer?.active;
+    const rows = terminal?.rows ?? 0;
+    if (!buffer || rows <= 0) {
+      return '';
+    }
+
+    const lines: string[] = [];
+    for (let index = 0; index < rows; index += 1) {
+      lines.push(buffer.getLine(buffer.viewportY + index)?.translateToString(true) ?? '');
+    }
+    return lines.join('\n');
+  });
+  if (bufferText.trim().length > 0) {
+    return bufferText;
+  }
+
   const rows = page.locator(`#${scenario.sessionPanelId} .xterm-rows`).first();
   return await rows.innerText();
 }
