@@ -646,6 +646,31 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('shows a retry action for stalled startup even when readiness checks are pending but xterm is not loading', async () => {
+    vi.useFakeTimers();
+    testState.electronAPI.shellResolveForCommand.mockReturnValue(new Promise(() => undefined));
+
+    const mounted = await mountAgentTerminal();
+    await act(async () => {
+      vi.advanceTimersByTime(AGENT_STARTUP_STALL_THRESHOLD_MS + 1);
+      await flushMicrotasks();
+    });
+
+    const retryButton = mounted.container.querySelector('button[title="Retry"]');
+    expect(retryButton).not.toBeNull();
+
+    await act(async () => {
+      (retryButton as HTMLButtonElement).click();
+      await flushMicrotasks();
+    });
+
+    expect(testState.xtermResult.restartSession).toHaveBeenCalledTimes(1);
+    expect(testState.electronAPI.shellResolveForCommand).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+    await mounted.unmount();
+  });
+
   it('shows a retry action for stalled startup and triggers a real session restart', async () => {
     vi.useFakeTimers();
     testState.xtermResult.isLoading = true;
@@ -667,6 +692,23 @@ describe('AgentTerminal integration', () => {
     expect(testState.xtermResult.restartSession).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();
+    await mounted.unmount();
+  });
+
+  it('clears the startup overlay when the hapi availability probe fails', async () => {
+    testState.electronAPI.hapiCheckGlobal.mockRejectedValue(new Error('hapi probe failed'));
+
+    const mounted = await mountAgentTerminal({
+      environment: 'hapi',
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay).toBeNull();
+
     await mounted.unmount();
   });
 

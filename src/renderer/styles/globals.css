@@ -517,43 +517,71 @@
   }
 
   .agent-terminal-startup-banner {
-    border: 1px solid color-mix(in oklch, var(--border) 66%, transparent);
+    position: relative;
+    overflow: hidden;
+    border: 1px solid color-mix(in oklch, var(--border) 72%, transparent);
     background:
       linear-gradient(
         180deg,
-        color-mix(in oklch, var(--control-surface-muted) 88%, var(--background) 12%) 0%,
-        color-mix(in oklch, var(--control-surface) 42%, transparent) 100%
+        color-mix(in oklch, var(--control-surface-muted) 90%, var(--background) 10%) 0%,
+        color-mix(in oklch, var(--control-surface) 30%, transparent) 100%
       );
     box-shadow:
-      inset 0 1px 0 color-mix(in oklch, var(--foreground) 3%, transparent),
-      0 8px 24px color-mix(in oklch, var(--background) 42%, transparent);
-    backdrop-filter: blur(12px);
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent),
+      0 6px 18px color-mix(in oklch, var(--background) 28%, transparent);
   }
 
   .agent-terminal-startup-banner[data-state='stalled'] {
-    border-color: color-mix(in oklch, var(--warning) 30%, var(--border) 70%);
+    border-color: color-mix(in oklch, var(--warning) 24%, var(--border) 76%);
     background:
       linear-gradient(
         180deg,
-        color-mix(in oklch, var(--warning) 9%, var(--control-surface-muted) 91%) 0%,
-        color-mix(in oklch, var(--control-surface) 56%, transparent) 100%
+        color-mix(in oklch, var(--warning) 6%, var(--control-surface-muted) 94%) 0%,
+        color-mix(in oklch, var(--control-surface) 40%, transparent) 100%
       );
   }
 
+  .agent-terminal-startup-banner::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in oklch, var(--foreground) 8%, transparent) 22%,
+      color-mix(in oklch, var(--foreground) 5%, transparent) 78%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  .agent-terminal-startup-indicator-shell {
+    border: 1px solid color-mix(in oklch, var(--border) 68%, transparent);
+    background: color-mix(in oklch, var(--background) 78%, var(--control-surface-muted) 22%);
+    box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent);
+  }
+
+  .agent-terminal-startup-indicator-shell[data-state='stalled'] {
+    border-color: color-mix(in oklch, var(--warning) 20%, var(--border) 80%);
+    background: color-mix(in oklch, var(--warning) 6%, var(--background) 94%);
+  }
+
   .agent-terminal-startup-indicator {
-    color: color-mix(in oklch, var(--foreground) 86%, transparent);
+    color: color-mix(in oklch, var(--foreground) 78%, transparent);
   }
 
   .agent-terminal-startup-indicator[data-state='stalled'] {
-    color: color-mix(in oklch, var(--warning) 82%, var(--foreground) 18%);
+    color: color-mix(in oklch, var(--warning) 74%, var(--foreground) 26%);
   }
 
   .agent-terminal-startup-indicator-spinner {
-    opacity: 0.56;
+    opacity: 0.52;
   }
 
   .agent-terminal-startup-indicator[data-state='stalled'] .agent-terminal-startup-indicator-spinner {
-    opacity: 0.82;
+    opacity: 0.74;
   }
 
   .agent-canvas-viewport {
@@ -1024,16 +1052,16 @@
   }
 
   .agent-terminal-startup-retry {
-    border-color: color-mix(in oklch, var(--border) 74%, transparent);
-    background: color-mix(in oklch, var(--background) 82%, var(--control-surface-muted) 18%);
-    color: color-mix(in oklch, var(--foreground) 78%, transparent);
-    box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent);
+    border-color: color-mix(in oklch, var(--border) 70%, transparent);
+    background: color-mix(in oklch, var(--background) 88%, var(--control-surface-muted) 12%);
+    color: color-mix(in oklch, var(--muted-foreground) 90%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 3%, transparent);
   }
 
   .agent-terminal-startup-retry:hover {
-    border-color: color-mix(in oklch, var(--warning) 26%, var(--border) 74%);
-    background: color-mix(in oklch, var(--warning) 10%, var(--background) 90%);
-    color: color-mix(in oklch, var(--foreground) 92%, transparent);
+    border-color: color-mix(in oklch, var(--warning) 18%, var(--border) 82%);
+    background: color-mix(in oklch, var(--warning) 7%, var(--background) 93%);
+    color: var(--foreground);
   }
 
   .control-topbar {

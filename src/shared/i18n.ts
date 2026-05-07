@@ -795,6 +795,7 @@ export const zhTranslations: Record<string, string> = {
   Added: '新增',
   'Add custom CLI tools': '添加自定义 CLI 工具',
   'Add custom agent': '添加自定义 Agent',
+  'Agent Session': 'Agent 会话',
   'Agent Session Display': 'Agent 会话展示',
   'Agent sessions': 'Agent Session',
   Appearance: '外观',

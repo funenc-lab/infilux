@@ -280,6 +280,7 @@ export function AgentTerminal({
   const [hapiGlobalInstalled, setHapiGlobalInstalled] = useState<boolean | null>(null);
   const [claudeIdeStatus, setClaudeIdeStatus] = useState<ClaudeIdeBridgeStatus | null>(null);
   const [claudeWorkspaceTrusted, setClaudeWorkspaceTrusted] = useState<boolean | null>(null);
+  const [startupProbeRetryNonce, setStartupProbeRetryNonce] = useState(0);
 
   // Resolved shell for command execution
   const [resolvedShell, setResolvedShell] = useState<{
@@ -299,6 +300,10 @@ export function AgentTerminal({
       return () => {
         cancelled = true;
       };
+    }
+
+    if (startupProbeRetryNonce > 0) {
+      setResolvedShell(null);
     }
 
     if (isRemoteExecution) {
@@ -325,24 +330,53 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [cwd, executionPlatform, isReadOnlyTranscript, isRemoteExecution, shellConfig]);
+  }, [
+    cwd,
+    executionPlatform,
+    isReadOnlyTranscript,
+    isRemoteExecution,
+    shellConfig,
+    startupProbeRetryNonce,
+  ]);
 
   // Check hapi global installation on mount (only for hapi environment)
   useEffect(() => {
+    let cancelled = false;
+
     if (isReadOnlyTranscript) {
       setHapiGlobalInstalled(true);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (environment === 'hapi') {
-      window.electronAPI.hapi.checkGlobal(cwd, false).then((status) => {
-        setHapiGlobalInstalled(status.installed);
-      });
-      return;
+      if (startupProbeRetryNonce > 0) {
+        setHapiGlobalInstalled(null);
+      }
+      window.electronAPI.hapi
+        .checkGlobal(cwd, false)
+        .then((status) => {
+          if (!cancelled) {
+            setHapiGlobalInstalled(status.installed);
+          }
+        })
+        .catch((error) => {
+          console.warn('[AgentTerminal] Failed to probe hapi availability', error);
+          if (!cancelled) {
+            setHapiGlobalInstalled(false);
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
     }
 
     setHapiGlobalInstalled(true);
-  }, [cwd, environment, isReadOnlyTranscript]);
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, environment, isReadOnlyTranscript, startupProbeRetryNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -378,7 +412,9 @@ export function AgentTerminal({
       return;
     }
 
-    setClaudeIdeStatus(null);
+    if (startupProbeRetryNonce > 0) {
+      setClaudeIdeStatus(null);
+    }
     window.electronAPI.mcp
       .getStatus(cwd)
       .then((status) => {
@@ -388,6 +424,7 @@ export function AgentTerminal({
       })
       .catch(() => {
         if (!cancelled) {
+          console.warn('[AgentTerminal] Failed to resolve Claude IDE readiness');
           setClaudeIdeStatus({
             enabled: false,
             port: null,
@@ -403,7 +440,7 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [agentCommand, agentIntegration.enabled, cwd, isReadOnlyTranscript]);
+  }, [agentCommand, agentIntegration.enabled, cwd, isReadOnlyTranscript, startupProbeRetryNonce]);
   useEffect(() => {
     let cancelled = false;
     hasAutoConfirmedTrustPromptRef.current = false;
@@ -418,7 +455,9 @@ export function AgentTerminal({
       return;
     }
 
-    setClaudeWorkspaceTrusted(null);
+    if (startupProbeRetryNonce > 0) {
+      setClaudeWorkspaceTrusted(null);
+    }
     window.electronAPI.claudeConfig.projectTrust
       .ensureWorkspaceTrusted(cwd)
       .then((trusted) => {
@@ -428,6 +467,7 @@ export function AgentTerminal({
       })
       .catch(() => {
         if (!cancelled) {
+          console.warn('[AgentTerminal] Failed to resolve Claude workspace trust');
           setClaudeWorkspaceTrusted(false);
         }
       });
@@ -435,7 +475,7 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [agentCommand, cwd, isReadOnlyTranscript, isRemoteExecution]);
+  }, [agentCommand, cwd, isReadOnlyTranscript, isRemoteExecution, startupProbeRetryNonce]);
   const outputBufferRef = useRef('');
   const currentOutputBlockRef = useRef('');
   const latestCompletedOutputBlockRef = useRef('');
@@ -1579,11 +1619,11 @@ export function AgentTerminal({
     () => resolveAgentStartupOverlayPresentation({ isStalled: isAgentStartupStalled }),
     [isAgentStartupStalled]
   );
-  const showAgentStartupRetryAction =
-    shouldShowAgentStartupOverlay && isAgentStartupStalled && isLoading;
+  const showAgentStartupRetryAction = shouldShowAgentStartupOverlay && isAgentStartupStalled;
 
   const handleRetryAgentStartup = useCallback(() => {
     setIsAgentStartupStalled(false);
+    setStartupProbeRetryNonce((current) => current + 1);
     restartSession();
   }, [restartSession]);
 
@@ -1918,7 +1958,7 @@ export function AgentTerminal({
       )}
       {shouldShowAgentStartupOverlay && (
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-3 pt-3"
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-start px-3 pt-3"
           data-agent-terminal-startup-overlay="true"
           data-agent-terminal-startup-state={agentStartupOverlayPresentation.state}
           role="status"
@@ -1926,27 +1966,35 @@ export function AgentTerminal({
           aria-label={t('Session startup status')}
         >
           <div
-            className="agent-terminal-startup-banner pointer-events-auto flex min-w-0 max-w-[24rem] items-start gap-2.5 rounded-xl px-3 py-2.5"
+            className="agent-terminal-startup-banner pointer-events-auto flex min-h-[3.75rem] w-[min(27rem,100%)] min-w-0 items-start gap-3 rounded-2xl px-3 py-2.5"
             data-state={agentStartupOverlayPresentation.state}
           >
             <div
-              className="agent-terminal-startup-indicator relative mt-0.5 h-3.5 w-3.5 shrink-0"
-              aria-hidden="true"
+              className="agent-terminal-startup-indicator-shell mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
               data-state={agentStartupOverlayPresentation.state}
             >
-              <div className="agent-terminal-startup-indicator-track absolute inset-0 rounded-full border border-current opacity-15" />
-              <div className="agent-terminal-startup-indicator-spinner absolute inset-0 animate-spin rounded-full border-2 border-current border-b-transparent border-r-transparent" />
-            </div>
-            <div className="min-w-0 flex-1">
               <div
-                style={{ color: settings.theme.foreground, opacity: 0.9 }}
-                className="truncate text-sm font-medium"
+                className="agent-terminal-startup-indicator relative h-3.5 w-3.5 shrink-0"
+                aria-hidden="true"
+                data-state={agentStartupOverlayPresentation.state}
+              >
+                <div className="agent-terminal-startup-indicator-track absolute inset-0 rounded-full border border-current opacity-15" />
+                <div className="agent-terminal-startup-indicator-spinner absolute inset-0 animate-spin rounded-full border-2 border-current border-b-transparent border-r-transparent" />
+              </div>
+            </div>
+            <div className="min-w-0 flex-1 self-center">
+              <div className="text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground/72">
+                {t('Agent Session')}
+              </div>
+              <div
+                style={{ color: settings.theme.foreground, opacity: 0.92 }}
+                className="mt-1 truncate text-sm font-medium"
               >
                 {t(agentStartupOverlayPresentation.titleKey)}
               </div>
               <div
                 style={{ color: settings.theme.foreground, opacity: 0.62 }}
-                className="mt-0.5 text-xs"
+                className="mt-0.5 max-w-[30ch] text-[0.76rem] leading-5"
               >
                 {t(agentStartupOverlayPresentation.descriptionKey)}
               </div>
@@ -1956,7 +2004,7 @@ export function AgentTerminal({
                 type="button"
                 onClick={handleRetryAgentStartup}
                 className={cn(
-                  'control-floating-button agent-terminal-startup-retry h-7 shrink-0 rounded-lg px-2.5 text-xs font-medium',
+                  'control-floating-button agent-terminal-startup-retry mt-1 h-7 shrink-0 self-start rounded-lg px-2.5 text-xs font-medium',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-0'
                 )}
                 title={t('Retry')}
