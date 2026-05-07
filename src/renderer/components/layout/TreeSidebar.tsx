@@ -81,7 +81,6 @@ import { buildRemovalDialogCopy, buildWorkspaceToastCopy } from '@/lib/feedbackC
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees, sanitizeTempWorkspaceItems } from '@/lib/worktreeData';
-import type { SessionRuntimeState } from '@/stores/agentSessions';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
@@ -104,17 +103,6 @@ function getSidebarSectionId(prefix: string, value: string): string {
 
 const EMPTY_WORKTREES: GitWorktree[] = [];
 
-function buildCreatedWorktreePreview(options: WorktreeCreateOptions): GitWorktree {
-  return {
-    path: options.path,
-    head: '',
-    branch: options.newBranch || options.branch || null,
-    isMainWorktree: false,
-    isLocked: false,
-    prunable: false,
-  };
-}
-
 function mergeWorktreesByPath(
   primaryWorktrees: readonly GitWorktree[],
   fallbackWorktrees: readonly GitWorktree[]
@@ -133,10 +121,6 @@ function mergeWorktreesByPath(
   }
 
   return [...mergedWorktrees.values()];
-}
-
-function isLiveAgentSessionRuntimeState(state: SessionRuntimeState | undefined): boolean {
-  return state?.outputState === 'outputting' || state?.waitingForInput === true;
 }
 
 export interface TreeSidebarProps {
@@ -259,9 +243,6 @@ export function TreeSidebar({
   const todoEnabled = useSettingsStore((s) => s.todoEnabled);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAgentWorktreesOnly, setShowAgentWorktreesOnly] = useState(false);
-  const [agentFilterCreatedWorktrees, setAgentFilterCreatedWorktrees] = useState<
-    Record<string, GitWorktree[]>
-  >({});
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [tempExpanded, setTempExpanded] = useState(() => getStoredTreeSidebarTempExpanded());
   const [expandedRepoList, setExpandedRepoList] = useState<string[]>(() =>
@@ -356,12 +337,6 @@ export function TreeSidebar({
   useEffect(() => {
     saveTreeSidebarTempExpanded(tempExpanded);
   }, [tempExpanded]);
-
-  useEffect(() => {
-    if (!showAgentWorktreesOnly && Object.keys(agentFilterCreatedWorktrees).length > 0) {
-      setAgentFilterCreatedWorktrees({});
-    }
-  }, [agentFilterCreatedWorktrees, showAgentWorktreesOnly]);
 
   // Fetch worktrees for expanded repos only
   const {
@@ -507,7 +482,6 @@ export function TreeSidebar({
   const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
   const activities = useWorktreeActivityStore((s) => s.activities);
   const agentSessions = useAgentSessionsStore((s) => s.sessions);
-  const agentRuntimeStates = useAgentSessionsStore((s) => s.runtimeStates);
   const shouldPoll = useShouldPoll();
   const activePathSet = useMemo(
     () =>
@@ -568,6 +542,10 @@ export function TreeSidebar({
   const toggleRepoExpanded = useCallback(
     (repoPath: string) => {
       const normalizedRepoPath = normalizePath(repoPath);
+      if (showAgentWorktreesOnly && !expandedRepos.has(normalizedRepoPath)) {
+        return;
+      }
+
       const isExpanded = expandedRepos.has(normalizedRepoPath);
       if (!isExpanded) {
         onActivateRemoteRepo(repoPath);
@@ -579,7 +557,7 @@ export function TreeSidebar({
         return prev.includes(normalizedRepoPath) ? prev : [...prev, normalizedRepoPath];
       });
     },
-    [expandedRepos, onActivateRemoteRepo]
+    [expandedRepos, onActivateRemoteRepo, showAgentWorktreesOnly]
   );
 
   // Expose toggle function for selected repo via ref
@@ -889,38 +867,24 @@ export function TreeSidebar({
   const hasSearchFilter =
     parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0 || showAgentWorktreesOnly;
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
-  const liveAgentSessionPathSet = useMemo(
-    () =>
-      new Set(
-        agentSessions
-          .filter((session) => isLiveAgentSessionRuntimeState(agentRuntimeStates[session.id]))
-          .map((session) => normalizePath(session.cwd))
-      ),
-    [agentRuntimeStates, agentSessions]
-  );
-  const agentFilterCreatedPathSet = useMemo(() => {
-    const createdPaths = new Set<string>();
+  const openAgentSessionScope = useMemo(() => {
+    const worktreePaths = new Set<string>();
+    const repoPaths = new Set<string>();
 
-    for (const worktrees of Object.values(agentFilterCreatedWorktrees)) {
-      for (const worktree of worktrees) {
-        createdPaths.add(normalizePath(worktree.path));
+    for (const session of agentSessions) {
+      if (!session.initialized) {
+        continue;
       }
+
+      worktreePaths.add(normalizePath(session.cwd));
+      repoPaths.add(normalizePath(session.repoPath));
     }
 
-    return createdPaths;
-  }, [agentFilterCreatedWorktrees]);
-  const hasAgentFilterVisibilityOverrideForPath = useCallback(
-    (path: string) => {
-      const normalizedPath = normalizePath(path);
-      return agentFilterCreatedPathSet.has(normalizedPath);
-    },
-    [agentFilterCreatedPathSet]
-  );
+    return { worktreePaths, repoPaths };
+  }, [agentSessions]);
   const matchesAgentWorktreeFilter = useCallback(
-    (path: string) =>
-      liveAgentSessionPathSet.has(normalizePath(path)) ||
-      hasAgentFilterVisibilityOverrideForPath(path),
-    [hasAgentFilterVisibilityOverrideForPath, liveAgentSessionPathSet]
+    (path: string) => openAgentSessionScope.worktreePaths.has(normalizePath(path)),
+    [openAgentSessionScope]
   );
   const filteredTempWorkspaces = useMemo(() => {
     return sortedTempWorkspaces.filter((item) => {
@@ -954,21 +918,11 @@ export function TreeSidebar({
   ]);
   const getSearchableRepoWorktrees = useCallback(
     (repoPath: string) => {
-      const baseWorktrees =
-        repoPath === selectedRepo
-          ? selectedVisibleWorktrees
-          : worktreesMap[repoPath] || allRepoWorktreesMap[repoPath] || EMPTY_WORKTREES;
-      const createdWorktrees =
-        agentFilterCreatedWorktrees[normalizePath(repoPath)] || EMPTY_WORKTREES;
-      return mergeWorktreesByPath(baseWorktrees, createdWorktrees);
+      return repoPath === selectedRepo
+        ? selectedVisibleWorktrees
+        : worktreesMap[repoPath] || allRepoWorktreesMap[repoPath] || EMPTY_WORKTREES;
     },
-    [
-      agentFilterCreatedWorktrees,
-      allRepoWorktreesMap,
-      selectedRepo,
-      selectedVisibleWorktrees,
-      worktreesMap,
-    ]
+    [allRepoWorktreesMap, selectedRepo, selectedVisibleWorktrees, worktreesMap]
   );
 
   const filteredRepos = useMemo(() => {
@@ -976,9 +930,7 @@ export function TreeSidebar({
 
     if (showAgentWorktreesOnly) {
       filtered = filtered.filter((repo) =>
-        getSearchableRepoWorktrees(repo.path).some((worktree) =>
-          matchesAgentWorktreeFilter(worktree.path)
-        )
+        openAgentSessionScope.repoPaths.has(normalizePath(repo.path))
       );
     }
 
@@ -1015,7 +967,7 @@ export function TreeSidebar({
     parsedSearch,
     activePathSet,
     getSearchableRepoWorktrees,
-    matchesAgentWorktreeFilter,
+    openAgentSessionScope,
     repoIndexMap,
   ]);
   const showSearchEmptyState =
@@ -2059,16 +2011,6 @@ export function TreeSidebar({
         isLoading={isCreating}
         onSubmit={async (options) => {
           await onCreateWorktree(options);
-          if (showAgentWorktreesOnly && selectedRepo && selectedRepo !== TEMP_REPO_ID) {
-            const repoKey = normalizePath(selectedRepo);
-            const createdWorktree = buildCreatedWorktreePreview(options);
-            setAgentFilterCreatedWorktrees((previous) => ({
-              ...previous,
-              [repoKey]: mergeWorktreesByPath(previous[repoKey] || EMPTY_WORKTREES, [
-                createdWorktree,
-              ]),
-            }));
-          }
           refetchExpandedWorktrees();
         }}
       />

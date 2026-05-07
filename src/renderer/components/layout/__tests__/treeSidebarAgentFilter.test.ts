@@ -16,6 +16,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const useWorktreeListMultipleMock = vi.fn();
 let shouldPollValue = false;
+type WorktreeListInput = string | { repoPath: string; enabled: boolean };
 
 vi.mock('lucide-react', () => {
   const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
@@ -139,7 +140,7 @@ vi.mock('@/hooks/useLiveSubagents', () => ({
 }));
 
 vi.mock('@/hooks/useWorktree', () => ({
-  useWorktreeListMultiple: (inputs: Array<string | { repoPath: string; enabled: boolean }> = []) =>
+  useWorktreeListMultiple: (inputs: WorktreeListInput[] = []) =>
     useWorktreeListMultipleMock(inputs),
 }));
 
@@ -265,9 +266,7 @@ const repoWorktrees: Record<string, GitWorktree[]> = {
   ],
 };
 
-function buildUseWorktreeListResponse(
-  inputs: Array<string | { repoPath: string; enabled: boolean }> = []
-) {
+function buildUseWorktreeListResponse(inputs: WorktreeListInput[] = []) {
   const requestedRepoPaths = inputs.map((input) =>
     typeof input === 'string' ? input : input.repoPath
   );
@@ -449,7 +448,7 @@ describe('TreeSidebar agent filter', () => {
     }
   });
 
-  it('filters by live agent session runtime state instead of persisted agent counts', async () => {
+  it('filters by open initialized agent sessions instead of runtime output state', async () => {
     worktreeActivityState.activities = {
       '/repo-a/main': { agentCount: 1, terminalCount: 0 },
       '/repo-a/agent-task': { agentCount: 0, terminalCount: 0 },
@@ -459,11 +458,11 @@ describe('TreeSidebar agent filter', () => {
     };
     agentSessionsState.sessions = [
       agentSession({ id: 'idle-session', cwd: '/repo-a/main' }),
-      agentSession({ id: 'running-session', cwd: '/repo-a/agent-task' }),
+      agentSession({ id: 'draft-session', cwd: '/repo-a/agent-task', initialized: false }),
     ];
     agentSessionsState.runtimeStates = {
       'idle-session': runtimeState({ outputState: 'idle' }),
-      'running-session': runtimeState({ outputState: 'outputting' }),
+      'draft-session': runtimeState({ outputState: 'outputting' }),
     };
 
     const view = await mountTreeSidebar({ activeWorktree: null });
@@ -477,10 +476,47 @@ describe('TreeSidebar agent filter', () => {
         toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(
-        view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')
-      ).not.toBeNull();
-      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).not.toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')).toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('keeps repositories visible while worktrees prefetch when an open agent session is known', async () => {
+    agentSessionsState.sessions = [
+      agentSession({ id: 'repo-b-session', cwd: '/repo-b/main', repoPath: '/repo-b' }),
+    ];
+    agentSessionsState.runtimeStates = {
+      'repo-b-session': runtimeState({ outputState: 'idle' }),
+    };
+    useWorktreeListMultipleMock.mockImplementation((inputs: WorktreeListInput[]) => {
+      const requestedRepoPaths = inputs.map((input: WorktreeListInput) =>
+        typeof input === 'string' ? input : input.repoPath
+      );
+
+      return {
+        worktreesMap: requestedRepoPaths.includes('/repo-a')
+          ? { '/repo-a': repoWorktrees['/repo-a'] }
+          : {},
+        errorsMap: {},
+        loadingMap: requestedRepoPaths.includes('/repo-b') ? { '/repo-b': true } : {},
+        refetchAll: vi.fn(),
+      };
+    });
+
+    const view = await mountTreeSidebar({ activeWorktree: null });
+
+    try {
+      const toggle = view.container.querySelector(
+        'button[title="Only show live Agent sessions"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(view.container.textContent).toContain('Repo B');
     } finally {
       view.unmount();
     }
@@ -539,7 +575,7 @@ describe('TreeSidebar agent filter', () => {
     }
   });
 
-  it('keeps a newly created worktree visible while the agent filter is active', async () => {
+  it('does not keep a newly created worktree visible until it has an open agent session', async () => {
     const onCreateWorktree = vi.fn(async () => undefined);
     const view = await mountTreeSidebar({ onCreateWorktree });
 
@@ -585,8 +621,52 @@ describe('TreeSidebar agent filter', () => {
       });
       expect(
         view.container.querySelector('[data-worktree-item="/repo-a/new-agent-task"]')
-      ).not.toBeNull();
+      ).toBeNull();
       expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('does not persist forced expansion when collapsing a repository while the agent filter is active', async () => {
+    agentSessionsState.sessions = [
+      agentSession({ id: 'repo-b-session', cwd: '/repo-b/main', repoPath: '/repo-b' }),
+    ];
+    agentSessionsState.runtimeStates = {
+      'repo-b-session': runtimeState({ outputState: 'idle' }),
+    };
+
+    const view = await mountTreeSidebar({ activeWorktree: null });
+
+    try {
+      const toggle = view.container.querySelector(
+        'button[title="Only show live Agent sessions"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      const repoBRow = Array.from(view.container.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Repo B')
+      );
+      expect(repoBRow).not.toBeNull();
+
+      const repoBContainer = repoBRow?.closest('.relative');
+      const disclosure = repoBContainer?.querySelector(
+        'button[title="Collapse"]'
+      ) as HTMLButtonElement | null;
+      expect(disclosure).not.toBeNull();
+
+      await act(async () => {
+        disclosure?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(view.container.querySelector('[data-worktree-item="/repo-b/main"]')).toBeNull();
     } finally {
       view.unmount();
     }
