@@ -3,6 +3,11 @@ import { useEffect, useState } from 'react';
 import { areLiveSubagentListsEqual, buildLiveSubagentCwds } from './useLiveSubagents';
 
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
+const SINGLE_SESSION_TARGET_ID = 'current-session';
+
+function createSubscriptionId(): string {
+  return `session-subagents-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 interface UseSessionSubagentsOptions {
   cwd?: string;
@@ -34,51 +39,39 @@ export function useSessionSubagents({
       return;
     }
 
-    if (!window.electronAPI.agentSubagent?.listSession) {
-      console.error('[useSessionSubagents] agentSubagent.listSession is unavailable');
+    if (!window.electronAPI.agentSubagent?.subscribeSessionSubagents) {
+      console.error('[useSessionSubagents] agentSubagent.subscribeSessionSubagents is unavailable');
       setIsLoading(false);
       setItems((current) => (current.length === 0 ? current : []));
       return;
     }
 
-    let cancelled = false;
+    setIsLoading(true);
+    const subscriptionId = createSubscriptionId();
 
-    const load = async (markLoading: boolean) => {
-      if (markLoading && !cancelled) {
-        setIsLoading(true);
+    const unsubscribe = window.electronAPI.agentSubagent.subscribeSessionSubagents(
+      {
+        subscriptionId,
+        pollIntervalMs,
+        targets: [
+          {
+            sessionId: SINGLE_SESSION_TARGET_ID,
+            providerSessionId,
+            cwd: normalizedCwd,
+          },
+        ],
+      },
+      (event) => {
+        const nextItems = event.itemsBySessionId[SINGLE_SESSION_TARGET_ID] ?? [];
+        setItems((current) =>
+          areLiveSubagentListsEqual(current, nextItems) ? current : nextItems
+        );
+        setIsLoading(false);
       }
-
-      try {
-        const result = await window.electronAPI.agentSubagent.listSession({
-          providerSessionId,
-          cwd: normalizedCwd,
-        });
-
-        if (!cancelled) {
-          setItems((current) =>
-            areLiveSubagentListsEqual(current, result.items) ? current : result.items
-          );
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('[useSessionSubagents] Failed to load session subagents', error);
-          setItems((current) => (current.length === 0 ? current : []));
-        }
-      } finally {
-        if (markLoading && !cancelled) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void load(true);
-    const timer = window.setInterval(() => {
-      void load(false);
-    }, pollIntervalMs);
+    );
 
     return () => {
-      cancelled = true;
-      window.clearInterval(timer);
+      unsubscribe();
     };
   }, [cwd, enabled, pollIntervalMs, providerSessionId]);
 

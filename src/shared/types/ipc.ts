@@ -136,6 +136,9 @@ export const IPC_CHANNELS = {
   AGENT_LIST: 'agent:list',
   AGENT_SUBAGENT_LIST_LIVE: 'agentSubagent:listLive',
   AGENT_SUBAGENT_LIST_SESSION: 'agentSubagent:listSession',
+  AGENT_SUBAGENT_SESSIONS_SUBSCRIBE: 'agentSubagent:sessions:subscribe',
+  AGENT_SUBAGENT_SESSIONS_UNSUBSCRIBE: 'agentSubagent:sessions:unsubscribe',
+  AGENT_SUBAGENT_SESSIONS_UPDATED: 'agentSubagent:sessions:updated',
   AGENT_SUBAGENT_GET_TRANSCRIPT: 'agentSubagent:getTranscript',
   AGENT_SESSION_LIST_RECOVERABLE: 'agentSession:listRecoverable',
   AGENT_SESSION_RESTORE_WORKTREE: 'agentSession:restoreWorktree',
@@ -364,6 +367,7 @@ export const IPC_CHANNELS = {
   LOG_OPEN_FOLDER: 'log:open-folder',
   LOG_GET_PATH: 'log:get-path',
   LOG_GET_DIAGNOSTICS: 'log:get-diagnostics',
+  LOG_CAPTURE_MAIN_PROCESS_DIAGNOSTICS: 'log:capture-main-process-diagnostics',
   LOG_RECORD_AGENT_STARTUP: 'log:record-agent-startup',
 } as const;
 

@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain } from 'electron';
 import { agentProviderSessionService } from '../services/agent/AgentProviderSessionService';
 import { persistentAgentSessionService } from '../services/session/PersistentAgentSessionService';
+import { registerMainProcessDiagnosticsCollector } from '../utils/mainProcessDiagnostics';
 
 const OPTIONAL_STRING_FIELDS = [
   'backendSessionId',
@@ -24,6 +25,32 @@ const REQUIRED_STRING_FIELDS = [
   'hostSessionKey',
 ];
 const MAX_METADATA_BYTES = 64 * 1024;
+
+interface AgentSessionHandlerDiagnosticsSnapshot {
+  listRecoverableCalls: number;
+  restoreWorktreeCalls: number;
+  reconcileCalls: number;
+  resolveProviderCalls: number;
+  markPersistentCalls: number;
+  abandonCalls: number;
+  lastMarkedPersistentSessionId: string | null;
+  lastMarkedPersistentAt: number | null;
+}
+
+const agentSessionHandlerDiagnostics: AgentSessionHandlerDiagnosticsSnapshot = {
+  listRecoverableCalls: 0,
+  restoreWorktreeCalls: 0,
+  reconcileCalls: 0,
+  resolveProviderCalls: 0,
+  markPersistentCalls: 0,
+  abandonCalls: 0,
+  lastMarkedPersistentSessionId: null,
+  lastMarkedPersistentAt: null,
+};
+
+export function getAgentSessionHandlerDiagnosticsSnapshot(): AgentSessionHandlerDiagnosticsSnapshot {
+  return { ...agentSessionHandlerDiagnostics };
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -160,32 +187,45 @@ function assertPersistentAgentSessionRecord(value: unknown): PersistentAgentSess
   return record;
 }
 
+registerMainProcessDiagnosticsCollector('agentSessionHandlers', () =>
+  getAgentSessionHandlerDiagnosticsSnapshot()
+);
+
 export function registerAgentSessionHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_LIST_RECOVERABLE, async () => {
+    agentSessionHandlerDiagnostics.listRecoverableCalls += 1;
     return persistentAgentSessionService.listRecoverableSessions();
   });
 
   ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_RESTORE_WORKTREE, async (_, request: unknown) => {
+    agentSessionHandlerDiagnostics.restoreWorktreeCalls += 1;
     return persistentAgentSessionService.restoreWorktreeSessions(
       assertRestoreWorktreeSessionsRequest(request)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_RECONCILE, async (_, uiSessionId: unknown) => {
+    agentSessionHandlerDiagnostics.reconcileCalls += 1;
     return persistentAgentSessionService.reconcileSession(assertAgentSessionId(uiSessionId));
   });
 
   ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER, async (_, request: unknown) => {
+    agentSessionHandlerDiagnostics.resolveProviderCalls += 1;
     return agentProviderSessionService.resolveProviderSession(
       assertResolveProviderSessionRequest(request)
     );
   });
 
   ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT, async (_, record: unknown) => {
-    return persistentAgentSessionService.upsertSession(assertPersistentAgentSessionRecord(record));
+    const validatedRecord = assertPersistentAgentSessionRecord(record);
+    agentSessionHandlerDiagnostics.markPersistentCalls += 1;
+    agentSessionHandlerDiagnostics.lastMarkedPersistentSessionId = validatedRecord.uiSessionId;
+    agentSessionHandlerDiagnostics.lastMarkedPersistentAt = Date.now();
+    return persistentAgentSessionService.upsertSession(validatedRecord);
   });
 
   ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_ABANDON, async (_, uiSessionId: unknown) => {
+    agentSessionHandlerDiagnostics.abandonCalls += 1;
     return persistentAgentSessionService.abandonSession(assertAgentSessionId(uiSessionId));
   });
 }

@@ -1,7 +1,12 @@
-import type { LogAgentStartupRecordRequest, LogConfigUpdate } from '@shared/types';
+import type {
+  CaptureMainProcessDiagnosticsRequest,
+  LogAgentStartupRecordRequest,
+  LogConfigUpdate,
+} from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { app, ipcMain, shell } from 'electron';
 import log, { getLogDiagnostics, initLogger } from '../utils/logger';
+import { captureMainProcessDiagnosticsSnapshot } from '../utils/mainProcessDiagnostics';
 
 export function registerLogHandlers(): void {
   // Update logging configuration (enabled state and/or level)
@@ -30,6 +35,13 @@ export function registerLogHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.LOG_GET_DIAGNOSTICS, async (_, lineCount?: number) => {
     return getLogDiagnostics(lineCount);
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.LOG_CAPTURE_MAIN_PROCESS_DIAGNOSTICS,
+    async (_, request?: CaptureMainProcessDiagnosticsRequest) => {
+      return captureMainProcessDiagnosticsSnapshot(request?.fdTimeoutMs);
+    }
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP,

@@ -10,6 +10,7 @@ import type {
   AppResourceActionRequest,
   AppResourceActionResult,
   AppResourceSnapshot,
+  CaptureMainProcessDiagnosticsRequest,
   ClaudeCapabilityCatalog,
   ClaudePolicyCatalogRequest,
   ClaudeProvider,
@@ -43,6 +44,7 @@ import type {
   GitWorktree,
   LogConfigUpdate,
   LogDiagnostics,
+  MainProcessDiagnosticsSnapshot,
   McpServer,
   McpServerConfig,
   MergeConflict,
@@ -574,6 +576,39 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_LIST_LIVE, request),
     listSession: (request: import('@shared/types').ListSessionAgentSubagentsRequest) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_LIST_SESSION, request),
+    subscribeSessionSubagents: (
+      request: import('@shared/types').SubscribeSessionAgentSubagentsRequest,
+      callback: (event: import('@shared/types').SessionAgentSubagentsUpdatedEvent) => void
+    ): (() => void) => {
+      const handler = (
+        _: unknown,
+        event: import('@shared/types').SessionAgentSubagentsUpdatedEvent
+      ) => {
+        if (event.subscriptionId !== request.subscriptionId) {
+          return;
+        }
+
+        callback(event);
+      };
+
+      ipcRenderer.on(IPC_CHANNELS.AGENT_SUBAGENT_SESSIONS_UPDATED, handler);
+      void ipcRenderer
+        .invoke(IPC_CHANNELS.AGENT_SUBAGENT_SESSIONS_SUBSCRIBE, request)
+        .catch((error) => {
+          console.error('[preload] Failed to subscribe session subagents', error);
+        });
+
+      return () => {
+        ipcRenderer.off(IPC_CHANNELS.AGENT_SUBAGENT_SESSIONS_UPDATED, handler);
+        void ipcRenderer
+          .invoke(IPC_CHANNELS.AGENT_SUBAGENT_SESSIONS_UNSUBSCRIBE, {
+            subscriptionId: request.subscriptionId,
+          })
+          .catch((error) => {
+            console.error('[preload] Failed to unsubscribe session subagents', error);
+          });
+      };
+    },
     getTranscript: (request: import('@shared/types').GetAgentSubagentTranscriptRequest) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_GET_TRANSCRIPT, request),
   },
@@ -1386,6 +1421,10 @@ const electronAPI = {
     getPath: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.LOG_GET_PATH),
     getDiagnostics: (lineCount?: number): Promise<LogDiagnostics> =>
       ipcRenderer.invoke(IPC_CHANNELS.LOG_GET_DIAGNOSTICS, lineCount),
+    captureMainProcessDiagnostics: (
+      request?: CaptureMainProcessDiagnosticsRequest
+    ): Promise<MainProcessDiagnosticsSnapshot> =>
+      ipcRenderer.invoke(IPC_CHANNELS.LOG_CAPTURE_MAIN_PROCESS_DIAGNOSTICS, request),
     recordAgentStartup: (message: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP, { message }),
   },

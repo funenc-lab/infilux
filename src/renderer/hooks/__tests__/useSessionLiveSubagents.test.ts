@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import type { LiveAgentSubagent } from '@shared/types';
+import type { LiveAgentSubagent, SessionAgentSubagentsUpdatedEvent } from '@shared/types';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,7 +12,8 @@ declare global {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-const listSession = vi.fn();
+const subscribeSessionSubagents = vi.fn();
+const unsubscribeSessionSubagents = vi.fn();
 
 function createSubagent(overrides: Partial<LiveAgentSubagent> = {}): LiveAgentSubagent {
   return {
@@ -62,31 +63,37 @@ function mountHookHarness(args: Parameters<typeof useSessionSubagents>[0]) {
 
 describe('useSessionSubagents', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-    listSession.mockReset();
+    subscribeSessionSubagents.mockReset();
+    unsubscribeSessionSubagents.mockReset();
     latestResult = {
       items: [],
       isLoading: false,
     };
     window.electronAPI = {
       agentSubagent: {
-        listSession,
+        subscribeSessionSubagents,
       },
     } as never;
     vi.stubGlobal('navigator', { platform: 'MacIntel' });
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
   });
 
-  it('loads and polls session subagents for the current provider session', async () => {
+  it('subscribes to session subagent updates for the current provider session', async () => {
     const subagent = createSubagent();
-    listSession
-      .mockResolvedValueOnce({ items: [subagent], generatedAt: 1 })
-      .mockResolvedValueOnce({ items: [subagent], generatedAt: 2 });
+    let latestEventHandler: ((event: SessionAgentSubagentsUpdatedEvent) => void) | undefined;
+    subscribeSessionSubagents.mockImplementation(
+      (
+        _request: unknown,
+        callback: (event: SessionAgentSubagentsUpdatedEvent) => void
+      ): (() => void) => {
+        latestEventHandler = callback;
+        return unsubscribeSessionSubagents;
+      }
+    );
 
     const mounted = mountHookHarness({
       cwd: '/Users/tanzv/project/worktree-a/',
@@ -99,29 +106,55 @@ describe('useSessionSubagents', () => {
       await Promise.resolve();
     });
 
-    expect(listSession).toHaveBeenCalledTimes(1);
-    expect(listSession).toHaveBeenCalledWith({
-      providerSessionId: 'root-thread-1',
-      cwd: '/users/tanzv/project/worktree-a',
-    });
-    expect(latestResult.items).toEqual([subagent]);
-    expect(latestResult.isLoading).toBe(false);
+    expect(subscribeSessionSubagents).toHaveBeenCalledTimes(1);
+    const subscriptionRequest = subscribeSessionSubagents.mock.calls[0]?.[0] as {
+      subscriptionId: string;
+      pollIntervalMs: number;
+      targets: Array<{
+        sessionId: string;
+        providerSessionId: string;
+        cwd: string;
+      }>;
+    };
+    expect(subscriptionRequest.pollIntervalMs).toBe(1_000);
+    expect(subscriptionRequest.targets).toEqual([
+      {
+        sessionId: expect.any(String),
+        providerSessionId: 'root-thread-1',
+        cwd: '/users/tanzv/project/worktree-a',
+      },
+    ]);
+    expect(latestResult.isLoading).toBe(true);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_000);
+      latestEventHandler?.({
+        subscriptionId: subscriptionRequest.subscriptionId,
+        itemsBySessionId: {
+          [subscriptionRequest.targets[0]?.sessionId ?? 'missing']: [subagent],
+        },
+        generatedAt: 1,
+      });
       await Promise.resolve();
     });
 
-    expect(listSession).toHaveBeenCalledTimes(2);
+    expect(latestResult.items).toEqual([subagent]);
+    expect(latestResult.isLoading).toBe(false);
 
     mounted.unmount();
+    expect(unsubscribeSessionSubagents).toHaveBeenCalledTimes(1);
   });
 
-  it('clears items when session polling becomes disabled', async () => {
-    listSession.mockResolvedValueOnce({
-      items: [createSubagent()],
-      generatedAt: 1,
-    });
+  it('clears items when session subscription becomes disabled', async () => {
+    let latestEventHandler: ((event: SessionAgentSubagentsUpdatedEvent) => void) | undefined;
+    subscribeSessionSubagents.mockImplementation(
+      (
+        _request: unknown,
+        callback: (event: SessionAgentSubagentsUpdatedEvent) => void
+      ): (() => void) => {
+        latestEventHandler = callback;
+        return unsubscribeSessionSubagents;
+      }
+    );
 
     const mounted = mountHookHarness({
       cwd: '/Users/tanzv/project/worktree-a',
@@ -131,6 +164,22 @@ describe('useSessionSubagents', () => {
     });
 
     await act(async () => {
+      await Promise.resolve();
+    });
+
+    const subscriptionRequest = subscribeSessionSubagents.mock.calls[0]?.[0] as {
+      subscriptionId: string;
+      targets: Array<{ sessionId: string }>;
+    };
+
+    await act(async () => {
+      latestEventHandler?.({
+        subscriptionId: subscriptionRequest.subscriptionId,
+        itemsBySessionId: {
+          [subscriptionRequest.targets[0]?.sessionId ?? 'missing']: [createSubagent()],
+        },
+        generatedAt: 1,
+      });
       await Promise.resolve();
     });
 
@@ -145,6 +194,40 @@ describe('useSessionSubagents', () => {
 
     expect(latestResult.items).toEqual([]);
     expect(latestResult.isLoading).toBe(false);
+    expect(unsubscribeSessionSubagents).toHaveBeenCalledTimes(1);
+
+    mounted.unmount();
+  });
+
+  it('uses a fresh subscription id when the session target changes', async () => {
+    subscribeSessionSubagents.mockImplementation((): (() => void) => unsubscribeSessionSubagents);
+
+    const mounted = mountHookHarness({
+      cwd: '/Users/tanzv/project/worktree-a',
+      providerSessionId: 'root-thread-1',
+      enabled: true,
+      pollIntervalMs: 1_000,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    mounted.rerender({
+      cwd: '/Users/tanzv/project/worktree-b',
+      providerSessionId: 'root-thread-2',
+      enabled: true,
+      pollIntervalMs: 1_000,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(subscribeSessionSubagents).toHaveBeenCalledTimes(2);
+    expect(subscribeSessionSubagents.mock.calls[0]?.[0]?.subscriptionId).not.toBe(
+      subscribeSessionSubagents.mock.calls[1]?.[0]?.subscriptionId
+    );
 
     mounted.unmount();
   });

@@ -77,6 +77,8 @@ export interface Session {
   hostSessionKey?: string; // persisted tmux host session key used for unix session recovery
   recovered?: boolean;
   recoveryState?: PersistentAgentRuntimeState;
+  replaySnapshot?: string;
+  replaySnapshotCapturedAt?: number;
   agentCapabilityProvider?: AgentCapabilityProvider;
   agentCapabilityHash?: string;
   agentCapabilityWarnings?: string[];

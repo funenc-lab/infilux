@@ -4,6 +4,10 @@ import { areLiveSubagentListsEqual, buildLiveSubagentCwds } from './useLiveSubag
 
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
+function createSubscriptionId(): string {
+  return `session-subagents-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export interface SessionSubagentPollTarget {
   sessionId: string;
   cwd?: string;
@@ -106,8 +110,6 @@ export function useSessionSubagentsBySession({
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    const retainedSessionIds = new Set(normalizedTargets.map((target) => target.sessionId));
-
     if (!enabled || normalizedTargets.length === 0) {
       setIsLoading(false);
       setItemsBySessionId((current) => {
@@ -119,8 +121,10 @@ export function useSessionSubagentsBySession({
       return;
     }
 
-    if (!window.electronAPI.agentSubagent?.listSession) {
-      console.error('[useSessionSubagentsBySession] agentSubagent.listSession is unavailable');
+    if (!window.electronAPI.agentSubagent?.subscribeSessionSubagents) {
+      console.error(
+        '[useSessionSubagentsBySession] agentSubagent.subscribeSessionSubagents is unavailable'
+      );
       setIsLoading(false);
       setItemsBySessionId((current) => {
         if (Object.keys(current).length === 0) {
@@ -131,60 +135,31 @@ export function useSessionSubagentsBySession({
       return;
     }
 
-    let cancelled = false;
+    setIsLoading(true);
+    const subscriptionId = createSubscriptionId();
+    const retainedSessionIds = new Set(normalizedTargets.map((target) => target.sessionId));
+    const unsubscribe = window.electronAPI.agentSubagent.subscribeSessionSubagents(
+      {
+        subscriptionId,
+        pollIntervalMs,
+        targets: normalizedTargets,
+      },
+      (event) => {
+        const nextEntries = normalizedTargets.map((target) => ({
+          sessionId: target.sessionId,
+          items: event.itemsBySessionId[target.sessionId] ?? [],
+        }));
 
-    const load = async (markLoading: boolean) => {
-      if (markLoading && !cancelled) {
-        setIsLoading(true);
+        setItemsBySessionId((current) => {
+          const next = buildSessionSubagentMap(current, nextEntries, retainedSessionIds);
+          return next ?? current;
+        });
+        setIsLoading(false);
       }
-
-      try {
-        const nextEntries = await Promise.all(
-          normalizedTargets.map(async (target) => {
-            try {
-              const result = await window.electronAPI.agentSubagent.listSession({
-                providerSessionId: target.providerSessionId,
-                cwd: target.cwd,
-              });
-              return {
-                sessionId: target.sessionId,
-                items: result.items,
-              };
-            } catch (error) {
-              console.error(
-                '[useSessionSubagentsBySession] Failed to load session subagents',
-                target.sessionId,
-                error
-              );
-              return {
-                sessionId: target.sessionId,
-                items: [],
-              };
-            }
-          })
-        );
-
-        if (!cancelled) {
-          setItemsBySessionId((current) => {
-            const next = buildSessionSubagentMap(current, nextEntries, retainedSessionIds);
-            return next ?? current;
-          });
-        }
-      } finally {
-        if (markLoading && !cancelled) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void load(true);
-    const timer = window.setInterval(() => {
-      void load(false);
-    }, pollIntervalMs);
+    );
 
     return () => {
-      cancelled = true;
-      window.clearInterval(timer);
+      unsubscribe();
     };
   }, [enabled, normalizedTargets, pollIntervalMs]);
 

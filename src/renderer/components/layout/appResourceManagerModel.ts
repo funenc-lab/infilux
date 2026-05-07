@@ -358,6 +358,36 @@ function sortItems(resources: AppResourceItem[]): AppResourceItem[] {
   });
 }
 
+function shouldDisplayResourceInSection(resource: AppResourceItem): boolean {
+  if (resource.kind === 'electron-process') {
+    return true;
+  }
+
+  if (resource.kind === 'session') {
+    return resource.status !== 'stopped';
+  }
+
+  return resource.status !== 'stopped' && resource.status !== 'unavailable';
+}
+
+export function countVisibleResourcesByGroup(
+  snapshot: AppResourceSnapshot
+): Record<AppResourceItem['group'], number> {
+  return snapshot.resources.reduce(
+    (counts, resource) => {
+      if (shouldDisplayResourceInSection(resource)) {
+        counts[resource.group] += 1;
+      }
+      return counts;
+    },
+    {
+      runtime: 0,
+      sessions: 0,
+      services: 0,
+    } satisfies Record<AppResourceItem['group'], number>
+  );
+}
+
 function countReclaimableStaleSessions(snapshot: AppResourceSnapshot): number {
   return snapshot.resources.reduce((count, resource) => {
     if (resource.kind !== 'session') {
@@ -386,9 +416,11 @@ export function buildAppResourceManagerSections(
     .map((group) => ({
       key: group.key,
       title: group.title,
-      items: sortItems(snapshot.resources.filter((resource) => resource.group === group.key)).map(
-        (resource) => toViewModel(resource, translate)
-      ),
+      items: sortItems(
+        snapshot.resources.filter(
+          (resource) => resource.group === group.key && shouldDisplayResourceInSection(resource)
+        )
+      ).map((resource) => toViewModel(resource, translate)),
     }))
     .filter((section) => section.items.length > 0);
 }

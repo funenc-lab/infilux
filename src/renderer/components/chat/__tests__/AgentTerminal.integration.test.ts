@@ -3,6 +3,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AGENT_STARTUP_STALL_THRESHOLD_MS } from '../agentStartupOverlay';
 
 type AgentTerminalModule = typeof import('../AgentTerminal');
 type AgentTerminalProps = React.ComponentProps<AgentTerminalModule['AgentTerminal']>;
@@ -45,6 +46,7 @@ const testState = vi.hoisted(() => ({
     clearSearch: vi.fn(),
     clear: vi.fn(),
     refreshRenderer: vi.fn(),
+    restartSession: vi.fn(),
     write: vi.fn(),
   },
   terminalWriteStore: {
@@ -330,6 +332,7 @@ describe('AgentTerminal integration', () => {
     testState.xtermResult.clearSearch.mockReset();
     testState.xtermResult.clear.mockReset();
     testState.xtermResult.refreshRenderer.mockReset();
+    testState.xtermResult.restartSession.mockReset();
     testState.xtermResult.write.mockReset();
 
     testState.terminalWriteStore.register.mockReset();
@@ -449,6 +452,7 @@ describe('AgentTerminal integration', () => {
 
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -570,7 +574,25 @@ describe('AgentTerminal integration', () => {
       isActive: false,
     });
 
-    expect(mounted.container.textContent).not.toContain('Loading codex...');
+    expect(mounted.container.textContent).not.toContain('Starting session');
+
+    await mounted.unmount();
+  });
+
+  it('falls back to a default command shell when shell resolution fails', async () => {
+    testState.electronAPI.shellResolveForCommand.mockRejectedValue(
+      new Error('shell resolver failed')
+    );
+
+    const mounted = await mountAgentTerminal();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay).toBeNull();
+    expect(testState.useXtermOptions.length).toBeGreaterThan(1);
 
     await mounted.unmount();
   });
@@ -582,7 +604,7 @@ describe('AgentTerminal integration', () => {
       isActive: false,
     });
 
-    expect(mounted.container.textContent).not.toContain('Loading codex...');
+    expect(mounted.container.textContent).not.toContain('Starting session');
 
     await mounted.unmount();
   });
@@ -596,8 +618,55 @@ describe('AgentTerminal integration', () => {
     expect(overlay).not.toBeNull();
     expect(overlay?.getAttribute('role')).toBe('status');
     expect(overlay?.getAttribute('aria-live')).toBe('polite');
-    expect(overlay?.textContent).toContain('Loading codex...');
+    expect(overlay?.getAttribute('aria-label')).toBe('Session startup status');
+    expect(overlay?.getAttribute('data-agent-terminal-startup-state')).toBe('starting');
+    expect(overlay?.textContent).toContain('Starting session');
+    expect(overlay?.textContent).toContain('Waiting for the agent prompt.');
 
+    await mounted.unmount();
+  });
+
+  it('upgrades the startup overlay copy when loading takes longer than expected', async () => {
+    vi.useFakeTimers();
+    testState.xtermResult.isLoading = true;
+
+    const mounted = await mountAgentTerminal();
+    await act(async () => {
+      vi.advanceTimersByTime(AGENT_STARTUP_STALL_THRESHOLD_MS + 1);
+      await flushMicrotasks();
+    });
+
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay?.getAttribute('data-agent-terminal-startup-state')).toBe('stalled');
+    expect(overlay?.textContent).toContain('Still starting');
+    expect(overlay?.textContent).toContain('Session startup is taking longer than expected.');
+
+    vi.useRealTimers();
+    await mounted.unmount();
+  });
+
+  it('shows a retry action for stalled startup and triggers a real session restart', async () => {
+    vi.useFakeTimers();
+    testState.xtermResult.isLoading = true;
+
+    const mounted = await mountAgentTerminal();
+    await act(async () => {
+      vi.advanceTimersByTime(AGENT_STARTUP_STALL_THRESHOLD_MS + 1);
+      await flushMicrotasks();
+    });
+
+    const retryButton = mounted.container.querySelector('button[title="Retry"]');
+    expect(retryButton).not.toBeNull();
+
+    await act(async () => {
+      (retryButton as HTMLButtonElement).click();
+      await flushMicrotasks();
+    });
+
+    expect(testState.xtermResult.restartSession).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
     await mounted.unmount();
   });
 

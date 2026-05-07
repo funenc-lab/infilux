@@ -917,6 +917,14 @@ export const zhTranslations: Record<string, string> = {
   'Just now': '刚刚',
   'Learn More': '了解更多',
   'Loading {{agent}}...': '正在启动 {{agent}}...',
+  'Session is starting. Input will be available when the prompt appears.':
+    '\u4f1a\u8bdd\u6b63\u5728\u542f\u52a8\u3002\u63d0\u793a\u7b26\u51fa\u73b0\u540e\u5373\u53ef\u8f93\u5165\u3002',
+  'Session startup status': '\u4f1a\u8bdd\u542f\u52a8\u72b6\u6001',
+  'Session startup is taking longer than expected.':
+    '\u4f1a\u8bdd\u542f\u52a8\u65f6\u95f4\u957f\u4e8e\u9884\u671f\u3002',
+  'Starting session': '\u6b63\u5728\u542f\u52a8\u4f1a\u8bdd',
+  'Still starting': '\u4ecd\u5728\u542f\u52a8',
+  'Waiting for the agent prompt.': '\u7b49\u5f85 Agent \u63d0\u793a\u7b26\u3002',
   'Match terminal color scheme': '跟随终端配色方案',
   'New Window': '新建窗口',
   'New version': '新版',

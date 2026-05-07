@@ -189,6 +189,62 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('hydrates replay snapshots from recovered persistent metadata', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        metadata: {
+          persistentAgentSession: {
+            replaySnapshot: 'persisted replay',
+            replaySnapshotCapturedAt: 123,
+          },
+        },
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        replaySnapshot: 'persisted replay',
+        replaySnapshotCapturedAt: 123,
+      }),
+    ]);
+  });
+
+  it('clears stale replay snapshots when the recovered record no longer carries replay metadata', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-1',
+      sessionId: 'provider-1',
+      backendSessionId: 'backend-stale',
+      name: 'Codex',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      persistenceEnabled: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+      replaySnapshot: 'stale replay',
+      replaySnapshotCapturedAt: 321,
+    });
+
+    store.upsertRecoveredSession(makeRecoveredRecord());
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        replaySnapshot: undefined,
+        replaySnapshotCapturedAt: undefined,
+      }),
+    ]);
+  });
+
   it('returns a stable default attachment tray state for missing sessions', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();

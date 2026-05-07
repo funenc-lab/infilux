@@ -37,6 +37,28 @@ export interface ListSessionAgentSubagentsResult {
   generatedAt: number;
 }
 
+export interface SessionAgentSubagentSubscriptionTarget {
+  sessionId: string;
+  providerSessionId: string;
+  cwd: string;
+}
+
+export interface SubscribeSessionAgentSubagentsRequest {
+  subscriptionId: string;
+  targets: SessionAgentSubagentSubscriptionTarget[];
+  pollIntervalMs?: number;
+}
+
+export interface UnsubscribeSessionAgentSubagentsRequest {
+  subscriptionId: string;
+}
+
+export interface SessionAgentSubagentsUpdatedEvent {
+  subscriptionId: string;
+  itemsBySessionId: Record<string, LiveAgentSubagent[]>;
+  generatedAt: number;
+}
+
 export interface AgentSubagentTranscriptEntry {
   id: string;
   timestamp: number;

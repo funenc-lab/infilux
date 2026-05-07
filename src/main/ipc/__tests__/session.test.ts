@@ -2,6 +2,15 @@ import { IPC_CHANNELS } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Handler = (...args: unknown[]) => unknown;
+type PreparedLaunchResult = {
+  launchResult: {
+    provider: string;
+    hash: string;
+    warnings: unknown[];
+    projected: null;
+  };
+  sessionOverrides: undefined;
+};
 
 const sessionTestDoubles = vi.hoisted(() => {
   const handlers = new Map<string, Handler>();
@@ -18,6 +27,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const destroyAllLocal = vi.fn();
   const destroyAllLocalAndWait = vi.fn();
   const prepareAgentCapabilityLaunch = vi.fn();
+  const browserWindowFromWebContents = vi.fn();
 
   function reset() {
     handlers.clear();
@@ -94,6 +104,9 @@ const sessionTestDoubles = vi.hoisted(() => {
       },
       sessionOverrides: undefined,
     });
+
+    browserWindowFromWebContents.mockReset();
+    browserWindowFromWebContents.mockReturnValue(null);
   }
 
   return {
@@ -110,11 +123,15 @@ const sessionTestDoubles = vi.hoisted(() => {
     destroyAllLocal,
     destroyAllLocalAndWait,
     prepareAgentCapabilityLaunch,
+    browserWindowFromWebContents,
     reset,
   };
 });
 
 vi.mock('electron', () => ({
+  BrowserWindow: {
+    fromWebContents: sessionTestDoubles.browserWindowFromWebContents,
+  },
   ipcMain: {
     handle: vi.fn((channel: string, handler: Handler) => {
       sessionTestDoubles.handlers.set(channel, handler);
@@ -507,6 +524,73 @@ describe('session IPC handlers', () => {
             hash: 'hash-1',
           }),
         }),
+      })
+    );
+  });
+
+  it('captures the sender window id before async capability preparation resolves', async () => {
+    const event = createEvent();
+    const deferredPreparation: {
+      resolve: ((value: PreparedLaunchResult) => void) | null;
+    } = {
+      resolve: null,
+    };
+
+    sessionTestDoubles.browserWindowFromWebContents.mockReturnValueOnce({ id: 41 });
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockReturnValueOnce(
+      new Promise<PreparedLaunchResult>((resolve) => {
+        deferredPreparation.resolve = resolve;
+      })
+    );
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    const createPromise = createHandler(event, {
+      cwd: '/repo/worktrees/feature-a',
+      kind: 'agent',
+      metadata: {
+        agentCapabilityLaunch: {
+          provider: 'claude',
+          agentId: 'claude',
+          agentCommand: 'claude',
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          globalPolicy: null,
+          projectPolicy: null,
+          worktreePolicy: null,
+          sessionPolicy: null,
+          materializationMode: 'copy',
+        },
+      },
+    });
+
+    sessionTestDoubles.browserWindowFromWebContents.mockImplementationOnce(() => {
+      throw new Error('Object has been destroyed');
+    });
+    const finishPreparation = deferredPreparation.resolve;
+    if (!finishPreparation) {
+      throw new Error('Expected capability preparation resolver to be set');
+    }
+
+    finishPreparation({
+      launchResult: {
+        provider: 'claude',
+        hash: 'hash-1',
+        warnings: [],
+        projected: null,
+      },
+      sessionOverrides: undefined,
+    });
+
+    await createPromise;
+
+    expect(sessionTestDoubles.create).toHaveBeenCalledWith(
+      41,
+      expect.objectContaining({
+        cwd: '/repo/worktrees/feature-a',
+        kind: 'agent',
       })
     );
   });

@@ -45,7 +45,7 @@ describe('agentInputAvailability', () => {
         isRemoteExecution: false,
         t,
       })
-    ).toBe('Loading codex...');
+    ).toBe('Session is starting. Input will be available when the prompt appears.');
     expect(
       resolveAgentInputUnavailableReason({
         agentCommand: 'claude',

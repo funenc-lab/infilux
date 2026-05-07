@@ -3,6 +3,7 @@ import {
   supportsAgentCapabilityPolicyLaunch,
   supportsClaudeCapabilityPolicyLaunch,
 } from '@shared/utils/agentCapabilityPolicy';
+import { extractPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { normalizePath, pathsEqual } from '@/App/storage';
@@ -306,8 +307,13 @@ function sanitizePersistedEnhancedInputStates(
 }
 
 function sanitizePersistedSession(session: Session): Session {
+  const {
+    replaySnapshot: _replaySnapshot,
+    replaySnapshotCapturedAt: _replaySnapshotCapturedAt,
+    ...persistedSession
+  } = session;
   return {
-    ...session,
+    ...persistedSession,
     name: getStoredSessionName(session.name, session.agentId),
     terminalTitle: getMeaningfulTerminalTitle(session.terminalTitle),
   };
@@ -748,6 +754,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
     upsertRecoveredSession: (record) =>
       set((state) => {
         const existing = state.sessions.find((session) => session.id === record.uiSessionId);
+        const { replaySnapshot, replaySnapshotCapturedAt } = extractPersistentAgentReplaySnapshot(
+          record.metadata
+        );
         const recoveredSession: Session = {
           id: record.uiSessionId,
           sessionId: record.providerSessionId ?? existing?.sessionId ?? record.uiSessionId,
@@ -771,6 +780,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           hostSessionKey: record.hostKind === 'tmux' ? record.hostSessionKey : undefined,
           recovered: true,
           recoveryState: record.lastKnownState,
+          replaySnapshot,
+          replaySnapshotCapturedAt,
           agentCapabilityProvider: existing?.agentCapabilityProvider,
           agentCapabilityHash: existing?.agentCapabilityHash,
           agentCapabilityWarnings: existing?.agentCapabilityWarnings,

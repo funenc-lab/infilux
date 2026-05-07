@@ -60,6 +60,7 @@ import {
   buildAgentCapabilityLaunchMetadata,
   extractAgentCapabilitySessionMetadata,
 } from './agentCapabilityLaunch';
+import { resolveFallbackCommandShell } from './agentCommandShellFallback';
 import {
   AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS,
   AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS,
@@ -70,6 +71,10 @@ import {
 } from './agentInputAvailability';
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import { buildAgentLaunchPlan } from './agentLaunchPlan';
+import {
+  AGENT_STARTUP_STALL_THRESHOLD_MS,
+  resolveAgentStartupOverlayPresentation,
+} from './agentStartupOverlay';
 import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActivityPollingPolicy';
 import { resolveAgentTerminalAttachmentInsertDisposition } from './agentTerminalAttachmentInsertPolicy';
 import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
@@ -136,6 +141,7 @@ interface AgentTerminalProps {
   onUnregisterEnhancedInputSender?: (sessionId: string) => void;
   onBackendSessionIdChange?: (sessionId: string) => void;
   onProviderSessionIdChange?: (sessionId: string) => void;
+  onReplaySnapshotChange?: (snapshot: string | undefined, capturedAt: number | undefined) => void;
   onRuntimeStateChange?: (state: SessionRuntimeState) => void;
   onClaudePolicyStateChange?: (state: {
     provider?: 'claude' | 'codex' | 'gemini';
@@ -143,6 +149,7 @@ interface AgentTerminalProps {
     warnings: string[];
   }) => void;
   readOnlyTranscript?: AgentTerminalReadOnlyTranscript | null;
+  replaySnapshot?: string;
 }
 
 const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is doing work
@@ -224,9 +231,11 @@ export function AgentTerminal({
   onUnregisterEnhancedInputSender,
   onBackendSessionIdChange,
   onProviderSessionIdChange,
+  onReplaySnapshotChange,
   onRuntimeStateChange,
   onClaudePolicyStateChange,
   readOnlyTranscript = null,
+  replaySnapshot,
 }: AgentTerminalProps) {
   const { t } = useI18n();
   const isReadOnlyTranscript = readOnlyTranscript !== null;
@@ -280,20 +289,43 @@ export function AgentTerminal({
 
   // Resolve shell configuration on mount and when shellConfig changes
   useEffect(() => {
+    let cancelled = false;
+
     if (isReadOnlyTranscript) {
       setResolvedShell({
         shell: '',
         execArgs: [],
       });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (isRemoteExecution) {
       setResolvedShell(null);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
-    window.electronAPI.shell.resolveForCommand(cwd, shellConfig).then(setResolvedShell);
-  }, [cwd, isReadOnlyTranscript, isRemoteExecution, shellConfig]);
+
+    window.electronAPI.shell
+      .resolveForCommand(cwd, shellConfig)
+      .then((nextShell) => {
+        if (!cancelled) {
+          setResolvedShell(nextShell);
+        }
+      })
+      .catch((error) => {
+        console.warn('[AgentTerminal] Failed to resolve shell for command execution', error);
+        if (!cancelled) {
+          setResolvedShell(resolveFallbackCommandShell(executionPlatform, shellConfig));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, executionPlatform, isReadOnlyTranscript, isRemoteExecution, shellConfig]);
 
   // Check hapi global installation on mount (only for hapi environment)
   useEffect(() => {
@@ -1445,6 +1477,7 @@ export function AgentTerminal({
     terminal,
     clear,
     refreshRenderer,
+    restartSession,
     write,
   } = useXterm({
     cwd,
@@ -1486,8 +1519,10 @@ export function AgentTerminal({
       hostSession?.kind === 'tmux' &&
       (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current))),
     retryOnDeadSession: false,
+    recoveredReplaySnapshot: replaySnapshot,
     onExit: handleExit,
     onData: handleData,
+    onReplaySnapshotChange,
     onCustomKey: handleCustomKey,
     onTitleChange: handleTitleChange,
     onSessionIdChange: onBackendSessionIdChange,
@@ -1537,8 +1572,36 @@ export function AgentTerminal({
     !isReadOnlyTranscript &&
     (isActive || hasPendingCommand) &&
     (isLoading || isAgentStartupReadinessPending);
+  const [isAgentStartupStalled, setIsAgentStartupStalled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
+  const agentStartupOverlayPresentation = useMemo(
+    () => resolveAgentStartupOverlayPresentation({ isStalled: isAgentStartupStalled }),
+    [isAgentStartupStalled]
+  );
+  const showAgentStartupRetryAction =
+    shouldShowAgentStartupOverlay && isAgentStartupStalled && isLoading;
+
+  const handleRetryAgentStartup = useCallback(() => {
+    setIsAgentStartupStalled(false);
+    restartSession();
+  }, [restartSession]);
+
+  useEffect(() => {
+    if (!shouldShowAgentStartupOverlay) {
+      setIsAgentStartupStalled(false);
+      return;
+    }
+
+    setIsAgentStartupStalled(false);
+    const stallTimer = window.setTimeout(() => {
+      setIsAgentStartupStalled(true);
+    }, AGENT_STARTUP_STALL_THRESHOLD_MS);
+
+    return () => {
+      window.clearTimeout(stallTimer);
+    };
+  }, [shouldShowAgentStartupOverlay]);
 
   // Mirror the side effects that used to live in EnhancedInput.onOpenChange:
   // - Treat opening EnhancedInput as active user interaction (reset idle timers)
@@ -1855,36 +1918,53 @@ export function AgentTerminal({
       )}
       {shouldShowAgentStartupOverlay && (
         <div
-          className="absolute inset-0 flex items-center justify-center backdrop-blur-[1px]"
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-3 pt-3"
           data-agent-terminal-startup-overlay="true"
+          data-agent-terminal-startup-state={agentStartupOverlayPresentation.state}
           role="status"
           aria-live="polite"
-          style={{
-            backgroundColor: `color-mix(in oklch, ${settings.theme.background} 72%, transparent)`,
-          }}
+          aria-label={t('Session startup status')}
         >
           <div
-            className="control-panel-muted flex min-w-[11rem] flex-col items-center gap-2.5 rounded-xl px-4 py-3"
-            style={{
-              backgroundColor: `color-mix(in oklch, ${settings.theme.background} 86%, var(--control-surface) 14%)`,
-            }}
+            className="agent-terminal-startup-banner pointer-events-auto flex min-w-0 max-w-[24rem] items-start gap-2.5 rounded-xl px-3 py-2.5"
+            data-state={agentStartupOverlayPresentation.state}
           >
-            <div className="relative h-7 w-7" aria-hidden="true">
-              <div
-                className="absolute inset-0 rounded-full border border-current opacity-15"
-                style={{ color: settings.theme.foreground }}
-              />
-              <div
-                className="absolute inset-0 animate-spin rounded-full border-2 border-current border-b-transparent border-r-transparent"
-                style={{ color: settings.theme.foreground, opacity: 0.68 }}
-              />
-            </div>
-            <span
-              style={{ color: settings.theme.foreground, opacity: 0.72 }}
-              className="max-w-[18rem] truncate text-xs font-medium"
+            <div
+              className="agent-terminal-startup-indicator relative mt-0.5 h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+              data-state={agentStartupOverlayPresentation.state}
             >
-              {t('Loading {{agent}}...', { agent: agentCommand })}
-            </span>
+              <div className="agent-terminal-startup-indicator-track absolute inset-0 rounded-full border border-current opacity-15" />
+              <div className="agent-terminal-startup-indicator-spinner absolute inset-0 animate-spin rounded-full border-2 border-current border-b-transparent border-r-transparent" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div
+                style={{ color: settings.theme.foreground, opacity: 0.9 }}
+                className="truncate text-sm font-medium"
+              >
+                {t(agentStartupOverlayPresentation.titleKey)}
+              </div>
+              <div
+                style={{ color: settings.theme.foreground, opacity: 0.62 }}
+                className="mt-0.5 text-xs"
+              >
+                {t(agentStartupOverlayPresentation.descriptionKey)}
+              </div>
+            </div>
+            {showAgentStartupRetryAction ? (
+              <button
+                type="button"
+                onClick={handleRetryAgentStartup}
+                className={cn(
+                  'control-floating-button agent-terminal-startup-retry h-7 shrink-0 rounded-lg px-2.5 text-xs font-medium',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-0'
+                )}
+                title={t('Retry')}
+                aria-label={t('Retry')}
+              >
+                {t('Retry')}
+              </button>
+            ) : null}
           </div>
         </div>
       )}

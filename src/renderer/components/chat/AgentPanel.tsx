@@ -7,6 +7,7 @@ import {
 } from '@shared/types';
 import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
 import { getDisplayPathBasename } from '@shared/utils/path';
+import { withPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { resolveTmuxServerNameForPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
 import {
@@ -251,6 +252,11 @@ function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
     createdAt,
     updatedAt: Date.now(),
     lastKnownState: session.recoveryState ?? 'live',
+    metadata: withPersistentAgentReplaySnapshot(
+      undefined,
+      session.replaySnapshot,
+      session.replaySnapshotCapturedAt
+    ),
   };
 }
 
@@ -4185,11 +4191,24 @@ export function AgentPanel({
               if (session.sessionId === providerSessionId) return;
               updateSession(sessionId, { sessionId: providerSessionId });
             }}
+            onReplaySnapshotChange={(replaySnapshot, replaySnapshotCapturedAt) => {
+              if (
+                session.replaySnapshot === replaySnapshot &&
+                session.replaySnapshotCapturedAt === replaySnapshotCapturedAt
+              ) {
+                return;
+              }
+              updateSession(sessionId, {
+                replaySnapshot,
+                replaySnapshotCapturedAt,
+              });
+            }}
             onRuntimeStateChange={(runtimeState) => {
               if (shouldDeferPersistentSessionDeadState(session, runtimeState)) return;
               if (session.recoveryState === runtimeState) return;
               updateSession(sessionId, { recoveryState: runtimeState });
             }}
+            replaySnapshot={session.replaySnapshot}
             onClaudePolicyStateChange={(policyState) => {
               if (
                 session.agentCapabilityHash === policyState.hash &&

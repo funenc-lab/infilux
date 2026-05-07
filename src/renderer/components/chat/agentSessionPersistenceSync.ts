@@ -1,4 +1,22 @@
 import type { PersistentAgentSessionRecord } from '@shared/types';
+import { extractPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
+
+const LIVE_REPLAY_SNAPSHOT_PERSIST_INTERVAL_MS = 10_000;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stripPersistentAgentSessionMetadata(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!isPlainObject(metadata)) {
+    return undefined;
+  }
+
+  const { persistentAgentSession: _persistentAgentSession, ...rest } = metadata;
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
 
 type DiffPersistentAgentSessionRecordsOptions = {
   previousSnapshotBySessionId: Map<string, string>;
@@ -8,6 +26,23 @@ type DiffPersistentAgentSessionRecordsOptions = {
 function normalizePersistentAgentSessionRecord(record: PersistentAgentSessionRecord) {
   const { updatedAt: _updatedAt, ...stableRecord } = record;
   return stableRecord;
+}
+
+function normalizePersistentAgentSessionRecordForComparison(
+  record: PersistentAgentSessionRecord
+): Record<string, unknown> {
+  const normalizedRecord = normalizePersistentAgentSessionRecord(record);
+  const normalizedMetadata = stripPersistentAgentSessionMetadata(normalizedRecord.metadata);
+
+  if (!normalizedMetadata) {
+    const { metadata: _metadata, ...stableRecord } = normalizedRecord;
+    return stableRecord;
+  }
+
+  return {
+    ...normalizedRecord,
+    metadata: normalizedMetadata,
+  };
 }
 
 function parsePersistentAgentSessionRecordSnapshot(
@@ -27,6 +62,47 @@ export function serializePersistentAgentSessionRecordSnapshot(
   return JSON.stringify(normalizePersistentAgentSessionRecord(record));
 }
 
+function serializePersistentAgentSessionRecordComparisonSnapshot(
+  record: PersistentAgentSessionRecord
+): string {
+  return JSON.stringify(normalizePersistentAgentSessionRecordForComparison(record));
+}
+
+function shouldPersistReplaySnapshotChange(
+  previousRecord: PersistentAgentSessionRecord | null,
+  nextRecord: PersistentAgentSessionRecord
+): boolean {
+  if (nextRecord.lastKnownState !== 'live') {
+    return true;
+  }
+
+  const nextReplay = extractPersistentAgentReplaySnapshot(nextRecord.metadata);
+  if (!nextReplay.replaySnapshot) {
+    return false;
+  }
+
+  const previousReplay = extractPersistentAgentReplaySnapshot(previousRecord?.metadata);
+  if (!previousReplay.replaySnapshot) {
+    return true;
+  }
+
+  if (previousReplay.replaySnapshot === nextReplay.replaySnapshot) {
+    return false;
+  }
+
+  if (
+    typeof previousReplay.replaySnapshotCapturedAt !== 'number' ||
+    typeof nextReplay.replaySnapshotCapturedAt !== 'number'
+  ) {
+    return true;
+  }
+
+  return (
+    nextReplay.replaySnapshotCapturedAt - previousReplay.replaySnapshotCapturedAt >=
+    LIVE_REPLAY_SNAPSHOT_PERSIST_INTERVAL_MS
+  );
+}
+
 export function diffPersistentAgentSessionRecords({
   previousSnapshotBySessionId,
   records,
@@ -42,11 +118,34 @@ export function diffPersistentAgentSessionRecords({
 
   for (const record of records) {
     const snapshot = serializePersistentAgentSessionRecordSnapshot(record);
-    nextSnapshotBySessionId.set(record.uiSessionId, snapshot);
-
-    if (previousSnapshotBySessionId.get(record.uiSessionId) !== snapshot) {
+    const previousSnapshot = previousSnapshotBySessionId.get(record.uiSessionId);
+    if (!previousSnapshot) {
+      nextSnapshotBySessionId.set(record.uiSessionId, snapshot);
       changedRecords.push(record);
+      continue;
     }
+
+    if (previousSnapshot === snapshot) {
+      nextSnapshotBySessionId.set(record.uiSessionId, snapshot);
+      continue;
+    }
+
+    const previousRecord = parsePersistentAgentSessionRecordSnapshot(previousSnapshot);
+    const previousComparisonSnapshot = previousRecord
+      ? serializePersistentAgentSessionRecordComparisonSnapshot(previousRecord)
+      : null;
+    const nextComparisonSnapshot = serializePersistentAgentSessionRecordComparisonSnapshot(record);
+
+    if (
+      previousComparisonSnapshot !== nextComparisonSnapshot ||
+      shouldPersistReplaySnapshotChange(previousRecord, record)
+    ) {
+      nextSnapshotBySessionId.set(record.uiSessionId, snapshot);
+      changedRecords.push(record);
+      continue;
+    }
+
+    nextSnapshotBySessionId.set(record.uiSessionId, previousSnapshot);
   }
 
   const removedSessionIds = [...previousSnapshotBySessionId.keys()].filter((uiSessionId) => {

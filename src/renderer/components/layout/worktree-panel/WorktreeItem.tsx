@@ -289,12 +289,6 @@ export const WorktreeItem = memo(function WorktreeItem({
                     {branchDisplay}
                   </span>
                 </div>
-                <span
-                  className="control-tree-subtitle min-w-0 truncate"
-                  title={displayWorktreePath}
-                >
-                  {displayWorktreePath}
-                </span>
               </div>
               {inlineItems.length > 0 ? (
                 <div className="control-tree-inline-signals">

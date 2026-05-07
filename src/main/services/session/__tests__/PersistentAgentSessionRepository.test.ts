@@ -29,6 +29,7 @@ type SessionRow = {
 };
 
 const repositoryTestDoubles = vi.hoisted(() => {
+  const registerMainProcessDiagnosticsCollector = vi.fn();
   class FakeDatabase {
     public configure = vi.fn();
 
@@ -233,6 +234,7 @@ const repositoryTestDoubles = vi.hoisted(() => {
   }
 
   return {
+    registerMainProcessDiagnosticsCollector,
     appGetPath,
     readPersistentAgentSessions,
     sqlite3,
@@ -264,6 +266,11 @@ vi.mock('../../SharedSessionState', async () => {
     readPersistentAgentSessions: repositoryTestDoubles.readPersistentAgentSessions,
   };
 });
+
+vi.mock('../../../utils/mainProcessDiagnostics', () => ({
+  registerMainProcessDiagnosticsCollector:
+    repositoryTestDoubles.registerMainProcessDiagnosticsCollector,
+}));
 
 function makeRecord(
   overrides: Partial<PersistentAgentSessionRecord> = {}
@@ -468,6 +475,64 @@ describe('PersistentAgentSessionRepository', () => {
     ]);
 
     await expect(repository.close()).resolves.toBeUndefined();
+  });
+
+  it('updates the in-memory cache during upsert without reloading the full sqlite table', async () => {
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+    await repository.initialize();
+
+    const allCallsAfterInitialize = repositoryTestDoubles.databases[0]?.all.mock.calls.length ?? 0;
+
+    await repository.upsertSession(
+      makeRecord({
+        uiSessionId: 'session-cache-only',
+        displayName: 'Cache Only',
+        updatedAt: 200,
+      })
+    );
+
+    expect(repository.listCachedSessions()).toEqual([
+      expect.objectContaining({
+        uiSessionId: 'session-cache-only',
+        displayName: 'Cache Only',
+        updatedAt: 200,
+      }),
+    ]);
+    expect(repositoryTestDoubles.databases[0]?.all.mock.calls.length).toBe(allCallsAfterInitialize);
+  });
+
+  it('reports repository operation counters through the diagnostics snapshot', async () => {
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+
+    expect(repositoryTestDoubles.registerMainProcessDiagnosticsCollector).toHaveBeenCalledWith(
+      'persistentAgentSessions',
+      expect.any(Function)
+    );
+
+    await repository.initialize();
+    await repository.listSessions();
+    repository.listCachedSessions();
+    await repository.upsertSession(makeRecord({ uiSessionId: 'session-diagnostics' }));
+
+    expect(repository.getDiagnosticsSnapshot()).toEqual(
+      expect.objectContaining({
+        cacheSize: 1,
+        counters: expect.objectContaining({
+          initializeCalls: 1,
+          listSessionsCalls: 1,
+          listCachedSessionsCalls: 2,
+          upsertCalls: 1,
+          writeRecordCalls: 1,
+          refreshCacheCalls: 1,
+        }),
+      })
+    );
   });
 
   it('restores sqlite-backed persistent sessions after a repository restart', async () => {

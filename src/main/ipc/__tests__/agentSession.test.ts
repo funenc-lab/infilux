@@ -6,6 +6,7 @@ type Handler = (...args: unknown[]) => unknown;
 
 const agentSessionTestDoubles = vi.hoisted(() => {
   const handlers = new Map<string, Handler>();
+  const registerMainProcessDiagnosticsCollector = vi.fn();
   const listRecoverableSessions = vi.fn();
   const restoreWorktreeSessions = vi.fn();
   const reconcileSession = vi.fn();
@@ -16,6 +17,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
   function reset() {
     handlers.clear();
 
+    registerMainProcessDiagnosticsCollector.mockReset();
     listRecoverableSessions.mockReset();
     restoreWorktreeSessions.mockReset();
     reconcileSession.mockReset();
@@ -41,6 +43,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
 
   return {
     handlers,
+    registerMainProcessDiagnosticsCollector,
     listRecoverableSessions,
     restoreWorktreeSessions,
     reconcileSession,
@@ -73,6 +76,11 @@ vi.mock('../../services/agent/AgentProviderSessionService', () => ({
   agentProviderSessionService: {
     resolveProviderSession: agentSessionTestDoubles.resolveProviderSession,
   },
+}));
+
+vi.mock('../../utils/mainProcessDiagnostics', () => ({
+  registerMainProcessDiagnosticsCollector:
+    agentSessionTestDoubles.registerMainProcessDiagnosticsCollector,
 }));
 
 function makeRecord(
@@ -232,5 +240,31 @@ describe('agentSession IPC handlers', () => {
     expect(agentSessionTestDoubles.resolveProviderSession).not.toHaveBeenCalled();
     expect(agentSessionTestDoubles.upsertSession).not.toHaveBeenCalled();
     expect(agentSessionTestDoubles.abandonSession).not.toHaveBeenCalled();
+  });
+
+  it('tracks handler invocation counts for diagnostics collection', async () => {
+    const { getAgentSessionHandlerDiagnosticsSnapshot, registerAgentSessionHandlers } =
+      await import('../agentSession');
+    registerAgentSessionHandlers();
+
+    const markPersistentHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT);
+    const listRecoverableHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_LIST_RECOVERABLE);
+
+    expect(agentSessionTestDoubles.registerMainProcessDiagnosticsCollector).toHaveBeenCalledWith(
+      'agentSessionHandlers',
+      expect.any(Function)
+    );
+
+    await listRecoverableHandler({});
+    await markPersistentHandler({}, makeRecord({ uiSessionId: 'session-a' }));
+    await markPersistentHandler({}, makeRecord({ uiSessionId: 'session-b' }));
+
+    expect(getAgentSessionHandlerDiagnosticsSnapshot()).toEqual(
+      expect.objectContaining({
+        listRecoverableCalls: 1,
+        markPersistentCalls: 2,
+        lastMarkedPersistentSessionId: 'session-b',
+      })
+    );
   });
 });

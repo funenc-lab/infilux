@@ -150,25 +150,17 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).not.toContain('const activePaths = worktrees');
   });
 
-  it('keeps repository paths visible while removing duplicated project labels from worktree rows', () => {
+  it('keeps repository paths visible while removing duplicated project labels and worktree path subtitles', () => {
     expect(treeSidebarSource).toContain('title={displayRepoPath}');
     expect(treeSidebarSource).toContain('{displayRepoPath}');
     expect(treeSidebarSource).toContain('<RepositoryTreeSummary');
     expect(repositorySidebarSource).toContain('<RepositoryTreeSummary');
     expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">trees</span>');
     expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">live</span>');
-    expect(treeSidebarSource).toContain(
-      'const displayWorktreePath = getDisplayPath(worktree.path);'
-    );
-    expect(treeSidebarSource).toContain('title={displayWorktreePath}');
-    expect(treeSidebarSource).toContain('{displayWorktreePath}');
-    expect(treeSidebarSource).toContain('control-tree-subtitle min-w-0 truncate');
-    expect(worktreePanelSource).toContain(
-      'const displayWorktreePath = getDisplayPath(worktree.path);'
-    );
-    expect(worktreePanelSource).toContain('title={displayWorktreePath}');
-    expect(worktreePanelSource).toContain('{displayWorktreePath}');
-    expect(worktreePanelSource).toContain('control-tree-subtitle min-w-0 truncate');
+    expect(treeSidebarSource).not.toContain('title={displayWorktreePath}');
+    expect(treeSidebarSource).not.toContain('{displayWorktreePath}');
+    expect(worktreePanelSource).not.toContain('title={displayWorktreePath}');
+    expect(worktreePanelSource).not.toContain('{displayWorktreePath}');
     expect(treeSidebarSource).not.toContain('pl-11');
     expect(repositorySidebarSource).not.toContain('pl-[1.375rem]');
   });

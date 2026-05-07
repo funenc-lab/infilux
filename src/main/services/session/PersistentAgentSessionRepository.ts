@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import sqlite3 from 'sqlite3';
+import { registerMainProcessDiagnosticsCollector } from '../../utils/mainProcessDiagnostics';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
 import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSessionState';
 
@@ -226,6 +227,29 @@ function compareByUpdatedAtDesc(
   return right.updatedAt - left.updatedAt;
 }
 
+function upsertCachedRecord(
+  cache: PersistentAgentSessionRecord[],
+  record: PersistentAgentSessionRecord
+): PersistentAgentSessionRecord[] {
+  const nextRecord = cloneRecord(record);
+  const nextCache = cache.filter((entry) => entry.uiSessionId !== record.uiSessionId);
+  nextCache.push(nextRecord);
+  nextCache.sort(compareByUpdatedAtDesc);
+  return nextCache;
+}
+
+function removeCachedSessions(
+  cache: PersistentAgentSessionRecord[],
+  uiSessionIds: readonly string[]
+): PersistentAgentSessionRecord[] {
+  if (uiSessionIds.length === 0) {
+    return cache;
+  }
+
+  const staleIds = new Set(uiSessionIds);
+  return cache.filter((record) => !staleIds.has(record.uiSessionId));
+}
+
 function isPrunablePersistentAgentState(
   state: PersistentAgentSessionRow['last_known_state']
 ): boolean {
@@ -236,10 +260,46 @@ function getDatabasePath(): string {
   return join(getSharedRootPath(), getAppRuntimeIdentity().persistentAgentSessionDatabaseFilename);
 }
 
+interface PersistentAgentSessionRepositoryDiagnosticsSnapshot {
+  cacheSize: number;
+  counters: {
+    initializeCalls: number;
+    listSessionsCalls: number;
+    listCachedSessionsCalls: number;
+    upsertCalls: number;
+    deleteCalls: number;
+    writeRecordCalls: number;
+    refreshCacheCalls: number;
+    pruneCalls: number;
+  };
+  lastMarkedSessionId: string | null;
+  lastPrunedSessionIds: string[];
+  lastRefreshedAt: number | null;
+}
+
 export class PersistentAgentSessionRepository {
   private db: sqlite3.Database | null = null;
   private initializePromise: Promise<void> | null = null;
   private cache: PersistentAgentSessionRecord[] = [];
+  private diagnostics = {
+    initializeCalls: 0,
+    listSessionsCalls: 0,
+    listCachedSessionsCalls: 0,
+    upsertCalls: 0,
+    deleteCalls: 0,
+    writeRecordCalls: 0,
+    refreshCacheCalls: 0,
+    pruneCalls: 0,
+    lastMarkedSessionId: null as string | null,
+    lastPrunedSessionIds: [] as string[],
+    lastRefreshedAt: null as number | null,
+  };
+
+  constructor() {
+    registerMainProcessDiagnosticsCollector('persistentAgentSessions', () =>
+      this.getDiagnosticsSnapshot()
+    );
+  }
 
   async initialize(): Promise<void> {
     if (this.db) {
@@ -259,23 +319,27 @@ export class PersistentAgentSessionRepository {
   }
 
   listCachedSessions(): PersistentAgentSessionRecord[] {
+    this.diagnostics.listCachedSessionsCalls += 1;
     return this.cache.map(cloneRecord);
   }
 
   async listSessions(): Promise<PersistentAgentSessionRecord[]> {
+    this.diagnostics.listSessionsCalls += 1;
     await this.initialize();
     return this.listCachedSessions();
   }
 
   async upsertSession(record: PersistentAgentSessionRecord): Promise<void> {
+    this.diagnostics.upsertCalls += 1;
+    this.diagnostics.lastMarkedSessionId = record.uiSessionId;
     await this.initialize();
     await this.writeRecord(record);
-    await this.refreshCache();
+    this.cache = upsertCachedRecord(this.cache, record);
     await this.pruneStaleSessions();
-    await this.refreshCache();
   }
 
   async deleteSession(uiSessionId: string): Promise<void> {
+    this.diagnostics.deleteCalls += 1;
     await this.initialize();
     await dbRun(this.getDb(), 'DELETE FROM persistent_agent_sessions WHERE ui_session_id = ?', [
       uiSessionId,
@@ -294,6 +358,25 @@ export class PersistentAgentSessionRepository {
     await dbClose(database);
   }
 
+  getDiagnosticsSnapshot(): PersistentAgentSessionRepositoryDiagnosticsSnapshot {
+    return {
+      cacheSize: this.cache.length,
+      counters: {
+        initializeCalls: this.diagnostics.initializeCalls,
+        listSessionsCalls: this.diagnostics.listSessionsCalls,
+        listCachedSessionsCalls: this.diagnostics.listCachedSessionsCalls,
+        upsertCalls: this.diagnostics.upsertCalls,
+        deleteCalls: this.diagnostics.deleteCalls,
+        writeRecordCalls: this.diagnostics.writeRecordCalls,
+        refreshCacheCalls: this.diagnostics.refreshCacheCalls,
+        pruneCalls: this.diagnostics.pruneCalls,
+      },
+      lastMarkedSessionId: this.diagnostics.lastMarkedSessionId,
+      lastPrunedSessionIds: [...this.diagnostics.lastPrunedSessionIds],
+      lastRefreshedAt: this.diagnostics.lastRefreshedAt,
+    };
+  }
+
   private getDb(): sqlite3.Database {
     if (!this.db) {
       throw new Error(
@@ -304,6 +387,7 @@ export class PersistentAgentSessionRepository {
   }
 
   private async openAndPrepare(): Promise<void> {
+    this.diagnostics.initializeCalls += 1;
     const databasePath = getDatabasePath();
     mkdirSync(dirname(databasePath), { recursive: true });
 
@@ -359,7 +443,6 @@ export class PersistentAgentSessionRepository {
     await this.refreshCache();
     await this.migrateLegacyStateIfNeeded();
     await this.pruneStaleSessions();
-    await this.refreshCache();
   }
 
   private async migrateLegacyStateIfNeeded(): Promise<void> {
@@ -374,12 +457,12 @@ export class PersistentAgentSessionRepository {
 
     for (const record of legacyRecords) {
       await this.writeRecord(record);
+      this.cache = upsertCachedRecord(this.cache, record);
     }
-
-    await this.refreshCache();
   }
 
   private async refreshCache(): Promise<void> {
+    this.diagnostics.refreshCacheCalls += 1;
     const rows = await dbAll<PersistentAgentSessionRow>(
       this.getDb(),
       'SELECT * FROM persistent_agent_sessions ORDER BY updated_at DESC'
@@ -388,9 +471,11 @@ export class PersistentAgentSessionRepository {
       const record = rowToRecord(row);
       return record ? [record] : [];
     });
+    this.diagnostics.lastRefreshedAt = Date.now();
   }
 
   private async pruneStaleSessions(now = Date.now()): Promise<void> {
+    this.diagnostics.pruneCalls += 1;
     const cutoff = now - STALE_PERSISTENT_SESSION_RETENTION_MS;
     const staleSessionIds = this.cache
       .filter(
@@ -400,6 +485,7 @@ export class PersistentAgentSessionRepository {
       .map((record) => record.uiSessionId);
 
     if (staleSessionIds.length === 0) {
+      this.diagnostics.lastPrunedSessionIds = [];
       return;
     }
 
@@ -410,9 +496,12 @@ export class PersistentAgentSessionRepository {
         ])
       )
     );
+    this.cache = removeCachedSessions(this.cache, staleSessionIds);
+    this.diagnostics.lastPrunedSessionIds = [...staleSessionIds];
   }
 
   private async writeRecord(record: PersistentAgentSessionRecord): Promise<void> {
+    this.diagnostics.writeRecordCalls += 1;
     await dbRun(
       this.getDb(),
       `

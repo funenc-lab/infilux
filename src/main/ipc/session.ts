@@ -6,7 +6,7 @@ import {
   type TerminalCreateOptions,
   type TerminalResizeOptions,
 } from '@shared/types';
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import {
   prepareAgentCapabilityLaunch,
   resolveAgentCapabilityLaunchRequest,
@@ -99,6 +99,15 @@ async function prepareAgentSessionOptions(
   return applyPreparedAgentCapabilityLaunch(options, launchResult);
 }
 
+function resolveSessionTarget(sender: WebContents): WebContents | number {
+  try {
+    const window = BrowserWindow.fromWebContents(sender);
+    return window?.id ?? sender;
+  } catch {
+    return sender;
+  }
+}
+
 export function destroyAllTerminals(): void {
   sessionManager.destroyAllLocal();
 }
@@ -109,8 +118,9 @@ export async function destroyAllTerminalsAndWait(): Promise<void> {
 
 export function registerSessionHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SESSION_CREATE, async (event, options: SessionCreateOptions = {}) => {
+    const senderTarget = resolveSessionTarget(event.sender);
     const preparedOptions = await prepareAgentSessionOptions(options);
-    return sessionManager.create(event.sender, preparedOptions);
+    return sessionManager.create(senderTarget, preparedOptions);
   });
 
   ipcMain.handle(IPC_CHANNELS.SESSION_ATTACH, async (event, options: SessionAttachOptions) => {
@@ -152,9 +162,10 @@ export function registerSessionHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_CREATE,
     async (event, options: TerminalCreateOptions = {}) => {
-      const created = await sessionManager.create(event.sender, toSessionCreateOptions(options));
+      const senderTarget = resolveSessionTarget(event.sender);
+      const created = await sessionManager.create(senderTarget, toSessionCreateOptions(options));
       const sessionId = created.session.sessionId;
-      const attached = await sessionManager.attach(event.sender, {
+      const attached = await sessionManager.attach(senderTarget, {
         sessionId,
         cwd: options.cwd,
       });

@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
+  resolveRecoveredInitialTerminalReplay,
+  resolveRecoveredReplaySnapshotPersistence,
   resolveReusableBackendSessionId,
   shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
@@ -134,6 +136,67 @@ describe('resolveReusableBackendSessionId', () => {
         getRemoteStatus,
       })
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('resolveRecoveredInitialTerminalReplay', () => {
+  it('keeps the attached replay when the recovered backend session was successfully reattached', () => {
+    expect(
+      resolveRecoveredInitialTerminalReplay({
+        attachedReplay: 'live replay',
+        persistedReplaySnapshot: 'persisted replay',
+        reusedExistingSession: true,
+      })
+    ).toBe('live replay');
+  });
+
+  it('falls back to the persisted replay snapshot when recovery had to create a fresh session', () => {
+    expect(
+      resolveRecoveredInitialTerminalReplay({
+        attachedReplay: '',
+        persistedReplaySnapshot: 'persisted replay',
+        reusedExistingSession: false,
+      })
+    ).toBe('persisted replay');
+  });
+
+  it('appends new replay output after the persisted snapshot when recovery fell back to a fresh session', () => {
+    expect(
+      resolveRecoveredInitialTerminalReplay({
+        attachedReplay: 'fresh prompt> ',
+        persistedReplaySnapshot: 'persisted replay\n',
+        reusedExistingSession: false,
+      })
+    ).toBe('persisted replay\nfresh prompt> ');
+  });
+});
+
+describe('resolveRecoveredReplaySnapshotPersistence', () => {
+  it('keeps the attached replay snapshot when the existing backend session was reused', () => {
+    expect(
+      resolveRecoveredReplaySnapshotPersistence({
+        attachedReplay: 'live replay',
+        reusedExistingSession: true,
+      })
+    ).toBe('live replay');
+  });
+
+  it('clears persisted replay snapshots when a fresh session starts without new output', () => {
+    expect(
+      resolveRecoveredReplaySnapshotPersistence({
+        attachedReplay: '',
+        reusedExistingSession: false,
+      })
+    ).toBeUndefined();
+  });
+
+  it('persists only the fresh session replay when recovery had to create a new session', () => {
+    expect(
+      resolveRecoveredReplaySnapshotPersistence({
+        attachedReplay: 'fresh prompt> ',
+        reusedExistingSession: false,
+      })
+    ).toBe('fresh prompt> ');
   });
 });
 

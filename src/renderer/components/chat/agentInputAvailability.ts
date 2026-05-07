@@ -31,7 +31,7 @@ export function resolveAgentInputUnavailableReason(options: {
 }): string | undefined {
   switch (options.availability) {
     case 'awaiting-session':
-      return options.t('Loading {{agent}}...', { agent: options.agentCommand });
+      return options.t('Session is starting. Input will be available when the prompt appears.');
     case 'reconnecting':
       return options.t('Remote terminal input is temporarily disabled while reconnecting.');
     case 'disconnected':

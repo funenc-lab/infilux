@@ -30,6 +30,7 @@ import {
   buildAppResourceActionConfirmation,
   buildAppResourceManagerBulkActions,
   buildAppResourceManagerSections,
+  countVisibleResourcesByGroup,
 } from './appResourceManagerModel';
 import { buildAppResourceStatusSections } from './appResourceStatusModel';
 
@@ -66,21 +67,23 @@ function getHeaderStats(snapshot: AppResourceSnapshot | null, translate: Transla
     return [];
   }
 
+  const visibleCounts = countVisibleResourcesByGroup(snapshot);
+
   return [
     {
       key: 'runtime',
       label: translate('Processes'),
-      value: snapshot.resources.filter((resource) => resource.group === 'runtime').length,
+      value: visibleCounts.runtime,
     },
     {
       key: 'sessions',
       label: translate('Sessions'),
-      value: snapshot.resources.filter((resource) => resource.group === 'sessions').length,
+      value: visibleCounts.sessions,
     },
     {
       key: 'services',
       label: translate('Services'),
-      value: snapshot.resources.filter((resource) => resource.group === 'services').length,
+      value: visibleCounts.services,
     },
   ];
 }

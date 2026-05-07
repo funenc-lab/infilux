@@ -100,6 +100,55 @@ export function shouldRearmDeadSessionRecovery({
   return hasReceivedData || Boolean(replay && replay.length > 0);
 }
 
+function getReplayOverlap(previousReplay: string, nextReplay: string): number {
+  const maxOverlap = Math.min(previousReplay.length, nextReplay.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (previousReplay.endsWith(nextReplay.slice(0, overlap))) {
+      return overlap;
+    }
+  }
+  return 0;
+}
+
+export function resolveRecoveredInitialTerminalReplay({
+  attachedReplay,
+  persistedReplaySnapshot,
+  reusedExistingSession,
+}: {
+  attachedReplay?: string;
+  persistedReplaySnapshot?: string;
+  reusedExistingSession: boolean;
+}): string | undefined {
+  if (!persistedReplaySnapshot) {
+    return attachedReplay || undefined;
+  }
+
+  if (!attachedReplay) {
+    return persistedReplaySnapshot;
+  }
+
+  if (reusedExistingSession) {
+    return attachedReplay;
+  }
+
+  const overlap = getReplayOverlap(persistedReplaySnapshot, attachedReplay);
+  return `${persistedReplaySnapshot}${attachedReplay.slice(overlap)}`;
+}
+
+export function resolveRecoveredReplaySnapshotPersistence({
+  attachedReplay,
+  reusedExistingSession,
+}: {
+  attachedReplay?: string;
+  reusedExistingSession: boolean;
+}): string | undefined {
+  if (reusedExistingSession) {
+    return attachedReplay || undefined;
+  }
+
+  return attachedReplay && attachedReplay.length > 0 ? attachedReplay : undefined;
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;

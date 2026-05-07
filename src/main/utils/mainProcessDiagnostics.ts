@@ -2,6 +2,11 @@ import { execFile } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type {
+  ActiveResourceSnapshot,
+  MainProcessDiagnosticsSnapshot,
+  OpenFileDescriptorSnapshot,
+} from '@shared/types';
 import { formatDiagnosticsDirectoryName, sanitizeDiagnosticsText } from '@shared/utils/diagnostics';
 import { app } from 'electron';
 import log, { getLogDiagnostics } from './logger';
@@ -9,37 +14,6 @@ import log, { getLogDiagnostics } from './logger';
 type DiagnosticsLogLevel = 'error' | 'warn' | 'info';
 
 type DiagnosticsCollector = () => unknown | Promise<unknown>;
-
-interface ActiveResourceSnapshot {
-  total: number;
-  byType: Record<string, number>;
-}
-
-interface OpenFileDescriptorSnapshot {
-  total: number | null;
-  byType: Record<string, number>;
-  command: string;
-  timeoutMs: number;
-  error?: string;
-  errorCode?: string | null;
-}
-
-export interface MainProcessDiagnosticsSnapshot {
-  capturedAt: number;
-  pid: number;
-  platform: NodeJS.Platform;
-  uptimeSec: number;
-  memoryUsage: {
-    rssBytes: number;
-    heapTotalBytes: number;
-    heapUsedBytes: number;
-    externalBytes: number;
-    arrayBuffersBytes: number;
-  };
-  activeResources: ActiveResourceSnapshot;
-  openFileDescriptors: OpenFileDescriptorSnapshot | null;
-  sources: Record<string, unknown>;
-}
 
 interface RequestMainProcessDiagnosticsCaptureOptions {
   event: string;

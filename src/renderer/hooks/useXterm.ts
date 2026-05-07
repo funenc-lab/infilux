@@ -5,6 +5,7 @@ import type {
   SessionRuntimeState,
 } from '@shared/types';
 import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
+import { appendPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -44,6 +45,8 @@ import { resolveXtermRenderer } from './xtermRendererPolicy';
 import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
+  resolveRecoveredInitialTerminalReplay,
+  resolveRecoveredReplaySnapshotPersistence,
   resolveReusableBackendSessionId,
   shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
@@ -133,9 +136,11 @@ export interface UseXtermOptions {
   preferHostScrollback?: boolean;
   retryOnDeadSession?: boolean;
   sessionCreateFallback?: XtermSessionCreateFallbackOptions;
+  recoveredReplaySnapshot?: string;
   staticContent?: XtermStaticContent;
   onExit?: () => void;
   onData?: (data: string) => void;
+  onReplaySnapshotChange?: (snapshot: string | undefined, capturedAt: number | undefined) => void;
   onCustomKey?: (
     event: KeyboardEvent,
     ptyId: string,
@@ -178,6 +183,8 @@ export interface UseXtermResult {
   clear: () => void;
   /** Manually refresh renderer (clear WebGL atlas + refresh) */
   refreshRenderer: () => void;
+  /** Restart the current session binding */
+  restartSession: () => void;
 }
 
 function useTerminalSettings(fontSizeScale = 1) {
@@ -258,9 +265,11 @@ export function useXterm({
   preferHostScrollback = false,
   retryOnDeadSession = true,
   sessionCreateFallback,
+  recoveredReplaySnapshot,
   staticContent,
   onExit,
   onData,
+  onReplaySnapshotChange,
   onCustomKey,
   onTitleChange,
   onInit,
@@ -318,6 +327,8 @@ export function useXterm({
   onExitRef.current = onExit;
   const onDataRef = useRef(onData);
   onDataRef.current = onData;
+  const onReplaySnapshotChangeRef = useRef(onReplaySnapshotChange);
+  onReplaySnapshotChangeRef.current = onReplaySnapshotChange;
   const onCustomKeyRef = useRef(onCustomKey);
   onCustomKeyRef.current = onCustomKey;
   const onTitleChangeRef = useRef(onTitleChange);
@@ -338,6 +349,7 @@ export function useXterm({
   copyOnSelectionRef.current = copyOnSelection;
   const hasBeenActivatedRef = useRef(false);
   const hasReceivedDataRef = useRef(false);
+  const firstOutputWaitersRef = useRef(new Set<() => void>());
   const staticContentRef = useRef(staticContent);
   staticContentRef.current = staticContent;
   const isStaticContentModeRef = useRef(Boolean(staticContent));
@@ -385,6 +397,8 @@ export function useXterm({
     () => buildTerminalSearchDecorations(settings.theme),
     [settings.theme]
   );
+  const replaySnapshotRef = useRef(recoveredReplaySnapshot ?? '');
+  const replaySnapshotFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const buildSearchOptions = useCallback(
     (options?: {
@@ -398,11 +412,76 @@ export function useXterm({
     [searchDecorations]
   );
 
+  useEffect(() => {
+    if (hasReceivedDataRef.current) {
+      return;
+    }
+
+    replaySnapshotRef.current = recoveredReplaySnapshot ?? '';
+  }, [recoveredReplaySnapshot]);
+
   const write = useCallback((data: string) => {
     if (ptyIdRef.current && runtimeStateRef.current === 'live') {
       window.electronAPI.session.write(ptyIdRef.current, data);
     }
   }, []);
+
+  const flushReplaySnapshot = useCallback((immediate = false) => {
+    const emit = () => {
+      replaySnapshotFlushTimerRef.current = null;
+      const nextSnapshot = replaySnapshotRef.current;
+      if (!onReplaySnapshotChangeRef.current) {
+        return;
+      }
+      onReplaySnapshotChangeRef.current(
+        nextSnapshot || undefined,
+        nextSnapshot ? Date.now() : undefined
+      );
+    };
+
+    if (immediate) {
+      if (replaySnapshotFlushTimerRef.current) {
+        clearTimeout(replaySnapshotFlushTimerRef.current);
+      }
+      emit();
+      return;
+    }
+
+    if (replaySnapshotFlushTimerRef.current) {
+      return;
+    }
+
+    replaySnapshotFlushTimerRef.current = setTimeout(emit, 150);
+  }, []);
+
+  const replaceReplaySnapshot = useCallback(
+    (nextSnapshot: string | undefined) => {
+      const normalized = nextSnapshot ? appendPersistentAgentReplaySnapshot('', nextSnapshot) : '';
+      if (normalized === replaySnapshotRef.current) {
+        return;
+      }
+      replaySnapshotRef.current = normalized;
+      flushReplaySnapshot();
+    },
+    [flushReplaySnapshot]
+  );
+
+  const appendReplaySnapshot = useCallback(
+    (chunk: string) => {
+      if (!chunk) {
+        return;
+      }
+
+      const nextSnapshot = appendPersistentAgentReplaySnapshot(replaySnapshotRef.current, chunk);
+      if (nextSnapshot === replaySnapshotRef.current) {
+        return;
+      }
+
+      replaySnapshotRef.current = nextSnapshot;
+      flushReplaySnapshot();
+    },
+    [flushReplaySnapshot]
+  );
 
   const syncViewportToSession = useCallback(() => {
     return syncXtermViewportToSession({
@@ -525,6 +604,7 @@ export function useXterm({
     activeSessionBindingRef.current = null;
     deadRecoveryAttemptKeyRef.current = null;
     hasReceivedDataRef.current = false;
+    firstOutputWaitersRef.current.clear();
     wheelCarryRef.current = 0;
     setSearchState(createEmptyTerminalSearchState());
     sessionEventsCleanupRef.current?.();
@@ -1061,7 +1141,16 @@ export function useXterm({
         sessionEventsCleanupRef.current?.();
         sessionEventsCleanupRef.current = window.electronAPI.session.subscribe(sessionId, {
           onData: (event) => {
+            const isFirstOutputChunk = !hasReceivedDataRef.current;
             hasReceivedDataRef.current = true;
+            if (isFirstOutputChunk) {
+              const waiters = Array.from(firstOutputWaitersRef.current);
+              firstOutputWaitersRef.current.clear();
+              for (const resolve of waiters) {
+                resolve();
+              }
+              setIsLoading(false);
+            }
             if (
               shouldRearmDeadSessionRecovery({
                 hasReceivedData: hasReceivedDataRef.current,
@@ -1074,6 +1163,7 @@ export function useXterm({
               agentStartupLoggerRef.current?.markStage('first-output');
             }
             writeBufferRef.current += event.data;
+            appendReplaySnapshot(event.data);
 
             if (!isFlushPendingRef.current) {
               isFlushPendingRef.current = true;
@@ -1090,6 +1180,7 @@ export function useXterm({
           },
           onExit: () => {
             setRuntimeState('dead');
+            flushReplaySnapshot(true);
             setTimeout(() => {
               if (writeBufferRef.current.length > 0) {
                 const bufferedData = writeBufferRef.current;
@@ -1104,6 +1195,41 @@ export function useXterm({
             setRuntimeState(event.state);
           },
         });
+      };
+
+      const createFirstSessionOutputWaiter = () => {
+        if (hasReceivedDataRef.current) {
+          return {
+            promise: Promise.resolve(),
+            dispose: () => undefined,
+          };
+        }
+
+        let disposed = false;
+        let resolveWaiter: (() => void) | null = null;
+        const promise = new Promise<void>((resolve) => {
+          const waiter = () => {
+            if (disposed) {
+              return;
+            }
+            disposed = true;
+            firstOutputWaitersRef.current.delete(waiter);
+            resolve();
+          };
+          resolveWaiter = waiter;
+          firstOutputWaitersRef.current.add(waiter);
+        });
+
+        return {
+          promise,
+          dispose: () => {
+            if (disposed || !resolveWaiter) {
+              return;
+            }
+            disposed = true;
+            firstOutputWaitersRef.current.delete(resolveWaiter);
+          },
+        };
       };
 
       const attachToSession = (sessionId: string) => {
@@ -1127,9 +1253,25 @@ export function useXterm({
         if (isRemoteVirtualPath(sessionCreateOptions.cwd ?? '')) {
           return created;
         }
-        const attached = await attachToSession(createdSessionId);
+        const attachPromise = attachToSession(createdSessionId);
+        const firstOutputWaiter = createFirstSessionOutputWaiter();
+        const attached = await Promise.race([
+          attachPromise.then((result) => ({
+            type: 'attached' as const,
+            result,
+          })),
+          firstOutputWaiter.promise.then(() => ({
+            type: 'first-output' as const,
+          })),
+        ]).finally(() => {
+          firstOutputWaiter.dispose();
+        });
+        if (attached.type === 'first-output') {
+          agentStartupLoggerRef.current?.markStage(`${stagePrefix}-attach-bypassed-on-output`);
+          return created;
+        }
         agentStartupLoggerRef.current?.markStage(`${stagePrefix}-attached`);
-        return attached;
+        return attached.result;
       };
 
       const createAndAttachSession = async () => {
@@ -1158,6 +1300,7 @@ export function useXterm({
 
       let session: SessionDescriptor | null = null;
       let replay: string | undefined;
+      let reusedExistingSession = false;
       const reusableBackendSessionId = await resolveReusableBackendSessionId({
         backendSessionId,
         cwd: createOptions.cwd,
@@ -1175,6 +1318,7 @@ export function useXterm({
           agentStartupLoggerRef.current?.markStage('session-attached');
           session = result.session;
           replay = result.replay;
+          reusedExistingSession = true;
         } catch (error) {
           agentStartupLoggerRef.current?.markStage('attach-existing-failed');
           console.warn('[xterm] Failed to attach existing session, creating a new one:', error);
@@ -1217,18 +1361,30 @@ export function useXterm({
       deadRecoveryAttemptKeyRef.current = null;
       setIsLoading(false);
 
-      if (replay) {
+      const initialReplay = resolveRecoveredInitialTerminalReplay({
+        attachedReplay: replay,
+        persistedReplaySnapshot: recoveredReplaySnapshot,
+        reusedExistingSession,
+      });
+      const persistedReplaySnapshot = resolveRecoveredReplaySnapshotPersistence({
+        attachedReplay: replay,
+        reusedExistingSession,
+      });
+      replaceReplaySnapshot(persistedReplaySnapshot);
+      const receivedLiveDataBeforeAttachResolved = hasReceivedDataRef.current;
+
+      if (initialReplay && !receivedLiveDataBeforeAttachResolved) {
         hasReceivedDataRef.current = true;
         if (
           shouldRearmDeadSessionRecovery({
             hasReceivedData: hasReceivedDataRef.current,
-            replay,
+            replay: initialReplay,
           })
         ) {
           deadRecoveryAttemptKeyRef.current = null;
         }
-        terminal.write(replay);
-        onDataRef.current?.(replay);
+        terminal.write(initialReplay);
+        onDataRef.current?.(initialReplay);
       }
 
       // Focus is handled by the isActive effect after loading ends.
@@ -1257,9 +1413,13 @@ export function useXterm({
     kind,
     persistOnDisconnect,
     sessionCreateFallback,
+    recoveredReplaySnapshot,
     navigateToFile,
     loadRenderer,
     resetSessionBinding,
+    appendReplaySnapshot,
+    flushReplaySnapshot,
+    replaceReplaySnapshot,
     staticContent,
     staticContentKey,
     write,
@@ -1392,12 +1552,35 @@ export function useXterm({
     attachPersistentCustomWheelEventHandler(terminal, handleTerminalWheelEvent);
   }, [wheelHandlerAttachmentEpoch, handleTerminalWheelEvent]);
 
+  const restartSession = useCallback(() => {
+    if (staticContent) {
+      return;
+    }
+
+    deadRecoveryAttemptKeyRef.current = null;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void initTerminal();
+      });
+    });
+  }, [initTerminal, staticContent]);
+
   // Handle dynamic renderer switching
   useEffect(() => {
     if (terminalRef.current) {
       loadRenderer(terminalRef.current, effectiveTerminalRenderer);
     }
   }, [effectiveTerminalRenderer, loadRenderer]);
+
+  useEffect(() => {
+    return () => {
+      flushReplaySnapshot(true);
+      if (replaySnapshotFlushTimerRef.current) {
+        clearTimeout(replaySnapshotFlushTimerRef.current);
+        replaySnapshotFlushTimerRef.current = null;
+      }
+    };
+  }, [flushReplaySnapshot]);
 
   // Cleanup on unmount.
   // Setup: reset isUnmountedRef so StrictMode re-mount can re-initialize.
@@ -1413,6 +1596,7 @@ export function useXterm({
       containerReadyCleanupRef.current = null;
       hasBeenActivatedRef.current = false;
       hasReceivedDataRef.current = false;
+      firstOutputWaitersRef.current.clear();
       createRequestIdRef.current += 1;
       appliedStaticContentKeyRef.current = null;
       activeSessionBindingRef.current = null;
@@ -1632,5 +1816,6 @@ export function useXterm({
     clearSearch,
     clear,
     refreshRenderer,
+    restartSession,
   };
 }

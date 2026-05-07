@@ -591,6 +591,10 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.LOG_UPDATE_CONFIG, { enabled: true, level: 'debug' }],
       },
       {
+        run: () => api.log.captureMainProcessDiagnostics({ fdTimeoutMs: 250 }),
+        expected: [IPC_CHANNELS.LOG_CAPTURE_MAIN_PROCESS_DIAGNOSTICS, { fdTimeoutMs: 250 }],
+      },
+      {
         run: () => api.log.recordAgentStartup('[agent-startup][renderer][pty-1] first-output'),
         expected: [
           IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP,

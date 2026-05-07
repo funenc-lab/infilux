@@ -32,6 +32,7 @@ const handlerTestDoubles = vi.hoisted(() => {
   const logError = vi.fn();
   const logGetFile = vi.fn();
   const getLogDiagnostics = vi.fn();
+  const captureMainProcessDiagnosticsSnapshot = vi.fn();
 
   const notificationInstances: Array<{
     options: { title: string; body?: string; silent?: boolean };
@@ -132,6 +133,39 @@ const handlerTestDoubles = vi.hoisted(() => {
       path: '/tmp/logs/app.log',
       lines: ['[info] hello', '[error] world'],
     });
+    captureMainProcessDiagnosticsSnapshot.mockReset();
+    captureMainProcessDiagnosticsSnapshot.mockResolvedValue({
+      capturedAt: 1_746_600_000_000,
+      pid: 4242,
+      platform: 'darwin',
+      uptimeSec: 12.5,
+      memoryUsage: {
+        rssBytes: 10,
+        heapTotalBytes: 20,
+        heapUsedBytes: 30,
+        externalBytes: 40,
+        arrayBuffersBytes: 50,
+      },
+      activeResources: {
+        total: 2,
+        byType: {
+          PipeWrap: 2,
+        },
+      },
+      openFileDescriptors: {
+        total: 64,
+        byType: {
+          REG: 20,
+        },
+        command: 'lsof',
+        timeoutMs: 250,
+      },
+      sources: {
+        agentSessionHandlers: {
+          markPersistentCalls: 9,
+        },
+      },
+    });
 
     notificationInstances.length = 0;
     browserWindowFromWebContents.mockReset();
@@ -209,6 +243,7 @@ const handlerTestDoubles = vi.hoisted(() => {
     logError,
     logGetFile,
     getLogDiagnostics,
+    captureMainProcessDiagnosticsSnapshot,
     createNotification,
     emitNotification,
     notificationInstances,
@@ -330,6 +365,14 @@ vi.mock('../../utils/logger', () => ({
   initLogger: handlerTestDoubles.initLogger,
   getLogDiagnostics: handlerTestDoubles.getLogDiagnostics,
 }));
+
+vi.mock('../../utils/mainProcessDiagnostics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/mainProcessDiagnostics')>();
+  return {
+    ...actual,
+    captureMainProcessDiagnosticsSnapshot: handlerTestDoubles.captureMainProcessDiagnosticsSnapshot,
+  };
+});
 
 vi.mock('../../services/webInspector', () => ({
   webInspectorServer: {
@@ -524,6 +567,40 @@ describe('supporting IPC handlers', () => {
       path: '/tmp/logs/app.log',
       lines: ['[info] hello', '[error] world'],
     });
+    expect(
+      await getHandler(IPC_CHANNELS.LOG_CAPTURE_MAIN_PROCESS_DIAGNOSTICS)({}, { fdTimeoutMs: 250 })
+    ).toEqual({
+      capturedAt: 1_746_600_000_000,
+      pid: 4242,
+      platform: 'darwin',
+      uptimeSec: 12.5,
+      memoryUsage: {
+        rssBytes: 10,
+        heapTotalBytes: 20,
+        heapUsedBytes: 30,
+        externalBytes: 40,
+        arrayBuffersBytes: 50,
+      },
+      activeResources: {
+        total: 2,
+        byType: {
+          PipeWrap: 2,
+        },
+      },
+      openFileDescriptors: {
+        total: 64,
+        byType: {
+          REG: 20,
+        },
+        command: 'lsof',
+        timeoutMs: 250,
+      },
+      sources: {
+        agentSessionHandlers: {
+          markPersistentCalls: 9,
+        },
+      },
+    });
     await expect(
       getHandler(IPC_CHANNELS.LOG_RECORD_AGENT_STARTUP)(
         {},
@@ -534,6 +611,7 @@ describe('supporting IPC handlers', () => {
     ).resolves.toBeUndefined();
 
     expect(handlerTestDoubles.initLogger).toHaveBeenCalledWith(true, 'debug', 14);
+    expect(handlerTestDoubles.captureMainProcessDiagnosticsSnapshot).toHaveBeenCalledWith(250);
     expect(handlerTestDoubles.logInfo).toHaveBeenCalledWith(
       'Logging config updated: enabled=true, level=debug, retentionDays=14'
     );

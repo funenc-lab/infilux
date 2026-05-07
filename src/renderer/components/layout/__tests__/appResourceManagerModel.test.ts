@@ -3,6 +3,7 @@ import {
   buildAppResourceActionConfirmation,
   buildAppResourceManagerBulkActions,
   buildAppResourceManagerSections,
+  countVisibleResourcesByGroup,
 } from '../appResourceManagerModel';
 
 const t = (key: string, params?: Record<string, string | number>): string => {
@@ -185,7 +186,7 @@ describe('appResourceManagerModel', () => {
     });
   });
 
-  it('exposes session runtime, activity, liveness, and reclaimability metrics', () => {
+  it('exposes runtime, activity, liveness, and reclaimability metrics for visible sessions', () => {
     const snapshot = {
       capturedAt: 100,
       runtime: {
@@ -201,20 +202,20 @@ describe('appResourceManagerModel', () => {
       },
       resources: [
         {
-          id: 'session:session-local-stale',
+          id: 'session:session-local-live',
           kind: 'session',
           group: 'sessions',
-          status: 'stopped',
-          sessionId: 'session-local-stale',
+          status: 'running',
+          sessionId: 'session-local-live',
           sessionKind: 'terminal',
           backend: 'local',
-          cwd: '/repo/stale',
+          cwd: '/repo/live',
           createdAt: 15,
           pid: 4445,
-          isActive: false,
-          isAlive: false,
-          reclaimable: true,
-          runtimeState: 'dead',
+          isActive: true,
+          isAlive: true,
+          reclaimable: false,
+          runtimeState: 'live',
           availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
         },
       ],
@@ -227,7 +228,7 @@ describe('appResourceManagerModel', () => {
       {
         key: 'cwd',
         label: 'Working directory',
-        value: '/repo/stale',
+        value: '/repo/live',
       },
       {
         key: 'backend',
@@ -237,22 +238,22 @@ describe('appResourceManagerModel', () => {
       {
         key: 'runtime-state',
         label: 'Runtime state',
-        value: 'Dead',
+        value: 'Live',
       },
       {
         key: 'activity',
         label: 'Activity',
-        value: 'Idle',
+        value: 'Active',
       },
       {
         key: 'liveness',
         label: 'Liveness',
-        value: 'Missing',
+        value: 'Alive',
       },
       {
         key: 'reclaimable',
         label: 'Reclaimable',
-        value: 'Yes',
+        value: 'No',
       },
     ]);
   });
@@ -404,5 +405,186 @@ describe('appResourceManagerModel', () => {
         },
       },
     ]);
+  });
+
+  it('hides stopped sessions and inactive support services from the default resource sections', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 2,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'process:303',
+          kind: 'electron-process',
+          group: 'runtime',
+          status: 'running',
+          pid: 303,
+          processType: 'Tab',
+          name: 'renderer',
+          serviceName: null,
+          workingSetSizeKb: 16000,
+          peakWorkingSetSizeKb: 18000,
+          privateBytesKb: 6000,
+          isCurrentRenderer: true,
+          availableActions: [{ kind: 'reload-renderer', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'session:session-live',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'session-live',
+          sessionKind: 'terminal',
+          backend: 'local',
+          cwd: '/repo/live',
+          createdAt: 20,
+          pid: 4444,
+          isActive: true,
+          isAlive: true,
+          reclaimable: false,
+          runtimeState: 'live',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'session:session-stale',
+          kind: 'session',
+          group: 'sessions',
+          status: 'stopped',
+          sessionId: 'session-stale',
+          sessionKind: 'agent',
+          backend: 'local',
+          cwd: '/repo/stale',
+          createdAt: 10,
+          pid: null,
+          isActive: false,
+          isAlive: false,
+          reclaimable: true,
+          runtimeState: 'dead',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'service:hapi-server',
+          kind: 'service',
+          group: 'services',
+          status: 'ready',
+          serviceKind: 'hapi-server',
+          pid: 5001,
+          port: 3006,
+          url: null,
+          error: null,
+          installed: null,
+          availableActions: [{ kind: 'stop-service', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'service:cloudflared',
+          kind: 'service',
+          group: 'services',
+          status: 'stopped',
+          serviceKind: 'cloudflared',
+          pid: null,
+          port: null,
+          url: null,
+          error: null,
+          installed: true,
+          availableActions: [],
+        },
+      ],
+    };
+
+    const sections = buildAppResourceManagerSections(snapshot as never, t);
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        key: 'runtime',
+        items: [expect.objectContaining({ id: 'process:303' })],
+      }),
+      expect.objectContaining({
+        key: 'sessions',
+        items: [expect.objectContaining({ id: 'session:session-live' })],
+      }),
+      expect.objectContaining({
+        key: 'services',
+        items: [expect.objectContaining({ id: 'service:hapi-server' })],
+      }),
+    ]);
+  });
+
+  it('uses the same visibility filter for header counts and section rendering', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 2,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'process:303',
+          kind: 'electron-process',
+          group: 'runtime',
+          status: 'running',
+          pid: 303,
+          processType: 'Tab',
+          name: 'renderer',
+          serviceName: null,
+          workingSetSizeKb: 16000,
+          peakWorkingSetSizeKb: 18000,
+          privateBytesKb: 6000,
+          isCurrentRenderer: true,
+          availableActions: [{ kind: 'reload-renderer', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'session:session-stale',
+          kind: 'session',
+          group: 'sessions',
+          status: 'stopped',
+          sessionId: 'session-stale',
+          sessionKind: 'agent',
+          backend: 'local',
+          cwd: '/repo/stale',
+          createdAt: 10,
+          pid: null,
+          isActive: false,
+          isAlive: false,
+          reclaimable: true,
+          runtimeState: 'dead',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'service:cloudflared',
+          kind: 'service',
+          group: 'services',
+          status: 'stopped',
+          serviceKind: 'cloudflared',
+          pid: null,
+          port: null,
+          url: null,
+          error: null,
+          installed: true,
+          availableActions: [],
+        },
+      ],
+    };
+
+    expect(countVisibleResourcesByGroup(snapshot as never)).toEqual({
+      runtime: 1,
+      sessions: 0,
+      services: 0,
+    });
   });
 });
