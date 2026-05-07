@@ -89,7 +89,7 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).toContain('control-tree-node relative flex w-full flex-col');
     expect(treeSidebarSource).toContain('const buttonContent = (');
     expect(treeSidebarSource).toContain(
-      '<div className="control-tree-guide-item min-w-0">{buttonContent}</div>'
+      '<div className="control-tree-guide-item control-tree-guide-item-worktree min-w-0">'
     );
     expect(treeSidebarSource).toContain('data-surface="row"');
     expect(worktreePanelSource).toContain('data-surface="row"');
@@ -761,13 +761,18 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('.control-tree-collapsible {');
     expect(globalsSource).toContain('.control-tree-flat-list {');
     expect(globalsSource).toContain('.control-tree-guide {');
+    expect(globalsSource).toContain('--control-tree-child-indent: 0.5rem;');
     expect(globalsSource).toContain('margin-left: 0.5rem;');
     expect(globalsSource).toContain('padding-left: 0.75rem;');
     expect(globalsSource).toContain('.control-tree-guide::before {');
     expect(globalsSource).toContain("content: '';");
     expect(globalsSource).toContain('.control-tree-guide-item {');
+    expect(globalsSource).toContain('.control-tree-guide-item-worktree {');
+    expect(globalsSource).toContain('padding-inline-start: var(--control-tree-child-indent);');
     expect(globalsSource).not.toContain('.control-tree-guide-item::before {');
-    expect(treeSidebarSource).toContain('className="control-tree-guide-item"');
+    expect(treeSidebarSource).toContain(
+      'className="control-tree-guide-item control-tree-guide-item-worktree min-w-0"'
+    );
     expect(treeSidebarSource).not.toContain('space-y-2');
     expect(treeSidebarSource).not.toContain('space-y-1 pt-1');
     expect(repositorySidebarSource).not.toContain('space-y-2');

@@ -2255,6 +2255,7 @@
     --control-tree-tail-opacity: 0.36;
     --control-tree-row-gap: 0.375rem;
     --control-tree-glyph-slot-size: 1rem;
+    --control-tree-child-indent: 0.5rem;
     --control-tree-text-offset: calc(
       var(--control-tree-glyph-slot-size) + var(--control-tree-row-gap)
     );
@@ -3301,6 +3302,10 @@
   .control-tree-guide-item {
     position: relative;
     min-width: 0;
+  }
+
+  .control-tree-guide-item-worktree {
+    padding-inline-start: var(--control-tree-child-indent);
   }
 
   .control-tree-state {

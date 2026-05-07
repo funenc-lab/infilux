@@ -330,7 +330,9 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
 
   return (
     <>
-      <div className="control-tree-guide-item min-w-0">{buttonContent}</div>
+      <div className="control-tree-guide-item control-tree-guide-item-worktree min-w-0">
+        {buttonContent}
+      </div>
 
       {menuOpen && (
         <>
