@@ -142,6 +142,7 @@ import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import {
   collectMountedAgentSessionIds,
   DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
+  DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
 import {
@@ -3800,6 +3801,13 @@ export function AgentPanel({
     }
     return max;
   }, [statusLineHeightsByGroupId]);
+  const currentWorktreeVisibleSessionIds = useMemo(
+    () =>
+      currentWorktreeSessions
+        .filter((session) => sessionPlacementById.get(session.id)?.isVisible ?? true)
+        .map((session) => session.id),
+    [currentWorktreeSessions, sessionPlacementById]
+  );
   const mountedCurrentWorktreeSessionIds = useMemo(
     () =>
       resolveMountedAgentPanelSessionIds({
@@ -3807,10 +3815,12 @@ export function AgentPanel({
         canvasFocusedSessionId,
         canvasSessions,
         currentWorktreeSessions,
+        currentWorktreeVisibleSessionIds,
         globalSessionIds,
         isWorkspaceCanvasDisplayMode,
         sessionActivityStateById,
         suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel,
+        worktreeTerminalMountLimit: DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
         workspaceCanvasTerminalMountLimit: DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
       }),
     [
@@ -3818,6 +3828,7 @@ export function AgentPanel({
       canvasFocusedSessionId,
       canvasSessions,
       currentWorktreeSessions,
+      currentWorktreeVisibleSessionIds,
       globalSessionIds,
       isWorkspaceCanvasDisplayMode,
       sessionActivityStateById,

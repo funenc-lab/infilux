@@ -30,7 +30,7 @@ describe('chatPanelRetentionPolicy', () => {
     ]);
   });
 
-  it('does not cap session-backed chat panels with the ordinary warm-cache limit', () => {
+  it('caps session-backed chat panels with a wider hidden-panel ceiling', () => {
     const activePaths = new Set([
       '/repo/worktrees/current',
       '/repo/worktrees/older-a',
@@ -38,6 +38,9 @@ describe('chatPanelRetentionPolicy', () => {
       '/repo/worktrees/older-c',
       '/repo/worktrees/older-d',
       '/repo/worktrees/older-e',
+      '/repo/worktrees/older-f',
+      '/repo/worktrees/older-g',
+      '/repo/worktrees/older-h',
     ]);
 
     expect(
@@ -50,7 +53,13 @@ describe('chatPanelRetentionPolicy', () => {
         ],
         activePath: '/repo/worktrees/current',
         hasActivity: (path) => activePaths.has(path),
-        sessionBackedPaths: ['/repo/worktrees/older-d', '/repo/worktrees/older-e'],
+        sessionBackedPaths: [
+          '/repo/worktrees/older-d',
+          '/repo/worktrees/older-e',
+          '/repo/worktrees/older-f',
+          '/repo/worktrees/older-g',
+          '/repo/worktrees/older-h',
+        ],
       })
     ).toEqual([
       '/repo/worktrees/current',
@@ -59,6 +68,8 @@ describe('chatPanelRetentionPolicy', () => {
       '/repo/worktrees/older-c',
       '/repo/worktrees/older-d',
       '/repo/worktrees/older-e',
+      '/repo/worktrees/older-f',
+      '/repo/worktrees/older-g',
     ]);
   });
 

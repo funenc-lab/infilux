@@ -2,6 +2,7 @@ import { normalizePath } from '@/App/storage';
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
 
 export const MAX_RETAINED_CHAT_PANEL_PATHS = 4;
+export const MAX_SESSION_BACKED_CHAT_PANEL_PATHS = 8;
 
 interface UpdateRetainedChatPanelPathsOptions {
   previousPaths: string[];
@@ -31,6 +32,10 @@ export function updateRetainedChatPanelPaths({
   const seenPaths = new Set(nextPaths.map((path) => normalizePath(path)));
 
   for (const path of sessionBackedPaths) {
+    if (nextPaths.length >= MAX_SESSION_BACKED_CHAT_PANEL_PATHS) {
+      break;
+    }
+
     const normalizedPath = normalizePath(path);
     if (seenPaths.has(normalizedPath) || !hasActivity(path)) {
       continue;

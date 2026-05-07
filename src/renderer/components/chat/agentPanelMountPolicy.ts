@@ -3,6 +3,7 @@ import { matchesAgentSessionScope } from './agentSessionScope';
 import { getSessionActivityStatePriority, type SessionActivityState } from './sessionActivityState';
 
 export const DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT = 12;
+export const DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT = 6;
 
 interface SessionMountCandidate {
   id: string;
@@ -25,10 +26,12 @@ interface ResolveMountedAgentPanelSessionIdsOptions<
   canvasFocusedSessionId?: string | null;
   canvasSessions: TSession[];
   currentWorktreeSessions: TSession[];
+  currentWorktreeVisibleSessionIds?: Iterable<string>;
   globalSessionIds: Iterable<string>;
   isWorkspaceCanvasDisplayMode?: boolean;
   sessionActivityStateById?: Record<string, SessionActivityState>;
   suppressSessionMounting?: boolean;
+  worktreeTerminalMountLimit?: number;
   workspaceCanvasTerminalMountLimit?: number;
 }
 
@@ -37,6 +40,13 @@ function normalizeWorkspaceCanvasTerminalMountLimit(limit: number | undefined): 
     return DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT;
   }
   return Math.max(0, Math.floor(limit ?? DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT));
+}
+
+function normalizeWorktreeTerminalMountLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) {
+    return DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT;
+  }
+  return Math.max(0, Math.floor(limit ?? DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT));
 }
 
 function addSessionId(
@@ -178,6 +188,80 @@ function resolveWorkspaceCanvasMountedSessionIds<
     .map((session) => session.id);
 }
 
+function resolveWorktreeMountedSessionIds<TSession extends MountedAgentPanelSessionCandidate>({
+  currentWorktreeSessions,
+  currentWorktreeVisibleSessionIds,
+  globalSessionIds,
+  sessionActivityStateById = {},
+  worktreeTerminalMountLimit,
+}: Pick<
+  ResolveMountedAgentPanelSessionIdsOptions<TSession>,
+  | 'currentWorktreeSessions'
+  | 'currentWorktreeVisibleSessionIds'
+  | 'globalSessionIds'
+  | 'sessionActivityStateById'
+  | 'worktreeTerminalMountLimit'
+>): string[] {
+  const orderedIds = currentWorktreeSessions.map((session) => session.id);
+  const seen = new Set(orderedIds);
+
+  for (const sessionId of globalSessionIds) {
+    if (!seen.has(sessionId)) {
+      orderedIds.push(sessionId);
+      seen.add(sessionId);
+    }
+  }
+
+  const limit = normalizeWorktreeTerminalMountLimit(worktreeTerminalMountLimit);
+  if (orderedIds.length <= limit) {
+    return orderedIds;
+  }
+
+  const currentWorktreeSessionIdSet = new Set(currentWorktreeSessions.map((session) => session.id));
+  const visibleSessionIds = new Set<string>();
+
+  for (const sessionId of currentWorktreeVisibleSessionIds ?? orderedIds) {
+    if (currentWorktreeSessionIdSet.has(sessionId)) {
+      visibleSessionIds.add(sessionId);
+    }
+  }
+
+  const selectedSessionIds = new Set<string>(visibleSessionIds);
+
+  const rankedSessions = currentWorktreeSessions.map((session, index) => ({
+    index,
+    priority: getSessionActivityStatePriority(sessionActivityStateById[session.id] ?? 'idle'),
+    session,
+  }));
+
+  const attentionSessions = rankedSessions
+    .filter((item) => item.priority > 0 && !selectedSessionIds.has(item.session.id))
+    .sort((left, right) => {
+      const priorityDelta = right.priority - left.priority;
+      return priorityDelta !== 0 ? priorityDelta : compareStableMountOrder(left, right);
+    });
+
+  for (const item of attentionSessions) {
+    if (!hasMountBudget(selectedSessionIds, limit)) {
+      break;
+    }
+    selectedSessionIds.add(item.session.id);
+  }
+
+  const idleSessions = rankedSessions
+    .filter((item) => item.priority === 0 && !selectedSessionIds.has(item.session.id))
+    .sort(compareStableMountOrder);
+
+  for (const item of idleSessions) {
+    if (!hasMountBudget(selectedSessionIds, limit)) {
+      break;
+    }
+    selectedSessionIds.add(item.session.id);
+  }
+
+  return orderedIds.filter((sessionId) => selectedSessionIds.has(sessionId));
+}
+
 export function collectMountedAgentSessionIds(
   sessions: SessionMountCandidate[],
   repoPath: string,
@@ -195,10 +279,12 @@ export function resolveMountedAgentPanelSessionIds<
   canvasFloatingSessionId,
   canvasFocusedSessionId,
   currentWorktreeSessions,
+  currentWorktreeVisibleSessionIds,
   globalSessionIds,
   isWorkspaceCanvasDisplayMode,
   sessionActivityStateById,
   suppressSessionMounting,
+  worktreeTerminalMountLimit,
   workspaceCanvasTerminalMountLimit,
 }: ResolveMountedAgentPanelSessionIdsOptions<TSession>): string[] {
   if (suppressSessionMounting) {
@@ -215,14 +301,11 @@ export function resolveMountedAgentPanelSessionIds<
     });
   }
 
-  const orderedIds = currentWorktreeSessions.map((session) => session.id);
-  const seen = new Set(orderedIds);
-
-  for (const sessionId of globalSessionIds) {
-    if (!seen.has(sessionId)) {
-      orderedIds.push(sessionId);
-    }
-  }
-
-  return orderedIds;
+  return resolveWorktreeMountedSessionIds({
+    currentWorktreeSessions,
+    currentWorktreeVisibleSessionIds,
+    globalSessionIds,
+    sessionActivityStateById,
+    worktreeTerminalMountLimit,
+  });
 }

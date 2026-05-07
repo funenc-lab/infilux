@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   collectMountedAgentSessionIds,
+  DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
   resolveMountedAgentPanelSessionIds,
 } from '../agentPanelMountPolicy';
 
@@ -198,5 +199,74 @@ describe('resolveMountedAgentPanelSessionIds', () => {
         isWorkspaceCanvasDisplayMode: false,
       })
     ).toEqual(['worktree-a', 'worktree-a-second', 'hidden-session']);
+  });
+
+  it('limits non-canvas hidden terminal mounts while preserving visible and attention sessions', () => {
+    const currentWorktreeSessions = Array.from({ length: 12 }, (_, index) => ({
+      id: `session-${index}`,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      createdAt: index,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [],
+        currentWorktreeSessions,
+        currentWorktreeVisibleSessionIds: ['session-0', 'session-4'],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: false,
+        sessionActivityStateById: {
+          'session-3': 'completed',
+          'session-7': 'running',
+          'session-9': 'waiting_input',
+        },
+        worktreeTerminalMountLimit: 5,
+      })
+    ).toEqual(['session-0', 'session-3', 'session-4', 'session-7', 'session-9']);
+  });
+
+  it('keeps visible non-canvas sessions mounted even when they exceed the hidden-session budget', () => {
+    const currentWorktreeSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      createdAt: index,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [],
+        currentWorktreeSessions,
+        currentWorktreeVisibleSessionIds: ['session-0', 'session-1', 'session-2', 'session-3'],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: false,
+        sessionActivityStateById: {
+          'session-4': 'running',
+          'session-5': 'waiting_input',
+        },
+        worktreeTerminalMountLimit: 2,
+      })
+    ).toEqual(['session-0', 'session-1', 'session-2', 'session-3']);
+  });
+
+  it('fills remaining non-canvas mount slots with stable idle sessions up to the budget', () => {
+    const currentWorktreeSessions = Array.from({ length: 7 }, (_, index) => ({
+      id: `session-${index}`,
+      repoPath: '/repo',
+      cwd: `/repo/worktree-${index}`,
+      createdAt: index,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [],
+        currentWorktreeSessions,
+        currentWorktreeVisibleSessionIds: ['session-6'],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: false,
+        worktreeTerminalMountLimit: DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
+      })
+    ).toEqual(['session-0', 'session-1', 'session-2', 'session-3', 'session-4', 'session-6']);
   });
 });
