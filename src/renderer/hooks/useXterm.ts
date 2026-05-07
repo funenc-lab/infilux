@@ -131,6 +131,7 @@ export interface UseXtermOptions {
   fontSizeScale?: number;
   preferCompatibilityRenderer?: boolean;
   initialCommand?: string;
+  activateOnInitialCommandWhenInactive?: boolean;
   kind?: SessionKind;
   persistOnDisconnect?: boolean;
   preferHostScrollback?: boolean;
@@ -260,6 +261,7 @@ export function useXterm({
   fontSizeScale = 1,
   preferCompatibilityRenderer = false,
   initialCommand,
+  activateOnInitialCommandWhenInactive = true,
   kind = 'terminal',
   persistOnDisconnect = false,
   preferHostScrollback = false,
@@ -1426,7 +1428,9 @@ export function useXterm({
   ]);
 
   useEffect(() => {
-    const shouldActivate = isActive || Boolean(initialCommand) || Boolean(staticContent);
+    const shouldActivateFromInitialCommand =
+      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
+    const shouldActivate = isActive || shouldActivateFromInitialCommand || Boolean(staticContent);
     if (shouldActivate && !hasBeenActivatedRef.current) {
       hasBeenActivatedRef.current = true;
       requestAnimationFrame(() => {
@@ -1435,14 +1439,16 @@ export function useXterm({
         });
       });
     }
-  }, [isActive, initialCommand, initTerminal, staticContent]);
+  }, [activateOnInitialCommandWhenInactive, isActive, initialCommand, initTerminal, staticContent]);
 
   useEffect(() => {
     if (staticContent) {
       return;
     }
 
-    const shouldActivate = isActive || Boolean(initialCommand);
+    const shouldActivateFromInitialCommand =
+      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
+    const shouldActivate = isActive || shouldActivateFromInitialCommand;
     if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
       return;
     }
@@ -1456,14 +1462,23 @@ export function useXterm({
         void initTerminal();
       });
     });
-  }, [desiredSessionBinding, initTerminal, initialCommand, isActive, staticContent]);
+  }, [
+    activateOnInitialCommandWhenInactive,
+    desiredSessionBinding,
+    initTerminal,
+    initialCommand,
+    isActive,
+    staticContent,
+  ]);
 
   useEffect(() => {
     if (staticContent) {
       return;
     }
 
-    const shouldActivate = isActive || Boolean(initialCommand);
+    const shouldActivateFromInitialCommand =
+      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
+    const shouldActivate = isActive || shouldActivateFromInitialCommand;
     if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
       return;
     }
@@ -1489,6 +1504,7 @@ export function useXterm({
       });
     });
   }, [
+    activateOnInitialCommandWhenInactive,
     desiredSessionBinding,
     initTerminal,
     initialCommand,

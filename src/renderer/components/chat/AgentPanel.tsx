@@ -1563,7 +1563,7 @@ export function AgentPanel({
   }, [cleanupRemovedPersistentRecord, persistableSessions]);
 
   useEffect(() => {
-    if (isWorkspaceCanvasDisplayMode) {
+    if (isWorkspaceCanvasDisplayMode || !isCurrentWorktreePanel) {
       return;
     }
 
@@ -1576,7 +1576,14 @@ export function AgentPanel({
     }).catch((error) => {
       console.error('[AgentPanel] Failed to restore worktree sessions', error);
     });
-  }, [cwd, isWorkspaceCanvasDisplayMode, repoPath, updateGroupState, upsertRecoveredSession]);
+  }, [
+    cwd,
+    isCurrentWorktreePanel,
+    isWorkspaceCanvasDisplayMode,
+    repoPath,
+    updateGroupState,
+    upsertRecoveredSession,
+  ]);
 
   // Sync activeIds from store to group state when changed externally (e.g., from RunningProjectsPopover)
   useEffect(() => {

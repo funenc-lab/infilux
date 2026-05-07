@@ -9,6 +9,7 @@ describe('mainContentChatPanelPlan', () => {
     expect(
       resolveMainContentChatPanelPlan({
         activeTab: 'chat',
+        agentSessionDisplayMode: 'tab',
         cachedChatPanelPaths: ['/repo/worktrees/older'],
         getRepoPathForWorktree: (worktreePath) =>
           worktreePath === '/repo/worktrees/older' ? '/repo' : null,
@@ -44,6 +45,7 @@ describe('mainContentChatPanelPlan', () => {
     expect(
       resolveMainContentChatPanelPlan({
         activeTab: 'chat',
+        agentSessionDisplayMode: 'tab',
         cachedChatPanelPaths: [],
         getRepoPathForWorktree: () => null,
         hasActiveWorktree: true,
@@ -70,6 +72,7 @@ describe('mainContentChatPanelPlan', () => {
     expect(
       resolveMainContentChatPanelPlan({
         activeTab: 'source-control',
+        agentSessionDisplayMode: 'tab',
         cachedChatPanelPaths: ['/repo/worktrees/older'],
         getRepoPathForWorktree: () => '/repo',
         hasActiveWorktree: true,
@@ -88,6 +91,33 @@ describe('mainContentChatPanelPlan', () => {
         isVisible: false,
         isActive: false,
         showFallback: false,
+      },
+    ]);
+  });
+
+  it('drops cached worktree chat panels while the workspace canvas host owns chat rendering', () => {
+    expect(
+      resolveMainContentChatPanelPlan({
+        activeTab: 'chat',
+        agentSessionDisplayMode: 'global-canvas',
+        cachedChatPanelPaths: ['/repo/worktrees/older'],
+        getRepoPathForWorktree: () => '/repo',
+        hasActiveWorktree: true,
+        retainedChatContext: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/current',
+        },
+        shouldRenderCurrentChatPanel: true,
+        showSubagentTranscript: false,
+      })
+    ).toEqual([
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/current',
+        isCurrent: true,
+        isVisible: true,
+        isActive: true,
+        showFallback: true,
       },
     ]);
   });

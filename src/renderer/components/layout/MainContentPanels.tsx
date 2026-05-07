@@ -204,6 +204,7 @@ export function MainContentPanels({
     Boolean(selectedSubagent) && activeTab === 'chat' && hasActiveWorktree;
   const chatPanelEntries = resolveMainContentChatPanelPlan({
     activeTab,
+    agentSessionDisplayMode,
     cachedChatPanelPaths,
     getRepoPathForWorktree,
     hasActiveWorktree,

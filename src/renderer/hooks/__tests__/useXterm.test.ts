@@ -3,7 +3,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useXterm } from '../useXterm';
+import { type UseXtermOptions, useXterm } from '../useXterm';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -52,6 +52,7 @@ const testState = vi.hoisted(() => ({
   navigationToFile: vi.fn(),
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
+  hookProps: {} as Partial<UseXtermOptions>,
 }));
 
 vi.mock('@xterm/xterm', () => ({
@@ -291,11 +292,11 @@ function HookHarness() {
   const hook = useXterm({
     cwd: '/repo/worktree',
     kind: 'agent',
-    isActive: true,
     command: {
       shell: '/bin/zsh',
       args: ['-lc', 'codex'],
     },
+    ...testState.hookProps,
     onSessionOpen: testState.sessionOpen,
   });
 
@@ -309,16 +310,30 @@ function HookHarness() {
   });
 }
 
-function mountHookHarness() {
+function mountHookHarness(initialProps: Partial<UseXtermOptions> = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root: Root = createRoot(container);
 
-  act(() => {
-    root.render(React.createElement(HookHarness));
-  });
+  testState.hookProps = initialProps;
+
+  const render = (nextProps: Partial<UseXtermOptions> = {}) => {
+    testState.hookProps = {
+      ...testState.hookProps,
+      ...nextProps,
+    };
+
+    act(() => {
+      root.render(React.createElement(HookHarness));
+    });
+  };
+
+  render();
 
   return {
+    rerender(nextProps: Partial<UseXtermOptions> = {}) {
+      render(nextProps);
+    },
     async unmount() {
       await act(async () => {
         root.unmount();
@@ -353,6 +368,7 @@ describe('useXterm startup loading state', () => {
     testState.navigationToFile.mockClear();
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
+    testState.hookProps = {};
 
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
@@ -486,5 +502,51 @@ describe('useXterm startup loading state', () => {
 
     await mounted.unmount();
     vi.useRealTimers();
+  });
+
+  it('does not auto-start from initialCommand while inactive when that activation path is disabled', async () => {
+    const mounted = mountHookHarness({
+      isActive: false,
+      initialCommand: 'codex resume provider-session-1',
+      activateOnInitialCommandWhenInactive: false,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+    expect(testState.sessionAttach).not.toHaveBeenCalled();
+    expect(testState.latestSnapshot.isLoading).toBe(false);
+
+    mounted.rerender({ isActive: true });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+    expect(testState.latestSnapshot.isLoading).toBe(true);
+
+    await mounted.unmount();
+  });
+
+  it('still auto-starts from initialCommand while inactive when that activation path is enabled', async () => {
+    const mounted = mountHookHarness({
+      isActive: false,
+      initialCommand: 'codex resume provider-session-1',
+      activateOnInitialCommandWhenInactive: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+    expect(testState.latestSnapshot.isLoading).toBe(true);
+
+    await mounted.unmount();
   });
 });

@@ -1006,6 +1006,7 @@ export function AgentTerminal({
   const activityPollIntervalMs = resolveAgentTerminalActivityPollIntervalMs({
     isActive: effectiveIsActive,
   });
+  const activateOnInitialCommandWhenInactive = hasPendingCommand || !recovered;
 
   // Start polling for process activity
   const startActivityPolling = useCallback(() => {
@@ -1526,6 +1527,7 @@ export function AgentTerminal({
     env,
     hostSession,
     initialCommand,
+    activateOnInitialCommandWhenInactive,
     isActive: effectiveIsActive,
     kind: 'agent',
     fontSizeScale: terminalFontScale,

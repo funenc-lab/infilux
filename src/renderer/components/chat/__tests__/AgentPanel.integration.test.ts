@@ -779,6 +779,26 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('does not run panel-scoped recovery for retained non-current worktree panels', async () => {
+    const mounted = await mountAgentPanel({
+      isActive: false,
+      isCurrentWorktreePanel: false,
+    });
+
+    expect(testState.electronAPI.restoreWorktreeSessions).not.toHaveBeenCalled();
+
+    await mounted.rerender({
+      isCurrentWorktreePanel: true,
+    });
+
+    expect(testState.electronAPI.restoreWorktreeSessions).toHaveBeenCalledWith({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    });
+
+    await mounted.unmount();
+  });
+
   it('creates a default session from the empty state and attaches it to the first group', async () => {
     const mounted = await mountAgentPanel();
 

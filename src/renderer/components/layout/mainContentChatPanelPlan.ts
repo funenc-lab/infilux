@@ -29,6 +29,7 @@ export function resolveMainContentChatPanelEntryKey(
 
 interface ResolveMainContentChatPanelPlanOptions {
   activeTab: TabId;
+  agentSessionDisplayMode: AgentSessionDisplayMode;
   cachedChatPanelPaths: string[];
   getRepoPathForWorktree: (worktreePath: string) => string | null;
   hasActiveWorktree: boolean;
@@ -39,6 +40,7 @@ interface ResolveMainContentChatPanelPlanOptions {
 
 export function resolveMainContentChatPanelPlan({
   activeTab,
+  agentSessionDisplayMode,
   cachedChatPanelPaths,
   getRepoPathForWorktree,
   hasActiveWorktree,
@@ -56,11 +58,12 @@ export function resolveMainContentChatPanelPlan({
   const visibleCurrentPanel = activeTab === 'chat' && !showSubagentTranscript;
   const seenPaths = new Set<string>();
   const entries: MainContentChatPanelEntry[] = [];
+  const plannedWorktreePaths =
+    agentSessionDisplayMode === 'global-canvas'
+      ? [...(currentWorktreePath ? [currentWorktreePath] : [])]
+      : [...(currentWorktreePath ? [currentWorktreePath] : []), ...cachedChatPanelPaths];
 
-  for (const worktreePath of [
-    ...(currentWorktreePath ? [currentWorktreePath] : []),
-    ...cachedChatPanelPaths,
-  ]) {
+  for (const worktreePath of plannedWorktreePaths) {
     const normalizedPath = normalizePath(worktreePath);
     if (seenPaths.has(normalizedPath)) {
       continue;

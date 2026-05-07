@@ -597,6 +597,38 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('disables inactive initial-command auto-start for recovered sessions without pending commands', async () => {
+    const mounted = await mountAgentTerminal({
+      agentId: 'codex',
+      agentCommand: 'codex',
+      recovered: true,
+      initialized: true,
+      isActive: false,
+    });
+
+    const lastUseXtermCall = testState.useXtermOptions.at(-1);
+    expect(lastUseXtermCall?.activateOnInitialCommandWhenInactive).toBe(false);
+
+    await mounted.unmount();
+  });
+
+  it('keeps inactive initial-command auto-start enabled when a recovered session still has a pending command', async () => {
+    const mounted = await mountAgentTerminal({
+      agentId: 'codex',
+      agentCommand: 'codex',
+      recovered: true,
+      initialized: true,
+      isActive: false,
+      hasPendingCommand: true,
+      initialPrompt: 'Review the current diff',
+    });
+
+    const lastUseXtermCall = testState.useXtermOptions.at(-1);
+    expect(lastUseXtermCall?.activateOnInitialCommandWhenInactive).toBe(true);
+
+    await mounted.unmount();
+  });
+
   it('does not show the startup overlay for inactive agent terminals that are still loading', async () => {
     testState.xtermResult.isLoading = true;
 
