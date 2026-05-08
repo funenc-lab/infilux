@@ -18,10 +18,10 @@ describe('startupOverlayPolicy', () => {
         hasSelectedSubagent: false,
         settingsDisplayMode: 'tab',
       })
-    ).toEqual(['file-panel']);
+    ).toEqual(['repository-sidebar', 'worktree-panel', 'file-panel']);
   });
 
-  it('skips worktree-bound panels when no active worktree is restored', () => {
+  it('still waits for visible navigation panels when no active worktree is restored', () => {
     expect(
       resolveInitialStartupBlockingKeys({
         layoutMode: 'columns',
@@ -33,7 +33,7 @@ describe('startupOverlayPolicy', () => {
         hasSelectedSubagent: false,
         settingsDisplayMode: 'tab',
       })
-    ).toEqual([]);
+    ).toEqual(['repository-sidebar', 'worktree-panel']);
   });
 
   it('uses the tree sidebar as the single navigation blocker in tree layout', () => {
@@ -48,7 +48,22 @@ describe('startupOverlayPolicy', () => {
         hasSelectedSubagent: false,
         settingsDisplayMode: 'tab',
       })
-    ).toEqual(['source-control-panel']);
+    ).toEqual(['tree-sidebar', 'source-control-panel']);
+  });
+
+  it('skips collapsed sidebars while deriving startup blockers', () => {
+    expect(
+      resolveInitialStartupBlockingKeys({
+        layoutMode: 'columns',
+        repositoryCollapsed: true,
+        worktreeCollapsed: true,
+        isTempRepo: false,
+        activeTab: 'terminal',
+        hasActiveWorktree: true,
+        hasSelectedSubagent: false,
+        settingsDisplayMode: 'tab',
+      })
+    ).toEqual(['terminal-panel']);
   });
 
   it('does not wait for the chat panel when a subagent transcript is the active chat surface', () => {
@@ -63,7 +78,7 @@ describe('startupOverlayPolicy', () => {
         hasSelectedSubagent: true,
         settingsDisplayMode: 'tab',
       })
-    ).toEqual([]);
+    ).toEqual(['repository-sidebar', 'worktree-panel']);
   });
 
   it('waits for the AI center panel when the cross-project task tab is restored', () => {
@@ -78,7 +93,7 @@ describe('startupOverlayPolicy', () => {
         hasSelectedSubagent: false,
         settingsDisplayMode: 'tab',
       })
-    ).toEqual(['ai-center-panel']);
+    ).toEqual(['repository-sidebar', 'worktree-panel', 'ai-center-panel']);
   });
 
   it('removes ready keys idempotently', () => {

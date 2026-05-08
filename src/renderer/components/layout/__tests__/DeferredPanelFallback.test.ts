@@ -76,9 +76,37 @@ describe('DeferredPanelFallback', () => {
 
     expect(markup).toContain('data-startup-fallback="true"');
     expect(markup).toContain('data-loading-layout="status-dock"');
-    expect(markup).toContain('class="flex min-h-screen items-center justify-center');
+    expect(markup).toContain('class="flex min-h-screen items-center justify-center p-6');
     expect(markup).not.toContain('data-control-state-card=');
     expect(markup).not.toContain('data-spinner="true"');
+  });
+
+  it('matches the static bootstrap shell geometry for startup fallbacks', async () => {
+    const { DeferredPanelFallback } = await import('../DeferredPanelFallback');
+
+    const markup = renderToStaticMarkup(
+      React.createElement(DeferredPanelFallback, {
+        icon: React.createElement('span', null, 'icon'),
+        eyebrow: 'Infilux',
+        title: 'Restoring workspace',
+        description: 'Loading settings and repository context.',
+        progressLabel: 'Restoring workspace',
+        progressMax: 4,
+        progressValue: 1,
+        variant: 'startup',
+      })
+    );
+
+    expect(markup).toContain('data-startup-fallback="true"');
+    expect(markup).toContain('max-w-[36rem]');
+    expect(markup).toContain('px-5 py-5');
+    expect(markup).toContain('h-11 w-11');
+    expect(markup).toContain('rounded-2xl');
+    expect(markup).toContain('text-[19px]');
+    expect(markup).toContain('leading-[1.2]');
+    expect(markup).toContain('text-sm leading-[1.6]');
+    expect(markup).toContain('data-startup-progress-label="true"');
+    expect(markup).toContain('sr-only');
   });
 
   it('prefers a custom footer over the default embedded loading treatment', async () => {

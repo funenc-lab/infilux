@@ -4765,8 +4765,8 @@ export function AgentPanel({
         />
       ) : null}
       {isCanvasDisplayMode && canvasSessionGroups.length > 0 ? (
-        <div className="absolute inset-x-2 top-2 z-10 flex items-center justify-end gap-2">
-          <div className="flex items-center justify-end gap-2">
+        <div className="absolute inset-x-2 top-2 z-10 flex flex-wrap items-start justify-end gap-2">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2">
             <div className="control-panel-muted pointer-events-auto flex items-center gap-1 rounded-xl p-1">
               <button
                 type="button"
@@ -4821,7 +4821,7 @@ export function AgentPanel({
                 <Plus className="h-4 w-4" />
               </button>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1">
               {quickTerminalEnabled ? (
                 <button
                   type="button"
@@ -4847,13 +4847,13 @@ export function AgentPanel({
               />
               <button
                 type="button"
-                className="control-panel-muted pointer-events-auto inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/30"
+                className="control-panel-muted pointer-events-auto inline-flex min-w-0 max-w-[min(16rem,100%)] items-center gap-2 truncate rounded-xl px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/30"
                 aria-label={globalNewSessionLabel}
                 title={globalNewSessionLabel}
                 onClick={() => handleNewSession()}
               >
-                <Plus className="h-4 w-4" />
-                {globalNewSessionLabel}
+                <Plus className="h-4 w-4 shrink-0" />
+                <span className="truncate">{globalNewSessionLabel}</span>
               </button>
               <Menu>
                 <MenuTrigger

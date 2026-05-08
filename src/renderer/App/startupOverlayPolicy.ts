@@ -87,7 +87,11 @@ export function resolveInitialStartupBlockingKeys({
   activeTab,
   hasActiveWorktree,
   hasSelectedSubagent,
+  isTempRepo,
+  layoutMode,
+  repositoryCollapsed,
   settingsDisplayMode,
+  worktreeCollapsed,
 }: ResolveInitialStartupBlockingKeysOptions): StartupBlockingKey[] {
   const keys: StartupBlockingKey[] = [];
 
@@ -96,6 +100,19 @@ export function resolveInitialStartupBlockingKeys({
       keys.push('settings-panel');
     }
     return keys;
+  }
+
+  if (layoutMode === 'tree') {
+    if (!repositoryCollapsed) {
+      keys.push('tree-sidebar');
+    }
+  } else {
+    if (!repositoryCollapsed) {
+      keys.push('repository-sidebar');
+    }
+    if (!worktreeCollapsed && !isTempRepo) {
+      keys.push('worktree-panel');
+    }
   }
 
   if (!hasActiveWorktree) {

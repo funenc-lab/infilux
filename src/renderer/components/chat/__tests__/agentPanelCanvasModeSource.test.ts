@@ -183,8 +183,21 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain("aria-label={t('Quick Terminal')}");
     expect(agentPanelSource).toContain('<Terminal className="h-4 w-4" />');
     expect(agentPanelSource).toContain(
+      'className="absolute inset-x-2 top-2 z-10 flex flex-wrap items-start justify-end gap-2"'
+    );
+    expect(agentPanelSource).toContain(
+      'className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2"'
+    );
+    expect(agentPanelSource).toContain(
       'const globalNewSessionLabel = isWorkspaceCanvasDisplayMode'
     );
+    expect(agentPanelSource).toContain(
+      'className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1"'
+    );
+    expect(agentPanelSource).toContain(
+      'className="control-panel-muted pointer-events-auto inline-flex min-w-0 max-w-[min(16rem,100%)] items-center gap-2 truncate rounded-xl px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/30"'
+    );
+    expect(agentPanelSource).toContain('<span className="truncate">{globalNewSessionLabel}</span>');
     expect(agentPanelSource).toContain("t('New in Current Worktree')");
     expect(agentPanelSource).toContain("t('Choose session agent')");
     expect(agentPanelSource).toContain("t('Select Agent')");

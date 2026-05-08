@@ -61,7 +61,13 @@ export function DeferredPanelFallback({
   const statusDockFooter =
     hasProgress && normalizedProgressValue !== null ? (
       <div className="max-w-[22rem]">
-        <div className="flex items-center justify-between gap-4 text-[0.72rem] uppercase tracking-[0.16em] text-muted-foreground/68">
+        <div
+          data-startup-progress-label="true"
+          className={cn(
+            'flex items-center justify-between gap-4 text-[0.72rem] uppercase tracking-[0.16em] text-muted-foreground/68',
+            variant === 'startup' && 'sr-only'
+          )}
+        >
           <span className="min-w-0 flex-1 truncate">{progressLabel ?? title}</span>
           <span className="shrink-0">
             {normalizedProgressValue}/{progressMax}
@@ -74,7 +80,10 @@ export function DeferredPanelFallback({
           aria-valuemax={progressMax}
           aria-valuenow={normalizedProgressValue}
           aria-valuetext={progressText ?? undefined}
-          className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted/54"
+          className={cn(
+            'h-1.5 overflow-hidden rounded-full bg-muted/54',
+            variant === 'startup' ? 'mt-0' : 'mt-3'
+          )}
         >
           <div
             className="h-full rounded-full bg-primary/72"
@@ -145,31 +154,28 @@ export function DeferredPanelFallback({
         data-startup-fallback="true"
         data-startup-layout="status-dock"
         data-loading-layout="status-dock"
-        className={cn(
-          'flex min-h-screen items-center justify-center px-6 py-6 sm:px-8 sm:py-8',
-          className
-        )}
+        className={cn('flex min-h-screen items-center justify-center p-6', className)}
       >
         <div
           className={cn(
-            'relative w-full max-w-[36rem] overflow-hidden border border-border/62 bg-background/34 px-5 py-4',
-            'shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-6 sm:py-5',
+            'relative w-full max-w-[36rem] overflow-hidden border border-border/62 bg-background/34 px-5 py-5',
+            'shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]',
             cardClassName
           )}
         >
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-border/72 to-transparent" />
-          <div className="flex min-w-0 items-start gap-4 sm:gap-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.95rem] border border-border/62 bg-muted/34 text-foreground/88">
-              <div className="text-[0.98em]">{icon}</div>
+          <div className="flex min-w-0 items-start gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/62 bg-muted/34 text-foreground/88">
+              <div className="text-base">{icon}</div>
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground/74">
                 {eyebrow}
               </div>
-              <div className="mt-2 text-[1.08rem] font-semibold tracking-normal text-foreground sm:text-[1.18rem]">
+              <div className="mt-0 text-[19px] font-semibold leading-[1.2] tracking-[-0.03em] text-foreground">
                 {title}
               </div>
-              <p className="mt-2 max-w-[34rem] text-sm leading-6 text-muted-foreground/88">
+              <p className="mt-2 max-w-[34rem] text-sm leading-[1.6] text-muted-foreground/88">
                 {description}
               </p>
               <div className="mt-5">{resolvedFooter}</div>

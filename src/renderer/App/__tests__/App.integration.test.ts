@@ -299,13 +299,18 @@ vi.mock('../../components/layout/DeferredMainContent', () => ({
   DeferredMainContent: ({
     onStartupBlockingReady,
     onSwitchRepository,
+    showFallback,
   }: {
     onStartupBlockingReady: (key: 'file-panel') => void;
     onSwitchRepository: (repoPath: string) => void;
+    showFallback?: boolean;
   }) =>
     React.createElement(
       'div',
-      { 'data-testid': 'deferred-main-content' },
+      {
+        'data-testid': 'deferred-main-content',
+        'data-show-fallback': String(showFallback),
+      },
       React.createElement(
         'button',
         {
@@ -328,17 +333,27 @@ vi.mock('../../components/layout/DeferredMainContent', () => ({
 }));
 
 vi.mock('../../components/layout/DeferredRepositorySidebar', () => ({
-  DeferredRepositorySidebar: () =>
-    React.createElement('div', { 'data-testid': 'repository-sidebar' }),
+  DeferredRepositorySidebar: ({ showFallback }: { showFallback?: boolean }) =>
+    React.createElement('div', {
+      'data-testid': 'repository-sidebar',
+      'data-show-fallback': String(showFallback),
+    }),
 }));
 
 vi.mock('../../components/layout/DeferredTreeSidebar', () => ({
-  DeferredTreeSidebar: ({ onReady }: { onReady: () => void }) =>
+  DeferredTreeSidebar: ({
+    onReady,
+    showFallback,
+  }: {
+    onReady: () => void;
+    showFallback?: boolean;
+  }) =>
     React.createElement(
       'button',
       {
         type: 'button',
         'data-testid': 'tree-sidebar-ready',
+        'data-show-fallback': String(showFallback),
         onClick: onReady,
       },
       'tree-sidebar-ready'
@@ -346,7 +361,11 @@ vi.mock('../../components/layout/DeferredTreeSidebar', () => ({
 }));
 
 vi.mock('../../components/layout/DeferredWorktreePanel', () => ({
-  DeferredWorktreePanel: () => React.createElement('div', { 'data-testid': 'worktree-panel' }),
+  DeferredWorktreePanel: ({ showFallback }: { showFallback?: boolean }) =>
+    React.createElement('div', {
+      'data-testid': 'worktree-panel',
+      'data-show-fallback': String(showFallback),
+    }),
 }));
 
 vi.mock('../../components/layout/TemporaryWorkspacePanel', () => ({
@@ -674,6 +693,24 @@ describe('App integration', () => {
     const appContainer = getRenderedContainer(container);
 
     expect(appContainer.querySelector('[data-testid="startup-shell"]')?.textContent).toContain(
+      'Loading workspace tree'
+    );
+    expect(
+      appContainer
+        .querySelector('[data-testid="tree-sidebar-ready"]')
+        ?.getAttribute('data-show-fallback')
+    ).toBe('false');
+    expect(
+      appContainer
+        .querySelector('[data-testid="deferred-main-content"]')
+        ?.getAttribute('data-show-fallback')
+    ).toBe('false');
+
+    await act(async () => {
+      click(appContainer, '[data-testid="tree-sidebar-ready"]');
+    });
+
+    expect(appContainer.querySelector('[data-testid="startup-shell"]')?.textContent).toContain(
       'Loading editor'
     );
 
@@ -682,6 +719,16 @@ describe('App integration', () => {
     });
 
     expect(appContainer.querySelector('[data-testid="startup-shell"]')).toBeNull();
+    expect(
+      appContainer
+        .querySelector('[data-testid="tree-sidebar-ready"]')
+        ?.getAttribute('data-show-fallback')
+    ).toBe('true');
+    expect(
+      appContainer
+        .querySelector('[data-testid="deferred-main-content"]')
+        ?.getAttribute('data-show-fallback')
+    ).toBe('true');
   });
 
   it('routes title bar and add-repository actions through the app shell callbacks', async () => {

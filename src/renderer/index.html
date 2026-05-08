@@ -9,6 +9,7 @@
     <style>
       :root {
         color-scheme: light;
+        --app-font-size-base: 14px;
         --bootstrap-bg: #f5f7fb;
         --bootstrap-surface: rgba(255, 255, 255, 0.86);
         --bootstrap-border: rgba(48, 65, 93, 0.1);
@@ -55,19 +56,28 @@
       body {
         margin: 0;
         min-height: 100%;
+        font-size: var(--app-font-size-base, 14px);
         background:
           linear-gradient(180deg, var(--bootstrap-top-glow), transparent 22%),
           radial-gradient(circle at top left, var(--bootstrap-corner-glow), transparent 38%),
           var(--bootstrap-bg);
       }
 
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
       body {
         color: var(--bootstrap-text);
         font-family:
+          "Aptos",
           "SF Pro Text",
-          "SF Pro Display",
-          "Segoe UI",
+          "Segoe UI Variable Text",
+          "Noto Sans",
           "Helvetica Neue",
+          system-ui,
           sans-serif;
       }
 
@@ -107,7 +117,7 @@
         border: 1px solid var(--bootstrap-border);
         background: var(--bootstrap-surface);
         box-shadow: var(--bootstrap-panel-shadow);
-        padding: 20px 20px 18px;
+        padding: 17.5px;
       }
 
       .bootstrap-panel::before {
@@ -134,12 +144,12 @@
       .bootstrap-icon {
         position: relative;
         display: flex;
-        width: 44px;
-        height: 44px;
+        width: 38.5px;
+        height: 38.5px;
         flex: none;
         align-items: center;
         justify-content: center;
-        border-radius: 15px;
+        border-radius: 14px;
         border: 1px solid var(--bootstrap-icon-border);
         background: var(--bootstrap-icon-bg);
       }
@@ -160,15 +170,17 @@
       }
 
       .bootstrap-copy {
+        flex: 1;
         min-width: 0;
       }
 
       .bootstrap-eyebrow {
         margin: 0;
         color: var(--bootstrap-muted);
-        font-size: 11px;
+        font-size: 9.52px;
         font-weight: 650;
         letter-spacing: 0.18em;
+        line-height: 14.28px;
         text-transform: uppercase;
       }
 
@@ -178,31 +190,35 @@
         font-weight: 650;
         letter-spacing: -0.03em;
         line-height: 1.2;
+        min-height: calc(19px * 1.2);
       }
 
       .bootstrap-description {
-        margin: 8px 0 0;
+        margin: 7px 0 0;
         color: var(--bootstrap-muted);
-        font-size: 14px;
+        font-size: 12.25px;
         line-height: 1.6;
+        min-height: calc(12.25px * 1.6);
       }
 
       .bootstrap-footer {
         display: flex;
         align-items: center;
         gap: 16px;
-        margin-top: 20px;
+        margin-top: 17.5px;
         color: var(--bootstrap-muted);
         font-size: 12px;
         letter-spacing: 0.16em;
         text-transform: uppercase;
       }
 
-      .bootstrap-footer::before {
-        content: "";
-        width: 40px;
+      .bootstrap-footer-label {
+        position: absolute;
+        width: 1px;
         height: 1px;
-        background: var(--bootstrap-footer-line);
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
       }
 
       .bootstrap-progress {
@@ -262,10 +278,11 @@
               <p class="bootstrap-eyebrow">Infilux</p>
               <h1 class="bootstrap-title"></h1>
               <p class="bootstrap-description"></p>
+              <div class="bootstrap-footer">
+                <span class="bootstrap-footer-label">Starting desktop app</span>
+                <div class="bootstrap-progress" aria-hidden="true"></div>
+              </div>
             </div>
-          </div>
-          <div class="bootstrap-footer">
-            <div class="bootstrap-progress" aria-hidden="true"></div>
           </div>
         </div>
       </div>
