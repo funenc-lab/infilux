@@ -1,8 +1,8 @@
 import { GitBranch } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { WorktreePanelProps } from '@/components/layout/WorktreePanel';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { useDeferredComponentLoader } from './useDeferredComponentLoader';
 import { useDeferredReady } from './useDeferredReady';
 
 type WorktreePanelComponent = React.ComponentType<WorktreePanelProps>;
@@ -20,25 +20,16 @@ export function DeferredWorktreePanel({
   ...panelProps
 }: DeferredWorktreePanelProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<WorktreePanelComponent | null>(null);
-
-  useEffect(() => {
-    if (!shouldLoad || Component) {
-      return;
-    }
-
-    let cancelled = false;
-    import('@/components/layout/WorktreePanel').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.WorktreePanel as WorktreePanelComponent);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldLoad, Component]);
+  const { Component } = useDeferredComponentLoader<
+    typeof import('@/components/layout/WorktreePanel'),
+    WorktreePanelProps
+  >({
+    shouldLoad,
+    loadStrategy: 'idle',
+    load: () => import('@/components/layout/WorktreePanel'),
+    selectComponent: (module) => module.WorktreePanel as WorktreePanelComponent,
+    errorLabel: 'WorktreePanel',
+  });
 
   useDeferredReady(Boolean(Component), onReady);
 

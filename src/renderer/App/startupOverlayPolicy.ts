@@ -84,24 +84,12 @@ const STARTUP_BLOCKING_COPY: Record<StartupBlockingKey, StartupBlockingCopy> = {
 };
 
 export function resolveInitialStartupBlockingKeys({
-  layoutMode,
-  repositoryCollapsed,
-  worktreeCollapsed,
-  isTempRepo,
   activeTab,
   hasActiveWorktree,
   hasSelectedSubagent,
   settingsDisplayMode,
 }: ResolveInitialStartupBlockingKeysOptions): StartupBlockingKey[] {
   const keys: StartupBlockingKey[] = [];
-
-  if (!repositoryCollapsed) {
-    keys.push(layoutMode === 'tree' ? 'tree-sidebar' : 'repository-sidebar');
-  }
-
-  if (layoutMode === 'columns' && !worktreeCollapsed && !isTempRepo) {
-    keys.push('worktree-panel');
-  }
 
   if (activeTab === 'settings') {
     if (settingsDisplayMode === 'tab') {

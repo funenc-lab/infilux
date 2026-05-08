@@ -284,6 +284,27 @@ describe('temp workspace store', () => {
     ]);
   });
 
+  it('treats empty temp workspace rehydrate responses as an empty list', async () => {
+    const item = {
+      id: 'temp-1',
+      path: '/tmp/original',
+      folderName: 'original',
+      title: 'Original',
+      createdAt: 1,
+    };
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const env = await loadTempWorkspaceStore({
+      storedValue: JSON.stringify([item]),
+      tempWorkspaceRehydrateImpl: async () => undefined,
+    });
+
+    await env.useTempWorkspaceStore.getState().rehydrate();
+
+    expect(env.rehydrate).toHaveBeenCalledWith([item]);
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(env.useTempWorkspaceStore.getState().items).toEqual([]);
+  });
+
   it('logs rehydrate failures for both queued and owning callers, then allows retrying', async () => {
     const item = {
       id: 'temp-1',

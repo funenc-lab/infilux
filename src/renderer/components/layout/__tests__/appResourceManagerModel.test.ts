@@ -1,3 +1,4 @@
+import { translate } from '@shared/i18n';
 import { describe, expect, it } from 'vitest';
 import {
   buildAppResourceActionConfirmation,
@@ -15,6 +16,10 @@ const t = (key: string, params?: Record<string, string | number>): string => {
     const value = params[token];
     return value === undefined ? match : String(value);
   });
+};
+
+const zhT = (key: string, params?: Record<string, string | number>): string => {
+  return translate('zh', key, params);
 };
 
 describe('appResourceManagerModel', () => {
@@ -233,7 +238,7 @@ describe('appResourceManagerModel', () => {
       {
         key: 'backend',
         label: 'Backend',
-        value: 'local',
+        value: 'Local',
       },
       {
         key: 'runtime-state',
@@ -255,6 +260,178 @@ describe('appResourceManagerModel', () => {
         label: 'Reclaimable',
         value: 'No',
       },
+    ]);
+  });
+
+  it('localizes session labels and metrics with translated kind, backend, and runtime values', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'session:session-local-live',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'session-local-live',
+          sessionKind: 'terminal',
+          backend: 'local',
+          cwd: '/repo/live',
+          createdAt: 15,
+          pid: 4445,
+          isActive: false,
+          isAlive: true,
+          reclaimable: false,
+          runtimeState: 'live',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+      ],
+    };
+
+    const sections = buildAppResourceManagerSections(snapshot as never, zhT);
+    const sessionItem = sections[0]?.items[0];
+
+    expect(sessionItem?.title).toBe('终端会话');
+    expect(sessionItem?.subtitle).toBe('本地 后端 · 进程 ID 4445');
+    expect(sessionItem?.metrics).toEqual([
+      {
+        key: 'cwd',
+        label: '工作目录',
+        value: '/repo/live',
+      },
+      {
+        key: 'backend',
+        label: '后端',
+        value: '本地',
+      },
+      {
+        key: 'runtime-state',
+        label: '运行时状态',
+        value: '在线',
+      },
+      {
+        key: 'activity',
+        label: '活动状态',
+        value: '空闲',
+      },
+      {
+        key: 'liveness',
+        label: '存活状态',
+        value: '存活',
+      },
+      {
+        key: 'reclaimable',
+        label: '可回收',
+        value: '否',
+      },
+    ]);
+  });
+
+  it('keeps dead sessions visible with a dead status label instead of collapsing them to stopped', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'session:session-dead',
+          kind: 'session',
+          group: 'sessions',
+          status: 'dead',
+          sessionId: 'session-dead',
+          sessionKind: 'agent',
+          backend: 'local',
+          cwd: '/repo/dead',
+          createdAt: 20,
+          pid: null,
+          isActive: false,
+          isAlive: false,
+          reclaimable: true,
+          runtimeState: 'dead',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+      ],
+    };
+
+    const sections = buildAppResourceManagerSections(snapshot as never, t);
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        key: 'sessions',
+        items: [
+          expect.objectContaining({
+            status: 'dead',
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('labels reclaimable stopped sessions as stale instead of showing a generic stopped status', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'session:session-stale',
+          kind: 'session',
+          group: 'sessions',
+          status: 'stopped',
+          sessionId: 'session-stale',
+          sessionKind: 'terminal',
+          backend: 'local',
+          cwd: '/repo/stale',
+          createdAt: 20,
+          pid: null,
+          isActive: false,
+          isAlive: false,
+          reclaimable: true,
+          runtimeState: 'live',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+      ],
+    };
+
+    const sections = buildAppResourceManagerSections(snapshot as never, t);
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        key: 'sessions',
+        items: [
+          expect.objectContaining({
+            status: 'Stale',
+          }),
+        ],
+      }),
     ]);
   });
 
@@ -407,7 +584,7 @@ describe('appResourceManagerModel', () => {
     ]);
   });
 
-  it('hides stopped sessions and inactive support services from the default resource sections', () => {
+  it('keeps reclaimable stale sessions visible while still hiding inactive support services', () => {
     const snapshot = {
       capturedAt: 100,
       runtime: {
@@ -509,7 +686,10 @@ describe('appResourceManagerModel', () => {
       }),
       expect.objectContaining({
         key: 'sessions',
-        items: [expect.objectContaining({ id: 'session:session-live' })],
+        items: [
+          expect.objectContaining({ id: 'session:session-live' }),
+          expect.objectContaining({ id: 'session:session-stale', status: 'Stale' }),
+        ],
       }),
       expect.objectContaining({
         key: 'services',
@@ -583,7 +763,7 @@ describe('appResourceManagerModel', () => {
 
     expect(countVisibleResourcesByGroup(snapshot as never)).toEqual({
       runtime: 1,
-      sessions: 0,
+      sessions: 1,
       services: 0,
     });
   });

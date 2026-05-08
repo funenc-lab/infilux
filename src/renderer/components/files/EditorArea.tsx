@@ -11,6 +11,7 @@ import {
   useState,
 } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { useShallow } from 'zustand/shallow';
 import { ControlStateActionButton } from '@/components/layout/ControlStateActionButton';
 import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import {
@@ -168,7 +169,22 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
     editorKeybindings,
     agentIntegration,
     backgroundImageEnabled,
-  } = useSettingsStore();
+  } = useSettingsStore(
+    useShallow((state) => ({
+      theme: state.theme,
+      terminalTheme: state.terminalTheme,
+      colorPreset: state.colorPreset,
+      customAccentColor: state.customAccentColor,
+      activeThemeSelection: state.activeThemeSelection,
+      customThemes: state.customThemes,
+      fontFamily: state.fontFamily,
+      fontSize: state.fontSize,
+      editorSettings: state.editorSettings,
+      editorKeybindings: state.editorKeybindings,
+      agentIntegration: state.agentIntegration,
+      backgroundImageEnabled: state.backgroundImageEnabled,
+    }))
+  );
   const activeCustomTheme = useMemo(
     () => findCustomThemeBySelection(customThemes, activeThemeSelection),
     [activeThemeSelection, customThemes]

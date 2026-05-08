@@ -101,6 +101,7 @@ const mainWindowTestDoubles = vi.hoisted(() => {
     detachWindowSessions.mockResolvedValue(undefined);
     isQuittingForUpdate.mockReturnValue(false);
     readSharedSettings.mockReturnValue({});
+    shellOpenExternal.mockResolvedValue(undefined);
   }
 
   return {
@@ -318,6 +319,7 @@ describe('MainWindow', () => {
 
     expect(mainWindowTestDoubles.getBrowserWindowOptions()).toMatchObject({
       webPreferences: {
+        sandbox: true,
         additionalArguments: ['--infilux-runtime-channel=prod', '--infilux-app-version=0.3.2'],
       },
     });

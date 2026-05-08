@@ -37,10 +37,13 @@ function getStatusIcon(status: AgentSessionInventoryItem['status']) {
   if (status === 'waiting-for-input') {
     return Clock3;
   }
+  if (status === 'reconnecting') {
+    return Clock3;
+  }
   if (status === 'unread') {
     return CheckCircle2;
   }
-  if (status === 'dead') {
+  if (status === 'dead' || status === 'disconnected') {
     return AlertTriangle;
   }
   return CircleDot;

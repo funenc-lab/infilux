@@ -26,6 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { getActivityStateMeta } from '@/components/ui/activityStatus';
 import { GlowCard } from '@/components/ui/glow-card';
@@ -747,7 +748,14 @@ export function SessionBar({
   );
 
   // Get enabled agents from settings without a local CLI re-scan.
-  const { agentSettings, agentDetectionStatus, customAgents, hapiSettings } = useSettingsStore();
+  const { agentSettings, agentDetectionStatus, customAgents, hapiSettings } = useSettingsStore(
+    useShallow((state) => ({
+      agentSettings: state.agentSettings,
+      agentDetectionStatus: state.agentDetectionStatus,
+      customAgents: state.customAgents,
+      hapiSettings: state.hapiSettings,
+    }))
+  );
   const isRemoteRepo = useMemo(
     () => Boolean(repoPath && isRemoteVirtualPath(repoPath)),
     [repoPath]

@@ -3,7 +3,7 @@ import type { AgentInputAvailability } from './agentInputAvailability';
 export type StatusLineInputAvailabilityIconName = 'alert-triangle' | 'clock' | 'loader-circle';
 
 export interface StatusLineInputAvailabilityPresentation {
-  labelKey: 'Awaiting Session' | 'Reconnecting' | 'Disconnected';
+  labelKey: 'Awaiting Session' | 'Reconnecting' | 'Disconnected' | 'Recovery Required';
   iconName: StatusLineInputAvailabilityIconName;
   itemClassName: string;
   iconClassName?: string;
@@ -29,6 +29,12 @@ export function getStatusLineInputAvailabilityPresentation(
     case 'disconnected':
       return {
         labelKey: 'Disconnected',
+        iconName: 'alert-triangle',
+        itemClassName: 'text-destructive',
+      };
+    case 'recovery-required':
+      return {
+        labelKey: 'Recovery Required',
         iconName: 'alert-triangle',
         itemClassName: 'text-destructive',
       };

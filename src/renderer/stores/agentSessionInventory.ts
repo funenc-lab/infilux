@@ -8,6 +8,8 @@ import type { SessionRuntimeState } from './agentSessions';
 export type AgentSessionInventoryStatus =
   | 'running'
   | 'waiting-for-input'
+  | 'reconnecting'
+  | 'disconnected'
   | 'unread'
   | 'idle'
   | 'dead';
@@ -59,6 +61,12 @@ function resolveInventoryStatus(
 ): AgentSessionInventoryStatus {
   if (session.recoveryState === 'dead') {
     return 'dead';
+  }
+  if (session.recoveryState === 'reconnecting') {
+    return 'reconnecting';
+  }
+  if (session.recoveryState === 'missing-host-session') {
+    return 'disconnected';
   }
   if (runtimeState?.waitingForInput) {
     return 'waiting-for-input';
@@ -116,6 +124,16 @@ function buildTaskSummary(
   };
 }
 
+function isRecoverableInventorySession(session: Session): boolean {
+  if (!isSessionPersistable(session)) {
+    return false;
+  }
+
+  return session.recoveryState === undefined || session.recoveryState === 'live'
+    ? true
+    : session.recoveryState === 'reconnecting';
+}
+
 export function buildAgentSessionInventory({
   activeIds,
   filters = {},
@@ -148,7 +166,7 @@ export function buildAgentSessionInventory({
         environment: session.environment ?? 'native',
         status: resolveInventoryStatus(session, runtimeState),
         isActive: activeIds[normalizedCwd] === session.id,
-        isRecoverable: isSessionPersistable(session) && session.recoveryState !== 'dead',
+        isRecoverable: isRecoverableInventorySession(session),
         isStale: Boolean(session.agentCapabilityStale || session.claudePolicyStale),
         lastActivityAt,
         taskCompletionUnread: Boolean(runtimeState?.hasCompletedTaskUnread),

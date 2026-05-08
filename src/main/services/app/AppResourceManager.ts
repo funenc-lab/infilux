@@ -188,7 +188,11 @@ function resolveEffectiveSessionRuntimeState(
   session: SessionDescriptor,
   processInfo: SessionProcessInfo | null
 ) {
-  if (session.backend === 'local' && processInfo?.isAlive === false) {
+  if (
+    session.backend === 'local' &&
+    processInfo?.isAlive === false &&
+    session.runtimeState === 'dead'
+  ) {
     return 'dead';
   }
 
@@ -196,15 +200,16 @@ function resolveEffectiveSessionRuntimeState(
 }
 
 function toSessionStatus(
-  runtimeState: ReturnType<typeof resolveSessionRuntimeState>
+  runtimeState: ReturnType<typeof resolveEffectiveSessionRuntimeState>,
+  processInfo: SessionProcessInfo | null
 ): AppResourceStatus {
   switch (runtimeState) {
     case 'reconnecting':
       return 'reconnecting';
     case 'dead':
-      return 'stopped';
+      return 'dead';
     default:
-      return 'running';
+      return processInfo?.isAlive === false ? 'stopped' : 'running';
   }
 }
 
@@ -249,7 +254,7 @@ export class AppResourceManager {
           id: `session:${session.sessionId}`,
           kind: 'session',
           group: 'sessions',
-          status: toSessionStatus(runtimeState),
+          status: toSessionStatus(runtimeState, processInfo),
           sessionId: session.sessionId,
           sessionKind: session.kind,
           backend: session.backend,

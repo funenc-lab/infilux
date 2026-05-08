@@ -65,14 +65,14 @@ describe('appResourceStatusTriggerModel', () => {
     });
   });
 
-  it('prioritizes degraded resources over healthy activity', () => {
+  it('prioritizes explicit dead sessions over healthy activity', () => {
     const viewModel = buildAppResourceStatusTriggerViewModel(
       createSnapshot([
         {
           id: 'session:stale-terminal',
           kind: 'session',
           group: 'sessions',
-          status: 'stopped',
+          status: 'dead',
           sessionId: 'stale-terminal',
           sessionKind: 'terminal',
           backend: 'local',

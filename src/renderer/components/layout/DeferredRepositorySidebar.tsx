@@ -1,8 +1,8 @@
 import { FolderGit2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { RepositorySidebarProps } from '@/components/layout/RepositorySidebar';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { useDeferredComponentLoader } from './useDeferredComponentLoader';
 import { useDeferredReady } from './useDeferredReady';
 
 type RepositorySidebarComponent = React.ComponentType<RepositorySidebarProps>;
@@ -20,25 +20,16 @@ export function DeferredRepositorySidebar({
   ...panelProps
 }: DeferredRepositorySidebarProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<RepositorySidebarComponent | null>(null);
-
-  useEffect(() => {
-    if (!shouldLoad || Component) {
-      return;
-    }
-
-    let cancelled = false;
-    import('@/components/layout/RepositorySidebar').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.RepositorySidebar as RepositorySidebarComponent);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldLoad, Component]);
+  const { Component } = useDeferredComponentLoader<
+    typeof import('@/components/layout/RepositorySidebar'),
+    RepositorySidebarProps
+  >({
+    shouldLoad,
+    loadStrategy: 'idle',
+    load: () => import('@/components/layout/RepositorySidebar'),
+    selectComponent: (module) => module.RepositorySidebar as RepositorySidebarComponent,
+    errorLabel: 'RepositorySidebar',
+  });
 
   useDeferredReady(Boolean(Component), onReady);
 

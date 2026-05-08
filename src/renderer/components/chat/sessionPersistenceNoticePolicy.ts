@@ -3,17 +3,31 @@ export interface SessionPersistenceNoticePolicyInput {
   platform?: string;
   tmuxEnabled: boolean;
   tmuxInstalled: boolean | null;
+  hasRecoveryRequiredSession?: boolean;
 }
 
-export function shouldShowSessionPersistenceNotice({
+export type SessionPersistenceNoticeKind = 'tmux-disabled' | 'recovery-required';
+
+export function resolveSessionPersistenceNoticeKind({
   isRemoteRepo,
   platform,
   tmuxEnabled,
   tmuxInstalled,
-}: SessionPersistenceNoticePolicyInput): boolean {
-  if (isRemoteRepo || platform === 'win32' || tmuxEnabled) {
-    return false;
+  hasRecoveryRequiredSession = false,
+}: SessionPersistenceNoticePolicyInput): SessionPersistenceNoticeKind | null {
+  if (!isRemoteRepo && hasRecoveryRequiredSession) {
+    return 'recovery-required';
   }
 
-  return tmuxInstalled === true;
+  if (isRemoteRepo || platform === 'win32' || tmuxEnabled) {
+    return null;
+  }
+
+  return tmuxInstalled === true ? 'tmux-disabled' : null;
+}
+
+export function shouldShowSessionPersistenceNotice(
+  input: SessionPersistenceNoticePolicyInput
+): boolean {
+  return resolveSessionPersistenceNoticeKind(input) !== null;
 }

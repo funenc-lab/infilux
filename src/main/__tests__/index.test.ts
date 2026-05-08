@@ -210,6 +210,15 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     });
     return database;
   });
+  const dnsLookup = vi.fn<
+    (hostname: string) => Promise<Array<{ address: string; family: number }>>
+  >(async (hostname: string) => {
+    if (hostname === 'cdn.example.com' || hostname === 'example.com') {
+      return [{ address: '93.184.216.34', family: 4 }];
+    }
+
+    return [{ address: '203.0.113.10', family: 4 }];
+  });
 
   function appendListener(map: Map<string, Listener[]>, event: string, listener: Listener): void {
     const current = map.get(event) ?? [];
@@ -491,6 +500,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       sqliteDatabaseRun,
       sqliteDatabaseClose,
       sqliteDatabase,
+      dnsLookup,
     ];
 
     for (const fn of fns) {
@@ -518,6 +528,14 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       size: 64,
     });
     writeFileSync.mockReset();
+    dnsLookup.mockReset();
+    dnsLookup.mockImplementation(async (hostname: string) => {
+      if (hostname === 'cdn.example.com' || hostname === 'example.com') {
+        return [{ address: '93.184.216.34', family: 4 }];
+      }
+
+      return [{ address: '203.0.113.10', family: 4 }];
+    });
     shellEnvSync.mockReturnValue({
       SHELL_ENV_READY: '1',
     });
@@ -700,6 +718,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     sqliteDatabaseRun,
     sqliteDatabaseClose,
     sqliteDatabase,
+    dnsLookup,
     createMockImage,
     protocolHandlers,
     processListeners,
@@ -736,6 +755,10 @@ vi.mock('node:fs', () => ({
 
 vi.mock('shell-env', () => ({
   shellEnvSync: mainIndexTestDoubles.shellEnvSync,
+}));
+
+vi.mock('node:dns/promises', () => ({
+  lookup: mainIndexTestDoubles.dnsLookup,
 }));
 
 vi.mock('@electron-toolkit/utils', () => ({
@@ -1222,8 +1245,12 @@ describe('main entry', () => {
     );
     expect(__testables.isPrivateIpLiteral('127.0.0.1')).toBe(true);
     expect(__testables.isPrivateIpLiteral('8.8.8.8')).toBe(false);
-    expect(__testables.isAllowedRemoteImageUrl('https://example.com/image.png')).toBe(true);
-    expect(__testables.isAllowedRemoteImageUrl('http://127.0.0.1/blocked.png')).toBe(false);
+    expect(await __testables.isAllowedRemoteImageUrl('https://example.com/image.png')).toBe(true);
+    expect(await __testables.isAllowedRemoteImageUrl('http://127.0.0.1/blocked.png')).toBe(false);
+    expect(await __testables.isAllowedRemoteImageUrl('http://[fd00::1]/blocked.png')).toBe(false);
+    expect(await __testables.isAllowedRemoteImageUrl('http://[::ffff:127.0.0.1]/blocked.png')).toBe(
+      false
+    );
     expect(__testables.sanitizeProfileName(' feature/branch ')).toBe('feature-branch');
     expect(__testables.parseInfiluxUrl('infilux://open?path=%2Ftmp%2Fdemo')).toBe('/tmp/demo');
     expect(__testables.parseInfiluxUrl('enso://open?path=%2Ftmp')).toBeNull();
@@ -1271,8 +1298,12 @@ describe('main entry', () => {
     expect(__testables.isPrivateIpLiteral('172.20.1.5')).toBe(true);
     expect(__testables.isPrivateIpLiteral('999.1.1.1')).toBe(false);
     expect(__testables.isPrivateIpLiteral('')).toBe(false);
-    expect(__testables.isAllowedRemoteImageUrl('ftp://example.com/image.png')).toBe(false);
-    expect(__testables.isAllowedRemoteImageUrl('not-a-url')).toBe(false);
+    expect(await __testables.isAllowedRemoteImageUrl('ftp://example.com/image.png')).toBe(false);
+    expect(await __testables.isAllowedRemoteImageUrl('not-a-url')).toBe(false);
+    mainIndexTestDoubles.dnsLookup.mockResolvedValueOnce([{ address: '127.0.0.1', family: 4 }]);
+    expect(await __testables.isAllowedRemoteImageUrl('https://internal.example/image.png')).toBe(
+      false
+    );
     expect(__testables.sanitizeProfileName('   ')).toBe('');
     expect(__testables.parseInfiluxUrl('not-a-url')).toBeNull();
     expect(__testables.readStoredLanguage()).toBe('en');
@@ -2293,6 +2324,47 @@ describe('main entry', () => {
     expect(remoteImageResponse.status).toBe(200);
     expect(remoteImageResponse.headers.get('content-type')).toBe('image/webp');
     expect(remoteImageResponse.headers.get('access-control-allow-origin')).toBe('*');
+    expect(mainIndexTestDoubles.netFetch).toHaveBeenLastCalledWith(
+      'https://cdn.example.com/image.webp',
+      { redirect: 'manual' }
+    );
+  });
+
+  it('blocks local-image redirects that resolve into local or private addresses', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow();
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'win32',
+    });
+
+    mainIndexTestDoubles.dnsLookup.mockImplementation(async (hostname: string) => {
+      if (hostname === 'public.example.com') {
+        return [{ address: '93.184.216.34', family: 4 }];
+      }
+
+      if (hostname === 'internal.example.com') {
+        return [{ address: '127.0.0.1', family: 4 }];
+      }
+
+      return [{ address: '203.0.113.10', family: 4 }];
+    });
+    mainIndexTestDoubles.netFetch.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: {
+          location: 'http://internal.example.com/secret.png',
+        },
+      })
+    );
+
+    const redirectedResponse = await mainIndexTestDoubles.invokeProtocol('local-image', {
+      url: 'local-image://remote-fetch?url=https%3A%2F%2Fpublic.example.com%2Fimage.webp',
+    });
+
+    expect(redirectedResponse.status).toBe(403);
+    expect(mainIndexTestDoubles.netFetch).toHaveBeenCalledTimes(1);
   });
 
   it('rejects unsafe local-image paths and supports video range responses', async () => {

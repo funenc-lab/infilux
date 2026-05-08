@@ -6,6 +6,7 @@ import {
   resolveRecoveredInitialTerminalReplay,
   resolveRecoveredReplaySnapshotPersistence,
   resolveReusableBackendSessionId,
+  shouldApplyInitialTerminalReplay,
   shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
@@ -197,6 +198,38 @@ describe('resolveRecoveredReplaySnapshotPersistence', () => {
         reusedExistingSession: false,
       })
     ).toBe('fresh prompt> ');
+  });
+});
+
+describe('shouldApplyInitialTerminalReplay', () => {
+  it('applies attached replay when no live output has reached the terminal', () => {
+    expect(
+      shouldApplyInitialTerminalReplay({
+        initialReplay: 'attached replay',
+        hasReceivedData: false,
+        liveReplaySnapshot: undefined,
+      })
+    ).toBe(true);
+  });
+
+  it('skips attached replay after live output already reached the terminal', () => {
+    expect(
+      shouldApplyInitialTerminalReplay({
+        initialReplay: 'attached replay',
+        hasReceivedData: true,
+        liveReplaySnapshot: undefined,
+      })
+    ).toBe(false);
+  });
+
+  it('skips attached replay when live output already populated the replay snapshot', () => {
+    expect(
+      shouldApplyInitialTerminalReplay({
+        initialReplay: 'Codex is ready\n',
+        hasReceivedData: false,
+        liveReplaySnapshot: 'Codex is ready\n',
+      })
+    ).toBe(false);
   });
 });
 

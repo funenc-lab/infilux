@@ -30,6 +30,8 @@ export interface ListSessionAgentSubagentsRequest {
   providerSessionId: string;
   cwd?: string;
   maxIdleMs?: number;
+  liveItems?: LiveAgentSubagent[];
+  generatedAt?: number;
 }
 
 export interface ListSessionAgentSubagentsResult {

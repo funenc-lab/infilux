@@ -161,6 +161,39 @@ describe('agent session inventory', () => {
     ]);
   });
 
+  it('maps persistent recovery transport states without collapsing them to idle', () => {
+    const items = buildAgentSessionInventory({
+      sessions: [
+        session({
+          id: 'session-reconnecting',
+          recoveryState: 'reconnecting',
+          persistenceEnabled: true,
+        }),
+        session({
+          id: 'session-missing-host',
+          recoveryState: 'missing-host-session',
+          persistenceEnabled: true,
+          cwd: '/repo/worktree-b',
+        }),
+      ],
+      activeIds: {},
+      runtimeStates: {},
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        sessionId: 'session-missing-host',
+        status: 'disconnected',
+        isRecoverable: false,
+      }),
+      expect.objectContaining({
+        sessionId: 'session-reconnecting',
+        status: 'reconnecting',
+        isRecoverable: true,
+      }),
+    ]);
+  });
+
   it('attaches executing todo task summaries to session inventory rows', () => {
     const items = buildAgentSessionInventory({
       sessions: [

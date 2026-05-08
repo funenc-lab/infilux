@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import { IPC_CHANNELS } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,8 +27,6 @@ const preloadTestDoubles = vi.hoisted(() => {
       listeners.delete(channel);
     }
   });
-  const openExternal = vi.fn(async (_url: string) => undefined);
-  const openPath = vi.fn(async (path: string) => `opened:${path}`);
   const getPathForFile = vi.fn((file: unknown) => `/resolved/${String(file)}`);
 
   function reset() {
@@ -41,8 +38,6 @@ const preloadTestDoubles = vi.hoisted(() => {
     off.mockClear();
     send.mockClear();
     removeListener.mockClear();
-    openExternal.mockClear();
-    openPath.mockClear();
     getPathForFile.mockClear();
   }
 
@@ -63,15 +58,11 @@ const preloadTestDoubles = vi.hoisted(() => {
     off,
     send,
     removeListener,
-    openExternal,
-    openPath,
     getPathForFile,
     emit,
     reset,
   };
 });
-
-vi.mock('electron-log/preload.js', () => ({}));
 
 vi.mock('electron', () => ({
   contextBridge: {
@@ -84,10 +75,7 @@ vi.mock('electron', () => ({
     send: preloadTestDoubles.send,
     removeListener: preloadTestDoubles.removeListener,
   },
-  shell: {
-    openExternal: preloadTestDoubles.openExternal,
-    openPath: preloadTestDoubles.openPath,
-  },
+  shell: {},
   webUtils: {
     getPathForFile: preloadTestDoubles.getPathForFile,
   },
@@ -140,11 +128,10 @@ describe('preload bridge', () => {
     vi.restoreAllMocks();
   });
 
-  it('exposes electronAPI and Buffer to the renderer', async () => {
+  it('exposes electronAPI to the renderer', async () => {
     const api = await loadElectronAPI();
 
-    expect(preloadTestDoubles.exposeInMainWorld).toHaveBeenCalledTimes(2);
-    expect(preloadTestDoubles.exposed.get('Buffer')).toBe(Buffer);
+    expect(preloadTestDoubles.exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(api.env.HOME).toBeTypeOf('string');
     expect(api.env.platform).toBe(process.platform);
     expect(api.env.appVersion).toBeTypeOf('string');
@@ -774,7 +761,10 @@ describe('preload bridge', () => {
     api.mcp.sendAtMentioned({ filePath: '/repo/a.ts', lineStart: 1, lineEnd: 2 });
 
     await api.shell.openExternal('https://example.com');
-    expect(preloadTestDoubles.openExternal).toHaveBeenCalledWith('https://example.com');
+    expect(preloadTestDoubles.invoke).toHaveBeenCalledWith(
+      IPC_CHANNELS.SHELL_OPEN_EXTERNAL,
+      'https://example.com'
+    );
 
     await expect(api.shell.openPath('/__enso_remote__/repo/a.ts')).rejects.toThrow(
       'Remote paths cannot be revealed locally'
@@ -783,7 +773,7 @@ describe('preload bridge', () => {
       api.appDetector.openWith('/__enso_remote__/repo/a.ts', 'com.editor.app')
     ).rejects.toThrow('Remote files cannot be opened with local applications');
 
-    expect(await api.shell.openPath('/repo/a.ts')).toBe('opened:/repo/a.ts');
+    await api.shell.openPath('/repo/a.ts');
     expect(await api.appDetector.openWith('/repo/a.ts', 'com.editor.app', { line: 3 })).toEqual({
       channel: IPC_CHANNELS.APP_OPEN_WITH,
       args: ['/repo/a.ts', 'com.editor.app', { line: 3 }],
@@ -816,7 +806,10 @@ describe('preload bridge', () => {
       lineStart: 1,
       lineEnd: 2,
     });
-    expect(preloadTestDoubles.openPath).toHaveBeenCalledWith('/repo/a.ts');
+    expect(preloadTestDoubles.invoke).toHaveBeenCalledWith(
+      IPC_CHANNELS.SHELL_OPEN_PATH,
+      '/repo/a.ts'
+    );
   });
 
   it('hydrates runtime metrics from renderer memory on each call and falls back when unavailable', async () => {

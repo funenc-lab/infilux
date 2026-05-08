@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const appDetectorTestDoubles = vi.hoisted(() => {
   const execAsync = vi.fn();
+  const execFile = vi.fn();
   const promisify = vi.fn(() => execAsync);
   const existsSync = vi.fn<(path: string) => boolean>(() => false);
   const readdir = vi.fn<(path: string) => Promise<string[]>>(async () => []);
@@ -12,6 +13,7 @@ const appDetectorTestDoubles = vi.hoisted(() => {
 
   function reset() {
     execAsync.mockReset();
+    execFile.mockReset();
     promisify.mockReset();
     existsSync.mockReset();
     readdir.mockReset();
@@ -20,6 +22,16 @@ const appDetectorTestDoubles = vi.hoisted(() => {
     tmpdir.mockReset();
 
     promisify.mockReturnValue(execAsync);
+    execFile.mockImplementation(
+      (
+        _file: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout?: string, stderr?: string) => void
+      ) => {
+        callback(null, '', '');
+      }
+    );
     existsSync.mockReturnValue(false);
     readdir.mockResolvedValue([]);
     readFile.mockResolvedValue(Buffer.from('icon'));
@@ -29,6 +41,7 @@ const appDetectorTestDoubles = vi.hoisted(() => {
 
   return {
     execAsync,
+    execFile,
     promisify,
     existsSync,
     readdir,
@@ -41,6 +54,7 @@ const appDetectorTestDoubles = vi.hoisted(() => {
 
 vi.mock('node:child_process', () => ({
   exec: vi.fn(),
+  execFile: appDetectorTestDoubles.execFile,
 }));
 
 vi.mock('node:fs', () => ({
@@ -164,14 +178,23 @@ describe('AppDetector', () => {
     await detector.openPath('/workspace/file.ts', 'com.microsoft.VSCode');
     await detector.openPath('/workspace', 'linux.finder');
 
-    expect(appDetectorTestDoubles.execAsync).toHaveBeenCalledWith(
-      '"/usr/bin/gnome-terminal" --working-directory="/workspace"'
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      '/usr/bin/gnome-terminal',
+      ['--working-directory=/workspace'],
+      {},
+      expect.any(Function)
     );
-    expect(appDetectorTestDoubles.execAsync).toHaveBeenCalledWith(
-      '"/usr/bin/code" "/workspace/file.ts"'
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      '/usr/bin/code',
+      ['/workspace/file.ts'],
+      {},
+      expect.any(Function)
     );
-    expect(appDetectorTestDoubles.execAsync).toHaveBeenCalledWith(
-      '"/usr/bin/nautilus" "/workspace"'
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      '/usr/bin/nautilus',
+      ['/workspace'],
+      {},
+      expect.any(Function)
     );
   });
 
@@ -305,11 +328,17 @@ describe('AppDetector', () => {
     await vi.advanceTimersByTimeAsync(500);
     await openPromise;
 
-    expect(appDetectorTestDoubles.execAsync).toHaveBeenCalledWith(
-      '"/usr/local/bin/code" "/workspace" "/workspace/src/index.ts"'
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      '/usr/local/bin/code',
+      ['/workspace', '/workspace/src/index.ts'],
+      {},
+      expect.any(Function)
     );
-    expect(appDetectorTestDoubles.execAsync).toHaveBeenCalledWith(
-      '"/usr/local/bin/code" -g "/workspace/src/index.ts:12"'
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      '/usr/local/bin/code',
+      ['-g', '/workspace/src/index.ts:12'],
+      {},
+      expect.any(Function)
     );
 
     await expect(detector.getAppIcon('com.microsoft.VSCode')).resolves.toBe(
@@ -378,11 +407,61 @@ describe('AppDetector', () => {
     });
     await detector.openPath('/workspace/file.ts', 'com.jetbrains.WebStorm', { line: 7 });
 
-    expect(appDetectorTestDoubles.execAsync).toHaveBeenCalledWith(
-      'open -b "com.microsoft.VSCode" "/workspace"'
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      'open',
+      ['-b', 'com.microsoft.VSCode', '/workspace'],
+      {},
+      expect.any(Function)
     );
-    expect(appDetectorTestDoubles.execAsync).toHaveBeenCalledWith(
-      'open -b "com.jetbrains.WebStorm" --args --line 7 "/workspace/file.ts"'
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      'open',
+      ['-b', 'com.jetbrains.WebStorm', '--args', '--line', '7', '/workspace/file.ts'],
+      {},
+      expect.any(Function)
+    );
+  });
+
+  it('passes potentially unsafe macOS and Linux paths as literal execFile arguments', async () => {
+    const unsafePath = '/workspace/$(touch hacked)/file.ts';
+
+    const { AppDetector } = await loadModule('linux');
+    const linuxDetector = new AppDetector();
+    (linuxDetector as unknown as { detectedApps: unknown[] }).detectedApps = [
+      {
+        name: 'VS Code',
+        bundleId: 'com.microsoft.VSCode',
+        category: AppCategory.Editor,
+        path: '/usr/bin/code',
+      },
+    ];
+
+    await linuxDetector.openPath(unsafePath, 'com.microsoft.VSCode');
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      '/usr/bin/code',
+      [unsafePath],
+      {},
+      expect.any(Function)
+    );
+
+    appDetectorTestDoubles.execFile.mockClear();
+
+    const { AppDetector: MacAppDetector } = await loadModule('darwin');
+    const macDetector = new MacAppDetector();
+    (macDetector as unknown as { detectedApps: unknown[] }).detectedApps = [
+      {
+        name: 'WebStorm',
+        bundleId: 'com.jetbrains.WebStorm',
+        category: AppCategory.Editor,
+        path: '/Applications/WebStorm.app',
+      },
+    ];
+
+    await macDetector.openPath(unsafePath, 'com.jetbrains.WebStorm', { line: 7 });
+    expect(appDetectorTestDoubles.execFile).toHaveBeenCalledWith(
+      'open',
+      ['-b', 'com.jetbrains.WebStorm', '--args', '--line', '7', unsafePath],
+      {},
+      expect.any(Function)
     );
   });
 });

@@ -40,6 +40,8 @@ describe('agent session control center model', () => {
       inventoryItem({ sessionId: 'running', status: 'running' }),
       inventoryItem({ sessionId: 'waiting', status: 'waiting-for-input' }),
       inventoryItem({ sessionId: 'unread', status: 'unread', taskCompletionUnread: true }),
+      inventoryItem({ sessionId: 'reconnecting', status: 'reconnecting' }),
+      inventoryItem({ sessionId: 'disconnected', status: 'disconnected' }),
       inventoryItem({ sessionId: 'dead', status: 'dead', isRecoverable: true }),
       inventoryItem({ sessionId: 'stale', status: 'idle', isStale: true }),
       inventoryItem({
@@ -54,9 +56,11 @@ describe('agent session control center model', () => {
     ]);
 
     expect(summary).toEqual({
-      total: 6,
+      total: 8,
       running: 1,
       waitingForInput: 1,
+      reconnecting: 1,
+      disconnected: 1,
       unread: 1,
       idle: 2,
       dead: 1,
@@ -64,7 +68,7 @@ describe('agent session control center model', () => {
       recoverable: 1,
       taskLinked: 1,
       taskCompletionUnread: 1,
-      needsAttention: 3,
+      needsAttention: 5,
     });
   });
 
@@ -100,6 +104,14 @@ describe('agent session control center model', () => {
 
     expect(
       resolveAgentSessionControlTone(
+        buildAgentSessionControlSummary([
+          inventoryItem({ sessionId: 'reconnecting', status: 'reconnecting' }),
+        ])
+      )
+    ).toBe('wait');
+
+    expect(
+      resolveAgentSessionControlTone(
         buildAgentSessionControlSummary([inventoryItem({ sessionId: 'idle' })])
       )
     ).toBe('idle');
@@ -118,6 +130,14 @@ describe('agent session control center model', () => {
       labelKey: 'Dead',
       chipClassName: 'control-chip',
     });
+    expect(resolveAgentSessionStatusPresentation('reconnecting')).toEqual({
+      labelKey: 'Reconnecting',
+      chipClassName: 'control-chip control-chip-wait',
+    });
+    expect(resolveAgentSessionStatusPresentation('disconnected')).toEqual({
+      labelKey: 'Disconnected',
+      chipClassName: 'control-chip',
+    });
   });
 
   it('groups sessions by operator priority and sorts active recent sessions first', () => {
@@ -126,6 +146,8 @@ describe('agent session control center model', () => {
       inventoryItem({ sessionId: 'running', status: 'running', lastActivityAt: 3 }),
       inventoryItem({ sessionId: 'dead', status: 'dead', lastActivityAt: 4 }),
       inventoryItem({ sessionId: 'waiting', status: 'waiting-for-input', lastActivityAt: 2 }),
+      inventoryItem({ sessionId: 'reconnecting', status: 'reconnecting', lastActivityAt: 6 }),
+      inventoryItem({ sessionId: 'disconnected', status: 'disconnected', lastActivityAt: 7 }),
       inventoryItem({ sessionId: 'stale', status: 'idle', isStale: true, lastActivityAt: 5 }),
       inventoryItem({
         sessionId: 'idle-active',
@@ -141,7 +163,12 @@ describe('agent session control center model', () => {
       'idle',
       'dead',
     ]);
-    expect(sections[0].items.map((item) => item.sessionId)).toEqual(['stale', 'waiting']);
+    expect(sections[0].items.map((item) => item.sessionId)).toEqual([
+      'disconnected',
+      'reconnecting',
+      'stale',
+      'waiting',
+    ]);
     expect(sections[2].items.map((item) => item.sessionId)).toEqual(['idle-active', 'idle-old']);
   });
 

@@ -1416,7 +1416,7 @@ export class SessionManager {
 
       const window = BrowserWindow.fromId(windowId);
       if (!window || window.isDestroyed()) {
-        this.suspendedWindowIds.add(windowId);
+        this.suspendWindow(windowId);
         continue;
       }
       const resolvedChannel =
@@ -1426,18 +1426,25 @@ export class SessionManager {
             ? IPC_CHANNELS.SESSION_EXIT
             : IPC_CHANNELS.SESSION_STATE;
       if (window.webContents.isDestroyed()) {
-        this.suspendedWindowIds.add(windowId);
+        this.suspendWindow(windowId);
         continue;
       }
       try {
         window.webContents.send(resolvedChannel, payload);
       } catch (error) {
         if (isDisposedWindowSendError(error)) {
-          this.suspendedWindowIds.add(windowId);
+          this.suspendWindow(windowId);
           continue;
         }
         console.warn('[session] Failed to emit session event to window:', error);
       }
+    }
+  }
+
+  private suspendWindow(windowId: number): void {
+    this.suspendedWindowIds.add(windowId);
+    for (const session of this.sessions.values()) {
+      session.attachedWindowIds.delete(windowId);
     }
   }
 

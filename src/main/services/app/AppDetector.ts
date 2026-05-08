@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process';
+import { type ExecFileOptions, exec, execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -11,6 +11,29 @@ const execAsync = promisify(exec);
 const isWindows = process.platform === 'win32';
 const isMac = process.platform === 'darwin';
 const isLinux = process.platform === 'linux';
+
+function execFileAsync(
+  file: string,
+  args: string[] = [],
+  options: ExecFileOptions = {}
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, options, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      const stdoutText = stdout == null ? '' : String(stdout);
+      const stderrText = stderr == null ? '' : String(stderr);
+
+      resolve({
+        stdout: stdoutText,
+        stderr: stderrText,
+      });
+    });
+  });
+}
 
 export class AppDetector {
   private detectedApps: DetectedApp[] = [];
@@ -466,49 +489,39 @@ export class AppDetector {
         );
       }
     } else if (isLinux) {
-      // Linux: execute command directly with path as argument
-      const escapedPath = path.replace(/"/g, '\\"');
-
       if (detectedApp.category === AppCategory.Terminal) {
-        // Terminal apps: open in the specified directory
-        // Different terminals have different ways to set working directory
         const command = detectedApp.path;
         if (command.includes('gnome-terminal')) {
-          await execAsync(`"${command}" --working-directory="${escapedPath}"`);
+          await execFileAsync(command, [`--working-directory=${path}`]);
         } else if (command.includes('konsole')) {
-          await execAsync(`"${command}" --workdir "${escapedPath}"`);
+          await execFileAsync(command, ['--workdir', path]);
         } else if (command.includes('alacritty')) {
-          await execAsync(`"${command}" --working-directory "${escapedPath}"`);
+          await execFileAsync(command, ['--working-directory', path]);
         } else if (command.includes('kitty')) {
-          await execAsync(`"${command}" --directory "${escapedPath}"`);
+          await execFileAsync(command, ['--directory', path]);
         } else if (command.includes('tilix')) {
-          await execAsync(`"${command}" --working-directory="${escapedPath}"`);
+          await execFileAsync(command, [`--working-directory=${path}`]);
         } else if (command.includes('terminator')) {
-          await execAsync(`"${command}" --working-directory="${escapedPath}"`);
+          await execFileAsync(command, [`--working-directory=${path}`]);
         } else {
-          // Generic fallback: try to cd and open
-          await execAsync(`cd "${escapedPath}" && "${command}"`);
+          await execFileAsync(command, [], { cwd: path });
         }
       } else if (detectedApp.category === AppCategory.Finder) {
-        // File managers: open directory
-        await execAsync(`"${detectedApp.path}" "${escapedPath}"`);
+        await execFileAsync(detectedApp.path, [path]);
       } else {
-        // Editors and other apps: pass path as argument
-        await execAsync(`"${detectedApp.path}" "${escapedPath}"`);
+        await execFileAsync(detectedApp.path, [path]);
       }
     } else {
-      // macOS: use open command or direct CLI
       if (detectedApp.category === AppCategory.Editor && options?.workspacePath) {
-        // For editors, use CLI to open workspace with files
         await this.openEditorWithFiles(bundleId, detectedApp.path, {
           ...options,
           workspacePath: options.workspacePath,
         });
       } else if (options?.line && detectedApp.category === AppCategory.Editor) {
         const lineArgs = this.getLineArgs(bundleId, path, options.line);
-        await execAsync(`open -b "${bundleId}" ${lineArgs}`);
+        await execFileAsync('open', ['-b', bundleId, ...lineArgs]);
       } else {
-        await execAsync(`open -b "${bundleId}" "${path}"`);
+        await execFileAsync('open', ['-b', bundleId, path]);
       }
     }
   }
@@ -523,39 +536,24 @@ export class AppDetector {
       line?: number;
     }
   ): Promise<void> {
-    // Get CLI executable path based on editor type
     const cliPath = this.getEditorCliPath(bundleId, appPath);
 
     if (!cliPath) {
-      // Fallback to simple open
-      await execAsync(`open -b "${bundleId}" "${options.workspacePath}"`);
+      await execFileAsync('open', ['-b', bundleId, options.workspacePath]);
       return;
     }
 
-    // Strategy: Open workspace and all files first, then use -g to navigate to specific line
-    // This ensures the workspace is loaded before attempting to jump to the line
     const allFiles = options.openFiles || [];
 
-    // Step 1: Open workspace with all files (including activeFile)
-    let cmd1 = `"${cliPath}" "${options.workspacePath}"`;
-    for (const file of allFiles) {
-      cmd1 += ` "${file}"`;
-    }
-
     try {
-      await execAsync(cmd1);
+      await execFileAsync(cliPath, [options.workspacePath, ...allFiles]);
 
-      // Step 2: If we have an active file with a line number, use -g to navigate
       if (options.activeFile && options.line) {
-        // Wait a bit for editor to load the workspace
         await new Promise((resolve) => setTimeout(resolve, 500));
-
-        const cmd2 = `"${cliPath}" -g "${options.activeFile}:${options.line}"`;
-        await execAsync(cmd2);
+        await execFileAsync(cliPath, ['-g', `${options.activeFile}:${options.line}`]);
       }
     } catch {
-      // CLI failed, fallback to open command
-      await execAsync(`open -b "${bundleId}" "${options.workspacePath}"`);
+      await execFileAsync('open', ['-b', bundleId, options.workspacePath]);
     }
   }
 
@@ -599,38 +597,32 @@ export class AppDetector {
     return null;
   }
 
-  private getLineArgs(bundleId: string, path: string, line: number): string {
-    // VSCode, Cursor, Codium (all use VSCode format)
+  private getLineArgs(bundleId: string, path: string, line: number): string[] {
     if (
       bundleId.includes('com.microsoft.VSCode') ||
-      bundleId.includes('com.todesktop.230313mzl4w4u92') || // Cursor
+      bundleId.includes('com.todesktop.230313mzl4w4u92') ||
       bundleId.includes('com.visualstudio.code')
     ) {
-      return `--args "${path}" -g "${path}:${line}"`;
+      return ['--args', path, '-g', `${path}:${line}`];
     }
 
-    // Zed
     if (bundleId.includes('dev.zed.Zed')) {
-      return `"${path}:${line}"`;
+      return [`${path}:${line}`];
     }
 
-    // Sublime Text
     if (bundleId.includes('com.sublimetext')) {
-      return `"${path}:${line}"`;
+      return [`${path}:${line}`];
     }
 
-    // IntelliJ IDEA, WebStorm, PyCharm, etc.
     if (bundleId.includes('com.jetbrains')) {
-      return `--args --line ${line} "${path}"`;
+      return ['--args', '--line', String(line), path];
     }
 
-    // Atom
     if (bundleId.includes('com.github.atom')) {
-      return `"${path}:${line}"`;
+      return [`${path}:${line}`];
     }
 
-    // Default: try file:line format (works for many editors)
-    return `"${path}:${line}"`;
+    return [`${path}:${line}`];
   }
 
   async getAppIcon(bundleId: string): Promise<string | undefined> {

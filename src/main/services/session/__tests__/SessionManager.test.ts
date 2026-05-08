@@ -63,6 +63,7 @@ const sessionTestDoubles = vi.hoisted(() => {
       const session = this.callbacks.has(sessionId);
       return session ? { pid: 3001, isActive: false, isAlive: true } : null;
     });
+    readonly getDiagnosticsSummary = vi.fn(() => ({}));
     readonly destroyAll = vi.fn();
     readonly destroyAllAndWait = vi.fn(async () => {});
 
@@ -2340,14 +2341,20 @@ describe('SessionManager', () => {
     }
   });
 
-  it('suspends session delivery after a disposed-frame send failure until the window reattaches', async () => {
+  it('detaches disposed-frame windows from session delivery while healthy windows keep receiving events', async () => {
     const windowOne = createWindow(1);
+    createWindow(2);
     const manager = new SessionManager();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     try {
       const opened = await manager.create(1, { cwd: '/repo-a' });
+      await manager.attach(2, { sessionId: opened.session.sessionId });
       const emitData = getPrivateMethod<[string, string, Set<number>?], void>(manager, 'emitData');
+      const buildDiagnosticsSnapshot = getPrivateMethod<[], Record<string, unknown>>(
+        manager,
+        'buildDiagnosticsSnapshot'
+      );
       const sessions = getManagedSessions(manager);
       const session = sessions.get(opened.session.sessionId);
       if (!session) {
@@ -2362,8 +2369,26 @@ describe('SessionManager', () => {
       emitData(opened.session.sessionId, 'second payload');
 
       expect(windowOne.webContents.send).toHaveBeenCalledTimes(1);
-      expect(session.attachedWindowIds.has(1)).toBe(true);
+      expect(getWindowSendCalls(2)).toEqual([
+        [IPC_CHANNELS.SESSION_DATA, { sessionId: opened.session.sessionId, data: 'first payload' }],
+        [
+          IPC_CHANNELS.SESSION_DATA,
+          { sessionId: opened.session.sessionId, data: 'second payload' },
+        ],
+      ]);
+      expect(session.attachedWindowIds.has(1)).toBe(false);
+      expect(session.attachedWindowIds.has(2)).toBe(true);
       expect(Reflect.get(manager, 'suspendedWindowIds') as Set<number>).toEqual(new Set([1]));
+      expect(buildDiagnosticsSnapshot()).toMatchObject({
+        attachedWindowCount: 1,
+        suspendedWindowCount: 1,
+        sampleSessions: [
+          expect.objectContaining({
+            sessionId: opened.session.sessionId,
+            attachedWindowIds: [2],
+          }),
+        ],
+      });
       expect(warnSpy).not.toHaveBeenCalled();
     } finally {
       warnSpy.mockRestore();

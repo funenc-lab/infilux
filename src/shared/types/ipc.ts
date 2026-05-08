@@ -240,6 +240,8 @@ export const IPC_CHANNELS = {
   // Shell Detector
   SHELL_DETECT: 'shell:detect',
   SHELL_RESOLVE_FOR_COMMAND: 'shell:resolveForCommand',
+  SHELL_OPEN_EXTERNAL: 'shell:openExternal',
+  SHELL_OPEN_PATH: 'shell:openPath',
 
   // Settings
   SETTINGS_READ: 'settings:read',

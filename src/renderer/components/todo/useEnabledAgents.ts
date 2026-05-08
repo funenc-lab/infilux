@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import { useSettingsStore } from '@/stores/settings';
 import { type ResolvedAgent, resolveAgent } from './agentResolution';
 
@@ -6,7 +7,14 @@ export { resolveAgent, type ResolvedAgent };
 
 /** Hook that returns the list of enabled & installed agents, sorted with default first */
 export function useEnabledAgents(): ResolvedAgent[] {
-  const { agentSettings, agentDetectionStatus, customAgents, hapiSettings } = useSettingsStore();
+  const { agentSettings, agentDetectionStatus, customAgents, hapiSettings } = useSettingsStore(
+    useShallow((state) => ({
+      agentSettings: state.agentSettings,
+      agentDetectionStatus: state.agentDetectionStatus,
+      customAgents: state.customAgents,
+      hapiSettings: state.hapiSettings,
+    }))
+  );
   const [installedAgents, setInstalledAgents] = useState<Set<string>>(new Set());
 
   useEffect(() => {

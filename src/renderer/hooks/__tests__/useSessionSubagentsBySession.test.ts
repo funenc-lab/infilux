@@ -276,4 +276,39 @@ describe('useSessionSubagentsBySession', () => {
 
     mounted.unmount();
   });
+
+  it('keeps the existing subscription when rerendering with equivalent targets', async () => {
+    subscribeSessionSubagents.mockImplementation((): (() => void) => unsubscribeSessionSubagents);
+
+    const mounted = mountHookHarness([
+      {
+        sessionId: 'ui-session-1',
+        cwd: '/Users/tanzv/project/worktree-a/',
+        providerSessionId: 'root-thread-1',
+        enabled: true,
+      },
+    ]);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    mounted.rerender([
+      {
+        sessionId: 'ui-session-1',
+        cwd: '/users/tanzv/project/worktree-a',
+        providerSessionId: 'root-thread-1',
+        enabled: true,
+      },
+    ]);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(subscribeSessionSubagents).toHaveBeenCalledTimes(1);
+    expect(unsubscribeSessionSubagents).not.toHaveBeenCalled();
+
+    mounted.unmount();
+  });
 });

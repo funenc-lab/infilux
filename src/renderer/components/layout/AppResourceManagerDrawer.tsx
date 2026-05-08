@@ -53,6 +53,7 @@ function getStatusBadgeVariant(status: AppResourceItem['status']) {
       return 'info';
     case 'reconnecting':
       return 'warning';
+    case 'dead':
     case 'error':
       return 'error';
     case 'unavailable':

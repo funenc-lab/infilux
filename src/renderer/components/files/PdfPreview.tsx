@@ -36,7 +36,6 @@ export function PdfPreview({ path }: PdfPreviewProps) {
   const cancelInFlightWork = useCallback(() => {
     renderTaskRef.current?.cancel();
     renderTaskRef.current = null;
-    loadingTaskRef.current?.cancel?.();
     void loadingTaskRef.current?.destroy?.();
     loadingTaskRef.current = null;
   }, []);
@@ -136,6 +135,7 @@ export function PdfPreview({ path }: PdfPreviewProps) {
 
         // Render the page.
         const renderTask = page.render({
+          canvas,
           canvasContext: context,
           viewport: scaledViewport,
         });

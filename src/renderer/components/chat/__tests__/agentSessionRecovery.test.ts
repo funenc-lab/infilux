@@ -184,6 +184,45 @@ describe('agentSessionRecovery', () => {
     });
   });
 
+  it('preserves the current active group selection when recovered sessions belong to another group layout', () => {
+    const nextState = mergeRecoveredSessionsIntoGroupState(
+      {
+        groups: [
+          {
+            id: 'group-1',
+            sessionIds: ['session-a'],
+            activeSessionId: 'session-a',
+          },
+          {
+            id: 'group-2',
+            sessionIds: ['session-b'],
+            activeSessionId: 'session-b',
+          },
+        ],
+        activeGroupId: 'group-2',
+        flexPercents: [50, 50],
+      },
+      ['session-c']
+    );
+
+    expect(nextState).toEqual({
+      groups: [
+        {
+          id: 'group-1',
+          sessionIds: ['session-a'],
+          activeSessionId: 'session-a',
+        },
+        {
+          id: 'group-2',
+          sessionIds: ['session-b', 'session-c'],
+          activeSessionId: 'session-b',
+        },
+      ],
+      activeGroupId: 'group-2',
+      flexPercents: [50, 50],
+    });
+  });
+
   it('deduplicates concurrent restore requests for the same worktree', async () => {
     let resolveRestore!: (value: ReturnType<typeof createRecoverableRestoreResult>) => void;
     const restoreWorktreeSessions = vi.fn(

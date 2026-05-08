@@ -76,10 +76,10 @@ import { shouldPruneSavedWorktreePath } from './App/worktreeRestorePolicy';
 import { resolvePreferredWorktreeSelection } from './App/worktreeSelectionPolicy';
 import type { AgentCanvasWorktreeCandidate } from './components/chat/agentCanvasSessionScope';
 import { DevToolsOverlay } from './components/DevToolsOverlay';
-import { FileSidebar } from './components/files/FileSidebar';
 import { createInitialFileSidebarTrackingState } from './components/files/fileTreeTrackingState';
 import { shouldAutoExpandFileSidebar } from './components/files/fileTreeVisibilityPolicy';
 import { BackgroundLayer } from './components/layout/BackgroundLayer';
+import { DeferredFileSidebar } from './components/layout/DeferredFileSidebar';
 import { DeferredMainContent } from './components/layout/DeferredMainContent';
 import { DeferredRepositorySidebar } from './components/layout/DeferredRepositorySidebar';
 import { DeferredTreeSidebar } from './components/layout/DeferredTreeSidebar';
@@ -1658,7 +1658,7 @@ export default function App() {
 
         {/* Main Content */}
         {shouldRenderFileSidebar && (
-          <FileSidebar
+          <DeferredFileSidebar
             rootPath={fileSidebarRootPath ?? undefined}
             isActive={activeTab === 'file'}
             width={fileSidebarWidth}
@@ -1667,6 +1667,8 @@ export default function App() {
             onExpand={() => setFileSidebarCollapsed(false)}
             onResizeStart={handleResizeStart('fileSidebar')}
             onSwitchTab={() => handleTabChange('file')}
+            shouldLoad={activeTab === 'file' || !fileSidebarCollapsed}
+            showFallback={activeTab === 'file' || !fileSidebarCollapsed}
           />
         )}
 

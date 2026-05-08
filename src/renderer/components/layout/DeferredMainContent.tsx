@@ -1,8 +1,8 @@
 import { RectangleEllipsis } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { MainContentProps } from '@/components/layout/MainContent';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { useDeferredComponentLoader } from './useDeferredComponentLoader';
 
 type MainContentComponent = React.ComponentType<MainContentProps>;
 
@@ -17,25 +17,16 @@ export function DeferredMainContent({
   ...props
 }: DeferredMainContentProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<MainContentComponent | null>(null);
-
-  useEffect(() => {
-    if (!shouldLoad || Component) {
-      return;
-    }
-
-    let cancelled = false;
-    import('@/components/layout/MainContent').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.MainContent as MainContentComponent);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldLoad, Component]);
+  const { Component } = useDeferredComponentLoader<
+    typeof import('@/components/layout/MainContent'),
+    MainContentProps
+  >({
+    shouldLoad,
+    loadStrategy: 'idle',
+    load: () => import('@/components/layout/MainContent'),
+    selectComponent: (module) => module.MainContent as MainContentComponent,
+    errorLabel: 'MainContent',
+  });
 
   if (Component) {
     return <Component {...props} />;

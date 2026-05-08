@@ -269,6 +269,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     readSharedSettings.mockReturnValue({});
     loadUrlImpl.mockResolvedValue(undefined);
     clearCache.mockResolvedValue(undefined);
+    shellOpenExternal.mockResolvedValue(undefined);
   }
 
   return {
@@ -515,10 +516,19 @@ describe('MainWindow lifecycle', () => {
 
     expect(win.invokeWindowOpenHandler('https://example.com')).toEqual({ action: 'deny' });
     expect(mainWindowLifecycleDoubles.shell.openExternal).toHaveBeenCalledWith(
-      'https://example.com'
+      'https://example.com/'
     );
     expect(win.invokeWindowOpenHandler('file:///tmp/demo')).toEqual({ action: 'deny' });
+    expect(win.invokeWindowOpenHandler('https://user:secret@example.com')).toEqual({
+      action: 'deny',
+    });
     expect(mainWindowLifecycleDoubles.shell.openExternal).toHaveBeenCalledTimes(1);
+    expect(mainWindowLifecycleDoubles.logWarn).toHaveBeenCalledWith(
+      '[window] Blocked external navigation request',
+      expect.objectContaining({
+        windowId: win.id,
+      })
+    );
 
     win.emit('closed');
     expect(mainWindowLifecycleDoubles.detachWindowSessions).toHaveBeenCalledWith(win.id);

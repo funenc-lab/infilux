@@ -4,7 +4,7 @@ import type { PersistentAgentSessionRecord, RestoreWorktreeSessionsResult } from
 import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
@@ -16,6 +16,7 @@ import type { Session } from '../SessionBar';
 
 type AgentPanelModule = typeof import('../AgentPanel');
 type AgentPanelProps = React.ComponentProps<AgentPanelModule['AgentPanel']>;
+let AgentPanelUnderTest: AgentPanelModule['AgentPanel'] | null = null;
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -97,6 +98,7 @@ const testState = vi.hoisted(() => ({
     abandon: vi.fn(async () => undefined),
     sessionKill: vi.fn(async () => undefined),
   },
+  terminalRuntimeStateBySessionId: {} as Record<string, 'live' | 'reconnecting' | 'dead'>,
 }));
 
 vi.mock('@/stores/settings', () => ({
@@ -163,12 +165,26 @@ vi.mock('../useAgentCanvasViewportRestore', () => ({
 }));
 
 vi.mock('../AgentTerminal', () => ({
-  AgentTerminal: (props: { id?: string; isActive?: boolean }) =>
-    React.createElement('div', {
+  AgentTerminal: (props: {
+    id?: string;
+    isActive?: boolean;
+    onRuntimeStateChange?: (state: 'live' | 'reconnecting' | 'dead') => void;
+  }) => {
+    React.useEffect(() => {
+      const sessionId = props.id ?? '';
+      const runtimeState = testState.terminalRuntimeStateBySessionId[sessionId];
+      if (!runtimeState) {
+        return;
+      }
+      props.onRuntimeStateChange?.(runtimeState);
+    }, [props.id, props.onRuntimeStateChange]);
+
+    return React.createElement('div', {
       'data-testid': 'agent-terminal',
       'data-session-id': props.id ?? '',
       'data-active': String(Boolean(props.isActive)),
-    }),
+    });
+  },
 }));
 
 vi.mock('../AgentGroup', () => ({
@@ -537,7 +553,11 @@ async function clickElement(target: HTMLElement | null) {
 async function mountAgentPanel(
   overrides: Partial<AgentPanelProps> = {}
 ): Promise<MountedAgentPanel> {
-  const { AgentPanel } = await import('../AgentPanel');
+  if (!AgentPanelUnderTest) {
+    throw new Error('AgentPanel module was not loaded');
+  }
+  const AgentPanel = AgentPanelUnderTest;
+
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root: Root = createRoot(container);
@@ -577,6 +597,10 @@ async function mountAgentPanel(
 }
 
 describe('AgentPanel integration', () => {
+  beforeAll(async () => {
+    AgentPanelUnderTest = (await import('../AgentPanel')).AgentPanel;
+  }, 30_000);
+
   beforeEach(() => {
     nextAnimationFrameId = 1;
     animationFrameQueue = [];
@@ -635,6 +659,7 @@ describe('AgentPanel integration', () => {
     testState.electronAPI.abandon.mockResolvedValue(undefined);
     testState.electronAPI.sessionKill.mockReset();
     testState.electronAPI.sessionKill.mockResolvedValue(undefined);
+    testState.terminalRuntimeStateBySessionId = {};
 
     Object.defineProperty(window, 'electronAPI', {
       configurable: true,
@@ -751,6 +776,38 @@ describe('AgentPanel integration', () => {
         '[data-testid="agent-terminal"][data-session-id="recovered-session-1"]'
       )
     ).not.toBeNull();
+
+    await mounted.unmount();
+  }, 20_000);
+
+  it('preserves unresolved missing-host recovery state when the mounted terminal reports live by default', async () => {
+    testState.electronAPI.restoreWorktreeSessions.mockResolvedValue({
+      items: [
+        {
+          record: createRecoveredRecord({
+            uiSessionId: 'recovered-missing-1',
+            backendSessionId: undefined,
+            providerSessionId: 'recovered-missing-1',
+            agentId: 'codex',
+            agentCommand: 'codex',
+            hostKind: 'tmux',
+            hostSessionKey: 'infilux-recovered-missing-1',
+            lastKnownState: 'missing-host-session',
+          }),
+          runtimeState: 'missing-host-session',
+          recoverable: false,
+          reason: 'missing-host-session',
+        },
+      ],
+    });
+    testState.terminalRuntimeStateBySessionId['recovered-missing-1'] = 'live';
+
+    const mounted = await mountAgentPanel();
+    const recoveredSession = useAgentSessionsStore
+      .getState()
+      .sessions.find((session) => session.id === 'recovered-missing-1');
+
+    expect(recoveredSession?.recoveryState).toBe('missing-host-session');
 
     await mounted.unmount();
   });

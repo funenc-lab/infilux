@@ -24,11 +24,23 @@ function mountHookHarness(args: Parameters<typeof useAgentProviderSessionDiscove
   document.body.appendChild(container);
 
   const root: Root = createRoot(container);
-  act(() => {
-    root.render(React.createElement(HookHarness, { args }));
-  });
+  let currentArgs = args;
+
+  const render = (nextArgs?: Parameters<typeof useAgentProviderSessionDiscovery>[0]) => {
+    if (nextArgs) {
+      currentArgs = nextArgs;
+    }
+    act(() => {
+      root.render(React.createElement(HookHarness, { args: currentArgs }));
+    });
+  };
+
+  render();
 
   return {
+    rerender(nextArgs: Parameters<typeof useAgentProviderSessionDiscovery>[0]) {
+      render(nextArgs);
+    },
     unmount() {
       act(() => {
         root.unmount();
@@ -117,6 +129,102 @@ describe('useAgentProviderSessionDiscovery', () => {
 
     expect(resolveProviderSession).not.toHaveBeenCalled();
     expect(onProviderSessionIdChange).not.toHaveBeenCalled();
+
+    mounted.unmount();
+  });
+
+  it('stops polling after the provider session id becomes distinct on rerender', async () => {
+    resolveProviderSession.mockResolvedValue({ providerSessionId: null });
+
+    const mounted = mountHookHarness({
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'ui-session-1',
+      cwd: '/repo/worktree-a',
+      createdAt: 100,
+      initialized: true,
+      isRemoteExecution: false,
+      onProviderSessionIdChange,
+      pollIntervalMs: 1000,
+      maxAttempts: 3,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledTimes(1);
+
+    mounted.rerender({
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'codex-session-1',
+      cwd: '/repo/worktree-a',
+      createdAt: 100,
+      initialized: true,
+      isRemoteExecution: false,
+      onProviderSessionIdChange,
+      pollIntervalMs: 1000,
+      maxAttempts: 3,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      await Promise.resolve();
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledTimes(1);
+
+    mounted.unmount();
+  });
+
+  it('keeps the active discovery loop stable when the callback identity changes', async () => {
+    resolveProviderSession.mockResolvedValue({ providerSessionId: null });
+
+    const mounted = mountHookHarness({
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'ui-session-1',
+      cwd: '/repo/worktree-a',
+      createdAt: 100,
+      initialized: true,
+      isRemoteExecution: false,
+      onProviderSessionIdChange,
+      pollIntervalMs: 1000,
+      maxAttempts: 3,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledTimes(1);
+
+    mounted.rerender({
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'ui-session-1',
+      cwd: '/repo/worktree-a',
+      createdAt: 100,
+      initialized: true,
+      isRemoteExecution: false,
+      onProviderSessionIdChange: vi.fn(),
+      pollIntervalMs: 1000,
+      maxAttempts: 3,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      await Promise.resolve();
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledTimes(2);
 
     mounted.unmount();
   });

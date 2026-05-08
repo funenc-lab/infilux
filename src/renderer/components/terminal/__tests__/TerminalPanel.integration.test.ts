@@ -113,10 +113,16 @@ vi.mock('@/stores/terminal', () => ({
 }));
 
 vi.mock('@/stores/worktreeActivity', () => ({
-  useWorktreeActivityStore: () => ({
-    setTerminalCount,
-    registerTerminalCloseHandler,
-  }),
+  useWorktreeActivityStore: (
+    selector: (state: {
+      setTerminalCount: typeof setTerminalCount;
+      registerTerminalCloseHandler: typeof registerTerminalCloseHandler;
+    }) => unknown
+  ) =>
+    selector({
+      setTerminalCount,
+      registerTerminalCloseHandler,
+    }),
 }));
 
 vi.mock('@/components/layout/ControlStateActionButton', () => ({

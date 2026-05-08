@@ -13,6 +13,7 @@ type TestModule = {
 
 interface HarnessProps {
   load: () => Promise<TestModule>;
+  loadStrategy?: 'immediate' | 'idle';
   shouldLoad?: boolean;
 }
 
@@ -27,10 +28,11 @@ function selectTestPanel(module: TestModule): React.ComponentType {
   return module.Panel;
 }
 
-function Harness({ load, shouldLoad = true }: HarnessProps) {
+function Harness({ load, loadStrategy = 'immediate', shouldLoad = true }: HarnessProps) {
   const { Component, error, retry } = useDeferredComponentLoader<TestModule, Record<string, never>>(
     {
       shouldLoad,
+      loadStrategy,
       load,
       selectComponent: selectTestPanel,
       errorLabel: 'Test panel',
@@ -111,5 +113,22 @@ describe('useDeferredComponentLoader', () => {
 
     expect(view.querySelector('[data-testid="loading"]')).not.toBeNull();
     expect(load).not.toHaveBeenCalled();
+  });
+
+  it('defers idle loads until the fallback scheduler runs', async () => {
+    vi.useFakeTimers();
+    const load = vi.fn<() => Promise<TestModule>>().mockResolvedValue({ Panel: TestPanel });
+
+    const view = await renderHarness({ load, loadStrategy: 'idle' });
+
+    expect(view.querySelector('[data-testid="loading"]')).not.toBeNull();
+    expect(load).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.runAllTimers();
+    });
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(view.querySelector('[data-testid="loaded-panel"]')).not.toBeNull();
   });
 });

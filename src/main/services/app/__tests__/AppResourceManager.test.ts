@@ -301,7 +301,7 @@ describe('AppResourceManager', () => {
         expect.objectContaining({
           id: 'session:session-dead',
           kind: 'session',
-          status: 'stopped',
+          status: 'dead',
           runtimeState: 'dead',
           isAlive: false,
           reclaimable: true,
@@ -310,7 +310,7 @@ describe('AppResourceManager', () => {
     );
   });
 
-  it('marks stale local sessions as stopped when the backing process is no longer alive', async () => {
+  it('keeps stale local sessions reclaimable without promoting them to dead unless the runtime explicitly reports dead', async () => {
     const { AppResourceManager } = await import('../AppResourceManager');
 
     const manager = new AppResourceManager({
@@ -365,7 +365,7 @@ describe('AppResourceManager', () => {
           id: 'session:session-local-stale',
           kind: 'session',
           status: 'stopped',
-          runtimeState: 'dead',
+          runtimeState: 'live',
           isAlive: false,
           reclaimable: true,
         }),

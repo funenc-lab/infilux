@@ -23,6 +23,16 @@ interface LiveSubagentLookup {
   listLive(request: ListLiveAgentSubagentsRequest): Promise<ListLiveAgentSubagentsResult>;
 }
 
+interface CachedLiveLookup {
+  key: string;
+  promise: Promise<ListLiveAgentSubagentsResult>;
+}
+
+type ListSessionAgentSubagentsRequestWithLiveSnapshot = ListSessionAgentSubagentsRequest & {
+  liveItems?: LiveAgentSubagent[];
+  generatedAt?: number;
+};
+
 function buildSubagentLabel(
   agentType: string | undefined,
   sequence: number,
@@ -136,13 +146,15 @@ function mergeSessionSubagentItems(
 }
 
 export class CodexSessionSubagentService {
+  private inFlightLiveLookup: CachedLiveLookup | null = null;
+
   constructor(
     private readonly liveLookup: LiveSubagentLookup,
     private readonly sessionsDir = CODEX_SESSIONS_DIR
   ) {}
 
   async listSession(
-    request: ListSessionAgentSubagentsRequest
+    request: ListSessionAgentSubagentsRequestWithLiveSnapshot
   ): Promise<ListSessionAgentSubagentsResult> {
     if (!request.providerSessionId) {
       return {
@@ -151,10 +163,13 @@ export class CodexSessionSubagentService {
       };
     }
 
-    const liveResult = await this.liveLookup.listLive({
-      cwds: request.cwd ? [request.cwd] : undefined,
-      maxIdleMs: request.maxIdleMs ?? DEFAULT_LIVE_IDLE_MS,
-    });
+    const liveResult =
+      request.liveItems !== undefined
+        ? {
+            items: request.liveItems,
+            generatedAt: request.generatedAt ?? Date.now(),
+          }
+        : await this.listLiveForSessionRequest(request);
     const liveItemsByThread = buildLiveItemsByThread(liveResult.items, request.providerSessionId);
 
     const rootSessionFile = await findCodexSessionFileByThreadId(
@@ -202,5 +217,30 @@ export class CodexSessionSubagentService {
       ),
       generatedAt: Date.now(),
     };
+  }
+
+  private async listLiveForSessionRequest(
+    request: ListSessionAgentSubagentsRequest
+  ): Promise<ListLiveAgentSubagentsResult> {
+    const liveRequest = {
+      cwds: request.cwd ? [request.cwd] : undefined,
+      maxIdleMs: request.maxIdleMs ?? DEFAULT_LIVE_IDLE_MS,
+    };
+    const lookupKey = JSON.stringify(liveRequest);
+    const existingLookup = this.inFlightLiveLookup;
+    if (existingLookup?.key === lookupKey) {
+      return existingLookup.promise;
+    }
+
+    const promise = this.liveLookup.listLive(liveRequest).finally(() => {
+      if (this.inFlightLiveLookup?.promise === promise) {
+        this.inFlightLiveLookup = null;
+      }
+    });
+    this.inFlightLiveLookup = {
+      key: lookupKey,
+      promise,
+    };
+    return promise;
   }
 }

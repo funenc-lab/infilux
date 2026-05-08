@@ -8,7 +8,6 @@ import type {
 import { closeFileLineReader, createFileLineReader } from './fileLineReader';
 
 const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
-const MAX_SESSION_FILES_PER_LOOKUP = 64;
 const SESSION_DISCOVERY_CLOCK_SKEW_MS = 5_000;
 const SESSION_DISCOVERY_MAX_START_AGE_MS = 2 * 60_000;
 
@@ -16,6 +15,12 @@ interface CodexSessionMeta {
   threadId: string;
   cwd: string;
   startedAt: number;
+}
+
+interface SessionDiscoveryWindow {
+  earliestStartedAt: number;
+  latestStartedAt: number;
+  sortTargetAt: number;
 }
 
 function safeJsonParse(value: string): Record<string, unknown> | null {
@@ -127,11 +132,36 @@ async function listCandidateSessionFiles(
   }
 
   files.sort((left, right) => right.localeCompare(left));
-  return files.slice(0, MAX_SESSION_FILES_PER_LOOKUP);
+  return files;
 }
 
 function isCodexAgentCommand(agentCommand: string): boolean {
   return agentCommand === 'codex';
+}
+
+function resolveSessionDiscoveryWindow(
+  request: ResolveAgentProviderSessionRequest
+): SessionDiscoveryWindow {
+  const startupWindowEndsAt = request.createdAt + SESSION_DISCOVERY_MAX_START_AGE_MS;
+  const isDelayedRecoveryLookup = request.observedAt > startupWindowEndsAt;
+
+  if (isDelayedRecoveryLookup) {
+    return {
+      earliestStartedAt: Math.max(0, request.createdAt - SESSION_DISCOVERY_CLOCK_SKEW_MS),
+      latestStartedAt: startupWindowEndsAt,
+      sortTargetAt: request.createdAt,
+    };
+  }
+
+  return {
+    earliestStartedAt: Math.max(
+      0,
+      request.createdAt - SESSION_DISCOVERY_CLOCK_SKEW_MS,
+      request.observedAt - SESSION_DISCOVERY_MAX_START_AGE_MS
+    ),
+    latestStartedAt: request.observedAt + SESSION_DISCOVERY_CLOCK_SKEW_MS,
+    sortTargetAt: request.observedAt,
+  };
 }
 
 export class AgentProviderSessionService {
@@ -144,11 +174,8 @@ export class AgentProviderSessionService {
       return { providerSessionId: null };
     }
 
-    const earliestStartedAt = Math.max(
-      request.createdAt - SESSION_DISCOVERY_CLOCK_SKEW_MS,
-      request.observedAt - SESSION_DISCOVERY_MAX_START_AGE_MS
-    );
-    const latestStartedAt = request.observedAt + SESSION_DISCOVERY_CLOCK_SKEW_MS;
+    const { earliestStartedAt, latestStartedAt, sortTargetAt } =
+      resolveSessionDiscoveryWindow(request);
     const candidateFiles = await listCandidateSessionFiles(
       this.codexSessionsDir,
       earliestStartedAt,
@@ -168,8 +195,8 @@ export class AgentProviderSessionService {
     }
 
     matches.sort((left, right) => {
-      const leftDistance = Math.abs(left.startedAt - request.observedAt);
-      const rightDistance = Math.abs(right.startedAt - request.observedAt);
+      const leftDistance = Math.abs(left.startedAt - sortTargetAt);
+      const rightDistance = Math.abs(right.startedAt - sortTargetAt);
       if (leftDistance !== rightDistance) {
         return leftDistance - rightDistance;
       }

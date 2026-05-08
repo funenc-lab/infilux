@@ -140,7 +140,34 @@ function resolveServiceTitle(resource: AppServiceResource, translate: Translate)
 }
 
 function resolveStatusLabel(resource: AppResourceItem, translate: Translate): string {
+  if (resource.kind === 'session' && resource.status === 'stopped' && resource.reclaimable) {
+    return translate('Stale');
+  }
+
   return translate(resource.status);
+}
+
+function resolveBackendLabel(backend: AppSessionResource['backend'], translate: Translate): string {
+  return backend === 'local' ? translate('Local') : translate('Remote');
+}
+
+function resolveSessionTitle(resource: AppSessionResource, translate: Translate): string {
+  return resource.sessionKind === 'terminal'
+    ? translate('Terminal session')
+    : translate('Agent session');
+}
+
+function resolveSessionSubtitle(resource: AppSessionResource, translate: Translate): string {
+  const backendLabel = resolveBackendLabel(resource.backend, translate);
+
+  if (resource.pid === null) {
+    return translate('{{backend}} backend', { backend: backendLabel });
+  }
+
+  return translate('{{backend}} backend · PID {{pid}}', {
+    backend: backendLabel,
+    pid: resource.pid,
+  });
 }
 
 function buildRuntimeMetrics(
@@ -176,7 +203,7 @@ function buildSessionMetrics(
     {
       key: 'backend',
       label: translate('Backend'),
-      value: resource.backend,
+      value: resolveBackendLabel(resource.backend, translate),
     },
     {
       key: 'runtime-state',
@@ -300,16 +327,8 @@ function toViewModel(
   if (resource.kind === 'session') {
     return {
       id: resource.id,
-      title: translate('{{kind}} session', {
-        kind: resource.sessionKind === 'terminal' ? 'Terminal' : 'Agent',
-      }),
-      subtitle:
-        resource.pid === null
-          ? translate('{{backend}} backend', { backend: resource.backend })
-          : translate('{{backend}} backend · PID {{pid}}', {
-              backend: resource.backend,
-              pid: resource.pid,
-            }),
+      title: resolveSessionTitle(resource, translate),
+      subtitle: resolveSessionSubtitle(resource, translate),
       status: resolveStatusLabel(resource, translate),
       metrics: buildSessionMetrics(resource, translate),
       actions: resource.availableActions.map((action) => ({
@@ -364,7 +383,7 @@ function shouldDisplayResourceInSection(resource: AppResourceItem): boolean {
   }
 
   if (resource.kind === 'session') {
-    return resource.status !== 'stopped';
+    return resource.status !== 'stopped' || resource.reclaimable;
   }
 
   return resource.status !== 'stopped' && resource.status !== 'unavailable';

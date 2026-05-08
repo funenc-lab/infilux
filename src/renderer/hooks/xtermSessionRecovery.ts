@@ -149,6 +149,26 @@ export function resolveRecoveredReplaySnapshotPersistence({
   return attachedReplay && attachedReplay.length > 0 ? attachedReplay : undefined;
 }
 
+export function shouldApplyInitialTerminalReplay({
+  initialReplay,
+  hasReceivedData,
+  liveReplaySnapshot,
+}: {
+  initialReplay?: string;
+  hasReceivedData: boolean;
+  liveReplaySnapshot?: string;
+}): boolean {
+  if (!initialReplay) {
+    return false;
+  }
+
+  if (hasReceivedData) {
+    return false;
+  }
+
+  return !liveReplaySnapshot;
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;

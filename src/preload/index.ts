@@ -1,5 +1,3 @@
-import { Buffer } from 'node:buffer';
-import 'electron-log/preload.js';
 import type { Locale } from '@shared/i18n';
 import type {
   AgentCliInfo,
@@ -116,15 +114,15 @@ import { parseBootstrapAppVersionFromArgv } from '@shared/utils/bootstrapAppVers
 import { parseBootstrapLocaleFromArgv } from '@shared/utils/bootstrapLocale';
 import { parseBootstrapMainStageFromArgv } from '@shared/utils/bootstrapMainStage';
 import { parseBootstrapThemeSnapshotFromArgv } from '@shared/utils/bootstrapTheme';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import {
   parseRuntimeChannelFromArgv,
   resolveAppRuntimeChannel,
 } from '@shared/utils/runtimeIdentity';
-import { contextBridge, ipcRenderer, shell, webUtils } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import pkg from '../../package.json';
 import { createSessionEventRouter } from './sessionEventRouter';
 
-const REMOTE_PATH_PREFIX = '/__enso_remote__';
 const sessionEventRouter = createSessionEventRouter(ipcRenderer);
 
 type AgentProviderSettingsSnapshot = {
@@ -821,7 +819,7 @@ const electronAPI = {
         activeFile?: string;
       }
     ): Promise<void> => {
-      if (path.startsWith(REMOTE_PATH_PREFIX)) {
+      if (isRemoteVirtualPath(path)) {
         return Promise.reject(new Error('Remote files cannot be opened with local applications'));
       }
       return ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_WITH, path, bundleId, options);
@@ -945,12 +943,13 @@ const electronAPI = {
       config: ShellConfig
     ): Promise<{ shell: string; execArgs: string[] }> =>
       ipcRenderer.invoke(IPC_CHANNELS.SHELL_RESOLVE_FOR_COMMAND, repoPath, config),
-    openExternal: (url: string): Promise<void> => shell.openExternal(url),
+    openExternal: (url: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, url),
     openPath: (path: string): Promise<string> => {
-      if (path.startsWith(REMOTE_PATH_PREFIX)) {
+      if (isRemoteVirtualPath(path)) {
         return Promise.reject(new Error('Remote paths cannot be revealed locally'));
       }
-      return shell.openPath(path);
+      return ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_PATH, path);
     },
   },
 
@@ -1438,6 +1437,5 @@ const electronAPI = {
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);
-contextBridge.exposeInMainWorld('Buffer', Buffer);
 
 export type ElectronAPI = typeof electronAPI;

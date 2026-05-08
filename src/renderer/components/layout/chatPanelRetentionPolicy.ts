@@ -2,7 +2,7 @@ import { normalizePath } from '@/App/storage';
 import { updateRetainedActivityPanelPaths } from './activityPanelLruPolicy';
 
 export const MAX_RETAINED_CHAT_PANEL_PATHS = 4;
-export const MAX_SESSION_BACKED_CHAT_PANEL_PATHS = 8;
+export const MAX_SESSION_BACKED_CHAT_PANEL_PATHS = 6;
 
 interface UpdateRetainedChatPanelPathsOptions {
   previousPaths: string[];

@@ -669,19 +669,13 @@ describe('App integration', () => {
     Reflect.deleteProperty(window, 'electronAPI');
   });
 
-  it('keeps the startup shell visible until the tree sidebar and file panel report readiness', async () => {
+  it('dismisses the startup shell once the active main panel is ready', async () => {
     ({ container, root } = await renderApp());
     const appContainer = getRenderedContainer(container);
 
     expect(appContainer.querySelector('[data-testid="startup-shell"]')?.textContent).toContain(
-      'Loading workspace tree'
+      'Loading editor'
     );
-
-    await act(async () => {
-      click(appContainer, '[data-testid="tree-sidebar-ready"]');
-    });
-
-    expect(appContainer.querySelector('[data-testid="startup-shell"]')).not.toBeNull();
 
     await act(async () => {
       click(appContainer, '[data-testid="main-content-ready"]');

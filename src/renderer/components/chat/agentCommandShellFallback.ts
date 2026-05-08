@@ -113,7 +113,6 @@ export function resolveFallbackCommandShell(
         shell: '/bin/sh',
         execArgs: ['-c'],
       };
-    case 'system':
     default:
       return {
         shell: '/bin/sh',

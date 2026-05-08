@@ -29,6 +29,7 @@ import { getCurrentLocale } from '../services/i18n';
 import { readSharedSettings } from '../services/SharedSessionState';
 import { sessionManager } from '../services/session/SessionManager';
 import { autoUpdaterService } from '../services/updater/AutoUpdater';
+import { resolveAllowedExternalUrl } from '../utils/externalUrlPolicy';
 import log from '../utils/logger';
 import { getAppRuntimeChannel } from '../utils/runtimeIdentity';
 
@@ -525,7 +526,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
       partition: options.partition,
@@ -863,9 +864,23 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
 
   // Open external links in browser
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https:') || url.startsWith('http:')) {
-      shell.openExternal(url);
+    const allowedUrl = resolveAllowedExternalUrl(url);
+    if (!allowedUrl) {
+      log.warn('[window] Blocked external navigation request', {
+        windowId: win.id,
+        url,
+      });
+      return { action: 'deny' };
     }
+
+    void shell.openExternal(allowedUrl).catch((error) => {
+      log.warn('[window] Failed to open external URL', {
+        windowId: win.id,
+        url: allowedUrl,
+        error,
+      });
+    });
+
     return { action: 'deny' };
   });
 

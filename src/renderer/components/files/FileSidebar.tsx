@@ -31,7 +31,7 @@ import {
 import { FileTree } from './FileTree';
 import { NewItemDialog } from './NewItemDialog';
 
-interface FileSidebarProps {
+export interface FileSidebarProps {
   rootPath: string | undefined;
   isActive?: boolean;
   sessionId?: string | null;

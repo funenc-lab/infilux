@@ -37,7 +37,7 @@ export function isTempWorkspaceItemRecord(value: unknown): value is TempWorkspac
 }
 
 export function sanitizeTempWorkspaceItems(
-  items: readonly (TempWorkspaceItem | null | undefined)[]
+  items: readonly (TempWorkspaceItem | null | undefined)[] | null | undefined
 ): TempWorkspaceItem[] {
-  return items.filter(isTempWorkspaceItemRecord);
+  return (Array.isArray(items) ? items : []).filter(isTempWorkspaceItemRecord);
 }

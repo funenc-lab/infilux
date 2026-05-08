@@ -65,6 +65,7 @@ export type AppResourceStatus =
   | 'running'
   | 'ready'
   | 'reconnecting'
+  | 'dead'
   | 'stopped'
   | 'error'
   | 'unavailable';

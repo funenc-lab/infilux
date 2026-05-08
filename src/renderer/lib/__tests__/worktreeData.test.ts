@@ -54,4 +54,10 @@ describe('worktreeData', () => {
 
     expect(result.map((item) => item.path)).toEqual(['/tmp/a', '/tmp/b']);
   });
+
+  it('treats missing temp workspace lists as empty during rehydrate fallback paths', () => {
+    expect(sanitizeTempWorkspaceItems(undefined)).toEqual([]);
+    expect(sanitizeTempWorkspaceItems(null)).toEqual([]);
+    expect(sanitizeTempWorkspaceItems({ items: [] } as unknown as TempWorkspaceItem[])).toEqual([]);
+  });
 });

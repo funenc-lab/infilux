@@ -136,6 +136,27 @@ describe('AgentSessionControlCenter', () => {
     expect(container.textContent).toContain('Task: Fix API review flow');
   });
 
+  it('renders reconnecting and disconnected session labels in the attention section', async () => {
+    ({ container, root } = await renderControlCenter({
+      inventoryItems: [
+        inventoryItem({
+          sessionId: 'session-reconnecting',
+          status: 'reconnecting',
+          displayName: 'Remote pair',
+        }),
+        inventoryItem({
+          sessionId: 'session-disconnected',
+          status: 'disconnected',
+          displayName: 'Lost host',
+        }),
+      ],
+    }));
+
+    expect(container.textContent).toContain('Needs Attention');
+    expect(container.textContent).toContain('Reconnecting');
+    expect(container.textContent).toContain('Disconnected');
+  });
+
   it('focuses the selected session', async () => {
     const onFocusSession = vi.fn();
     ({ container, root } = await renderControlCenter({

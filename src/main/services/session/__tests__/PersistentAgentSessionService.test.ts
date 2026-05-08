@@ -12,12 +12,14 @@ const persistentAgentSessionServiceTestDoubles = vi.hoisted(() => {
     void uiSessionId;
   });
   const listCachedSessions = vi.fn<() => PersistentAgentSessionRecord[]>(() => []);
+  const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-persistent-session');
 
   return {
     listSessions,
     upsertSession,
     deleteSession,
     listCachedSessions,
+    requestMainProcessDiagnosticsCapture,
   };
 });
 
@@ -28,6 +30,11 @@ vi.mock('../PersistentAgentSessionRepository', () => ({
     deleteSession: persistentAgentSessionServiceTestDoubles.deleteSession,
     listCachedSessions: persistentAgentSessionServiceTestDoubles.listCachedSessions,
   },
+}));
+
+vi.mock('../../../utils/mainProcessDiagnostics', () => ({
+  requestMainProcessDiagnosticsCapture:
+    persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture,
 }));
 
 import { PersistentAgentSessionService } from '../PersistentAgentSessionService';
@@ -62,6 +69,10 @@ describe('PersistentAgentSessionService', () => {
     vi.clearAllMocks();
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([]);
     persistentAgentSessionServiceTestDoubles.listCachedSessions.mockReturnValue([]);
+    persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture.mockReset();
+    persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture.mockReturnValue(
+      'diag-persistent-session'
+    );
   });
 
   it('upserts persistent session records by ui session id', async () => {
@@ -171,6 +182,98 @@ describe('PersistentAgentSessionService', () => {
     ]);
   });
 
+  it('deduplicates restored worktree sessions that resolve to the same provider session id', async () => {
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
+      makeRecord({
+        uiSessionId: 'session-new',
+        providerSessionId: 'provider-shared',
+        hostSessionKey: 'enso-session-new',
+        updatedAt: 30,
+      }),
+      makeRecord({
+        uiSessionId: 'session-other',
+        providerSessionId: 'provider-other',
+        hostSessionKey: 'enso-session-other',
+        updatedAt: 25,
+      }),
+      makeRecord({
+        uiSessionId: 'session-old',
+        providerSessionId: 'provider-shared',
+        hostSessionKey: 'enso-session-old',
+        updatedAt: 20,
+      }),
+    ]);
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession: vi.fn(async (record) => record.lastKnownState),
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+
+    const result = await service.restoreWorktreeSessions({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        record: expect.objectContaining({
+          uiSessionId: 'session-new',
+          providerSessionId: 'provider-shared',
+        }),
+        runtimeState: 'live',
+        recoverable: true,
+      }),
+      expect.objectContaining({
+        record: expect.objectContaining({
+          uiSessionId: 'session-other',
+          providerSessionId: 'provider-other',
+        }),
+        runtimeState: 'live',
+        recoverable: true,
+      }),
+    ]);
+  });
+
+  it('prefers recoverable duplicate provider sessions over newer metadata-only recovery records', async () => {
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
+      makeRecord({
+        uiSessionId: 'session-missing',
+        providerSessionId: 'provider-shared',
+        hostSessionKey: 'enso-session-missing',
+        updatedAt: 30,
+        lastKnownState: 'missing-host-session',
+      }),
+      makeRecord({
+        uiSessionId: 'session-live',
+        providerSessionId: 'provider-shared',
+        hostSessionKey: 'enso-session-live',
+        updatedAt: 20,
+        lastKnownState: 'live',
+      }),
+    ]);
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession: vi.fn(async (record) => record.lastKnownState),
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+
+    const result = await service.restoreWorktreeSessions({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        record: expect.objectContaining({
+          uiSessionId: 'session-live',
+          providerSessionId: 'provider-shared',
+        }),
+        runtimeState: 'live',
+        recoverable: true,
+      }),
+    ]);
+  });
+
   it('reconciles host state and returns missing tmux sessions for metadata recovery', async () => {
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([makeRecord()]);
     const probeSession = vi.fn<() => Promise<'live' | 'missing-host-session'>>(
@@ -208,6 +311,44 @@ describe('PersistentAgentSessionService', () => {
       }),
     ]);
     expect(persistentAgentSessionServiceTestDoubles.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it('captures diagnostics when tmux recovery falls back to metadata-only recovery without a provider session id', async () => {
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
+      makeRecord({
+        agentId: 'codex',
+        agentCommand: 'codex',
+        uiSessionId: 'session-1',
+        providerSessionId: 'session-1',
+      }),
+    ]);
+    const probeSession = vi.fn<() => Promise<'missing-host-session'>>(
+      async () => 'missing-host-session'
+    );
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession,
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+
+    await service.restoreWorktreeSessions({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    });
+
+    expect(
+      persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'persistent-agent-session-recovery-provider-unresolved',
+        level: 'warn',
+        context: expect.objectContaining({
+          uiSessionId: 'session-1',
+          providerSessionId: 'session-1',
+          hostSessionKey: 'enso-session-1',
+        }),
+      })
+    );
   });
 
   it('ignores remote virtual-path records during worktree restore', async () => {

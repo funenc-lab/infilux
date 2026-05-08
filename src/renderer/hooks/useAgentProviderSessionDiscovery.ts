@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 const DEFAULT_POLL_INTERVAL_MS = 1_500;
 const DEFAULT_MAX_ATTEMPTS = 8;
@@ -51,6 +51,12 @@ export function useAgentProviderSessionDiscovery(
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
   } = options;
+  const onProviderSessionIdChangeRef = useRef(onProviderSessionIdChange);
+  const hasProviderSessionIdChangeHandler = Boolean(onProviderSessionIdChange);
+
+  useEffect(() => {
+    onProviderSessionIdChangeRef.current = onProviderSessionIdChange;
+  }, [onProviderSessionIdChange]);
 
   useEffect(() => {
     if (
@@ -63,7 +69,7 @@ export function useAgentProviderSessionDiscovery(
         initialized,
         isRemoteExecution,
       }) ||
-      !onProviderSessionIdChange
+      !hasProviderSessionIdChangeHandler
     ) {
       return;
     }
@@ -89,7 +95,7 @@ export function useAgentProviderSessionDiscovery(
         }
 
         if (result.providerSessionId && result.providerSessionId !== providerSessionId) {
-          onProviderSessionIdChange(result.providerSessionId);
+          onProviderSessionIdChangeRef.current?.(result.providerSessionId);
           return;
         }
       } catch {
@@ -121,8 +127,8 @@ export function useAgentProviderSessionDiscovery(
     cwd,
     initialized,
     isRemoteExecution,
+    hasProviderSessionIdChangeHandler,
     maxAttempts,
-    onProviderSessionIdChange,
     pollIntervalMs,
     providerSessionId,
     uiSessionId,

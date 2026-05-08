@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { shouldShowSessionPersistenceNotice } from '../sessionPersistenceNoticePolicy';
+import {
+  resolveSessionPersistenceNoticeKind,
+  shouldShowSessionPersistenceNotice,
+} from '../sessionPersistenceNoticePolicy';
 
 describe('shouldShowSessionPersistenceNotice', () => {
   it('shows the notice for local unix repositories when tmux is installed but persistence is disabled', () => {
@@ -11,6 +14,14 @@ describe('shouldShowSessionPersistenceNotice', () => {
         tmuxInstalled: true,
       })
     ).toBe(true);
+    expect(
+      resolveSessionPersistenceNoticeKind({
+        isRemoteRepo: false,
+        platform: 'darwin',
+        tmuxEnabled: false,
+        tmuxInstalled: true,
+      })
+    ).toBe('tmux-disabled');
   });
 
   it('hides the notice when persistence is already enabled', () => {
@@ -22,6 +33,14 @@ describe('shouldShowSessionPersistenceNotice', () => {
         tmuxInstalled: true,
       })
     ).toBe(false);
+    expect(
+      resolveSessionPersistenceNoticeKind({
+        isRemoteRepo: false,
+        platform: 'darwin',
+        tmuxEnabled: true,
+        tmuxInstalled: true,
+      })
+    ).toBeNull();
   });
 
   it('hides the notice for windows, remote repositories, and missing tmux installs', () => {
@@ -51,5 +70,34 @@ describe('shouldShowSessionPersistenceNotice', () => {
         tmuxInstalled: false,
       })
     ).toBe(false);
+    expect(
+      resolveSessionPersistenceNoticeKind({
+        isRemoteRepo: false,
+        platform: 'linux',
+        tmuxEnabled: false,
+        tmuxInstalled: false,
+      })
+    ).toBeNull();
+  });
+
+  it('prioritizes recovery-required notices for local worktrees with unrecoverable sessions', () => {
+    expect(
+      resolveSessionPersistenceNoticeKind({
+        isRemoteRepo: false,
+        platform: 'darwin',
+        tmuxEnabled: false,
+        tmuxInstalled: true,
+        hasRecoveryRequiredSession: true,
+      })
+    ).toBe('recovery-required');
+    expect(
+      shouldShowSessionPersistenceNotice({
+        isRemoteRepo: false,
+        platform: 'darwin',
+        tmuxEnabled: false,
+        tmuxInstalled: true,
+        hasRecoveryRequiredSession: true,
+      })
+    ).toBe(true);
   });
 });

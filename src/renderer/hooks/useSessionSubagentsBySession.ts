@@ -1,5 +1,5 @@
 import type { LiveAgentSubagent } from '@shared/types';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { areLiveSubagentListsEqual, buildLiveSubagentCwds } from './useLiveSubagents';
 
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
@@ -32,6 +32,11 @@ interface UseSessionSubagentsBySessionResult {
   isLoading: boolean;
 }
 
+interface NormalizedSessionSubagentPollTargetSnapshot {
+  key: string;
+  targets: NormalizedSessionSubagentPollTarget[];
+}
+
 function normalizeTargets(
   targets: SessionSubagentPollTarget[]
 ): NormalizedSessionSubagentPollTarget[] {
@@ -53,6 +58,23 @@ function normalizeTargets(
       },
     ];
   });
+}
+
+function buildNormalizedTargetsKey(targets: NormalizedSessionSubagentPollTarget[]): string {
+  return targets
+    .map((target) => `${target.sessionId}\u0000${target.providerSessionId}\u0000${target.cwd}`)
+    .sort()
+    .join('\u0001');
+}
+
+function buildNormalizedTargetsSnapshot(
+  targets: SessionSubagentPollTarget[]
+): NormalizedSessionSubagentPollTargetSnapshot {
+  const normalizedTargets = normalizeTargets(targets);
+  return {
+    key: buildNormalizedTargetsKey(normalizedTargets),
+    targets: normalizedTargets,
+  };
 }
 
 function buildSessionSubagentMap(
@@ -105,7 +127,16 @@ export function useSessionSubagentsBySession({
   enabled = true,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
 }: UseSessionSubagentsBySessionOptions): UseSessionSubagentsBySessionResult {
-  const normalizedTargets = useMemo(() => normalizeTargets(targets), [targets]);
+  const normalizedTargetsSnapshot = useMemo(
+    () => buildNormalizedTargetsSnapshot(targets),
+    [targets]
+  );
+  const stableTargetsSnapshotRef =
+    useRef<NormalizedSessionSubagentPollTargetSnapshot>(normalizedTargetsSnapshot);
+  if (stableTargetsSnapshotRef.current.key !== normalizedTargetsSnapshot.key) {
+    stableTargetsSnapshotRef.current = normalizedTargetsSnapshot;
+  }
+  const normalizedTargets = stableTargetsSnapshotRef.current.targets;
   const [itemsBySessionId, setItemsBySessionId] = useState<Record<string, LiveAgentSubagent[]>>({});
   const [isLoading, setIsLoading] = useState(false);
 

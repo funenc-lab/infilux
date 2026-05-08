@@ -223,4 +223,98 @@ describe('CodexSessionSubagentService', () => {
       }),
     ]);
   });
+
+  it('reuses a caller-provided live snapshot instead of issuing a second live lookup', async () => {
+    const sessionsDir = createTempDir('codex-session-subagents-');
+    const now = Date.now();
+
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'root-1',
+      timestampMs: now - 10_000,
+      cwd: '/repo/worktree',
+    });
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'child-1',
+      timestampMs: now - 9_000,
+      cwd: '/repo/worktree',
+      parentThreadId: 'root-1',
+      agentRole: 'explorer',
+      agentNickname: 'Dalton',
+    });
+
+    const listLive = vi.fn<() => Promise<ListLiveAgentSubagentsResult>>().mockResolvedValue({
+      items: [
+        createLiveSubagent({
+          summary: 'Inspect the repository root',
+          lastSeenAt: now - 1_000,
+          status: 'running',
+        }),
+      ],
+      generatedAt: now,
+    });
+    const service = new CodexSessionSubagentService({ listLive }, sessionsDir);
+
+    const result = await service.listSession({
+      providerSessionId: 'root-1',
+      cwd: '/repo/worktree',
+      liveItems: [
+        createLiveSubagent({
+          summary: 'Inspect the repository root',
+          lastSeenAt: now - 1_000,
+          status: 'running',
+        }),
+      ],
+      generatedAt: now,
+    });
+
+    expect(listLive).not.toHaveBeenCalled();
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        threadId: 'child-1',
+        label: 'Dalton',
+        summary: 'Inspect the repository root',
+        status: 'running',
+        lastSeenAt: now - 1_000,
+      }),
+    ]);
+  });
+
+  it('coalesces concurrent live lookups for the same cwd while listing multiple sessions', async () => {
+    const sessionsDir = createTempDir('codex-session-subagents-');
+    const now = Date.now();
+
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'root-1',
+      timestampMs: now - 10_000,
+      cwd: '/repo/worktree',
+    });
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'root-2',
+      timestampMs: now - 9_000,
+      cwd: '/repo/worktree',
+    });
+
+    const listLive = vi.fn<() => Promise<ListLiveAgentSubagentsResult>>().mockResolvedValue({
+      items: [],
+      generatedAt: now,
+    });
+    const service = new CodexSessionSubagentService({ listLive }, sessionsDir);
+
+    await Promise.all([
+      service.listSession({
+        providerSessionId: 'root-1',
+        cwd: '/repo/worktree',
+      }),
+      service.listSession({
+        providerSessionId: 'root-2',
+        cwd: '/repo/worktree',
+      }),
+    ]);
+
+    expect(listLive).toHaveBeenCalledTimes(1);
+  });
 });

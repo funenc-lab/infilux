@@ -68,8 +68,6 @@ describe('chatPanelRetentionPolicy', () => {
       '/repo/worktrees/older-c',
       '/repo/worktrees/older-d',
       '/repo/worktrees/older-e',
-      '/repo/worktrees/older-f',
-      '/repo/worktrees/older-g',
     ]);
   });
 

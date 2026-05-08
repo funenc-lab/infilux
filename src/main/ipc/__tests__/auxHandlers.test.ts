@@ -25,6 +25,8 @@ const auxTestDoubles = vi.hoisted(() => {
 
   const detectShells = vi.fn();
   const resolveShellForCommand = vi.fn();
+  const shellOpenExternal = vi.fn();
+  const shellOpenPath = vi.fn();
 
   const agentList = vi.fn();
   const AgentRegistry = vi.fn(function (this: { list: () => unknown }) {
@@ -83,6 +85,10 @@ const auxTestDoubles = vi.hoisted(() => {
     detectShells.mockResolvedValue([{ shell: '/bin/zsh' }]);
     resolveShellForCommand.mockReset();
     resolveShellForCommand.mockReturnValue({ shell: '/bin/zsh', execArgs: ['-lc'] });
+    shellOpenExternal.mockReset();
+    shellOpenExternal.mockResolvedValue(undefined);
+    shellOpenPath.mockReset();
+    shellOpenPath.mockResolvedValue('');
 
     agentList.mockReset();
     agentList.mockReturnValue([{ id: 'claude-code' }]);
@@ -151,6 +157,8 @@ const auxTestDoubles = vi.hoisted(() => {
     resolveRepositoryRuntimeContext,
     detectShells,
     resolveShellForCommand,
+    shellOpenExternal,
+    shellOpenPath,
     agentList,
     AgentRegistry,
     BUILTIN_AGENTS,
@@ -180,6 +188,10 @@ vi.mock('electron', () => ({
     handle: vi.fn((channel: string, handler: Handler) => {
       auxTestDoubles.handlers.set(channel, handler);
     }),
+  },
+  shell: {
+    openExternal: auxTestDoubles.shellOpenExternal,
+    openPath: auxTestDoubles.shellOpenPath,
   },
 }));
 
@@ -385,6 +397,14 @@ describe('auxiliary IPC handlers', () => {
       shell: '/bin/zsh',
       execArgs: ['-lc'],
     });
+    expect(await getHandler(IPC_CHANNELS.SHELL_OPEN_EXTERNAL)({}, 'https://example.com/docs')).toBe(
+      true
+    );
+    expect(await getHandler(IPC_CHANNELS.SHELL_OPEN_EXTERNAL)({}, 'file:///tmp/demo')).toBe(false);
+    expect(await getHandler(IPC_CHANNELS.SHELL_OPEN_PATH)({}, '/repo/readme.md')).toBe('');
+    await expect(
+      getHandler(IPC_CHANNELS.SHELL_OPEN_PATH)({}, '/__enso_remote__/conn-1/repo/readme.md')
+    ).rejects.toThrow('Remote paths cannot be revealed locally');
 
     expect(await getHandler(IPC_CHANNELS.SHELL_DETECT)({}, '/__remote__/repo')).toEqual({
       remote: true,
@@ -399,6 +419,8 @@ describe('auxiliary IPC handlers', () => {
 
     expect(auxTestDoubles.detectShells).toHaveBeenCalledTimes(1);
     expect(auxTestDoubles.resolveShellForCommand).toHaveBeenCalledWith({ path: '/bin/zsh' });
+    expect(auxTestDoubles.shellOpenExternal).toHaveBeenCalledWith('https://example.com/docs');
+    expect(auxTestDoubles.shellOpenPath).toHaveBeenCalledWith('/repo/readme.md');
     expect(auxTestDoubles.remoteCall).toHaveBeenNthCalledWith(1, 'conn-1', 'shell:detect', {});
     expect(auxTestDoubles.remoteCall).toHaveBeenNthCalledWith(
       2,

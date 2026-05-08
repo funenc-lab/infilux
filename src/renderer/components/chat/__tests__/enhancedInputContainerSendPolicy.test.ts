@@ -55,6 +55,11 @@ describe('enhanced input container send policy', () => {
   it('maps reconnecting and disconnected runtime states to explicit send labels', () => {
     expect(agentPanelSource).toContain("activeSessionAvailability === 'reconnecting'");
     expect(agentPanelSource).toContain("activeSessionAvailability === 'disconnected'");
+    expect(agentPanelSource).toContain("activeSessionAvailability === 'recovery-required'");
+    expect(agentPanelSource).toContain('uiSessionId: activeSession?.id');
+    expect(agentPanelSource).toContain('providerSessionId: activeSession?.sessionId');
+    expect(agentPanelSource).toContain('uiSessionId: session.id');
+    expect(agentPanelSource).toContain('providerSessionId: session.sessionId');
     expect(agentTerminalSource).not.toContain(
       'primaryActionHint={resolveAgentInputUnavailableReason({'
     );

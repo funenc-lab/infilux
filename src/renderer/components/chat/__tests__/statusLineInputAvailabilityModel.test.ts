@@ -26,4 +26,12 @@ describe('statusLineInputAvailability', () => {
       itemClassName: 'text-destructive',
     });
   });
+
+  it('maps recovery required to a destructive alert presentation', () => {
+    expect(getStatusLineInputAvailabilityPresentation('recovery-required')).toEqual({
+      labelKey: 'Recovery Required',
+      iconName: 'alert-triangle',
+      itemClassName: 'text-destructive',
+    });
+  });
 });

@@ -81,7 +81,10 @@ export function TerminalPanel({
     if (bgImageEnabled) return 'transparent';
     return getXtermTheme(terminalTheme)?.background ?? defaultDarkTheme.background;
   }, [terminalTheme, bgImageEnabled]);
-  const { setTerminalCount, registerTerminalCloseHandler } = useWorktreeActivityStore();
+  const setTerminalCount = useWorktreeActivityStore((state) => state.setTerminalCount);
+  const registerTerminalCloseHandler = useWorktreeActivityStore(
+    (state) => state.registerTerminalCloseHandler
+  );
   const syncTerminalSessions = useTerminalStore((s) => s.syncSessions);
   const { pendingScript, clearPendingScript } = useInitScriptStore();
   const pendingScriptProcessedRef = useRef<string | null>(null);

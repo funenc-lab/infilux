@@ -1,8 +1,7 @@
+import mermaid from 'mermaid';
 import { useEffect, useId, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
-
-const MERMAID_CDN_URL = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
 
 interface MermaidAPI {
   initialize: (config: {
@@ -15,7 +14,6 @@ interface MermaidAPI {
   render: (id: string, code: string) => Promise<{ svg: string }>;
 }
 
-let mermaidPromise: Promise<MermaidAPI> | null = null;
 let mermaidInstance: MermaidAPI | null = null;
 
 async function getMermaid(): Promise<MermaidAPI> {
@@ -23,14 +21,8 @@ async function getMermaid(): Promise<MermaidAPI> {
     return mermaidInstance;
   }
 
-  if (!mermaidPromise) {
-    mermaidPromise = import(/* @vite-ignore */ MERMAID_CDN_URL).then((mod) => {
-      mermaidInstance = mod.default as MermaidAPI;
-      return mermaidInstance;
-    });
-  }
-
-  return mermaidPromise;
+  mermaidInstance = mermaid as MermaidAPI;
+  return mermaidInstance;
 }
 
 interface MermaidRendererProps {
@@ -119,7 +111,7 @@ export function MermaidRenderer({ code, className }: MermaidRendererProps) {
     return (
       <div className={cn('overflow-x-auto rounded-lg border border-destructive/50', className)}>
         <div className="flex items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          <span>Mermaid 渲染错误</span>
+          <span>Mermaid render failed</span>
         </div>
         <pre className="p-4 text-sm">
           <code className="block font-mono leading-relaxed text-muted-foreground">{code}</code>
@@ -139,7 +131,7 @@ export function MermaidRenderer({ code, className }: MermaidRendererProps) {
           className
         )}
       >
-        <div className="text-sm text-muted-foreground">加载 Mermaid 图表...</div>
+        <div className="text-sm text-muted-foreground">Loading Mermaid diagram...</div>
       </div>
     );
   }

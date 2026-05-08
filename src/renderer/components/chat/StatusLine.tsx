@@ -219,16 +219,18 @@ export function StatusLine({ sessionId, onHeightChange, onRequestFreshSession }:
   const status = useAgentStatusStore((state) =>
     resolveAgentStatusForSession(state.statuses, session)
   );
-  const { agentIntegration } = useSettingsStore();
-  const { statusLineEnabled, statusLineFields } = agentIntegration;
+  const statusLineEnabled = useSettingsStore((state) => state.agentIntegration.statusLineEnabled);
+  const statusLineFields = useSettingsStore((state) => state.agentIntegration.statusLineFields);
   const { t } = useI18n();
   const inputAvailability = useMemo(
     () =>
       resolveAgentInputAvailability({
         backendSessionId: session?.backendSessionId,
         runtimeState: session?.recoveryState,
+        uiSessionId: session?.id,
+        providerSessionId: session?.sessionId,
       }),
-    [session?.backendSessionId, session?.recoveryState]
+    [session?.backendSessionId, session?.id, session?.recoveryState, session?.sessionId]
   );
   const inputAvailabilityReason = useMemo(() => {
     if (!session) {

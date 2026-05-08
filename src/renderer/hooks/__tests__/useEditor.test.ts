@@ -48,12 +48,12 @@ const editorStoreMock = vi.hoisted(() => {
     current: null as EditorStoreState | null,
   };
 
-  const hook = vi.fn(() => {
+  const hook = vi.fn((selector?: (state: EditorStoreState) => unknown) => {
     if (!state.current) {
       throw new Error('Editor store state is not configured');
     }
 
-    return state.current;
+    return selector ? selector(state.current) : state.current;
   });
 
   const getState = vi.fn(() => {

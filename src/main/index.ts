@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises';
 import {
   appendFileSync,
   createReadStream,
@@ -7,6 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { BlockList, isIP } from 'node:net';
 import { delimiter, extname, join } from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import { inspect } from 'node:util';
@@ -145,6 +147,22 @@ let isQuittingForAutoUpdateInstall = (): boolean => false;
 let emergencyShutdownTriggered = false;
 
 const isDev = !app.isPackaged;
+const REMOTE_IMAGE_FETCH_MAX_REDIRECTS = 5;
+const nonPublicAddressBlockList = new BlockList();
+nonPublicAddressBlockList.addSubnet('0.0.0.0', 8);
+nonPublicAddressBlockList.addSubnet('10.0.0.0', 8);
+nonPublicAddressBlockList.addSubnet('100.64.0.0', 10);
+nonPublicAddressBlockList.addSubnet('127.0.0.0', 8);
+nonPublicAddressBlockList.addSubnet('169.254.0.0', 16);
+nonPublicAddressBlockList.addSubnet('172.16.0.0', 12);
+nonPublicAddressBlockList.addSubnet('192.168.0.0', 16);
+nonPublicAddressBlockList.addSubnet('224.0.0.0', 4);
+nonPublicAddressBlockList.addSubnet('::', 128, 'ipv6');
+nonPublicAddressBlockList.addSubnet('::1', 128, 'ipv6');
+nonPublicAddressBlockList.addSubnet('fc00::', 7, 'ipv6');
+nonPublicAddressBlockList.addSubnet('fe80::', 10, 'ipv6');
+nonPublicAddressBlockList.addSubnet('fec0::', 10, 'ipv6');
+nonPublicAddressBlockList.addSubnet('ff00::', 8, 'ipv6');
 
 // In dev mode, use an isolated userData dir before any Chromium-backed service initializes.
 // This prevents dev sessions from inheriting the packaged profile and keeps sessionData writes scoped.
@@ -285,7 +303,10 @@ function flushMainStartupTimeline(): void {
 recordMainStartupStage('module-evaluated');
 
 function isPrivateIpLiteral(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
+  const normalized = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
   if (!normalized) {
     return false;
   }
@@ -299,33 +320,67 @@ function isPrivateIpLiteral(hostname: string): boolean {
     return true;
   }
 
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) {
-    const parts = normalized.split('.').map((part) => Number(part));
-    if (parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) {
-      return false;
-    }
-    return (
-      parts[0] === 10 ||
-      parts[0] === 127 ||
-      (parts[0] === 169 && parts[1] === 254) ||
-      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-      (parts[0] === 192 && parts[1] === 168)
-    );
+  if (normalized.startsWith('::ffff:')) {
+    return true;
   }
 
-  return false;
+  const version = isIP(normalized);
+  if (version === 0) {
+    return false;
+  }
+
+  return nonPublicAddressBlockList.check(normalized, version === 6 ? 'ipv6' : 'ipv4');
 }
 
-function isAllowedRemoteImageUrl(input: string): boolean {
+async function isAllowedRemoteImageUrl(input: string): Promise<boolean> {
   try {
     const parsed = new URL(input);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return false;
     }
-    return !isPrivateIpLiteral(parsed.hostname);
+
+    const hostname = parsed.hostname;
+    if (isPrivateIpLiteral(hostname)) {
+      return false;
+    }
+
+    const resolvedAddresses = await lookup(hostname, { all: true, verbatim: true });
+    if (resolvedAddresses.length === 0) {
+      return false;
+    }
+
+    return resolvedAddresses.every((entry) => !isPrivateIpLiteral(entry.address));
   } catch {
     return false;
   }
+}
+
+async function fetchAllowedRemoteImage(input: string): Promise<Response> {
+  let currentUrl = input;
+
+  for (
+    let redirectCount = 0;
+    redirectCount <= REMOTE_IMAGE_FETCH_MAX_REDIRECTS;
+    redirectCount += 1
+  ) {
+    if (!(await isAllowedRemoteImageUrl(currentUrl))) {
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    const response = await net.fetch(currentUrl, { redirect: 'manual' });
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      return response;
+    }
+
+    const location = response.headers.get('location');
+    if (!location) {
+      return new Response('Remote redirect missing location', { status: 502 });
+    }
+
+    currentUrl = new URL(location, currentUrl).toString();
+  }
+
+  return new Response('Too many redirects', { status: 508 });
 }
 
 function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
@@ -846,7 +901,7 @@ app.whenReady().then(async () => {
           console.error('[local-image] Remote fetch: missing url parameter');
           return new Response('Missing url parameter', { status: 400 });
         }
-        if (!isAllowedRemoteImageUrl(fetchUrl)) {
+        if (!(await isAllowedRemoteImageUrl(fetchUrl))) {
           console.warn('[local-image] Blocked remote fetch URL:', fetchUrl);
           return new Response('Forbidden', { status: 403 });
         }
@@ -857,7 +912,7 @@ app.whenReady().then(async () => {
         console.log('[local-image] Proxying remote image:', fetchUrl);
 
         try {
-          const response = await net.fetch(fetchUrl, { redirect: 'follow' });
+          const response = await fetchAllowedRemoteImage(fetchUrl);
 
           if (!response.ok) {
             console.error(

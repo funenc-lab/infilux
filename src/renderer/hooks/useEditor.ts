@@ -9,23 +9,21 @@ function getParentDirectoryPath(path: string): string {
 }
 
 export function useEditor() {
-  const {
-    tabs,
-    activeTabPath,
-    pendingCursor,
-    openFile,
-    closeFile,
-    closeOtherFiles,
-    closeFilesToLeft,
-    closeFilesToRight,
-    closeAllFiles,
-    setActiveFile,
-    updateFileContent,
-    markFileSaved,
-    setTabViewState,
-    reorderTabs,
-    setPendingCursor,
-  } = useEditorStore();
+  const tabs = useEditorStore((state) => state.tabs);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const pendingCursor = useEditorStore((state) => state.pendingCursor);
+  const openFile = useEditorStore((state) => state.openFile);
+  const closeFile = useEditorStore((state) => state.closeFile);
+  const closeOtherFiles = useEditorStore((state) => state.closeOtherFiles);
+  const closeFilesToLeft = useEditorStore((state) => state.closeFilesToLeft);
+  const closeFilesToRight = useEditorStore((state) => state.closeFilesToRight);
+  const closeAllFiles = useEditorStore((state) => state.closeAllFiles);
+  const setActiveFile = useEditorStore((state) => state.setActiveFile);
+  const updateFileContent = useEditorStore((state) => state.updateFileContent);
+  const markFileSaved = useEditorStore((state) => state.markFileSaved);
+  const setTabViewState = useEditorStore((state) => state.setTabViewState);
+  const reorderTabs = useEditorStore((state) => state.reorderTabs);
+  const setPendingCursor = useEditorStore((state) => state.setPendingCursor);
 
   const queryClient = useQueryClient();
 

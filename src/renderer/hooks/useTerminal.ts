@@ -6,8 +6,11 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
 
 export function useTerminal() {
-  const { sessions, activeSessionId, addSession, removeSession, setActiveSession } =
-    useTerminalStore();
+  const sessions = useTerminalStore((state) => state.sessions);
+  const activeSessionId = useTerminalStore((state) => state.activeSessionId);
+  const addSession = useTerminalStore((state) => state.addSession);
+  const removeSession = useTerminalStore((state) => state.removeSession);
+  const setActiveSession = useTerminalStore((state) => state.setActiveSession);
   const shellConfig = useSettingsStore((s) => s.shellConfig);
 
   // Listen for terminal exit events from main process

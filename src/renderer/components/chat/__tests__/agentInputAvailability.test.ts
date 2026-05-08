@@ -21,11 +21,28 @@ describe('agentInputAvailability', () => {
       'awaiting-session'
     );
     expect(
+      resolveAgentInputAvailability({ backendSessionId: null, runtimeState: 'reconnecting' })
+    ).toBe('reconnecting');
+    expect(
+      resolveAgentInputAvailability({
+        backendSessionId: null,
+        runtimeState: 'missing-host-session',
+      })
+    ).toBe('disconnected');
+    expect(
       resolveAgentInputAvailability({ backendSessionId: 'backend-1', runtimeState: 'reconnecting' })
     ).toBe('reconnecting');
     expect(
       resolveAgentInputAvailability({ backendSessionId: 'backend-1', runtimeState: 'dead' })
     ).toBe('disconnected');
+    expect(
+      resolveAgentInputAvailability({
+        backendSessionId: null,
+        runtimeState: 'missing-host-session',
+        uiSessionId: 'ui-session-1',
+        providerSessionId: 'ui-session-1',
+      })
+    ).toBe('recovery-required');
     expect(
       resolveAgentInputAvailability({
         backendSessionId: 'backend-1',
@@ -62,6 +79,16 @@ describe('agentInputAvailability', () => {
         t,
       })
     ).toBe('Terminal session is unavailable. Start a fresh session to continue.');
+    expect(
+      resolveAgentInputUnavailableReason({
+        agentCommand: 'codex',
+        availability: 'recovery-required',
+        isRemoteExecution: false,
+        t,
+      })
+    ).toBe(
+      'Persistent host recovery is unavailable and this session cannot resume automatically. Start a fresh session to continue.'
+    );
     expect(
       resolveAgentInputUnavailableReason({
         agentCommand: 'claude',

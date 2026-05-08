@@ -77,12 +77,12 @@ export function AppResourceStatusPopover({ className }: AppResourceStatusPopover
 
   useEffect(() => {
     autoRefreshControllerRef.current?.sync({
-      enabled: isWindowFocused,
+      enabled: isWindowFocused && open,
       onRefresh: () => {
         void loadTriggerState();
       },
     });
-  }, [isWindowFocused, loadTriggerState]);
+  }, [isWindowFocused, loadTriggerState, open]);
 
   useEffect(() => {
     return () => {

@@ -7,6 +7,8 @@ export interface AgentSessionControlSummary {
   total: number;
   running: number;
   waitingForInput: number;
+  reconnecting: number;
+  disconnected: number;
   unread: number;
   idle: number;
   dead: number;
@@ -47,6 +49,8 @@ const EMPTY_SUMMARY: AgentSessionControlSummary = {
   total: 0,
   running: 0,
   waitingForInput: 0,
+  reconnecting: 0,
+  disconnected: 0,
   unread: 0,
   idle: 0,
   dead: 0,
@@ -65,6 +69,14 @@ const STATUS_PRESENTATION: Record<AgentSessionInventoryStatus, AgentSessionStatu
   'waiting-for-input': {
     labelKey: 'Waiting',
     chipClassName: 'control-chip control-chip-wait',
+  },
+  reconnecting: {
+    labelKey: 'Reconnecting',
+    chipClassName: 'control-chip control-chip-wait',
+  },
+  disconnected: {
+    labelKey: 'Disconnected',
+    chipClassName: 'control-chip',
   },
   unread: {
     labelKey: 'Unread',
@@ -107,6 +119,8 @@ const SECTION_ORDER: AgentSessionControlSectionKey[] = ['attention', 'running', 
 function isAttentionItem(item: AgentSessionInventoryItem): boolean {
   return (
     item.status === 'waiting-for-input' ||
+    item.status === 'reconnecting' ||
+    item.status === 'disconnected' ||
     item.status === 'unread' ||
     item.taskCompletionUnread ||
     item.isStale
@@ -153,6 +167,10 @@ export function buildAgentSessionControlSummary(
       summary.running += 1;
     } else if (item.status === 'waiting-for-input') {
       summary.waitingForInput += 1;
+    } else if (item.status === 'reconnecting') {
+      summary.reconnecting += 1;
+    } else if (item.status === 'disconnected') {
+      summary.disconnected += 1;
     } else if (item.status === 'unread') {
       summary.unread += 1;
     } else if (item.status === 'dead') {
@@ -248,6 +266,18 @@ export function resolveAgentSessionControlActionHint(
       chipClassName: 'control-chip control-chip-wait',
     };
   }
+  if (summary.reconnecting > 0) {
+    return {
+      labelKey: 'Reconnecting',
+      chipClassName: 'control-chip control-chip-wait',
+    };
+  }
+  if (summary.disconnected > 0) {
+    return {
+      labelKey: 'Disconnected',
+      chipClassName: 'control-chip',
+    };
+  }
   if (summary.unread > 0 || summary.taskCompletionUnread > 0) {
     return {
       labelKey: 'Inspect unread results',
@@ -281,7 +311,12 @@ export function resolveAgentSessionControlActionHint(
 export function resolveAgentSessionControlTone(
   summary: AgentSessionControlSummary
 ): AgentSessionControlTone {
-  if (summary.waitingForInput > 0 || summary.stale > 0) {
+  if (
+    summary.waitingForInput > 0 ||
+    summary.reconnecting > 0 ||
+    summary.disconnected > 0 ||
+    summary.stale > 0
+  ) {
     return 'wait';
   }
   if (summary.running > 0) {

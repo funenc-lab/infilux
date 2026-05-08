@@ -1,8 +1,8 @@
 import { GitBranch } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { TreeSidebarProps } from '@/components/layout/TreeSidebar';
 import { useI18n } from '@/i18n';
 import { DeferredPanelFallback } from './DeferredPanelFallback';
+import { useDeferredComponentLoader } from './useDeferredComponentLoader';
 import { useDeferredReady } from './useDeferredReady';
 
 type TreeSidebarComponent = React.ComponentType<TreeSidebarProps>;
@@ -20,25 +20,16 @@ export function DeferredTreeSidebar({
   ...panelProps
 }: DeferredTreeSidebarProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<TreeSidebarComponent | null>(null);
-
-  useEffect(() => {
-    if (!shouldLoad || Component) {
-      return;
-    }
-
-    let cancelled = false;
-    import('@/components/layout/TreeSidebar').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.TreeSidebar as TreeSidebarComponent);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldLoad, Component]);
+  const { Component } = useDeferredComponentLoader<
+    typeof import('@/components/layout/TreeSidebar'),
+    TreeSidebarProps
+  >({
+    shouldLoad,
+    loadStrategy: 'idle',
+    load: () => import('@/components/layout/TreeSidebar'),
+    selectComponent: (module) => module.TreeSidebar as TreeSidebarComponent,
+    errorLabel: 'TreeSidebar',
+  });
 
   useDeferredReady(Boolean(Component), onReady);
 

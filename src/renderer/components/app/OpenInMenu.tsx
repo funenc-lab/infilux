@@ -1,6 +1,7 @@
 import { AppCategory, type DetectedApp } from '@shared/types';
 import { ChevronDown, FileCode, FolderOpen, Terminal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import type { TabId } from '@/App/constants';
 import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select';
 import { useDetectedApps, useOpenWith } from '@/hooks/useAppDetector';
@@ -41,7 +42,13 @@ export function OpenInMenu({ path, activeTab }: OpenInMenuProps) {
   const { data: apps = [], isLoading } = useDetectedApps();
   const openWith = useOpenWith();
   const [lastUsedApp, setLastUsedApp] = useState<string>('');
-  const { activeTabPath, tabs, currentCursorLine } = useEditorStore();
+  const { activeTabPath, tabs, currentCursorLine } = useEditorStore(
+    useShallow((state) => ({
+      activeTabPath: state.activeTabPath,
+      tabs: state.tabs,
+      currentCursorLine: state.currentCursorLine,
+    }))
+  );
   const isRemotePath = path?.startsWith('/__enso_remote__/') ?? false;
   const hiddenOpenInApps = useSettingsStore((s) => s.hiddenOpenInApps);
   const openInMenuFilterEnabled = useSettingsStore((s) => s.openInMenuFilterEnabled);
