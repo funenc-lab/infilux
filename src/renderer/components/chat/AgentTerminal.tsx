@@ -1653,10 +1653,15 @@ export function AgentTerminal({
       (environment === 'hapi' && hapiGlobalInstalled === null));
   const isAgentStartupActivationPending =
     !isReadOnlyTranscript && runtimeState === 'live' && terminal === null;
+  const isAgentStartupFirstOutputPending =
+    !isReadOnlyTranscript && runtimeState === 'live' && initialized === false && !recovered;
   const shouldShowAgentStartupOverlay =
     !isReadOnlyTranscript &&
     (isActive || hasPendingCommand) &&
-    (isLoading || isAgentStartupReadinessPending || isAgentStartupActivationPending);
+    (isLoading ||
+      isAgentStartupReadinessPending ||
+      isAgentStartupActivationPending ||
+      isAgentStartupFirstOutputPending);
   const [isAgentStartupStalled, setIsAgentStartupStalled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
