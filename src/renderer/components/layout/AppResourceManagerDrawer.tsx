@@ -42,6 +42,10 @@ interface PendingConfirmationState {
   resource: AppResourceItem;
 }
 
+interface LoadSnapshotOptions {
+  foreground?: boolean;
+}
+
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 function getStatusChipClassName(status: AppResourceItem['status']) {
@@ -100,7 +104,7 @@ function getHeaderStats(snapshot: AppResourceSnapshot | null, translate: Transla
 export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps) {
   const { t } = useI18n();
   const { isWindowFocused } = useWindowFocus();
-  const [loading, setLoading] = useState(false);
+  const [foregroundLoading, setForegroundLoading] = useState(false);
   const [snapshot, setSnapshot] = useState<AppResourceSnapshot | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingActionKey, setPendingActionKey] = useState<string | null>(null);
@@ -115,39 +119,45 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
     autoRefreshControllerRef.current = createAppResourceAutoRefreshController();
   }
 
-  const loadSnapshot = useCallback(async () => {
-    if (inFlightLoadRef.current) {
-      return inFlightLoadRef.current;
-    }
-
-    const requestId = requestSequenceRef.current + 1;
-    requestSequenceRef.current = requestId;
-    setLoading(true);
-    setErrorMessage(null);
-
-    const loadPromise = (async () => {
-      try {
-        const nextSnapshot = await window.electronAPI.app.getResourceSnapshot();
-        if (requestSequenceRef.current !== requestId) {
-          return;
-        }
-        setSnapshot(nextSnapshot);
-      } catch (error) {
-        if (requestSequenceRef.current !== requestId) {
-          return;
-        }
-        setErrorMessage(error instanceof Error ? error.message : t('Unable to load resources.'));
-      } finally {
-        if (requestSequenceRef.current === requestId) {
-          setLoading(false);
-        }
-        inFlightLoadRef.current = null;
+  const loadSnapshot = useCallback(
+    async (options: LoadSnapshotOptions = {}) => {
+      if (inFlightLoadRef.current) {
+        return inFlightLoadRef.current;
       }
-    })();
 
-    inFlightLoadRef.current = loadPromise;
-    return loadPromise;
-  }, [t]);
+      const foreground = options.foreground ?? true;
+      const requestId = requestSequenceRef.current + 1;
+      requestSequenceRef.current = requestId;
+      if (foreground) {
+        setForegroundLoading(true);
+      }
+      setErrorMessage(null);
+
+      const loadPromise = (async () => {
+        try {
+          const nextSnapshot = await window.electronAPI.app.getResourceSnapshot();
+          if (requestSequenceRef.current !== requestId) {
+            return;
+          }
+          setSnapshot(nextSnapshot);
+        } catch (error) {
+          if (requestSequenceRef.current !== requestId) {
+            return;
+          }
+          setErrorMessage(error instanceof Error ? error.message : t('Unable to load resources.'));
+        } finally {
+          if (foreground && requestSequenceRef.current === requestId) {
+            setForegroundLoading(false);
+          }
+          inFlightLoadRef.current = null;
+        }
+      })();
+
+      inFlightLoadRef.current = loadPromise;
+      return loadPromise;
+    },
+    [t]
+  );
 
   useEffect(() => {
     if (!open) {
@@ -170,7 +180,7 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
     autoRefreshControllerRef.current?.sync({
       enabled: isAutoRefreshEnabled,
       onRefresh: () => {
-        void loadSnapshot();
+        void loadSnapshot({ foreground: false });
       },
     });
   }, [isAutoRefreshEnabled, loadSnapshot]);
@@ -188,6 +198,7 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
     [snapshot, t]
   );
   const headerStats = useMemo(() => getHeaderStats(snapshot, t), [snapshot, t]);
+  const refreshLabel = foregroundLoading ? t('Refreshing') : t('Refresh');
 
   const runAction = useCallback(
     async (action: AppResourceActionRequest) => {
@@ -234,13 +245,13 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
       >
         <SheetHeader className="border-b border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--control-surface-muted)_64%,var(--background)_36%)_0%,color-mix(in_oklch,var(--control-surface)_34%,transparent)_100%)]">
           <div className="space-y-4">
-            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-3 pe-10 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="control-chip control-chip-strong shrink-0">
                     {t('Runtime Console')}
                   </span>
-                  {loading ? (
+                  {foregroundLoading ? (
                     <span className="control-chip control-chip-live shrink-0">
                       {t('Loading resources...')}
                     </span>
@@ -251,37 +262,19 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
                   {t('Inspect app runtime pressure and manage available resource actions.')}
                 </SheetDescription>
               </div>
-              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-                {bulkActions.map((action) => {
-                  const isPending =
-                    pendingActionKey === `${action.request.resourceId}:${action.request.kind}`;
-
-                  return (
-                    <Button
-                      key={action.key}
-                      variant={action.disabled ? 'outline' : 'secondary'}
-                      size="sm"
-                      className="min-w-0 flex-1 justify-center sm:min-w-[11rem] sm:flex-none"
-                      onClick={() => void runAction(action.request)}
-                      disabled={action.disabled || isPending || loading}
-                      title={action.description}
-                    >
-                      <span className="min-w-0 truncate">{action.label}</span>
-                    </Button>
-                  );
-                })}
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="shrink-0"
-                  onClick={() => void loadSnapshot()}
-                  aria-label={t('Refresh')}
-                  title={t('Refresh')}
-                  disabled={loading}
-                >
-                  <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-                </Button>
-              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-fit max-w-full shrink-0 gap-2 self-start rounded-md px-2.5 text-xs text-muted-foreground hover:text-foreground sm:max-w-[10rem] sm:self-auto"
+                onClick={() => void loadSnapshot()}
+                aria-label={refreshLabel}
+                title={refreshLabel}
+                disabled={foregroundLoading}
+                data-resource-manager-refresh-action
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', foregroundLoading && 'animate-spin')} />
+                <span className="min-w-0 truncate">{refreshLabel}</span>
+              </Button>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-3">
@@ -302,17 +295,43 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
             </div>
 
             {bulkActions[0] ? (
-              <div className="control-panel-muted flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2.5">
-                <p className="ui-type-meta text-muted-foreground/82">
+              <div
+                className="control-panel-muted grid gap-3 rounded-xl px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                data-resource-manager-bulk-actions
+              >
+                <p className="ui-type-meta min-w-0 text-muted-foreground/82">
                   {bulkActions[0].description}
                 </p>
+                <div
+                  className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end"
+                  data-resource-manager-bulk-action-buttons
+                >
+                  {bulkActions.map((action) => {
+                    const isPending =
+                      pendingActionKey === `${action.request.resourceId}:${action.request.kind}`;
+
+                    return (
+                      <Button
+                        key={action.key}
+                        variant={action.disabled ? 'outline' : 'destructive-outline'}
+                        size="sm"
+                        className="w-full max-w-full min-w-0 justify-center sm:w-auto sm:min-w-[11rem] sm:max-w-[15rem]"
+                        onClick={() => void runAction(action.request)}
+                        disabled={action.disabled || isPending || foregroundLoading}
+                        title={action.description}
+                      >
+                        <span className="min-w-0 truncate">{action.label}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
           </div>
         </SheetHeader>
 
         <SheetPanel scrollFade className="space-y-5 pb-4">
-          {loading && !snapshot ? (
+          {foregroundLoading && !snapshot ? (
             <div className="control-panel-muted ui-type-panel-description rounded-xl px-4 py-5 text-center text-muted-foreground">
               {t('Loading resources...')}
             </div>

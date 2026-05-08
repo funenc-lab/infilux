@@ -15,16 +15,35 @@ describe('app resource manager drawer style policy', () => {
   it('presents the drawer header as a compact operational status strip', () => {
     expect(drawerSource).toContain('w-[min(50rem,calc(100vw-1rem))]');
     expect(drawerSource).toContain(
-      'flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'
+      'flex min-w-0 flex-col gap-3 pe-10 sm:flex-row sm:items-start sm:justify-between'
     );
     expect(drawerSource).toContain(
-      'flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end'
+      'h-8 w-fit max-w-full shrink-0 gap-2 self-start rounded-md px-2.5 text-xs text-muted-foreground hover:text-foreground sm:max-w-[10rem] sm:self-auto'
     );
-    expect(drawerSource).toContain('min-w-0 flex-1 justify-center sm:min-w-[11rem] sm:flex-none');
-    expect(drawerSource).toContain('<span className="min-w-0 truncate">{action.label}</span>');
+    expect(drawerSource).toContain('<span className="min-w-0 truncate">{refreshLabel}</span>');
+    expect(drawerSource).toContain('data-resource-manager-refresh-action');
+    expect(drawerSource).toContain(
+      "const refreshLabel = foregroundLoading ? t('Refreshing') : t('Refresh');"
+    );
+    expect(drawerSource).toContain(
+      "<RefreshCw className={cn('h-3.5 w-3.5', foregroundLoading && 'animate-spin')} />"
+    );
     expect(drawerSource).toContain('control-chip control-chip-strong shrink-0');
     expect(drawerSource).toContain('data-resource-manager-stat={stat.key}');
     expect(drawerSource).toContain('text-[1.35rem] font-semibold leading-none');
+  });
+
+  it('separates refresh from bulk resource actions', () => {
+    expect(drawerSource).toContain('data-resource-manager-bulk-actions');
+    expect(drawerSource).toContain('data-resource-manager-bulk-action-buttons');
+    expect(drawerSource).toContain("variant={action.disabled ? 'outline' : 'destructive-outline'}");
+    expect(drawerSource).toContain(
+      'className="w-full max-w-full min-w-0 justify-center sm:w-auto sm:min-w-[11rem] sm:max-w-[15rem]"'
+    );
+    expect(drawerSource).toContain('<span className="min-w-0 truncate">{action.label}</span>');
+    expect(drawerSource).not.toContain(
+      'flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end'
+    );
   });
 
   it('keeps summary and resource rows on dense control-console surfaces', () => {
