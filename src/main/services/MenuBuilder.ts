@@ -2,6 +2,7 @@ import { REPOSITORY_URL } from '@shared/branding';
 import { translate } from '@shared/i18n';
 import { MENU_ACTIONS, type MenuAction } from '@shared/types';
 import { app, BrowserWindow, Menu, shell } from 'electron';
+import { toggleDetachedDevTools } from '../utils/devtools';
 import { getCurrentLocale } from './i18n';
 
 interface MenuOptions {
@@ -104,7 +105,11 @@ export function buildAppMenu(options: MenuOptions = {}): Menu {
         {
           label: t('Developer Tools'),
           accelerator: 'CommandOrControl+Option+I',
-          click: () => getActiveWindow()?.webContents.toggleDevTools(),
+          click: () => {
+            const window = getActiveWindow();
+            if (!window) return;
+            toggleDetachedDevTools(window.webContents);
+          },
         },
         { type: 'separator' as const },
         {

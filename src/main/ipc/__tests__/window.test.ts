@@ -143,6 +143,9 @@ describe('window IPC handlers', () => {
 
     await getHandler(IPC_CHANNELS.WINDOW_OPEN_DEVTOOLS)(event);
     expect(windowTestDoubles.window.webContents.openDevTools).toHaveBeenCalledTimes(1);
+    expect(windowTestDoubles.window.webContents.openDevTools).toHaveBeenCalledWith({
+      mode: 'detach',
+    });
 
     await getHandler(IPC_CHANNELS.WINDOW_SET_TRAFFIC_LIGHTS_VISIBLE)(event, 'yes');
     expect(windowTestDoubles.window.setWindowButtonVisibility).not.toHaveBeenCalled();

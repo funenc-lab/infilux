@@ -131,6 +131,7 @@ import {
 import { appTrayService } from './services/TrayService';
 import * as todoService from './services/todo/TodoService';
 import { webInspectorServer } from './services/webInspector';
+import { toggleDetachedDevTools } from './utils/devtools';
 import log, { initLogger } from './utils/logger';
 import {
   buildRendererFailureContext,
@@ -1540,18 +1541,16 @@ app.whenReady().then(async () => {
       });
     }
 
-    // Snapshot listeners before the optimizer adds its own, only needed in production.
-    const listenersBefore = app.isPackaged
-      ? new Set(window.webContents.listeners('before-input-event'))
-      : undefined;
-    optimizer.watchWindowShortcuts(window);
+    if (app.isPackaged) {
+      // Snapshot listeners before the optimizer adds its own, only needed in production.
+      const listenersBefore = new Set(window.webContents.listeners('before-input-event'));
+      optimizer.watchWindowShortcuts(window);
 
-    // In production, allow Ctrl+R to pass through to terminal for reverse
-    // history search. The optimizer blocks it by default via
-    // before-input-event preventDefault.
-    // Depends on @electron-toolkit/utils implementing shortcut blocking via
-    // before-input-event listeners (verified up to v4.x).
-    if (listenersBefore) {
+      // In production, allow Ctrl+R to pass through to terminal for reverse
+      // history search. The optimizer blocks it by default via
+      // before-input-event preventDefault.
+      // Depends on @electron-toolkit/utils implementing shortcut blocking via
+      // before-input-event listeners (verified up to v4.x).
       const newListeners = window.webContents
         .listeners('before-input-event')
         .filter((l) => !listenersBefore.has(l));
@@ -1576,6 +1575,15 @@ app.whenReady().then(async () => {
           handler(event, input);
         });
       }
+    } else {
+      window.webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown' || input.code !== 'F12') {
+          return;
+        }
+
+        event.preventDefault();
+        toggleDetachedDevTools(window.webContents);
+      });
     }
 
     // Intercept Cmd+- before renderer process to bypass Monaco Editor interception

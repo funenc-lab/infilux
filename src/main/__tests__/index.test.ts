@@ -341,6 +341,8 @@ const mainIndexTestDoubles = vi.hoisted(() => {
         })),
         getURL: vi.fn(() => url),
         getZoomLevel: vi.fn(() => zoomLevel),
+        closeDevTools: vi.fn(),
+        isDevToolsOpened: vi.fn(() => false),
         isDestroyed: vi.fn(() => destroyed),
         isLoading: vi.fn(() => loading),
         listeners: vi.fn((event: string) => webContentsListeners.get(event) ?? []),
@@ -356,6 +358,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
           removeRegisteredListener(webContentsOnceListeners, event, listener);
         }),
         send: vi.fn(),
+        openDevTools: vi.fn(),
         session: {
           webRequest: {
             onErrorOccurred: vi.fn((_filter: { urls: string[] }, listener: Listener) => {
@@ -1895,6 +1898,24 @@ describe('main entry', () => {
 
     expect(shortcutGuard).toHaveBeenCalledTimes(1);
     expect(otherShortcutEvent.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('opens detached DevTools for the development F12 shortcut', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    await bootstrapReadyWindow(mainWindow);
+    await mainIndexTestDoubles.emitApp('browser-window-created', {}, mainWindow);
+
+    const devtoolsEvent = {
+      preventDefault: vi.fn(),
+    };
+    mainWindow.emitWebContentsEvent('before-input-event', devtoolsEvent, {
+      code: 'F12',
+      type: 'keyDown',
+    });
+
+    expect(devtoolsEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(mainWindow.webContents.openDevTools).toHaveBeenCalledWith({ mode: 'detach' });
+    expect(mainIndexTestDoubles.watchWindowShortcuts).not.toHaveBeenCalled();
   });
 
   it('intercepts Ctrl+- before it reaches the renderer on Windows', async () => {

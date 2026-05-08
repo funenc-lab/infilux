@@ -1,6 +1,7 @@
 import { IPC_CHANNELS } from '@shared/types';
 import { BrowserWindow, ipcMain } from 'electron';
 import { resolveRepositoryRuntimeContext } from '../services/repository/RepositoryContextResolver';
+import { openDetachedDevTools } from '../utils/devtools';
 
 function getTargetWindow(sender: Electron.WebContents): BrowserWindow {
   const window = BrowserWindow.fromWebContents(sender);
@@ -33,7 +34,7 @@ export function registerWindowHandlers(): () => void {
   });
 
   ipcMain.handle(IPC_CHANNELS.WINDOW_OPEN_DEVTOOLS, (event) => {
-    getTargetWindow(event.sender).webContents.openDevTools();
+    openDetachedDevTools(getTargetWindow(event.sender).webContents);
   });
 
   ipcMain.handle(IPC_CHANNELS.WINDOW_SET_TRAFFIC_LIGHTS_VISIBLE, (event, visible: unknown) => {

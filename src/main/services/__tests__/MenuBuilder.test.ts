@@ -25,7 +25,9 @@ const menuBuilderTestDoubles = vi.hoisted(() => {
     return {
       webContents: {
         send: vi.fn(),
-        toggleDevTools: vi.fn(),
+        closeDevTools: vi.fn(),
+        isDevToolsOpened: vi.fn(() => false),
+        openDevTools: vi.fn(),
         getZoomLevel: vi.fn(() => zoomLevel),
         setZoomLevel: vi.fn((value: number) => {
           zoomLevel = value;
@@ -193,7 +195,7 @@ describe('MenuBuilder', () => {
       'menu-action',
       'paste-agent-attachment'
     );
-    expect(activeWindow.webContents.toggleDevTools).toHaveBeenCalledTimes(1);
+    expect(activeWindow.webContents.openDevTools).toHaveBeenCalledWith({ mode: 'detach' });
     expect(activeWindow.webContents.setZoomLevel).toHaveBeenNthCalledWith(1, 0);
     expect(activeWindow.webContents.setZoomLevel).toHaveBeenNthCalledWith(2, 0.5);
     expect(activeWindow.webContents.setZoomLevel).toHaveBeenNthCalledWith(3, 0);
@@ -225,5 +227,21 @@ describe('MenuBuilder', () => {
     expect(fileMenu.submenu?.some((item) => item.label === 'zh:Settings...')).toBe(false);
     expect(viewMenu.submenu?.some((item) => item.role === 'reload')).toBe(false);
     expect(viewMenu.submenu?.some((item) => item.role === 'forceReload')).toBe(false);
+  });
+
+  it('closes detached developer tools from the menu when they are already open', async () => {
+    setPlatform('win32');
+    const activeWindow = menuBuilderTestDoubles.createWindow();
+    activeWindow.webContents.isDevToolsOpened.mockReturnValue(true);
+    menuBuilderTestDoubles.setWindows([activeWindow]);
+
+    const { buildAppMenu } = await import('../MenuBuilder');
+    buildAppMenu();
+
+    const viewMenu = findMenu(getTemplate(), 'zh:View');
+    findSubmenuItem(viewMenu, 'zh:Developer Tools').click?.();
+
+    expect(activeWindow.webContents.closeDevTools).toHaveBeenCalledTimes(1);
+    expect(activeWindow.webContents.openDevTools).not.toHaveBeenCalled();
   });
 });
