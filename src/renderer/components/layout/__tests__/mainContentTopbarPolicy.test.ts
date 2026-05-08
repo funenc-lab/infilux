@@ -42,7 +42,9 @@ describe('main content topbar policy', () => {
 
   it('allows the shared topbar action cluster to wrap without clipping header buttons', () => {
     expect(globalsSource).toContain('.control-topbar-actions-cluster {');
-    expect(globalsSource).toContain('min-width: 0;');
+    expect(globalsSource).toContain(
+      'min-width: calc(var(--control-button-header-size) + 0.25rem);'
+    );
     expect(globalsSource).toContain('max-width: 100%;');
     expect(globalsSource).toContain('flex: 0 1 auto;');
     expect(globalsSource).toContain('flex-wrap: wrap;');

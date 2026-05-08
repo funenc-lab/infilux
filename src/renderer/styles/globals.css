@@ -1222,7 +1222,7 @@
 
   .control-topbar-actions-cluster {
     display: inline-flex;
-    min-width: 0;
+    min-width: calc(var(--control-button-header-size) + 0.25rem);
     max-width: 100%;
     flex: 0 1 auto;
     flex-wrap: wrap;
