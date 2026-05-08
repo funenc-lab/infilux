@@ -4,17 +4,19 @@ import { resolveAgentStartupOverlayPresentation } from '../agentStartupOverlay';
 describe('agentStartupOverlay', () => {
   it('returns compact startup copy while the session is still expected to appear quickly', () => {
     expect(resolveAgentStartupOverlayPresentation({ isStalled: false })).toEqual({
+      eyebrowKey: 'Agent runtime',
       state: 'starting',
-      titleKey: 'Starting session',
-      descriptionKey: 'Waiting for the agent prompt.',
+      titleKey: 'Preparing runtime',
+      descriptionKey: 'Attaching the terminal and waiting for the agent prompt.',
     });
   });
 
   it('upgrades the copy when startup takes longer than expected', () => {
     expect(resolveAgentStartupOverlayPresentation({ isStalled: true })).toEqual({
+      eyebrowKey: 'Agent runtime',
       state: 'stalled',
-      titleKey: 'Still starting',
-      descriptionKey: 'Session startup is taking longer than expected.',
+      titleKey: 'Still preparing',
+      descriptionKey: 'Runtime is taking longer than expected. Retry if the terminal stays quiet.',
     });
   });
 });

@@ -58,6 +58,11 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   });
   const getPath = vi.fn((name: string) => pathValues.get(name) ?? `/mock/${name}`);
   const getName = vi.fn(() => 'Infilux');
+  const setAppLogsPath = vi.fn((value?: string) => {
+    if (value) {
+      pathValues.set('logs', value);
+    }
+  });
   const setDockIcon = vi.fn();
   const nativeThemeOn = vi.fn((event: string, listener: Listener) => {
     const listeners = appListeners.get(`nativeTheme:${event}`) ?? [];
@@ -429,6 +434,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       setPath,
       getPath,
       getName,
+      setAppLogsPath,
       setDockIcon,
       nativeThemeOn,
       quit,
@@ -647,6 +653,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     setPath,
     getPath,
     getName,
+    setAppLogsPath,
     setDockIcon,
     nativeThemeOn,
     quit,
@@ -779,6 +786,7 @@ vi.mock('electron', () => ({
     getName: mainIndexTestDoubles.getName,
     getPath: mainIndexTestDoubles.getPath,
     setPath: mainIndexTestDoubles.setPath,
+    setAppLogsPath: mainIndexTestDoubles.setAppLogsPath,
     setAsDefaultProtocolClient: mainIndexTestDoubles.setAsDefaultProtocolClient,
     on: mainIndexTestDoubles.appOn,
     whenReady: mainIndexTestDoubles.whenReady,
@@ -1140,7 +1148,7 @@ describe('main entry', () => {
     vi.restoreAllMocks();
   }, 15000);
 
-  it('configures import-time protocol, userData, and Linux switches without enabling remote debugging by default', async () => {
+  it('configures import-time protocol, profile paths, and Linux switches without enabling remote debugging by default', async () => {
     process.env.ENSOAI_PROFILE = 'feature branch';
 
     await importMainModule({
@@ -1161,6 +1169,9 @@ describe('main entry', () => {
     expect(mainIndexTestDoubles.setPath).toHaveBeenCalledWith(
       'sessionData',
       join('/mock/appData', 'Infilux-feature-branch', 'session-data')
+    );
+    expect(mainIndexTestDoubles.setAppLogsPath).toHaveBeenCalledWith(
+      join('/mock/appData', 'Infilux-feature-branch', 'logs')
     );
     expect(mainIndexTestDoubles.setAsDefaultProtocolClient).toHaveBeenCalledWith(
       'infilux',
@@ -1201,6 +1212,9 @@ describe('main entry', () => {
     expect(mainIndexTestDoubles.setPath).toHaveBeenCalledWith(
       'userData',
       join('/mock/appData', 'Infilux-dev')
+    );
+    expect(mainIndexTestDoubles.setAppLogsPath).toHaveBeenCalledWith(
+      join('/mock/appData', 'Infilux-dev', 'logs')
     );
     expect(__testables.sanitizeProfileName(' !!! ')).toBe('');
   });

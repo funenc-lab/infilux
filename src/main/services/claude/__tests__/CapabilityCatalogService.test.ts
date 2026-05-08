@@ -401,6 +401,37 @@ describe('listClaudeCapabilityCatalog', () => {
     );
   });
 
+  it('lists quarantined worktree-native Claude skills separately from active capabilities', async () => {
+    writeTextFile(
+      join(worktreePath, '.claude', 'skills.disabled', 'planner', 'SKILL.md'),
+      ['---', 'name: Planner', 'description: Quarantined planner', '---'].join('\n')
+    );
+
+    const catalog = await listClaudeCapabilityCatalog(
+      { repoPath, worktreePath },
+      {
+        getUserClaudeConfigDirs: () => [userClaudeDir],
+        readLocalClaudeJson: async () => null,
+        readLocalProjectSettings: async () => null,
+        readLocalGeminiSettings: async () => null,
+        readLocalGeminiProjectSettings: async () => null,
+      }
+    );
+
+    expect(catalog.capabilities.map((item) => item.id)).not.toContain('legacy-skill:planner');
+    expect(catalog.disabledNativeSkills).toEqual([
+      expect.objectContaining({
+        id: 'legacy-skill:planner',
+        kind: 'legacy-skill',
+        name: 'Planner',
+        sourceScope: 'worktree',
+        sourcePath: join(worktreePath, '.claude', 'skills.disabled', 'planner', 'SKILL.md'),
+        isAvailable: false,
+        isConfigurable: true,
+      }),
+    ]);
+  });
+
   it('discovers remote commands, subagents, skills from supported roots, and MCP sources with remote tagging', async () => {
     const remoteRepoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
     const remoteWorktreePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktrees/feature-a');
@@ -452,6 +483,12 @@ describe('listClaudeCapabilityCatalog', () => {
         '---',
         'name: Remote Worktree Skill',
         'description: Remote worktree legacy skill',
+        '---',
+      ].join('\n'),
+      '/srv/repo/worktrees/feature-a/.claude/skills.disabled/quarantined-skill/SKILL.md': [
+        '---',
+        'name: Remote Quarantined Skill',
+        'description: Remote quarantined skill',
         '---',
       ].join('\n'),
       '/srv/repo/worktrees/feature-a/.agents/skills/worktree-agent-skill/SKILL.md': [
@@ -605,6 +642,20 @@ describe('listClaudeCapabilityCatalog', () => {
           name: 'SKILL.md',
         },
       ],
+      '/srv/repo/worktrees/feature-a/.claude/skills.disabled': [
+        {
+          path: '/srv/repo/worktrees/feature-a/.claude/skills.disabled/quarantined-skill',
+          isDirectory: true,
+          name: 'quarantined-skill',
+        },
+      ],
+      '/srv/repo/worktrees/feature-a/.claude/skills.disabled/quarantined-skill': [
+        {
+          path: '/srv/repo/worktrees/feature-a/.claude/skills.disabled/quarantined-skill/SKILL.md',
+          isDirectory: false,
+          name: 'SKILL.md',
+        },
+      ],
       '/srv/repo/worktrees/feature-a/.agents/skills': [
         {
           path: '/srv/repo/worktrees/feature-a/.agents/skills/worktree-agent-skill',
@@ -713,6 +764,16 @@ describe('listClaudeCapabilityCatalog', () => {
         }),
       ])
     );
+    expect(catalog.disabledNativeSkills).toEqual([
+      expect.objectContaining({
+        id: 'legacy-skill:quarantined-skill',
+        name: 'Remote Quarantined Skill',
+        sourceScope: 'remote',
+        sourcePath:
+          '/srv/repo/worktrees/feature-a/.claude/skills.disabled/quarantined-skill/SKILL.md',
+        isAvailable: false,
+      }),
+    ]);
     expect(catalog.sharedMcpServers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

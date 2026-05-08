@@ -6,6 +6,7 @@ import {
   Clock,
   FolderGit2,
   FolderMinus,
+  ListFilter,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -355,6 +356,7 @@ export function RepositorySidebar({
 
   // Filter by group and search
   const hasSearchFilter = parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0;
+  const SearchFilterIcon = parsedSearch.hasActiveFilter ? ListFilter : Search;
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
 
   const filteredRepos = useMemo(() => {
@@ -547,7 +549,7 @@ export function RepositorySidebar({
         )}
 
         <div className="control-sidebar-filter control-sidebar-search">
-          <Search className="control-sidebar-search-icon h-3.5 w-3.5" />
+          <SearchFilterIcon className="control-sidebar-search-icon h-3.5 w-3.5" />
           <input
             ref={searchInputRef}
             type="text"
@@ -620,7 +622,7 @@ export function RepositorySidebar({
         {filteredRepos.length === 0 && hasSearchFilter ? (
           <div className="flex h-full items-start justify-start px-2 py-3">
             <SidebarEmptyState
-              icon={<Search className="h-4.5 w-4.5" />}
+              icon={<SearchFilterIcon className="h-4.5 w-4.5" />}
               label={t('Filtered View')}
               title={t('No matches')}
               description={t(

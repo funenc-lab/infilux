@@ -77,6 +77,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo',
+          repoPath: '/projects/ensoai',
+          projectName: 'ensoai',
+          worktreeName: 'feature-panel',
+          branchName: 'feature/panel',
           createdAt: 10,
           pid: 4444,
           isActive: true,
@@ -115,7 +119,8 @@ describe('appResourceManagerModel', () => {
     expect(sections[0]?.items[1]?.actions.map((action) => action.label)).toEqual([
       'Force Terminate',
     ]);
-    expect(sections[1]?.items[0]?.title).toBe('Terminal session');
+    expect(sections[1]?.items[0]?.title).toBe('ensoai / feature-panel');
+    expect(sections[1]?.items[0]?.subtitle).toBe('feature/panel');
     expect(sections[1]?.items[0]?.actions.map((action) => action.label)).toEqual(['Kill Session']);
     expect(sections[2]?.items[0]?.title).toBe('Hapi Server');
   });
@@ -215,6 +220,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/live',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'live',
+          branchName: 'feature/live',
           createdAt: 15,
           pid: 4445,
           isActive: true,
@@ -287,6 +296,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/live',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'live',
+          branchName: 'feature/live',
           createdAt: 15,
           pid: 4445,
           isActive: false,
@@ -301,8 +314,8 @@ describe('appResourceManagerModel', () => {
     const sections = buildAppResourceManagerSections(snapshot as never, zhT);
     const sessionItem = sections[0]?.items[0];
 
-    expect(sessionItem?.title).toBe('终端会话');
-    expect(sessionItem?.subtitle).toBe('本地 后端 · 进程 ID 4445');
+    expect(sessionItem?.title).toBe('repo / live');
+    expect(sessionItem?.subtitle).toBe('feature/live');
     expect(sessionItem?.metrics).toEqual([
       {
         key: 'cwd',
@@ -361,6 +374,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'agent',
           backend: 'local',
           cwd: '/repo/dead',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'dead',
+          branchName: null,
           createdAt: 20,
           pid: null,
           isActive: false,
@@ -410,6 +427,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/stale',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'stale',
+          branchName: null,
           createdAt: 20,
           pid: null,
           isActive: false,
@@ -459,6 +480,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/idle',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'idle',
+          branchName: null,
           createdAt: 10,
           pid: 4444,
           isActive: false,
@@ -476,6 +501,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/stale',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'stale',
+          branchName: null,
           createdAt: 15,
           pid: 4445,
           isActive: false,
@@ -493,6 +522,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'agent',
           backend: 'remote',
           cwd: '/__remote__/repo',
+          repoPath: '/projects/ensoai',
+          projectName: 'ensoai',
+          worktreeName: 'remote',
+          branchName: null,
           createdAt: 20,
           pid: 5555,
           isActive: false,
@@ -542,6 +575,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/active',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'active',
+          branchName: null,
           createdAt: 10,
           pid: 4444,
           isActive: false,
@@ -559,6 +596,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'agent',
           backend: 'local',
           cwd: '/repo/unknown',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'unknown',
+          branchName: null,
           createdAt: 20,
           pid: 5555,
           isActive: null,
@@ -623,6 +664,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/live',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'live',
+          branchName: null,
           createdAt: 20,
           pid: 4444,
           isActive: true,
@@ -640,6 +685,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'agent',
           backend: 'local',
           cwd: '/repo/stale',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'stale',
+          branchName: null,
           createdAt: 10,
           pid: null,
           isActive: false,
@@ -737,6 +786,10 @@ describe('appResourceManagerModel', () => {
           sessionKind: 'agent',
           backend: 'local',
           cwd: '/repo/stale',
+          repoPath: '/repo',
+          projectName: 'repo',
+          worktreeName: 'stale',
+          branchName: null,
           createdAt: 10,
           pid: null,
           isActive: false,

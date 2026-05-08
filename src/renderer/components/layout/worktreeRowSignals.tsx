@@ -63,21 +63,6 @@ export function buildWorktreeInlineItems({
   const terminalSummary = `${activity.terminalCount} ${t('terminals')}`;
 
   return [
-    isMain
-      ? {
-          key: 'main',
-          priority: 'medium' as const,
-          content: <span className="control-tree-flag control-tree-flag-main">{t('Main')}</span>,
-        }
-      : !isPrunable && isMerged
-        ? {
-            key: 'merged',
-            priority: 'medium' as const,
-            content: (
-              <span className="control-tree-flag control-tree-flag-merged">{t('Merged')}</span>
-            ),
-          }
-        : null,
     hasDiffStats
       ? {
           key: 'diff',
@@ -117,6 +102,21 @@ export function buildWorktreeInlineItems({
           ),
         }
       : null,
+    isMain
+      ? {
+          key: 'main',
+          priority: 'medium' as const,
+          content: <span className="control-tree-flag control-tree-flag-main">{t('Main')}</span>,
+        }
+      : !isPrunable && isMerged
+        ? {
+            key: 'merged',
+            priority: 'medium' as const,
+            content: (
+              <span className="control-tree-flag control-tree-flag-merged">{t('Merged')}</span>
+            ),
+          }
+        : null,
     activity.agentCount > 0
       ? {
           key: 'agents',

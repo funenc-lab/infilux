@@ -1956,6 +1956,69 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('mounts recovered workspace canvas sessions immediately so recovery does not wait for tile expansion', async () => {
+    testState.settings.agentSessionDisplayMode = 'global-canvas';
+
+    const sessions = Array.from({ length: 14 }, (_, index) =>
+      createSession({
+        id: `session-${index}`,
+        sessionId: `provider-${index}`,
+        backendSessionId: `backend-${index}`,
+        repoPath: '/repo',
+        cwd: `/repo/worktree-${index}`,
+        name: `Gemini ${index}`,
+        recovered: index === 13,
+        recoveryState: index === 13 ? 'live' : undefined,
+        persistenceEnabled: index === 13,
+        hostSessionKey: index === 13 ? 'host-session-13' : undefined,
+      })
+    );
+
+    useAgentSessionsStore.setState({
+      sessions,
+      activeIds: Object.fromEntries(sessions.map((session) => [session.cwd, session.id])),
+      groupStates: Object.fromEntries(
+        sessions.map((session, index) => [
+          session.cwd,
+          {
+            groups: [
+              {
+                id: `group-${index}`,
+                sessionIds: [session.id],
+                activeSessionId: session.id,
+              },
+            ],
+            activeGroupId: `group-${index}`,
+            flexPercents: [100],
+          },
+        ])
+      ),
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree-0',
+      workspaceCanvasWorktrees: sessions.map((session) => ({
+        repoPath: session.repoPath,
+        worktreePath: session.cwd,
+      })),
+    });
+
+    expect(mounted.container.querySelectorAll('[data-agent-session-id]')).toHaveLength(14);
+    expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(12);
+    expect(
+      mounted.container.querySelector(
+        '[data-testid="agent-terminal"][data-session-id="session-13"]'
+      )
+    ).not.toBeNull();
+    expect(
+      mounted.container.querySelector(
+        '[data-agent-canvas-deferred="true"][data-agent-session-id="session-13"]'
+      )
+    ).toBeNull();
+
+    await mounted.unmount();
+  });
+
   it('keeps workspace canvas terminal mounts stable when switching the current worktree', async () => {
     testState.settings.agentSessionDisplayMode = 'global-canvas';
 

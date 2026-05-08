@@ -8,6 +8,8 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
   const listClaudeCapabilityCatalog = vi.fn();
   const resolveClaudePolicy = vi.fn();
   const prepareClaudeAgentLaunch = vi.fn();
+  const disableWorkspaceNativeClaudeSkill = vi.fn();
+  const restoreWorkspaceNativeClaudeSkill = vi.fn();
 
   function reset() {
     handlers.clear();
@@ -50,6 +52,18 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
         errors: [],
       },
     });
+    disableWorkspaceNativeClaudeSkill.mockReset();
+    disableWorkspaceNativeClaudeSkill.mockResolvedValue({
+      ok: true,
+      sourcePath: '/repo/worktrees/feature-a/.claude/skills/planner/SKILL.md',
+      disabledPath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner',
+    });
+    restoreWorkspaceNativeClaudeSkill.mockReset();
+    restoreWorkspaceNativeClaudeSkill.mockResolvedValue({
+      ok: true,
+      sourcePath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner/SKILL.md',
+      restoredPath: '/repo/worktrees/feature-a/.claude/skills/planner',
+    });
   }
 
   return {
@@ -57,6 +71,8 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
     listClaudeCapabilityCatalog,
     resolveClaudePolicy,
     prepareClaudeAgentLaunch,
+    disableWorkspaceNativeClaudeSkill,
+    restoreWorkspaceNativeClaudeSkill,
     reset,
   };
 });
@@ -79,6 +95,11 @@ vi.mock('../../services/claude/ClaudePolicyResolver', () => ({
 
 vi.mock('../../services/claude/ClaudeSessionLaunchPreparation', () => ({
   prepareClaudeAgentLaunch: claudePolicyTestDoubles.prepareClaudeAgentLaunch,
+}));
+
+vi.mock('../../services/claude/ClaudeNativeSkillService', () => ({
+  disableWorkspaceNativeClaudeSkill: claudePolicyTestDoubles.disableWorkspaceNativeClaudeSkill,
+  restoreWorkspaceNativeClaudeSkill: claudePolicyTestDoubles.restoreWorkspaceNativeClaudeSkill,
 }));
 
 function getHandler(channel: string) {
@@ -171,5 +192,43 @@ describe('Claude policy IPC handlers', () => {
       worktreePolicy: null,
     });
     expect(claudePolicyTestDoubles.prepareClaudeAgentLaunch).toHaveBeenCalledWith(previewRequest);
+  });
+
+  it('delegates native skill disable requests to the native skill service', async () => {
+    const { registerClaudePolicyHandlers } = await import('../claudePolicy');
+    registerClaudePolicyHandlers();
+
+    const request = {
+      worktreePath: '/repo/worktrees/feature-a',
+      sourcePath: '/repo/worktrees/feature-a/.claude/skills/planner/SKILL.md',
+    };
+
+    await expect(
+      getHandler(IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_DISABLE)({}, request)
+    ).resolves.toEqual({
+      ok: true,
+      sourcePath: '/repo/worktrees/feature-a/.claude/skills/planner/SKILL.md',
+      disabledPath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner',
+    });
+    expect(claudePolicyTestDoubles.disableWorkspaceNativeClaudeSkill).toHaveBeenCalledWith(request);
+  });
+
+  it('delegates native skill restore requests to the native skill service', async () => {
+    const { registerClaudePolicyHandlers } = await import('../claudePolicy');
+    registerClaudePolicyHandlers();
+
+    const request = {
+      worktreePath: '/repo/worktrees/feature-a',
+      sourcePath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner/SKILL.md',
+    };
+
+    await expect(
+      getHandler(IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_RESTORE)({}, request)
+    ).resolves.toEqual({
+      ok: true,
+      sourcePath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner/SKILL.md',
+      restoredPath: '/repo/worktrees/feature-a/.claude/skills/planner',
+    });
+    expect(claudePolicyTestDoubles.restoreWorkspaceNativeClaudeSkill).toHaveBeenCalledWith(request);
   });
 });

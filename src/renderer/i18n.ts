@@ -101,6 +101,42 @@ const rendererZhTranslations: Record<string, string> = {
   'Only show live Agent sessions': decodeEscapedUnicode(
     '\\u4ec5\\u663e\\u793a\\u6d3b\\u8dc3 Agent \\u4f1a\\u8bdd'
   ),
+  'Agent runtime': decodeEscapedUnicode('Agent \\u8fd0\\u884c\\u65f6'),
+  'Preparing runtime': decodeEscapedUnicode('\\u6b63\\u5728\\u51c6\\u5907\\u8fd0\\u884c\\u65f6'),
+  'Attaching the terminal and waiting for the agent prompt.': decodeEscapedUnicode(
+    '\\u6b63\\u5728\\u9644\\u7740\\u7ec8\\u7aef\\u5e76\\u7b49\\u5f85 Agent \\u63d0\\u793a\\u8f93\\u5165\\u3002'
+  ),
+  'Still preparing': decodeEscapedUnicode('\\u4ecd\\u5728\\u51c6\\u5907'),
+  'Runtime is taking longer than expected. Retry if the terminal stays quiet.':
+    decodeEscapedUnicode(
+      '\\u8fd0\\u884c\\u65f6\\u8017\\u65f6\\u8d85\\u51fa\\u9884\\u671f\\u3002\\u5982\\u679c\\u7ec8\\u7aef\\u6301\\u7eed\\u65e0\\u8f93\\u51fa\\uff0c\\u53ef\\u4ee5\\u91cd\\u8bd5\\u3002'
+    ),
+  'This skill is disabled in policy, but its source file is inside this worktree .claude/skills folder. Claude may still auto-load it until the file is moved, renamed, or removed.':
+    decodeEscapedUnicode(
+      '\\u6b64 Skill \\u5df2\\u5728\\u7b56\\u7565\\u4e2d\\u7981\\u7528\\uff0c\\u4f46\\u5b83\\u7684\\u6e90\\u6587\\u4ef6\\u4ecd\\u4f4d\\u4e8e\\u6b64 worktree \\u7684 .claude/skills \\u6587\\u4ef6\\u5939\\u4e2d\\u3002Claude \\u4ecd\\u53ef\\u80fd\\u81ea\\u52a8\\u52a0\\u8f7d\\u5b83\\uff0c\\u76f4\\u5230\\u8be5\\u6587\\u4ef6\\u88ab\\u79fb\\u52a8\\u3001\\u91cd\\u547d\\u540d\\u6216\\u79fb\\u9664\\u3002'
+    ),
+  'Disable file': decodeEscapedUnicode('\\u7981\\u7528\\u6587\\u4ef6'),
+  'Quarantined Skills': decodeEscapedUnicode('\\u5df2\\u9694\\u79bb\\u7684 Skill'),
+  'Skill folders moved out of this worktree .claude/skills path.': decodeEscapedUnicode(
+    '\\u5df2\\u4ece\\u6b64 worktree \\u7684 .claude/skills \\u8def\\u5f84\\u79fb\\u51fa\\u7684 Skill \\u6587\\u4ef6\\u5939\\u3002'
+  ),
+  Quarantined: decodeEscapedUnicode('\\u5df2\\u9694\\u79bb'),
+  'Restore file': decodeEscapedUnicode('\\u6062\\u590d\\u6587\\u4ef6'),
+  'Skill file disabled': decodeEscapedUnicode('Skill \\u6587\\u4ef6\\u5df2\\u7981\\u7528'),
+  'The skill folder was moved out of the worktree .claude/skills path.': decodeEscapedUnicode(
+    '\\u8be5 Skill \\u6587\\u4ef6\\u5939\\u5df2\\u79fb\\u51fa worktree \\u7684 .claude/skills \\u8def\\u5f84\\u3002'
+  ),
+  'Unable to disable skill file': decodeEscapedUnicode(
+    '\\u65e0\\u6cd5\\u7981\\u7528 Skill \\u6587\\u4ef6'
+  ),
+  'Skill file restored': decodeEscapedUnicode('Skill \\u6587\\u4ef6\\u5df2\\u6062\\u590d'),
+  'The skill folder was moved back into the worktree .claude/skills path.': decodeEscapedUnicode(
+    '\\u8be5 Skill \\u6587\\u4ef6\\u5939\\u5df2\\u79fb\\u56de worktree \\u7684 .claude/skills \\u8def\\u5f84\\u3002'
+  ),
+  'Unable to restore skill file': decodeEscapedUnicode(
+    '\\u65e0\\u6cd5\\u6062\\u590d Skill \\u6587\\u4ef6'
+  ),
+  'Needs attention': decodeEscapedUnicode('\\u9700\\u8981\\u5173\\u6ce8'),
   'Agent worktrees': decodeEscapedUnicode('Agent \\u5de5\\u4f5c\\u6811'),
   'Worktree panel actions': decodeEscapedUnicode('Worktree \\u9762\\u677f\\u64cd\\u4f5c'),
   'Temp session actions': decodeEscapedUnicode('\\u4e34\\u65f6\\u4f1a\\u8bdd\\u64cd\\u4f5c'),
@@ -379,6 +415,7 @@ const rendererZhTranslations: Record<string, string> = {
   'Usage Analytics': decodeEscapedUnicode('\\u7528\\u91cf\\u5206\\u6790'),
   'Project Scope': decodeEscapedUnicode('\\u9879\\u76ee\\u7ef4\\u5ea6'),
   'Token Analytics': decodeEscapedUnicode('Token \\u7edf\\u8ba1'),
+  'Token usage summary': decodeEscapedUnicode('Token \\u7528\\u91cf\\u6458\\u8981'),
   'Review project token usage across tracked providers.': decodeEscapedUnicode(
     '\\u67e5\\u770b\\u5df2\\u8ddf\\u8e2a provider \\u7684\\u9879\\u76ee token \\u7528\\u91cf\\u3002'
   ),
@@ -401,6 +438,7 @@ const rendererZhTranslations: Record<string, string> = {
     '\\u6b63\\u5728\\u626b\\u63cf token \\u7528\\u91cf...'
   ),
   'Token Usage': decodeEscapedUnicode('Token \\u7528\\u91cf'),
+  'Token Mix': decodeEscapedUnicode('Token \\u6784\\u6210'),
   'Refresh token usage': decodeEscapedUnicode('\\u5237\\u65b0 token \\u7528\\u91cf'),
   'Refreshing token usage': decodeEscapedUnicode(
     '\\u6b63\\u5728\\u5237\\u65b0 token \\u7528\\u91cf'

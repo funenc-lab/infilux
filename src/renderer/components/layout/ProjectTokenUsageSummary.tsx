@@ -1,5 +1,5 @@
 import type { ProjectTokenUsageSnapshot } from '@shared/types';
-import { AlertTriangle, FolderGit2 } from 'lucide-react';
+import { AlertTriangle, CircleAlert, FolderGit2, Radar } from 'lucide-react';
 import { useMemo } from 'react';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -32,75 +32,129 @@ export function ProjectTokenUsageSummary({
 
   return (
     <section
-      className="control-panel-muted rounded-lg px-4 py-4"
+      className="space-y-4"
       aria-busy={loading ? true : undefined}
+      aria-label={t('Token usage summary')}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="ui-type-label text-muted-foreground/72">{t('Project Totals')}</div>
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="ui-type-title-lg text-foreground">{model.totalTokensLabel}</span>
-            <span className="ui-type-meta text-muted-foreground/78">{model.projectCountLabel}</span>
-            <span className="ui-type-meta text-muted-foreground/78">{model.sessionCountLabel}</span>
-            <span className="ui-type-meta text-muted-foreground/78">
-              {model.providerIssueCountLabel}
-            </span>
-          </div>
-          {model.freshness && freshnessTime ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2 pt-1">
-              <span
-                className={cn(
-                  'control-chip',
-                  model.freshness.tone === 'fresh' &&
-                    'border-primary/32 bg-primary/8 text-foreground',
-                  model.freshness.tone === 'cached' &&
-                    'border-border/56 bg-[color:color-mix(in_oklch,var(--control-surface)_54%,transparent)] text-muted-foreground',
-                  model.freshness.tone === 'refreshing' &&
-                    'border-warning/36 bg-warning/10 text-warning-foreground'
-                )}
-              >
-                {t(model.freshness.statusLabel)}
-              </span>
-              <span className="ui-type-meta min-w-0 text-muted-foreground/72">
-                {t('Updated {{time}}', { time: freshnessTime })}
-              </span>
+      <div className="control-panel rounded-lg px-4 py-4">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,0.38fr)]">
+          <div className="min-w-0 space-y-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Radar className="h-4 w-4 shrink-0 text-primary/82" aria-hidden="true" />
+              <div className="ui-type-label text-muted-foreground/72">{t('Project Totals')}</div>
+              {model.freshness && freshnessTime ? (
+                <span
+                  className={cn(
+                    'control-chip shrink-0',
+                    model.freshness.tone === 'fresh' &&
+                      'border-primary/32 bg-primary/8 text-foreground',
+                    model.freshness.tone === 'cached' &&
+                      'border-border/56 bg-[color:color-mix(in_oklch,var(--control-surface)_54%,transparent)] text-muted-foreground',
+                    model.freshness.tone === 'refreshing' && 'control-chip-wait'
+                  )}
+                >
+                  {t(model.freshness.statusLabel)}
+                </span>
+              ) : null}
             </div>
-          ) : null}
+
+            <div className="flex min-w-0 flex-wrap items-end gap-x-4 gap-y-1">
+              <div className="min-w-0">
+                <div className="text-[2rem] font-semibold leading-none tracking-[-0.04em] text-foreground">
+                  {model.totalTokensLabel}
+                </div>
+                <div className="ui-type-meta mt-1 text-muted-foreground/68">
+                  {t('Total tokens')}
+                </div>
+              </div>
+              {freshnessTime ? (
+                <div className="ui-type-meta pb-1 text-muted-foreground/72">
+                  {t('Updated {{time}}', { time: freshnessTime })}
+                </div>
+              ) : null}
+            </div>
+
+            {model.hasUsage ? (
+              <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {model.overviewMetrics.map((metric) => (
+                  <div
+                    key={metric.key}
+                    className="min-w-0 rounded-md border border-border/42 bg-[color:color-mix(in_oklch,var(--control-surface-muted)_54%,transparent)] px-3 py-2"
+                  >
+                    <dt className="ui-type-meta truncate text-muted-foreground/62">
+                      {t(metric.label)}
+                    </dt>
+                    <dd className="ui-type-block-title mt-1 truncate text-foreground">
+                      {metric.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+            <div className="rounded-md border border-border/42 bg-[color:color-mix(in_oklch,var(--control-surface-muted)_42%,transparent)] px-3 py-2">
+              <div className="ui-type-block-title text-foreground">{model.projectCountLabel}</div>
+              <div className="ui-type-meta text-muted-foreground/62">{t('Tracked Projects')}</div>
+            </div>
+            <div className="rounded-md border border-border/42 bg-[color:color-mix(in_oklch,var(--control-surface-muted)_42%,transparent)] px-3 py-2">
+              <div className="ui-type-block-title text-foreground">{model.sessionCountLabel}</div>
+              <div className="ui-type-meta text-muted-foreground/62">{t('Sessions')}</div>
+            </div>
+            <div
+              className={cn(
+                'rounded-md border border-border/42 bg-[color:color-mix(in_oklch,var(--control-surface-muted)_42%,transparent)] px-3 py-2',
+                model.providerStatuses.length > 0 && 'border-warning/32 bg-warning/8'
+              )}
+            >
+              <div className="ui-type-block-title text-foreground">
+                {model.providerIssueCountLabel}
+              </div>
+              <div className="ui-type-meta text-muted-foreground/62">{t('Provider Coverage')}</div>
+            </div>
+          </div>
         </div>
       </div>
 
       {model.hasUsage ? (
-        <div className="mt-4 grid gap-3 border-y border-border/55 py-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-          <dl className="grid gap-3 sm:grid-cols-2">
-            {model.primaryMetrics.map((metric) => (
-              <div key={metric.key} className="min-w-0">
-                <dt className="ui-type-meta text-muted-foreground/64">{t(metric.label)}</dt>
-                <dd className="ui-type-block-title mt-1 truncate text-foreground">
-                  {metric.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <dl className="grid gap-2 sm:grid-cols-3 lg:border-s lg:border-border/45 lg:ps-3">
-            {model.secondaryMetrics.map((metric) => (
-              <div key={metric.key} className="min-w-0">
-                <dt className="ui-type-meta text-muted-foreground/60">{t(metric.label)}</dt>
-                <dd className="ui-type-meta mt-1 truncate text-foreground">{metric.value}</dd>
-              </div>
-            ))}
-          </dl>
+        <div className="control-panel-muted rounded-lg px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="ui-type-label text-muted-foreground/72">{t('Token Mix')}</div>
+            <div className="h-px flex-1 bg-border/50" />
+          </div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+            <dl className="grid gap-3 sm:grid-cols-2">
+              {model.primaryMetrics.map((metric) => (
+                <div key={metric.key} className="min-w-0">
+                  <dt className="ui-type-meta text-muted-foreground/64">{t(metric.label)}</dt>
+                  <dd className="ui-type-block-title mt-1 truncate text-foreground">
+                    {metric.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <dl className="grid gap-2 sm:grid-cols-3 lg:border-s lg:border-border/45 lg:ps-3">
+              {model.secondaryMetrics.map((metric) => (
+                <div key={metric.key} className="min-w-0">
+                  <dt className="ui-type-meta text-muted-foreground/60">{t(metric.label)}</dt>
+                  <dd className="ui-type-meta mt-1 truncate text-foreground">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
       ) : null}
 
       {errorMessage ? (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-destructive">
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-destructive">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <p className="ui-type-meta min-w-0 break-words">{errorMessage}</p>
         </div>
       ) : null}
 
       {!loading && !errorMessage && model.emptyState ? (
-        <div className="mt-4 rounded-lg border border-border/45 bg-[color:color-mix(in_oklch,var(--control-surface)_50%,transparent)] px-3 py-3">
+        <div className="control-panel-muted rounded-lg px-4 py-4">
           <div className="ui-type-block-title text-foreground">{t(model.emptyState.title)}</div>
           <p className="ui-type-meta mt-1 text-muted-foreground/78">
             {t(model.emptyState.description)}
@@ -110,14 +164,14 @@ export function ProjectTokenUsageSummary({
       ) : null}
 
       {model.hasUsage && model.projects.length > 0 ? (
-        <div className="mt-5 space-y-3.5">
+        <div className="control-panel-muted rounded-lg px-4 py-4">
           <div className="flex items-center gap-3">
             <div className="ui-type-label text-muted-foreground/72">{t('Tracked Projects')}</div>
             <div className="h-px flex-1 bg-border/50" />
             <span className="control-chip">{model.projectCountLabel}</span>
           </div>
 
-          <div className="divide-y divide-border/55">
+          <div className="mt-2 divide-y divide-border/55">
             {model.projects.map((project) => (
               <article key={project.key} className="py-3.5 first:pt-0 last:pb-0">
                 <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
@@ -193,8 +247,9 @@ export function ProjectTokenUsageSummary({
       ) : null}
 
       {model.providerStatuses.length > 0 ? (
-        <div className="mt-5 space-y-3 border-t border-border/55 pt-4">
+        <div className="control-panel-muted rounded-lg px-4 py-4">
           <div className="flex items-center gap-3">
+            <CircleAlert className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
             <div className="ui-type-label text-muted-foreground/72">{t('Provider Coverage')}</div>
             <div className="h-px flex-1 bg-border/50" />
             <span className="control-chip">{model.providerIssueCountLabel}</span>
@@ -211,8 +266,9 @@ export function ProjectTokenUsageSummary({
                     'border-destructive/34 bg-destructive/8 text-destructive'
                 )}
               >
-                <div className="ui-type-block-title min-w-0 break-words">
-                  {status.label}: {t(status.statusLabel)}
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="ui-type-block-title min-w-0 break-words">{status.label}</span>
+                  <span className="control-chip shrink-0">{t(status.statusLabel)}</span>
                 </div>
                 {status.reason ? (
                   <p className="ui-type-meta mt-1 min-w-0 break-words text-muted-foreground/72">

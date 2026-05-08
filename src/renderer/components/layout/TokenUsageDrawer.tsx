@@ -36,8 +36,7 @@ function TokenUsageLoadingState() {
           <Skeleton className="h-3 w-28" />
           <Skeleton className="h-7 w-44 rounded-md" />
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          <Skeleton className="h-12 rounded-md" />
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <Skeleton className="h-12 rounded-md" />
           <Skeleton className="h-12 rounded-md" />
           <Skeleton className="h-12 rounded-md" />
@@ -50,8 +49,7 @@ function TokenUsageLoadingState() {
           <Skeleton className="h-4 w-2/5 rounded-md" />
           <Skeleton className="h-3 w-3/4" />
           <Skeleton className="h-2 w-full rounded-full" />
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            <Skeleton className="h-9 rounded-md" />
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <Skeleton className="h-9 rounded-md" />
             <Skeleton className="h-9 rounded-md" />
             <Skeleton className="h-9 rounded-md" />
@@ -164,7 +162,7 @@ export function TokenUsageDrawer({ open }: TokenUsageDrawerProps) {
       className="w-[min(42rem,calc(100vw-1rem))] max-w-[42rem] border-s border-border/70 bg-[color:var(--theme-popover-base)] shadow-[0_24px_64px_color-mix(in_oklch,var(--foreground)_18%,transparent)]"
     >
       <SheetHeader className="border-b border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--control-surface-muted)_62%,var(--background)_38%)_0%,color-mix(in_oklch,var(--control-surface)_36%,transparent)_100%)]">
-        <div className="min-w-0 space-y-3 pe-10">
+        <div className="flex min-w-0 items-start justify-between gap-3 pe-10">
           <div className="min-w-0 space-y-2">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <SheetTitle className="ui-type-title-lg min-w-0">{t('Token Analytics')}</SheetTitle>
@@ -174,20 +172,18 @@ export function TokenUsageDrawer({ open }: TokenUsageDrawerProps) {
               {t('Break down input, output, cache, and reasoning tokens by project and provider.')}
             </SheetDescription>
           </div>
-          <div className="flex min-w-0 items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 shrink-0 gap-2 rounded-md px-2.5 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => void loadTokenUsage({ forceRefresh: true })}
-              aria-label={refreshDescription}
-              title={refreshDescription}
-              disabled={loading}
-            >
-              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-              <span>{refreshLabel}</span>
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 shrink-0 gap-2 rounded-md px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => void loadTokenUsage({ forceRefresh: true })}
+            aria-label={refreshDescription}
+            title={refreshDescription}
+            disabled={loading}
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+            <span>{refreshLabel}</span>
+          </Button>
         </div>
       </SheetHeader>
 

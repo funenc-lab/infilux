@@ -6,7 +6,7 @@ import type {
 } from '@shared/types';
 import { getDisplayPath, getDisplayPathBasename, isWslUncPath } from '@shared/utils/path';
 import {
-  Activity,
+  BotMessageSquare,
   BrainCircuit,
   ChevronRight,
   Clock,
@@ -872,7 +872,11 @@ export function TreeSidebar({
     const repoPaths = new Set<string>();
 
     for (const session of agentSessions) {
-      if (!session.initialized) {
+      if (
+        !session.initialized ||
+        session.recoveryState === 'dead' ||
+        session.recoveryState === 'missing-host-session'
+      ) {
         continue;
       }
 
@@ -1486,7 +1490,7 @@ export function TreeSidebar({
               showAgentWorktreesOnly ? t('Show all worktrees') : t('Only show live Agent sessions')
             }
           >
-            <Activity className="h-3.5 w-3.5 shrink-0" />
+            <BotMessageSquare className="h-3.5 w-3.5 shrink-0" />
             <span>{t('Agent')}</span>
           </button>
         </div>
@@ -2089,6 +2093,12 @@ export function TreeSidebar({
                 worktreePolicyTarget.worktree.path
               );
             }
+          }}
+          onNativeSkillFileChanged={() => {
+            markClaudePolicyStaleForWorktree(
+              worktreePolicyTarget.repo.path,
+              worktreePolicyTarget.worktree.path
+            );
           }}
         />
       ) : null}

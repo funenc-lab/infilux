@@ -209,6 +209,7 @@ function createCapabilityItem(params: {
   description?: string;
   sourceScope: ClaudeCapabilitySourceScope;
   sourcePath?: string;
+  isAvailable?: boolean;
   isConfigurable?: boolean;
 }): ClaudeCapabilityCatalogItem {
   return {
@@ -219,7 +220,7 @@ function createCapabilityItem(params: {
     sourceScope: params.sourceScope,
     sourcePath: params.sourcePath,
     sourcePaths: params.sourcePath ? [params.sourcePath] : undefined,
-    isAvailable: true,
+    isAvailable: params.isAvailable ?? true,
     isConfigurable: params.isConfigurable ?? params.sourceScope !== 'system',
   };
 }
@@ -402,7 +403,10 @@ async function listLocalSubagentItems(
 
 async function listLocalSkillItems(
   rootDir: string,
-  sourceScope: ClaudeCapabilitySourceScope
+  sourceScope: ClaudeCapabilitySourceScope,
+  options: {
+    isAvailable?: boolean;
+  } = {}
 ): Promise<ClaudeCapabilityCatalogItem[]> {
   const files = await listLocalMarkdownFiles(rootDir, {
     recursive: true,
@@ -421,6 +425,7 @@ async function listLocalSkillItems(
         description: meta?.description ?? (content ? parseMarkdownHeading(content) : undefined),
         sourceScope,
         sourcePath: filePath,
+        isAvailable: options.isAvailable,
       })
     );
   }
@@ -496,7 +501,10 @@ async function listRemoteSkillItems(
   repoPath: string,
   rootDir: string,
   listRemoteDirectory: typeof listRepositoryRemoteDirectory,
-  readRemoteTextFile: (repoPath: string, remotePath: string) => Promise<string | null>
+  readRemoteTextFile: (repoPath: string, remotePath: string) => Promise<string | null>,
+  options: {
+    isAvailable?: boolean;
+  } = {}
 ): Promise<ClaudeCapabilityCatalogItem[]> {
   const files = await listRemoteFiles(repoPath, rootDir, listRemoteDirectory, {
     recursive: true,
@@ -515,6 +523,7 @@ async function listRemoteSkillItems(
         description: meta?.description ?? (content ? parseMarkdownHeading(content) : undefined),
         sourceScope: 'remote',
         sourcePath: filePath,
+        isAvailable: options.isAvailable,
       })
     );
   }
@@ -980,6 +989,7 @@ export async function listClaudeCapabilityCatalog(
   const readRemoteClaudeJson = dependencies.readRepositoryClaudeJson ?? readRepositoryClaudeJson;
 
   const capabilities: ClaudeCapabilityCatalogItem[] = createBuiltinCommandItems();
+  const disabledNativeSkills: ClaudeCapabilityCatalogItem[] = [];
   const sharedMcpServers: ClaudeMcpCatalogItem[] = [];
   const personalMcpServers: ClaudeMcpCatalogItem[] = [];
 
@@ -1050,6 +1060,17 @@ export async function listClaudeCapabilityCatalog(
             repoPath,
             normalizeRemoteWorkspacePath(workspace.workspacePath),
             readRemoteTextFile
+          ))
+        );
+      }
+      if (worktreePath && isRemoteVirtualPath(worktreePath)) {
+        disabledNativeSkills.push(
+          ...(await listRemoteSkillItems(
+            repoPath,
+            `${normalizeRemoteWorkspacePath(worktreePath)}/.claude/skills.disabled`,
+            listRemoteDirectory,
+            readRemoteTextFile,
+            { isAvailable: false }
           ))
         );
       }
@@ -1203,11 +1224,19 @@ export async function listClaudeCapabilityCatalog(
           'worktree'
         ))
       );
+      disabledNativeSkills.push(
+        ...(await listLocalSkillItems(
+          path.join(worktreePath, '.claude', 'skills.disabled'),
+          'worktree',
+          { isAvailable: false }
+        ))
+      );
     }
   }
 
   return {
     capabilities: dedupeById(capabilities),
+    disabledNativeSkills: dedupeById(disabledNativeSkills),
     sharedMcpServers: dedupeById(sharedMcpServers),
     personalMcpServers: dedupeById(personalMcpServers),
     generatedAt: Date.now(),

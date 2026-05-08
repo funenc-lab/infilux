@@ -1,11 +1,17 @@
 import type {
   ClaudePolicyCatalogRequest,
+  DisableClaudeNativeSkillRequest,
   PrepareClaudePolicyLaunchRequest,
   ResolveClaudePolicyPreviewRequest,
+  RestoreClaudeNativeSkillRequest,
 } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain } from 'electron';
 import { listClaudeCapabilityCatalog } from '../services/claude/CapabilityCatalogService';
+import {
+  disableWorkspaceNativeClaudeSkill,
+  restoreWorkspaceNativeClaudeSkill,
+} from '../services/claude/ClaudeNativeSkillService';
 import { resolveClaudePolicy } from '../services/claude/ClaudePolicyResolver';
 import { prepareClaudeAgentLaunch } from '../services/claude/ClaudeSessionLaunchPreparation';
 
@@ -39,6 +45,20 @@ export function registerClaudePolicyHandlers(): void {
     IPC_CHANNELS.CLAUDE_POLICY_LAUNCH_PREPARE,
     async (_, request: PrepareClaudePolicyLaunchRequest) => {
       return prepareClaudeAgentLaunch(request);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_DISABLE,
+    async (_, request: DisableClaudeNativeSkillRequest) => {
+      return disableWorkspaceNativeClaudeSkill(request);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_RESTORE,
+    async (_, request: RestoreClaudeNativeSkillRequest) => {
+      return restoreWorkspaceNativeClaudeSkill(request);
     }
   );
 }

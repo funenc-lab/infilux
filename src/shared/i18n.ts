@@ -2582,6 +2582,7 @@ export const zhTranslations: Record<string, string> = {
   'Usage Analytics': '\u7528\u91cf\u5206\u6790',
   'Project Scope': '\u9879\u76ee\u7ef4\u5ea6',
   'Token Analytics': 'Token \u7edf\u8ba1',
+  'Token usage summary': 'Token \u7528\u91cf\u6458\u8981',
   'Review project token usage across tracked providers.':
     '\u67e5\u770b\u5df2\u8ddf\u8e2a provider \u7684\u9879\u76ee token \u7528\u91cf\u3002',
   'Break down input, output, cache, and reasoning tokens by project and provider.':
@@ -2599,6 +2600,7 @@ export const zhTranslations: Record<string, string> = {
   'Reasoning tokens': '\u63a8\u7406 token',
   'Scanning token usage...': '\u6b63\u5728\u626b\u63cf token \u7528\u91cf...',
   'Token Usage': 'Token \u7528\u91cf',
+  'Token Mix': 'Token \u6784\u6210',
   'Refresh token usage': '\u5237\u65b0 token \u7528\u91cf',
   'Refreshing token usage': '\u6b63\u5728\u5237\u65b0 token \u7528\u91cf',
   'Fresh scan': '\u6700\u65b0\u626b\u63cf',

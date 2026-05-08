@@ -5,6 +5,7 @@ import { ClaudePolicyBatchActions } from './ClaudePolicyBatchActions';
 import { ClaudePolicyDecisionControls } from './ClaudePolicyDecisionControls';
 import { ClaudePolicySourcePaths } from './ClaudePolicySourcePaths';
 import { type ClaudePolicyDecisionValue, getClaudePolicyDecision } from './model';
+import { getWorkspaceNativeClaudeSkillSourcePaths } from './sourcePaths';
 
 interface ClaudePolicyCapabilityListProps {
   sectionId?: string;
@@ -12,8 +13,10 @@ interface ClaudePolicyCapabilityListProps {
   description?: string;
   items: ClaudeCapabilityCatalogItem[];
   policy: ClaudePolicyConfig;
+  worktreePath?: string;
   onDecisionChange: (id: string, decision: ClaudePolicyDecisionValue) => void;
   onBatchDecisionChange: (ids: string[], decision: ClaudePolicyDecisionValue) => void;
+  onDisableNativeSkill?: (sourcePath: string) => void;
 }
 
 export function ClaudePolicyCapabilityList({
@@ -22,8 +25,10 @@ export function ClaudePolicyCapabilityList({
   description,
   items,
   policy,
+  worktreePath,
   onDecisionChange,
   onBatchDecisionChange,
+  onDisableNativeSkill,
 }: ClaudePolicyCapabilityListProps) {
   const { t } = useI18n();
   const itemIds = items.map((item) => item.id);
@@ -44,6 +49,10 @@ export function ClaudePolicyCapabilityList({
       <div className="space-y-2">
         {items.map((item) => {
           const decision = getClaudePolicyDecision(policy, 'capability', item.id);
+          const nativeClaudeSkillPaths =
+            decision === 'block' && item.kind === 'legacy-skill' && worktreePath
+              ? getWorkspaceNativeClaudeSkillSourcePaths(item, worktreePath)
+              : [];
 
           return (
             <div
@@ -66,6 +75,28 @@ export function ClaudePolicyCapabilityList({
                     triggerDataAttribute="data-policy-source-paths-trigger"
                     contentDataAttribute="data-policy-source-paths-content"
                   />
+                  {nativeClaudeSkillPaths.length > 0 ? (
+                    <div
+                      data-policy-native-warning={item.id}
+                      className="flex flex-col gap-2 rounded-lg border border-warning/45 bg-warning/8 px-3 py-2 ui-type-meta text-warning-foreground md:flex-row md:items-center md:justify-between"
+                    >
+                      <span>
+                        {t(
+                          'This skill is disabled in policy, but its source file is inside this worktree .claude/skills folder. Claude may still auto-load it until the file is moved, renamed, or removed.'
+                        )}
+                      </span>
+                      {onDisableNativeSkill ? (
+                        <button
+                          type="button"
+                          data-policy-native-action="disable-file"
+                          className="shrink-0 rounded-md border border-warning/45 bg-background/70 px-2 py-1 text-warning-foreground transition-colors hover:bg-warning/12"
+                          onClick={() => onDisableNativeSkill(nativeClaudeSkillPaths[0])}
+                        >
+                          {t('Disable file')}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
 
                 <ClaudePolicyDecisionControls

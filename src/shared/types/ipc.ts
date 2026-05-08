@@ -294,6 +294,8 @@ export const IPC_CHANNELS = {
   CLAUDE_POLICY_CATALOG_LIST: 'claude:policy:catalog:list',
   CLAUDE_POLICY_PREVIEW_RESOLVE: 'claude:policy:preview:resolve',
   CLAUDE_POLICY_LAUNCH_PREPARE: 'claude:policy:launch:prepare',
+  CLAUDE_POLICY_NATIVE_SKILL_DISABLE: 'claude:policy:nativeSkill:disable',
+  CLAUDE_POLICY_NATIVE_SKILL_RESTORE: 'claude:policy:nativeSkill:restore',
 
   // Claude MCP Management
   CLAUDE_PROJECT_TRUST_ENSURE: 'claude:projectTrust:ensure',

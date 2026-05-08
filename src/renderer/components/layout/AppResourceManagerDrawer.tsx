@@ -10,7 +10,6 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   SheetDescription,
@@ -45,21 +44,30 @@ interface PendingConfirmationState {
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-function getStatusBadgeVariant(status: AppResourceItem['status']) {
+function getStatusChipClassName(status: AppResourceItem['status']) {
   switch (status) {
-    case 'ready':
-      return 'success';
     case 'running':
-      return 'info';
+      return 'control-chip control-chip-live';
+    case 'ready':
+      return 'control-chip control-chip-done';
     case 'reconnecting':
-      return 'warning';
+      return 'control-chip control-chip-wait';
     case 'dead':
     case 'error':
-      return 'error';
-    case 'unavailable':
-      return 'warning';
+      return 'control-chip border-destructive/32 bg-destructive/8 text-destructive';
     default:
-      return 'secondary';
+      return 'control-chip';
+  }
+}
+
+function getResourceKindLabel(resource: AppResourceItem, translate: Translate) {
+  switch (resource.kind) {
+    case 'electron-process':
+      return translate('Electron runtime');
+    case 'session':
+      return translate(resource.sessionKind === 'terminal' ? 'Terminal' : 'Agent');
+    case 'service':
+      return translate('Support services');
   }
 }
 
@@ -222,28 +230,28 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
     <>
       <SheetPopup
         side="right"
-        className="w-[min(48rem,calc(100vw-1rem))] max-w-[48rem] border-s border-border/70 bg-[color:var(--theme-popover-base)] shadow-[0_24px_64px_color-mix(in_oklch,var(--foreground)_18%,transparent)]"
+        className="w-[min(50rem,calc(100vw-1rem))] max-w-[50rem] border-s border-border/70 bg-[color:var(--theme-popover-base)] shadow-[0_24px_64px_color-mix(in_oklch,var(--foreground)_18%,transparent)]"
       >
-        <SheetHeader className="border-b border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--control-surface-muted)_62%,var(--background)_38%)_0%,color-mix(in_oklch,var(--control-surface)_36%,transparent)_100%)]">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="ui-type-label text-muted-foreground/72">{t('Runtime Console')}</span>
-              {headerStats.map((stat) => (
-                <span key={stat.key} className="control-chip">
-                  <span className="text-foreground/90">{stat.value}</span>
-                  <span>{stat.label}</span>
-                </span>
-              ))}
-            </div>
-
-            <div className="flex items-start justify-between gap-4">
+        <SheetHeader className="border-b border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--control-surface-muted)_64%,var(--background)_36%)_0%,color-mix(in_oklch,var(--control-surface)_34%,transparent)_100%)]">
+          <div className="space-y-4">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-1">
-                <SheetTitle className="ui-type-title-lg">{t('Resource Manager')}</SheetTitle>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="control-chip control-chip-strong shrink-0">
+                    {t('Runtime Console')}
+                  </span>
+                  {loading ? (
+                    <span className="control-chip control-chip-live shrink-0">
+                      {t('Loading resources...')}
+                    </span>
+                  ) : null}
+                </div>
+                <SheetTitle className="ui-type-title-lg mt-2">{t('Resource Manager')}</SheetTitle>
                 <SheetDescription className="max-w-[42rem] text-muted-foreground/84">
                   {t('Inspect app runtime pressure and manage available resource actions.')}
                 </SheetDescription>
               </div>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
                 {bulkActions.map((action) => {
                   const isPending =
                     pendingActionKey === `${action.request.resourceId}:${action.request.kind}`;
@@ -253,12 +261,12 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
                       key={action.key}
                       variant={action.disabled ? 'outline' : 'secondary'}
                       size="sm"
-                      className="min-w-[11rem]"
+                      className="min-w-0 flex-1 justify-center sm:min-w-[11rem] sm:flex-none"
                       onClick={() => void runAction(action.request)}
                       disabled={action.disabled || isPending || loading}
                       title={action.description}
                     >
-                      {action.label}
+                      <span className="min-w-0 truncate">{action.label}</span>
                     </Button>
                   );
                 })}
@@ -276,8 +284,25 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
               </div>
             </div>
 
+            <div className="grid gap-2 sm:grid-cols-3">
+              {headerStats.map((stat) => (
+                <div
+                  key={stat.key}
+                  className="control-panel-muted rounded-xl px-3 py-2.5"
+                  data-resource-manager-stat={stat.key}
+                >
+                  <div className="ui-type-meta text-muted-foreground/64">{stat.label}</div>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-[1.35rem] font-semibold leading-none tracking-[-0.04em] text-foreground">
+                      {stat.value}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
             {bulkActions[0] ? (
-              <div className="control-panel-muted rounded-xl px-3 py-2.5">
+              <div className="control-panel-muted flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2.5">
                 <p className="ui-type-meta text-muted-foreground/82">
                   {bulkActions[0].description}
                 </p>
@@ -305,33 +330,40 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
 
           {snapshot ? (
             <>
-              <div className="grid gap-3 xl:grid-cols-3">
-                {summarySections.map((section) => (
-                  <section
-                    key={section.key}
-                    className="control-panel-muted rounded-[1.1rem] px-4 py-3.5"
-                  >
-                    <div className="ui-type-label text-muted-foreground/72">{section.title}</div>
-                    <dl className="mt-3 grid gap-2">
-                      {section.metrics.map((metric, index) => (
-                        <div
-                          key={metric.key}
-                          className={cn(
-                            'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-border/50',
-                            index === 0 ? 'pt-0' : 'border-t pt-2'
-                          )}
-                        >
-                          <dt className="ui-type-meta min-w-0 text-muted-foreground/78">
-                            {metric.label}
-                          </dt>
-                          <dd className="ui-type-meta shrink-0 text-right font-medium text-foreground">
-                            {metric.value}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </section>
-                ))}
+              <div className="control-panel-muted rounded-[1.25rem] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3">
+                  <div className="ui-type-label text-muted-foreground/72">
+                    {t('Runtime Console')}
+                  </div>
+                </div>
+                <div className="grid gap-2 xl:grid-cols-3">
+                  {summarySections.map((section) => (
+                    <section
+                      key={section.key}
+                      className="rounded-xl border border-border/45 bg-[color:color-mix(in_oklch,var(--control-surface)_42%,transparent)] px-3 py-3"
+                    >
+                      <div className="ui-type-label text-muted-foreground/74">{section.title}</div>
+                      <dl className="mt-3 grid gap-2">
+                        {section.metrics.map((metric, index) => (
+                          <div
+                            key={metric.key}
+                            className={cn(
+                              'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-border/50',
+                              index === 0 ? 'pt-0' : 'border-t pt-2'
+                            )}
+                          >
+                            <dt className="ui-type-meta min-w-0 text-muted-foreground/78">
+                              {metric.label}
+                            </dt>
+                            <dd className="ui-type-meta shrink-0 text-right font-medium text-foreground">
+                              {metric.value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </section>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -346,19 +378,24 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
                       {section.items.map((item) => (
                         <article
                           key={item.id}
-                          className="control-panel rounded-[1.15rem] px-4 py-4 md:px-5"
+                          className="control-panel rounded-[1.1rem] px-3.5 py-3.5 transition-colors hover:border-primary/24 hover:bg-accent/12 md:px-4"
+                          data-resource-manager-card={item.resource.kind}
                         >
-                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                             <div className="min-w-0 flex-1 space-y-1.5">
                               <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="ui-type-title-md min-w-0">{item.title}</h3>
-                                <Badge
-                                  size="sm"
-                                  variant={getStatusBadgeVariant(item.resource.status)}
-                                  className="uppercase tracking-[0.08em]"
+                                <span className="control-chip shrink-0">
+                                  {getResourceKindLabel(item.resource, t)}
+                                </span>
+                                <h3 className="ui-type-title-md min-w-0 truncate">{item.title}</h3>
+                                <span
+                                  className={cn(
+                                    getStatusChipClassName(item.resource.status),
+                                    'uppercase tracking-[0.08em]'
+                                  )}
                                 >
                                   {item.status}
-                                </Badge>
+                                </span>
                               </div>
                               <p className="ui-type-meta break-words text-muted-foreground/80">
                                 {item.subtitle}
@@ -404,13 +441,17 @@ export function AppResourceManagerDrawer({ open }: AppResourceManagerDrawerProps
                           </div>
 
                           {item.metrics.length > 0 ? (
-                            <dl className="mt-4 grid gap-x-6 gap-y-3 border-t border-border/55 pt-4 sm:grid-cols-2">
+                            <dl className="mt-3 grid gap-2 border-t border-border/55 pt-3 sm:grid-cols-2 xl:grid-cols-3">
                               {item.metrics.map((metric) => (
-                                <div key={metric.key} className="min-w-0">
+                                <div
+                                  key={metric.key}
+                                  className="min-w-0 rounded-lg border border-border/38 bg-[color:color-mix(in_oklch,var(--control-surface)_38%,transparent)] px-2.5 py-2"
+                                  data-resource-manager-metric={metric.key}
+                                >
                                   <dt className="ui-type-meta text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground/62">
                                     {metric.label}
                                   </dt>
-                                  <dd className="ui-type-body-sm mt-1 break-words text-foreground/92">
+                                  <dd className="ui-type-body-sm mt-1 min-w-0 break-words text-foreground/92">
                                     {metric.value}
                                   </dd>
                                 </div>

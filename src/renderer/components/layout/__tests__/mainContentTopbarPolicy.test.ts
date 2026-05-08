@@ -40,6 +40,15 @@ describe('main content topbar policy', () => {
     expect(mainContentSource).toContain('TokenUsagePopover');
   });
 
+  it('allows the shared topbar action cluster to wrap without clipping header buttons', () => {
+    expect(globalsSource).toContain('.control-topbar-actions-cluster {');
+    expect(globalsSource).toContain('min-width: 0;');
+    expect(globalsSource).toContain('max-width: 100%;');
+    expect(globalsSource).toContain('flex: 0 1 auto;');
+    expect(globalsSource).toContain('flex-wrap: wrap;');
+    expect(globalsSource).toContain('justify-content: flex-end;');
+  });
+
   it('keeps collapsed sidebar controls out of the topbar', () => {
     expect(mainContentSource).not.toContain('RunningProjectsPopover');
     expect(mainContentSource).not.toContain("title={t('Panels')}");

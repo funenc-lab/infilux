@@ -1,5 +1,5 @@
 import type { GitBranch as GitBranchType, GitWorktree } from '@shared/types';
-import { getDisplayPath } from '@shared/utils/path';
+import { getDisplayPath, isWslUncPath } from '@shared/utils/path';
 import {
   Copy,
   FolderOpen,
@@ -111,6 +111,7 @@ export const WorktreeItem = memo(function WorktreeItem({
   const branchDisplay = worktree.branch || t('Detached');
   const isPrunable = worktree.prunable;
   const displayWorktreePath = getDisplayPath(worktree.path);
+  const useLtrPathDisplay = isWslUncPath(displayWorktreePath);
 
   // Git sync operations
   const { ahead, behind, tracking, currentBranch, isSyncing, handleSync, handlePublish } =
@@ -288,6 +289,15 @@ export const WorktreeItem = memo(function WorktreeItem({
                   >
                     {branchDisplay}
                   </span>
+                </div>
+                <div
+                  className={cn(
+                    'control-tree-subtitle truncate [text-align:left]',
+                    useLtrPathDisplay ? '[direction:ltr]' : '[direction:rtl]'
+                  )}
+                  title={displayWorktreePath}
+                >
+                  {displayWorktreePath}
                 </div>
               </div>
               {inlineItems.length > 0 ? (

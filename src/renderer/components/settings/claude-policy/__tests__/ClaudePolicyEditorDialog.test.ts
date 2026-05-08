@@ -62,6 +62,10 @@ const previewResolve =
       worktreePolicy: ClaudeProjectPolicy | null;
     }) => Promise<ResolveClaudePolicyPreviewResult>
   >();
+const nativeSkillDisable =
+  vi.fn<(request: { worktreePath: string; sourcePath: string }) => Promise<unknown>>();
+const nativeSkillRestore =
+  vi.fn<(request: { worktreePath: string; sourcePath: string }) => Promise<unknown>>();
 
 function installElectronApi(
   catalog: ClaudeCapabilityCatalog,
@@ -69,6 +73,16 @@ function installElectronApi(
 ) {
   catalogList.mockResolvedValue(catalog);
   previewResolve.mockResolvedValue(preview);
+  nativeSkillDisable.mockResolvedValue({
+    ok: true,
+    sourcePath: '/repo/worktrees/feature-a/.claude/skills/planner/SKILL.md',
+    disabledPath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner',
+  });
+  nativeSkillRestore.mockResolvedValue({
+    ok: true,
+    sourcePath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner/SKILL.md',
+    restoredPath: '/repo/worktrees/feature-a/.claude/skills/planner',
+  });
   Object.defineProperty(window, 'electronAPI', {
     configurable: true,
     value: {
@@ -78,6 +92,10 @@ function installElectronApi(
         },
         preview: {
           resolve: previewResolve,
+        },
+        nativeSkill: {
+          disable: nativeSkillDisable,
+          restore: nativeSkillRestore,
         },
       },
     },
@@ -108,6 +126,8 @@ describe('ClaudePolicyEditorDialog', () => {
   beforeEach(() => {
     catalogList.mockReset();
     previewResolve.mockReset();
+    nativeSkillDisable.mockReset();
+    nativeSkillRestore.mockReset();
     translateMock.mockReset();
     translateMock.mockImplementation((value: string) => value);
     container = document.createElement('div');
@@ -606,6 +626,259 @@ describe('ClaudePolicyEditorDialog', () => {
     const saveButton = container?.querySelector<HTMLButtonElement>('[data-policy-action="save"]');
     expect(saveButton?.disabled).toBe(true);
     expect(handleSave).not.toHaveBeenCalled();
+  });
+
+  it('warns when a disabled worktree-native Claude skill may still be auto-loaded', async () => {
+    installElectronApi(
+      {
+        capabilities: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'worktree',
+            sourcePath: '/repo/worktrees/feature-a/.claude/skills/planner/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: ['legacy-skill:planner'],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {
+          'legacy-skill:planner': {
+            source: 'worktree-policy',
+            decision: 'block',
+          },
+        },
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'worktree',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          worktreeName: 'feature-a',
+          projectPolicy: null,
+          worktreePolicy: {
+            repoPath: '/repo',
+            worktreePath: '/repo/worktrees/feature-a',
+            allowedCapabilityIds: [],
+            blockedCapabilityIds: ['legacy-skill:planner'],
+            allowedSharedMcpIds: [],
+            blockedSharedMcpIds: [],
+            allowedPersonalMcpIds: [],
+            blockedPersonalMcpIds: [],
+            updatedAt: 1,
+          },
+          onSave: vi.fn(),
+        })
+      );
+    });
+    await flushEffects();
+
+    const skillRow = container?.querySelector('[data-policy-item-id="legacy-skill:planner"]');
+
+    expect(
+      skillRow?.querySelector('[data-policy-native-warning="legacy-skill:planner"]')
+    ).not.toBeNull();
+    expect(skillRow?.textContent).toContain(
+      'This skill is disabled in policy, but its source file is inside this worktree .claude/skills folder. Claude may still auto-load it until the file is moved, renamed, or removed.'
+    );
+  });
+
+  it('quarantines a disabled worktree-native Claude skill from the warning action', async () => {
+    installElectronApi(
+      {
+        capabilities: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'worktree',
+            sourcePath: '/repo/worktrees/feature-a/.claude/skills/planner/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: ['legacy-skill:planner'],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {
+          'legacy-skill:planner': {
+            source: 'worktree-policy',
+            decision: 'block',
+          },
+        },
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const handleCatalogRefresh = vi.fn();
+    const handleNativeSkillFileChanged = vi.fn();
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'worktree',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          worktreeName: 'feature-a',
+          projectPolicy: null,
+          worktreePolicy: {
+            repoPath: '/repo',
+            worktreePath: '/repo/worktrees/feature-a',
+            allowedCapabilityIds: [],
+            blockedCapabilityIds: ['legacy-skill:planner'],
+            allowedSharedMcpIds: [],
+            blockedSharedMcpIds: [],
+            allowedPersonalMcpIds: [],
+            blockedPersonalMcpIds: [],
+            updatedAt: 1,
+          },
+          onCatalogRefresh: handleCatalogRefresh,
+          onNativeSkillFileChanged: handleNativeSkillFileChanged,
+          onSave: vi.fn(),
+        })
+      );
+    });
+    await flushEffects();
+
+    await act(async () => {
+      container
+        ?.querySelector<HTMLButtonElement>('[data-policy-native-action="disable-file"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    expect(nativeSkillDisable).toHaveBeenCalledWith({
+      worktreePath: '/repo/worktrees/feature-a',
+      sourcePath: '/repo/worktrees/feature-a/.claude/skills/planner/SKILL.md',
+    });
+    expect(handleCatalogRefresh).toHaveBeenCalled();
+    expect(handleNativeSkillFileChanged).toHaveBeenCalled();
+  });
+
+  it('restores a quarantined worktree-native Claude skill from the restore action', async () => {
+    installElectronApi(
+      {
+        capabilities: [],
+        disabledNativeSkills: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'worktree',
+            sourcePath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner/SKILL.md',
+            isAvailable: false,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {},
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const handleCatalogRefresh = vi.fn();
+    const handleNativeSkillFileChanged = vi.fn();
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'worktree',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          worktreeName: 'feature-a',
+          projectPolicy: null,
+          worktreePolicy: null,
+          onCatalogRefresh: handleCatalogRefresh,
+          onNativeSkillFileChanged: handleNativeSkillFileChanged,
+          onSave: vi.fn(),
+        })
+      );
+    });
+    await flushEffects();
+
+    const restoredRow = container?.querySelector(
+      '[data-policy-disabled-native-item-id="legacy-skill:planner"]'
+    );
+    expect(restoredRow?.textContent).toContain('Planner');
+    expect(restoredRow?.textContent).toContain('Quarantined');
+
+    await act(async () => {
+      restoredRow
+        ?.querySelector<HTMLButtonElement>('[data-policy-native-action="restore-file"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    expect(nativeSkillRestore).toHaveBeenCalledWith({
+      worktreePath: '/repo/worktrees/feature-a',
+      sourcePath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner/SKILL.md',
+    });
+    expect(handleCatalogRefresh).toHaveBeenCalled();
+    expect(handleNativeSkillFileChanged).toHaveBeenCalled();
   });
 
   it('applies batch decisions to the current visible items', async () => {

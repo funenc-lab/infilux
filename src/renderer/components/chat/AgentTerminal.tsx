@@ -2027,7 +2027,7 @@ export function AgentTerminal({
       )}
       {shouldShowAgentStartupOverlay && (
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-start px-3 pt-3"
+          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-4 py-5"
           data-agent-terminal-startup-overlay="true"
           data-agent-terminal-startup-state={agentStartupOverlayPresentation.state}
           role="status"
@@ -2035,36 +2035,27 @@ export function AgentTerminal({
           aria-label={t('Session startup status')}
         >
           <div
-            className="agent-terminal-startup-banner pointer-events-auto flex min-h-[3.75rem] w-[min(27rem,100%)] min-w-0 items-start gap-3 rounded-2xl px-3 py-2.5"
+            className="control-panel-muted agent-terminal-startup-banner pointer-events-auto flex w-[min(20rem,100%)] min-w-0 items-center gap-3 rounded-2xl px-4 py-3"
             data-state={agentStartupOverlayPresentation.state}
           >
             <div
-              className="agent-terminal-startup-indicator-shell mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+              className="agent-terminal-startup-indicator-shell flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
               data-state={agentStartupOverlayPresentation.state}
             >
               <div
-                className="agent-terminal-startup-indicator relative h-3.5 w-3.5 shrink-0"
+                className="agent-terminal-startup-dot h-2 w-2 rounded-full motion-safe:animate-pulse motion-reduce:animate-none"
                 aria-hidden="true"
                 data-state={agentStartupOverlayPresentation.state}
-              >
-                <div className="agent-terminal-startup-indicator-track absolute inset-0 rounded-full border border-current opacity-15" />
-                <div className="agent-terminal-startup-indicator-spinner absolute inset-0 animate-spin rounded-full border-2 border-current border-b-transparent border-r-transparent" />
-              </div>
+              />
             </div>
-            <div className="min-w-0 flex-1 self-center">
-              <div className="text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground/72">
-                {t('Agent Session')}
+            <div className="min-w-0 flex-1">
+              <div className="ui-type-label truncate text-[0.64rem] text-muted-foreground/64">
+                {t(agentStartupOverlayPresentation.eyebrowKey)}
               </div>
-              <div
-                style={{ color: settings.theme.foreground, opacity: 0.92 }}
-                className="mt-1 truncate text-sm font-medium"
-              >
+              <div className="ui-type-body-sm mt-0.5 truncate font-semibold text-foreground/94">
                 {t(agentStartupOverlayPresentation.titleKey)}
               </div>
-              <div
-                style={{ color: settings.theme.foreground, opacity: 0.62 }}
-                className="mt-0.5 max-w-[30ch] text-[0.76rem] leading-5"
-              >
+              <div className="ui-type-meta mt-0.5 truncate text-muted-foreground/70">
                 {t(agentStartupOverlayPresentation.descriptionKey)}
               </div>
             </div>
@@ -2073,7 +2064,7 @@ export function AgentTerminal({
                 type="button"
                 onClick={handleRetryAgentStartup}
                 className={cn(
-                  'control-floating-button agent-terminal-startup-retry mt-1 h-7 shrink-0 self-start rounded-lg px-2.5 text-xs font-medium',
+                  'control-floating-button agent-terminal-startup-retry h-7 shrink-0 rounded-lg px-2.5 text-xs font-medium',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-0'
                 )}
                 title={t('Retry')}

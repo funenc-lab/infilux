@@ -98,6 +98,10 @@ describe('AppResourceStatusPopover', () => {
           sessionKind: 'terminal',
           backend: 'local',
           cwd: '/repo/stale',
+          repoPath: null,
+          projectName: null,
+          worktreeName: null,
+          branchName: null,
           createdAt: 10,
           persistOnDisconnect: false,
           pid: 4001,
@@ -176,6 +180,41 @@ describe('AppResourceStatusPopover', () => {
       });
 
       expect(getResourceSnapshot).toHaveBeenCalledTimes(1);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('keeps runtime monitoring as a focus-driven hydration instead of interval polling', () => {
+    const getResourceSnapshot = vi.fn().mockResolvedValue({
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 1,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 4096,
+        totalAppPrivateBytesKb: 2048,
+      },
+      resources: [],
+    });
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+
+    vi.stubGlobal('window', {
+      electronAPI: {
+        app: {
+          getResourceSnapshot,
+        },
+      },
+    });
+
+    const view = mountPopover();
+
+    try {
+      expect(setIntervalSpy).not.toHaveBeenCalled();
     } finally {
       view.unmount();
     }

@@ -165,15 +165,18 @@ nonPublicAddressBlockList.addSubnet('fec0::', 10, 'ipv6');
 nonPublicAddressBlockList.addSubnet('ff00::', 8, 'ipv6');
 
 // In dev mode, use an isolated userData dir before any Chromium-backed service initializes.
-// This prevents dev sessions from inheriting the packaged profile and keeps sessionData writes scoped.
+// This prevents dev sessions from inheriting the packaged profile and keeps session/log writes scoped.
 if (isDev) {
   const profile = sanitizeRuntimeProfileName(process.env.ENSOAI_PROFILE || '') || 'dev';
   const isolatedUserDataPath = join(app.getPath('appData'), `${app.getName()}-${profile}`);
   const isolatedSessionDataPath = join(isolatedUserDataPath, 'session-data');
+  const isolatedLogsPath = join(isolatedUserDataPath, 'logs');
   mkdirSync(isolatedUserDataPath, { recursive: true });
   mkdirSync(isolatedSessionDataPath, { recursive: true });
+  mkdirSync(isolatedLogsPath, { recursive: true });
   app.setPath('userData', isolatedUserDataPath);
   app.setPath('sessionData', isolatedSessionDataPath);
+  app.setAppLogsPath(isolatedLogsPath);
 }
 
 function resolveStartupRuntimeChannel(): AppRuntimeChannel {

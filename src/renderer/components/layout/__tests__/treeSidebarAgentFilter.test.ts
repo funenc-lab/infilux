@@ -22,6 +22,7 @@ vi.mock('lucide-react', () => {
   const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
   return {
     Activity: icon,
+    BotMessageSquare: icon,
     ChevronRight: icon,
     Clock: icon,
     EyeOff: icon,
@@ -527,6 +528,45 @@ describe('TreeSidebar agent filter', () => {
     agentSessionsState.runtimeStates = {};
     worktreeActivityState.activities = {
       '/repo-a/main': { agentCount: 0, terminalCount: 0 },
+      '/repo-a/agent-task': { agentCount: 0, terminalCount: 0 },
+      '/repo-b/main': { agentCount: 0, terminalCount: 0 },
+      '/tmp/temp-agent': { agentCount: 0, terminalCount: 0 },
+      '/tmp/temp-idle': { agentCount: 0, terminalCount: 0 },
+    };
+
+    const view = await mountTreeSidebar({
+      activeWorktree: repoWorktrees['/repo-a'][0],
+    });
+
+    try {
+      const toggle = view.container.querySelector(
+        'button[title="Only show live Agent sessions"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
+      expect(view.container.textContent).not.toContain('Repo A');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('hides the active worktree when only dead recovered agent sessions remain', async () => {
+    agentSessionsState.sessions = [
+      agentSession({
+        id: 'dead-recovered-session',
+        cwd: '/repo-a/main',
+        recoveryState: 'dead',
+      }),
+    ];
+    agentSessionsState.runtimeStates = {
+      'dead-recovered-session': runtimeState({ outputState: 'idle' }),
+    };
+    worktreeActivityState.activities = {
+      '/repo-a/main': { agentCount: 1, terminalCount: 0 },
       '/repo-a/agent-task': { agentCount: 0, terminalCount: 0 },
       '/repo-b/main': { agentCount: 0, terminalCount: 0 },
       '/tmp/temp-agent': { agentCount: 0, terminalCount: 0 },

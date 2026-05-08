@@ -53,6 +53,7 @@ export interface ProjectTokenUsageSummaryModel {
   sessionCountLabel: string;
   providerIssueCountLabel: string;
   freshness: ProjectTokenUsageFreshnessModel | null;
+  overviewMetrics: ProjectTokenUsageSummaryMetricModel[];
   primaryMetrics: ProjectTokenUsageSummaryMetricModel[];
   secondaryMetrics: ProjectTokenUsageSummaryMetricModel[];
   projects: ProjectTokenUsageSummaryProjectModel[];
@@ -61,6 +62,9 @@ export interface ProjectTokenUsageSummaryModel {
 }
 
 function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000_000) {
+    return `${(Math.round(value / 100_000_000) / 10).toFixed(1)}B`;
+  }
   if (value >= 1_000_000) {
     return `${(Math.round(value / 100_000) / 10).toFixed(1)}M`;
   }
@@ -81,6 +85,10 @@ function getProjectTitle(projectPath: string): string {
 
 function getPromptCacheTokenCount(counts: TokenUsageCounts): number {
   return counts.cacheCreationInputTokens + counts.cacheReadInputTokens;
+}
+
+function getAllCacheTokenCount(counts: TokenUsageCounts): number {
+  return getPromptCacheTokenCount(counts) + counts.cachedInputTokens;
 }
 
 function getEmptyTokenUsageCounts(): TokenUsageCounts {
@@ -186,6 +194,31 @@ function splitTokenBreakdownMetrics(counts: TokenUsageCounts): {
   };
 }
 
+function buildOverviewMetrics(counts: TokenUsageCounts): ProjectTokenUsageSummaryMetricModel[] {
+  return [
+    {
+      key: 'input',
+      label: 'Input tokens',
+      value: formatCompactNumber(counts.inputTokens),
+    },
+    {
+      key: 'output',
+      label: 'Output tokens',
+      value: formatCompactNumber(counts.outputTokens),
+    },
+    {
+      key: 'cache',
+      label: 'Cache tokens',
+      value: formatCompactNumber(getAllCacheTokenCount(counts)),
+    },
+    {
+      key: 'reasoning',
+      label: 'Reasoning tokens',
+      value: formatCompactNumber(counts.reasoningOutputTokens),
+    },
+  ];
+}
+
 function toProjectModel(
   project: TokenUsageProjectSummary,
   snapshotTotalTokens: number
@@ -279,6 +312,7 @@ export function buildProjectTokenUsageSummaryModel(
 ): ProjectTokenUsageSummaryModel {
   const emptyCounts = getEmptyTokenUsageCounts();
   const emptyMetrics = splitTokenBreakdownMetrics(emptyCounts);
+  const emptyOverviewMetrics = buildOverviewMetrics(emptyCounts);
 
   if (!snapshot) {
     const totalTokensLabel = '0';
@@ -293,6 +327,7 @@ export function buildProjectTokenUsageSummaryModel(
       sessionCountLabel,
       providerIssueCountLabel: '0 provider issues',
       freshness: null,
+      overviewMetrics: emptyOverviewMetrics,
       primaryMetrics: emptyMetrics.primaryMetrics,
       secondaryMetrics: emptyMetrics.secondaryMetrics,
       projects: [],
@@ -317,6 +352,7 @@ export function buildProjectTokenUsageSummaryModel(
   const sessionCountLabel = formatCountLabel(totalSessionCount, 'session', 'sessions');
   const hasUsage = totalCounts.totalTokens > 0;
   const totalMetrics = splitTokenBreakdownMetrics(totalCounts);
+  const overviewMetrics = buildOverviewMetrics(totalCounts);
 
   return {
     hasUsage,
@@ -330,6 +366,7 @@ export function buildProjectTokenUsageSummaryModel(
       'provider issues'
     ),
     freshness: buildFreshnessModel(snapshot),
+    overviewMetrics,
     primaryMetrics: totalMetrics.primaryMetrics,
     secondaryMetrics: totalMetrics.secondaryMetrics,
     projects: snapshot.projects

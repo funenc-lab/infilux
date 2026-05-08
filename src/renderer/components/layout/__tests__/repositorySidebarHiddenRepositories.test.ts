@@ -17,20 +17,22 @@ const repositorySettings = vi.hoisted(() => ({
 }));
 
 vi.mock('lucide-react', () => {
-  const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
+  const icon = (name: string) => (props: Record<string, unknown>) =>
+    React.createElement('svg', { ...props, 'data-icon': name });
   return {
-    BrainCircuit: icon,
-    ChevronRight: icon,
-    Clock: icon,
-    FolderGit2: icon,
-    FolderMinus: icon,
-    MoreHorizontal: icon,
-    PanelLeftClose: icon,
-    PanelLeftOpen: icon,
-    Plus: icon,
-    Search: icon,
-    Settings2: icon,
-    X: icon,
+    BrainCircuit: icon('BrainCircuit'),
+    ChevronRight: icon('ChevronRight'),
+    Clock: icon('Clock'),
+    FolderGit2: icon('FolderGit2'),
+    FolderMinus: icon('FolderMinus'),
+    ListFilter: icon('ListFilter'),
+    MoreHorizontal: icon('MoreHorizontal'),
+    PanelLeftClose: icon('PanelLeftClose'),
+    PanelLeftOpen: icon('PanelLeftOpen'),
+    Plus: icon('Plus'),
+    Search: icon('Search'),
+    Settings2: icon('Settings2'),
+    X: icon('X'),
   };
 });
 
@@ -121,8 +123,8 @@ vi.mock('../SidebarAiCenterButton', () => ({
 }));
 
 vi.mock('../SidebarEmptyState', () => ({
-  SidebarEmptyState: ({ title }: { title: string }) =>
-    React.createElement('div', { 'data-sidebar-empty': title }, title),
+  SidebarEmptyState: ({ icon, title }: { icon?: React.ReactNode; title: string }) =>
+    React.createElement('div', { 'data-sidebar-empty': title }, icon, title),
 }));
 
 async function mountRepositorySidebar() {
@@ -194,6 +196,41 @@ describe('RepositorySidebar hidden repositories', () => {
     try {
       expect(view.container.textContent).toContain('Visible Repo');
       expect(view.container.textContent).not.toContain('Hidden Repo');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('uses a list-filter icon while the active quick filter is applied', async () => {
+    const view = await mountRepositorySidebar();
+
+    try {
+      const getLeadingIcon = () =>
+        view.container.querySelector('.control-sidebar-search-icon')?.getAttribute('data-icon');
+      const searchInput = view.container.querySelector(
+        'input[aria-label="Search projects"]'
+      ) as HTMLInputElement | null;
+
+      expect(searchInput).not.toBeNull();
+      expect(getLeadingIcon()).toBe('Search');
+
+      await act(async () => {
+        if (!searchInput) return;
+        const valueSetter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value'
+        )?.set;
+        valueSetter?.call(searchInput, ':active');
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+
+      expect(getLeadingIcon()).toBe('ListFilter');
+      expect(view.container.querySelector('[data-sidebar-empty="No matches"]')).not.toBeNull();
+      expect(
+        view.container.querySelector(
+          '[data-sidebar-empty="No matches"] svg[data-icon="ListFilter"]'
+        )
+      ).not.toBeNull();
     } finally {
       view.unmount();
     }

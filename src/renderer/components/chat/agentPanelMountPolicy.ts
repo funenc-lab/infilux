@@ -17,6 +17,8 @@ interface MountedAgentPanelSessionCandidate {
   displayOrder?: number;
   id: string;
   repoPath?: string;
+  recovered?: boolean;
+  recoveryState?: string;
 }
 
 interface ResolveMountedAgentPanelSessionIdsOptions<
@@ -61,6 +63,10 @@ function addSessionId(
 
 function hasMountBudget(selectedSessionIds: Set<string>, limit: number): boolean {
   return selectedSessionIds.size < limit;
+}
+
+function requiresRecoveryMount(session: MountedAgentPanelSessionCandidate): boolean {
+  return session.recovered === true && session.recoveryState !== 'missing-host-session';
 }
 
 function compareOptionalPath(left: string | undefined, right: string | undefined): number {
@@ -172,8 +178,26 @@ function resolveWorkspaceCanvasMountedSessionIds<
     selectedSessionIds.add(item.session.id);
   }
 
+  const recoverySessions = rankedSessions
+    .filter(
+      (item) => requiresRecoveryMount(item.session) && !selectedSessionIds.has(item.session.id)
+    )
+    .sort(compareStableMountOrder);
+
+  for (const item of recoverySessions) {
+    if (!hasMountBudget(selectedSessionIds, limit)) {
+      break;
+    }
+    selectedSessionIds.add(item.session.id);
+  }
+
   const idleSessions = rankedSessions
-    .filter((item) => item.priority === 0 && !selectedSessionIds.has(item.session.id))
+    .filter(
+      (item) =>
+        item.priority === 0 &&
+        !requiresRecoveryMount(item.session) &&
+        !selectedSessionIds.has(item.session.id)
+    )
     .sort(compareStableMountOrder);
 
   for (const item of idleSessions) {

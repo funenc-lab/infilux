@@ -8,6 +8,7 @@ vi.mock('lucide-react', () => {
   const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
   return {
     Activity: icon,
+    BotMessageSquare: icon,
     BrainCircuit: icon,
     ChevronRight: icon,
     Clock: icon,

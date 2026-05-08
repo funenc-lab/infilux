@@ -612,6 +612,9 @@ export function WorktreePanel({
               markClaudePolicyStaleForWorktree(policyRepoPath, worktreePolicyTarget.path);
             }
           }}
+          onNativeSkillFileChanged={() => {
+            markClaudePolicyStaleForWorktree(policyRepoPath, worktreePolicyTarget.path);
+          }}
         />
       ) : null}
 

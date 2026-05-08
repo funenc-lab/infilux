@@ -32,7 +32,10 @@ export function RepositoryTreeSummary({
 
   return (
     <div
-      className={['control-tree-meta control-tree-meta-inline shrink-0', className]
+      className={[
+        'control-tree-meta control-tree-meta-inline control-tree-summary shrink-0',
+        className,
+      ]
         .filter(Boolean)
         .join(' ')}
     >

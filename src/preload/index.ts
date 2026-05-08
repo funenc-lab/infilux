@@ -22,6 +22,8 @@ import type {
   ContentSearchResult,
   CustomAgent,
   DetectedApp,
+  DisableClaudeNativeSkillRequest,
+  DisableClaudeNativeSkillResult,
   FileChange,
   FileChangeEvent,
   FileChangesResult,
@@ -65,6 +67,8 @@ import type {
   RepositoryRuntimeContext,
   ResolveClaudePolicyPreviewRequest,
   ResolvedClaudePolicy,
+  RestoreClaudeNativeSkillRequest,
+  RestoreClaudeNativeSkillResult,
   RestoreWorktreeSessionsRequest,
   RuntimeMemorySnapshot,
   SearchCancelParams,
@@ -1129,6 +1133,16 @@ const electronAPI = {
         request: PrepareClaudePolicyLaunchRequest
       ): Promise<PrepareClaudePolicyLaunchResult> =>
         ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_POLICY_LAUNCH_PREPARE, request),
+    },
+    nativeSkill: {
+      disable: (
+        request: DisableClaudeNativeSkillRequest
+      ): Promise<DisableClaudeNativeSkillResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_DISABLE, request),
+      restore: (
+        request: RestoreClaudeNativeSkillRequest
+      ): Promise<RestoreClaudeNativeSkillResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_RESTORE, request),
     },
   },
 

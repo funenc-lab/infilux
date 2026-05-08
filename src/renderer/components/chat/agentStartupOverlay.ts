@@ -2,10 +2,11 @@ export const AGENT_STARTUP_STALL_THRESHOLD_MS = 4000;
 
 export interface AgentStartupOverlayPresentation {
   descriptionKey:
-    | 'Waiting for the agent prompt.'
-    | 'Session startup is taking longer than expected.';
+    | 'Attaching the terminal and waiting for the agent prompt.'
+    | 'Runtime is taking longer than expected. Retry if the terminal stays quiet.';
+  eyebrowKey: 'Agent runtime';
   state: 'starting' | 'stalled';
-  titleKey: 'Starting session' | 'Still starting';
+  titleKey: 'Preparing runtime' | 'Still preparing';
 }
 
 export function resolveAgentStartupOverlayPresentation(options: {
@@ -14,14 +15,16 @@ export function resolveAgentStartupOverlayPresentation(options: {
   if (options.isStalled) {
     return {
       state: 'stalled',
-      titleKey: 'Still starting',
-      descriptionKey: 'Session startup is taking longer than expected.',
+      eyebrowKey: 'Agent runtime',
+      titleKey: 'Still preparing',
+      descriptionKey: 'Runtime is taking longer than expected. Retry if the terminal stays quiet.',
     };
   }
 
   return {
     state: 'starting',
-    titleKey: 'Starting session',
-    descriptionKey: 'Waiting for the agent prompt.',
+    eyebrowKey: 'Agent runtime',
+    titleKey: 'Preparing runtime',
+    descriptionKey: 'Attaching the terminal and waiting for the agent prompt.',
   };
 }

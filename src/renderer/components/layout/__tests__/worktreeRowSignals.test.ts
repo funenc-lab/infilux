@@ -52,6 +52,22 @@ describe('worktree row signals', () => {
     ]);
   });
 
+  it('keeps diff and sync signals ahead of branch context flags', () => {
+    const items = buildWorktreeInlineItems({
+      t,
+      isMain: true,
+      isPrunable: false,
+      isMerged: false,
+      diffStats: { insertions: 4, deletions: 1 },
+      ahead: 2,
+      behind: 1,
+      activity: { agentCount: 0, terminalCount: 0 },
+      hasCompletedTaskNotice: false,
+    });
+
+    expect(items.map((item) => item.key)).toEqual(['diff', 'sync', 'main']);
+  });
+
   it('keeps the compact combined activity summary available for shared copy', () => {
     expect(buildWorktreeActivitySummary({ agentCount: 2, terminalCount: 3 }, t)).toBe(
       '2 agents · 3 terminals'

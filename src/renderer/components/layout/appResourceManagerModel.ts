@@ -152,12 +152,34 @@ function resolveBackendLabel(backend: AppSessionResource['backend'], translate: 
 }
 
 function resolveSessionTitle(resource: AppSessionResource, translate: Translate): string {
+  const projectLabel = resource.projectName?.trim();
+  const worktreeLabel = resource.worktreeName?.trim();
+
+  if (projectLabel && worktreeLabel && projectLabel !== worktreeLabel) {
+    return translate('{{project}} / {{worktree}}', {
+      project: projectLabel,
+      worktree: worktreeLabel,
+    });
+  }
+
+  if (worktreeLabel) {
+    return worktreeLabel;
+  }
+
+  if (projectLabel) {
+    return projectLabel;
+  }
+
   return resource.sessionKind === 'terminal'
     ? translate('Terminal session')
     : translate('Agent session');
 }
 
 function resolveSessionSubtitle(resource: AppSessionResource, translate: Translate): string {
+  if (resource.branchName?.trim()) {
+    return resource.branchName.trim();
+  }
+
   const backendLabel = resolveBackendLabel(resource.backend, translate);
 
   if (resource.pid === null) {

@@ -48,11 +48,13 @@ function TranslationProbe() {
     React.createElement('span', { id: 'relative-time' }, t('{{count}}m ago', { count: 3 })),
     React.createElement('span', { id: 'token-scope' }, t('Project Scope')),
     React.createElement('span', { id: 'token-analytics' }, t('Token Analytics')),
+    React.createElement('span', { id: 'token-summary' }, t('Token usage summary')),
     React.createElement(
       'span',
       { id: 'token-breakdown' },
       t('Break down input, output, cache, and reasoning tokens by project and provider.')
     ),
+    React.createElement('span', { id: 'token-mix' }, t('Token Mix')),
     React.createElement('span', { id: 'token' }, t('Refresh token usage')),
     React.createElement('span', { id: 'token-refreshing' }, t('Refreshing token usage')),
     React.createElement('span', { id: 'token-scan' }, t('Scanning token usage...')),
@@ -113,7 +115,21 @@ function TranslationProbe() {
       { id: 'agent-ide-bridge-detail' },
       t('Start provider-supported editor context and lifecycle hook bridges')
     ),
-    React.createElement('span', { id: 'live-agent-filter' }, t('Only show live Agent sessions'))
+    React.createElement('span', { id: 'live-agent-filter' }, t('Only show live Agent sessions')),
+    React.createElement('span', { id: 'startup-eyebrow' }, t('Agent runtime')),
+    React.createElement('span', { id: 'startup-preparing' }, t('Preparing runtime')),
+    React.createElement(
+      'span',
+      { id: 'startup-preparing-detail' },
+      t('Attaching the terminal and waiting for the agent prompt.')
+    ),
+    React.createElement('span', { id: 'startup-stalled' }, t('Still preparing')),
+    React.createElement(
+      'span',
+      { id: 'startup-stalled-detail' },
+      t('Runtime is taking longer than expected. Retry if the terminal stays quiet.')
+    ),
+    React.createElement('span', { id: 'startup-attention' }, t('Needs attention'))
   );
 }
 
@@ -225,6 +241,24 @@ describe('renderer i18n', () => {
     );
     expect(container.querySelector('#live-agent-filter')?.textContent).toBe(
       '\u4ec5\u663e\u793a\u6d3b\u8dc3 Agent \u4f1a\u8bdd'
+    );
+    expect(container.querySelector('#startup-eyebrow')?.textContent).toBe(
+      'Agent \u8fd0\u884c\u65f6'
+    );
+    expect(container.querySelector('#startup-preparing')?.textContent).toBe(
+      '\u6b63\u5728\u51c6\u5907\u8fd0\u884c\u65f6'
+    );
+    expect(container.querySelector('#startup-preparing-detail')?.textContent).toBe(
+      '\u6b63\u5728\u9644\u7740\u7ec8\u7aef\u5e76\u7b49\u5f85 Agent \u63d0\u793a\u8f93\u5165\u3002'
+    );
+    expect(container.querySelector('#startup-stalled')?.textContent).toBe(
+      '\u4ecd\u5728\u51c6\u5907'
+    );
+    expect(container.querySelector('#startup-stalled-detail')?.textContent).toBe(
+      '\u8fd0\u884c\u65f6\u8017\u65f6\u8d85\u51fa\u9884\u671f\u3002\u5982\u679c\u7ec8\u7aef\u6301\u7eed\u65e0\u8f93\u51fa\uff0c\u53ef\u4ee5\u91cd\u8bd5\u3002'
+    );
+    expect(container.querySelector('#startup-attention')?.textContent).toBe(
+      '\u9700\u8981\u5173\u6ce8'
     );
   });
 });

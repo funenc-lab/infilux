@@ -190,6 +190,42 @@ describe('resolveMountedAgentPanelSessionIds', () => {
     ).toEqual(['session-0', 'session-1', 'session-4']);
   });
 
+  it('keeps recovered workspace canvas sessions mounted so host recovery starts without expanding the tile', () => {
+    const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      recovered: index === 7,
+      recoveryState: index === 7 ? 'live' : undefined,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        workspaceCanvasTerminalMountLimit: 4,
+      })
+    ).toEqual(['session-0', 'session-1', 'session-2', 'session-7']);
+  });
+
+  it('does not reserve workspace canvas terminal slots for metadata-only missing-host sessions', () => {
+    const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      recovered: index === 7,
+      recoveryState: index === 7 ? 'missing-host-session' : undefined,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        workspaceCanvasTerminalMountLimit: 4,
+      })
+    ).toEqual(['session-0', 'session-1', 'session-2', 'session-3']);
+  });
+
   it('preserves existing current-worktree mount ordering with cached hidden sessions', () => {
     expect(
       resolveMountedAgentPanelSessionIds({

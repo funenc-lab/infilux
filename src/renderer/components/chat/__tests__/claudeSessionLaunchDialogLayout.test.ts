@@ -12,4 +12,8 @@ describe('ClaudeSessionLaunchDialog layout', () => {
     expect(dialogSource).toContain("from '@/components/ui/scroll-area'");
     expect(dialogSource).toContain('className="min-h-0 flex-1 px-6"');
   });
+
+  it('passes the active worktree path to skill policy rows for native source warnings', () => {
+    expect(dialogSource).toContain('worktreePath={worktreePath}');
+  });
 });

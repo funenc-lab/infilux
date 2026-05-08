@@ -574,7 +574,7 @@ describe('AgentTerminal integration', () => {
       isActive: false,
     });
 
-    expect(mounted.container.textContent).not.toContain('Starting session');
+    expect(mounted.container.textContent).not.toContain('Preparing runtime');
 
     await mounted.unmount();
   });
@@ -654,7 +654,7 @@ describe('AgentTerminal integration', () => {
       isActive: false,
     });
 
-    expect(mounted.container.textContent).not.toContain('Starting session');
+    expect(mounted.container.textContent).not.toContain('Preparing runtime');
 
     await mounted.unmount();
   });
@@ -670,8 +670,14 @@ describe('AgentTerminal integration', () => {
     expect(overlay?.getAttribute('aria-live')).toBe('polite');
     expect(overlay?.getAttribute('aria-label')).toBe('Session startup status');
     expect(overlay?.getAttribute('data-agent-terminal-startup-state')).toBe('starting');
-    expect(overlay?.textContent).toContain('Starting session');
-    expect(overlay?.textContent).toContain('Waiting for the agent prompt.');
+    expect(overlay?.textContent).toContain('Agent runtime');
+    expect(overlay?.textContent).toContain('Preparing runtime');
+    expect(overlay?.textContent).toContain(
+      'Attaching the terminal and waiting for the agent prompt.'
+    );
+    expect(overlay?.textContent).not.toContain('Resolve shell');
+    expect(overlay?.textContent).not.toContain('Attach terminal');
+    expect(overlay?.textContent).not.toContain('Await prompt');
 
     await mounted.unmount();
   });
@@ -689,8 +695,10 @@ describe('AgentTerminal integration', () => {
     const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
 
     expect(overlay?.getAttribute('data-agent-terminal-startup-state')).toBe('stalled');
-    expect(overlay?.textContent).toContain('Still starting');
-    expect(overlay?.textContent).toContain('Session startup is taking longer than expected.');
+    expect(overlay?.textContent).toContain('Still preparing');
+    expect(overlay?.textContent).toContain(
+      'Runtime is taking longer than expected. Retry if the terminal stays quiet.'
+    );
 
     vi.useRealTimers();
     await mounted.unmount();

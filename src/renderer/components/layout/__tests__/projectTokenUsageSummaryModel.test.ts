@@ -75,6 +75,28 @@ describe('projectTokenUsageSummaryModel', () => {
         tone: 'fresh',
         generatedAt: 1,
       },
+      overviewMetrics: [
+        {
+          key: 'input',
+          label: 'Input tokens',
+          value: '1.2K',
+        },
+        {
+          key: 'output',
+          label: 'Output tokens',
+          value: '300',
+        },
+        {
+          key: 'cache',
+          label: 'Cache tokens',
+          value: '500',
+        },
+        {
+          key: 'reasoning',
+          label: 'Reasoning tokens',
+          value: '50',
+        },
+      ],
       primaryMetrics: [
         {
           key: 'input',
@@ -168,6 +190,28 @@ describe('projectTokenUsageSummaryModel', () => {
       sessionCountLabel: '0 sessions',
       providerIssueCountLabel: '0 provider issues',
       freshness: null,
+      overviewMetrics: [
+        {
+          key: 'input',
+          label: 'Input tokens',
+          value: '0',
+        },
+        {
+          key: 'output',
+          label: 'Output tokens',
+          value: '0',
+        },
+        {
+          key: 'cache',
+          label: 'Cache tokens',
+          value: '0',
+        },
+        {
+          key: 'reasoning',
+          label: 'Reasoning tokens',
+          value: '0',
+        },
+      ],
       primaryMetrics: [
         {
           key: 'input',

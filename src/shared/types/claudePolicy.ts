@@ -38,6 +38,7 @@ export interface ClaudeMcpCatalogItem {
 
 export interface ClaudeCapabilityCatalog {
   capabilities: ClaudeCapabilityCatalogItem[];
+  disabledNativeSkills?: ClaudeCapabilityCatalogItem[];
   sharedMcpServers: ClaudeMcpCatalogItem[];
   personalMcpServers: ClaudeMcpCatalogItem[];
   generatedAt: number;
@@ -125,4 +126,26 @@ export interface PrepareClaudePolicyLaunchResult {
   projected: ClaudeRuntimeProjectionResult;
   policyHash?: string;
   appliedAt?: number;
+}
+
+export interface DisableClaudeNativeSkillRequest {
+  worktreePath: string;
+  sourcePath: string;
+}
+
+export interface DisableClaudeNativeSkillResult {
+  ok: true;
+  sourcePath: string;
+  disabledPath: string;
+}
+
+export interface RestoreClaudeNativeSkillRequest {
+  worktreePath: string;
+  sourcePath: string;
+}
+
+export interface RestoreClaudeNativeSkillResult {
+  ok: true;
+  sourcePath: string;
+  restoredPath: string;
 }

@@ -100,8 +100,8 @@ function expectLeadingStatusDot(markup: string) {
     /control-tree-status-slot[\s\S]*?control-tree-state-marker[\s\S]*?control-tree-glyph[\s\S]*?feature-a/
   );
   expect(markup).not.toMatch(/control-tree-title-row[\s\S]*?control-tree-state-dot/);
-  expect(markup).not.toContain('control-tree-subtitle');
-  expect(markup).not.toContain('/repo/.worktrees/feature-a');
+  expect(markup).toContain('control-tree-subtitle');
+  expect(markup).toContain('/repo/.worktrees/feature-a');
   expect(markup).not.toContain('control-tree-meta control-tree-meta-row');
 }
 

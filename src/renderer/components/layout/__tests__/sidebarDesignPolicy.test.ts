@@ -150,17 +150,17 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).not.toContain('const activePaths = worktrees');
   });
 
-  it('keeps repository paths visible while removing duplicated project labels and worktree path subtitles', () => {
+  it('keeps repository paths visible and worktree paths subordinate to branch identity', () => {
     expect(treeSidebarSource).toContain('title={displayRepoPath}');
     expect(treeSidebarSource).toContain('{displayRepoPath}');
     expect(treeSidebarSource).toContain('<RepositoryTreeSummary');
     expect(repositorySidebarSource).toContain('<RepositoryTreeSummary');
     expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">trees</span>');
     expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">live</span>');
-    expect(treeSidebarSource).not.toContain('title={displayWorktreePath}');
-    expect(treeSidebarSource).not.toContain('{displayWorktreePath}');
-    expect(worktreePanelSource).not.toContain('title={displayWorktreePath}');
-    expect(worktreePanelSource).not.toContain('{displayWorktreePath}');
+    expect(treeSidebarSource).toContain('title={displayWorktreePath}');
+    expect(treeSidebarSource).toContain('{displayWorktreePath}');
+    expect(worktreePanelSource).toContain('title={displayWorktreePath}');
+    expect(worktreePanelSource).toContain('{displayWorktreePath}');
     expect(treeSidebarSource).not.toContain('pl-11');
     expect(repositorySidebarSource).not.toContain('pl-[1.375rem]');
   });
@@ -331,8 +331,10 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).toContain("placeholder={t('Search projects')}");
     expect(treeSidebarSource).toContain(">{t('Agent')}</span>");
     expect(treeSidebarSource).toContain('import {');
-    expect(treeSidebarSource).toContain('Activity,');
-    expect(treeSidebarSource).toContain('<Activity className="h-3.5 w-3.5 shrink-0" />');
+    expect(treeSidebarSource).toContain('BotMessageSquare,');
+    expect(treeSidebarSource).toContain('<BotMessageSquare className="h-3.5 w-3.5 shrink-0" />');
+    expect(treeSidebarSource).not.toContain('<Bot className="h-3.5 w-3.5 shrink-0" />');
+    expect(treeSidebarSource).not.toContain('<Activity className="h-3.5 w-3.5 shrink-0" />');
     expect(treeSidebarSource).toContain("t('Only show live Agent sessions')");
     expect(treeSidebarSource).toContain('control-sidebar-inline-filter');
     expect(repositorySidebarSource).toContain("aria-label={t('Search projects')}");
@@ -533,8 +535,8 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="repo"][data-selection-tone="context"] {'
     );
-    expect(globalsSource).toContain('var(--accent) 2.25%');
-    expect(globalsSource).toContain('--control-tree-title-weight: 584;');
+    expect(globalsSource).toContain('var(--accent) 0.8%');
+    expect(globalsSource).toContain('--control-tree-title-weight: 568;');
     expect(globalsSource).toContain('.control-tree-node[data-active="worktree"] {');
     expect(globalsSource).toContain('var(--primary) 4.2%');
     expect(globalsSource).toContain('--control-tree-title-weight: 608;');
@@ -592,7 +594,7 @@ describe('sidebar design policy', () => {
       '--control-tree-title-color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);'
     );
     expect(globalsSource).toContain(
-      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 89%, var(--muted-foreground) 11%);'
+      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 86%, var(--muted-foreground) 14%);'
     );
     expect(globalsSource).toContain(
       '--control-tree-title-color: color-mix(in oklch, var(--foreground) 98%, var(--muted-foreground) 2%);'
@@ -608,6 +610,9 @@ describe('sidebar design policy', () => {
     );
     expect(globalsSource).toContain(
       '--control-tree-subtitle-color: color-mix(\n      in oklch,\n      var(--muted-foreground) 58%,\n      var(--foreground) 42%\n    );'
+    );
+    expect(globalsSource).toContain(
+      '--control-tree-subtitle-color: color-mix(\n      in oklch,\n      var(--muted-foreground) 68%,\n      var(--foreground) 32%\n    );'
     );
     expect(globalsSource).toContain(
       '--control-tree-subtitle-color: color-mix(\n      in oklch,\n      var(--muted-foreground) 42%,\n      var(--foreground) 58%\n    );'
@@ -750,6 +755,7 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('overflow: hidden;');
     expect(globalsSource).toContain('.control-tree-meta-offset {');
     expect(globalsSource).toContain('.control-tree-meta-inline {');
+    expect(globalsSource).toContain('.control-tree-summary {');
     expect(treeSidebarSource).toContain('control-tree-primary-content');
     expect(repositorySidebarSource).toContain('control-tree-primary-content');
     expect(worktreePanelSource).toContain('control-tree-primary-content');
@@ -832,7 +838,7 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="repo"][data-selection-tone="context"] {'
     );
-    expect(globalsSource).toContain('--control-tree-disclosure-opacity: 0.68;');
+    expect(globalsSource).toContain('--control-tree-disclosure-opacity: 0.66;');
     expect(globalsSource).toContain('.control-tree-node[data-active="repo"]:hover {');
     expect(globalsSource).toContain('--control-tree-disclosure-opacity: 0.76;');
     expect(globalsSource).toContain('.control-tree-disclosure:hover,');
@@ -860,6 +866,8 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="worktree"] .control-tree-primary[data-surface="row"] {'
     );
+    expect(treeSidebarSource).toContain('title={displayWorktreePath}');
+    expect(worktreePanelSource).toContain('title={displayWorktreePath}');
     expect(treeSidebarSource).not.toContain('rounded-[inherit]');
     expect(worktreePanelSource).not.toContain('rounded-[inherit]');
   });

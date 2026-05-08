@@ -23,8 +23,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { ClaudePolicyCapabilityList } from './ClaudePolicyCapabilityList';
+import { ClaudePolicyDisabledNativeSkillList } from './ClaudePolicyDisabledNativeSkillList';
 import { ClaudePolicyMcpList } from './ClaudePolicyMcpList';
 import { ClaudePolicyPreview } from './ClaudePolicyPreview';
 import {
@@ -96,6 +98,8 @@ interface ClaudePolicyEditorDialogProps {
     policy: ClaudeGlobalPolicy | ClaudeProjectPolicy | ClaudeWorktreePolicy | null,
     preview: ResolvedClaudePolicy | null
   ) => void;
+  onCatalogRefresh?: () => void;
+  onNativeSkillFileChanged?: () => void;
 }
 
 export function ClaudePolicyEditorDialog({
@@ -110,6 +114,8 @@ export function ClaudePolicyEditorDialog({
   projectPolicy,
   worktreePolicy,
   onSave,
+  onCatalogRefresh,
+  onNativeSkillFileChanged,
 }: ClaudePolicyEditorDialogProps) {
   const { t } = useI18n();
   const activePolicy =
@@ -124,6 +130,7 @@ export function ClaudePolicyEditorDialog({
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ClaudePolicyEditorTab>('skills');
   const [searchQuery, setSearchQuery] = useState('');
+  const catalogRequestIdRef = useRef(0);
   const previewRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -137,40 +144,42 @@ export function ClaudePolicyEditorDialog({
     setSearchQuery('');
   }, [activePolicy, open]);
 
+  const refreshCatalog = useCallback(async () => {
+    const requestId = catalogRequestIdRef.current + 1;
+    catalogRequestIdRef.current = requestId;
+    setIsCatalogLoading(true);
+    setCatalogError(null);
+
+    try {
+      const nextCatalog = await window.electronAPI.claudePolicy.catalog.list({
+        repoPath,
+        worktreePath: worktreePath || repoPath,
+      });
+      if (catalogRequestIdRef.current === requestId) {
+        setCatalog(nextCatalog);
+      }
+    } catch (error) {
+      if (catalogRequestIdRef.current === requestId) {
+        setCatalogError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (catalogRequestIdRef.current === requestId) {
+        setIsCatalogLoading(false);
+      }
+    }
+  }, [repoPath, worktreePath]);
+
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    let cancelled = false;
-    setIsCatalogLoading(true);
-    setCatalogError(null);
-
-    window.electronAPI.claudePolicy.catalog
-      .list({
-        repoPath,
-        worktreePath: worktreePath || repoPath,
-      })
-      .then((nextCatalog) => {
-        if (!cancelled) {
-          setCatalog(nextCatalog);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setCatalogError(error instanceof Error ? error.message : String(error));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsCatalogLoading(false);
-        }
-      });
+    void refreshCatalog();
 
     return () => {
-      cancelled = true;
+      catalogRequestIdRef.current += 1;
     };
-  }, [open, repoPath, worktreePath]);
+  }, [open, refreshCatalog]);
 
   const previewRequest = useMemo<ResolveClaudePolicyPreviewRequest>(() => {
     const effectiveWorktreePath = worktreePath || repoPath;
@@ -266,6 +275,10 @@ export function ClaudePolicyEditorDialog({
     () => filterSkillItems(skillItems, searchQuery),
     [searchQuery, skillItems]
   );
+  const filteredDisabledNativeSkillItems = useMemo(
+    () => filterSkillItems(catalog?.disabledNativeSkills ?? [], searchQuery),
+    [catalog?.disabledNativeSkills, searchQuery]
+  );
   const filteredSharedMcpItems = useMemo(
     () => filterMcpItems(catalog?.sharedMcpServers ?? [], searchQuery),
     [catalog?.sharedMcpServers, searchQuery]
@@ -286,6 +299,60 @@ export function ClaudePolicyEditorDialog({
     onSave(nextPolicy, resolvedPolicy);
     onOpenChange(false);
   }, [draft, onOpenChange, onSave, repoPath, resolvedPolicy, scope, worktreePath]);
+
+  const handleDisableNativeSkill = useCallback(
+    async (sourcePath: string) => {
+      const effectiveWorktreePath = worktreePath || repoPath;
+      try {
+        await window.electronAPI.claudePolicy.nativeSkill.disable({
+          worktreePath: effectiveWorktreePath,
+          sourcePath,
+        });
+        toastManager.add({
+          type: 'success',
+          title: t('Skill file disabled'),
+          description: t('The skill folder was moved out of the worktree .claude/skills path.'),
+        });
+        await refreshCatalog();
+        onCatalogRefresh?.();
+        onNativeSkillFileChanged?.();
+      } catch (error) {
+        toastManager.add({
+          type: 'error',
+          title: t('Unable to disable skill file'),
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [onCatalogRefresh, onNativeSkillFileChanged, refreshCatalog, repoPath, t, worktreePath]
+  );
+
+  const handleRestoreNativeSkill = useCallback(
+    async (sourcePath: string) => {
+      const effectiveWorktreePath = worktreePath || repoPath;
+      try {
+        await window.electronAPI.claudePolicy.nativeSkill.restore({
+          worktreePath: effectiveWorktreePath,
+          sourcePath,
+        });
+        toastManager.add({
+          type: 'success',
+          title: t('Skill file restored'),
+          description: t('The skill folder was moved back into the worktree .claude/skills path.'),
+        });
+        await refreshCatalog();
+        onCatalogRefresh?.();
+        onNativeSkillFileChanged?.();
+      } catch (error) {
+        toastManager.add({
+          type: 'error',
+          title: t('Unable to restore skill file'),
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [onCatalogRefresh, onNativeSkillFileChanged, refreshCatalog, repoPath, t, worktreePath]
+  );
 
   const dialogTitle =
     scope === 'global'
@@ -376,17 +443,27 @@ export function ClaudePolicyEditorDialog({
             </div>
 
             {activeTab === 'skills' ? (
-              <ClaudePolicyCapabilityList
-                sectionId="skills"
-                title={t('Skills')}
-                description={t(
-                  'Enable or disable each discovered skill for this scope. Leave it unselected to inherit.'
-                )}
-                items={filteredSkillItems}
-                policy={draft}
-                onDecisionChange={handleCapabilityDecisionChange}
-                onBatchDecisionChange={handleCapabilityBatchDecisionChange}
-              />
+              <div className="space-y-6">
+                <ClaudePolicyCapabilityList
+                  sectionId="skills"
+                  title={t('Skills')}
+                  description={t(
+                    'Enable or disable each discovered skill for this scope. Leave it unselected to inherit.'
+                  )}
+                  items={filteredSkillItems}
+                  policy={draft}
+                  worktreePath={worktreePath || repoPath}
+                  onDecisionChange={handleCapabilityDecisionChange}
+                  onBatchDecisionChange={handleCapabilityBatchDecisionChange}
+                  onDisableNativeSkill={scope === 'worktree' ? handleDisableNativeSkill : undefined}
+                />
+                {scope === 'worktree' ? (
+                  <ClaudePolicyDisabledNativeSkillList
+                    items={filteredDisabledNativeSkillItems}
+                    onRestoreNativeSkill={handleRestoreNativeSkill}
+                  />
+                ) : null}
+              </div>
             ) : (
               <div className="space-y-6">
                 <ClaudePolicyMcpList

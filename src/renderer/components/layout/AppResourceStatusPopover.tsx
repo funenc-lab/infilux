@@ -6,10 +6,6 @@ import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { AppResourceManagerDrawer } from './AppResourceManagerDrawer';
 import {
-  type AppResourceAutoRefreshController,
-  createAppResourceAutoRefreshController,
-} from './appResourceAutoRefresh';
-import {
   type AppResourceStatusTriggerViewModel,
   buildAppResourceStatusTriggerViewModel,
 } from './appResourceStatusTriggerModel';
@@ -32,11 +28,6 @@ export function AppResourceStatusPopover({ className }: AppResourceStatusPopover
     useState<AppResourceStatusTriggerViewModel>(DEFAULT_TRIGGER_STATE);
   const requestSequenceRef = useRef(0);
   const inFlightLoadRef = useRef<Promise<void> | null>(null);
-  const autoRefreshControllerRef = useRef<AppResourceAutoRefreshController | null>(null);
-
-  if (autoRefreshControllerRef.current === null) {
-    autoRefreshControllerRef.current = createAppResourceAutoRefreshController();
-  }
 
   const loadTriggerState = useCallback(async () => {
     if (inFlightLoadRef.current) {
@@ -74,21 +65,6 @@ export function AppResourceStatusPopover({ className }: AppResourceStatusPopover
 
     void loadTriggerState();
   }, [isWindowFocused, loadTriggerState]);
-
-  useEffect(() => {
-    autoRefreshControllerRef.current?.sync({
-      enabled: isWindowFocused && open,
-      onRefresh: () => {
-        void loadTriggerState();
-      },
-    });
-  }, [isWindowFocused, loadTriggerState, open]);
-
-  useEffect(() => {
-    return () => {
-      autoRefreshControllerRef.current?.dispose();
-    };
-  }, []);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>

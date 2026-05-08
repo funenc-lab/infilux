@@ -696,6 +696,10 @@ describe('preload bridge', () => {
           launch: {
             prepare: (request: unknown) => Promise<unknown>;
           };
+          nativeSkill: {
+            disable: (request: unknown) => Promise<unknown>;
+            restore: (request: unknown) => Promise<unknown>;
+          };
         };
       }
     ).claudePolicy;
@@ -739,6 +743,28 @@ describe('preload bridge', () => {
     expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
       IPC_CHANNELS.CLAUDE_POLICY_LAUNCH_PREPARE,
       launchRequest
+    );
+
+    const disableRequest = {
+      worktreePath: '/repo/worktrees/feat-x',
+      sourcePath: '/repo/worktrees/feat-x/.claude/skills/planner/SKILL.md',
+    };
+
+    await claudePolicyApi.nativeSkill.disable(disableRequest);
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_DISABLE,
+      disableRequest
+    );
+
+    const restoreRequest = {
+      worktreePath: '/repo/worktrees/feat-x',
+      sourcePath: '/repo/worktrees/feat-x/.claude/skills.disabled/planner/SKILL.md',
+    };
+
+    await claudePolicyApi.nativeSkill.restore(restoreRequest);
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_RESTORE,
+      restoreRequest
     );
   });
 
