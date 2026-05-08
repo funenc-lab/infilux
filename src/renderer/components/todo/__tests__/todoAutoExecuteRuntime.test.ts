@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useTodoStore } from '@/stores/todo';
 import {
+  buildAutoExecutePrompt,
+  executeTodoTask,
   handleTodoAutoExecuteStop,
   startTodoAutoExecuteQueue,
   startTodoGlobalAutoExecute,
@@ -227,5 +229,165 @@ describe('todoAutoExecuteRuntime', () => {
       currentSessionId: 'existing-session',
     });
     expect(useAgentSessionsStore.getState().sessions).toEqual([]);
+  });
+
+  it('builds auto-execute prompts with task context and validation rules', () => {
+    expect(
+      buildAutoExecutePrompt('Fix startup overlay', 'Keep feedback visible', {
+        repoPath: '/repo-a',
+        worktreePath: '/repo-a/worktree',
+      })
+    ).toContain('Run the relevant project validation commands before completion');
+  });
+
+  it('does not start queues without tasks or enabled agents', () => {
+    expect(
+      startTodoAutoExecuteQueue({
+        repoPath: '/repo-a',
+        taskIds: [],
+        enabledAgents: [codexAgent],
+      })
+    ).toBe(false);
+    expect(
+      startTodoAutoExecuteQueue({
+        repoPath: '/repo-a',
+        taskIds: ['a-1'],
+        enabledAgents: [],
+      })
+    ).toBe(false);
+
+    expect(
+      startTodoGlobalAutoExecute({
+        dispatchableTasks: [],
+        enabledAgents: [codexAgent],
+      })
+    ).toEqual({ skippedTasks: [], startedCount: 0, startedProjects: [] });
+    expect(
+      startTodoGlobalAutoExecute({
+        dispatchableTasks: [{ repoPath: '/repo-a', taskId: 'a-1' }],
+        enabledAgents: [],
+      })
+    ).toEqual({
+      skippedTasks: [{ repoPath: '/repo-a', taskId: 'a-1', reason: 'no-enabled-agents' }],
+      startedCount: 0,
+      startedProjects: [],
+    });
+  });
+
+  it('advances past missing queued tasks and stops when worktree context is unavailable', () => {
+    expect(
+      startTodoAutoExecuteQueue({
+        repoPath: '/repo-a',
+        taskIds: ['missing-task', 'a-1'],
+        enabledAgents: [codexAgent],
+      })
+    ).toBe(true);
+    expect(useTodoStore.getState().autoExecute['/repo-a']).toMatchObject({
+      running: true,
+      currentTaskId: 'a-1',
+      currentSessionId: 'session-a-1',
+    });
+
+    useTodoStore.setState({
+      tasks: {
+        '/repo-a': [createTask('a-no-context', 0)],
+      },
+      autoExecute: {},
+    });
+
+    expect(
+      executeTodoTask({
+        repoPath: '/repo-a',
+        taskId: 'a-no-context',
+        enabledAgents: [codexAgent],
+      })
+    ).toBe(false);
+    expect(useTodoStore.getState().autoExecute['/repo-a']?.running).toBe(false);
+  });
+
+  it('reports missing worktrees during global dispatch without starting sessions', () => {
+    useTodoStore.setState({
+      tasks: {
+        '/repo-a': [createTask('a-no-context', 0)],
+      },
+      autoExecute: {},
+    });
+
+    expect(
+      startTodoGlobalAutoExecute({
+        dispatchableTasks: [{ repoPath: '/repo-a', taskId: 'a-no-context' }],
+        enabledAgents: [codexAgent],
+      })
+    ).toEqual({
+      skippedTasks: [{ repoPath: '/repo-a', taskId: 'a-no-context', reason: 'missing-worktree' }],
+      startedCount: 0,
+      startedProjects: [],
+    });
+    expect(useAgentSessionsStore.getState().sessions).toEqual([]);
+  });
+
+  it('handles stop events that do not complete the current task', () => {
+    startTodoAutoExecuteQueue({
+      repoPath: '/repo-a',
+      taskIds: ['a-1'],
+      enabledAgents: [codexAgent],
+    });
+
+    expect(
+      handleTodoAutoExecuteStop({
+        data: {
+          ...createStopEvent('unknown-provider-session'),
+          taskCompletionStatus: 'unknown',
+        },
+        enabledAgents: [codexAgent],
+      })
+    ).toBe(false);
+
+    expect(
+      handleTodoAutoExecuteStop({
+        data: {
+          ...createStopEvent('session-a-1'),
+          taskCompletionStatus: 'unknown',
+        },
+        enabledAgents: [codexAgent],
+      })
+    ).toBe(true);
+    expect(useTodoStore.getState().tasks['/repo-a'][0]).toMatchObject({
+      id: 'a-1',
+      status: 'todo',
+      sessionId: undefined,
+    });
+    expect(useTodoStore.getState().autoExecute['/repo-a']?.running).toBe(false);
+  });
+
+  it('waits for explicit completion from renderer stop events for Claude-like sessions', () => {
+    const claudeAgent: ResolvedAgent = {
+      agentId: 'claude',
+      command: 'claude',
+      environment: 'native',
+      isDefault: true,
+      name: 'Claude',
+    };
+
+    startTodoAutoExecuteQueue({
+      repoPath: '/repo-a',
+      taskIds: ['a-1'],
+      enabledAgents: [claudeAgent],
+    });
+
+    expect(
+      handleTodoAutoExecuteStop({
+        data: {
+          ...createStopEvent('session-a-1'),
+          taskCompletionStatus: 'unknown',
+        },
+        enabledAgents: [claudeAgent],
+      })
+    ).toBe(false);
+    expect(useTodoStore.getState().tasks['/repo-a'][0]).toMatchObject({
+      id: 'a-1',
+      status: 'in-progress',
+      sessionId: 'session-a-1',
+    });
   });
 });

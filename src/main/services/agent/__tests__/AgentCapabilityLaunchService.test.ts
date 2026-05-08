@@ -28,6 +28,19 @@ function createSessionOptions(): SessionCreateOptions {
   };
 }
 
+function createPolicy(overrides: Record<string, unknown> = {}) {
+  return {
+    allowedCapabilityIds: [],
+    blockedCapabilityIds: [],
+    allowedSharedMcpIds: [],
+    blockedSharedMcpIds: [],
+    allowedPersonalMcpIds: [],
+    blockedPersonalMcpIds: [],
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
 describe('AgentCapabilityLaunchService', () => {
   it('parses generic launch metadata first', () => {
     expect(
@@ -55,6 +68,98 @@ describe('AgentCapabilityLaunchService', () => {
     ).toEqual({
       provider: 'claude',
       ...createMetadata(),
+    });
+  });
+
+  it('normalizes provider-specific policies and materialization modes from launch metadata', () => {
+    expect(
+      resolveAgentCapabilityLaunchRequest({
+        agentCapabilityLaunch: {
+          provider: 'gemini',
+          agentId: 42,
+          agentCommand: null,
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feat-a',
+          globalPolicy: createPolicy(),
+          projectPolicy: createPolicy({ repoPath: '/repo' }),
+          worktreePolicy: createPolicy({
+            repoPath: '/repo',
+            worktreePath: '/repo/worktrees/feat-a',
+          }),
+          sessionPolicy: createPolicy(),
+          materializationMode: 'provider-native',
+        },
+      })
+    ).toEqual({
+      provider: 'gemini',
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feat-a',
+      globalPolicy: createPolicy(),
+      projectPolicy: createPolicy({ repoPath: '/repo' }),
+      worktreePolicy: createPolicy({
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feat-a',
+      }),
+      sessionPolicy: createPolicy(),
+      materializationMode: 'provider-native',
+    });
+
+    expect(
+      resolveAgentCapabilityLaunchRequest({
+        agentCapabilityLaunch: {
+          provider: 'claude',
+          ...createMetadata(),
+          materializationMode: 'symlink',
+        },
+      })?.materializationMode
+    ).toBe('symlink');
+  });
+
+  it('drops malformed launch metadata and invalid nested policy records', () => {
+    expect(resolveAgentCapabilityLaunchRequest(undefined)).toBeNull();
+    expect(
+      resolveAgentCapabilityLaunchRequest({
+        agentCapabilityLaunch: [],
+        claudePolicyLaunch: null,
+      })
+    ).toBeNull();
+    expect(
+      resolveAgentCapabilityLaunchRequest({
+        agentCapabilityLaunch: {
+          provider: 'unknown',
+          ...createMetadata(),
+        },
+      })
+    ).toBeNull();
+    expect(
+      resolveAgentCapabilityLaunchRequest({
+        agentCapabilityLaunch: {
+          provider: 'codex',
+          repoPath: '/repo',
+        },
+      })
+    ).toBeNull();
+
+    expect(
+      resolveAgentCapabilityLaunchRequest({
+        agentCapabilityLaunch: {
+          provider: 'codex',
+          ...createMetadata('codex'),
+          globalPolicy: createPolicy({ allowedCapabilityIds: 'bad' }),
+          projectPolicy: createPolicy({ repoPath: 10 }),
+          worktreePolicy: createPolicy({ repoPath: '/repo', worktreePath: false }),
+          sessionPolicy: createPolicy({ updatedAt: 'bad' }),
+          materializationMode: 'invalid',
+        },
+      })
+    ).toEqual({
+      provider: 'codex',
+      ...createMetadata('codex'),
+      globalPolicy: null,
+      projectPolicy: null,
+      worktreePolicy: null,
+      sessionPolicy: null,
+      materializationMode: undefined,
     });
   });
 

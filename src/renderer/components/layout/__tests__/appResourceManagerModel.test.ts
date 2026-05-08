@@ -160,6 +160,87 @@ describe('appResourceManagerModel', () => {
     });
   });
 
+  it('builds confirmation copy for renderer reload, session kill, and service stop actions', () => {
+    const sessionResource = {
+      id: 'session:session-live',
+      kind: 'session',
+      group: 'sessions',
+      status: 'running',
+      sessionId: 'session-live',
+      sessionKind: 'agent',
+      backend: 'remote',
+      cwd: '/repo/live',
+      createdAt: 10,
+      pid: null,
+      isActive: null,
+      isAlive: null,
+      reclaimable: false,
+      runtimeState: 'reconnecting',
+      availableActions: [{ kind: 'kill-session', dangerLevel: 'danger' }],
+    };
+    const serviceResource = {
+      id: 'service:runner',
+      kind: 'service',
+      group: 'services',
+      status: 'ready',
+      serviceKind: 'hapi-runner',
+      pid: null,
+      port: null,
+      url: null,
+      error: null,
+      installed: true,
+      availableActions: [{ kind: 'stop-service', dangerLevel: 'safe' }],
+    };
+
+    expect(
+      buildAppResourceActionConfirmation(
+        { kind: 'reload-renderer', resourceId: 'process:renderer' },
+        {
+          id: 'process:renderer',
+          kind: 'electron-process',
+          group: 'runtime',
+          status: 'running',
+          pid: 303,
+          processType: 'Tab',
+          name: 'renderer',
+          serviceName: null,
+          workingSetSizeKb: 0,
+          peakWorkingSetSizeKb: 0,
+          privateBytesKb: 0,
+          isCurrentRenderer: true,
+          availableActions: [{ kind: 'reload-renderer', dangerLevel: 'safe' }],
+        } as never,
+        t
+      )
+    ).toEqual({
+      title: 'Reload renderer?',
+      description: 'This will reload the current renderer. Unsaved in-memory UI state may be lost.',
+      confirmLabel: 'Reload Renderer',
+    });
+    expect(
+      buildAppResourceActionConfirmation(
+        { kind: 'kill-session', resourceId: 'session:session-live', sessionId: 'session-live' },
+        sessionResource as never,
+        t
+      )
+    ).toEqual({
+      title: 'Kill session?',
+      description: 'This will terminate the selected session and its child processes.',
+      confirmLabel: 'Kill Session',
+    });
+    expect(
+      buildAppResourceActionConfirmation(
+        { kind: 'stop-service', resourceId: 'service:runner', serviceKind: 'hapi-runner' },
+        serviceResource as never,
+        t
+      )
+    ).toEqual({
+      title: 'Stop service?',
+      description: 'This will stop the selected background service for the current app runtime.',
+      confirmLabel: 'Stop Service',
+    });
+  });
+
   it('builds confirmation copy for stale session reclaim', () => {
     const resource = {
       id: 'session:session-stale',
@@ -549,6 +630,171 @@ describe('appResourceManagerModel', () => {
         },
       },
     ]);
+  });
+
+  it('uses fallback titles, unknown metrics, and service details for sparse resources', () => {
+    const snapshot = {
+      capturedAt: 100,
+      runtime: {
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      },
+      resources: [
+        {
+          id: 'process:browser',
+          kind: 'electron-process',
+          group: 'runtime',
+          status: 'running',
+          pid: 1,
+          processType: 'Browser',
+          name: null,
+          serviceName: null,
+          workingSetSizeKb: 0,
+          peakWorkingSetSizeKb: 0,
+          privateBytesKb: 0,
+          isCurrentRenderer: false,
+          availableActions: [{ kind: 'terminate-process', dangerLevel: 'danger' }],
+        },
+        {
+          id: 'process:gpu',
+          kind: 'electron-process',
+          group: 'runtime',
+          status: 'running',
+          pid: 2,
+          processType: 'GPU',
+          name: null,
+          serviceName: null,
+          workingSetSizeKb: 0,
+          peakWorkingSetSizeKb: 0,
+          privateBytesKb: 0,
+          isCurrentRenderer: false,
+          availableActions: [{ kind: 'terminate-process', dangerLevel: 'danger' }],
+        },
+        {
+          id: 'session:agent',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'session-agent',
+          sessionKind: 'agent',
+          backend: 'remote',
+          cwd: '/repo/agent',
+          projectName: 'same',
+          worktreeName: 'same',
+          branchName: null,
+          createdAt: 20,
+          pid: null,
+          isActive: null,
+          isAlive: null,
+          reclaimable: false,
+          runtimeState: 'reconnecting',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'session:terminal',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'session-terminal',
+          sessionKind: 'terminal',
+          backend: 'local',
+          cwd: '/repo/terminal',
+          createdAt: 10,
+          pid: null,
+          isActive: null,
+          isAlive: null,
+          reclaimable: false,
+          runtimeState: 'unknown',
+          availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+        },
+        {
+          id: 'service:cloudflared',
+          kind: 'service',
+          group: 'services',
+          status: 'ready',
+          serviceKind: 'cloudflared',
+          pid: null,
+          port: 4040,
+          url: 'https://example.trycloudflare.com',
+          error: null,
+          installed: true,
+          availableActions: [{ kind: 'stop-service', dangerLevel: 'safe' }],
+        },
+      ],
+    };
+
+    const sections = buildAppResourceManagerSections(snapshot as never, t);
+
+    expect(sections[0]?.items.map((item) => item.title)).toEqual([
+      'Browser process',
+      'GPU process',
+    ]);
+    expect(sections[1]?.items.map((item) => item.title)).toEqual(['same', 'Terminal session']);
+    expect(sections[1]?.items[0]?.subtitle).toBe('Remote backend');
+    expect(sections[1]?.items[0]?.metrics).toEqual(
+      expect.arrayContaining([
+        { key: 'runtime-state', label: 'Runtime state', value: 'Reconnecting' },
+        { key: 'activity', label: 'Activity', value: 'Unknown' },
+        { key: 'liveness', label: 'Liveness', value: 'Unknown' },
+      ])
+    );
+    expect(sections[1]?.items[1]?.metrics).toEqual(
+      expect.arrayContaining([{ key: 'runtime-state', label: 'Runtime state', value: 'Unknown' }])
+    );
+    expect(sections[2]?.items[0]).toMatchObject({
+      title: 'Cloudflared',
+      subtitle: 'Cloudflared status',
+      metrics: [
+        { key: 'port', label: 'Port', value: '4040' },
+        { key: 'url', label: 'URL', value: 'https://example.trycloudflare.com' },
+      ],
+    });
+  });
+
+  it('throws when resource actions are attached to the wrong resource kind', () => {
+    expect(() =>
+      buildAppResourceManagerSections(
+        {
+          capturedAt: 100,
+          runtime: {
+            capturedAt: 100,
+            processCount: 0,
+            rendererProcessId: 303,
+            rendererMemory: null,
+            rendererMetric: null,
+            browserMetric: null,
+            gpuMetric: null,
+            totalAppWorkingSetSizeKb: 0,
+            totalAppPrivateBytesKb: 0,
+          },
+          resources: [
+            {
+              id: 'process:bad',
+              kind: 'electron-process',
+              group: 'runtime',
+              status: 'running',
+              pid: 1,
+              processType: 'Utility',
+              name: null,
+              serviceName: null,
+              workingSetSizeKb: 0,
+              peakWorkingSetSizeKb: 0,
+              privateBytesKb: 0,
+              isCurrentRenderer: false,
+              availableActions: [{ kind: 'kill-session', dangerLevel: 'danger' }],
+            },
+          ],
+        } as never,
+        t
+      )
+    ).toThrow(/does not support session actions/);
   });
 
   it('disables the bulk reclaim action when no stale sessions are available', () => {

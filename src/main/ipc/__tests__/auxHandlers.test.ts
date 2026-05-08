@@ -689,6 +689,170 @@ describe('auxiliary IPC handlers', () => {
     expect(auxTestDoubles.generateTodoTasks).not.toHaveBeenCalled();
   });
 
+  it('normalizes and rejects todo AI task generation edge-case payloads', async () => {
+    const { registerTodoHandlers } = await import('../todo');
+    registerTodoHandlers();
+
+    const generateTasks = getHandler(IPC_CHANNELS.TODO_AI_GENERATE_TASKS);
+    const baseOptions = {
+      text: 'Plan this work',
+      timeout: 60,
+      provider: 'codex-cli',
+      model: 'gpt-5.2',
+    };
+
+    await expect(generateTasks({}, baseOptions)).resolves.toEqual({
+      success: true,
+      tasks: [
+        {
+          title: 'Generated task',
+          description: 'Generated description',
+          priority: 'medium',
+          agentId: 'codex',
+        },
+      ],
+    });
+
+    await expect(
+      generateTasks(
+        {},
+        {
+          ...baseOptions,
+          context: {
+            repoPath: ' ',
+            worktreePath: null,
+            dependencyTaskIds: [' ', 'blocked-by', 'blocked-by'],
+            executionGate: {
+              approvedAt: 'invalid',
+              requiresApproval: true,
+            },
+            files: [{ path: 'src/main/ipc/todo.ts', label: '' }],
+            directories: [{ path: 'src/main/ipc', label: null }],
+          },
+          maxTasks: 2.9,
+        }
+      )
+    ).resolves.toEqual({
+      success: true,
+      tasks: [
+        {
+          title: 'Generated task',
+          description: 'Generated description',
+          priority: 'medium',
+          agentId: 'codex',
+        },
+      ],
+    });
+
+    expect(auxTestDoubles.generateTodoTasks).toHaveBeenLastCalledWith({
+      ...baseOptions,
+      context: {
+        dependencyTaskIds: ['blocked-by'],
+        executionGate: {
+          requiresApproval: true,
+        },
+        files: [{ path: 'src/main/ipc/todo.ts' }],
+        directories: [{ path: 'src/main/ipc' }],
+      },
+      maxTasks: 2,
+    });
+
+    await expect(
+      generateTasks(
+        {},
+        {
+          ...baseOptions,
+          context: {
+            executionGate: {
+              requiresApproval: false,
+            },
+            files: [],
+            directories: [],
+          },
+          agents: null,
+          maxTasks: null,
+        }
+      )
+    ).resolves.toEqual({
+      success: true,
+      tasks: [
+        {
+          title: 'Generated task',
+          description: 'Generated description',
+          priority: 'medium',
+          agentId: 'codex',
+        },
+      ],
+    });
+
+    expect(auxTestDoubles.generateTodoTasks).toHaveBeenLastCalledWith(baseOptions);
+
+    const invalidPayloads: Array<[Record<string, unknown>, string]> = [
+      [{}, 'Todo AI generate text must be a non-empty string'],
+      [{ ...baseOptions, text: ' ' }, 'Todo AI generate text must be a non-empty string'],
+      [{ ...baseOptions, text: 'x'.repeat(60_001) }, 'Todo AI generate text is too long'],
+      [{ ...baseOptions, timeout: Number.NaN }, 'Todo AI generate timeout is out of range'],
+      [{ ...baseOptions, timeout: 0 }, 'Todo AI generate timeout is out of range'],
+      [{ ...baseOptions, timeout: 601 }, 'Todo AI generate timeout is out of range'],
+      [{ ...baseOptions, reasoningEffort: 'extreme' }, 'Unsupported reasoning effort'],
+      [{ ...baseOptions, prompt: 1 }, 'Todo AI generate prompt must be a string'],
+      [{ ...baseOptions, prompt: 'x'.repeat(20_001) }, 'Todo AI generate prompt is too long'],
+      [{ ...baseOptions, repoPath: 1 }, 'Todo AI generate repo path must be a string'],
+      [
+        { ...baseOptions, worktreePath: 'x'.repeat(4097) },
+        'Todo AI generate worktree path is too long',
+      ],
+      [{ ...baseOptions, context: 'invalid' }, 'Todo AI generate context must be an object'],
+      [
+        { ...baseOptions, context: { dependencyTaskIds: 'blocked-by' } },
+        'Todo AI generate context dependency ids must be an array',
+      ],
+      [
+        { ...baseOptions, context: { executionGate: [] } },
+        'Todo AI generate context execution gate must be an object',
+      ],
+      [
+        { ...baseOptions, context: { files: 'src/main/ipc/todo.ts' } },
+        'Todo AI generate context files must be an array',
+      ],
+      [
+        { ...baseOptions, context: { files: [null] } },
+        'Todo AI generate context file must be an object',
+      ],
+      [
+        { ...baseOptions, context: { files: [{ path: '' }] } },
+        'Todo AI generate context file path must be a non-empty string',
+      ],
+      [
+        { ...baseOptions, context: { files: [{ path: 'src/main/ipc/todo.ts', label: 1 }] } },
+        'Todo AI generate context file label must be a string',
+      ],
+      [
+        {
+          ...baseOptions,
+          context: { files: [{ path: 'src/main/ipc/todo.ts', label: 'x'.repeat(513) }] },
+        },
+        'Todo AI generate context file label is too long',
+      ],
+      [
+        { ...baseOptions, context: { directories: 'src/main/ipc' } },
+        'Todo AI generate context directories must be an array',
+      ],
+      [{ ...baseOptions, agents: 'codex' }, 'Todo AI generate agents must be an array'],
+      [{ ...baseOptions, agents: [null] }, 'Todo AI generate agent must be an object'],
+      [
+        { ...baseOptions, agents: [{ agentId: 'codex', command: '', name: 'Codex' }] },
+        'Todo AI generate agent command must be a non-empty string',
+      ],
+      [{ ...baseOptions, maxTasks: '3' }, 'Todo AI generate maxTasks must be a number'],
+      [{ ...baseOptions, maxTasks: 13 }, 'Todo AI generate maxTasks is out of range'],
+    ];
+
+    for (const [options, message] of invalidPayloads) {
+      await expect(generateTasks({}, options)).rejects.toThrow(message);
+    }
+  });
+
   it('re-exports terminal handlers from the session module', async () => {
     const terminal = await import('../terminal');
 
