@@ -48,6 +48,7 @@ import {
   resolveRecoveredInitialTerminalReplay,
   resolveRecoveredReplaySnapshotPersistence,
   resolveReusableBackendSessionId,
+  shouldApplyInitialTerminalReplay,
   shouldAttemptDeadSessionRecovery,
   shouldRearmDeadSessionRecovery,
   shouldRebindXtermSession,
@@ -1373,9 +1374,13 @@ export function useXterm({
         reusedExistingSession,
       });
       replaceReplaySnapshot(persistedReplaySnapshot);
-      const receivedLiveDataBeforeAttachResolved = hasReceivedDataRef.current;
+      const shouldApplyReplay = shouldApplyInitialTerminalReplay({
+        initialReplay,
+        hasReceivedData: hasReceivedDataRef.current,
+        liveReplaySnapshot: replaySnapshotRef.current,
+      });
 
-      if (initialReplay && !receivedLiveDataBeforeAttachResolved) {
+      if (shouldApplyReplay && initialReplay) {
         hasReceivedDataRef.current = true;
         if (
           shouldRearmDeadSessionRecovery({
@@ -1669,6 +1674,10 @@ export function useXterm({
 
   // Handle resize
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     const handleResize = () => {
       if (syncViewportToSession()) {
         // Clear WebGL texture atlas on resize to prevent glitches
@@ -1712,7 +1721,7 @@ export function useXterm({
       observer.disconnect();
       intersectionObserver.disconnect();
     };
-  }, [syncViewportToSession]);
+  }, [isActive, syncViewportToSession]);
 
   // Fit and focus when becoming active (only after loading completes)
   useEffect(() => {
@@ -1749,6 +1758,10 @@ export function useXterm({
 
   // Handle window visibility change to refresh terminal rendering
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     const handleVisibilityChange = () => {
       if (!document.hidden && terminalRef.current) {
         requestAnimationFrame(() => {
@@ -1774,6 +1787,10 @@ export function useXterm({
 
   // Handle app focus/blur events (macOS app switching)
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     const handleFocus = () => {
       if (terminalRef.current) {
         requestAnimationFrame(() => {

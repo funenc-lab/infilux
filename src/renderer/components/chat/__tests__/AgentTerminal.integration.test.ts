@@ -629,6 +629,24 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('does not mark hidden pending-command terminals active for renderer refresh listeners', async () => {
+    const mounted = await mountAgentTerminal({
+      agentId: 'codex',
+      agentCommand: 'codex',
+      recovered: true,
+      initialized: true,
+      isActive: false,
+      hasPendingCommand: true,
+      initialPrompt: 'Review the current diff',
+    });
+
+    const lastUseXtermCall = testState.useXtermOptions.at(-1);
+    expect(lastUseXtermCall?.activateOnInitialCommandWhenInactive).toBe(true);
+    expect(lastUseXtermCall?.isActive).toBe(false);
+
+    await mounted.unmount();
+  });
+
   it('does not show the startup overlay for inactive agent terminals that are still loading', async () => {
     testState.xtermResult.isLoading = true;
 
@@ -781,6 +799,72 @@ describe('AgentTerminal integration', () => {
         args: ['-lc', 'codex resume provider-session-1'],
       },
     });
+
+    await mounted.unmount();
+  });
+
+  it('restarts recovery automatically after a missing host session resolves a real provider session id', async () => {
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'ui-session-1',
+      backendSessionId: undefined,
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+    });
+
+    expect(testState.xtermResult.restartSession).not.toHaveBeenCalled();
+
+    await mounted.rerender({
+      sessionId: 'provider-session-1',
+    });
+
+    expect(testState.xtermResult.restartSession).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('does not restart inactive recovered sessions when provider session discovery resolves in the background', async () => {
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'ui-session-1',
+      backendSessionId: undefined,
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+      isActive: false,
+    });
+
+    await mounted.rerender({
+      sessionId: 'provider-session-1',
+    });
+
+    expect(testState.xtermResult.restartSession).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('restarts inactive recovered sessions after provider discovery only when a pending command still needs execution', async () => {
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'ui-session-1',
+      backendSessionId: undefined,
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+      isActive: false,
+      hasPendingCommand: true,
+      initialPrompt: 'Review the current diff',
+    });
+
+    await mounted.rerender({
+      sessionId: 'provider-session-1',
+    });
+
+    expect(testState.xtermResult.restartSession).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });

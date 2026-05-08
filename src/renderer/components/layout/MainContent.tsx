@@ -349,14 +349,11 @@ export function MainContent({
 
     return nextCwds;
   }, [initializedSessions]);
+  const shouldPollVisibleChatSubagents =
+    activeTab === 'chat' && !selectedSubagent && Boolean(currentWorktreePath);
   const liveSubagentVisibleCwds = useMemo(
-    () =>
-      [
-        currentWorktreePath,
-        retainedChatContext?.worktreePath ?? null,
-        ...retainedChatPanelPaths,
-      ].filter((path): path is string => Boolean(path)),
-    [currentWorktreePath, retainedChatContext, retainedChatPanelPaths]
+    () => (shouldPollVisibleChatSubagents && currentWorktreePath ? [currentWorktreePath] : []),
+    [currentWorktreePath, shouldPollVisibleChatSubagents]
   );
   const liveSubagentPollCwds = useMemo(
     () => buildPolledLiveSubagentCwds(liveSubagentVisibleCwds, activeCodexSessionCwds),

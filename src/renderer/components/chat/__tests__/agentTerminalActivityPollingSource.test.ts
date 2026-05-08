@@ -14,6 +14,8 @@ describe('agent terminal activity polling source', () => {
     );
     expect(agentTerminalSource).toContain('isActive: effectiveIsActive');
     expect(agentTerminalSource).toContain('}, activityPollIntervalMs);');
+    expect(agentTerminalSource).toContain('return isActive;');
+    expect(agentTerminalSource).not.toContain('return isActive || hasPendingCommand;');
   });
 
   it('restarts activity polling when the effective terminal visibility changes mid-run', () => {

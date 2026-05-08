@@ -2,15 +2,17 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('AgentPanel live subagent polling contract', () => {
-  it('keeps background polling scoped to the active panel', () => {
+  it('keeps worktree live subagent polling as an active-panel fallback for unresolved provider sessions', () => {
     const agentPanelSource = readFileSync(new URL('../AgentPanel.tsx', import.meta.url), 'utf8');
 
+    expect(agentPanelSource).toContain('const fallbackLiveSubagentWorktreePaths = useMemo(() => {');
+    expect(agentPanelSource).toContain('!isUnresolvedProviderSession(session)');
     expect(agentPanelSource).toContain(
-      'const shouldPollLiveSubagents =\n' +
-        '    isActive &&\n' +
-        '    subagentScopeSessions.some((session) =>'
+      'const shouldPollLiveSubagents = isActive && fallbackLiveSubagentWorktreePaths.length > 0;'
     );
-    expect(agentPanelSource).toContain('shouldPollLiveSubagents ? subagentScopeWorktreePaths : []');
+    expect(agentPanelSource).toContain(
+      'shouldPollLiveSubagents ? fallbackLiveSubagentWorktreePaths : []'
+    );
     expect(agentPanelSource).toContain(
       'supportsSessionSubagentTracking(session.agentId, session.agentCommand)'
     );
@@ -18,6 +20,14 @@ describe('AgentPanel live subagent polling contract', () => {
     expect(agentPanelSource).toContain('sessionScopedSubagentsBySessionId[session.id] ?? []');
     expect(agentPanelSource).toContain('getDisplayableSessionSubagents({');
     expect(agentPanelSource).toContain('allowUnresolvedProviderFallback:');
+  });
+
+  it('feeds session-scoped subagents into activity state without requiring duplicate worktree polling', () => {
+    const agentPanelSource = readFileSync(new URL('../AgentPanel.tsx', import.meta.url), 'utf8');
+
+    expect(agentPanelSource).toContain('const sessionScopedSubagentsByWorktree = useMemo(() => {');
+    expect(agentPanelSource).toContain('const activitySubagentsByWorktree = useMemo(() => {');
+    expect(agentPanelSource).toContain('subagentsByWorktree: activitySubagentsByWorktree');
   });
 
   it('hydrates inspector content with dedicated session-scoped polling', () => {

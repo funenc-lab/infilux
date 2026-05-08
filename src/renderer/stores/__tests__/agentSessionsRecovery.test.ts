@@ -24,6 +24,7 @@ async function loadAgentSessionsStore(initialStorage?: Record<string, string>) {
   const module = await import('../agentSessions');
   return {
     useAgentSessionsStore: module.useAgentSessionsStore,
+    flushPendingAgentSessionsStorageSave: module.flushPendingAgentSessionsStorageSave,
     localStorageMock,
   };
 }
@@ -61,6 +62,7 @@ describe('agent session recovery store', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('persists only sessions whose recovery host is enabled', async () => {
@@ -81,12 +83,14 @@ describe('agent session recovery store', () => {
       environment: 'native',
     });
 
+    env.flushPendingAgentSessionsStorageSave();
     const savedPayload = env.localStorageMock.setItem.mock.calls.at(-1)?.[1];
     expect(savedPayload).toBeTruthy();
     expect(JSON.parse(savedPayload as string).sessions).toEqual([]);
 
     store.updateSession('session-1', { persistenceEnabled: true });
 
+    env.flushPendingAgentSessionsStorageSave();
     const persistedPayload = env.localStorageMock.setItem.mock.calls.at(-1)?.[1];
     expect(JSON.parse(persistedPayload as string).sessions).toEqual([
       expect.objectContaining({ id: 'session-1', agentCommand: 'codex' }),
@@ -475,6 +479,44 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('does not replace an existing active session id when hydrating another recovered session for the same worktree', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'session-active',
+      sessionId: 'provider-active',
+      backendSessionId: 'backend-active',
+      name: 'Active',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      persistenceEnabled: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      environment: 'native',
+    });
+    store.setActiveId('/repo/worktree', 'session-active');
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        uiSessionId: 'session-recovered',
+        providerSessionId: 'provider-recovered',
+        backendSessionId: 'backend-recovered',
+      })
+    );
+
+    const state = env.useAgentSessionsStore.getState();
+    expect(state.activeIds['/repo/worktree']).toBe('session-active');
+    expect(state.sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'session-active' }),
+        expect.objectContaining({ id: 'session-recovered' }),
+      ])
+    );
+  });
+
   it('restores persisted group layout, enhanced input draft, and unread runtime markers', async () => {
     const persistedPayload = {
       sessions: [
@@ -805,6 +847,7 @@ describe('agent session recovery store', () => {
     store.setOutputState('session-1', 'unread', false);
     store.markTaskCompletedUnread('session-1');
 
+    env.flushPendingAgentSessionsStorageSave();
     const savedPayload = env.localStorageMock.setItem.mock.calls.at(-1)?.[1];
     expect(savedPayload).toBeTruthy();
     expect(JSON.parse(savedPayload as string)).toEqual(

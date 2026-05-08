@@ -33,6 +33,7 @@ import { useAgentStatusStore } from './agentStatus';
 
 // Global storage key for all sessions across all repos
 export const SESSIONS_STORAGE_KEY = 'enso-agent-sessions';
+const SESSIONS_STORAGE_SAVE_DELAY_MS = 200;
 
 // Runtime output state for each session
 export type OutputState = 'idle' | 'outputting' | 'unread';
@@ -86,6 +87,13 @@ interface PersistedAgentSessionsSnapshot {
   runtimeStates: Record<string, SessionRuntimeState>;
   enhancedInputStates: Record<string, EnhancedInputState>;
 }
+
+type PersistableAgentSessionsSnapshotInput = Pick<
+  PersistedAgentSessionsSnapshot,
+  'sessions' | 'activeIds' | 'groupStates' | 'runtimeStates' | 'enhancedInputStates'
+>;
+
+type AgentSessionsStorage = Pick<Storage, 'setItem'>;
 
 interface AgentSessionsState {
   sessions: Session[];
@@ -399,7 +407,8 @@ function saveToStorage(
   activeIds: Record<string, string | null>,
   groupStates: WorktreeGroupStates,
   runtimeStates: Record<string, SessionRuntimeState>,
-  enhancedInputStates: Record<string, EnhancedInputState>
+  enhancedInputStates: Record<string, EnhancedInputState>,
+  storage: AgentSessionsStorage = localStorage
 ): void {
   // Only persist sessions that are activated and backed by a recoverable host.
   const persistableSessions = sessions.filter((session) => isSessionPersistable(session));
@@ -410,7 +419,7 @@ function saveToStorage(
   for (const [cwd, id] of Object.entries(activeIds)) {
     persistableActiveIds[cwd] = id && persistableIds.has(id) ? id : null;
   }
-  localStorage.setItem(
+  storage.setItem(
     SESSIONS_STORAGE_KEY,
     JSON.stringify({
       sessions: sanitizedPersistableSessions,
@@ -423,6 +432,55 @@ function saveToStorage(
       ),
     } satisfies PersistedAgentSessionsSnapshot)
   );
+}
+
+let pendingStorageSnapshot: PersistableAgentSessionsSnapshotInput | null = null;
+let pendingStorageSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingStorage: AgentSessionsStorage | null = null;
+
+export function flushPendingAgentSessionsStorageSave(): void {
+  if (pendingStorageSaveTimer) {
+    clearTimeout(pendingStorageSaveTimer);
+    pendingStorageSaveTimer = null;
+  }
+
+  const snapshot = pendingStorageSnapshot;
+  const storage = pendingStorage;
+  pendingStorageSnapshot = null;
+  pendingStorage = null;
+
+  if (!snapshot || !storage) {
+    return;
+  }
+
+  saveToStorage(
+    snapshot.sessions,
+    snapshot.activeIds,
+    snapshot.groupStates,
+    snapshot.runtimeStates,
+    snapshot.enhancedInputStates,
+    storage
+  );
+}
+
+function scheduleStorageSave(
+  snapshot: PersistableAgentSessionsSnapshotInput,
+  storage: AgentSessionsStorage = localStorage
+): void {
+  pendingStorageSnapshot = snapshot;
+  pendingStorage = storage;
+
+  if (pendingStorageSaveTimer) {
+    clearTimeout(pendingStorageSaveTimer);
+  }
+
+  pendingStorageSaveTimer = setTimeout(() => {
+    flushPendingAgentSessionsStorageSave();
+  }, SESSIONS_STORAGE_SAVE_DELAY_MS);
+}
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('beforeunload', flushPendingAgentSessionsStorageSave);
 }
 
 const initialState = loadFromStorage();
@@ -1289,7 +1347,7 @@ useAgentSessionsStore.subscribe(
     enhancedInputStates: state.enhancedInputStates,
   }),
   ({ sessions, activeIds, groupStates, runtimeStates, enhancedInputStates }) => {
-    saveToStorage(sessions, activeIds, groupStates, runtimeStates, enhancedInputStates);
+    scheduleStorageSave({ sessions, activeIds, groupStates, runtimeStates, enhancedInputStates });
   },
   {
     equalityFn: (a, b) =>

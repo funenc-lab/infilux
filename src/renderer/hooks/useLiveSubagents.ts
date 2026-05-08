@@ -25,6 +25,18 @@ function buildLiveSubagentCwdsKey(cwds: string[]): string {
   return buildLiveSubagentCwds(cwds).join('\0');
 }
 
+function normalizeLiveSubagentItems(value: unknown): LiveAgentSubagent[] {
+  return Array.isArray(value) ? (value as LiveAgentSubagent[]) : [];
+}
+
+function extractLiveSubagentItems(result: unknown): LiveAgentSubagent[] {
+  if (!result || typeof result !== 'object') {
+    return [];
+  }
+
+  return normalizeLiveSubagentItems((result as { items?: unknown }).items);
+}
+
 export function areLiveSubagentListsEqual(
   left: LiveAgentSubagent[],
   right: LiveAgentSubagent[]
@@ -85,16 +97,16 @@ export function useLiveSubagents(cwds: string[]): Map<string, LiveAgentSubagent[
         const result = await window.electronAPI.agentSubagent.listLive({
           cwds: stableCwds,
         });
+        const nextItems = extractLiveSubagentItems(result);
 
         if (!cancelled) {
           setItems((current) =>
-            areLiveSubagentListsEqual(current, result.items) ? current : result.items
+            areLiveSubagentListsEqual(current, nextItems) ? current : nextItems
           );
         }
       } catch (error) {
         if (!cancelled) {
           console.error('[useLiveSubagents] Failed to load live subagents', error);
-          setItems((current) => (current.length === 0 ? current : []));
         }
       }
     };

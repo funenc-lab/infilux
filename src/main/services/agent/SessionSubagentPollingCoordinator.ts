@@ -13,6 +13,7 @@ interface SessionSubagentLookup {
 
 interface SessionSubagentPollingCoordinatorOptions {
   defaultPollIntervalMs?: number;
+  maxBackoffIntervalMs?: number;
 }
 
 interface SessionSubagentSubscription {
@@ -30,6 +31,7 @@ interface TargetState {
   activePollIntervalMs: number | null;
   inFlight: Promise<void> | null;
   cachedResult: ListSessionAgentSubagentsResult | null;
+  failureCount: number;
 }
 
 interface SubscriptionHandle {
@@ -38,6 +40,7 @@ interface SubscriptionHandle {
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_MAX_BACKOFF_INTERVAL_MS = 30_000;
 
 function resolveWorkspacePlatform(): 'linux' | 'darwin' | 'win32' {
   if (process.platform === 'darwin' || process.platform === 'win32') {
@@ -106,6 +109,7 @@ function areResultsEqual(
 
 export class SessionSubagentPollingCoordinator {
   private readonly defaultPollIntervalMs: number;
+  private readonly maxBackoffIntervalMs: number;
   private readonly subscriptions = new Map<string, SessionSubagentSubscription>();
   private readonly targets = new Map<string, TargetState>();
 
@@ -114,6 +118,7 @@ export class SessionSubagentPollingCoordinator {
     options: SessionSubagentPollingCoordinatorOptions = {}
   ) {
     this.defaultPollIntervalMs = options.defaultPollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    this.maxBackoffIntervalMs = options.maxBackoffIntervalMs ?? DEFAULT_MAX_BACKOFF_INTERVAL_MS;
   }
 
   subscribe(
@@ -218,6 +223,7 @@ export class SessionSubagentPollingCoordinator {
       activePollIntervalMs: null,
       inFlight: null,
       cachedResult: null,
+      failureCount: 0,
     };
     this.targets.set(targetKey, created);
     return created;
@@ -246,6 +252,21 @@ export class SessionSubagentPollingCoordinator {
     targetState.activePollIntervalMs = pollIntervalMs;
   }
 
+  private restartTargetTimer(
+    targetKey: string,
+    targetState: TargetState,
+    pollIntervalMs: number
+  ): void {
+    if (targetState.timer) {
+      clearInterval(targetState.timer);
+    }
+
+    targetState.timer = setInterval(() => {
+      void this.pollTarget(targetKey, targetState);
+    }, pollIntervalMs);
+    targetState.activePollIntervalMs = pollIntervalMs;
+  }
+
   private getTargetPollIntervalMs(targetState: TargetState): number {
     let shortestIntervalMs = this.defaultPollIntervalMs;
 
@@ -258,6 +279,16 @@ export class SessionSubagentPollingCoordinator {
     }
 
     return shortestIntervalMs;
+  }
+
+  private getTargetBackoffIntervalMs(targetState: TargetState): number {
+    const baseIntervalMs = this.getTargetPollIntervalMs(targetState);
+    if (targetState.failureCount <= 0) {
+      return baseIntervalMs;
+    }
+
+    const multiplier = 2 ** Math.min(targetState.failureCount, 4);
+    return Math.min(baseIntervalMs * multiplier, this.maxBackoffIntervalMs);
   }
 
   private stopTarget(targetKey: string, targetState: TargetState): void {
@@ -279,15 +310,24 @@ export class SessionSubagentPollingCoordinator {
         providerSessionId: targetState.target.providerSessionId,
         cwd: targetState.target.cwd,
       })
-      .catch(() => ({
-        items: [],
-        generatedAt: Date.now(),
-      }))
       .then((result) => {
+        targetState.failureCount = 0;
+        const nextIntervalMs = this.getTargetPollIntervalMs(targetState);
+        if (targetState.activePollIntervalMs !== nextIntervalMs) {
+          this.restartTargetTimer(targetKey, targetState, nextIntervalMs);
+        }
+
         const changed = !areResultsEqual(targetState.cachedResult, result);
         targetState.cachedResult = result;
         if (changed) {
           this.notifySubscribers(targetKey);
+        }
+      })
+      .catch(() => {
+        targetState.failureCount += 1;
+        const nextIntervalMs = this.getTargetBackoffIntervalMs(targetState);
+        if (targetState.activePollIntervalMs !== nextIntervalMs) {
+          this.restartTargetTimer(targetKey, targetState, nextIntervalMs);
         }
       })
       .finally(() => {

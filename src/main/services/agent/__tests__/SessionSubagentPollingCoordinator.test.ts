@@ -169,4 +169,69 @@ describe('SessionSubagentPollingCoordinator', () => {
 
     coordinator.dispose();
   });
+
+  it('retains the last successful snapshot and backs off after polling failures', async () => {
+    const listSession = vi
+      .fn<() => Promise<ListSessionAgentSubagentsResult>>()
+      .mockResolvedValueOnce({
+        items: [createSubagent()],
+        generatedAt: 1,
+      })
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce({
+        items: [createSubagent({ status: 'completed', lastSeenAt: 200 })],
+        generatedAt: 2,
+      });
+    const coordinator = new SessionSubagentPollingCoordinator(
+      { listSession },
+      { defaultPollIntervalMs: 1_000 }
+    );
+    const listener = vi.fn();
+
+    coordinator.subscribe(
+      {
+        ownerId: 'sender-1',
+        subscriptionId: 'sub-1',
+        pollIntervalMs: 1_000,
+        targets: [
+          {
+            sessionId: 'ui-session-1',
+            providerSessionId: 'root-1',
+            cwd: '/repo/worktree',
+          },
+        ],
+      },
+      listener
+    );
+
+    await flushPromises();
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    listener.mockClear();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+
+    expect(listSession).toHaveBeenCalledTimes(2);
+    expect(listener).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+
+    expect(listSession).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+
+    expect(listSession).toHaveBeenCalledTimes(3);
+    expect(listener).toHaveBeenLastCalledWith({
+      subscriptionId: 'sub-1',
+      itemsBySessionId: {
+        'ui-session-1': [createSubagent({ status: 'completed', lastSeenAt: 200 })],
+      },
+      generatedAt: 2,
+    });
+
+    coordinator.dispose();
+  });
 });

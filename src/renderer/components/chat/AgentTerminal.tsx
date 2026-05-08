@@ -85,6 +85,7 @@ import {
   shouldForceAgentTerminalIdleAfterInterrupt,
 } from './agentTerminalInterruptPolicy';
 import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
+import { shouldRetryDeadAgentSession } from './agentTerminalRecoveryPolicy';
 import { formatAgentTranscriptForTerminal } from './agentTranscriptTerminalFormat';
 import { extractClaudePolicySessionMetadata } from './claudePolicyLaunch';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
@@ -114,7 +115,7 @@ interface AgentTerminalProps {
   recoveryState?: PersistentAgentRuntimeState;
   isActive?: boolean;
   terminalFontScale?: number;
-  hasPendingCommand?: boolean; // Force terminal activation even when not visible
+  hasPendingCommand?: boolean; // Allow initial command execution before the terminal is visible.
   initialPrompt?: string; // Initial prompt to pass as CLI argument (auto-execute)
   sessionPolicy?: ClaudePolicyConfig | null;
   materializationMode?: ClaudePolicyMaterializationMode;
@@ -156,6 +157,21 @@ const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is d
 const MIN_OUTPUT_FOR_INDICATOR = 200; // Minimum chars to show "outputting" indicator (higher to avoid noise)
 const IDLE_CONFIRMATION_COUNT = 2; // Require 2 consecutive idle polls (2 seconds) before marking as idle
 const RECENT_OUTPUT_TIMEOUT_MS = 3000; // If output received within this time, consider still active
+
+function hasResolvedProviderSessionId(
+  uiSessionId: string | undefined,
+  providerSessionId: string | undefined
+): boolean {
+  if (!providerSessionId) {
+    return false;
+  }
+
+  if (!uiSessionId) {
+    return true;
+  }
+
+  return providerSessionId !== uiSessionId;
+}
 
 function getAttachmentTempExtension(file: File): string {
   const mime = file.type.toLowerCase();
@@ -595,6 +611,8 @@ export function AgentTerminal({
     const availability = resolveAgentInputAvailability({
       backendSessionId: inputDispatchSessionId,
       runtimeState: runtimeStateRef.current,
+      uiSessionId: id,
+      providerSessionId: sessionId,
     });
     const unavailableReason = resolveAgentInputUnavailableReason({
       agentCommand,
@@ -612,7 +630,7 @@ export function AgentTerminal({
       title: t('Attachment paste unavailable'),
       description,
     });
-  }, [agentCommand, inputDispatchSessionId, isRemoteExecution, t]);
+  }, [agentCommand, id, inputDispatchSessionId, isRemoteExecution, sessionId, t]);
 
   const dispatchTerminalAttachmentInsert = useCallback(
     (nextAttachments: AgentAttachmentItem[]) => {
@@ -958,7 +976,7 @@ export function AgentTerminal({
     );
   }, []);
 
-  // Wait for shell config and hapi check to complete before activating terminal
+  // Wait for shell config and hapi checks before treating the terminal as interactively active.
   const effectiveIsActive = useMemo(() => {
     if (isReadOnlyTranscript) {
       return isActive;
@@ -980,8 +998,7 @@ export function AgentTerminal({
     if (environment === 'hapi' && hapiGlobalInstalled === null) {
       return false;
     }
-    // Force activation when there's a pending command (auto-execute)
-    return isActive || hasPendingCommand;
+    return isActive;
   }, [
     environment,
     hapiGlobalInstalled,
@@ -993,7 +1010,6 @@ export function AgentTerminal({
     claudeWorkspaceTrusted,
     isRemoteExecution,
     resolvedShell,
-    hasPendingCommand,
   ]);
 
   // Mark session as active when user is viewing it
@@ -1560,7 +1576,12 @@ export function AgentTerminal({
     preferHostScrollback:
       hostSession?.kind === 'tmux' &&
       (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current))),
-    retryOnDeadSession: false,
+    retryOnDeadSession: shouldRetryDeadAgentSession({
+      persistenceEnabled,
+      recovered,
+      recoveryState,
+      hostSessionKey,
+    }),
     recoveredReplaySnapshot: replaySnapshot,
     onExit: handleExit,
     onData: handleData,
@@ -1628,6 +1649,52 @@ export function AgentTerminal({
     setStartupProbeRetryNonce((current) => current + 1);
     restartSession();
   }, [restartSession]);
+
+  const previousRecoveryIdentityRef = useRef<{
+    uiSessionId?: string;
+    providerSessionId?: string;
+    recoveryState?: PersistentAgentRuntimeState;
+    backendSessionId?: string;
+  }>({
+    uiSessionId: id,
+    providerSessionId: sessionId,
+    recoveryState,
+    backendSessionId,
+  });
+
+  useEffect(() => {
+    const previous = previousRecoveryIdentityRef.current;
+    const didResolveProviderSessionId =
+      previous.recoveryState === 'missing-host-session' &&
+      !previous.backendSessionId &&
+      !hasResolvedProviderSessionId(previous.uiSessionId, previous.providerSessionId) &&
+      recoveryState === 'missing-host-session' &&
+      !backendSessionId &&
+      hasResolvedProviderSessionId(id, sessionId) &&
+      previous.providerSessionId !== sessionId;
+
+    previousRecoveryIdentityRef.current = {
+      uiSessionId: id,
+      providerSessionId: sessionId,
+      recoveryState,
+      backendSessionId,
+    };
+
+    if (isReadOnlyTranscript || !didResolveProviderSessionId || (!isActive && !hasPendingCommand)) {
+      return;
+    }
+
+    restartSession();
+  }, [
+    backendSessionId,
+    hasPendingCommand,
+    id,
+    isActive,
+    isReadOnlyTranscript,
+    recoveryState,
+    restartSession,
+    sessionId,
+  ]);
 
   useEffect(() => {
     if (!shouldShowAgentStartupOverlay) {

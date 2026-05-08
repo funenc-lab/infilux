@@ -3,6 +3,7 @@ import {
   BUILTIN_AGENT_CATALOG,
   BUILTIN_AGENT_IDS,
   type ClaudePolicyConfig,
+  type LiveAgentSubagent,
   type PersistentAgentSessionRecord,
 } from '@shared/types';
 import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
@@ -174,7 +175,8 @@ import {
   getHighestSessionActivityState,
 } from './sessionActivityState';
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
-import { shouldShowSessionPersistenceNotice } from './sessionPersistenceNoticePolicy';
+import { resolveSessionPersistenceNoticeKind } from './sessionPersistenceNoticePolicy';
+import { shouldIgnoreTerminalRuntimeStateRecoveryUpdate } from './sessionRuntimeRecoveryPolicy';
 import {
   getDisplayableSessionSubagents,
   resolveSessionSubagentViewState,
@@ -396,6 +398,10 @@ function readCanvasViewportSnapshot(viewport: HTMLDivElement): CanvasViewportSna
     scrollHeight: viewport.scrollHeight,
     scrollWidth: viewport.scrollWidth,
   };
+}
+
+function isUnresolvedProviderSession(session: Session): boolean {
+  return Boolean(session.sessionId) && session.sessionId === session.id;
 }
 
 function createSession(
@@ -627,9 +633,11 @@ export function AgentPanel({
       setQuickTerminalOpen: state.setQuickTerminalOpen,
     }))
   );
-  const { getQuickTerminalSession, setQuickTerminalSession, removeQuickTerminalSession } =
-    useTerminalStore();
-  const currentQuickTerminalSession = getQuickTerminalSession(cwd);
+  const currentQuickTerminalSession = useTerminalStore(
+    useCallback((state) => state.quickTerminalSessions[cwd], [cwd])
+  );
+  const setQuickTerminalSession = useTerminalStore((state) => state.setQuickTerminalSession);
+  const removeQuickTerminalSession = useTerminalStore((state) => state.removeQuickTerminalSession);
   const [tmuxInstalled, setTmuxInstalled] = useState<boolean | null>(null);
   const [isEnablingSessionPersistence, setIsEnablingSessionPersistence] = useState(false);
   const [isCanvasPanning, setIsCanvasPanning] = useState(false);
@@ -666,7 +674,10 @@ export function AgentPanel({
   const statusLineEnabled = agentIntegration.statusLineEnabled;
   const defaultAgentId = useMemo(() => getDefaultAgentId(agentSettings), [agentSettings]);
   const isRemoteRepo = useMemo(() => isRemoteVirtualPath(repoPath), [repoPath]);
-  const { setAgentCount, registerAgentCloseHandler } = useWorktreeActivityStore();
+  const setAgentCount = useWorktreeActivityStore((state) => state.setAgentCount);
+  const registerAgentCloseHandler = useWorktreeActivityStore(
+    (state) => state.registerAgentCloseHandler
+  );
   const upsertRecoveredSession = useAgentSessionsStore((s) => s.upsertRecoveredSession);
 
   const [hasRunningProcess, setHasRunningProcess] = useState(false);
@@ -807,16 +818,6 @@ export function AgentPanel({
         tmuxEnabled: agentIntegration.tmuxEnabled,
       }),
     [cwd, platform, agentIntegration.tmuxEnabled]
-  );
-  const showSessionPersistenceNotice = useMemo(
-    () =>
-      shouldShowSessionPersistenceNotice({
-        isRemoteRepo,
-        platform,
-        tmuxEnabled: agentIntegration.tmuxEnabled,
-        tmuxInstalled,
-      }),
-    [agentIntegration.tmuxEnabled, isRemoteRepo, platform, tmuxInstalled]
   );
 
   useEffect(() => {
@@ -1039,6 +1040,36 @@ export function AgentPanel({
       .filter((session) => matchesAgentSessionScope(session, repoPath, cwd))
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
   }, [allSessions, repoPath, cwd]);
+  const hasRecoveryRequiredSession = useMemo(
+    () =>
+      currentWorktreeSessions.some((session) => {
+        const availability = resolveAgentInputAvailability({
+          backendSessionId: session.backendSessionId,
+          runtimeState: session.recoveryState,
+          uiSessionId: session.id,
+          providerSessionId: session.sessionId,
+        });
+        return availability === 'recovery-required';
+      }),
+    [currentWorktreeSessions]
+  );
+  const sessionPersistenceNoticeKind = useMemo(
+    () =>
+      resolveSessionPersistenceNoticeKind({
+        isRemoteRepo,
+        platform,
+        tmuxEnabled: agentIntegration.tmuxEnabled,
+        tmuxInstalled,
+        hasRecoveryRequiredSession,
+      }),
+    [
+      agentIntegration.tmuxEnabled,
+      hasRecoveryRequiredSession,
+      isRemoteRepo,
+      platform,
+      tmuxInstalled,
+    ]
+  );
   const shouldSuppressWorkspaceCanvasPanel =
     agentSessionDisplayMode === 'global-canvas' && !isCurrentWorktreePanel;
   const isWorkspaceCanvasDisplayMode =
@@ -1108,32 +1139,74 @@ export function AgentPanel({
       return changed ? next : current;
     });
   }, [subagentScopeSessionIds]);
-  const subagentScopeWorktreePaths = useMemo(() => {
+  const fallbackLiveSubagentWorktreePaths = useMemo(() => {
     const paths = new Map<string, string>();
+
     for (const session of subagentScopeSessions) {
+      if (
+        !supportsSessionSubagentTracking(session.agentId, session.agentCommand) ||
+        !isUnresolvedProviderSession(session)
+      ) {
+        continue;
+      }
+
       const normalizedPath = normalizePath(session.cwd);
       if (!paths.has(normalizedPath)) {
         paths.set(normalizedPath, session.cwd);
       }
     }
+
     return Array.from(paths.values());
   }, [subagentScopeSessions]);
-  const shouldPollLiveSubagents =
-    isActive &&
-    subagentScopeSessions.some((session) =>
-      supportsSessionSubagentTracking(session.agentId, session.agentCommand)
-    );
+  const shouldPollLiveSubagents = isActive && fallbackLiveSubagentWorktreePaths.length > 0;
   const liveSubagentsByWorktree = useLiveSubagents(
-    shouldPollLiveSubagents ? subagentScopeWorktreePaths : []
+    shouldPollLiveSubagents ? fallbackLiveSubagentWorktreePaths : []
   );
+  const sessionScopedSubagentsByWorktree = useMemo(() => {
+    const subagentsByWorktree = new Map<string, LiveAgentSubagent[]>();
+
+    for (const session of subagentScopeSessions) {
+      const sessionSubagents = sessionScopedSubagentsBySessionId[session.id];
+      if (!sessionSubagents || sessionSubagents.length === 0) {
+        continue;
+      }
+
+      const normalizedPath = normalizePath(session.cwd);
+      const existingSubagents = subagentsByWorktree.get(normalizedPath);
+      if (existingSubagents) {
+        existingSubagents.push(...sessionSubagents);
+      } else {
+        subagentsByWorktree.set(normalizedPath, [...sessionSubagents]);
+      }
+    }
+
+    return subagentsByWorktree;
+  }, [sessionScopedSubagentsBySessionId, subagentScopeSessions]);
+  const activitySubagentsByWorktree = useMemo(() => {
+    if (liveSubagentsByWorktree.size === 0) {
+      return sessionScopedSubagentsByWorktree;
+    }
+
+    const subagentsByWorktree = new Map(sessionScopedSubagentsByWorktree);
+    for (const [worktreePath, liveSubagents] of liveSubagentsByWorktree) {
+      const existingSubagents = subagentsByWorktree.get(worktreePath);
+      if (existingSubagents && existingSubagents.length > 0) {
+        subagentsByWorktree.set(worktreePath, [...existingSubagents, ...liveSubagents]);
+      } else {
+        subagentsByWorktree.set(worktreePath, liveSubagents);
+      }
+    }
+
+    return subagentsByWorktree;
+  }, [liveSubagentsByWorktree, sessionScopedSubagentsByWorktree]);
   const sessionActivityStateById = useMemo(
     () =>
       buildSessionActivityStateBySessionId({
         sessions: subagentScopeSessions,
         runtimeStates: sessionRuntimeStates,
-        subagentsByWorktree: liveSubagentsByWorktree,
+        subagentsByWorktree: activitySubagentsByWorktree,
       }),
-    [liveSubagentsByWorktree, sessionRuntimeStates, subagentScopeSessions]
+    [activitySubagentsByWorktree, sessionRuntimeStates, subagentScopeSessions]
   );
   const sessionLastActivityAtById = useMemo(
     () =>
@@ -1410,13 +1483,13 @@ export function AgentPanel({
         ? buildSessionActivityStateBySessionId({
             sessions: currentWorktreeSessions,
             runtimeStates: sessionRuntimeStates,
-            subagentsByWorktree: liveSubagentsByWorktree,
+            subagentsByWorktree: activitySubagentsByWorktree,
           })
         : sessionActivityStateById,
     [
+      activitySubagentsByWorktree,
       currentWorktreeSessions,
       isWorkspaceCanvasDisplayMode,
-      liveSubagentsByWorktree,
       sessionActivityStateById,
       sessionRuntimeStates,
     ]
@@ -2968,6 +3041,12 @@ export function AgentPanel({
   );
 
   useEffect(() => {
+    if (!isActive || !isCanvasDisplayMode) {
+      spacePressedRef.current = false;
+      finishCanvasPan();
+      return;
+    }
+
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.code === 'Space') {
         spacePressedRef.current = true;
@@ -2992,7 +3071,7 @@ export function AgentPanel({
       window.removeEventListener('keyup', handleWindowKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [finishCanvasPan]);
+  }, [finishCanvasPan, isActive, isCanvasDisplayMode]);
 
   useEffect(() => {
     return () => {
@@ -3182,7 +3261,7 @@ export function AgentPanel({
     isWorkspaceCanvasDisplayMode,
   ]);
   useEffect(() => {
-    if (!isCanvasDisplayMode) {
+    if (!isCanvasDisplayMode || !isActive) {
       setCanvasViewportBounds(null);
       setCanvasViewportWidth(null);
       return;
@@ -3258,6 +3337,7 @@ export function AgentPanel({
     applyCanvasViewportPosition,
     canvasFocusedSessionId,
     canvasZoomStorageKey,
+    isActive,
     isCanvasDisplayMode,
     readCanvasSessionFocusTarget,
     updateCanvasViewportBounds,
@@ -3288,7 +3368,7 @@ export function AgentPanel({
     setCanvasFloatingSessionIdForCurrentWorktree,
   ]);
   useEffect(() => {
-    if (!canvasFloatingSessionId) {
+    if (!isActive || !canvasFloatingSessionId) {
       return;
     }
 
@@ -3305,7 +3385,7 @@ export function AgentPanel({
     return () => {
       window.removeEventListener('keydown', handleWindowKeyDown);
     };
-  }, [canvasFloatingSessionId, handleCloseCanvasFloatingSession]);
+  }, [canvasFloatingSessionId, handleCloseCanvasFloatingSession, isActive]);
 
   const handleInitialized = useCallback(
     (id: string) => {
@@ -3969,6 +4049,8 @@ export function AgentPanel({
     const sessionAvailability = resolveAgentInputAvailability({
       backendSessionId: session.backendSessionId,
       runtimeState: session.recoveryState,
+      uiSessionId: session.id,
+      providerSessionId: session.sessionId,
     });
     const canSendToSession = sessionAvailability === 'ready';
     const sessionSendLabel =
@@ -3976,9 +4058,11 @@ export function AgentPanel({
         ? t('Awaiting Session')
         : sessionAvailability === 'reconnecting'
           ? t('Reconnecting')
-          : sessionAvailability === 'disconnected'
-            ? t('Disconnected')
-            : t('Send');
+          : sessionAvailability === 'recovery-required'
+            ? t('Recovery Required')
+            : sessionAvailability === 'disconnected'
+              ? t('Disconnected')
+              : t('Send');
     const sessionSendHint = resolveAgentInputUnavailableReason({
       agentCommand: session.agentCommand || 'claude',
       availability: sessionAvailability,
@@ -4223,6 +4307,7 @@ export function AgentPanel({
             }}
             onRuntimeStateChange={(runtimeState) => {
               if (shouldDeferPersistentSessionDeadState(session, runtimeState)) return;
+              if (shouldIgnoreTerminalRuntimeStateRecoveryUpdate(session, runtimeState)) return;
               if (session.recoveryState === runtimeState) return;
               updateSession(sessionId, { recoveryState: runtimeState });
             }}
@@ -4647,10 +4732,17 @@ export function AgentPanel({
       className="relative h-full w-full"
       style={{ backgroundColor: terminalBgColor }}
     >
-      {showSessionPersistenceNotice ? (
+      {sessionPersistenceNoticeKind ? (
         <SessionPersistenceNotice
-          isPending={isEnablingSessionPersistence}
-          onEnableRecovery={handleEnableSessionPersistence}
+          kind={sessionPersistenceNoticeKind}
+          isPending={
+            sessionPersistenceNoticeKind === 'tmux-disabled' ? isEnablingSessionPersistence : false
+          }
+          onAction={
+            sessionPersistenceNoticeKind === 'tmux-disabled'
+              ? handleEnableSessionPersistence
+              : () => handleNewSession()
+          }
         />
       ) : null}
       {/* Empty state overlay - shown when current worktree has no sessions */}
@@ -4941,6 +5033,8 @@ export function AgentPanel({
           const activeSessionAvailability = resolveAgentInputAvailability({
             backendSessionId: activeSession?.backendSessionId,
             runtimeState: activeSession?.recoveryState,
+            uiSessionId: activeSession?.id,
+            providerSessionId: activeSession?.sessionId,
           });
           const activeSessionSubagents =
             activeSession == null
@@ -4992,9 +5086,11 @@ export function AgentPanel({
               ? t('Awaiting Session')
               : activeSessionAvailability === 'reconnecting'
                 ? t('Reconnecting')
-                : activeSessionAvailability === 'disconnected'
-                  ? t('Disconnected')
-                  : t('Send');
+                : activeSessionAvailability === 'recovery-required'
+                  ? t('Recovery Required')
+                  : activeSessionAvailability === 'disconnected'
+                    ? t('Disconnected')
+                    : t('Send');
           const activeSessionSendHint =
             activeSession == null
               ? undefined

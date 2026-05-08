@@ -32,7 +32,9 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain(
       'isWorkspaceCanvasDisplayMode ? canvasSessions : currentWorktreeSessions'
     );
-    expect(agentPanelSource).toContain('subagentScopeWorktreePaths');
+    expect(agentPanelSource).toContain('fallbackLiveSubagentWorktreePaths');
+    expect(agentPanelSource).toContain('sessionScopedSubagentsByWorktree');
+    expect(agentPanelSource).toContain('activitySubagentsByWorktree');
     expect(agentPanelSource).toContain('workspaceCanvasFocusedSessionId');
     expect(agentPanelSource).toContain('AGENT_CANVAS_GRID_COLUMN_UNITS');
     expect(agentPanelSource).toContain('resolveAgentCanvasColumnCount');
@@ -235,6 +237,9 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).not.toContain(
       'return isActive ? canvasSessions.map((session) => session.id) : []'
     );
+    expect(agentPanelSource).toContain('if (!isActive || !isCanvasDisplayMode) {');
+    expect(agentPanelSource).toContain('if (!isCanvasDisplayMode || !isActive) {');
+    expect(agentPanelSource).toContain('if (!isActive || !canvasFloatingSessionId) {');
     expect(agentPanelSource).toContain('diffPersistentAgentSessionRecords');
     expect(agentPanelSource).toContain('currentWorktreeAgentStatuses');
     expect(agentPanelSource).toContain('useAgentStatusStore(');

@@ -53,6 +53,13 @@ const testState = vi.hoisted(() => ({
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
   hookProps: {} as Partial<UseXtermOptions>,
+  intersectionObserve: vi.fn(),
+  intersectionDisconnect: vi.fn(),
+  resizeObserve: vi.fn(),
+  resizeDisconnect: vi.fn(),
+  unsubscribeVisibility: vi.fn(),
+  unsubscribeFocus: vi.fn(),
+  unsubscribeResize: vi.fn(),
 }));
 
 vi.mock('@xterm/xterm', () => ({
@@ -183,9 +190,9 @@ vi.mock('@/lib/terminalSearchState', () => ({
 }));
 
 vi.mock('@/lib/xtermWindowEvents', () => ({
-  subscribeToXtermVisibilityChange: () => () => undefined,
-  subscribeToXtermWindowFocus: () => () => undefined,
-  subscribeToXtermWindowResize: () => () => undefined,
+  subscribeToXtermVisibilityChange: () => testState.unsubscribeVisibility,
+  subscribeToXtermWindowFocus: () => testState.unsubscribeFocus,
+  subscribeToXtermWindowResize: () => testState.unsubscribeResize,
 }));
 
 vi.mock('@/stores/navigation', () => ({
@@ -368,6 +375,13 @@ describe('useXterm startup loading state', () => {
     testState.navigationToFile.mockClear();
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
+    testState.intersectionObserve.mockClear();
+    testState.intersectionDisconnect.mockClear();
+    testState.resizeObserve.mockClear();
+    testState.resizeDisconnect.mockClear();
+    testState.unsubscribeVisibility.mockClear();
+    testState.unsubscribeFocus.mockClear();
+    testState.unsubscribeResize.mockClear();
     testState.hookProps = {};
 
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -378,15 +392,23 @@ describe('useXterm startup loading state', () => {
     vi.stubGlobal(
       'ResizeObserver',
       class {
-        observe(): void {}
-        disconnect(): void {}
+        observe(): void {
+          testState.resizeObserve();
+        }
+        disconnect(): void {
+          testState.resizeDisconnect();
+        }
       }
     );
     vi.stubGlobal(
       'IntersectionObserver',
       class {
-        observe(): void {}
-        disconnect(): void {}
+        observe(): void {
+          testState.intersectionObserve();
+        }
+        disconnect(): void {
+          testState.intersectionDisconnect();
+        }
       }
     );
 
@@ -420,6 +442,7 @@ describe('useXterm startup loading state', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
   });
@@ -478,8 +501,9 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
-    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
-    expect(testState.terminalWrite).toHaveBeenNthCalledWith(1, 'Codex is ready\n');
+    const writesBeforeAttachReplay = testState.terminalWrite.mock.calls.length;
+    expect(writesBeforeAttachReplay).toBeGreaterThan(0);
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('Codex is ready\n');
 
     await act(async () => {
       testState.resolveAttach?.({
@@ -498,10 +522,9 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
-    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(writesBeforeAttachReplay);
 
     await mounted.unmount();
-    vi.useRealTimers();
   });
 
   it('does not auto-start from initialCommand while inactive when that activation path is disabled', async () => {
@@ -546,6 +569,40 @@ describe('useXterm startup loading state', () => {
     expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
     expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
     expect(testState.latestSnapshot.isLoading).toBe(true);
+
+    await mounted.unmount();
+  });
+
+  it('does not attach resize and window refresh observers until the terminal is active', async () => {
+    const mounted = mountHookHarness({
+      isActive: false,
+      initialCommand: 'codex resume provider-session-1',
+      activateOnInitialCommandWhenInactive: false,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.resizeObserve).not.toHaveBeenCalled();
+    expect(testState.intersectionObserve).not.toHaveBeenCalled();
+
+    mounted.rerender({ isActive: true });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.resizeObserve).toHaveBeenCalledTimes(1);
+    expect(testState.intersectionObserve).toHaveBeenCalledTimes(1);
+
+    mounted.rerender({ isActive: false });
+
+    expect(testState.resizeDisconnect).toHaveBeenCalledTimes(1);
+    expect(testState.intersectionDisconnect).toHaveBeenCalledTimes(1);
+    expect(testState.unsubscribeVisibility).toHaveBeenCalledTimes(1);
+    expect(testState.unsubscribeFocus).toHaveBeenCalledTimes(1);
+    expect(testState.unsubscribeResize).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });

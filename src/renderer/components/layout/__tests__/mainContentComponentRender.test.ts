@@ -895,7 +895,7 @@ describe('MainContent component render', () => {
     expect(markup).toContain('data-panel="source-control"');
   });
 
-  it('polls codex live subagents for inactive worktrees so background tasks do not collapse to idle', async () => {
+  it('does not poll codex live subagents while the chat panel is retained in the background', async () => {
     agentSessionsState.sessions = [
       {
         id: 'session-1',
@@ -930,13 +930,13 @@ describe('MainContent component render', () => {
 
     const markup = await renderMainContent('source-control');
 
-    expect(useLiveSubagentsMock).toHaveBeenCalledWith(['/repo/main/worktrees/current']);
+    expect(useLiveSubagentsMock).toHaveBeenCalledWith([]);
     expect(markup).toContain('data-panel="agent"');
     expect(markup).toContain('data-show-fallback="false"');
     expect(markup).toContain('data-panel="source-control"');
   });
 
-  it('limits codex live subagent polling to the current worktree instead of every initialized session cwd', async () => {
+  it('limits visible chat live subagent polling to the current worktree instead of every initialized session cwd', async () => {
     agentSessionsState.sessions = [
       {
         id: 'session-1',
@@ -956,7 +956,7 @@ describe('MainContent component render', () => {
       },
     ];
 
-    await renderMainContent('source-control');
+    await renderMainContent('chat');
 
     expect(useLiveSubagentsMock).toHaveBeenCalledWith(['/repo/main/worktrees/current']);
   });
