@@ -1,9 +1,8 @@
 import { REPOSITORY_URL } from '@shared/branding';
 import { translate } from '@shared/i18n';
+import { MENU_ACTIONS, type MenuAction } from '@shared/types';
 import { app, BrowserWindow, Menu, shell } from 'electron';
 import { getCurrentLocale } from './i18n';
-
-export type MenuAction = 'open-settings' | 'toggle-devtools' | 'open-action-panel';
 
 interface MenuOptions {
   onNewWindow?: () => void;
@@ -34,7 +33,7 @@ export function buildAppMenu(options: MenuOptions = {}): Menu {
               {
                 label: t('Settings...'),
                 accelerator: 'CommandOrControl+,',
-                click: () => sendAction('open-settings'),
+                click: () => sendAction(MENU_ACTIONS.OPEN_SETTINGS),
               },
               { type: 'separator' as const },
               { role: 'services' as const },
@@ -64,7 +63,7 @@ export function buildAppMenu(options: MenuOptions = {}): Menu {
               {
                 label: t('Settings...'),
                 accelerator: 'CommandOrControl+,',
-                click: () => sendAction('open-settings'),
+                click: () => sendAction(MENU_ACTIONS.OPEN_SETTINGS),
               },
               { type: 'separator' as const },
             ]
@@ -83,6 +82,10 @@ export function buildAppMenu(options: MenuOptions = {}): Menu {
         { role: 'cut' as const },
         { role: 'copy' as const },
         { role: 'paste' as const },
+        {
+          label: t('Paste Attachment'),
+          click: () => sendAction(MENU_ACTIONS.PASTE_AGENT_ATTACHMENT),
+        },
         { role: 'selectAll' as const },
       ],
     },
@@ -94,7 +97,7 @@ export function buildAppMenu(options: MenuOptions = {}): Menu {
         {
           label: t('Action Panel'),
           accelerator: 'CommandOrControl+Shift+P',
-          click: () => sendAction('open-action-panel'),
+          click: () => sendAction(MENU_ACTIONS.OPEN_ACTION_PANEL),
         },
         { type: 'separator' as const },
         ...(app.isPackaged ? [] : [{ role: 'reload' as const }, { role: 'forceReload' as const }]),

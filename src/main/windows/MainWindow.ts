@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { is } from '@electron-toolkit/utils';
 import { type Locale, translate } from '@shared/i18n';
 import type { AppCloseRequestPayload, AppCloseRequestReason } from '@shared/types';
-import { IPC_CHANNELS } from '@shared/types';
+import { IPC_CHANNELS, MENU_ACTIONS } from '@shared/types';
 import { encodeBootstrapAppVersionArgument } from '@shared/utils/bootstrapAppVersion';
 import {
   encodeBootstrapLocaleArgument,
@@ -24,7 +24,17 @@ import {
   resolveStaticBootstrapThemeMode,
 } from '@shared/utils/bootstrapTheme';
 import { encodeRuntimeChannelArgument } from '@shared/utils/runtimeIdentity';
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  screen,
+  shell,
+} from 'electron';
 import { getCurrentLocale } from '../services/i18n';
 import { readSharedSettings } from '../services/SharedSessionState';
 import { sessionManager } from '../services/session/SessionManager';
@@ -461,6 +471,14 @@ function t(key: string, params?: Record<string, string | number>): string {
   return translate(getCurrentLocale(), key, params);
 }
 
+function hasClipboardImage(): boolean {
+  try {
+    return !clipboard.readImage().isEmpty();
+  } catch {
+    return false;
+  }
+}
+
 export async function confirmWindowReplace(win: BrowserWindow): Promise<boolean> {
   if (win.isDestroyed()) {
     return false;
@@ -559,10 +577,18 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
     if (!params.isEditable) return;
     event.preventDefault();
 
+    const canPasteAttachment = hasClipboardImage();
     const template: Electron.MenuItemConstructorOptions[] = [
       { role: 'cut', enabled: params.editFlags.canCut },
       { role: 'copy', enabled: params.editFlags.canCopy },
       { role: 'paste', enabled: params.editFlags.canPaste },
+      {
+        label: t('Paste Attachment'),
+        enabled: canPasteAttachment,
+        click: () => {
+          win.webContents.send('menu-action', MENU_ACTIONS.PASTE_AGENT_ATTACHMENT);
+        },
+      },
       { type: 'separator' },
       { role: 'selectAll', enabled: params.editFlags.canSelectAll },
     ];

@@ -31,6 +31,7 @@ import {
   writeClipboardText,
 } from '@/hooks/xtermClipboard';
 import { useI18n } from '@/i18n';
+import { AGENT_ATTACHMENT_PASTE_EVENT_NAME } from '@/lib/agentAttachmentPasteEvent';
 import { shouldPersistAgentSessionOnDisconnect } from '@/lib/agentSessionPersistence';
 import { emitRendererAgentStop } from '@/lib/agentStopEvents';
 import { showRendererNotification } from '@/lib/electronNotification';
@@ -796,57 +797,73 @@ export function AgentTerminal({
     [t]
   );
 
-  const saveClipboardImageToTemp = useCallback(
-    async (file: File): Promise<string | null> => {
-      if (!file.type.toLowerCase().startsWith('image/')) {
-        return null;
+  const saveClipboardImageToTemp = useCallback(async (file: File): Promise<string | null> => {
+    if (!file.type.toLowerCase().startsWith('image/')) {
+      return null;
+    }
+
+    try {
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 8);
+      const format = resolveClipboardImageTempFormat(file);
+      const extension = format === 'jpeg' ? 'jpg' : 'png';
+      const filename = `${TEMP_INPUT_FILE_PREFIX}-${timestamp}-${random}.${extension}`;
+      const result = await window.electronAPI.file.saveClipboardImageToTemp({
+        filename,
+        format,
+      });
+
+      if (result.success && result.path) {
+        return result.path;
       }
 
-      try {
-        const timestamp = Date.now();
-        const random = Math.random().toString(36).substring(2, 8);
-        const format = resolveClipboardImageTempFormat(file);
-        const extension = format === 'jpeg' ? 'jpg' : 'png';
-        const filename = `${TEMP_INPUT_FILE_PREFIX}-${timestamp}-${random}.${extension}`;
-        const result = await window.electronAPI.file.saveClipboardImageToTemp({
-          filename,
-          format,
-        });
+      return null;
+    } catch {
+      return null;
+    }
+  }, []);
 
-        if (result.success && result.path) {
-          return result.path;
-        }
+  const pasteClipboardImageAttachment = useCallback(async () => {
+    try {
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 8);
+      const filename = `${TEMP_INPUT_FILE_PREFIX}-${timestamp}-${random}.png`;
+      const result = await window.electronAPI.file.saveClipboardImageToTemp({
+        filename,
+        format: 'png',
+      });
 
-        const errorCopy = buildChatInputToastCopy(
-          {
-            action: 'image-save',
-            phase: 'error',
-            message: result.error || undefined,
-          },
-          t
-        );
-        toastManager.add({
-          type: 'error',
-          title: errorCopy.title,
-          description: errorCopy.description,
-        });
-        return null;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const errorCopy = buildChatInputToastCopy(
-          { action: 'image-save', phase: 'error', message },
-          t
-        );
-        toastManager.add({
-          type: 'error',
-          title: errorCopy.title,
-          description: errorCopy.description,
-        });
-        return null;
+      if (result.success && result.path) {
+        handleResolvedAttachmentTargets(mergeAgentAttachments([], [result.path]));
+        return;
       }
-    },
-    [t]
-  );
+
+      const errorCopy = buildChatInputToastCopy(
+        {
+          action: 'image-save',
+          phase: 'error',
+          message: result.error || undefined,
+        },
+        t
+      );
+      toastManager.add({
+        type: 'error',
+        title: errorCopy.title,
+        description: errorCopy.description,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const errorCopy = buildChatInputToastCopy(
+        { action: 'image-save', phase: 'error', message },
+        t
+      );
+      toastManager.add({
+        type: 'error',
+        title: errorCopy.title,
+        description: errorCopy.description,
+      });
+    }
+  }, [handleResolvedAttachmentTargets, t]);
 
   const showOversizedAttachmentWarning = useCallback(
     (oversizedFiles: File[]) => {
@@ -1828,6 +1845,9 @@ export function AgentTerminal({
             terminal?.paste(text);
           });
           break;
+        case 'pasteAttachment':
+          void pasteClipboardImageAttachment();
+          break;
         case 'selectAll':
           terminal?.selectAll();
           break;
@@ -1843,6 +1863,7 @@ export function AgentTerminal({
       onMerge,
       onFocus,
       getLatestCopyableOutputBlock,
+      pasteClipboardImageAttachment,
       isReadOnlyTranscript,
     ]
   );
@@ -1875,6 +1896,21 @@ export function AgentTerminal({
   }, []);
 
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isActive || isReadOnlyTranscript) {
+      return;
+    }
+
+    const handlePasteAttachmentRequest = () => {
+      void pasteClipboardImageAttachment();
+    };
+
+    window.addEventListener(AGENT_ATTACHMENT_PASTE_EVENT_NAME, handlePasteAttachmentRequest);
+    return () => {
+      window.removeEventListener(AGENT_ATTACHMENT_PASTE_EVENT_NAME, handlePasteAttachmentRequest);
+    };
+  }, [isActive, isReadOnlyTranscript, pasteClipboardImageAttachment]);
 
   useEffect(() => {
     if (isReadOnlyTranscript) {

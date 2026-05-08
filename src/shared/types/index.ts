@@ -15,6 +15,7 @@ export * from './git';
 export * from './ipc';
 export * from './log';
 export * from './mcp';
+export * from './menu';
 export * from './plugins';
 export * from './prompts';
 export * from './remote';

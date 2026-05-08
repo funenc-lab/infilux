@@ -16,6 +16,9 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
   const getAppPath = vi.fn(() => '/mock/app');
   const getVersion = vi.fn(() => '0.3.2');
   const nativeThemeShouldUseDarkColors = vi.fn(() => true);
+  const clipboardReadImage = vi.fn<() => { isEmpty: () => boolean }>(() => ({
+    isEmpty: () => true,
+  }));
   const appFocus = vi.fn();
   const dockShow = vi.fn();
   const dockSetIcon = vi.fn();
@@ -34,7 +37,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
   const detachWindowSessions = vi.fn(async () => undefined);
   const isQuittingForUpdate = vi.fn(() => false);
   const readSharedSettings = vi.fn(() => ({}));
-  const buildFromTemplate = vi.fn(() => ({
+  const buildFromTemplate = vi.fn((_template: unknown) => ({
     popup: menuPopup,
   }));
   const logInfo = vi.fn();
@@ -234,6 +237,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     getAppPath.mockReset();
     getVersion.mockReset();
     nativeThemeShouldUseDarkColors.mockReset();
+    clipboardReadImage.mockReset();
     appFocus.mockReset();
     dockShow.mockReset();
     dockSetIcon.mockReset();
@@ -262,6 +266,9 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     getAppPath.mockReturnValue('/mock/app');
     getVersion.mockReturnValue('0.3.2');
     nativeThemeShouldUseDarkColors.mockReturnValue(true);
+    clipboardReadImage.mockReturnValue({
+      isEmpty: () => true,
+    });
     translate.mockImplementation((locale: string, key: string) => `${locale}:${key}`);
     getCurrentLocale.mockReturnValue('en');
     detachWindowSessions.mockResolvedValue(undefined);
@@ -297,6 +304,9 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
         return nativeThemeShouldUseDarkColors();
       },
     },
+    clipboard: {
+      readImage: clipboardReadImage,
+    },
     shell: {
       openExternal: shellOpenExternal,
     },
@@ -315,6 +325,7 @@ const mainWindowLifecycleDoubles = vi.hoisted(() => {
     readSharedSettings,
     is,
     screen,
+    clipboardReadImage,
     appFocus,
     dockShow,
     dockSetIcon,
@@ -357,6 +368,7 @@ vi.mock('@shared/i18n', async () => {
 vi.mock('electron', () => ({
   app: mainWindowLifecycleDoubles.app,
   BrowserWindow: mainWindowLifecycleDoubles.BrowserWindow,
+  clipboard: mainWindowLifecycleDoubles.clipboard,
   dialog: mainWindowLifecycleDoubles.dialog,
   ipcMain: mainWindowLifecycleDoubles.ipcMain,
   Menu: mainWindowLifecycleDoubles.Menu,
@@ -533,6 +545,50 @@ describe('MainWindow lifecycle', () => {
     win.emit('closed');
     expect(mainWindowLifecycleDoubles.detachWindowSessions).toHaveBeenCalledWith(win.id);
   }, 15000);
+
+  it('keeps attachment paste available when editable text paste is disabled for image clipboards', async () => {
+    mainWindowLifecycleDoubles.clipboardReadImage.mockReturnValue({
+      isEmpty: () => false,
+    });
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    win.emitWebContents(
+      'context-menu',
+      { preventDefault: vi.fn() },
+      {
+        isEditable: true,
+        editFlags: {
+          canCut: false,
+          canCopy: false,
+          canPaste: false,
+          canSelectAll: true,
+        },
+        x: 5,
+        y: 9,
+      }
+    );
+
+    const template = mainWindowLifecycleDoubles.buildFromTemplate.mock.calls.at(-1)?.[0] as
+      | Array<{
+          click?: () => void;
+          enabled?: boolean;
+          label?: string;
+          role?: string;
+        }>
+      | undefined;
+
+    expect(template?.find((item) => item.role === 'paste')?.enabled).toBe(false);
+    const pasteAttachment = template?.find((item) => item.label === 'en:Paste Attachment');
+    expect(pasteAttachment?.enabled).toBe(true);
+
+    pasteAttachment?.click?.();
+
+    expect(win.webContents.send).toHaveBeenCalledWith('menu-action', 'paste-agent-attachment');
+  });
 
   it('confirms replacement closes through renderer IPC, saves dirty files, and persists state on force close', async () => {
     setPlatform('win32');

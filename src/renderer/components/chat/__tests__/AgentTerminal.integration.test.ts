@@ -107,11 +107,15 @@ const testState = vi.hoisted(() => ({
     contextMenuShow: vi.fn(async (_items?: unknown) => null as string | null),
     sessionGetActivity: vi.fn(async () => false),
     utilsGetPathForFile: vi.fn(() => null),
-    fileSaveToTemp: vi.fn(async () => ({
-      success: true,
-      path: '/tmp/file.txt',
-    })),
-    fileSaveClipboardImageToTemp: vi.fn(async () => ({
+    fileSaveToTemp: vi.fn<() => Promise<{ error?: string; path?: string; success: boolean }>>(
+      async () => ({
+        success: true,
+        path: '/tmp/file.txt',
+      })
+    ),
+    fileSaveClipboardImageToTemp: vi.fn<
+      () => Promise<{ error?: string; path?: string; success: boolean }>
+    >(async () => ({
       success: true,
       path: '/tmp/image.png',
     })),
@@ -969,6 +973,96 @@ describe('AgentTerminal integration', () => {
     expect(onFocus).toHaveBeenCalledTimes(1);
     expect(testState.electronAPI.contextMenuShow).toHaveBeenCalledTimes(1);
     expect(testState.xtermResult.clear).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('pastes clipboard images from the terminal context menu as agent attachments', async () => {
+    testState.electronAPI.contextMenuShow.mockResolvedValue('pasteAttachment');
+
+    const mounted = await mountAgentTerminal();
+
+    await act(async () => {
+      getXtermContainer().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(testState.electronAPI.fileSaveClipboardImageToTemp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        format: 'png',
+      })
+    );
+    expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      agentId: 'codex',
+      text: ' /tmp/image.png',
+      submit: false,
+    });
+
+    await mounted.unmount();
+  });
+
+  it('handles app menu attachment paste requests for the active terminal', async () => {
+    const mounted = await mountAgentTerminal();
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('infilux:paste-agent-attachment'));
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(testState.electronAPI.fileSaveClipboardImageToTemp).toHaveBeenCalledTimes(1);
+    expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      agentId: 'codex',
+      text: ' /tmp/image.png',
+      submit: false,
+    });
+
+    await mounted.unmount();
+  });
+
+  it('falls back to renderer temp storage for clipboard image files without showing a false fast-path error', async () => {
+    testState.electronAPI.fileSaveClipboardImageToTemp.mockResolvedValue({
+      success: false,
+      error: 'Clipboard image is unavailable',
+    });
+    testState.electronAPI.fileSaveToTemp.mockResolvedValue({
+      success: true,
+      path: '/tmp/fallback-image.png',
+    });
+
+    const mounted = await mountAgentTerminal();
+    const file = new File([new Uint8Array([1, 2, 3])], 'clipboard.png', { type: 'image/png' });
+    const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(pasteEvent, 'clipboardData', {
+      value: {
+        items: [
+          {
+            kind: 'file',
+            type: 'image/png',
+            getAsFile: () => file,
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      getXtermContainer().dispatchEvent(pasteEvent);
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(testState.electronAPI.fileSaveClipboardImageToTemp).toHaveBeenCalledTimes(1);
+    expect(testState.electronAPI.fileSaveToTemp).toHaveBeenCalledTimes(1);
+    expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      agentId: 'codex',
+      text: ' /tmp/fallback-image.png',
+      submit: false,
+    });
+    expect(testState.toastAdd).not.toHaveBeenCalled();
 
     await mounted.unmount();
   });

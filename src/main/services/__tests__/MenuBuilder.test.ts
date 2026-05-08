@@ -172,11 +172,13 @@ describe('MenuBuilder', () => {
     expect(menuBuilderTestDoubles.translate).toHaveBeenCalledWith('zh', 'File');
 
     const fileMenu = findMenu(template, 'zh:File');
+    const editMenu = findMenu(template, 'zh:Edit');
     const viewMenu = findMenu(template, 'zh:View');
     const helpMenu = findMenu(template, 'zh:Help');
 
     findSubmenuItem(fileMenu, 'zh:New Window').click?.();
     findSubmenuItem(fileMenu, 'zh:Settings...').click?.();
+    findSubmenuItem(editMenu, 'zh:Paste Attachment').click?.();
     findSubmenuItem(viewMenu, 'zh:Action Panel').click?.();
     findSubmenuItem(viewMenu, 'zh:Developer Tools').click?.();
     findSubmenuItem(viewMenu, 'zh:Reset Zoom').click?.();
@@ -187,6 +189,10 @@ describe('MenuBuilder', () => {
     expect(onNewWindow).toHaveBeenCalledTimes(1);
     expect(activeWindow.webContents.send).toHaveBeenCalledWith('menu-action', 'open-settings');
     expect(activeWindow.webContents.send).toHaveBeenCalledWith('menu-action', 'open-action-panel');
+    expect(activeWindow.webContents.send).toHaveBeenCalledWith(
+      'menu-action',
+      'paste-agent-attachment'
+    );
     expect(activeWindow.webContents.toggleDevTools).toHaveBeenCalledTimes(1);
     expect(activeWindow.webContents.setZoomLevel).toHaveBeenNthCalledWith(1, 0);
     expect(activeWindow.webContents.setZoomLevel).toHaveBeenNthCalledWith(2, 0.5);

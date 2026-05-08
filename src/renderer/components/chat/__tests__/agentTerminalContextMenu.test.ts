@@ -33,4 +33,18 @@ describe('agentTerminalContextMenu', () => {
       disabled: true,
     });
   });
+
+  it('exposes attachment paste separately from native text paste', () => {
+    const menuItems = buildAgentTerminalContextMenuItems({
+      canMerge: false,
+      hasSelection: false,
+      hasLatestOutputBlock: false,
+      t,
+    });
+
+    expect(menuItems).toContainEqual({
+      id: 'pasteAttachment',
+      label: 'Paste Attachment',
+    });
+  });
 });

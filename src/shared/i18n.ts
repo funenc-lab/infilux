@@ -362,6 +362,7 @@ export const zhTranslations: Record<string, string> = {
   'Toggle Sidebar': '切换侧栏',
   Cut: '剪切',
   Paste: '粘贴',
+  'Paste Attachment': '\u7c98\u8d34\u9644\u4ef6',
   Color: '颜色',
   'Custom color': '自定义颜色',
   Allow: '允许',

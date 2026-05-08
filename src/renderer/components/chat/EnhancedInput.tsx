@@ -634,36 +634,12 @@ export function EnhancedInput({
           return result.path;
         }
 
-        const errorCopy = buildChatInputToastCopy(
-          {
-            action: 'image-save',
-            phase: 'error',
-            message: result.error || undefined,
-          },
-          t
-        );
-        toastManager.add({
-          type: 'error',
-          title: errorCopy.title,
-          description: errorCopy.description,
-        });
-
         return null;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const errorCopy = buildChatInputToastCopy(
-          { action: 'image-save', phase: 'error', message },
-          t
-        );
-        toastManager.add({
-          type: 'error',
-          title: errorCopy.title,
-          description: errorCopy.description,
-        });
+      } catch {
         return null;
       }
     },
-    [resolveClipboardImageTempFormat, t]
+    [resolveClipboardImageTempFormat]
   );
 
   const appendDraftAttachments = useCallback(

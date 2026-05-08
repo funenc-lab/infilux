@@ -32,6 +32,7 @@ export function buildAgentTerminalContextMenuItems({
       disabled: !hasLatestOutputBlock,
     },
     { id: 'paste', label: t('Paste') },
+    { id: 'pasteAttachment', label: t('Paste Attachment') },
     { id: 'selectAll', label: t('Select all') },
   ];
 }
