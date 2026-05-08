@@ -109,6 +109,10 @@ export interface AppSessionResource extends AppResourceBase {
   sessionKind: SessionKind;
   backend: SessionBackendKind;
   cwd: string;
+  repoPath?: string | null;
+  projectName?: string | null;
+  worktreeName?: string | null;
+  branchName?: string | null;
   createdAt: number;
   persistOnDisconnect: boolean;
   pid: number | null;

@@ -1,5 +1,6 @@
 import type {
   GetProjectTokenUsageRequest,
+  NormalizedProjectTokenUsageRequest,
   ProjectTokenUsageSnapshot,
   TokenUsageCounts,
   TokenUsageProjectSummary,
@@ -7,6 +8,12 @@ import type {
   TokenUsageProviderSummary,
   TokenUsageSessionSummary,
 } from '@shared/types/tokenUsage';
+import { normalizeProjectTokenUsageRequest } from '@shared/utils/tokenUsage';
+import {
+  getProjectScopePaths,
+  isSameOrChildUsagePath,
+  normalizeUsagePath,
+} from './TokenUsageScope';
 
 export function createEmptyTokenUsageCounts(): TokenUsageCounts {
   return {
@@ -52,11 +59,6 @@ export function buildTokenUsageCounts(input: Partial<TokenUsageCounts>): TokenUs
   return counts;
 }
 
-function normalizeUsagePath(value: string): string {
-  const normalized = value.replace(/\\/g, '/').replace(/\/+$/g, '');
-  return normalized || '/';
-}
-
 function normalizeRequestedProjectPaths(projectPaths: string[] | undefined): string[] {
   const normalizedPaths: string[] = [];
   const seen = new Set<string>();
@@ -79,25 +81,21 @@ function normalizeRequestedProjectPaths(projectPaths: string[] | undefined): str
   return normalizedPaths;
 }
 
-function isSameOrChildPath(candidatePath: string, projectPath: string): boolean {
-  const candidate = normalizeUsagePath(candidatePath);
-  const project = normalizeUsagePath(projectPath);
-  return candidate === project || candidate.startsWith(`${project}/`);
-}
-
 function findMostSpecificMatchingProjectPath(
   session: TokenUsageSessionSummary,
-  projectPaths: string[] | undefined
+  request: NormalizedProjectTokenUsageRequest
 ): string | undefined {
-  if (!projectPaths?.length) {
+  if (!request.projectPaths.length) {
     return undefined;
   }
 
   let matchedProject: string | undefined;
-  for (const projectPath of projectPaths) {
-    const matchesProject =
-      isSameOrChildPath(session.projectPath, projectPath) ||
-      isSameOrChildPath(session.cwd, projectPath);
+  for (const projectPath of request.projectPaths) {
+    const matchesProject = getProjectScopePaths(projectPath, request).some(
+      (matchPath) =>
+        isSameOrChildUsagePath(session.projectPath, matchPath) ||
+        isSameOrChildUsagePath(session.cwd, matchPath)
+    );
     if (!matchesProject) {
       continue;
     }
@@ -112,25 +110,25 @@ function findMostSpecificMatchingProjectPath(
 
 function resolveProjectPath(
   session: TokenUsageSessionSummary,
-  projectPaths: string[] | undefined
+  request: NormalizedProjectTokenUsageRequest
 ): string {
-  if (!projectPaths?.length) {
+  if (!request.projectPaths.length) {
     return normalizeUsagePath(session.projectPath || session.cwd);
   }
 
-  const matchedProject = findMostSpecificMatchingProjectPath(session, projectPaths);
+  const matchedProject = findMostSpecificMatchingProjectPath(session, request);
   return normalizeUsagePath(matchedProject ?? session.projectPath);
 }
 
 function shouldIncludeSession(
   session: TokenUsageSessionSummary,
-  projectPaths: string[] | undefined
+  request: NormalizedProjectTokenUsageRequest
 ): boolean {
-  if (!projectPaths?.length) {
+  if (!request.projectPaths.length) {
     return true;
   }
 
-  return findMostSpecificMatchingProjectPath(session, projectPaths) !== undefined;
+  return findMostSpecificMatchingProjectPath(session, request) !== undefined;
 }
 
 function compareProjects(left: TokenUsageProjectSummary, right: TokenUsageProjectSummary): number {
@@ -163,7 +161,19 @@ export function buildProjectTokenUsageSnapshot(
   request: GetProjectTokenUsageRequest = {},
   generatedAt = Date.now()
 ): ProjectTokenUsageSnapshot {
-  const requestedProjectPaths = normalizeRequestedProjectPaths(request.projectPaths);
+  const normalizedRequest = normalizeProjectTokenUsageRequest(request);
+  const requestedProjectPaths = normalizeRequestedProjectPaths(normalizedRequest.projectPaths);
+  const normalizedProjectPathAliases = Object.entries(normalizedRequest.projectPathAliases).reduce<
+    Record<string, string[]>
+  >((aliases, [projectPath, aliasPaths]) => {
+    aliases[normalizeUsagePath(projectPath)] = normalizeRequestedProjectPaths(aliasPaths);
+    return aliases;
+  }, {});
+  const usageRequest: NormalizedProjectTokenUsageRequest = {
+    ...normalizedRequest,
+    projectPathAliases: normalizedProjectPathAliases,
+    projectPaths: requestedProjectPaths,
+  };
   const statusesByProviderId = new Map(
     providerStatuses.map((status) => [status.providerId, status])
   );
@@ -176,21 +186,19 @@ export function buildProjectTokenUsageSnapshot(
       updatedAt: 0,
       totals: createEmptyTokenUsageCounts(),
       providers: [],
-      ...(request.includeSessions ? { sessions: [] } : {}),
+      ...(usageRequest.includeSessions ? { sessions: [] } : {}),
     });
   }
 
-  for (const session of sessions.filter((item) =>
-    shouldIncludeSession(item, requestedProjectPaths)
-  )) {
-    const projectPath = resolveProjectPath(session, requestedProjectPaths);
+  for (const session of sessions.filter((item) => shouldIncludeSession(item, usageRequest))) {
+    const projectPath = resolveProjectPath(session, usageRequest);
     const project = projectMap.get(projectPath) ?? {
       projectPath,
       sessionCount: 0,
       updatedAt: 0,
       totals: createEmptyTokenUsageCounts(),
       providers: [],
-      ...(request.includeSessions ? { sessions: [] } : {}),
+      ...(usageRequest.includeSessions ? { sessions: [] } : {}),
     };
 
     project.sessionCount += 1;

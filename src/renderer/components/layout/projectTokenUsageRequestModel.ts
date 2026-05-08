@@ -23,14 +23,38 @@ function normalizeProjectPath(value: unknown): string | null {
   return trimTrailingPathSeparators(normalizePath(trimmedValue));
 }
 
-function appendUniquePath(paths: string[], seen: Set<string>, value: unknown): void {
+function appendUniquePath(paths: string[], seen: Set<string>, value: unknown): string | null {
   const normalizedPath = normalizeProjectPath(value);
   if (!normalizedPath || seen.has(normalizedPath)) {
-    return;
+    return normalizedPath;
   }
 
   seen.add(normalizedPath);
   paths.push(normalizedPath);
+  return normalizedPath;
+}
+
+function appendProjectPathAlias(
+  aliases: Record<string, string[]>,
+  aliasSeen: Map<string, Set<string>>,
+  projectPath: string,
+  aliasPath: string | null
+): void {
+  if (!aliasPath || aliasPath === projectPath) {
+    return;
+  }
+
+  let projectAliasSeen = aliasSeen.get(projectPath);
+  if (!projectAliasSeen) {
+    projectAliasSeen = new Set<string>();
+    aliasSeen.set(projectPath, projectAliasSeen);
+  }
+  if (projectAliasSeen.has(aliasPath)) {
+    return;
+  }
+
+  projectAliasSeen.add(aliasPath);
+  aliases[projectPath] = [...(aliases[projectPath] ?? []), aliasPath];
 }
 
 function readStoredRepositoryPaths(storage: StorageReader | undefined): string[] {
@@ -61,8 +85,23 @@ function isSameOrChildPath(candidatePath: string, projectPath: string): boolean 
   return candidatePath === projectPath || candidatePath.startsWith(`${projectPath}/`);
 }
 
-function isCoveredByStoredRepository(candidatePath: string, repositoryPaths: string[]): boolean {
-  return repositoryPaths.some((repositoryPath) => isSameOrChildPath(candidatePath, repositoryPath));
+function findMostSpecificCoveringPath(
+  candidatePath: string,
+  projectPaths: string[]
+): string | null {
+  let matchedPath: string | null = null;
+
+  for (const projectPath of projectPaths) {
+    if (!isSameOrChildPath(candidatePath, projectPath)) {
+      continue;
+    }
+
+    if (!matchedPath || projectPath.length > matchedPath.length) {
+      matchedPath = projectPath;
+    }
+  }
+
+  return matchedPath;
 }
 
 export function buildProjectTokenUsageRequest(
@@ -73,6 +112,8 @@ export function buildProjectTokenUsageRequest(
 ): GetProjectTokenUsageRequest {
   const projectPaths: string[] = [];
   const seen = new Set<string>();
+  const projectPathAliases: Record<string, string[]> = {};
+  const aliasSeen = new Map<string, Set<string>>();
   const repositoryPaths = readStoredRepositoryPaths(storage);
 
   for (const repositoryPath of repositoryPaths) {
@@ -85,12 +126,26 @@ export function buildProjectTokenUsageRequest(
     }
 
     const sessionPath = normalizeProjectPath(resource.cwd);
-    if (!sessionPath || isCoveredByStoredRepository(sessionPath, projectPaths)) {
+    const sessionProjectPath = normalizeProjectPath(resource.repoPath) ?? sessionPath;
+    if (!sessionProjectPath) {
       continue;
     }
 
-    appendUniquePath(projectPaths, seen, sessionPath);
+    const appendedProjectPath =
+      findMostSpecificCoveringPath(sessionProjectPath, projectPaths) ??
+      appendUniquePath(projectPaths, seen, sessionProjectPath);
+    appendProjectPathAlias(
+      projectPathAliases,
+      aliasSeen,
+      appendedProjectPath ?? sessionProjectPath,
+      sessionPath
+    );
   }
 
-  return projectPaths.length > 0 ? { projectPaths } : {};
+  return projectPaths.length > 0
+    ? {
+        projectPaths,
+        ...(Object.keys(projectPathAliases).length > 0 ? { projectPathAliases } : {}),
+      }
+    : {};
 }

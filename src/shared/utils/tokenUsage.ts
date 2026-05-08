@@ -1,15 +1,21 @@
-import type { GetProjectTokenUsageRequest } from '../types/tokenUsage';
-
-export interface NormalizedProjectTokenUsageRequest {
-  includeSessions: boolean;
-  projectPaths: string[];
-}
+import type {
+  GetProjectTokenUsageRequest,
+  NormalizedProjectTokenUsageRequest,
+} from '../types/tokenUsage';
 
 export function normalizeProjectTokenUsageRequest(
   request: GetProjectTokenUsageRequest = {}
 ): NormalizedProjectTokenUsageRequest {
+  const projectPathAliases = Object.entries(request.projectPathAliases ?? {}).reduce<
+    Record<string, string[]>
+  >((aliases, [projectPath, aliasPaths]) => {
+    aliases[projectPath] = [...aliasPaths];
+    return aliases;
+  }, {});
+
   return {
     includeSessions: request.includeSessions ?? false,
+    projectPathAliases,
     projectPaths: request.projectPaths ?? [],
   };
 }

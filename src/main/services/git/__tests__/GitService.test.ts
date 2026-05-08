@@ -167,6 +167,28 @@ describe('GitService', () => {
     );
   });
 
+  it('reads the current branch name without scanning worktree status', async () => {
+    const raw = vi.fn().mockResolvedValueOnce('feature/resource-panel\n').mockResolvedValueOnce('');
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ raw });
+
+    const service = new GitService('/repo');
+
+    await expect(service.getCurrentBranchName()).resolves.toBe('feature/resource-panel');
+    await expect(service.getCurrentBranchName()).resolves.toBeNull();
+
+    expect(raw).toHaveBeenCalledWith(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    expect(gitServiceTestDoubles.spawnGit).not.toHaveBeenCalled();
+  });
+
+  it('returns null for detached heads or unreadable current branches', async () => {
+    const raw = vi.fn().mockRejectedValueOnce(new Error('detached'));
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ raw });
+
+    const service = new GitService('/repo');
+
+    await expect(service.getCurrentBranchName()).resolves.toBeNull();
+  });
+
   it('parses file changes from porcelain v2 output and reports skipped directories', async () => {
     gitServiceTestDoubles.createSimpleGit.mockReturnValue({});
     const proc = createGitProcessDouble();

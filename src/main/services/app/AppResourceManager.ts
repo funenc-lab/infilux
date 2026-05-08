@@ -12,9 +12,16 @@ import type {
   RuntimeMemorySnapshot,
   SessionDescriptor,
 } from '@shared/types';
+import {
+  getDisplayPathBasename,
+  normalizePath,
+  trimTrailingPathSeparators,
+} from '@shared/utils/path';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { app, type BrowserWindow, type WebContents } from 'electron';
 import { killProcessTree } from '../../utils/processUtils';
 import { buildRuntimeMemorySnapshot } from '../../utils/runtimeMemory';
+import { GitService } from '../git/GitService';
 import { cloudflaredManager } from '../hapi/CloudflaredManager';
 import { hapiRunnerManager } from '../hapi/HapiRunnerManager';
 import { hapiServerManager } from '../hapi/HapiServerManager';
@@ -22,6 +29,8 @@ import { sessionManager } from '../session/SessionManager';
 
 type ResourceSender = Pick<WebContents, 'getOSProcessId' | 'reload'>;
 type SessionTarget = BrowserWindow | WebContents | number;
+
+const DEFAULT_BRANCH_CACHE_TTL_MS = 30_000;
 
 interface SessionProcessInfo {
   pid: number | null;
@@ -39,6 +48,7 @@ interface AppResourceManagerDependencies {
   }) => RuntimeMemorySnapshot;
   listSessions: (target?: SessionTarget) => SessionDescriptor[] | Promise<SessionDescriptor[]>;
   getSessionRuntimeInfo: (sessionId: string) => Promise<SessionProcessInfo | null>;
+  resolveWorktreeBranchName: (worktreePath: string) => Promise<string | null>;
   killSession: (sessionId: string) => Promise<void>;
   getHapiStatus: () => {
     running: boolean;
@@ -71,6 +81,13 @@ interface AppResourceManagerDependencies {
     error?: string;
   }>;
   terminateProcess: (pid: number) => void;
+  now?: () => number;
+  branchCacheTtlMs?: number;
+}
+
+interface BranchNameCacheEntry {
+  expiresAt: number;
+  branchName: string | null;
 }
 
 function safeAction(kind: AppResourceActionDescriptor['kind']): AppResourceActionDescriptor {
@@ -220,6 +237,59 @@ function isReclaimableStaleSession(
   return session.backend === 'local' && processInfo?.isAlive === false;
 }
 
+function readSessionMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | null {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+async function deriveSessionDisplayContext(
+  session: SessionDescriptor,
+  resolveWorktreeBranchName: (worktreePath: string) => Promise<string | null>
+): Promise<{
+  repoPath: string | null;
+  projectName: string | null;
+  worktreeName: string | null;
+  branchName: string | null;
+}> {
+  const launchMetadata =
+    session.metadata?.agentCapabilityLaunch &&
+    typeof session.metadata.agentCapabilityLaunch === 'object' &&
+    !Array.isArray(session.metadata.agentCapabilityLaunch)
+      ? (session.metadata.agentCapabilityLaunch as Record<string, unknown>)
+      : undefined;
+
+  const repoPath =
+    readSessionMetadataString(launchMetadata, 'repoPath') ??
+    readSessionMetadataString(session.metadata, 'repoPath');
+  const worktreePath =
+    readSessionMetadataString(launchMetadata, 'worktreePath') ??
+    readSessionMetadataString(session.metadata, 'worktreePath') ??
+    session.cwd;
+  const explicitBranchName =
+    readSessionMetadataString(launchMetadata, 'branchName') ??
+    readSessionMetadataString(session.metadata, 'branchName');
+  const branchName =
+    explicitBranchName ??
+    (session.backend === 'local' && !isRemoteVirtualPath(worktreePath)
+      ? await resolveWorktreeBranchName(worktreePath)
+      : null);
+
+  const projectName = repoPath
+    ? getDisplayPathBasename(repoPath)
+    : getDisplayPathBasename(worktreePath);
+  const worktreeName = getDisplayPathBasename(worktreePath);
+
+  return {
+    repoPath,
+    projectName: projectName || null,
+    worktreeName: worktreeName || null,
+    branchName,
+  };
+}
+
 function formatStaleSessionReclaimMessage(reclaimedCount: number): string {
   if (reclaimedCount === 0) {
     return 'No stale sessions to reclaim.';
@@ -231,7 +301,36 @@ function formatStaleSessionReclaimMessage(reclaimedCount: number): string {
 }
 
 export class AppResourceManager {
-  constructor(private readonly dependencies: AppResourceManagerDependencies) {}
+  private readonly branchCache = new Map<string, BranchNameCacheEntry>();
+  private readonly branchCacheTtlMs: number;
+  private readonly now: () => number;
+
+  constructor(private readonly dependencies: AppResourceManagerDependencies) {
+    this.branchCacheTtlMs = dependencies.branchCacheTtlMs ?? DEFAULT_BRANCH_CACHE_TTL_MS;
+    this.now = dependencies.now ?? Date.now;
+  }
+
+  private getBranchCacheKey(worktreePath: string): string {
+    return trimTrailingPathSeparators(normalizePath(worktreePath));
+  }
+
+  private async resolveCachedWorktreeBranchName(worktreePath: string): Promise<string | null> {
+    const cacheKey = this.getBranchCacheKey(worktreePath);
+    const cachedEntry = this.branchCache.get(cacheKey);
+    const currentTime = this.now();
+
+    if (cachedEntry && cachedEntry.expiresAt > currentTime) {
+      return cachedEntry.branchName;
+    }
+
+    const branchName = await this.dependencies.resolveWorktreeBranchName(worktreePath);
+    this.branchCache.set(cacheKey, {
+      branchName,
+      expiresAt: currentTime + this.branchCacheTtlMs,
+    });
+
+    return branchName;
+  }
 
   async getSnapshot(
     sender: ResourceSender,
@@ -250,6 +349,9 @@ export class AppResourceManager {
       sessions.map(async (session): Promise<AppSessionResource> => {
         const processInfo = await this.dependencies.getSessionRuntimeInfo(session.sessionId);
         const runtimeState = resolveEffectiveSessionRuntimeState(session, processInfo);
+        const displayContext = await deriveSessionDisplayContext(session, (worktreePath) =>
+          this.resolveCachedWorktreeBranchName(worktreePath)
+        );
         return {
           id: `session:${session.sessionId}`,
           kind: 'session',
@@ -259,6 +361,10 @@ export class AppResourceManager {
           sessionKind: session.kind,
           backend: session.backend,
           cwd: session.cwd,
+          repoPath: displayContext.repoPath,
+          projectName: displayContext.projectName,
+          worktreeName: displayContext.worktreeName,
+          branchName: displayContext.branchName,
           createdAt: session.createdAt,
           persistOnDisconnect: session.persistOnDisconnect,
           pid: processInfo?.pid ?? null,
@@ -385,6 +491,13 @@ export const appResourceManager = new AppResourceManager({
   buildRuntimeSnapshot: buildRuntimeMemorySnapshot,
   listSessions: (target) => (target === undefined ? [] : sessionManager.list(target)),
   getSessionRuntimeInfo: (sessionId) => sessionManager.getSessionRuntimeInfo(sessionId),
+  resolveWorktreeBranchName: async (worktreePath) => {
+    try {
+      return await new GitService(worktreePath).getCurrentBranchName();
+    } catch {
+      return null;
+    }
+  },
   killSession: (sessionId) => sessionManager.kill(sessionId),
   getHapiStatus: () => hapiServerManager.getStatus(),
   stopHapi: () => hapiServerManager.stop(),

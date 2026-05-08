@@ -64,8 +64,15 @@ export interface TokenUsageProjectSummary {
 
 export interface GetProjectTokenUsageRequest {
   projectPaths?: string[];
+  projectPathAliases?: Record<string, string[]>;
   includeSessions?: boolean;
   forceRefresh?: boolean;
+}
+
+export interface NormalizedProjectTokenUsageRequest {
+  includeSessions: boolean;
+  projectPathAliases: Record<string, string[]>;
+  projectPaths: string[];
 }
 
 export type ProjectTokenUsageSnapshotFreshnessSource = 'scan' | 'cache';

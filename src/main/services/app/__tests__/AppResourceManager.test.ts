@@ -107,12 +107,20 @@ describe('AppResourceManager', () => {
           cwd: '/__remote__/repo',
           persistOnDisconnect: true,
           createdAt: 20,
+          metadata: {
+            agentCapabilityLaunch: {
+              repoPath: '/projects/ensoai',
+              worktreePath: '/projects/ensoai/worktrees/feature-resource-panel',
+              branchName: 'feature/resource-panel',
+            },
+          },
         },
       ]
     );
     const getSessionRuntimeInfo = vi.fn(async (sessionId: string) =>
       sessionId === 'session-local' ? { pid: 4444, isActive: true, isAlive: true } : null
     );
+    const resolveWorktreeBranchName = vi.fn(async () => null);
 
     const manager = new AppResourceManager({
       getAppMetrics: () => [
@@ -129,6 +137,7 @@ describe('AppResourceManager', () => {
       buildRuntimeSnapshot,
       listSessions,
       getSessionRuntimeInfo,
+      resolveWorktreeBranchName,
       killSession: vi.fn(async () => undefined),
       getHapiStatus: () => ({ running: true, ready: true, pid: 5001, port: 3006 }),
       stopHapi: vi.fn(async () => ({ running: false })),
@@ -162,6 +171,7 @@ describe('AppResourceManager', () => {
     });
     expect(listSessions).toHaveBeenCalledWith(sessionTarget);
     expect(getSessionRuntimeInfo).toHaveBeenCalledWith('session-local');
+    expect(resolveWorktreeBranchName).toHaveBeenCalledWith('/repo');
 
     const browserProcess = snapshot.resources.find((resource) => resource.id === 'process:101');
     const currentRenderer = snapshot.resources.find((resource) => resource.id === 'process:303');
@@ -191,11 +201,24 @@ describe('AppResourceManager', () => {
     });
     expect(localSession).toMatchObject({
       kind: 'session',
+      repoPath: null,
+      projectName: 'repo',
+      worktreeName: 'repo',
+      branchName: null,
       pid: 4444,
       isActive: true,
       isAlive: true,
       reclaimable: false,
       availableActions: [{ kind: 'kill-session', dangerLevel: 'safe' }],
+    });
+    expect(
+      snapshot.resources.find((resource) => resource.id === 'session:session-remote')
+    ).toMatchObject({
+      kind: 'session',
+      repoPath: '/projects/ensoai',
+      projectName: 'ensoai',
+      worktreeName: 'feature-resource-panel',
+      branchName: 'feature/resource-panel',
     });
     expect(hapiService).toMatchObject({
       kind: 'service',
@@ -203,6 +226,107 @@ describe('AppResourceManager', () => {
       status: 'ready',
       availableActions: [{ kind: 'stop-service', dangerLevel: 'safe' }],
     });
+  });
+
+  it('falls back to resolved git branch names for local sessions without branch metadata', async () => {
+    const { AppResourceManager } = await import('../AppResourceManager');
+
+    const resolveWorktreeBranchName = vi.fn(async (worktreePath: string) =>
+      worktreePath === '/projects/ensoai/worktrees/feature-fallback'
+        ? 'feature/fallback-branch'
+        : null
+    );
+
+    const manager = new AppResourceManager({
+      getAppMetrics: () => [],
+      buildRuntimeSnapshot: vi.fn(() => ({
+        capturedAt: 100,
+        processCount: 0,
+        rendererProcessId: 303,
+        rendererMemory: null,
+        rendererMetric: null,
+        browserMetric: null,
+        gpuMetric: null,
+        totalAppWorkingSetSizeKb: 0,
+        totalAppPrivateBytesKb: 0,
+      })),
+      listSessions: vi.fn(
+        async (): Promise<SessionDescriptor[]> => [
+          {
+            sessionId: 'session-local-agent',
+            backend: 'local',
+            kind: 'agent',
+            cwd: '/projects/ensoai/worktrees/feature-fallback',
+            persistOnDisconnect: true,
+            createdAt: 20,
+            metadata: {
+              agentCapabilityLaunch: {
+                repoPath: '/projects/ensoai',
+                worktreePath: '/projects/ensoai/worktrees/feature-fallback',
+              },
+            },
+          },
+        ]
+      ),
+      getSessionRuntimeInfo: vi.fn(async () => ({
+        pid: 4555,
+        isActive: false,
+        isAlive: true,
+      })),
+      resolveWorktreeBranchName,
+      killSession: vi.fn(async () => undefined),
+      getHapiStatus: () => ({ running: false }),
+      stopHapi: vi.fn(async () => ({ running: false })),
+      getHapiRunnerStatus: () => ({ running: false }),
+      stopHapiRunner: vi.fn(async () => ({ running: false })),
+      getCloudflaredStatus: () => ({ installed: true, running: false }),
+      stopCloudflared: vi.fn(async () => ({ installed: true, running: false })),
+      terminateProcess: vi.fn(),
+      branchCacheTtlMs: 10_000,
+      now: vi
+        .fn()
+        .mockReturnValueOnce(1_000)
+        .mockReturnValueOnce(2_000)
+        .mockReturnValueOnce(12_000),
+    });
+
+    const snapshot = await manager.getSnapshot({
+      getOSProcessId: () => 303,
+      reload: vi.fn(),
+    });
+
+    expect(resolveWorktreeBranchName).toHaveBeenCalledWith(
+      '/projects/ensoai/worktrees/feature-fallback'
+    );
+    expect(
+      snapshot.resources.find((resource) => resource.id === 'session:session-local-agent')
+    ).toMatchObject({
+      kind: 'session',
+      repoPath: '/projects/ensoai',
+      projectName: 'ensoai',
+      worktreeName: 'feature-fallback',
+      branchName: 'feature/fallback-branch',
+    });
+
+    const cachedSnapshot = await manager.getSnapshot({
+      getOSProcessId: () => 303,
+      reload: vi.fn(),
+    });
+
+    expect(
+      cachedSnapshot.resources.find((resource) => resource.id === 'session:session-local-agent')
+    ).toMatchObject({
+      kind: 'session',
+      branchName: 'feature/fallback-branch',
+    });
+    expect(resolveWorktreeBranchName).toHaveBeenCalledTimes(1);
+
+    await manager.getSnapshot({
+      getOSProcessId: () => 303,
+      reload: vi.fn(),
+    });
+
+    expect(resolveWorktreeBranchName).toHaveBeenCalledTimes(2);
   });
 
   it('preserves session runtime state and maps non-live sessions to degraded resource statuses', async () => {
@@ -265,6 +389,7 @@ describe('AppResourceManager', () => {
             return null;
         }
       }),
+      resolveWorktreeBranchName: vi.fn(async () => null),
       killSession: vi.fn(async () => undefined),
       getHapiStatus: () => ({ running: false }),
       stopHapi: vi.fn(async () => ({ running: false })),
@@ -344,6 +469,7 @@ describe('AppResourceManager', () => {
         isActive: false,
         isAlive: false,
       })),
+      resolveWorktreeBranchName: vi.fn(async () => null),
       killSession: vi.fn(async () => undefined),
       getHapiStatus: () => ({ running: false }),
       stopHapi: vi.fn(async () => ({ running: false })),
@@ -403,6 +529,7 @@ describe('AppResourceManager', () => {
       })),
       listSessions: vi.fn(async () => []),
       getSessionRuntimeInfo: vi.fn(async () => null),
+      resolveWorktreeBranchName: vi.fn(async () => null),
       killSession,
       getHapiStatus: () => ({ running: true, ready: true, pid: 5001, port: 3006 }),
       stopHapi,
@@ -587,6 +714,7 @@ describe('AppResourceManager', () => {
       })),
       listSessions,
       getSessionRuntimeInfo,
+      resolveWorktreeBranchName: vi.fn(async () => null),
       killSession,
       getHapiStatus: () => ({ running: false }),
       stopHapi: vi.fn(async () => ({ running: false })),

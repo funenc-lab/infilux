@@ -45,6 +45,10 @@ describe('projectTokenUsageRequestModel', () => {
           sessionKind: 'agent',
           backend: 'local',
           cwd: '/repo/app/worktree-a',
+          repoPath: null,
+          projectName: null,
+          worktreeName: null,
+          branchName: null,
           createdAt: 1,
           persistOnDisconnect: false,
           pid: 1,
@@ -93,6 +97,10 @@ describe('projectTokenUsageRequestModel', () => {
           sessionKind: 'agent',
           backend: 'local',
           cwd: '/repo/app/worktree-a',
+          repoPath: null,
+          projectName: null,
+          worktreeName: null,
+          branchName: null,
           createdAt: 1,
           persistOnDisconnect: false,
           pid: 1,
@@ -106,6 +114,45 @@ describe('projectTokenUsageRequestModel', () => {
     expect(buildProjectTokenUsageRequest(snapshot, storage).projectPaths).toEqual([
       '/repo/app/worktree-a',
     ]);
+  });
+
+  it('uses session repo paths as project scope and keeps cwd aliases for matching', () => {
+    const storage = {
+      getItem: () => null,
+    };
+    const snapshot: AppResourceSnapshot = {
+      ...baseSnapshot,
+      resources: [
+        {
+          id: 'session:agent-1',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          availableActions: [],
+          sessionId: 'agent-1',
+          sessionKind: 'agent',
+          backend: 'local',
+          cwd: '/workspaces/app-feature-a',
+          repoPath: '/repo/app',
+          projectName: 'app',
+          worktreeName: 'app-feature-a',
+          branchName: 'feature/a',
+          createdAt: 1,
+          persistOnDisconnect: false,
+          pid: 1,
+          isActive: true,
+          isAlive: true,
+          reclaimable: false,
+        },
+      ],
+    };
+
+    expect(buildProjectTokenUsageRequest(snapshot, storage)).toEqual({
+      projectPaths: ['/repo/app'],
+      projectPathAliases: {
+        '/repo/app': ['/workspaces/app-feature-a'],
+      },
+    });
   });
 
   it('returns an empty request when stored repositories are malformed and no sessions are loaded', () => {

@@ -1,13 +1,20 @@
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { TokenUsageCounts, TokenUsageSessionSummary } from '@shared/types/tokenUsage';
-import { collectJsonlFiles, pathExists } from './fileUtils';
+import type {
+  NormalizedProjectTokenUsageRequest,
+  TokenUsageCounts,
+  TokenUsageSessionSummary,
+} from '@shared/types/tokenUsage';
+import { collectJsonlFiles, pathExists, readFirstLine } from './fileUtils';
 import { parseUsageTimestamp, readNumber, readString, safeJsonParse } from './jsonUtils';
+import { shouldIncludeUsageCwd } from './TokenUsageScope';
 import type { TokenUsageCollectionResult } from './TokenUsageTypes';
 
 export interface ClaudeUsageAdapterOptions {
   projectsRoot: string;
+  readFile?: (filePath: string) => Promise<string>;
+  readFirstLine?: (filePath: string) => Promise<string | null>;
 }
 
 interface ClaudeSessionAccumulator {
@@ -102,6 +109,25 @@ function createAccumulator(entry: Record<string, unknown>): ClaudeSessionAccumul
   };
 }
 
+async function shouldReadClaudeFile(
+  filePath: string,
+  request: NormalizedProjectTokenUsageRequest | undefined,
+  readFirstLineFile: (filePath: string) => Promise<string | null>
+): Promise<boolean> {
+  if (!request?.projectPaths.length) {
+    return true;
+  }
+
+  const firstLine = await readFirstLineFile(filePath);
+  if (!firstLine) {
+    return true;
+  }
+
+  const firstEntry = safeJsonParse(firstLine);
+  const cwd = firstEntry ? readString(firstEntry.cwd) : undefined;
+  return cwd ? shouldIncludeUsageCwd(cwd, request) : true;
+}
+
 export class ClaudeUsageAdapter {
   constructor(
     private readonly options: ClaudeUsageAdapterOptions = {
@@ -109,7 +135,7 @@ export class ClaudeUsageAdapter {
     }
   ) {}
 
-  async collect(): Promise<TokenUsageCollectionResult> {
+  async collect(request?: NormalizedProjectTokenUsageRequest): Promise<TokenUsageCollectionResult> {
     try {
       if (!(await pathExists(this.options.projectsRoot))) {
         return {
@@ -135,9 +161,16 @@ export class ClaudeUsageAdapter {
       }
 
       const sessionsById = new Map<string, ClaudeSessionAccumulator>();
+      const readUsageFile =
+        this.options.readFile ?? ((filePath: string) => readFile(filePath, 'utf8'));
+      const readUsageFirstLine = this.options.readFirstLine ?? readFirstLine;
 
       for (const file of files) {
-        const content = await readFile(file, 'utf8');
+        if (!(await shouldReadClaudeFile(file, request, readUsageFirstLine))) {
+          continue;
+        }
+
+        const content = await readUsageFile(file);
         for (const line of content.split(/\r?\n/)) {
           const entry = safeJsonParse(line);
           if (!entry) {
@@ -146,6 +179,11 @@ export class ClaudeUsageAdapter {
 
           const sessionId = readString(entry.sessionId);
           if (!sessionId) {
+            continue;
+          }
+
+          const cwd = readString(entry.cwd);
+          if (cwd && !shouldIncludeUsageCwd(cwd, request)) {
             continue;
           }
 

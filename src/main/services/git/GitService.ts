@@ -360,6 +360,16 @@ export class GitService {
     };
   }
 
+  async getCurrentBranchName(): Promise<string | null> {
+    try {
+      const currentBranch = await this.git.raw(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+      const normalizedBranch = currentBranch.trim();
+      return normalizedBranch.length > 0 ? normalizedBranch : null;
+    } catch {
+      return null;
+    }
+  }
+
   async getBranches(): Promise<GitBranch[]> {
     const result = await this.git.branch(['-a', '-v']);
     const branches = Object.entries(result.branches).map(([name, info]) => ({

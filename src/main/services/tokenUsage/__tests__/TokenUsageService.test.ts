@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile as readTextFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -544,6 +544,244 @@ describe('TokenUsageService provider adapters', () => {
         projectPath: '/repo',
         sessionCount: 0,
         totals: expect.objectContaining({ totalTokens: 0 }),
+      }),
+    ]);
+  });
+
+  it('matches session cwd aliases to their owning project path', async () => {
+    const codexRoot = await createTempDirectory('infilux-token-service-');
+    const sessionFile = path.join(codexRoot, '2026', '04', '28', 'rollout-session.jsonl');
+
+    await writeJsonl(sessionFile, [
+      {
+        timestamp: '2026-04-28T01:00:00.000Z',
+        type: 'session_meta',
+        payload: {
+          id: 'codex-session-1',
+          cwd: '/workspaces/app-feature-a',
+          timestamp: '2026-04-28T01:00:00.000Z',
+        },
+      },
+      {
+        timestamp: '2026-04-28T01:02:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            total_token_usage: {
+              input_tokens: 20,
+              output_tokens: 3,
+              total_tokens: 23,
+            },
+          },
+        },
+      },
+    ]);
+
+    const service = new TokenUsageService([new CodexUsageAdapter({ sessionsRoot: codexRoot })]);
+
+    const snapshot = await service.getProjectUsage({
+      projectPaths: ['/repo/app'],
+      projectPathAliases: {
+        '/repo/app': ['/workspaces/app-feature-a'],
+      },
+    });
+
+    expect(snapshot.projects).toEqual([
+      expect.objectContaining({
+        projectPath: '/repo/app',
+        sessionCount: 1,
+        totals: expect.objectContaining({ totalTokens: 23 }),
+      }),
+    ]);
+  });
+
+  it('skips Codex session files outside the requested project scope', async () => {
+    const codexRoot = await createTempDirectory('infilux-token-service-');
+    const scopedSessionFile = path.join(codexRoot, '2026', '04', '28', 'rollout-scoped.jsonl');
+    const unrelatedSessionFile = path.join(codexRoot, '2026', '04', '28', 'rollout-other.jsonl');
+
+    await writeJsonl(scopedSessionFile, [
+      {
+        timestamp: '2026-04-28T01:00:00.000Z',
+        type: 'session_meta',
+        payload: {
+          id: 'codex-session-scoped',
+          cwd: '/repo/app',
+          timestamp: '2026-04-28T01:00:00.000Z',
+        },
+      },
+      {
+        timestamp: '2026-04-28T01:02:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            total_token_usage: {
+              input_tokens: 20,
+              output_tokens: 3,
+              total_tokens: 23,
+            },
+          },
+        },
+      },
+    ]);
+    await writeJsonl(unrelatedSessionFile, [
+      {
+        timestamp: '2026-04-28T01:00:00.000Z',
+        type: 'session_meta',
+        payload: {
+          id: 'codex-session-other',
+          cwd: '/repo/other',
+          timestamp: '2026-04-28T01:00:00.000Z',
+        },
+      },
+      {
+        timestamp: '2026-04-28T01:02:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            total_token_usage: {
+              input_tokens: 99,
+              output_tokens: 1,
+              total_tokens: 100,
+            },
+          },
+        },
+      },
+    ]);
+
+    const service = new TokenUsageService([new CodexUsageAdapter({ sessionsRoot: codexRoot })]);
+
+    const snapshot = await service.getProjectUsage({ projectPaths: ['/repo/app'] });
+
+    expect(snapshot.projects).toEqual([
+      expect.objectContaining({
+        projectPath: '/repo/app',
+        sessionCount: 1,
+        totals: expect.objectContaining({ totalTokens: 23 }),
+      }),
+    ]);
+  });
+
+  it('does not read full Codex files outside the requested project scope', async () => {
+    const codexRoot = await createTempDirectory('infilux-token-service-');
+    const scopedSessionFile = path.join(codexRoot, '2026', '04', '28', 'rollout-scoped.jsonl');
+    const unrelatedSessionFile = path.join(codexRoot, '2026', '04', '28', 'rollout-other.jsonl');
+
+    await writeJsonl(scopedSessionFile, [
+      {
+        timestamp: '2026-04-28T01:00:00.000Z',
+        type: 'session_meta',
+        payload: {
+          id: 'codex-session-scoped',
+          cwd: '/repo/app',
+          timestamp: '2026-04-28T01:00:00.000Z',
+        },
+      },
+      {
+        timestamp: '2026-04-28T01:02:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            total_token_usage: {
+              input_tokens: 20,
+              output_tokens: 3,
+              total_tokens: 23,
+            },
+          },
+        },
+      },
+    ]);
+    await writeJsonl(unrelatedSessionFile, [
+      {
+        timestamp: '2026-04-28T01:00:00.000Z',
+        type: 'session_meta',
+        payload: {
+          id: 'codex-session-other',
+          cwd: '/repo/other',
+          timestamp: '2026-04-28T01:00:00.000Z',
+        },
+      },
+      {
+        timestamp: '2026-04-28T01:02:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            total_token_usage: {
+              input_tokens: 99,
+              output_tokens: 1,
+              total_tokens: 100,
+            },
+          },
+        },
+      },
+    ]);
+
+    const readFileSpy = vi.fn((filePath: string) => readTextFile(filePath, 'utf8'));
+    const adapter = new CodexUsageAdapter({
+      sessionsRoot: codexRoot,
+      readFile: readFileSpy,
+    });
+
+    await adapter.collect({
+      includeSessions: false,
+      projectPathAliases: {},
+      projectPaths: ['/repo/app'],
+    });
+
+    expect(readFileSpy).toHaveBeenCalledWith(scopedSessionFile);
+    expect(readFileSpy).not.toHaveBeenCalledWith(unrelatedSessionFile);
+  });
+
+  it('skips Claude project directories outside the requested project scope', async () => {
+    const claudeRoot = await createTempDirectory('infilux-claude-usage-');
+    const scopedSessionFile = path.join(claudeRoot, '-repo-app', 'claude-session-scoped.jsonl');
+    const unrelatedSessionFile = path.join(claudeRoot, '-repo-other', 'claude-session-other.jsonl');
+
+    await writeJsonl(scopedSessionFile, [
+      {
+        type: 'assistant',
+        cwd: '/repo/app',
+        sessionId: 'claude-session-scoped',
+        timestamp: '2026-04-28T01:01:00.000Z',
+        message: {
+          model: 'claude-sonnet',
+          usage: {
+            input_tokens: 20,
+            output_tokens: 3,
+          },
+        },
+      },
+    ]);
+    await writeJsonl(unrelatedSessionFile, [
+      {
+        type: 'assistant',
+        cwd: '/repo/other',
+        sessionId: 'claude-session-other',
+        timestamp: '2026-04-28T01:01:00.000Z',
+        message: {
+          model: 'claude-sonnet',
+          usage: {
+            input_tokens: 99,
+            output_tokens: 1,
+          },
+        },
+      },
+    ]);
+
+    const service = new TokenUsageService([new ClaudeUsageAdapter({ projectsRoot: claudeRoot })]);
+
+    const snapshot = await service.getProjectUsage({ projectPaths: ['/repo/app'] });
+
+    expect(snapshot.projects).toEqual([
+      expect.objectContaining({
+        projectPath: '/repo/app',
+        sessionCount: 1,
+        totals: expect.objectContaining({ totalTokens: 23 }),
       }),
     ]);
   });

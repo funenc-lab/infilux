@@ -127,7 +127,10 @@ export class TokenUsageService {
     requestKey: string
   ): Promise<ProjectTokenUsageSnapshot> {
     const generatedAt = this.now();
-    const results = await Promise.all(this.adapters.map((adapter) => adapter.collect()));
+    const normalizedRequest = normalizeProjectTokenUsageRequest(request);
+    const results = await Promise.all(
+      this.adapters.map((adapter) => adapter.collect(normalizedRequest))
+    );
     const snapshot = buildProjectTokenUsageSnapshot(
       results.flatMap((result) => result.sessions),
       results.map((result) => result.status),

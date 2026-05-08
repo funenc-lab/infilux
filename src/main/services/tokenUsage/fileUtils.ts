@@ -1,5 +1,5 @@
 import type { Dirent } from 'node:fs';
-import { access, readdir } from 'node:fs/promises';
+import { access, open, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 export async function pathExists(targetPath: string): Promise<boolean> {
@@ -38,4 +38,35 @@ export async function collectJsonlFiles(rootPath: string): Promise<string[]> {
   await visit(rootPath);
   files.sort((left, right) => left.localeCompare(right));
   return files;
+}
+
+export async function readFirstLine(filePath: string): Promise<string | null> {
+  const fileHandle = await open(filePath, 'r');
+  const chunks: string[] = [];
+  const buffer = Buffer.alloc(8192);
+  let position = 0;
+
+  try {
+    while (true) {
+      const { bytesRead } = await fileHandle.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) {
+        break;
+      }
+
+      const chunk = buffer.subarray(0, bytesRead).toString('utf8');
+      const lineBreakIndex = chunk.indexOf('\n');
+      if (lineBreakIndex >= 0) {
+        chunks.push(chunk.slice(0, lineBreakIndex));
+        break;
+      }
+
+      chunks.push(chunk);
+      position += bytesRead;
+    }
+  } finally {
+    await fileHandle.close();
+  }
+
+  const firstLine = chunks.join('').replace(/\r$/, '');
+  return firstLine.length > 0 ? firstLine : null;
 }

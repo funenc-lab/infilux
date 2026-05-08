@@ -1,13 +1,20 @@
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { TokenUsageCounts, TokenUsageSessionSummary } from '@shared/types/tokenUsage';
-import { collectJsonlFiles, pathExists } from './fileUtils';
+import type {
+  NormalizedProjectTokenUsageRequest,
+  TokenUsageCounts,
+  TokenUsageSessionSummary,
+} from '@shared/types/tokenUsage';
+import { collectJsonlFiles, pathExists, readFirstLine } from './fileUtils';
 import { parseUsageTimestamp, readNumber, readString, safeJsonParse } from './jsonUtils';
+import { shouldIncludeUsageCwd } from './TokenUsageScope';
 import type { TokenUsageCollectionResult } from './TokenUsageTypes';
 
 export interface CodexUsageAdapterOptions {
   sessionsRoot: string;
+  readFile?: (filePath: string) => Promise<string>;
+  readFirstLine?: (filePath: string) => Promise<string | null>;
 }
 
 interface CodexSessionAccumulator {
@@ -117,6 +124,34 @@ function applyTokenCount(
   accumulator.updatedAt = Math.max(accumulator.updatedAt, parseUsageTimestamp(entry.timestamp));
 }
 
+async function shouldReadCodexFile(
+  filePath: string,
+  request: NormalizedProjectTokenUsageRequest | undefined,
+  readFirstLineFile: (filePath: string) => Promise<string | null>
+): Promise<boolean> {
+  if (!request?.projectPaths.length) {
+    return true;
+  }
+
+  const firstLine = await readFirstLineFile(filePath);
+  if (!firstLine) {
+    return true;
+  }
+
+  const firstEntry = safeJsonParse(firstLine);
+  if (!firstEntry || firstEntry.type !== 'session_meta') {
+    return true;
+  }
+
+  const payload = getPayload(firstEntry);
+  if (!payload) {
+    return true;
+  }
+
+  const accumulator = createAccumulatorFromMeta(payload);
+  return accumulator ? shouldIncludeUsageCwd(accumulator.cwd, request) : true;
+}
+
 export class CodexUsageAdapter {
   constructor(
     private readonly options: CodexUsageAdapterOptions = {
@@ -124,7 +159,7 @@ export class CodexUsageAdapter {
     }
   ) {}
 
-  async collect(): Promise<TokenUsageCollectionResult> {
+  async collect(request?: NormalizedProjectTokenUsageRequest): Promise<TokenUsageCollectionResult> {
     try {
       if (!(await pathExists(this.options.sessionsRoot))) {
         return {
@@ -150,10 +185,17 @@ export class CodexUsageAdapter {
       }
 
       const sessionsById = new Map<string, CodexSessionAccumulator>();
+      const readUsageFile =
+        this.options.readFile ?? ((filePath: string) => readFile(filePath, 'utf8'));
+      const readUsageFirstLine = this.options.readFirstLine ?? readFirstLine;
 
       for (const file of files) {
+        if (!(await shouldReadCodexFile(file, request, readUsageFirstLine))) {
+          continue;
+        }
+
         let currentSession: CodexSessionAccumulator | null = null;
-        const content = await readFile(file, 'utf8');
+        const content = await readUsageFile(file);
         for (const line of content.split(/\r?\n/)) {
           const entry = safeJsonParse(line);
           if (!entry) {
@@ -167,6 +209,10 @@ export class CodexUsageAdapter {
             }
             const accumulator = createAccumulatorFromMeta(payload);
             if (!accumulator) {
+              continue;
+            }
+            if (!shouldIncludeUsageCwd(accumulator.cwd, request)) {
+              currentSession = null;
               continue;
             }
             currentSession = sessionsById.get(accumulator.sessionId) ?? accumulator;

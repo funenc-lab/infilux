@@ -1,4 +1,8 @@
-import type { TokenUsageProviderStatus, TokenUsageSessionSummary } from '@shared/types/tokenUsage';
+import type {
+  NormalizedProjectTokenUsageRequest,
+  TokenUsageProviderStatus,
+  TokenUsageSessionSummary,
+} from '@shared/types/tokenUsage';
 
 export interface TokenUsageCollectionResult {
   status: TokenUsageProviderStatus;
@@ -6,5 +10,5 @@ export interface TokenUsageCollectionResult {
 }
 
 export interface TokenUsageAdapter {
-  collect: () => Promise<TokenUsageCollectionResult>;
+  collect: (request?: NormalizedProjectTokenUsageRequest) => Promise<TokenUsageCollectionResult>;
 }
