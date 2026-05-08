@@ -746,6 +746,69 @@ describe('TokenUsageService provider adapters', () => {
     expect(readLinesSpy).not.toHaveBeenCalledWith(unrelatedSessionFile, expect.any(Function));
   });
 
+  it('skips JSON parsing for oversized Codex lines that cannot affect usage totals', async () => {
+    const codexRoot = await createTempDirectory('infilux-token-service-');
+    const sessionFile = path.join(codexRoot, '2026', '04', '28', 'rollout-large-event.jsonl');
+    const sessionMetaLine = JSON.stringify({
+      timestamp: '2026-04-28T01:00:00.000Z',
+      type: 'session_meta',
+      payload: {
+        id: 'codex-session-large-event',
+        cwd: '/repo/app',
+        timestamp: '2026-04-28T01:00:00.000Z',
+      },
+    });
+    const largeEventLine = JSON.stringify({
+      timestamp: '2026-04-28T01:01:00.000Z',
+      type: 'event_msg',
+      payload: {
+        type: 'agent_message',
+        message: 'x'.repeat(1024 * 1024),
+      },
+    });
+    const tokenCountLine = JSON.stringify({
+      timestamp: '2026-04-28T01:02:00.000Z',
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          total_token_usage: {
+            input_tokens: 20,
+            output_tokens: 3,
+            total_tokens: 23,
+          },
+        },
+      },
+    });
+
+    await mkdir(path.dirname(sessionFile), { recursive: true });
+    await writeFile(
+      sessionFile,
+      `${sessionMetaLine}\n${largeEventLine}\n${tokenCountLine}\n`,
+      'utf8'
+    );
+
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    const adapter = new CodexUsageAdapter({ sessionsRoot: codexRoot });
+
+    try {
+      const result = await adapter.collect();
+
+      expect(result.status.status).toBe('available');
+      expect(result.sessions).toEqual([
+        expect.objectContaining({
+          sessionId: 'codex-session-large-event',
+          counts: expect.objectContaining({ totalTokens: 23 }),
+        }),
+      ]);
+      expect(parseSpy).not.toHaveBeenCalledWith(largeEventLine);
+      expect(parseSpy).toHaveBeenCalledWith(sessionMetaLine);
+      expect(parseSpy).toHaveBeenCalledWith(tokenCountLine);
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
   it('skips Claude project directories outside the requested project scope', async () => {
     const claudeRoot = await createTempDirectory('infilux-claude-usage-');
     const scopedSessionFile = path.join(claudeRoot, '-repo-app', 'claude-session-scoped.jsonl');

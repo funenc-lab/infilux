@@ -123,6 +123,25 @@ function applyTokenCount(
   accumulator.updatedAt = Math.max(accumulator.updatedAt, parseUsageTimestamp(entry.timestamp));
 }
 
+function shouldParseCodexUsageLine(line: string, hasCurrentSession: boolean): boolean {
+  if (!line) {
+    return false;
+  }
+
+  if (line.includes('"session_meta"')) {
+    return true;
+  }
+
+  if (!hasCurrentSession) {
+    return false;
+  }
+
+  return (
+    line.includes('"turn_context"') ||
+    (line.includes('"event_msg"') && line.includes('"token_count"'))
+  );
+}
+
 async function shouldReadCodexFile(
   filePath: string,
   request: NormalizedProjectTokenUsageRequest | undefined,
@@ -194,6 +213,10 @@ export class CodexUsageAdapter {
 
         let currentSession: CodexSessionAccumulator | null = null;
         await readUsageLines(file, async (line) => {
+          if (!shouldParseCodexUsageLine(line, currentSession !== null)) {
+            return;
+          }
+
           const entry = safeJsonParse(line);
           if (!entry) {
             return;
