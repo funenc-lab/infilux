@@ -1,10 +1,15 @@
 import { normalizeLocale, translate } from '@shared/i18n';
 import type { ErrorInfo, ReactNode } from 'react';
 import { Component } from 'react';
+import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { getRendererDiagnosticsSnapshot } from '@/lib/runtimeDiagnostics';
 import { appErrorBoundaryI18nKeys } from '@/lib/uiTranslationKeys';
 import { useSettingsStore } from '@/stores/settings';
-import { formatErrorBoundaryMessage } from './errorBoundaryUtils';
+import {
+  buildRendererErrorAutoRecoverySignature,
+  formatErrorBoundaryMessage,
+  shouldAutoRecoverRendererError,
+} from './errorBoundaryUtils';
 import { Button } from './ui/button';
 
 interface AppErrorBoundaryProps {
@@ -14,6 +19,35 @@ interface AppErrorBoundaryProps {
 interface AppErrorBoundaryState {
   error: Error | null;
   errorMessage: string | null;
+}
+
+const DEV_RENDERER_ERROR_RECOVERY_STORAGE_PREFIX = 'infilux:dev-renderer-error-recovery:';
+
+function readLastRecoveryAttemptedAt(signature: string): number | null {
+  try {
+    const value = window.sessionStorage.getItem(
+      `${DEV_RENDERER_ERROR_RECOVERY_STORAGE_PREFIX}${signature}`
+    );
+    if (!value) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function recordRecoveryAttempt(signature: string, attemptedAt: number): void {
+  try {
+    window.sessionStorage.setItem(
+      `${DEV_RENDERER_ERROR_RECOVERY_STORAGE_PREFIX}${signature}`,
+      String(attemptedAt)
+    );
+  } catch {
+    // Ignore storage failures so the normal error boundary remains available.
+  }
 }
 
 export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
@@ -30,11 +64,34 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    const errorMessage = formatErrorBoundaryMessage(error);
     console.error('[renderer] Error boundary caught an error', {
       error,
       componentStack: errorInfo.componentStack,
       diagnostics: getRendererDiagnosticsSnapshot(),
     });
+
+    const recoverySignature = buildRendererErrorAutoRecoverySignature({
+      componentStack: errorInfo.componentStack,
+      errorMessage,
+    });
+    const now = Date.now();
+
+    if (
+      shouldAutoRecoverRendererError({
+        componentStack: errorInfo.componentStack,
+        errorMessage,
+        lastRecoveryAttemptedAt: readLastRecoveryAttemptedAt(recoverySignature),
+        now,
+        runtimeChannel: getRendererEnvironment().runtimeChannel,
+      })
+    ) {
+      recordRecoveryAttempt(recoverySignature, now);
+      console.info('[renderer] Reloading after dev-only renderer hook recovery trigger', {
+        recoverySignature,
+      });
+      window.location.reload();
+    }
   }
 
   private readonly handleReload = (): void => {
