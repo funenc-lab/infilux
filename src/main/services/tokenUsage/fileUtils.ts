@@ -1,6 +1,8 @@
 import type { Dirent } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { access, open, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 
 export async function pathExists(targetPath: string): Promise<boolean> {
   try {
@@ -69,4 +71,18 @@ export async function readFirstLine(filePath: string): Promise<string | null> {
 
   const firstLine = chunks.join('').replace(/\r$/, '');
   return firstLine.length > 0 ? firstLine : null;
+}
+
+export async function readLines(
+  filePath: string,
+  onLine: (line: string) => void | Promise<void>
+): Promise<void> {
+  const lineReader = createInterface({
+    input: createReadStream(filePath, { encoding: 'utf8' }),
+    crlfDelay: Number.POSITIVE_INFINITY,
+  });
+
+  for await (const line of lineReader) {
+    await onLine(line);
+  }
 }

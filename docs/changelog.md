@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Restored persistent agent session recovery so tmux-backed sessions can reconnect after restart
+  without spawning unsafe duplicate sessions.
+- Preserved provider session identity during delayed Codex recovery and missing-host-session flows.
+- Kept recovered agent sessions from stealing the active worktree group or active session selection.
+- Scoped project token usage statistics by repository so multi-repository usage is not merged into
+  one project view.
+- Streamed Codex token usage JSONL reads so very large session logs no longer surface
+  `Invalid string length` in the token usage panel.
+- Recovered renderer startup and deferred-panel error paths so failed lazy imports show recoverable
+  UI states instead of blank workspaces.
+
+### Changed
+
+- Reduced retained-session background work by limiting hidden chat panel polling and coalescing
+  session-level subagent lookups.
+- Kept the last successful session subagent snapshot during temporary polling failures and added
+  backoff for repeated failures.
+- Improved Codex subagent tracking so live session snapshots can be reused instead of issuing
+  duplicate live scans.
+
+### Added
+
+- Added stricter test-quality checks for source-based tests and expanded recovery, polling, token
+  usage, and resource-management coverage.
+- Added external URL policy validation for main-process shell opening behavior.
+- Documented agent CLI prerequisites, runtime data locations, and project documentation entry
+  points in the README files.
+
 ## v0.4.4 - 2026-04-27
 
 ### Fixed

@@ -665,7 +665,7 @@ describe('TokenUsageService provider adapters', () => {
     ]);
   });
 
-  it('does not read full Codex files outside the requested project scope', async () => {
+  it('streams only Codex files inside the requested project scope', async () => {
     const codexRoot = await createTempDirectory('infilux-token-service-');
     const scopedSessionFile = path.join(codexRoot, '2026', '04', '28', 'rollout-scoped.jsonl');
     const unrelatedSessionFile = path.join(codexRoot, '2026', '04', '28', 'rollout-other.jsonl');
@@ -721,10 +721,19 @@ describe('TokenUsageService provider adapters', () => {
       },
     ]);
 
-    const readFileSpy = vi.fn((filePath: string) => readTextFile(filePath, 'utf8'));
+    const readLinesSpy = vi.fn(
+      async (filePath: string, onLine: (line: string) => void | Promise<void>) => {
+        const content = await readTextFile(filePath, 'utf8');
+        for (const line of content.split(/\r?\n/)) {
+          if (line) {
+            await onLine(line);
+          }
+        }
+      }
+    );
     const adapter = new CodexUsageAdapter({
       sessionsRoot: codexRoot,
-      readFile: readFileSpy,
+      readLines: readLinesSpy,
     });
 
     await adapter.collect({
@@ -733,8 +742,8 @@ describe('TokenUsageService provider adapters', () => {
       projectPaths: ['/repo/app'],
     });
 
-    expect(readFileSpy).toHaveBeenCalledWith(scopedSessionFile);
-    expect(readFileSpy).not.toHaveBeenCalledWith(unrelatedSessionFile);
+    expect(readLinesSpy).toHaveBeenCalledWith(scopedSessionFile, expect.any(Function));
+    expect(readLinesSpy).not.toHaveBeenCalledWith(unrelatedSessionFile, expect.any(Function));
   });
 
   it('skips Claude project directories outside the requested project scope', async () => {

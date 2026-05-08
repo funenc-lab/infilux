@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type {
@@ -6,14 +5,14 @@ import type {
   TokenUsageCounts,
   TokenUsageSessionSummary,
 } from '@shared/types/tokenUsage';
-import { collectJsonlFiles, pathExists, readFirstLine } from './fileUtils';
+import { collectJsonlFiles, pathExists, readFirstLine, readLines } from './fileUtils';
 import { parseUsageTimestamp, readNumber, readString, safeJsonParse } from './jsonUtils';
 import { shouldIncludeUsageCwd } from './TokenUsageScope';
 import type { TokenUsageCollectionResult } from './TokenUsageTypes';
 
 export interface CodexUsageAdapterOptions {
   sessionsRoot: string;
-  readFile?: (filePath: string) => Promise<string>;
+  readLines?: (filePath: string, onLine: (line: string) => void | Promise<void>) => Promise<void>;
   readFirstLine?: (filePath: string) => Promise<string | null>;
 }
 
@@ -185,8 +184,7 @@ export class CodexUsageAdapter {
       }
 
       const sessionsById = new Map<string, CodexSessionAccumulator>();
-      const readUsageFile =
-        this.options.readFile ?? ((filePath: string) => readFile(filePath, 'utf8'));
+      const readUsageLines = this.options.readLines ?? readLines;
       const readUsageFirstLine = this.options.readFirstLine ?? readFirstLine;
 
       for (const file of files) {
@@ -195,33 +193,32 @@ export class CodexUsageAdapter {
         }
 
         let currentSession: CodexSessionAccumulator | null = null;
-        const content = await readUsageFile(file);
-        for (const line of content.split(/\r?\n/)) {
+        await readUsageLines(file, async (line) => {
           const entry = safeJsonParse(line);
           if (!entry) {
-            continue;
+            return;
           }
 
           if (entry.type === 'session_meta') {
             const payload = getPayload(entry);
             if (!payload) {
-              continue;
+              return;
             }
             const accumulator = createAccumulatorFromMeta(payload);
             if (!accumulator) {
-              continue;
+              return;
             }
             if (!shouldIncludeUsageCwd(accumulator.cwd, request)) {
               currentSession = null;
-              continue;
+              return;
             }
             currentSession = sessionsById.get(accumulator.sessionId) ?? accumulator;
             sessionsById.set(accumulator.sessionId, currentSession);
-            continue;
+            return;
           }
 
           if (!currentSession) {
-            continue;
+            return;
           }
 
           if (entry.type === 'turn_context') {
@@ -236,7 +233,7 @@ export class CodexUsageAdapter {
           } else if (entry.type === 'event_msg') {
             applyTokenCount(currentSession, entry);
           }
-        }
+        });
       }
 
       return {

@@ -162,6 +162,20 @@ pnpm build:win    # Windows
 pnpm build:linux  # Linux
 ```
 
+### Agent CLI Requirements
+
+Infilux launches the official agent CLIs from your local environment. Install and authenticate the
+providers you want to use before starting their sessions:
+
+- Claude sessions require the `claude` CLI to be installed and logged in.
+- Codex sessions require the `codex` CLI to be installed and logged in.
+- Gemini sessions require the `gemini` CLI to be installed and logged in.
+- Cursor, Droid, Auggie, OpenCode, and custom agents require their configured commands to be
+  available on `PATH` or configured with an absolute executable path.
+
+Agent prompts, files, and outputs are handled by the selected provider CLI according to that
+provider's own account, network, and data policies.
+
 ---
 
 ## Features
@@ -204,6 +218,8 @@ The agent panel supports both focused session work and multi-session monitoring.
 - Inspect session-scoped Codex subagents without leaving the active agent panel
 - Route notification-driven sessions back into the chat canvas instead of losing the current workspace context
 - Keep session-backed chat panels mounted so returning to an idle worktree is fast and predictable
+- Recover persistent tmux-backed agent sessions after restart without starting unsafe duplicate sessions
+- Reduce retained-session background polling so hidden worktrees do not keep unnecessary agent activity alive
 
 ---
 
@@ -262,6 +278,8 @@ Use Infilux for orchestration, then jump into VS Code, Cursor, Ghostty, or other
 - Multi-window support for parallel repository work
 - Startup diagnostics for agent sessions and clearer failure states when runtime resources are exhausted
 - Deferred file panels show a recoverable error state instead of leaving the workspace blank when loading fails
+- Repository-scoped token usage statistics keep project usage separated across multiple repositories
+- App resource monitoring exposes running sessions and reclaimable stale runtime resources
 - Theme sync with terminal themes
 - Keyboard shortcuts for tab switching and workspace navigation
 - Settings persistence for recovery and repeatability
@@ -310,6 +328,28 @@ Architecture docs:
 - `docs/architecture.md` — system-level architecture, boundaries, hotspots, and extension paths
 - `docs/editor-architecture.md` — editor, file tree, navigation, dirty-state, and external-change flows
 - `docs/remote-architecture.md` — remote repository model, remote runtime, virtual-path semantics, auth, and lifecycle
+
+---
+
+## Runtime Data And Logs
+
+Infilux stores settings, session recovery metadata, runtime logs, and local database files in the
+standard Electron application data and logs locations for the current operating system. Development
+profiles use isolated app-data and log directories so local development does not overwrite packaged
+app state.
+
+Persistent agent recovery data is local metadata used to reconnect recoverable sessions. The actual
+agent conversation behavior is still controlled by the underlying provider CLI.
+
+---
+
+## More Resources
+
+- [Changelog](docs/changelog.md) — release notes and unreleased changes
+- [Release process](docs/release-process.md) — packaging workflow and release quality gates
+- [Architecture](docs/architecture.md) — process boundaries, service layout, and extension paths
+- [Editor architecture](docs/editor-architecture.md) — file tree, Monaco, dirty-state, and navigation behavior
+- [Remote architecture](docs/remote-architecture.md) — remote repository runtime and virtual-path model
 
 ---
 

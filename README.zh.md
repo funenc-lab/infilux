@@ -158,6 +158,18 @@ pnpm build:win    # Windows
 pnpm build:linux  # Linux
 ```
 
+### Agent CLI 前置要求
+
+Infilux 会从你的本地环境启动官方 Agent CLI。请先安装并登录你要使用的 provider：
+
+- Claude 会话需要安装并登录 `claude` CLI。
+- Codex 会话需要安装并登录 `codex` CLI。
+- Gemini 会话需要安装并登录 `gemini` CLI。
+- Cursor、Droid、Auggie、OpenCode 和自定义 Agent 需要对应命令已在 `PATH` 中可用，
+  或在设置中配置为绝对可执行文件路径。
+
+Agent prompt、文件和输出由所选 provider CLI 按照该 provider 自身的账号、网络与数据策略处理。
+
 ---
 
 ## 功能特性
@@ -199,6 +211,8 @@ Agent 面板同时支持聚焦单会话工作和多会话监控。
 - 在不离开当前 Agent 面板的情况下查看会话级 Codex subagent
 - 由通知定位的会话会回到 chat canvas，而不是打断当前 workspace 语境
 - session-backed chat panel 会保持挂载，回到空闲 worktree 时恢复更稳定
+- 应用重启后可恢复 tmux 托管的持久化 Agent 会话，避免误启动不安全的重复会话
+- 降低保留会话的后台轮询，隐藏 worktree 不再持续占用不必要的 Agent 活动资源
 
 ---
 
@@ -257,6 +271,8 @@ Infilux 会把 review 和 merge 操作留在 worktree 语境里，而不是把�
 - 多窗口支持并行仓库工作
 - Agent 会话启动诊断更清晰，运行时资源耗尽时会更早暴露失败原因
 - 延迟加载的文件面板失败时会显示可恢复错误状态，而不是留下空白工作区
+- 按仓库隔离 token usage 统计，多仓库项目的用量不会混在一起
+- 应用资源监控可查看运行中的会话和可回收的陈旧运行时资源
 - 主题可与终端主题同步
 - 提供标签切换和工作区导航快捷键
 - 设置持久化，方便恢复环境和复用配置
@@ -305,6 +321,25 @@ Renderer UI
 - `docs/architecture.md` — 系统级架构、边界、热点与扩展路径
 - `docs/editor-architecture.md` — 编辑器、文件树、导航、dirty-state 与外部修改处理链路
 - `docs/remote-architecture.md` — 远程仓库模型、remote runtime、virtual path 语义、认证与生命周期
+
+---
+
+## 运行数据与日志
+
+Infilux 会把设置、会话恢复元数据、运行日志和本地数据库文件保存在当前操作系统标准的
+Electron 应用数据与日志目录中。开发 profile 使用隔离的 app-data 和日志目录，避免本地开发覆盖已安装应用的状态。
+
+持久化 Agent 恢复数据是用于重新连接可恢复会话的本地元数据。实际 Agent 对话行为仍由底层 provider CLI 控制。
+
+---
+
+## 更多资源
+
+- [变更日志](docs/changelog.md) — 发布记录与未发布变更
+- [发布流程](docs/release-process.md) — 打包流程与发布质量门禁
+- [架构说明](docs/architecture.md) — 进程边界、服务布局与扩展路径
+- [编辑器架构](docs/editor-architecture.md) — 文件树、Monaco、dirty-state 与导航行为
+- [远程架构](docs/remote-architecture.md) — 远程仓库运行时与 virtual path 模型
 
 ---
 
