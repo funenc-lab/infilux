@@ -606,4 +606,34 @@ describe('useXterm startup loading state', () => {
 
     await mounted.unmount();
   });
+
+  it('keeps layout observers attached for visible inactive terminals', async () => {
+    const mounted = mountHookHarness({
+      isActive: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.resizeObserve).toHaveBeenCalledTimes(1);
+    expect(testState.intersectionObserve).toHaveBeenCalledTimes(1);
+
+    mounted.rerender({
+      isActive: false,
+      isVisible: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.resizeDisconnect).not.toHaveBeenCalled();
+    expect(testState.intersectionDisconnect).not.toHaveBeenCalled();
+    expect(testState.unsubscribeVisibility).not.toHaveBeenCalled();
+    expect(testState.unsubscribeFocus).not.toHaveBeenCalled();
+    expect(testState.unsubscribeResize).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
 });

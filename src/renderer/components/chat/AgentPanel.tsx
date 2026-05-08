@@ -4041,6 +4041,9 @@ export function AgentPanel({
     const isTerminalActive = isCanvasDisplayMode
       ? isActive && isCanvasSessionVisible && isFocusedSession
       : isActive && isCurrentWorktree && isSessionVisible && isGroupActive;
+    const isTerminalVisible = isCanvasDisplayMode
+      ? isActive && isCanvasSessionVisible
+      : isActive && isCurrentWorktree && isSessionVisible;
 
     const shouldShow = isWorkspaceCanvasDisplayMode
       ? true
@@ -4256,6 +4259,7 @@ export function AgentPanel({
             recovered={session.recovered}
             recoveryState={session.recoveryState}
             isActive={isTerminalActive}
+            isVisible={isTerminalVisible}
             terminalFontScale={
               isCanvasFloatingSession
                 ? canvasFloatingTerminalFontScale

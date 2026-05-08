@@ -129,6 +129,7 @@ export interface UseXtermOptions {
   hostSession?: SessionCreateOptions['hostSession'];
   metadata?: Record<string, unknown>;
   isActive?: boolean;
+  isVisible?: boolean;
   fontSizeScale?: number;
   preferCompatibilityRenderer?: boolean;
   initialCommand?: string;
@@ -259,6 +260,7 @@ export function useXterm({
   hostSession,
   metadata,
   isActive = true,
+  isVisible = isActive,
   fontSizeScale = 1,
   preferCompatibilityRenderer = false,
   initialCommand,
@@ -370,6 +372,7 @@ export function useXterm({
   // Track if this terminal should respond to global shortcuts
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  const shouldSyncVisibleLayout = isActive || isVisible;
   // Memoize command key to avoid dependency array issues
   const commandKey = useMemo(
     () =>
@@ -1674,7 +1677,7 @@ export function useXterm({
 
   // Handle resize
   useEffect(() => {
-    if (!isActive) {
+    if (!shouldSyncVisibleLayout) {
       return;
     }
 
@@ -1721,7 +1724,7 @@ export function useXterm({
       observer.disconnect();
       intersectionObserver.disconnect();
     };
-  }, [isActive, syncViewportToSession]);
+  }, [shouldSyncVisibleLayout, syncViewportToSession]);
 
   // Fit and focus when becoming active (only after loading completes)
   useEffect(() => {
@@ -1758,7 +1761,7 @@ export function useXterm({
 
   // Handle window visibility change to refresh terminal rendering
   useEffect(() => {
-    if (!isActive) {
+    if (!shouldSyncVisibleLayout) {
       return;
     }
 
@@ -1775,19 +1778,17 @@ export function useXterm({
             }
           }
           terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
-          if (isActive) {
-            fitTerminal();
-          }
+          fitTerminal();
         });
       }
     };
 
     return subscribeToXtermVisibilityChange(handleVisibilityChange);
-  }, [isActive, fitTerminal]);
+  }, [fitTerminal, shouldSyncVisibleLayout]);
 
   // Handle app focus/blur events (macOS app switching)
   useEffect(() => {
-    if (!isActive) {
+    if (!shouldSyncVisibleLayout) {
       return;
     }
 
@@ -1795,19 +1796,17 @@ export function useXterm({
       if (terminalRef.current) {
         requestAnimationFrame(() => {
           terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
-          if (isActive) {
-            fitTerminal();
-          }
+          fitTerminal();
         });
       }
     };
 
     return subscribeToXtermWindowFocus(handleFocus);
-  }, [isActive, fitTerminal]);
+  }, [fitTerminal, shouldSyncVisibleLayout]);
 
   // Silent Reset: Proactively clear texture atlas every 30 mins to prevent long-term fragmentation
   useEffect(() => {
-    if (!isActive) return;
+    if (!shouldSyncVisibleLayout) return;
 
     const preventGlitchInterval = setInterval(
       () => {
@@ -1833,7 +1832,7 @@ export function useXterm({
     ); // 30 minutes
 
     return () => clearInterval(preventGlitchInterval);
-  }, [effectiveTerminalRenderer, isActive]);
+  }, [effectiveTerminalRenderer, shouldSyncVisibleLayout]);
 
   return {
     containerRef,

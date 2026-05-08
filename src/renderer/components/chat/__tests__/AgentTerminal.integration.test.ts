@@ -654,6 +654,24 @@ describe('AgentTerminal integration', () => {
     const lastUseXtermCall = testState.useXtermOptions.at(-1);
     expect(lastUseXtermCall?.activateOnInitialCommandWhenInactive).toBe(true);
     expect(lastUseXtermCall?.isActive).toBe(false);
+    expect(lastUseXtermCall?.isVisible).toBe(false);
+
+    await mounted.unmount();
+  });
+
+  it('keeps visible inactive terminals subscribed for layout sync without marking them active', async () => {
+    const mounted = await mountAgentTerminal({
+      agentId: 'codex',
+      agentCommand: 'codex',
+      recovered: true,
+      initialized: true,
+      isActive: false,
+      isVisible: true,
+    });
+
+    const lastUseXtermCall = testState.useXtermOptions.at(-1);
+    expect(lastUseXtermCall?.isActive).toBe(false);
+    expect(lastUseXtermCall?.isVisible).toBe(true);
 
     await mounted.unmount();
   });
@@ -696,6 +714,23 @@ describe('AgentTerminal integration', () => {
   it('renders the startup overlay for active new sessions before xterm reports loading', async () => {
     testState.terminalInstance = null;
 
+    const mounted = await mountAgentTerminal({
+      initialized: false,
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('data-agent-terminal-startup-state')).toBe('starting');
+    expect(overlay?.textContent).toContain('Preparing runtime');
+
+    await mounted.unmount();
+  });
+
+  it('keeps the startup overlay visible for active new sessions after xterm attaches but before first output', async () => {
     const mounted = await mountAgentTerminal({
       initialized: false,
     });

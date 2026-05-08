@@ -115,6 +115,7 @@ interface AgentTerminalProps {
   recovered?: boolean;
   recoveryState?: PersistentAgentRuntimeState;
   isActive?: boolean;
+  isVisible?: boolean;
   terminalFontScale?: number;
   hasPendingCommand?: boolean; // Allow initial command execution before the terminal is visible.
   initialPrompt?: string; // Initial prompt to pass as CLI argument (auto-execute)
@@ -228,6 +229,7 @@ export function AgentTerminal({
   recovered = false,
   recoveryState,
   isActive = false,
+  isVisible = isActive,
   terminalFontScale,
   hasPendingCommand = false,
   initialPrompt,
@@ -1562,6 +1564,7 @@ export function AgentTerminal({
     initialCommand,
     activateOnInitialCommandWhenInactive,
     isActive: effectiveIsActive,
+    isVisible,
     kind: 'agent',
     fontSizeScale: terminalFontScale,
     preferCompatibilityRenderer: terminalFontScale !== undefined,
