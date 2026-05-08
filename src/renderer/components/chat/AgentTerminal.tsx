@@ -1631,10 +1631,12 @@ export function AgentTerminal({
       (agentCommand.startsWith('claude') && agentIntegration.enabled && claudeIdeStatus === null) ||
       (!isRemoteExecution && !resolvedShell) ||
       (environment === 'hapi' && hapiGlobalInstalled === null));
+  const isAgentStartupActivationPending =
+    !isReadOnlyTranscript && runtimeState === 'live' && terminal === null;
   const shouldShowAgentStartupOverlay =
     !isReadOnlyTranscript &&
     (isActive || hasPendingCommand) &&
-    (isLoading || isAgentStartupReadinessPending);
+    (isLoading || isAgentStartupReadinessPending || isAgentStartupActivationPending);
   const [isAgentStartupStalled, setIsAgentStartupStalled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);

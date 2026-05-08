@@ -26,6 +26,12 @@ const testState = vi.hoisted(() => ({
     paste: vi.fn(),
     selectAll: vi.fn(),
   },
+  terminalInstance: null as {
+    focus: ReturnType<typeof vi.fn>;
+    hasSelection: ReturnType<typeof vi.fn>;
+    paste: ReturnType<typeof vi.fn>;
+    selectAll: ReturnType<typeof vi.fn>;
+  } | null,
   xtermResult: {
     containerRef: { current: null as HTMLDivElement | null },
     isLoading: false,
@@ -171,7 +177,7 @@ vi.mock('@/hooks/useXterm', () => ({
     testState.useXtermOptions.push(options);
     return {
       ...testState.xtermResult,
-      terminal: testState.terminal,
+      terminal: testState.terminalInstance,
     };
   },
 }));
@@ -312,6 +318,7 @@ describe('AgentTerminal integration', () => {
     testState.terminal.hasSelection.mockReturnValue(false);
     testState.terminal.paste.mockReset();
     testState.terminal.selectAll.mockReset();
+    testState.terminalInstance = testState.terminal;
 
     testState.xtermResult.containerRef = { current: null };
     testState.xtermResult.isLoading = false;
@@ -678,6 +685,25 @@ describe('AgentTerminal integration', () => {
     expect(overlay?.textContent).not.toContain('Resolve shell');
     expect(overlay?.textContent).not.toContain('Attach terminal');
     expect(overlay?.textContent).not.toContain('Await prompt');
+
+    await mounted.unmount();
+  });
+
+  it('renders the startup overlay for active new sessions before xterm reports loading', async () => {
+    testState.terminalInstance = null;
+
+    const mounted = await mountAgentTerminal({
+      initialized: false,
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('data-agent-terminal-startup-state')).toBe('starting');
+    expect(overlay?.textContent).toContain('Preparing runtime');
 
     await mounted.unmount();
   });
