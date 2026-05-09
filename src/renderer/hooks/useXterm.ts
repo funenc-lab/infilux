@@ -373,6 +373,9 @@ export function useXterm({
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
   const shouldSyncVisibleLayout = isActive || isVisible;
+  const shouldActivateFromVisibleSurface = isActive || isVisible;
+  const shouldActivateFromInitialCommand =
+    activateOnInitialCommandWhenInactive && Boolean(initialCommand);
   // Memoize command key to avoid dependency array issues
   const commandKey = useMemo(
     () =>
@@ -1436,9 +1439,10 @@ export function useXterm({
   ]);
 
   useEffect(() => {
-    const shouldActivateFromInitialCommand =
-      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
-    const shouldActivate = isActive || shouldActivateFromInitialCommand || Boolean(staticContent);
+    const shouldActivate =
+      shouldActivateFromVisibleSurface ||
+      shouldActivateFromInitialCommand ||
+      Boolean(staticContent);
     if (shouldActivate && !hasBeenActivatedRef.current) {
       hasBeenActivatedRef.current = true;
       requestAnimationFrame(() => {
@@ -1447,16 +1451,19 @@ export function useXterm({
         });
       });
     }
-  }, [activateOnInitialCommandWhenInactive, isActive, initialCommand, initTerminal, staticContent]);
+  }, [
+    initTerminal,
+    shouldActivateFromInitialCommand,
+    shouldActivateFromVisibleSurface,
+    staticContent,
+  ]);
 
   useEffect(() => {
     if (staticContent) {
       return;
     }
 
-    const shouldActivateFromInitialCommand =
-      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
-    const shouldActivate = isActive || shouldActivateFromInitialCommand;
+    const shouldActivate = shouldActivateFromVisibleSurface || shouldActivateFromInitialCommand;
     if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
       return;
     }
@@ -1471,11 +1478,10 @@ export function useXterm({
       });
     });
   }, [
-    activateOnInitialCommandWhenInactive,
     desiredSessionBinding,
     initTerminal,
-    initialCommand,
-    isActive,
+    shouldActivateFromInitialCommand,
+    shouldActivateFromVisibleSurface,
     staticContent,
   ]);
 
@@ -1484,9 +1490,7 @@ export function useXterm({
       return;
     }
 
-    const shouldActivateFromInitialCommand =
-      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
-    const shouldActivate = isActive || shouldActivateFromInitialCommand;
+    const shouldActivate = shouldActivateFromVisibleSurface || shouldActivateFromInitialCommand;
     if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
       return;
     }
@@ -1512,13 +1516,12 @@ export function useXterm({
       });
     });
   }, [
-    activateOnInitialCommandWhenInactive,
     desiredSessionBinding,
     initTerminal,
-    initialCommand,
-    isActive,
     retryOnDeadSession,
     runtimeState,
+    shouldActivateFromInitialCommand,
+    shouldActivateFromVisibleSurface,
     staticContent,
   ]);
 

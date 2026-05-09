@@ -573,6 +573,24 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('starts visible inactive terminals without waiting for focus activation', async () => {
+    const mounted = mountHookHarness({
+      isActive: false,
+      isVisible: true,
+      activateOnInitialCommandWhenInactive: false,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+    expect(testState.latestSnapshot.isLoading).toBe(true);
+
+    await mounted.unmount();
+  });
+
   it('does not attach resize and window refresh observers until the terminal is active', async () => {
     const mounted = mountHookHarness({
       isActive: false,
