@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { RELEASES_DOWNLOAD_URL } from '@shared/branding';
 import { REMOTE_RUNTIME_INSTALL_SUBPATH } from '@shared/paths';
 import type { RemotePlatform } from '@shared/types';
+import { APP_RUNTIME_NAMESPACE } from '@shared/utils/runtimeIdentity';
 import { app } from 'electron';
 import pkg from '../../../../package.json';
 import { REMOTE_SERVER_VERSION } from './RemoteHelperSource';
@@ -26,6 +27,7 @@ export interface RemoteRuntimeAsset {
 }
 
 export const MANAGED_REMOTE_NODE_VERSION = '20.19.0';
+export const MANAGED_REMOTE_RUNTIME_ASSET_VERSION = pkg.version;
 export const MANAGED_REMOTE_RUNTIME_DIR = REMOTE_RUNTIME_INSTALL_SUBPATH;
 
 const GITHUB_RELEASE_TAG = `v${pkg.version}`;
@@ -33,7 +35,7 @@ const GITHUB_RELEASE_ASSET_BASE_URL = `${RELEASES_DOWNLOAD_URL}/${GITHUB_RELEASE
 const REMOTE_RUNTIME_DEV_SCRIPT = join(process.cwd(), 'scripts', 'build-remote-runtime-bundle.mjs');
 
 function buildManagedLinuxRuntimeArchiveName(arch: RemoteRuntimeArch): string {
-  return `enso-remote-runtime-v${REMOTE_SERVER_VERSION}-node-v${MANAGED_REMOTE_NODE_VERSION}-linux-${arch}.tar.gz`;
+  return `${APP_RUNTIME_NAMESPACE}-remote-runtime-v${MANAGED_REMOTE_RUNTIME_ASSET_VERSION}-node-v${MANAGED_REMOTE_NODE_VERSION}-linux-${arch}.tar.gz`;
 }
 
 function buildReleaseAssetUrl(fileName: string): string {

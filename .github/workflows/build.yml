@@ -566,9 +566,10 @@ jobs:
             return match[1];
           }
 
-          const serverVersion = readConstant(
-            'src/main/services/remote/RemoteHelperSource.ts',
-            /REMOTE_SERVER_VERSION = '([^']+)'/
+          const releaseVersion = '${{ steps.tag.outputs.version }}';
+          const runtimeNamespace = readConstant(
+            'src/shared/utils/runtimeIdentity.ts',
+            /APP_RUNTIME_NAMESPACE = '([^']+)'/
           );
           const nodeVersion = readConstant(
             'src/main/services/remote/RemoteRuntimeAssets.ts',
@@ -576,7 +577,7 @@ jobs:
           );
 
           for (const arch of ['x64', 'arm64']) {
-            const archive = `enso-remote-runtime-v${serverVersion}-node-v${nodeVersion}-linux-${arch}.tar.gz`;
+            const archive = `${runtimeNamespace}-remote-runtime-v${releaseVersion}-node-v${nodeVersion}-linux-${arch}.tar.gz`;
             console.log(archive);
             console.log(`${archive}.sha256`);
           }

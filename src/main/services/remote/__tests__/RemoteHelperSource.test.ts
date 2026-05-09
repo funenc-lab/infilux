@@ -1,8 +1,16 @@
 import { buildAppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import { describe, expect, it } from 'vitest';
-import { getRemoteServerSource } from '../RemoteHelperSource';
+import pkg from '../../../../../package.json';
+import { getRemoteServerSource, REMOTE_SERVER_VERSION } from '../RemoteHelperSource';
 
 describe('getRemoteServerSource', () => {
+  it('keeps the remote server version aligned with the app release version', () => {
+    expect(REMOTE_SERVER_VERSION).toBe(pkg.version);
+    expect(getRemoteServerSource()).toContain(
+      `const REMOTE_SERVER_VERSION = ${JSON.stringify(pkg.version)};`
+    );
+  });
+
   it('uses the Infilux runtime namespace for remote helper artifacts and tmux defaults', () => {
     const runtimeIdentity = buildAppRuntimeIdentity('test');
     const source = getRemoteServerSource(runtimeIdentity);

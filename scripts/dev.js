@@ -21,6 +21,15 @@ function readConstant(relativePath, pattern) {
   return match[1];
 }
 
+function readPackageVersion() {
+  const packageJsonPath = join(root, 'package.json');
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+    throw new Error('Failed to resolve package version from package.json');
+  }
+  return packageJson.version;
+}
+
 function getHostLinuxRuntimeArch() {
   if (process.platform !== 'linux') {
     return null;
@@ -39,16 +48,17 @@ function ensureLocalLinuxRuntimeBundle() {
     return;
   }
 
-  const serverVersion = readConstant(
-    'src/main/services/remote/RemoteHelperSource.ts',
-    /REMOTE_SERVER_VERSION = '([^']+)'/
+  const releaseVersion = readPackageVersion();
+  const runtimeNamespace = readConstant(
+    'src/shared/utils/runtimeIdentity.ts',
+    /APP_RUNTIME_NAMESPACE = '([^']+)'/
   );
   const nodeVersion = readConstant(
     'src/main/services/remote/RemoteRuntimeAssets.ts',
     /MANAGED_REMOTE_NODE_VERSION = '([^']+)'/
   );
 
-  const archiveName = `enso-remote-runtime-v${serverVersion}-node-v${nodeVersion}-linux-${arch}.tar.gz`;
+  const archiveName = `${runtimeNamespace}-remote-runtime-v${releaseVersion}-node-v${nodeVersion}-linux-${arch}.tar.gz`;
   const checksumName = `${archiveName}.sha256`;
   const distRuntimeDir = join(root, 'dist', 'remote-runtime');
   const archivePath = join(distRuntimeDir, archiveName);

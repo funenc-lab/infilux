@@ -72,22 +72,24 @@ async function main() {
     throw new Error('Remote runtime bundle builder currently supports Linux runners only');
   }
 
-  const [nodeVersion, serverVersion] = await Promise.all([
+  const [nodeVersion, runtimeNamespace, packageJson] = await Promise.all([
     readConstant(
       'src/main/services/remote/RemoteRuntimeAssets.ts',
       /MANAGED_REMOTE_NODE_VERSION = '([^']+)'/
     ),
-    readConstant(
-      'src/main/services/remote/RemoteHelperSource.ts',
-      /REMOTE_SERVER_VERSION = '([^']+)'/
-    ),
+    readConstant('src/shared/utils/runtimeIdentity.ts', /APP_RUNTIME_NAMESPACE = '([^']+)'/),
+    readFile(join(repoRoot, 'package.json'), 'utf8').then((content) => JSON.parse(content)),
   ]);
+  const releaseVersion = packageJson.version;
+  if (typeof releaseVersion !== 'string' || releaseVersion.length === 0) {
+    throw new Error('Failed to resolve release version from package.json');
+  }
 
   const nodeArchiveName = `node-v${nodeVersion}-linux-${arch}.tar.gz`;
   const nodeArchiveUrl = `https://nodejs.org/dist/v${nodeVersion}/${nodeArchiveName}`;
-  const runtimeArchiveName = `enso-remote-runtime-v${serverVersion}-node-v${nodeVersion}-linux-${arch}.tar.gz`;
+  const runtimeArchiveName = `${runtimeNamespace}-remote-runtime-v${releaseVersion}-node-v${nodeVersion}-linux-${arch}.tar.gz`;
 
-  const tempRoot = await mkdtemp(join(tmpdir(), `enso-remote-runtime-${arch}-`));
+  const tempRoot = await mkdtemp(join(tmpdir(), `${runtimeNamespace}-remote-runtime-${arch}-`));
   const downloadPath = join(tempRoot, nodeArchiveName);
   const extractRoot = join(tempRoot, 'extract');
   const bundleRoot = join(tempRoot, 'bundle');
@@ -137,7 +139,8 @@ async function main() {
         ok: true,
         arch,
         nodeVersion,
-        serverVersion,
+        runtimeNamespace,
+        releaseVersion,
         archive: archiveOutputPath,
         checksumFile: checksumOutputPath,
       })}\n`

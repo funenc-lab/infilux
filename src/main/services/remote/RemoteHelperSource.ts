@@ -1,5 +1,6 @@
 import { REMOTE_SESSION_STATE_SUBPATH, REMOTE_SETTINGS_SUBPATH } from '@shared/paths';
 import { APP_RUNTIME_NAMESPACE, type AppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
+import pkg from '../../../../package.json';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
 import {
   GIT_LOG_FIELD_SEPARATOR,
@@ -7,7 +8,7 @@ import {
   GIT_LOG_RECORD_SEPARATOR,
 } from '../git/gitLogFormat';
 
-export const REMOTE_SERVER_VERSION = '0.4.2';
+export const REMOTE_SERVER_VERSION = pkg.version;
 export const REMOTE_HELPER_VERSION = REMOTE_SERVER_VERSION;
 
 const REMOTE_DAEMON_INFO_FILE = `${APP_RUNTIME_NAMESPACE}-remote-daemon.json`;

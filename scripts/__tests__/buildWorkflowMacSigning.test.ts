@@ -71,4 +71,14 @@ describe('build workflow macOS signing policy', () => {
     );
     expect(workflowSource).toContain('gh release upload "$TAG" dist/remote-runtime/* --clobber');
   });
+
+  it('verifies remote runtime release assets by tag version and runtime namespace', () => {
+    expect(workflowSource).toContain(
+      `const releaseVersion = '${expressionOpen} steps.tag.outputs.version ${expressionClose}';`
+    );
+    expect(workflowSource).toContain('const runtimeNamespace = readConstant(');
+    expect(workflowSource).toContain("'src/shared/utils/runtimeIdentity.ts',");
+    expect(workflowSource).toContain("/APP_RUNTIME_NAMESPACE = '([^']+)'/");
+    expect(workflowSource).not.toContain("REMOTE_SERVER_VERSION = '([^']+)'");
+  });
 });

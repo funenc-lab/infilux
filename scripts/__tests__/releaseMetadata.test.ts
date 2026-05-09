@@ -19,7 +19,7 @@ describe('releaseMetadata', () => {
       'infilux_1.2.3_amd64.deb',
       'latest-mac.yml',
       'latest.yml',
-      'enso-remote-runtime-v1-node-v22-linux-x64.tar.gz',
+      'infilux-remote-runtime-v1-node-v22-linux-x64.tar.gz',
     ];
 
     expect(resolveReleaseDownloadAssets(assetNames)).toEqual([
