@@ -51,6 +51,7 @@ const testState = vi.hoisted(() => ({
     },
     clearSearch: vi.fn(),
     clear: vi.fn(),
+    fit: vi.fn(),
     refreshRenderer: vi.fn(),
     restartSession: vi.fn(),
     write: vi.fn(),
@@ -342,6 +343,7 @@ describe('AgentTerminal integration', () => {
     };
     testState.xtermResult.clearSearch.mockReset();
     testState.xtermResult.clear.mockReset();
+    testState.xtermResult.fit.mockReset();
     testState.xtermResult.refreshRenderer.mockReset();
     testState.xtermResult.restartSession.mockReset();
     testState.xtermResult.write.mockReset();
@@ -1194,6 +1196,24 @@ describe('AgentTerminal integration', () => {
 
     expect(onFocus).not.toHaveBeenCalled();
     expect(testState.terminal.focus).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('refreshes xterm layout when the terminal content host moves', async () => {
+    const mounted = await mountAgentTerminal({
+      layoutRefreshKey: 'tile',
+    } as Partial<AgentTerminalProps>);
+
+    expect(testState.xtermResult.fit).not.toHaveBeenCalled();
+    expect(testState.xtermResult.refreshRenderer).not.toHaveBeenCalled();
+
+    await mounted.rerender({
+      layoutRefreshKey: 'floating',
+    } as Partial<AgentTerminalProps>);
+
+    expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });

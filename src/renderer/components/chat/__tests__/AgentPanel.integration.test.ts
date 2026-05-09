@@ -168,6 +168,7 @@ vi.mock('../AgentTerminal', () => ({
   AgentTerminal: (props: {
     id?: string;
     isActive?: boolean;
+    layoutRefreshKey?: string;
     onRuntimeStateChange?: (state: 'live' | 'reconnecting' | 'dead') => void;
   }) => {
     React.useEffect(() => {
@@ -183,6 +184,7 @@ vi.mock('../AgentTerminal', () => ({
       'data-testid': 'agent-terminal',
       'data-session-id': props.id ?? '',
       'data-active': String(Boolean(props.isActive)),
+      'data-layout-refresh-key': props.layoutRefreshKey ?? '',
     });
   },
 }));
@@ -1555,6 +1557,10 @@ describe('AgentPanel integration', () => {
     await clickElement(secondTile?.querySelector('button[aria-label="Bring to Front"]') ?? null);
 
     expect(document.body.querySelector('.agent-canvas-floating-frame')).not.toBeNull();
+    const floatingTerminal = document.body.querySelector<HTMLElement>(
+      '[data-testid="agent-terminal"][data-session-id="session-worktree-b"]'
+    );
+    expect(floatingTerminal?.getAttribute('data-layout-refresh-key')).toContain('floating');
 
     await mounted.unmount();
   });

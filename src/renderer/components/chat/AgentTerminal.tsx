@@ -122,6 +122,7 @@ interface AgentTerminalProps {
   sessionPolicy?: ClaudePolicyConfig | null;
   materializationMode?: ClaudePolicyMaterializationMode;
   canMerge?: boolean; // whether merge option should be enabled (has multiple groups)
+  layoutRefreshKey?: string;
   /**
    * When provided, Enhanced Input open state is controlled by parent (e.g. AgentPanel store).
    * When omitted, AgentTerminal falls back to its own local state.
@@ -236,6 +237,7 @@ export function AgentTerminal({
   sessionPolicy,
   materializationMode,
   canMerge = false,
+  layoutRefreshKey,
   enhancedInputOpen: externalEnhancedInputOpen,
   onEnhancedInputOpenChange,
   onInitialized,
@@ -523,6 +525,8 @@ export function AgentTerminal({
   const consecutiveIdleCountRef = useRef(0); // Count consecutive idle polls
   const ptyIdRef = useRef<string | null>(null); // Store PTY ID for activity checks
   const isActiveRef = useRef(isActive); // Track latest isActive value for interval callback
+  const hasObservedLayoutRefreshKeyRef = useRef(false);
+  const previousLayoutRefreshKeyRef = useRef<string | undefined>(layoutRefreshKey);
   const lastCommandWasSlashCommand = useRef(false); // Track if last command was a slash command
   const pendingTerminalAttachmentInsertRef = useRef<AgentAttachmentItem[]>([]);
   const interruptIdleResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1551,6 +1555,7 @@ export function AgentTerminal({
     findPrevious,
     searchState,
     clearSearch,
+    fit: fitTerminalLayout,
     terminal,
     clear,
     refreshRenderer,
@@ -1639,6 +1644,30 @@ export function AgentTerminal({
   useEffect(() => {
     onRuntimeStateChange?.(runtimeState);
   }, [onRuntimeStateChange, runtimeState]);
+
+  useEffect(() => {
+    const previousLayoutRefreshKey = previousLayoutRefreshKeyRef.current;
+    previousLayoutRefreshKeyRef.current = layoutRefreshKey;
+
+    if (!hasObservedLayoutRefreshKeyRef.current) {
+      hasObservedLayoutRefreshKeyRef.current = true;
+      return;
+    }
+
+    if (!layoutRefreshKey || previousLayoutRefreshKey === layoutRefreshKey) {
+      return;
+    }
+
+    const frameId = requestAnimationFrame(() => {
+      fitTerminalLayout();
+      refreshRenderer();
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [fitTerminalLayout, layoutRefreshKey, refreshRenderer]);
+
   const terminalOverlayState = isReadOnlyTranscript
     ? null
     : resolveTerminalRuntimeOverlayState({

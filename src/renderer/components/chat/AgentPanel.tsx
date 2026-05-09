@@ -4371,6 +4371,11 @@ export function AgentPanel({
             recoveryState={session.recoveryState}
             isActive={isTerminalActive}
             isVisible={isTerminalVisible}
+            layoutRefreshKey={
+              isCanvasDisplayMode
+                ? `${isCanvasFloatingSession ? 'floating' : 'tile'}:${sessionContentHost ? 'host' : 'inline'}:${canvasFloatingFrame ? 'frame' : 'pending'}`
+                : undefined
+            }
             terminalFontScale={
               isCanvasFloatingSession
                 ? canvasFloatingTerminalFontScale
