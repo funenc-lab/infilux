@@ -431,15 +431,15 @@ export function SessionSubagentInspector({
     ? 'border-white/12 bg-black/55 text-white/70'
     : 'border-border/70 bg-background/92 text-muted-foreground';
   const windowClassName = isStackedLayout
-    ? 'h-[44rem] w-[62rem]'
+    ? 'h-[min(44rem,calc(100vh-2rem))] w-[min(62rem,calc(100vw-2rem))]'
     : isCompactLayout
-      ? 'h-[47rem] w-[74rem]'
-      : 'h-[50rem] w-[82rem]';
+      ? 'h-[min(47rem,calc(100vh-2rem))] w-[min(74rem,calc(100vw-2rem))]'
+      : 'h-[min(50rem,calc(100vh-2rem))] w-[min(82rem,calc(100vw-2rem))]';
   const contentGridClassName = isStackedLayout
-    ? 'grid-cols-1 grid-rows-[15rem_minmax(0,1fr)] gap-3'
+    ? 'grid-cols-1 grid-rows-[minmax(10rem,14rem)_minmax(0,1fr)] gap-3'
     : isCompactLayout
-      ? 'grid-cols-[18rem_minmax(0,1fr)] gap-3'
-      : 'grid-cols-[20rem_minmax(0,1fr)] gap-4';
+      ? 'grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] gap-3'
+      : 'grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)] gap-4';
   const headerChromeLabel = isMac ? t('Session subagents') : 'session://subagents';
   const platformChromeLabel =
     platform === 'darwin' ? 'macOS' : platform === 'win32' ? 'Windows' : 'Linux';
@@ -480,7 +480,7 @@ export function SessionSubagentInspector({
           data-session-subagent-platform={platform}
           data-session-subagent-header-chrome={isMac ? 'darwin' : 'terminal'}
           className={cn(
-            'mx-auto flex max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] flex-none flex-col overflow-hidden rounded-[1rem] border shadow-[0_24px_60px_rgba(0,0,0,0.42)] no-drag',
+            'mx-auto flex max-h-full max-w-full flex-none flex-col overflow-hidden rounded-[1rem] border shadow-[0_24px_60px_rgba(0,0,0,0.42)] no-drag',
             windowClassName,
             frameClassName
           )}

@@ -270,10 +270,10 @@ describe('SessionSubagentInspector', () => {
     expect(markup).toContain('role="tabpanel"');
     expect(markup).toContain('fixed inset-0 z-50');
     expect(markup).toContain('no-drag');
-    expect(markup).toContain('h-[50rem]');
-    expect(markup).toContain('w-[82rem]');
-    expect(markup).toContain('max-h-[calc(100vh-2rem)]');
-    expect(markup).toContain('max-w-[calc(100vw-2rem)]');
+    expect(markup).toContain('h-[min(50rem,calc(100vh-2rem))]');
+    expect(markup).toContain('w-[min(82rem,calc(100vw-2rem))]');
+    expect(markup).toContain('max-h-full');
+    expect(markup).toContain('max-w-full');
     expect(markup).toContain('data-session-subagent-layout="wide"');
     expect(markup).toContain('data-session-subagent-platform="linux"');
     expect(markup).toContain('data-session-subagent-header-chrome="terminal"');
@@ -316,9 +316,37 @@ describe('SessionSubagentInspector', () => {
     expect(markup).toContain('data-session-subagent-layout="stacked"');
     expect(markup).toContain('data-session-subagent-platform="darwin"');
     expect(markup).toContain('data-session-subagent-header-chrome="darwin"');
-    expect(markup).toContain('h-[44rem]');
-    expect(markup).toContain('w-[62rem]');
+    expect(markup).toContain('h-[min(44rem,calc(100vh-2rem))]');
+    expect(markup).toContain('w-[min(62rem,calc(100vw-2rem))]');
     expect(markup).not.toContain('session://subagents');
+  });
+
+  it('uses viewport-bounded dimensions and elastic stacked rows on short windows', () => {
+    setViewport(900, 640);
+    sessionSubagentState.items = [createSubagent()];
+
+    const markup = renderToStaticMarkup(
+      React.createElement(SessionSubagentInspector, {
+        sessionName: 'Codex Main',
+        agentLabel: 'Codex',
+        viewState: {
+          kind: 'supported',
+          provider: 'codex',
+        },
+        subagents: [createSubagent()],
+        selectedThreadId: 'child-thread-1',
+        onSelectThread: () => undefined,
+        onClose: () => undefined,
+      })
+    );
+
+    expect(markup).toContain('data-session-subagent-layout="stacked"');
+    expect(markup).toContain('h-[min(44rem,calc(100vh-2rem))]');
+    expect(markup).toContain('w-[min(62rem,calc(100vw-2rem))]');
+    expect(markup).toContain('grid-rows-[minmax(10rem,14rem)_minmax(0,1fr)]');
+    expect(markup).not.toContain('h-[44rem]');
+    expect(markup).not.toContain('w-[62rem]');
+    expect(markup).not.toContain('grid-rows-[15rem_minmax(0,1fr)]');
   });
 
   it('renders an explicit unsupported state inside the floating inspector', () => {
