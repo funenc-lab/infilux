@@ -995,10 +995,9 @@ export function AgentTerminal({
     );
   }, []);
 
-  // Wait for shell config and hapi checks before treating the terminal as interactively active.
-  const effectiveIsActive = useMemo(() => {
+  const isAgentStartupReady = useMemo(() => {
     if (isReadOnlyTranscript) {
-      return isActive;
+      return true;
     }
 
     if (agentCommand.startsWith('claude') && agentIntegration.enabled && claudeIdeStatus === null) {
@@ -1017,12 +1016,11 @@ export function AgentTerminal({
     if (environment === 'hapi' && hapiGlobalInstalled === null) {
       return false;
     }
-    return isActive;
+    return true;
   }, [
     environment,
     hapiGlobalInstalled,
     isReadOnlyTranscript,
-    isActive,
     agentCommand,
     agentIntegration.enabled,
     claudeIdeStatus,
@@ -1030,6 +1028,8 @@ export function AgentTerminal({
     isRemoteExecution,
     resolvedShell,
   ]);
+  const effectiveIsActive = isAgentStartupReady ? isActive : false;
+  const effectiveIsVisible = isReadOnlyTranscript ? isVisible : isVisible && isAgentStartupReady;
 
   // Mark session as active when user is viewing it
   useEffect(() => {
@@ -1042,6 +1042,7 @@ export function AgentTerminal({
     isActive: effectiveIsActive,
   });
   const activateOnInitialCommandWhenInactive = hasPendingCommand || !recovered;
+  const isTerminalStartupVisible = isActive || isVisible || hasPendingCommand;
 
   // Start polling for process activity
   const startActivityPolling = useCallback(() => {
@@ -1564,7 +1565,7 @@ export function AgentTerminal({
     initialCommand,
     activateOnInitialCommandWhenInactive,
     isActive: effectiveIsActive,
-    isVisible,
+    isVisible: effectiveIsVisible,
     kind: 'agent',
     fontSizeScale: terminalFontScale,
     preferCompatibilityRenderer: terminalFontScale !== undefined,
@@ -1645,19 +1646,14 @@ export function AgentTerminal({
         isRemoteExecution,
         runtimeState,
       });
-  const isAgentStartupReadinessPending =
-    !isReadOnlyTranscript &&
-    ((agentCommand.startsWith('claude') && !isRemoteExecution && claudeWorkspaceTrusted === null) ||
-      (agentCommand.startsWith('claude') && agentIntegration.enabled && claudeIdeStatus === null) ||
-      (!isRemoteExecution && !resolvedShell) ||
-      (environment === 'hapi' && hapiGlobalInstalled === null));
+  const isAgentStartupReadinessPending = !isReadOnlyTranscript && !isAgentStartupReady;
   const isAgentStartupActivationPending =
     !isReadOnlyTranscript && runtimeState === 'live' && terminal === null;
   const isAgentStartupFirstOutputPending =
     !isReadOnlyTranscript && runtimeState === 'live' && initialized === false && !recovered;
   const shouldShowAgentStartupOverlay =
     !isReadOnlyTranscript &&
-    (isActive || hasPendingCommand) &&
+    isTerminalStartupVisible &&
     (isLoading ||
       isAgentStartupReadinessPending ||
       isAgentStartupActivationPending ||
@@ -1707,17 +1703,22 @@ export function AgentTerminal({
       backendSessionId,
     };
 
-    if (isReadOnlyTranscript || !didResolveProviderSessionId || (!isActive && !hasPendingCommand)) {
+    if (
+      isReadOnlyTranscript ||
+      !didResolveProviderSessionId ||
+      !isTerminalStartupVisible ||
+      !isAgentStartupReady
+    ) {
       return;
     }
 
     restartSession();
   }, [
     backendSessionId,
-    hasPendingCommand,
     id,
-    isActive,
     isReadOnlyTranscript,
+    isAgentStartupReady,
+    isTerminalStartupVisible,
     recoveryState,
     restartSession,
     sessionId,

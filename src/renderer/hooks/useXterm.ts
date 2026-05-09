@@ -373,6 +373,9 @@ export function useXterm({
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
   const shouldSyncVisibleLayout = isActive || isVisible;
+  const shouldActivateFromVisibleSurface = isActive || isVisible;
+  const shouldActivateFromInitialCommand =
+    activateOnInitialCommandWhenInactive && Boolean(initialCommand);
   // Memoize command key to avoid dependency array issues
   const commandKey = useMemo(
     () =>
@@ -398,6 +401,8 @@ export function useXterm({
   // rAF write buffer for smooth rendering
   const writeBufferRef = useRef('');
   const isFlushPendingRef = useRef(false);
+  const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCarryRef = useRef(0);
   const searchDecorations = useMemo(
     () => buildTerminalSearchDecorations(settings.theme),
@@ -605,30 +610,45 @@ export function useXterm({
     terminal.refresh(0, terminal.rows - 1);
   }, []);
 
-  const resetSessionBinding = useCallback(async (terminal: Terminal, clearTerminal: boolean) => {
-    createRequestIdRef.current += 1;
-    activeSessionBindingRef.current = null;
-    deadRecoveryAttemptKeyRef.current = null;
-    hasReceivedDataRef.current = false;
-    firstOutputWaitersRef.current.clear();
-    wheelCarryRef.current = 0;
-    setSearchState(createEmptyTerminalSearchState());
-    sessionEventsCleanupRef.current?.();
-    sessionEventsCleanupRef.current = null;
+  const clearTerminalWriteFlushTimers = useCallback(() => {
+    if (dataFlushTimerRef.current) {
+      clearTimeout(dataFlushTimerRef.current);
+      dataFlushTimerRef.current = null;
+    }
+    if (exitFlushTimerRef.current) {
+      clearTimeout(exitFlushTimerRef.current);
+      exitFlushTimerRef.current = null;
+    }
     writeBufferRef.current = '';
     isFlushPendingRef.current = false;
-    setRuntimeState('live');
-
-    const currentSessionId = ptyIdRef.current;
-    ptyIdRef.current = null;
-    if (currentSessionId) {
-      await window.electronAPI.session.detach(currentSessionId).catch(() => {});
-    }
-
-    if (clearTerminal) {
-      terminal.reset();
-    }
   }, []);
+
+  const resetSessionBinding = useCallback(
+    async (terminal: Terminal, clearTerminal: boolean) => {
+      createRequestIdRef.current += 1;
+      activeSessionBindingRef.current = null;
+      deadRecoveryAttemptKeyRef.current = null;
+      hasReceivedDataRef.current = false;
+      firstOutputWaitersRef.current.clear();
+      wheelCarryRef.current = 0;
+      setSearchState(createEmptyTerminalSearchState());
+      sessionEventsCleanupRef.current?.();
+      sessionEventsCleanupRef.current = null;
+      clearTerminalWriteFlushTimers();
+      setRuntimeState('live');
+
+      const currentSessionId = ptyIdRef.current;
+      ptyIdRef.current = null;
+      if (currentSessionId) {
+        await window.electronAPI.session.detach(currentSessionId).catch(() => {});
+      }
+
+      if (clearTerminal) {
+        terminal.reset();
+      }
+    },
+    [clearTerminalWriteFlushTimers]
+  );
 
   const handleTerminalWheelEvent = useCallback(
     (event: WheelEvent) => {
@@ -1173,7 +1193,8 @@ export function useXterm({
 
             if (!isFlushPendingRef.current) {
               isFlushPendingRef.current = true;
-              setTimeout(() => {
+              dataFlushTimerRef.current = setTimeout(() => {
+                dataFlushTimerRef.current = null;
                 if (writeBufferRef.current.length > 0) {
                   const bufferedData = writeBufferRef.current;
                   terminal.write(bufferedData);
@@ -1187,7 +1208,8 @@ export function useXterm({
           onExit: () => {
             setRuntimeState('dead');
             flushReplaySnapshot(true);
-            setTimeout(() => {
+            exitFlushTimerRef.current = setTimeout(() => {
+              exitFlushTimerRef.current = null;
               if (writeBufferRef.current.length > 0) {
                 const bufferedData = writeBufferRef.current;
                 terminal.write(bufferedData);
@@ -1436,9 +1458,10 @@ export function useXterm({
   ]);
 
   useEffect(() => {
-    const shouldActivateFromInitialCommand =
-      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
-    const shouldActivate = isActive || shouldActivateFromInitialCommand || Boolean(staticContent);
+    const shouldActivate =
+      shouldActivateFromVisibleSurface ||
+      shouldActivateFromInitialCommand ||
+      Boolean(staticContent);
     if (shouldActivate && !hasBeenActivatedRef.current) {
       hasBeenActivatedRef.current = true;
       requestAnimationFrame(() => {
@@ -1447,16 +1470,19 @@ export function useXterm({
         });
       });
     }
-  }, [activateOnInitialCommandWhenInactive, isActive, initialCommand, initTerminal, staticContent]);
+  }, [
+    initTerminal,
+    shouldActivateFromInitialCommand,
+    shouldActivateFromVisibleSurface,
+    staticContent,
+  ]);
 
   useEffect(() => {
     if (staticContent) {
       return;
     }
 
-    const shouldActivateFromInitialCommand =
-      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
-    const shouldActivate = isActive || shouldActivateFromInitialCommand;
+    const shouldActivate = shouldActivateFromVisibleSurface || shouldActivateFromInitialCommand;
     if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
       return;
     }
@@ -1471,11 +1497,10 @@ export function useXterm({
       });
     });
   }, [
-    activateOnInitialCommandWhenInactive,
     desiredSessionBinding,
     initTerminal,
-    initialCommand,
-    isActive,
+    shouldActivateFromInitialCommand,
+    shouldActivateFromVisibleSurface,
     staticContent,
   ]);
 
@@ -1484,9 +1509,7 @@ export function useXterm({
       return;
     }
 
-    const shouldActivateFromInitialCommand =
-      activateOnInitialCommandWhenInactive && Boolean(initialCommand);
-    const shouldActivate = isActive || shouldActivateFromInitialCommand;
+    const shouldActivate = shouldActivateFromVisibleSurface || shouldActivateFromInitialCommand;
     if (!shouldActivate || !hasBeenActivatedRef.current || !terminalRef.current) {
       return;
     }
@@ -1512,13 +1535,12 @@ export function useXterm({
       });
     });
   }, [
-    activateOnInitialCommandWhenInactive,
     desiredSessionBinding,
     initTerminal,
-    initialCommand,
-    isActive,
     retryOnDeadSession,
     runtimeState,
+    shouldActivateFromInitialCommand,
+    shouldActivateFromVisibleSurface,
     staticContent,
   ]);
 
@@ -1626,6 +1648,7 @@ export function useXterm({
       activeSessionBindingRef.current = null;
       deadRecoveryAttemptKeyRef.current = null;
       wheelCarryRef.current = 0;
+      clearTerminalWriteFlushTimers();
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
       terminalInputCleanupRef.current?.dispose();
@@ -1659,7 +1682,7 @@ export function useXterm({
         (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = undefined;
       }
     };
-  }, []);
+  }, [clearTerminalWriteFlushTimers]);
 
   // Update settings dynamically
   useEffect(() => {

@@ -7,14 +7,19 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const agentTerminalSource = readFileSync(resolve(currentDir, '../AgentTerminal.tsx'), 'utf8');
 
 describe('agent terminal activity polling source', () => {
-  it('derives the activity polling interval from the terminal visibility state', () => {
+  it('derives the activity polling interval from the focused active terminal state', () => {
     expect(agentTerminalSource).toContain('resolveAgentTerminalActivityPollIntervalMs');
     expect(agentTerminalSource).toContain(
       'const activityPollIntervalMs = resolveAgentTerminalActivityPollIntervalMs({'
     );
     expect(agentTerminalSource).toContain('isActive: effectiveIsActive');
     expect(agentTerminalSource).toContain('}, activityPollIntervalMs);');
-    expect(agentTerminalSource).toContain('return isActive;');
+    expect(agentTerminalSource).toContain(
+      'const effectiveIsActive = isAgentStartupReady ? isActive : false;'
+    );
+    expect(agentTerminalSource).toContain(
+      'const effectiveIsVisible = isReadOnlyTranscript ? isVisible : isVisible && isAgentStartupReady;'
+    );
     expect(agentTerminalSource).not.toContain('return isActive || hasPendingCommand;');
   });
 

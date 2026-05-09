@@ -590,6 +590,19 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('shows the startup overlay for visible inactive agent terminals while shell resolution is pending', async () => {
+    testState.electronAPI.shellResolveForCommand.mockReturnValue(new Promise(() => undefined));
+
+    const mounted = await mountAgentTerminal({
+      isActive: false,
+      isVisible: true,
+    });
+
+    expect(mounted.container.textContent).toContain('Preparing runtime');
+
+    await mounted.unmount();
+  });
+
   it('falls back to a default command shell when shell resolution fails', async () => {
     testState.electronAPI.shellResolveForCommand.mockRejectedValue(
       new Error('shell resolver failed')
@@ -915,6 +928,28 @@ describe('AgentTerminal integration', () => {
     });
 
     expect(testState.xtermResult.restartSession).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('restarts visible inactive recovered sessions when provider session discovery resolves', async () => {
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'ui-session-1',
+      backendSessionId: undefined,
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+      isActive: false,
+      isVisible: true,
+    });
+
+    await mounted.rerender({
+      sessionId: 'provider-session-1',
+    });
+
+    expect(testState.xtermResult.restartSession).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });

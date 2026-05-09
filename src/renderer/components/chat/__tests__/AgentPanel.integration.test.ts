@@ -1937,21 +1937,58 @@ describe('AgentPanel integration', () => {
 
     expect(mounted.container.querySelectorAll('[data-agent-session-id]')).toHaveLength(14);
     expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(12);
-
-    const deferredTile = mounted.container.querySelector<HTMLElement>(
-      '[data-agent-canvas-deferred="true"]'
+    expect(mounted.container.querySelectorAll('[data-agent-canvas-deferred="true"]').length).toBe(
+      2
     );
-    const deferredSessionId = deferredTile?.getAttribute('data-agent-session-id');
-    const openDeferredTileButton =
-      deferredTile?.querySelector<HTMLElement>('button[aria-label="Bring to Front"]') ?? null;
-    await clickElement(openDeferredTileButton);
 
-    expect(
-      document.body.querySelector(
-        `[data-testid="agent-terminal"][data-session-id="${deferredSessionId}"]`
-      )
-    ).not.toBeNull();
-    expect(document.body.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(12);
+    await act(async () => {
+      await flushRenderTasks();
+    });
+
+    expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(14);
+    expect(mounted.container.querySelector('[data-agent-canvas-deferred="true"]')).toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('keeps worktree canvas terminals mounted without deferring them behind tile clicks', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const sessions = Array.from({ length: 8 }, (_, index) =>
+      createSession({
+        id: `session-${index}`,
+        sessionId: `provider-${index}`,
+        backendSessionId: `backend-${index}`,
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        name: `Gemini ${index}`,
+      })
+    );
+
+    useAgentSessionsStore.setState({
+      sessions,
+      activeIds: {
+        '/repo/worktree': 'session-0',
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: sessions.map((session, index) => ({
+            id: `group-${index}`,
+            sessionIds: [session.id],
+            activeSessionId: session.id,
+          })),
+          activeGroupId: 'group-0',
+          flexPercents: sessions.map(() => 100 / sessions.length),
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+
+    expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(8);
+    expect(mounted.container.querySelector('[data-agent-canvas-deferred="true"]')).toBeNull();
 
     await mounted.unmount();
   });
@@ -2065,6 +2102,10 @@ describe('AgentPanel integration', () => {
       Array.from(mounted.container.querySelectorAll('[data-testid="agent-terminal"]'))
         .map((terminal) => terminal.getAttribute('data-session-id'))
         .filter((sessionId): sessionId is string => sessionId !== null);
+
+    await act(async () => {
+      await flushRenderTasks();
+    });
 
     const mountedSessionIdsBeforeSwitch = getMountedSessionIds();
 
