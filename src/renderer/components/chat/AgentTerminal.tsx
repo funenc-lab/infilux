@@ -76,6 +76,7 @@ import {
   AGENT_STARTUP_STALL_THRESHOLD_MS,
   resolveAgentStartupOverlayPresentation,
 } from './agentStartupOverlay';
+import { shouldShowAgentStartupOverlayForVisibility } from './agentStartupVisibilityPolicy';
 import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActivityPollingPolicy';
 import { resolveAgentTerminalAttachmentInsertDisposition } from './agentTerminalAttachmentInsertPolicy';
 import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
@@ -584,6 +585,9 @@ export function AgentTerminal({
     : localEnhancedInputOpen;
   const waitingForInput = useAgentSessionsStore(
     (state) => state.runtimeStates[terminalSessionId ?? '']?.waitingForInput ?? false
+  );
+  const lastSessionActivityAt = useAgentSessionsStore(
+    (state) => state.runtimeStates[terminalSessionId ?? '']?.lastActivityAt
   );
   const setEnhancedInputOpen = useCallback(
     (open: boolean) => {
@@ -1680,13 +1684,26 @@ export function AgentTerminal({
     !isReadOnlyTranscript && runtimeState === 'live' && terminal === null;
   const isAgentStartupFirstOutputPending =
     !isReadOnlyTranscript && runtimeState === 'live' && initialized === false && !recovered;
+  const hasAgentStartupRenderableContent =
+    isReadOnlyTranscript ||
+    initialized === true ||
+    recovered === true ||
+    Boolean(replaySnapshot?.trim());
   const shouldShowAgentStartupOverlay =
     !isReadOnlyTranscript &&
-    isTerminalStartupVisible &&
-    (isLoading ||
-      isAgentStartupReadinessPending ||
-      isAgentStartupActivationPending ||
-      isAgentStartupFirstOutputPending);
+    shouldShowAgentStartupOverlayForVisibility({
+      createdAt,
+      hasPendingCommand,
+      hasRenderableContent: hasAgentStartupRenderableContent,
+      isActive,
+      isFirstOutputPending: isAgentStartupFirstOutputPending,
+      isLoading,
+      isReadinessPending: isAgentStartupReadinessPending,
+      isTerminalActivationPending: isAgentStartupActivationPending,
+      isVisible: isTerminalStartupVisible,
+      lastActivityAt: lastSessionActivityAt,
+      recoveryState,
+    });
   const [isAgentStartupStalled, setIsAgentStartupStalled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
