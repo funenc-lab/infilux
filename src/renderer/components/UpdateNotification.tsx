@@ -21,20 +21,25 @@ export function UpdateNotification({ autoUpdateEnabled }: UpdateNotificationProp
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [availableDialogOpen, setAvailableDialogOpen] = useState(false);
+  const [installRequested, setInstallRequested] = useState(false);
 
   const applyStatus = useCallback(
     (nextStatus: UpdateStatus | null) => {
       setStatus(nextStatus);
 
       if (!nextStatus) {
+        setInstallRequested(false);
         return;
       }
 
       if (nextStatus.status === 'downloaded') {
+        setInstallRequested(false);
         setAvailableDialogOpen(false);
         setDialogOpen(true);
         return;
       }
+
+      setInstallRequested(false);
 
       if (nextStatus.status === 'available' && !autoUpdateEnabled) {
         setAvailableDialogOpen(true);
@@ -86,15 +91,22 @@ export function UpdateNotification({ autoUpdateEnabled }: UpdateNotificationProp
   }, [autoUpdateEnabled, status?.status]);
 
   const handleInstall = useCallback(() => {
-    window.electronAPI.updater.quitAndInstall();
+    setInstallRequested(true);
+    void window.electronAPI.updater.quitAndInstall().catch((error) => {
+      console.error('[UpdateNotification] Failed to restart and install update:', error);
+      setInstallRequested(false);
+    });
   }, []);
 
   const handleLater = useCallback(() => {
+    setInstallRequested(false);
     setDialogOpen(false);
   }, []);
 
   const handleDownloadNow = useCallback(() => {
-    window.electronAPI.updater.downloadUpdate();
+    void window.electronAPI.updater.downloadUpdate().catch((error) => {
+      console.error('[UpdateNotification] Failed to download update:', error);
+    });
     setAvailableDialogOpen(false);
   }, []);
 
@@ -179,7 +191,9 @@ export function UpdateNotification({ autoUpdateEnabled }: UpdateNotificationProp
           <Button variant="outline" onClick={handleLater}>
             {t('Later')}
           </Button>
-          <Button onClick={handleInstall}>{t('Restart now')}</Button>
+          <Button disabled={installRequested} onClick={handleInstall}>
+            {t('Restart now')}
+          </Button>
         </DialogFooter>
       </DialogPopup>
     </Dialog>

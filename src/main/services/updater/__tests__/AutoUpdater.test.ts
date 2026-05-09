@@ -311,6 +311,184 @@ describe('AutoUpdaterService', () => {
     });
   });
 
+  it('recovers from interrupted update downloads without entering an install quit flow', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+
+    autoUpdaterService.init(window as never, true);
+
+    updaterTestDoubles.autoUpdater.emit('download-progress', {
+      percent: 47,
+      bytesPerSecond: 1024,
+      total: 100,
+      transferred: 47,
+    });
+    updaterTestDoubles.autoUpdater.downloadUpdate.mockRejectedValueOnce(
+      new Error('network connection lost')
+    );
+
+    await expect(autoUpdaterService.downloadUpdate()).rejects.toThrow('network connection lost');
+
+    expect(errorSpy).toHaveBeenCalledWith('Failed to download update:', expect.any(Error));
+    expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
+      autoUpdateEnabled: true,
+      status: {
+        status: 'error',
+        error: 'network connection lost',
+      },
+    });
+    expect(autoUpdaterService.isUpdateDownloaded()).toBe(false);
+    expect(autoUpdaterService.isQuittingForUpdate()).toBe(false);
+    expect(updaterTestDoubles.autoUpdater.autoInstallOnAppQuit).toBe(false);
+    expect(updaterTestDoubles.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(window.webContents.send).toHaveBeenLastCalledWith('updater:status', {
+      status: 'error',
+      error: 'network connection lost',
+    });
+  });
+
+  it('observes automatic download promise failures from update checks', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+    const downloadPromise = Promise.reject(new Error('auto download failed'));
+
+    updaterTestDoubles.autoUpdater.checkForUpdates.mockResolvedValueOnce({
+      isUpdateAvailable: true,
+      updateInfo: { version: '1.4.0' },
+      versionInfo: { version: '1.4.0' },
+      downloadPromise,
+    });
+
+    autoUpdaterService.init(window as never, true);
+    await autoUpdaterService.checkForUpdates();
+    await Promise.resolve();
+
+    expect(errorSpy).toHaveBeenCalledWith('Failed to download update:', expect.any(Error));
+    expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
+      autoUpdateEnabled: true,
+      status: {
+        status: 'error',
+        error: 'auto download failed',
+      },
+    });
+    expect(autoUpdaterService.isUpdateDownloaded()).toBe(false);
+    expect(autoUpdaterService.isQuittingForUpdate()).toBe(false);
+    expect(updaterTestDoubles.autoUpdater.autoInstallOnAppQuit).toBe(false);
+    expect(window.webContents.send).toHaveBeenLastCalledWith('updater:status', {
+      status: 'error',
+      error: 'auto download failed',
+    });
+  });
+
+  it('handles automatic download error events without leaving auto-install enabled', async () => {
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+
+    autoUpdaterService.init(window as never, true);
+
+    updaterTestDoubles.autoUpdater.emit('download-progress', {
+      percent: 52,
+      bytesPerSecond: 2048,
+      total: 100,
+      transferred: 52,
+    });
+    updaterTestDoubles.autoUpdater.emit('error', new Error('socket hang up'));
+
+    expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
+      autoUpdateEnabled: true,
+      status: {
+        status: 'error',
+        error: 'socket hang up',
+      },
+    });
+    expect(autoUpdaterService.isUpdateDownloaded()).toBe(false);
+    expect(autoUpdaterService.isQuittingForUpdate()).toBe(false);
+    expect(updaterTestDoubles.autoUpdater.autoInstallOnAppQuit).toBe(false);
+    expect(updaterTestDoubles.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(window.webContents.send).toHaveBeenLastCalledWith('updater:status', {
+      status: 'error',
+      error: 'socket hang up',
+    });
+  });
+
+  it('forces explicit install mode before requesting a restart for a downloaded update', async () => {
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+
+    autoUpdaterService.init(window as never, true);
+    updaterTestDoubles.autoUpdater.emit('update-downloaded', { version: '1.3.0' });
+    expect(updaterTestDoubles.autoUpdater.autoInstallOnAppQuit).toBe(true);
+
+    updaterTestDoubles.autoUpdater.quitAndInstall.mockImplementationOnce(() => {
+      expect(updaterTestDoubles.autoUpdater.autoInstallOnAppQuit).toBe(false);
+    });
+
+    autoUpdaterService.quitAndInstall();
+
+    expect(updaterTestDoubles.autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
+    expect(autoUpdaterService.isQuittingForUpdate()).toBe(true);
+  });
+
+  it('reports restart failures and clears the update quit guard', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+
+    autoUpdaterService.init(window as never, true);
+    updaterTestDoubles.autoUpdater.emit('update-downloaded', { version: '1.3.0' });
+    updaterTestDoubles.autoUpdater.quitAndInstall.mockImplementationOnce(() => {
+      throw new Error('native updater unavailable');
+    });
+
+    autoUpdaterService.quitAndInstall();
+
+    expect(autoUpdaterService.isQuittingForUpdate()).toBe(false);
+    expect(autoUpdaterService.isUpdateDownloaded()).toBe(false);
+    expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
+      autoUpdateEnabled: true,
+      status: {
+        status: 'error',
+        error: 'native updater unavailable',
+      },
+    });
+    expect(window.webContents.send).toHaveBeenLastCalledWith('updater:status', {
+      status: 'error',
+      error: 'native updater unavailable',
+    });
+  });
+
+  it('reports updater errors that arrive after a restart request', async () => {
+    const { autoUpdaterService } = await import('../AutoUpdater');
+    const window = new FakeWindow();
+
+    autoUpdaterService.init(window as never, true);
+    updaterTestDoubles.autoUpdater.emit('update-downloaded', { version: '1.3.0' });
+    autoUpdaterService.quitAndInstall();
+
+    updaterTestDoubles.autoUpdater.emit('error', new Error('native install failed'));
+
+    expect(autoUpdaterService.isQuittingForUpdate()).toBe(false);
+    expect(autoUpdaterService.isUpdateDownloaded()).toBe(false);
+    expect(autoUpdaterService.getState()).toEqual({
+      isSupported: true,
+      autoUpdateEnabled: true,
+      status: {
+        status: 'error',
+        error: 'native install failed',
+      },
+    });
+    expect(window.webContents.send).toHaveBeenLastCalledWith('updater:status', {
+      status: 'error',
+      error: 'native install failed',
+    });
+  });
+
   it('handles explicit checks, downloads, and quit-and-install transitions', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { autoUpdaterService } = await import('../AutoUpdater');
