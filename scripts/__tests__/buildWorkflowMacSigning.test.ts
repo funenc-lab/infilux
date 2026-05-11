@@ -9,9 +9,10 @@ const expressionOpen = '$' + '{{';
 const expressionClose = '}}';
 const shellExpressionOpen = '$' + '{';
 const shellExpressionClose = '}';
-const appleApiIssuer = `APPLE_API_ISSUER: ${expressionOpen} secrets.APPLE_API_ISSUER ${expressionClose}`;
-const appleApiKey = `APPLE_API_KEY: ${expressionOpen} secrets.APPLE_API_KEY ${expressionClose}`;
-const appleApiKeyP8 = `APPLE_API_KEY_P8: ${expressionOpen} secrets.APPLE_API_KEY_P8 ${expressionClose}`;
+const appleId = `APPLE_ID: ${expressionOpen} secrets.APPLE_ID ${expressionClose}`;
+const applePassword = `APPLE_PASSWORD: ${expressionOpen} secrets.APPLE_PASSWORD ${expressionClose}`;
+const appleAppSpecificPassword = `APPLE_APP_SPECIFIC_PASSWORD: ${expressionOpen} secrets.APPLE_PASSWORD ${expressionClose}`;
+const appleTeamId = `APPLE_TEAM_ID: ${expressionOpen} secrets.APPLE_TEAM_ID ${expressionClose}`;
 const allowUnsignedMacosRelease = `REPO_ALLOW_UNSIGNED_MACOS_RELEASE: ${expressionOpen} vars.ALLOW_UNSIGNED_MACOS_RELEASE ${expressionClose}`;
 const macArchPlaceholder = '$' + '{{ matrix.arch }}';
 const forceUnsignedCondition = `if [[ "${shellExpressionOpen}force_unsigned${shellExpressionClose}" == "true" ]]; then`;
@@ -19,12 +20,16 @@ const resolvedSigningIdentity = `CSC_NAME: ${expressionOpen} env.APPLE_SIGNING_I
 const legacySigningIdentity = `CSC_NAME: ${expressionOpen} secrets.APPLE_SIGNING_IDENTITY ${expressionClose}`;
 
 describe('build workflow macOS signing policy', () => {
-  it('reuses the penpad-style Apple signing secret names and unsigned release override', () => {
+  it('uses the organization Apple signing secret names and unsigned release override', () => {
     expect(workflowSource).toContain('allow_unsigned_macos:');
-    expect(workflowSource).toContain(appleApiIssuer);
-    expect(workflowSource).toContain(appleApiKey);
-    expect(workflowSource).toContain(appleApiKeyP8);
+    expect(workflowSource).toContain(appleId);
+    expect(workflowSource).toContain(applePassword);
+    expect(workflowSource).toContain(appleAppSpecificPassword);
+    expect(workflowSource).toContain(appleTeamId);
     expect(workflowSource).toContain(allowUnsignedMacosRelease);
+    expect(workflowSource).not.toContain('secrets.APPLE_API_ISSUER');
+    expect(workflowSource).not.toContain('secrets.APPLE_API_KEY');
+    expect(workflowSource).not.toContain('secrets.APPLE_API_KEY_P8');
   });
 
   it('supports unsigned macOS fallback when signing prerequisites are missing', () => {
@@ -43,6 +48,7 @@ describe('build workflow macOS signing policy', () => {
 
   it('resolves the Developer ID Application identity from the imported certificate', () => {
     expect(workflowSource).toContain('Developer ID Application:');
+    expect(workflowSource).toContain('Configured Apple signing identity was not found');
     expect(workflowSource).toContain('APPLE_SIGNING_IDENTITY_RESOLVED');
     expect(workflowSource).toContain(resolvedSigningIdentity);
     expect(workflowSource).not.toContain(legacySigningIdentity);
