@@ -268,6 +268,7 @@ jobs:
           echo "${identities}"
 
           developer_id_identity="$(printf '%s\n' "${identities}" | awk -F '"' '/Developer ID Application:/ { print $2; exit }')"
+          developer_id_certificate_name="${developer_id_identity#Developer ID Application: }"
           identity_summary="$(printf '%s\n' "${identities}" | tr '\n' ';' | tr -s ' ')"
           identity_summary="${identity_summary# }"
           identity_summary="${identity_summary% }"
@@ -278,18 +279,17 @@ jobs:
           configured_identity="${APPLE_SIGNING_IDENTITY:-}"
           resolved_identity=""
           if [[ -n "${configured_identity}" ]]; then
-            if [[ "${configured_identity}" == Developer\ ID\ Application:* ]] && \
-              printf '%s\n' "${identities}" | grep -F -- "\"${configured_identity}\"" >/dev/null; then
-              resolved_identity="${configured_identity}"
+            if [[ -n "${developer_id_identity}" ]] && [[ "${configured_identity}" == "${developer_id_identity}" || "${configured_identity}" == "${developer_id_certificate_name}" ]]; then
+              resolved_identity="${developer_id_certificate_name}"
             elif [[ -n "${developer_id_identity}" ]]; then
-              echo "::warning title=Configured Apple signing identity was not found::APPLE_SIGNING_IDENTITY does not exactly match an imported Developer ID Application identity. Falling back to the first Developer ID Application identity from the imported certificate."
+              echo "::warning title=Configured Apple signing identity was not found::APPLE_SIGNING_IDENTITY does not exactly match an imported Developer ID Application identity. Falling back to the first imported Developer ID Application certificate name."
             else
               echo "::warning title=Configured Apple signing identity was not found::APPLE_SIGNING_IDENTITY does not exactly match an imported Developer ID Application identity. Found identities: ${identity_summary}"
             fi
           fi
 
           if [[ -z "${resolved_identity}" ]]; then
-            resolved_identity="${developer_id_identity}"
+            resolved_identity="${developer_id_certificate_name}"
           fi
 
           if [[ -z "${resolved_identity}" ]]; then
@@ -298,7 +298,7 @@ jobs:
           fi
 
           echo "APPLE_SIGNING_IDENTITY_RESOLVED=${resolved_identity}" >> "${GITHUB_ENV}"
-          echo "Resolved Apple signing identity: ${resolved_identity}"
+          echo "Resolved Apple signing certificate name: ${resolved_identity}"
 
       - name: Announce unsigned macOS fallback
         if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome != 'success' }}

@@ -19,11 +19,17 @@ const forceUnsignedCondition = `if [[ "${shellExpressionOpen}force_unsigned${she
 const resolvedSigningIdentity = `CSC_NAME: ${expressionOpen} env.APPLE_SIGNING_IDENTITY_RESOLVED ${expressionClose}`;
 const legacySigningIdentity = `CSC_NAME: ${expressionOpen} secrets.APPLE_SIGNING_IDENTITY ${expressionClose}`;
 const signingIdentityFallback =
-  'Falling back to the first Developer ID Application identity from the imported certificate.';
+  'Falling back to the first imported Developer ID Application certificate name.';
 const strictSigningIdentityMismatch =
   'APPLE_SIGNING_IDENTITY does not match an identity in the imported certificate';
 const developerIdIdentityParser = `awk -F '"' '/Developer ID Application:/ { print $2; exit }'`;
 const escapedSedCapture = `sed -n 's/.*"\\\\(Developer ID Application:.*\\\\)"/\\\\1/p'`;
+const developerIdCertificateName =
+  'developer_id_certificate_name="' +
+  shellExpressionOpen +
+  'developer_id_identity#Developer ID Application: ' +
+  shellExpressionClose +
+  '"';
 
 describe('build workflow macOS signing policy', () => {
   it('uses the organization Apple signing secret names and unsigned release override', () => {
@@ -55,11 +61,13 @@ describe('build workflow macOS signing policy', () => {
   it('resolves the Developer ID Application identity from the imported certificate', () => {
     expect(workflowSource).toContain('Developer ID Application:');
     expect(workflowSource).toContain('developer_id_identity=');
+    expect(workflowSource).toContain(developerIdCertificateName);
     expect(workflowSource).toContain(developerIdIdentityParser);
     expect(workflowSource).not.toContain(escapedSedCapture);
     expect(workflowSource).toContain('Configured Apple signing identity was not found');
     expect(workflowSource).toContain(signingIdentityFallback);
     expect(workflowSource).not.toContain(strictSigningIdentityMismatch);
+    expect(workflowSource).toContain('Resolved Apple signing certificate name:');
     expect(workflowSource).toContain('APPLE_SIGNING_IDENTITY_RESOLVED');
     expect(workflowSource).toContain(resolvedSigningIdentity);
     expect(workflowSource).not.toContain(legacySigningIdentity);
