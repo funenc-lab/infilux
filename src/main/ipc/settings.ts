@@ -215,6 +215,7 @@ export function registerSettingsHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW, async () => {
     const sourcePath = findLegacySettingsImportSourcePath({
+      homeDir: app.getPath('home'),
       env: process.env,
     });
 

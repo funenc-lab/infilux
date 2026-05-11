@@ -6,6 +6,7 @@ import {
   SETTINGS_FILENAME,
 } from '@shared/paths';
 import type { LegacySettingsImportPreview } from '@shared/types';
+import { filterManagedLocalStorageSnapshot } from '@shared/utils/legacyLocalStorage';
 
 const SETTINGS_SLICE_KEY = 'enso-settings';
 const MAX_PREVIEW_DIFFS = 50;
@@ -511,8 +512,12 @@ export function buildLegacySettingsImportPreview(
 
   const currentSlice = extractSettingsSlice(currentDocument ?? {});
   const settingsDiffs = collectDiffs(currentSlice?.state ?? {}, importedSlice.state);
-  const importedLocalStorageSnapshot = options.importedLocalStorageSnapshot ?? null;
-  const currentLocalStorageSnapshot = options.currentLocalStorageSnapshot ?? null;
+  const importedLocalStorageSnapshot = options.importedLocalStorageSnapshot
+    ? filterManagedLocalStorageSnapshot(options.importedLocalStorageSnapshot)
+    : null;
+  const currentLocalStorageSnapshot = options.currentLocalStorageSnapshot
+    ? filterManagedLocalStorageSnapshot(options.currentLocalStorageSnapshot)
+    : null;
   const localStorageDiffs = importedLocalStorageSnapshot
     ? Object.entries(importedLocalStorageSnapshot)
         .filter(([key, value]) => currentLocalStorageSnapshot?.[key] !== value)
