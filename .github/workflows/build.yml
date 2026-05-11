@@ -267,7 +267,7 @@ jobs:
           identities="$(security find-identity -v -p codesigning "${keychain_path}")"
           echo "${identities}"
 
-          developer_id_identity="$(printf '%s\n' "${identities}" | sed -n 's/.*"\\(Developer ID Application:.*\\)"/\\1/p' | head -n 1)"
+          developer_id_identity="$(printf '%s\n' "${identities}" | awk -F '"' '/Developer ID Application:/ { print $2; exit }')"
           identity_summary="$(printf '%s\n' "${identities}" | tr '\n' ';' | tr -s ' ')"
           identity_summary="${identity_summary# }"
           identity_summary="${identity_summary% }"

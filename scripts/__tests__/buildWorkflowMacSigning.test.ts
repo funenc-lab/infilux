@@ -22,6 +22,8 @@ const signingIdentityFallback =
   'Falling back to the first Developer ID Application identity from the imported certificate.';
 const strictSigningIdentityMismatch =
   'APPLE_SIGNING_IDENTITY does not match an identity in the imported certificate';
+const developerIdIdentityParser = `awk -F '"' '/Developer ID Application:/ { print $2; exit }'`;
+const escapedSedCapture = `sed -n 's/.*"\\\\(Developer ID Application:.*\\\\)"/\\\\1/p'`;
 
 describe('build workflow macOS signing policy', () => {
   it('uses the organization Apple signing secret names and unsigned release override', () => {
@@ -53,6 +55,8 @@ describe('build workflow macOS signing policy', () => {
   it('resolves the Developer ID Application identity from the imported certificate', () => {
     expect(workflowSource).toContain('Developer ID Application:');
     expect(workflowSource).toContain('developer_id_identity=');
+    expect(workflowSource).toContain(developerIdIdentityParser);
+    expect(workflowSource).not.toContain(escapedSedCapture);
     expect(workflowSource).toContain('Configured Apple signing identity was not found');
     expect(workflowSource).toContain(signingIdentityFallback);
     expect(workflowSource).not.toContain(strictSigningIdentityMismatch);
