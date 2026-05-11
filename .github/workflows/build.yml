@@ -267,28 +267,30 @@ jobs:
           identities="$(security find-identity -v -p codesigning "${keychain_path}")"
           echo "${identities}"
 
-          configured_identity="${APPLE_SIGNING_IDENTITY:-}"
-          if [[ -n "${configured_identity}" ]]; then
-            if ! printf '%s\n' "${identities}" | grep -F -- "\"${configured_identity}\"" >/dev/null; then
-              identity_summary="$(printf '%s\n' "${identities}" | tr '\n' ';' | tr -s ' ')"
-              identity_summary="${identity_summary# }"
-              identity_summary="${identity_summary% }"
-              identity_summary="${identity_summary//%/%25}"
-              identity_summary="${identity_summary//$'\r'/%0D}"
-              identity_summary="${identity_summary//$'\n'/%0A}"
-              echo "::error title=Configured Apple signing identity was not found::APPLE_SIGNING_IDENTITY does not match an identity in the imported certificate. Found identities: ${identity_summary}"
-              exit 1
-            fi
-            resolved_identity="${configured_identity}"
-          else
-            resolved_identity="$(printf '%s\n' "${identities}" | sed -n 's/.*"\\(Developer ID Application:.*\\)"/\\1/p' | head -n 1)"
-          fi
+          developer_id_identity="$(printf '%s\n' "${identities}" | sed -n 's/.*"\\(Developer ID Application:.*\\)"/\\1/p' | head -n 1)"
           identity_summary="$(printf '%s\n' "${identities}" | tr '\n' ';' | tr -s ' ')"
           identity_summary="${identity_summary# }"
           identity_summary="${identity_summary% }"
           identity_summary="${identity_summary//%/%25}"
           identity_summary="${identity_summary//$'\r'/%0D}"
           identity_summary="${identity_summary//$'\n'/%0A}"
+
+          configured_identity="${APPLE_SIGNING_IDENTITY:-}"
+          resolved_identity=""
+          if [[ -n "${configured_identity}" ]]; then
+            if [[ "${configured_identity}" == Developer\ ID\ Application:* ]] && \
+              printf '%s\n' "${identities}" | grep -F -- "\"${configured_identity}\"" >/dev/null; then
+              resolved_identity="${configured_identity}"
+            elif [[ -n "${developer_id_identity}" ]]; then
+              echo "::warning title=Configured Apple signing identity was not found::APPLE_SIGNING_IDENTITY does not exactly match an imported Developer ID Application identity. Falling back to the first Developer ID Application identity from the imported certificate."
+            else
+              echo "::warning title=Configured Apple signing identity was not found::APPLE_SIGNING_IDENTITY does not exactly match an imported Developer ID Application identity. Found identities: ${identity_summary}"
+            fi
+          fi
+
+          if [[ -z "${resolved_identity}" ]]; then
+            resolved_identity="${developer_id_identity}"
+          fi
 
           if [[ -z "${resolved_identity}" ]]; then
             echo "::error title=Developer ID Application certificate is required::No Developer ID Application signing identity was found in the imported certificate. Found identities: ${identity_summary}"

@@ -18,6 +18,10 @@ const macArchPlaceholder = '$' + '{{ matrix.arch }}';
 const forceUnsignedCondition = `if [[ "${shellExpressionOpen}force_unsigned${shellExpressionClose}" == "true" ]]; then`;
 const resolvedSigningIdentity = `CSC_NAME: ${expressionOpen} env.APPLE_SIGNING_IDENTITY_RESOLVED ${expressionClose}`;
 const legacySigningIdentity = `CSC_NAME: ${expressionOpen} secrets.APPLE_SIGNING_IDENTITY ${expressionClose}`;
+const signingIdentityFallback =
+  'Falling back to the first Developer ID Application identity from the imported certificate.';
+const strictSigningIdentityMismatch =
+  'APPLE_SIGNING_IDENTITY does not match an identity in the imported certificate';
 
 describe('build workflow macOS signing policy', () => {
   it('uses the organization Apple signing secret names and unsigned release override', () => {
@@ -48,7 +52,10 @@ describe('build workflow macOS signing policy', () => {
 
   it('resolves the Developer ID Application identity from the imported certificate', () => {
     expect(workflowSource).toContain('Developer ID Application:');
+    expect(workflowSource).toContain('developer_id_identity=');
     expect(workflowSource).toContain('Configured Apple signing identity was not found');
+    expect(workflowSource).toContain(signingIdentityFallback);
+    expect(workflowSource).not.toContain(strictSigningIdentityMismatch);
     expect(workflowSource).toContain('APPLE_SIGNING_IDENTITY_RESOLVED');
     expect(workflowSource).toContain(resolvedSigningIdentity);
     expect(workflowSource).not.toContain(legacySigningIdentity);
