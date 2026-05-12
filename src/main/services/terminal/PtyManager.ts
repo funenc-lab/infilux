@@ -108,6 +108,11 @@ function expandWindowsEnvVars(str: string): string {
         return value;
       }
     }
+    for (const [key, value] of Object.entries(process.env)) {
+      if (key.toUpperCase() === upperVarName && value) {
+        return value;
+      }
+    }
     // Keep original if not found
     return match;
   });
