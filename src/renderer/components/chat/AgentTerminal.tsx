@@ -86,7 +86,11 @@ import {
   isAgentTerminalInterruptKeyEvent,
   shouldForceAgentTerminalIdleAfterInterrupt,
 } from './agentTerminalInterruptPolicy';
-import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
+import {
+  appendRecentAgentOutput,
+  hasRenderableAgentTerminalOutput,
+  resolveCopyableAgentOutputBlock,
+} from './agentTerminalOutput';
 import { shouldRetryDeadAgentSession } from './agentTerminalRecoveryPolicy';
 import { formatAgentTranscriptForTerminal } from './agentTranscriptTerminalFormat';
 import { extractClaudePolicySessionMetadata } from './claudePolicyLaunch';
@@ -303,6 +307,9 @@ export function AgentTerminal({
   const [claudeIdeStatus, setClaudeIdeStatus] = useState<ClaudeIdeBridgeStatus | null>(null);
   const [claudeWorkspaceTrusted, setClaudeWorkspaceTrusted] = useState<boolean | null>(null);
   const [startupProbeRetryNonce, setStartupProbeRetryNonce] = useState(0);
+  const [hasRenderableTerminalOutput, setHasRenderableTerminalOutput] = useState(() =>
+    hasRenderableAgentTerminalOutput(replaySnapshot ?? '')
+  );
 
   // Resolved shell for command execution
   const [resolvedShell, setResolvedShell] = useState<{
@@ -1283,6 +1290,12 @@ export function AgentTerminal({
         outputBufferRef.current = outputBufferRef.current.slice(-500);
       }
       currentOutputBlockRef.current = appendRecentAgentOutput(currentOutputBlockRef.current, data);
+      if (
+        !hasRenderableTerminalOutput &&
+        hasRenderableAgentTerminalOutput(currentOutputBlockRef.current)
+      ) {
+        setHasRenderableTerminalOutput(true);
+      }
 
       if (
         claudeWorkspaceTrusted === true &&
@@ -1371,6 +1384,7 @@ export function AgentTerminal({
       agentNotificationEnabled,
       agentNotificationDelay,
       agentIntegration.stopHookEnabled,
+      hasRenderableTerminalOutput,
       scheduleInterruptOutputStateReset,
       terminalSessionId,
       t,
@@ -1682,13 +1696,12 @@ export function AgentTerminal({
   const isAgentStartupReadinessPending = !isReadOnlyTranscript && !isAgentStartupReady;
   const isAgentStartupActivationPending =
     !isReadOnlyTranscript && runtimeState === 'live' && terminal === null;
-  const isAgentStartupFirstOutputPending =
-    !isReadOnlyTranscript && runtimeState === 'live' && initialized === false && !recovered;
   const hasAgentStartupRenderableContent =
     isReadOnlyTranscript ||
-    initialized === true ||
-    recovered === true ||
-    Boolean(replaySnapshot?.trim());
+    hasRenderableTerminalOutput ||
+    hasRenderableAgentTerminalOutput(replaySnapshot ?? '');
+  const isAgentStartupFirstOutputPending =
+    !isReadOnlyTranscript && runtimeState === 'live' && !hasAgentStartupRenderableContent;
   const shouldShowAgentStartupOverlay =
     !isReadOnlyTranscript &&
     shouldShowAgentStartupOverlayForVisibility({
@@ -1833,7 +1846,16 @@ export function AgentTerminal({
     previousOutputBlockScopeKeyRef.current = nextOutputBlockScopeKey;
     currentOutputBlockRef.current = '';
     latestCompletedOutputBlockRef.current = '';
-  }, [backendSessionId, terminalSessionId]);
+    setHasRenderableTerminalOutput(hasRenderableAgentTerminalOutput(replaySnapshot ?? ''));
+  }, [backendSessionId, replaySnapshot, terminalSessionId]);
+
+  useEffect(() => {
+    if (hasRenderableTerminalOutput || !hasRenderableAgentTerminalOutput(replaySnapshot ?? '')) {
+      return;
+    }
+
+    setHasRenderableTerminalOutput(true);
+  }, [hasRenderableTerminalOutput, replaySnapshot]);
 
   // Handle Cmd+F / Ctrl+F
   const handleKeyDown = useCallback(

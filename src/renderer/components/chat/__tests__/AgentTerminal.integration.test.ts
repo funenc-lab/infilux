@@ -647,7 +647,7 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
-  it('falls back to a default command shell when shell resolution fails', async () => {
+  it('keeps startup feedback visible after falling back to a default command shell', async () => {
     testState.electronAPI.shellResolveForCommand.mockRejectedValue(
       new Error('shell resolver failed')
     );
@@ -659,7 +659,8 @@ describe('AgentTerminal integration', () => {
 
     const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
 
-    expect(overlay).toBeNull();
+    expect(overlay).not.toBeNull();
+    expect(overlay?.textContent).toContain('Preparing runtime');
     expect(testState.useXtermOptions.length).toBeGreaterThan(1);
 
     await mounted.unmount();
@@ -818,6 +819,23 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('keeps the startup overlay visible when initialization has not produced readable output', async () => {
+    const mounted = await mountAgentTerminal({
+      initialized: true,
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('data-agent-terminal-startup-state')).toBe('starting');
+    expect(overlay?.textContent).toContain('Preparing runtime');
+
+    await mounted.unmount();
+  });
+
   it('upgrades the startup overlay copy when loading takes longer than expected', async () => {
     vi.useFakeTimers();
     testState.xtermResult.isLoading = true;
@@ -889,7 +907,7 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
-  it('clears the startup overlay when the hapi availability probe fails', async () => {
+  it('keeps startup feedback visible while the hapi fallback waits for readable output', async () => {
     testState.electronAPI.hapiCheckGlobal.mockRejectedValue(new Error('hapi probe failed'));
 
     const mounted = await mountAgentTerminal({
@@ -901,7 +919,8 @@ describe('AgentTerminal integration', () => {
 
     const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
 
-    expect(overlay).toBeNull();
+    expect(overlay).not.toBeNull();
+    expect(overlay?.textContent).toContain('Preparing runtime');
 
     await mounted.unmount();
   });

@@ -2,7 +2,9 @@ const ESC = String.raw`\u001b`;
 const BEL = String.raw`\u0007`;
 
 const ANSI_CSI_REGEX = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, 'g');
-const ANSI_OSC_REGEX = new RegExp(`${ESC}\\][^${BEL}]*(?:${BEL}|${ESC}\\\\)`, 'g');
+const ANSI_INCOMPLETE_CSI_REGEX = new RegExp(`${ESC}\\[[0-?]*[ -/]*$`, 'g');
+const ANSI_OSC_REGEX = new RegExp(`${ESC}\\][\\s\\S]*?(?:${BEL}|${ESC}\\\\|$)`, 'g');
+const ANSI_STRING_SEQUENCE_REGEX = new RegExp(`${ESC}[P_X^][\\s\\S]*?(?:${ESC}\\\\|$)`, 'g');
 const ANSI_SINGLE_ESCAPE_REGEX = new RegExp(`${ESC}[@-_]`, 'g');
 
 const PROMPT_PATTERNS = [
@@ -17,9 +19,26 @@ export const DEFAULT_RECENT_AGENT_OUTPUT_LIMIT = 64 * 1024;
 
 function stripTerminalControlSequences(value: string): string {
   return value
+    .replace(ANSI_STRING_SEQUENCE_REGEX, '')
     .replace(ANSI_OSC_REGEX, '')
     .replace(ANSI_CSI_REGEX, '')
+    .replace(ANSI_INCOMPLETE_CSI_REGEX, '')
     .replace(ANSI_SINGLE_ESCAPE_REGEX, '');
+}
+
+export function hasRenderableAgentTerminalOutput(rawOutput: string): boolean {
+  const normalized = stripTerminalControlSequences(rawOutput).replace(/\r\n?/g, '\n');
+  const printable = Array.from(normalized)
+    .filter((character) => {
+      const codePoint = character.codePointAt(0);
+      return (
+        codePoint !== undefined &&
+        (codePoint === 9 || codePoint === 10 || codePoint === 13 || codePoint > 31) &&
+        codePoint !== 127
+      );
+    })
+    .join('');
+  return printable.trim().length > 0;
 }
 
 function isPromptLikeLine(line: string): boolean {
