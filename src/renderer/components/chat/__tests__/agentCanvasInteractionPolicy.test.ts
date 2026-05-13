@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE,
   AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
+  shouldBlockAgentCanvasViewportScroll,
   shouldStartAgentCanvasPan,
 } from '../agentCanvasInteractionPolicy';
 
@@ -149,6 +150,46 @@ describe('agent canvas interaction policy', () => {
           pointerButton: 1,
           spacePressed: false,
           target,
+        })
+      ).toBe(false);
+    });
+  });
+
+  it('blocks viewport scroll input only while the canvas display mode is locked', () => {
+    expect(
+      shouldBlockAgentCanvasViewportScroll({
+        isCanvasDisplayMode: true,
+        isCanvasLocked: true,
+      })
+    ).toBe(true);
+
+    expect(
+      shouldBlockAgentCanvasViewportScroll({
+        isCanvasDisplayMode: true,
+        isCanvasLocked: false,
+      })
+    ).toBe(false);
+
+    expect(
+      shouldBlockAgentCanvasViewportScroll({
+        isCanvasDisplayMode: false,
+        isCanvasLocked: true,
+      })
+    ).toBe(false);
+  });
+
+  it('keeps session panel wheel input available while the surrounding locked canvas is frozen', () => {
+    withMockElementGlobal(() => {
+      const sessionPanel = createElement();
+      sessionPanel.setAttribute(AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE, 'true');
+      const terminalContent = createElement();
+      sessionPanel.append(terminalContent);
+
+      expect(
+        shouldBlockAgentCanvasViewportScroll({
+          isCanvasDisplayMode: true,
+          isCanvasLocked: true,
+          target: terminalContent,
         })
       ).toBe(false);
     });

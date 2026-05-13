@@ -95,6 +95,7 @@ import {
 import {
   AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE,
   AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
+  shouldBlockAgentCanvasViewportScroll,
   shouldStartAgentCanvasPan,
 } from './agentCanvasInteractionPolicy';
 import {
@@ -2760,6 +2761,16 @@ export function AgentPanel({
   }, [isCanvasLocked, setCanvasZoomForCurrentWorktree]);
   const setCanvasLockedForCurrentWorktree = useCallback(
     (locked: boolean) => {
+      if (locked) {
+        const viewport = canvasViewportRef.current;
+        if (viewport) {
+          canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = {
+            left: viewport.scrollLeft,
+            top: viewport.scrollTop,
+          };
+        }
+      }
+
       setCanvasLockedByWorktree((prev) => {
         const current = prev[canvasZoomStorageKey] ?? false;
         if (current === locked) {
@@ -2866,6 +2877,17 @@ export function AgentPanel({
   }, [applyCanvasViewportPosition, canvasZoomStorageKey, isCanvasLocked]);
   const handleCanvasViewportWheel = useCallback(
     (event: ReactWheelEvent<HTMLDivElement>) => {
+      if (
+        shouldBlockAgentCanvasViewportScroll({
+          isCanvasDisplayMode,
+          isCanvasLocked,
+          target: event.target,
+        })
+      ) {
+        event.preventDefault();
+        return;
+      }
+
       if (!(event.metaKey || event.ctrlKey)) {
         return;
       }
@@ -2899,11 +2921,26 @@ export function AgentPanel({
         );
       });
     },
-    [isCanvasLocked, setCanvasZoomForCurrentWorktree]
+    [isCanvasDisplayMode, isCanvasLocked, setCanvasZoomForCurrentWorktree]
   );
   const handleCanvasViewportScroll = useCallback(
     (event: ReactUIEvent<HTMLDivElement>) => {
       if (!isCanvasDisplayMode) {
+        return;
+      }
+
+      if (
+        shouldBlockAgentCanvasViewportScroll({
+          isCanvasDisplayMode,
+          isCanvasLocked,
+          target: event.target,
+        })
+      ) {
+        const savedPosition = canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] ?? {
+          left: event.currentTarget.scrollLeft,
+          top: event.currentTarget.scrollTop,
+        };
+        applyCanvasViewportPosition(event.currentTarget, savedPosition);
         return;
       }
 
@@ -2916,7 +2953,7 @@ export function AgentPanel({
         top: event.currentTarget.scrollTop,
       };
     },
-    [canvasZoomStorageKey, isCanvasDisplayMode]
+    [applyCanvasViewportPosition, canvasZoomStorageKey, isCanvasDisplayMode, isCanvasLocked]
   );
   const setCanvasFloatingSessionIdForCurrentWorktree = useCallback(
     (sessionId: string | null) => {

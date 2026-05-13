@@ -552,6 +552,27 @@ async function clickElement(target: HTMLElement | null) {
   });
 }
 
+function mockCanvasViewportMetrics(viewport: HTMLDivElement): void {
+  Object.defineProperties(viewport, {
+    clientHeight: {
+      configurable: true,
+      get: () => 180,
+    },
+    clientWidth: {
+      configurable: true,
+      get: () => 220,
+    },
+    scrollHeight: {
+      configurable: true,
+      get: () => 920,
+    },
+    scrollWidth: {
+      configurable: true,
+      get: () => 960,
+    },
+  });
+}
+
 async function mountAgentPanel(
   overrides: Partial<AgentPanelProps> = {}
 ): Promise<MountedAgentPanel> {
@@ -1995,6 +2016,77 @@ describe('AgentPanel integration', () => {
 
     expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(8);
     expect(mounted.container.querySelector('[data-agent-canvas-deferred="true"]')).toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('freezes the worktree canvas viewport position while locked', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-lock',
+      sessionId: 'provider-lock',
+      backendSessionId: 'backend-lock',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Gemini Lock',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-lock',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-lock',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const viewport = mounted.container.querySelector<HTMLDivElement>('.agent-canvas-viewport');
+    expect(viewport).not.toBeNull();
+    if (!viewport) {
+      await mounted.unmount();
+      return;
+    }
+
+    mockCanvasViewportMetrics(viewport);
+    viewport.scrollLeft = 140;
+    viewport.scrollTop = 180;
+
+    await clickElement(mounted.container.querySelector('button[aria-label="Lock Canvas"]'));
+
+    viewport.scrollLeft = 520;
+    viewport.scrollTop = 620;
+    await act(async () => {
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await flushRenderTasks();
+    });
+
+    expect(viewport.scrollLeft).toBe(140);
+    expect(viewport.scrollTop).toBe(180);
+
+    const canvasWheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 120,
+    });
+    const preventDefault = vi.spyOn(canvasWheelEvent, 'preventDefault');
+    viewport.dispatchEvent(canvasWheelEvent);
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });
