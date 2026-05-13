@@ -449,6 +449,109 @@ describe('TreeSidebar agent filter', () => {
     }
   });
 
+  it('keeps a worktree visible when its agent session runs from a child directory', async () => {
+    agentSessionsState.sessions = [
+      agentSession({
+        id: 'nested-workdir-session',
+        cwd: '/repo-a/agent-task/packages/ui',
+      }),
+    ];
+    agentSessionsState.runtimeStates = {
+      'nested-workdir-session': runtimeState({ outputState: 'idle' }),
+    };
+
+    const view = await mountTreeSidebar({ activeWorktree: null });
+
+    try {
+      const toggle = view.container.querySelector(
+        'button[title="Only show live Agent sessions"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(
+        view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')
+      ).not.toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
+      expect(view.container.textContent).not.toContain('No matching worktrees');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('offers a direct way to clear the agent filter when no worktrees match', async () => {
+    agentSessionsState.sessions = [agentSession({ id: 'repo-a-session', cwd: '/repo-a/missing' })];
+    agentSessionsState.runtimeStates = {
+      'repo-a-session': runtimeState({ outputState: 'idle' }),
+    };
+
+    const view = await mountTreeSidebar({ activeWorktree: null });
+
+    try {
+      const toggle = view.container.querySelector(
+        'button[title="Only show live Agent sessions"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(view.container.textContent).toContain('No live Agent worktrees');
+      expect(view.container.textContent).toContain(
+        'This repository has no worktree with a live Agent session.'
+      );
+
+      const clearButton = Array.from(view.container.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Show all worktrees')
+      );
+
+      expect(clearButton).not.toBeNull();
+
+      await act(async () => {
+        clearButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).not.toBeNull();
+      expect(
+        view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')
+      ).not.toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('keeps the agent-filter empty copy aligned with indented worktree rows', async () => {
+    agentSessionsState.sessions = [agentSession({ id: 'repo-a-session', cwd: '/repo-a/missing' })];
+    agentSessionsState.runtimeStates = {
+      'repo-a-session': runtimeState({ outputState: 'idle' }),
+    };
+
+    const view = await mountTreeSidebar({ activeWorktree: null });
+
+    try {
+      const toggle = view.container.querySelector(
+        'button[title="Only show live Agent sessions"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      const emptyState = Array.from(
+        view.container.querySelectorAll('.control-tree-inline-empty')
+      ).find((element) => element.textContent?.includes('No live Agent worktrees'));
+      expect(emptyState?.textContent).toContain('No live Agent worktrees');
+      expect(emptyState?.parentElement?.classList.contains('control-tree-guide-item')).toBe(true);
+      expect(
+        emptyState?.parentElement?.classList.contains('control-tree-guide-item-worktree')
+      ).toBe(true);
+    } finally {
+      view.unmount();
+    }
+  });
+
   it('filters by open initialized agent sessions instead of runtime output state', async () => {
     worktreeActivityState.activities = {
       '/repo-a/main': { agentCount: 1, terminalCount: 0 },
@@ -668,7 +771,7 @@ describe('TreeSidebar agent filter', () => {
     }
   });
 
-  it('does not persist forced expansion when collapsing a repository while the agent filter is active', async () => {
+  it('keeps a collapsed matching repository collapsed when the agent filter is active', async () => {
     agentSessionsState.sessions = [
       agentSession({ id: 'repo-b-session', cwd: '/repo-b/main', repoPath: '/repo-b' }),
     ];
@@ -694,19 +797,56 @@ describe('TreeSidebar agent filter', () => {
 
       const repoBContainer = repoBRow?.closest('.relative');
       const disclosure = repoBContainer?.querySelector(
-        'button[title="Collapse"]'
+        'button[title="Expand"]'
       ) as HTMLButtonElement | null;
       expect(disclosure).not.toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-b/main"]')).toBeNull();
 
       await act(async () => {
         disclosure?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
+      expect(view.container.querySelector('[data-worktree-item="/repo-b/main"]')).not.toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('does not show worktree empty states for collapsed repositories under the agent filter', async () => {
+    agentSessionsState.sessions = [agentSession({ id: 'repo-a-session', cwd: '/repo-a/missing' })];
+    agentSessionsState.runtimeStates = {
+      'repo-a-session': runtimeState({ outputState: 'idle' }),
+    };
+
+    const view = await mountTreeSidebar({ activeWorktree: null });
+
+    try {
+      const repoARow = Array.from(view.container.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Repo A')
+      );
+      expect(repoARow).not.toBeNull();
+
+      const repoAContainer = repoARow?.closest('.relative');
+      const collapseButton = repoAContainer?.querySelector(
+        'button[title="Collapse"]'
+      ) as HTMLButtonElement | null;
+      expect(collapseButton).not.toBeNull();
+
+      await act(async () => {
+        collapseButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      const toggle = view.container.querySelector(
+        'button[title="Only show live Agent sessions"]'
+      ) as HTMLButtonElement | null;
+
       await act(async () => {
         toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(view.container.querySelector('[data-worktree-item="/repo-b/main"]')).toBeNull();
+      expect(view.container.textContent).toContain('Repo A');
+      expect(view.container.textContent).not.toContain('No live Agent worktrees');
+      expect(view.container.textContent).not.toContain('No matching worktrees');
     } finally {
       view.unmount();
     }

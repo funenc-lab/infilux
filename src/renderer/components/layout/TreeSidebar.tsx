@@ -24,6 +24,7 @@ import {
   Settings2,
   X,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ALL_GROUP_ID,
@@ -102,6 +103,34 @@ function getSidebarSectionId(prefix: string, value: string): string {
 }
 
 const EMPTY_WORKTREES: GitWorktree[] = [];
+
+interface TreeInlineEmptyStateProps {
+  title: string;
+  description: string;
+  tone?: string;
+  actions?: ReactNode;
+}
+
+function TreeInlineEmptyState({ title, description, tone, actions }: TreeInlineEmptyStateProps) {
+  return (
+    <div className="control-tree-guide-item control-tree-guide-item-worktree min-w-0">
+      <div className="control-tree-inline-empty" data-tone={tone}>
+        <span className="control-tree-inline-title">{title}</span>
+        <span className="control-tree-inline-copy">{description}</span>
+        {actions}
+      </div>
+    </div>
+  );
+}
+
+function isSameOrChildPath(candidatePath: string, rootPath: string): boolean {
+  const normalizedCandidatePath = normalizePath(candidatePath);
+  const normalizedRootPath = normalizePath(rootPath);
+  return (
+    normalizedCandidatePath === normalizedRootPath ||
+    normalizedCandidatePath.startsWith(`${normalizedRootPath}/`)
+  );
+}
 
 function mergeWorktreesByPath(
   primaryWorktrees: readonly GitWorktree[],
@@ -542,10 +571,6 @@ export function TreeSidebar({
   const toggleRepoExpanded = useCallback(
     (repoPath: string) => {
       const normalizedRepoPath = normalizePath(repoPath);
-      if (showAgentWorktreesOnly && !expandedRepos.has(normalizedRepoPath)) {
-        return;
-      }
-
       const isExpanded = expandedRepos.has(normalizedRepoPath);
       if (!isExpanded) {
         onActivateRemoteRepo(repoPath);
@@ -557,7 +582,7 @@ export function TreeSidebar({
         return prev.includes(normalizedRepoPath) ? prev : [...prev, normalizedRepoPath];
       });
     },
-    [expandedRepos, onActivateRemoteRepo, showAgentWorktreesOnly]
+    [expandedRepos, onActivateRemoteRepo]
   );
 
   // Expose toggle function for selected repo via ref
@@ -866,6 +891,7 @@ export function TreeSidebar({
 
   const hasSearchFilter =
     parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0 || showAgentWorktreesOnly;
+  const hasTextSearchFilter = parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0;
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
   const openAgentSessionScope = useMemo(() => {
     const worktreePaths = new Set<string>();
@@ -887,9 +913,21 @@ export function TreeSidebar({
     return { worktreePaths, repoPaths };
   }, [agentSessions]);
   const matchesAgentWorktreeFilter = useCallback(
-    (path: string) => openAgentSessionScope.worktreePaths.has(normalizePath(path)),
+    (path: string) => {
+      for (const sessionCwd of openAgentSessionScope.worktreePaths) {
+        if (isSameOrChildPath(sessionCwd, path)) {
+          return true;
+        }
+      }
+      return false;
+    },
     [openAgentSessionScope]
   );
+  const clearSidebarFilters = useCallback(() => {
+    setSearchQuery('');
+    setShowAgentWorktreesOnly(false);
+    searchInputRef.current?.focus();
+  }, []);
   const filteredTempWorkspaces = useMemo(() => {
     return sortedTempWorkspaces.filter((item) => {
       if (showAgentWorktreesOnly && !matchesAgentWorktreeFilter(item.path)) {
@@ -1049,7 +1087,7 @@ export function TreeSidebar({
   const renderRepoItem = (repo: Repository, originalIndex: number, sectionGroupId?: string) => {
     const isSelected = selectedRepo === repo.path;
     const isStoredExpanded = expandedRepos.has(normalizePath(repo.path));
-    const isExpanded = isStoredExpanded || showAgentWorktreesOnly;
+    const isExpanded = isStoredExpanded;
     const worktreeSectionId = getSidebarSectionId('tree-worktrees', repo.path);
     const repoCanLoad = canLoadRepo(repo.path);
     const repoSnapshot = resolveTreeSidebarRepoSnapshot({
@@ -1199,47 +1237,48 @@ export function TreeSidebar({
         {isExpanded ? (
           <div id={worktreeSectionId} className="control-tree-guide">
             {!repoCanLoad ? (
-              <div className="control-tree-inline-empty">
-                <span className="control-tree-inline-title">{t('Worktrees not loaded')}</span>
-                <span className="control-tree-inline-copy">
-                  {t('Select this repository to load and inspect its worktrees.')}
-                </span>
-              </div>
+              <TreeInlineEmptyState
+                title={t('Worktrees not loaded')}
+                description={t('Select this repository to load and inspect its worktrees.')}
+              />
             ) : showRepoError && repoErrorState ? (
-              <div className="control-tree-inline-empty" data-tone={repoErrorState.tone}>
-                <span className="control-tree-inline-title">{t(repoErrorState.title)}</span>
-                <span className="control-tree-inline-copy">
-                  {t(repoErrorState.inlineDescription)}
-                </span>
-                {repoErrorState.kind === 'not-git-repository' && onInitGit && isSelected && (
-                  <Button
-                    onClick={async () => {
-                      await onInitGit();
-                      refetchExpandedWorktrees();
-                    }}
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 text-xs w-fit"
-                  >
-                    <GitBranch className="mr-1 h-3 w-3" />
-                    {t('Init')}
-                  </Button>
-                )}
-                {repoErrorState.kind !== 'not-git-repository' && isSelected && (
-                  <Button
-                    onClick={() => {
-                      onRefresh();
-                      refetchExpandedWorktrees();
-                    }}
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 text-xs w-fit"
-                  >
-                    <RefreshCw className="mr-1 h-3 w-3" />
-                    {t('Retry')}
-                  </Button>
-                )}
-              </div>
+              <TreeInlineEmptyState
+                title={t(repoErrorState.title)}
+                description={t(repoErrorState.inlineDescription)}
+                tone={repoErrorState.tone}
+                actions={
+                  <>
+                    {repoErrorState.kind === 'not-git-repository' && onInitGit && isSelected && (
+                      <Button
+                        onClick={async () => {
+                          await onInitGit();
+                          refetchExpandedWorktrees();
+                        }}
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 text-xs w-fit"
+                      >
+                        <GitBranch className="mr-1 h-3 w-3" />
+                        {t('Init')}
+                      </Button>
+                    )}
+                    {repoErrorState.kind !== 'not-git-repository' && isSelected && (
+                      <Button
+                        onClick={() => {
+                          onRefresh();
+                          refetchExpandedWorktrees();
+                        }}
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 text-xs w-fit"
+                      >
+                        <RefreshCw className="mr-1 h-3 w-3" />
+                        {t('Retry')}
+                      </Button>
+                    )}
+                  </>
+                }
+              />
             ) : repoLoading ? (
               <div className="control-tree-flat-list">
                 {[0, 1].map((i) => (
@@ -1247,16 +1286,34 @@ export function TreeSidebar({
                 ))}
               </div>
             ) : repoWorktrees.length === 0 ? (
-              <div className="control-tree-inline-empty">
-                <span className="control-tree-inline-title">
-                  {hasSearchFilter ? t('No matching worktrees') : t('No worktrees yet')}
-                </span>
-                <span className="control-tree-inline-copy">
-                  {hasSearchFilter
-                    ? t('Try a broader search term or clear the current filter.')
-                    : t('Create one from repository actions when you are ready to branch out.')}
-                </span>
-              </div>
+              <TreeInlineEmptyState
+                title={
+                  showAgentWorktreesOnly && !hasTextSearchFilter
+                    ? t('No live Agent worktrees')
+                    : hasSearchFilter
+                      ? t('No matching worktrees')
+                      : t('No worktrees yet')
+                }
+                description={
+                  showAgentWorktreesOnly && !hasTextSearchFilter
+                    ? t('This repository has no worktree with a live Agent session.')
+                    : hasSearchFilter
+                      ? t('Try a broader search term or clear the current filter.')
+                      : t('Create one from repository actions when you are ready to branch out.')
+                }
+                actions={
+                  hasSearchFilter ? (
+                    <Button
+                      onClick={clearSidebarFilters}
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 text-xs w-fit"
+                    >
+                      {showAgentWorktreesOnly ? t('Show all worktrees') : t('Clear Search')}
+                    </Button>
+                  ) : null
+                }
+              />
             ) : (
               repoWorktrees.map((worktree, wtIndex) => {
                 return (
@@ -1589,16 +1646,14 @@ export function TreeSidebar({
             {tempExpanded ? (
               <div id={tempWorkspacesSectionId} className="control-tree-guide">
                 {filteredTempWorkspaces.length === 0 ? (
-                  <div className="control-tree-inline-empty">
-                    <span className="control-tree-inline-title">
-                      {hasSearchFilter ? t('No matching temp sessions') : t('No temp sessions')}
-                    </span>
-                    <span className="control-tree-inline-copy">
-                      {hasSearchFilter
+                  <TreeInlineEmptyState
+                    title={hasSearchFilter ? t('No matching temp sessions') : t('No temp sessions')}
+                    description={
+                      hasSearchFilter
                         ? t('Try a broader search term or clear the current filter.')
-                        : t('Create one from the add action when you need a scratch workspace.')}
-                    </span>
-                  </div>
+                        : t('Create one from the add action when you need a scratch workspace.')
+                    }
+                  />
                 ) : (
                   filteredTempWorkspaces.map((item) => (
                     <TempWorkspaceTreeItem
@@ -1660,12 +1715,9 @@ export function TreeSidebar({
                   variant="outline"
                   size="sm"
                   className="control-action-button control-action-button-secondary h-8 rounded-lg px-3 text-sm"
-                  onClick={() => {
-                    setSearchQuery('');
-                    searchInputRef.current?.focus();
-                  }}
+                  onClick={clearSidebarFilters}
                 >
-                  {t('Clear Search')}
+                  {showAgentWorktreesOnly ? t('Show all worktrees') : t('Clear Search')}
                 </Button>
               }
             />
