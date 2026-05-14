@@ -157,6 +157,105 @@ describe.sequential('electron agent transcript interactions', () => {
       await quitElectronApplication(launch.app);
     }
   });
+
+  it('keeps drag selection active while crossing the scroll-to-bottom control and restores the control after release', async () => {
+    const scenario = await createAgentWheelProbeScenario();
+    cleanupTasks.push(scenario.cleanup);
+
+    const launch = await launchInfiluxForScenario(scenario);
+
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario);
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      await scrollUntilVisibleLine(launch.page, scenario, 'TRANSCRIPT-LINE-001');
+
+      const scrollButton = resolveScrollToBottomButton(launch.page, scenario);
+      await scrollButton.waitFor({ state: 'visible', timeout: 30000 });
+
+      const visibleLines = extractVisibleTranscriptLines(
+        await readVisibleTerminalText(launch.page, scenario)
+      );
+      expect(visibleLines.length).toBeGreaterThanOrEqual(8);
+
+      const upperSelectionLine = visibleLines[Math.floor(visibleLines.length * 0.25)];
+      const middleVisibleLine = visibleLines[Math.floor(visibleLines.length / 2)];
+      const lowerSelectionLine = visibleLines[Math.floor(visibleLines.length * 0.8)];
+
+      const terminal = resolveTerminalLocator(launch.page, scenario);
+      const terminalBox = await terminal.boundingBox();
+      const scrollButtonBox = await scrollButton.boundingBox();
+      if (!terminalBox || !scrollButtonBox) {
+        throw new Error(`Missing terminal or scroll button box for ${scenario.sessionPanelId}`);
+      }
+
+      const dragStartX = terminalBox.x + terminalBox.width * 0.12;
+      const dragStartY = terminalBox.y + terminalBox.height * 0.22;
+      const scrollButtonCenterX = scrollButtonBox.x + scrollButtonBox.width / 2;
+      const scrollButtonCenterY = scrollButtonBox.y + scrollButtonBox.height / 2;
+      const dragEndX = terminalBox.x + terminalBox.width * 0.82;
+      const dragEndY = terminalBox.y + terminalBox.height * 0.88;
+
+      await launch.page.mouse.move(dragStartX, dragStartY);
+      await launch.page.mouse.down();
+
+      await expect
+        .poll(async () => await readScrollToBottomPointerEvents(launch.page, scenario), {
+          timeout: 10000,
+        })
+        .toBe('none');
+
+      await launch.page.mouse.move(scrollButtonCenterX, scrollButtonCenterY, { steps: 16 });
+
+      const scrollButtonMatchedAtCenter = await elementAtPointMatchesScrollButton(
+        launch.page,
+        scenario,
+        scrollButtonCenterX,
+        scrollButtonCenterY
+      );
+      expect(scrollButtonMatchedAtCenter).toBe(false);
+
+      await launch.page.mouse.move(dragEndX, dragEndY, { steps: 16 });
+      await launch.page.mouse.up();
+
+      await expect
+        .poll(async () => (await readTerminalSelectionText(launch.page)).length, { timeout: 10000 })
+        .toBeGreaterThan(0);
+
+      const selectedText = await readTerminalSelectionText(launch.page);
+      expect(selectedText).toContain(upperSelectionLine);
+      expect(selectedText).toContain(middleVisibleLine);
+      expect(selectedText).toContain(lowerSelectionLine);
+
+      await expect
+        .poll(
+          async () => (await readScrollToBottomPointerEvents(launch.page, scenario)) === 'none',
+          {
+            timeout: 10000,
+          }
+        )
+        .toBe(false);
+
+      await scrollButton.click();
+
+      await expect
+        .poll(async () => await readVisibleTerminalText(launch.page, scenario), { timeout: 10000 })
+        .toContain('TRANSCRIPT-LINE-180');
+
+      const log = await readProbeLog(scenario.probeLogPath);
+      expect(log).not.toContain('MOUSE_EVENT');
+      expect(log).not.toContain('PAGE_UP');
+      expect(log).not.toContain('PAGE_DOWN');
+      expect(log).not.toContain('ARROW_UP');
+      expect(log).not.toContain('ARROW_DOWN');
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
 });
 
 async function buildScenarioError(
@@ -240,10 +339,39 @@ function resolveTerminalLocator(
 
 async function readVisibleTerminalText(
   page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
-  scenario: AgentWheelProbeScenario
+  _scenario: AgentWheelProbeScenario
 ): Promise<string> {
-  const rows = page.locator(`#${scenario.sessionPanelId} .xterm-rows`).first();
-  return await rows.innerText();
+  return await page.evaluate(() => {
+    const terminal = (
+      window as typeof window & {
+        __INFILUX_E2E_LAST_XTERM__?: {
+          rows: number;
+          buffer: {
+            active: {
+              viewportY: number;
+              getLine: (index: number) =>
+                | {
+                    translateToString: (trimRight?: boolean, startColumn?: number) => string;
+                  }
+                | undefined;
+            };
+          };
+        };
+      }
+    ).__INFILUX_E2E_LAST_XTERM__;
+
+    if (!terminal) {
+      return '';
+    }
+
+    const rows: string[] = [];
+    for (let rowIndex = 0; rowIndex < terminal.rows; rowIndex += 1) {
+      const line = terminal.buffer.active.getLine(terminal.buffer.active.viewportY + rowIndex);
+      rows.push(line?.translateToString(true) ?? '');
+    }
+
+    return rows.join('\n');
+  });
 }
 
 async function installClipboardWriteSpy(
@@ -316,6 +444,48 @@ async function readTerminalSelectionText(
 
     return terminal.getSelection?.() ?? '';
   });
+}
+
+function extractVisibleTranscriptLines(text: string): string[] {
+  return text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => /^TRANSCRIPT-LINE-\d{3}$/u.test(line));
+}
+
+function resolveScrollToBottomButton(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  scenario: AgentWheelProbeScenario
+) {
+  return page.locator(`#${scenario.sessionPanelId} button.bottom-3.right-3`).first();
+}
+
+async function readScrollToBottomPointerEvents(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  scenario: AgentWheelProbeScenario
+): Promise<string | null> {
+  return await page.evaluate((panelId) => {
+    const button = document.querySelector<HTMLButtonElement>(`#${panelId} button.bottom-3.right-3`);
+    return button ? window.getComputedStyle(button).pointerEvents : null;
+  }, scenario.sessionPanelId);
+}
+
+async function elementAtPointMatchesScrollButton(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  scenario: AgentWheelProbeScenario,
+  x: number,
+  y: number
+): Promise<boolean> {
+  return await page.evaluate(
+    ({ panelId, x: pointX, y: pointY }) => {
+      const element = document.elementFromPoint(pointX, pointY);
+      return (
+        element instanceof HTMLElement &&
+        element.closest(`#${panelId} button.bottom-3.right-3`) !== null
+      );
+    },
+    { panelId: scenario.sessionPanelId, x, y }
+  );
 }
 
 async function selectAllTranscriptOutput(
