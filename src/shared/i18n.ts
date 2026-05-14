@@ -510,7 +510,8 @@ export const zhTranslations: Record<string, string> = {
   'No staged changes': '没有暂存的更改',
   'No matching actions found': '没有找到匹配的操作',
   'No matching repositories': '未找到仓库',
-  'No matching worktrees': '未找到匹配',
+  'No matching worktrees': '没有匹配的 worktree',
+  'No live Agent worktrees': '没有活跃 Agent worktree',
   'No matching results': '没有匹配结果',
   'No matching workspaces': '未找到匹配的工作区',
   'No Apps': '没有可用应用',
@@ -764,7 +765,7 @@ export const zhTranslations: Record<string, string> = {
   'Worktree delete force hint': '目录包含未提交的修改，请勾选「强制删除」',
   'Worktree deleted': '已删除',
   'Worktree list empty': '创建第一个 Worktree 开始工作',
-  'Worktree not found': '未找到匹配',
+  'Worktree not found': 'Worktree 不存在',
   'Worktree path already exists. Choose a different path or branch name.':
     '目录已存在，请选择其他路径或分支名',
   'Worktree search placeholder': '搜索 worktree...',
@@ -1532,7 +1533,7 @@ export const zhTranslations: Record<string, string> = {
   'No results': '无结果',
   'No files found': '未找到文件',
   'Type to search files': '输入以搜索文件',
-  'No matches found': '未找到匹配',
+  'No matches found': '没有搜索结果',
   'Type to search in files': '输入以搜索文件内容',
   'No preview available': '无法预览',
   'This file type is not supported for preview': '此文件类型暂不支持预览',
@@ -2321,6 +2322,8 @@ export const zhTranslations: Record<string, string> = {
   'Initialize Git here to create and manage worktrees.': '在此初始化 Git 以创建和管理 worktree。',
   'No worktrees yet': '还没有 worktree',
   'Try a broader search term or clear the current filter.': '尝试更宽泛的搜索词，或清除当前筛选。',
+  'This repository has no worktree with a live Agent session.':
+    '此仓库没有包含活跃 Agent 会话的 worktree。',
   'Create one from repository actions when you are ready to branch out.':
     '准备好创建分支上下文时，可从仓库操作中创建一个。',
   'Collapse temp sessions': '折叠临时会话',

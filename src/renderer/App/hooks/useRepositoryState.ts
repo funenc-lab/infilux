@@ -155,9 +155,11 @@ export function useRepositoryState() {
   }, []);
 
   const handleMoveToGroup = useCallback(
-    (repoId: string, targetGroupId: string | null) => {
+    (repoIdentifier: string, targetGroupId: string | null) => {
       const updated = repositories.map((r) =>
-        r.id === repoId ? { ...r, groupId: targetGroupId || undefined } : r
+        r.id === repoIdentifier || pathsEqual(r.path, repoIdentifier)
+          ? { ...r, groupId: targetGroupId || undefined }
+          : r
       );
       saveRepositories(updated);
     },

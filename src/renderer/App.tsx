@@ -524,9 +524,6 @@ export default function App() {
     }, [activeWorktree?.path, switchWorktreePathRef.current]),
   });
 
-  // Web Inspector: listen for element inspection data and write to active agent terminal
-  useWebInspector(activeWorktree?.path, selectedRepo ?? undefined);
-
   useTerminalNavigation(activeWorktree?.path ?? null, setActiveTab, setWorktreeTabMap);
   useMenuActions(openSettings, setActionPanelOpen);
   const { confirmCloseAndRespond, cancelCloseAndRespond } = useAppLifecycle(
@@ -773,6 +770,7 @@ export default function App() {
       }),
     [activeWorktree?.path, agentSessions, mainContentRepoPath, repoWorktreeMap, repositories]
   );
+  useWebInspector(activeWorktree?.path, mainContentRepoPath ?? undefined);
   const cachedSelectedRepoWorktrees = useMemo(() => {
     const cachedWorktrees = queryClient.getQueryData<GitWorktree[]>(
       worktreeQueryKeys.list(worktreeRepoPath)
@@ -844,7 +842,6 @@ export default function App() {
   ]);
 
   useGroupSync(hideGroups, activeGroupId, groups, setActiveGroupId, saveActiveGroupId);
-  useOpenPathListener(true, repositories, saveRepositories, setSelectedRepoState);
   useAgentIdeBridgeIntegration(activeWorktree?.path ?? null, true);
   useCodeReviewContinue(activeWorktree, handleTabChange);
   useWorktreeSync(
@@ -969,6 +966,7 @@ export default function App() {
       worktreeTabMap,
     ]
   );
+  useOpenPathListener(true, repositories, saveRepositories, handleSelectRepo);
 
   const handleSwitchTodoRepository = useCallback(
     (repoPath: string) => {

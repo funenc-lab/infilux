@@ -324,7 +324,17 @@ function sanitizePersistedSession(session: Session): Session {
     ...persistedSession,
     name: getStoredSessionName(session.name, session.agentId),
     terminalTitle: getMeaningfulTerminalTitle(session.terminalTitle),
+    userRenamed:
+      session.userRenamed || resolveProtectedStoredSessionTitle(session.name, session.agentId),
   };
+}
+
+function shouldProtectStoredSessionTitle(title: string, agentId?: string): boolean {
+  return getStoredSessionName(title, agentId) !== getStoredSessionName('', agentId);
+}
+
+function resolveProtectedStoredSessionTitle(title: string, agentId?: string): true | undefined {
+  return shouldProtectStoredSessionTitle(title, agentId) ? true : undefined;
 }
 
 function isTrackedClaudePolicySession(session: Session): boolean {
@@ -832,7 +842,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           environment: record.environment,
           displayOrder: existing?.displayOrder,
           terminalTitle: getMeaningfulTerminalTitle(existing?.terminalTitle),
-          userRenamed: existing?.userRenamed,
+          userRenamed:
+            existing?.userRenamed ||
+            resolveProtectedStoredSessionTitle(record.displayName, record.agentId),
           pendingCommand: existing?.pendingCommand,
           persistenceEnabled: true,
           hostSessionKey: record.hostKind === 'tmux' ? record.hostSessionKey : undefined,

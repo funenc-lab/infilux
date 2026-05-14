@@ -37,6 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useI18n } from '@/i18n';
 import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
+import { resolveCreateWorktreeErrorMessage } from './createWorktreeErrorMessage';
 
 // Get display name for branch (remove remotes/ prefix for remote branches)
 const getBranchDisplayName = (name: string) => {
@@ -300,17 +301,7 @@ export function CreateWorktreeDialog({
   };
 
   const handleSubmitError = (err: unknown) => {
-    const message = err instanceof Error ? err.message : t('Failed to create');
-    if (message.includes('already exists')) {
-      setError(t('Worktree path already exists. Choose a different path or branch name.'));
-    } else if (
-      message.includes('is already used by worktree') ||
-      message.includes('already checked out')
-    ) {
-      setError(t('Branch already exists. Choose a different name.'));
-    } else {
-      setError(message);
-    }
+    setError(resolveCreateWorktreeErrorMessage(err, t));
   };
 
   const resetForm = () => {

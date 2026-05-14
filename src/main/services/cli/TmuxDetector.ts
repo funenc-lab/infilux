@@ -15,6 +15,7 @@ const TMUX_COMMAND_TIMEOUT_MS = 5000;
 const LIST_PANES_FORMAT = '#{pane_id}\t#{pane_active}\t#{pane_in_mode}';
 const TMUX_HEALTHCHECK_SESSION_PREFIX = 'infilux-healthcheck';
 const TMUX_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
+const TMUX_SCROLL_PANE_CACHE_TTL_MS = 250;
 
 export type TmuxSessionProbeStatus = 'exists' | 'missing' | 'failed';
 
@@ -131,7 +132,10 @@ function execTmuxCommand(args: string[]): Promise<string> {
   });
 }
 
-function normalizeScrollAmount(amount: number): number {
+function normalizeScrollAmount(amount?: number): number {
+  if (typeof amount !== 'number') {
+    return 0;
+  }
   if (!Number.isFinite(amount)) {
     return 0;
   }
@@ -172,9 +176,86 @@ function findActivePaneForSession(stdout: string): { paneId: string; inMode: boo
   };
 }
 
+function buildScrollPaneCacheKey(serverName: string, sessionName: string): string {
+  return `${serverName}\u0000${sessionName}`;
+}
+
+interface TmuxScrollPaneCacheEntry {
+  expiresAt: number;
+  inMode: boolean;
+  paneId: string;
+}
+
 class TmuxDetector {
   private cache: TmuxCheckResult | null = null;
   private readonly serverHealthCheckPromises = new Map<string, Promise<boolean>>();
+  private readonly scrollPaneCache = new Map<string, TmuxScrollPaneCacheEntry>();
+
+  private getCachedScrollPane(
+    serverName: string,
+    sessionName: string
+  ): { paneId: string; inMode: boolean } | null {
+    const cacheKey = buildScrollPaneCacheKey(serverName, sessionName);
+    const cached = this.scrollPaneCache.get(cacheKey);
+    if (!cached) {
+      return null;
+    }
+
+    if (cached.expiresAt <= Date.now()) {
+      this.scrollPaneCache.delete(cacheKey);
+      return null;
+    }
+
+    return {
+      paneId: cached.paneId,
+      inMode: cached.inMode,
+    };
+  }
+
+  private setCachedScrollPane(
+    serverName: string,
+    sessionName: string,
+    pane: { paneId: string; inMode: boolean }
+  ): void {
+    this.scrollPaneCache.set(buildScrollPaneCacheKey(serverName, sessionName), {
+      expiresAt: Date.now() + TMUX_SCROLL_PANE_CACHE_TTL_MS,
+      inMode: pane.inMode,
+      paneId: pane.paneId,
+    });
+  }
+
+  private clearCachedScrollPane(serverName: string, sessionName: string): void {
+    this.scrollPaneCache.delete(buildScrollPaneCacheKey(serverName, sessionName));
+  }
+
+  private async resolveScrollPane(
+    sessionName: string,
+    serverName: string,
+    options?: { forceRefresh?: boolean }
+  ): Promise<{ paneId: string; inMode: boolean } | null> {
+    if (!options?.forceRefresh) {
+      const cached = this.getCachedScrollPane(serverName, sessionName);
+      if (cached) {
+        return cached;
+      }
+    }
+
+    const stdout = await execTmux(serverName, [
+      'list-panes',
+      '-t',
+      sessionName,
+      '-F',
+      LIST_PANES_FORMAT,
+    ]);
+    const pane = findActivePaneForSession(stdout);
+    if (!pane) {
+      this.clearCachedScrollPane(serverName, sessionName);
+      return null;
+    }
+
+    this.setCachedScrollPane(serverName, sessionName, pane);
+    return pane;
+  }
 
   async check(forceRefresh?: boolean): Promise<TmuxCheckResult> {
     if (isWindows) {
@@ -302,69 +383,107 @@ class TmuxDetector {
     }
 
     const amount = normalizeScrollAmount(request.amount);
-    if (!request.sessionName || amount === 0) {
+    if (
+      !request.sessionName ||
+      ((request.direction === 'up' || request.direction === 'down') && amount === 0)
+    ) {
       return { applied: false, sessionName: request.sessionName };
     }
 
     const serverName = resolveTmuxServerName(request.serverName);
 
     try {
-      const stdout = await execInPty(
-        buildTmuxShellCommand(
-          serverName,
-          `list-panes -t ${shellQuote(request.sessionName)} -F ${shellQuote(LIST_PANES_FORMAT)}`
-        ),
-        {
-          timeout: TMUX_COMMAND_TIMEOUT_MS,
-        }
-      );
-      const pane = findActivePaneForSession(stdout);
+      const pane = await this.resolveScrollPane(request.sessionName, serverName);
       if (!pane) {
         return { applied: false, sessionName: request.sessionName };
       }
 
-      if (request.direction === 'up') {
-        await execInPty(
-          buildTmuxShellCommand(serverName, `copy-mode -eH -t ${shellQuote(pane.paneId)}`),
-          {
-            timeout: TMUX_COMMAND_TIMEOUT_MS,
-          }
-        );
-        await execInPty(
-          buildTmuxShellCommand(
-            serverName,
-            `send-keys -X -N ${amount} -t ${shellQuote(pane.paneId)} scroll-up`
-          ),
-          {
-            timeout: TMUX_COMMAND_TIMEOUT_MS,
-          }
-        );
-      } else {
+      if (request.direction === 'bottom') {
         if (!pane.inMode) {
+          this.setCachedScrollPane(serverName, request.sessionName, {
+            paneId: pane.paneId,
+            inMode: false,
+          });
           return {
             applied: false,
             sessionName: request.sessionName,
             paneId: pane.paneId,
+            inMode: false,
           };
         }
 
-        await execInPty(
-          buildTmuxShellCommand(
-            serverName,
-            `send-keys -X -N ${amount} -t ${shellQuote(pane.paneId)} scroll-down-and-cancel`
-          ),
-          {
-            timeout: TMUX_COMMAND_TIMEOUT_MS,
-          }
-        );
+        await execTmux(serverName, ['send-keys', '-X', '-t', pane.paneId, 'cancel']);
+        this.setCachedScrollPane(serverName, request.sessionName, {
+          paneId: pane.paneId,
+          inMode: false,
+        });
+        return {
+          applied: true,
+          sessionName: request.sessionName,
+          paneId: pane.paneId,
+          inMode: false,
+        };
       }
 
-      return {
-        applied: true,
-        sessionName: request.sessionName,
-        paneId: pane.paneId,
-      };
+      if (request.direction === 'up') {
+        if (!pane.inMode) {
+          await execTmux(serverName, ['copy-mode', '-eH', '-t', pane.paneId]);
+          pane.inMode = true;
+        }
+        await execTmux(serverName, [
+          'send-keys',
+          '-X',
+          '-N',
+          String(amount),
+          '-t',
+          pane.paneId,
+          'scroll-up',
+        ]);
+        this.setCachedScrollPane(serverName, request.sessionName, {
+          paneId: pane.paneId,
+          inMode: true,
+        });
+        return {
+          applied: true,
+          sessionName: request.sessionName,
+          paneId: pane.paneId,
+          inMode: true,
+        };
+      } else {
+        if (!pane.inMode) {
+          this.setCachedScrollPane(serverName, request.sessionName, {
+            paneId: pane.paneId,
+            inMode: false,
+          });
+          return {
+            applied: false,
+            sessionName: request.sessionName,
+            paneId: pane.paneId,
+            inMode: false,
+          };
+        }
+
+        await execTmux(serverName, [
+          'send-keys',
+          '-X',
+          '-N',
+          String(amount),
+          '-t',
+          pane.paneId,
+          'scroll-down-and-cancel',
+        ]);
+        const refreshedPane = await this.resolveScrollPane(request.sessionName, serverName, {
+          forceRefresh: true,
+        });
+        return {
+          applied: true,
+          sessionName: request.sessionName,
+          paneId: pane.paneId,
+          inMode: refreshedPane?.inMode ?? false,
+        };
+      }
     } catch {
+      this.clearCachedScrollPane(serverName, request.sessionName);
       return { applied: false, sessionName: request.sessionName };
     }
   }

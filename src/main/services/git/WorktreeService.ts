@@ -51,6 +51,14 @@ function resolvePathWithinWorkdir(
   };
 }
 
+function isMissingWorktreeRemovalError(errorMessage: string): boolean {
+  return (
+    errorMessage.includes('is not a working tree') ||
+    errorMessage.includes('does not exist') ||
+    errorMessage.includes('No such file or directory')
+  );
+}
+
 /**
  * Kill processes that have their working directory under the specified path (Windows only)
  */
@@ -184,9 +192,9 @@ export class WorktreeService {
         current.branch = line.substring(7).replace('refs/heads/', '');
       } else if (line === 'bare') {
         current.isMainWorktree = true;
-      } else if (line === 'locked') {
+      } else if (line === 'locked' || line.startsWith('locked ')) {
         current.isLocked = true;
-      } else if (line === 'prunable') {
+      } else if (line === 'prunable' || line.startsWith('prunable ')) {
         current.prunable = true;
       }
     }
@@ -203,6 +211,24 @@ export class WorktreeService {
     return worktrees;
   }
 
+  private async ensureNewBranchDoesNotExist(branchName: string): Promise<void> {
+    const matchingRefs = await this.git.raw([
+      'for-each-ref',
+      '--format=%(refname:short)',
+      `refs/heads/${branchName}`,
+    ]);
+    const branchAlreadyExists = matchingRefs
+      .split('\n')
+      .some((candidateBranchName) => candidateBranchName.trim() === branchName);
+
+    if (branchAlreadyExists) {
+      throw new Error(
+        `Worktree branch conflicts with existing local branch: ${branchName}. ` +
+          'Choose a different name or create the worktree from the existing branch.'
+      );
+    }
+  }
+
   async add(options: WorktreeCreateOptions): Promise<void> {
     // Check if repository has any commits
     try {
@@ -211,6 +237,10 @@ export class WorktreeService {
       throw new Error(
         'Cannot create worktree: repository has no commits. Please create an initial commit first.'
       );
+    }
+
+    if (options.newBranch) {
+      await this.ensureNewBranchDoesNotExist(options.newBranch);
     }
 
     const args = ['worktree', 'add'];
@@ -245,9 +275,9 @@ export class WorktreeService {
 
       // Handle "Permission denied" or "not a working tree" errors
       const isPermissionDenied = errorMessage.includes('Permission denied');
-      const isNotWorktree = errorMessage.includes('is not a working tree');
+      const isMissingWorktree = isMissingWorktreeRemovalError(errorMessage);
 
-      if (isPermissionDenied || isNotWorktree) {
+      if (isPermissionDenied || isMissingWorktree) {
         // Try to clean up the directory manually
         if (existsSync(options.path)) {
           try {

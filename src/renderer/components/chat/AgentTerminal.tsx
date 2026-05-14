@@ -9,7 +9,14 @@ import type {
 } from '@shared/types';
 import { TASK_COMPLETION_MARKER } from '@shared/types/agent';
 import { ArrowDown } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useShallow } from 'zustand/shallow';
 import {
   getClaudeGlobalPolicy,
@@ -28,6 +35,7 @@ import { useXterm, type XtermSessionCreateFallbackOptions } from '@/hooks/useXte
 import {
   copyTerminalSelectionToClipboard,
   readClipboardText,
+  restoreTerminalInteractionAfterCopy,
   writeClipboardText,
 } from '@/hooks/xtermClipboard';
 import { useI18n } from '@/i18n';
@@ -165,6 +173,7 @@ const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is d
 const MIN_OUTPUT_FOR_INDICATOR = 200; // Minimum chars to show "outputting" indicator (higher to avoid noise)
 const IDLE_CONFIRMATION_COUNT = 2; // Require 2 consecutive idle polls (2 seconds) before marking as idle
 const RECENT_OUTPUT_TIMEOUT_MS = 3000; // If output received within this time, consider still active
+const AGENT_TERMINAL_FLOATING_CONTROL_ATTRIBUTE = 'data-agent-terminal-floating-control';
 
 function hasResolvedProviderSessionId(
   uiSessionId: string | undefined,
@@ -214,6 +223,13 @@ function getAttachmentTempExtension(file: File): string {
 function resolveClipboardImageTempFormat(file: File): 'png' | 'jpeg' {
   const mime = file.type.toLowerCase();
   return mime === 'image/jpeg' || mime === 'image/jpg' ? 'jpeg' : 'png';
+}
+
+function isAgentTerminalFloatingControlTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(`[${AGENT_TERMINAL_FLOATING_CONTROL_ATTRIBUTE}="true"]`) !== null
+  );
 }
 
 export function AgentTerminal({
@@ -1144,6 +1160,8 @@ export function AgentTerminal({
   const handleSessionCreateFallbackRetry = useCallback(() => {
     setShouldBypassHostSessionRecovery(true);
   }, []);
+  const [isTmuxHostScrollbackActive, setIsTmuxHostScrollbackActive] = useState(false);
+  const [isMouseSelectingTerminal, setIsMouseSelectingTerminal] = useState(false);
 
   const { command, env, initialCommand, hostSession, sessionCreateFallback } = useMemo(() => {
     if (isReadOnlyTranscript) {
@@ -1633,6 +1651,7 @@ export function AgentTerminal({
     onCustomKey: handleCustomKey,
     onTitleChange: handleTitleChange,
     onSessionIdChange: onBackendSessionIdChange,
+    onHostScrollbackStateChange: setIsTmuxHostScrollbackActive,
     onSessionOpen: (session) => {
       const capabilityState = extractAgentCapabilitySessionMetadata(session.metadata);
       if (capabilityState) {
@@ -1826,7 +1845,71 @@ export function AgentTerminal({
 
     requestAnimationFrame(() => terminal?.focus());
   }, [enhancedInputOpen, terminal]);
-  const { showScrollToBottom, handleScrollToBottom } = useTerminalScrollToBottom(terminal);
+  const {
+    showScrollToBottom: showLocalScrollToBottom,
+    handleScrollToBottom: handleLocalScrollToBottom,
+  } = useTerminalScrollToBottom(terminal);
+  const tmuxHostScrollbackResetKey =
+    hostSession?.kind === 'tmux'
+      ? `${terminalSessionId ?? ''}\u0000${hostSession.serverName ?? ''}\u0000${hostSession.sessionName}`
+      : `${terminalSessionId ?? ''}\u0000${hostSession?.kind ?? 'none'}`;
+
+  useEffect(() => {
+    if (!tmuxHostScrollbackResetKey) {
+      return;
+    }
+    setIsTmuxHostScrollbackActive(false);
+  }, [tmuxHostScrollbackResetKey]);
+  useEffect(() => {
+    if (!isMouseSelectingTerminal) {
+      return;
+    }
+
+    const stopMouseSelection = () => {
+      setIsMouseSelectingTerminal(false);
+    };
+
+    window.addEventListener('mouseup', stopMouseSelection);
+    window.addEventListener('blur', stopMouseSelection);
+
+    return () => {
+      window.removeEventListener('mouseup', stopMouseSelection);
+      window.removeEventListener('blur', stopMouseSelection);
+    };
+  }, [isMouseSelectingTerminal]);
+
+  const handleTerminalMouseSelectionStart = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || isAgentTerminalFloatingControlTarget(event.target)) {
+        return;
+      }
+
+      setIsMouseSelectingTerminal(true);
+    },
+    []
+  );
+
+  const handleScrollToBottom = useCallback(() => {
+    handleLocalScrollToBottom();
+
+    if (!cwd || hostSession?.kind !== 'tmux' || !isTmuxHostScrollbackActive) {
+      return;
+    }
+
+    void window.electronAPI.tmux
+      .scrollClient(cwd, {
+        sessionName: hostSession.sessionName,
+        serverName: hostSession.serverName,
+        direction: 'bottom',
+      })
+      .then((result) => {
+        setIsTmuxHostScrollbackActive(Boolean(result.inMode));
+      })
+      .catch(() => {
+        setIsTmuxHostScrollbackActive(false);
+      });
+  }, [cwd, handleLocalScrollToBottom, hostSession, isTmuxHostScrollbackActive]);
+  const showScrollToBottom = showLocalScrollToBottom || isTmuxHostScrollbackActive;
 
   // Register write and focus functions to global store for external access
   const { register, unregister } = useTerminalWriteStore();
@@ -1910,11 +1993,19 @@ export function AgentTerminal({
           refreshRenderer();
           break;
         case 'copy':
-          void copyTerminalSelectionToClipboard(terminal).catch(() => {});
+          void copyTerminalSelectionToClipboard(terminal)
+            .then(() => {
+              restoreTerminalInteractionAfterCopy(terminal);
+            })
+            .catch(() => {});
           break;
         case 'copyLatestOutputBlock':
           if (latestOutputBlock) {
-            void writeClipboardText(latestOutputBlock).catch(() => {});
+            void writeClipboardText(latestOutputBlock)
+              .then(() => {
+                restoreTerminalInteractionAfterCopy(terminal);
+              })
+              .catch(() => {});
           }
           break;
         case 'paste':
@@ -2110,11 +2201,16 @@ export function AgentTerminal({
     <div
       ref={terminalWrapperRef}
       className="relative h-full w-full"
+      data-agent-host-scrollback={isTmuxHostScrollbackActive ? 'true' : 'false'}
       data-agent-terminal-mode={isReadOnlyTranscript ? 'transcript' : 'live'}
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}
       onClick={handleClick}
     >
-      <div ref={containerRef} className="h-full w-full" />
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        onMouseDownCapture={handleTerminalMouseSelectionStart}
+      />
       <TerminalSearchBar
         ref={searchBarRef}
         isOpen={isSearchOpen}
@@ -2127,11 +2223,13 @@ export function AgentTerminal({
       />
       {showScrollToBottom && (
         <button
+          {...{ [AGENT_TERMINAL_FLOATING_CONTROL_ATTRIBUTE]: 'true' }}
           aria-label={t('Scroll to bottom')}
           type="button"
           onClick={handleScrollToBottom}
           className={cn(
-            'absolute flex items-center justify-center rounded-full border border-primary/30 bg-primary/14 text-primary transition-[background-color,transform] hover:bg-primary/22 hover:scale-105 active:scale-95',
+            'absolute z-20 flex items-center justify-center rounded-full border border-primary/30 bg-primary/14 text-primary transition-[background-color,transform] hover:bg-primary/22 hover:scale-105 active:scale-95',
+            isMouseSelectingTerminal && 'pointer-events-none',
             AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS,
             AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS
           )}

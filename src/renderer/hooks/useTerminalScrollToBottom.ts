@@ -3,15 +3,34 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const SCROLL_THRESHOLD = 5;
 
+function readScrollFromBottom(terminal: Terminal): number {
+  const buffer = terminal.buffer.active;
+  return Math.max(0, buffer.baseY - buffer.viewportY);
+}
+
+function getTerminalDisposables(terminal: Terminal, listener: () => void) {
+  return [
+    terminal.onScroll(listener),
+    terminal.onLineFeed(listener),
+    terminal.onWriteParsed(listener),
+    terminal.onRender(listener),
+    terminal.onResize(listener),
+  ];
+}
+
 export function useTerminalScrollToBottom(terminal: Terminal | null) {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const animationFrameRef = useRef<number | null>(null);
+  const checkFrameRef = useRef<number | null>(null);
 
   // Cleanup animation frame on unmount
   useEffect(() => {
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (checkFrameRef.current) {
+        cancelAnimationFrame(checkFrameRef.current);
       }
     };
   }, []);
@@ -21,63 +40,54 @@ export function useTerminalScrollToBottom(terminal: Terminal | null) {
     if (!terminal) return;
 
     const checkScrollPosition = () => {
-      const buffer = terminal.buffer.active;
-      const scrollFromBottom = buffer.baseY - buffer.viewportY;
+      const scrollFromBottom = readScrollFromBottom(terminal);
       setShowScrollToBottom(scrollFromBottom > SCROLL_THRESHOLD);
     };
 
-    const scrollDisposable = terminal.onScroll(checkScrollPosition);
-    const lineFeedDisposable = terminal.onLineFeed(checkScrollPosition);
+    const scheduleScrollPositionCheck = () => {
+      if (checkFrameRef.current) {
+        cancelAnimationFrame(checkFrameRef.current);
+      }
+      checkFrameRef.current = requestAnimationFrame(() => {
+        checkFrameRef.current = null;
+        checkScrollPosition();
+      });
+    };
+
+    checkScrollPosition();
+    scheduleScrollPositionCheck();
+
+    const disposables = getTerminalDisposables(terminal, scheduleScrollPositionCheck);
 
     return () => {
-      scrollDisposable.dispose();
-      lineFeedDisposable.dispose();
+      if (checkFrameRef.current) {
+        cancelAnimationFrame(checkFrameRef.current);
+        checkFrameRef.current = null;
+      }
+      for (const disposable of disposables) {
+        disposable.dispose();
+      }
     };
   }, [terminal]);
 
   const handleScrollToBottom = useCallback(() => {
     if (!terminal) return;
 
-    const buffer = terminal.buffer.active;
-    const linesToScroll = buffer.baseY - buffer.viewportY;
-
-    if (linesToScroll <= 0) {
-      setShowScrollToBottom(false);
-      return;
-    }
-
     // Cancel any ongoing animation
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
 
-    // Smooth scroll animation
-    const duration = Math.min(300, linesToScroll * 10);
-    const startTime = performance.now();
-    const startPos = buffer.viewportY;
+    terminal.clearSelection();
+    terminal.scrollToBottom();
+    terminal.focus();
+    setShowScrollToBottom(false);
 
-    const animate = (currentTime: number) => {
-      const elapsed = currentTime - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      // Ease out cubic
-      const eased = 1 - (1 - progress) ** 3;
-      const targetLine = Math.round(startPos + linesToScroll * eased);
-      const currentLine = terminal.buffer.active.viewportY;
-
-      if (targetLine > currentLine) {
-        terminal.scrollLines(targetLine - currentLine);
-      }
-
-      if (progress < 1) {
-        animationFrameRef.current = requestAnimationFrame(animate);
-      } else {
-        terminal.scrollToBottom();
-        setShowScrollToBottom(false);
-        animationFrameRef.current = null;
-      }
-    };
-
-    animationFrameRef.current = requestAnimationFrame(animate);
+    animationFrameRef.current = requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      setShowScrollToBottom(readScrollFromBottom(terminal) > SCROLL_THRESHOLD);
+    });
   }, [terminal]);
 
   return { showScrollToBottom, handleScrollToBottom };

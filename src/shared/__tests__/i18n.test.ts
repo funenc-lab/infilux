@@ -25,6 +25,9 @@ describe('shared i18n helpers', () => {
     expect(getTranslation('zh', 'Custom font stack')).toBe('自定义字体栈');
     expect(getTranslation('zh', 'New Session')).toBe('新建会话');
     expect(getTranslation('zh', 'Only show live Agent sessions')).toBe('仅显示活跃 Agent 会话');
+    expect(getTranslation('zh', 'No matching worktrees')).toBe('没有匹配的 worktree');
+    expect(getTranslation('zh', 'Worktree not found')).toBe('Worktree 不存在');
+    expect(getTranslation('zh', 'No matches found')).toBe('没有搜索结果');
     expect(getTranslation('zh', 'Dispatch Result')).toBe('派发结果');
     expect(getTranslation('zh', 'Started Projects')).toBe('已启动项目');
     expect(getTranslation('zh', 'Skipped Tasks')).toBe('已跳过任务');

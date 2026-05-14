@@ -145,6 +145,7 @@ import {
   collectMountedAgentSessionIds,
   DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
   DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
+  resolveBackgroundAgentCanvasMountPlan,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
 import {
@@ -161,6 +162,7 @@ import {
 } from './agentSessionLayoutIndex';
 import { diffPersistentAgentSessionRecords } from './agentSessionPersistenceSync';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
+import { shouldDeferBackgroundAgentRuntimeMount } from './agentSessionRuntimeSafetyPolicy';
 import { matchesAgentSessionRepoPath, matchesAgentSessionScope } from './agentSessionScope';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { ClaudeSessionLaunchDialog } from './ClaudeSessionLaunchDialog';
@@ -719,6 +721,9 @@ export function AgentPanel({
   const [backgroundMountedCanvasSessionIds, setBackgroundMountedCanvasSessionIds] = useState<
     Set<string>
   >(new Set());
+  const [userRequestedCanvasMountSessionIds, setUserRequestedCanvasMountSessionIds] = useState<
+    Set<string>
+  >(new Set());
 
   // Track StatusLine height per group to avoid cross-column races.
   // When split panels render multiple StatusLines, a newly mounted/empty column can report 0,
@@ -1045,6 +1050,10 @@ export function AgentPanel({
       .filter((session) => matchesAgentSessionScope(session, repoPath, cwd))
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
   }, [allSessions, repoPath, cwd]);
+  const currentWorktreeSessionIdSet = useMemo(
+    () => new Set(currentWorktreeSessions.map((session) => session.id)),
+    [currentWorktreeSessions]
+  );
   const hasRecoveryRequiredSession = useMemo(
     () =>
       currentWorktreeSessions.some((session) => {
@@ -1268,6 +1277,20 @@ export function AgentPanel({
 
       return changed ? next : current;
     });
+    setUserRequestedCanvasMountSessionIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+
+      for (const sessionId of current) {
+        if (activeCanvasSessionIds.has(sessionId)) {
+          next.add(sessionId);
+        } else {
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
   }, [canvasSessionIds]);
   const agentSessionActiveIds = useAgentSessionsStore((state) => state.activeIds);
   const visibleCanvasRepoPaths = useMemo(() => {
@@ -1399,6 +1422,33 @@ export function AgentPanel({
     () => canvasFloatingSessionIdByWorktree[canvasZoomStorageKey] ?? null,
     [canvasFloatingSessionIdByWorktree, canvasZoomStorageKey]
   );
+  useEffect(() => {
+    if (!isCanvasDisplayMode) {
+      setUserRequestedCanvasMountSessionIds((current) =>
+        current.size === 0 ? current : new Set<string>()
+      );
+      return;
+    }
+
+    const retainedSessionIds = new Set<string>();
+    if (canvasFocusedSessionId && canvasSessionIds.includes(canvasFocusedSessionId)) {
+      retainedSessionIds.add(canvasFocusedSessionId);
+    }
+    if (canvasFloatingSessionId && canvasSessionIds.includes(canvasFloatingSessionId)) {
+      retainedSessionIds.add(canvasFloatingSessionId);
+    }
+
+    setUserRequestedCanvasMountSessionIds((current) => {
+      if (
+        current.size === retainedSessionIds.size &&
+        [...retainedSessionIds].every((sessionId) => current.has(sessionId))
+      ) {
+        return current;
+      }
+
+      return retainedSessionIds;
+    });
+  }, [canvasFloatingSessionId, canvasFocusedSessionId, canvasSessionIds, isCanvasDisplayMode]);
   const isCanvasLocked = useMemo(
     () => canvasLockedByWorktree[canvasZoomStorageKey] ?? false,
     [canvasLockedByWorktree, canvasZoomStorageKey]
@@ -2613,6 +2663,15 @@ export function AgentPanel({
       if (isWorkspaceCanvasDisplayMode) {
         setWorkspaceCanvasFocusedSessionId((current) => (current === id ? current : id));
       }
+      if (isCanvasDisplayMode) {
+        setUserRequestedCanvasMountSessionIds((current) => {
+          if (current.has(id)) {
+            return current;
+          }
+
+          return new Set([...current, id]);
+        });
+      }
 
       updateGroupState(targetCwd, (state) => {
         const targetGroupId = groupId || state.groups.find((g) => g.sessionIds.includes(id))?.id;
@@ -2635,6 +2694,7 @@ export function AgentPanel({
       allSessions,
       cwd,
       focusCanvasViewportOnSession,
+      isCanvasDisplayMode,
       isWorkspaceCanvasDisplayMode,
       setActiveId,
       updateGroupState,
@@ -2973,6 +3033,13 @@ export function AgentPanel({
   );
   const handleOpenCanvasFloatingSession = useCallback(
     (sessionId: string, groupId?: string) => {
+      setUserRequestedCanvasMountSessionIds((current) => {
+        if (current.has(sessionId)) {
+          return current;
+        }
+
+        return new Set([...current, sessionId]);
+      });
       handleSelectSession(sessionId, groupId);
       setCanvasFloatingSessionIdForCurrentWorktree(sessionId);
     },
@@ -3953,6 +4020,11 @@ export function AgentPanel({
         .map((session) => session.id),
     [currentWorktreeSessions, sessionPlacementById]
   );
+  const foregroundCanvasSessionIds = useMemo(
+    () =>
+      isWorkspaceCanvasDisplayMode ? currentWorktreeSessions.map((session) => session.id) : [],
+    [currentWorktreeSessions, isWorkspaceCanvasDisplayMode]
+  );
   const mountedCurrentWorktreeSessionIds = useMemo(
     () =>
       resolveMountedAgentPanelSessionIds({
@@ -3961,8 +4033,11 @@ export function AgentPanel({
         canvasSessions,
         currentWorktreeSessions,
         currentWorktreeVisibleSessionIds,
+        foregroundSessionIds: foregroundCanvasSessionIds,
         globalSessionIds,
+        isCanvasDisplayMode,
         isWorkspaceCanvasDisplayMode,
+        sessionLastActivityAtById,
         sessionActivityStateById,
         suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel,
         worktreeTerminalMountLimit: DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
@@ -3974,8 +4049,11 @@ export function AgentPanel({
       canvasSessions,
       currentWorktreeSessions,
       currentWorktreeVisibleSessionIds,
+      foregroundCanvasSessionIds,
       globalSessionIds,
+      isCanvasDisplayMode,
       isWorkspaceCanvasDisplayMode,
+      sessionLastActivityAtById,
       sessionActivityStateById,
       shouldSuppressWorkspaceCanvasPanel,
     ]
@@ -3984,14 +4062,54 @@ export function AgentPanel({
     () => new Set(mountedCurrentWorktreeSessionIds),
     [mountedCurrentWorktreeSessionIds]
   );
+  const canvasTerminalMountLimit = isWorkspaceCanvasDisplayMode
+    ? DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT
+    : DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT;
+  const sessionById = useMemo(
+    () => new Map(allSessions.map((session) => [session.id, session])),
+    [allSessions]
+  );
+  const shouldDeferCanvasBackgroundMount = useCallback(
+    (sessionId: string) => {
+      const session = sessionById.get(sessionId);
+      if (!session) {
+        return false;
+      }
+
+      return shouldDeferBackgroundAgentRuntimeMount({
+        agentCommand: session.agentCommand,
+        agentId: session.agentId,
+        createdAt: session.createdAt,
+        hasPendingCommand: Boolean(session.pendingCommand),
+        isFocused:
+          canvasFocusedSessionId === sessionId || userRequestedCanvasMountSessionIds.has(sessionId),
+        lastActivityAt: sessionLastActivityAtById[sessionId],
+        recovered: session.recovered,
+        recoveryState: session.recoveryState,
+        sessionActivityState: sessionActivityStateById[sessionId] ?? 'idle',
+      });
+    },
+    [
+      canvasFocusedSessionId,
+      sessionActivityStateById,
+      sessionById,
+      sessionLastActivityAtById,
+      userRequestedCanvasMountSessionIds,
+    ]
+  );
   const stagedCanvasMountSessionIds = useMemo(() => {
     if (!isCanvasDisplayMode) {
       return mountedCurrentWorktreeSessionIds;
     }
 
     const stagedIds = new Set(mountedCurrentWorktreeSessionIds);
-    for (const sessionId of backgroundMountedCanvasSessionIds) {
+    for (const sessionId of userRequestedCanvasMountSessionIds) {
       if (canvasSessionIds.includes(sessionId)) {
+        stagedIds.add(sessionId);
+      }
+    }
+    for (const sessionId of backgroundMountedCanvasSessionIds) {
+      if (canvasSessionIds.includes(sessionId) && !shouldDeferCanvasBackgroundMount(sessionId)) {
         stagedIds.add(sessionId);
       }
     }
@@ -4002,21 +4120,14 @@ export function AgentPanel({
     canvasSessionIds,
     isCanvasDisplayMode,
     mountedCurrentWorktreeSessionIds,
+    shouldDeferCanvasBackgroundMount,
+    userRequestedCanvasMountSessionIds,
   ]);
   useEffect(() => {
     if (!isCanvasDisplayMode || shouldSuppressWorkspaceCanvasPanel) {
       setBackgroundMountedCanvasSessionIds((current) =>
         current.size === 0 ? current : new Set<string>()
       );
-      return;
-    }
-
-    const deferredSessionIds = canvasSessionIds.filter(
-      (sessionId) =>
-        !mountedCurrentWorktreeSessionIdSet.has(sessionId) &&
-        !backgroundMountedCanvasSessionIds.has(sessionId)
-    );
-    if (deferredSessionIds.length === 0) {
       return;
     }
 
@@ -4028,32 +4139,26 @@ export function AgentPanel({
         return;
       }
 
-      setBackgroundMountedCanvasSessionIds((current) => {
-        const activeCanvasSessionIds = new Set(canvasSessionIds);
-        const remainingSessionIds = canvasSessionIds.filter(
-          (sessionId) =>
-            !mountedCurrentWorktreeSessionIdSet.has(sessionId) && !current.has(sessionId)
-        );
-
-        if (remainingSessionIds.length === 0) {
-          return current;
-        }
-
-        const next = new Set<string>();
-        for (const sessionId of current) {
-          if (activeCanvasSessionIds.has(sessionId)) {
-            next.add(sessionId);
-          }
-        }
-        for (
-          let index = 0;
-          index < Math.min(STAGED_CANVAS_TERMINAL_MOUNT_BATCH_SIZE, remainingSessionIds.length);
-          index += 1
-        ) {
-          next.add(remainingSessionIds[index]);
-        }
-        return next;
+      const nextMountPlan = resolveBackgroundAgentCanvasMountPlan({
+        backgroundMountedSessionIds: backgroundMountedCanvasSessionIds,
+        batchSize: STAGED_CANVAS_TERMINAL_MOUNT_BATCH_SIZE,
+        canvasSessionIds,
+        maxMountedSessionCount: canvasTerminalMountLimit,
+        mountedSessionIds: mountedCurrentWorktreeSessionIdSet,
+        shouldDeferSessionMount: shouldDeferCanvasBackgroundMount,
+        userRequestedSessionIds: userRequestedCanvasMountSessionIds,
       });
+
+      if (
+        backgroundMountedCanvasSessionIds.size === nextMountPlan.sessionIds.length &&
+        nextMountPlan.sessionIds.every((sessionId) =>
+          backgroundMountedCanvasSessionIds.has(sessionId)
+        )
+      ) {
+        return;
+      }
+
+      setBackgroundMountedCanvasSessionIds(new Set(nextMountPlan.sessionIds));
     };
 
     frameId = requestAnimationFrame(mountNextBatch);
@@ -4066,14 +4171,13 @@ export function AgentPanel({
   }, [
     backgroundMountedCanvasSessionIds,
     canvasSessionIds,
+    canvasTerminalMountLimit,
     isCanvasDisplayMode,
     mountedCurrentWorktreeSessionIdSet,
+    shouldDeferCanvasBackgroundMount,
     shouldSuppressWorkspaceCanvasPanel,
+    userRequestedCanvasMountSessionIds,
   ]);
-  const sessionById = useMemo(
-    () => new Map(allSessions.map((session) => [session.id, session])),
-    [allSessions]
-  );
   const defaultAgentLabel = getAgentDisplayLabel(defaultAgentId, customAgents);
   const emptyStateModel = useMemo(
     () =>
@@ -4146,13 +4250,17 @@ export function AgentPanel({
 
   if (!cwd) return null;
 
-  // Check if current worktree has any groups (used for empty state detection)
-  const hasAnyGroups = groups.length > 0;
+  // Stale group state can outlive session restoration during worktree switches.
+  const hasCurrentWorktreeSessionGroups = groups.some((group) =>
+    group.sessionIds.some((sessionId) => currentWorktreeSessionIdSet.has(sessionId))
+  );
 
   // Check if current worktree has no sessions (for empty state overlay)
   const showEmptyState = isWorkspaceCanvasDisplayMode
     ? canvasSessionGroups.length === 0
-    : !shouldSuppressWorkspaceCanvasPanel && !hasAnyGroups && currentWorktreeSessions.length === 0;
+    : !shouldSuppressWorkspaceCanvasPanel &&
+      !hasCurrentWorktreeSessionGroups &&
+      currentWorktreeSessions.length === 0;
 
   // Get current worktree's group positions for terminal placement
   const currentGroupPositions = resolveAgentGroupPositions(currentGroupState);
@@ -4684,7 +4792,7 @@ export function AgentPanel({
       renderedSessionPanelById.set(sessionId, panel);
     }
   });
-  const renderWorkspaceCanvasDeferredSessionTile = (session: Session) => {
+  const renderDeferredCanvasSessionTile = (session: Session) => {
     const groupId = currentGroupIdBySessionId.get(session.id);
     const sessionActivityState = sessionActivityStateById[session.id] ?? 'idle';
     const canvasTileColumnSpan =
@@ -4855,7 +4963,7 @@ export function AgentPanel({
                 group.sessions.map(
                   (session) =>
                     renderedSessionPanelById.get(session.id) ??
-                    renderWorkspaceCanvasDeferredSessionTile(session)
+                    renderDeferredCanvasSessionTile(session)
                 )
               ) : (
                 <div
@@ -5165,7 +5273,13 @@ export function AgentPanel({
               >
                 {isWorkspaceCanvasDisplayMode
                   ? workspaceCanvasSessionGroupSections
-                  : renderedSessionPanels}
+                  : isCanvasDisplayMode
+                    ? canvasSessions.map(
+                        (session) =>
+                          renderedSessionPanelById.get(session.id) ??
+                          renderDeferredCanvasSessionTile(session)
+                      )
+                    : renderedSessionPanels}
               </div>
             </div>
           </div>

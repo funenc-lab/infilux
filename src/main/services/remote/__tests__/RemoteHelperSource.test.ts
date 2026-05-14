@@ -38,6 +38,28 @@ describe('getRemoteServerSource', () => {
     );
   });
 
+  it('keeps remote tmux scroll behavior aligned with the cached local pane resolution flow', () => {
+    const source = getRemoteServerSource(buildAppRuntimeIdentity('test'));
+
+    expect(source).toContain('const TMUX_SCROLL_PANE_CACHE_TTL_MS = 250;');
+    expect(source).toContain('const tmuxScrollPaneCache = new Map();');
+    expect(source).toContain('function buildTmuxScrollPaneCacheKey(serverName, sessionName) {');
+    expect(source).toContain('function getCachedTmuxScrollPane(serverName, sessionName) {');
+    expect(source).toContain('function setCachedTmuxScrollPane(serverName, sessionName, pane) {');
+    expect(source).toContain('function clearCachedTmuxScrollPane(serverName, sessionName) {');
+    expect(source).toContain(
+      'async function resolveTmuxScrollPane(sessionName, serverName, options = {}) {'
+    );
+    expect(source).toContain('const cached = getCachedTmuxScrollPane(serverName, sessionName);');
+    expect(source).toContain("if (direction === 'bottom') {");
+    expect(source).toContain(
+      'setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {'
+    );
+    expect(source).toContain(
+      'clearCachedTmuxScrollPane(normalizedServerName, normalizedSessionName);'
+    );
+  });
+
   it('keeps remote search behavior aligned with the shared search contract', () => {
     const source = getRemoteServerSource(buildAppRuntimeIdentity('test'));
 

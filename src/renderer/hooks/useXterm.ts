@@ -37,6 +37,7 @@ import { attachAgentTranscriptMode } from './xtermAgentTranscriptPolicy';
 import {
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
+  restoreTerminalInteractionAfterCopy,
   shouldHandleTerminalCopyEvent,
   writeClipboardText,
 } from './xtermClipboard';
@@ -153,6 +154,7 @@ export interface UseXtermOptions {
   onInit?: (ptyId: string) => void;
   onSessionIdChange?: (sessionId: string) => void;
   onSessionOpen?: (session: SessionDescriptor) => void;
+  onHostScrollbackStateChange?: (active: boolean) => void;
   onSplit?: () => void;
   onMerge?: () => void;
   canMerge?: boolean;
@@ -280,6 +282,7 @@ export function useXterm({
   onInit,
   onSessionIdChange,
   onSessionOpen,
+  onHostScrollbackStateChange,
   onSplit,
   onMerge,
   canMerge = false,
@@ -344,6 +347,8 @@ export function useXterm({
   onSessionIdChangeRef.current = onSessionIdChange;
   const onSessionOpenRef = useRef(onSessionOpen);
   onSessionOpenRef.current = onSessionOpen;
+  const onHostScrollbackStateChangeRef = useRef(onHostScrollbackStateChange);
+  onHostScrollbackStateChangeRef.current = onHostScrollbackStateChange;
   const onSplitRef = useRef(onSplit);
   onSplitRef.current = onSplit;
   const onMergeRef = useRef(onMerge);
@@ -631,6 +636,7 @@ export function useXterm({
       hasReceivedDataRef.current = false;
       firstOutputWaitersRef.current.clear();
       wheelCarryRef.current = 0;
+      onHostScrollbackStateChangeRef.current?.(false);
       setSearchState(createEmptyTerminalSearchState());
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
@@ -677,12 +683,23 @@ export function useXterm({
 
       if (decision.action === 'host-scroll') {
         if (hostSession?.kind === 'tmux' && decision.scrollLines !== 0) {
-          void window.electronAPI.tmux.scrollClient(cwd, {
-            sessionName: hostSession.sessionName,
-            serverName: hostSession.serverName,
-            direction: decision.scrollLines < 0 ? 'up' : 'down',
-            amount: Math.abs(decision.scrollLines),
-          });
+          void window.electronAPI.tmux
+            .scrollClient(cwd, {
+              sessionName: hostSession.sessionName,
+              serverName: hostSession.serverName,
+              direction: decision.scrollLines < 0 ? 'up' : 'down',
+              amount: Math.abs(decision.scrollLines),
+            })
+            .then((result) => {
+              const nextHostScrollbackState =
+                typeof result.inMode === 'boolean'
+                  ? result.inMode
+                  : decision.scrollLines < 0 && result.applied;
+              onHostScrollbackStateChangeRef.current?.(nextHostScrollbackState);
+            })
+            .catch(() => {
+              onHostScrollbackStateChangeRef.current?.(false);
+            });
         }
         event.preventDefault();
         event.stopPropagation();
@@ -894,7 +911,9 @@ export function useXterm({
         setTimeout(() => {
           const currentTerminal = terminalRef.current;
           if (!currentTerminal) return;
-          void copyTerminalSelectionToClipboard(currentTerminal).catch(() => {});
+          void copyTerminalSelectionToClipboard(currentTerminal).finally(() => {
+            restoreTerminalInteractionAfterCopy(currentTerminal);
+          });
         }, 0);
       };
       const handleCopyEvent = (event: ClipboardEvent) => {
@@ -918,7 +937,9 @@ export function useXterm({
         event.preventDefault();
         event.stopPropagation();
         event.clipboardData?.setData('text/plain', selectionText);
-        void writeClipboardText(selectionText).catch(() => {});
+        void writeClipboardText(selectionText).finally(() => {
+          restoreTerminalInteractionAfterCopy(currentTerminal);
+        });
       };
 
       terminal.element?.addEventListener('mouseup', handleCopyOnSelection);
@@ -1003,7 +1024,9 @@ export function useXterm({
         if (event.type === 'keydown' && modKey && !event.altKey) {
           if (event.key === 'c' || event.key === 'C') {
             if (getTerminalSelectionText(terminal)) {
-              void copyTerminalSelectionToClipboard(terminal).catch(() => {});
+              void copyTerminalSelectionToClipboard(terminal).finally(() => {
+                restoreTerminalInteractionAfterCopy(terminal);
+              });
               return false;
             }
             if (!isMac) {
@@ -1026,7 +1049,9 @@ export function useXterm({
         // Copy: Cmd+C (mac) or Ctrl+C (win/linux)
         if (event.key === 'c' || event.key === 'C') {
           if (getTerminalSelectionText(terminal)) {
-            void copyTerminalSelectionToClipboard(terminal).catch(() => {});
+            void copyTerminalSelectionToClipboard(terminal).finally(() => {
+              restoreTerminalInteractionAfterCopy(terminal);
+            });
             return false;
           }
           // On Windows/Linux, let Ctrl+C pass through as SIGINT when no selection

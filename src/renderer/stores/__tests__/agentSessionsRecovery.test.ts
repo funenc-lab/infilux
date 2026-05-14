@@ -193,6 +193,25 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('protects meaningful recovered display names from later terminal title replacement', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        displayName: 'Investigate session recovery title',
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        name: 'Investigate session recovery title',
+        userRenamed: true,
+      }),
+    ]);
+  });
+
   it('hydrates replay snapshots from recovered persistent metadata', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
@@ -629,6 +648,46 @@ describe('agent session recovery store', () => {
       content: '',
       attachments: [],
     });
+  });
+
+  it('protects meaningful locally persisted session names after hydration', async () => {
+    const persistedPayload = {
+      sessions: [
+        {
+          id: 'session-1',
+          sessionId: 'provider-1',
+          name: 'Investigate session recovery title',
+          terminalTitle: 'codex',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          initialized: true,
+          activated: true,
+          persistenceEnabled: true,
+          repoPath: '/repo',
+          cwd: '/repo/worktree',
+          environment: 'native',
+        },
+      ],
+      activeIds: {
+        '/repo/worktree': 'session-1',
+      },
+      groupStates: {},
+      runtimeStates: {},
+      enhancedInputStates: {},
+    };
+
+    const env = await loadAgentSessionsStore({
+      'enso-agent-sessions': JSON.stringify(persistedPayload),
+    });
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        name: 'Investigate session recovery title',
+        terminalTitle: 'codex',
+        userRenamed: true,
+      }),
+    ]);
   });
 
   it('sanitizes malformed persisted snapshot fields and repairs stale group metadata', async () => {

@@ -6,6 +6,7 @@ const reactQueryMock = vi.hoisted(() => ({
   useMutation: vi.fn(),
   invalidateQueries: vi.fn(),
   getQueryData: vi.fn(),
+  setQueryData: vi.fn(),
   useQueryClient: vi.fn(),
 }));
 
@@ -37,7 +38,11 @@ vi.mock('@/stores/worktree', () => ({
   useWorktreeStore: worktreeStoreMock.hook,
 }));
 
-import { resetWorktreeRecoveryStateForTests, useWorktreeList } from '../useWorktree';
+import {
+  resetWorktreeRecoveryStateForTests,
+  useWorktreeList,
+  useWorktreeRemove,
+} from '../useWorktree';
 
 type MockedQueryOptions<TResult> = {
   queryFn: () => Promise<TResult>;
@@ -47,13 +52,16 @@ type MockedQueryOptions<TResult> = {
 describe('useWorktreeList', () => {
   beforeEach(() => {
     reactQueryMock.useQuery.mockClear();
+    reactQueryMock.useMutation.mockImplementation((options: unknown) => options);
     reactQueryMock.useQueryClient.mockReset();
     reactQueryMock.useQueryClient.mockReturnValue({
       invalidateQueries: reactQueryMock.invalidateQueries,
       getQueryData: reactQueryMock.getQueryData,
+      setQueryData: reactQueryMock.setQueryData,
     });
     reactQueryMock.invalidateQueries.mockClear();
     reactQueryMock.getQueryData.mockReset();
+    reactQueryMock.setQueryData.mockReset();
     reactQueryMock.getQueryData.mockReturnValue(undefined);
     worktreeStoreMock.hook.mockClear();
     worktreeStoreMock.setWorktrees.mockClear();
@@ -194,5 +202,54 @@ describe('useWorktreeList', () => {
         new Error('Invalid workdir: not a git repository')
       )
     ).toBe(false);
+  });
+});
+
+describe('useWorktreeRemove', () => {
+  beforeEach(() => {
+    reactQueryMock.useMutation.mockImplementation((options: unknown) => options);
+    reactQueryMock.useQueryClient.mockReset();
+    reactQueryMock.useQueryClient.mockReturnValue({
+      invalidateQueries: reactQueryMock.invalidateQueries,
+      getQueryData: reactQueryMock.getQueryData,
+      setQueryData: reactQueryMock.setQueryData,
+    });
+    reactQueryMock.invalidateQueries.mockClear();
+    reactQueryMock.setQueryData.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('removes the deleted worktree from cached lists before invalidating the sidebar query', () => {
+    const mutation = useWorktreeRemove() as unknown as {
+      onSuccess: (
+        data: undefined,
+        variables: { workdir: string; options: { path: string } }
+      ) => void;
+    };
+
+    mutation.onSuccess(undefined, {
+      workdir: '/repo',
+      options: { path: '/repo/.worktrees/feature-a' },
+    });
+
+    expect(reactQueryMock.setQueryData).toHaveBeenCalledWith(
+      ['worktree', 'list', '/repo'],
+      expect.any(Function)
+    );
+
+    const updater = reactQueryMock.setQueryData.mock.calls[0]?.[1] as (current: unknown) => unknown;
+
+    expect(
+      updater([
+        { path: '/repo', head: 'aaa111', isMainWorktree: true },
+        { path: '/repo/.worktrees/feature-a', head: 'bbb222', isMainWorktree: false },
+      ])
+    ).toEqual([{ path: '/repo', head: 'aaa111', isMainWorktree: true }]);
+    expect(reactQueryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['worktree', 'list', '/repo'],
+    });
   });
 });
