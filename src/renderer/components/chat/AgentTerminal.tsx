@@ -9,14 +9,7 @@ import type {
 } from '@shared/types';
 import { TASK_COMPLETION_MARKER } from '@shared/types/agent';
 import { ArrowDown } from 'lucide-react';
-import {
-  type MouseEvent as ReactMouseEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import {
   getClaudeGlobalPolicy,
@@ -1878,16 +1871,13 @@ export function AgentTerminal({
     };
   }, [isMouseSelectingTerminal]);
 
-  const handleTerminalMouseSelectionStart = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (event.button !== 0 || isAgentTerminalFloatingControlTarget(event.target)) {
-        return;
-      }
+  const handleTerminalMouseSelectionStart = useCallback((event: MouseEvent) => {
+    if (event.button !== 0 || isAgentTerminalFloatingControlTarget(event.target)) {
+      return;
+    }
 
-      setIsMouseSelectingTerminal(true);
-    },
-    []
-  );
+    setIsMouseSelectingTerminal(true);
+  }, []);
 
   const handleScrollToBottom = useCallback(() => {
     handleLocalScrollToBottom();
@@ -2050,9 +2040,13 @@ export function AgentTerminal({
     const container = containerRef.current;
     if (!container) return;
 
+    container.addEventListener('mousedown', handleTerminalMouseSelectionStart, true);
     container.addEventListener('contextmenu', handleContextMenu);
-    return () => container.removeEventListener('contextmenu', handleContextMenu);
-  }, [containerRef, handleContextMenu, isReadOnlyTranscript]);
+    return () => {
+      container.removeEventListener('mousedown', handleTerminalMouseSelectionStart, true);
+      container.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [containerRef, handleContextMenu, handleTerminalMouseSelectionStart, isReadOnlyTranscript]);
 
   // Cleanup idle timer on unmount
   useEffect(() => {
@@ -2206,11 +2200,7 @@ export function AgentTerminal({
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}
       onClick={handleClick}
     >
-      <div
-        ref={containerRef}
-        className="h-full w-full"
-        onMouseDownCapture={handleTerminalMouseSelectionStart}
-      />
+      <div ref={containerRef} className="h-full w-full" />
       <TerminalSearchBar
         ref={searchBarRef}
         isOpen={isSearchOpen}

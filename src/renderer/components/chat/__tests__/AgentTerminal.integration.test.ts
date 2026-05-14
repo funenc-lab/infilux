@@ -1539,6 +1539,47 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('tracks mouse selection started from imperatively mounted xterm children', async () => {
+    testState.showScrollToBottom = true;
+
+    const mounted = await mountAgentTerminal();
+    const terminalContainer = getXtermContainer();
+    const xtermChild = document.createElement('div');
+    terminalContainer.appendChild(xtermChild);
+    const button = mounted.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Scroll to bottom"]'
+    );
+
+    expect(button).not.toBeNull();
+    expect(button?.className).not.toContain('pointer-events-none');
+
+    await act(async () => {
+      xtermChild.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          button: 0,
+        })
+      );
+      await flushMicrotasks();
+    });
+
+    expect(button?.className).toContain('pointer-events-none');
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          button: 0,
+        })
+      );
+      await flushMicrotasks();
+    });
+
+    expect(button?.className).not.toContain('pointer-events-none');
+
+    await mounted.unmount();
+  });
+
   it('clears mouse-selection drag state when the window loses focus', async () => {
     testState.showScrollToBottom = true;
 
