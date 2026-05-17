@@ -29,6 +29,7 @@ const testState = vi.hoisted(() => ({
     clearSelection: vi.fn(),
     refresh: vi.fn(),
     selectAll: vi.fn(),
+    scrollLines: vi.fn(),
   },
   terminalInstance: null as {
     rows: number;
@@ -38,6 +39,7 @@ const testState = vi.hoisted(() => ({
     clearSelection: ReturnType<typeof vi.fn>;
     refresh: ReturnType<typeof vi.fn>;
     selectAll: ReturnType<typeof vi.fn>;
+    scrollLines: ReturnType<typeof vi.fn>;
   } | null,
   xtermResult: {
     containerRef: { current: null as HTMLDivElement | null },
@@ -359,6 +361,7 @@ describe('AgentTerminal integration', () => {
     testState.terminal.clearSelection.mockReset();
     testState.terminal.refresh.mockReset();
     testState.terminal.selectAll.mockReset();
+    testState.terminal.scrollLines.mockReset();
     testState.terminalInstance = testState.terminal;
 
     testState.xtermResult.containerRef = { current: null };
@@ -1467,8 +1470,11 @@ describe('AgentTerminal integration', () => {
       layoutRefreshKey: 'tile',
     } as Partial<AgentTerminalProps>);
 
-    expect(testState.xtermResult.fit).not.toHaveBeenCalled();
-    expect(testState.xtermResult.refreshRenderer).not.toHaveBeenCalled();
+    expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
+
+    testState.xtermResult.fit.mockClear();
+    testState.xtermResult.refreshRenderer.mockClear();
 
     await mounted.rerender({
       layoutRefreshKey: 'floating',
@@ -1576,6 +1582,146 @@ describe('AgentTerminal integration', () => {
     });
 
     expect(button?.className).not.toContain('pointer-events-none');
+
+    await mounted.unmount();
+  });
+
+  it('auto-scrolls terminal history while mouse selection is dragged near the bottom edge', async () => {
+    vi.useFakeTimers();
+
+    const mounted = await mountAgentTerminal();
+    const terminalContainer = getXtermContainer();
+    const xtermScreen = document.createElement('div');
+    xtermScreen.className = 'xterm-screen';
+    const xtermMouseMoveSpy = vi.fn();
+    xtermScreen.addEventListener('mousemove', xtermMouseMoveSpy);
+    terminalContainer.appendChild(xtermScreen);
+    const stopDocumentBubbleMouseMove = (event: MouseEvent) => {
+      event.stopImmediatePropagation();
+    };
+    document.addEventListener('mousemove', stopDocumentBubbleMouseMove);
+    Object.defineProperty(terminalContainer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 200,
+        height: 200,
+        left: 0,
+        right: 300,
+        top: 0,
+        width: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
+    await act(async () => {
+      terminalContainer.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          button: 0,
+          clientY: 120,
+        })
+      );
+      terminalContainer.dispatchEvent(
+        new MouseEvent('mousemove', {
+          bubbles: true,
+          clientY: 196,
+        })
+      );
+      vi.advanceTimersByTime(120);
+      await flushMicrotasks();
+    });
+
+    document.removeEventListener('mousemove', stopDocumentBubbleMouseMove);
+    expect(testState.terminal.scrollLines).toHaveBeenCalled();
+    expect(testState.terminal.scrollLines.mock.calls.at(-1)?.[0]).toBeGreaterThan(0);
+    expect(xtermMouseMoveSpy).toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          button: 0,
+        })
+      );
+      await flushMicrotasks();
+    });
+
+    await mounted.unmount();
+  });
+
+  it('auto-scrolls from xterm screen bounds when a canvas tile wrapper is larger than the visible transcript', async () => {
+    vi.useFakeTimers();
+
+    const mounted = await mountAgentTerminal();
+    const terminalContainer = getXtermContainer();
+    const xtermScreen = document.createElement('div');
+    xtermScreen.className = 'xterm-screen';
+    const xtermMouseMoveSpy = vi.fn();
+    xtermScreen.addEventListener('mousemove', xtermMouseMoveSpy);
+    terminalContainer.appendChild(xtermScreen);
+
+    Object.defineProperty(terminalContainer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 260,
+        height: 260,
+        left: 0,
+        right: 320,
+        top: 0,
+        width: 320,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+    Object.defineProperty(xtermScreen, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 200,
+        height: 200,
+        left: 0,
+        right: 300,
+        top: 0,
+        width: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
+    await act(async () => {
+      terminalContainer.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          button: 0,
+          clientY: 120,
+        })
+      );
+      document.dispatchEvent(
+        new MouseEvent('mousemove', {
+          bubbles: true,
+          clientY: 196,
+        })
+      );
+      vi.advanceTimersByTime(120);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminal.scrollLines).toHaveBeenCalled();
+    expect(testState.terminal.scrollLines.mock.calls.at(-1)?.[0]).toBeGreaterThan(0);
+    expect(xtermMouseMoveSpy).toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          button: 0,
+        })
+      );
+      await flushMicrotasks();
+    });
 
     await mounted.unmount();
   });

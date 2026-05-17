@@ -49,6 +49,7 @@ import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/shallow';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
+import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
@@ -731,6 +732,11 @@ export function AgentPanel({
   const [statusLineHeightsByGroupId, setStatusLineHeightsByGroupId] = useState<
     Record<string, number>
   >({});
+  const [editingCanvasSessionTitleId, setEditingCanvasSessionTitleId] = useState<string | null>(
+    null
+  );
+  const [editingCanvasSessionTitle, setEditingCanvasSessionTitle] = useState('');
+  const editingCanvasSessionTitleInputRef = useRef<HTMLInputElement | null>(null);
   const [openSessionSubagentInspectorId, setOpenSessionSubagentInspectorId] = useState<
     string | null
   >(null);
@@ -754,6 +760,20 @@ export function AgentPanel({
       setStatusLineHeightsByGroupId({});
     }
   }, [statusLineEnabled]);
+
+  useLayoutEffect(() => {
+    if (!editingCanvasSessionTitleId) {
+      return;
+    }
+
+    const input = editingCanvasSessionTitleInputRef.current;
+    if (!input || input.dataset.agentCanvasSessionId !== editingCanvasSessionTitleId) {
+      return;
+    }
+
+    input.focus();
+    input.select();
+  }, [editingCanvasSessionTitleId]);
 
   // Use zustand store for sessions and group states - state persists even when component unmounts
   const allSessions = useAgentSessionsStore((state) => state.sessions);
@@ -1089,6 +1109,25 @@ export function AgentPanel({
   const isWorkspaceCanvasDisplayMode =
     agentSessionDisplayMode === 'global-canvas' && isCurrentWorktreePanel;
   const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas' || isWorkspaceCanvasDisplayMode;
+  const worktreeSessionRecoveryKey = useMemo(() => {
+    if (
+      isWorkspaceCanvasDisplayMode ||
+      !isCurrentWorktreePanel ||
+      !repoPath ||
+      !cwd ||
+      isRemoteVirtualPath(cwd)
+    ) {
+      return null;
+    }
+
+    return `${normalizePath(repoPath)}::${normalizePath(cwd)}`;
+  }, [cwd, isCurrentWorktreePanel, isWorkspaceCanvasDisplayMode, repoPath]);
+  const [completedWorktreeSessionRecoveryKey, setCompletedWorktreeSessionRecoveryKey] = useState<
+    string | null
+  >(null);
+  const isWorktreeSessionRecoveryPending =
+    worktreeSessionRecoveryKey !== null &&
+    completedWorktreeSessionRecoveryKey !== worktreeSessionRecoveryKey;
   const subagentScopeSessions = useMemo(
     () => (isWorkspaceCanvasDisplayMode ? allSessions : currentWorktreeSessions),
     [allSessions, currentWorktreeSessions, isWorkspaceCanvasDisplayMode]
@@ -1708,27 +1747,31 @@ export function AgentPanel({
   }, [cleanupRemovedPersistentRecord, persistableSessions]);
 
   useEffect(() => {
-    if (isWorkspaceCanvasDisplayMode || !isCurrentWorktreePanel) {
+    if (!worktreeSessionRecoveryKey) {
       return;
     }
 
+    let cancelled = false;
     void restoreWorktreeAgentSessions({
       repoPath,
       cwd,
       restoreWorktreeSessions: window.electronAPI.agentSession.restoreWorktreeSessions,
       upsertRecoveredSession,
       updateGroupState,
-    }).catch((error) => {
-      console.error('[AgentPanel] Failed to restore worktree sessions', error);
-    });
-  }, [
-    cwd,
-    isCurrentWorktreePanel,
-    isWorkspaceCanvasDisplayMode,
-    repoPath,
-    updateGroupState,
-    upsertRecoveredSession,
-  ]);
+    })
+      .catch((error) => {
+        console.error('[AgentPanel] Failed to restore worktree sessions', error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCompletedWorktreeSessionRecoveryKey(worktreeSessionRecoveryKey);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, repoPath, updateGroupState, upsertRecoveredSession, worktreeSessionRecoveryKey]);
 
   // Sync activeIds from store to group state when changed externally (e.g., from RunningProjectsPopover)
   useEffect(() => {
@@ -3557,6 +3600,27 @@ export function AgentPanel({
     },
     [updateSession]
   );
+  const handleStartCanvasSessionTitleEdit = useCallback((session: Session) => {
+    setEditingCanvasSessionTitleId(session.id);
+    setEditingCanvasSessionTitle(session.name);
+  }, []);
+  const handleCancelCanvasSessionTitleEdit = useCallback(() => {
+    setEditingCanvasSessionTitleId(null);
+    setEditingCanvasSessionTitle('');
+  }, []);
+  const handleFinishCanvasSessionTitleEdit = useCallback(() => {
+    const sessionId = editingCanvasSessionTitleId;
+    const title = editingCanvasSessionTitle.trim();
+    if (sessionId && title) {
+      handleRenameSession(sessionId, title);
+    }
+    handleCancelCanvasSessionTitleEdit();
+  }, [
+    editingCanvasSessionTitle,
+    editingCanvasSessionTitleId,
+    handleCancelCanvasSessionTitleEdit,
+    handleRenameSession,
+  ]);
 
   const handleReorderSessions = useCallback(
     (groupId: string, fromIndex: number, toIndex: number) => {
@@ -4259,8 +4323,15 @@ export function AgentPanel({
   const showEmptyState = isWorkspaceCanvasDisplayMode
     ? canvasSessionGroups.length === 0
     : !shouldSuppressWorkspaceCanvasPanel &&
+      !isWorktreeSessionRecoveryPending &&
       !hasCurrentWorktreeSessionGroups &&
       currentWorktreeSessions.length === 0;
+  const showWorktreeSessionRecoveryState =
+    !isWorkspaceCanvasDisplayMode &&
+    !shouldSuppressWorkspaceCanvasPanel &&
+    isWorktreeSessionRecoveryPending &&
+    !hasCurrentWorktreeSessionGroups &&
+    currentWorktreeSessions.length === 0;
 
   // Get current worktree's group positions for terminal placement
   const currentGroupPositions = resolveAgentGroupPositions(currentGroupState);
@@ -4351,6 +4422,62 @@ export function AgentPanel({
       tileRepoLabel && tileRepoLabel !== tileWorktreeLabel
         ? `${tileRepoLabel} / ${tileWorktreeLabel}`
         : tileWorktreeLabel;
+    const isEditingCanvasSessionTitle = editingCanvasSessionTitleId === session.id;
+    const renderCanvasSessionTitle = () =>
+      isEditingCanvasSessionTitle ? (
+        <input
+          ref={editingCanvasSessionTitleInputRef}
+          type="text"
+          value={editingCanvasSessionTitle}
+          data-agent-canvas-session-title-input="true"
+          data-agent-canvas-session-id={session.id}
+          aria-label={t('Session title')}
+          className="control-input h-7 min-w-0 flex-1 rounded-lg border-0 px-2 text-sm font-semibold text-foreground outline-none"
+          onChange={(event) => setEditingCanvasSessionTitle(event.target.value)}
+          onBlur={handleFinishCanvasSessionTitleEdit}
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              handleFinishCanvasSessionTitleEdit();
+              return;
+            }
+
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              handleCancelCanvasSessionTitleEdit();
+            }
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          data-agent-canvas-session-title-button="true"
+          data-agent-canvas-session-id={session.id}
+          className="min-w-0 flex-1 truncate rounded-lg px-1 text-left text-sm font-semibold text-foreground transition-colors hover:bg-accent/20"
+          aria-label={session.name}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleStartCanvasSessionTitleEdit(session);
+          }}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleStartCanvasSessionTitleEdit(session);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleStartCanvasSessionTitleEdit(session);
+          }}
+        >
+          {session.name}
+        </button>
+      );
     const renderSessionHeaderSummary = () => (
       <div className="flex min-w-0 items-center gap-2">
         {isCanvasDisplayMode ? (
@@ -4381,9 +4508,7 @@ export function AgentPanel({
           {renderAgentLabelIcon(session.agentId)}
           <span className="truncate">{tileAgentLabel}</span>
         </span>
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-          {session.name}
-        </div>
+        {renderCanvasSessionTitle()}
       </div>
     );
     const renderSessionSubagentTrigger = (className: string) => {
@@ -4419,9 +4544,10 @@ export function AgentPanel({
               : 'hidden'
           )}
         >
-          <button
-            type="button"
+          <div
             data-agent-canvas-header={isCanvasDisplayMode ? 'true' : undefined}
+            role="button"
+            tabIndex={isCanvasDisplayMode ? 0 : -1}
             className={cn(
               'min-w-0 flex-1 rounded-xl px-2 py-1 text-left transition-colors',
               isCanvasDisplayMode ? 'hover:bg-accent/20' : 'pointer-events-none'
@@ -4430,9 +4556,18 @@ export function AgentPanel({
               event.stopPropagation();
               handleOpenCanvasFloatingSession(sessionId, groupId ?? undefined);
             }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') {
+                return;
+              }
+
+              event.preventDefault();
+              event.stopPropagation();
+              handleOpenCanvasFloatingSession(sessionId, groupId ?? undefined);
+            }}
           >
             {renderSessionHeaderSummary()}
-          </button>
+          </div>
           <div className="flex shrink-0 items-center gap-2">
             {isCanvasDisplayMode
               ? renderSessionSubagentTrigger(
@@ -5012,6 +5147,29 @@ export function AgentPanel({
       ) : null}
       {/* Empty state overlay - shown when current worktree has no sessions */}
       {/* IMPORTANT: Don't use early return here - terminals must stay mounted to prevent PTY destruction */}
+      {showWorktreeSessionRecoveryState ? (
+        <div
+          aria-busy="true"
+          role="status"
+          data-agent-panel-recovery-state="true"
+          className={cn('absolute inset-0 z-20', !backgroundImageEnabled && 'bg-background')}
+        >
+          <ControlStateCard
+            icon={<Sparkles className="h-5 w-5" />}
+            eyebrow={t('Agent Console')}
+            title={t('Restoring agent sessions')}
+            description={t('Loading persisted sessions for the selected worktree.')}
+            metaLabel={t('Status')}
+            metaValue={t('Recovery in progress')}
+            footer={
+              <div className="flex items-center gap-3 text-[0.76em] text-muted-foreground/78">
+                <ActivityIndicator state="running" size="md" />
+                <span>{t('Preparing terminal views')}</span>
+              </div>
+            }
+          />
+        </div>
+      ) : null}
       {showEmptyState ? (
         <AgentPanelEmptyState
           bgImageEnabled={backgroundImageEnabled}

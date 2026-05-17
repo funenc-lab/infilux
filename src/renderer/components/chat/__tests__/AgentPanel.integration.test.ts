@@ -683,6 +683,17 @@ async function flushRenderTasks() {
   await flushMicrotasks();
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 async function clickByTestId(container: HTMLElement, testId: string) {
   const target = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
   expect(target).not.toBeNull();
@@ -697,6 +708,19 @@ async function clickElement(target: HTMLElement | null) {
     target?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await flushRenderTasks();
   });
+}
+
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    'value'
+  )?.set;
+  if (!valueSetter) {
+    throw new Error('HTMLInputElement value setter is unavailable');
+  }
+
+  valueSetter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function getAgentTerminalElement(sessionId: string): Element | null {
@@ -1033,6 +1057,40 @@ describe('AgentPanel integration', () => {
 
     await mounted.unmount();
   });
+
+  it('shows a recovery state instead of the empty state while worktree sessions are restoring', async () => {
+    const recovery = createDeferred<RestoreWorktreeSessionsResult>();
+    testState.electronAPI.restoreWorktreeSessions.mockReturnValue(recovery.promise);
+
+    const mounted = await mountAgentPanel();
+
+    expect(
+      mounted.container.querySelector('[data-agent-panel-recovery-state="true"]')
+    ).not.toBeNull();
+    expect(mounted.container.querySelector('[data-testid="agent-panel-empty-state"]')).toBeNull();
+
+    await act(async () => {
+      recovery.resolve({
+        items: [
+          {
+            record: createRecoveredRecord(),
+            runtimeState: 'live',
+            recoverable: true,
+          },
+        ],
+      });
+      await flushRenderTasks();
+    });
+
+    expect(mounted.container.querySelector('[data-agent-panel-recovery-state="true"]')).toBeNull();
+    expect(
+      mounted.container.querySelector(
+        '[data-testid="agent-terminal"][data-session-id="recovered-session-1"]'
+      )
+    ).not.toBeNull();
+
+    await mounted.unmount();
+  }, 20_000);
 
   it('creates a default session from the empty state and attaches it to the first group', async () => {
     const mounted = await mountAgentPanel();
@@ -2217,6 +2275,159 @@ describe('AgentPanel integration', () => {
     expect(mounted.container.querySelectorAll('[data-agent-canvas-deferred="true"]').length).toBe(
       2
     );
+
+    await mounted.unmount();
+  });
+
+  it('renames a worktree canvas session title from the tile header', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-title',
+      sessionId: 'provider-title',
+      backendSessionId: 'backend-title',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Original Session Title',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-title',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-title',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const titleButton = mounted.container.querySelector<HTMLButtonElement>(
+      '[data-agent-canvas-session-title-button="true"][data-agent-canvas-session-id="session-title"]'
+    );
+    expect(titleButton).not.toBeNull();
+
+    await clickElement(titleButton);
+
+    const titleInput = mounted.container.querySelector<HTMLInputElement>(
+      'input[data-agent-canvas-session-title-input="true"][data-agent-canvas-session-id="session-title"]'
+    );
+    expect(titleInput).not.toBeNull();
+
+    await act(async () => {
+      if (titleInput) {
+        setInputValue(titleInput, 'Renamed Canvas Session');
+      }
+      await flushRenderTasks();
+    });
+
+    await act(async () => {
+      mounted.container
+        .querySelector<HTMLInputElement>(
+          'input[data-agent-canvas-session-title-input="true"][data-agent-canvas-session-id="session-title"]'
+        )
+        ?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+      await flushRenderTasks();
+    });
+
+    const renamedSession = useAgentSessionsStore
+      .getState()
+      .sessions.find((candidate) => candidate.id === session.id);
+    expect(renamedSession?.name).toBe('Renamed Canvas Session');
+    expect(renamedSession?.userRenamed).toBe(true);
+
+    await mounted.unmount();
+  });
+
+  it('renames a floating canvas session title from the window header', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-floating-title',
+      sessionId: 'provider-floating-title',
+      backendSessionId: 'backend-floating-title',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Floating Session Title',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-floating-title',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-floating-title',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+
+    await clickElement(mounted.container.querySelector('button[aria-label="Bring to Front"]'));
+
+    expect(document.body.querySelector('.agent-canvas-floating-frame')).not.toBeNull();
+    const floatingTitleButton = document.body.querySelector<HTMLButtonElement>(
+      '.agent-canvas-floating-frame [data-agent-canvas-session-title-button="true"][data-agent-canvas-session-id="session-floating-title"]'
+    );
+    expect(floatingTitleButton).not.toBeNull();
+
+    await act(async () => {
+      floatingTitleButton?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      floatingTitleButton?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      floatingTitleButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flushRenderTasks();
+    });
+
+    const titleInput = document.body.querySelector<HTMLInputElement>(
+      '.agent-canvas-floating-frame input[data-agent-canvas-session-title-input="true"][data-agent-canvas-session-id="session-floating-title"]'
+    );
+    expect(titleInput).not.toBeNull();
+
+    await act(async () => {
+      if (titleInput) {
+        setInputValue(titleInput, 'Renamed Floating Session');
+      }
+      await flushRenderTasks();
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector<HTMLInputElement>(
+          '.agent-canvas-floating-frame input[data-agent-canvas-session-title-input="true"][data-agent-canvas-session-id="session-floating-title"]'
+        )
+        ?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+      await flushRenderTasks();
+    });
+
+    const renamedSession = useAgentSessionsStore
+      .getState()
+      .sessions.find((candidate) => candidate.id === session.id);
+    expect(renamedSession?.name).toBe('Renamed Floating Session');
+    expect(renamedSession?.userRenamed).toBe(true);
 
     await mounted.unmount();
   });

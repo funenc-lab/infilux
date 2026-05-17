@@ -4,6 +4,8 @@
 
 Infilux 是一个基于 Electron 的 Git Worktree 管理器与多 Agent 开发工作台。系统的核心目标不是“单个窗口内展示 Git 信息”，而是围绕 **worktree 隔离、会话隔离、编辑上下文隔离、跨进程契约清晰** 这四件事构建完整开发环境。
 
+功能级代码归属、共享契约、测试入口与治理文档索引见 `docs/feature-inventory.md`。本文件说明系统架构原则与关键子系统设计，功能清单以 inventory 为准。
+
 当前架构采用典型的 Electron 四层分离：
 
 ```text

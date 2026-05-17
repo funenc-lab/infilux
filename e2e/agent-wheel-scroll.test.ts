@@ -256,6 +256,47 @@ describe.sequential('electron agent transcript interactions', () => {
       await quitElectronApplication(launch.app);
     }
   });
+
+  it('auto-scrolls agent transcript downward while drag-selecting near the terminal edge', async () => {
+    const scenario = await createAgentWheelProbeScenario();
+    cleanupTasks.push(scenario.cleanup);
+
+    const launch = await launchInfiluxForScenario(scenario);
+
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario);
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      await expectAutoScrollWhileDragSelecting(launch, scenario);
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
+  it('auto-scrolls canvas agent transcript downward while drag-selecting near the terminal edge', async () => {
+    const scenario = await createAgentWheelProbeScenario();
+    cleanupTasks.push(scenario.cleanup);
+
+    const launch = await launchInfiluxForScenario(scenario);
+
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await writeAgentSessionDisplayMode(launch.page, 'canvas');
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario, { requireSessionTab: false });
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      await expectAutoScrollWhileDragSelecting(launch, scenario);
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
 });
 
 async function buildScenarioError(
@@ -310,10 +351,80 @@ async function buildScenarioError(
   );
 }
 
-async function openSeededSession(
-  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+async function expectAutoScrollWhileDragSelecting(
+  launch: Awaited<ReturnType<typeof launchInfiluxForScenario>>,
   scenario: AgentWheelProbeScenario
 ): Promise<void> {
+  await scrollUntilVisibleLine(launch.page, scenario, 'TRANSCRIPT-LINE-001');
+
+  const initialVisibleLines = extractVisibleTranscriptLines(
+    await readVisibleTerminalText(launch.page, scenario)
+  );
+  expect(initialVisibleLines.length).toBeGreaterThanOrEqual(8);
+  const firstInitialLine = initialVisibleLines[0] ?? '';
+  const firstInitialLineNumber = parseTranscriptLineNumber(firstInitialLine);
+  expect(firstInitialLineNumber).not.toBeNull();
+
+  const terminal = resolveTerminalLocator(launch.page, scenario);
+  const terminalBox = await terminal.boundingBox();
+  if (!terminalBox) {
+    throw new Error(`Missing terminal bounding box for ${scenario.sessionPanelId}`);
+  }
+
+  const dragStartX = terminalBox.x + terminalBox.width * 0.18;
+  const dragStartY = terminalBox.y + terminalBox.height * 0.25;
+  const dragHoldX = terminalBox.x + terminalBox.width * 0.72;
+  const dragHoldY = terminalBox.y + terminalBox.height - 4;
+
+  await launch.page.mouse.move(dragStartX, dragStartY);
+  await launch.page.mouse.down();
+  await launch.page.mouse.move(dragHoldX, dragHoldY, { steps: 20 });
+
+  await expect
+    .poll(
+      async () => {
+        const lines = extractVisibleTranscriptLines(
+          await readVisibleTerminalText(launch.page, scenario)
+        );
+        const firstVisibleLineNumber = parseTranscriptLineNumber(lines[0] ?? '');
+        return (
+          firstVisibleLineNumber !== null &&
+          firstInitialLineNumber !== null &&
+          firstVisibleLineNumber > firstInitialLineNumber
+        );
+      },
+      { timeout: 10000 }
+    )
+    .toBe(true);
+
+  const scrolledVisibleLines = extractVisibleTranscriptLines(
+    await readVisibleTerminalText(launch.page, scenario)
+  );
+  const scrolledSelectionLine =
+    scrolledVisibleLines[Math.floor(scrolledVisibleLines.length / 2)] ?? '';
+  expect(scrolledSelectionLine).not.toBe('');
+
+  await launch.page.mouse.up();
+
+  await expect
+    .poll(async () => (await readTerminalSelectionText(launch.page)).length, { timeout: 10000 })
+    .toBeGreaterThan(0);
+  expect(await readTerminalSelectionText(launch.page)).toContain(scrolledSelectionLine);
+
+  const log = await readProbeLog(scenario.probeLogPath);
+  expect(log).not.toContain('MOUSE_EVENT');
+  expect(log).not.toContain('PAGE_UP');
+  expect(log).not.toContain('PAGE_DOWN');
+  expect(log).not.toContain('ARROW_UP');
+  expect(log).not.toContain('ARROW_DOWN');
+}
+
+async function openSeededSession(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  scenario: AgentWheelProbeScenario,
+  options: { requireSessionTab?: boolean } = {}
+): Promise<void> {
+  const requireSessionTab = options.requireSessionTab ?? true;
   const worktreeButton = page
     .locator('[data-node-kind="worktree"]')
     .filter({ hasText: scenario.worktreeBranch })
@@ -321,13 +432,31 @@ async function openSeededSession(
     .first();
   await worktreeButton.click();
 
-  const sessionTab = page.getByRole('tab', { name: scenario.sessionDisplayName });
-  await expect
-    .poll(async () => await sessionTab.count(), { timeout: 30000 })
-    .toBeGreaterThanOrEqual(1);
+  if (requireSessionTab) {
+    const sessionTab = page.getByRole('tab', { name: scenario.sessionDisplayName });
+    await expect
+      .poll(async () => await sessionTab.count(), { timeout: 30000 })
+      .toBeGreaterThanOrEqual(1);
+  }
 
   const terminal = resolveTerminalLocator(page, scenario);
   await terminal.waitFor({ state: 'visible', timeout: 30000 });
+}
+
+async function writeAgentSessionDisplayMode(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  agentSessionDisplayMode: 'tab' | 'canvas' | 'global-canvas'
+): Promise<void> {
+  await page.waitForLoadState('domcontentloaded');
+  await page.evaluate(async (displayMode) => {
+    await window.electronAPI.settings.write({
+      'enso-settings': {
+        state: {
+          agentSessionDisplayMode: displayMode,
+        },
+      },
+    });
+  }, agentSessionDisplayMode);
 }
 
 function resolveTerminalLocator(
@@ -451,6 +580,11 @@ function extractVisibleTranscriptLines(text: string): string[] {
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => /^TRANSCRIPT-LINE-\d{3}$/u.test(line));
+}
+
+function parseTranscriptLineNumber(line: string): number | null {
+  const match = /^TRANSCRIPT-LINE-(\d{3})$/u.exec(line);
+  return match ? Number(match[1]) : null;
 }
 
 function resolveScrollToBottomButton(
