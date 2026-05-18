@@ -1,4 +1,5 @@
 import { lstat } from 'node:fs/promises';
+import path from 'node:path';
 
 /**
  * Validate a local path for use as a repository.
@@ -11,11 +12,22 @@ import { lstat } from 'node:fs/promises';
 export async function validateLocalPath(inputPath: string): Promise<{
   exists: boolean;
   isDirectory: boolean;
+  isGitRepository: boolean;
 }> {
   try {
     const stats = await lstat(inputPath);
-    return { exists: true, isDirectory: stats.isDirectory() };
+    const isDirectory = stats.isDirectory();
+    if (!isDirectory) {
+      return { exists: true, isDirectory: false, isGitRepository: false };
+    }
+
+    try {
+      await lstat(path.join(inputPath, '.git'));
+      return { exists: true, isDirectory: true, isGitRepository: true };
+    } catch {
+      return { exists: true, isDirectory: true, isGitRepository: false };
+    }
   } catch {
-    return { exists: false, isDirectory: false };
+    return { exists: false, isDirectory: false, isGitRepository: false };
   }
 }

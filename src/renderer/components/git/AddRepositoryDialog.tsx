@@ -57,6 +57,10 @@ import { generateClonePath } from '@/lib/gitClone';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCloneTasksStore } from '@/stores/cloneTasks';
 import { useSettingsStore } from '@/stores/settings';
+import {
+  canSubmitLocalRepository,
+  resolveLocalRepositoryAddState,
+} from './addRepositoryLocalValidation';
 
 type AddMode = 'local' | 'remote' | 'ssh';
 
@@ -133,6 +137,7 @@ export function AddRepositoryDialog({
   const [recentProjects, setRecentProjects] = React.useState<RecentEditorProject[]>([]);
   const [pathValidation, setPathValidation] = React.useState<ValidateLocalPathResult | null>(null);
   const [isValidating, setIsValidating] = React.useState(false);
+  const [isInitializingLocalRepo, setIsInitializingLocalRepo] = React.useState(false);
 
   const [remoteUrl, setRemoteUrl] = React.useState('');
   const [targetDir, setTargetDir] = React.useState('');
@@ -477,6 +482,7 @@ export function AddRepositoryDialog({
     setRecentProjects([]);
     setPathValidation(null);
     setIsValidating(false);
+    setIsInitializingLocalRepo(false);
     setRemoteUrl('');
     setTargetDir('');
     setRepoName('');
@@ -501,10 +507,10 @@ export function AddRepositoryDialog({
   }, [defaultGroupId]);
 
   const handleClose = React.useCallback(() => {
-    if (isCloning || isAddingRemoteRepo) return;
+    if (isCloning || isAddingRemoteRepo || isInitializingLocalRepo) return;
     resetForm();
     onOpenChange(false);
-  }, [isAddingRemoteRepo, isCloning, onOpenChange, resetForm]);
+  }, [isAddingRemoteRepo, isCloning, isInitializingLocalRepo, onOpenChange, resetForm]);
 
   const handleMinimize = React.useCallback(() => {
     resetForm();
@@ -516,7 +522,7 @@ export function AddRepositoryDialog({
       handleMinimize();
       return;
     }
-    if (!nextOpen && isAddingRemoteRepo) {
+    if (!nextOpen && (isAddingRemoteRepo || isInitializingLocalRepo)) {
       return;
     }
     if (!nextOpen) {
@@ -532,15 +538,44 @@ export function AddRepositoryDialog({
     const groupIdToSave = hideGroups ? null : selectedGroupId ? selectedGroupId : null;
 
     if (mode === 'local') {
-      if (!localPath) {
+      const trimmedLocalPath = localPath.trim();
+      if (!trimmedLocalPath) {
         setError(t('Please select a local repository directory'));
         return;
       }
-      if (pathValidation && !pathValidation.isDirectory) {
+      const localValidation = await window.electronAPI.git.validateLocalPath(trimmedLocalPath);
+      setPathValidation(localValidation);
+      if (!localValidation.exists) {
+        setError(t('Path does not exist'));
+        return;
+      }
+      if (!localValidation.isDirectory) {
         setError(t('Path is not a directory'));
         return;
       }
-      onAddLocal(localPath, groupIdToSave);
+      if (!localValidation.isGitRepository) {
+        setIsInitializingLocalRepo(true);
+        try {
+          await window.electronAPI.git.init(trimmedLocalPath);
+          const initializedValidation =
+            await window.electronAPI.git.validateLocalPath(trimmedLocalPath);
+          setPathValidation(initializedValidation);
+          if (!initializedValidation.isGitRepository) {
+            setError(t('Failed to initialize Git repository'));
+            return;
+          }
+        } catch (initError) {
+          setError(
+            initError instanceof Error
+              ? initError.message
+              : t('Failed to initialize Git repository')
+          );
+          return;
+        } finally {
+          setIsInitializingLocalRepo(false);
+        }
+      }
+      onAddLocal(trimmedLocalPath, groupIdToSave);
       handleClose();
       return;
     }
@@ -623,9 +658,9 @@ export function AddRepositoryDialog({
   };
 
   const isSubmitDisabled = () => {
-    if (isCloning || isAddingRemoteRepo) return true;
+    if (isCloning || isAddingRemoteRepo || isInitializingLocalRepo) return true;
     if (mode === 'local') {
-      return !localPath || isValidating || (pathValidation !== null && !pathValidation.isDirectory);
+      return !canSubmitLocalRepository(localRepositoryState);
     }
     if (mode === 'ssh') {
       return (
@@ -648,6 +683,11 @@ export function AddRepositoryDialog({
   const sshParentPath = React.useMemo(() => getRemoteParentPath(sshBrowserPath), [sshBrowserPath]);
 
   const selectedProfile = remoteProfiles.find((profile) => profile.id === sshProfileId);
+  const localRepositoryState = resolveLocalRepositoryAddState(
+    localPath,
+    pathValidation,
+    isValidating
+  );
 
   const selectedGroupLabel = React.useMemo(() => {
     if (!selectedGroupId) return t('No Group');
@@ -685,7 +725,7 @@ export function AddRepositoryDialog({
           groupSelectionTouchedRef.current = true;
           setSelectedGroupId(value || '');
         }}
-        disabled={isCloning || isAddingRemoteRepo}
+        disabled={isCloning || isAddingRemoteRepo || isInitializingLocalRepo}
       >
         <div className="flex w-full items-center gap-2">
           <SelectTrigger className="min-w-0 flex-1 w-auto">
@@ -697,7 +737,7 @@ export function AddRepositoryDialog({
             size="icon"
             className="shrink-0"
             onClick={() => setCreateGroupDialogOpen(true)}
-            disabled={isCloning || isAddingRemoteRepo}
+            disabled={isCloning || isAddingRemoteRepo || isInitializingLocalRepo}
             title={t('New Group')}
             aria-label={t('New Group')}
           >
@@ -740,7 +780,7 @@ export function AddRepositoryDialog({
             <Tabs
               value={mode}
               onValueChange={(value) => {
-                if (isCloning || isAddingRemoteRepo) return;
+                if (isCloning || isAddingRemoteRepo || isInitializingLocalRepo) return;
                 setMode(value as AddMode);
                 setError(null);
               }}
@@ -749,7 +789,7 @@ export function AddRepositoryDialog({
                 <TabsTrigger
                   value="local"
                   className="flex-1"
-                  disabled={isCloning || isAddingRemoteRepo}
+                  disabled={isCloning || isAddingRemoteRepo || isInitializingLocalRepo}
                 >
                   <FolderOpen className="h-4 w-4 shrink-0" />
                   <span className="truncate">{t('Local')}</span>
@@ -757,7 +797,7 @@ export function AddRepositoryDialog({
                 <TabsTrigger
                   value="remote"
                   className="flex-1"
-                  disabled={isCloning || isAddingRemoteRepo}
+                  disabled={isCloning || isAddingRemoteRepo || isInitializingLocalRepo}
                 >
                   <Globe className="h-4 w-4 shrink-0" />
                   <span className="truncate">{t('Clone')}</span>
@@ -765,7 +805,7 @@ export function AddRepositoryDialog({
                 <TabsTrigger
                   value="ssh"
                   className="flex-1"
-                  disabled={isCloning || isAddingRemoteRepo}
+                  disabled={isCloning || isAddingRemoteRepo || isInitializingLocalRepo}
                 >
                   <Server className="h-4 w-4 shrink-0" />
                   <span className="truncate">{t('SSH')}</span>
@@ -779,6 +819,7 @@ export function AddRepositoryDialog({
                     value={localPath}
                     onValueChange={(value) => {
                       setLocalPath(value ?? '');
+                      setPathValidation(null);
                       setError(null);
                     }}
                     items={recentProjects}
@@ -796,6 +837,7 @@ export function AddRepositoryDialog({
                         type="button"
                         variant="outline"
                         onClick={handleSelectLocalPath}
+                        disabled={isInitializingLocalRepo}
                         className="shrink-0"
                       >
                         {t('Browse')}
@@ -823,14 +865,21 @@ export function AddRepositoryDialog({
                     {isValidating && (
                       <span className="text-muted-foreground">{t('Validating...')}</span>
                     )}
-                    {!isValidating && pathValidation && !pathValidation.exists && (
+                    {localRepositoryState === 'missing' && (
                       <span className="text-destructive">{t('Path does not exist')}</span>
                     )}
-                    {!isValidating && pathValidation?.exists && !pathValidation.isDirectory && (
+                    {localRepositoryState === 'file' && (
                       <span className="text-destructive">{t('Path is not a directory')}</span>
                     )}
-                    {!isValidating && pathValidation?.isDirectory && (
-                      <span className="text-success">✓ {t('Valid directory')}</span>
+                    {localRepositoryState === 'initializable' && (
+                      <span className="text-warning">
+                        {t(
+                          'This directory is not a Git repository. Git will be initialized when you add it.'
+                        )}
+                      </span>
+                    )}
+                    {localRepositoryState === 'ready' && (
+                      <span className="text-success">✓ {t('Valid Git repository')}</span>
                     )}
                     {!localPath && !isValidating && t('Select a local directory on your computer.')}
                   </FieldDescription>
@@ -1038,6 +1087,11 @@ export function AddRepositoryDialog({
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 {t('Adding...')}
               </Button>
+            ) : isInitializingLocalRepo ? (
+              <Button type="button" variant="outline" className="min-w-24 justify-center" disabled>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t('Initializing...')}
+              </Button>
             ) : (
               <DialogClose
                 render={
@@ -1059,6 +1113,13 @@ export function AddRepositoryDialog({
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   {t('Adding...')}
                 </>
+              ) : isInitializingLocalRepo ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t('Initializing...')}
+                </>
+              ) : mode === 'local' && localRepositoryState === 'initializable' ? (
+                t('Initialize Git and Add')
               ) : mode === 'local' ? (
                 t('Add')
               ) : mode === 'ssh' ? (
