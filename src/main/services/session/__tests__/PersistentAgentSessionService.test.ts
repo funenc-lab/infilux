@@ -76,7 +76,11 @@ describe('PersistentAgentSessionService', () => {
   });
 
   it('upserts persistent session records by ui session id', async () => {
-    const service = new PersistentAgentSessionService();
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession: vi.fn(async (record) => record.lastKnownState),
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
     const record = makeRecord({
       uiSessionId: 'session-1',
       displayName: 'Claude Updated',
@@ -86,6 +90,34 @@ describe('PersistentAgentSessionService', () => {
     await service.upsertSession(record);
 
     expect(persistentAgentSessionServiceTestDoubles.upsertSession).toHaveBeenCalledWith(record);
+  });
+
+  it('reconciles host state before upserting persistent session records', async () => {
+    const record = makeRecord({
+      uiSessionId: 'session-1',
+      displayName: 'Claude Updated',
+      updatedAt: 22,
+      lastKnownState: 'live',
+    });
+    const probeSession = vi.fn<() => Promise<'missing-host-session'>>(
+      async () => 'missing-host-session'
+    );
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession,
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+
+    await service.upsertSession(record);
+
+    expect(probeSession).toHaveBeenCalledWith(record);
+    expect(persistentAgentSessionServiceTestDoubles.upsertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'session-1',
+        lastKnownState: 'missing-host-session',
+      })
+    );
+    expect(persistentAgentSessionServiceTestDoubles.upsertSession).not.toHaveBeenCalledWith(record);
   });
 
   it('restores worktree sessions and preserves non-recoverable records for metadata recovery', async () => {
