@@ -9,8 +9,18 @@ import { useDeferredReady } from './useDeferredReady';
 type CurrentFilePanelComponent = React.ComponentType<CurrentFilePanelProps>;
 type CurrentFilePanelModule = typeof import('@/components/files/CurrentFilePanel');
 
+let cachedCurrentFilePanelComponent: CurrentFilePanelComponent | null = null;
+
 function loadCurrentFilePanelModule(): Promise<CurrentFilePanelModule> {
   return import('@/components/files/CurrentFilePanel');
+}
+
+function getCachedCurrentFilePanelComponent(): CurrentFilePanelComponent | null {
+  return cachedCurrentFilePanelComponent;
+}
+
+function setCachedCurrentFilePanelComponent(component: CurrentFilePanelComponent): void {
+  cachedCurrentFilePanelComponent = component;
 }
 
 function selectCurrentFilePanelComponent(
@@ -39,6 +49,8 @@ export function DeferredCurrentFilePanel({
     shouldLoad,
     load: loadCurrentFilePanelModule,
     selectComponent: selectCurrentFilePanelComponent,
+    getCachedComponent: getCachedCurrentFilePanelComponent,
+    setCachedComponent: setCachedCurrentFilePanelComponent,
     errorLabel: 'CurrentFilePanel',
   });
 

@@ -28,6 +28,14 @@ function loadAgentPanelComponent(): Promise<AgentPanelComponent> {
   return agentPanelComponentPromise;
 }
 
+export function preloadAgentPanelComponent(): Promise<void> {
+  return loadAgentPanelComponent()
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      console.error('[DeferredAgentPanel] Failed to preload AgentPanel', error);
+    });
+}
+
 interface DeferredAgentPanelProps extends AgentPanelProps {
   shouldLoad?: boolean;
   showFallback?: boolean;

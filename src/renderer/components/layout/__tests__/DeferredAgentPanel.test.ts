@@ -39,6 +39,27 @@ vi.mock('../DeferredPanelFallback', () => ({
 describe('DeferredAgentPanel', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.resetModules();
+  });
+
+  it('uses a preloaded AgentPanel component before the panel is mounted', async () => {
+    const { DeferredAgentPanel, preloadAgentPanelComponent } = await import(
+      '../DeferredAgentPanel'
+    );
+
+    await preloadAgentPanelComponent();
+
+    const markup = renderToStaticMarkup(
+      React.createElement(DeferredAgentPanel, {
+        repoPath: '/repo',
+        cwd: '/repo/worktrees/preloaded',
+        shouldLoad: false,
+      })
+    );
+
+    expect(markup).toContain('data-agent-panel="true"');
+    expect(markup).toContain('data-cwd="/repo/worktrees/preloaded"');
+    expect(markup).not.toContain('data-deferred-panel-fallback');
   });
 
   it('reuses the loaded AgentPanel component after remounting', async () => {
