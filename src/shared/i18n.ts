@@ -117,6 +117,7 @@ export const zhTranslations: Record<string, string> = {
   'Temp Session deleted': '临时会话已删除',
   'Failed to create temp session': '创建临时会话失败',
   'Failed to delete temp session': '删除临时会话失败',
+  'Failed to initialize Git repository': '\u521d\u59cb\u5316 Git \u4ed3\u5e93\u5931\u8d25',
   terminals: '终端',
   Branch: '分支',
   'Branch already exists. Choose a different name.': '该分支已存在，请使用其他分支名',
@@ -1118,6 +1119,7 @@ export const zhTranslations: Record<string, string> = {
   'Unable to determine your home directory': '无法获取用户目录',
   Unstage: '取消暂存',
   'Unstage all': '全部取消暂存',
+  'Valid Git repository': '\u6709\u6548\u7684 Git \u4ed3\u5e93',
   Version: '版本',
   'Version Control': '版本管理',
   'Version {{version}} has been downloaded. Restart now to install?':
@@ -2325,6 +2327,7 @@ export const zhTranslations: Record<string, string> = {
   'Select this repository to load and inspect its worktrees.':
     '选择此仓库以加载并查看其 worktree。',
   'Initialize Git here to create and manage worktrees.': '在此初始化 Git 以创建和管理 worktree。',
+  'Initialize Git and Add': '\u521d\u59cb\u5316 Git \u5e76\u6dfb\u52a0',
   'No worktrees yet': '还没有 worktree',
   'Try a broader search term or clear the current filter.': '尝试更宽泛的搜索词，或清除当前筛选。',
   'This repository has no worktree with a live Agent session.':
@@ -2348,6 +2351,8 @@ export const zhTranslations: Record<string, string> = {
   'Repository Required': '需要仓库',
   'This directory is not a Git repository. Initialize it to enable branches, worktrees, and source-control workflows.':
     '此目录不是 Git 仓库。请先初始化以启用分支、worktree 和版本控制工作流。',
+  'This directory is not a Git repository. Git will be initialized when you add it.':
+    '\u6b64\u76ee\u5f55\u4e0d\u662f Git \u4ed3\u5e93\u3002\u6dfb\u52a0\u65f6\u5c06\u4f1a\u521d\u59cb\u5316 Git\u3002',
   'Git metadata not found': '未找到 Git 元数据',
   'Current directory': '当前目录',
   'Refresh or initialize the repository': '刷新或初始化仓库',
@@ -2651,6 +2656,7 @@ export const zhTranslations: Record<string, string> = {
   'Force Terminate': '\u5f3a\u5236\u7ec8\u6b62',
   'Renderer process': 'Renderer \u8fdb\u7a0b',
   'Agent session': '\u667a\u80fd\u4f53\u4f1a\u8bdd',
+  'Session title': '\u4f1a\u8bdd\u6807\u9898',
   'Terminal session': '\u7ec8\u7aef\u4f1a\u8bdd',
   'Utility process': 'Utility \u8fdb\u7a0b',
   '{{type}} process': '{{type}} \u8fdb\u7a0b',
