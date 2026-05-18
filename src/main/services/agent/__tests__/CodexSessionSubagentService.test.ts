@@ -317,4 +317,77 @@ describe('CodexSessionSubagentService', () => {
 
     expect(listLive).toHaveBeenCalledTimes(1);
   });
+
+  it('coalesces concurrent session metadata scans for nearby provider sessions', async () => {
+    const sessionsDir = createTempDir('codex-session-subagents-');
+    const now = Date.parse('2026-05-15T09:30:00.000Z');
+
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'root-1',
+      timestampMs: now - 10_000,
+      cwd: '/repo/worktree',
+    });
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'root-2',
+      timestampMs: now - 9_000,
+      cwd: '/repo/worktree',
+    });
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'child-1',
+      timestampMs: now - 8_000,
+      cwd: '/repo/worktree',
+      parentThreadId: 'root-1',
+      agentRole: 'explorer',
+    });
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'child-2',
+      timestampMs: now - 7_000,
+      cwd: '/repo/worktree',
+      parentThreadId: 'root-2',
+      agentRole: 'reviewer',
+    });
+
+    const listLive = vi.fn<() => Promise<ListLiveAgentSubagentsResult>>().mockResolvedValue({
+      items: [],
+      generatedAt: now,
+    });
+    const metadata = await import('../codexSessionMetadata');
+    const readCodexSessionMetaRecords = vi.fn(metadata.readCodexSessionMetaRecords);
+    const service = new CodexSessionSubagentService({ listLive }, sessionsDir, {
+      cacheTtlMs: 5_000,
+      now: () => now,
+      metadata: {
+        readCodexSessionMetaRecords,
+      },
+    });
+
+    const [firstResult, secondResult] = await Promise.all([
+      service.listSession({
+        providerSessionId: 'root-1',
+        cwd: '/repo/worktree',
+      }),
+      service.listSession({
+        providerSessionId: 'root-2',
+        cwd: '/repo/worktree',
+      }),
+    ]);
+
+    expect(readCodexSessionMetaRecords).toHaveBeenCalledTimes(1);
+    expect(firstResult.items).toEqual([
+      expect.objectContaining({
+        threadId: 'child-1',
+        rootThreadId: 'root-1',
+      }),
+    ]);
+    expect(secondResult.items).toEqual([
+      expect.objectContaining({
+        threadId: 'child-2',
+        rootThreadId: 'root-2',
+      }),
+    ]);
+  });
 });
