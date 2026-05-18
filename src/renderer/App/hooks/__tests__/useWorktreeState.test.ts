@@ -27,13 +27,14 @@ describe('useWorktreeState', () => {
     vi.restoreAllMocks();
   });
 
-  it('starts on the file tab even when persisted worktrees restore chat panels later', () => {
+  it('starts on the persisted non-file worktree tab for the selected repository', () => {
     const onActiveTab = vi.fn();
     vi.stubGlobal(
       'localStorage',
       createLocalStorageMock({
+        [STORAGE_KEYS.SELECTED_REPO]: '/repo',
         [STORAGE_KEYS.WORKTREE_TABS]: JSON.stringify({
-          '/repo/worktree': 'chat',
+          '/repo/worktree': 'terminal',
         }),
         [STORAGE_KEYS.ACTIVE_WORKTREES]: JSON.stringify({
           '/repo': '/repo/worktree',
@@ -43,6 +44,26 @@ describe('useWorktreeState', () => {
 
     renderToStaticMarkup(React.createElement(WorktreeStateProbe, { onActiveTab }));
 
-    expect(onActiveTab).toHaveBeenCalledWith('file');
+    expect(onActiveTab).toHaveBeenCalledWith('terminal');
+  });
+
+  it('falls back to chat instead of restoring the file tab on startup', () => {
+    const onActiveTab = vi.fn();
+    vi.stubGlobal(
+      'localStorage',
+      createLocalStorageMock({
+        [STORAGE_KEYS.SELECTED_REPO]: '/repo',
+        [STORAGE_KEYS.WORKTREE_TABS]: JSON.stringify({
+          '/repo/worktree': 'file',
+        }),
+        [STORAGE_KEYS.ACTIVE_WORKTREES]: JSON.stringify({
+          '/repo': '/repo/worktree',
+        }),
+      })
+    );
+
+    renderToStaticMarkup(React.createElement(WorktreeStateProbe, { onActiveTab }));
+
+    expect(onActiveTab).toHaveBeenCalledWith('chat');
   });
 });

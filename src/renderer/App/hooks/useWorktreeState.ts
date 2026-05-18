@@ -2,6 +2,7 @@ import type { GitWorktree } from '@shared/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import type { TabId } from '../constants';
+import { resolveWorktreeTabForRestore } from '../settingsWorktreeTabPolicy';
 import {
   getStoredTabMap,
   getStoredTabOrder,
@@ -11,6 +12,24 @@ import {
   saveTabOrder,
   saveWorktreeOrderMap,
 } from '../storage';
+
+function getInitialActiveTab(): TabId {
+  const selectedRepo = localStorage.getItem(STORAGE_KEYS.SELECTED_REPO);
+  if (!selectedRepo) {
+    return 'chat';
+  }
+
+  const activeWorktreePath = getStoredWorktreeMap()[selectedRepo];
+  if (!activeWorktreePath) {
+    return 'chat';
+  }
+
+  return resolveWorktreeTabForRestore({
+    savedTab: getStoredTabMap()[activeWorktreePath],
+    settingsDisplayMode: 'draggable-modal',
+    allowFileTabRestore: false,
+  });
+}
 
 export function useWorktreeState() {
   // Per-worktree tab state: { [worktreeId or legacy worktreePath]: TabId }
@@ -23,7 +42,7 @@ export function useWorktreeState() {
     useState<Record<string, Record<string, number>>>(getStoredWorktreeOrderMap);
   // Panel tab order: custom order of tabs
   const [tabOrder, setTabOrder] = useState<TabId[]>(getStoredTabOrder);
-  const [activeTab, setActiveTab] = useState<TabId>('file');
+  const [activeTab, setActiveTab] = useState<TabId>(getInitialActiveTab);
   const [previousTab, setPreviousTab] = useState<TabId | null>(null);
   const [activeWorktree, setActiveWorktree] = useState<GitWorktree | null>(null);
 

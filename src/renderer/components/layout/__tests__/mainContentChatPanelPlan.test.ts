@@ -20,6 +20,7 @@ describe('mainContentChatPanelPlan', () => {
         },
         shouldRenderCurrentChatPanel: true,
         showSubagentTranscript: false,
+        visibleChatBridgeContext: null,
       })
     ).toEqual([
       {
@@ -55,6 +56,7 @@ describe('mainContentChatPanelPlan', () => {
         },
         shouldRenderCurrentChatPanel: true,
         showSubagentTranscript: true,
+        visibleChatBridgeContext: null,
       })
     ).toEqual([
       {
@@ -82,6 +84,7 @@ describe('mainContentChatPanelPlan', () => {
         },
         shouldRenderCurrentChatPanel: false,
         showSubagentTranscript: false,
+        visibleChatBridgeContext: null,
       })
     ).toEqual([
       {
@@ -109,6 +112,7 @@ describe('mainContentChatPanelPlan', () => {
         },
         shouldRenderCurrentChatPanel: true,
         showSubagentTranscript: false,
+        visibleChatBridgeContext: null,
       })
     ).toEqual([
       {
@@ -165,5 +169,44 @@ describe('mainContentChatPanelPlan', () => {
     expect(
       resolveMainContentChatPanelEntryKey({ ...entry, isCurrent: false }, 'global-canvas')
     ).toBe('chat:/repo/worktrees/current');
+  });
+
+  it('keeps the previous worktree panel visible while the current worktree chat restores', () => {
+    expect(
+      resolveMainContentChatPanelPlan({
+        activeTab: 'chat',
+        agentSessionDisplayMode: 'tab',
+        cachedChatPanelPaths: [],
+        getRepoPathForWorktree: () => null,
+        hasActiveWorktree: true,
+        retainedChatContext: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/next',
+        },
+        shouldRenderCurrentChatPanel: true,
+        showSubagentTranscript: false,
+        visibleChatBridgeContext: {
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/current',
+        },
+      })
+    ).toEqual([
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/next',
+        isCurrent: true,
+        isVisible: false,
+        isActive: false,
+        showFallback: false,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/current',
+        isCurrent: false,
+        isVisible: true,
+        isActive: true,
+        showFallback: false,
+      },
+    ]);
   });
 });

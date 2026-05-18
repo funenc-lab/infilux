@@ -93,6 +93,7 @@ const worktreeActivityState: WorktreeActivityState = {
 
 const liveSubagentsByWorktree = new Map<string, LiveAgentSubagent[]>();
 const useLiveSubagentsMock = vi.fn(() => liveSubagentsByWorktree);
+const preloadAgentPanelComponentMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 let mockPanelMountId = 0;
 
 function setWindowElectronEnv(
@@ -334,6 +335,7 @@ vi.mock('@/stores/terminalWrite', () => ({
 
 vi.mock('../DeferredAgentPanel', () => ({
   DeferredAgentPanel: (props: Record<string, unknown>) => renderMockPanel('agent', props),
+  preloadAgentPanelComponent: preloadAgentPanelComponentMock,
 }));
 
 vi.mock('../DeferredAiCenterPanel', () => ({
@@ -405,6 +407,7 @@ describe('MainContent component render', () => {
     worktreeActivityState.activityStates = {};
     liveSubagentsByWorktree.clear();
     useLiveSubagentsMock.mockClear();
+    preloadAgentPanelComponentMock.mockClear();
 
     setWindowElectronEnv({
       platform: 'darwin',
@@ -414,6 +417,8 @@ describe('MainContent component render', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.useRealTimers();
+    Reflect.deleteProperty(window, 'requestIdleCallback');
+    Reflect.deleteProperty(window, 'cancelIdleCallback');
   });
 
   async function renderMainContent(
@@ -497,6 +502,7 @@ describe('MainContent component render', () => {
           repoPath: '/repo/main',
           worktreePath: '/repo/main/worktrees/current',
         },
+        visibleChatBridgeContext: null,
         hasActiveWorktree: true,
         worktreeCollapsed: false,
         onExpandWorktree: vi.fn(),
@@ -640,6 +646,85 @@ describe('MainContent component render', () => {
     expect(markup).not.toContain('data-panel="terminal"');
   });
 
+  it('preloads the agent panel module after a worktree context is available', async () => {
+    vi.useFakeTimers();
+
+    const mounted = await mountMainContent('file');
+
+    expect(preloadAgentPanelComponentMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
+    });
+
+    expect(preloadAgentPanelComponentMock).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('reschedules agent panel preloading when the worktree changes before idle time', async () => {
+    const idleCallbacks = new Map<number, IdleRequestCallback>();
+    const cancelledIdleIds = new Set<number>();
+    let nextIdleId = 0;
+    Object.defineProperty(window, 'requestIdleCallback', {
+      configurable: true,
+      value: vi.fn((callback: IdleRequestCallback) => {
+        nextIdleId += 1;
+        idleCallbacks.set(nextIdleId, callback);
+        return nextIdleId;
+      }),
+    });
+    Object.defineProperty(window, 'cancelIdleCallback', {
+      configurable: true,
+      value: vi.fn((id: number) => {
+        cancelledIdleIds.add(id);
+      }),
+    });
+
+    const mounted = await mountMainContent('file');
+
+    await mounted.render('file', {
+      worktreePath: '/repo/main/worktrees/next',
+      sourceControlRootPath: '/repo/main/worktrees/next',
+      reviewRootPath: '/repo/main/worktrees/next',
+      openInPath: '/repo/main/worktrees/next',
+    });
+
+    expect(cancelledIdleIds.has(1)).toBe(true);
+
+    await act(async () => {
+      idleCallbacks.get(1)?.({ didTimeout: false, timeRemaining: () => 50 });
+      idleCallbacks.get(2)?.({ didTimeout: false, timeRemaining: () => 50 });
+      await Promise.resolve();
+    });
+
+    expect(preloadAgentPanelComponentMock).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('does not preload the agent panel module without a worktree context', async () => {
+    vi.useFakeTimers();
+
+    const mounted = await mountMainContent('file', {
+      repoPath: undefined,
+      worktreePath: undefined,
+      sourceControlRootPath: undefined,
+      reviewRootPath: undefined,
+      openInPath: undefined,
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
+    });
+
+    expect(preloadAgentPanelComponentMock).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
   it('keeps project todo in the top-level tabs and leaves AI center to the sidebar', async () => {
     settingsState.todoEnabled = true;
 
@@ -728,6 +813,30 @@ describe('MainContent component render', () => {
     );
     expect(markup).toMatch(
       /<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/older"[^>]*data-show-fallback="false"|<div data-panel="agent"[^>]*data-show-fallback="false"[^>]*data-cwd="\/repo\/main\/worktrees\/older"/
+    );
+  });
+
+  it('keeps the previous chat panel visible while the next worktree panel restores in the background', async () => {
+    const markup = await renderMainContentPanels({
+      currentWorktreePath: '/repo/main/worktrees/next',
+      retainedChatContext: {
+        repoPath: '/repo/main',
+        worktreePath: '/repo/main/worktrees/next',
+      },
+      visibleChatBridgeContext: {
+        repoPath: '/repo/main',
+        worktreePath: '/repo/main/worktrees/current',
+      },
+    });
+
+    expect(markup).toMatch(
+      /class="absolute inset-0 bg-background invisible pointer-events-none z-0"><div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/next"/
+    );
+    expect(markup).toMatch(
+      /class="absolute inset-0 bg-background z-10"><div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"/
+    );
+    expect(markup).toMatch(
+      /<div data-panel="agent"[^>]*data-active="true"[^>]*data-cwd="\/repo\/main\/worktrees\/current"|<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"[^>]*data-active="true"/
     );
   });
 

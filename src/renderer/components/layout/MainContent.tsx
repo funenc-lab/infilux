@@ -1,10 +1,14 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { BrainCircuit, FileCode, GitBranch, KanbanSquare, Sparkles, Terminal } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { DEFAULT_TAB_ORDER, type TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
 import { normalizePath, pathsEqual } from '@/App/storage';
 import type { AgentCanvasWorktreeCandidate } from '@/components/chat/agentCanvasSessionScope';
+import {
+  getWorktreeAgentSessionRecoveryStatus,
+  subscribeToWorktreeAgentSessionRecovery,
+} from '@/components/chat/agentSessionRecovery';
 import {
   buildSessionActivityStateBySessionId,
   getHighestSessionActivityState,
@@ -27,6 +31,8 @@ import {
   resolveChatPanelIdleSinceByWorktree,
 } from './chatPanelIdleRetentionPolicy';
 import { updateRetainedChatPanelPaths } from './chatPanelRetentionPolicy';
+import { resolveVisibleChatBridgeContext } from './chatWorktreeTransitionPolicy';
+import { preloadAgentPanelComponent } from './DeferredAgentPanel';
 import { DeferredDiffReviewModal } from './DeferredDiffReviewModal';
 import { updateRetainedFilePanelPaths } from './filePanelLruPolicy';
 import { getFileTabCountForWorktree as getFileTabCountForWorktreeState } from './filePanelWorktreeState';
@@ -105,6 +111,25 @@ function mergeWorktreeSessionActivityState(
   const currentState = existingEntry?.[1] ?? 'idle';
   values[targetPath] = getHighestSessionActivityState([currentState, nextState]);
   return values;
+}
+
+const AGENT_PANEL_PRELOAD_DELAY_MS = 200;
+
+function scheduleAgentPanelPreload(callback: () => void): () => void {
+  if (typeof window === 'undefined') {
+    callback();
+    return () => undefined;
+  }
+
+  if (typeof window.requestIdleCallback === 'function') {
+    const idleId = window.requestIdleCallback(callback, {
+      timeout: AGENT_PANEL_PRELOAD_DELAY_MS,
+    });
+    return () => window.cancelIdleCallback?.(idleId);
+  }
+
+  const timeoutId = window.setTimeout(callback, AGENT_PANEL_PRELOAD_DELAY_MS);
+  return () => window.clearTimeout(timeoutId);
 }
 
 export function MainContent({
@@ -228,6 +253,7 @@ export function MainContent({
   >({});
   const [chatPanelRetentionNow, setChatPanelRetentionNow] = useState(() => Date.now());
   const syncedDerivedActivityPathsRef = useRef<string[]>([]);
+  const didRequestAgentPanelPreloadRef = useRef(false);
 
   useEffect(() => {
     const dragImage = document.createElement('div');
@@ -351,6 +377,8 @@ export function MainContent({
   }, [initializedSessions]);
   const shouldPollVisibleChatSubagents =
     activeTab === 'chat' && !selectedSubagent && Boolean(currentWorktreePath);
+  const showSubagentTranscript =
+    Boolean(selectedSubagent) && activeTab === 'chat' && hasActiveWorktree;
   const liveSubagentVisibleCwds = useMemo(
     () => (shouldPollVisibleChatSubagents && currentWorktreePath ? [currentWorktreePath] : []),
     [currentWorktreePath, shouldPollVisibleChatSubagents]
@@ -527,6 +555,13 @@ export function MainContent({
 
     return getFileTabCountForWorktree(currentNormalizedWorktreePath);
   }, [currentNormalizedWorktreePath, getFileTabCountForWorktree]);
+  const currentChatSessionCount = useMemo(() => {
+    if (!currentWorktreePath) {
+      return 0;
+    }
+
+    return getChatSessionCountForWorktree(currentWorktreePath);
+  }, [currentWorktreePath, getChatSessionCountForWorktree]);
 
   const currentChatRetentionState = currentWorktreePath
     ? resolveCurrentChatPanelRetentionState({
@@ -569,11 +604,87 @@ export function MainContent({
       effectiveFileTabCount,
     ]
   );
+  const currentChatRecoveryStatus = useSyncExternalStore(
+    subscribeToWorktreeAgentSessionRecovery,
+    () => getWorktreeAgentSessionRecoveryStatus(currentRepoPath, currentWorktreePath),
+    () => getWorktreeAgentSessionRecoveryStatus(currentRepoPath, currentWorktreePath)
+  );
+  const lastVisibleChatContextRef = useRef<{ repoPath: string; worktreePath: string } | null>(null);
+  const currentChatContext = useMemo(
+    () =>
+      currentRepoPath && currentWorktreePath
+        ? { repoPath: currentRepoPath, worktreePath: currentWorktreePath }
+        : null,
+    [currentRepoPath, currentWorktreePath]
+  );
+  const visibleChatBridgeContext = useMemo(
+    () =>
+      resolveVisibleChatBridgeContext({
+        activeTab,
+        agentSessionDisplayMode,
+        currentChatSessionCount,
+        currentContext: currentChatContext,
+        hasActiveWorktree,
+        lastVisibleChatContext: lastVisibleChatContextRef.current,
+        recoveryStatus: currentChatRecoveryStatus,
+        shouldRenderCurrentChatPanel,
+        showSubagentTranscript,
+      }),
+    [
+      activeTab,
+      agentSessionDisplayMode,
+      currentChatRecoveryStatus,
+      currentChatSessionCount,
+      currentChatContext,
+      hasActiveWorktree,
+      shouldRenderCurrentChatPanel,
+      showSubagentTranscript,
+    ]
+  );
 
   const shouldRenderSourceControl = shouldRenderTabPanel('source-control', activeTab);
   const shouldRenderTodo = shouldRenderTabPanel('todo', activeTab);
   const shouldRenderAiCenter = shouldRenderTabPanel('ai-center', activeTab);
   const shouldRenderSettings = shouldRenderTabPanel('settings', activeTab);
+
+  useEffect(() => {
+    if (
+      didRequestAgentPanelPreloadRef.current ||
+      !hasActiveWorktree ||
+      !currentRepoPath ||
+      !currentWorktreePath
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const cancelScheduledPreload = scheduleAgentPanelPreload(() => {
+      if (cancelled || didRequestAgentPanelPreloadRef.current) {
+        return;
+      }
+
+      didRequestAgentPanelPreloadRef.current = true;
+      void preloadAgentPanelComponent();
+    });
+
+    return () => {
+      cancelled = true;
+      cancelScheduledPreload();
+    };
+  }, [currentRepoPath, currentWorktreePath, hasActiveWorktree]);
+
+  useEffect(() => {
+    if (
+      activeTab !== 'chat' ||
+      showSubagentTranscript ||
+      !currentChatContext ||
+      visibleChatBridgeContext
+    ) {
+      return;
+    }
+
+    lastVisibleChatContextRef.current = currentChatContext;
+  }, [activeTab, currentChatContext, showSubagentTranscript, visibleChatBridgeContext]);
 
   useEffect(() => {
     const nextPaths = Object.entries(syncedSessionActivityStateByWorktree)
@@ -720,6 +831,7 @@ export function MainContent({
         currentRepoPath={currentRepoPath}
         currentWorktreePath={currentWorktreePath}
         retainedChatContext={retainedChatContext}
+        visibleChatBridgeContext={visibleChatBridgeContext}
         hasActiveWorktree={hasActiveWorktree}
         worktreeCollapsed={worktreeCollapsed}
         onExpandWorktree={onExpandWorktree}
