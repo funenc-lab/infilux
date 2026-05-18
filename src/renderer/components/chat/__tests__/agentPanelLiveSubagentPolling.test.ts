@@ -38,6 +38,9 @@ describe('AgentPanel live subagent polling contract', () => {
 
     expect(inspectorSource).toContain('useSessionSubagents({');
     expect(inspectorSource).toContain("if (viewState.kind === 'supported') {");
-    expect(inspectorSource).toContain('return isLoadingSessionSubagents ? subagents : [];');
+    expect(inspectorSource).toContain('hasLoaded: hasLoadedSessionSubagents');
+    expect(inspectorSource).toContain(
+      'return !hasLoadedSessionSubagents || isLoadingSessionSubagents ? subagents : [];'
+    );
   });
 });

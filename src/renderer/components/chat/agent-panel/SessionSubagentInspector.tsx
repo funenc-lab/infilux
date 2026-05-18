@@ -256,7 +256,11 @@ export function SessionSubagentInspector({
   const [viewportSize, setViewportSize] = useState<InspectorViewportSize>(
     getInitialInspectorViewportSize
   );
-  const { items: sessionSubagents, isLoading: isLoadingSessionSubagents } = useSessionSubagents({
+  const {
+    items: sessionSubagents,
+    isLoading: isLoadingSessionSubagents,
+    hasLoaded: hasLoadedSessionSubagents,
+  } = useSessionSubagents({
     cwd: sessionCwd,
     providerSessionId,
     enabled: viewState.kind === 'supported',
@@ -274,11 +278,17 @@ export function SessionSubagentInspector({
         return sessionSubagents;
       }
 
-      return isLoadingSessionSubagents ? subagents : [];
+      return !hasLoadedSessionSubagents || isLoadingSessionSubagents ? subagents : [];
     }
 
     return subagents;
-  }, [isLoadingSessionSubagents, sessionSubagents, subagents, viewState.kind]);
+  }, [
+    hasLoadedSessionSubagents,
+    isLoadingSessionSubagents,
+    sessionSubagents,
+    subagents,
+    viewState.kind,
+  ]);
   const selectedSubagent = useMemo(
     () =>
       resolvedSubagents.find((subagent) => subagent.threadId === selectedThreadId) ??

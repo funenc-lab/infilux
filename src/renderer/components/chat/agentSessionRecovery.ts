@@ -16,9 +16,16 @@ interface RestoreWorktreeAgentSessionsOptions {
 
 const completedRecoveryKeys = new Set<string>();
 const inFlightRecoveryRequests = new Map<string, Promise<string[]>>();
+const recoveryStateListeners = new Set<() => void>();
 
 function buildRecoveryKey(repoPath: string, cwd: string): string {
   return `${normalizePath(repoPath)}::${normalizePath(cwd)}`;
+}
+
+function emitRecoveryStateChange(): void {
+  for (const listener of recoveryStateListeners) {
+    listener();
+  }
 }
 
 function getActiveGroupId(state: AgentGroupState): string | null {
@@ -139,10 +146,14 @@ export async function restoreWorktreeAgentSessions({
     let hasPendingMetadataOnlySession = false;
 
     for (const item of result.items) {
+      if (!item.recoverable) {
+        hasPendingMetadataOnlySession = true;
+        continue;
+      }
+
       upsertRecoveredSession(item.record);
       restoredIds.push(item.record.uiSessionId);
-      hasRecoverableSession = hasRecoverableSession || item.recoverable;
-      hasPendingMetadataOnlySession = hasPendingMetadataOnlySession || !item.recoverable;
+      hasRecoverableSession = true;
     }
 
     if (restoredIds.length > 0) {
@@ -155,13 +166,45 @@ export async function restoreWorktreeAgentSessions({
     return restoredIds;
   })().finally(() => {
     inFlightRecoveryRequests.delete(recoveryKey);
+    emitRecoveryStateChange();
   });
 
   inFlightRecoveryRequests.set(recoveryKey, request);
+  emitRecoveryStateChange();
   return request;
+}
+
+export type WorktreeAgentSessionRecoveryStatus = 'idle' | 'restoring' | 'settled';
+
+export function getWorktreeAgentSessionRecoveryStatus(
+  repoPath?: string | null,
+  cwd?: string | null
+): WorktreeAgentSessionRecoveryStatus {
+  if (!repoPath || !cwd) {
+    return 'idle';
+  }
+
+  const recoveryKey = buildRecoveryKey(repoPath, cwd);
+  if (inFlightRecoveryRequests.has(recoveryKey)) {
+    return 'restoring';
+  }
+
+  if (completedRecoveryKeys.has(recoveryKey)) {
+    return 'settled';
+  }
+
+  return 'idle';
+}
+
+export function subscribeToWorktreeAgentSessionRecovery(listener: () => void): () => void {
+  recoveryStateListeners.add(listener);
+  return () => {
+    recoveryStateListeners.delete(listener);
+  };
 }
 
 export function resetWorktreeAgentSessionRecoveryCacheForTests(): void {
   completedRecoveryKeys.clear();
   inFlightRecoveryRequests.clear();
+  recoveryStateListeners.clear();
 }

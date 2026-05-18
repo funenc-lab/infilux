@@ -490,9 +490,11 @@ vi.mock('../ClaudeSessionLaunchDialog', () => ({
 vi.mock('../agent-panel/SessionSubagentInspector', () => ({
   SessionSubagentInspector: ({
     sessionName,
+    subagents,
     onClose,
   }: {
     sessionName: string;
+    subagents?: Array<Record<string, unknown>>;
     onClose?: () => void;
   }) =>
     React.createElement(
@@ -500,6 +502,7 @@ vi.mock('../agent-panel/SessionSubagentInspector', () => ({
       {
         'data-testid': 'session-subagent-inspector',
         'data-session-name': sessionName,
+        'data-subagent-count': String(subagents?.length ?? 0),
       },
       React.createElement(
         'button',
@@ -514,12 +517,13 @@ vi.mock('../agent-panel/SessionSubagentInspector', () => ({
 }));
 
 vi.mock('../agent-panel/SessionSubagentTriggerButton', () => ({
-  SessionSubagentTriggerButton: ({ onClick }: { onClick?: () => void }) =>
+  SessionSubagentTriggerButton: ({ count, onClick }: { count?: number; onClick?: () => void }) =>
     React.createElement(
       'button',
       {
         type: 'button',
         'data-testid': 'session-subagent-trigger',
+        'data-subagent-count': String(count ?? 0),
         onClick: () => onClick?.(),
       },
       'session-subagent-trigger'
@@ -982,7 +986,7 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   }, 20_000);
 
-  it('preserves unresolved missing-host recovery state when the mounted terminal reports live by default', async () => {
+  it('skips unresolved missing-host recovery records instead of mounting interrupted sessions', async () => {
     testState.electronAPI.restoreWorktreeSessions.mockResolvedValue({
       items: [
         {
@@ -1005,11 +1009,14 @@ describe('AgentPanel integration', () => {
     testState.terminalRuntimeStateBySessionId['recovered-missing-1'] = 'live';
 
     const mounted = await mountAgentPanel();
-    const recoveredSession = useAgentSessionsStore
-      .getState()
-      .sessions.find((session) => session.id === 'recovered-missing-1');
+    const store = useAgentSessionsStore.getState();
 
-    expect(recoveredSession?.recoveryState).toBe('missing-host-session');
+    expect(store.sessions.some((session) => session.id === 'recovered-missing-1')).toBe(false);
+    expect(
+      mounted.container.querySelector(
+        '[data-testid="agent-terminal"][data-session-id="recovered-missing-1"]'
+      )
+    ).toBeNull();
 
     await mounted.unmount();
   });
@@ -3359,6 +3366,79 @@ describe('AgentPanel integration', () => {
     expect(
       document.body.querySelector('[data-testid="session-subagent-inspector"]')
     ).not.toBeNull();
+
+    await clickByTestId(document.body, 'close-session-subagent-inspector');
+    expect(document.body.querySelector('[data-testid="session-subagent-inspector"]')).toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('opens the session subagent inspector from a canvas tile above the canvas transform', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-canvas-codex',
+      sessionId: 'provider-canvas-codex',
+      backendSessionId: 'backend-canvas-codex',
+      name: 'Canvas Codex Session',
+      agentId: 'codex',
+      agentCommand: 'codex',
+    });
+    testState.sessionScopedSubagentsBySessionId = {
+      [session.id]: [
+        {
+          id: 'subagent-canvas-1',
+          provider: 'codex',
+          threadId: 'child-thread-canvas-1',
+          rootThreadId: 'provider-canvas-codex',
+          parentThreadId: 'provider-canvas-codex',
+          cwd: '/repo/worktree',
+          label: 'Canvas Worker',
+          status: 'running',
+          lastSeenAt: 1,
+        },
+      ],
+    };
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-canvas-codex',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-canvas-codex',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel();
+    const trigger = mounted.container.querySelector<HTMLButtonElement>(
+      '[data-agent-canvas-session-panel="true"] [data-testid="session-subagent-trigger"]'
+    );
+
+    expect(trigger).not.toBeNull();
+    expect(trigger?.getAttribute('data-subagent-count')).toBe('1');
+
+    await clickElement(trigger);
+
+    const inspector = document.body.querySelector<HTMLElement>(
+      '[data-testid="session-subagent-inspector"]'
+    );
+    expect(inspector).not.toBeNull();
+    expect(inspector?.getAttribute('data-session-name')).toBe('Canvas Codex Session');
+    expect(inspector?.getAttribute('data-subagent-count')).toBe('1');
+    expect(
+      mounted.container.querySelector('[data-testid="session-subagent-inspector"]')
+    ).toBeNull();
 
     await clickByTestId(document.body, 'close-session-subagent-inspector');
     expect(document.body.querySelector('[data-testid="session-subagent-inspector"]')).toBeNull();

@@ -656,6 +656,11 @@ export const zhTranslations: Record<string, string> = {
   Status: '状态',
   'Stop output notification': 'Agent 停止输出时发送系统通知',
   'Agent Console': 'Agent 控制台',
+  'Restoring agent sessions': '\u6b63\u5728\u6062\u590d Agent \u4f1a\u8bdd',
+  'Loading persisted sessions for the selected worktree.':
+    '\u6b63\u5728\u52a0\u8f7d\u6240\u9009 worktree \u7684\u6301\u4e45\u5316\u4f1a\u8bdd\u3002',
+  'Recovery in progress': '\u6062\u590d\u4e2d',
+  'Preparing terminal views': '\u6b63\u5728\u51c6\u5907\u7ec8\u7aef\u89c6\u56fe',
   'No agent sessions are attached to this worktree': '当前 worktree 还没有关联的 Agent 会话',
   'Launch the default agent immediately or choose another profile to resume orchestration in this worktree.':
     '立即启动默认 Agent，或选择其他配置，继续在这个 worktree 中进行协作调度。',

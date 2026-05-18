@@ -32,7 +32,7 @@ function resetIdleTimer() {
   }
 
   // Start idle detection only while the window is focused.
-  if (isWindowFocused) {
+  if (isWindowFocused && listeners.size > 0) {
     idleTimeoutId = setTimeout(() => {
       isIdle = true;
       notifyListeners();
@@ -94,9 +94,18 @@ if (hasDomEnvironment) {
 }
 
 function subscribe(callback: () => void) {
+  const wasEmpty = listeners.size === 0;
   listeners.add(callback);
+  if (wasEmpty) {
+    resetIdleTimer();
+  }
+
   return () => {
     listeners.delete(callback);
+    if (listeners.size === 0 && idleTimeoutId) {
+      clearTimeout(idleTimeoutId);
+      idleTimeoutId = null;
+    }
   };
 }
 

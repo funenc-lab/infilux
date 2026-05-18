@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useShouldPoll } from './useWindowFocus';
 
 const DEFAULT_POLL_INTERVAL_MS = 1_500;
 const DEFAULT_MAX_ATTEMPTS = 8;
@@ -51,6 +52,7 @@ export function useAgentProviderSessionDiscovery(
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
   } = options;
+  const shouldPoll = useShouldPoll();
   const onProviderSessionIdChangeRef = useRef(onProviderSessionIdChange);
   const hasProviderSessionIdChangeHandler = Boolean(onProviderSessionIdChange);
 
@@ -69,7 +71,8 @@ export function useAgentProviderSessionDiscovery(
         initialized,
         isRemoteExecution,
       }) ||
-      !hasProviderSessionIdChangeHandler
+      !hasProviderSessionIdChangeHandler ||
+      !shouldPoll
     ) {
       return;
     }
@@ -131,6 +134,7 @@ export function useAgentProviderSessionDiscovery(
     maxAttempts,
     pollIntervalMs,
     providerSessionId,
+    shouldPoll,
     uiSessionId,
   ]);
 }
