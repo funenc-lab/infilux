@@ -77,6 +77,7 @@ const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 // Maximum length for session name derived from terminal current line
 const SESSION_NAME_MAX_LENGTH = 36;
+const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 
 interface InternalTerminalSearchDecorations {
   matchBackground?: string;
@@ -112,6 +113,14 @@ interface XtermCommandOptions {
     shell: string;
     args: string[];
   };
+}
+
+interface PendingHostScrollRequest {
+  cwd?: string;
+  sessionName: string;
+  serverName?: string;
+  direction: 'up' | 'down';
+  amount: number;
 }
 
 export interface XtermSessionCreateFallbackOptions {
@@ -409,6 +418,8 @@ export function useXterm({
   const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCarryRef = useRef(0);
+  const pendingHostScrollRef = useRef<PendingHostScrollRequest | null>(null);
+  const hostScrollFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDecorations = useMemo(
     () => buildTerminalSearchDecorations(settings.theme),
     [settings.theme]
@@ -628,6 +639,80 @@ export function useXterm({
     isFlushPendingRef.current = false;
   }, []);
 
+  const flushPendingHostScroll = useCallback(() => {
+    if (hostScrollFlushTimerRef.current) {
+      clearTimeout(hostScrollFlushTimerRef.current);
+      hostScrollFlushTimerRef.current = null;
+    }
+
+    const request = pendingHostScrollRef.current;
+    pendingHostScrollRef.current = null;
+    if (!request || request.amount <= 0) {
+      return;
+    }
+
+    void window.electronAPI.tmux
+      .scrollClient(request.cwd, {
+        sessionName: request.sessionName,
+        serverName: request.serverName,
+        direction: request.direction,
+        amount: request.amount,
+      })
+      .then((result) => {
+        const nextHostScrollbackState =
+          typeof result.inMode === 'boolean'
+            ? result.inMode
+            : request.direction === 'up' && result.applied;
+        onHostScrollbackStateChangeRef.current?.(nextHostScrollbackState);
+      })
+      .catch(() => {
+        onHostScrollbackStateChangeRef.current?.(false);
+      });
+  }, []);
+
+  const clearPendingHostScroll = useCallback(() => {
+    if (hostScrollFlushTimerRef.current) {
+      clearTimeout(hostScrollFlushTimerRef.current);
+      hostScrollFlushTimerRef.current = null;
+    }
+    pendingHostScrollRef.current = null;
+  }, []);
+
+  const scheduleHostScroll = useCallback(
+    (request: PendingHostScrollRequest) => {
+      if (request.amount <= 0) {
+        return;
+      }
+
+      const pending = pendingHostScrollRef.current;
+      if (
+        pending &&
+        pending.cwd === request.cwd &&
+        pending.sessionName === request.sessionName &&
+        pending.serverName === request.serverName &&
+        pending.direction === request.direction
+      ) {
+        pendingHostScrollRef.current = {
+          ...pending,
+          amount: pending.amount + request.amount,
+        };
+      } else {
+        if (pending) {
+          flushPendingHostScroll();
+        }
+        pendingHostScrollRef.current = request;
+      }
+
+      if (!hostScrollFlushTimerRef.current) {
+        hostScrollFlushTimerRef.current = setTimeout(
+          flushPendingHostScroll,
+          HOST_SCROLL_FLUSH_DELAY_MS
+        );
+      }
+    },
+    [flushPendingHostScroll]
+  );
+
   const resetSessionBinding = useCallback(
     async (terminal: Terminal, clearTerminal: boolean) => {
       createRequestIdRef.current += 1;
@@ -636,6 +721,7 @@ export function useXterm({
       hasReceivedDataRef.current = false;
       firstOutputWaitersRef.current.clear();
       wheelCarryRef.current = 0;
+      clearPendingHostScroll();
       onHostScrollbackStateChangeRef.current?.(false);
       setSearchState(createEmptyTerminalSearchState());
       sessionEventsCleanupRef.current?.();
@@ -653,7 +739,7 @@ export function useXterm({
         terminal.reset();
       }
     },
-    [clearTerminalWriteFlushTimers]
+    [clearPendingHostScroll, clearTerminalWriteFlushTimers]
   );
 
   const handleTerminalWheelEvent = useCallback(
@@ -683,23 +769,13 @@ export function useXterm({
 
       if (decision.action === 'host-scroll') {
         if (hostSession?.kind === 'tmux' && decision.scrollLines !== 0) {
-          void window.electronAPI.tmux
-            .scrollClient(cwd, {
-              sessionName: hostSession.sessionName,
-              serverName: hostSession.serverName,
-              direction: decision.scrollLines < 0 ? 'up' : 'down',
-              amount: Math.abs(decision.scrollLines),
-            })
-            .then((result) => {
-              const nextHostScrollbackState =
-                typeof result.inMode === 'boolean'
-                  ? result.inMode
-                  : decision.scrollLines < 0 && result.applied;
-              onHostScrollbackStateChangeRef.current?.(nextHostScrollbackState);
-            })
-            .catch(() => {
-              onHostScrollbackStateChangeRef.current?.(false);
-            });
+          scheduleHostScroll({
+            cwd,
+            sessionName: hostSession.sessionName,
+            serverName: hostSession.serverName,
+            direction: decision.scrollLines < 0 ? 'up' : 'down',
+            amount: Math.abs(decision.scrollLines),
+          });
         }
         event.preventDefault();
         event.stopPropagation();
@@ -719,7 +795,7 @@ export function useXterm({
       event.stopPropagation();
       return false;
     },
-    [cwd, hostSession, kind, preferHostScrollback]
+    [cwd, hostSession, kind, preferHostScrollback, scheduleHostScroll]
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
@@ -1673,6 +1749,7 @@ export function useXterm({
       activeSessionBindingRef.current = null;
       deadRecoveryAttemptKeyRef.current = null;
       wheelCarryRef.current = 0;
+      clearPendingHostScroll();
       clearTerminalWriteFlushTimers();
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
@@ -1707,7 +1784,7 @@ export function useXterm({
         (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = undefined;
       }
     };
-  }, [clearTerminalWriteFlushTimers]);
+  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers]);
 
   // Update settings dynamically
   useEffect(() => {
@@ -1806,6 +1883,40 @@ export function useXterm({
       activationRefreshCleanup?.();
     };
   }, [isActive, isLoading, fitTerminal, refreshRenderer]);
+
+  // Visible canvas tiles can be restored without becoming focused, so refresh their renderer
+  // explicitly after the host surface returns to a measurable layout.
+  useEffect(() => {
+    if (isActive || !isVisible || !terminalRef.current) {
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    let surfaceRefreshCleanup: (() => void) | null = null;
+    const containerReadyCleanup = scheduleXtermContainerReady({
+      container,
+      onReady: () => {
+        surfaceRefreshCleanup = scheduleXtermActivationRefresh({
+          fitViewport: fitTerminal,
+          refresh: refreshRenderer,
+          focus: () => undefined,
+          requestAnimationFrame: window.requestAnimationFrame.bind(window),
+          cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+        });
+      },
+      requestAnimationFrame: window.requestAnimationFrame.bind(window),
+      cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+    });
+
+    return () => {
+      containerReadyCleanup();
+      surfaceRefreshCleanup?.();
+    };
+  }, [isActive, isVisible, fitTerminal, refreshRenderer]);
 
   // Handle window visibility change to refresh terminal rendering
   useEffect(() => {

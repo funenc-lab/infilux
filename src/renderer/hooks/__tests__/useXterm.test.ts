@@ -70,6 +70,11 @@ const testState = vi.hoisted(() => ({
   unsubscribeVisibility: vi.fn(),
   unsubscribeFocus: vi.fn(),
   unsubscribeResize: vi.fn(),
+  activationRefreshCalls: [] as Array<{
+    fitViewport: () => void;
+    refresh: () => void;
+    focus: () => void;
+  }>,
 }));
 
 vi.mock('@xterm/xterm', () => ({
@@ -249,7 +254,14 @@ vi.mock('@/utils/logging', () => ({
 }));
 
 vi.mock('../xtermActivationRefresh', () => ({
-  scheduleXtermActivationRefresh: () => () => undefined,
+  scheduleXtermActivationRefresh: (options: {
+    fitViewport: () => void;
+    refresh: () => void;
+    focus: () => void;
+  }) => {
+    testState.activationRefreshCalls.push(options);
+    return () => undefined;
+  },
 }));
 
 vi.mock('../xtermAgentTranscriptPolicy', () => ({
@@ -407,6 +419,7 @@ describe('useXterm startup loading state', () => {
     testState.unsubscribeVisibility.mockClear();
     testState.unsubscribeFocus.mockClear();
     testState.unsubscribeResize.mockClear();
+    testState.activationRefreshCalls = [];
     testState.hookProps = {};
 
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -713,6 +726,44 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('refreshes the renderer when an inactive terminal becomes visible again', async () => {
+    const mounted = mountHookHarness({
+      isActive: false,
+      isVisible: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.activationRefreshCalls).toHaveLength(1);
+
+    mounted.rerender({
+      isActive: false,
+      isVisible: false,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    testState.activationRefreshCalls = [];
+
+    mounted.rerender({
+      isActive: false,
+      isVisible: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.activationRefreshCalls).toHaveLength(1);
+
+    await mounted.unmount();
+  });
+
   it('reports tmux host scrollback state after host wheel scrolling', async () => {
     testState.resolveAgentWheelPolicy.mockReturnValue({
       action: 'host-scroll',
@@ -737,6 +788,7 @@ describe('useXterm startup loading state', () => {
 
     expect(testState.attachedWheelHandler).toBeTypeOf('function');
 
+    vi.useFakeTimers();
     const preventDefault = vi.fn();
     const stopPropagation = vi.fn();
 
@@ -750,6 +802,13 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
+    expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+      await flushMicrotasks();
+    });
+
     expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
       sessionName: 'tmux-session-1',
       serverName: 'infilux',
@@ -759,6 +818,74 @@ describe('useXterm startup loading state', () => {
     expect(onHostScrollbackStateChange).toHaveBeenCalledWith(true);
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(stopPropagation).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('coalesces repeated tmux host wheel scroll events before sending IPC', async () => {
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -3,
+    } as never);
+
+    const mounted = mountHookHarness({
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'tmux-session-1',
+      },
+      preferHostScrollback: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.attachedWheelHandler).toBeTypeOf('function');
+
+    vi.useFakeTimers();
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    await act(async () => {
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -3,
+        preventDefault,
+        stopPropagation,
+      } as unknown as WheelEvent);
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -3,
+        preventDefault,
+        stopPropagation,
+      } as unknown as WheelEvent);
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -3,
+        preventDefault,
+        stopPropagation,
+      } as unknown as WheelEvent);
+      await flushMicrotasks();
+    });
+
+    expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+      await flushMicrotasks();
+    });
+
+    expect(testState.tmuxScrollClient).toHaveBeenCalledTimes(1);
+    expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
+      sessionName: 'tmux-session-1',
+      serverName: 'infilux',
+      direction: 'up',
+      amount: 9,
+    });
+    expect(preventDefault).toHaveBeenCalledTimes(3);
+    expect(stopPropagation).toHaveBeenCalledTimes(3);
 
     await mounted.unmount();
   });
