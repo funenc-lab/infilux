@@ -257,7 +257,7 @@ describe.sequential('electron agent transcript interactions', () => {
     }
   });
 
-  it('auto-scrolls agent transcript downward while drag-selecting near the terminal edge', async () => {
+  it('auto-scrolls agent transcript downward while drag-selecting near the session panel bottom', async () => {
     const scenario = await createAgentWheelProbeScenario();
     cleanupTasks.push(scenario.cleanup);
 
@@ -277,7 +277,7 @@ describe.sequential('electron agent transcript interactions', () => {
     }
   });
 
-  it('auto-scrolls canvas agent transcript downward while drag-selecting near the terminal edge', async () => {
+  it('auto-scrolls canvas agent transcript downward while drag-selecting near the session panel bottom', async () => {
     const scenario = await createAgentWheelProbeScenario();
     cleanupTasks.push(scenario.cleanup);
 
@@ -367,14 +367,18 @@ async function expectAutoScrollWhileDragSelecting(
 
   const terminal = resolveTerminalLocator(launch.page, scenario);
   const terminalBox = await terminal.boundingBox();
-  if (!terminalBox) {
-    throw new Error(`Missing terminal bounding box for ${scenario.sessionPanelId}`);
+  const sessionPanel = resolveSessionPanelLocator(launch.page, scenario);
+  const sessionPanelBox = await sessionPanel.boundingBox();
+  if (!terminalBox || !sessionPanelBox) {
+    throw new Error(
+      `Missing terminal or session panel bounding box for ${scenario.sessionPanelId}`
+    );
   }
 
   const dragStartX = terminalBox.x + terminalBox.width * 0.18;
   const dragStartY = terminalBox.y + terminalBox.height * 0.25;
   const dragHoldX = terminalBox.x + terminalBox.width * 0.72;
-  const dragHoldY = terminalBox.y + terminalBox.height - 4;
+  const dragHoldY = sessionPanelBox.y + sessionPanelBox.height - 4;
 
   await launch.page.mouse.move(dragStartX, dragStartY);
   await launch.page.mouse.down();
@@ -464,6 +468,13 @@ function resolveTerminalLocator(
   scenario: AgentWheelProbeScenario
 ) {
   return page.locator(`#${scenario.sessionPanelId} .xterm`).first();
+}
+
+function resolveSessionPanelLocator(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  scenario: AgentWheelProbeScenario
+) {
+  return page.locator(`#${scenario.sessionPanelId}`).first();
 }
 
 async function readVisibleTerminalText(

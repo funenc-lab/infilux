@@ -1726,6 +1726,267 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('tracks drag position before xterm document capture handlers can stop mousemove propagation', async () => {
+    vi.useFakeTimers();
+
+    const mounted = await mountAgentTerminal();
+    const terminalContainer = getXtermContainer();
+    const xtermScreen = document.createElement('div');
+    xtermScreen.className = 'xterm-screen';
+    terminalContainer.appendChild(xtermScreen);
+    const stopDocumentCaptureMouseMove = (event: MouseEvent) => {
+      event.stopImmediatePropagation();
+    };
+
+    Object.defineProperty(xtermScreen, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 200,
+        height: 200,
+        left: 0,
+        right: 300,
+        top: 0,
+        width: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+    document.addEventListener('mousemove', stopDocumentCaptureMouseMove, true);
+
+    await act(async () => {
+      terminalContainer.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          button: 0,
+          clientY: 120,
+        })
+      );
+      xtermScreen.dispatchEvent(
+        new MouseEvent('mousemove', {
+          bubbles: true,
+          clientY: 196,
+        })
+      );
+      vi.advanceTimersByTime(120);
+      await flushMicrotasks();
+    });
+
+    document.removeEventListener('mousemove', stopDocumentCaptureMouseMove, true);
+    expect(testState.terminal.scrollLines).toHaveBeenCalled();
+    expect(testState.terminal.scrollLines.mock.calls.at(-1)?.[0]).toBeGreaterThan(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          button: 0,
+        })
+      );
+      await flushMicrotasks();
+    });
+
+    await mounted.unmount();
+  });
+
+  it('starts drag auto-scroll before xterm document capture handlers can stop mousedown propagation', async () => {
+    vi.useFakeTimers();
+
+    const mounted = await mountAgentTerminal();
+    const terminalContainer = getXtermContainer();
+    const xtermScreen = document.createElement('div');
+    xtermScreen.className = 'xterm-screen';
+    terminalContainer.appendChild(xtermScreen);
+    const stopDocumentCaptureMouseDown = (event: MouseEvent) => {
+      event.stopImmediatePropagation();
+    };
+
+    Object.defineProperty(xtermScreen, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 200,
+        height: 200,
+        left: 0,
+        right: 300,
+        top: 0,
+        width: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+    document.addEventListener('mousedown', stopDocumentCaptureMouseDown, true);
+
+    await act(async () => {
+      xtermScreen.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          button: 0,
+          clientY: 120,
+        })
+      );
+      window.dispatchEvent(
+        new MouseEvent('mousemove', {
+          bubbles: true,
+          clientY: 196,
+        })
+      );
+      vi.advanceTimersByTime(120);
+      await flushMicrotasks();
+    });
+
+    document.removeEventListener('mousedown', stopDocumentCaptureMouseDown, true);
+    expect(testState.terminal.scrollLines).toHaveBeenCalled();
+    expect(testState.terminal.scrollLines.mock.calls.at(-1)?.[0]).toBeGreaterThan(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          button: 0,
+        })
+      );
+      await flushMicrotasks();
+    });
+
+    await mounted.unmount();
+  });
+
+  it('routes drag auto-scroll through tmux host scrollback for persistent recovered sessions', async () => {
+    vi.useFakeTimers();
+    testState.settingsStore.agentIntegration.tmuxEnabled = true;
+
+    const mounted = await mountAgentTerminal({
+      initialized: true,
+      persistenceEnabled: true,
+      hostSessionKey: 'infilux-ui-session-1',
+      recoveryState: 'live',
+    });
+    const terminalContainer = getXtermContainer();
+    const xtermScreen = document.createElement('div');
+    xtermScreen.className = 'xterm-screen';
+    terminalContainer.appendChild(xtermScreen);
+
+    Object.defineProperty(xtermScreen, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 200,
+        height: 200,
+        left: 0,
+        right: 300,
+        top: 0,
+        width: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
+    await act(async () => {
+      xtermScreen.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          button: 0,
+          clientY: 120,
+        })
+      );
+      window.dispatchEvent(
+        new MouseEvent('mousemove', {
+          bubbles: true,
+          clientY: 196,
+        })
+      );
+      vi.advanceTimersByTime(120);
+      await flushMicrotasks();
+    });
+
+    expect(testState.electronAPI.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
+      sessionName: 'infilux-ui-session-1',
+      serverName: 'infilux',
+      direction: 'down',
+      amount: expect.any(Number),
+    });
+    expect(testState.terminal.scrollLines).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          button: 0,
+        })
+      );
+      await flushMicrotasks();
+    });
+
+    await mounted.unmount();
+  });
+
+  it('keeps drag auto-scroll on xterm viewport for fresh tmux-backed sessions', async () => {
+    vi.useFakeTimers();
+    testState.settingsStore.agentIntegration.tmuxEnabled = true;
+
+    const mounted = await mountAgentTerminal({
+      initialized: true,
+      persistenceEnabled: true,
+      backendSessionId: undefined,
+      hostSessionKey: 'infilux-ui-session-1',
+      recoveryState: 'live',
+    });
+    const terminalContainer = getXtermContainer();
+    const xtermScreen = document.createElement('div');
+    xtermScreen.className = 'xterm-screen';
+    terminalContainer.appendChild(xtermScreen);
+
+    Object.defineProperty(xtermScreen, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 200,
+        height: 200,
+        left: 0,
+        right: 300,
+        top: 0,
+        width: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
+    await act(async () => {
+      xtermScreen.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          button: 0,
+          clientY: 120,
+        })
+      );
+      window.dispatchEvent(
+        new MouseEvent('mousemove', {
+          bubbles: true,
+          clientY: 196,
+        })
+      );
+      vi.advanceTimersByTime(120);
+      await flushMicrotasks();
+    });
+
+    expect(testState.electronAPI.tmuxScrollClient).not.toHaveBeenCalled();
+    expect(testState.terminal.scrollLines).toHaveBeenCalled();
+    expect(testState.terminal.scrollLines.mock.calls.at(-1)?.[0]).toBeGreaterThan(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          button: 0,
+        })
+      );
+      await flushMicrotasks();
+    });
+
+    await mounted.unmount();
+  });
+
   it('clears mouse-selection drag state when the window loses focus', async () => {
     testState.showScrollToBottom = true;
 

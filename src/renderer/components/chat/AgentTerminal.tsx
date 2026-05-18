@@ -218,14 +218,20 @@ function resolveMouseSelectionAutoScrollLines(
   if (distanceFromTop < MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX) {
     const intensity =
       (MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX - distanceFromTop) / MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX;
-    return -Math.max(1, Math.ceil(intensity * MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES));
+    return -Math.min(
+      MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES,
+      Math.max(1, Math.ceil(intensity * MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES))
+    );
   }
 
   if (distanceFromBottom < MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX) {
     const intensity =
       (MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX - distanceFromBottom) /
       MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX;
-    return Math.max(1, Math.ceil(intensity * MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES));
+    return Math.min(
+      MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES,
+      Math.max(1, Math.ceil(intensity * MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES))
+    );
   }
 
   return 0;
@@ -1742,6 +1748,9 @@ export function AgentTerminal({
     onMerge,
     canMerge,
   });
+  const shouldUseMouseSelectionHostScrollback =
+    hostSession?.kind === 'tmux' &&
+    (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current)));
   trustPromptSubmitRef.current = write;
   terminalFocusRef.current = () => terminal?.focus();
   runtimeStateRef.current = runtimeState;
@@ -1965,15 +1974,34 @@ export function AgentTerminal({
         const target = resolveMouseSelectionTarget(container);
         const lines = resolveMouseSelectionAutoScrollLines(target, position.clientY);
         if (lines !== 0) {
-          terminal?.scrollLines(lines);
+          if (cwd && shouldUseMouseSelectionHostScrollback && hostSession?.kind === 'tmux') {
+            void window.electronAPI.tmux
+              .scrollClient(cwd, {
+                sessionName: hostSession.sessionName,
+                serverName: hostSession.serverName,
+                direction: lines < 0 ? 'up' : 'down',
+                amount: Math.abs(lines),
+              })
+              .then((result) => {
+                setIsTmuxHostScrollbackActive(Boolean(result.inMode));
+              })
+              .catch(() => {
+                setIsTmuxHostScrollbackActive(false);
+              });
+          } else {
+            terminal?.scrollLines(lines);
+          }
           dispatchMouseSelectionMoveToXterm(target, position);
         }
       }, MOUSE_SELECTION_AUTO_SCROLL_INTERVAL_MS);
 
       const listenerDocument = containerRef.current?.ownerDocument ?? document;
+      const listenerWindow = listenerDocument.defaultView ?? window;
+      listenerWindow.addEventListener('mousemove', handleMouseSelectionMove, true);
       listenerDocument.addEventListener('mousemove', handleMouseSelectionMove, true);
       const stopMouseSelection = () => {
         window.clearInterval(intervalId);
+        listenerWindow.removeEventListener('mousemove', handleMouseSelectionMove, true);
         listenerDocument.removeEventListener('mousemove', handleMouseSelectionMove, true);
         window.removeEventListener('mouseup', stopMouseSelection);
         window.removeEventListener('blur', stopMouseSelection);
@@ -1986,7 +2014,7 @@ export function AgentTerminal({
       stopMouseSelectionAutoScrollRef.current = stopMouseSelection;
       setIsMouseSelectingTerminal(true);
     },
-    [containerRef, terminal]
+    [containerRef, cwd, hostSession, shouldUseMouseSelectionHostScrollback, terminal]
   );
 
   useEffect(() => {
@@ -2001,9 +2029,14 @@ export function AgentTerminal({
         return;
       }
 
+      const container = containerRef.current;
+      if (!(event.target instanceof Node) || !container?.contains(event.target)) {
+        return;
+      }
+
       startMouseSelectionAutoScroll(event);
     },
-    [startMouseSelectionAutoScroll]
+    [containerRef, startMouseSelectionAutoScroll]
   );
 
   const handleScrollToBottom = useCallback(() => {
@@ -2167,10 +2200,13 @@ export function AgentTerminal({
     const container = containerRef.current;
     if (!container) return;
 
-    container.addEventListener('mousedown', handleTerminalMouseSelectionStart, true);
+    const listenerDocument = container.ownerDocument;
+    const listenerWindow = listenerDocument.defaultView ?? window;
+
+    listenerWindow.addEventListener('mousedown', handleTerminalMouseSelectionStart, true);
     container.addEventListener('contextmenu', handleContextMenu);
     return () => {
-      container.removeEventListener('mousedown', handleTerminalMouseSelectionStart, true);
+      listenerWindow.removeEventListener('mousedown', handleTerminalMouseSelectionStart, true);
       container.removeEventListener('contextmenu', handleContextMenu);
     };
   }, [containerRef, handleContextMenu, handleTerminalMouseSelectionStart, isReadOnlyTranscript]);
