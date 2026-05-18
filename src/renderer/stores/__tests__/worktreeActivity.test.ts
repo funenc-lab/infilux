@@ -100,6 +100,53 @@ describe('worktree activity store', () => {
     });
   });
 
+  it('limits concurrent diff stat requests across many worktrees', async () => {
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+    const resolvers: Array<() => void> = [];
+    const getDiffStats = vi.fn(
+      () =>
+        new Promise<{ insertions: number; deletions: number }>((resolve) => {
+          activeRequests += 1;
+          maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+          resolvers.push(() => {
+            activeRequests -= 1;
+            resolve({ insertions: 1, deletions: 1 });
+          });
+        })
+    );
+    vi.stubGlobal('window', {
+      electronAPI: {
+        git: {
+          getDiffStats,
+        },
+        worktree: {
+          activate: vi.fn(),
+        },
+      },
+    });
+
+    const { useWorktreeActivityStore } = await import('../worktreeActivity');
+    const store = useWorktreeActivityStore.getState();
+    const fetchPromise = store.fetchDiffStats(['/repo-a', '/repo-b', '/repo-c', '/repo-d']);
+
+    await vi.waitFor(() => {
+      expect(getDiffStats).toHaveBeenCalledTimes(3);
+    });
+
+    expect(maxActiveRequests).toBe(3);
+    resolvers.shift()?.();
+    await vi.waitFor(() => {
+      expect(getDiffStats).toHaveBeenCalledTimes(4);
+    });
+    expect(maxActiveRequests).toBe(3);
+
+    while (resolvers.length > 0) {
+      resolvers.shift()?.();
+    }
+    await fetchPromise;
+  });
+
   it('skips immediate refetches inside the diff stat freshness window', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-31T00:00:00.000Z'));
