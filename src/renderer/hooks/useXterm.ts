@@ -877,15 +877,6 @@ export function useXterm({
       terminal.open(container);
       fitAddon.fit();
 
-      const textarea = terminal.textarea;
-      if (textarea) {
-        textarea.addEventListener('compositionend', () => {
-          setTimeout(() => {
-            textarea.value = '';
-          }, 0);
-        });
-      }
-
       terminal.onTitleChange((title) => {
         onTitleChangeRef.current?.(title);
       });

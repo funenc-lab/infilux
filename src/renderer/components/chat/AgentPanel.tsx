@@ -35,6 +35,7 @@ import {
 import {
   Fragment,
   memo,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type UIEvent as ReactUIEvent,
   type WheelEvent as ReactWheelEvent,
@@ -197,6 +198,10 @@ import {
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
 import { useAgentCanvasViewportRestore } from './useAgentCanvasViewportRestore';
+
+function isImeCompositionKeyEvent(event: ReactKeyboardEvent): boolean {
+  return event.nativeEvent.isComposing || event.key === 'Process';
+}
 
 export interface AgentPanelProps {
   repoPath: string; // repository path (workspace identifier)
@@ -4440,6 +4445,9 @@ export function AgentPanel({
           onMouseDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
             event.stopPropagation();
+            if (isImeCompositionKeyEvent(event)) {
+              return;
+            }
             if (event.key === 'Enter') {
               event.preventDefault();
               handleFinishCanvasSessionTitleEdit();

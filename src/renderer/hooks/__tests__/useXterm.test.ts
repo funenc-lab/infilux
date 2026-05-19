@@ -57,6 +57,7 @@ const testState = vi.hoisted(() => ({
   navigationToFile: vi.fn(),
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
+  textareaEventTypes: [] as string[],
   attachedWheelHandler: null as ((event: WheelEvent) => boolean | undefined) | null,
   resolveAgentWheelPolicy: vi.fn((_input?: unknown) => ({
     action: 'delegate' as const,
@@ -82,7 +83,7 @@ vi.mock('@xterm/xterm', () => ({
     cols = 80;
     rows = 24;
     element = document.createElement('div');
-    textarea: HTMLTextAreaElement | null = null;
+    textarea: HTMLTextAreaElement | null = document.createElement('textarea');
     options: Record<string, unknown> = {};
     unicode = { activeVersion: '11' };
     buffer = {
@@ -105,6 +106,17 @@ vi.mock('@xterm/xterm', () => ({
     loadAddon(): void {}
     open(container: HTMLElement): void {
       container.appendChild(this.element);
+      if (this.textarea) {
+        const addEventListener = this.textarea.addEventListener.bind(this.textarea);
+        this.textarea.addEventListener = ((
+          type: string,
+          listener: EventListenerOrEventListenerObject,
+          options?: AddEventListenerOptions | boolean
+        ) => {
+          testState.textareaEventTypes.push(type);
+          addEventListener(type, listener, options);
+        }) as HTMLTextAreaElement['addEventListener'];
+      }
     }
     refresh(): void {}
     reset(): void {}
@@ -406,6 +418,7 @@ describe('useXterm startup loading state', () => {
     testState.navigationToFile.mockClear();
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
+    testState.textareaEventTypes = [];
     testState.attachedWheelHandler = null;
     testState.resolveAgentWheelPolicy.mockReset();
     testState.resolveAgentWheelPolicy.mockReturnValue({
@@ -519,6 +532,17 @@ describe('useXterm startup loading state', () => {
       runtimeState: 'live',
       metadata: undefined,
     });
+
+    await mounted.unmount();
+  });
+
+  it('does not add a competing compositionend textarea handler around xterm IME handling', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.textareaEventTypes).not.toContain('compositionend');
 
     await mounted.unmount();
   });

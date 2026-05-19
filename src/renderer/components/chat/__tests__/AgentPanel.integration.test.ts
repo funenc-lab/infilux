@@ -727,6 +727,15 @@ function setInputValue(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+function dispatchComposingKeyDown(target: HTMLElement, key: string): void {
+  const event = new KeyboardEvent('keydown', { bubbles: true, key });
+  Object.defineProperty(event, 'isComposing', {
+    configurable: true,
+    value: true,
+  });
+  target.dispatchEvent(event);
+}
+
 function getAgentTerminalElement(sessionId: string): Element | null {
   return document.body.querySelector(
     `[data-testid="agent-terminal"][data-session-id="${sessionId}"]`
@@ -2354,6 +2363,75 @@ describe('AgentPanel integration', () => {
       .sessions.find((candidate) => candidate.id === session.id);
     expect(renamedSession?.name).toBe('Renamed Canvas Session');
     expect(renamedSession?.userRenamed).toBe(true);
+
+    await mounted.unmount();
+  });
+
+  it('keeps canvas session title editing open when Enter confirms an IME composition', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-title-ime',
+      sessionId: 'provider-title-ime',
+      backendSessionId: 'backend-title-ime',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Original IME Title',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-title-ime',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-title-ime',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const titleButton = mounted.container.querySelector<HTMLButtonElement>(
+      '[data-agent-canvas-session-title-button="true"][data-agent-canvas-session-id="session-title-ime"]'
+    );
+    expect(titleButton).not.toBeNull();
+
+    await clickElement(titleButton);
+
+    const titleInput = mounted.container.querySelector<HTMLInputElement>(
+      'input[data-agent-canvas-session-title-input="true"][data-agent-canvas-session-id="session-title-ime"]'
+    );
+    expect(titleInput).not.toBeNull();
+
+    await act(async () => {
+      if (titleInput) {
+        setInputValue(titleInput, 'Composing Canvas Title');
+        dispatchComposingKeyDown(titleInput, 'Enter');
+      }
+      await flushRenderTasks();
+    });
+
+    const unchangedSession = useAgentSessionsStore
+      .getState()
+      .sessions.find((candidate) => candidate.id === session.id);
+    expect(unchangedSession?.name).toBe('Original IME Title');
+    expect(unchangedSession?.userRenamed).not.toBe(true);
+    expect(
+      mounted.container.querySelector<HTMLInputElement>(
+        'input[data-agent-canvas-session-title-input="true"][data-agent-canvas-session-id="session-title-ime"]'
+      )
+    ).not.toBeNull();
 
     await mounted.unmount();
   });

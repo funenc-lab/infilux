@@ -174,6 +174,10 @@ function clampFloatingBarState(
   };
 }
 
+function isImeCompositionKeyEvent(event: React.KeyboardEvent): boolean {
+  return event.nativeEvent.isComposing || event.key === 'Process';
+}
+
 // Agent display names and commands
 const AGENT_INFO: Record<string, { name: string; command: string }> = Object.fromEntries(
   BUILTIN_AGENT_IDS.map((id) => [
@@ -950,6 +954,8 @@ export function SessionBar({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (isImeCompositionKeyEvent(e)) return;
+
       if (e.key === 'Enter') {
         handleFinishEdit();
       } else if (e.key === 'Escape') {

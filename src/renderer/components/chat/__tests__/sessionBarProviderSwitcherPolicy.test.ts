@@ -205,6 +205,28 @@ async function renderSessionBar(session: Session): Promise<{
   return { container, root };
 }
 
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    'value'
+  )?.set;
+  if (!valueSetter) {
+    throw new Error('HTMLInputElement value setter is unavailable');
+  }
+
+  valueSetter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function dispatchComposingKeyDown(target: HTMLElement, key: string): void {
+  const event = new KeyboardEvent('keydown', { bubbles: true, key });
+  Object.defineProperty(event, 'isComposing', {
+    configurable: true,
+    value: true,
+  });
+  target.dispatchEvent(event);
+}
+
 describe('sessionBarProviderSwitcherPolicy', () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
@@ -261,6 +283,53 @@ describe('sessionBarProviderSwitcherPolicy', () => {
       queryKey: ['agent-provider-settings', 'codex-cli', '/repo'],
     });
     expect(container.querySelector('button[aria-label="Codex Provider"]')).not.toBeNull();
+  });
+
+  it('keeps session title editing open when Enter confirms an IME composition', async () => {
+    const onRenameSession = vi.fn();
+    const { SessionBar } = await import('../SessionBar');
+    const session = createSession({
+      id: 'ime-session',
+      name: 'Original Title',
+    });
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        React.createElement(SessionBar, {
+          sessions: [session],
+          activeSessionId: session.id,
+          repoPath: session.repoPath,
+          onSelectSession: vi.fn(),
+          onCloseSession: vi.fn(),
+          onNewSession: vi.fn(),
+          onRenameSession,
+        })
+      );
+    });
+
+    const tab = container.querySelector<HTMLElement>('[role="tab"]');
+    expect(tab).not.toBeNull();
+
+    await act(async () => {
+      tab?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+    });
+
+    const input = container.querySelector<HTMLInputElement>('input[type="text"]');
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      if (input) {
+        setInputValue(input, 'Composing Title');
+        dispatchComposingKeyDown(input, 'Enter');
+      }
+    });
+
+    expect(onRenameSession).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLInputElement>('input[type="text"]')).not.toBeNull();
   });
 
   it('keeps provider queries and controls disabled for unsupported sessions', async () => {
