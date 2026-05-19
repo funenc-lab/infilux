@@ -238,6 +238,16 @@ describe('PtyManager utilities', () => {
     process.env.SHELL = '/bin/zsh';
     process.env.LANG = 'en_US.UTF-8';
     process.env.LC_ALL = '';
+    delete process.env.CODEX_CI;
+    delete process.env.CODEX_THREAD_ID;
+    delete process.env.MallocStackLogging;
+    delete process.env.MallocStackLoggingNoCompact;
+    delete process.env.MallocNanoZone;
+    delete process.env.MallocScribble;
+    delete process.env.MallocGuardEdges;
+    delete process.env.MallocCheckHeapStart;
+    delete process.env.MallocCheckHeapEach;
+    delete process.env.MallocErrorAbort;
   });
 
   afterEach(() => {
@@ -738,6 +748,79 @@ describe('PtyManager utilities', () => {
     expect(spawnEnv).toBeDefined();
     expect(spawnEnv).not.toHaveProperty('NO_COLOR');
     expect(spawnEnv).not.toHaveProperty('COLOR');
+  });
+
+  it('clears inherited Codex and macOS malloc diagnostics for agent sessions', async () => {
+    process.env.CODEX_CI = '1';
+    process.env.CODEX_THREAD_ID = 'thread-from-parent';
+    process.env.MallocStackLogging = '0';
+    process.env.MallocStackLoggingNoCompact = '1';
+    process.env.MallocNanoZone = '0';
+    process.env.MallocScribble = '1';
+    process.env.MallocGuardEdges = '1';
+    process.env.MallocCheckHeapStart = '1';
+    process.env.MallocCheckHeapEach = '1';
+    process.env.MallocErrorAbort = '1';
+
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+
+    manager.create(
+      {
+        cwd: '/repo/agent',
+        kind: 'agent',
+        shell: '/bin/zsh',
+        args: ['-l'],
+      },
+      vi.fn()
+    );
+
+    const spawnEnv = ptyManagerTestDoubles.spawn.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(spawnEnv).toBeDefined();
+    expect(spawnEnv).not.toHaveProperty('CODEX_CI');
+    expect(spawnEnv).not.toHaveProperty('CODEX_THREAD_ID');
+    expect(spawnEnv).not.toHaveProperty('MallocStackLogging');
+    expect(spawnEnv).not.toHaveProperty('MallocStackLoggingNoCompact');
+    expect(spawnEnv).not.toHaveProperty('MallocNanoZone');
+    expect(spawnEnv).not.toHaveProperty('MallocScribble');
+    expect(spawnEnv).not.toHaveProperty('MallocGuardEdges');
+    expect(spawnEnv).not.toHaveProperty('MallocCheckHeapStart');
+    expect(spawnEnv).not.toHaveProperty('MallocCheckHeapEach');
+    expect(spawnEnv).not.toHaveProperty('MallocErrorAbort');
+  });
+
+  it('keeps explicit Codex and macOS malloc diagnostics for agent sessions', async () => {
+    process.env.CODEX_CI = '1';
+    process.env.MallocStackLogging = '0';
+
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+
+    manager.create(
+      {
+        cwd: '/repo/agent',
+        kind: 'agent',
+        shell: '/bin/zsh',
+        args: ['-l'],
+        env: {
+          CODEX_CI: 'explicit',
+          MallocStackLogging: 'explicit',
+        },
+      },
+      vi.fn()
+    );
+
+    const spawnEnv = ptyManagerTestDoubles.spawn.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(spawnEnv).toMatchObject({
+      CODEX_CI: 'explicit',
+      MallocStackLogging: 'explicit',
+    });
   });
 
   it('resolves destroyAndWait on exit or timeout and does not call the original exit handler during cleanup', async () => {

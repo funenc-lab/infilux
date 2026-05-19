@@ -14,6 +14,19 @@ import { getProxyEnvVars } from '../proxy/ProxyConfig';
 import { detectShell, shellDetector } from './ShellDetector';
 
 const isWindows = process.platform === 'win32';
+const AGENT_PRESENTATION_ENV_KEYS = ['NO_COLOR', 'COLOR', 'CLICOLOR', 'CLICOLOR_FORCE'] as const;
+const AGENT_INHERITED_ENV_NOISE_KEYS = [
+  'CODEX_CI',
+  'CODEX_THREAD_ID',
+  'MallocStackLogging',
+  'MallocStackLoggingNoCompact',
+  'MallocNanoZone',
+  'MallocScribble',
+  'MallocGuardEdges',
+  'MallocCheckHeapStart',
+  'MallocCheckHeapEach',
+  'MallocErrorAbort',
+] as const;
 
 // Cache for Windows registry PATH (read once)
 let cachedWindowsPath: string | null = null;
@@ -247,7 +260,13 @@ function sanitizeAgentPresentationEnv(
     return;
   }
 
-  for (const key of ['NO_COLOR', 'COLOR', 'CLICOLOR', 'CLICOLOR_FORCE']) {
+  for (const key of AGENT_PRESENTATION_ENV_KEYS) {
+    if (!hasExplicitEnvOverride(options.env, key)) {
+      delete env[key];
+    }
+  }
+
+  for (const key of AGENT_INHERITED_ENV_NOISE_KEYS) {
     if (!hasExplicitEnvOverride(options.env, key)) {
       delete env[key];
     }
