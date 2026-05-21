@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-05-17
-**Commit:** 8081f37
+**Generated:** 2026-05-21
+**Commit:** 1653b46
 **Branch:** main
 
 These metadata fields are an informational snapshot, not a freshness guarantee. Refresh them only when intentionally updating this project knowledge base.
@@ -11,6 +11,16 @@ These metadata fields are an informational snapshot, not a freshness guarantee. 
 Infilux is an Electron desktop application for Git worktree management and multi-agent development workflows.
 
 **Stack:** Electron 39, React 19, TypeScript 5.9, Tailwind CSS 4, Zustand, Monaco Editor, xterm.js, simple-git, electron-vite, electron-builder.
+
+## OPERATING CONTEXT
+
+- Always answer users in Chinese.
+- Generated source code, QWeb/XML, JavaScript, TypeScript, Python, and code comments must be written in English.
+- Do not add new Chinese text to code or non-documentation files. Chinese is allowed only in documentation files under `docs/` or `user-docs/`.
+- Existing historical localization or Chinese content should be treated as legacy context; preserve it only when the task explicitly touches that surface.
+- Before making changes, check `git status --short --branch` and treat uncommitted work as user-owned unless the task explicitly says otherwise.
+- If this root knowledge base disagrees with current source, package metadata, or a nearest-directory `AGENTS.md`, trust the current source and the nearest-directory guide first.
+- Do not use generated directories such as `out/`, `dist/`, `coverage-full/`, `.tmp/`, `.launch-code/`, or `node_modules/` as architectural truth.
 
 ## TOP-LEVEL STRUCTURE
 
