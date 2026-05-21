@@ -25,14 +25,58 @@ interface ParsedCodexProviderConfig {
 }
 
 function getCodexConfigDir(): string {
-  if (process.env.CODEX_CONFIG_DIR) {
-    return process.env.CODEX_CONFIG_DIR;
-  }
-  return path.join(os.homedir(), '.codex');
+  return path.dirname(resolveLocalCodexConfigPath());
 }
 
 function getCodexConfigPath(): string {
-  return path.join(getCodexConfigDir(), 'config.toml');
+  return resolveLocalCodexConfigPath();
+}
+
+function getLegacyCodexConfigPath(): string {
+  return path.join(os.homedir(), '.codex', 'config.toml');
+}
+
+function getWindowsAppDataCodexConfigPaths(): string[] {
+  if (process.platform !== 'win32') {
+    return [];
+  }
+
+  const appDataDir = process.env.APPDATA?.trim();
+  if (!appDataDir) {
+    return [];
+  }
+
+  return [
+    path.join(appDataDir, 'Codex', 'config.toml'),
+    path.join(appDataDir, 'codex', 'config.toml'),
+  ];
+}
+
+function uniquePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const candidate of paths) {
+    const key = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function getCodexConfigPathCandidates(): string[] {
+  if (process.env.CODEX_CONFIG_DIR) {
+    return [path.join(process.env.CODEX_CONFIG_DIR, 'config.toml')];
+  }
+
+  return uniquePaths([...getWindowsAppDataCodexConfigPaths(), getLegacyCodexConfigPath()]);
+}
+
+function resolveLocalCodexConfigPath(): string {
+  const candidates = getCodexConfigPathCandidates();
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
 }
 
 function stripTomlComment(line: string): string {
@@ -299,9 +343,8 @@ export function applyProviderToCodexConfig(
   return [preservedConfig, managedBlock].filter((entry) => entry.trim().length > 0).join('\n\n');
 }
 
-function readLocalCodexConfig(): string | null {
+function readLocalCodexConfigAtPath(configPath: string): string | null {
   try {
-    const configPath = getCodexConfigPath();
     if (!fs.existsSync(configPath)) {
       return null;
     }
@@ -313,19 +356,20 @@ function readLocalCodexConfig(): string | null {
 }
 
 function readLocalCodexProviderSettings(): CodexProviderSettings {
+  const configPath = getCodexConfigPath();
   return {
-    configPath: getCodexConfigPath(),
-    configToml: readLocalCodexConfig(),
+    configPath,
+    configToml: readLocalCodexConfigAtPath(configPath),
   };
 }
 
-function writeLocalCodexConfig(content: string): boolean {
+function writeLocalCodexConfig(content: string, configPath = getCodexConfigPath()): boolean {
   try {
-    const configDir = getCodexConfigDir();
+    const configDir = path.dirname(configPath);
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
     }
-    fs.writeFileSync(getCodexConfigPath(), content, { mode: 0o600 });
+    fs.writeFileSync(configPath, content, { mode: 0o600 });
     return true;
   } catch (error) {
     console.error('[CodexProviderManager] Failed to write Codex config:', error);
@@ -362,7 +406,7 @@ async function readCodexConfigForRepository(repoPath?: string): Promise<CodexPro
 
   return {
     configPath: target.configPath,
-    configToml: readLocalCodexConfig(),
+    configToml: readLocalCodexConfigAtPath(target.configPath),
   };
 }
 
@@ -397,7 +441,7 @@ export async function applyCodexProvider(
     return writeRepositoryRemoteTextFile(repoPath, target.configPath, nextContent);
   }
 
-  return writeLocalCodexConfig(nextContent);
+  return writeLocalCodexConfig(nextContent, target.configPath);
 }
 
 const codexProviderSettingsWatcher = createAgentProviderSettingsWatcher({

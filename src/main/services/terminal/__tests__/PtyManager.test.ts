@@ -234,6 +234,8 @@ describe('PtyManager utilities', () => {
     ptyManagerTestDoubles.reset();
     process.env.HOME = '/Users/tester';
     process.env.USERPROFILE = '';
+    delete process.env.APPDATA;
+    delete process.env.LOCALAPPDATA;
     process.env.PATH = '/usr/bin:/bin';
     process.env.SHELL = '/bin/zsh';
     process.env.LANG = 'en_US.UTF-8';
@@ -1123,5 +1125,26 @@ describe('PtyManager utilities', () => {
     expect(enhancedPath).toContain('C:\\Users\\Tester\\AppData\\Local\\Programs\\OpenAI');
     expect(enhancedPath).not.toContain('%APPDATA%');
     expect(enhancedPath).not.toContain('%LOCALAPPDATA%');
+  });
+
+  it('adds common Windows user executable directories for agent CLI shims', async () => {
+    setPlatform('win32');
+    vi.resetModules();
+    ptyManagerTestDoubles.reset();
+    process.env.PATH = 'C:\\Windows\\System32';
+    process.env.APPDATA = 'C:\\Users\\Tester\\AppData\\Roaming';
+    process.env.LOCALAPPDATA = 'C:\\Users\\Tester\\AppData\\Local';
+    process.env.USERPROFILE = 'C:\\Users\\Tester';
+    ptyManagerTestDoubles.execSync.mockImplementation(() => '');
+
+    const module = await import('../PtyManager');
+    const enhancedPath = module.getEnhancedPath();
+
+    expect(enhancedPath).toContain('C:\\Users\\Tester\\AppData\\Roaming\\npm');
+    expect(enhancedPath).toContain('C:\\Users\\Tester\\AppData\\Local\\pnpm');
+    expect(enhancedPath).toContain('C:\\Users\\Tester\\scoop\\shims');
+    expect(enhancedPath).toContain('C:\\Users\\Tester\\.bun\\bin');
+    expect(enhancedPath).toContain('C:\\Users\\Tester\\.cargo\\bin');
+    expect(enhancedPath).toContain('C:\\Windows\\System32');
   });
 });
