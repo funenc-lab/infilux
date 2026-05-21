@@ -9,6 +9,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
 import { buildChatInputToastCopy, buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { isFocusLocked, lockFocus, unlockFocus } from '@/lib/focusLock';
+import { isReactImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { toLocalFileUrl } from '@/lib/localFileUrl';
 import { cn } from '@/lib/utils';
 import {
@@ -485,7 +486,7 @@ export function EnhancedInput({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // Ignore key events during IME composition
-      if (e.nativeEvent.isComposing || e.key === 'Process') return;
+      if (isReactImeCompositionKeyEvent(e)) return;
       // When mention popup is active, intercept navigation keys
       if (mentionQuery !== null && mentionResults.length > 0) {
         if (e.key === 'ArrowDown') {

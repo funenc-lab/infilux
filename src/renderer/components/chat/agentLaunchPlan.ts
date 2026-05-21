@@ -1,4 +1,5 @@
 import type { SessionHostSessionOptions } from '@shared/types';
+import { AGENT_TMUX_UNSET_ENV_KEYS, buildEnvUnsetPrefix } from '@shared/utils/agentEnvironment';
 import {
   type AppRuntimeChannel,
   buildPersistentAgentHostSessionKey,
@@ -111,6 +112,7 @@ function buildLocalUnixFallbackProbeCommands(params: {
   agentCommand: string;
   effectiveCommand: string;
   environment: 'native' | 'hapi' | 'happy';
+  attachExistingTmuxSession: boolean;
   tmuxSessionName: string | null;
   hapiGlobalInstalled: boolean | null;
 }): string[] {
@@ -124,6 +126,10 @@ function buildLocalUnixFallbackProbeCommands(params: {
 
   if (params.tmuxSessionName) {
     add('tmux');
+  }
+
+  if (params.attachExistingTmuxSession) {
+    return [...commands];
   }
 
   if (params.environment === 'hapi') {
@@ -208,13 +214,18 @@ function escapeInitialPromptForUnix(input: string): string {
 }
 
 function buildTmuxSessionCommand(baseCommand: string): string {
-  return `env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE ${baseCommand}`.trim();
+  return buildSanitizedAgentCommand(baseCommand);
+}
+
+function buildSanitizedAgentCommand(baseCommand: string): string {
+  return `env ${buildEnvUnsetPrefix(AGENT_TMUX_UNSET_ENV_KEYS)} ${baseCommand}`.trim();
 }
 
 function buildTmuxAttachCommand(
   baseCommand: string,
   tmuxServerName: string,
-  tmuxSessionName: string
+  tmuxSessionName: string,
+  options: { createIfMissing: boolean }
 ): string {
   const tmuxSocketDir = buildManagedTmuxSocketShellDir();
   const tmuxSocketPath = buildManagedTmuxSocketShellPath(tmuxServerName);
@@ -230,6 +241,10 @@ function buildTmuxAttachCommand(
     `env -u TMUX tmux -S "${tmuxSocketPath}" set-option -t ${tmuxSessionName} mouse off ` +
     '>/dev/null 2>&1 || true';
   const attachSessionCommand = `exec env -u TMUX tmux -S "${tmuxSocketPath}" attach-session -t ${tmuxSessionName}`;
+
+  if (!options.createIfMissing) {
+    return `${ensureSocketDirCommand}; ${hideStatusCommand}; ${disableMouseCommand}; ${attachSessionCommand}`;
+  }
 
   return `${ensureSocketDirCommand}; ${createSessionCommand}; ${hideStatusCommand}; ${disableMouseCommand}; ${attachSessionCommand}`;
 }
@@ -343,6 +358,7 @@ export function buildAgentLaunchPlan({
     ? persistentHostSessionKey?.trim() ||
       buildPersistentAgentHostSessionKey(terminalSessionId ?? '', runtimeChannel)
     : null;
+  const attachExistingTmuxSession = Boolean(shouldUseTmux && persistentHostSessionKey?.trim());
   const tmuxServerName =
     tmuxSessionName === null
       ? null
@@ -358,7 +374,9 @@ export function buildAgentLaunchPlan({
 
   let finalCommand = baseCommand;
   if (tmuxSessionName && tmuxServerName) {
-    finalCommand = buildTmuxAttachCommand(baseCommand, tmuxServerName, tmuxSessionName);
+    finalCommand = buildTmuxAttachCommand(baseCommand, tmuxServerName, tmuxSessionName, {
+      createIfMissing: !attachExistingTmuxSession,
+    });
   }
 
   if (isRemoteExecution) {
@@ -441,7 +459,7 @@ export function buildAgentLaunchPlan({
       command: undefined,
       fallbackCommand: undefined,
       env: envVars,
-      initialCommand: finalCommand,
+      initialCommand: buildSanitizedAgentCommand(finalCommand),
       tmuxSessionName,
       ...(hostSession ? { hostSession } : {}),
     };
@@ -451,6 +469,7 @@ export function buildAgentLaunchPlan({
     agentCommand,
     effectiveCommand,
     environment,
+    attachExistingTmuxSession,
     tmuxSessionName,
     hapiGlobalInstalled,
   });

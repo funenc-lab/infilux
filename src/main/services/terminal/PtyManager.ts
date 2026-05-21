@@ -3,6 +3,10 @@ import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import type { SessionCreateOptions } from '@shared/types';
+import {
+  AGENT_INHERITED_ENV_NOISE_KEYS,
+  AGENT_PRESENTATION_ENV_KEYS,
+} from '@shared/utils/agentEnvironment';
 import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
 import * as pty from 'node-pty';
 import pidtree from 'pidtree';
@@ -14,19 +18,6 @@ import { getProxyEnvVars } from '../proxy/ProxyConfig';
 import { detectShell, shellDetector } from './ShellDetector';
 
 const isWindows = process.platform === 'win32';
-const AGENT_PRESENTATION_ENV_KEYS = ['NO_COLOR', 'COLOR', 'CLICOLOR', 'CLICOLOR_FORCE'] as const;
-const AGENT_INHERITED_ENV_NOISE_KEYS = [
-  'CODEX_CI',
-  'CODEX_THREAD_ID',
-  'MallocStackLogging',
-  'MallocStackLoggingNoCompact',
-  'MallocNanoZone',
-  'MallocScribble',
-  'MallocGuardEdges',
-  'MallocCheckHeapStart',
-  'MallocCheckHeapEach',
-  'MallocErrorAbort',
-] as const;
 
 // Cache for Windows registry PATH (read once)
 let cachedWindowsPath: string | null = null;

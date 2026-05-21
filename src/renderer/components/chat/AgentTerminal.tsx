@@ -41,6 +41,7 @@ import {
   buildChatNotificationCopy,
   buildFileWorkflowToastCopy,
 } from '@/lib/feedbackCopy';
+import { isNativeImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { resolveTerminalRuntimeOverlayState } from '@/lib/terminalRuntimeOverlay';
 import { cn } from '@/lib/utils';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
@@ -1506,6 +1507,10 @@ export function AgentTerminal({
   // biome-ignore lint/correctness/useExhaustiveDependencies: terminal is accessed via try-catch for safety and defined after this callback
   const handleCustomKey = useCallback(
     (event: KeyboardEvent, ptyId: string, getCurrentLine?: () => string | null) => {
+      if (isNativeImeCompositionKeyEvent(event)) {
+        return true;
+      }
+
       // Handle Shift+Enter for newline - must be before keydown check to block both keydown and keypress
       if (event.key === 'Enter' && event.shiftKey) {
         if (event.type === 'keydown' && runtimeStateRef.current === 'live') {
@@ -1533,13 +1538,7 @@ export function AgentTerminal({
 
       // Detect Enter key press (without modifiers) to activate session and start idle monitoring
       // Skip if IME is composing (e.g. selecting Chinese characters)
-      if (
-        event.key === 'Enter' &&
-        !event.shiftKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.isComposing
-      ) {
+      if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.altKey) {
         const completedOutputBlock = resolveCopyableAgentOutputBlock(currentOutputBlockRef.current);
         if (completedOutputBlock) {
           latestCompletedOutputBlockRef.current = currentOutputBlockRef.current;
@@ -1691,7 +1690,7 @@ export function AgentTerminal({
     isVisible: effectiveIsVisible,
     kind: 'agent',
     fontSizeScale: terminalFontScale,
-    preferCompatibilityRenderer: terminalFontScale !== undefined,
+    preferCompatibilityRenderer: true,
     sessionCreateFallback,
     staticContent: transcriptStaticContent,
     metadata: isReadOnlyTranscript

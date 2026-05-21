@@ -35,7 +35,6 @@ import {
 import {
   Fragment,
   memo,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type UIEvent as ReactUIEvent,
   type WheelEvent as ReactWheelEvent,
@@ -65,6 +64,7 @@ import {
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
+import { isReactImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { buildAgentSessionInventory } from '@/stores/agentSessionInventory';
@@ -198,10 +198,6 @@ import {
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
 import { useAgentCanvasViewportRestore } from './useAgentCanvasViewportRestore';
-
-function isImeCompositionKeyEvent(event: ReactKeyboardEvent): boolean {
-  return event.nativeEvent.isComposing || event.key === 'Process';
-}
 
 export interface AgentPanelProps {
   repoPath: string; // repository path (workspace identifier)
@@ -1197,25 +1193,53 @@ export function AgentPanel({
       return changed ? next : current;
     });
   }, [subagentScopeSessionIds]);
-  const fallbackLiveSubagentWorktreePaths = useMemo(() => {
-    const paths = new Map<string, string>();
+  const singleTrackableSessionWorktreePaths = useMemo(() => {
+    const paths = new Map<string, { cwd: string; count: number }>();
 
     for (const session of subagentScopeSessions) {
       if (
         !supportsSessionSubagentTracking(session.agentId, session.agentCommand) ||
-        !isUnresolvedProviderSession(session)
+        isRemoteVirtualPath(session.cwd)
       ) {
         continue;
       }
 
       const normalizedPath = normalizePath(session.cwd);
+      const current = paths.get(normalizedPath);
+      paths.set(normalizedPath, {
+        cwd: current?.cwd ?? session.cwd,
+        count: (current?.count ?? 0) + 1,
+      });
+    }
+
+    return Array.from(paths.values())
+      .filter((entry) => entry.count === 1)
+      .map((entry) => entry.cwd);
+  }, [subagentScopeSessions]);
+  const fallbackLiveSubagentWorktreePaths = useMemo(() => {
+    const paths = new Map<string, string>();
+    const singleTrackablePathKeys = new Set(singleTrackableSessionWorktreePaths.map(normalizePath));
+
+    for (const session of subagentScopeSessions) {
+      if (
+        !supportsSessionSubagentTracking(session.agentId, session.agentCommand) ||
+        isRemoteVirtualPath(session.cwd)
+      ) {
+        continue;
+      }
+
+      const normalizedPath = normalizePath(session.cwd);
+      if (!isUnresolvedProviderSession(session) && !singleTrackablePathKeys.has(normalizedPath)) {
+        continue;
+      }
+
       if (!paths.has(normalizedPath)) {
         paths.set(normalizedPath, session.cwd);
       }
     }
 
     return Array.from(paths.values());
-  }, [subagentScopeSessions]);
+  }, [singleTrackableSessionWorktreePaths, subagentScopeSessions]);
   const shouldPollLiveSubagents = isActive && fallbackLiveSubagentWorktreePaths.length > 0;
   const liveSubagentsByWorktree = useLiveSubagents(
     shouldPollLiveSubagents ? fallbackLiveSubagentWorktreePaths : []
@@ -1554,6 +1578,8 @@ export function AgentPanel({
           providerSessionId: session.sessionId,
           subagents: sessionWorktreeSubagents,
           allowUnresolvedProviderFallback:
+            (trackableSessionCountByWorktree.get(normalizedSessionCwd) ?? 0) === 1,
+          allowProviderFallback:
             (trackableSessionCountByWorktree.get(normalizedSessionCwd) ?? 0) === 1,
         });
         const sessionScopedSubagents = sessionScopedSubagentsBySessionId[session.id] ?? [];
@@ -4445,7 +4471,7 @@ export function AgentPanel({
           onMouseDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
             event.stopPropagation();
-            if (isImeCompositionKeyEvent(event)) {
+            if (isReactImeCompositionKeyEvent(event)) {
               return;
             }
             if (event.key === 'Enter') {

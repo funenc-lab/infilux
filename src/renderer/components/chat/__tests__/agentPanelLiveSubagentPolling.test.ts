@@ -13,6 +13,7 @@ describe('AgentPanel live subagent polling contract', () => {
     expect(agentPanelSource).toContain(
       'shouldPollLiveSubagents ? fallbackLiveSubagentWorktreePaths : []'
     );
+    expect(agentPanelSource).toContain('singleTrackableSessionWorktreePaths');
     expect(agentPanelSource).toContain(
       'supportsSessionSubagentTracking(session.agentId, session.agentCommand)'
     );
@@ -20,6 +21,7 @@ describe('AgentPanel live subagent polling contract', () => {
     expect(agentPanelSource).toContain('sessionScopedSubagentsBySessionId[session.id] ?? []');
     expect(agentPanelSource).toContain('getDisplayableSessionSubagents({');
     expect(agentPanelSource).toContain('allowUnresolvedProviderFallback:');
+    expect(agentPanelSource).toContain('allowProviderFallback:');
   });
 
   it('feeds session-scoped subagents into activity state without requiring duplicate worktree polling', () => {

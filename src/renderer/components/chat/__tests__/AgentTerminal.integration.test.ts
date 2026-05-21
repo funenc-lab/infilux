@@ -603,6 +603,17 @@ describe('AgentTerminal integration', () => {
     expect(unregisterSender).toHaveBeenCalledWith('ui-session-1');
   });
 
+  it('requests compatibility rendering for agent TUI sessions to avoid WebGL redraw artifacts', async () => {
+    const mounted = await mountAgentTerminal();
+
+    expect(testState.useXtermOptions.at(-1)).toMatchObject({
+      kind: 'agent',
+      preferCompatibilityRenderer: true,
+    });
+
+    await mounted.unmount();
+  });
+
   it('returns false from the registered sender for read-only transcripts', async () => {
     const registerSender = vi.fn();
     const mounted = await mountAgentTerminal({
@@ -1139,6 +1150,41 @@ describe('AgentTerminal integration', () => {
     });
 
     expect(testState.searchBarFocus).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('does not activate the agent session when Enter confirms an IME composition', async () => {
+    const onActivated = vi.fn();
+    const mounted = await mountAgentTerminal({
+      onActivated,
+    });
+    const lastUseXtermCall = testState.useXtermOptions.at(-1) as
+      | {
+          onCustomKey?: (event: KeyboardEvent, ptyId: string) => boolean;
+        }
+      | undefined;
+    expect(lastUseXtermCall?.onCustomKey).toBeTypeOf('function');
+
+    const event = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Enter',
+    });
+    Object.defineProperty(event, 'keyCode', {
+      configurable: true,
+      value: 229,
+    });
+    Object.defineProperty(event, 'which', {
+      configurable: true,
+      value: 229,
+    });
+
+    const result = lastUseXtermCall?.onCustomKey?.(event, 'pty-ime');
+
+    expect(result).toBe(true);
+    expect(onActivated).not.toHaveBeenCalled();
+    expect(testState.electronAPI.sessionGetActivity).not.toHaveBeenCalled();
 
     await mounted.unmount();
   });

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
+import { isNativeImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { matchesKeybinding } from '@/lib/keybinding';
 import {
   buildTerminalSearchDecorations,
@@ -1039,7 +1040,7 @@ export function useXterm({
     // Custom key handler
     terminal.attachCustomKeyEventHandler((event) => {
       // Let IME composition events pass through so composed input is not interrupted.
-      if (event.isComposing || event.keyCode === 229) {
+      if (isNativeImeCompositionKeyEvent(event)) {
         return true;
       }
 

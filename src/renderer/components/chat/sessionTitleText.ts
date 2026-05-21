@@ -2,6 +2,7 @@ const SESSION_TITLE_PROMPT_PREFIX = /^(?:[›❯»→➜>]+)\s*/u;
 const GENERIC_SHELL_TITLE = /[/\\](pwsh|powershell|cmd|bash|zsh|sh|fish|nu|wsl)(\.exe)?["']?\s*$/i;
 const PRIVILEGED_SESSION_TITLE = /^(Administrator|root)\s*:/i;
 const GENERIC_COMMAND_TITLE = /^(npm|npx|node|python|py|pnpm|yarn|bun|deno|cargo|go|java|ruby)\s/i;
+const MACOS_MALLOC_DIAGNOSTIC_TITLE = /^\S+\(\d+\)\s+Malloc\w*/;
 
 const BUILTIN_AGENT_NAMES: Record<string, string> = {
   claude: 'Claude',
@@ -29,7 +30,8 @@ export function getMeaningfulTerminalTitle(title?: string | null): string | unde
   if (
     GENERIC_SHELL_TITLE.test(trimmedTitle) ||
     PRIVILEGED_SESSION_TITLE.test(trimmedTitle) ||
-    GENERIC_COMMAND_TITLE.test(trimmedTitle)
+    GENERIC_COMMAND_TITLE.test(trimmedTitle) ||
+    MACOS_MALLOC_DIAGNOSTIC_TITLE.test(trimmedTitle)
   ) {
     return undefined;
   }

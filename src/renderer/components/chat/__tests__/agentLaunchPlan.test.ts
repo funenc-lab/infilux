@@ -1,9 +1,11 @@
+import { AGENT_TMUX_UNSET_ENV_KEYS, buildEnvUnsetPrefix } from '@shared/utils/agentEnvironment';
 import { describe, expect, it } from 'vitest';
 import { buildAgentLaunchPlan } from '../agentLaunchPlan';
 
 const infiluxTmuxDir = '$HOME/.infilux/tmux';
 const infiluxTmuxSocket = '$HOME/.infilux/tmux/infilux.sock';
 const legacyEnsoTmuxSocket = '$HOME/.infilux/tmux/enso.sock';
+const agentTmuxUnsetPrefix = buildEnvUnsetPrefix(AGENT_TMUX_UNSET_ENV_KEYS);
 
 describe('buildAgentLaunchPlan', () => {
   it('returns an empty plan when local execution has no resolved shell', () => {
@@ -94,14 +96,15 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain('command -v claude >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain(
-      `then mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
+      `then mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env ${agentTmuxUnsetPrefix} claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
     );
     expect(plan.command?.args[1]).not.toContain(
       `then exec env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
     );
     expect(plan.command?.args[1]).toContain(
-      `mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true`
+      `mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env ${agentTmuxUnsetPrefix} claude --session-id session-1 --ide' >/dev/null 2>&1 || true`
     );
+    expect(plan.command?.args[1]).toContain('-u MallocStackLogging');
     expect(plan.command?.args[1]).toContain(
       `env -u TMUX tmux -S "${infiluxTmuxSocket}" set-option -t infilux-ui-session-1 status off >/dev/null 2>&1 || true`
     );
@@ -141,9 +144,7 @@ describe('buildAgentLaunchPlan', () => {
       serverName: 'enso',
       sessionName: 'enso-session-1',
     });
-    expect(plan.command?.args[1]).toContain(
-      `then mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${legacyEnsoTmuxSocket}" -f /dev/null new-session -d -s enso-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
-    );
+    expect(plan.command?.args[1]).not.toContain('new-session -d -s enso-session-1');
     expect(plan.command?.args[1]).toContain(
       `exec env -u TMUX tmux -S "${legacyEnsoTmuxSocket}" attach-session -t enso-session-1`
     );
@@ -302,7 +303,8 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.initialCommand).toContain(
       `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-11`
     );
-    expect(plan.initialCommand).toContain('CLICOLOR_FORCE codex');
+    expect(plan.initialCommand).toContain(`${agentTmuxUnsetPrefix} codex`);
+    expect(plan.initialCommand).toContain('-u MallocStackLogging');
     expect(plan.initialCommand).not.toContain('codex resume codex-session-11');
   });
 
@@ -374,7 +376,9 @@ describe('buildAgentLaunchPlan', () => {
 
     expect(plan.command).toBeUndefined();
     expect(plan.fallbackCommand).toBeUndefined();
-    expect(plan.initialCommand).toBe('codex --dangerously-bypass-approvals-and-sandbox');
+    expect(plan.initialCommand).toBe(
+      `env ${agentTmuxUnsetPrefix} codex --dangerously-bypass-approvals-and-sandbox`
+    );
   });
 
   it('returns an empty plan when hapi availability is still unknown', () => {

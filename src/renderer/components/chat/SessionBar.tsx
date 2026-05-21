@@ -36,6 +36,7 @@ import { useSessionOutputState, useSessionTaskCompletionNotice } from '@/hooks/u
 import { useI18n } from '@/i18n';
 import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
+import { isReactImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
@@ -172,10 +173,6 @@ function clampFloatingBarState(
     x: nextX,
     y: nextY,
   };
-}
-
-function isImeCompositionKeyEvent(event: React.KeyboardEvent): boolean {
-  return event.nativeEvent.isComposing || event.key === 'Process';
 }
 
 // Agent display names and commands
@@ -954,7 +951,7 @@ export function SessionBar({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (isImeCompositionKeyEvent(e)) return;
+      if (isReactImeCompositionKeyEvent(e)) return;
 
       if (e.key === 'Enter') {
         handleFinishEdit();
