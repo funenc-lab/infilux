@@ -655,7 +655,11 @@ export function AgentTerminal({
     }
     setShouldBypassHostSessionRecovery(recoveryState === 'missing-host-session');
   }, [hostSessionKey, recoveryState, terminalSessionId]);
-  const resumeSessionId = sessionId ?? id;
+  const shouldValidateResolvedProviderSession =
+    agentCommand === 'codex' &&
+    recoveryState === 'missing-host-session' &&
+    !backendSessionId &&
+    hasResolvedProviderSessionId(id, sessionId);
   const inputDispatchSessionId = backendSessionId ?? null;
   const globalPolicy = getClaudeGlobalPolicy();
   const projectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;
@@ -669,7 +673,7 @@ export function AgentTerminal({
     }
   }, []);
 
-  useAgentProviderSessionDiscovery({
+  const { providerSessionResolutionPending } = useAgentProviderSessionDiscovery({
     agentCommand: isReadOnlyTranscript ? '' : agentCommand,
     uiSessionId: id,
     providerSessionId: sessionId,
@@ -677,8 +681,10 @@ export function AgentTerminal({
     createdAt,
     initialized: isReadOnlyTranscript ? false : initialized,
     isRemoteExecution,
+    validateResolvedProviderSession: shouldValidateResolvedProviderSession,
     onProviderSessionIdChange,
   });
+  const resumeSessionId = providerSessionResolutionPending ? id : (sessionId ?? id);
 
   // Use external control if provided, otherwise use local state.
   // IMPORTANT: `externalEnhancedInputOpen` can be false, so we must check `undefined` rather than truthiness.

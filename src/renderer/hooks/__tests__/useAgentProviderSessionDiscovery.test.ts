@@ -133,6 +133,67 @@ describe('useAgentProviderSessionDiscovery', () => {
     mounted.unmount();
   });
 
+  it('validates a distinct codex provider session id when requested', async () => {
+    resolveProviderSession.mockResolvedValue({ providerSessionId: 'codex-session-1' });
+
+    const mounted = mountHookHarness({
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'codex-session-1',
+      cwd: '/repo/worktree-a',
+      createdAt: 100,
+      initialized: true,
+      isRemoteExecution: false,
+      validateResolvedProviderSession: true,
+      onProviderSessionIdChange,
+      pollIntervalMs: 1000,
+      maxAttempts: 3,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledTimes(1);
+    expect(resolveProviderSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentCommand: 'codex',
+        cwd: '/repo/worktree-a',
+        createdAt: 100,
+      })
+    );
+    expect(onProviderSessionIdChange).not.toHaveBeenCalled();
+
+    mounted.unmount();
+  });
+
+  it('marks a distinct codex provider session id unresolved when validation cannot find it', async () => {
+    resolveProviderSession.mockResolvedValue({ providerSessionId: null });
+
+    const mounted = mountHookHarness({
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'stale-provider-session',
+      cwd: '/repo/worktree-a',
+      createdAt: 100,
+      initialized: true,
+      isRemoteExecution: false,
+      validateResolvedProviderSession: true,
+      onProviderSessionIdChange,
+      pollIntervalMs: 1000,
+      maxAttempts: 3,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledTimes(1);
+    expect(onProviderSessionIdChange).toHaveBeenCalledWith('ui-session-1');
+
+    mounted.unmount();
+  });
+
   it('stops polling after the provider session id becomes distinct on rerender', async () => {
     resolveProviderSession.mockResolvedValue({ providerSessionId: null });
 

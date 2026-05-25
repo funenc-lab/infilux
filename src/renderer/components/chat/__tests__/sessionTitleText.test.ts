@@ -20,6 +20,8 @@ describe('sessionTitleText', () => {
     expect(getMeaningfulTerminalTitle('root: /repo/worktree')).toBeUndefined();
     expect(getMeaningfulTerminalTitle('npm test')).toBeUndefined();
     expect(getMeaningfulTerminalTitle('codex(99841) MallocStackLogging')).toBeUndefined();
+    expect(getMeaningfulTerminalTitle('› codex(85487) MallocSt')).toBeUndefined();
+    expect(getMeaningfulTerminalTitle('> codex(85487) MallocStackLogging')).toBeUndefined();
     expect(getMeaningfulTerminalTitle('  > Fix failing coverage  ')).toBe('Fix failing coverage');
   });
 

@@ -21,6 +21,9 @@ const testState = vi.hoisted(() => ({
   formattedTranscriptText: 'formatted transcript',
   useXtermOptions: [] as Array<Record<string, unknown>>,
   discoveryCalls: [] as Array<Record<string, unknown>>,
+  providerDiscoveryState: {
+    providerSessionResolutionPending: false,
+  },
   terminal: {
     rows: 24,
     focus: vi.fn(),
@@ -196,6 +199,7 @@ vi.mock('@/components/ui/toast', () => ({
 vi.mock('@/hooks/useAgentProviderSessionDiscovery', () => ({
   useAgentProviderSessionDiscovery: (options: Record<string, unknown>) => {
     testState.discoveryCalls.push(options);
+    return testState.providerDiscoveryState;
   },
 }));
 
@@ -353,6 +357,9 @@ describe('AgentTerminal integration', () => {
     testState.formattedTranscriptText = 'formatted transcript';
     testState.useXtermOptions = [];
     testState.discoveryCalls = [];
+    testState.providerDiscoveryState = {
+      providerSessionResolutionPending: false,
+    };
 
     testState.terminal.focus.mockReset();
     testState.terminal.hasSelection.mockReset();
@@ -1034,6 +1041,42 @@ describe('AgentTerminal integration', () => {
         args: ['-lc', 'codex resume provider-session-1'],
       },
     });
+
+    await mounted.unmount();
+  });
+
+  it('holds codex missing-host resume while resolved provider session validation is pending', async () => {
+    testState.settingsStore.agentIntegration.tmuxEnabled = true;
+    testState.providerDiscoveryState = {
+      providerSessionResolutionPending: true,
+    };
+
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'stale-provider-session',
+      backendSessionId: undefined,
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+    });
+
+    const lastUseXtermCall = testState.useXtermOptions.at(-1) as
+      | {
+          command?: unknown;
+          initialCommand?: unknown;
+          sessionCreateFallback?: unknown;
+        }
+      | undefined;
+
+    expect(testState.discoveryCalls.at(-1)).toEqual(
+      expect.objectContaining({
+        validateResolvedProviderSession: true,
+      })
+    );
+    expect(lastUseXtermCall?.command).toBeUndefined();
+    expect(lastUseXtermCall?.initialCommand).toBeUndefined();
+    expect(lastUseXtermCall?.sessionCreateFallback).toBeUndefined();
 
     await mounted.unmount();
   });

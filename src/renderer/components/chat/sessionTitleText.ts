@@ -27,17 +27,21 @@ export function getMeaningfulTerminalTitle(title?: string | null): string | unde
     return undefined;
   }
 
+  const normalizedTitle = normalizeSessionTitleText(trimmedTitle);
+  if (!normalizedTitle) {
+    return undefined;
+  }
+
   if (
-    GENERIC_SHELL_TITLE.test(trimmedTitle) ||
-    PRIVILEGED_SESSION_TITLE.test(trimmedTitle) ||
-    GENERIC_COMMAND_TITLE.test(trimmedTitle) ||
-    MACOS_MALLOC_DIAGNOSTIC_TITLE.test(trimmedTitle)
+    GENERIC_SHELL_TITLE.test(normalizedTitle) ||
+    PRIVILEGED_SESSION_TITLE.test(normalizedTitle) ||
+    GENERIC_COMMAND_TITLE.test(normalizedTitle) ||
+    MACOS_MALLOC_DIAGNOSTIC_TITLE.test(normalizedTitle)
   ) {
     return undefined;
   }
 
-  const normalizedTitle = normalizeSessionTitleText(trimmedTitle);
-  return normalizedTitle || undefined;
+  return normalizedTitle;
 }
 
 export function getDefaultSessionName(agentId?: string): string {
