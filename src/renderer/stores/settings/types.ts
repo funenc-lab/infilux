@@ -412,6 +412,8 @@ export interface SettingsState {
   shellConfig: ShellConfig;
   chatPanelInactivityThresholdMinutes: number;
   retainSessionBackedChatPanels: boolean;
+  worktreeCanvasTerminalMountLimit: number;
+  workspaceCanvasTerminalMountLimit: number;
   agentNotificationEnabled: boolean;
   agentNotificationDelay: number; // in seconds
   agentNotificationEnterDelay: number; // delay after Enter before starting idle timer
@@ -552,6 +554,8 @@ export interface SettingsState {
   setShellConfig: (config: ShellConfig) => void;
   setChatPanelInactivityThresholdMinutes: (minutes: number) => void;
   setRetainSessionBackedChatPanels: (enabled: boolean) => void;
+  setWorktreeCanvasTerminalMountLimit: (limit: number) => void;
+  setWorkspaceCanvasTerminalMountLimit: (limit: number) => void;
   setAgentNotificationEnabled: (enabled: boolean) => void;
   setAgentNotificationDelay: (delay: number) => void;
   setAgentNotificationEnterDelay: (delay: number) => void;

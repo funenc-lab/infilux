@@ -32,6 +32,15 @@ describe('agent session display mode settings', () => {
     expect(agentSessionSectionSource).toContain("aria-label={t('Agent Session Display')}");
     expect(agentSessionSectionSource).toContain('agentSessionDisplayMode === option.value');
     expect(agentSessionSectionSource).toContain('setAgentSessionDisplayMode(option.value)');
+    expect(agentSessionSectionSource).toContain("t('Canvas terminal mount limit')");
+    expect(agentSessionSectionSource).toContain('worktreeCanvasTerminalMountLimit');
+    expect(agentSessionSectionSource).toContain(
+      'setWorktreeCanvasTerminalMountLimit(Number(value))'
+    );
+    expect(agentSessionSectionSource).toContain('workspaceCanvasTerminalMountLimit');
+    expect(agentSessionSectionSource).toContain(
+      'setWorkspaceCanvasTerminalMountLimit(Number(value))'
+    );
     expect(generalSettingsSource).not.toContain(
       '<div className="border-t border-border/70 pt-5">\n            <h3 className="text-lg font-medium">{t(\'Agent Session Display\')}</h3>'
     );

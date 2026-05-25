@@ -145,8 +145,6 @@ import {
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import {
   collectMountedAgentSessionIds,
-  DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
-  DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
   resolveBackgroundAgentCanvasMountPlan,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
@@ -610,6 +608,8 @@ export function AgentPanel({
     fontSize,
     editorSettings,
     agentSessionDisplayMode,
+    worktreeCanvasTerminalMountLimit,
+    workspaceCanvasTerminalMountLimit,
     backgroundImageEnabled,
     confirmBeforeClosingAgentSession,
     quickTerminalEnabled,
@@ -631,6 +631,8 @@ export function AgentPanel({
       fontSize: state.fontSize,
       editorSettings: state.editorSettings,
       agentSessionDisplayMode: state.agentSessionDisplayMode,
+      worktreeCanvasTerminalMountLimit: state.worktreeCanvasTerminalMountLimit,
+      workspaceCanvasTerminalMountLimit: state.workspaceCanvasTerminalMountLimit,
       backgroundImageEnabled: state.backgroundImageEnabled,
       confirmBeforeClosingAgentSession: state.confirmBeforeClosingAgentSession,
       quickTerminalEnabled: state.quickTerminal.enabled ?? true,
@@ -4135,8 +4137,8 @@ export function AgentPanel({
         sessionLastActivityAtById,
         sessionActivityStateById,
         suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel,
-        worktreeTerminalMountLimit: DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
-        workspaceCanvasTerminalMountLimit: DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
+        worktreeTerminalMountLimit: worktreeCanvasTerminalMountLimit,
+        workspaceCanvasTerminalMountLimit,
       }),
     [
       canvasFloatingSessionId,
@@ -4151,6 +4153,8 @@ export function AgentPanel({
       sessionLastActivityAtById,
       sessionActivityStateById,
       shouldSuppressWorkspaceCanvasPanel,
+      worktreeCanvasTerminalMountLimit,
+      workspaceCanvasTerminalMountLimit,
     ]
   );
   const mountedCurrentWorktreeSessionIdSet = useMemo(
@@ -4158,8 +4162,8 @@ export function AgentPanel({
     [mountedCurrentWorktreeSessionIds]
   );
   const canvasTerminalMountLimit = isWorkspaceCanvasDisplayMode
-    ? DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT
-    : DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT;
+    ? workspaceCanvasTerminalMountLimit
+    : worktreeCanvasTerminalMountLimit;
   const sessionById = useMemo(
     () => new Map(allSessions.map((session) => [session.id, session])),
     [allSessions]

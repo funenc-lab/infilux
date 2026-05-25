@@ -53,15 +53,26 @@ function buildSessionResumeArgs(params: {
   resumeSessionId?: string;
   initialized?: boolean;
   terminalSessionId?: string;
+  persistentHostSessionKey?: string;
   useTmuxHostSession?: boolean;
 }): string[] {
-  const { agentCommand, resumeSessionId, initialized, terminalSessionId, useTmuxHostSession } =
-    params;
+  const {
+    agentCommand,
+    resumeSessionId,
+    initialized,
+    terminalSessionId,
+    persistentHostSessionKey,
+    useTmuxHostSession,
+  } = params;
   if (!resumeSessionId) {
     return [];
   }
 
-  const hasExplicitProviderResumeId = resumeSessionId !== terminalSessionId;
+  const hasExplicitProviderResumeId = isExplicitProviderResumeId({
+    resumeSessionId,
+    terminalSessionId,
+    persistentHostSessionKey,
+  });
 
   if (agentCommand === 'cursor-agent') {
     return hasExplicitProviderResumeId ? ['--resume', resumeSessionId] : [];
@@ -81,11 +92,17 @@ function buildSessionResumeArgs(params: {
   return [];
 }
 
-function hasExplicitProviderResumeId(
-  resumeSessionId?: string,
-  terminalSessionId?: string
-): boolean {
-  return Boolean(resumeSessionId && resumeSessionId !== terminalSessionId);
+function isExplicitProviderResumeId(params: {
+  resumeSessionId?: string;
+  terminalSessionId?: string;
+  persistentHostSessionKey?: string;
+}): boolean {
+  const { resumeSessionId, terminalSessionId, persistentHostSessionKey } = params;
+  return Boolean(
+    resumeSessionId &&
+      resumeSessionId !== terminalSessionId &&
+      resumeSessionId !== persistentHostSessionKey
+  );
 }
 
 function quotePosixShell(input: string): string {
@@ -287,7 +304,11 @@ export function buildAgentLaunchPlan({
     !isRemoteExecution &&
     !isWindows &&
     Boolean(terminalSessionId);
-  const hasProviderResumeId = hasExplicitProviderResumeId(resumeSessionId, terminalSessionId);
+  const hasProviderResumeId = isExplicitProviderResumeId({
+    resumeSessionId,
+    terminalSessionId,
+    persistentHostSessionKey,
+  });
 
   if (
     tmuxEnabled &&
@@ -309,6 +330,7 @@ export function buildAgentLaunchPlan({
     resumeSessionId,
     initialized,
     terminalSessionId,
+    persistentHostSessionKey,
     useTmuxHostSession,
   });
 

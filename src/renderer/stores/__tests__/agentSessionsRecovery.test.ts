@@ -193,6 +193,29 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('does not restore a persistent host session key as the provider session id', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        uiSessionId: 'e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        providerSessionId: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        hostSessionKey: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        lastKnownState: 'missing-host-session',
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        sessionId: 'e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        hostSessionKey: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        recoveryState: 'missing-host-session',
+      }),
+    ]);
+  });
+
   it('protects meaningful recovered display names from later terminal title replacement', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();

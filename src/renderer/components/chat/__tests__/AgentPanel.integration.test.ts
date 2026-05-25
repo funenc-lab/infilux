@@ -80,6 +80,8 @@ const testState = vi.hoisted(() => ({
       lineHeight: 1.5,
     },
     agentSessionDisplayMode: 'tab',
+    worktreeCanvasTerminalMountLimit: 6,
+    workspaceCanvasTerminalMountLimit: 12,
     backgroundImageEnabled: false,
     confirmBeforeClosingAgentSession: false,
     quickTerminal: {
@@ -857,6 +859,8 @@ describe('AgentPanel integration', () => {
       autoSessionRollover: false,
     };
     testState.settings.agentSessionDisplayMode = 'tab';
+    testState.settings.worktreeCanvasTerminalMountLimit = 6;
+    testState.settings.workspaceCanvasTerminalMountLimit = 12;
     testState.settings.backgroundImageEnabled = false;
     testState.settings.confirmBeforeClosingAgentSession = false;
     testState.settings.quickTerminal = {
@@ -2290,6 +2294,52 @@ describe('AgentPanel integration', () => {
     expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(6);
     expect(mounted.container.querySelectorAll('[data-agent-canvas-deferred="true"]').length).toBe(
       2
+    );
+
+    await mounted.unmount();
+  });
+
+  it('uses the configured worktree canvas terminal mount limit', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+    testState.settings.worktreeCanvasTerminalMountLimit = 4;
+
+    const sessions = Array.from({ length: 8 }, (_, index) =>
+      createSession({
+        id: `session-${index}`,
+        sessionId: `provider-${index}`,
+        backendSessionId: `backend-${index}`,
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        name: `Gemini ${index}`,
+      })
+    );
+
+    useAgentSessionsStore.setState({
+      sessions,
+      activeIds: {
+        '/repo/worktree': 'session-0',
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: sessions.map((session, index) => ({
+            id: `group-${index}`,
+            sessionIds: [session.id],
+            activeSessionId: session.id,
+          })),
+          activeGroupId: 'group-0',
+          flexPercents: sessions.map(() => 100 / sessions.length),
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+
+    expect(mounted.container.querySelectorAll('[data-agent-session-id]')).toHaveLength(8);
+    expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(4);
+    expect(mounted.container.querySelectorAll('[data-agent-canvas-deferred="true"]')).toHaveLength(
+      4
     );
 
     await mounted.unmount();

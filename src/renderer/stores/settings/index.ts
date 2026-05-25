@@ -11,6 +11,12 @@ import {
   sanitizeCustomAccentColor,
 } from '@/lib/appTheme';
 import {
+  DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
+  DEFAULT_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT,
+  normalizeWorkspaceCanvasTerminalMountLimit,
+  normalizeWorktreeCanvasTerminalMountLimit,
+} from './canvasTerminalMountLimitPolicy';
+import {
   DEFAULT_CHAT_PANEL_INACTIVITY_THRESHOLD_MINUTES,
   normalizeChatPanelInactivityThresholdMinutes,
 } from './chatPanelInactivityThresholdPolicy';
@@ -116,6 +122,8 @@ function getInitialState() {
     shellConfig: getDefaultShellConfig(),
     chatPanelInactivityThresholdMinutes: DEFAULT_CHAT_PANEL_INACTIVITY_THRESHOLD_MINUTES,
     retainSessionBackedChatPanels: true,
+    worktreeCanvasTerminalMountLimit: DEFAULT_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT,
+    workspaceCanvasTerminalMountLimit: DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT,
     agentNotificationEnabled: true,
     agentNotificationDelay: 5,
     agentNotificationEnterDelay: 5,
@@ -503,6 +511,20 @@ export const useSettingsStore = create<SettingsState>()(
         }),
       setRetainSessionBackedChatPanels: (retainSessionBackedChatPanels) =>
         set({ retainSessionBackedChatPanels }),
+      setWorktreeCanvasTerminalMountLimit: (worktreeCanvasTerminalMountLimit) =>
+        set({
+          worktreeCanvasTerminalMountLimit: normalizeWorktreeCanvasTerminalMountLimit(
+            worktreeCanvasTerminalMountLimit,
+            get().worktreeCanvasTerminalMountLimit
+          ),
+        }),
+      setWorkspaceCanvasTerminalMountLimit: (workspaceCanvasTerminalMountLimit) =>
+        set({
+          workspaceCanvasTerminalMountLimit: normalizeWorkspaceCanvasTerminalMountLimit(
+            workspaceCanvasTerminalMountLimit,
+            get().workspaceCanvasTerminalMountLimit
+          ),
+        }),
       setAgentNotificationEnabled: (agentNotificationEnabled) => set({ agentNotificationEnabled }),
       setAgentNotificationDelay: (agentNotificationDelay) => set({ agentNotificationDelay }),
       setAgentNotificationEnterDelay: (agentNotificationEnterDelay) =>

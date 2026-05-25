@@ -369,6 +369,26 @@ function hasSessionUpdates(session: Session, updates: Partial<Session>): boolean
   return false;
 }
 
+function resolveRecoveredProviderSessionId(
+  record: PersistentAgentSessionRecord,
+  existing?: Session
+): string {
+  const persistedProviderSessionId = record.providerSessionId?.trim();
+  if (
+    persistedProviderSessionId &&
+    persistedProviderSessionId !== record.uiSessionId &&
+    persistedProviderSessionId !== record.hostSessionKey
+  ) {
+    return persistedProviderSessionId;
+  }
+
+  if (existing?.sessionId && existing.sessionId !== record.hostSessionKey) {
+    return existing.sessionId;
+  }
+
+  return record.uiSessionId;
+}
+
 function loadFromStorage(): PersistedAgentSessionsSnapshot {
   try {
     const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
@@ -827,7 +847,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         );
         const recoveredSession: Session = {
           id: record.uiSessionId,
-          sessionId: record.providerSessionId ?? existing?.sessionId ?? record.uiSessionId,
+          sessionId: resolveRecoveredProviderSessionId(record, existing),
           backendSessionId: record.backendSessionId ?? existing?.backendSessionId,
           createdAt: record.createdAt,
           name: getStoredSessionName(record.displayName, record.agentId),

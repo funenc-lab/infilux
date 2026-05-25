@@ -20,6 +20,13 @@ const rendererZhTranslations: Record<string, string> = {
   'Worktree Canvas': decodeEscapedUnicode('Worktree \\u753b\\u5e03'),
   'Repository Canvas': decodeEscapedUnicode('\\u4ed3\\u5e93\\u753b\\u5e03'),
   'Workspace Canvas': decodeEscapedUnicode('\\u5de5\\u4f5c\\u533a\\u753b\\u5e03'),
+  'Canvas terminal mount limit': decodeEscapedUnicode(
+    '\\u753b\\u5e03\\u7ec8\\u7aef\\u6302\\u8f7d\\u4e0a\\u9650'
+  ),
+  'Maximum mounted agent terminals in canvas views. Higher values use more memory.':
+    decodeEscapedUnicode(
+      '\\u753b\\u5e03\\u89c6\\u56fe\\u4e2d\\u540c\\u65f6\\u6302\\u8f7d\\u7684 Agent \\u7ec8\\u7aef\\u4e0a\\u9650\\u3002\\u6570\\u503c\\u8d8a\\u9ad8\\uff0c\\u5360\\u7528\\u5185\\u5b58\\u8d8a\\u591a\\u3002'
+    ),
   'Show sessions as tabs inside the active worktree': decodeEscapedUnicode(
     '\\u5728\\u5f53\\u524d Worktree \\u5185\\u4ee5\\u6807\\u7b7e\\u663e\\u793a\\u4f1a\\u8bdd'
   ),
@@ -61,6 +68,7 @@ const rendererZhTranslations: Record<string, string> = {
   'No agent sessions': decodeEscapedUnicode('\\u6682\\u65e0 Agent \\u4f1a\\u8bdd'),
   'New in Current Worktree': decodeEscapedUnicode('\\u5728\\u5f53\\u524d Worktree \\u65b0\\u5efa'),
   'New Session in {{name}}': decodeEscapedUnicode('\\u5728 {{name}} \\u65b0\\u5efa Session'),
+  '{{count}} sessions': decodeEscapedUnicode('{{count}} \\u4e2a\\u4f1a\\u8bdd'),
   '{{count}} agent sessions': decodeEscapedUnicode('{{count}} \\u4e2a Agent \\u4f1a\\u8bdd'),
   '{{count}} total': decodeEscapedUnicode('\\u5171 {{count}} \\u4e2a'),
   '{{count}} running': decodeEscapedUnicode('{{count}} \\u4e2a\\u8fd0\\u884c\\u4e2d'),

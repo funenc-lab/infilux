@@ -360,6 +360,30 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.hostSession).toBeUndefined();
   });
 
+  it('does not resume codex with a persistent host session key when the tmux host is missing', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-14',
+      persistentHostSessionKey: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+      persistentHostSessionAvailable: false,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toBeUndefined();
+    expect(plan.initialCommand).toBeUndefined();
+    expect(plan.hostSession).toBeUndefined();
+  });
+
   it('keeps a login shell alive for local unix codex commands that need shell wrapping', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'codex',

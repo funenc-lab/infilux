@@ -14,6 +14,8 @@ function createCurrentState(): SettingsState {
     agentSessionDisplayMode: 'tab',
     chatPanelInactivityThresholdMinutes: 5,
     retainSessionBackedChatPanels: true,
+    worktreeCanvasTerminalMountLimit: 6,
+    workspaceCanvasTerminalMountLimit: 12,
     backgroundOpacity: 0.85,
     backgroundBlur: 0,
     backgroundBrightness: 1,
@@ -306,6 +308,36 @@ describe('migrateSettings', () => {
         currentState
       ).retainSessionBackedChatPanels
     ).toBe(currentState.retainSessionBackedChatPanels);
+  });
+
+  it('clamps persisted canvas terminal mount limits to bounded whole numbers', () => {
+    const currentState = createCurrentState();
+
+    const result = migrateSettings(
+      {
+        worktreeCanvasTerminalMountLimit: 0,
+        workspaceCanvasTerminalMountLimit: 99,
+      } as unknown as Partial<SettingsState>,
+      currentState
+    );
+
+    expect(result.worktreeCanvasTerminalMountLimit).toBe(1);
+    expect(result.workspaceCanvasTerminalMountLimit).toBe(48);
+
+    const fallbackResult = migrateSettings(
+      {
+        worktreeCanvasTerminalMountLimit: 'invalid' as never,
+        workspaceCanvasTerminalMountLimit: Number.NaN,
+      } as unknown as Partial<SettingsState>,
+      currentState
+    );
+
+    expect(fallbackResult.worktreeCanvasTerminalMountLimit).toBe(
+      currentState.worktreeCanvasTerminalMountLimit
+    );
+    expect(fallbackResult.workspaceCanvasTerminalMountLimit).toBe(
+      currentState.workspaceCanvasTerminalMountLimit
+    );
   });
 
   it('migrates legacy keybindings and filters detection status to enabled agents only', () => {

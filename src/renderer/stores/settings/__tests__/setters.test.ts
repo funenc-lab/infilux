@@ -608,11 +608,15 @@ describe('settings store setters', () => {
     const store = env.useSettingsStore.getState();
 
     expect(env.useSettingsStore.getState().agentSessionDisplayMode).toBe('tab');
+    expect(env.useSettingsStore.getState().worktreeCanvasTerminalMountLimit).toBe(6);
+    expect(env.useSettingsStore.getState().workspaceCanvasTerminalMountLimit).toBe(12);
 
     store.setLayoutMode('columns');
     store.setFileTreeDisplayMode('current');
     store.setRepositoryListDisplayMode('tabs');
     store.setAgentSessionDisplayMode('global-canvas');
+    store.setWorktreeCanvasTerminalMountLimit(30);
+    store.setWorkspaceCanvasTerminalMountLimit(0);
     store.setActivePresetTheme('warm-graphite');
     store.setActiveCustomTheme('missing-theme');
 
@@ -648,6 +652,8 @@ describe('settings store setters', () => {
     expect(state.fileTreeDisplayMode).toBe('current');
     expect(state.repositoryListDisplayMode).toBe('tabs');
     expect(state.agentSessionDisplayMode).toBe('global-canvas');
+    expect(state.worktreeCanvasTerminalMountLimit).toBe(24);
+    expect(state.workspaceCanvasTerminalMountLimit).toBe(1);
     expect(state.activeThemeSelection).toEqual({
       kind: 'custom',
       customThemeId: presetThemeId,
