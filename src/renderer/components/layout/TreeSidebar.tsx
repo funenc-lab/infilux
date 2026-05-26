@@ -53,6 +53,7 @@ import {
   saveTreeSidebarExpandedRepos,
   saveTreeSidebarTempExpanded,
 } from '@/App/storage';
+import { isOpenAgentSession } from '@/components/chat/agentSessionLiveness';
 import {
   CreateGroupDialog,
   GroupEditDialog,
@@ -132,15 +133,6 @@ function TreeInlineEmptyState({
         {actions}
       </div>
     </div>
-  );
-}
-
-function isSameOrChildPath(candidatePath: string, rootPath: string): boolean {
-  const normalizedCandidatePath = normalizePath(candidatePath);
-  const normalizedRootPath = normalizePath(rootPath);
-  return (
-    normalizedCandidatePath === normalizedRootPath ||
-    normalizedCandidatePath.startsWith(`${normalizedRootPath}/`)
   );
 }
 
@@ -910,11 +902,7 @@ export function TreeSidebar({
     const repoPaths = new Set<string>();
 
     for (const session of agentSessions) {
-      if (
-        !session.initialized ||
-        session.recoveryState === 'dead' ||
-        session.recoveryState === 'missing-host-session'
-      ) {
+      if (!isOpenAgentSession(session)) {
         continue;
       }
 
@@ -926,12 +914,7 @@ export function TreeSidebar({
   }, [agentSessions]);
   const matchesAgentWorktreeFilter = useCallback(
     (path: string) => {
-      for (const sessionCwd of openAgentSessionScope.worktreePaths) {
-        if (isSameOrChildPath(sessionCwd, path)) {
-          return true;
-        }
-      }
-      return false;
+      return openAgentSessionScope.worktreePaths.has(normalizePath(path));
     },
     [openAgentSessionScope]
   );
