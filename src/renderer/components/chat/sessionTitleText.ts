@@ -3,6 +3,12 @@ const GENERIC_SHELL_TITLE = /[/\\](pwsh|powershell|cmd|bash|zsh|sh|fish|nu|wsl)(
 const PRIVILEGED_SESSION_TITLE = /^(Administrator|root)\s*:/i;
 const GENERIC_COMMAND_TITLE = /^(npm|npx|node|python|py|pnpm|yarn|bun|deno|cargo|go|java|ruby)\s/i;
 const MACOS_MALLOC_DIAGNOSTIC_TITLE = /^\S+\(\d+\)\s+Malloc\w*/;
+const UNUSABLE_SESSION_TITLE_PATTERNS = [
+  GENERIC_SHELL_TITLE,
+  PRIVILEGED_SESSION_TITLE,
+  GENERIC_COMMAND_TITLE,
+  MACOS_MALLOC_DIAGNOSTIC_TITLE,
+] as const;
 
 const BUILTIN_AGENT_NAMES: Record<string, string> = {
   claude: 'Claude',
@@ -21,6 +27,14 @@ export function normalizeSessionTitleText(text: string): string {
   return normalizedWhitespace.replace(SESSION_TITLE_PROMPT_PREFIX, '').trim();
 }
 
+function isUnusableNormalizedSessionTitle(title: string): boolean {
+  return !title || UNUSABLE_SESSION_TITLE_PATTERNS.some((pattern) => pattern.test(title));
+}
+
+export function isUnusableSessionTitle(title?: string | null): boolean {
+  return isUnusableNormalizedSessionTitle(normalizeSessionTitleText(title ?? ''));
+}
+
 export function getMeaningfulTerminalTitle(title?: string | null): string | undefined {
   const trimmedTitle = title?.trim();
   if (!trimmedTitle) {
@@ -28,16 +42,7 @@ export function getMeaningfulTerminalTitle(title?: string | null): string | unde
   }
 
   const normalizedTitle = normalizeSessionTitleText(trimmedTitle);
-  if (!normalizedTitle) {
-    return undefined;
-  }
-
-  if (
-    GENERIC_SHELL_TITLE.test(normalizedTitle) ||
-    PRIVILEGED_SESSION_TITLE.test(normalizedTitle) ||
-    GENERIC_COMMAND_TITLE.test(normalizedTitle) ||
-    MACOS_MALLOC_DIAGNOSTIC_TITLE.test(normalizedTitle)
-  ) {
+  if (isUnusableNormalizedSessionTitle(normalizedTitle)) {
     return undefined;
   }
 
@@ -69,5 +74,8 @@ export function getDefaultSessionName(agentId?: string): string {
 
 export function getStoredSessionName(name: string, agentId?: string): string {
   const normalizedName = normalizeSessionTitleText(name);
-  return normalizedName || getDefaultSessionName(agentId);
+  if (isUnusableNormalizedSessionTitle(normalizedName)) {
+    return getDefaultSessionName(agentId);
+  }
+  return normalizedName;
 }

@@ -11,6 +11,12 @@ declare global {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+const focusLockTestState = vi.hoisted(() => ({
+  isLocked: false,
+  lockFocus: vi.fn(),
+  unlockFocus: vi.fn(),
+}));
+
 vi.mock('@/components/ui/toast', () => ({
   toastManager: {
     add: vi.fn(),
@@ -24,9 +30,9 @@ vi.mock('@/i18n', () => ({
 }));
 
 vi.mock('@/lib/focusLock', () => ({
-  isFocusLocked: () => false,
-  lockFocus: vi.fn(),
-  unlockFocus: vi.fn(),
+  isFocusLocked: () => focusLockTestState.isLocked,
+  lockFocus: focusLockTestState.lockFocus,
+  unlockFocus: focusLockTestState.unlockFocus,
 }));
 
 async function flushMicrotasks() {
@@ -89,6 +95,9 @@ function createImeEnterEvent(): KeyboardEvent {
 
 describe('EnhancedInput integration', () => {
   afterEach(() => {
+    focusLockTestState.isLocked = false;
+    focusLockTestState.lockFocus.mockReset();
+    focusLockTestState.unlockFocus.mockReset();
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
   });
@@ -107,6 +116,59 @@ describe('EnhancedInput integration', () => {
 
     expect(onSend).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
+
+    await mounted.unmount();
+  });
+
+  it('does not force refocus while IME composition is active', async () => {
+    focusLockTestState.isLocked = true;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+
+    const mounted = await mountEnhancedInput({ sessionId: 'session-ime' });
+    const textarea = mounted.container.querySelector('textarea');
+    expect(textarea).not.toBeNull();
+    if (!textarea) return;
+
+    const focusSpy = vi.spyOn(textarea, 'focus');
+    textarea.focus();
+    focusSpy.mockClear();
+
+    await act(async () => {
+      textarea.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+      textarea.blur();
+      await flushMicrotasks();
+    });
+
+    expect(focusSpy).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('restores focus on blur when focus lock is active and IME is not composing', async () => {
+    focusLockTestState.isLocked = true;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+
+    const mounted = await mountEnhancedInput({ sessionId: 'session-focus' });
+    const textarea = mounted.container.querySelector('textarea');
+    expect(textarea).not.toBeNull();
+    if (!textarea) return;
+
+    const focusSpy = vi.spyOn(textarea, 'focus');
+    textarea.focus();
+    focusSpy.mockClear();
+
+    await act(async () => {
+      textarea.blur();
+      await flushMicrotasks();
+    });
+
+    expect(focusSpy).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });

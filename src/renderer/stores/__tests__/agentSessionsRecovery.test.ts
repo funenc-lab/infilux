@@ -235,6 +235,25 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('does not protect recovered macOS malloc diagnostic display names', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        displayName: '› codex(85487) MallocSt',
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        name: 'Codex',
+        userRenamed: undefined,
+      }),
+    ]);
+  });
+
   it('hydrates replay snapshots from recovered persistent metadata', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();

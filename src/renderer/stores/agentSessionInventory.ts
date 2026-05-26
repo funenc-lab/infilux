@@ -1,6 +1,7 @@
 import { type AgentFamily, resolveBuiltinAgentCatalogEntry } from '@shared/types';
 import { normalizePath, pathsEqual } from '@/App/storage';
 import type { Session } from '@/components/chat/SessionBar';
+import { getStoredSessionName } from '@/components/chat/sessionTitleText';
 import type { TodoTask } from '@/components/todo/types';
 import { isSessionPersistable } from '@/lib/agentSessionPersistence';
 import type { SessionRuntimeState } from './agentSessions';
@@ -156,7 +157,7 @@ export function buildAgentSessionInventory({
         sessionId: session.id,
         providerSessionId: session.sessionId,
         backendSessionId: session.backendSessionId,
-        displayName: session.name,
+        displayName: getStoredSessionName(session.name, session.agentId),
         agentId: session.agentId,
         agentFamily: capabilities?.agentFamily ?? 'custom',
         agentName: catalogEntry?.name ?? session.agentId,

@@ -77,4 +77,32 @@ describe('sessionTitlePolicy', () => {
       })
     ).toBe('Recover session title after restart');
   });
+
+  it('does not promote macOS malloc diagnostic titles from the first captured input line', () => {
+    expect(
+      resolveSessionTitleFromFirstInput({
+        line: '› codex(85487) MallocSt',
+        currentName: 'Codex',
+        defaultName: 'Codex',
+      })
+    ).toBeNull();
+  });
+
+  it('does not promote generic terminal titles from the first captured input line', () => {
+    expect(
+      resolveSessionTitleFromFirstInput({
+        line: 'npm test',
+        currentName: 'Codex',
+        defaultName: 'Codex',
+      })
+    ).toBeNull();
+
+    expect(
+      resolveSessionTitleFromFirstInput({
+        line: '/bin/zsh',
+        currentName: 'Codex',
+        defaultName: 'Codex',
+      })
+    ).toBeNull();
+  });
 });

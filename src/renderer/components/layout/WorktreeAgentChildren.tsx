@@ -2,6 +2,7 @@ import type { LiveAgentSubagent } from '@shared/types';
 import { ChevronRight, CornerDownRight, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Session } from '@/components/chat/SessionBar';
+import { getSessionDisplayName } from '@/components/chat/sessionBarLabels';
 import { cn } from '@/lib/utils';
 import {
   buildVisibleWorktreeSubagentRows,
@@ -57,6 +58,7 @@ export function WorktreeAgentChildren({
     return null;
   }
 
+  const sessionDisplayName = getSessionDisplayName(session);
   const isAgentSelected = selectedAgentSessionId === session.id && !selectedSubagentThreadId;
 
   const toggleSubagentExpansion = (threadId: string) => {
@@ -158,7 +160,7 @@ export function WorktreeAgentChildren({
         }}
       >
         <Sparkles className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{session.name}</span>
+        <span className="min-w-0 flex-1 truncate">{sessionDisplayName}</span>
       </button>
 
       {visibleRows.map((row) => renderSubagentRow(row))}

@@ -1,6 +1,7 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { CornerDownRight, Sparkles } from 'lucide-react';
 import type { Session } from '@/components/chat/SessionBar';
+import { getSessionDisplayName } from '@/components/chat/sessionBarLabels';
 import { cn } from '@/lib/utils';
 import { getSubagentStatusPresentation } from '@/lib/worktreeAgentSummary';
 
@@ -23,6 +24,8 @@ export function WorktreeAgentSummary({
     return null;
   }
 
+  const sessionDisplayName = getSessionDisplayName(session);
+
   return (
     <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
       <button
@@ -34,7 +37,7 @@ export function WorktreeAgentSummary({
         }}
       >
         <Sparkles className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">{session.name}</span>
+        <span className="truncate">{sessionDisplayName}</span>
       </button>
 
       {subagents.map((subagent) =>

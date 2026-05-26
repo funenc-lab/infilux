@@ -37,5 +37,10 @@ describe('sessionTitleText', () => {
     expect(getStoredSessionName('  > Review PR  ', 'claude')).toBe('Review PR');
     expect(getStoredSessionName('   ', 'claude')).toBe('Claude');
     expect(getStoredSessionName('❯   ', 'custom-agent')).toBe('custom-agent');
+    expect(getStoredSessionName('› codex(85487) MallocSt', 'codex')).toBe('Codex');
+    expect(getStoredSessionName('codex(85487) MallocStackLogging', 'codex')).toBe('Codex');
+    expect(getStoredSessionName('/bin/zsh', 'claude')).toBe('Claude');
+    expect(getStoredSessionName('npm test', 'codex')).toBe('Codex');
+    expect(getStoredSessionName('root: /repo/worktree', 'codex')).toBe('Codex');
   });
 });

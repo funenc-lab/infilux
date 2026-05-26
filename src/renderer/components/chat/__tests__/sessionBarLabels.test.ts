@@ -65,6 +65,14 @@ describe('sessionBarLabels', () => {
         agentId: 'claude-hapi',
       })
     ).toBe('Claude (Hapi)');
+
+    expect(
+      getSessionDisplayName({
+        name: 'npm test',
+        terminalTitle: '›',
+        agentId: 'codex',
+      })
+    ).toBe('Codex');
   });
 
   it('prefers the effective session title for hover copy when terminal titles are generic', () => {

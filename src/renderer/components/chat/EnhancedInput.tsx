@@ -370,9 +370,17 @@ export function EnhancedInput({
   // Focus trap: only refocus textarea when focus leaves this panel.
   // This avoids breaking keyboard navigation to Upload/Close/Send buttons.
   const handleBlur = useCallback(() => {
+    if (composingRef.current) {
+      return;
+    }
+
     // Wait two frames to allow overlays to mount and focus to settle, avoiding focus steal while opening popups.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        if (composingRef.current) {
+          return;
+        }
+
         if (!open || !sessionId || !isFocusLocked(sessionId)) return;
 
         const container = containerRef.current;

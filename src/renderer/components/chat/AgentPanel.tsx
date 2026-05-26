@@ -177,6 +177,7 @@ import {
   buildSessionActivityStateBySessionId,
   getHighestSessionActivityState,
 } from './sessionActivityState';
+import { getSessionDisplayName } from './sessionBarLabels';
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
 import { resolveSessionPersistenceNoticeKind } from './sessionPersistenceNoticePolicy';
 import { shouldIgnoreTerminalRuntimeStateRecoveryUpdate } from './sessionRuntimeRecoveryPolicy';
@@ -2398,7 +2399,7 @@ export function AgentPanel({
         }
 
         const handoffPrompt = buildSessionHandoffPrompt({
-          sessionName: session.name,
+          sessionName: getSessionDisplayName(session),
           worktreePath: session.cwd,
           projectPath: status?.workspace?.projectDir,
           contextUsagePercent,
@@ -2536,7 +2537,7 @@ export function AgentPanel({
       setPendingCloseSession({
         id,
         groupId,
-        name: session.terminalTitle || session.name || session.agentId || 'Agent session',
+        name: getSessionDisplayName(session),
       });
     },
     [allSessions, confirmBeforeClosingAgentSession, handleCloseSessionNow]
@@ -3629,13 +3630,21 @@ export function AgentPanel({
 
   const handleRenameSession = useCallback(
     (id: string, name: string) => {
-      updateSession(id, { name, terminalTitle: undefined, userRenamed: true });
+      const session = allSessions.find((item) => item.id === id);
+      if (!session) return;
+
+      const storedName = getStoredSessionName(name, session.agentId);
+      updateSession(id, {
+        name: storedName,
+        terminalTitle: undefined,
+        userRenamed: storedName === getDefaultSessionName(session.agentId) ? undefined : true,
+      });
     },
-    [updateSession]
+    [allSessions, updateSession]
   );
   const handleStartCanvasSessionTitleEdit = useCallback((session: Session) => {
     setEditingCanvasSessionTitleId(session.id);
-    setEditingCanvasSessionTitle(session.name);
+    setEditingCanvasSessionTitle(getSessionDisplayName(session));
   }, []);
   const handleCancelCanvasSessionTitleEdit = useCallback(() => {
     setEditingCanvasSessionTitleId(null);
@@ -4436,6 +4445,7 @@ export function AgentPanel({
     });
     const sender = enhancedInputSenderRef.current.get(sessionId);
     const tileAgentLabel = getAgentDisplayLabel(session.agentId, customAgents);
+    const sessionDisplayName = getSessionDisplayName(session);
     const displayedSessionSubagents = displayedSessionSubagentsBySessionId[session.id] ?? [];
     const sessionSubagentViewState = sessionSubagentViewStateBySessionId[session.id];
     const sessionSubagentTriggerPresentation =
@@ -4496,7 +4506,7 @@ export function AgentPanel({
           data-agent-canvas-session-title-button="true"
           data-agent-canvas-session-id={session.id}
           className="min-w-0 flex-1 truncate rounded-lg px-1 text-left text-sm font-semibold text-foreground transition-colors hover:bg-accent/20"
-          aria-label={session.name}
+          aria-label={sessionDisplayName}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -4513,7 +4523,7 @@ export function AgentPanel({
             handleStartCanvasSessionTitleEdit(session);
           }}
         >
-          {session.name}
+          {sessionDisplayName}
         </button>
       );
     const renderSessionHeaderSummary = () => (
@@ -4822,7 +4832,7 @@ export function AgentPanel({
     const sessionSubagentInspector = isSessionSubagentInspectorOpen ? (
       <SessionSubagentInspector
         key={`${session.id}-subagent-inspector`}
-        sessionName={session.name}
+        sessionName={sessionDisplayName}
         agentLabel={tileAgentLabel}
         sessionCwd={session.cwd}
         providerSessionId={session.sessionId}
@@ -4978,6 +4988,7 @@ export function AgentPanel({
         ? `${tileRepoLabel} / ${tileWorktreeLabel}`
         : tileWorktreeLabel;
     const tileAgentLabel = getAgentDisplayLabel(session.agentId, customAgents);
+    const sessionDisplayName = getSessionDisplayName(session);
     const isFocusedSession = session.id === canvasFocusedSessionId;
     const shouldDimCanvasTile =
       isCanvasDisplayMode &&
@@ -5030,7 +5041,7 @@ export function AgentPanel({
               </span>
             </div>
             <div className="mt-2 min-w-0 truncate text-sm font-semibold text-foreground">
-              {session.name}
+              {sessionDisplayName}
             </div>
           </button>
           <div className="flex min-w-0 items-center justify-between gap-3">

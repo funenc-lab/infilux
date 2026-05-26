@@ -1,4 +1,8 @@
-import { getMeaningfulTerminalTitle, normalizeSessionTitleText } from './sessionTitleText';
+import {
+  getMeaningfulTerminalTitle,
+  isUnusableSessionTitle,
+  normalizeSessionTitleText,
+} from './sessionTitleText';
 
 export interface SessionTitleFromFirstInput {
   line: string;
@@ -15,6 +19,10 @@ export function resolveSessionTitleFromFirstInput(
   if (!candidate) return null;
 
   if (candidate.startsWith('/')) {
+    return null;
+  }
+
+  if (isUnusableSessionTitle(candidate)) {
     return null;
   }
 
