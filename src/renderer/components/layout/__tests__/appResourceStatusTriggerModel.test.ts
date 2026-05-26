@@ -21,7 +21,7 @@ function createSnapshot(resources: AppResourceSnapshot['resources']): AppResourc
 }
 
 describe('appResourceStatusTriggerModel', () => {
-  it('surfaces healthy managed activity as a success badge', () => {
+  it('surfaces active agent sessions as the success badge count', () => {
     const viewModel = buildAppResourceStatusTriggerViewModel(
       createSnapshot([
         {
@@ -47,6 +47,28 @@ describe('appResourceStatusTriggerModel', () => {
           availableActions: [],
         },
         {
+          id: 'session:live-agent',
+          kind: 'session',
+          group: 'sessions',
+          status: 'running',
+          sessionId: 'live-agent',
+          sessionKind: 'agent',
+          backend: 'local',
+          cwd: '/repo',
+          repoPath: null,
+          projectName: null,
+          worktreeName: null,
+          branchName: null,
+          createdAt: 12,
+          persistOnDisconnect: false,
+          pid: 4002,
+          isActive: true,
+          isAlive: true,
+          reclaimable: false,
+          runtimeState: 'live',
+          availableActions: [],
+        },
+        {
           id: 'service:hapi-server',
           kind: 'service',
           group: 'services',
@@ -64,7 +86,7 @@ describe('appResourceStatusTriggerModel', () => {
 
     expect(viewModel).toEqual({
       tone: 'success',
-      badgeLabel: '2',
+      badgeLabel: '1',
       badgeClassName: 'control-badge-success',
     });
   });
