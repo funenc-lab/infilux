@@ -5,6 +5,7 @@ import {
   buildPersistentAgentHostSessionKey,
   resolveTmuxServerNameForPersistentAgentHostSessionKey,
 } from '@shared/utils/runtimeIdentity';
+import { buildShellCommandFromExecutablePath } from '@shared/utils/shellCommand';
 import {
   buildManagedTmuxSocketShellDir,
   buildManagedTmuxSocketShellPath,
@@ -226,6 +227,17 @@ function escapeInitialPromptForWindows(input: string): string {
     .replace(/\n/g, ' ');
 }
 
+function resolveCommandShellPath(
+  resolvedShell: BuildAgentLaunchPlanParams['resolvedShell'],
+  executionPlatform?: string
+): string {
+  if (resolvedShell?.shell) {
+    return resolvedShell.shell;
+  }
+
+  return executionPlatform === 'win32' ? 'powershell.exe' : '/bin/sh';
+}
+
 function escapeInitialPromptForUnix(input: string): string {
   return input.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
@@ -351,7 +363,18 @@ export function buildAgentLaunchPlan({
   }
 
   let envVars: Record<string, string> | undefined;
-  let baseCommand = `${effectiveCommand} ${agentArgs.join(' ')}`.trim();
+  const joinedAgentArgs = agentArgs.join(' ');
+  const commandShellPath = resolveCommandShellPath(resolvedShell, executionPlatform);
+  const buildCommandWithCustomPath = (rawArgs: string[]) =>
+    buildShellCommandFromExecutablePath({
+      shellPath: commandShellPath,
+      executionPlatform,
+      executablePath: customPath ?? effectiveCommand,
+      rawArgs,
+    });
+  let baseCommand = customPath
+    ? buildCommandWithCustomPath(agentArgs)
+    : `${effectiveCommand} ${joinedAgentArgs}`.trim();
 
   if (environment === 'hapi') {
     if (hapiGlobalInstalled === null) {
@@ -363,16 +386,24 @@ export function buildAgentLaunchPlan({
       };
     }
     const hapiPrefix = hapiGlobalInstalled ? 'hapi' : 'npx -y @twsxtd/hapi';
-    const hapiArgs = agentCommand.startsWith('claude') ? '' : effectiveCommand;
-    baseCommand = `${hapiPrefix} ${hapiArgs} ${agentArgs.join(' ')}`.trim();
+    const hapiArgs = agentCommand.startsWith('claude')
+      ? ''
+      : customPath
+        ? buildCommandWithCustomPath([])
+        : effectiveCommand;
+    baseCommand = `${hapiPrefix} ${hapiArgs} ${joinedAgentArgs}`.trim();
     if (hapiCliApiToken) {
       envVars = { CLI_API_TOKEN: hapiCliApiToken };
     }
   }
 
   if (environment === 'happy') {
-    const happyArgs = agentCommand.startsWith('claude') ? '' : effectiveCommand;
-    baseCommand = `happy ${happyArgs} ${agentArgs.join(' ')}`.trim();
+    const happyArgs = agentCommand.startsWith('claude')
+      ? ''
+      : customPath
+        ? buildCommandWithCustomPath([])
+        : effectiveCommand;
+    baseCommand = `happy ${happyArgs} ${joinedAgentArgs}`.trim();
   }
 
   const shouldUseTmux = useTmuxHostSession;

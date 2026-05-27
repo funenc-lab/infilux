@@ -42,6 +42,7 @@ import { useI18n } from '@/i18n';
 import {
   agentProviderProfileAdapter,
   agentProviderProfileRegistry,
+  buildAgentProviderDiscoveryOptionsByProvider,
   getAgentProviderProfileAdapter,
 } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
@@ -222,6 +223,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const providers = useSettingsStore((s) => s.agentIntegration.providers);
+  const agentSettings = useSettingsStore((s) => s.agentSettings);
   const removeAgentProvider = useSettingsStore((s) => s.removeAgentProvider);
   const shouldPoll = useShouldPoll();
   const enableProviderDisableFeature = useSettingsStore(
@@ -253,25 +255,47 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
     'preview' | 'save' | null
   >(null);
   const previousRepoPathRef = React.useRef(repoPath);
+  const providerDiscoveryOptionsByProvider = React.useMemo(
+    () => buildAgentProviderDiscoveryOptionsByProvider(agentSettings),
+    [agentSettings]
+  );
+  const selectedProviderDiscoveryOptions = providerDiscoveryOptionsByProvider[selectedProviderId];
   const detectedProviderConfigsQueryKey = React.useMemo(
-    () => ['agent-provider-settings', 'detected-defaults', repoPath ?? null] as const,
-    [repoPath]
+    () =>
+      [
+        'agent-provider-settings',
+        'detected-defaults',
+        repoPath ?? null,
+        providerDiscoveryOptionsByProvider,
+      ] as const,
+    [providerDiscoveryOptionsByProvider, repoPath]
   );
   const providerSettingsQueryKey = React.useMemo(
-    () => agentProviderProfileAdapter.queryKey(repoPath, selectedProviderId),
-    [repoPath, selectedProviderId]
+    () =>
+      agentProviderProfileAdapter.queryKey(
+        repoPath,
+        selectedProviderId,
+        selectedProviderDiscoveryOptions
+      ),
+    [repoPath, selectedProviderDiscoveryOptions, selectedProviderId]
   );
 
   const { data: detectedProviderConfigs = [] } = useQuery({
     queryKey: detectedProviderConfigsQueryKey,
-    queryFn: () => agentProviderProfileAdapter.readAllCurrent(repoPath),
+    queryFn: () =>
+      agentProviderProfileAdapter.readAllCurrent(repoPath, providerDiscoveryOptionsByProvider),
     refetchInterval: shouldPoll ? 30000 : false,
   });
 
   // Read the current provider settings and stop polling while the window is idle.
   const { data: providerData } = useQuery({
     queryKey: providerSettingsQueryKey,
-    queryFn: () => agentProviderProfileAdapter.readCurrent(repoPath, selectedProviderId),
+    queryFn: () =>
+      agentProviderProfileAdapter.readCurrent(
+        repoPath,
+        selectedProviderId,
+        selectedProviderDiscoveryOptions
+      ),
     refetchInterval: shouldPoll ? 30000 : false,
   });
 
@@ -348,9 +372,18 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
 
   // Switch provider.
   const handleSwitch = async (provider: AgentProviderProfile) => {
-    const targetQueryKey = agentProviderProfileAdapter.queryKey(repoPath, provider.providerId);
+    const targetDiscoveryOptions = providerDiscoveryOptionsByProvider[provider.providerId];
+    const targetQueryKey = agentProviderProfileAdapter.queryKey(
+      repoPath,
+      provider.providerId,
+      targetDiscoveryOptions
+    );
     agentProviderProfileAdapter.markSwitch(provider);
-    const success = await agentProviderProfileAdapter.apply(repoPath, provider);
+    const success = await agentProviderProfileAdapter.apply(
+      repoPath,
+      provider,
+      targetDiscoveryOptions
+    );
     if (success) {
       setManualProviderSelection(true);
       setSelectedProviderId(provider.providerId);

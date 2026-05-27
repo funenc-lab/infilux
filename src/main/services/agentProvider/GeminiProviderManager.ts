@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { AgentProviderProfile } from '@shared/types';
+import type { AgentProviderDiscoveryOptions, AgentProviderProfile } from '@shared/types';
 import type { BrowserWindow } from 'electron';
 import {
   getRepositoryEnvironmentContext,
@@ -9,6 +9,7 @@ import {
   writeRepositoryRemoteTextFile,
 } from '../remote/RemoteEnvironmentService';
 import { createAgentProviderSettingsWatcher } from './AgentProviderSettingsWatcher';
+import { resolveWindowsUserHomeFromExecutablePath } from './providerDiscovery';
 
 const GEMINI_PROVIDER_ID = 'gemini-cli' as const;
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com';
@@ -22,15 +23,25 @@ export interface GeminiProviderSettings {
   envText: string | null;
 }
 
-function getGeminiConfigDir(): string {
+function getGeminiConfigDir(discoveryOptions?: AgentProviderDiscoveryOptions): string {
   if (process.env.GEMINI_CONFIG_DIR) {
     return process.env.GEMINI_CONFIG_DIR;
   }
+
+  if (process.env.GEMINI_CLI_HOME) {
+    return process.env.GEMINI_CLI_HOME;
+  }
+
+  const inferredHomeDir = resolveWindowsUserHomeFromExecutablePath(discoveryOptions);
+  if (inferredHomeDir) {
+    return path.join(inferredHomeDir, '.gemini');
+  }
+
   return path.join(os.homedir(), '.gemini');
 }
 
-function getGeminiEnvPath(): string {
-  return path.join(getGeminiConfigDir(), GEMINI_ENV_FILE_NAME);
+function getGeminiEnvPath(discoveryOptions?: AgentProviderDiscoveryOptions): string {
+  return path.join(getGeminiConfigDir(discoveryOptions), GEMINI_ENV_FILE_NAME);
 }
 
 function normalizeValue(value?: string): string | undefined {
@@ -234,9 +245,9 @@ export function applyProviderToGeminiEnv(
   return [preservedEnv, managedBlock].filter((entry) => entry.trim().length > 0).join('\n\n');
 }
 
-function readLocalGeminiEnv(): string | null {
+function readLocalGeminiEnv(discoveryOptions?: AgentProviderDiscoveryOptions): string | null {
   try {
-    const envPath = getGeminiEnvPath();
+    const envPath = getGeminiEnvPath(discoveryOptions);
     if (!fs.existsSync(envPath)) {
       return null;
     }
@@ -247,20 +258,22 @@ function readLocalGeminiEnv(): string | null {
   }
 }
 
-function readLocalGeminiProviderSettings(): GeminiProviderSettings {
+function readLocalGeminiProviderSettings(
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): GeminiProviderSettings {
   return {
-    envPath: getGeminiEnvPath(),
-    envText: readLocalGeminiEnv(),
+    envPath: getGeminiEnvPath(discoveryOptions),
+    envText: readLocalGeminiEnv(discoveryOptions),
   };
 }
 
-function writeLocalGeminiEnv(content: string): boolean {
+function writeLocalGeminiEnv(content: string, envPath = getGeminiEnvPath()): boolean {
   try {
-    const configDir = getGeminiConfigDir();
+    const configDir = path.dirname(envPath);
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
     }
-    fs.writeFileSync(getGeminiEnvPath(), content, { mode: 0o600 });
+    fs.writeFileSync(envPath, content, { mode: 0o600 });
     return true;
   } catch (error) {
     console.error('[GeminiProviderManager] Failed to write Gemini env:', error);
@@ -268,7 +281,10 @@ function writeLocalGeminiEnv(content: string): boolean {
   }
 }
 
-async function resolveGeminiEnvTarget(repoPath?: string): Promise<{
+async function resolveGeminiEnvTarget(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<{
   kind: 'local' | 'remote';
   envPath: string;
 }> {
@@ -282,12 +298,15 @@ async function resolveGeminiEnvTarget(repoPath?: string): Promise<{
 
   return {
     kind: 'local',
-    envPath: getGeminiEnvPath(),
+    envPath: getGeminiEnvPath(discoveryOptions),
   };
 }
 
-async function readGeminiEnvForRepository(repoPath?: string): Promise<GeminiProviderSettings> {
-  const target = await resolveGeminiEnvTarget(repoPath);
+async function readGeminiEnvForRepository(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<GeminiProviderSettings> {
+  const target = await resolveGeminiEnvTarget(repoPath, discoveryOptions);
   if (target.kind === 'remote') {
     return {
       envPath: target.envPath,
@@ -297,17 +316,20 @@ async function readGeminiEnvForRepository(repoPath?: string): Promise<GeminiProv
 
   return {
     envPath: target.envPath,
-    envText: readLocalGeminiEnv(),
+    envText: readLocalGeminiEnv(discoveryOptions),
   };
 }
 
-export async function readGeminiProviderSettings(repoPath?: string): Promise<{
+export async function readGeminiProviderSettings(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<{
   providerId: typeof GEMINI_PROVIDER_ID;
   settings: GeminiProviderSettings;
   extracted: Partial<AgentProviderProfile> | null;
   supported: true;
 }> {
-  const settings = await readGeminiEnvForRepository(repoPath);
+  const settings = await readGeminiEnvForRepository(repoPath, discoveryOptions);
   return {
     providerId: GEMINI_PROVIDER_ID,
     settings,
@@ -318,21 +340,22 @@ export async function readGeminiProviderSettings(repoPath?: string): Promise<{
 
 export async function applyGeminiProvider(
   repoPath: string | undefined,
-  provider: AgentProviderProfile
+  provider: AgentProviderProfile,
+  discoveryOptions?: AgentProviderDiscoveryOptions
 ): Promise<boolean> {
   if (provider.providerId !== GEMINI_PROVIDER_ID) {
     return false;
   }
 
-  const settings = await readGeminiEnvForRepository(repoPath);
+  const settings = await readGeminiEnvForRepository(repoPath, discoveryOptions);
   const nextContent = applyProviderToGeminiEnv(settings.envText, provider);
-  const target = await resolveGeminiEnvTarget(repoPath);
+  const target = await resolveGeminiEnvTarget(repoPath, discoveryOptions);
 
   if (target.kind === 'remote') {
     return writeRepositoryRemoteTextFile(repoPath, target.envPath, nextContent);
   }
 
-  return writeLocalGeminiEnv(nextContent);
+  return writeLocalGeminiEnv(nextContent, target.envPath);
 }
 
 const geminiProviderSettingsWatcher = createAgentProviderSettingsWatcher({

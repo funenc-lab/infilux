@@ -262,6 +262,61 @@ describe('CodexProviderManager', () => {
     expect(nextConfig).toContain('experimental_bearer_token = "codex-token"');
   });
 
+  it('falls back to the Windows home inferred from customPath when app data config is unavailable', async () => {
+    setPlatform('win32');
+    delete process.env.CODEX_CONFIG_DIR;
+    delete process.env.APPDATA;
+    process.env.HOME = join(configDir, 'fallback-home');
+    process.env.USERPROFILE = join(configDir, 'fallback-user-profile');
+    const inferredHomeDir = join(configDir, 'Users', 'Tester');
+    const inferredConfigDir = join(inferredHomeDir, '.codex');
+    const inferredConfigPath = join(inferredConfigDir, 'config.toml');
+    mkdirSync(inferredConfigDir, { recursive: true });
+    writeFileSync(
+      inferredConfigPath,
+      [
+        'model_provider = "infilux_provider"',
+        '',
+        '[model_providers.infilux_provider]',
+        'base_url = "https://inferred.example.com/v1"',
+        'experimental_bearer_token = "inferred-token"',
+      ].join('\n')
+    );
+    const readWithDiscovery = readCodexProviderSettings as unknown as (
+      repoPath?: string,
+      discoveryOptions?: { customPath?: string }
+    ) => Promise<Awaited<ReturnType<typeof readCodexProviderSettings>>>;
+    const applyWithDiscovery = applyCodexProvider as unknown as (
+      repoPath: string | undefined,
+      provider: AgentProviderProfile,
+      discoveryOptions?: { customPath?: string }
+    ) => Promise<boolean>;
+    const discoveryOptions = {
+      customPath: join(inferredHomeDir, 'AppData', 'Roaming', 'npm', 'codex.cmd'),
+    };
+
+    await expect(readWithDiscovery('/repo', discoveryOptions)).resolves.toEqual({
+      providerId: 'codex-cli',
+      settings: {
+        configPath: inferredConfigPath,
+        configToml: expect.stringContaining('https://inferred.example.com/v1'),
+      },
+      extracted: {
+        providerId: 'codex-cli',
+        baseUrl: 'https://inferred.example.com/v1',
+        authToken: 'inferred-token',
+      },
+      supported: true,
+    });
+
+    await expect(applyWithDiscovery('/repo', codexProvider, discoveryOptions)).resolves.toBe(true);
+
+    const nextConfig = readFileSync(inferredConfigPath, 'utf8');
+    expect(nextConfig).toContain('model_provider = "infilux_provider"');
+    expect(nextConfig).toContain('base_url = "https://gateway.example.com/v1"');
+    expect(nextConfig).toContain('experimental_bearer_token = "codex-token"');
+  });
+
   it('reads and writes remote Codex config through repository environment helpers', async () => {
     codexProviderManagerTestDoubles.getRepositoryEnvironmentContext.mockResolvedValue({
       kind: 'remote',

@@ -1,4 +1,9 @@
-import type { AgentProviderProfile, AIProvider, ClaudeProvider } from '@shared/types';
+import type {
+  AgentProviderDiscoveryOptions,
+  AgentProviderProfile,
+  AIProvider,
+  ClaudeProvider,
+} from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { type BrowserWindow, ipcMain } from 'electron';
 import {
@@ -50,18 +55,22 @@ async function readClaudeProviderSettings(repoPath?: string) {
   return { settings, extracted };
 }
 
-async function readProviderSettings(repoPath?: string, providerId?: AIProvider) {
+async function readProviderSettings(
+  repoPath?: string,
+  providerId?: AIProvider,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+) {
   const targetProviderId = resolveProviderId(providerId);
   if (targetProviderId === 'codex-cli') {
-    return readCodexProviderSettings(repoPath);
+    return readCodexProviderSettings(repoPath, discoveryOptions);
   }
 
   if (targetProviderId === 'gemini-cli') {
-    return readGeminiProviderSettings(repoPath);
+    return readGeminiProviderSettings(repoPath, discoveryOptions);
   }
 
   if (targetProviderId === 'cursor-cli') {
-    return readCursorProviderSettings(repoPath);
+    return readCursorProviderSettings(repoPath, discoveryOptions);
   }
 
   if (targetProviderId !== 'claude-code') {
@@ -78,14 +87,15 @@ async function readProviderSettings(repoPath?: string, providerId?: AIProvider) 
 
 async function applyProviderSettings(
   repoPath: string | undefined,
-  provider: AgentProviderProfile | ClaudeProvider
+  provider: AgentProviderProfile | ClaudeProvider,
+  discoveryOptions?: AgentProviderDiscoveryOptions
 ): Promise<boolean> {
   if ('providerId' in provider && provider.providerId === 'codex-cli') {
-    return applyCodexProvider(repoPath, provider);
+    return applyCodexProvider(repoPath, provider, discoveryOptions);
   }
 
   if ('providerId' in provider && provider.providerId === 'gemini-cli') {
-    return applyGeminiProvider(repoPath, provider);
+    return applyGeminiProvider(repoPath, provider, discoveryOptions);
   }
 
   if ('providerId' in provider && provider.providerId && provider.providerId !== 'claude-code') {
@@ -109,16 +119,26 @@ export function registerClaudeProviderHandlers(): void {
     IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS,
     IPC_CHANNELS.CLAUDE_PROVIDER_READ_SETTINGS,
   ]) {
-    ipcMain.handle(channel, async (_, repoPath?: string, providerId?: AIProvider) =>
-      readProviderSettings(repoPath, providerId)
+    ipcMain.handle(
+      channel,
+      async (
+        _,
+        repoPath?: string,
+        providerId?: AIProvider,
+        discoveryOptions?: AgentProviderDiscoveryOptions
+      ) => readProviderSettings(repoPath, providerId, discoveryOptions)
     );
   }
 
   for (const channel of [IPC_CHANNELS.AGENT_PROVIDER_APPLY, IPC_CHANNELS.CLAUDE_PROVIDER_APPLY]) {
     ipcMain.handle(
       channel,
-      async (_, repoPath: string | undefined, provider: AgentProviderProfile | ClaudeProvider) =>
-        applyProviderSettings(repoPath, provider)
+      async (
+        _,
+        repoPath: string | undefined,
+        provider: AgentProviderProfile | ClaudeProvider,
+        discoveryOptions?: AgentProviderDiscoveryOptions
+      ) => applyProviderSettings(repoPath, provider, discoveryOptions)
     );
   }
 }

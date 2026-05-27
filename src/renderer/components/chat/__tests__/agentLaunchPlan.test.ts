@@ -532,6 +532,37 @@ describe('buildAgentLaunchPlan', () => {
     });
   });
 
+  it('quotes Windows custom executable paths for PowerShell launches', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: 'C:\\Program Files\\OpenAI\\codex.exe',
+      resumeSessionId: 'codex-session-9',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: {
+        shell: 'pwsh.exe',
+        execArgs: ['-NoLogo', '-Command'],
+      },
+    });
+
+    expect(plan).toEqual({
+      command: {
+        shell: 'pwsh.exe',
+        args: [
+          '-NoLogo',
+          '-Command',
+          "& { & 'C:\\Program Files\\OpenAI\\codex.exe' resume codex-session-9 }",
+        ],
+      },
+      env: undefined,
+      initialCommand: undefined,
+      tmuxSessionName: null,
+    });
+  });
+
   it('does not resume cursor-agent with the ui session id when provider resume id is unknown', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'cursor-agent',

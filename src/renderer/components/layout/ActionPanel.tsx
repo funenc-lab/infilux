@@ -24,7 +24,10 @@ import {
 import { toastManager } from '@/components/ui/toast';
 import { useDetectedApps, useOpenWith } from '@/hooks/useAppDetector';
 import { useI18n } from '@/i18n';
-import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
+import {
+  agentProviderProfileAdapter,
+  buildAgentProviderDiscoveryOptionsByProvider,
+} from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
@@ -269,16 +272,37 @@ export function ActionPanel({
   // Agent providers
   const queryClient = useQueryClient();
   const providers = useSettingsStore((s) => s.agentIntegration.providers);
+  const agentSettings = useSettingsStore((s) => s.agentSettings);
+  const providerDiscoveryOptionsByProvider = React.useMemo(
+    () => buildAgentProviderDiscoveryOptionsByProvider(agentSettings),
+    [agentSettings]
+  );
   const providerSettingsQueryKey = React.useMemo(
-    () => agentProviderProfileAdapter.queryKey(repoPath),
-    [repoPath]
+    () =>
+      [
+        'agent-provider-settings',
+        'registry',
+        repoPath ?? null,
+        providerDiscoveryOptionsByProvider,
+      ] as const,
+    [providerDiscoveryOptionsByProvider, repoPath]
   );
 
-  const { data: providerData } = useQuery({
+  const { data: providerSnapshots = [] } = useQuery({
     queryKey: providerSettingsQueryKey,
-    queryFn: () => agentProviderProfileAdapter.readCurrent(repoPath),
+    queryFn: () =>
+      agentProviderProfileAdapter.readAllCurrent(repoPath, providerDiscoveryOptionsByProvider),
     enabled: open,
   });
+  const providerData = React.useMemo(
+    () =>
+      providerSnapshots.find(
+        (snapshot) => snapshot.detected === true || Boolean(snapshot.extracted?.baseUrl)
+      ) ??
+      providerSnapshots[0] ??
+      null,
+    [providerSnapshots]
+  );
 
   const activeProvider = React.useMemo(() => {
     const currentConfig = providerData?.extracted;
@@ -294,7 +318,11 @@ export function ActionPanel({
 
   const applyProvider = useMutation({
     mutationFn: (provider: AgentProviderProfile) =>
-      agentProviderProfileAdapter.apply(repoPath, provider),
+      agentProviderProfileAdapter.apply(
+        repoPath,
+        provider,
+        providerDiscoveryOptionsByProvider[provider.providerId]
+      ),
     onSuccess: (success, provider) => {
       if (!success) {
         agentProviderProfileAdapter.clearSwitch(provider.providerId);

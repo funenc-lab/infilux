@@ -497,8 +497,48 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS, '/repo', 'codex-cli'],
       },
       {
+        run: () =>
+          (
+            api.agentProvider.readSettings as unknown as (
+              repoPath?: string,
+              providerId?: string,
+              discoveryOptions?: { customPath?: string }
+            ) => Promise<unknown>
+          )('/repo', 'codex-cli', {
+            customPath: 'C:\\Program Files\\OpenAI\\codex.cmd',
+          }),
+        expected: [
+          IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS,
+          '/repo',
+          'codex-cli',
+          { customPath: 'C:\\Program Files\\OpenAI\\codex.cmd' },
+        ],
+      },
+      {
         run: () => api.agentProvider.apply('/repo', { provider: 'claude' } as never),
         expected: [IPC_CHANNELS.AGENT_PROVIDER_APPLY, '/repo', { provider: 'claude' }],
+      },
+      {
+        run: () =>
+          (
+            api.agentProvider.apply as unknown as (
+              repoPath: string | undefined,
+              provider: unknown,
+              discoveryOptions?: { customPath?: string }
+            ) => Promise<unknown>
+          )(
+            '/repo',
+            { provider: 'codex' },
+            {
+              customPath: 'C:\\Program Files\\OpenAI\\codex.cmd',
+            }
+          ),
+        expected: [
+          IPC_CHANNELS.AGENT_PROVIDER_APPLY,
+          '/repo',
+          { provider: 'codex' },
+          { customPath: 'C:\\Program Files\\OpenAI\\codex.cmd' },
+        ],
       },
       {
         run: () => api.claudeConfig.projectTrust.ensureWorkspaceTrusted('/repo/worktree'),

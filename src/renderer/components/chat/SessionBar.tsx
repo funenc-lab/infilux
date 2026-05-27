@@ -34,7 +34,10 @@ import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSessionOutputState, useSessionTaskCompletionNotice } from '@/hooks/useOutputState';
 import { useI18n } from '@/i18n';
-import { agentProviderProfileAdapter } from '@/lib/agentProviderProfiles';
+import {
+  agentProviderProfileAdapter,
+  buildAgentProviderDiscoveryOptionsByProvider,
+} from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { isReactImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { cn } from '@/lib/utils';
@@ -557,6 +560,7 @@ export function SessionBar({
   // Provider query and switching logic.
   const queryClient = useQueryClient();
   const providers = useSettingsStore((s) => s.agentIntegration.providers);
+  const providerAgentSettings = useSettingsStore((s) => s.agentSettings);
   const showProviderSwitcher = useSettingsStore(
     (s) => s.agentIntegration.showProviderSwitcher ?? true
   );
@@ -579,19 +583,36 @@ export function SessionBar({
     () => agentProviderProfileAdapter.getProviderIdForSession(activeSession),
     [activeSession]
   );
+  const providerDiscoveryOptionsByProvider = useMemo(
+    () => buildAgentProviderDiscoveryOptionsByProvider(providerAgentSettings),
+    [providerAgentSettings]
+  );
+  const activeSessionProviderDiscoveryOptions = activeSessionProviderId
+    ? providerDiscoveryOptionsByProvider[activeSessionProviderId]
+    : undefined;
   const sessionProviders = useMemo(
     () => agentProviderProfileAdapter.getProfilesForSession(providers, activeSession),
     [activeSession, providers]
   );
 
   const providerSettingsQueryKey = useMemo(
-    () => agentProviderProfileAdapter.queryKey(repoPath, activeSessionProviderId),
-    [activeSessionProviderId, repoPath]
+    () =>
+      agentProviderProfileAdapter.queryKey(
+        repoPath,
+        activeSessionProviderId,
+        activeSessionProviderDiscoveryOptions
+      ),
+    [activeSessionProviderDiscoveryOptions, activeSessionProviderId, repoPath]
   );
 
   const { data: providerData } = useQuery({
     queryKey: providerSettingsQueryKey,
-    queryFn: () => agentProviderProfileAdapter.readCurrent(repoPath, activeSessionProviderId),
+    queryFn: () =>
+      agentProviderProfileAdapter.readCurrent(
+        repoPath,
+        activeSessionProviderId,
+        activeSessionProviderDiscoveryOptions
+      ),
     enabled: !state.collapsed && showAgentProviderProfileSwitcher,
     staleTime: 30000,
   });
@@ -612,7 +633,11 @@ export function SessionBar({
   // Provider switching mutation.
   const applyProvider = useMutation({
     mutationFn: (provider: AgentProviderProfile) =>
-      agentProviderProfileAdapter.apply(repoPath, provider),
+      agentProviderProfileAdapter.apply(
+        repoPath,
+        provider,
+        providerDiscoveryOptionsByProvider[provider.providerId]
+      ),
     onSuccess: (success, provider) => {
       if (!success) {
         agentProviderProfileAdapter.clearSwitch(provider.providerId);
