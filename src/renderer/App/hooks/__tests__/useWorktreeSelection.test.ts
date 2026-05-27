@@ -13,6 +13,21 @@ const restoreWorktreeSessions = vi.fn(() => Promise.resolve({ items: [] }));
 const getSessions = vi.fn((): Array<{ id: string; repoPath: string; cwd: string }> => []);
 const upsertRecoveredSession = vi.fn();
 const updateGroupState = vi.fn();
+const worktreeSelectionTestDoubles = vi.hoisted(() => ({
+  getWorktreeAgentSessionRecoveryStatus: vi.fn(() => 'idle'),
+}));
+
+vi.mock('@/components/chat/agentSessionRecovery', async () => {
+  const actual = await vi.importActual<typeof import('@/components/chat/agentSessionRecovery')>(
+    '@/components/chat/agentSessionRecovery'
+  );
+
+  return {
+    ...actual,
+    getWorktreeAgentSessionRecoveryStatus:
+      worktreeSelectionTestDoubles.getWorktreeAgentSessionRecoveryStatus,
+  };
+});
 const settingsStoreState: {
   editorSettings: { autoSave: string };
   settingsDisplayMode: SettingsDisplayMode;
@@ -112,6 +127,8 @@ describe('useWorktreeSelection', () => {
     restoreWorktreeSessions.mockClear();
     getSessions.mockReset();
     getSessions.mockReturnValue([]);
+    worktreeSelectionTestDoubles.getWorktreeAgentSessionRecoveryStatus.mockReset();
+    worktreeSelectionTestDoubles.getWorktreeAgentSessionRecoveryStatus.mockReturnValue('idle');
     upsertRecoveredSession.mockClear();
     updateGroupState.mockClear();
     settingsStoreState.editorSettings.autoSave = 'afterDelay';
@@ -203,7 +220,7 @@ describe('useWorktreeSelection', () => {
     expect(setActiveTab).toHaveBeenCalledWith('chat');
   });
 
-  it('restores the saved tab when the target worktree already has agent sessions', async () => {
+  it('restores the saved tab and still prewarms coordinated recovery when the target worktree already has agent sessions', async () => {
     getSessions.mockReturnValue([
       {
         id: 'session-1',
@@ -211,6 +228,54 @@ describe('useWorktreeSelection', () => {
         cwd: '/repo-b/.worktrees/feature-b',
       },
     ]);
+
+    const setActiveWorktree = vi.fn();
+    const setWorktreeTabMap = vi.fn();
+    const setActiveTab = vi.fn();
+    const setSelectedRepo = vi.fn();
+    const persistSelectedWorktree = vi.fn();
+    const currentWorktreePathRef = { current: null as string | null };
+    const activeWorktree = makeWorktree('/repo-a/.worktrees/current');
+    const nextWorktree = makeWorktree('/repo-b/.worktrees/feature-b');
+
+    renderToStaticMarkup(
+      React.createElement(HookHarness, {
+        args: [
+          activeWorktree,
+          setActiveWorktree,
+          currentWorktreePathRef,
+          { [nextWorktree.path]: 'terminal' },
+          setWorktreeTabMap,
+          'file',
+          null,
+          setActiveTab,
+          '/repo-a',
+          setSelectedRepo,
+          persistSelectedWorktree,
+        ],
+      })
+    );
+
+    expect(capturedHandleSelectWorktree).not.toBeNull();
+
+    await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
+
+    expect(setActiveTab).toHaveBeenCalledWith('terminal');
+    expect(restoreWorktreeSessions).toHaveBeenCalledWith({
+      repoPath: '/repo-b',
+      cwd: nextWorktree.path,
+    });
+  });
+
+  it('does not prewarm coordinated recovery again after a worktree already settled recovery', async () => {
+    getSessions.mockReturnValue([
+      {
+        id: 'session-1',
+        repoPath: '/repo-b',
+        cwd: '/repo-b/.worktrees/feature-b',
+      },
+    ]);
+    worktreeSelectionTestDoubles.getWorktreeAgentSessionRecoveryStatus.mockReturnValue('settled');
 
     const setActiveWorktree = vi.fn();
     const setWorktreeTabMap = vi.fn();

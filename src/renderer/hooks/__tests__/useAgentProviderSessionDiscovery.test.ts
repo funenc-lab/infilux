@@ -13,9 +13,10 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const resolveProviderSession = vi.fn();
 const onProviderSessionIdChange = vi.fn();
+let lastDiscoveryState: ReturnType<typeof useAgentProviderSessionDiscovery> | undefined;
 
 function HookHarness({ args }: { args: Parameters<typeof useAgentProviderSessionDiscovery>[0] }) {
-  useAgentProviderSessionDiscovery(args);
+  lastDiscoveryState = useAgentProviderSessionDiscovery(args);
   return React.createElement('div');
 }
 
@@ -55,6 +56,7 @@ describe('useAgentProviderSessionDiscovery', () => {
     vi.useFakeTimers();
     resolveProviderSession.mockReset();
     onProviderSessionIdChange.mockReset();
+    lastDiscoveryState = undefined;
     window.electronAPI = {
       agentSession: {
         resolveProviderSession,
@@ -189,7 +191,38 @@ describe('useAgentProviderSessionDiscovery', () => {
     });
 
     expect(resolveProviderSession).toHaveBeenCalledTimes(1);
-    expect(onProviderSessionIdChange).toHaveBeenCalledWith('ui-session-1');
+    expect(onProviderSessionIdChange).not.toHaveBeenCalled();
+    expect(lastDiscoveryState).toMatchObject({
+      providerSessionResolutionPending: false,
+      resolvedProviderSessionId: null,
+    });
+
+    mounted.unmount();
+  });
+
+  it('allows recovered codex sessions to resolve provider ids before initialization completes', async () => {
+    resolveProviderSession.mockResolvedValue({ providerSessionId: 'codex-session-1' });
+
+    const mounted = mountHookHarness({
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'ui-session-1',
+      cwd: '/repo/worktree-a',
+      createdAt: 100,
+      initialized: false,
+      isRemoteExecution: false,
+      allowRecoveryBeforeInitialization: true,
+      onProviderSessionIdChange,
+      pollIntervalMs: 1000,
+      maxAttempts: 3,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledTimes(1);
+    expect(onProviderSessionIdChange).toHaveBeenCalledWith('codex-session-1');
 
     mounted.unmount();
   });

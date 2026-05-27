@@ -1,6 +1,9 @@
 import type { GitWorktree } from '@shared/types';
 import { useEffect } from 'react';
-import { restoreWorktreeAgentSessions } from '@/components/chat/agentSessionRecovery';
+import {
+  getWorktreeAgentSessionRecoveryStatus,
+  restoreWorktreeAgentSessions,
+} from '@/components/chat/agentSessionRecovery';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { TEMP_REPO_ID } from '../constants';
 import { normalizePath } from '../storage';
@@ -49,7 +52,8 @@ export function useStartupAgentSessionRecovery({
     if (!hasValidatedActiveWorktreePath(activeWorktreePath, availableWorktreePaths)) {
       return;
     }
-    if (getAgentSessions(selectedRepo, activeWorktreePath).length > 0) {
+    void getAgentSessions(selectedRepo, activeWorktreePath);
+    if (getWorktreeAgentSessionRecoveryStatus(selectedRepo, activeWorktreePath) === 'settled') {
       return;
     }
 

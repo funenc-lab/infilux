@@ -14,6 +14,7 @@ interface UseAgentProviderSessionDiscoveryOptions {
   createdAt?: number;
   initialized?: boolean;
   isRemoteExecution?: boolean;
+  allowRecoveryBeforeInitialization?: boolean;
   validateResolvedProviderSession?: boolean;
   onProviderSessionIdChange?: (providerSessionId: string) => void;
   pollIntervalMs?: number;
@@ -22,6 +23,7 @@ interface UseAgentProviderSessionDiscoveryOptions {
 
 interface UseAgentProviderSessionDiscoveryState {
   providerSessionResolutionPending: boolean;
+  resolvedProviderSessionId?: string | null;
 }
 
 function resolveProviderSessionResolutionMode(
@@ -31,7 +33,10 @@ function resolveProviderSessionResolutionMode(
     return null;
   }
 
-  if (options.isRemoteExecution || !options.initialized) {
+  if (
+    options.isRemoteExecution ||
+    (!options.initialized && !options.allowRecoveryBeforeInitialization)
+  ) {
     return null;
   }
 
@@ -109,6 +114,7 @@ export function useAgentProviderSessionDiscovery(
     uiSessionId,
   ]);
   const [settledResolutionKey, setSettledResolutionKey] = useState<string | null>(null);
+  const [resolvedProviderSessionId, setResolvedProviderSessionId] = useState<string | null>();
   const providerSessionResolutionPending = Boolean(
     resolutionKey && settledResolutionKey !== resolutionKey
   );
@@ -129,6 +135,7 @@ export function useAgentProviderSessionDiscovery(
     const settleResolution = () => {
       setSettledResolutionKey(resolutionKey);
     };
+    setResolvedProviderSessionId(undefined);
 
     const runLookup = async () => {
       attempts += 1;
@@ -146,14 +153,15 @@ export function useAgentProviderSessionDiscovery(
         }
 
         if (result.providerSessionId && result.providerSessionId !== providerSessionId) {
+          setResolvedProviderSessionId(result.providerSessionId);
           onProviderSessionIdChangeRef.current?.(result.providerSessionId);
           settleResolution();
           return;
         }
 
         if (resolutionMode === 'validate') {
-          if (!result.providerSessionId && uiSessionId) {
-            onProviderSessionIdChangeRef.current?.(uiSessionId);
+          if (!result.providerSessionId) {
+            setResolvedProviderSessionId(null);
           }
           settleResolution();
           return;
@@ -163,9 +171,7 @@ export function useAgentProviderSessionDiscovery(
           return;
         }
         if (resolutionMode === 'validate') {
-          if (uiSessionId) {
-            onProviderSessionIdChangeRef.current?.(uiSessionId);
-          }
+          setResolvedProviderSessionId(null);
           settleResolution();
           return;
         }
@@ -200,10 +206,10 @@ export function useAgentProviderSessionDiscovery(
     resolutionKey,
     resolutionMode,
     shouldPoll,
-    uiSessionId,
   ]);
 
   return {
     providerSessionResolutionPending,
+    resolvedProviderSessionId,
   };
 }

@@ -59,6 +59,7 @@ const FLOATING_BAR_MARGIN_PX = 8;
 export interface Session {
   id: string; // Session's own unique ID
   sessionId?: string; // Optional provider session ID for agent-level resume flows (defaults to id if not set)
+  providerSessionIdentityValid?: boolean; // true when provider session identity is verified for persistence
   backendSessionId?: string; // Backend session host ID used by the unified session API
   createdAt?: number; // Stable session creation time used for persistence metadata
   name: string;

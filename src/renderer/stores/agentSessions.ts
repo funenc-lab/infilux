@@ -11,6 +11,7 @@ import {
   type AgentAttachmentItem,
   mergeAgentAttachments,
 } from '@/components/chat/agentAttachmentTrayModel';
+import { isExplicitProviderSessionId } from '@/components/chat/agentProviderSessionIdentity';
 import {
   matchesAgentSessionRepoPath,
   matchesAgentSessionScope,
@@ -375,11 +376,13 @@ function resolveRecoveredProviderSessionId(
 ): string {
   const persistedProviderSessionId = record.providerSessionId?.trim();
   if (
-    persistedProviderSessionId &&
-    persistedProviderSessionId !== record.uiSessionId &&
-    persistedProviderSessionId !== record.hostSessionKey
+    isExplicitProviderSessionId({
+      uiSessionId: record.uiSessionId,
+      providerSessionId: persistedProviderSessionId,
+      hostSessionKey: record.hostSessionKey,
+    })
   ) {
-    return persistedProviderSessionId;
+    return persistedProviderSessionId as string;
   }
 
   if (existing?.sessionId && existing.sessionId !== record.hostSessionKey) {
@@ -848,6 +851,11 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         const recoveredSession: Session = {
           id: record.uiSessionId,
           sessionId: resolveRecoveredProviderSessionId(record, existing),
+          providerSessionIdentityValid: isExplicitProviderSessionId({
+            uiSessionId: record.uiSessionId,
+            providerSessionId: record.providerSessionId,
+            hostSessionKey: record.hostSessionKey,
+          }),
           backendSessionId: record.backendSessionId ?? existing?.backendSessionId,
           createdAt: record.createdAt,
           name: getStoredSessionName(record.displayName, record.agentId),

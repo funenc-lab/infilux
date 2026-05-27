@@ -4,12 +4,14 @@ import { TEMP_REPO_ID } from '../../constants';
 
 const restoreWorktreeAgentSessions = vi.fn(() => Promise.resolve([]));
 const restoreWorktreeSessions = vi.fn(() => Promise.resolve({ items: [] }));
+const getWorktreeAgentSessionRecoveryStatus = vi.fn(() => 'idle');
 const getSessions = vi.fn((): Array<{ id: string; repoPath: string; cwd: string }> => []);
 const upsertRecoveredSession = vi.fn();
 const updateGroupState = vi.fn();
 
 vi.mock('@/components/chat/agentSessionRecovery', () => ({
   restoreWorktreeAgentSessions,
+  getWorktreeAgentSessionRecoveryStatus,
 }));
 
 vi.mock('@/stores/agentSessions', () => ({
@@ -52,6 +54,8 @@ describe('useStartupAgentSessionRecovery', () => {
   beforeEach(() => {
     restoreWorktreeAgentSessions.mockClear();
     restoreWorktreeSessions.mockClear();
+    getWorktreeAgentSessionRecoveryStatus.mockReset();
+    getWorktreeAgentSessionRecoveryStatus.mockReturnValue('idle');
     getSessions.mockReset();
     getSessions.mockReturnValue([]);
     upsertRecoveredSession.mockClear();
@@ -94,7 +98,7 @@ describe('useStartupAgentSessionRecovery', () => {
     });
   });
 
-  it('skips prewarm when the startup worktree already has agent sessions in memory', async () => {
+  it('still prewarms when the startup worktree only has renderer-hydrated sessions in memory', async () => {
     getSessions.mockReturnValue([
       {
         id: 'session-1',
@@ -114,7 +118,40 @@ describe('useStartupAgentSessionRecovery', () => {
       availableWorktreePaths: ['/repo', '/repo/.worktrees/feature-a'],
     });
 
-    expect(getSessions).toHaveBeenCalledWith('/repo', '/repo/.worktrees/feature-a');
+    expect(getWorktreeAgentSessionRecoveryStatus).toHaveBeenCalledWith(
+      '/repo',
+      '/repo/.worktrees/feature-a'
+    );
+    expect(restoreWorktreeAgentSessions).toHaveBeenCalledWith({
+      repoPath: '/repo',
+      cwd: '/repo/.worktrees/feature-a',
+      restoreWorktreeSessions,
+      upsertRecoveredSession,
+      updateGroupState,
+    });
+  });
+
+  it('skips prewarm after the startup worktree already completed coordinated recovery', async () => {
+    getSessions.mockReturnValue([
+      {
+        id: 'session-1',
+        repoPath: '/repo',
+        cwd: '/repo/.worktrees/feature-a',
+      },
+    ]);
+    getWorktreeAgentSessionRecoveryStatus.mockReturnValue('settled');
+    const { useStartupAgentSessionRecovery } = await loadHook();
+    const activeWorktree = makeWorktree('/repo/.worktrees/feature-a');
+
+    useStartupAgentSessionRecovery({
+      selectedRepo: '/repo',
+      activeWorktree,
+      selectedRepoCanLoad: true,
+      worktreesFetched: true,
+      worktreesFetching: false,
+      availableWorktreePaths: ['/repo', '/repo/.worktrees/feature-a'],
+    });
+
     expect(restoreWorktreeAgentSessions).not.toHaveBeenCalled();
   });
 

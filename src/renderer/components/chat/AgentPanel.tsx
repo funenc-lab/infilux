@@ -148,6 +148,7 @@ import {
   resolveBackgroundAgentCanvasMountPlan,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
+import { resolvePersistentProviderSessionId } from './agentProviderSessionIdentity';
 import {
   reconcileAgentSessionExit,
   shouldDeferPersistentSessionDeadState,
@@ -243,7 +244,13 @@ function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
   return {
     uiSessionId: session.id,
     backendSessionId: session.backendSessionId,
-    providerSessionId: session.sessionId,
+    providerSessionId: resolvePersistentProviderSessionId({
+      agentCommand: session.agentCommand,
+      uiSessionId: session.id,
+      providerSessionId: session.sessionId,
+      hostSessionKey,
+      providerSessionIdentityValid: session.providerSessionIdentityValid,
+    }),
     agentId: session.agentId,
     agentCommand: session.agentCommand,
     customPath: session.customPath,
@@ -447,6 +454,7 @@ function createSession(
   return {
     id,
     sessionId: id, // Initialize sessionId with same value as id
+    providerSessionIdentityValid: false,
     createdAt: Date.now(),
     name: displayName,
     agentId,
@@ -1987,6 +1995,7 @@ export function AgentPanel({
       const newSession: Session = {
         id: crypto.randomUUID(), // Generate new session ID
         sessionId: pendingContinueSessionId, // Use code review's sessionId for --resume
+        providerSessionIdentityValid: true,
         createdAt: Date.now(),
         name: 'Code Review',
         agentId: continueAgentId,
@@ -4739,7 +4748,24 @@ export function AgentPanel({
             }}
             onProviderSessionIdChange={(providerSessionId) => {
               if (session.sessionId === providerSessionId) return;
-              updateSession(sessionId, { sessionId: providerSessionId });
+              updateSession(sessionId, {
+                sessionId: providerSessionId,
+                providerSessionIdentityValid: true,
+              });
+            }}
+            onProviderSessionIdentityValidityChange={(valid) => {
+              const nextSessionId = valid ? session.sessionId : session.id;
+              if (
+                session.providerSessionIdentityValid === valid &&
+                session.sessionId === nextSessionId
+              ) {
+                return;
+              }
+
+              updateSession(sessionId, {
+                sessionId: nextSessionId,
+                providerSessionIdentityValid: valid,
+              });
             }}
             onReplaySnapshotChange={(replaySnapshot, replaySnapshotCapturedAt) => {
               if (

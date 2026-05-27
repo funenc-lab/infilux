@@ -152,6 +152,7 @@ interface AgentTerminalProps {
   onUnregisterEnhancedInputSender?: (sessionId: string) => void;
   onBackendSessionIdChange?: (sessionId: string) => void;
   onProviderSessionIdChange?: (sessionId: string) => void;
+  onProviderSessionIdentityValidityChange?: (valid: boolean) => void;
   onReplaySnapshotChange?: (snapshot: string | undefined, capturedAt: number | undefined) => void;
   onRuntimeStateChange?: (state: SessionRuntimeState) => void;
   onClaudePolicyStateChange?: (state: {
@@ -356,6 +357,7 @@ export function AgentTerminal({
   onUnregisterEnhancedInputSender,
   onBackendSessionIdChange,
   onProviderSessionIdChange,
+  onProviderSessionIdentityValidityChange,
   onReplaySnapshotChange,
   onRuntimeStateChange,
   onClaudePolicyStateChange,
@@ -673,18 +675,43 @@ export function AgentTerminal({
     }
   }, []);
 
-  const { providerSessionResolutionPending } = useAgentProviderSessionDiscovery({
-    agentCommand: isReadOnlyTranscript ? '' : agentCommand,
-    uiSessionId: id,
-    providerSessionId: sessionId,
-    cwd,
-    createdAt,
-    initialized: isReadOnlyTranscript ? false : initialized,
-    isRemoteExecution,
-    validateResolvedProviderSession: shouldValidateResolvedProviderSession,
-    onProviderSessionIdChange,
-  });
-  const resumeSessionId = providerSessionResolutionPending ? id : (sessionId ?? id);
+  const { providerSessionResolutionPending, resolvedProviderSessionId } =
+    useAgentProviderSessionDiscovery({
+      agentCommand: isReadOnlyTranscript ? '' : agentCommand,
+      uiSessionId: id,
+      providerSessionId: sessionId,
+      cwd,
+      createdAt,
+      initialized: isReadOnlyTranscript ? false : initialized,
+      isRemoteExecution,
+      allowRecoveryBeforeInitialization: recovered && persistenceEnabled,
+      validateResolvedProviderSession: shouldValidateResolvedProviderSession,
+      onProviderSessionIdChange,
+    });
+  const resumeSessionId = providerSessionResolutionPending
+    ? id
+    : resolvedProviderSessionId === null
+      ? id
+      : (resolvedProviderSessionId ?? sessionId ?? id);
+
+  useEffect(() => {
+    if (providerSessionResolutionPending || !onProviderSessionIdentityValidityChange) {
+      return;
+    }
+
+    if (resolvedProviderSessionId === null) {
+      onProviderSessionIdentityValidityChange(false);
+      return;
+    }
+
+    if (resolvedProviderSessionId) {
+      onProviderSessionIdentityValidityChange(true);
+    }
+  }, [
+    onProviderSessionIdentityValidityChange,
+    providerSessionResolutionPending,
+    resolvedProviderSessionId,
+  ]);
 
   // Use external control if provided, otherwise use local state.
   // IMPORTANT: `externalEnhancedInputOpen` can be false, so we must check `undefined` rather than truthiness.
