@@ -423,6 +423,9 @@ export function buildAgentLaunchPlan({
           kind: 'tmux' as const,
           serverName: tmuxServerName,
           sessionName: tmuxSessionName,
+          mode: attachExistingTmuxSession
+            ? ('attach-existing' as const)
+            : ('create-if-missing' as const),
         };
 
   let finalCommand = baseCommand;

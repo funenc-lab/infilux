@@ -24,7 +24,7 @@ import { toastManager } from '@/components/ui/toast';
 import { useAgentProviderSessionDiscovery } from '@/hooks/useAgentProviderSessionDiscovery';
 import { useRepositoryRuntimeContext } from '@/hooks/useRepositoryRuntimeContext';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
-import { useXterm, type XtermSessionCreateFallbackOptions } from '@/hooks/useXterm';
+import { useXterm } from '@/hooks/useXterm';
 import {
   copyTerminalSelectionToClipboard,
   readClipboardText,
@@ -73,7 +73,6 @@ import {
   resolveAgentInputUnavailableReason,
 } from './agentInputAvailability';
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
-import { buildAgentLaunchPlan } from './agentLaunchPlan';
 import {
   AGENT_STARTUP_STALL_THRESHOLD_MS,
   resolveAgentStartupOverlayPresentation,
@@ -88,6 +87,7 @@ import {
   isAgentTerminalInterruptKeyEvent,
   shouldForceAgentTerminalIdleAfterInterrupt,
 } from './agentTerminalInterruptPolicy';
+import { resolveAgentTerminalLaunchPlan } from './agentTerminalLaunchPlan';
 import {
   appendRecentAgentOutput,
   hasRenderableAgentTerminalOutput,
@@ -660,7 +660,6 @@ export function AgentTerminal({
   const shouldValidateResolvedProviderSession =
     agentCommand === 'codex' &&
     recoveryState === 'missing-host-session' &&
-    !backendSessionId &&
     hasResolvedProviderSessionId(id, sessionId);
   const inputDispatchSessionId = backendSessionId ?? null;
   const globalPolicy = getClaudeGlobalPolicy();
@@ -1279,43 +1278,13 @@ export function AgentTerminal({
   const mouseSelectionAutoScrollPositionRef = useRef<MouseSelectionPosition | null>(null);
   const stopMouseSelectionAutoScrollRef = useRef<(() => void) | null>(null);
 
-  const { command, env, initialCommand, hostSession, sessionCreateFallback } = useMemo(() => {
-    if (isReadOnlyTranscript) {
-      return {
-        command: undefined,
-        env: undefined,
-        initialCommand: undefined,
-        hostSession: undefined,
-        sessionCreateFallback: undefined,
-      };
-    }
-
-    const persistentHostSessionAvailable =
-      !shouldBypassHostSessionRecovery && recoveryState !== 'missing-host-session';
-    const plan = buildAgentLaunchPlan({
-      agentCommand,
-      customPath,
-      customArgs,
-      initialPrompt,
-      resumeSessionId,
-      initialized,
-      environment,
-      hapiGlobalInstalled,
-      hapiCliApiToken: hapiSettings.cliApiToken,
-      isRemoteExecution,
-      executionPlatform,
-      enableIdeIntegration: claudeIdeStatus?.canUseIde ?? false,
-      tmuxEnabled: agentIntegration.tmuxEnabled,
-      resolvedShell,
-      terminalSessionId,
-      runtimeChannel,
-      persistentHostSessionKey: hostSessionKey,
-      persistentHostSessionAvailable,
-    });
-    let nextSessionCreateFallback: XtermSessionCreateFallbackOptions | undefined;
-
-    if (persistentHostSessionAvailable && plan.hostSession?.kind === 'tmux') {
-      const fallbackPlan = buildAgentLaunchPlan({
+  const { command, env, initialCommand, hostSession, sessionCreateFallback } = useMemo(
+    () =>
+      resolveAgentTerminalLaunchPlan({
+        isReadOnlyTranscript,
+        recoveryState,
+        shouldBypassHostSessionRecovery,
+        onHostlessRetry: handleSessionCreateFallbackRetry,
         agentCommand,
         customPath,
         customArgs,
@@ -1333,60 +1302,31 @@ export function AgentTerminal({
         terminalSessionId,
         runtimeChannel,
         persistentHostSessionKey: hostSessionKey,
-        persistentHostSessionAvailable: false,
-      });
-
-      if ((fallbackPlan.command || fallbackPlan.initialCommand) && !fallbackPlan.hostSession) {
-        nextSessionCreateFallback = {
-          command: fallbackPlan.command
-            ? {
-                ...fallbackPlan.command,
-                fallbackCommand: fallbackPlan.fallbackCommand,
-              }
-            : undefined,
-          env: fallbackPlan.env,
-          initialCommand: fallbackPlan.initialCommand,
-          hostSession: undefined,
-          onRetry: handleSessionCreateFallbackRetry,
-        };
-      }
-    }
-
-    return {
-      command: plan.command
-        ? {
-            ...plan.command,
-            fallbackCommand: plan.fallbackCommand,
-          }
-        : undefined,
-      env: plan.env,
-      initialCommand: plan.initialCommand,
-      hostSession: plan.hostSession,
-      sessionCreateFallback: nextSessionCreateFallback,
-    };
-  }, [
-    agentCommand,
-    claudeIdeStatus?.canUseIde,
-    customPath,
-    customArgs,
-    initialPrompt,
-    resumeSessionId,
-    initialized,
-    isReadOnlyTranscript,
-    environment,
-    hapiSettings.cliApiToken,
-    hapiGlobalInstalled,
-    isRemoteExecution,
-    executionPlatform,
-    agentIntegration.tmuxEnabled,
-    resolvedShell,
-    terminalSessionId,
-    runtimeChannel,
-    hostSessionKey,
-    recoveryState,
-    shouldBypassHostSessionRecovery,
-    handleSessionCreateFallbackRetry,
-  ]);
+      }),
+    [
+      agentCommand,
+      claudeIdeStatus?.canUseIde,
+      customPath,
+      customArgs,
+      initialPrompt,
+      resumeSessionId,
+      initialized,
+      isReadOnlyTranscript,
+      environment,
+      hapiSettings.cliApiToken,
+      hapiGlobalInstalled,
+      isRemoteExecution,
+      executionPlatform,
+      agentIntegration.tmuxEnabled,
+      resolvedShell,
+      terminalSessionId,
+      runtimeChannel,
+      hostSessionKey,
+      recoveryState,
+      shouldBypassHostSessionRecovery,
+      handleSessionCreateFallbackRetry,
+    ]
+  );
 
   // Preserve exited sessions in the UI so users can inspect the final output and state.
   const handleExit = useCallback(() => {

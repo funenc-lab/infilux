@@ -123,6 +123,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const supervisorOnDisconnect = vi.fn();
   const persistentAbandonSession = vi.fn();
   const tmuxEnsureServerHealthy = vi.fn();
+  const tmuxProbeSession = vi.fn();
   const tmuxCaptureSessionHistory = vi.fn();
   const tmuxKillSession = vi.fn();
   const logInfo = vi.fn();
@@ -197,6 +198,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     supervisorOnDisconnect,
     persistentAbandonSession,
     tmuxEnsureServerHealthy,
+    tmuxProbeSession,
     tmuxCaptureSessionHistory,
     tmuxKillSession,
     logInfo,
@@ -243,6 +245,7 @@ vi.mock('../PersistentAgentSessionService', () => ({
 vi.mock('../../cli/TmuxDetector', () => ({
   tmuxDetector: {
     ensureServerHealthy: sessionTestDoubles.tmuxEnsureServerHealthy,
+    probeSession: sessionTestDoubles.tmuxProbeSession,
     captureSessionHistory: sessionTestDoubles.tmuxCaptureSessionHistory,
     killSession: sessionTestDoubles.tmuxKillSession,
   },
@@ -373,6 +376,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.persistentAbandonSession.mockResolvedValue([]);
     sessionTestDoubles.tmuxEnsureServerHealthy.mockReset();
     sessionTestDoubles.tmuxEnsureServerHealthy.mockResolvedValue(true);
+    sessionTestDoubles.tmuxProbeSession.mockReset();
+    sessionTestDoubles.tmuxProbeSession.mockResolvedValue('exists');
     sessionTestDoubles.tmuxCaptureSessionHistory.mockReset();
     sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValue('');
     sessionTestDoubles.tmuxKillSession.mockReset();
@@ -461,6 +466,35 @@ describe('SessionManager', () => {
 
     expect(opened.session.sessionId).toBe('local-1');
     expect(sessionTestDoubles.tmuxEnsureServerHealthy).toHaveBeenCalledWith('enso');
+    expect(sessionTestDoubles.tmuxProbeSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing recovered tmux host sessions before spawning the attach command', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    sessionTestDoubles.tmuxProbeSession.mockResolvedValueOnce('missing');
+
+    await expect(
+      manager.create(1, {
+        cwd: '/repo-agent',
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-006c1193-aa07-4954-9378-9eaeb55a20fc',
+          mode: 'attach-existing',
+        },
+      })
+    ).rejects.toThrow(
+      'Failed to recover tmux session: infilux-006c1193-aa07-4954-9378-9eaeb55a20fc'
+    );
+
+    expect(sessionTestDoubles.tmuxProbeSession).toHaveBeenCalledWith(
+      'infilux-006c1193-aa07-4954-9378-9eaeb55a20fc',
+      'infilux'
+    );
+    expect(sessionTestDoubles.ptyInstances[0]?.callbacks.size ?? 0).toBe(0);
   });
 
   it('surfaces tmux health check resource exhaustion as a session creation error', async () => {

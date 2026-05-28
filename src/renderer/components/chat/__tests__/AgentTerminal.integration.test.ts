@@ -1031,6 +1031,7 @@ describe('AgentTerminal integration', () => {
       kind: 'tmux',
       serverName: 'infilux',
       sessionName: 'infilux-ui-session-1',
+      mode: 'attach-existing',
     });
     expect(lastUseXtermCall?.sessionCreateFallback?.hostSession).toBeUndefined();
     expect(lastUseXtermCall?.sessionCreateFallback?.command).toEqual({
@@ -1055,6 +1056,42 @@ describe('AgentTerminal integration', () => {
       id: 'ui-session-1',
       sessionId: 'stale-provider-session',
       backendSessionId: undefined,
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+    });
+
+    const lastUseXtermCall = testState.useXtermOptions.at(-1) as
+      | {
+          command?: unknown;
+          initialCommand?: unknown;
+          sessionCreateFallback?: unknown;
+        }
+      | undefined;
+
+    expect(testState.discoveryCalls.at(-1)).toEqual(
+      expect.objectContaining({
+        validateResolvedProviderSession: true,
+      })
+    );
+    expect(lastUseXtermCall?.command).toBeUndefined();
+    expect(lastUseXtermCall?.initialCommand).toBeUndefined();
+    expect(lastUseXtermCall?.sessionCreateFallback).toBeUndefined();
+
+    await mounted.unmount();
+  });
+
+  it('validates codex missing-host provider identity even when a stale backend session id exists', async () => {
+    testState.settingsStore.agentIntegration.tmuxEnabled = true;
+    testState.providerDiscoveryState = {
+      providerSessionResolutionPending: true,
+    };
+
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'stale-provider-session',
+      backendSessionId: 'stale-backend-session',
       initialized: true,
       persistenceEnabled: true,
       recoveryState: 'missing-host-session',

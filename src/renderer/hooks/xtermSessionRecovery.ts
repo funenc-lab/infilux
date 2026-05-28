@@ -186,7 +186,12 @@ export function shouldRetrySessionCreateWithoutHost({
   error: unknown;
   kind: SessionKind;
   persistOnDisconnect: boolean;
-  hostSession?: { kind: 'tmux'; serverName: string; sessionName: string };
+  hostSession?: {
+    kind: 'tmux';
+    serverName: string;
+    sessionName: string;
+    mode?: 'attach-existing' | 'create-if-missing';
+  };
   hasFallback: boolean;
 }): boolean {
   if (!hasFallback || kind !== 'agent' || !persistOnDisconnect || hostSession?.kind !== 'tmux') {
@@ -196,6 +201,8 @@ export function shouldRetrySessionCreateWithoutHost({
   const message = getErrorMessage(error);
   return (
     message.includes('Failed to recover tmux server:') ||
+    message.includes('Failed to recover tmux session:') ||
+    message.includes("can't find session:") ||
     message.includes('System resources exhausted while checking tmux server:')
   );
 }

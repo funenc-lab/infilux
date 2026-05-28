@@ -383,6 +383,44 @@ describe('PersistentAgentSessionService', () => {
     );
   });
 
+  it('treats a tmux host session key stored as provider id as unresolved provider identity', async () => {
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
+      makeRecord({
+        agentId: 'codex',
+        agentCommand: 'codex',
+        uiSessionId: 'session-1',
+        providerSessionId: 'enso-session-1',
+        hostSessionKey: 'enso-session-1',
+      }),
+    ]);
+    const probeSession = vi.fn<() => Promise<'missing-host-session'>>(
+      async () => 'missing-host-session'
+    );
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession,
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+
+    await service.restoreWorktreeSessions({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    });
+
+    expect(
+      persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'persistent-agent-session-recovery-provider-unresolved',
+        context: expect.objectContaining({
+          uiSessionId: 'session-1',
+          providerSessionId: 'enso-session-1',
+          hostSessionKey: 'enso-session-1',
+        }),
+      })
+    );
+  });
+
   it('ignores remote virtual-path records during worktree restore', async () => {
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
       makeRecord({

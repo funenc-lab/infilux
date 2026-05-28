@@ -51,7 +51,8 @@ function hasUnresolvedProviderRecoveryIdentity(record: PersistentAgentSessionRec
   return (
     !record.providerSessionId ||
     record.providerSessionId.length === 0 ||
-    record.providerSessionId === record.uiSessionId
+    record.providerSessionId === record.uiSessionId ||
+    record.providerSessionId === record.hostSessionKey
   );
 }
 
@@ -75,7 +76,8 @@ function hasResolvedProviderSessionIdentity(record: PersistentAgentSessionRecord
   return Boolean(
     record.providerSessionId &&
       record.providerSessionId.length > 0 &&
-      record.providerSessionId !== record.uiSessionId
+      record.providerSessionId !== record.uiSessionId &&
+      record.providerSessionId !== record.hostSessionKey
   );
 }
 

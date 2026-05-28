@@ -90,6 +90,7 @@ describe('buildAgentLaunchPlan', () => {
       kind: 'tmux',
       serverName: 'infilux',
       sessionName: 'infilux-ui-session-1',
+      mode: 'create-if-missing',
     });
     expect(plan.command?.shell).toBe('/bin/zsh');
     expect(plan.command?.args[0]).toBe('-lc');
@@ -143,6 +144,7 @@ describe('buildAgentLaunchPlan', () => {
       kind: 'tmux',
       serverName: 'enso',
       sessionName: 'enso-session-1',
+      mode: 'attach-existing',
     });
     expect(plan.command?.args[1]).not.toContain('new-session -d -s enso-session-1');
     expect(plan.command?.args[1]).toContain(
@@ -299,6 +301,7 @@ describe('buildAgentLaunchPlan', () => {
       kind: 'tmux',
       serverName: 'infilux',
       sessionName: 'infilux-ui-session-11',
+      mode: 'create-if-missing',
     });
     expect(plan.initialCommand).toContain(
       `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-11`
