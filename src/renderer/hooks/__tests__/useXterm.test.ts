@@ -58,6 +58,8 @@ const testState = vi.hoisted(() => ({
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
   textareaEventTypes: [] as string[],
+  latestTextarea: null as HTMLTextAreaElement | null,
+  terminalFocus: vi.fn(),
   attachedWheelHandler: null as ((event: WheelEvent) => boolean | undefined) | null,
   resolveAgentWheelPolicy: vi.fn((_input?: unknown) => ({
     action: 'delegate' as const,
@@ -107,6 +109,8 @@ vi.mock('@xterm/xterm', () => ({
     open(container: HTMLElement): void {
       container.appendChild(this.element);
       if (this.textarea) {
+        this.element.appendChild(this.textarea);
+        testState.latestTextarea = this.textarea;
         const addEventListener = this.textarea.addEventListener.bind(this.textarea);
         this.textarea.addEventListener = ((
           type: string,
@@ -124,7 +128,9 @@ vi.mock('@xterm/xterm', () => ({
       testState.terminalWrite(data);
     }
     clear(): void {}
-    focus(): void {}
+    focus(): void {
+      testState.terminalFocus();
+    }
     dispose(): void {}
     selectAll(): void {}
     hasSelection(): boolean {
@@ -419,6 +425,8 @@ describe('useXterm startup loading state', () => {
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
     testState.textareaEventTypes = [];
+    testState.latestTextarea = null;
+    testState.terminalFocus.mockClear();
     testState.attachedWheelHandler = null;
     testState.resolveAgentWheelPolicy.mockReset();
     testState.resolveAgentWheelPolicy.mockReturnValue({
@@ -543,6 +551,28 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.textareaEventTypes).not.toContain('compositionend');
+
+    await mounted.unmount();
+  });
+
+  it('prepares and focuses xterm textarea during activation refresh for IME input', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.activationRefreshCalls).toHaveLength(1);
+    expect(testState.latestTextarea).not.toBeNull();
+
+    act(() => {
+      testState.activationRefreshCalls[0]?.focus();
+    });
+
+    expect(testState.terminalFocus).toHaveBeenCalledTimes(1);
+    expect(testState.latestTextarea?.inputMode).toBe('text');
+    expect(testState.latestTextarea?.spellcheck).toBe(false);
+    expect(testState.latestTextarea?.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
+    expect(document.activeElement).toBe(testState.latestTextarea);
 
     await mounted.unmount();
   });

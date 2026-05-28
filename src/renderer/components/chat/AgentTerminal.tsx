@@ -31,6 +31,7 @@ import {
   restoreTerminalInteractionAfterCopy,
   writeClipboardText,
 } from '@/hooks/xtermClipboard';
+import { focusXtermTextInput } from '@/hooks/xtermTextInputFocus';
 import { useI18n } from '@/i18n';
 import { AGENT_ATTACHMENT_PASTE_EVENT_NAME } from '@/lib/agentAttachmentPasteEvent';
 import { shouldPersistAgentSessionOnDisconnect } from '@/lib/agentSessionPersistence';
@@ -1724,7 +1725,7 @@ export function AgentTerminal({
     hostSession?.kind === 'tmux' &&
     (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current)));
   trustPromptSubmitRef.current = write;
-  terminalFocusRef.current = () => terminal?.focus();
+  terminalFocusRef.current = () => focusXtermTextInput(terminal);
   runtimeStateRef.current = runtimeState;
   const lastAppliedLayoutRefreshRef = useRef<{
     key: string;
@@ -1905,7 +1906,7 @@ export function AgentTerminal({
       return;
     }
 
-    requestAnimationFrame(() => terminal?.focus());
+    requestAnimationFrame(() => focusXtermTextInput(terminal));
   }, [enhancedInputOpen, terminal]);
   const {
     showScrollToBottom: showLocalScrollToBottom,

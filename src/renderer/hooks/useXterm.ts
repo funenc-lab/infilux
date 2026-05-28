@@ -57,6 +57,7 @@ import {
   shouldRetrySessionCreateWithoutHost,
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions } from './xtermTerminalOptions';
+import { focusXtermTextInput } from './xtermTextInputFocus';
 import { syncXtermViewportToSession } from './xtermViewportSync';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
@@ -1861,7 +1862,7 @@ export function useXterm({
         activationRefreshCleanup = scheduleXtermActivationRefresh({
           fitViewport: fitTerminal,
           refresh: refreshRenderer,
-          focus: () => terminalRef.current?.focus(),
+          focus: () => focusXtermTextInput(terminalRef.current),
           requestAnimationFrame: window.requestAnimationFrame.bind(window),
           cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
         });
