@@ -693,6 +693,12 @@ export function AgentTerminal({
     : resolvedProviderSessionId === null
       ? id
       : (resolvedProviderSessionId ?? sessionId ?? id);
+  const shouldHoldAgentSessionStartup =
+    !isReadOnlyTranscript &&
+    agentCommand === 'codex' &&
+    recoveryState === 'missing-host-session' &&
+    providerSessionResolutionPending;
+  const effectiveBackendSessionId = shouldHoldAgentSessionStartup ? undefined : backendSessionId;
 
   useEffect(() => {
     if (providerSessionResolutionPending || !onProviderSessionIdentityValidityChange) {
@@ -1145,6 +1151,9 @@ export function AgentTerminal({
       return true;
     }
 
+    if (shouldHoldAgentSessionStartup) {
+      return false;
+    }
     if (agentCommand.startsWith('claude') && agentIntegration.enabled && claudeIdeStatus === null) {
       return false;
     }
@@ -1166,6 +1175,7 @@ export function AgentTerminal({
     environment,
     hapiGlobalInstalled,
     isReadOnlyTranscript,
+    shouldHoldAgentSessionStartup,
     agentCommand,
     agentIntegration.enabled,
     claudeIdeStatus,
@@ -1654,7 +1664,7 @@ export function AgentTerminal({
     write,
   } = useXterm({
     cwd,
-    backendSessionId,
+    backendSessionId: effectiveBackendSessionId,
     command,
     env,
     hostSession,

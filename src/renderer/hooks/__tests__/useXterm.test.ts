@@ -568,10 +568,11 @@ describe('useXterm startup loading state', () => {
       testState.activationRefreshCalls[0]?.focus();
     });
 
-    expect(testState.terminalFocus).toHaveBeenCalledTimes(1);
+    expect(testState.terminalFocus).toHaveBeenCalledTimes(2);
     expect(testState.latestTextarea?.inputMode).toBe('text');
     expect(testState.latestTextarea?.spellcheck).toBe(false);
     expect(testState.latestTextarea?.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
+    expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).not.toBeNull();
     expect(document.activeElement).toBe(testState.latestTextarea);
 
     await mounted.unmount();

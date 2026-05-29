@@ -1065,7 +1065,10 @@ describe('AgentTerminal integration', () => {
     const lastUseXtermCall = testState.useXtermOptions.at(-1) as
       | {
           command?: unknown;
+          backendSessionId?: unknown;
           initialCommand?: unknown;
+          isActive?: boolean;
+          isVisible?: boolean;
           sessionCreateFallback?: unknown;
         }
       | undefined;
@@ -1075,8 +1078,11 @@ describe('AgentTerminal integration', () => {
         validateResolvedProviderSession: true,
       })
     );
+    expect(lastUseXtermCall?.backendSessionId).toBeUndefined();
     expect(lastUseXtermCall?.command).toBeUndefined();
     expect(lastUseXtermCall?.initialCommand).toBeUndefined();
+    expect(lastUseXtermCall?.isActive).toBe(false);
+    expect(lastUseXtermCall?.isVisible).toBe(false);
     expect(lastUseXtermCall?.sessionCreateFallback).toBeUndefined();
 
     await mounted.unmount();
