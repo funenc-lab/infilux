@@ -165,6 +165,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain("'agent-canvas-session-tile-active'");
     expect(agentPanelSource).toContain('"agent-canvas-floating-frame fixed z-30');
     expect(agentPanelSource).toContain('handleCanvasViewportWheel');
+    expect(agentPanelSource).toContain('shouldBlockAgentCanvasViewportScroll');
     expect(agentPanelSource).toContain('canvasLockedByWorktree');
     expect(agentPanelSource).toContain('isCanvasLocked');
     expect(agentPanelSource).toContain('setCanvasLockedByWorktree');
@@ -242,6 +243,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('pointerButton: event.button');
     expect(agentPanelSource).toContain('spacePressed: spacePressedRef.current');
     expect(agentPanelSource).toContain('if (isCanvasLocked) {');
+    expect(agentPanelSource).toContain('shouldBlockAgentCanvasViewportScroll({');
     expect(agentPanelSource).toContain('viewport.scrollTo({');
     expect(agentPanelSource).toContain('behavior: resolveAgentCanvasScrollBehavior');
     expect(agentPanelSource).toContain('buildSessionPanelDomId(id)');

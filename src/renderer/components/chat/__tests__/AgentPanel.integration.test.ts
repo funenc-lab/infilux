@@ -168,6 +168,7 @@ vi.mock('../AgentTerminal', () => ({
   AgentTerminal: (props: {
     id?: string;
     isActive?: boolean;
+    layoutRefreshKey?: string;
     onRuntimeStateChange?: (state: 'live' | 'reconnecting' | 'dead') => void;
   }) => {
     React.useEffect(() => {
@@ -183,6 +184,7 @@ vi.mock('../AgentTerminal', () => ({
       'data-testid': 'agent-terminal',
       'data-session-id': props.id ?? '',
       'data-active': String(Boolean(props.isActive)),
+      'data-layout-refresh-key': props.layoutRefreshKey ?? '',
     });
   },
 }));
@@ -547,6 +549,27 @@ async function clickElement(target: HTMLElement | null) {
   await act(async () => {
     target?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await flushRenderTasks();
+  });
+}
+
+function mockCanvasViewportMetrics(viewport: HTMLDivElement): void {
+  Object.defineProperties(viewport, {
+    clientHeight: {
+      configurable: true,
+      get: () => 180,
+    },
+    clientWidth: {
+      configurable: true,
+      get: () => 220,
+    },
+    scrollHeight: {
+      configurable: true,
+      get: () => 920,
+    },
+    scrollWidth: {
+      configurable: true,
+      get: () => 960,
+    },
   });
 }
 
@@ -1555,6 +1578,10 @@ describe('AgentPanel integration', () => {
     await clickElement(secondTile?.querySelector('button[aria-label="Bring to Front"]') ?? null);
 
     expect(document.body.querySelector('.agent-canvas-floating-frame')).not.toBeNull();
+    const floatingTerminal = document.body.querySelector<HTMLElement>(
+      '[data-testid="agent-terminal"][data-session-id="session-worktree-b"]'
+    );
+    expect(floatingTerminal?.getAttribute('data-layout-refresh-key')).toContain('floating');
 
     await mounted.unmount();
   });
@@ -1937,21 +1964,129 @@ describe('AgentPanel integration', () => {
 
     expect(mounted.container.querySelectorAll('[data-agent-session-id]')).toHaveLength(14);
     expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(12);
-
-    const deferredTile = mounted.container.querySelector<HTMLElement>(
-      '[data-agent-canvas-deferred="true"]'
+    expect(mounted.container.querySelectorAll('[data-agent-canvas-deferred="true"]').length).toBe(
+      2
     );
-    const deferredSessionId = deferredTile?.getAttribute('data-agent-session-id');
-    const openDeferredTileButton =
-      deferredTile?.querySelector<HTMLElement>('button[aria-label="Bring to Front"]') ?? null;
-    await clickElement(openDeferredTileButton);
 
-    expect(
-      document.body.querySelector(
-        `[data-testid="agent-terminal"][data-session-id="${deferredSessionId}"]`
-      )
-    ).not.toBeNull();
-    expect(document.body.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(12);
+    await act(async () => {
+      await flushRenderTasks();
+    });
+
+    expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(14);
+    expect(mounted.container.querySelector('[data-agent-canvas-deferred="true"]')).toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('keeps worktree canvas terminals mounted without deferring them behind tile clicks', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const sessions = Array.from({ length: 8 }, (_, index) =>
+      createSession({
+        id: `session-${index}`,
+        sessionId: `provider-${index}`,
+        backendSessionId: `backend-${index}`,
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        name: `Gemini ${index}`,
+      })
+    );
+
+    useAgentSessionsStore.setState({
+      sessions,
+      activeIds: {
+        '/repo/worktree': 'session-0',
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: sessions.map((session, index) => ({
+            id: `group-${index}`,
+            sessionIds: [session.id],
+            activeSessionId: session.id,
+          })),
+          activeGroupId: 'group-0',
+          flexPercents: sessions.map(() => 100 / sessions.length),
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+
+    expect(mounted.container.querySelectorAll('[data-testid="agent-terminal"]')).toHaveLength(8);
+    expect(mounted.container.querySelector('[data-agent-canvas-deferred="true"]')).toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('freezes the worktree canvas viewport position while locked', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-lock',
+      sessionId: 'provider-lock',
+      backendSessionId: 'backend-lock',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Gemini Lock',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-lock',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-lock',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const viewport = mounted.container.querySelector<HTMLDivElement>('.agent-canvas-viewport');
+    expect(viewport).not.toBeNull();
+    if (!viewport) {
+      await mounted.unmount();
+      return;
+    }
+
+    mockCanvasViewportMetrics(viewport);
+    viewport.scrollLeft = 140;
+    viewport.scrollTop = 180;
+
+    await clickElement(mounted.container.querySelector('button[aria-label="Lock Canvas"]'));
+
+    viewport.scrollLeft = 520;
+    viewport.scrollTop = 620;
+    await act(async () => {
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await flushRenderTasks();
+    });
+
+    expect(viewport.scrollLeft).toBe(140);
+    expect(viewport.scrollTop).toBe(180);
+
+    const canvasWheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 120,
+    });
+    const preventDefault = vi.spyOn(canvasWheelEvent, 'preventDefault');
+    viewport.dispatchEvent(canvasWheelEvent);
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });
@@ -2065,6 +2200,10 @@ describe('AgentPanel integration', () => {
       Array.from(mounted.container.querySelectorAll('[data-testid="agent-terminal"]'))
         .map((terminal) => terminal.getAttribute('data-session-id'))
         .filter((sessionId): sessionId is string => sessionId !== null);
+
+    await act(async () => {
+      await flushRenderTasks();
+    });
 
     const mountedSessionIdsBeforeSwitch = getMountedSessionIds();
 

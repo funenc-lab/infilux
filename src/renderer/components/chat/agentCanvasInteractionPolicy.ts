@@ -1,8 +1,10 @@
 export const AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE = 'data-agent-canvas-session-panel';
 export const AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE = 'data-agent-canvas-interactive-surface';
+export const AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE = 'data-agent-canvas-scroll-surface';
 
 export const AGENT_CANVAS_SESSION_PANEL_SELECTOR = `[${AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE}="true"]`;
 export const AGENT_CANVAS_INTERACTIVE_SURFACE_SELECTOR = `[${AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE}="true"]`;
+export const AGENT_CANVAS_SCROLL_SURFACE_SELECTOR = `[${AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE}="true"]`;
 
 type ResolveAgentCanvasPanStartOptions = {
   isCanvasDisplayMode: boolean;
@@ -10,6 +12,12 @@ type ResolveAgentCanvasPanStartOptions = {
   pointerButton: number;
   spacePressed: boolean;
   target: EventTarget | null;
+};
+
+type ShouldBlockAgentCanvasViewportScrollOptions = {
+  isCanvasDisplayMode: boolean;
+  isCanvasLocked: boolean;
+  target?: EventTarget | null;
 };
 
 export function shouldStartAgentCanvasPan({
@@ -33,6 +41,26 @@ export function shouldStartAgentCanvasPan({
 
   const startedInsideSessionPanel = target.closest(AGENT_CANVAS_SESSION_PANEL_SELECTOR) !== null;
   if (startedInsideSessionPanel && !spacePressed) {
+    return false;
+  }
+
+  return true;
+}
+
+export function shouldBlockAgentCanvasViewportScroll({
+  isCanvasDisplayMode,
+  isCanvasLocked,
+  target,
+}: ShouldBlockAgentCanvasViewportScrollOptions): boolean {
+  if (!isCanvasDisplayMode || !isCanvasLocked) {
+    return false;
+  }
+
+  if (
+    typeof Element !== 'undefined' &&
+    target instanceof Element &&
+    target.closest(AGENT_CANVAS_SCROLL_SURFACE_SELECTOR) !== null
+  ) {
     return false;
   }
 

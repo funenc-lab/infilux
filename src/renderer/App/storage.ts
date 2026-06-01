@@ -1,4 +1,9 @@
 import type { ClaudeGlobalPolicy, ClaudeProjectPolicy, ClaudeWorktreePolicy } from '@shared/types';
+import {
+  filterManagedLocalStorageSnapshot,
+  MANAGED_LOCAL_STORAGE_KEYS,
+  shouldImportLegacyLocalStorageKey,
+} from '@shared/utils/legacyLocalStorage';
 import { buildRepositoryId, normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { normalizeHexColor } from '@/lib/colors';
 import {
@@ -9,93 +14,7 @@ import {
   type TabId,
 } from './constants';
 
-// Storage keys
-export const STORAGE_KEYS = {
-  REPOSITORIES: 'enso-repositories',
-  SELECTED_REPO: 'enso-selected-repo',
-  REMOTE_PROFILES: 'enso-remote-profiles',
-  ACTIVE_WORKTREE: 'enso-active-worktree', // deprecated, kept for migration
-  ACTIVE_WORKTREES: 'enso-active-worktrees', // per-repo worktree map
-  WORKTREE_TABS: 'enso-worktree-tabs',
-  WORKTREE_ORDER: 'enso-worktree-order', // per-repo worktree display order map
-  TAB_ORDER: 'enso-tab-order', // panel tab order
-  REPOSITORY_WIDTH: 'enso-repository-width',
-  WORKTREE_WIDTH: 'enso-worktree-width',
-  FILE_SIDEBAR_WIDTH: 'enso-file-sidebar-width',
-  TREE_SIDEBAR_WIDTH: 'enso-tree-sidebar-width',
-  REPOSITORY_COLLAPSED: 'enso-repository-collapsed',
-  WORKTREE_COLLAPSED: 'enso-worktree-collapsed',
-  FILE_SIDEBAR_COLLAPSED: 'enso-file-sidebar-collapsed',
-  REPOSITORY_SETTINGS: 'enso-repository-settings', // per-repo settings (init script, etc.)
-  CLAUDE_GLOBAL_POLICY: 'enso-claude-global-policy',
-  CLAUDE_PROJECT_POLICIES: 'enso-claude-project-policies',
-  CLAUDE_WORKTREE_POLICIES: 'enso-claude-worktree-policies',
-  REPOSITORY_GROUPS: 'enso-repository-groups',
-  ACTIVE_GROUP: 'enso-active-group',
-  GROUP_COLLAPSED_STATE: 'enso-group-collapsed-state',
-  TREE_SIDEBAR_EXPANDED_REPOS: 'enso-tree-sidebar-expanded-repos',
-  TREE_SIDEBAR_TEMP_EXPANDED: 'enso-tree-sidebar-temp-expanded',
-  TODO_BOARDS: 'enso-todo-boards',
-  FILE_TREE_EXPANDED_PREFIX: 'enso-file-tree-expanded',
-  SC_REPO_LIST_EXPANDED: 'enso-sc-repo-list-expanded',
-  SC_CHANGES_EXPANDED: 'enso-sc-changes-expanded',
-  SC_HISTORY_EXPANDED: 'enso-sc-history-expanded',
-} as const;
-
-const LEGACY_LOCAL_STORAGE_IMPORT_KEYS = new Set<string>([
-  STORAGE_KEYS.REPOSITORIES,
-  STORAGE_KEYS.SELECTED_REPO,
-  STORAGE_KEYS.REMOTE_PROFILES,
-  STORAGE_KEYS.ACTIVE_WORKTREE,
-  STORAGE_KEYS.ACTIVE_WORKTREES,
-  STORAGE_KEYS.WORKTREE_TABS,
-  STORAGE_KEYS.WORKTREE_ORDER,
-  STORAGE_KEYS.TAB_ORDER,
-  STORAGE_KEYS.REPOSITORY_WIDTH,
-  STORAGE_KEYS.WORKTREE_WIDTH,
-  STORAGE_KEYS.FILE_SIDEBAR_WIDTH,
-  STORAGE_KEYS.TREE_SIDEBAR_WIDTH,
-  STORAGE_KEYS.REPOSITORY_COLLAPSED,
-  STORAGE_KEYS.WORKTREE_COLLAPSED,
-  STORAGE_KEYS.FILE_SIDEBAR_COLLAPSED,
-  STORAGE_KEYS.REPOSITORY_SETTINGS,
-  STORAGE_KEYS.CLAUDE_GLOBAL_POLICY,
-  STORAGE_KEYS.CLAUDE_PROJECT_POLICIES,
-  STORAGE_KEYS.CLAUDE_WORKTREE_POLICIES,
-  STORAGE_KEYS.REPOSITORY_GROUPS,
-  STORAGE_KEYS.ACTIVE_GROUP,
-  STORAGE_KEYS.GROUP_COLLAPSED_STATE,
-  STORAGE_KEYS.TREE_SIDEBAR_EXPANDED_REPOS,
-  STORAGE_KEYS.TREE_SIDEBAR_TEMP_EXPANDED,
-  STORAGE_KEYS.SC_REPO_LIST_EXPANDED,
-  STORAGE_KEYS.SC_CHANGES_EXPANDED,
-  STORAGE_KEYS.SC_HISTORY_EXPANDED,
-]);
-
-const LEGACY_LOCAL_STORAGE_IMPORT_PREFIXES = [STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX];
-
-function shouldImportLegacyLocalStorageKey(key: string): boolean {
-  return (
-    LEGACY_LOCAL_STORAGE_IMPORT_KEYS.has(key) ||
-    LEGACY_LOCAL_STORAGE_IMPORT_PREFIXES.some((prefix) => key.startsWith(`${prefix}:`))
-  );
-}
-
-export function filterManagedLocalStorageSnapshot(
-  snapshot: Record<string, string>
-): Record<string, string> {
-  const filteredSnapshot: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(snapshot)) {
-    if (!shouldImportLegacyLocalStorageKey(key)) {
-      continue;
-    }
-
-    filteredSnapshot[key] = value;
-  }
-
-  return filteredSnapshot;
-}
+export const STORAGE_KEYS = MANAGED_LOCAL_STORAGE_KEYS;
 
 export function getManagedLocalStorageSnapshot(
   storage: Pick<Storage, 'length' | 'key' | 'getItem'> = localStorage

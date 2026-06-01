@@ -1010,4 +1010,35 @@ describe('PtyManager utilities', () => {
     staleManager.destroyAll();
     await expect(staleManager.destroyAllAndWait()).resolves.toBeUndefined();
   });
+
+  it('expands Windows registry PATH variables from the process environment for npm shims', async () => {
+    setPlatform('win32');
+    vi.resetModules();
+    ptyManagerTestDoubles.reset();
+    process.env.PATH = 'C:\\ProcessPath';
+    process.env.APPDATA = 'C:\\Users\\Tester\\AppData\\Roaming';
+    process.env.LOCALAPPDATA = 'C:\\Users\\Tester\\AppData\\Local';
+
+    ptyManagerTestDoubles.execSync.mockImplementation((command: string) => {
+      if (command.includes('HKCU\\Environment" /v Path')) {
+        return 'Path    REG_EXPAND_SZ    %APPDATA%\\npm;%LOCALAPPDATA%\\Programs\\OpenAI';
+      }
+      if (
+        command.includes(
+          'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v Path'
+        )
+      ) {
+        return 'Path    REG_SZ    C:\\Windows\\System32';
+      }
+      return '';
+    });
+
+    const module = await import('../PtyManager');
+    const enhancedPath = module.getEnhancedPath();
+
+    expect(enhancedPath).toContain('C:\\Users\\Tester\\AppData\\Roaming\\npm');
+    expect(enhancedPath).toContain('C:\\Users\\Tester\\AppData\\Local\\Programs\\OpenAI');
+    expect(enhancedPath).not.toContain('%APPDATA%');
+    expect(enhancedPath).not.toContain('%LOCALAPPDATA%');
+  });
 });

@@ -2230,7 +2230,6 @@
     --control-tree-tail-opacity: 0.36;
     --control-tree-row-gap: 0.375rem;
     --control-tree-glyph-slot-size: 1rem;
-    --control-tree-child-indent: 0.5rem;
     --control-tree-text-offset: calc(
       var(--control-tree-glyph-slot-size) + var(--control-tree-row-gap)
     );
@@ -3257,6 +3256,7 @@
   }
 
   .control-tree-guide {
+    --control-tree-child-indent: 2rem;
     position: relative;
     display: flex;
     flex-direction: column;

@@ -23,7 +23,7 @@ export function useWorktreeState() {
     useState<Record<string, Record<string, number>>>(getStoredWorktreeOrderMap);
   // Panel tab order: custom order of tabs
   const [tabOrder, setTabOrder] = useState<TabId[]>(getStoredTabOrder);
-  const [activeTab, setActiveTab] = useState<TabId>('chat');
+  const [activeTab, setActiveTab] = useState<TabId>('file');
   const [previousTab, setPreviousTab] = useState<TabId | null>(null);
   const [activeWorktree, setActiveWorktree] = useState<GitWorktree | null>(null);
 

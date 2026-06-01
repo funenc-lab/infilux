@@ -9,22 +9,39 @@ const expressionOpen = '$' + '{{';
 const expressionClose = '}}';
 const shellExpressionOpen = '$' + '{';
 const shellExpressionClose = '}';
-const appleApiIssuer = `APPLE_API_ISSUER: ${expressionOpen} secrets.APPLE_API_ISSUER ${expressionClose}`;
-const appleApiKey = `APPLE_API_KEY: ${expressionOpen} secrets.APPLE_API_KEY ${expressionClose}`;
-const appleApiKeyP8 = `APPLE_API_KEY_P8: ${expressionOpen} secrets.APPLE_API_KEY_P8 ${expressionClose}`;
+const appleId = `APPLE_ID: ${expressionOpen} secrets.APPLE_ID ${expressionClose}`;
+const applePassword = `APPLE_PASSWORD: ${expressionOpen} secrets.APPLE_PASSWORD ${expressionClose}`;
+const appleAppSpecificPassword = `APPLE_APP_SPECIFIC_PASSWORD: ${expressionOpen} secrets.APPLE_PASSWORD ${expressionClose}`;
+const appleTeamId = `APPLE_TEAM_ID: ${expressionOpen} secrets.APPLE_TEAM_ID ${expressionClose}`;
 const allowUnsignedMacosRelease = `REPO_ALLOW_UNSIGNED_MACOS_RELEASE: ${expressionOpen} vars.ALLOW_UNSIGNED_MACOS_RELEASE ${expressionClose}`;
 const macArchPlaceholder = '$' + '{{ matrix.arch }}';
 const forceUnsignedCondition = `if [[ "${shellExpressionOpen}force_unsigned${shellExpressionClose}" == "true" ]]; then`;
 const resolvedSigningIdentity = `CSC_NAME: ${expressionOpen} env.APPLE_SIGNING_IDENTITY_RESOLVED ${expressionClose}`;
 const legacySigningIdentity = `CSC_NAME: ${expressionOpen} secrets.APPLE_SIGNING_IDENTITY ${expressionClose}`;
+const signingIdentityFallback =
+  'Falling back to the first imported Developer ID Application certificate name.';
+const strictSigningIdentityMismatch =
+  'APPLE_SIGNING_IDENTITY does not match an identity in the imported certificate';
+const developerIdIdentityParser = `awk -F '"' '/Developer ID Application:/ { print $2; exit }'`;
+const escapedSedCapture = `sed -n 's/.*"\\\\(Developer ID Application:.*\\\\)"/\\\\1/p'`;
+const developerIdCertificateName =
+  'developer_id_certificate_name="' +
+  shellExpressionOpen +
+  'developer_id_identity#Developer ID Application: ' +
+  shellExpressionClose +
+  '"';
 
 describe('build workflow macOS signing policy', () => {
-  it('reuses the penpad-style Apple signing secret names and unsigned release override', () => {
+  it('uses the organization Apple signing secret names and unsigned release override', () => {
     expect(workflowSource).toContain('allow_unsigned_macos:');
-    expect(workflowSource).toContain(appleApiIssuer);
-    expect(workflowSource).toContain(appleApiKey);
-    expect(workflowSource).toContain(appleApiKeyP8);
+    expect(workflowSource).toContain(appleId);
+    expect(workflowSource).toContain(applePassword);
+    expect(workflowSource).toContain(appleAppSpecificPassword);
+    expect(workflowSource).toContain(appleTeamId);
     expect(workflowSource).toContain(allowUnsignedMacosRelease);
+    expect(workflowSource).not.toContain('secrets.APPLE_API_ISSUER');
+    expect(workflowSource).not.toContain('secrets.APPLE_API_KEY');
+    expect(workflowSource).not.toContain('secrets.APPLE_API_KEY_P8');
   });
 
   it('supports unsigned macOS fallback when signing prerequisites are missing', () => {
@@ -43,6 +60,14 @@ describe('build workflow macOS signing policy', () => {
 
   it('resolves the Developer ID Application identity from the imported certificate', () => {
     expect(workflowSource).toContain('Developer ID Application:');
+    expect(workflowSource).toContain('developer_id_identity=');
+    expect(workflowSource).toContain(developerIdCertificateName);
+    expect(workflowSource).toContain(developerIdIdentityParser);
+    expect(workflowSource).not.toContain(escapedSedCapture);
+    expect(workflowSource).toContain('Configured Apple signing identity was not found');
+    expect(workflowSource).toContain(signingIdentityFallback);
+    expect(workflowSource).not.toContain(strictSigningIdentityMismatch);
+    expect(workflowSource).toContain('Resolved Apple signing certificate name:');
     expect(workflowSource).toContain('APPLE_SIGNING_IDENTITY_RESOLVED');
     expect(workflowSource).toContain(resolvedSigningIdentity);
     expect(workflowSource).not.toContain(legacySigningIdentity);

@@ -1,0 +1,86 @@
+export const MANAGED_LOCAL_STORAGE_KEYS = {
+  REPOSITORIES: 'enso-repositories',
+  SELECTED_REPO: 'enso-selected-repo',
+  REMOTE_PROFILES: 'enso-remote-profiles',
+  ACTIVE_WORKTREE: 'enso-active-worktree',
+  ACTIVE_WORKTREES: 'enso-active-worktrees',
+  WORKTREE_TABS: 'enso-worktree-tabs',
+  WORKTREE_ORDER: 'enso-worktree-order',
+  TAB_ORDER: 'enso-tab-order',
+  REPOSITORY_WIDTH: 'enso-repository-width',
+  WORKTREE_WIDTH: 'enso-worktree-width',
+  FILE_SIDEBAR_WIDTH: 'enso-file-sidebar-width',
+  TREE_SIDEBAR_WIDTH: 'enso-tree-sidebar-width',
+  REPOSITORY_COLLAPSED: 'enso-repository-collapsed',
+  WORKTREE_COLLAPSED: 'enso-worktree-collapsed',
+  FILE_SIDEBAR_COLLAPSED: 'enso-file-sidebar-collapsed',
+  REPOSITORY_SETTINGS: 'enso-repository-settings',
+  CLAUDE_GLOBAL_POLICY: 'enso-claude-global-policy',
+  CLAUDE_PROJECT_POLICIES: 'enso-claude-project-policies',
+  CLAUDE_WORKTREE_POLICIES: 'enso-claude-worktree-policies',
+  REPOSITORY_GROUPS: 'enso-repository-groups',
+  ACTIVE_GROUP: 'enso-active-group',
+  GROUP_COLLAPSED_STATE: 'enso-group-collapsed-state',
+  TREE_SIDEBAR_EXPANDED_REPOS: 'enso-tree-sidebar-expanded-repos',
+  TREE_SIDEBAR_TEMP_EXPANDED: 'enso-tree-sidebar-temp-expanded',
+  TODO_BOARDS: 'enso-todo-boards',
+  FILE_TREE_EXPANDED_PREFIX: 'enso-file-tree-expanded',
+  SC_REPO_LIST_EXPANDED: 'enso-sc-repo-list-expanded',
+  SC_CHANGES_EXPANDED: 'enso-sc-changes-expanded',
+  SC_HISTORY_EXPANDED: 'enso-sc-history-expanded',
+} as const;
+
+const LEGACY_LOCAL_STORAGE_IMPORT_KEYS = new Set<string>([
+  MANAGED_LOCAL_STORAGE_KEYS.REPOSITORIES,
+  MANAGED_LOCAL_STORAGE_KEYS.SELECTED_REPO,
+  MANAGED_LOCAL_STORAGE_KEYS.REMOTE_PROFILES,
+  MANAGED_LOCAL_STORAGE_KEYS.ACTIVE_WORKTREE,
+  MANAGED_LOCAL_STORAGE_KEYS.ACTIVE_WORKTREES,
+  MANAGED_LOCAL_STORAGE_KEYS.WORKTREE_TABS,
+  MANAGED_LOCAL_STORAGE_KEYS.WORKTREE_ORDER,
+  MANAGED_LOCAL_STORAGE_KEYS.TAB_ORDER,
+  MANAGED_LOCAL_STORAGE_KEYS.REPOSITORY_WIDTH,
+  MANAGED_LOCAL_STORAGE_KEYS.WORKTREE_WIDTH,
+  MANAGED_LOCAL_STORAGE_KEYS.FILE_SIDEBAR_WIDTH,
+  MANAGED_LOCAL_STORAGE_KEYS.TREE_SIDEBAR_WIDTH,
+  MANAGED_LOCAL_STORAGE_KEYS.REPOSITORY_COLLAPSED,
+  MANAGED_LOCAL_STORAGE_KEYS.WORKTREE_COLLAPSED,
+  MANAGED_LOCAL_STORAGE_KEYS.FILE_SIDEBAR_COLLAPSED,
+  MANAGED_LOCAL_STORAGE_KEYS.REPOSITORY_SETTINGS,
+  MANAGED_LOCAL_STORAGE_KEYS.CLAUDE_GLOBAL_POLICY,
+  MANAGED_LOCAL_STORAGE_KEYS.CLAUDE_PROJECT_POLICIES,
+  MANAGED_LOCAL_STORAGE_KEYS.CLAUDE_WORKTREE_POLICIES,
+  MANAGED_LOCAL_STORAGE_KEYS.REPOSITORY_GROUPS,
+  MANAGED_LOCAL_STORAGE_KEYS.ACTIVE_GROUP,
+  MANAGED_LOCAL_STORAGE_KEYS.GROUP_COLLAPSED_STATE,
+  MANAGED_LOCAL_STORAGE_KEYS.TREE_SIDEBAR_EXPANDED_REPOS,
+  MANAGED_LOCAL_STORAGE_KEYS.TREE_SIDEBAR_TEMP_EXPANDED,
+  MANAGED_LOCAL_STORAGE_KEYS.SC_REPO_LIST_EXPANDED,
+  MANAGED_LOCAL_STORAGE_KEYS.SC_CHANGES_EXPANDED,
+  MANAGED_LOCAL_STORAGE_KEYS.SC_HISTORY_EXPANDED,
+]);
+
+const LEGACY_LOCAL_STORAGE_IMPORT_PREFIXES = [MANAGED_LOCAL_STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX];
+
+export function shouldImportLegacyLocalStorageKey(key: string): boolean {
+  return (
+    LEGACY_LOCAL_STORAGE_IMPORT_KEYS.has(key) ||
+    LEGACY_LOCAL_STORAGE_IMPORT_PREFIXES.some((prefix) => key.startsWith(`${prefix}:`))
+  );
+}
+
+export function filterManagedLocalStorageSnapshot(
+  snapshot: Record<string, string>
+): Record<string, string> {
+  const filteredSnapshot: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (!shouldImportLegacyLocalStorageKey(key)) {
+      continue;
+    }
+
+    filteredSnapshot[key] = value;
+  }
+
+  return filteredSnapshot;
+}

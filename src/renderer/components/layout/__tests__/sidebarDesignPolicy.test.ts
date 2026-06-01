@@ -767,7 +767,12 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('.control-tree-collapsible {');
     expect(globalsSource).toContain('.control-tree-flat-list {');
     expect(globalsSource).toContain('.control-tree-guide {');
-    expect(globalsSource).toContain('--control-tree-child-indent: 0.5rem;');
+    expect(globalsSource).toContain('--control-tree-child-indent: 2rem;');
+    expect(globalsSource).not.toContain('--control-tree-child-indent: 1rem;');
+    expect(globalsSource).not.toContain('--control-tree-child-indent: 0.5rem;');
+    expect(globalsSource).toMatch(
+      /\.control-tree-guide\s*\{[^}]*--control-tree-child-indent:\s*2rem;/s
+    );
     expect(globalsSource).toContain('margin-left: 0.5rem;');
     expect(globalsSource).toContain('padding-left: 0.75rem;');
     expect(globalsSource).toContain('.control-tree-guide::before {');

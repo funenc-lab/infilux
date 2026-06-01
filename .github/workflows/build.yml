@@ -155,11 +155,11 @@ jobs:
       - name: Detect macOS signing configuration
         id: macos_signing
         env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WORKFLOW_ALLOW_UNSIGNED_MACOS: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_unsigned_macos || 'false' }}
           REPO_ALLOW_UNSIGNED_MACOS_RELEASE: ${{ vars.ALLOW_UNSIGNED_MACOS_RELEASE }}
           IS_TAG_BUILD: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
@@ -182,9 +182,9 @@ jobs:
 
           [[ -n "${APPLE_CERTIFICATE}" ]] || missing+=("APPLE_CERTIFICATE")
           [[ -n "${APPLE_CERTIFICATE_PASSWORD}" ]] || missing+=("APPLE_CERTIFICATE_PASSWORD")
-          [[ -n "${APPLE_API_KEY}" ]] || missing+=("APPLE_API_KEY")
-          [[ -n "${APPLE_API_ISSUER}" ]] || missing+=("APPLE_API_ISSUER")
-          [[ -n "${APPLE_API_KEY_P8}" ]] || missing+=("APPLE_API_KEY_P8")
+          [[ -n "${APPLE_ID}" ]] || missing+=("APPLE_ID")
+          [[ -n "${APPLE_PASSWORD}" ]] || missing+=("APPLE_PASSWORD")
+          [[ -n "${APPLE_TEAM_ID}" ]] || missing+=("APPLE_TEAM_ID")
 
           if [[ "${force_unsigned}" == "true" ]]; then
             echo "ready=false" >> "${GITHUB_OUTPUT}"
@@ -223,24 +223,6 @@ jobs:
             echo "::notice title=Unsigned macOS build::Apple signing secrets are missing (${SIGNING_MISSING}). This workflow is continuing with unsigned macOS output."
           fi
 
-      - name: Prepare Apple notarization key
-        if: ${{ steps.macos_signing.outputs.ready == 'true' }}
-        env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-        run: |
-          set -euo pipefail
-
-          key_dir="${RUNNER_TEMP}/private_keys"
-          key_path="${key_dir}/AuthKey_${APPLE_API_KEY_ID}.p8"
-
-          mkdir -p "${key_dir}"
-          printf '%s' "${APPLE_API_KEY_P8}" > "${key_path}"
-          chmod 600 "${key_path}"
-
-          echo "APPLE_API_KEY_PATH=${key_path}" >> "${GITHUB_ENV}"
-          echo "APPLE_API_KEY_ID=${APPLE_API_KEY_ID}" >> "${GITHUB_ENV}"
-
       - name: Import Apple Certificate
         id: import_apple_certificate
         if: ${{ steps.macos_signing.outputs.ready == 'true' }}
@@ -248,6 +230,7 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
 
@@ -284,7 +267,8 @@ jobs:
           identities="$(security find-identity -v -p codesigning "${keychain_path}")"
           echo "${identities}"
 
-          resolved_identity="$(printf '%s\n' "${identities}" | sed -n 's/.*"\\(Developer ID Application:.*\\)"/\\1/p' | head -n 1)"
+          developer_id_identity="$(printf '%s\n' "${identities}" | awk -F '"' '/Developer ID Application:/ { print $2; exit }')"
+          developer_id_certificate_name="${developer_id_identity#Developer ID Application: }"
           identity_summary="$(printf '%s\n' "${identities}" | tr '\n' ';' | tr -s ' ')"
           identity_summary="${identity_summary# }"
           identity_summary="${identity_summary% }"
@@ -292,13 +276,29 @@ jobs:
           identity_summary="${identity_summary//$'\r'/%0D}"
           identity_summary="${identity_summary//$'\n'/%0A}"
 
+          configured_identity="${APPLE_SIGNING_IDENTITY:-}"
+          resolved_identity=""
+          if [[ -n "${configured_identity}" ]]; then
+            if [[ -n "${developer_id_identity}" ]] && [[ "${configured_identity}" == "${developer_id_identity}" || "${configured_identity}" == "${developer_id_certificate_name}" ]]; then
+              resolved_identity="${developer_id_certificate_name}"
+            elif [[ -n "${developer_id_identity}" ]]; then
+              echo "::warning title=Configured Apple signing identity was not found::APPLE_SIGNING_IDENTITY does not exactly match an imported Developer ID Application identity. Falling back to the first imported Developer ID Application certificate name."
+            else
+              echo "::warning title=Configured Apple signing identity was not found::APPLE_SIGNING_IDENTITY does not exactly match an imported Developer ID Application identity. Found identities: ${identity_summary}"
+            fi
+          fi
+
+          if [[ -z "${resolved_identity}" ]]; then
+            resolved_identity="${developer_id_certificate_name}"
+          fi
+
           if [[ -z "${resolved_identity}" ]]; then
             echo "::error title=Developer ID Application certificate is required::No Developer ID Application signing identity was found in the imported certificate. Found identities: ${identity_summary}"
             exit 1
           fi
 
           echo "APPLE_SIGNING_IDENTITY_RESOLVED=${resolved_identity}" >> "${GITHUB_ENV}"
-          echo "Resolved Apple signing identity: ${resolved_identity}"
+          echo "Resolved Apple signing certificate name: ${resolved_identity}"
 
       - name: Announce unsigned macOS fallback
         if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome != 'success' }}
@@ -310,9 +310,9 @@ jobs:
         run: npx electron-builder --mac --${{ matrix.arch }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
-          APPLE_API_KEY_ID: ${{ env.APPLE_API_KEY_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_NAME: ${{ env.APPLE_SIGNING_IDENTITY_RESOLVED }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 

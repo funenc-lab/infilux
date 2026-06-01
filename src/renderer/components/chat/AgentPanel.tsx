@@ -95,6 +95,7 @@ import {
 import {
   AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE,
   AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
+  shouldBlockAgentCanvasViewportScroll,
   shouldStartAgentCanvasPan,
 } from './agentCanvasInteractionPolicy';
 import {
@@ -216,6 +217,7 @@ const AGENT_INFO: Record<string, { name: string; command: string }> = Object.fro
     },
   ])
 ) as Record<string, { name: string; command: string }>;
+const STAGED_CANVAS_TERMINAL_MOUNT_BATCH_SIZE = 2;
 
 interface SessionLaunchPolicyDialogState {
   agentId: string;
@@ -714,6 +716,9 @@ export function AgentPanel({
 
   // Global session IDs to keep terminals mounted across group moves
   const [globalSessionIds, setGlobalSessionIds] = useState<Set<string>>(new Set());
+  const [backgroundMountedCanvasSessionIds, setBackgroundMountedCanvasSessionIds] = useState<
+    Set<string>
+  >(new Set());
 
   // Track StatusLine height per group to avoid cross-column races.
   // When split panels render multiple StatusLines, a newly mounted/empty column can report 0,
@@ -1247,6 +1252,23 @@ export function AgentPanel({
     () => canvasSessions.map((session) => session.id),
     [canvasSessions]
   );
+  useEffect(() => {
+    const activeCanvasSessionIds = new Set(canvasSessionIds);
+    setBackgroundMountedCanvasSessionIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+
+      for (const sessionId of current) {
+        if (activeCanvasSessionIds.has(sessionId)) {
+          next.add(sessionId);
+        } else {
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [canvasSessionIds]);
   const agentSessionActiveIds = useAgentSessionsStore((state) => state.activeIds);
   const visibleCanvasRepoPaths = useMemo(() => {
     const repoPaths = new Map<string, string>();
@@ -2739,6 +2761,16 @@ export function AgentPanel({
   }, [isCanvasLocked, setCanvasZoomForCurrentWorktree]);
   const setCanvasLockedForCurrentWorktree = useCallback(
     (locked: boolean) => {
+      if (locked) {
+        const viewport = canvasViewportRef.current;
+        if (viewport) {
+          canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = {
+            left: viewport.scrollLeft,
+            top: viewport.scrollTop,
+          };
+        }
+      }
+
       setCanvasLockedByWorktree((prev) => {
         const current = prev[canvasZoomStorageKey] ?? false;
         if (current === locked) {
@@ -2845,6 +2877,17 @@ export function AgentPanel({
   }, [applyCanvasViewportPosition, canvasZoomStorageKey, isCanvasLocked]);
   const handleCanvasViewportWheel = useCallback(
     (event: ReactWheelEvent<HTMLDivElement>) => {
+      if (
+        shouldBlockAgentCanvasViewportScroll({
+          isCanvasDisplayMode,
+          isCanvasLocked,
+          target: event.target,
+        })
+      ) {
+        event.preventDefault();
+        return;
+      }
+
       if (!(event.metaKey || event.ctrlKey)) {
         return;
       }
@@ -2878,11 +2921,26 @@ export function AgentPanel({
         );
       });
     },
-    [isCanvasLocked, setCanvasZoomForCurrentWorktree]
+    [isCanvasDisplayMode, isCanvasLocked, setCanvasZoomForCurrentWorktree]
   );
   const handleCanvasViewportScroll = useCallback(
     (event: ReactUIEvent<HTMLDivElement>) => {
       if (!isCanvasDisplayMode) {
+        return;
+      }
+
+      if (
+        shouldBlockAgentCanvasViewportScroll({
+          isCanvasDisplayMode,
+          isCanvasLocked,
+          target: event.target,
+        })
+      ) {
+        const savedPosition = canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] ?? {
+          left: event.currentTarget.scrollLeft,
+          top: event.currentTarget.scrollTop,
+        };
+        applyCanvasViewportPosition(event.currentTarget, savedPosition);
         return;
       }
 
@@ -2895,7 +2953,7 @@ export function AgentPanel({
         top: event.currentTarget.scrollTop,
       };
     },
-    [canvasZoomStorageKey, isCanvasDisplayMode]
+    [applyCanvasViewportPosition, canvasZoomStorageKey, isCanvasDisplayMode, isCanvasLocked]
   );
   const setCanvasFloatingSessionIdForCurrentWorktree = useCallback(
     (sessionId: string | null) => {
@@ -3922,6 +3980,96 @@ export function AgentPanel({
       shouldSuppressWorkspaceCanvasPanel,
     ]
   );
+  const mountedCurrentWorktreeSessionIdSet = useMemo(
+    () => new Set(mountedCurrentWorktreeSessionIds),
+    [mountedCurrentWorktreeSessionIds]
+  );
+  const stagedCanvasMountSessionIds = useMemo(() => {
+    if (!isCanvasDisplayMode) {
+      return mountedCurrentWorktreeSessionIds;
+    }
+
+    const stagedIds = new Set(mountedCurrentWorktreeSessionIds);
+    for (const sessionId of backgroundMountedCanvasSessionIds) {
+      if (canvasSessionIds.includes(sessionId)) {
+        stagedIds.add(sessionId);
+      }
+    }
+
+    return canvasSessionIds.filter((sessionId) => stagedIds.has(sessionId));
+  }, [
+    backgroundMountedCanvasSessionIds,
+    canvasSessionIds,
+    isCanvasDisplayMode,
+    mountedCurrentWorktreeSessionIds,
+  ]);
+  useEffect(() => {
+    if (!isCanvasDisplayMode || shouldSuppressWorkspaceCanvasPanel) {
+      setBackgroundMountedCanvasSessionIds((current) =>
+        current.size === 0 ? current : new Set<string>()
+      );
+      return;
+    }
+
+    const deferredSessionIds = canvasSessionIds.filter(
+      (sessionId) =>
+        !mountedCurrentWorktreeSessionIdSet.has(sessionId) &&
+        !backgroundMountedCanvasSessionIds.has(sessionId)
+    );
+    if (deferredSessionIds.length === 0) {
+      return;
+    }
+
+    let frameId: number | null = null;
+    let cancelled = false;
+    const mountNextBatch = () => {
+      frameId = null;
+      if (cancelled) {
+        return;
+      }
+
+      setBackgroundMountedCanvasSessionIds((current) => {
+        const activeCanvasSessionIds = new Set(canvasSessionIds);
+        const remainingSessionIds = canvasSessionIds.filter(
+          (sessionId) =>
+            !mountedCurrentWorktreeSessionIdSet.has(sessionId) && !current.has(sessionId)
+        );
+
+        if (remainingSessionIds.length === 0) {
+          return current;
+        }
+
+        const next = new Set<string>();
+        for (const sessionId of current) {
+          if (activeCanvasSessionIds.has(sessionId)) {
+            next.add(sessionId);
+          }
+        }
+        for (
+          let index = 0;
+          index < Math.min(STAGED_CANVAS_TERMINAL_MOUNT_BATCH_SIZE, remainingSessionIds.length);
+          index += 1
+        ) {
+          next.add(remainingSessionIds[index]);
+        }
+        return next;
+      });
+    };
+
+    frameId = requestAnimationFrame(mountNextBatch);
+    return () => {
+      cancelled = true;
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, [
+    backgroundMountedCanvasSessionIds,
+    canvasSessionIds,
+    isCanvasDisplayMode,
+    mountedCurrentWorktreeSessionIdSet,
+    shouldSuppressWorkspaceCanvasPanel,
+  ]);
   const sessionById = useMemo(
     () => new Map(allSessions.map((session) => [session.id, session])),
     [allSessions]
@@ -4008,7 +4156,7 @@ export function AgentPanel({
 
   // Get current worktree's group positions for terminal placement
   const currentGroupPositions = resolveAgentGroupPositions(currentGroupState);
-  const renderedSessionPanels = mountedCurrentWorktreeSessionIds.map((sessionId) => {
+  const renderedSessionPanels = stagedCanvasMountSessionIds.map((sessionId) => {
     const session = sessionById.get(sessionId);
     if (!session) return null;
 
@@ -4260,6 +4408,11 @@ export function AgentPanel({
             recoveryState={session.recoveryState}
             isActive={isTerminalActive}
             isVisible={isTerminalVisible}
+            layoutRefreshKey={
+              isCanvasDisplayMode
+                ? `${isCanvasFloatingSession ? 'floating' : 'tile'}:${sessionContentHost ? 'host' : 'inline'}:${canvasFloatingFrame ? 'frame' : 'pending'}`
+                : undefined
+            }
             terminalFontScale={
               isCanvasFloatingSession
                 ? canvasFloatingTerminalFontScale
@@ -4525,7 +4678,7 @@ export function AgentPanel({
     );
   });
   const renderedSessionPanelById = new Map<string, React.ReactNode>();
-  mountedCurrentWorktreeSessionIds.forEach((sessionId, index) => {
+  stagedCanvasMountSessionIds.forEach((sessionId, index) => {
     const panel = renderedSessionPanels[index];
     if (panel) {
       renderedSessionPanelById.set(sessionId, panel);

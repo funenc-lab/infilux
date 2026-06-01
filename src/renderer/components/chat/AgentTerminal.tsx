@@ -57,6 +57,7 @@ import {
   mergeAgentAttachments,
   resolveAgentAttachmentSendDelay,
 } from './agentAttachmentTrayModel';
+import { AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE } from './agentCanvasInteractionPolicy';
 import {
   buildAgentCapabilityLaunchMetadata,
   extractAgentCapabilitySessionMetadata,
@@ -76,6 +77,7 @@ import {
   AGENT_STARTUP_STALL_THRESHOLD_MS,
   resolveAgentStartupOverlayPresentation,
 } from './agentStartupOverlay';
+import { shouldShowAgentStartupOverlayForVisibility } from './agentStartupVisibilityPolicy';
 import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActivityPollingPolicy';
 import { resolveAgentTerminalAttachmentInsertDisposition } from './agentTerminalAttachmentInsertPolicy';
 import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
@@ -85,7 +87,11 @@ import {
   isAgentTerminalInterruptKeyEvent,
   shouldForceAgentTerminalIdleAfterInterrupt,
 } from './agentTerminalInterruptPolicy';
-import { appendRecentAgentOutput, resolveCopyableAgentOutputBlock } from './agentTerminalOutput';
+import {
+  appendRecentAgentOutput,
+  hasRenderableAgentTerminalOutput,
+  resolveCopyableAgentOutputBlock,
+} from './agentTerminalOutput';
 import { shouldRetryDeadAgentSession } from './agentTerminalRecoveryPolicy';
 import { formatAgentTranscriptForTerminal } from './agentTranscriptTerminalFormat';
 import { extractClaudePolicySessionMetadata } from './claudePolicyLaunch';
@@ -122,6 +128,7 @@ interface AgentTerminalProps {
   sessionPolicy?: ClaudePolicyConfig | null;
   materializationMode?: ClaudePolicyMaterializationMode;
   canMerge?: boolean; // whether merge option should be enabled (has multiple groups)
+  layoutRefreshKey?: string;
   /**
    * When provided, Enhanced Input open state is controlled by parent (e.g. AgentPanel store).
    * When omitted, AgentTerminal falls back to its own local state.
@@ -236,6 +243,7 @@ export function AgentTerminal({
   sessionPolicy,
   materializationMode,
   canMerge = false,
+  layoutRefreshKey,
   enhancedInputOpen: externalEnhancedInputOpen,
   onEnhancedInputOpenChange,
   onInitialized,
@@ -300,6 +308,9 @@ export function AgentTerminal({
   const [claudeIdeStatus, setClaudeIdeStatus] = useState<ClaudeIdeBridgeStatus | null>(null);
   const [claudeWorkspaceTrusted, setClaudeWorkspaceTrusted] = useState<boolean | null>(null);
   const [startupProbeRetryNonce, setStartupProbeRetryNonce] = useState(0);
+  const [hasRenderableTerminalOutput, setHasRenderableTerminalOutput] = useState(() =>
+    hasRenderableAgentTerminalOutput(replaySnapshot ?? '')
+  );
 
   // Resolved shell for command execution
   const [resolvedShell, setResolvedShell] = useState<{
@@ -523,6 +534,8 @@ export function AgentTerminal({
   const consecutiveIdleCountRef = useRef(0); // Count consecutive idle polls
   const ptyIdRef = useRef<string | null>(null); // Store PTY ID for activity checks
   const isActiveRef = useRef(isActive); // Track latest isActive value for interval callback
+  const hasObservedLayoutRefreshKeyRef = useRef(false);
+  const previousLayoutRefreshKeyRef = useRef<string | undefined>(layoutRefreshKey);
   const lastCommandWasSlashCommand = useRef(false); // Track if last command was a slash command
   const pendingTerminalAttachmentInsertRef = useRef<AgentAttachmentItem[]>([]);
   const interruptIdleResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -580,6 +593,9 @@ export function AgentTerminal({
     : localEnhancedInputOpen;
   const waitingForInput = useAgentSessionsStore(
     (state) => state.runtimeStates[terminalSessionId ?? '']?.waitingForInput ?? false
+  );
+  const lastSessionActivityAt = useAgentSessionsStore(
+    (state) => state.runtimeStates[terminalSessionId ?? '']?.lastActivityAt
   );
   const setEnhancedInputOpen = useCallback(
     (open: boolean) => {
@@ -1275,6 +1291,12 @@ export function AgentTerminal({
         outputBufferRef.current = outputBufferRef.current.slice(-500);
       }
       currentOutputBlockRef.current = appendRecentAgentOutput(currentOutputBlockRef.current, data);
+      if (
+        !hasRenderableTerminalOutput &&
+        hasRenderableAgentTerminalOutput(currentOutputBlockRef.current)
+      ) {
+        setHasRenderableTerminalOutput(true);
+      }
 
       if (
         claudeWorkspaceTrusted === true &&
@@ -1363,6 +1385,7 @@ export function AgentTerminal({
       agentNotificationEnabled,
       agentNotificationDelay,
       agentIntegration.stopHookEnabled,
+      hasRenderableTerminalOutput,
       scheduleInterruptOutputStateReset,
       terminalSessionId,
       t,
@@ -1551,6 +1574,7 @@ export function AgentTerminal({
     findPrevious,
     searchState,
     clearSearch,
+    fit: fitTerminalLayout,
     terminal,
     clear,
     refreshRenderer,
@@ -1639,6 +1663,30 @@ export function AgentTerminal({
   useEffect(() => {
     onRuntimeStateChange?.(runtimeState);
   }, [onRuntimeStateChange, runtimeState]);
+
+  useEffect(() => {
+    const previousLayoutRefreshKey = previousLayoutRefreshKeyRef.current;
+    previousLayoutRefreshKeyRef.current = layoutRefreshKey;
+
+    if (!hasObservedLayoutRefreshKeyRef.current) {
+      hasObservedLayoutRefreshKeyRef.current = true;
+      return;
+    }
+
+    if (!layoutRefreshKey || previousLayoutRefreshKey === layoutRefreshKey) {
+      return;
+    }
+
+    const frameId = requestAnimationFrame(() => {
+      fitTerminalLayout();
+      refreshRenderer();
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [fitTerminalLayout, layoutRefreshKey, refreshRenderer]);
+
   const terminalOverlayState = isReadOnlyTranscript
     ? null
     : resolveTerminalRuntimeOverlayState({
@@ -1649,15 +1697,27 @@ export function AgentTerminal({
   const isAgentStartupReadinessPending = !isReadOnlyTranscript && !isAgentStartupReady;
   const isAgentStartupActivationPending =
     !isReadOnlyTranscript && runtimeState === 'live' && terminal === null;
+  const hasAgentStartupRenderableContent =
+    isReadOnlyTranscript ||
+    hasRenderableTerminalOutput ||
+    hasRenderableAgentTerminalOutput(replaySnapshot ?? '');
   const isAgentStartupFirstOutputPending =
-    !isReadOnlyTranscript && runtimeState === 'live' && initialized === false && !recovered;
+    !isReadOnlyTranscript && runtimeState === 'live' && !hasAgentStartupRenderableContent;
   const shouldShowAgentStartupOverlay =
     !isReadOnlyTranscript &&
-    isTerminalStartupVisible &&
-    (isLoading ||
-      isAgentStartupReadinessPending ||
-      isAgentStartupActivationPending ||
-      isAgentStartupFirstOutputPending);
+    shouldShowAgentStartupOverlayForVisibility({
+      createdAt,
+      hasPendingCommand,
+      hasRenderableContent: hasAgentStartupRenderableContent,
+      isActive,
+      isFirstOutputPending: isAgentStartupFirstOutputPending,
+      isLoading,
+      isReadinessPending: isAgentStartupReadinessPending,
+      isTerminalActivationPending: isAgentStartupActivationPending,
+      isVisible: isTerminalStartupVisible,
+      lastActivityAt: lastSessionActivityAt,
+      recoveryState,
+    });
   const [isAgentStartupStalled, setIsAgentStartupStalled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchBarRef = useRef<TerminalSearchBarRef>(null);
@@ -1787,7 +1847,16 @@ export function AgentTerminal({
     previousOutputBlockScopeKeyRef.current = nextOutputBlockScopeKey;
     currentOutputBlockRef.current = '';
     latestCompletedOutputBlockRef.current = '';
-  }, [backendSessionId, terminalSessionId]);
+    setHasRenderableTerminalOutput(hasRenderableAgentTerminalOutput(replaySnapshot ?? ''));
+  }, [backendSessionId, replaySnapshot, terminalSessionId]);
+
+  useEffect(() => {
+    if (hasRenderableTerminalOutput || !hasRenderableAgentTerminalOutput(replaySnapshot ?? '')) {
+      return;
+    }
+
+    setHasRenderableTerminalOutput(true);
+  }, [hasRenderableTerminalOutput, replaySnapshot]);
 
   // Handle Cmd+F / Ctrl+F
   const handleKeyDown = useCallback(
@@ -2043,6 +2112,7 @@ export function AgentTerminal({
       ref={terminalWrapperRef}
       className="relative h-full w-full"
       data-agent-terminal-mode={isReadOnlyTranscript ? 'transcript' : 'live'}
+      {...{ [AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE]: 'true' }}
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}
       onClick={handleClick}
     >

@@ -18,11 +18,13 @@ const settingsTestDoubles = vi.hoisted(() => {
     toggleClaudeProviderWatcher: vi.fn(),
     existsSync: vi.fn(),
     readFileSync: vi.fn(),
+    appGetPath: vi.fn(),
   };
 });
 
 vi.mock('electron', () => ({
   app: {
+    getPath: settingsTestDoubles.appGetPath,
     on: vi.fn((event: string, handler: () => void) => {
       if (event === 'before-quit') {
         settingsTestDoubles.setBeforeQuitHandler(handler);
@@ -69,6 +71,8 @@ describe('main settings handlers', () => {
     settingsTestDoubles.toggleClaudeProviderWatcher.mockReset();
     settingsTestDoubles.existsSync.mockReset();
     settingsTestDoubles.readFileSync.mockReset();
+    settingsTestDoubles.appGetPath.mockReset();
+    settingsTestDoubles.appGetPath.mockReturnValue('/Users/electron-home');
   });
 
   afterEach(() => {
@@ -356,6 +360,7 @@ describe('main settings handlers', () => {
           localStorage: {
             'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
             'enso-selected-repo': '/repo/demo',
+            'third-party-cache': 'must-not-cross-ipc',
           },
         });
       }
@@ -421,6 +426,7 @@ describe('main settings handlers', () => {
           localStorage: {
             'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
             'enso-selected-repo': '/repo/demo',
+            'third-party-cache': 'must-not-cross-ipc',
           },
         });
       }
@@ -577,6 +583,62 @@ describe('main settings handlers', () => {
     });
   });
 
+  it('filters unsupported legacy localStorage keys from preview diffs', async () => {
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'dark',
+        },
+      },
+    });
+    settingsTestDoubles.getSharedLocalStorageSnapshot.mockReturnValue({});
+    settingsTestDoubles.readFileSync.mockImplementation((targetPath: string) => {
+      if (targetPath === '/tmp/importable-settings.json') {
+        return JSON.stringify({
+          'enso-settings': {
+            state: {
+              theme: 'dark',
+            },
+          },
+        });
+      }
+
+      if (targetPath === '/tmp/session-state.json') {
+        return JSON.stringify({
+          localStorage: {
+            'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
+            'unsupported-key': 'must-not-preview',
+          },
+        });
+      }
+
+      throw new Error(`Unexpected read path: ${targetPath}`);
+    });
+
+    const { registerSettingsHandlers } = await import('../settings');
+    registerSettingsHandlers();
+
+    const previewHandler = settingsTestDoubles.handlers.get(
+      IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_PREVIEW
+    );
+
+    await expect(previewHandler?.({}, '/tmp/importable-settings.json')).resolves.toEqual({
+      sourcePath: '/tmp/importable-settings.json',
+      importable: true,
+      diffCount: 1,
+      diffs: [
+        {
+          path: 'localStorage.enso-repositories',
+          currentValue: 'Not set',
+          importedValue:
+            '"[{\\"path\\":\\"/repo/demo\\",\\"name\\":\\"demo\\",\\"id\\":\\"local:/repo/demo\\"}]"',
+        },
+      ],
+      truncated: false,
+      error: undefined,
+    });
+  });
+
   it('falls back to the LevelDB localStorage snapshot when no session-state snapshot exists', async () => {
     vi.doMock('../../services/settings/legacyImport', async () => {
       const actual = await vi.importActual<typeof import('../../services/settings/legacyImport')>(
@@ -672,6 +734,60 @@ describe('main settings handlers', () => {
 
       expect(await previewHandler?.({})).toEqual({
         sourcePath: '/Users/tester/.ensoai/settings.json',
+        importable: true,
+        diffCount: 1,
+        diffs: [
+          {
+            path: 'theme',
+            currentValue: '"system"',
+            importedValue: '"dark"',
+          },
+        ],
+        truncated: false,
+        error: undefined,
+      });
+    } finally {
+      process.env.HOME = previousHome;
+    }
+  });
+
+  it('uses the Electron home path when environment-based automatic legacy discovery misses', async () => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = '/Users/env-home';
+    settingsTestDoubles.appGetPath.mockImplementation((name: string) => {
+      expect(name).toBe('home');
+      return '/Users/electron-home';
+    });
+    settingsTestDoubles.readSharedSettings.mockReturnValue({
+      'enso-settings': {
+        state: {
+          theme: 'system',
+        },
+      },
+    });
+    settingsTestDoubles.existsSync.mockImplementation(
+      (candidatePath: string) => candidatePath === '/Users/electron-home/.ensoai/settings.json'
+    );
+    settingsTestDoubles.readFileSync.mockReturnValue(
+      JSON.stringify({
+        'enso-settings': {
+          state: {
+            theme: 'dark',
+          },
+        },
+      })
+    );
+
+    try {
+      const { registerSettingsHandlers } = await import('../settings');
+      registerSettingsHandlers();
+
+      const previewHandler = settingsTestDoubles.handlers.get(
+        IPC_CHANNELS.SETTINGS_IMPORT_LEGACY_AUTO_PREVIEW
+      );
+
+      expect(await previewHandler?.({})).toEqual({
+        sourcePath: '/Users/electron-home/.ensoai/settings.json',
         importable: true,
         diffCount: 1,
         diffs: [

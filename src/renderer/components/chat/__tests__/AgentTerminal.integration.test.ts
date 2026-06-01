@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_STARTUP_STALL_THRESHOLD_MS } from '../agentStartupOverlay';
+import { AGENT_STARTUP_RECOVERY_INACTIVITY_THRESHOLD_MS } from '../agentStartupVisibilityPolicy';
 
 type AgentTerminalModule = typeof import('../AgentTerminal');
 type AgentTerminalProps = React.ComponentProps<AgentTerminalModule['AgentTerminal']>;
@@ -51,6 +52,7 @@ const testState = vi.hoisted(() => ({
     },
     clearSearch: vi.fn(),
     clear: vi.fn(),
+    fit: vi.fn(),
     refreshRenderer: vi.fn(),
     restartSession: vi.fn(),
     write: vi.fn(),
@@ -60,7 +62,7 @@ const testState = vi.hoisted(() => ({
     unregister: vi.fn(),
   },
   agentSessionsStore: {
-    runtimeStates: {} as Record<string, { waitingForInput?: boolean }>,
+    runtimeStates: {} as Record<string, { lastActivityAt?: number; waitingForInput?: boolean }>,
     setOutputState: vi.fn(),
     markSessionActive: vi.fn(),
     clearRuntimeState: vi.fn(),
@@ -342,6 +344,7 @@ describe('AgentTerminal integration', () => {
     };
     testState.xtermResult.clearSearch.mockReset();
     testState.xtermResult.clear.mockReset();
+    testState.xtermResult.fit.mockReset();
     testState.xtermResult.refreshRenderer.mockReset();
     testState.xtermResult.restartSession.mockReset();
     testState.xtermResult.write.mockReset();
@@ -590,8 +593,31 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
-  it('shows the startup overlay for visible inactive agent terminals while shell resolution is pending', async () => {
+  it('does not show the startup overlay for recently active visible inactive terminals while shell resolution is pending', async () => {
     testState.electronAPI.shellResolveForCommand.mockReturnValue(new Promise(() => undefined));
+    testState.agentSessionsStore.runtimeStates = {
+      'ui-session-1': {
+        lastActivityAt: Date.now(),
+      },
+    };
+
+    const mounted = await mountAgentTerminal({
+      isActive: false,
+      isVisible: true,
+    });
+
+    expect(mounted.container.textContent).not.toContain('Preparing runtime');
+
+    await mounted.unmount();
+  });
+
+  it('shows the startup overlay for long-inactive visible inactive terminals while shell resolution is pending', async () => {
+    testState.electronAPI.shellResolveForCommand.mockReturnValue(new Promise(() => undefined));
+    testState.agentSessionsStore.runtimeStates = {
+      'ui-session-1': {
+        lastActivityAt: Date.now() - AGENT_STARTUP_RECOVERY_INACTIVITY_THRESHOLD_MS,
+      },
+    };
 
     const mounted = await mountAgentTerminal({
       isActive: false,
@@ -603,7 +629,25 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
-  it('falls back to a default command shell when shell resolution fails', async () => {
+  it('does not show the startup overlay for recently active visible inactive terminals while awaiting first output', async () => {
+    testState.agentSessionsStore.runtimeStates = {
+      'ui-session-1': {
+        lastActivityAt: Date.now(),
+      },
+    };
+
+    const mounted = await mountAgentTerminal({
+      initialized: false,
+      isActive: false,
+      isVisible: true,
+    });
+
+    expect(mounted.container.textContent).not.toContain('Preparing runtime');
+
+    await mounted.unmount();
+  });
+
+  it('keeps startup feedback visible after falling back to a default command shell', async () => {
     testState.electronAPI.shellResolveForCommand.mockRejectedValue(
       new Error('shell resolver failed')
     );
@@ -615,7 +659,8 @@ describe('AgentTerminal integration', () => {
 
     const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
 
-    expect(overlay).toBeNull();
+    expect(overlay).not.toBeNull();
+    expect(overlay?.textContent).toContain('Preparing runtime');
     expect(testState.useXtermOptions.length).toBeGreaterThan(1);
 
     await mounted.unmount();
@@ -689,6 +734,16 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('marks the terminal wrapper as a canvas scroll surface', async () => {
+    const mounted = await mountAgentTerminal();
+
+    expect(
+      mounted.container.querySelector('[data-agent-canvas-scroll-surface="true"]')
+    ).not.toBeNull();
+
+    await mounted.unmount();
+  });
+
   it('does not show the startup overlay for inactive agent terminals that are still loading', async () => {
     testState.xtermResult.isLoading = true;
 
@@ -724,6 +779,20 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('does not cover active loading terminals when replay content is available', async () => {
+    testState.xtermResult.isLoading = true;
+
+    const mounted = await mountAgentTerminal({
+      replaySnapshot: 'previous terminal output',
+    });
+
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay).toBeNull();
+
+    await mounted.unmount();
+  });
+
   it('renders the startup overlay for active new sessions before xterm reports loading', async () => {
     testState.terminalInstance = null;
 
@@ -746,6 +815,23 @@ describe('AgentTerminal integration', () => {
   it('keeps the startup overlay visible for active new sessions after xterm attaches but before first output', async () => {
     const mounted = await mountAgentTerminal({
       initialized: false,
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
+
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('data-agent-terminal-startup-state')).toBe('starting');
+    expect(overlay?.textContent).toContain('Preparing runtime');
+
+    await mounted.unmount();
+  });
+
+  it('keeps the startup overlay visible when initialization has not produced readable output', async () => {
+    const mounted = await mountAgentTerminal({
+      initialized: true,
     });
     await act(async () => {
       await flushMicrotasks();
@@ -831,7 +917,7 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
-  it('clears the startup overlay when the hapi availability probe fails', async () => {
+  it('keeps startup feedback visible while the hapi fallback waits for readable output', async () => {
     testState.electronAPI.hapiCheckGlobal.mockRejectedValue(new Error('hapi probe failed'));
 
     const mounted = await mountAgentTerminal({
@@ -843,7 +929,8 @@ describe('AgentTerminal integration', () => {
 
     const overlay = mounted.container.querySelector('[data-agent-terminal-startup-overlay="true"]');
 
-    expect(overlay).toBeNull();
+    expect(overlay).not.toBeNull();
+    expect(overlay?.textContent).toContain('Preparing runtime');
 
     await mounted.unmount();
   });
@@ -1194,6 +1281,24 @@ describe('AgentTerminal integration', () => {
 
     expect(onFocus).not.toHaveBeenCalled();
     expect(testState.terminal.focus).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('refreshes xterm layout when the terminal content host moves', async () => {
+    const mounted = await mountAgentTerminal({
+      layoutRefreshKey: 'tile',
+    } as Partial<AgentTerminalProps>);
+
+    expect(testState.xtermResult.fit).not.toHaveBeenCalled();
+    expect(testState.xtermResult.refreshRenderer).not.toHaveBeenCalled();
+
+    await mounted.rerender({
+      layoutRefreshKey: 'floating',
+    } as Partial<AgentTerminalProps>);
+
+    expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });

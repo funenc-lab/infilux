@@ -8,7 +8,7 @@ import {
   type UpdateStatus,
 } from '@shared/types';
 import type { BrowserWindow } from 'electron';
-import electronUpdater, { type UpdateInfo } from 'electron-updater';
+import electronUpdater, { type UpdateCheckResult, type UpdateInfo } from 'electron-updater';
 
 import log from '../../utils/logger';
 import { applyProxy, registerUpdaterSession } from '../proxy/ProxyConfig';
@@ -129,7 +129,8 @@ class AutoUpdaterService {
     }
     try {
       this.lastCheckTime = Date.now();
-      await autoUpdater.checkForUpdates();
+      const result = await autoUpdater.checkForUpdates();
+      this.observeDownloadPromise(result);
     } catch (error) {
       if (isMissingUpdaterConfigError(error)) {
         this.disableUnsupportedUpdater();
@@ -144,6 +145,7 @@ class AutoUpdaterService {
       await autoUpdater.downloadUpdate();
     } catch (error) {
       console.error('Failed to download update:', error);
+      this.handleDownloadFailure(error);
       throw error;
     }
   }
@@ -156,7 +158,13 @@ class AutoUpdaterService {
 
     this._isQuittingForUpdate = true;
     log.info('[updater] Starting quitAndInstall restart flow');
-    autoUpdater.quitAndInstall();
+    autoUpdater.autoInstallOnAppQuit = false;
+    try {
+      autoUpdater.quitAndInstall();
+    } catch (error) {
+      console.error('Failed to restart and install update:', error);
+      this.handleDownloadFailure(error);
+    }
   }
 
   isUpdateDownloaded(): boolean {
@@ -237,6 +245,7 @@ class AutoUpdaterService {
 
     autoUpdater.on('update-downloaded', (info) => {
       this.updateDownloaded = true;
+      autoUpdater.autoInstallOnAppQuit = this.autoUpdateEnabled;
       // Stop all future update checks to prevent race conditions
       this.clearScheduledChecks();
       log.info('[updater] Update downloaded and ready to install', {
@@ -246,10 +255,33 @@ class AutoUpdaterService {
     });
 
     autoUpdater.on('error', (error) => {
-      this.sendStatus({ status: 'error', error: error.message });
+      if (this.updateDownloaded && !this._isQuittingForUpdate) {
+        return;
+      }
+      this.handleDownloadFailure(error);
     });
 
     this.updaterEventsBound = true;
+  }
+
+  private observeDownloadPromise(result: UpdateCheckResult | null): void {
+    const downloadPromise = result?.downloadPromise;
+    if (!downloadPromise) {
+      return;
+    }
+
+    void downloadPromise.catch((error: unknown) => {
+      console.error('Failed to download update:', error);
+      this.handleDownloadFailure(error);
+    });
+  }
+
+  private handleDownloadFailure(error: unknown): void {
+    const message = getErrorMessage(error);
+    this.updateDownloaded = false;
+    this._isQuittingForUpdate = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    this.sendStatus({ status: 'error', error: message });
   }
 
   private clearScheduledChecks(): void {
@@ -289,6 +321,18 @@ function isMissingUpdaterConfigError(error: unknown): boolean {
   const nodeError = error as NodeJS.ErrnoException;
   const message = error instanceof Error ? error.message : '';
   return nodeError?.code === 'ENOENT' && message.includes('app-update.yml');
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  return 'Update download failed.';
 }
 
 function hasPackagedUpdaterConfig(): boolean {

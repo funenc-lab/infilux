@@ -527,6 +527,36 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('cancels buffered terminal writes when unmounted before the flush timer runs', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'stale output\n',
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+  });
+
   it('does not auto-start from initialCommand while inactive when that activation path is disabled', async () => {
     const mounted = mountHookHarness({
       isActive: false,
