@@ -46,6 +46,31 @@ describe('resolveAgentTerminalLaunchPlan', () => {
     });
   });
 
+  it('prepares a fresh hostless fallback when recovered codex tmux has no provider session id', () => {
+    const result = resolveAgentTerminalLaunchPlan({
+      ...baseInput,
+      resumeSessionId: 'ui-session-1',
+      recoveryState: 'live',
+      shouldBypassHostSessionRecovery: false,
+    });
+
+    expect(result.hostSession).toEqual({
+      kind: 'tmux',
+      serverName: 'infilux',
+      sessionName: 'infilux-ui-session-1',
+      mode: 'attach-existing',
+    });
+    expect(result.sessionCreateFallback?.hostSession).toBeUndefined();
+    expect(result.sessionCreateFallback?.command).toEqual({
+      shell: 'codex',
+      args: [],
+      fallbackCommand: {
+        shell: '/bin/zsh',
+        args: ['-lc', 'codex'],
+      },
+    });
+  });
+
   it('does not attach a missing recovered tmux host session while provider validation is pending', () => {
     const result = resolveAgentTerminalLaunchPlan({
       ...baseInput,

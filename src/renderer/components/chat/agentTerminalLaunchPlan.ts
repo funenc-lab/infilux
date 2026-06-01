@@ -30,6 +30,29 @@ function toXtermCommand(
   return command ? { ...command, fallbackCommand } : undefined;
 }
 
+function buildHostlessFallbackPlan(
+  launchParams: BuildAgentLaunchPlanParams
+): ReturnType<typeof buildAgentLaunchPlan> {
+  const hostlessPlan = buildAgentLaunchPlan({
+    ...launchParams,
+    persistentHostSessionAvailable: false,
+  });
+  if (hostlessPlan.command || hostlessPlan.initialCommand) {
+    return hostlessPlan;
+  }
+
+  if (launchParams.agentCommand !== 'codex' || !launchParams.initialized) {
+    return hostlessPlan;
+  }
+
+  return buildAgentLaunchPlan({
+    ...launchParams,
+    initialized: false,
+    resumeSessionId: undefined,
+    persistentHostSessionAvailable: false,
+  });
+}
+
 export function resolveAgentTerminalLaunchPlan({
   isReadOnlyTranscript,
   recoveryState,
@@ -50,10 +73,7 @@ export function resolveAgentTerminalLaunchPlan({
 
   let sessionCreateFallback: XtermSessionCreateFallbackOptions | undefined;
   if (persistentHostSessionAvailable && primaryPlan.hostSession?.kind === 'tmux') {
-    const hostlessPlan = buildAgentLaunchPlan({
-      ...launchParams,
-      persistentHostSessionAvailable: false,
-    });
+    const hostlessPlan = buildHostlessFallbackPlan(launchParams);
 
     if ((hostlessPlan.command || hostlessPlan.initialCommand) && !hostlessPlan.hostSession) {
       sessionCreateFallback = {
