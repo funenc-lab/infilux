@@ -57,7 +57,7 @@ import {
   shouldRetrySessionCreateWithoutHost,
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions } from './xtermTerminalOptions';
-import { focusXtermTextInput } from './xtermTextInputFocus';
+import { focusXtermTextInput, installXtermImeFocusBridge } from './xtermTextInputFocus';
 import { syncXtermViewportToSession } from './xtermViewportSync';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
@@ -324,6 +324,7 @@ export function useXterm({
   const ptyIdRef = useRef<string | null>(null);
   const sessionEventsCleanupRef = useRef<(() => void) | null>(null);
   const terminalInputCleanupRef = useRef<{ dispose: () => void } | null>(null);
+  const terminalImeFocusCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const transcriptModeCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<{ dispose: () => void } | null>(null);
@@ -1021,6 +1022,7 @@ export function useXterm({
           window.electronAPI.session.write(ptyIdRef.current, data);
         }
       });
+      terminalImeFocusCleanupRef.current = installXtermImeFocusBridge(terminal);
 
       searchAddon.onDidChangeResults((result: InternalTerminalSearchResultChange) => {
         setSearchState(createTerminalSearchState(result));
@@ -1748,6 +1750,8 @@ export function useXterm({
       sessionEventsCleanupRef.current = null;
       terminalInputCleanupRef.current?.dispose();
       terminalInputCleanupRef.current = null;
+      terminalImeFocusCleanupRef.current?.dispose();
+      terminalImeFocusCleanupRef.current = null;
       transcriptModeCleanupRef.current?.dispose();
       transcriptModeCleanupRef.current = null;
       if (ptyIdRef.current) {

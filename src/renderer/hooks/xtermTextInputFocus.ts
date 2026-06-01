@@ -3,6 +3,11 @@ import type { Terminal } from '@xterm/xterm';
 const XTERM_TEXTAREA_SELECTOR =
   'textarea.xterm-helper-textarea, textarea[aria-label="Terminal input"], textarea';
 const IME_PRIMER_SELECTOR = 'textarea[data-infilux-ime-primer="true"]';
+const PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE = 'data-infilux-programmatic-xterm-focus';
+
+interface FocusXtermTextInputOptions {
+  forceImePrime?: boolean;
+}
 
 function isHtmlTextarea(value: unknown): value is HTMLTextAreaElement {
   return value instanceof HTMLTextAreaElement;
@@ -72,6 +77,15 @@ function focusWithoutScroll(textarea: HTMLTextAreaElement): void {
   textarea.focus({ preventScroll: true });
 }
 
+function focusXtermTextareaWithoutRearmingBridge(textarea: HTMLTextAreaElement): void {
+  textarea.setAttribute(PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE, 'true');
+  try {
+    focusWithoutScroll(textarea);
+  } finally {
+    textarea.removeAttribute(PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE);
+  }
+}
+
 function requestDocumentAnimationFrame(document: Document, callback: () => void): void {
   const requestFrame =
     document.defaultView?.requestAnimationFrame ?? globalThis.requestAnimationFrame;
@@ -83,7 +97,10 @@ function requestDocumentAnimationFrame(document: Document, callback: () => void)
   globalThis.setTimeout(callback, 0);
 }
 
-export function focusXtermTextInput(terminal: Terminal | null | undefined): void {
+export function focusXtermTextInput(
+  terminal: Terminal | null | undefined,
+  options: FocusXtermTextInputOptions = {}
+): void {
   if (!terminal) {
     return;
   }
@@ -97,13 +114,13 @@ export function focusXtermTextInput(terminal: Terminal | null | undefined): void
 
   prepareTextareaForIme(textarea);
 
-  if (textarea.ownerDocument.activeElement === textarea) {
+  if (!options.forceImePrime && textarea.ownerDocument.activeElement === textarea) {
     return;
   }
 
   const primer = resolveImePrimer(textarea.ownerDocument);
   if (!primer || primer.disabled) {
-    focusWithoutScroll(textarea);
+    focusXtermTextareaWithoutRearmingBridge(textarea);
     return;
   }
 
@@ -117,6 +134,48 @@ export function focusXtermTextInput(terminal: Terminal | null | undefined): void
 
     terminal.focus();
     prepareTextareaForIme(textarea);
-    focusWithoutScroll(textarea);
+    focusXtermTextareaWithoutRearmingBridge(textarea);
   });
+}
+
+export function installXtermImeFocusBridge(terminal: Terminal | null | undefined): {
+  dispose: () => void;
+} {
+  if (!terminal) {
+    return { dispose: () => undefined };
+  }
+
+  const textarea = resolveXtermTextarea(terminal);
+  if (!textarea) {
+    return { dispose: () => undefined };
+  }
+
+  let isRearmingImeFocus = false;
+  const releaseRearmGuard = () => {
+    requestDocumentAnimationFrame(textarea.ownerDocument, () => {
+      isRearmingImeFocus = false;
+    });
+  };
+
+  const handleFocusIn = () => {
+    if (textarea.getAttribute(PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE) === 'true') {
+      return;
+    }
+
+    if (isRearmingImeFocus) {
+      return;
+    }
+
+    isRearmingImeFocus = true;
+    focusXtermTextInput(terminal, { forceImePrime: true });
+    releaseRearmGuard();
+  };
+
+  textarea.addEventListener('focusin', handleFocusIn);
+
+  return {
+    dispose: () => {
+      textarea.removeEventListener('focusin', handleFocusIn);
+    },
+  };
 }
