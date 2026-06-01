@@ -77,6 +77,10 @@ import {
   type TerminalRenderer,
   useSettingsStore,
 } from '@/stores/settings';
+import {
+  WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT_OPTIONS,
+  WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT_OPTIONS,
+} from '@/stores/settings/canvasTerminalMountLimitPolicy';
 import { CHAT_PANEL_INACTIVITY_THRESHOLD_OPTIONS } from '@/stores/settings/chatPanelInactivityThresholdPolicy';
 import { TERMINAL_SCROLLBACK_OPTIONS } from '@/stores/settings/terminalScrollbackPolicy';
 import { buildLogDiagnosticsModel } from './logDiagnosticsModel';
@@ -197,6 +201,10 @@ export function GeneralSettings() {
     setRepositoryListDisplayMode,
     agentSessionDisplayMode,
     setAgentSessionDisplayMode,
+    worktreeCanvasTerminalMountLimit,
+    setWorktreeCanvasTerminalMountLimit,
+    workspaceCanvasTerminalMountLimit,
+    setWorkspaceCanvasTerminalMountLimit,
     terminalRenderer,
     setTerminalRenderer,
     terminalScrollback,
@@ -361,6 +369,24 @@ export function GeneralSettings() {
         label: t('{{count}} lines', { count: numberFormatter.format(value) }),
       })),
     [t, numberFormatter]
+  );
+
+  const worktreeCanvasTerminalMountLimitOptions = React.useMemo(
+    () =>
+      WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT_OPTIONS.map((value) => ({
+        value,
+        label: t('{{count}} sessions', { count: numberFormatter.format(value) }),
+      })),
+    [numberFormatter, t]
+  );
+
+  const workspaceCanvasTerminalMountLimitOptions = React.useMemo(
+    () =>
+      WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT_OPTIONS.map((value) => ({
+        value,
+        label: t('{{count}} sessions', { count: numberFormatter.format(value) }),
+      })),
+    [numberFormatter, t]
   );
 
   const notificationDelayOptions = React.useMemo(
@@ -893,6 +919,66 @@ export function GeneralSettings() {
             onClick={() => setAgentSessionDisplayMode(option.value)}
           />
         ))}
+      </div>
+
+      <div className="settings-field-row settings-field-row-start">
+        <span className="text-sm font-medium mt-2">{t('Canvas terminal mount limit')}</span>
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Select
+              value={String(worktreeCanvasTerminalMountLimit)}
+              onValueChange={(value) => setWorktreeCanvasTerminalMountLimit(Number(value))}
+            >
+              <SelectTrigger className="w-48">
+                <SelectValue>
+                  {worktreeCanvasTerminalMountLimitOptions.find(
+                    (option) => option.value === worktreeCanvasTerminalMountLimit
+                  )?.label ??
+                    t('{{count}} sessions', {
+                      count: numberFormatter.format(worktreeCanvasTerminalMountLimit),
+                    })}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                {worktreeCanvasTerminalMountLimitOptions.map((option) => (
+                  <SelectItem key={option.value} value={String(option.value)}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('Worktree Canvas')}</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Select
+              value={String(workspaceCanvasTerminalMountLimit)}
+              onValueChange={(value) => setWorkspaceCanvasTerminalMountLimit(Number(value))}
+            >
+              <SelectTrigger className="w-48">
+                <SelectValue>
+                  {workspaceCanvasTerminalMountLimitOptions.find(
+                    (option) => option.value === workspaceCanvasTerminalMountLimit
+                  )?.label ??
+                    t('{{count}} sessions', {
+                      count: numberFormatter.format(workspaceCanvasTerminalMountLimit),
+                    })}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                {workspaceCanvasTerminalMountLimitOptions.map((option) => (
+                  <SelectItem key={option.value} value={String(option.value)}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('Workspace Canvas')}</p>
+          </div>
+          <p className="sm:col-span-2 text-xs text-muted-foreground">
+            {t('Maximum mounted agent terminals in canvas views. Higher values use more memory.')}
+          </p>
+        </div>
       </div>
 
       <div className="border-t pt-4">

@@ -53,6 +53,7 @@ import {
   saveTreeSidebarExpandedRepos,
   saveTreeSidebarTempExpanded,
 } from '@/App/storage';
+import { isOpenAgentSession } from '@/components/chat/agentSessionLiveness';
 import {
   CreateGroupDialog,
   GroupEditDialog,
@@ -108,27 +109,30 @@ interface TreeInlineEmptyStateProps {
   title: string;
   description: string;
   tone?: string;
+  indented?: boolean;
   actions?: ReactNode;
 }
 
-function TreeInlineEmptyState({ title, description, tone, actions }: TreeInlineEmptyStateProps) {
+function TreeInlineEmptyState({
+  title,
+  description,
+  tone,
+  indented = true,
+  actions,
+}: TreeInlineEmptyStateProps) {
   return (
-    <div className="control-tree-guide-item control-tree-guide-item-worktree min-w-0">
+    <div
+      className={cn(
+        'control-tree-guide-item min-w-0',
+        indented && 'control-tree-guide-item-worktree'
+      )}
+    >
       <div className="control-tree-inline-empty" data-tone={tone}>
         <span className="control-tree-inline-title">{title}</span>
         <span className="control-tree-inline-copy">{description}</span>
         {actions}
       </div>
     </div>
-  );
-}
-
-function isSameOrChildPath(candidatePath: string, rootPath: string): boolean {
-  const normalizedCandidatePath = normalizePath(candidatePath);
-  const normalizedRootPath = normalizePath(rootPath);
-  return (
-    normalizedCandidatePath === normalizedRootPath ||
-    normalizedCandidatePath.startsWith(`${normalizedRootPath}/`)
   );
 }
 
@@ -898,11 +902,7 @@ export function TreeSidebar({
     const repoPaths = new Set<string>();
 
     for (const session of agentSessions) {
-      if (
-        !session.initialized ||
-        session.recoveryState === 'dead' ||
-        session.recoveryState === 'missing-host-session'
-      ) {
+      if (!isOpenAgentSession(session)) {
         continue;
       }
 
@@ -914,12 +914,7 @@ export function TreeSidebar({
   }, [agentSessions]);
   const matchesAgentWorktreeFilter = useCallback(
     (path: string) => {
-      for (const sessionCwd of openAgentSessionScope.worktreePaths) {
-        if (isSameOrChildPath(sessionCwd, path)) {
-          return true;
-        }
-      }
-      return false;
+      return openAgentSessionScope.worktreePaths.has(normalizePath(path));
     },
     [openAgentSessionScope]
   );
@@ -1648,6 +1643,7 @@ export function TreeSidebar({
                 {filteredTempWorkspaces.length === 0 ? (
                   <TreeInlineEmptyState
                     title={hasSearchFilter ? t('No matching temp sessions') : t('No temp sessions')}
+                    indented={false}
                     description={
                       hasSearchFilter
                         ? t('Try a broader search term or clear the current filter.')

@@ -1,9 +1,11 @@
+import { AGENT_TMUX_UNSET_ENV_KEYS, buildEnvUnsetPrefix } from '@shared/utils/agentEnvironment';
 import { describe, expect, it } from 'vitest';
 import { buildAgentLaunchPlan } from '../agentLaunchPlan';
 
 const infiluxTmuxDir = '$HOME/.infilux/tmux';
 const infiluxTmuxSocket = '$HOME/.infilux/tmux/infilux.sock';
 const legacyEnsoTmuxSocket = '$HOME/.infilux/tmux/enso.sock';
+const agentTmuxUnsetPrefix = buildEnvUnsetPrefix(AGENT_TMUX_UNSET_ENV_KEYS);
 
 describe('buildAgentLaunchPlan', () => {
   it('returns an empty plan when local execution has no resolved shell', () => {
@@ -88,20 +90,22 @@ describe('buildAgentLaunchPlan', () => {
       kind: 'tmux',
       serverName: 'infilux',
       sessionName: 'infilux-ui-session-1',
+      mode: 'create-if-missing',
     });
     expect(plan.command?.shell).toBe('/bin/zsh');
     expect(plan.command?.args[0]).toBe('-lc');
     expect(plan.command?.args[1]).toContain('command -v tmux >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain('command -v claude >/dev/null 2>&1');
     expect(plan.command?.args[1]).toContain(
-      `then mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
+      `then mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env ${agentTmuxUnsetPrefix} claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
     );
     expect(plan.command?.args[1]).not.toContain(
       `then exec env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
     );
     expect(plan.command?.args[1]).toContain(
-      `mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true`
+      `mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-1 'env ${agentTmuxUnsetPrefix} claude --session-id session-1 --ide' >/dev/null 2>&1 || true`
     );
+    expect(plan.command?.args[1]).toContain('-u MallocStackLogging');
     expect(plan.command?.args[1]).toContain(
       `env -u TMUX tmux -S "${infiluxTmuxSocket}" set-option -t infilux-ui-session-1 status off >/dev/null 2>&1 || true`
     );
@@ -140,10 +144,9 @@ describe('buildAgentLaunchPlan', () => {
       kind: 'tmux',
       serverName: 'enso',
       sessionName: 'enso-session-1',
+      mode: 'attach-existing',
     });
-    expect(plan.command?.args[1]).toContain(
-      `then mkdir -p "${infiluxTmuxDir}"; env -u TMUX tmux -S "${legacyEnsoTmuxSocket}" -f /dev/null new-session -d -s enso-session-1 'env -u NO_COLOR -u COLOR -u CLICOLOR -u CLICOLOR_FORCE claude --session-id session-1 --ide' >/dev/null 2>&1 || true;`
-    );
+    expect(plan.command?.args[1]).not.toContain('new-session -d -s enso-session-1');
     expect(plan.command?.args[1]).toContain(
       `exec env -u TMUX tmux -S "${legacyEnsoTmuxSocket}" attach-session -t enso-session-1`
     );
@@ -298,11 +301,13 @@ describe('buildAgentLaunchPlan', () => {
       kind: 'tmux',
       serverName: 'infilux',
       sessionName: 'infilux-ui-session-11',
+      mode: 'create-if-missing',
     });
     expect(plan.initialCommand).toContain(
       `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-11`
     );
-    expect(plan.initialCommand).toContain('CLICOLOR_FORCE codex');
+    expect(plan.initialCommand).toContain(`${agentTmuxUnsetPrefix} codex`);
+    expect(plan.initialCommand).toContain('-u MallocStackLogging');
     expect(plan.initialCommand).not.toContain('codex resume codex-session-11');
   });
 
@@ -358,6 +363,30 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.hostSession).toBeUndefined();
   });
 
+  it('does not resume codex with a persistent host session key when the tmux host is missing', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-14',
+      persistentHostSessionKey: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+      persistentHostSessionAvailable: false,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command).toBeUndefined();
+    expect(plan.initialCommand).toBeUndefined();
+    expect(plan.hostSession).toBeUndefined();
+  });
+
   it('keeps a login shell alive for local unix codex commands that need shell wrapping', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'codex',
@@ -374,7 +403,9 @@ describe('buildAgentLaunchPlan', () => {
 
     expect(plan.command).toBeUndefined();
     expect(plan.fallbackCommand).toBeUndefined();
-    expect(plan.initialCommand).toBe('codex --dangerously-bypass-approvals-and-sandbox');
+    expect(plan.initialCommand).toBe(
+      `env ${agentTmuxUnsetPrefix} codex --dangerously-bypass-approvals-and-sandbox`
+    );
   });
 
   it('returns an empty plan when hapi availability is still unknown', () => {
@@ -496,6 +527,37 @@ describe('buildAgentLaunchPlan', () => {
           '-NoLogo',
           '-Command',
           '& { cursor-agent --resume resume-7 --model gpt-5 "say \\"hi\\" %%PATH%% `$HOME ``tick`` next" }',
+        ],
+      },
+      env: undefined,
+      initialCommand: undefined,
+      tmuxSessionName: null,
+    });
+  });
+
+  it('quotes Windows custom executable paths for PowerShell launches', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: 'C:\\Program Files\\OpenAI\\codex.exe',
+      resumeSessionId: 'codex-session-9',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: {
+        shell: 'pwsh.exe',
+        execArgs: ['-NoLogo', '-Command'],
+      },
+    });
+
+    expect(plan).toEqual({
+      command: {
+        shell: 'pwsh.exe',
+        args: [
+          '-NoLogo',
+          '-Command',
+          "& { & 'C:\\Program Files\\OpenAI\\codex.exe' resume codex-session-9 }",
         ],
       },
       env: undefined,

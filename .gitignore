@@ -42,5 +42,6 @@ AgentPanel-*.js
 .worktrees
 .claude/
 .serena/
+.launch-code/
 .impeccable.md
 .superpowers/

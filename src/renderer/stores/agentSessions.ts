@@ -11,6 +11,7 @@ import {
   type AgentAttachmentItem,
   mergeAgentAttachments,
 } from '@/components/chat/agentAttachmentTrayModel';
+import { isExplicitProviderSessionId } from '@/components/chat/agentProviderSessionIdentity';
 import {
   matchesAgentSessionRepoPath,
   matchesAgentSessionScope,
@@ -324,7 +325,17 @@ function sanitizePersistedSession(session: Session): Session {
     ...persistedSession,
     name: getStoredSessionName(session.name, session.agentId),
     terminalTitle: getMeaningfulTerminalTitle(session.terminalTitle),
+    userRenamed:
+      session.userRenamed || resolveProtectedStoredSessionTitle(session.name, session.agentId),
   };
+}
+
+function shouldProtectStoredSessionTitle(title: string, agentId?: string): boolean {
+  return getStoredSessionName(title, agentId) !== getStoredSessionName('', agentId);
+}
+
+function resolveProtectedStoredSessionTitle(title: string, agentId?: string): true | undefined {
+  return shouldProtectStoredSessionTitle(title, agentId) ? true : undefined;
 }
 
 function isTrackedClaudePolicySession(session: Session): boolean {
@@ -357,6 +368,28 @@ function hasSessionUpdates(session: Session, updates: Partial<Session>): boolean
   }
 
   return false;
+}
+
+function resolveRecoveredProviderSessionId(
+  record: PersistentAgentSessionRecord,
+  existing?: Session
+): string {
+  const persistedProviderSessionId = record.providerSessionId?.trim();
+  if (
+    isExplicitProviderSessionId({
+      uiSessionId: record.uiSessionId,
+      providerSessionId: persistedProviderSessionId,
+      hostSessionKey: record.hostSessionKey,
+    })
+  ) {
+    return persistedProviderSessionId as string;
+  }
+
+  if (existing?.sessionId && existing.sessionId !== record.hostSessionKey) {
+    return existing.sessionId;
+  }
+
+  return record.uiSessionId;
 }
 
 function loadFromStorage(): PersistedAgentSessionsSnapshot {
@@ -817,7 +850,12 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         );
         const recoveredSession: Session = {
           id: record.uiSessionId,
-          sessionId: record.providerSessionId ?? existing?.sessionId ?? record.uiSessionId,
+          sessionId: resolveRecoveredProviderSessionId(record, existing),
+          providerSessionIdentityValid: isExplicitProviderSessionId({
+            uiSessionId: record.uiSessionId,
+            providerSessionId: record.providerSessionId,
+            hostSessionKey: record.hostSessionKey,
+          }),
           backendSessionId: record.backendSessionId ?? existing?.backendSessionId,
           createdAt: record.createdAt,
           name: getStoredSessionName(record.displayName, record.agentId),
@@ -832,7 +870,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           environment: record.environment,
           displayOrder: existing?.displayOrder,
           terminalTitle: getMeaningfulTerminalTitle(existing?.terminalTitle),
-          userRenamed: existing?.userRenamed,
+          userRenamed:
+            existing?.userRenamed ||
+            resolveProtectedStoredSessionTitle(record.displayName, record.agentId),
           pendingCommand: existing?.pendingCommand,
           persistenceEnabled: true,
           hostSessionKey: record.hostKind === 'tmux' ? record.hostSessionKey : undefined,

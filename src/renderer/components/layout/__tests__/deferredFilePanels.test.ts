@@ -1,6 +1,15 @@
-import React from 'react';
+/* @vitest-environment jsdom */
+
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+declare global {
+  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
+}
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('lucide-react', () => ({
   FileCode: (props: Record<string, unknown>) => React.createElement('svg', props),
@@ -41,6 +50,10 @@ vi.mock('../ControlStateCard', () => ({
 }));
 
 describe('Deferred file panels', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
   it('renders a loading placeholder before FilePanel resolves', async () => {
     const { DeferredFilePanel } = await import('../DeferredFilePanel');
 
@@ -74,6 +87,42 @@ describe('Deferred file panels', () => {
     expect(markup).toBe('');
   });
 
+  it('reuses the loaded FilePanel component after remounting', async () => {
+    const { DeferredFilePanel } = await import('../DeferredFilePanel');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        React.createElement(DeferredFilePanel, {
+          shouldLoad: true,
+          rootPath: '/repo/current',
+          isActive: true,
+        })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-file-panel="/repo/current"]')).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const markup = renderToStaticMarkup(
+      React.createElement(DeferredFilePanel, {
+        shouldLoad: true,
+        rootPath: '/repo/next',
+        isActive: true,
+      })
+    );
+
+    expect(markup).toContain('data-file-panel="/repo/next"');
+    expect(markup).not.toContain('Loading file explorer');
+  });
+
   it('renders a loading placeholder before CurrentFilePanel resolves', async () => {
     const { DeferredCurrentFilePanel } = await import('../DeferredCurrentFilePanel');
 
@@ -105,5 +154,41 @@ describe('Deferred file panels', () => {
     );
 
     expect(markup).toBe('');
+  });
+
+  it('reuses the loaded CurrentFilePanel component after remounting', async () => {
+    const { DeferredCurrentFilePanel } = await import('../DeferredCurrentFilePanel');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        React.createElement(DeferredCurrentFilePanel, {
+          shouldLoad: true,
+          rootPath: '/repo/current',
+          isActive: true,
+        })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-current-file-panel="/repo/current"]')).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const markup = renderToStaticMarkup(
+      React.createElement(DeferredCurrentFilePanel, {
+        shouldLoad: true,
+        rootPath: '/repo/next',
+        isActive: true,
+      })
+    );
+
+    expect(markup).toContain('data-current-file-panel="/repo/next"');
+    expect(markup).not.toContain('Loading editor');
   });
 });

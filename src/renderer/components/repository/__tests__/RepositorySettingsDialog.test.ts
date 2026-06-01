@@ -137,7 +137,11 @@ describe('RepositorySettingsDialog', () => {
             resolve: vi.fn().mockResolvedValue({
               repoPath: '/repo',
               worktreePath: '/repo',
-              allowedCapabilityIds: ['command:review'],
+              allowedCapabilityIds: [
+                'command:review',
+                'legacy-skill:planner',
+                'legacy-skill:writer',
+              ],
               blockedCapabilityIds: ['command:dangerous'],
               allowedSharedMcpIds: ['shared:filesystem'],
               blockedSharedMcpIds: [],
@@ -188,8 +192,16 @@ describe('RepositorySettingsDialog', () => {
     expect(container?.textContent).toContain('Project Skill & MCP');
     expect(container?.textContent).toContain('Skills');
     expect(container?.textContent).toContain('Shared MCP');
-    expect(container?.querySelector('[data-policy-preview-group="skills"]')).not.toBeNull();
-    expect(container?.querySelector('[data-policy-preview-group="shared-mcp"]')).not.toBeNull();
+    expect(container?.querySelector('[data-policy-config-summary="project"]')).not.toBeNull();
+    expect(container?.querySelector('[data-policy-effective-summary="project"]')).not.toBeNull();
+    expect(
+      container?.querySelector('[data-policy-effective-summary="project"]')?.textContent
+    ).toContain('Effective Access');
+    expect(
+      container?.querySelector('[data-policy-effective-summary="project"]')?.textContent
+    ).toContain('2');
+    expect(container?.querySelector('[data-policy-preview-group="skills"]')).toBeNull();
+    expect(container?.querySelector('[data-policy-preview-group="shared-mcp"]')).toBeNull();
 
     await act(async () => {
       container

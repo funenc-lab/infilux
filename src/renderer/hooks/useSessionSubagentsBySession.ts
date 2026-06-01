@@ -1,8 +1,9 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { areLiveSubagentListsEqual, buildLiveSubagentCwds } from './useLiveSubagents';
+import { useShouldPoll } from './useWindowFocus';
 
-const DEFAULT_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_POLL_INTERVAL_MS = 5_000;
 
 function createSubscriptionId(): string {
   return `session-subagents-${Math.random().toString(36).slice(2, 10)}`;
@@ -127,6 +128,7 @@ export function useSessionSubagentsBySession({
   enabled = true,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
 }: UseSessionSubagentsBySessionOptions): UseSessionSubagentsBySessionResult {
+  const shouldPoll = useShouldPoll();
   const normalizedTargetsSnapshot = useMemo(
     () => buildNormalizedTargetsSnapshot(targets),
     [targets]
@@ -141,7 +143,7 @@ export function useSessionSubagentsBySession({
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!enabled || normalizedTargets.length === 0) {
+    if (!enabled || !shouldPoll || normalizedTargets.length === 0) {
       setIsLoading(false);
       setItemsBySessionId((current) => {
         if (Object.keys(current).length === 0) {
@@ -192,7 +194,7 @@ export function useSessionSubagentsBySession({
     return () => {
       unsubscribe();
     };
-  }, [enabled, normalizedTargets, pollIntervalMs]);
+  }, [enabled, normalizedTargets, pollIntervalMs, shouldPoll]);
 
   return {
     itemsBySessionId,

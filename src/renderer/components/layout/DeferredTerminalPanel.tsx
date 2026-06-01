@@ -7,6 +7,27 @@ import { useDeferredReady } from './useDeferredReady';
 
 type TerminalPanelComponent = React.ComponentType<TerminalPanelProps>;
 
+let cachedTerminalPanelComponent: TerminalPanelComponent | null = null;
+let terminalPanelComponentPromise: Promise<TerminalPanelComponent> | null = null;
+
+function loadTerminalPanelComponent(): Promise<TerminalPanelComponent> {
+  if (cachedTerminalPanelComponent) {
+    return Promise.resolve(cachedTerminalPanelComponent);
+  }
+
+  terminalPanelComponentPromise ??= import('@/components/terminal/TerminalPanel')
+    .then((module) => {
+      cachedTerminalPanelComponent = module.TerminalPanel as TerminalPanelComponent;
+      return cachedTerminalPanelComponent;
+    })
+    .catch((error: unknown) => {
+      terminalPanelComponentPromise = null;
+      throw error;
+    });
+
+  return terminalPanelComponentPromise;
+}
+
 interface DeferredTerminalPanelProps extends TerminalPanelProps {
   shouldLoad?: boolean;
   showFallback?: boolean;
@@ -20,7 +41,9 @@ export function DeferredTerminalPanel({
   ...props
 }: DeferredTerminalPanelProps) {
   const { t } = useI18n();
-  const [Component, setComponent] = useState<TerminalPanelComponent | null>(null);
+  const [Component, setComponent] = useState<TerminalPanelComponent | null>(
+    () => cachedTerminalPanelComponent
+  );
 
   useEffect(() => {
     if (!shouldLoad || Component) {
@@ -28,12 +51,16 @@ export function DeferredTerminalPanel({
     }
 
     let cancelled = false;
-    import('@/components/terminal/TerminalPanel').then((module) => {
-      if (cancelled) {
-        return;
-      }
-      setComponent(() => module.TerminalPanel as TerminalPanelComponent);
-    });
+    loadTerminalPanelComponent()
+      .then((LoadedComponent) => {
+        if (cancelled) {
+          return;
+        }
+        setComponent(() => LoadedComponent);
+      })
+      .catch((error: unknown) => {
+        console.error('[DeferredTerminalPanel] Failed to load TerminalPanel', error);
+      });
 
     return () => {
       cancelled = true;

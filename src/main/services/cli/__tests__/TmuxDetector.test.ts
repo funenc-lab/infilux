@@ -397,10 +397,9 @@ describe('TmuxDetector', () => {
 
   it('scrolls the active tmux pane history for a matching session and reports when no pane is found', async () => {
     setPlatform('darwin');
-    tmuxDetectorTestDoubles.execInPty
-      .mockResolvedValueOnce('%1\t0\t0\n%0\t1\t0\n')
-      .mockResolvedValueOnce('')
-      .mockResolvedValueOnce('');
+    mockExecFileSuccess('%1\t0\t0\n%0\t1\t0\n');
+    mockExecFileSuccess();
+    mockExecFileSuccess();
 
     const { tmuxDetector } = await import('../TmuxDetector');
 
@@ -412,67 +411,201 @@ describe('TmuxDetector', () => {
       })
     ).resolves.toEqual({
       applied: true,
+      inMode: true,
       sessionName: 'enso-ui-session-1',
       paneId: '%0',
     });
 
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
       1,
-      `tmux -S '${testSocketPath}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
-      { timeout: 5000 }
+      'tmux',
+      [
+        '-S',
+        testSocketPath,
+        'list-panes',
+        '-t',
+        'enso-ui-session-1',
+        '-F',
+        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}',
+      ],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
     );
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
       2,
-      `tmux -S '${testSocketPath}' copy-mode -eH -t '%0'`,
-      { timeout: 5000 }
+      'tmux',
+      ['-S', testSocketPath, 'copy-mode', '-eH', '-t', '%0'],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
     );
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
       3,
-      `tmux -S '${testSocketPath}' send-keys -X -N 5 -t '%0' scroll-up`,
-      { timeout: 5000 }
+      'tmux',
+      ['-S', testSocketPath, 'send-keys', '-X', '-N', '5', '-t', '%0', 'scroll-up'],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
     );
 
-    tmuxDetectorTestDoubles.execInPty.mockReset();
-    tmuxDetectorTestDoubles.execInPty.mockResolvedValueOnce('%0\t1\t1\n').mockResolvedValueOnce('');
+    tmuxDetectorTestDoubles.execFile.mockReset();
+    mockExecFileSuccess('%0\t1\t1\n');
+    mockExecFileSuccess();
+    mockExecFileSuccess('%0\t1\t0\n');
 
     await expect(
       tmuxDetector.scrollClient({
-        sessionName: 'enso-ui-session-1',
+        sessionName: 'enso-ui-session-2',
         direction: 'down',
         amount: 3,
       })
     ).resolves.toEqual({
       applied: true,
-      sessionName: 'enso-ui-session-1',
+      inMode: false,
+      sessionName: 'enso-ui-session-2',
       paneId: '%0',
     });
 
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
       1,
-      `tmux -S '${testSocketPath}' list-panes -t 'enso-ui-session-1' -F '#{pane_id}\t#{pane_active}\t#{pane_in_mode}'`,
-      { timeout: 5000 }
+      'tmux',
+      [
+        '-S',
+        testSocketPath,
+        'list-panes',
+        '-t',
+        'enso-ui-session-2',
+        '-F',
+        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}',
+      ],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
     );
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
       2,
-      `tmux -S '${testSocketPath}' send-keys -X -N 3 -t '%0' scroll-down-and-cancel`,
-      { timeout: 5000 }
+      'tmux',
+      ['-S', testSocketPath, 'send-keys', '-X', '-N', '3', '-t', '%0', 'scroll-down-and-cancel'],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
+    );
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
+      3,
+      'tmux',
+      [
+        '-S',
+        testSocketPath,
+        'list-panes',
+        '-t',
+        'enso-ui-session-2',
+        '-F',
+        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}',
+      ],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
     );
 
-    tmuxDetectorTestDoubles.execInPty.mockReset();
-    tmuxDetectorTestDoubles.execInPty.mockResolvedValueOnce('');
+    tmuxDetectorTestDoubles.execFile.mockReset();
+    mockExecFileSuccess('');
 
     await expect(
       tmuxDetector.scrollClient({
-        sessionName: 'enso-ui-session-1',
+        sessionName: 'enso-ui-session-missing',
         direction: 'down',
         amount: 3,
       })
     ).resolves.toEqual({
       applied: false,
-      sessionName: 'enso-ui-session-1',
+      sessionName: 'enso-ui-session-missing',
     });
 
-    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(1);
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses the resolved pane during consecutive upward scroll requests for the same session', async () => {
+    setPlatform('darwin');
+    mockExecFileSuccess('%1\t0\t0\n%0\t1\t0\n');
+    mockExecFileSuccess();
+    mockExecFileSuccess();
+    mockExecFileSuccess();
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(
+      tmuxDetector.scrollClient({
+        sessionName: 'enso-ui-session-1',
+        direction: 'up',
+        amount: 5,
+      })
+    ).resolves.toEqual({
+      applied: true,
+      inMode: true,
+      sessionName: 'enso-ui-session-1',
+      paneId: '%0',
+    });
+
+    await expect(
+      tmuxDetector.scrollClient({
+        sessionName: 'enso-ui-session-1',
+        direction: 'up',
+        amount: 2,
+      })
+    ).resolves.toEqual({
+      applied: true,
+      inMode: true,
+      sessionName: 'enso-ui-session-1',
+      paneId: '%0',
+    });
+
+    expect(
+      tmuxDetectorTestDoubles.execFile.mock.calls.filter((call) => call[1]?.includes('list-panes'))
+    ).toHaveLength(1);
+    expect(
+      tmuxDetectorTestDoubles.execFile.mock.calls.filter((call) => call[1]?.includes('copy-mode'))
+    ).toHaveLength(1);
+    expect(
+      tmuxDetectorTestDoubles.execFile.mock.calls.filter((call) => call[1]?.includes('send-keys'))
+    ).toHaveLength(2);
+  });
+
+  it('cancels tmux copy mode when explicitly scrolling to the bottom', async () => {
+    setPlatform('darwin');
+    mockExecFileSuccess('%0\t1\t1\n');
+    mockExecFileSuccess();
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(
+      tmuxDetector.scrollClient({
+        sessionName: 'enso-ui-session-3',
+        direction: 'bottom',
+      })
+    ).resolves.toEqual({
+      applied: true,
+      inMode: false,
+      sessionName: 'enso-ui-session-3',
+      paneId: '%0',
+    });
+
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
+      1,
+      'tmux',
+      [
+        '-S',
+        testSocketPath,
+        'list-panes',
+        '-t',
+        'enso-ui-session-3',
+        '-F',
+        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}',
+      ],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
+    );
+    expect(tmuxDetectorTestDoubles.execFile).toHaveBeenNthCalledWith(
+      2,
+      'tmux',
+      ['-S', testSocketPath, 'send-keys', '-X', '-t', '%0', 'cancel'],
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function)
+    );
   });
 
   it('captures the active tmux pane history for a matching session and falls back to empty output', async () => {

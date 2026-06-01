@@ -51,7 +51,8 @@ function hasUnresolvedProviderRecoveryIdentity(record: PersistentAgentSessionRec
   return (
     !record.providerSessionId ||
     record.providerSessionId.length === 0 ||
-    record.providerSessionId === record.uiSessionId
+    record.providerSessionId === record.uiSessionId ||
+    record.providerSessionId === record.hostSessionKey
   );
 }
 
@@ -75,7 +76,8 @@ function hasResolvedProviderSessionIdentity(record: PersistentAgentSessionRecord
   return Boolean(
     record.providerSessionId &&
       record.providerSessionId.length > 0 &&
-      record.providerSessionId !== record.uiSessionId
+      record.providerSessionId !== record.uiSessionId &&
+      record.providerSessionId !== record.hostSessionKey
   );
 }
 
@@ -163,7 +165,10 @@ export class PersistentAgentSessionService {
   async upsertSession(
     record: PersistentAgentSessionRecord
   ): Promise<PersistentAgentSessionRecord[]> {
-    await this.repository.upsertSession(record);
+    const nextRecord = supportsPersistentAgentRecovery(record)
+      ? await this.reconcileRecord(record, { persistOnChange: false })
+      : record;
+    await this.repository.upsertSession(nextRecord);
     return this.listSessions();
   }
 
@@ -203,7 +208,8 @@ export class PersistentAgentSessionService {
   }
 
   private async reconcileRecord(
-    record: PersistentAgentSessionRecord
+    record: PersistentAgentSessionRecord,
+    options: { persistOnChange?: boolean } = {}
   ): Promise<PersistentAgentSessionRecord> {
     const host = this.resolveHost(record);
     const probedState = await host.probeSession(record);
@@ -234,7 +240,9 @@ export class PersistentAgentSessionService {
       lastKnownState: probedState,
       updatedAt: Date.now(),
     };
-    await this.repository.upsertSession(nextRecord);
+    if (options.persistOnChange ?? true) {
+      await this.repository.upsertSession(nextRecord);
+    }
     return nextRecord;
   }
 

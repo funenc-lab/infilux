@@ -124,4 +124,37 @@ describe('sessionSubagentState', () => {
       })
     ).toEqual([]);
   });
+
+  it('falls back to same-provider live subagents when a resolved codex goal root differs from the session id', () => {
+    expect(
+      getDisplayableSessionSubagents({
+        agentId: 'codex',
+        agentCommand: 'codex',
+        uiSessionId: 'ui-session-1',
+        providerSessionId: 'resolved-session-thread',
+        allowProviderFallback: true,
+        subagents: [
+          createSubagent({
+            rootThreadId: 'long-running-goal-root-thread',
+          }),
+        ],
+      })
+    ).toEqual([expect.objectContaining({ rootThreadId: 'long-running-goal-root-thread' })]);
+  });
+
+  it('does not use same-provider fallback unless the caller has proven ownership is unambiguous', () => {
+    expect(
+      getDisplayableSessionSubagents({
+        agentId: 'codex',
+        agentCommand: 'codex',
+        uiSessionId: 'ui-session-1',
+        providerSessionId: 'resolved-session-thread',
+        subagents: [
+          createSubagent({
+            rootThreadId: 'long-running-goal-root-thread',
+          }),
+        ],
+      })
+    ).toEqual([]);
+  });
 });

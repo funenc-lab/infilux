@@ -1,13 +1,14 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { AgentProviderProfile } from '@shared/types';
+import type { AgentProviderDiscoveryOptions, AgentProviderProfile } from '@shared/types';
 import type { BrowserWindow } from 'electron';
 import {
   getRepositoryEnvironmentContext,
   readRepositoryRemoteTextFile,
 } from '../remote/RemoteEnvironmentService';
 import { createAgentProviderSettingsWatcher } from './AgentProviderSettingsWatcher';
+import { resolveWindowsUserHomeFromExecutablePath } from './providerDiscovery';
 
 const CURSOR_PROVIDER_ID = 'cursor-cli' as const;
 const CURSOR_CONFIG_FILE_NAME = 'cli-config.json';
@@ -19,15 +20,21 @@ export interface CursorProviderSettings {
 
 type ParsedCursorProviderConfig = Record<string, unknown>;
 
-function getCursorConfigDir(): string {
+function getCursorConfigDir(discoveryOptions?: AgentProviderDiscoveryOptions): string {
   if (process.env.CURSOR_CONFIG_DIR) {
     return process.env.CURSOR_CONFIG_DIR;
   }
+
+  const inferredHomeDir = resolveWindowsUserHomeFromExecutablePath(discoveryOptions);
+  if (inferredHomeDir) {
+    return path.join(inferredHomeDir, '.cursor');
+  }
+
   return path.join(os.homedir(), '.cursor');
 }
 
-function getCursorConfigPath(): string {
-  return path.join(getCursorConfigDir(), CURSOR_CONFIG_FILE_NAME);
+function getCursorConfigPath(discoveryOptions?: AgentProviderDiscoveryOptions): string {
+  return path.join(getCursorConfigDir(discoveryOptions), CURSOR_CONFIG_FILE_NAME);
 }
 
 function normalizeValue(value?: string): string | undefined {
@@ -94,9 +101,9 @@ export function extractProviderFromCursorConfig(
   };
 }
 
-function readLocalCursorConfig(): string | null {
+function readLocalCursorConfig(discoveryOptions?: AgentProviderDiscoveryOptions): string | null {
   try {
-    const configPath = getCursorConfigPath();
+    const configPath = getCursorConfigPath(discoveryOptions);
     if (!fs.existsSync(configPath)) {
       return null;
     }
@@ -107,14 +114,19 @@ function readLocalCursorConfig(): string | null {
   }
 }
 
-function readLocalCursorProviderSettings(): CursorProviderSettings {
+function readLocalCursorProviderSettings(
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): CursorProviderSettings {
   return {
-    configPath: getCursorConfigPath(),
-    configJson: readLocalCursorConfig(),
+    configPath: getCursorConfigPath(discoveryOptions),
+    configJson: readLocalCursorConfig(discoveryOptions),
   };
 }
 
-async function resolveCursorConfigTarget(repoPath?: string): Promise<{
+async function resolveCursorConfigTarget(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<{
   kind: 'local' | 'remote';
   configPath: string;
 }> {
@@ -128,12 +140,15 @@ async function resolveCursorConfigTarget(repoPath?: string): Promise<{
 
   return {
     kind: 'local',
-    configPath: getCursorConfigPath(),
+    configPath: getCursorConfigPath(discoveryOptions),
   };
 }
 
-async function readCursorConfigForRepository(repoPath?: string): Promise<CursorProviderSettings> {
-  const target = await resolveCursorConfigTarget(repoPath);
+async function readCursorConfigForRepository(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<CursorProviderSettings> {
+  const target = await resolveCursorConfigTarget(repoPath, discoveryOptions);
   if (target.kind === 'remote') {
     return {
       configPath: target.configPath,
@@ -143,7 +158,7 @@ async function readCursorConfigForRepository(repoPath?: string): Promise<CursorP
 
   return {
     configPath: target.configPath,
-    configJson: readLocalCursorConfig(),
+    configJson: readLocalCursorConfig(discoveryOptions),
   };
 }
 
@@ -151,14 +166,17 @@ function hasCursorProviderConfig(content: string | null | undefined): boolean {
   return parseCursorProviderConfig(content) !== null;
 }
 
-export async function readCursorProviderSettings(repoPath?: string): Promise<{
+export async function readCursorProviderSettings(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<{
   providerId: typeof CURSOR_PROVIDER_ID;
   settings: CursorProviderSettings;
   extracted: Partial<AgentProviderProfile> | null;
   detected: boolean;
   supported: true;
 }> {
-  const settings = await readCursorConfigForRepository(repoPath);
+  const settings = await readCursorConfigForRepository(repoPath, discoveryOptions);
   return {
     providerId: CURSOR_PROVIDER_ID,
     settings,

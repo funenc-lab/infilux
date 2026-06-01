@@ -193,6 +193,67 @@ describe('agent session recovery store', () => {
     ]);
   });
 
+  it('does not restore a persistent host session key as the provider session id', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        uiSessionId: 'e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        providerSessionId: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        hostSessionKey: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        lastKnownState: 'missing-host-session',
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        sessionId: 'e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        hostSessionKey: 'infilux-e5f0f0c3-99d7-4364-83aa-487ee0d2a91b',
+        recoveryState: 'missing-host-session',
+      }),
+    ]);
+  });
+
+  it('protects meaningful recovered display names from later terminal title replacement', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        displayName: 'Investigate session recovery title',
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        name: 'Investigate session recovery title',
+        userRenamed: true,
+      }),
+    ]);
+  });
+
+  it('does not protect recovered macOS malloc diagnostic display names', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        displayName: '› codex(85487) MallocSt',
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        name: 'Codex',
+        userRenamed: undefined,
+      }),
+    ]);
+  });
+
   it('hydrates replay snapshots from recovered persistent metadata', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
@@ -629,6 +690,46 @@ describe('agent session recovery store', () => {
       content: '',
       attachments: [],
     });
+  });
+
+  it('protects meaningful locally persisted session names after hydration', async () => {
+    const persistedPayload = {
+      sessions: [
+        {
+          id: 'session-1',
+          sessionId: 'provider-1',
+          name: 'Investigate session recovery title',
+          terminalTitle: 'codex',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          initialized: true,
+          activated: true,
+          persistenceEnabled: true,
+          repoPath: '/repo',
+          cwd: '/repo/worktree',
+          environment: 'native',
+        },
+      ],
+      activeIds: {
+        '/repo/worktree': 'session-1',
+      },
+      groupStates: {},
+      runtimeStates: {},
+      enhancedInputStates: {},
+    };
+
+    const env = await loadAgentSessionsStore({
+      'enso-agent-sessions': JSON.stringify(persistedPayload),
+    });
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        name: 'Investigate session recovery title',
+        terminalTitle: 'codex',
+        userRenamed: true,
+      }),
+    ]);
   });
 
   it('sanitizes malformed persisted snapshot fields and repairs stale group metadata', async () => {

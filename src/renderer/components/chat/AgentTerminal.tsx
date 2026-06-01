@@ -24,12 +24,14 @@ import { toastManager } from '@/components/ui/toast';
 import { useAgentProviderSessionDiscovery } from '@/hooks/useAgentProviderSessionDiscovery';
 import { useRepositoryRuntimeContext } from '@/hooks/useRepositoryRuntimeContext';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
-import { useXterm, type XtermSessionCreateFallbackOptions } from '@/hooks/useXterm';
+import { useXterm } from '@/hooks/useXterm';
 import {
   copyTerminalSelectionToClipboard,
   readClipboardText,
+  restoreTerminalInteractionAfterCopy,
   writeClipboardText,
 } from '@/hooks/xtermClipboard';
+import { focusXtermTextInput } from '@/hooks/xtermTextInputFocus';
 import { useI18n } from '@/i18n';
 import { AGENT_ATTACHMENT_PASTE_EVENT_NAME } from '@/lib/agentAttachmentPasteEvent';
 import { shouldPersistAgentSessionOnDisconnect } from '@/lib/agentSessionPersistence';
@@ -40,6 +42,7 @@ import {
   buildChatNotificationCopy,
   buildFileWorkflowToastCopy,
 } from '@/lib/feedbackCopy';
+import { isNativeImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { resolveTerminalRuntimeOverlayState } from '@/lib/terminalRuntimeOverlay';
 import { cn } from '@/lib/utils';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
@@ -72,7 +75,6 @@ import {
   resolveAgentInputUnavailableReason,
 } from './agentInputAvailability';
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
-import { buildAgentLaunchPlan } from './agentLaunchPlan';
 import {
   AGENT_STARTUP_STALL_THRESHOLD_MS,
   resolveAgentStartupOverlayPresentation,
@@ -87,6 +89,7 @@ import {
   isAgentTerminalInterruptKeyEvent,
   shouldForceAgentTerminalIdleAfterInterrupt,
 } from './agentTerminalInterruptPolicy';
+import { resolveAgentTerminalLaunchPlan } from './agentTerminalLaunchPlan';
 import {
   appendRecentAgentOutput,
   hasRenderableAgentTerminalOutput,
@@ -151,6 +154,7 @@ interface AgentTerminalProps {
   onUnregisterEnhancedInputSender?: (sessionId: string) => void;
   onBackendSessionIdChange?: (sessionId: string) => void;
   onProviderSessionIdChange?: (sessionId: string) => void;
+  onProviderSessionIdentityValidityChange?: (valid: boolean) => void;
   onReplaySnapshotChange?: (snapshot: string | undefined, capturedAt: number | undefined) => void;
   onRuntimeStateChange?: (state: SessionRuntimeState) => void;
   onClaudePolicyStateChange?: (state: {
@@ -166,6 +170,96 @@ const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is d
 const MIN_OUTPUT_FOR_INDICATOR = 200; // Minimum chars to show "outputting" indicator (higher to avoid noise)
 const IDLE_CONFIRMATION_COUNT = 2; // Require 2 consecutive idle polls (2 seconds) before marking as idle
 const RECENT_OUTPUT_TIMEOUT_MS = 3000; // If output received within this time, consider still active
+const AGENT_TERMINAL_FLOATING_CONTROL_ATTRIBUTE = 'data-agent-terminal-floating-control';
+const MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX = 32;
+const MOUSE_SELECTION_AUTO_SCROLL_INTERVAL_MS = 50;
+const MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES = 4;
+
+interface MouseSelectionPosition {
+  clientX: number;
+  clientY: number;
+}
+
+interface MouseSelectionTarget {
+  bounds: DOMRect;
+  element: HTMLElement;
+}
+
+function resolveMouseSelectionTarget(container: HTMLElement): MouseSelectionTarget {
+  const screen = container.querySelector<HTMLElement>('.xterm-screen');
+  if (screen) {
+    const screenBounds = screen.getBoundingClientRect();
+    if (screenBounds.width > 0 && screenBounds.height > 0) {
+      return {
+        bounds: screenBounds,
+        element: screen,
+      };
+    }
+
+    return {
+      bounds: container.getBoundingClientRect(),
+      element: screen,
+    };
+  }
+
+  return {
+    bounds: container.getBoundingClientRect(),
+    element: container,
+  };
+}
+
+function resolveMouseSelectionAutoScrollLines(
+  target: MouseSelectionTarget,
+  clientY: number
+): number {
+  const { bounds } = target;
+  if (bounds.height <= 0) {
+    return 0;
+  }
+
+  const distanceFromTop = clientY - bounds.top;
+  const distanceFromBottom = bounds.bottom - clientY;
+  if (distanceFromTop < MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX) {
+    const intensity =
+      (MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX - distanceFromTop) / MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX;
+    return -Math.min(
+      MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES,
+      Math.max(1, Math.ceil(intensity * MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES))
+    );
+  }
+
+  if (distanceFromBottom < MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX) {
+    const intensity =
+      (MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX - distanceFromBottom) /
+      MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX;
+    return Math.min(
+      MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES,
+      Math.max(1, Math.ceil(intensity * MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES))
+    );
+  }
+
+  return 0;
+}
+
+function dispatchMouseSelectionMoveToXterm(
+  target: MouseSelectionTarget,
+  position: MouseSelectionPosition
+): void {
+  const { bounds, element } = target;
+  const clientX = Math.min(Math.max(position.clientX, bounds.left + 1), bounds.right - 1);
+  const clientY = Math.min(Math.max(position.clientY, bounds.top + 1), bounds.bottom - 1);
+
+  element.dispatchEvent(
+    new MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 1,
+      clientX,
+      clientY,
+    })
+  );
+}
 
 function hasResolvedProviderSessionId(
   uiSessionId: string | undefined,
@@ -217,6 +311,13 @@ function resolveClipboardImageTempFormat(file: File): 'png' | 'jpeg' {
   return mime === 'image/jpeg' || mime === 'image/jpg' ? 'jpeg' : 'png';
 }
 
+function isAgentTerminalFloatingControlTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(`[${AGENT_TERMINAL_FLOATING_CONTROL_ATTRIBUTE}="true"]`) !== null
+  );
+}
+
 export function AgentTerminal({
   id,
   createdAt,
@@ -258,6 +359,7 @@ export function AgentTerminal({
   onUnregisterEnhancedInputSender,
   onBackendSessionIdChange,
   onProviderSessionIdChange,
+  onProviderSessionIdentityValidityChange,
   onReplaySnapshotChange,
   onRuntimeStateChange,
   onClaudePolicyStateChange,
@@ -534,8 +636,6 @@ export function AgentTerminal({
   const consecutiveIdleCountRef = useRef(0); // Count consecutive idle polls
   const ptyIdRef = useRef<string | null>(null); // Store PTY ID for activity checks
   const isActiveRef = useRef(isActive); // Track latest isActive value for interval callback
-  const hasObservedLayoutRefreshKeyRef = useRef(false);
-  const previousLayoutRefreshKeyRef = useRef<string | undefined>(layoutRefreshKey);
   const lastCommandWasSlashCommand = useRef(false); // Track if last command was a slash command
   const pendingTerminalAttachmentInsertRef = useRef<AgentAttachmentItem[]>([]);
   const interruptIdleResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -559,7 +659,10 @@ export function AgentTerminal({
     }
     setShouldBypassHostSessionRecovery(recoveryState === 'missing-host-session');
   }, [hostSessionKey, recoveryState, terminalSessionId]);
-  const resumeSessionId = sessionId ?? id;
+  const shouldValidateResolvedProviderSession =
+    agentCommand === 'codex' &&
+    recoveryState === 'missing-host-session' &&
+    hasResolvedProviderSessionId(id, sessionId);
   const inputDispatchSessionId = backendSessionId ?? null;
   const globalPolicy = getClaudeGlobalPolicy();
   const projectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;
@@ -573,16 +676,49 @@ export function AgentTerminal({
     }
   }, []);
 
-  useAgentProviderSessionDiscovery({
-    agentCommand: isReadOnlyTranscript ? '' : agentCommand,
-    uiSessionId: id,
-    providerSessionId: sessionId,
-    cwd,
-    createdAt,
-    initialized: isReadOnlyTranscript ? false : initialized,
-    isRemoteExecution,
-    onProviderSessionIdChange,
-  });
+  const { providerSessionResolutionPending, resolvedProviderSessionId } =
+    useAgentProviderSessionDiscovery({
+      agentCommand: isReadOnlyTranscript ? '' : agentCommand,
+      uiSessionId: id,
+      providerSessionId: sessionId,
+      cwd,
+      createdAt,
+      initialized: isReadOnlyTranscript ? false : initialized,
+      isRemoteExecution,
+      allowRecoveryBeforeInitialization: recovered && persistenceEnabled,
+      validateResolvedProviderSession: shouldValidateResolvedProviderSession,
+      onProviderSessionIdChange,
+    });
+  const resumeSessionId = providerSessionResolutionPending
+    ? id
+    : resolvedProviderSessionId === null
+      ? id
+      : (resolvedProviderSessionId ?? sessionId ?? id);
+  const shouldHoldAgentSessionStartup =
+    !isReadOnlyTranscript &&
+    agentCommand === 'codex' &&
+    recoveryState === 'missing-host-session' &&
+    providerSessionResolutionPending;
+  const effectiveBackendSessionId = shouldHoldAgentSessionStartup ? undefined : backendSessionId;
+
+  useEffect(() => {
+    if (providerSessionResolutionPending || !onProviderSessionIdentityValidityChange) {
+      return;
+    }
+
+    if (resolvedProviderSessionId === null) {
+      onProviderSessionIdentityValidityChange(false);
+      return;
+    }
+
+    if (resolvedProviderSessionId) {
+      onProviderSessionIdentityValidityChange(true);
+    }
+  }, [
+    onProviderSessionIdentityValidityChange,
+    providerSessionResolutionPending,
+    resolvedProviderSessionId,
+  ]);
 
   // Use external control if provided, otherwise use local state.
   // IMPORTANT: `externalEnhancedInputOpen` can be false, so we must check `undefined` rather than truthiness.
@@ -1016,6 +1152,9 @@ export function AgentTerminal({
       return true;
     }
 
+    if (shouldHoldAgentSessionStartup) {
+      return false;
+    }
     if (agentCommand.startsWith('claude') && agentIntegration.enabled && claudeIdeStatus === null) {
       return false;
     }
@@ -1037,6 +1176,7 @@ export function AgentTerminal({
     environment,
     hapiGlobalInstalled,
     isReadOnlyTranscript,
+    shouldHoldAgentSessionStartup,
     agentCommand,
     agentIntegration.enabled,
     claudeIdeStatus,
@@ -1145,44 +1285,18 @@ export function AgentTerminal({
   const handleSessionCreateFallbackRetry = useCallback(() => {
     setShouldBypassHostSessionRecovery(true);
   }, []);
+  const [isTmuxHostScrollbackActive, setIsTmuxHostScrollbackActive] = useState(false);
+  const [isMouseSelectingTerminal, setIsMouseSelectingTerminal] = useState(false);
+  const mouseSelectionAutoScrollPositionRef = useRef<MouseSelectionPosition | null>(null);
+  const stopMouseSelectionAutoScrollRef = useRef<(() => void) | null>(null);
 
-  const { command, env, initialCommand, hostSession, sessionCreateFallback } = useMemo(() => {
-    if (isReadOnlyTranscript) {
-      return {
-        command: undefined,
-        env: undefined,
-        initialCommand: undefined,
-        hostSession: undefined,
-        sessionCreateFallback: undefined,
-      };
-    }
-
-    const persistentHostSessionAvailable =
-      !shouldBypassHostSessionRecovery && recoveryState !== 'missing-host-session';
-    const plan = buildAgentLaunchPlan({
-      agentCommand,
-      customPath,
-      customArgs,
-      initialPrompt,
-      resumeSessionId,
-      initialized,
-      environment,
-      hapiGlobalInstalled,
-      hapiCliApiToken: hapiSettings.cliApiToken,
-      isRemoteExecution,
-      executionPlatform,
-      enableIdeIntegration: claudeIdeStatus?.canUseIde ?? false,
-      tmuxEnabled: agentIntegration.tmuxEnabled,
-      resolvedShell,
-      terminalSessionId,
-      runtimeChannel,
-      persistentHostSessionKey: hostSessionKey,
-      persistentHostSessionAvailable,
-    });
-    let nextSessionCreateFallback: XtermSessionCreateFallbackOptions | undefined;
-
-    if (persistentHostSessionAvailable && plan.hostSession?.kind === 'tmux') {
-      const fallbackPlan = buildAgentLaunchPlan({
+  const { command, env, initialCommand, hostSession, sessionCreateFallback } = useMemo(
+    () =>
+      resolveAgentTerminalLaunchPlan({
+        isReadOnlyTranscript,
+        recoveryState,
+        shouldBypassHostSessionRecovery,
+        onHostlessRetry: handleSessionCreateFallbackRetry,
         agentCommand,
         customPath,
         customArgs,
@@ -1200,60 +1314,31 @@ export function AgentTerminal({
         terminalSessionId,
         runtimeChannel,
         persistentHostSessionKey: hostSessionKey,
-        persistentHostSessionAvailable: false,
-      });
-
-      if ((fallbackPlan.command || fallbackPlan.initialCommand) && !fallbackPlan.hostSession) {
-        nextSessionCreateFallback = {
-          command: fallbackPlan.command
-            ? {
-                ...fallbackPlan.command,
-                fallbackCommand: fallbackPlan.fallbackCommand,
-              }
-            : undefined,
-          env: fallbackPlan.env,
-          initialCommand: fallbackPlan.initialCommand,
-          hostSession: undefined,
-          onRetry: handleSessionCreateFallbackRetry,
-        };
-      }
-    }
-
-    return {
-      command: plan.command
-        ? {
-            ...plan.command,
-            fallbackCommand: plan.fallbackCommand,
-          }
-        : undefined,
-      env: plan.env,
-      initialCommand: plan.initialCommand,
-      hostSession: plan.hostSession,
-      sessionCreateFallback: nextSessionCreateFallback,
-    };
-  }, [
-    agentCommand,
-    claudeIdeStatus?.canUseIde,
-    customPath,
-    customArgs,
-    initialPrompt,
-    resumeSessionId,
-    initialized,
-    isReadOnlyTranscript,
-    environment,
-    hapiSettings.cliApiToken,
-    hapiGlobalInstalled,
-    isRemoteExecution,
-    executionPlatform,
-    agentIntegration.tmuxEnabled,
-    resolvedShell,
-    terminalSessionId,
-    runtimeChannel,
-    hostSessionKey,
-    recoveryState,
-    shouldBypassHostSessionRecovery,
-    handleSessionCreateFallbackRetry,
-  ]);
+      }),
+    [
+      agentCommand,
+      claudeIdeStatus?.canUseIde,
+      customPath,
+      customArgs,
+      initialPrompt,
+      resumeSessionId,
+      initialized,
+      isReadOnlyTranscript,
+      environment,
+      hapiSettings.cliApiToken,
+      hapiGlobalInstalled,
+      isRemoteExecution,
+      executionPlatform,
+      agentIntegration.tmuxEnabled,
+      resolvedShell,
+      terminalSessionId,
+      runtimeChannel,
+      hostSessionKey,
+      recoveryState,
+      shouldBypassHostSessionRecovery,
+      handleSessionCreateFallbackRetry,
+    ]
+  );
 
   // Preserve exited sessions in the UI so users can inspect the final output and state.
   const handleExit = useCallback(() => {
@@ -1407,6 +1492,10 @@ export function AgentTerminal({
   // biome-ignore lint/correctness/useExhaustiveDependencies: terminal is accessed via try-catch for safety and defined after this callback
   const handleCustomKey = useCallback(
     (event: KeyboardEvent, ptyId: string, getCurrentLine?: () => string | null) => {
+      if (isNativeImeCompositionKeyEvent(event)) {
+        return true;
+      }
+
       // Handle Shift+Enter for newline - must be before keydown check to block both keydown and keypress
       if (event.key === 'Enter' && event.shiftKey) {
         if (event.type === 'keydown' && runtimeStateRef.current === 'live') {
@@ -1434,13 +1523,7 @@ export function AgentTerminal({
 
       // Detect Enter key press (without modifiers) to activate session and start idle monitoring
       // Skip if IME is composing (e.g. selecting Chinese characters)
-      if (
-        event.key === 'Enter' &&
-        !event.shiftKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.isComposing
-      ) {
+      if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.altKey) {
         const completedOutputBlock = resolveCopyableAgentOutputBlock(currentOutputBlockRef.current);
         if (completedOutputBlock) {
           latestCompletedOutputBlockRef.current = currentOutputBlockRef.current;
@@ -1582,7 +1665,7 @@ export function AgentTerminal({
     write,
   } = useXterm({
     cwd,
-    backendSessionId,
+    backendSessionId: effectiveBackendSessionId,
     command,
     env,
     hostSession,
@@ -1592,7 +1675,7 @@ export function AgentTerminal({
     isVisible: effectiveIsVisible,
     kind: 'agent',
     fontSizeScale: terminalFontScale,
-    preferCompatibilityRenderer: terminalFontScale !== undefined,
+    preferCompatibilityRenderer: true,
     sessionCreateFallback,
     staticContent: transcriptStaticContent,
     metadata: isReadOnlyTranscript
@@ -1634,6 +1717,7 @@ export function AgentTerminal({
     onCustomKey: handleCustomKey,
     onTitleChange: handleTitleChange,
     onSessionIdChange: onBackendSessionIdChange,
+    onHostScrollbackStateChange: setIsTmuxHostScrollbackActive,
     onSessionOpen: (session) => {
       const capabilityState = extractAgentCapabilitySessionMetadata(session.metadata);
       if (capabilityState) {
@@ -1648,9 +1732,16 @@ export function AgentTerminal({
     onMerge,
     canMerge,
   });
+  const shouldUseMouseSelectionHostScrollback =
+    hostSession?.kind === 'tmux' &&
+    (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current)));
   trustPromptSubmitRef.current = write;
-  terminalFocusRef.current = () => terminal?.focus();
+  terminalFocusRef.current = () => focusXtermTextInput(terminal);
   runtimeStateRef.current = runtimeState;
+  const lastAppliedLayoutRefreshRef = useRef<{
+    key: string;
+    terminal: NonNullable<typeof terminal>;
+  } | null>(null);
   useEffect(() => {
     if (runtimeState === 'live') {
       return;
@@ -1665,17 +1756,18 @@ export function AgentTerminal({
   }, [onRuntimeStateChange, runtimeState]);
 
   useEffect(() => {
-    const previousLayoutRefreshKey = previousLayoutRefreshKeyRef.current;
-    previousLayoutRefreshKeyRef.current = layoutRefreshKey;
-
-    if (!hasObservedLayoutRefreshKeyRef.current) {
-      hasObservedLayoutRefreshKeyRef.current = true;
+    if (!layoutRefreshKey || !terminal) {
       return;
     }
 
-    if (!layoutRefreshKey || previousLayoutRefreshKey === layoutRefreshKey) {
+    const lastApplied = lastAppliedLayoutRefreshRef.current;
+    if (lastApplied?.key === layoutRefreshKey && lastApplied.terminal === terminal) {
       return;
     }
+    lastAppliedLayoutRefreshRef.current = {
+      key: layoutRefreshKey,
+      terminal,
+    };
 
     const frameId = requestAnimationFrame(() => {
       fitTerminalLayout();
@@ -1685,7 +1777,7 @@ export function AgentTerminal({
     return () => {
       cancelAnimationFrame(frameId);
     };
-  }, [fitTerminalLayout, layoutRefreshKey, refreshRenderer]);
+  }, [fitTerminalLayout, layoutRefreshKey, refreshRenderer, terminal]);
 
   const terminalOverlayState = isReadOnlyTranscript
     ? null
@@ -1825,9 +1917,133 @@ export function AgentTerminal({
       return;
     }
 
-    requestAnimationFrame(() => terminal?.focus());
+    requestAnimationFrame(() => focusXtermTextInput(terminal));
   }, [enhancedInputOpen, terminal]);
-  const { showScrollToBottom, handleScrollToBottom } = useTerminalScrollToBottom(terminal);
+  const {
+    showScrollToBottom: showLocalScrollToBottom,
+    handleScrollToBottom: handleLocalScrollToBottom,
+  } = useTerminalScrollToBottom(terminal);
+  const tmuxHostScrollbackResetKey =
+    hostSession?.kind === 'tmux'
+      ? `${terminalSessionId ?? ''}\u0000${hostSession.serverName ?? ''}\u0000${hostSession.sessionName}`
+      : `${terminalSessionId ?? ''}\u0000${hostSession?.kind ?? 'none'}`;
+
+  useEffect(() => {
+    if (!tmuxHostScrollbackResetKey) {
+      return;
+    }
+    setIsTmuxHostScrollbackActive(false);
+  }, [tmuxHostScrollbackResetKey]);
+  const startMouseSelectionAutoScroll = useCallback(
+    (event: MouseEvent) => {
+      stopMouseSelectionAutoScrollRef.current?.();
+      mouseSelectionAutoScrollPositionRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+
+      const handleMouseSelectionMove = (event: MouseEvent) => {
+        mouseSelectionAutoScrollPositionRef.current = {
+          clientX: event.clientX,
+          clientY: event.clientY,
+        };
+      };
+      const intervalId = window.setInterval(() => {
+        const container = containerRef.current;
+        const position = mouseSelectionAutoScrollPositionRef.current;
+        if (!container || !position) {
+          return;
+        }
+
+        const target = resolveMouseSelectionTarget(container);
+        const lines = resolveMouseSelectionAutoScrollLines(target, position.clientY);
+        if (lines !== 0) {
+          if (cwd && shouldUseMouseSelectionHostScrollback && hostSession?.kind === 'tmux') {
+            void window.electronAPI.tmux
+              .scrollClient(cwd, {
+                sessionName: hostSession.sessionName,
+                serverName: hostSession.serverName,
+                direction: lines < 0 ? 'up' : 'down',
+                amount: Math.abs(lines),
+              })
+              .then((result) => {
+                setIsTmuxHostScrollbackActive(Boolean(result.inMode));
+              })
+              .catch(() => {
+                setIsTmuxHostScrollbackActive(false);
+              });
+          } else {
+            terminal?.scrollLines(lines);
+          }
+          dispatchMouseSelectionMoveToXterm(target, position);
+        }
+      }, MOUSE_SELECTION_AUTO_SCROLL_INTERVAL_MS);
+
+      const listenerDocument = containerRef.current?.ownerDocument ?? document;
+      const listenerWindow = listenerDocument.defaultView ?? window;
+      listenerWindow.addEventListener('mousemove', handleMouseSelectionMove, true);
+      listenerDocument.addEventListener('mousemove', handleMouseSelectionMove, true);
+      const stopMouseSelection = () => {
+        window.clearInterval(intervalId);
+        listenerWindow.removeEventListener('mousemove', handleMouseSelectionMove, true);
+        listenerDocument.removeEventListener('mousemove', handleMouseSelectionMove, true);
+        window.removeEventListener('mouseup', stopMouseSelection);
+        window.removeEventListener('blur', stopMouseSelection);
+        mouseSelectionAutoScrollPositionRef.current = null;
+        stopMouseSelectionAutoScrollRef.current = null;
+        setIsMouseSelectingTerminal(false);
+      };
+      window.addEventListener('mouseup', stopMouseSelection);
+      window.addEventListener('blur', stopMouseSelection);
+      stopMouseSelectionAutoScrollRef.current = stopMouseSelection;
+      setIsMouseSelectingTerminal(true);
+    },
+    [containerRef, cwd, hostSession, shouldUseMouseSelectionHostScrollback, terminal]
+  );
+
+  useEffect(() => {
+    return () => {
+      stopMouseSelectionAutoScrollRef.current?.();
+    };
+  }, []);
+
+  const handleTerminalMouseSelectionStart = useCallback(
+    (event: MouseEvent) => {
+      if (event.button !== 0 || isAgentTerminalFloatingControlTarget(event.target)) {
+        return;
+      }
+
+      const container = containerRef.current;
+      if (!(event.target instanceof Node) || !container?.contains(event.target)) {
+        return;
+      }
+
+      startMouseSelectionAutoScroll(event);
+    },
+    [containerRef, startMouseSelectionAutoScroll]
+  );
+
+  const handleScrollToBottom = useCallback(() => {
+    handleLocalScrollToBottom();
+
+    if (!cwd || hostSession?.kind !== 'tmux' || !isTmuxHostScrollbackActive) {
+      return;
+    }
+
+    void window.electronAPI.tmux
+      .scrollClient(cwd, {
+        sessionName: hostSession.sessionName,
+        serverName: hostSession.serverName,
+        direction: 'bottom',
+      })
+      .then((result) => {
+        setIsTmuxHostScrollbackActive(Boolean(result.inMode));
+      })
+      .catch(() => {
+        setIsTmuxHostScrollbackActive(false);
+      });
+  }, [cwd, handleLocalScrollToBottom, hostSession, isTmuxHostScrollbackActive]);
+  const showScrollToBottom = showLocalScrollToBottom || isTmuxHostScrollbackActive;
 
   // Register write and focus functions to global store for external access
   const { register, unregister } = useTerminalWriteStore();
@@ -1911,11 +2127,19 @@ export function AgentTerminal({
           refreshRenderer();
           break;
         case 'copy':
-          void copyTerminalSelectionToClipboard(terminal).catch(() => {});
+          void copyTerminalSelectionToClipboard(terminal)
+            .then(() => {
+              restoreTerminalInteractionAfterCopy(terminal);
+            })
+            .catch(() => {});
           break;
         case 'copyLatestOutputBlock':
           if (latestOutputBlock) {
-            void writeClipboardText(latestOutputBlock).catch(() => {});
+            void writeClipboardText(latestOutputBlock)
+              .then(() => {
+                restoreTerminalInteractionAfterCopy(terminal);
+              })
+              .catch(() => {});
           }
           break;
         case 'paste':
@@ -1960,9 +2184,16 @@ export function AgentTerminal({
     const container = containerRef.current;
     if (!container) return;
 
+    const listenerDocument = container.ownerDocument;
+    const listenerWindow = listenerDocument.defaultView ?? window;
+
+    listenerWindow.addEventListener('mousedown', handleTerminalMouseSelectionStart, true);
     container.addEventListener('contextmenu', handleContextMenu);
-    return () => container.removeEventListener('contextmenu', handleContextMenu);
-  }, [containerRef, handleContextMenu, isReadOnlyTranscript]);
+    return () => {
+      listenerWindow.removeEventListener('mousedown', handleTerminalMouseSelectionStart, true);
+      container.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [containerRef, handleContextMenu, handleTerminalMouseSelectionStart, isReadOnlyTranscript]);
 
   // Cleanup idle timer on unmount
   useEffect(() => {
@@ -2111,6 +2342,7 @@ export function AgentTerminal({
     <div
       ref={terminalWrapperRef}
       className="relative h-full w-full"
+      data-agent-host-scrollback={isTmuxHostScrollbackActive ? 'true' : 'false'}
       data-agent-terminal-mode={isReadOnlyTranscript ? 'transcript' : 'live'}
       {...{ [AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE]: 'true' }}
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}
@@ -2129,11 +2361,13 @@ export function AgentTerminal({
       />
       {showScrollToBottom && (
         <button
+          {...{ [AGENT_TERMINAL_FLOATING_CONTROL_ATTRIBUTE]: 'true' }}
           aria-label={t('Scroll to bottom')}
           type="button"
           onClick={handleScrollToBottom}
           className={cn(
-            'absolute flex items-center justify-center rounded-full border border-primary/30 bg-primary/14 text-primary transition-[background-color,transform] hover:bg-primary/22 hover:scale-105 active:scale-95',
+            'absolute z-20 flex items-center justify-center rounded-full border border-primary/30 bg-primary/14 text-primary transition-[background-color,transform] hover:bg-primary/22 hover:scale-105 active:scale-95',
+            isMouseSelectingTerminal && 'pointer-events-none',
             AGENT_CHAT_FLOATING_ACTION_BUTTON_SIZE_CLASS,
             AGENT_CHAT_SCROLL_TO_BOTTOM_OFFSET_CLASS
           )}

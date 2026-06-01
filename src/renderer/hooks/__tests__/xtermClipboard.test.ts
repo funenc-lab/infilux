@@ -1,8 +1,11 @@
+/* @vitest-environment jsdom */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
   readClipboardText,
+  restoreTerminalInteractionAfterCopy,
   shouldHandleTerminalCopyEvent,
   writeClipboardText,
 } from '../xtermClipboard';
@@ -25,6 +28,7 @@ describe('xtermClipboard', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -147,5 +151,30 @@ describe('xtermClipboard', () => {
 
     await expect(writeClipboardText('copied output')).resolves.toBeUndefined();
     expect(writeText).toHaveBeenCalledWith('copied output');
+  });
+
+  it('restores terminal focus and clears the selection after copying', () => {
+    const terminal = {
+      clearSelection: vi.fn(),
+      focus: vi.fn(),
+      refresh: vi.fn(),
+      rows: 24,
+    };
+    const removeAllRanges = vi.fn();
+
+    vi.spyOn(document, 'getSelection').mockReturnValue({
+      removeAllRanges,
+    } as unknown as Selection);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    restoreTerminalInteractionAfterCopy(terminal);
+
+    expect(terminal.clearSelection).toHaveBeenCalledTimes(1);
+    expect(removeAllRanges).toHaveBeenCalledTimes(1);
+    expect(terminal.focus).toHaveBeenCalledTimes(1);
+    expect(terminal.refresh).toHaveBeenCalledWith(0, 23);
   });
 });

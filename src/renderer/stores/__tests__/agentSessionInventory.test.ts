@@ -130,6 +130,28 @@ describe('agent session inventory', () => {
     ]);
   });
 
+  it('sanitizes unusable session titles in inventory rows', () => {
+    const items = buildAgentSessionInventory({
+      sessions: [
+        session({
+          id: 'session-codex',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          name: 'npm test',
+        }),
+      ],
+      activeIds: {},
+      runtimeStates: {},
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        sessionId: 'session-codex',
+        displayName: 'Codex',
+      }),
+    ]);
+  });
+
   it('filters by repo and worktree while keeping dead sessions visible for cleanup', () => {
     const items = buildAgentSessionInventory({
       sessions: [

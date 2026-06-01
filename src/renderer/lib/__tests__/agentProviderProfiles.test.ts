@@ -31,6 +31,34 @@ const provider: AgentProviderProfile = {
 type ClaudeProviderSnapshot = AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>;
 type TestProviderSnapshot = AgentProviderProfileSnapshot<AgentProviderProfile, unknown>;
 
+interface TestDiscoveryOptions {
+  customPath?: string;
+}
+
+interface DiscoveryAwareAdapter<TSettings> {
+  readCurrent: (
+    repoPath?: string,
+    discoveryOptions?: TestDiscoveryOptions
+  ) => Promise<AgentProviderProfileSnapshot<AgentProviderProfile, TSettings>>;
+  apply: (
+    repoPath: string | undefined,
+    profile: AgentProviderProfile,
+    discoveryOptions?: TestDiscoveryOptions
+  ) => Promise<boolean>;
+}
+
+interface DiscoveryAwareFacade {
+  readAllCurrent: (
+    repoPath?: string,
+    discoveryOptionsByProvider?: Partial<Record<AIProvider, TestDiscoveryOptions>>
+  ) => Promise<AgentProviderProfileSnapshot<AgentProviderProfile, unknown>[]>;
+  apply: (
+    repoPath: string | undefined,
+    profile: AgentProviderProfile,
+    discoveryOptions?: TestDiscoveryOptions
+  ) => Promise<boolean>;
+}
+
 interface TestAdapterHarness {
   adapter: AgentProviderProfileAdapter<AgentProviderProfile, unknown>;
   cleanup: ReturnType<typeof vi.fn>;
@@ -228,10 +256,18 @@ describe('agent provider profiles', () => {
       apply,
       onSettingsChanged,
     });
+    const discoveryOptions = {
+      customPath: 'C:\\Program Files\\OpenAI\\codex.cmd',
+    };
+    const discoveryAwareAdapter = adapter as unknown as DiscoveryAwareAdapter<unknown>;
     const callback = vi.fn();
 
-    await expect(adapter.readCurrent('/repo')).resolves.toEqual(readSnapshot);
-    await expect(adapter.apply('/repo', codexProfile)).resolves.toBe(true);
+    await expect(discoveryAwareAdapter.readCurrent('/repo', discoveryOptions)).resolves.toEqual(
+      readSnapshot
+    );
+    await expect(
+      discoveryAwareAdapter.apply('/repo', codexProfile, discoveryOptions)
+    ).resolves.toBe(true);
     adapter.subscribeToExternalChanges('/repo', callback);
 
     expect(adapter.id).toBe('codex-cli');
@@ -240,8 +276,8 @@ describe('agent provider profiles', () => {
     expect(adapter.supportsSession({ agentId: 'codex', agentCommand: 'codex' })).toBe(true);
     expect(adapter.supportsSession({ agentId: 'claude', agentCommand: 'claude' })).toBe(false);
     expect(adapter.isActiveProfile(codexProfile, readSnapshot.extracted)).toBe(true);
-    expect(readSettings).toHaveBeenCalledWith('/repo', 'codex-cli');
-    expect(apply).toHaveBeenCalledWith('/repo', codexProfile);
+    expect(readSettings).toHaveBeenCalledWith('/repo', 'codex-cli', discoveryOptions);
+    expect(apply).toHaveBeenCalledWith('/repo', codexProfile, discoveryOptions);
     const settingsChangedCallback = settingsChangedCallbacks[0];
     if (!settingsChangedCallback) {
       throw new Error('Expected settings change callback to be registered');
@@ -325,9 +361,15 @@ describe('agent provider profiles', () => {
       apply,
       onSettingsChanged,
     });
+    const discoveryOptions = {
+      customPath: 'C:\\Users\\Tester\\AppData\\Roaming\\npm\\cursor-agent.cmd',
+    };
+    const discoveryAwareAdapter = adapter as unknown as DiscoveryAwareAdapter<unknown>;
     const callback = vi.fn();
 
-    await expect(adapter.readCurrent('/repo')).resolves.toEqual(readSnapshot);
+    await expect(discoveryAwareAdapter.readCurrent('/repo', discoveryOptions)).resolves.toEqual(
+      readSnapshot
+    );
     await expect(
       adapter.apply('/repo', {
         id: 'cursor-provider',
@@ -344,7 +386,7 @@ describe('agent provider profiles', () => {
     expect(adapter.supportsSession({ agentId: 'cursor-agent', agentCommand: 'cursor-agent' })).toBe(
       false
     );
-    expect(readSettings).toHaveBeenCalledWith('/repo', 'cursor-cli');
+    expect(readSettings).toHaveBeenCalledWith('/repo', 'cursor-cli', discoveryOptions);
     expect(apply).not.toHaveBeenCalled();
     const settingsChangedCallback = settingsChangedCallbacks[0];
     if (!settingsChangedCallback) {
@@ -537,8 +579,15 @@ describe('agent provider profiles', () => {
       codexHarness.adapter,
       cursorHarness.adapter,
     ]);
+    const discoveryOptionsByProvider = {
+      'codex-cli': { customPath: 'C:\\Program Files\\OpenAI\\codex.cmd' },
+      'cursor-cli': { customPath: 'C:\\Users\\Tester\\AppData\\Roaming\\npm\\cursor-agent.cmd' },
+    } satisfies Partial<Record<AIProvider, TestDiscoveryOptions>>;
+    const discoveryAwareFacade = facade as unknown as DiscoveryAwareFacade;
 
-    await expect(facade.readAllCurrent('/repo')).resolves.toEqual([
+    await expect(
+      discoveryAwareFacade.readAllCurrent('/repo', discoveryOptionsByProvider)
+    ).resolves.toEqual([
       {
         providerId: 'claude-code',
         supported: true,
@@ -570,7 +619,44 @@ describe('agent provider profiles', () => {
         },
       },
     ]);
-    expect(cursorHarness.adapter.readCurrent).toHaveBeenCalledWith('/repo');
+    expect(claudeHarness.adapter.readCurrent).toHaveBeenCalledWith('/repo');
+    expect(codexHarness.adapter.readCurrent).toHaveBeenCalledWith(
+      '/repo',
+      discoveryOptionsByProvider['codex-cli']
+    );
+    expect(cursorHarness.adapter.readCurrent).toHaveBeenCalledWith(
+      '/repo',
+      discoveryOptionsByProvider['cursor-cli']
+    );
+  });
+
+  it('routes provider-scoped discovery options through facade apply', async () => {
+    const codexHarness = createTestAdapterHarness({
+      providerId: 'codex-cli',
+      supportsProfiles: true,
+      snapshot: {
+        settings: null,
+        extracted: null,
+      },
+    });
+    const facade = createAgentProviderProfileRegistryFacade([codexHarness.adapter]);
+    const discoveryOptions = {
+      customPath: 'C:\\Program Files\\OpenAI\\codex.cmd',
+    };
+    const discoveryAwareFacade = facade as unknown as DiscoveryAwareFacade;
+    const profile: AgentProviderProfile = {
+      id: 'codex-provider',
+      name: 'Codex Provider',
+      providerId: 'codex-cli',
+      baseUrl: 'https://api.openai.com/v1',
+      authToken: 'codex-token',
+    };
+
+    await expect(discoveryAwareFacade.apply('/repo', profile, discoveryOptions)).resolves.toBe(
+      true
+    );
+
+    expect(codexHarness.adapter.apply).toHaveBeenCalledWith('/repo', profile, discoveryOptions);
   });
 
   it('redacts generic provider preview secrets', () => {

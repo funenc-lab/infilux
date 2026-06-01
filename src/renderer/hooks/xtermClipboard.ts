@@ -1,6 +1,9 @@
 import type { Terminal } from '@xterm/xterm';
 
 type TerminalSelectionReader = Pick<Terminal, 'getSelection' | 'hasSelection'>;
+type TerminalInteractionRestoreTarget = Pick<Terminal, 'clearSelection' | 'focus' | 'refresh'> & {
+  rows: number;
+};
 
 export function getTerminalSelectionText(terminal: TerminalSelectionReader | null): string | null {
   if (!terminal?.hasSelection()) {
@@ -96,4 +99,19 @@ export async function copyTerminalSelectionToClipboard(
 
   await writeClipboardText(selectionText);
   return true;
+}
+
+export function restoreTerminalInteractionAfterCopy(
+  terminal: TerminalInteractionRestoreTarget | null
+): void {
+  if (!terminal) {
+    return;
+  }
+
+  terminal.clearSelection();
+  document.getSelection()?.removeAllRanges();
+  terminal.focus();
+  requestAnimationFrame(() => {
+    terminal.refresh(0, Math.max(0, terminal.rows - 1));
+  });
 }

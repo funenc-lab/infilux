@@ -2,19 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cliDetectorTestDoubles = vi.hoisted(() => {
   const execInPty = vi.fn();
+  const getShellForCommand = vi.fn();
 
   function reset() {
     execInPty.mockReset();
+    getShellForCommand.mockReset();
+    getShellForCommand.mockReturnValue({ shell: '/bin/zsh', args: ['-i', '-l', '-c'] });
   }
 
   return {
     execInPty,
+    getShellForCommand,
     reset,
   };
 });
 
 vi.mock('../../../utils/shell', () => ({
   execInPty: cliDetectorTestDoubles.execInPty,
+  getShellForCommand: cliDetectorTestDoubles.getShellForCommand,
 }));
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -79,6 +84,25 @@ describe('CliDetector', () => {
     expect(cliDetectorTestDoubles.execInPty).toHaveBeenCalledWith('codex --version', {
       timeout: 60000,
     });
+  });
+
+  it('quotes Windows custom builtin paths before detection', async () => {
+    setPlatform('win32');
+    cliDetectorTestDoubles.getShellForCommand.mockReturnValueOnce({
+      shell: 'powershell.exe',
+      args: ['-NoLogo', '-Command'],
+    });
+    cliDetectorTestDoubles.execInPty.mockResolvedValueOnce('codex 1.2.3');
+
+    const { cliDetector } = await import('../CliDetector');
+    await cliDetector.detectOne('codex', undefined, 'C:\\Program Files\\OpenAI\\codex.exe');
+
+    expect(cliDetectorTestDoubles.execInPty).toHaveBeenCalledWith(
+      "& 'C:\\Program Files\\OpenAI\\codex.exe' --version",
+      {
+        timeout: 60000,
+      }
+    );
   });
 
   it('detects custom agents and falls back for unknown agents', async () => {

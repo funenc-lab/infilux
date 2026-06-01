@@ -48,10 +48,23 @@ const testState = vi.hoisted(() => ({
   sessionResize: vi.fn(async () => undefined),
   sessionWrite: vi.fn(async () => undefined),
   sessionGetRuntimeInfo: vi.fn(async () => null),
+  tmuxScrollClient: vi.fn(async () => ({
+    applied: true,
+    inMode: true,
+    paneId: '%0',
+  })),
   remoteGetStatus: vi.fn(async () => ({ connected: false })),
   navigationToFile: vi.fn(),
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
+  textareaEventTypes: [] as string[],
+  latestTextarea: null as HTMLTextAreaElement | null,
+  terminalFocus: vi.fn(),
+  attachedWheelHandler: null as ((event: WheelEvent) => boolean | undefined) | null,
+  resolveAgentWheelPolicy: vi.fn((_input?: unknown) => ({
+    action: 'delegate' as const,
+    carryY: 0,
+  })),
   hookProps: {} as Partial<UseXtermOptions>,
   intersectionObserve: vi.fn(),
   intersectionDisconnect: vi.fn(),
@@ -60,6 +73,11 @@ const testState = vi.hoisted(() => ({
   unsubscribeVisibility: vi.fn(),
   unsubscribeFocus: vi.fn(),
   unsubscribeResize: vi.fn(),
+  activationRefreshCalls: [] as Array<{
+    fitViewport: () => void;
+    refresh: () => void;
+    focus: () => void;
+  }>,
 }));
 
 vi.mock('@xterm/xterm', () => ({
@@ -67,7 +85,7 @@ vi.mock('@xterm/xterm', () => ({
     cols = 80;
     rows = 24;
     element = document.createElement('div');
-    textarea: HTMLTextAreaElement | null = null;
+    textarea: HTMLTextAreaElement | null = document.createElement('textarea');
     options: Record<string, unknown> = {};
     unicode = { activeVersion: '11' };
     buffer = {
@@ -90,6 +108,19 @@ vi.mock('@xterm/xterm', () => ({
     loadAddon(): void {}
     open(container: HTMLElement): void {
       container.appendChild(this.element);
+      if (this.textarea) {
+        this.element.appendChild(this.textarea);
+        testState.latestTextarea = this.textarea;
+        const addEventListener = this.textarea.addEventListener.bind(this.textarea);
+        this.textarea.addEventListener = ((
+          type: string,
+          listener: EventListenerOrEventListenerObject,
+          options?: AddEventListenerOptions | boolean
+        ) => {
+          testState.textareaEventTypes.push(type);
+          addEventListener(type, listener, options);
+        }) as HTMLTextAreaElement['addEventListener'];
+      }
     }
     refresh(): void {}
     reset(): void {}
@@ -97,7 +128,9 @@ vi.mock('@xterm/xterm', () => ({
       testState.terminalWrite(data);
     }
     clear(): void {}
-    focus(): void {}
+    focus(): void {
+      testState.terminalFocus();
+    }
     dispose(): void {}
     selectAll(): void {}
     hasSelection(): boolean {
@@ -239,7 +272,14 @@ vi.mock('@/utils/logging', () => ({
 }));
 
 vi.mock('../xtermActivationRefresh', () => ({
-  scheduleXtermActivationRefresh: () => () => undefined,
+  scheduleXtermActivationRefresh: (options: {
+    fitViewport: () => void;
+    refresh: () => void;
+    focus: () => void;
+  }) => {
+    testState.activationRefreshCalls.push(options);
+    return () => undefined;
+  },
 }));
 
 vi.mock('../xtermAgentTranscriptPolicy', () => ({
@@ -251,6 +291,7 @@ vi.mock('../xtermAgentTranscriptPolicy', () => ({
 vi.mock('../xtermClipboard', () => ({
   copyTerminalSelectionToClipboard: vi.fn(async () => undefined),
   getTerminalSelectionText: vi.fn(() => ''),
+  restoreTerminalInteractionAfterCopy: vi.fn(() => undefined),
   shouldHandleTerminalCopyEvent: vi.fn(() => false),
   writeClipboardText: vi.fn(async () => undefined),
 }));
@@ -285,14 +326,16 @@ vi.mock('../xtermViewportSync', () => ({
 }));
 
 vi.mock('../xtermWheelHandlerPersistence', () => ({
-  attachPersistentCustomWheelEventHandler: () => undefined,
+  attachPersistentCustomWheelEventHandler: (
+    _terminal: unknown,
+    handler: (event: WheelEvent) => boolean | undefined
+  ) => {
+    testState.attachedWheelHandler = handler;
+  },
 }));
 
 vi.mock('../xtermWheelPolicy', () => ({
-  resolveAgentWheelPolicy: () => ({
-    action: 'delegate',
-    carryY: 0,
-  }),
+  resolveAgentWheelPolicy: () => testState.resolveAgentWheelPolicy(),
 }));
 
 function HookHarness() {
@@ -371,10 +414,25 @@ describe('useXterm startup loading state', () => {
     testState.sessionResize.mockClear();
     testState.sessionWrite.mockClear();
     testState.sessionGetRuntimeInfo.mockClear();
+    testState.tmuxScrollClient.mockClear();
+    testState.tmuxScrollClient.mockResolvedValue({
+      applied: true,
+      inMode: true,
+      paneId: '%0',
+    });
     testState.remoteGetStatus.mockClear();
     testState.navigationToFile.mockClear();
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
+    testState.textareaEventTypes = [];
+    testState.latestTextarea = null;
+    testState.terminalFocus.mockClear();
+    testState.attachedWheelHandler = null;
+    testState.resolveAgentWheelPolicy.mockReset();
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'delegate',
+      carryY: 0,
+    });
     testState.intersectionObserve.mockClear();
     testState.intersectionDisconnect.mockClear();
     testState.resizeObserve.mockClear();
@@ -382,6 +440,7 @@ describe('useXterm startup loading state', () => {
     testState.unsubscribeVisibility.mockClear();
     testState.unsubscribeFocus.mockClear();
     testState.unsubscribeResize.mockClear();
+    testState.activationRefreshCalls = [];
     testState.hookProps = {};
 
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -422,6 +481,9 @@ describe('useXterm startup loading state', () => {
       },
       remote: {
         getStatus: testState.remoteGetStatus,
+      },
+      tmux: {
+        scrollClient: testState.tmuxScrollClient,
       },
       session: {
         create: testState.sessionCreate,
@@ -478,6 +540,40 @@ describe('useXterm startup loading state', () => {
       runtimeState: 'live',
       metadata: undefined,
     });
+
+    await mounted.unmount();
+  });
+
+  it('does not add a competing compositionend textarea handler around xterm IME handling', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.textareaEventTypes).not.toContain('compositionend');
+
+    await mounted.unmount();
+  });
+
+  it('prepares and focuses xterm textarea during activation refresh for IME input', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.activationRefreshCalls).toHaveLength(1);
+    expect(testState.latestTextarea).not.toBeNull();
+
+    act(() => {
+      testState.activationRefreshCalls[0]?.focus();
+    });
+
+    expect(testState.terminalFocus).toHaveBeenCalledTimes(2);
+    expect(testState.latestTextarea?.inputMode).toBe('text');
+    expect(testState.latestTextarea?.spellcheck).toBe(false);
+    expect(testState.latestTextarea?.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
+    expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).not.toBeNull();
+    expect(document.activeElement).toBe(testState.latestTextarea);
 
     await mounted.unmount();
   });
@@ -681,6 +777,170 @@ describe('useXterm startup loading state', () => {
     expect(testState.unsubscribeVisibility).not.toHaveBeenCalled();
     expect(testState.unsubscribeFocus).not.toHaveBeenCalled();
     expect(testState.unsubscribeResize).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('refreshes the renderer when an inactive terminal becomes visible again', async () => {
+    const mounted = mountHookHarness({
+      isActive: false,
+      isVisible: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.activationRefreshCalls).toHaveLength(1);
+
+    mounted.rerender({
+      isActive: false,
+      isVisible: false,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    testState.activationRefreshCalls = [];
+
+    mounted.rerender({
+      isActive: false,
+      isVisible: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.activationRefreshCalls).toHaveLength(1);
+
+    await mounted.unmount();
+  });
+
+  it('reports tmux host scrollback state after host wheel scrolling', async () => {
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -4,
+    } as never);
+    const onHostScrollbackStateChange = vi.fn();
+
+    const mounted = mountHookHarness({
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'tmux-session-1',
+      },
+      preferHostScrollback: true,
+      onHostScrollbackStateChange,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.attachedWheelHandler).toBeTypeOf('function');
+
+    vi.useFakeTimers();
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    await act(async () => {
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -4,
+        preventDefault,
+        stopPropagation,
+      } as unknown as WheelEvent);
+      await flushMicrotasks();
+    });
+
+    expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+      await flushMicrotasks();
+    });
+
+    expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
+      sessionName: 'tmux-session-1',
+      serverName: 'infilux',
+      direction: 'up',
+      amount: 4,
+    });
+    expect(onHostScrollbackStateChange).toHaveBeenCalledWith(true);
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('coalesces repeated tmux host wheel scroll events before sending IPC', async () => {
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -3,
+    } as never);
+
+    const mounted = mountHookHarness({
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'tmux-session-1',
+      },
+      preferHostScrollback: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.attachedWheelHandler).toBeTypeOf('function');
+
+    vi.useFakeTimers();
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    await act(async () => {
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -3,
+        preventDefault,
+        stopPropagation,
+      } as unknown as WheelEvent);
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -3,
+        preventDefault,
+        stopPropagation,
+      } as unknown as WheelEvent);
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -3,
+        preventDefault,
+        stopPropagation,
+      } as unknown as WheelEvent);
+      await flushMicrotasks();
+    });
+
+    expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+      await flushMicrotasks();
+    });
+
+    expect(testState.tmuxScrollClient).toHaveBeenCalledTimes(1);
+    expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
+      sessionName: 'tmux-session-1',
+      serverName: 'infilux',
+      direction: 'up',
+      amount: 9,
+    });
+    expect(preventDefault).toHaveBeenCalledTimes(3);
+    expect(stopPropagation).toHaveBeenCalledTimes(3);
 
     await mounted.unmount();
   });

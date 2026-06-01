@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
   collectMountedAgentSessionIds,
   DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
+  resolveBackgroundAgentCanvasMountPlan,
+  resolveBackgroundAgentCanvasMountSessionIds,
   resolveMountedAgentPanelSessionIds,
 } from '../agentPanelMountPolicy';
+
+const NOW = 1_700_000_000_000;
 
 describe('collectMountedAgentSessionIds', () => {
   beforeEach(() => {
@@ -167,6 +172,23 @@ describe('resolveMountedAgentPanelSessionIds', () => {
     ).toEqual(['session-2', 'session-3', 'session-5', 'session-6']);
   });
 
+  it('reserves workspace canvas terminal budget for pending command sessions before idle sessions', () => {
+    const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      pendingCommand: index === 7 ? 'run diagnostics' : undefined,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        workspaceCanvasTerminalMountLimit: 4,
+      })
+    ).toEqual(['session-0', 'session-1', 'session-2', 'session-7']);
+  });
+
   it('reserves workspace canvas terminal budget for focused sessions before attention sessions', () => {
     const canvasSessions = Array.from({ length: 5 }, (_, index) => ({
       id: `session-${index}`,
@@ -208,6 +230,85 @@ describe('resolveMountedAgentPanelSessionIds', () => {
     ).toEqual(['session-0', 'session-1', 'session-2', 'session-7']);
   });
 
+  it('defers dormant recovered Codex workspace canvas sessions from passive background mounts', () => {
+    const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      agentId: index === 7 ? 'codex' : 'gemini',
+      agentCommand: index === 7 ? 'codex' : 'gemini',
+      createdAt: NOW - AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
+      recovered: index === 7,
+      recoveryState: index === 7 ? 'live' : undefined,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        canvasFocusedSessionId: null,
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        sessionLastActivityAtById: {
+          'session-7': NOW - AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
+        },
+        now: NOW,
+        workspaceCanvasTerminalMountLimit: 4,
+      })
+    ).toEqual(['session-0', 'session-1', 'session-2', 'session-3']);
+  });
+
+  it('keeps focused dormant recovered Codex workspace canvas sessions mounted', () => {
+    const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      agentId: index === 7 ? 'codex' : 'gemini',
+      agentCommand: index === 7 ? 'codex' : 'gemini',
+      createdAt: NOW - AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
+      recovered: index === 7,
+      recoveryState: index === 7 ? 'live' : undefined,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        canvasFocusedSessionId: 'session-7',
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        sessionLastActivityAtById: {
+          'session-7': NOW - AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
+        },
+        now: NOW,
+        workspaceCanvasTerminalMountLimit: 4,
+      })
+    ).toContain('session-7');
+  });
+
+  it('keeps foreground worktree workspace canvas sessions mounted during worktree switches', () => {
+    const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      agentId: index === 7 ? 'codex' : 'gemini',
+      agentCommand: index === 7 ? 'codex' : 'gemini',
+      createdAt: NOW - AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
+      recovered: index === 7,
+      recoveryState: index === 7 ? 'live' : undefined,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions,
+        canvasFocusedSessionId: null,
+        currentWorktreeSessions: [canvasSessions[7]],
+        foregroundSessionIds: ['session-7'],
+        globalSessionIds: [],
+        isWorkspaceCanvasDisplayMode: true,
+        sessionLastActivityAtById: {
+          'session-7': NOW - AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
+        },
+        now: NOW,
+        workspaceCanvasTerminalMountLimit: 4,
+      })
+    ).toContain('session-7');
+  });
+
   it('does not reserve workspace canvas terminal slots for metadata-only missing-host sessions', () => {
     const canvasSessions = Array.from({ length: 8 }, (_, index) => ({
       id: `session-${index}`,
@@ -235,6 +336,27 @@ describe('resolveMountedAgentPanelSessionIds', () => {
         isWorkspaceCanvasDisplayMode: false,
       })
     ).toEqual(['worktree-a', 'worktree-a-second', 'hidden-session']);
+  });
+
+  it('limits worktree canvas runtime mounts even when every tile is visible', () => {
+    const currentWorktreeSessions = Array.from({ length: 8 }, (_, index) => ({
+      id: `session-${index}`,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      createdAt: index,
+    }));
+
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: currentWorktreeSessions,
+        currentWorktreeSessions,
+        currentWorktreeVisibleSessionIds: currentWorktreeSessions.map((session) => session.id),
+        globalSessionIds: [],
+        isCanvasDisplayMode: true,
+        isWorkspaceCanvasDisplayMode: false,
+        worktreeTerminalMountLimit: 6,
+      })
+    ).toEqual(['session-0', 'session-1', 'session-2', 'session-3', 'session-4', 'session-5']);
   });
 
   it('limits non-canvas hidden terminal mounts while preserving visible and attention sessions', () => {
@@ -304,5 +426,72 @@ describe('resolveMountedAgentPanelSessionIds', () => {
         worktreeTerminalMountLimit: DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
       })
     ).toEqual(['session-0', 'session-1', 'session-2', 'session-3', 'session-4', 'session-6']);
+  });
+});
+
+describe('resolveBackgroundAgentCanvasMountSessionIds', () => {
+  it('reports when more background canvas mount work remains after the current batch', () => {
+    expect(
+      resolveBackgroundAgentCanvasMountPlan({
+        backgroundMountedSessionIds: [],
+        batchSize: 2,
+        canvasSessionIds: Array.from({ length: 8 }, (_, index) => `session-${index}`),
+        maxMountedSessionCount: 6,
+        mountedSessionIds: ['session-0'],
+      })
+    ).toEqual({
+      hasMore: true,
+      sessionIds: ['session-1', 'session-2'],
+    });
+  });
+
+  it('does not background-mount more canvas terminals once the runtime budget is full', () => {
+    expect(
+      resolveBackgroundAgentCanvasMountSessionIds({
+        backgroundMountedSessionIds: ['session-6', 'session-7'],
+        batchSize: 2,
+        canvasSessionIds: Array.from({ length: 10 }, (_, index) => `session-${index}`),
+        maxMountedSessionCount: 6,
+        mountedSessionIds: Array.from({ length: 6 }, (_, index) => `session-${index}`),
+      })
+    ).toEqual([]);
+  });
+
+  it('trims existing background mounts to the remaining runtime budget', () => {
+    expect(
+      resolveBackgroundAgentCanvasMountSessionIds({
+        backgroundMountedSessionIds: ['session-2', 'session-3', 'session-4'],
+        batchSize: 2,
+        canvasSessionIds: Array.from({ length: 8 }, (_, index) => `session-${index}`),
+        maxMountedSessionCount: 5,
+        mountedSessionIds: ['session-0', 'session-1'],
+        userRequestedSessionIds: ['session-7'],
+      })
+    ).toEqual(['session-2', 'session-3']);
+  });
+
+  it('adds eligible background mounts in small batches without exceeding the runtime budget', () => {
+    expect(
+      resolveBackgroundAgentCanvasMountSessionIds({
+        backgroundMountedSessionIds: [],
+        batchSize: 2,
+        canvasSessionIds: Array.from({ length: 8 }, (_, index) => `session-${index}`),
+        maxMountedSessionCount: 5,
+        mountedSessionIds: ['session-0', 'session-1'],
+      })
+    ).toEqual(['session-2', 'session-3']);
+  });
+
+  it('skips sessions that runtime safety marks as deferred', () => {
+    expect(
+      resolveBackgroundAgentCanvasMountSessionIds({
+        backgroundMountedSessionIds: [],
+        batchSize: 3,
+        canvasSessionIds: Array.from({ length: 8 }, (_, index) => `session-${index}`),
+        maxMountedSessionCount: 5,
+        mountedSessionIds: ['session-0', 'session-1'],
+        shouldDeferSessionMount: (sessionId) => sessionId === 'session-2',
+      })
+    ).toEqual(['session-3', 'session-4', 'session-5']);
   });
 });

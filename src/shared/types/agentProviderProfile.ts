@@ -15,6 +15,10 @@ export interface AgentProviderProfile {
   enabled?: boolean;
 }
 
+export interface AgentProviderDiscoveryOptions {
+  customPath?: string;
+}
+
 export type AgentProviderProfileInput = Omit<AgentProviderProfile, 'providerId'> & {
   providerId?: AIProvider;
 };

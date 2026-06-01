@@ -177,6 +177,49 @@ describe('WorktreeService', () => {
     await expect(service.getWorktreeBranch('/repo/feature-a')).resolves.toBe('feature-a');
   });
 
+  it('marks prunable worktrees when git includes the prune reason on the same line', async () => {
+    const repoGit = createGitDouble({
+      raw: vi
+        .fn()
+        .mockResolvedValue(
+          [
+            'worktree /repo/main',
+            'HEAD abc123',
+            'branch refs/heads/main',
+            '',
+            'worktree /repo/.worktrees/missing-feature',
+            'HEAD def456',
+            'branch refs/heads/missing-feature',
+            'prunable gitdir file points to non-existent location',
+            '',
+          ].join('\n')
+        ),
+    });
+
+    worktreeServiceTestDoubles.createSimpleGit.mockReturnValue(repoGit);
+
+    const service = new WorktreeService('/repo');
+
+    await expect(service.list()).resolves.toEqual([
+      {
+        path: '/repo/main',
+        head: 'abc123',
+        branch: 'main',
+        isMainWorktree: true,
+        isLocked: false,
+        prunable: false,
+      },
+      {
+        path: '/repo/.worktrees/missing-feature',
+        head: 'def456',
+        branch: 'missing-feature',
+        isMainWorktree: false,
+        isLocked: false,
+        prunable: true,
+      },
+    ]);
+  });
+
   it('throws when the main worktree or branch lookup cannot be resolved', async () => {
     const repoGit = createGitDouble();
     worktreeServiceTestDoubles.createSimpleGit.mockReturnValue(repoGit);
@@ -212,6 +255,7 @@ describe('WorktreeService', () => {
       raw: vi
         .fn()
         .mockResolvedValueOnce('abc123')
+        .mockResolvedValueOnce('')
         .mockResolvedValueOnce('added')
         .mockRejectedValueOnce(new Error('fatal: ambiguous argument HEAD')),
     });
@@ -230,6 +274,11 @@ describe('WorktreeService', () => {
 
     expect(repoGit.raw).toHaveBeenNthCalledWith(1, ['rev-parse', 'HEAD']);
     expect(repoGit.raw).toHaveBeenNthCalledWith(2, [
+      'for-each-ref',
+      '--format=%(refname:short)',
+      'refs/heads/feature-a',
+    ]);
+    expect(repoGit.raw).toHaveBeenNthCalledWith(3, [
       'worktree',
       'add',
       '-b',
@@ -245,6 +294,34 @@ describe('WorktreeService', () => {
     ).rejects.toThrow(
       'Cannot create worktree: repository has no commits. Please create an initial commit first.'
     );
+  });
+
+  it('rejects creating a worktree when the requested new branch already exists locally', async () => {
+    const repoGit = createGitDouble({
+      raw: vi.fn().mockResolvedValueOnce('abc123').mockResolvedValueOnce('main'),
+    });
+
+    worktreeServiceTestDoubles.createSimpleGit.mockReturnValue(repoGit);
+
+    const service = new WorktreeService('/repo');
+
+    await expect(
+      service.add({
+        path: '/repo/worktrees/main',
+        branch: 'main',
+        newBranch: 'main',
+      })
+    ).rejects.toThrow(
+      'Worktree branch conflicts with existing local branch: main. Choose a different name or create the worktree from the existing branch.'
+    );
+
+    expect(repoGit.raw).toHaveBeenNthCalledWith(1, ['rev-parse', 'HEAD']);
+    expect(repoGit.raw).toHaveBeenNthCalledWith(2, [
+      'for-each-ref',
+      '--format=%(refname:short)',
+      'refs/heads/main',
+    ]);
+    expect(repoGit.raw).toHaveBeenCalledTimes(2);
   });
 
   it('removes worktrees, prunes stale entries, and deletes branches when requested', async () => {
@@ -277,6 +354,70 @@ describe('WorktreeService', () => {
       '/repo/worktrees/feature-a',
     ]);
     expect(repoGit.raw).toHaveBeenNthCalledWith(3, ['branch', '-D', 'feature-a']);
+  });
+
+  it('treats already-pruned missing worktrees as removed and still deletes the branch', async () => {
+    const repoGit = createGitDouble({
+      raw: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(
+          new Error("fatal: '/repo/worktrees/feat/open-design-core-ux' is not a working tree")
+        )
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined),
+    });
+
+    worktreeServiceTestDoubles.createSimpleGit.mockReturnValue(repoGit);
+    worktreeServiceTestDoubles.existsSync.mockReturnValue(false);
+
+    const service = new WorktreeService('/repo');
+
+    await expect(
+      service.remove({
+        path: '/repo/worktrees/feat/open-design-core-ux',
+        force: true,
+        deleteBranch: true,
+        branch: 'feat/open-design-core-ux',
+      })
+    ).resolves.toBeUndefined();
+
+    expect(repoGit.raw).toHaveBeenNthCalledWith(1, ['worktree', 'prune']);
+    expect(repoGit.raw).toHaveBeenNthCalledWith(2, [
+      'worktree',
+      'remove',
+      '--force',
+      '/repo/worktrees/feat/open-design-core-ux',
+    ]);
+    expect(repoGit.raw).toHaveBeenNthCalledWith(3, ['worktree', 'prune']);
+    expect(repoGit.raw).toHaveBeenNthCalledWith(4, ['branch', '-D', 'feat/open-design-core-ux']);
+  });
+
+  it('treats missing worktree directories as already removed when git reports a missing path variant', async () => {
+    const repoGit = createGitDouble({
+      raw: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(
+          new Error("fatal: '/repo/worktrees/feat/open-design-core-ux' does not exist")
+        )
+        .mockResolvedValueOnce(undefined),
+    });
+
+    worktreeServiceTestDoubles.createSimpleGit.mockReturnValue(repoGit);
+    worktreeServiceTestDoubles.existsSync.mockReturnValue(false);
+
+    const service = new WorktreeService('/repo');
+
+    await expect(
+      service.remove({
+        path: '/repo/worktrees/feat/open-design-core-ux',
+        force: true,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(worktreeServiceTestDoubles.rm).not.toHaveBeenCalled();
+    expect(repoGit.raw).toHaveBeenNthCalledWith(3, ['worktree', 'prune']);
   });
 
   it('falls back to manual deletion for locked worktrees and surfaces a helpful error when cleanup fails', async () => {

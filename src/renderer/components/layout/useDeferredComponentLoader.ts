@@ -7,6 +7,8 @@ interface UseDeferredComponentLoaderOptions<TModule, TProps> {
   loadStrategy?: DeferredLoadStrategy;
   load: () => Promise<TModule>;
   selectComponent: (module: TModule) => React.ComponentType<TProps>;
+  getCachedComponent?: () => React.ComponentType<TProps> | null;
+  setCachedComponent?: (component: React.ComponentType<TProps>) => void;
   errorLabel: string;
 }
 
@@ -48,9 +50,13 @@ export function useDeferredComponentLoader<TModule, TProps>({
   loadStrategy = 'immediate',
   load,
   selectComponent,
+  getCachedComponent,
+  setCachedComponent,
   errorLabel,
 }: UseDeferredComponentLoaderOptions<TModule, TProps>): DeferredComponentLoaderState<TProps> {
-  const [Component, setComponent] = useState<React.ComponentType<TProps> | null>(null);
+  const [Component, setComponent] = useState<React.ComponentType<TProps> | null>(
+    () => getCachedComponent?.() ?? null
+  );
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
@@ -67,7 +73,9 @@ export function useDeferredComponentLoader<TModule, TProps>({
             return;
           }
 
-          setComponent(() => selectComponent(module));
+          const selectedComponent = selectComponent(module);
+          setCachedComponent?.(selectedComponent);
+          setComponent(() => selectedComponent);
         })
         .catch((caughtError: unknown) => {
           if (cancelled) {
@@ -92,7 +100,16 @@ export function useDeferredComponentLoader<TModule, TProps>({
       cancelled = true;
       cleanupScheduler();
     };
-  }, [Component, error, errorLabel, load, loadStrategy, selectComponent, shouldLoad]);
+  }, [
+    Component,
+    error,
+    errorLabel,
+    load,
+    loadStrategy,
+    selectComponent,
+    setCachedComponent,
+    shouldLoad,
+  ]);
 
   const retry = useCallback(() => {
     setComponent(null);

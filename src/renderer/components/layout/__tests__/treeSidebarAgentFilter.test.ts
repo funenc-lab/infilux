@@ -449,7 +449,7 @@ describe('TreeSidebar agent filter', () => {
     }
   });
 
-  it('keeps a worktree visible when its agent session runs from a child directory', async () => {
+  it('does not keep a worktree visible when only a child-directory agent session exists', async () => {
     agentSessionsState.sessions = [
       agentSession({
         id: 'nested-workdir-session',
@@ -471,11 +471,9 @@ describe('TreeSidebar agent filter', () => {
         toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(
-        view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')
-      ).not.toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/agent-task"]')).toBeNull();
       expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
-      expect(view.container.textContent).not.toContain('No matching worktrees');
+      expect(view.container.textContent).toContain('No live Agent worktrees');
     } finally {
       view.unmount();
     }

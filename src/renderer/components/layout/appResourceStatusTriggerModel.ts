@@ -24,12 +24,12 @@ function isWarningResource(resource: AppResourceItem): boolean {
   return resource.status === 'reconnecting';
 }
 
-function isManagedActiveResource(resource: AppResourceItem): boolean {
-  if (resource.kind === 'electron-process') {
-    return false;
-  }
-
-  return resource.status === 'running' || resource.status === 'ready';
+function isActiveAgentSessionResource(resource: AppResourceItem): boolean {
+  return (
+    resource.kind === 'session' &&
+    resource.sessionKind === 'agent' &&
+    (resource.status === 'running' || resource.status === 'ready')
+  );
 }
 
 function toBadgeLabel(count: number): string | null {
@@ -54,7 +54,7 @@ export function buildAppResourceStatusTriggerViewModel(
       continue;
     }
 
-    if (isManagedActiveResource(resource)) {
+    if (isActiveAgentSessionResource(resource)) {
       activeCount += 1;
     }
   }

@@ -30,6 +30,7 @@ export interface RecentEditorProject {
 export interface ValidateLocalPathResult {
   exists: boolean;
   isDirectory: boolean;
+  isGitRepository: boolean;
 }
 
 export interface RuntimeMemoryProcessMetric {

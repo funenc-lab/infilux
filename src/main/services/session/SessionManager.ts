@@ -620,6 +620,38 @@ export class SessionManager {
         });
         throw new Error(`Failed to recover tmux server: ${options.hostSession.serverName}`);
       }
+
+      if (options.hostSession.mode === 'attach-existing') {
+        const probeStatus = await tmuxDetector.probeSession(
+          options.hostSession.sessionName,
+          options.hostSession.serverName
+        );
+        if (probeStatus !== 'exists') {
+          const diagnosticsId = requestMainProcessDiagnosticsCapture({
+            event: 'session-tmux-session-recovery-failed',
+            context: {
+              windowId,
+              cwd: options.cwd ?? null,
+              kind: options.kind ?? 'terminal',
+              serverName: options.hostSession.serverName,
+              sessionName: options.hostSession.sessionName,
+              probeStatus,
+            },
+            throttleKey: `session-tmux-session-recovery-failed:${options.hostSession.serverName}:${options.hostSession.sessionName}`,
+            level: 'warn',
+          });
+          console.error('[session] Tmux host session recovery failed', {
+            diagnosticsId,
+            windowId,
+            cwd: options.cwd ?? null,
+            kind: options.kind ?? 'terminal',
+            serverName: options.hostSession.serverName,
+            sessionName: options.hostSession.sessionName,
+            probeStatus,
+          });
+          throw new Error(`Failed to recover tmux session: ${options.hostSession.sessionName}`);
+        }
+      }
     }
 
     const initialReplay = await this.loadLocalReplaySeed(options, startupLogger);

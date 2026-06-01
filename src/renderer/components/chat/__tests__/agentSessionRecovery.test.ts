@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getWorktreeAgentSessionRecoveryStatus,
   mergeRecoveredSessionsIntoGroupState,
   resetWorktreeAgentSessionRecoveryCacheForTests,
   restoreWorktreeAgentSessions,
+  subscribeToWorktreeAgentSessionRecovery,
 } from '../agentSessionRecovery';
 import { type AgentGroupState, createInitialGroupState } from '../types';
 
@@ -276,6 +278,38 @@ describe('agentSessionRecovery', () => {
     });
   });
 
+  it('publishes recovery status transitions while a worktree restore is in flight', async () => {
+    let resolveRestore!: (value: ReturnType<typeof createRecoverableRestoreResult>) => void;
+    const restoreWorktreeSessions = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof createRecoverableRestoreResult>>((resolve) => {
+          resolveRestore = resolve;
+        })
+    );
+    const statusChanges: Array<'idle' | 'restoring' | 'settled'> = [];
+    const unsubscribe = subscribeToWorktreeAgentSessionRecovery(() => {
+      statusChanges.push(getWorktreeAgentSessionRecoveryStatus('/repo', '/repo/worktree'));
+    });
+
+    const request = restoreWorktreeAgentSessions({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      restoreWorktreeSessions,
+      upsertRecoveredSession: vi.fn(),
+      updateGroupState: vi.fn(),
+    });
+
+    expect(getWorktreeAgentSessionRecoveryStatus('/repo', '/repo/worktree')).toBe('restoring');
+
+    resolveRestore(createRecoverableRestoreResult('session-1'));
+    await request;
+
+    expect(statusChanges).toEqual(['restoring', 'settled']);
+    expect(getWorktreeAgentSessionRecoveryStatus('/repo', '/repo/worktree')).toBe('settled');
+
+    unsubscribe();
+  });
+
   it('restores recoverable sessions only once per worktree after a successful prewarm', async () => {
     const restoreWorktreeSessions = vi.fn().mockResolvedValue(createRecoverableRestoreResult());
     const upsertRecoveredSession = vi.fn();
@@ -402,7 +436,7 @@ describe('agentSessionRecovery', () => {
     });
   });
 
-  it('hydrates disconnected sessions so worktrees do not recover as empty when the host is gone', async () => {
+  it('skips metadata-only sessions when the host is gone', async () => {
     const restoreWorktreeSessions = vi
       .fn()
       .mockResolvedValue(createNonRecoverableRestoreResult('session-missing'));
@@ -422,21 +456,14 @@ describe('agentSessionRecovery', () => {
         upsertRecoveredSession,
         updateGroupState,
       })
-    ).resolves.toEqual(['session-missing']);
+    ).resolves.toEqual([]);
 
-    expect(upsertRecoveredSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        uiSessionId: 'session-missing',
-        lastKnownState: 'missing-host-session',
-      })
-    );
-    expect(groupState.groups[0]).toMatchObject({
-      sessionIds: ['session-missing'],
-      activeSessionId: 'session-missing',
-    });
+    expect(upsertRecoveredSession).not.toHaveBeenCalled();
+    expect(updateGroupState).not.toHaveBeenCalled();
+    expect(groupState).toEqual(createInitialGroupState());
   });
 
-  it('does not complete the recovery cache after metadata-only hydration so later host recovery can attach', async () => {
+  it('does not complete the recovery cache after metadata-only restore so later host recovery can attach', async () => {
     const restoreWorktreeSessions = vi
       .fn()
       .mockResolvedValueOnce(createNonRecoverableRestoreResult('session-missing'))
@@ -457,7 +484,7 @@ describe('agentSessionRecovery', () => {
         upsertRecoveredSession,
         updateGroupState,
       })
-    ).resolves.toEqual(['session-missing']);
+    ).resolves.toEqual([]);
 
     await expect(
       restoreWorktreeAgentSessions({
@@ -470,6 +497,7 @@ describe('agentSessionRecovery', () => {
     ).resolves.toEqual(['session-missing']);
 
     expect(restoreWorktreeSessions).toHaveBeenCalledTimes(2);
+    expect(upsertRecoveredSession).toHaveBeenCalledTimes(1);
     expect(upsertRecoveredSession).toHaveBeenLastCalledWith(
       expect.objectContaining({
         uiSessionId: 'session-missing',
@@ -503,7 +531,7 @@ describe('agentSessionRecovery', () => {
         upsertRecoveredSession,
         updateGroupState,
       })
-    ).resolves.toEqual(['session-live', 'session-missing']);
+    ).resolves.toEqual(['session-live']);
 
     await expect(
       restoreWorktreeAgentSessions({
@@ -516,6 +544,20 @@ describe('agentSessionRecovery', () => {
     ).resolves.toEqual(['session-missing']);
 
     expect(restoreWorktreeSessions).toHaveBeenCalledTimes(2);
+    expect(upsertRecoveredSession).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        uiSessionId: 'session-live',
+        lastKnownState: 'live',
+      })
+    );
+    expect(upsertRecoveredSession).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        uiSessionId: 'session-missing',
+        lastKnownState: 'live',
+      })
+    );
     expect(groupState.groups[0]).toMatchObject({
       sessionIds: ['session-live', 'session-missing'],
       activeSessionId: 'session-live',

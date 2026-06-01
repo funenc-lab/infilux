@@ -14,6 +14,7 @@ import {
 import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TabId } from '@/App/constants';
 import type { Session } from '@/components/chat/SessionBar';
+import { getSessionDisplayName } from '@/components/chat/sessionBarLabels';
 import { Dialog, DialogPopup } from '@/components/ui/dialog';
 import { toastManager } from '@/components/ui/toast';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
@@ -56,7 +57,7 @@ type SelectableItem =
   | { type: 'terminal'; terminal: TerminalSession };
 
 function getAgentSessionLabel(session: Session): string {
-  return session.terminalTitle || session.name || session.agentId;
+  return getSessionDisplayName(session);
 }
 
 export function RunningProjectsPopover({

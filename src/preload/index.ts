@@ -3,6 +3,7 @@ import type {
   AgentCliInfo,
   AgentInputDispatchRequest,
   AgentMetadata,
+  AgentProviderDiscoveryOptions,
   AgentProviderProfile,
   AppCloseRequestPayload,
   AppResourceActionRequest,
@@ -145,15 +146,27 @@ function createAgentProviderBridge(channels: {
   return {
     readSettings: (
       repoPath?: string,
-      providerId?: AgentProviderProfile['providerId']
-    ): Promise<AgentProviderSettingsSnapshot> =>
-      providerId
-        ? ipcRenderer.invoke(channels.readSettings, repoPath, providerId)
-        : ipcRenderer.invoke(channels.readSettings, repoPath),
+      providerId?: AgentProviderProfile['providerId'],
+      discoveryOptions?: AgentProviderDiscoveryOptions
+    ): Promise<AgentProviderSettingsSnapshot> => {
+      if (discoveryOptions) {
+        return ipcRenderer.invoke(channels.readSettings, repoPath, providerId, discoveryOptions);
+      }
+      if (providerId) {
+        return ipcRenderer.invoke(channels.readSettings, repoPath, providerId);
+      }
+      return ipcRenderer.invoke(channels.readSettings, repoPath);
+    },
     apply: (
       repoPath: string | undefined,
-      provider: AgentProviderProfile | ClaudeProvider
-    ): Promise<boolean> => ipcRenderer.invoke(channels.apply, repoPath, provider),
+      provider: AgentProviderProfile | ClaudeProvider,
+      discoveryOptions?: AgentProviderDiscoveryOptions
+    ): Promise<boolean> => {
+      if (discoveryOptions) {
+        return ipcRenderer.invoke(channels.apply, repoPath, provider, discoveryOptions);
+      }
+      return ipcRenderer.invoke(channels.apply, repoPath, provider);
+    },
     onSettingsChanged: (callback: (data: AgentProviderSettingsSnapshot) => void): (() => void) => {
       const handler = (_: unknown, data: AgentProviderSettingsSnapshot) => callback(data);
       ipcRenderer.on(channels.settingsChanged, handler);

@@ -117,6 +117,7 @@ export const zhTranslations: Record<string, string> = {
   'Temp Session deleted': '临时会话已删除',
   'Failed to create temp session': '创建临时会话失败',
   'Failed to delete temp session': '删除临时会话失败',
+  'Failed to initialize Git repository': '\u521d\u59cb\u5316 Git \u4ed3\u5e93\u5931\u8d25',
   terminals: '终端',
   Branch: '分支',
   'Branch already exists. Choose a different name.': '该分支已存在，请使用其他分支名',
@@ -510,7 +511,8 @@ export const zhTranslations: Record<string, string> = {
   'No staged changes': '没有暂存的更改',
   'No matching actions found': '没有找到匹配的操作',
   'No matching repositories': '未找到仓库',
-  'No matching worktrees': '未找到匹配',
+  'No matching worktrees': '没有匹配的 worktree',
+  'No live Agent worktrees': '没有活跃 Agent worktree',
   'No matching results': '没有匹配结果',
   'No matching workspaces': '未找到匹配的工作区',
   'No Apps': '没有可用应用',
@@ -655,6 +657,11 @@ export const zhTranslations: Record<string, string> = {
   Status: '状态',
   'Stop output notification': 'Agent 停止输出时发送系统通知',
   'Agent Console': 'Agent 控制台',
+  'Restoring agent sessions': '\u6b63\u5728\u6062\u590d Agent \u4f1a\u8bdd',
+  'Loading persisted sessions for the selected worktree.':
+    '\u6b63\u5728\u52a0\u8f7d\u6240\u9009 worktree \u7684\u6301\u4e45\u5316\u4f1a\u8bdd\u3002',
+  'Recovery in progress': '\u6062\u590d\u4e2d',
+  'Preparing terminal views': '\u6b63\u5728\u51c6\u5907\u7ec8\u7aef\u89c6\u56fe',
   'No agent sessions are attached to this worktree': '当前 worktree 还没有关联的 Agent 会话',
   'Launch the default agent immediately or choose another profile to resume orchestration in this worktree.':
     '立即启动默认 Agent，或选择其他配置，继续在这个 worktree 中进行协作调度。',
@@ -764,7 +771,7 @@ export const zhTranslations: Record<string, string> = {
   'Worktree delete force hint': '目录包含未提交的修改，请勾选「强制删除」',
   'Worktree deleted': '已删除',
   'Worktree list empty': '创建第一个 Worktree 开始工作',
-  'Worktree not found': '未找到匹配',
+  'Worktree not found': 'Worktree 不存在',
   'Worktree path already exists. Choose a different path or branch name.':
     '目录已存在，请选择其他路径或分支名',
   'Worktree search placeholder': '搜索 worktree...',
@@ -1112,6 +1119,7 @@ export const zhTranslations: Record<string, string> = {
   'Unable to determine your home directory': '无法获取用户目录',
   Unstage: '取消暂存',
   'Unstage all': '全部取消暂存',
+  'Valid Git repository': '\u6709\u6548\u7684 Git \u4ed3\u5e93',
   Version: '版本',
   'Version Control': '版本管理',
   'Version {{version}} has been downloaded. Restart now to install?':
@@ -1532,7 +1540,7 @@ export const zhTranslations: Record<string, string> = {
   'No results': '无结果',
   'No files found': '未找到文件',
   'Type to search files': '输入以搜索文件',
-  'No matches found': '未找到匹配',
+  'No matches found': '没有搜索结果',
   'Type to search in files': '输入以搜索文件内容',
   'No preview available': '无法预览',
   'This file type is not supported for preview': '此文件类型暂不支持预览',
@@ -2319,8 +2327,11 @@ export const zhTranslations: Record<string, string> = {
   'Select this repository to load and inspect its worktrees.':
     '选择此仓库以加载并查看其 worktree。',
   'Initialize Git here to create and manage worktrees.': '在此初始化 Git 以创建和管理 worktree。',
+  'Initialize Git and Add': '\u521d\u59cb\u5316 Git \u5e76\u6dfb\u52a0',
   'No worktrees yet': '还没有 worktree',
   'Try a broader search term or clear the current filter.': '尝试更宽泛的搜索词，或清除当前筛选。',
+  'This repository has no worktree with a live Agent session.':
+    '此仓库没有包含活跃 Agent 会话的 worktree。',
   'Create one from repository actions when you are ready to branch out.':
     '准备好创建分支上下文时，可从仓库操作中创建一个。',
   'Collapse temp sessions': '折叠临时会话',
@@ -2340,6 +2351,8 @@ export const zhTranslations: Record<string, string> = {
   'Repository Required': '需要仓库',
   'This directory is not a Git repository. Initialize it to enable branches, worktrees, and source-control workflows.':
     '此目录不是 Git 仓库。请先初始化以启用分支、worktree 和版本控制工作流。',
+  'This directory is not a Git repository. Git will be initialized when you add it.':
+    '\u6b64\u76ee\u5f55\u4e0d\u662f Git \u4ed3\u5e93\u3002\u6dfb\u52a0\u65f6\u5c06\u4f1a\u521d\u59cb\u5316 Git\u3002',
   'Git metadata not found': '未找到 Git 元数据',
   'Current directory': '当前目录',
   'Refresh or initialize the repository': '刷新或初始化仓库',
@@ -2643,6 +2656,7 @@ export const zhTranslations: Record<string, string> = {
   'Force Terminate': '\u5f3a\u5236\u7ec8\u6b62',
   'Renderer process': 'Renderer \u8fdb\u7a0b',
   'Agent session': '\u667a\u80fd\u4f53\u4f1a\u8bdd',
+  'Session title': '\u4f1a\u8bdd\u6807\u9898',
   'Terminal session': '\u7ec8\u7aef\u4f1a\u8bdd',
   'Utility process': 'Utility \u8fdb\u7a0b',
   '{{type}} process': '{{type}} \u8fdb\u7a0b',

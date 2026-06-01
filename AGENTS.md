@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-25
-**Commit:** ba8c766
+**Generated:** 2026-05-21
+**Commit:** 1653b46
 **Branch:** main
 
 These metadata fields are an informational snapshot, not a freshness guarantee. Refresh them only when intentionally updating this project knowledge base.
@@ -12,10 +12,23 @@ Infilux is an Electron desktop application for Git worktree management and multi
 
 **Stack:** Electron 39, React 19, TypeScript 5.9, Tailwind CSS 4, Zustand, Monaco Editor, xterm.js, simple-git, electron-vite, electron-builder.
 
+## OPERATING CONTEXT
+
+- Always answer users in Chinese.
+- Generated source code, QWeb/XML, JavaScript, TypeScript, Python, and code comments must be written in English.
+- Do not add new Chinese text to code or non-documentation files. Chinese is allowed only in documentation files under `docs/` or `user-docs/`.
+- Existing historical localization or Chinese content should be treated as legacy context; preserve it only when the task explicitly touches that surface.
+- Before making changes, check `git status --short --branch` and treat uncommitted work as user-owned unless the task explicitly says otherwise.
+- If this root knowledge base disagrees with current source, package metadata, or a nearest-directory `AGENTS.md`, trust the current source and the nearest-directory guide first.
+- Do not use generated directories such as `out/`, `dist/`, `coverage-full/`, `.tmp/`, `.launch-code/`, or `node_modules/` as architectural truth.
+
 ## TOP-LEVEL STRUCTURE
 
 ```text
 Infilux/
+├── .github/    # GitHub workflows, issue templates, and repository automation
+├── agents/     # Product, design, accessibility, interaction, and governance rules
+├── e2e/        # Electron end-to-end scenarios and launch helpers
 ├── src/
 │   ├── main/       # Electron main process: app lifecycle, IPC, native services
 │   ├── preload/    # Context bridge: typed renderer-facing Electron API
@@ -43,6 +56,7 @@ Infilux/
 - `src/main/ipc/AGENTS.md` — Handler boundaries, sender-scoped cleanup, and IPC module design
 - `src/main/services/AGENTS.md` — Service-layer ownership, domain separation, and extension rules
 - `src/main/services/agent/AGENTS.md` — Agent registry, transcript, and subagent tracking rules
+- `src/main/services/agentProvider/AGENTS.md` — Agent provider config discovery, parsing, writing, and watcher rules
 - `src/main/services/ai/AGENTS.md` — AI-assisted generator and review helper rules
 - `src/main/services/app/AGENTS.md` — App detection, path validation, and recent-project rules
 - `src/main/services/claude/AGENTS.md` — Claude provider, MCP, prompts, plugin, and bridge rules
@@ -58,6 +72,7 @@ Infilux/
 - `src/main/services/session/hosts/AGENTS.md` — Host-specific tmux and supervisor adapter rules
 - `src/main/services/settings/AGENTS.md` — Main-process settings compatibility and import rules
 - `src/main/services/terminal/AGENTS.md` — PTY lifecycle and shell detection rules
+- `src/main/services/tokenUsage/AGENTS.md` — Token usage collection, adapter, aggregation, and cache rules
 - `src/main/services/todo/AGENTS.md` — Todo-domain privileged service rules
 - `src/main/services/updater/AGENTS.md` — Auto-update lifecycle and status rules
 - `src/main/services/webInspector/AGENTS.md` — Web inspector backend and server lifecycle rules
@@ -70,6 +85,7 @@ Infilux/
 - `src/renderer/App/hooks/AGENTS.md` — Shell-level orchestration hook rules
 - `src/renderer/assets/AGENTS.md` — Static renderer asset management rules
 - `src/renderer/components/AGENTS.md` — Feature component composition rules
+- `src/renderer/components/ai-center/AGENTS.md` — AI Center decision-plan and cross-project orchestration UI rules
 - `src/renderer/components/app/AGENTS.md` — App-scoped renderer widget rules
 - `src/renderer/components/chat/AGENTS.md` — Agent panel and chat session UI rules
 - `src/renderer/components/chat/agent-panel/AGENTS.md` — Agent-panel leaf subcomponent rules
@@ -84,6 +100,8 @@ Infilux/
 - `src/renderer/components/repository/AGENTS.md` — Repository management dialog rules
 - `src/renderer/components/search/AGENTS.md` — Global search dialog and result presentation rules
 - `src/renderer/components/settings/AGENTS.md` — Settings shell and section composition rules
+- `src/renderer/components/settings/agent-provider/AGENTS.md` — Agent provider profile list, dialog, and draft model rules
+- `src/renderer/components/settings/claude-policy/AGENTS.md` — Claude capability, MCP, and native skill policy UI rules
 - `src/renderer/components/settings/claude-provider/AGENTS.md` — Claude provider settings UI rules
 - `src/renderer/components/settings/mcp/AGENTS.md` — MCP server settings UI rules
 - `src/renderer/components/settings/plugins/AGENTS.md` — Plugin marketplace and browser UI rules
@@ -108,6 +126,12 @@ Infilux/
 - `src/shared/types/AGENTS.md` — Shared domain-type and IPC contract rules
 - `src/shared/utils/AGENTS.md` — Shared pure utility and path-normalization rules
 
+### Tooling and automation
+
+- `.github/AGENTS.md` — GitHub workflows, issue templates, and repository automation rules
+- `scripts/AGENTS.md` — Build, diagnostics, release, and quality script rules
+- `e2e/AGENTS.md` — Electron end-to-end scenario, launch, isolation, and cleanup rules
+
 ### Design and product governance
 
 - `agents/design-context.md` — Persistent product style, brand direction, and visual decision principles
@@ -119,6 +143,17 @@ Infilux/
 - `agents/design-token-governance.md` — Token layers, ownership, overrides, and semantic integrity rules
 - `agents/visual-review-checklist.md` — Recurring visual review checklist for context, hierarchy, state, and product character
 - `agents/content-copy-guidelines.md` — UI copy tone, label, status, empty-state, and destructive wording rules
+
+### Feature inventory and architecture docs
+
+- `docs/feature-inventory.md` — Product feature map linking user-facing scope, code ownership, contracts, tests, and governance
+- `docs/architecture.md` — System architecture, process boundaries, lifecycle, and major subsystem design
+- `docs/editor-architecture.md` — Editor, file tree, Monaco, navigation, and worktree-isolated editor state
+- `docs/remote-architecture.md` — Remote repository runtime architecture, helper model, and remote virtual path semantics
+
+### Planning and historical context
+
+- `docs/superpowers/` — Historical implementation plans, design notes, and migration specs; use these for task-specific background only when the current request or touched subsystem explicitly references them.
 
 ## SYSTEM ARCHITECTURE
 
@@ -137,8 +172,11 @@ Renderer UI
 - **Git and worktrees:** `src/main/services/git/`, `src/main/ipc/git.ts`, `src/main/ipc/worktree.ts`
 - **Editor and file navigation:** `src/renderer/components/files/`, `src/renderer/stores/editor.ts`, `src/renderer/stores/navigation.ts`
 - **Terminal and agent sessions:** `src/main/services/session/`, `src/main/services/terminal/`, `src/renderer/hooks/useXterm.ts`, `src/renderer/components/chat/`
+- **Agent provider settings:** `src/main/services/agentProvider/`, `src/renderer/components/settings/agent-provider/`
+- **Token usage telemetry:** `src/main/services/tokenUsage/`, shared token usage types and utilities under `src/shared/`
+- **AI Center orchestration:** `src/renderer/components/ai-center/`, todo execution models, and enabled-agent hooks
 - **Remote repositories:** `src/main/services/remote/`, `src/main/ipc/remote.ts`, `src/renderer/components/remote/`
-- **Claude integration and MCP-related flows:** `src/main/services/claude/`, `src/main/ipc/claude*.ts`, `src/renderer/components/settings/claude-provider/`, `src/renderer/components/settings/mcp/`
+- **Claude integration and MCP-related flows:** `src/main/services/claude/`, `src/main/ipc/claude*.ts`, `src/renderer/components/settings/claude-provider/`, `src/renderer/components/settings/claude-policy/`, `src/renderer/components/settings/mcp/`
 - **Search, todo, temp workspace, web inspector:** domain folders exist in both main and renderer; extend them by domain rather than by ad hoc cross-cutting code
 
 ## WHERE TO LOOK
@@ -153,7 +191,9 @@ Renderer UI
 | Layout and cross-panel routing | `src/renderer/components/layout/`, `src/renderer/App/` | Keep navigation semantics consistent |
 | Shared types and payloads | `src/shared/types/` | Avoid process-specific imports here |
 | Electron bridge surface | `src/preload/index.ts` | Renderer should not import Electron directly |
-| Tests | `src/**/__tests__/**/*.test.ts` | Vitest is available for targeted unit tests |
+| Feature ownership map | `docs/feature-inventory.md` | Use before planning cross-subsystem or product-surface work |
+| Unit and integration tests | `src/**/__tests__/**/*.test.ts`, `scripts/__tests__/**/*.test.ts` | Vitest is available for targeted unit tests |
+| Electron E2E tests | `e2e/**/*.test.ts` | Build first when scenarios require `out/main/index.cjs` |
 | UI rules | `docs/design-system.md` | Read before building or changing UI |
 | Product style intent | `agents/design-context.md` | Read when making visual or brand-level design decisions |
 | Theme and palette policy | `agents/theme-palette-policy.md` | Read when changing tokens, color semantics, or sync-terminal behavior |

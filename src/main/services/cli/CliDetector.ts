@@ -5,7 +5,8 @@ import {
   type BuiltinAgentId,
   type CustomAgent,
 } from '@shared/types';
-import { execInPty } from '../../utils/shell';
+import { buildShellCommandFromExecutablePath } from '@shared/utils/shellCommand';
+import { execInPty, getShellForCommand } from '../../utils/shell';
 
 const isWindows = process.platform === 'win32';
 
@@ -42,11 +43,17 @@ class CliDetector {
     customPath?: string
   ): Promise<AgentCliInfo> {
     try {
-      // Use customPath if provided, otherwise use default command
-      const effectiveCommand = customPath || config.command;
       // Windows: use 60s timeout due to slower shell initialization (PowerShell, WSL)
       const timeout = isWindows ? 60000 : 15000;
-      const stdout = await execInPty(`${effectiveCommand} ${config.versionFlag}`, { timeout });
+      const command = customPath
+        ? buildShellCommandFromExecutablePath({
+            shellPath: getShellForCommand().shell,
+            executionPlatform: process.platform,
+            executablePath: customPath,
+            rawArgs: [config.versionFlag],
+          })
+        : `${config.command} ${config.versionFlag}`;
+      const stdout = await execInPty(command, { timeout });
 
       let version: string | undefined;
       if (config.versionRegex) {

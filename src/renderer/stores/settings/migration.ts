@@ -1,6 +1,10 @@
 import { normalizeLocale } from '@shared/i18n';
 import { normalizeAgentProviderProfileList } from '@shared/types';
 import { resolvePresetThemeTokens } from '@/lib/appTheme';
+import {
+  normalizeWorkspaceCanvasTerminalMountLimit,
+  normalizeWorktreeCanvasTerminalMountLimit,
+} from './canvasTerminalMountLimitPolicy';
 import { normalizeChatPanelInactivityThresholdMinutes } from './chatPanelInactivityThresholdPolicy';
 import { getDefaultUIFontFamily } from './defaults';
 import { normalizeTerminalScrollback } from './terminalScrollbackPolicy';
@@ -335,6 +339,14 @@ export function migrateSettings(
     typeof persisted.retainSessionBackedChatPanels === 'boolean'
       ? persisted.retainSessionBackedChatPanels
       : currentState.retainSessionBackedChatPanels;
+  const worktreeCanvasTerminalMountLimit = normalizeWorktreeCanvasTerminalMountLimit(
+    persisted.worktreeCanvasTerminalMountLimit,
+    currentState.worktreeCanvasTerminalMountLimit
+  );
+  const workspaceCanvasTerminalMountLimit = normalizeWorkspaceCanvasTerminalMountLimit(
+    persisted.workspaceCanvasTerminalMountLimit,
+    currentState.workspaceCanvasTerminalMountLimit
+  );
 
   // Migrate xterm keybindings from legacy formats
   const migratedXtermKeybindings = migrateXtermKeybindings(persisted, currentState);
@@ -385,6 +397,8 @@ export function migrateSettings(
     terminalScrollback,
     chatPanelInactivityThresholdMinutes,
     retainSessionBackedChatPanels,
+    worktreeCanvasTerminalMountLimit,
+    workspaceCanvasTerminalMountLimit,
     xtermKeybindings: migratedXtermKeybindings,
     mainTabKeybindings: {
       ...currentState.mainTabKeybindings,

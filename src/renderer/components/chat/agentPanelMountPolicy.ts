@@ -1,6 +1,12 @@
 import { normalizePath } from '@/App/storage';
+import {
+  AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
+  shouldDeferBackgroundAgentRuntimeMount,
+} from './agentSessionRuntimeSafetyPolicy';
 import { matchesAgentSessionScope } from './agentSessionScope';
 import { getSessionActivityStatePriority, type SessionActivityState } from './sessionActivityState';
+
+export { AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS };
 
 export const DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT = 12;
 export const DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT = 6;
@@ -12,10 +18,13 @@ interface SessionMountCandidate {
 }
 
 interface MountedAgentPanelSessionCandidate {
+  agentCommand?: string;
+  agentId?: string;
   createdAt?: number;
   cwd?: string;
   displayOrder?: number;
   id: string;
+  pendingCommand?: string;
   repoPath?: string;
   recovered?: boolean;
   recoveryState?: string;
@@ -29,12 +38,31 @@ interface ResolveMountedAgentPanelSessionIdsOptions<
   canvasSessions: TSession[];
   currentWorktreeSessions: TSession[];
   currentWorktreeVisibleSessionIds?: Iterable<string>;
+  foregroundSessionIds?: Iterable<string>;
   globalSessionIds: Iterable<string>;
+  isCanvasDisplayMode?: boolean;
   isWorkspaceCanvasDisplayMode?: boolean;
   sessionActivityStateById?: Record<string, SessionActivityState>;
+  sessionLastActivityAtById?: Record<string, number | undefined>;
   suppressSessionMounting?: boolean;
   worktreeTerminalMountLimit?: number;
   workspaceCanvasTerminalMountLimit?: number;
+  now?: number;
+}
+
+interface ResolveBackgroundAgentCanvasMountSessionIdsOptions {
+  backgroundMountedSessionIds: Iterable<string>;
+  batchSize: number;
+  canvasSessionIds: string[];
+  maxMountedSessionCount: number;
+  mountedSessionIds: Iterable<string>;
+  shouldDeferSessionMount?: (sessionId: string) => boolean;
+  userRequestedSessionIds?: Iterable<string>;
+}
+
+interface ResolvedBackgroundAgentCanvasMountPlan {
+  hasMore: boolean;
+  sessionIds: string[];
 }
 
 function normalizeWorkspaceCanvasTerminalMountLimit(limit: number | undefined): number {
@@ -67,6 +95,33 @@ function hasMountBudget(selectedSessionIds: Set<string>, limit: number): boolean
 
 function requiresRecoveryMount(session: MountedAgentPanelSessionCandidate): boolean {
   return session.recovered === true && session.recoveryState !== 'missing-host-session';
+}
+
+function requiresImmediateRuntimeMount(session: MountedAgentPanelSessionCandidate): boolean {
+  return Boolean(session.pendingCommand);
+}
+
+function shouldDeferPassiveRuntimeMount<TSession extends MountedAgentPanelSessionCandidate>(
+  session: TSession,
+  options: {
+    focusedSessionId?: string | null;
+    now?: number;
+    sessionActivityStateById: Record<string, SessionActivityState>;
+    sessionLastActivityAtById: Record<string, number | undefined>;
+  }
+): boolean {
+  return shouldDeferBackgroundAgentRuntimeMount({
+    agentCommand: session.agentCommand,
+    agentId: session.agentId,
+    createdAt: session.createdAt,
+    hasPendingCommand: Boolean(session.pendingCommand),
+    isFocused: options.focusedSessionId === session.id,
+    lastActivityAt: options.sessionLastActivityAtById[session.id],
+    now: options.now,
+    recovered: session.recovered,
+    recoveryState: session.recoveryState,
+    sessionActivityState: options.sessionActivityStateById[session.id] ?? 'idle',
+  });
 }
 
 function compareOptionalPath(left: string | undefined, right: string | undefined): number {
@@ -132,20 +187,174 @@ function compareStableMountOrder<TSession extends MountedAgentPanelSessionCandid
   return idDelta !== 0 ? idDelta : left.index - right.index;
 }
 
+function normalizeBackgroundMountLimit(limit: number): number {
+  if (!Number.isFinite(limit)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor(limit));
+}
+
+function normalizeBackgroundMountBatchSize(batchSize: number): number {
+  if (!Number.isFinite(batchSize)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor(batchSize));
+}
+
+function collectValidSessionIds(ids: Iterable<string>, validSessionIds: Set<string>): Set<string> {
+  const collectedIds = new Set<string>();
+
+  for (const sessionId of ids) {
+    if (validSessionIds.has(sessionId)) {
+      collectedIds.add(sessionId);
+    }
+  }
+
+  return collectedIds;
+}
+
+function isEligibleBackgroundMountSession({
+  baseMountedSessionIds,
+  sessionId,
+  shouldDeferSessionMount,
+}: {
+  baseMountedSessionIds: Set<string>;
+  sessionId: string;
+  shouldDeferSessionMount?: (sessionId: string) => boolean;
+}): boolean {
+  return !baseMountedSessionIds.has(sessionId) && !(shouldDeferSessionMount?.(sessionId) ?? false);
+}
+
+export function resolveBackgroundAgentCanvasMountPlan({
+  backgroundMountedSessionIds,
+  batchSize,
+  canvasSessionIds,
+  maxMountedSessionCount,
+  mountedSessionIds,
+  shouldDeferSessionMount,
+  userRequestedSessionIds = [],
+}: ResolveBackgroundAgentCanvasMountSessionIdsOptions): ResolvedBackgroundAgentCanvasMountPlan {
+  const validSessionIds = new Set(canvasSessionIds);
+  const baseMountedSessionIds = collectValidSessionIds(mountedSessionIds, validSessionIds);
+  for (const sessionId of collectValidSessionIds(userRequestedSessionIds, validSessionIds)) {
+    baseMountedSessionIds.add(sessionId);
+  }
+
+  const remainingBudget = Math.max(
+    0,
+    normalizeBackgroundMountLimit(maxMountedSessionCount) - baseMountedSessionIds.size
+  );
+  if (remainingBudget === 0) {
+    return {
+      hasMore: false,
+      sessionIds: [],
+    };
+  }
+
+  const currentBackgroundSessionIds = collectValidSessionIds(
+    backgroundMountedSessionIds,
+    validSessionIds
+  );
+  const nextSessionIds: string[] = [];
+  let totalEligibleSessionCount = 0;
+
+  for (const sessionId of canvasSessionIds) {
+    if (
+      isEligibleBackgroundMountSession({
+        baseMountedSessionIds,
+        sessionId,
+        shouldDeferSessionMount,
+      })
+    ) {
+      totalEligibleSessionCount += 1;
+    }
+
+    if (nextSessionIds.length >= remainingBudget) {
+      break;
+    }
+
+    if (
+      currentBackgroundSessionIds.has(sessionId) &&
+      isEligibleBackgroundMountSession({
+        baseMountedSessionIds,
+        sessionId,
+        shouldDeferSessionMount,
+      })
+    ) {
+      nextSessionIds.push(sessionId);
+    }
+  }
+
+  const additionalMountCount = Math.min(
+    normalizeBackgroundMountBatchSize(batchSize),
+    remainingBudget - nextSessionIds.length
+  );
+  if (additionalMountCount <= 0) {
+    return {
+      hasMore: false,
+      sessionIds: nextSessionIds,
+    };
+  }
+
+  const nextSessionIdSet = new Set(nextSessionIds);
+  const preservedSessionCount = nextSessionIds.length;
+  for (const sessionId of canvasSessionIds) {
+    if (nextSessionIds.length >= remainingBudget) {
+      break;
+    }
+
+    if (nextSessionIds.length >= preservedSessionCount + additionalMountCount) {
+      break;
+    }
+
+    if (
+      !nextSessionIdSet.has(sessionId) &&
+      isEligibleBackgroundMountSession({
+        baseMountedSessionIds,
+        sessionId,
+        shouldDeferSessionMount,
+      })
+    ) {
+      nextSessionIdSet.add(sessionId);
+      nextSessionIds.push(sessionId);
+    }
+  }
+
+  return {
+    hasMore:
+      nextSessionIds.length < remainingBudget && totalEligibleSessionCount > nextSessionIds.length,
+    sessionIds: nextSessionIds,
+  };
+}
+
+export function resolveBackgroundAgentCanvasMountSessionIds(
+  options: ResolveBackgroundAgentCanvasMountSessionIdsOptions
+): string[] {
+  return resolveBackgroundAgentCanvasMountPlan(options).sessionIds;
+}
+
 function resolveWorkspaceCanvasMountedSessionIds<
   TSession extends MountedAgentPanelSessionCandidate,
 >({
   canvasFloatingSessionId,
   canvasFocusedSessionId,
   canvasSessions,
+  foregroundSessionIds = [],
+  now,
   sessionActivityStateById = {},
+  sessionLastActivityAtById = {},
   workspaceCanvasTerminalMountLimit,
 }: Pick<
   ResolveMountedAgentPanelSessionIdsOptions<TSession>,
   | 'canvasFloatingSessionId'
   | 'canvasFocusedSessionId'
   | 'canvasSessions'
+  | 'foregroundSessionIds'
+  | 'now'
   | 'sessionActivityStateById'
+  | 'sessionLastActivityAtById'
   | 'workspaceCanvasTerminalMountLimit'
 >): string[] {
   const limit = normalizeWorkspaceCanvasTerminalMountLimit(workspaceCanvasTerminalMountLimit);
@@ -157,12 +366,32 @@ function resolveWorkspaceCanvasMountedSessionIds<
   const selectedSessionIds = new Set<string>();
   addSessionId(selectedSessionIds, canvasFocusedSessionId, validSessionIds);
   addSessionId(selectedSessionIds, canvasFloatingSessionId, validSessionIds);
+  for (const sessionId of foregroundSessionIds) {
+    if (!hasMountBudget(selectedSessionIds, limit)) {
+      break;
+    }
+    addSessionId(selectedSessionIds, sessionId, validSessionIds);
+  }
 
   const rankedSessions = canvasSessions.map((session, index) => ({
     index,
     priority: getSessionActivityStatePriority(sessionActivityStateById[session.id] ?? 'idle'),
     session,
   }));
+
+  const pendingSessions = rankedSessions
+    .filter(
+      (item) =>
+        requiresImmediateRuntimeMount(item.session) && !selectedSessionIds.has(item.session.id)
+    )
+    .sort(compareStableMountOrder);
+
+  for (const item of pendingSessions) {
+    if (!hasMountBudget(selectedSessionIds, limit)) {
+      break;
+    }
+    selectedSessionIds.add(item.session.id);
+  }
 
   const attentionSessions = rankedSessions
     .filter((item) => item.priority > 0 && !selectedSessionIds.has(item.session.id))
@@ -180,7 +409,15 @@ function resolveWorkspaceCanvasMountedSessionIds<
 
   const recoverySessions = rankedSessions
     .filter(
-      (item) => requiresRecoveryMount(item.session) && !selectedSessionIds.has(item.session.id)
+      (item) =>
+        requiresRecoveryMount(item.session) &&
+        !selectedSessionIds.has(item.session.id) &&
+        !shouldDeferPassiveRuntimeMount(item.session, {
+          focusedSessionId: canvasFocusedSessionId,
+          now,
+          sessionActivityStateById,
+          sessionLastActivityAtById,
+        })
     )
     .sort(compareStableMountOrder);
 
@@ -196,7 +433,13 @@ function resolveWorkspaceCanvasMountedSessionIds<
       (item) =>
         item.priority === 0 &&
         !requiresRecoveryMount(item.session) &&
-        !selectedSessionIds.has(item.session.id)
+        !selectedSessionIds.has(item.session.id) &&
+        !shouldDeferPassiveRuntimeMount(item.session, {
+          focusedSessionId: canvasFocusedSessionId,
+          now,
+          sessionActivityStateById,
+          sessionLastActivityAtById,
+        })
     )
     .sort(compareStableMountOrder);
 
@@ -258,6 +501,20 @@ function resolveWorktreeMountedSessionIds<TSession extends MountedAgentPanelSess
     session,
   }));
 
+  const pendingSessions = rankedSessions
+    .filter(
+      (item) =>
+        requiresImmediateRuntimeMount(item.session) && !selectedSessionIds.has(item.session.id)
+    )
+    .sort(compareStableMountOrder);
+
+  for (const item of pendingSessions) {
+    if (!hasMountBudget(selectedSessionIds, limit)) {
+      break;
+    }
+    selectedSessionIds.add(item.session.id);
+  }
+
   const attentionSessions = rankedSessions
     .filter((item) => item.priority > 0 && !selectedSessionIds.has(item.session.id))
     .sort((left, right) => {
@@ -304,9 +561,13 @@ export function resolveMountedAgentPanelSessionIds<
   canvasFocusedSessionId,
   currentWorktreeSessions,
   currentWorktreeVisibleSessionIds,
+  foregroundSessionIds,
   globalSessionIds,
+  isCanvasDisplayMode,
   isWorkspaceCanvasDisplayMode,
+  now,
   sessionActivityStateById,
+  sessionLastActivityAtById,
   suppressSessionMounting,
   worktreeTerminalMountLimit,
   workspaceCanvasTerminalMountLimit,
@@ -315,13 +576,20 @@ export function resolveMountedAgentPanelSessionIds<
     return [];
   }
 
-  if (isWorkspaceCanvasDisplayMode) {
+  if (isCanvasDisplayMode || isWorkspaceCanvasDisplayMode) {
+    const canvasTerminalMountLimit = isWorkspaceCanvasDisplayMode
+      ? workspaceCanvasTerminalMountLimit
+      : worktreeTerminalMountLimit;
+
     return resolveWorkspaceCanvasMountedSessionIds({
       canvasFloatingSessionId,
       canvasFocusedSessionId,
       canvasSessions,
+      foregroundSessionIds,
+      now,
       sessionActivityStateById,
-      workspaceCanvasTerminalMountLimit,
+      sessionLastActivityAtById,
+      workspaceCanvasTerminalMountLimit: canvasTerminalMountLimit,
     });
   }
 

@@ -1,8 +1,10 @@
 import {
+  type AgentProviderDiscoveryOptions,
   type AgentProviderProfile,
   AI_PROVIDER_CATALOG,
   AI_PROVIDERS,
   type AIProvider,
+  type BuiltinAgentId,
   type ClaudeProvider,
   type ClaudeSettings,
 } from '@shared/types';
@@ -27,18 +29,32 @@ export interface AgentProviderProfileSession {
   agentCommand?: string;
 }
 
+export type AgentProviderDiscoveryOptionsByProvider = Partial<
+  Record<AIProvider, AgentProviderDiscoveryOptions>
+>;
+
 export interface AgentProviderProfileAdapter<TProfile extends AgentProviderProfile, TSettings> {
   id: string;
   providerId: AIProvider;
   label: string;
   supportsProfiles: boolean;
-  queryKey: (repoPath?: string) => readonly unknown[];
-  readCurrent: (repoPath?: string) => Promise<AgentProviderProfileSnapshot<TProfile, TSettings>>;
+  queryKey: (
+    repoPath?: string,
+    discoveryOptions?: AgentProviderDiscoveryOptions
+  ) => readonly unknown[];
+  readCurrent: (
+    repoPath?: string,
+    discoveryOptions?: AgentProviderDiscoveryOptions
+  ) => Promise<AgentProviderProfileSnapshot<TProfile, TSettings>>;
   subscribeToExternalChanges: (
     repoPath: string | undefined,
     callback: (snapshot: AgentProviderProfileSnapshot<TProfile, TSettings>) => void
   ) => () => void;
-  apply: (repoPath: string | undefined, profile: TProfile) => Promise<boolean>;
+  apply: (
+    repoPath: string | undefined,
+    profile: TProfile,
+    discoveryOptions?: AgentProviderDiscoveryOptions
+  ) => Promise<boolean>;
   isActiveProfile: (profile: TProfile, current?: Partial<TProfile> | null) => boolean;
   supportsSession: (session?: AgentProviderProfileSession | null) => boolean;
   markSwitch: (profile: TProfile) => void;
@@ -49,9 +65,14 @@ export interface AgentProviderProfileAdapter<TProfile extends AgentProviderProfi
 
 interface ClaudeCodeProviderBridge {
   readSettings: (
-    repoPath?: string
+    repoPath?: string,
+    discoveryOptions?: AgentProviderDiscoveryOptions
   ) => Promise<AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>>;
-  apply: (repoPath: string | undefined, provider: ClaudeProvider) => Promise<boolean>;
+  apply: (
+    repoPath: string | undefined,
+    provider: ClaudeProvider,
+    discoveryOptions?: AgentProviderDiscoveryOptions
+  ) => Promise<boolean>;
   onSettingsChanged: (
     callback: (snapshot: AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>) => void
   ) => () => void;
@@ -60,9 +81,14 @@ interface ClaudeCodeProviderBridge {
 interface GenericProviderBridge {
   readSettings: (
     repoPath: string | undefined,
-    providerId: AIProvider
+    providerId: AIProvider,
+    discoveryOptions?: AgentProviderDiscoveryOptions
   ) => Promise<AgentProviderProfileSnapshot<AgentProviderProfile, unknown>>;
-  apply: (repoPath: string | undefined, provider: AgentProviderProfile) => Promise<boolean>;
+  apply: (
+    repoPath: string | undefined,
+    provider: AgentProviderProfile,
+    discoveryOptions?: AgentProviderDiscoveryOptions
+  ) => Promise<boolean>;
   onSettingsChanged: (
     callback: (snapshot: AgentProviderProfileSnapshot<AgentProviderProfile, unknown>) => void
   ) => () => void;
@@ -76,6 +102,13 @@ const SESSION_PROVIDER_IDS: Record<string, AIProvider> = {
   'cursor-agent': 'cursor-cli',
   cursor: 'cursor-cli',
   gemini: 'gemini-cli',
+};
+
+const BUILTIN_AGENT_ID_BY_PROVIDER: Partial<Record<AIProvider, BuiltinAgentId>> = {
+  'claude-code': 'claude',
+  'codex-cli': 'codex',
+  'cursor-cli': 'cursor',
+  'gemini-cli': 'gemini',
 };
 
 export function buildClaudeCodeProviderPreview(settings?: ClaudeSettings | null): unknown {
@@ -123,8 +156,11 @@ function createUnsupportedProviderProfileAdapter(
     providerId,
     label: AI_PROVIDER_CATALOG[providerId].label,
     supportsProfiles: false,
-    queryKey: (repoPath?: string) =>
-      ['agent-provider-settings', providerId, repoPath ?? null] as const,
+    queryKey: (repoPath?: string, discoveryOptions?: AgentProviderDiscoveryOptions) =>
+      appendDiscoveryOptionsToQueryKey(
+        ['agent-provider-settings', providerId, repoPath ?? null] as const,
+        discoveryOptions
+      ),
     readCurrent: async () => ({
       providerId,
       settings: null,
@@ -176,6 +212,51 @@ function getProviderId(profileOrProviderId?: AgentProviderProfile | AIProvider |
 function normalizeText(value?: string): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizeDiscoveryOptions(
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): AgentProviderDiscoveryOptions | undefined {
+  const customPath = normalizeText(discoveryOptions?.customPath);
+  if (!customPath) {
+    return undefined;
+  }
+
+  return { customPath };
+}
+
+function appendDiscoveryOptionsToQueryKey(
+  baseKey: readonly unknown[],
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): readonly unknown[] {
+  const normalizedDiscoveryOptions = normalizeDiscoveryOptions(discoveryOptions);
+  if (!normalizedDiscoveryOptions) {
+    return baseKey;
+  }
+
+  return [...baseKey, normalizedDiscoveryOptions] as const;
+}
+
+export function buildAgentProviderDiscoveryOptionsByProvider(
+  agentSettings: Partial<Record<string, { customPath?: string } | undefined>>
+): AgentProviderDiscoveryOptionsByProvider {
+  const nextOptions: AgentProviderDiscoveryOptionsByProvider = {};
+
+  for (const providerId of AI_PROVIDERS) {
+    const builtinAgentId = BUILTIN_AGENT_ID_BY_PROVIDER[providerId];
+    if (!builtinAgentId) {
+      continue;
+    }
+
+    const discoveryOptions = normalizeDiscoveryOptions({
+      customPath: agentSettings[builtinAgentId]?.customPath,
+    });
+    if (discoveryOptions) {
+      nextOptions[providerId] = discoveryOptions;
+    }
+  }
+
+  return nextOptions;
 }
 
 function isSensitivePreviewKey(key: string): boolean {
@@ -294,10 +375,17 @@ export function createClaudeCodeProviderProfileAdapter(
     providerId: 'claude-code',
     label: AI_PROVIDER_CATALOG['claude-code'].label,
     supportsProfiles: true,
-    queryKey: (repoPath?: string) =>
-      ['agent-provider-settings', 'claude-code', repoPath ?? null] as const,
-    readCurrent: async (repoPath?: string) =>
-      withClaudeCodeProviderId(await bridge.readSettings(repoPath)),
+    queryKey: (repoPath?: string, discoveryOptions?: AgentProviderDiscoveryOptions) =>
+      appendDiscoveryOptionsToQueryKey(
+        ['agent-provider-settings', 'claude-code', repoPath ?? null] as const,
+        discoveryOptions
+      ),
+    readCurrent: async (repoPath?: string, discoveryOptions?: AgentProviderDiscoveryOptions) =>
+      withClaudeCodeProviderId(
+        await (discoveryOptions
+          ? bridge.readSettings(repoPath, discoveryOptions)
+          : bridge.readSettings(repoPath))
+      ),
     subscribeToExternalChanges: (_repoPath, callback) =>
       bridge.onSettingsChanged((snapshot) => {
         const snapshotProviderId = snapshot.providerId ?? snapshot.extracted?.providerId;
@@ -306,8 +394,10 @@ export function createClaudeCodeProviderProfileAdapter(
         }
         callback(withClaudeCodeProviderId(snapshot));
       }),
-    apply: (repoPath, provider) =>
-      bridge.apply(repoPath, { ...provider, providerId: 'claude-code' }),
+    apply: (repoPath, provider, discoveryOptions) =>
+      discoveryOptions
+        ? bridge.apply(repoPath, { ...provider, providerId: 'claude-code' }, discoveryOptions)
+        : bridge.apply(repoPath, { ...provider, providerId: 'claude-code' }),
     isActiveProfile: (profile, current) =>
       profile.providerId === 'claude-code' &&
       isClaudeProviderMatch({ ...profile, providerId: 'claude-code' }, current),
@@ -346,10 +436,18 @@ function createGenericCliProviderProfileAdapter(
     providerId,
     label: AI_PROVIDER_CATALOG[providerId].label,
     supportsProfiles: true,
-    queryKey: (repoPath?: string) =>
-      ['agent-provider-settings', providerId, repoPath ?? null] as const,
-    readCurrent: async (repoPath?: string) =>
-      withGenericProviderId(providerId, await bridge.readSettings(repoPath, providerId)),
+    queryKey: (repoPath?: string, discoveryOptions?: AgentProviderDiscoveryOptions) =>
+      appendDiscoveryOptionsToQueryKey(
+        ['agent-provider-settings', providerId, repoPath ?? null] as const,
+        discoveryOptions
+      ),
+    readCurrent: async (repoPath?: string, discoveryOptions?: AgentProviderDiscoveryOptions) =>
+      withGenericProviderId(
+        providerId,
+        await (discoveryOptions
+          ? bridge.readSettings(repoPath, providerId, discoveryOptions)
+          : bridge.readSettings(repoPath, providerId))
+      ),
     subscribeToExternalChanges: (_repoPath, callback) =>
       bridge.onSettingsChanged((snapshot) => {
         const snapshotProviderId = snapshot.providerId ?? snapshot.extracted?.providerId;
@@ -358,7 +456,10 @@ function createGenericCliProviderProfileAdapter(
         }
         callback(withGenericProviderId(providerId, snapshot));
       }),
-    apply: (repoPath, provider) => bridge.apply(repoPath, provider),
+    apply: (repoPath, provider, discoveryOptions) =>
+      discoveryOptions
+        ? bridge.apply(repoPath, provider, discoveryOptions)
+        : bridge.apply(repoPath, provider),
     isActiveProfile: isGenericProviderProfileMatch,
     supportsSession: (session) => supportsProviderSession(providerId, session),
     markSwitch: markProviderSwitch,
@@ -377,10 +478,18 @@ function createReadOnlyCliProviderProfileAdapter(
     providerId,
     label: AI_PROVIDER_CATALOG[providerId].label,
     supportsProfiles: false,
-    queryKey: (repoPath?: string) =>
-      ['agent-provider-settings', providerId, repoPath ?? null] as const,
-    readCurrent: async (repoPath?: string) =>
-      withGenericProviderId(providerId, await bridge.readSettings(repoPath, providerId)),
+    queryKey: (repoPath?: string, discoveryOptions?: AgentProviderDiscoveryOptions) =>
+      appendDiscoveryOptionsToQueryKey(
+        ['agent-provider-settings', providerId, repoPath ?? null] as const,
+        discoveryOptions
+      ),
+    readCurrent: async (repoPath?: string, discoveryOptions?: AgentProviderDiscoveryOptions) =>
+      withGenericProviderId(
+        providerId,
+        await (discoveryOptions
+          ? bridge.readSettings(repoPath, providerId, discoveryOptions)
+          : bridge.readSettings(repoPath, providerId))
+      ),
     subscribeToExternalChanges: (_repoPath, callback) =>
       bridge.onSettingsChanged((snapshot) => {
         const snapshotProviderId = snapshot.providerId ?? snapshot.extracted?.providerId;
@@ -418,11 +527,14 @@ export function createGeminiCliProviderProfileAdapter(
 }
 
 export const claudeCodeProviderProfileAdapter = createClaudeCodeProviderProfileAdapter({
-  readSettings: (repoPath) =>
-    window.electronAPI.agentProvider.readSettings(repoPath, 'claude-code') as Promise<
-      AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>
-    >,
-  apply: (repoPath, provider) => window.electronAPI.agentProvider.apply(repoPath, provider),
+  readSettings: (repoPath, discoveryOptions) =>
+    window.electronAPI.agentProvider.readSettings(
+      repoPath,
+      'claude-code',
+      discoveryOptions
+    ) as Promise<AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>>,
+  apply: (repoPath, provider, discoveryOptions) =>
+    window.electronAPI.agentProvider.apply(repoPath, provider, discoveryOptions),
   onSettingsChanged: (callback) =>
     window.electronAPI.agentProvider.onSettingsChanged((snapshot) =>
       callback(snapshot as AgentProviderProfileSnapshot<AgentProviderProfile, ClaudeSettings>)
@@ -430,23 +542,26 @@ export const claudeCodeProviderProfileAdapter = createClaudeCodeProviderProfileA
 });
 
 export const codexCliProviderProfileAdapter = createCodexCliProviderProfileAdapter({
-  readSettings: (repoPath, providerId) =>
-    window.electronAPI.agentProvider.readSettings(repoPath, providerId),
-  apply: (repoPath, provider) => window.electronAPI.agentProvider.apply(repoPath, provider),
+  readSettings: (repoPath, providerId, discoveryOptions) =>
+    window.electronAPI.agentProvider.readSettings(repoPath, providerId, discoveryOptions),
+  apply: (repoPath, provider, discoveryOptions) =>
+    window.electronAPI.agentProvider.apply(repoPath, provider, discoveryOptions),
   onSettingsChanged: (callback) => window.electronAPI.agentProvider.onSettingsChanged(callback),
 });
 
 export const geminiCliProviderProfileAdapter = createGeminiCliProviderProfileAdapter({
-  readSettings: (repoPath, providerId) =>
-    window.electronAPI.agentProvider.readSettings(repoPath, providerId),
-  apply: (repoPath, provider) => window.electronAPI.agentProvider.apply(repoPath, provider),
+  readSettings: (repoPath, providerId, discoveryOptions) =>
+    window.electronAPI.agentProvider.readSettings(repoPath, providerId, discoveryOptions),
+  apply: (repoPath, provider, discoveryOptions) =>
+    window.electronAPI.agentProvider.apply(repoPath, provider, discoveryOptions),
   onSettingsChanged: (callback) => window.electronAPI.agentProvider.onSettingsChanged(callback),
 });
 
 export const cursorCliProviderProfileAdapter = createCursorCliProviderProfileAdapter({
-  readSettings: (repoPath, providerId) =>
-    window.electronAPI.agentProvider.readSettings(repoPath, providerId),
-  apply: (repoPath, provider) => window.electronAPI.agentProvider.apply(repoPath, provider),
+  readSettings: (repoPath, providerId, discoveryOptions) =>
+    window.electronAPI.agentProvider.readSettings(repoPath, providerId, discoveryOptions),
+  apply: (repoPath, provider, discoveryOptions) =>
+    window.electronAPI.agentProvider.apply(repoPath, provider, discoveryOptions),
   onSettingsChanged: (callback) => window.electronAPI.agentProvider.onSettingsChanged(callback),
 });
 
@@ -532,9 +647,15 @@ export function createAgentProviderProfileRegistryFacade(
 
   const readSingleCurrent = async (
     repoPath: string | undefined,
-    adapter: AnyAgentProviderProfileAdapter
+    adapter: AnyAgentProviderProfileAdapter,
+    discoveryOptions?: AgentProviderDiscoveryOptions
   ): Promise<AgentProviderProfileSnapshot<AgentProviderProfile, unknown>> =>
-    normalizeProviderSnapshot(adapter, await adapter.readCurrent(repoPath));
+    normalizeProviderSnapshot(
+      adapter,
+      await (discoveryOptions
+        ? adapter.readCurrent(repoPath, discoveryOptions)
+        : adapter.readCurrent(repoPath))
+    );
 
   const readRegistryCurrent = async (
     repoPath: string | undefined
@@ -578,12 +699,17 @@ export function createAgentProviderProfileRegistryFacade(
   };
 
   const readAllCurrent = async (
-    repoPath: string | undefined
+    repoPath: string | undefined,
+    discoveryOptionsByProvider?: AgentProviderDiscoveryOptionsByProvider
   ): Promise<AgentProviderProfileSnapshot<AgentProviderProfile, unknown>[]> => {
     const snapshots = await Promise.all(
       adapters.map(async (adapter) => {
         try {
-          return await readSingleCurrent(repoPath, adapter);
+          return await readSingleCurrent(
+            repoPath,
+            adapter,
+            discoveryOptionsByProvider?.[adapter.providerId]
+          );
         } catch (error) {
           console.warn(
             `[AgentProviderProfiles] Failed to read ${adapter.providerId} settings:`,
@@ -601,13 +727,21 @@ export function createAgentProviderProfileRegistryFacade(
 
   return {
     id: 'agent-provider-profile-registry',
-    queryKey: (repoPath?: string, providerId?: AIProvider) =>
+    queryKey: (
+      repoPath?: string,
+      providerId?: AIProvider,
+      discoveryOptions?: AgentProviderDiscoveryOptions
+    ) =>
       providerId
-        ? resolveAdapter(providerId).queryKey(repoPath)
+        ? resolveAdapter(providerId).queryKey(repoPath, discoveryOptions)
         : (['agent-provider-settings', 'registry', repoPath ?? null] as const),
-    readCurrent: (repoPath?: string, providerId?: AIProvider) =>
+    readCurrent: (
+      repoPath?: string,
+      providerId?: AIProvider,
+      discoveryOptions?: AgentProviderDiscoveryOptions
+    ) =>
       providerId
-        ? readSingleCurrent(repoPath, resolveAdapter(providerId))
+        ? readSingleCurrent(repoPath, resolveAdapter(providerId), discoveryOptions)
         : readRegistryCurrent(repoPath),
     readAllCurrent,
     subscribeToExternalChanges: (
@@ -627,8 +761,14 @@ export function createAgentProviderProfileRegistryFacade(
         }
       };
     },
-    apply: (repoPath: string | undefined, profile: AgentProviderProfile) =>
-      resolveAdapter(getProviderId(profile)).apply(repoPath, profile),
+    apply: (
+      repoPath: string | undefined,
+      profile: AgentProviderProfile,
+      discoveryOptions?: AgentProviderDiscoveryOptions
+    ) =>
+      discoveryOptions
+        ? resolveAdapter(getProviderId(profile)).apply(repoPath, profile, discoveryOptions)
+        : resolveAdapter(getProviderId(profile)).apply(repoPath, profile),
     isActiveProfile: (
       profile: AgentProviderProfile,
       current?: Partial<AgentProviderProfile> | null

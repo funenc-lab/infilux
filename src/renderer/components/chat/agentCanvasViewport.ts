@@ -364,9 +364,7 @@ export function resolveAgentCanvasViewportSyncPosition(dimensions: {
 
   if (
     dimensions.previousSnapshot.clientHeight === dimensions.nextClientHeight &&
-    dimensions.previousSnapshot.clientWidth === dimensions.nextClientWidth &&
-    dimensions.previousSnapshot.scrollHeight === dimensions.nextScrollHeight &&
-    dimensions.previousSnapshot.scrollWidth === dimensions.nextScrollWidth
+    dimensions.previousSnapshot.clientWidth === dimensions.nextClientWidth
   ) {
     return clampAgentCanvasScrollPosition({
       clientHeight: dimensions.nextClientHeight,

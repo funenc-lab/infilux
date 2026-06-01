@@ -1,11 +1,7 @@
 import type { TabId } from '@/App/constants';
 import { normalizePath } from '@/App/storage';
 import type { AgentSessionDisplayMode } from '@/stores/settings';
-
-interface RetainedChatContext {
-  repoPath: string;
-  worktreePath: string;
-}
+import type { MainContentContext } from './mainContentContextPolicy';
 
 export interface MainContentChatPanelEntry {
   isActive: boolean;
@@ -33,9 +29,10 @@ interface ResolveMainContentChatPanelPlanOptions {
   cachedChatPanelPaths: string[];
   getRepoPathForWorktree: (worktreePath: string) => string | null;
   hasActiveWorktree: boolean;
-  retainedChatContext: RetainedChatContext | null;
+  retainedChatContext: MainContentContext | null;
   shouldRenderCurrentChatPanel: boolean;
   showSubagentTranscript: boolean;
+  visibleChatBridgeContext: MainContentContext | null;
 }
 
 export function resolveMainContentChatPanelPlan({
@@ -47,6 +44,7 @@ export function resolveMainContentChatPanelPlan({
   retainedChatContext,
   shouldRenderCurrentChatPanel,
   showSubagentTranscript,
+  visibleChatBridgeContext,
 }: ResolveMainContentChatPanelPlanOptions): MainContentChatPanelEntry[] {
   const currentWorktreePath = shouldRenderCurrentChatPanel
     ? (retainedChatContext?.worktreePath ?? null)
@@ -56,12 +54,22 @@ export function resolveMainContentChatPanelPlan({
     : null;
   const currentWorktreeKey = currentWorktreePath ? normalizePath(currentWorktreePath) : null;
   const visibleCurrentPanel = activeTab === 'chat' && !showSubagentTranscript;
+  const visibleWorktreePath = visibleCurrentPanel
+    ? (visibleChatBridgeContext?.worktreePath ?? currentWorktreePath)
+    : null;
+  const visibleWorktreeKey = visibleWorktreePath ? normalizePath(visibleWorktreePath) : null;
   const seenPaths = new Set<string>();
   const entries: MainContentChatPanelEntry[] = [];
   const plannedWorktreePaths =
     agentSessionDisplayMode === 'global-canvas'
       ? [...(currentWorktreePath ? [currentWorktreePath] : [])]
-      : [...(currentWorktreePath ? [currentWorktreePath] : []), ...cachedChatPanelPaths];
+      : [
+          ...(currentWorktreePath ? [currentWorktreePath] : []),
+          ...(visibleChatBridgeContext?.worktreePath
+            ? [visibleChatBridgeContext.worktreePath]
+            : []),
+          ...cachedChatPanelPaths,
+        ];
 
   for (const worktreePath of plannedWorktreePaths) {
     const normalizedPath = normalizePath(worktreePath);
@@ -71,7 +79,12 @@ export function resolveMainContentChatPanelPlan({
     seenPaths.add(normalizedPath);
 
     const isCurrent = currentWorktreeKey === normalizedPath;
-    const repoPath = isCurrent ? currentRepoPath : getRepoPathForWorktree(worktreePath);
+    const isVisible = visibleCurrentPanel && visibleWorktreeKey === normalizedPath;
+    const repoPath = isCurrent
+      ? currentRepoPath
+      : visibleChatBridgeContext && visibleWorktreeKey === normalizedPath
+        ? visibleChatBridgeContext.repoPath
+        : getRepoPathForWorktree(worktreePath);
     if (!repoPath) {
       continue;
     }
@@ -80,9 +93,9 @@ export function resolveMainContentChatPanelPlan({
       repoPath,
       worktreePath,
       isCurrent,
-      isVisible: isCurrent && visibleCurrentPanel,
-      isActive: isCurrent && visibleCurrentPanel && hasActiveWorktree,
-      showFallback: isCurrent && visibleCurrentPanel,
+      isVisible,
+      isActive: isVisible && hasActiveWorktree,
+      showFallback: isCurrent && isVisible,
     });
   }
 

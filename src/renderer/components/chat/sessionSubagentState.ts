@@ -39,6 +39,7 @@ interface GetDisplayableSessionSubagentsOptions {
   providerSessionId?: string;
   subagents: LiveAgentSubagent[];
   allowUnresolvedProviderFallback?: boolean;
+  allowProviderFallback?: boolean;
 }
 
 function normalizeAgentBaseId(agentIdOrCommand?: string): string {
@@ -151,6 +152,7 @@ export function getDisplayableSessionSubagents({
   providerSessionId,
   subagents,
   allowUnresolvedProviderFallback = false,
+  allowProviderFallback = false,
 }: GetDisplayableSessionSubagentsOptions): LiveAgentSubagent[] {
   const matchedSubagents = getMatchedSessionSubagents(
     agentId,
@@ -166,7 +168,11 @@ export function getDisplayableSessionSubagents({
   const providerSessionIsUnresolved =
     Boolean(uiSessionId) && Boolean(providerSessionId) && providerSessionId === uiSessionId;
   if (!provider || !allowUnresolvedProviderFallback || !providerSessionIsUnresolved) {
-    return matchedSubagents;
+    if (!provider || !allowProviderFallback) {
+      return matchedSubagents;
+    }
+
+    return subagents.filter((subagent) => subagent.provider === provider);
   }
 
   return subagents.filter((subagent) => subagent.provider === provider);

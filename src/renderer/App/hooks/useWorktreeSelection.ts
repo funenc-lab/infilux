@@ -2,7 +2,10 @@ import type { GitWorktree } from '@shared/types';
 import { useQueryClient } from '@tanstack/react-query';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect } from 'react';
-import { restoreWorktreeAgentSessions } from '@/components/chat/agentSessionRecovery';
+import {
+  getWorktreeAgentSessionRecoveryStatus,
+  restoreWorktreeAgentSessions,
+} from '@/components/chat/agentSessionRecovery';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
@@ -176,7 +179,11 @@ export function useWorktreeSelection(
           ? getAgentSessions(targetRepoPath, worktree.path).length > 0
           : false;
 
-      if (targetRepoPath && !hasAgentSessions) {
+      const shouldPrewarmRecovery =
+        targetRepoPath &&
+        getWorktreeAgentSessionRecoveryStatus(targetRepoPath, worktree.path) !== 'settled';
+
+      if (shouldPrewarmRecovery) {
         void restoreWorktreeAgentSessions({
           repoPath: targetRepoPath,
           cwd: worktree.path,

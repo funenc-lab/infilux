@@ -250,6 +250,40 @@ describe('agent canvas viewport helpers', () => {
     });
   });
 
+  it('preserves scroll position when canvas content size changes without viewport resizing', async () => {
+    const module = await import('../agentCanvasViewport').catch(() => null);
+
+    expect(
+      module?.resolveAgentCanvasViewportSyncPosition({
+        currentLeft: 120,
+        currentTop: 180,
+        focusTarget: {
+          height: 240,
+          left: 820,
+          top: 640,
+          width: 360,
+        },
+        nextClientHeight: 240,
+        nextClientWidth: 320,
+        nextScrollHeight: 1320,
+        nextScrollWidth: 1500,
+        previousSnapshot: {
+          clientHeight: 240,
+          clientWidth: 320,
+          scrollHeight: 1200,
+          scrollWidth: 1500,
+        },
+        savedPosition: {
+          left: 40,
+          top: 60,
+        },
+      })
+    ).toEqual({
+      left: 120,
+      top: 180,
+    });
+  });
+
   it('prioritizes the focused session tile when zoom changes the rendered layout', async () => {
     const module = await import('../agentCanvasViewport').catch(() => null);
 

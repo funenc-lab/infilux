@@ -19,6 +19,9 @@ describe('sessionTitleText', () => {
     expect(getMeaningfulTerminalTitle('/bin/zsh')).toBeUndefined();
     expect(getMeaningfulTerminalTitle('root: /repo/worktree')).toBeUndefined();
     expect(getMeaningfulTerminalTitle('npm test')).toBeUndefined();
+    expect(getMeaningfulTerminalTitle('codex(99841) MallocStackLogging')).toBeUndefined();
+    expect(getMeaningfulTerminalTitle('› codex(85487) MallocSt')).toBeUndefined();
+    expect(getMeaningfulTerminalTitle('> codex(85487) MallocStackLogging')).toBeUndefined();
     expect(getMeaningfulTerminalTitle('  > Fix failing coverage  ')).toBe('Fix failing coverage');
   });
 
@@ -34,5 +37,10 @@ describe('sessionTitleText', () => {
     expect(getStoredSessionName('  > Review PR  ', 'claude')).toBe('Review PR');
     expect(getStoredSessionName('   ', 'claude')).toBe('Claude');
     expect(getStoredSessionName('❯   ', 'custom-agent')).toBe('custom-agent');
+    expect(getStoredSessionName('› codex(85487) MallocSt', 'codex')).toBe('Codex');
+    expect(getStoredSessionName('codex(85487) MallocStackLogging', 'codex')).toBe('Codex');
+    expect(getStoredSessionName('/bin/zsh', 'claude')).toBe('Claude');
+    expect(getStoredSessionName('npm test', 'codex')).toBe('Codex');
+    expect(getStoredSessionName('root: /repo/worktree', 'codex')).toBe('Codex');
   });
 });

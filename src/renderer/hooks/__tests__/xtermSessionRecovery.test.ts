@@ -491,6 +491,42 @@ describe('shouldRetrySessionCreateWithoutHost', () => {
     ).toBe(true);
   });
 
+  it('retries persistent agent sessions when the recovered tmux session is missing', () => {
+    expect(
+      shouldRetrySessionCreateWithoutHost({
+        error: new Error(
+          'Failed to recover tmux session: infilux-006c1193-aa07-4954-9378-9eaeb55a20fc'
+        ),
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-006c1193-aa07-4954-9378-9eaeb55a20fc',
+          mode: 'attach-existing',
+        },
+        hasFallback: true,
+      })
+    ).toBe(true);
+  });
+
+  it('retries persistent agent sessions when tmux attach reports a missing recovered session', () => {
+    expect(
+      shouldRetrySessionCreateWithoutHost({
+        error: new Error("can't find session: infilux-006c1193-aa07-4954-9378-9eaeb55a20fc"),
+        kind: 'agent',
+        persistOnDisconnect: true,
+        hostSession: {
+          kind: 'tmux',
+          serverName: 'infilux',
+          sessionName: 'infilux-006c1193-aa07-4954-9378-9eaeb55a20fc',
+          mode: 'attach-existing',
+        },
+        hasFallback: true,
+      })
+    ).toBe(true);
+  });
+
   it('does not retry when no hostless fallback exists', () => {
     expect(
       shouldRetrySessionCreateWithoutHost({

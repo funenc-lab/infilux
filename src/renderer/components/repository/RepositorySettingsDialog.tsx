@@ -11,10 +11,10 @@ import {
   saveRepositorySettings,
 } from '@/App/storage';
 import { ClaudePolicyEditorDialog } from '@/components/settings/claude-policy';
-import { ClaudePolicyPreview } from '@/components/settings/claude-policy/ClaudePolicyPreview';
 import {
   getClaudePolicySummaryItems,
   hasClaudePolicyConfigChanges,
+  isLegacySkillCapabilityId,
 } from '@/components/settings/claude-policy/model';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,6 +38,43 @@ interface RepositorySettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   repoPath: string;
   repoName: string;
+}
+
+interface PolicyAccessSummaryItem {
+  key: string;
+  label: string;
+  allowed: number;
+  blocked: number;
+}
+
+function getEffectivePolicySummaryItems(
+  projectPreview: ResolvedClaudePolicy | null
+): PolicyAccessSummaryItem[] {
+  const allowedSkillIds =
+    projectPreview?.allowedCapabilityIds.filter(isLegacySkillCapabilityId) ?? [];
+  const blockedSkillIds =
+    projectPreview?.blockedCapabilityIds.filter(isLegacySkillCapabilityId) ?? [];
+
+  return [
+    {
+      key: 'skills',
+      label: 'Skills',
+      allowed: allowedSkillIds.length,
+      blocked: blockedSkillIds.length,
+    },
+    {
+      key: 'shared-mcp',
+      label: 'Shared MCP',
+      allowed: projectPreview?.allowedSharedMcpIds.length ?? 0,
+      blocked: projectPreview?.blockedSharedMcpIds.length ?? 0,
+    },
+    {
+      key: 'personal-mcp',
+      label: 'Personal MCP',
+      allowed: projectPreview?.allowedPersonalMcpIds.length ?? 0,
+      blocked: projectPreview?.blockedPersonalMcpIds.length ?? 0,
+    },
+  ];
 }
 
 export function RepositorySettingsDialog({
@@ -101,10 +138,14 @@ export function RepositorySettingsDialog({
     () => getClaudePolicySummaryItems(projectPolicy),
     [projectPolicy]
   );
+  const effectivePolicySummaryItems = useMemo(
+    () => getEffectivePolicySummaryItems(projectPreview),
+    [projectPreview]
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="max-w-md">
+      <DialogPopup className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('Repository Settings')}</DialogTitle>
           <DialogDescription>{repoName}</DialogDescription>
@@ -160,7 +201,7 @@ export function RepositorySettingsDialog({
               />
             </div>
 
-            <div className="space-y-3 rounded-xl border border-border/70 bg-background/60 p-4">
+            <div className="space-y-4 rounded-xl border border-border/70 bg-background/60 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <div className="ui-type-block-title">{t('Project Skill & MCP')}</div>
@@ -180,26 +221,48 @@ export function RepositorySettingsDialog({
                 </Button>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-3" data-policy-config-summary="project">
                 {policySummaryItems.map((item) => (
-                  <div
-                    key={item.key}
-                    className="rounded-lg border border-border/70 bg-background/70 p-3"
-                  >
+                  <div key={item.key} className="min-w-0 rounded-lg bg-muted/30 px-3 py-2">
                     <div className="ui-type-meta text-muted-foreground">{t(item.label)}</div>
-                    <div className="mt-2 text-sm text-foreground">
-                      {t('Enabled')} {item.allowed}
-                    </div>
-                    <div className="ui-type-meta text-muted-foreground">
-                      {t('Disabled')} {item.blocked}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                      <span>
+                        {t('Enabled')} {item.allowed}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {t('Disabled')} {item.blocked}
+                      </span>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {projectPreview ? (
-                <ClaudePolicyPreview catalog={null} resolvedPolicy={projectPreview} />
-              ) : null}
+              <div
+                className="space-y-3 rounded-lg bg-muted/20 px-3 py-3"
+                data-policy-effective-summary="project"
+              >
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                  <div className="ui-type-block-title">{t('Effective Access')}</div>
+                  {!projectPreview ? (
+                    <div className="ui-type-meta text-muted-foreground">
+                      {t('Resolving the latest preview...')}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {effectivePolicySummaryItems.map((item) => (
+                    <div key={item.key} className="min-w-0">
+                      <div className="ui-type-meta text-muted-foreground">{t(item.label)}</div>
+                      <div className="mt-1 text-lg font-semibold text-foreground">
+                        {item.allowed}
+                      </div>
+                      <div className="ui-type-meta text-muted-foreground">
+                        {t('{{count}} blocked', { count: item.blocked })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {settings.autoInitWorktree && (

@@ -34,6 +34,7 @@ const transcriptState = vi.hoisted(() => ({
 const sessionSubagentState = vi.hoisted(() => ({
   items: [] as LiveAgentSubagent[],
   isLoading: false,
+  hasLoaded: false,
 }));
 
 const platformState = vi.hoisted(() => ({
@@ -206,6 +207,7 @@ describe('SessionSubagentInspector', () => {
     transcriptState.error = null;
     sessionSubagentState.items = [];
     sessionSubagentState.isLoading = false;
+    sessionSubagentState.hasLoaded = false;
     platformState.value = 'linux';
     agentTerminalState.props = [];
     setViewport(1440, 900);
@@ -417,11 +419,40 @@ describe('SessionSubagentInspector', () => {
     expect(markup).not.toContain('Subagent session is still resolving');
   });
 
+  it('keeps parent-provided subagents visible until the session-scoped subscription returns', () => {
+    const parentProvidedSubagent = createSubagent({
+      rootThreadId: 'codex-root-thread-1',
+      summary: 'Parent snapshot task',
+    });
+
+    const markup = renderToStaticMarkup(
+      React.createElement(SessionSubagentInspector, {
+        sessionName: 'Codex Main',
+        agentLabel: 'Codex',
+        sessionCwd: '/repo/worktree',
+        providerSessionId: 'root-thread-1',
+        viewState: {
+          kind: 'supported',
+          provider: 'codex',
+        },
+        subagents: [parentProvidedSubagent],
+        selectedThreadId: null,
+        onSelectThread: () => undefined,
+        onClose: () => undefined,
+      })
+    );
+
+    expect(markup).toContain('Worker 1');
+    expect(markup).toContain('Parent snapshot task');
+    expect(markup).not.toContain('No session subagents');
+  });
+
   it('does not keep rendering fallback subagents after a supported session resolves to an empty session-scoped result', () => {
     const fallbackSubagent = createSubagent({
       rootThreadId: 'codex-root-thread-1',
       summary: 'Stale fallback task',
     });
+    sessionSubagentState.hasLoaded = true;
 
     const markup = renderToStaticMarkup(
       React.createElement(SessionSubagentInspector, {

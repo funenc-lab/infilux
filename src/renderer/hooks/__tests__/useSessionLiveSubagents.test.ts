@@ -68,6 +68,7 @@ describe('useSessionSubagents', () => {
     latestResult = {
       items: [],
       isLoading: false,
+      hasLoaded: false,
     };
     window.electronAPI = {
       agentSubagent: {
@@ -139,6 +140,7 @@ describe('useSessionSubagents', () => {
 
     expect(latestResult.items).toEqual([subagent]);
     expect(latestResult.isLoading).toBe(false);
+    expect(latestResult.hasLoaded).toBe(true);
 
     mounted.unmount();
     expect(unsubscribeSessionSubagents).toHaveBeenCalledTimes(1);
@@ -184,6 +186,7 @@ describe('useSessionSubagents', () => {
     });
 
     expect(latestResult.items).toHaveLength(1);
+    expect(latestResult.hasLoaded).toBe(true);
 
     mounted.rerender({
       cwd: '/Users/tanzv/project/worktree-a',
@@ -194,6 +197,7 @@ describe('useSessionSubagents', () => {
 
     expect(latestResult.items).toEqual([]);
     expect(latestResult.isLoading).toBe(false);
+    expect(latestResult.hasLoaded).toBe(false);
     expect(unsubscribeSessionSubagents).toHaveBeenCalledTimes(1);
 
     mounted.unmount();

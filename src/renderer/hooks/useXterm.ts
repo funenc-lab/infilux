@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
+import { isNativeImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { matchesKeybinding } from '@/lib/keybinding';
 import {
   buildTerminalSearchDecorations,
@@ -37,6 +38,7 @@ import { attachAgentTranscriptMode } from './xtermAgentTranscriptPolicy';
 import {
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
+  restoreTerminalInteractionAfterCopy,
   shouldHandleTerminalCopyEvent,
   writeClipboardText,
 } from './xtermClipboard';
@@ -55,6 +57,7 @@ import {
   shouldRetrySessionCreateWithoutHost,
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions } from './xtermTerminalOptions';
+import { focusXtermTextInput } from './xtermTextInputFocus';
 import { syncXtermViewportToSession } from './xtermViewportSync';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
@@ -76,6 +79,7 @@ const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 // Maximum length for session name derived from terminal current line
 const SESSION_NAME_MAX_LENGTH = 36;
+const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 
 interface InternalTerminalSearchDecorations {
   matchBackground?: string;
@@ -111,6 +115,14 @@ interface XtermCommandOptions {
     shell: string;
     args: string[];
   };
+}
+
+interface PendingHostScrollRequest {
+  cwd?: string;
+  sessionName: string;
+  serverName?: string;
+  direction: 'up' | 'down';
+  amount: number;
 }
 
 export interface XtermSessionCreateFallbackOptions {
@@ -153,6 +165,7 @@ export interface UseXtermOptions {
   onInit?: (ptyId: string) => void;
   onSessionIdChange?: (sessionId: string) => void;
   onSessionOpen?: (session: SessionDescriptor) => void;
+  onHostScrollbackStateChange?: (active: boolean) => void;
   onSplit?: () => void;
   onMerge?: () => void;
   canMerge?: boolean;
@@ -280,6 +293,7 @@ export function useXterm({
   onInit,
   onSessionIdChange,
   onSessionOpen,
+  onHostScrollbackStateChange,
   onSplit,
   onMerge,
   canMerge = false,
@@ -344,6 +358,8 @@ export function useXterm({
   onSessionIdChangeRef.current = onSessionIdChange;
   const onSessionOpenRef = useRef(onSessionOpen);
   onSessionOpenRef.current = onSessionOpen;
+  const onHostScrollbackStateChangeRef = useRef(onHostScrollbackStateChange);
+  onHostScrollbackStateChangeRef.current = onHostScrollbackStateChange;
   const onSplitRef = useRef(onSplit);
   onSplitRef.current = onSplit;
   const onMergeRef = useRef(onMerge);
@@ -404,6 +420,8 @@ export function useXterm({
   const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCarryRef = useRef(0);
+  const pendingHostScrollRef = useRef<PendingHostScrollRequest | null>(null);
+  const hostScrollFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDecorations = useMemo(
     () => buildTerminalSearchDecorations(settings.theme),
     [settings.theme]
@@ -623,6 +641,80 @@ export function useXterm({
     isFlushPendingRef.current = false;
   }, []);
 
+  const flushPendingHostScroll = useCallback(() => {
+    if (hostScrollFlushTimerRef.current) {
+      clearTimeout(hostScrollFlushTimerRef.current);
+      hostScrollFlushTimerRef.current = null;
+    }
+
+    const request = pendingHostScrollRef.current;
+    pendingHostScrollRef.current = null;
+    if (!request || request.amount <= 0) {
+      return;
+    }
+
+    void window.electronAPI.tmux
+      .scrollClient(request.cwd, {
+        sessionName: request.sessionName,
+        serverName: request.serverName,
+        direction: request.direction,
+        amount: request.amount,
+      })
+      .then((result) => {
+        const nextHostScrollbackState =
+          typeof result.inMode === 'boolean'
+            ? result.inMode
+            : request.direction === 'up' && result.applied;
+        onHostScrollbackStateChangeRef.current?.(nextHostScrollbackState);
+      })
+      .catch(() => {
+        onHostScrollbackStateChangeRef.current?.(false);
+      });
+  }, []);
+
+  const clearPendingHostScroll = useCallback(() => {
+    if (hostScrollFlushTimerRef.current) {
+      clearTimeout(hostScrollFlushTimerRef.current);
+      hostScrollFlushTimerRef.current = null;
+    }
+    pendingHostScrollRef.current = null;
+  }, []);
+
+  const scheduleHostScroll = useCallback(
+    (request: PendingHostScrollRequest) => {
+      if (request.amount <= 0) {
+        return;
+      }
+
+      const pending = pendingHostScrollRef.current;
+      if (
+        pending &&
+        pending.cwd === request.cwd &&
+        pending.sessionName === request.sessionName &&
+        pending.serverName === request.serverName &&
+        pending.direction === request.direction
+      ) {
+        pendingHostScrollRef.current = {
+          ...pending,
+          amount: pending.amount + request.amount,
+        };
+      } else {
+        if (pending) {
+          flushPendingHostScroll();
+        }
+        pendingHostScrollRef.current = request;
+      }
+
+      if (!hostScrollFlushTimerRef.current) {
+        hostScrollFlushTimerRef.current = setTimeout(
+          flushPendingHostScroll,
+          HOST_SCROLL_FLUSH_DELAY_MS
+        );
+      }
+    },
+    [flushPendingHostScroll]
+  );
+
   const resetSessionBinding = useCallback(
     async (terminal: Terminal, clearTerminal: boolean) => {
       createRequestIdRef.current += 1;
@@ -631,6 +723,8 @@ export function useXterm({
       hasReceivedDataRef.current = false;
       firstOutputWaitersRef.current.clear();
       wheelCarryRef.current = 0;
+      clearPendingHostScroll();
+      onHostScrollbackStateChangeRef.current?.(false);
       setSearchState(createEmptyTerminalSearchState());
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
@@ -647,7 +741,7 @@ export function useXterm({
         terminal.reset();
       }
     },
-    [clearTerminalWriteFlushTimers]
+    [clearPendingHostScroll, clearTerminalWriteFlushTimers]
   );
 
   const handleTerminalWheelEvent = useCallback(
@@ -677,7 +771,8 @@ export function useXterm({
 
       if (decision.action === 'host-scroll') {
         if (hostSession?.kind === 'tmux' && decision.scrollLines !== 0) {
-          void window.electronAPI.tmux.scrollClient(cwd, {
+          scheduleHostScroll({
+            cwd,
             sessionName: hostSession.sessionName,
             serverName: hostSession.serverName,
             direction: decision.scrollLines < 0 ? 'up' : 'down',
@@ -702,7 +797,7 @@ export function useXterm({
       event.stopPropagation();
       return false;
     },
-    [cwd, hostSession, kind, preferHostScrollback]
+    [cwd, hostSession, kind, preferHostScrollback, scheduleHostScroll]
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
@@ -783,15 +878,6 @@ export function useXterm({
 
       terminal.open(container);
       fitAddon.fit();
-
-      const textarea = terminal.textarea;
-      if (textarea) {
-        textarea.addEventListener('compositionend', () => {
-          setTimeout(() => {
-            textarea.value = '';
-          }, 0);
-        });
-      }
 
       terminal.onTitleChange((title) => {
         onTitleChangeRef.current?.(title);
@@ -894,7 +980,9 @@ export function useXterm({
         setTimeout(() => {
           const currentTerminal = terminalRef.current;
           if (!currentTerminal) return;
-          void copyTerminalSelectionToClipboard(currentTerminal).catch(() => {});
+          void copyTerminalSelectionToClipboard(currentTerminal).finally(() => {
+            restoreTerminalInteractionAfterCopy(currentTerminal);
+          });
         }, 0);
       };
       const handleCopyEvent = (event: ClipboardEvent) => {
@@ -918,7 +1006,9 @@ export function useXterm({
         event.preventDefault();
         event.stopPropagation();
         event.clipboardData?.setData('text/plain', selectionText);
-        void writeClipboardText(selectionText).catch(() => {});
+        void writeClipboardText(selectionText).finally(() => {
+          restoreTerminalInteractionAfterCopy(currentTerminal);
+        });
       };
 
       terminal.element?.addEventListener('mouseup', handleCopyOnSelection);
@@ -951,7 +1041,7 @@ export function useXterm({
     // Custom key handler
     terminal.attachCustomKeyEventHandler((event) => {
       // Let IME composition events pass through so composed input is not interrupted.
-      if (event.isComposing || event.keyCode === 229) {
+      if (isNativeImeCompositionKeyEvent(event)) {
         return true;
       }
 
@@ -1003,7 +1093,9 @@ export function useXterm({
         if (event.type === 'keydown' && modKey && !event.altKey) {
           if (event.key === 'c' || event.key === 'C') {
             if (getTerminalSelectionText(terminal)) {
-              void copyTerminalSelectionToClipboard(terminal).catch(() => {});
+              void copyTerminalSelectionToClipboard(terminal).finally(() => {
+                restoreTerminalInteractionAfterCopy(terminal);
+              });
               return false;
             }
             if (!isMac) {
@@ -1026,7 +1118,9 @@ export function useXterm({
         // Copy: Cmd+C (mac) or Ctrl+C (win/linux)
         if (event.key === 'c' || event.key === 'C') {
           if (getTerminalSelectionText(terminal)) {
-            void copyTerminalSelectionToClipboard(terminal).catch(() => {});
+            void copyTerminalSelectionToClipboard(terminal).finally(() => {
+              restoreTerminalInteractionAfterCopy(terminal);
+            });
             return false;
           }
           // On Windows/Linux, let Ctrl+C pass through as SIGINT when no selection
@@ -1648,6 +1742,7 @@ export function useXterm({
       activeSessionBindingRef.current = null;
       deadRecoveryAttemptKeyRef.current = null;
       wheelCarryRef.current = 0;
+      clearPendingHostScroll();
       clearTerminalWriteFlushTimers();
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
@@ -1682,7 +1777,7 @@ export function useXterm({
         (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = undefined;
       }
     };
-  }, [clearTerminalWriteFlushTimers]);
+  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers]);
 
   // Update settings dynamically
   useEffect(() => {
@@ -1767,7 +1862,7 @@ export function useXterm({
         activationRefreshCleanup = scheduleXtermActivationRefresh({
           fitViewport: fitTerminal,
           refresh: refreshRenderer,
-          focus: () => terminalRef.current?.focus(),
+          focus: () => focusXtermTextInput(terminalRef.current),
           requestAnimationFrame: window.requestAnimationFrame.bind(window),
           cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
         });
@@ -1781,6 +1876,40 @@ export function useXterm({
       activationRefreshCleanup?.();
     };
   }, [isActive, isLoading, fitTerminal, refreshRenderer]);
+
+  // Visible canvas tiles can be restored without becoming focused, so refresh their renderer
+  // explicitly after the host surface returns to a measurable layout.
+  useEffect(() => {
+    if (isActive || !isVisible || !terminalRef.current) {
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    let surfaceRefreshCleanup: (() => void) | null = null;
+    const containerReadyCleanup = scheduleXtermContainerReady({
+      container,
+      onReady: () => {
+        surfaceRefreshCleanup = scheduleXtermActivationRefresh({
+          fitViewport: fitTerminal,
+          refresh: refreshRenderer,
+          focus: () => undefined,
+          requestAnimationFrame: window.requestAnimationFrame.bind(window),
+          cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+        });
+      },
+      requestAnimationFrame: window.requestAnimationFrame.bind(window),
+      cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+    });
+
+    return () => {
+      containerReadyCleanup();
+      surfaceRefreshCleanup?.();
+    };
+  }, [isActive, isVisible, fitTerminal, refreshRenderer]);
 
   // Handle window visibility change to refresh terminal rendering
   useEffect(() => {

@@ -72,6 +72,7 @@ const defaultActivity: WorktreeActivity = { agentCount: 0, terminalCount: 0 };
 const defaultDiffStats: DiffStats = { insertions: 0, deletions: 0 };
 export const DIFF_STATS_FRESHNESS_MS = 4000;
 const DIFF_STATS_TRANSIENT_BACKOFF_MS = 30000;
+const DIFF_STATS_MAX_CONCURRENT_REQUESTS = 3;
 
 const diffStatsInFlight = new Map<string, Promise<DiffStats>>();
 const diffStatsNextFetchAt = new Map<string, number>();
@@ -131,6 +132,27 @@ function hasSameDiffStats(left: DiffStats | undefined, right: DiffStats) {
     (left?.insertions ?? defaultDiffStats.insertions) === right.insertions &&
     (left?.deletions ?? defaultDiffStats.deletions) === right.deletions
   );
+}
+
+async function mapWithConcurrency<TInput, TOutput>(
+  items: TInput[],
+  limit: number,
+  mapper: (item: TInput) => Promise<TOutput>
+): Promise<TOutput[]> {
+  const results: TOutput[] = [];
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 function getEffectiveActivityPriority(state: AgentActivityState): number {
@@ -252,11 +274,13 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
         return;
       }
 
-      const results = await Promise.all(
-        pathsToFetch.map(async (path) => {
+      const results = await mapWithConcurrency(
+        pathsToFetch,
+        DIFF_STATS_MAX_CONCURRENT_REQUESTS,
+        async (path) => {
           const stats = await fetchDiffStatsForPath(path);
           return { path, stats };
-        })
+        }
       );
 
       set((state) => {

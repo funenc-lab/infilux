@@ -220,9 +220,17 @@ describe('Claude provider IPC handlers', () => {
   it('routes generic Codex provider channels through the Codex provider implementation', async () => {
     const { registerClaudeProviderHandlers } = await import('../claudeProvider');
     registerClaudeProviderHandlers();
+    const discoveryOptions = {
+      customPath: 'C:\\Program Files\\OpenAI\\codex.cmd',
+    };
 
     await expect(
-      getHandler(IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS)({}, '/repo', 'codex-cli')
+      getHandler(IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS)(
+        {},
+        '/repo',
+        'codex-cli',
+        discoveryOptions
+      )
     ).resolves.toEqual({
       providerId: 'codex-cli',
       settings: { configToml: 'model_provider = "infilux_provider"' },
@@ -235,28 +243,48 @@ describe('Claude provider IPC handlers', () => {
     });
 
     await expect(
-      getHandler(IPC_CHANNELS.AGENT_PROVIDER_APPLY)({}, '/repo', {
+      getHandler(IPC_CHANNELS.AGENT_PROVIDER_APPLY)(
+        {},
+        '/repo',
+        {
+          providerId: 'codex-cli',
+          baseUrl: 'https://api.openai.com/v1',
+          authToken: 'codex-token',
+        },
+        discoveryOptions
+      )
+    ).resolves.toBe(true);
+
+    expect(claudeProviderTestDoubles.readCodexProviderSettings).toHaveBeenCalledWith(
+      '/repo',
+      discoveryOptions
+    );
+    expect(claudeProviderTestDoubles.applyCodexProvider).toHaveBeenCalledWith(
+      '/repo',
+      {
         providerId: 'codex-cli',
         baseUrl: 'https://api.openai.com/v1',
         authToken: 'codex-token',
-      })
-    ).resolves.toBe(true);
-
-    expect(claudeProviderTestDoubles.readCodexProviderSettings).toHaveBeenCalledWith('/repo');
-    expect(claudeProviderTestDoubles.applyCodexProvider).toHaveBeenCalledWith('/repo', {
-      providerId: 'codex-cli',
-      baseUrl: 'https://api.openai.com/v1',
-      authToken: 'codex-token',
-    });
+      },
+      discoveryOptions
+    );
     expect(claudeProviderTestDoubles.applyProvider).not.toHaveBeenCalled();
   });
 
   it('routes generic Gemini provider channels through the Gemini provider implementation', async () => {
     const { registerClaudeProviderHandlers } = await import('../claudeProvider');
     registerClaudeProviderHandlers();
+    const discoveryOptions = {
+      customPath: 'C:\\Users\\Tester\\AppData\\Roaming\\npm\\gemini.cmd',
+    };
 
     await expect(
-      getHandler(IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS)({}, '/repo', 'gemini-cli')
+      getHandler(IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS)(
+        {},
+        '/repo',
+        'gemini-cli',
+        discoveryOptions
+      )
     ).resolves.toEqual({
       providerId: 'gemini-cli',
       settings: { envText: 'GEMINI_API_KEY="gemini-token"' },
@@ -269,28 +297,48 @@ describe('Claude provider IPC handlers', () => {
     });
 
     await expect(
-      getHandler(IPC_CHANNELS.AGENT_PROVIDER_APPLY)({}, '/repo', {
+      getHandler(IPC_CHANNELS.AGENT_PROVIDER_APPLY)(
+        {},
+        '/repo',
+        {
+          providerId: 'gemini-cli',
+          baseUrl: 'https://generativelanguage.googleapis.com',
+          authToken: 'gemini-token',
+        },
+        discoveryOptions
+      )
+    ).resolves.toBe(true);
+
+    expect(claudeProviderTestDoubles.readGeminiProviderSettings).toHaveBeenCalledWith(
+      '/repo',
+      discoveryOptions
+    );
+    expect(claudeProviderTestDoubles.applyGeminiProvider).toHaveBeenCalledWith(
+      '/repo',
+      {
         providerId: 'gemini-cli',
         baseUrl: 'https://generativelanguage.googleapis.com',
         authToken: 'gemini-token',
-      })
-    ).resolves.toBe(true);
-
-    expect(claudeProviderTestDoubles.readGeminiProviderSettings).toHaveBeenCalledWith('/repo');
-    expect(claudeProviderTestDoubles.applyGeminiProvider).toHaveBeenCalledWith('/repo', {
-      providerId: 'gemini-cli',
-      baseUrl: 'https://generativelanguage.googleapis.com',
-      authToken: 'gemini-token',
-    });
+      },
+      discoveryOptions
+    );
     expect(claudeProviderTestDoubles.applyProvider).not.toHaveBeenCalled();
   });
 
   it('routes generic Cursor provider reads through the Cursor provider implementation', async () => {
     const { registerClaudeProviderHandlers } = await import('../claudeProvider');
     registerClaudeProviderHandlers();
+    const discoveryOptions = {
+      customPath: 'C:\\Users\\Tester\\AppData\\Roaming\\npm\\cursor-agent.cmd',
+    };
 
     await expect(
-      getHandler(IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS)({}, '/repo', 'cursor-cli')
+      getHandler(IPC_CHANNELS.AGENT_PROVIDER_READ_SETTINGS)(
+        {},
+        '/repo',
+        'cursor-cli',
+        discoveryOptions
+      )
     ).resolves.toEqual({
       providerId: 'cursor-cli',
       settings: { configJson: '{"model":"auto"}' },
@@ -310,7 +358,10 @@ describe('Claude provider IPC handlers', () => {
       })
     ).resolves.toBe(false);
 
-    expect(claudeProviderTestDoubles.readCursorProviderSettings).toHaveBeenCalledWith('/repo');
+    expect(claudeProviderTestDoubles.readCursorProviderSettings).toHaveBeenCalledWith(
+      '/repo',
+      discoveryOptions
+    );
   });
 
   it('reads and applies local Claude provider settings', async () => {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,15 @@ import {
   extractProviderFromCursorConfig,
   readCursorProviderSettings,
 } from '../CursorProviderManager';
+
+const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+
+function setPlatform(platform: NodeJS.Platform) {
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    value: platform,
+  });
+}
 
 const cursorProviderManagerTestDoubles = vi.hoisted(() => {
   const getRepositoryEnvironmentContext = vi.fn();
@@ -34,12 +43,17 @@ describe('CursorProviderManager', () => {
   let configDir: string;
   let originalConfigDir: string | undefined;
   let originalCursorApiKey: string | undefined;
+  let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
     cursorProviderManagerTestDoubles.reset();
+    setPlatform('darwin');
     originalConfigDir = process.env.CURSOR_CONFIG_DIR;
     originalCursorApiKey = process.env.CURSOR_API_KEY;
+    originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
     configDir = mkdtempSync(join(tmpdir(), 'infilux-cursor-provider-'));
     process.env.CURSOR_CONFIG_DIR = configDir;
     process.env.CURSOR_API_KEY = 'cursor-token';
@@ -55,6 +69,19 @@ describe('CursorProviderManager', () => {
       delete process.env.CURSOR_API_KEY;
     } else {
       process.env.CURSOR_API_KEY = originalCursorApiKey;
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
+    }
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, 'platform', originalPlatformDescriptor);
     }
     rmSync(configDir, { force: true, recursive: true });
     vi.restoreAllMocks();
@@ -157,5 +184,43 @@ describe('CursorProviderManager', () => {
       '/__remote__/repo',
       '/home/dev/.cursor/cli-config.json'
     );
+  });
+
+  it('falls back to the Windows home inferred from customPath when the default config dir is unavailable', async () => {
+    setPlatform('win32');
+    delete process.env.CURSOR_CONFIG_DIR;
+    process.env.HOME = join(configDir, 'fallback-home');
+    process.env.USERPROFILE = join(configDir, 'fallback-user-profile');
+    const inferredHomeDir = join(configDir, 'Users', 'Tester');
+    const inferredConfigPath = join(inferredHomeDir, '.cursor', 'cli-config.json');
+    mkdirSync(join(inferredHomeDir, '.cursor'), { recursive: true });
+    writeFileSync(
+      inferredConfigPath,
+      JSON.stringify({
+        model: 'auto',
+      })
+    );
+    const readWithDiscovery = readCursorProviderSettings as unknown as (
+      repoPath?: string,
+      discoveryOptions?: { customPath?: string }
+    ) => Promise<Awaited<ReturnType<typeof readCursorProviderSettings>>>;
+    const discoveryOptions = {
+      customPath: join(inferredHomeDir, 'AppData', 'Roaming', 'npm', 'cursor-agent.cmd'),
+    };
+
+    await expect(readWithDiscovery('/repo', discoveryOptions)).resolves.toEqual({
+      providerId: 'cursor-cli',
+      settings: {
+        configPath: inferredConfigPath,
+        configJson: expect.stringContaining('"auto"'),
+      },
+      extracted: {
+        providerId: 'cursor-cli',
+        authToken: 'cursor-token',
+        model: 'auto',
+      },
+      detected: true,
+      supported: true,
+    });
   });
 });

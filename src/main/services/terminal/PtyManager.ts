@@ -3,6 +3,10 @@ import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import type { SessionCreateOptions } from '@shared/types';
+import {
+  AGENT_INHERITED_ENV_NOISE_KEYS,
+  AGENT_PRESENTATION_ENV_KEYS,
+} from '@shared/utils/agentEnvironment';
 import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
 import * as pty from 'node-pty';
 import pidtree from 'pidtree';
@@ -14,6 +18,7 @@ import { getProxyEnvVars } from '../proxy/ProxyConfig';
 import { detectShell, shellDetector } from './ShellDetector';
 
 const isWindows = process.platform === 'win32';
+const WINDOWS_PATH_DELIMITER = ';';
 
 // Cache for Windows registry PATH (read once)
 let cachedWindowsPath: string | null = null;
@@ -155,7 +160,7 @@ function getWindowsRegistryPath(): string {
     }
 
     // Combine: system PATH first, then user PATH (Windows convention)
-    let combinedPath = [systemPath, userPath].filter(Boolean).join(delimiter);
+    let combinedPath = [systemPath, userPath].filter(Boolean).join(WINDOWS_PATH_DELIMITER);
 
     // Expand environment variables like %NVM_SYMLINK%, %USERPROFILE%, etc.
     combinedPath = expandWindowsEnvVars(combinedPath);
@@ -167,6 +172,69 @@ function getWindowsRegistryPath(): string {
     cachedWindowsPath = process.env.PATH || '';
     return cachedWindowsPath;
   }
+}
+
+function joinWindowsPath(base: string, ...segments: string[]): string {
+  return [base.replace(/[\\/]+$/u, ''), ...segments].filter(Boolean).join('\\');
+}
+
+function getWindowsEnvValue(name: string): string | undefined {
+  const upperName = name.toUpperCase();
+  for (const [key, value] of Object.entries(getWindowsRegistryEnvVars())) {
+    if (key.toUpperCase() === upperName && value.trim()) {
+      return expandWindowsEnvVars(value.trim());
+    }
+  }
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.toUpperCase() === upperName && value?.trim()) {
+      return expandWindowsEnvVars(value.trim());
+    }
+  }
+  return undefined;
+}
+
+function getWindowsUserExecutablePaths(): string[] {
+  const appData = getWindowsEnvValue('APPDATA');
+  const localAppData = getWindowsEnvValue('LOCALAPPDATA');
+  const userProfile = getWindowsEnvValue('USERPROFILE');
+
+  return [
+    ...(appData ? [joinWindowsPath(appData, 'npm')] : []),
+    ...(localAppData
+      ? [
+          joinWindowsPath(localAppData, 'pnpm'),
+          joinWindowsPath(localAppData, 'Programs', 'OpenAI'),
+          joinWindowsPath(localAppData, 'Programs', 'Codex'),
+        ]
+      : []),
+    ...(userProfile
+      ? [
+          joinWindowsPath(userProfile, 'scoop', 'shims'),
+          joinWindowsPath(userProfile, '.bun', 'bin'),
+          joinWindowsPath(userProfile, '.cargo', 'bin'),
+        ]
+      : []),
+  ];
+}
+
+function mergePathEntries(pathValue: string, entries: string[], pathDelimiter: string): string {
+  const result = pathValue.split(pathDelimiter).filter((entry) => entry.trim().length > 0);
+  const seen = new Set(result.map((entry) => entry.trim().toLowerCase()));
+
+  for (const entry of entries) {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(trimmed);
+  }
+
+  return result.join(pathDelimiter);
 }
 
 interface PtySession {
@@ -247,7 +315,13 @@ function sanitizeAgentPresentationEnv(
     return;
   }
 
-  for (const key of ['NO_COLOR', 'COLOR', 'CLICOLOR', 'CLICOLOR_FORCE']) {
+  for (const key of AGENT_PRESENTATION_ENV_KEYS) {
+    if (!hasExplicitEnvOverride(options.env, key)) {
+      delete env[key];
+    }
+  }
+
+  for (const key of AGENT_INHERITED_ENV_NOISE_KEYS) {
     if (!hasExplicitEnvOverride(options.env, key)) {
       delete env[key];
     }
@@ -333,7 +407,11 @@ export function getEnhancedPath(): string {
   if (isWindows) {
     // Windows: Read full PATH from registry to get user-level PATH
     // This covers all package managers (nvm, volta, scoop, vfox, etc.)
-    return getWindowsRegistryPath();
+    return mergePathEntries(
+      getWindowsRegistryPath(),
+      getWindowsUserExecutablePaths(),
+      WINDOWS_PATH_DELIMITER
+    );
   }
 
   const currentPath = process.env.PATH || '';

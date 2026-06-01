@@ -42,22 +42,24 @@ const GIT_LOG_PRETTY_FORMAT = ${JSON.stringify(GIT_LOG_PRETTY_FORMAT)};
 const DAEMON_INFO_FILE = ${JSON.stringify(REMOTE_DAEMON_INFO_FILE)};
 const MAX_SESSION_REPLAY_CHARS = 65536;
 const EXEC_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
-const EXEC_COMMAND_OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
-const REMOTE_PTY_UNAVAILABLE = 'REMOTE_PTY_UNAVAILABLE';
-const REMOTE_SETTINGS_PATH = ${JSON.stringify(REMOTE_SETTINGS_SUBPATH)};
-const REMOTE_SESSION_STATE_PATH = ${JSON.stringify(REMOTE_SESSION_STATE_SUBPATH)};
-const RUNTIME_MANIFEST_FILENAME = ${JSON.stringify(REMOTE_RUNTIME_MANIFEST_FILENAME)};
-const DEFAULT_TMUX_SERVER_NAME = ${JSON.stringify(defaultTmuxServerName)};
-const GLOBAL_STATUS_CACHE_TTL = 300000;
-const AUTH_TOKEN_BYTES = 36;
+    const EXEC_COMMAND_OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
+    const REMOTE_PTY_UNAVAILABLE = 'REMOTE_PTY_UNAVAILABLE';
+    const REMOTE_SETTINGS_PATH = ${JSON.stringify(REMOTE_SETTINGS_SUBPATH)};
+    const REMOTE_SESSION_STATE_PATH = ${JSON.stringify(REMOTE_SESSION_STATE_SUBPATH)};
+    const RUNTIME_MANIFEST_FILENAME = ${JSON.stringify(REMOTE_RUNTIME_MANIFEST_FILENAME)};
+    const DEFAULT_TMUX_SERVER_NAME = ${JSON.stringify(defaultTmuxServerName)};
+    const TMUX_SCROLL_PANE_CACHE_TTL_MS = 250;
+    const GLOBAL_STATUS_CACHE_TTL = 300000;
+    const AUTH_TOKEN_BYTES = 36;
 let cachedNodePty = undefined;
 let cachedNodePtyLoadError = null;
 let cachedHapiGlobalStatus = null;
 let cachedHapiGlobalStatusAt = 0;
-let cachedHappyGlobalStatus = null;
-let cachedHappyGlobalStatusAt = 0;
-let cachedTmuxStatus = null;
-let cachedTmuxStatusAt = 0;
+    let cachedHappyGlobalStatus = null;
+    let cachedHappyGlobalStatusAt = 0;
+    let cachedTmuxStatus = null;
+    let cachedTmuxStatusAt = 0;
+    const tmuxScrollPaneCache = new Map();
 
 const UNIX_SHELLS = [
   {
@@ -2342,6 +2344,69 @@ function findTmuxPaneForSession(stdout) {
   };
 }
 
+function buildTmuxScrollPaneCacheKey(serverName, sessionName) {
+  return serverName + '\u0000' + sessionName;
+}
+
+function getCachedTmuxScrollPane(serverName, sessionName) {
+  const cacheKey = buildTmuxScrollPaneCacheKey(serverName, sessionName);
+  const cached = tmuxScrollPaneCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    tmuxScrollPaneCache.delete(cacheKey);
+    return null;
+  }
+
+  return {
+    paneId: cached.paneId,
+    inMode: cached.inMode,
+  };
+}
+
+function setCachedTmuxScrollPane(serverName, sessionName, pane) {
+  tmuxScrollPaneCache.set(buildTmuxScrollPaneCacheKey(serverName, sessionName), {
+    expiresAt: Date.now() + TMUX_SCROLL_PANE_CACHE_TTL_MS,
+    inMode: pane.inMode,
+    paneId: pane.paneId,
+  });
+}
+
+function clearCachedTmuxScrollPane(serverName, sessionName) {
+  tmuxScrollPaneCache.delete(buildTmuxScrollPaneCacheKey(serverName, sessionName));
+}
+
+async function resolveTmuxScrollPane(sessionName, serverName, options = {}) {
+  if (!options.forceRefresh) {
+    const cached = getCachedTmuxScrollPane(serverName, sessionName);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  const stdout = await execInConfiguredShell(
+    'tmux -L ' +
+      shellQuote(serverName) +
+      ' list-panes -t ' +
+      shellQuote(sessionName) +
+      ' -F ' +
+      shellQuote('#{pane_id}\t#{pane_active}\t#{pane_in_mode}'),
+    {
+      timeout: 5000,
+    }
+  );
+  const pane = findTmuxPaneForSession(stdout);
+  if (!pane) {
+    clearCachedTmuxScrollPane(serverName, sessionName);
+    return null;
+  }
+
+  setCachedTmuxScrollPane(serverName, sessionName, pane);
+  return pane;
+}
+
 async function scrollTmuxClient({ sessionName, direction, amount, serverName }) {
   const normalizedSessionName =
     typeof sessionName === 'string' && sessionName.length > 0 ? sessionName : '';
@@ -2349,37 +2414,69 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
   const normalizedServerName =
     typeof serverName === 'string' && serverName.length > 0 ? serverName : '${defaultTmuxServerName}';
 
-  if (!normalizedSessionName || normalizedAmount === 0) {
+  if (
+    !normalizedSessionName ||
+    ((direction === 'up' || direction === 'down') && normalizedAmount === 0)
+  ) {
     return { applied: false, sessionName: normalizedSessionName };
   }
 
   try {
-    const stdout = await execInConfiguredShell(
-      'tmux -L ' +
-        shellQuote(normalizedServerName) +
-        ' list-panes -t ' +
-        shellQuote(normalizedSessionName) +
-        ' -F ' +
-        shellQuote('#{pane_id}\t#{pane_active}\t#{pane_in_mode}'),
-      {
-        timeout: 5000,
-      }
-    );
-    const pane = findTmuxPaneForSession(stdout);
+    const pane = await resolveTmuxScrollPane(normalizedSessionName, normalizedServerName);
     if (!pane) {
       return { applied: false, sessionName: normalizedSessionName };
     }
 
-    if (direction === 'up') {
+    if (direction === 'bottom') {
+      if (!pane.inMode) {
+        setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {
+          paneId: pane.paneId,
+          inMode: false,
+        });
+        return {
+          applied: false,
+          sessionName: normalizedSessionName,
+          paneId: pane.paneId,
+          inMode: false,
+        };
+      }
+
       await execInConfiguredShell(
         'tmux -L ' +
           shellQuote(normalizedServerName) +
-          ' copy-mode -eH -t ' +
-          shellQuote(pane.paneId),
+          ' send-keys -X -t ' +
+          shellQuote(pane.paneId) +
+          ' cancel',
         {
           timeout: 5000,
         }
       );
+
+      setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {
+        paneId: pane.paneId,
+        inMode: false,
+      });
+      return {
+        applied: true,
+        sessionName: normalizedSessionName,
+        paneId: pane.paneId,
+        inMode: false,
+      };
+    }
+
+    if (direction === 'up') {
+      if (!pane.inMode) {
+        await execInConfiguredShell(
+          'tmux -L ' +
+            shellQuote(normalizedServerName) +
+            ' copy-mode -eH -t ' +
+            shellQuote(pane.paneId),
+          {
+            timeout: 5000,
+          }
+        );
+        pane.inMode = true;
+      }
 
       await execInConfiguredShell(
         'tmux -L ' +
@@ -2393,12 +2490,21 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
           timeout: 5000,
         }
       );
+      setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {
+        paneId: pane.paneId,
+        inMode: true,
+      });
     } else {
       if (!pane.inMode) {
+        setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {
+          paneId: pane.paneId,
+          inMode: false,
+        });
         return {
           applied: false,
           sessionName: normalizedSessionName,
           paneId: pane.paneId,
+          inMode: false,
         };
       }
 
@@ -2414,14 +2520,26 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
           timeout: 5000,
         }
       );
+
+      const refreshedPane = await resolveTmuxScrollPane(normalizedSessionName, normalizedServerName, {
+        forceRefresh: true,
+      });
+      return {
+        applied: true,
+        sessionName: normalizedSessionName,
+        paneId: pane.paneId,
+        inMode: refreshedPane ? refreshedPane.inMode : false,
+      };
     }
 
     return {
       applied: true,
       sessionName: normalizedSessionName,
       paneId: pane.paneId,
+      inMode: true,
     };
   } catch {
+    clearCachedTmuxScrollPane(normalizedServerName, normalizedSessionName);
     return { applied: false, sessionName: normalizedSessionName };
   }
 }

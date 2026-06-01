@@ -9,17 +9,18 @@ export interface TmuxKillSessionRequest {
   serverName?: string;
 }
 
-export type TmuxScrollDirection = 'up' | 'down';
+export type TmuxScrollDirection = 'up' | 'down' | 'bottom';
 
 export interface TmuxScrollClientRequest {
   sessionName: string;
   direction: TmuxScrollDirection;
-  amount: number;
+  amount?: number;
   serverName?: string;
 }
 
 export interface TmuxScrollClientResult {
   applied: boolean;
+  inMode?: boolean;
   sessionName?: string;
   paneId?: string;
 }

@@ -1,5 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import * as os from 'node:os';
 import { join } from 'node:path';
 import type { AgentProviderProfile } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,15 @@ import {
   extractProviderFromCodexConfig,
   readCodexProviderSettings,
 } from '../CodexProviderManager';
+
+const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+
+function setPlatform(platform: NodeJS.Platform) {
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    value: platform,
+  });
+}
 
 const codexProviderManagerTestDoubles = vi.hoisted(() => {
   const getRepositoryEnvironmentContext = vi.fn();
@@ -50,12 +59,19 @@ const codexProvider: AgentProviderProfile = {
 describe('CodexProviderManager', () => {
   let configDir: string;
   let originalConfigDir: string | undefined;
+  let originalAppData: string | undefined;
+  let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
     codexProviderManagerTestDoubles.reset();
+    setPlatform('darwin');
     originalConfigDir = process.env.CODEX_CONFIG_DIR;
-    configDir = mkdtempSync(join(tmpdir(), 'infilux-codex-provider-'));
+    originalAppData = process.env.APPDATA;
+    originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
+    configDir = mkdtempSync(join(os.tmpdir(), 'infilux-codex-provider-'));
     process.env.CODEX_CONFIG_DIR = configDir;
   });
 
@@ -64,6 +80,24 @@ describe('CodexProviderManager', () => {
       delete process.env.CODEX_CONFIG_DIR;
     } else {
       process.env.CODEX_CONFIG_DIR = originalConfigDir;
+    }
+    if (originalAppData === undefined) {
+      delete process.env.APPDATA;
+    } else {
+      process.env.APPDATA = originalAppData;
+    }
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, 'platform', originalPlatformDescriptor);
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
     }
     rmSync(configDir, { force: true, recursive: true });
     vi.restoreAllMocks();
@@ -180,6 +214,104 @@ describe('CodexProviderManager', () => {
     await expect(applyCodexProvider('/repo', codexProvider)).resolves.toBe(true);
 
     const nextConfig = readFileSync(join(configDir, 'config.toml'), 'utf8');
+    expect(nextConfig).toContain('model_provider = "infilux_provider"');
+    expect(nextConfig).toContain('base_url = "https://gateway.example.com/v1"');
+    expect(nextConfig).toContain('experimental_bearer_token = "codex-token"');
+  });
+
+  it('reads and writes the Windows Codex config from the roaming app data directory', async () => {
+    setPlatform('win32');
+    delete process.env.CODEX_CONFIG_DIR;
+    const appDataDir = join(configDir, 'AppData', 'Roaming');
+    const codexConfigDir = join(appDataDir, 'Codex');
+    const codexConfigPath = join(codexConfigDir, 'config.toml');
+    process.env.APPDATA = appDataDir;
+    process.env.HOME = join(configDir, 'home');
+    process.env.USERPROFILE = join(configDir, 'Users', 'Tester');
+    mkdirSync(codexConfigDir, { recursive: true });
+    writeFileSync(
+      codexConfigPath,
+      [
+        'model_provider = "infilux_provider"',
+        '',
+        '[model_providers.infilux_provider]',
+        'base_url = "https://windows.example.com/v1"',
+        'experimental_bearer_token = "windows-token"',
+      ].join('\n')
+    );
+
+    await expect(readCodexProviderSettings('/repo')).resolves.toEqual({
+      providerId: 'codex-cli',
+      settings: {
+        configPath: codexConfigPath,
+        configToml: expect.stringContaining('https://windows.example.com/v1'),
+      },
+      extracted: {
+        providerId: 'codex-cli',
+        baseUrl: 'https://windows.example.com/v1',
+        authToken: 'windows-token',
+      },
+      supported: true,
+    });
+
+    await expect(applyCodexProvider('/repo', codexProvider)).resolves.toBe(true);
+
+    const nextConfig = readFileSync(codexConfigPath, 'utf8');
+    expect(nextConfig).toContain('model_provider = "infilux_provider"');
+    expect(nextConfig).toContain('base_url = "https://gateway.example.com/v1"');
+    expect(nextConfig).toContain('experimental_bearer_token = "codex-token"');
+  });
+
+  it('falls back to the Windows home inferred from customPath when app data config is unavailable', async () => {
+    setPlatform('win32');
+    delete process.env.CODEX_CONFIG_DIR;
+    delete process.env.APPDATA;
+    process.env.HOME = join(configDir, 'fallback-home');
+    process.env.USERPROFILE = join(configDir, 'fallback-user-profile');
+    const inferredHomeDir = join(configDir, 'Users', 'Tester');
+    const inferredConfigDir = join(inferredHomeDir, '.codex');
+    const inferredConfigPath = join(inferredConfigDir, 'config.toml');
+    mkdirSync(inferredConfigDir, { recursive: true });
+    writeFileSync(
+      inferredConfigPath,
+      [
+        'model_provider = "infilux_provider"',
+        '',
+        '[model_providers.infilux_provider]',
+        'base_url = "https://inferred.example.com/v1"',
+        'experimental_bearer_token = "inferred-token"',
+      ].join('\n')
+    );
+    const readWithDiscovery = readCodexProviderSettings as unknown as (
+      repoPath?: string,
+      discoveryOptions?: { customPath?: string }
+    ) => Promise<Awaited<ReturnType<typeof readCodexProviderSettings>>>;
+    const applyWithDiscovery = applyCodexProvider as unknown as (
+      repoPath: string | undefined,
+      provider: AgentProviderProfile,
+      discoveryOptions?: { customPath?: string }
+    ) => Promise<boolean>;
+    const discoveryOptions = {
+      customPath: join(inferredHomeDir, 'AppData', 'Roaming', 'npm', 'codex.cmd'),
+    };
+
+    await expect(readWithDiscovery('/repo', discoveryOptions)).resolves.toEqual({
+      providerId: 'codex-cli',
+      settings: {
+        configPath: inferredConfigPath,
+        configToml: expect.stringContaining('https://inferred.example.com/v1'),
+      },
+      extracted: {
+        providerId: 'codex-cli',
+        baseUrl: 'https://inferred.example.com/v1',
+        authToken: 'inferred-token',
+      },
+      supported: true,
+    });
+
+    await expect(applyWithDiscovery('/repo', codexProvider, discoveryOptions)).resolves.toBe(true);
+
+    const nextConfig = readFileSync(inferredConfigPath, 'utf8');
     expect(nextConfig).toContain('model_provider = "infilux_provider"');
     expect(nextConfig).toContain('base_url = "https://gateway.example.com/v1"');
     expect(nextConfig).toContain('experimental_bearer_token = "codex-token"');

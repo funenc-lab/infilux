@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { normalizePath, pathsEqual } from '@/App/storage';
 import { supportsAgentNativeTerminalInput } from '@/components/chat/agentInputMode';
 import type { Session } from '@/components/chat/SessionBar';
+import { getSessionDisplayName } from '@/components/chat/sessionBarLabels';
 import { useI18n } from '@/i18n';
 import { onRendererAgentStop } from '@/lib/agentStopEvents';
 import {
@@ -222,7 +223,7 @@ export function useAgentSessionNotifications({
         {
           action: taskCompleted ? 'command-completed' : 'command-output-ready',
           command: getNotificationAgentName(session),
-          body: session.terminalTitle || projectName,
+          body: getSessionDisplayName(session) || projectName,
         },
         translateRef.current
       );

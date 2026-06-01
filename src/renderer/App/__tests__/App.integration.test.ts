@@ -5,6 +5,8 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repository, RepositoryGroup, TabId } from '@/App/constants';
+import { useWebInspector } from '../../hooks/useWebInspector';
+import { useOpenPathListener } from '../hooks';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -87,6 +89,8 @@ const WORKTREE: GitWorktree = {
   isLocked: false,
   prunable: false,
 };
+
+let worktreeListData: GitWorktree[] = [WORKTREE];
 
 const GROUPS: RepositoryGroup[] = [];
 const REPOSITORIES: Repository[] = [
@@ -461,7 +465,7 @@ vi.mock('../../hooks/useWorktree', () => ({
     mutateAsync: createWorktreeMutateAsync,
   }),
   useWorktreeList: () => ({
-    data: [WORKTREE],
+    data: worktreeListData,
     isLoading: false,
     isFetching: false,
     isFetched: true,
@@ -638,6 +642,7 @@ describe('App integration', () => {
     wtState.repoWorktreeMap = { '/repo': WORKTREE.path };
     wtState.tabOrder = ['chat', 'file', 'terminal', 'source-control', 'todo'];
     wtState.currentWorktreePathRef = { current: WORKTREE.path };
+    worktreeListData = [WORKTREE];
 
     panelState.repositoryCollapsed = false;
     panelState.worktreeCollapsed = false;
@@ -773,6 +778,43 @@ describe('App integration', () => {
     expect(setSelectedRepoState).toHaveBeenCalledWith('/repo/from-todo');
     expect(setActiveWorktree).toHaveBeenCalledWith(null);
     expect(setActiveTab).toHaveBeenLastCalledWith('todo');
+
+    const worktreeTabUpdater = setWorktreeTabMap.mock.calls[0]?.[0] as
+      | Record<string, TabId>
+      | ((previous: Record<string, TabId>) => Record<string, TabId>);
+    const nextTabMap = mockStatefulUpdater(worktreeTabUpdater, {});
+    expect(nextTabMap[WORKTREE.path]).toBe('file');
+  });
+
+  it('passes the resolved main content repository context to Web Inspector', async () => {
+    repoState.selectedRepo = '/repo-b';
+    wtState.activeWorktree = WORKTREE;
+    wtState.repoWorktreeMap = {
+      '/repo': WORKTREE.path,
+      '/repo-b': '/repo-b/.worktrees/feature-b',
+    };
+    worktreeListData = [];
+
+    ({ container, root } = await renderApp());
+
+    expect(useWebInspector).toHaveBeenLastCalledWith(WORKTREE.path, '/repo');
+  });
+
+  it('routes open-path repository selection through the app shell selection policy', async () => {
+    ({ container, root } = await renderApp());
+
+    const selectRepository = vi.mocked(useOpenPathListener).mock.calls.at(-1)?.[3] as
+      | ((repoPath: string) => void)
+      | undefined;
+    expect(selectRepository).toBeDefined();
+
+    await act(async () => {
+      selectRepository?.('/repo-from-open-path');
+    });
+
+    expect(setSelectedRepoState).toHaveBeenCalledWith('/repo-from-open-path');
+    expect(setActiveWorktree).toHaveBeenCalledWith(null);
+    expect(setActiveTab).toHaveBeenCalledWith('chat');
 
     const worktreeTabUpdater = setWorktreeTabMap.mock.calls[0]?.[0] as
       | Record<string, TabId>

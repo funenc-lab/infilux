@@ -25,15 +25,11 @@ import {
   resolveMainContentChatPanelEntryKey,
   resolveMainContentChatPanelPlan,
 } from './mainContentChatPanelPlan';
+import type { MainContentContext } from './mainContentContextPolicy';
 import { SubagentTranscriptPanel } from './SubagentTranscriptPanel';
 
 type FileTreeDisplayMode = 'legacy' | 'current';
 type SettingsDisplayMode = 'tab' | 'draggable-modal';
-
-interface RetainedChatContext {
-  repoPath: string;
-  worktreePath: string;
-}
 
 export interface MainContentPanelsProps {
   activeTab: TabId;
@@ -42,7 +38,8 @@ export interface MainContentPanelsProps {
   worktreePath?: string;
   currentRepoPath: string | null;
   currentWorktreePath: string | null;
-  retainedChatContext: RetainedChatContext | null;
+  retainedChatContext: MainContentContext | null;
+  visibleChatBridgeContext?: MainContentContext | null;
   hasActiveWorktree: boolean;
   worktreeCollapsed: boolean;
   onExpandWorktree?: () => void;
@@ -139,6 +136,7 @@ export function MainContentPanels({
   currentRepoPath,
   currentWorktreePath,
   retainedChatContext,
+  visibleChatBridgeContext = null,
   hasActiveWorktree,
   worktreeCollapsed,
   onExpandWorktree,
@@ -211,6 +209,7 @@ export function MainContentPanels({
     retainedChatContext,
     shouldRenderCurrentChatPanel,
     showSubagentTranscript,
+    visibleChatBridgeContext,
   });
 
   return (

@@ -2,6 +2,7 @@ import type { LiveAgentSubagent } from '@shared/types';
 import { useEffect, useMemo, useState } from 'react';
 import { normalizePath } from '@/App/storage';
 import { groupSubagentsByWorktree } from '@/lib/worktreeAgentSummary';
+import { useShouldPoll } from './useWindowFocus';
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -75,13 +76,14 @@ export function areLiveSubagentListsEqual(
 
 export function useLiveSubagents(cwds: string[]): Map<string, LiveAgentSubagent[]> {
   const [items, setItems] = useState<LiveAgentSubagent[]>([]);
+  const shouldPoll = useShouldPoll();
   const stableCwdKey = useMemo(() => buildLiveSubagentCwdsKey(cwds), [cwds]);
   const stableCwds = useMemo(() => (stableCwdKey ? stableCwdKey.split('\0') : []), [stableCwdKey]);
 
   useEffect(() => {
     let cancelled = false;
 
-    if (stableCwds.length === 0) {
+    if (!shouldPoll || stableCwds.length === 0) {
       setItems((current) => (current.length === 0 ? current : []));
       return;
     }
@@ -120,7 +122,7 @@ export function useLiveSubagents(cwds: string[]): Map<string, LiveAgentSubagent[
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [stableCwds]);
+  }, [shouldPoll, stableCwds]);
 
   return useMemo(() => groupSubagentsByWorktree(items), [items]);
 }

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { AgentProviderProfile } from '@shared/types';
+import type { AgentProviderDiscoveryOptions, AgentProviderProfile } from '@shared/types';
 import type { BrowserWindow } from 'electron';
 import {
   getRepositoryEnvironmentContext,
@@ -9,6 +9,7 @@ import {
   writeRepositoryRemoteTextFile,
 } from '../remote/RemoteEnvironmentService';
 import { createAgentProviderSettingsWatcher } from './AgentProviderSettingsWatcher';
+import { resolveWindowsUserHomeFromExecutablePath } from './providerDiscovery';
 
 const CODEX_PROVIDER_ID = 'codex-cli' as const;
 const MANAGED_CODEX_PROVIDER_ID = 'infilux_provider';
@@ -24,15 +25,88 @@ interface ParsedCodexProviderConfig {
   modelProviders: Record<string, Record<string, string>>;
 }
 
-function getCodexConfigDir(): string {
-  if (process.env.CODEX_CONFIG_DIR) {
-    return process.env.CODEX_CONFIG_DIR;
-  }
-  return path.join(os.homedir(), '.codex');
+function getCodexConfigDir(discoveryOptions?: AgentProviderDiscoveryOptions): string {
+  return path.dirname(resolveLocalCodexConfigPath(discoveryOptions));
 }
 
-function getCodexConfigPath(): string {
-  return path.join(getCodexConfigDir(), 'config.toml');
+function getCodexConfigPath(discoveryOptions?: AgentProviderDiscoveryOptions): string {
+  return resolveLocalCodexConfigPath(discoveryOptions);
+}
+
+function getLegacyCodexConfigPath(): string {
+  return path.join(os.homedir(), '.codex', 'config.toml');
+}
+
+function getCodexHomeConfigPath(): string | null {
+  const codexHomeDir = process.env.CODEX_HOME?.trim();
+  if (!codexHomeDir) {
+    return null;
+  }
+
+  return path.join(codexHomeDir, 'config.toml');
+}
+
+function getWindowsAppDataCodexConfigPaths(): string[] {
+  if (process.platform !== 'win32') {
+    return [];
+  }
+
+  const appDataDir = process.env.APPDATA?.trim();
+  if (!appDataDir) {
+    return [];
+  }
+
+  return [
+    path.join(appDataDir, 'Codex', 'config.toml'),
+    path.join(appDataDir, 'codex', 'config.toml'),
+  ];
+}
+
+function uniquePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const candidate of paths) {
+    const key = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function getInferredWindowsHomeCodexConfigPath(
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): string | null {
+  const inferredHomeDir = resolveWindowsUserHomeFromExecutablePath(discoveryOptions);
+  if (!inferredHomeDir) {
+    return null;
+  }
+
+  return path.join(inferredHomeDir, '.codex', 'config.toml');
+}
+
+function getCodexConfigPathCandidates(discoveryOptions?: AgentProviderDiscoveryOptions): string[] {
+  if (process.env.CODEX_CONFIG_DIR) {
+    return [path.join(process.env.CODEX_CONFIG_DIR, 'config.toml')];
+  }
+
+  return uniquePaths(
+    [
+      getCodexHomeConfigPath(),
+      ...getWindowsAppDataCodexConfigPaths(),
+      getInferredWindowsHomeCodexConfigPath(discoveryOptions),
+      getLegacyCodexConfigPath(),
+    ].filter(
+      (candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0
+    )
+  );
+}
+
+function resolveLocalCodexConfigPath(discoveryOptions?: AgentProviderDiscoveryOptions): string {
+  const candidates = getCodexConfigPathCandidates(discoveryOptions);
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
 }
 
 function stripTomlComment(line: string): string {
@@ -299,9 +373,8 @@ export function applyProviderToCodexConfig(
   return [preservedConfig, managedBlock].filter((entry) => entry.trim().length > 0).join('\n\n');
 }
 
-function readLocalCodexConfig(): string | null {
+function readLocalCodexConfigAtPath(configPath: string): string | null {
   try {
-    const configPath = getCodexConfigPath();
     if (!fs.existsSync(configPath)) {
       return null;
     }
@@ -312,20 +385,23 @@ function readLocalCodexConfig(): string | null {
   }
 }
 
-function readLocalCodexProviderSettings(): CodexProviderSettings {
+function readLocalCodexProviderSettings(
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): CodexProviderSettings {
+  const configPath = getCodexConfigPath(discoveryOptions);
   return {
-    configPath: getCodexConfigPath(),
-    configToml: readLocalCodexConfig(),
+    configPath,
+    configToml: readLocalCodexConfigAtPath(configPath),
   };
 }
 
-function writeLocalCodexConfig(content: string): boolean {
+function writeLocalCodexConfig(content: string, configPath = getCodexConfigPath()): boolean {
   try {
-    const configDir = getCodexConfigDir();
+    const configDir = path.dirname(configPath);
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
     }
-    fs.writeFileSync(getCodexConfigPath(), content, { mode: 0o600 });
+    fs.writeFileSync(configPath, content, { mode: 0o600 });
     return true;
   } catch (error) {
     console.error('[CodexProviderManager] Failed to write Codex config:', error);
@@ -333,7 +409,10 @@ function writeLocalCodexConfig(content: string): boolean {
   }
 }
 
-async function resolveCodexConfigTarget(repoPath?: string): Promise<{
+async function resolveCodexConfigTarget(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<{
   kind: 'local' | 'remote';
   configPath: string;
 }> {
@@ -347,12 +426,15 @@ async function resolveCodexConfigTarget(repoPath?: string): Promise<{
 
   return {
     kind: 'local',
-    configPath: getCodexConfigPath(),
+    configPath: getCodexConfigPath(discoveryOptions),
   };
 }
 
-async function readCodexConfigForRepository(repoPath?: string): Promise<CodexProviderSettings> {
-  const target = await resolveCodexConfigTarget(repoPath);
+async function readCodexConfigForRepository(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<CodexProviderSettings> {
+  const target = await resolveCodexConfigTarget(repoPath, discoveryOptions);
   if (target.kind === 'remote') {
     return {
       configPath: target.configPath,
@@ -362,17 +444,20 @@ async function readCodexConfigForRepository(repoPath?: string): Promise<CodexPro
 
   return {
     configPath: target.configPath,
-    configToml: readLocalCodexConfig(),
+    configToml: readLocalCodexConfigAtPath(target.configPath),
   };
 }
 
-export async function readCodexProviderSettings(repoPath?: string): Promise<{
+export async function readCodexProviderSettings(
+  repoPath?: string,
+  discoveryOptions?: AgentProviderDiscoveryOptions
+): Promise<{
   providerId: typeof CODEX_PROVIDER_ID;
   settings: CodexProviderSettings;
   extracted: Partial<AgentProviderProfile> | null;
   supported: true;
 }> {
-  const settings = await readCodexConfigForRepository(repoPath);
+  const settings = await readCodexConfigForRepository(repoPath, discoveryOptions);
   return {
     providerId: CODEX_PROVIDER_ID,
     settings,
@@ -383,21 +468,22 @@ export async function readCodexProviderSettings(repoPath?: string): Promise<{
 
 export async function applyCodexProvider(
   repoPath: string | undefined,
-  provider: AgentProviderProfile
+  provider: AgentProviderProfile,
+  discoveryOptions?: AgentProviderDiscoveryOptions
 ): Promise<boolean> {
   if (provider.providerId !== CODEX_PROVIDER_ID) {
     return false;
   }
 
-  const settings = await readCodexConfigForRepository(repoPath);
+  const settings = await readCodexConfigForRepository(repoPath, discoveryOptions);
   const nextContent = applyProviderToCodexConfig(settings.configToml, provider);
-  const target = await resolveCodexConfigTarget(repoPath);
+  const target = await resolveCodexConfigTarget(repoPath, discoveryOptions);
 
   if (target.kind === 'remote') {
     return writeRepositoryRemoteTextFile(repoPath, target.configPath, nextContent);
   }
 
-  return writeLocalCodexConfig(nextContent);
+  return writeLocalCodexConfig(nextContent, target.configPath);
 }
 
 const codexProviderSettingsWatcher = createAgentProviderSettingsWatcher({

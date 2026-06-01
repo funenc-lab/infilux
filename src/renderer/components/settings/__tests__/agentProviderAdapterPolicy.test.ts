@@ -77,12 +77,16 @@ describe('agent provider adapter policy', () => {
 
   it('lets provider list inspect the selected provider type instead of defaulting to Claude', () => {
     expect(providerListSource).toContain('selectedProviderId');
-    expect(providerListSource).toContain('queryKey(repoPath, selectedProviderId)');
-    expect(providerListSource).toContain('readCurrent(repoPath, selectedProviderId)');
+    expect(providerListSource).toContain('queryKey(');
+    expect(providerListSource).toContain('selectedProviderDiscoveryOptions');
+    expect(providerListSource).toContain('readCurrent(');
   });
 
   it('defaults provider configuration to detected system provider settings', () => {
-    expect(providerListSource).toContain('readAllCurrent(repoPath)');
+    expect(providerListSource).toContain('providerDiscoveryOptionsByProvider');
+    expect(providerListSource).toContain(
+      'readAllCurrent(repoPath, providerDiscoveryOptionsByProvider)'
+    );
     expect(providerListSource).toContain('resolveDefaultProviderSelection');
     expect(providerListSource).toContain('manualProviderSelection');
     expect(providerListSource).toContain('setManualProviderSelection(true)');

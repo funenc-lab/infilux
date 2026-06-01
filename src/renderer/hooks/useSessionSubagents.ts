@@ -1,8 +1,9 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { useEffect, useState } from 'react';
 import { areLiveSubagentListsEqual, buildLiveSubagentCwds } from './useLiveSubagents';
+import { useShouldPoll } from './useWindowFocus';
 
-const DEFAULT_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const SINGLE_SESSION_TARGET_ID = 'current-session';
 
 function createSubscriptionId(): string {
@@ -19,6 +20,7 @@ interface UseSessionSubagentsOptions {
 interface UseSessionSubagentsResult {
   items: LiveAgentSubagent[];
   isLoading: boolean;
+  hasLoaded: boolean;
 }
 
 export function useSessionSubagents({
@@ -29,12 +31,15 @@ export function useSessionSubagents({
 }: UseSessionSubagentsOptions): UseSessionSubagentsResult {
   const [items, setItems] = useState<LiveAgentSubagent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const shouldPoll = useShouldPoll();
 
   useEffect(() => {
     const normalizedCwd = buildLiveSubagentCwds(cwd ? [cwd] : [])[0];
 
-    if (!enabled || !normalizedCwd || !providerSessionId) {
+    if (!enabled || !shouldPoll || !normalizedCwd || !providerSessionId) {
       setIsLoading(false);
+      setHasLoaded(false);
       setItems((current) => (current.length === 0 ? current : []));
       return;
     }
@@ -42,12 +47,15 @@ export function useSessionSubagents({
     if (!window.electronAPI.agentSubagent?.subscribeSessionSubagents) {
       console.error('[useSessionSubagents] agentSubagent.subscribeSessionSubagents is unavailable');
       setIsLoading(false);
+      setHasLoaded(true);
       setItems((current) => (current.length === 0 ? current : []));
       return;
     }
 
     setIsLoading(true);
+    setHasLoaded(false);
     const subscriptionId = createSubscriptionId();
+    let disposed = false;
 
     const unsubscribe = window.electronAPI.agentSubagent.subscribeSessionSubagents(
       {
@@ -62,21 +70,28 @@ export function useSessionSubagents({
         ],
       },
       (event) => {
+        if (disposed) {
+          return;
+        }
+
         const nextItems = event.itemsBySessionId[SINGLE_SESSION_TARGET_ID] ?? [];
         setItems((current) =>
           areLiveSubagentListsEqual(current, nextItems) ? current : nextItems
         );
         setIsLoading(false);
+        setHasLoaded(true);
       }
     );
 
     return () => {
+      disposed = true;
       unsubscribe();
     };
-  }, [cwd, enabled, pollIntervalMs, providerSessionId]);
+  }, [cwd, enabled, pollIntervalMs, providerSessionId, shouldPoll]);
 
   return {
     items,
     isLoading,
+    hasLoaded,
   };
 }

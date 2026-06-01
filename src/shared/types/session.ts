@@ -5,6 +5,7 @@ export interface SessionHostSessionOptions {
   kind: 'tmux';
   serverName: string;
   sessionName: string;
+  mode?: 'attach-existing' | 'create-if-missing';
 }
 
 export interface SessionCreateOptions {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentProviderProfile } from '@shared/types';
@@ -9,6 +9,15 @@ import {
   extractProviderFromGeminiEnv,
   readGeminiProviderSettings,
 } from '../GeminiProviderManager';
+
+const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+
+function setPlatform(platform: NodeJS.Platform) {
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    value: platform,
+  });
+}
 
 const geminiProviderManagerTestDoubles = vi.hoisted(() => {
   const getRepositoryEnvironmentContext = vi.fn();
@@ -50,11 +59,18 @@ const geminiProvider: AgentProviderProfile = {
 describe('GeminiProviderManager', () => {
   let configDir: string;
   let originalConfigDir: string | undefined;
+  let originalGeminiCliHome: string | undefined;
+  let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
     geminiProviderManagerTestDoubles.reset();
+    setPlatform('darwin');
     originalConfigDir = process.env.GEMINI_CONFIG_DIR;
+    originalGeminiCliHome = process.env.GEMINI_CLI_HOME;
+    originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
     configDir = mkdtempSync(join(tmpdir(), 'infilux-gemini-provider-'));
     process.env.GEMINI_CONFIG_DIR = configDir;
   });
@@ -64,6 +80,24 @@ describe('GeminiProviderManager', () => {
       delete process.env.GEMINI_CONFIG_DIR;
     } else {
       process.env.GEMINI_CONFIG_DIR = originalConfigDir;
+    }
+    if (originalGeminiCliHome === undefined) {
+      delete process.env.GEMINI_CLI_HOME;
+    } else {
+      process.env.GEMINI_CLI_HOME = originalGeminiCliHome;
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
+    }
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, 'platform', originalPlatformDescriptor);
     }
     rmSync(configDir, { force: true, recursive: true });
     vi.restoreAllMocks();
@@ -209,5 +243,56 @@ describe('GeminiProviderManager', () => {
     ).resolves.toBe(false);
 
     expect(geminiProviderManagerTestDoubles.getRepositoryEnvironmentContext).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the Windows home inferred from customPath when the default config dir is unavailable', async () => {
+    setPlatform('win32');
+    delete process.env.GEMINI_CONFIG_DIR;
+    delete process.env.GEMINI_CLI_HOME;
+    process.env.HOME = join(configDir, 'fallback-home');
+    process.env.USERPROFILE = join(configDir, 'fallback-user-profile');
+    const inferredHomeDir = join(configDir, 'Users', 'Tester');
+    const inferredConfigDir = join(inferredHomeDir, '.gemini');
+    const inferredEnvPath = join(inferredConfigDir, '.env');
+    mkdirSync(inferredConfigDir, { recursive: true });
+    writeFileSync(
+      inferredEnvPath,
+      [
+        'GOOGLE_GEMINI_BASE_URL="https://inferred.example.com"',
+        'GEMINI_API_KEY="inferred-token"',
+      ].join('\n')
+    );
+    const readWithDiscovery = readGeminiProviderSettings as unknown as (
+      repoPath?: string,
+      discoveryOptions?: { customPath?: string }
+    ) => Promise<Awaited<ReturnType<typeof readGeminiProviderSettings>>>;
+    const applyWithDiscovery = applyGeminiProvider as unknown as (
+      repoPath: string | undefined,
+      provider: AgentProviderProfile,
+      discoveryOptions?: { customPath?: string }
+    ) => Promise<boolean>;
+    const discoveryOptions = {
+      customPath: join(inferredHomeDir, 'AppData', 'Roaming', 'npm', 'gemini.cmd'),
+    };
+
+    await expect(readWithDiscovery('/repo', discoveryOptions)).resolves.toEqual({
+      providerId: 'gemini-cli',
+      settings: {
+        envPath: inferredEnvPath,
+        envText: expect.stringContaining('https://inferred.example.com'),
+      },
+      extracted: {
+        providerId: 'gemini-cli',
+        baseUrl: 'https://inferred.example.com',
+        authToken: 'inferred-token',
+      },
+      supported: true,
+    });
+
+    await expect(applyWithDiscovery('/repo', geminiProvider, discoveryOptions)).resolves.toBe(true);
+
+    const nextEnv = readFileSync(inferredEnvPath, 'utf8');
+    expect(nextEnv).toContain('GEMINI_API_KEY="gemini-token"');
+    expect(nextEnv).toContain('GOOGLE_GEMINI_BASE_URL="https://gateway.example.com"');
   });
 });

@@ -6,9 +6,11 @@ import type {
   WorktreeMergeOptions,
   WorktreeRemoveOptions,
 } from '@shared/types';
+import { normalizePath } from '@shared/utils/path';
 import type { QueryClient } from '@tanstack/react-query';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef } from 'react';
+import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import {
   canRecoverWorktreeListFromPreviousSnapshot,
   normalizeWorktreeLoadErrorMessage,
@@ -237,6 +239,24 @@ export function useWorktreeCreate() {
   });
 }
 
+export function removeWorktreeFromListCache(
+  queryClient: Pick<QueryClient, 'setQueryData'>,
+  workdir: string,
+  worktreePath: string
+): void {
+  const normalizedRemovedPath = normalizePath(worktreePath);
+
+  queryClient.setQueryData<GitWorktree[]>(worktreeQueryKeys.list(workdir), (currentWorktrees) => {
+    if (!Array.isArray(currentWorktrees)) {
+      return currentWorktrees;
+    }
+
+    return sanitizeGitWorktrees(currentWorktrees).filter(
+      (worktree) => normalizePath(worktree.path) !== normalizedRemovedPath
+    );
+  });
+}
+
 export function useWorktreeRemove() {
   const queryClient = useQueryClient();
 
@@ -250,7 +270,8 @@ export function useWorktreeRemove() {
     }) => {
       await window.electronAPI.worktree.remove(workdir, options);
     },
-    onSuccess: (_, { workdir }) => {
+    onSuccess: (_, { workdir, options }) => {
+      removeWorktreeFromListCache(queryClient, workdir, options.path);
       queryClient.invalidateQueries({ queryKey: worktreeQueryKeys.list(workdir) });
     },
   });
