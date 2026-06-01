@@ -578,6 +578,25 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('rearms IME priming when xterm focuses its textarea directly', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.latestTextarea).not.toBeNull();
+    expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).toBeNull();
+
+    act(() => {
+      testState.latestTextarea?.focus();
+    });
+
+    expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).not.toBeNull();
+    expect(document.activeElement).toBe(testState.latestTextarea);
+
+    await mounted.unmount();
+  });
+
   it('does not replay attach output again after live data already reached the terminal', async () => {
     const mounted = mountHookHarness();
 
