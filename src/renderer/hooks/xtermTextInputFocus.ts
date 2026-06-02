@@ -2,12 +2,7 @@ import type { Terminal } from '@xterm/xterm';
 
 const XTERM_TEXTAREA_SELECTOR =
   'textarea.xterm-helper-textarea, textarea[aria-label="Terminal input"], textarea';
-const IME_PRIMER_SELECTOR = 'textarea[data-infilux-ime-primer="true"]';
 const PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE = 'data-infilux-programmatic-xterm-focus';
-
-interface FocusXtermTextInputOptions {
-  forceImePrime?: boolean;
-}
 
 function isHtmlTextarea(value: unknown): value is HTMLTextAreaElement {
   return value instanceof HTMLTextAreaElement;
@@ -38,41 +33,6 @@ function prepareTextareaForIme(textarea: HTMLTextAreaElement): void {
   textarea.setAttribute('data-infilux-xterm-ime-ready', 'true');
 }
 
-function applyImePrimerStyle(textarea: HTMLTextAreaElement): void {
-  Object.assign(textarea.style, {
-    border: '0',
-    height: '1px',
-    left: '0',
-    opacity: '0',
-    padding: '0',
-    pointerEvents: 'none',
-    position: 'fixed',
-    resize: 'none',
-    top: '0',
-    width: '1px',
-    zIndex: '-1',
-  });
-}
-
-function resolveImePrimer(document: Document): HTMLTextAreaElement | null {
-  const existing = document.querySelector(IME_PRIMER_SELECTOR);
-  if (isHtmlTextarea(existing)) {
-    return existing;
-  }
-
-  if (!document.body) {
-    return null;
-  }
-
-  const textarea = document.createElement('textarea');
-  textarea.setAttribute('aria-hidden', 'true');
-  textarea.setAttribute('data-infilux-ime-primer', 'true');
-  textarea.tabIndex = -1;
-  applyImePrimerStyle(textarea);
-  document.body.appendChild(textarea);
-  return textarea;
-}
-
 function focusWithoutScroll(textarea: HTMLTextAreaElement): void {
   textarea.focus({ preventScroll: true });
 }
@@ -86,21 +46,7 @@ function focusXtermTextareaWithoutRearmingBridge(textarea: HTMLTextAreaElement):
   }
 }
 
-function requestDocumentAnimationFrame(document: Document, callback: () => void): void {
-  const requestFrame =
-    document.defaultView?.requestAnimationFrame ?? globalThis.requestAnimationFrame;
-  if (requestFrame) {
-    requestFrame(callback);
-    return;
-  }
-
-  globalThis.setTimeout(callback, 0);
-}
-
-export function focusXtermTextInput(
-  terminal: Terminal | null | undefined,
-  options: FocusXtermTextInputOptions = {}
-): void {
+export function focusXtermTextInput(terminal: Terminal | null | undefined): void {
   if (!terminal) {
     return;
   }
@@ -114,28 +60,11 @@ export function focusXtermTextInput(
 
   prepareTextareaForIme(textarea);
 
-  if (!options.forceImePrime && textarea.ownerDocument.activeElement === textarea) {
+  if (textarea.ownerDocument.activeElement === textarea) {
     return;
   }
 
-  const primer = resolveImePrimer(textarea.ownerDocument);
-  if (!primer || primer.disabled) {
-    focusXtermTextareaWithoutRearmingBridge(textarea);
-    return;
-  }
-
-  prepareTextareaForIme(primer);
-  focusWithoutScroll(primer);
-
-  requestDocumentAnimationFrame(textarea.ownerDocument, () => {
-    if (textarea.disabled) {
-      return;
-    }
-
-    terminal.focus();
-    prepareTextareaForIme(textarea);
-    focusXtermTextareaWithoutRearmingBridge(textarea);
-  });
+  focusXtermTextareaWithoutRearmingBridge(textarea);
 }
 
 export function installXtermImeFocusBridge(terminal: Terminal | null | undefined): {
@@ -150,25 +79,12 @@ export function installXtermImeFocusBridge(terminal: Terminal | null | undefined
     return { dispose: () => undefined };
   }
 
-  let isRearmingImeFocus = false;
-  const releaseRearmGuard = () => {
-    requestDocumentAnimationFrame(textarea.ownerDocument, () => {
-      isRearmingImeFocus = false;
-    });
-  };
-
   const handleFocusIn = () => {
     if (textarea.getAttribute(PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE) === 'true') {
       return;
     }
 
-    if (isRearmingImeFocus) {
-      return;
-    }
-
-    isRearmingImeFocus = true;
-    focusXtermTextInput(terminal, { forceImePrime: true });
-    releaseRearmGuard();
+    prepareTextareaForIme(textarea);
   };
 
   textarea.addEventListener('focusin', handleFocusIn);

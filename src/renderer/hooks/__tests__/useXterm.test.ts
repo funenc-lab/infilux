@@ -555,7 +555,7 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('prepares and focuses xterm textarea during activation refresh for IME input', async () => {
+  it('prepares the real xterm textarea as the IME input target during activation refresh', async () => {
     const mounted = mountHookHarness();
     await act(async () => {
       await flushMicrotasks();
@@ -568,17 +568,22 @@ describe('useXterm startup loading state', () => {
       testState.activationRefreshCalls[0]?.focus();
     });
 
-    expect(testState.terminalFocus).toHaveBeenCalledTimes(2);
+    expect(testState.terminalFocus).toHaveBeenCalledTimes(1);
     expect(testState.latestTextarea?.inputMode).toBe('text');
     expect(testState.latestTextarea?.spellcheck).toBe(false);
     expect(testState.latestTextarea?.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
-    expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).not.toBeNull();
+    expect(testState.latestTextarea?.style.minWidth).toBe('');
+    expect(testState.latestTextarea?.style.minHeight).toBe('');
+    expect(testState.latestTextarea?.style.opacity).toBe('');
+    expect(testState.latestTextarea?.style.zIndex).toBe('');
+    expect(testState.latestTextarea?.style.pointerEvents).toBe('');
+    expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).toBeNull();
     expect(document.activeElement).toBe(testState.latestTextarea);
 
     await mounted.unmount();
   });
 
-  it('rearms IME priming when xterm focuses its textarea directly', async () => {
+  it('prepares direct xterm textarea focus without creating a competing IME target', async () => {
     const mounted = mountHookHarness();
     await act(async () => {
       await flushMicrotasks();
@@ -591,7 +596,11 @@ describe('useXterm startup loading state', () => {
       testState.latestTextarea?.focus();
     });
 
-    expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).not.toBeNull();
+    expect(testState.latestTextarea?.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
+    expect(testState.latestTextarea?.style.opacity).toBe('');
+    expect(testState.latestTextarea?.style.zIndex).toBe('');
+    expect(testState.latestTextarea?.style.pointerEvents).toBe('');
+    expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).toBeNull();
     expect(document.activeElement).toBe(testState.latestTextarea);
 
     await mounted.unmount();
