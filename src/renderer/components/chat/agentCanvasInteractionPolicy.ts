@@ -1,8 +1,10 @@
 export const AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE = 'data-agent-canvas-session-panel';
 export const AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE = 'data-agent-canvas-interactive-surface';
+export const AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE = 'data-agent-canvas-scroll-surface';
 
 export const AGENT_CANVAS_SESSION_PANEL_SELECTOR = `[${AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE}="true"]`;
 export const AGENT_CANVAS_INTERACTIVE_SURFACE_SELECTOR = `[${AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE}="true"]`;
+export const AGENT_CANVAS_SCROLL_SURFACE_SELECTOR = `[${AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE}="true"]`;
 
 type ResolveAgentCanvasPanStartOptions = {
   isCanvasDisplayMode: boolean;
@@ -57,7 +59,7 @@ export function shouldBlockAgentCanvasViewportScroll({
   if (
     typeof Element !== 'undefined' &&
     target instanceof Element &&
-    target.closest(AGENT_CANVAS_SESSION_PANEL_SELECTOR) !== null
+    target.closest(AGENT_CANVAS_SCROLL_SURFACE_SELECTOR) !== null
   ) {
     return false;
   }

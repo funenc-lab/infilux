@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE,
+  AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE,
   AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
   shouldBlockAgentCanvasViewportScroll,
   shouldStartAgentCanvasPan,
@@ -178,12 +179,32 @@ describe('agent canvas interaction policy', () => {
     ).toBe(false);
   });
 
-  it('keeps session panel wheel input available while the surrounding locked canvas is frozen', () => {
+  it('blocks session panel chrome wheel input while the surrounding locked canvas is frozen', () => {
     withMockElementGlobal(() => {
       const sessionPanel = createElement();
       sessionPanel.setAttribute(AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE, 'true');
+      const headerControl = createElement();
+      sessionPanel.append(headerControl);
+
+      expect(
+        shouldBlockAgentCanvasViewportScroll({
+          isCanvasDisplayMode: true,
+          isCanvasLocked: true,
+          target: headerControl,
+        })
+      ).toBe(true);
+    });
+  });
+
+  it('keeps marked scroll surface wheel input available while the surrounding locked canvas is frozen', () => {
+    withMockElementGlobal(() => {
+      const sessionPanel = createElement();
+      sessionPanel.setAttribute(AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE, 'true');
+      const scrollSurface = createElement();
+      scrollSurface.setAttribute(AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE, 'true');
       const terminalContent = createElement();
-      sessionPanel.append(terminalContent);
+      sessionPanel.append(scrollSurface);
+      scrollSurface.append(terminalContent);
 
       expect(
         shouldBlockAgentCanvasViewportScroll({

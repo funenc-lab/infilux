@@ -813,6 +813,16 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('marks the terminal wrapper as a canvas scroll surface', async () => {
+    const mounted = await mountAgentTerminal();
+
+    expect(
+      mounted.container.querySelector('[data-agent-canvas-scroll-surface="true"]')
+    ).not.toBeNull();
+
+    await mounted.unmount();
+  });
+
   it('does not show the startup overlay for inactive agent terminals that are still loading', async () => {
     testState.xtermResult.isLoading = true;
 

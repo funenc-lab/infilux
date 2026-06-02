@@ -50,8 +50,11 @@ interface CodexSessionProjectionResult {
 }
 
 const CODEX_BARE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
-const CODEX_TOKEN_PATTERN = /(^|[\s'"])((?:[^\s'"`]+\/)?codex(?:\.exe)?)(?=(?:[\s'"]|$))/i;
+const CODEX_EXECUTABLE_NAMES = new Set(['codex', 'codex.exe', 'codex.cmd', 'codex.bat']);
+const CODEX_TOKEN_PATTERN =
+  /(^|[\s&])((?:"[^"]*codex(?:\.(?:exe|cmd|bat))?"|'[^']*codex(?:\.(?:exe|cmd|bat))?'|[^\s'"`]+[\\/]codex(?:\.(?:exe|cmd|bat))?|codex(?:\.(?:exe|cmd|bat))?))(?=(?:[\s'"]|$))/i;
 type TomlLiteralValue = string | boolean | TomlLiteralValue[] | { [key: string]: TomlLiteralValue };
+type CodexShellFragmentStyle = 'posix' | 'powershell';
 
 function toStableValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -97,6 +100,10 @@ function toTomlLiteral(value: TomlLiteralValue): string {
 
 function quotePosixDouble(input: string): string {
   return `"${input.replace(/["\\$`]/g, '\\$&')}"`;
+}
+
+function quotePowerShellSingle(input: string): string {
+  return `'${input.replace(/'/g, "''")}'`;
 }
 
 function buildCodexAssignments(entries: CodexResolvedMcpEntry[]): {
@@ -156,8 +163,12 @@ function buildCodexCliArgs(assignments: string[]): string[] {
   return assignments.flatMap((assignment) => ['-c', assignment]);
 }
 
-function buildCodexShellFragment(assignments: string[]): string {
-  return assignments.map((assignment) => `-c ${quotePosixDouble(assignment)}`).join(' ');
+function buildCodexShellFragment(
+  assignments: string[],
+  style: CodexShellFragmentStyle = 'posix'
+): string {
+  const quote = style === 'powershell' ? quotePowerShellSingle : quotePosixDouble;
+  return assignments.map((assignment) => `-c ${quote(assignment)}`).join(' ');
 }
 
 function injectCodexShellFragment(command: string, shellFragment: string): string | null {
@@ -198,8 +209,24 @@ function isCodexShell(shell: string | undefined): boolean {
     return false;
   }
 
-  const fileName = path.basename(shell).toLowerCase();
-  return fileName === 'codex' || fileName === 'codex.exe';
+  const normalizedShell = shell.replace(/\\/g, '/').replace(/^['"]|['"]$/g, '');
+  const fileName = path.posix.basename(normalizedShell).toLowerCase();
+  return CODEX_EXECUTABLE_NAMES.has(fileName);
+}
+
+function resolveShellFragmentStyle(shell: string | undefined): CodexShellFragmentStyle {
+  if (!shell) {
+    return 'posix';
+  }
+
+  const normalizedShell = shell.replace(/\\/g, '/').replace(/^['"]|['"]$/g, '');
+  const fileName = path.posix.basename(normalizedShell).toLowerCase();
+  return fileName === 'powershell' ||
+    fileName === 'powershell.exe' ||
+    fileName === 'pwsh' ||
+    fileName === 'pwsh.exe'
+    ? 'powershell'
+    : 'posix';
 }
 
 function isUnsupportedShellConfig(sessionOptions: SessionCreateOptions): boolean {
@@ -357,6 +384,10 @@ export function buildCodexSessionProjection(
 
   const cliArgs = buildCodexCliArgs(assignments);
   const shellFragment = buildCodexShellFragment(assignments);
+  const commandShellFragment = buildCodexShellFragment(
+    assignments,
+    resolveShellFragmentStyle(sessionOptions.shell)
+  );
   const sessionOverrides: AgentCapabilitySessionOverrides = {
     metadata: {
       providerLaunchStrategy: 'codex-runtime-config',
@@ -381,7 +412,7 @@ export function buildCodexSessionProjection(
 
   if (!isUnsupportedShellConfig(sessionOptions)) {
     const updatedInitialCommand = sessionOptions.initialCommand
-      ? injectCodexShellFragment(sessionOptions.initialCommand, shellFragment)
+      ? injectCodexShellFragment(sessionOptions.initialCommand, commandShellFragment)
       : null;
     if (updatedInitialCommand) {
       sessionOverrides.initialCommand = updatedInitialCommand;
@@ -397,7 +428,7 @@ export function buildCodexSessionProjection(
       };
     }
 
-    const updatedArgs = patchTrailingCommandArg(sessionOptions.args, shellFragment);
+    const updatedArgs = patchTrailingCommandArg(sessionOptions.args, commandShellFragment);
     if (updatedArgs) {
       sessionOverrides.args = updatedArgs;
       const fallbackArgs = patchTrailingCommandArg(sessionOptions.fallbackArgs, shellFragment);

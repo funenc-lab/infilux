@@ -109,6 +109,10 @@ const rendererZhTranslations: Record<string, string> = {
   'Only show live Agent sessions': decodeEscapedUnicode(
     '\\u4ec5\\u663e\\u793a\\u6d3b\\u8dc3 Agent \\u4f1a\\u8bdd'
   ),
+  'No live Agent worktrees': decodeEscapedUnicode('\\u6682\\u65e0\\u6d3b\\u8dc3 Agent Worktree'),
+  'This repository has no worktree with a live Agent session.': decodeEscapedUnicode(
+    '\\u6b64\\u4ed3\\u5e93\\u6ca1\\u6709\\u5305\\u542b\\u6d3b\\u8dc3 Agent \\u4f1a\\u8bdd\\u7684 Worktree\\u3002'
+  ),
   'Agent runtime': decodeEscapedUnicode('Agent \\u8fd0\\u884c\\u65f6'),
   'Preparing runtime': decodeEscapedUnicode('\\u6b63\\u5728\\u51c6\\u5907\\u8fd0\\u884c\\u65f6'),
   'Attaching the terminal and waiting for the agent prompt.': decodeEscapedUnicode(

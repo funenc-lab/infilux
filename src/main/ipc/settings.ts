@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { IPC_CHANNELS } from '@shared/types';
+import { filterManagedLocalStorageSnapshot } from '@shared/utils/legacyLocalStorage';
 import { app, ipcMain } from 'electron';
 import {
   getSharedLocalStorageSnapshot,
@@ -267,7 +268,9 @@ export function registerSettingsHandlers(): void {
       }
 
       const written = persistSettingsImmediately(nextData);
-      const legacyLocalStorageSnapshot = importedLocalStorageSnapshot ?? undefined;
+      const legacyLocalStorageSnapshot = importedLocalStorageSnapshot
+        ? filterManagedLocalStorageSnapshot(importedLocalStorageSnapshot)
+        : undefined;
 
       if (written) {
         return {

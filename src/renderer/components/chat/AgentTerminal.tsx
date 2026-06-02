@@ -60,6 +60,7 @@ import {
   mergeAgentAttachments,
   resolveAgentAttachmentSendDelay,
 } from './agentAttachmentTrayModel';
+import { AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE } from './agentCanvasInteractionPolicy';
 import {
   buildAgentCapabilityLaunchMetadata,
   extractAgentCapabilitySessionMetadata,
@@ -2343,6 +2344,7 @@ export function AgentTerminal({
       className="relative h-full w-full"
       data-agent-host-scrollback={isTmuxHostScrollbackActive ? 'true' : 'false'}
       data-agent-terminal-mode={isReadOnlyTranscript ? 'transcript' : 'live'}
+      {...{ [AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE]: 'true' }}
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}
       onClick={handleClick}
     >

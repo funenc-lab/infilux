@@ -12,6 +12,14 @@ const workflowSources = workflowFiles.map((fileName) => ({
 }));
 const buildWorkflowSource = readFileSync(join(workflowsDirectory, 'build.yml'), 'utf8');
 
+function extractWorkflowJob(source: string, jobName: string, nextJobName: string): string {
+  const start = source.indexOf(`  ${jobName}:`);
+  const end = source.indexOf(`  ${nextJobName}:`, start + 1);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return source.slice(start, end);
+}
+
 describe('github action runtime compatibility policy', () => {
   it('uses Node 24 compatible checkout actions across every workflow', () => {
     for (const workflow of workflowSources) {
@@ -34,5 +42,16 @@ describe('github action runtime compatibility policy', () => {
     expect(buildWorkflowSource).toContain('corepack enable');
     expect(buildWorkflowSource).toContain('corepack prepare pnpm@10.26.2 --activate');
     expect(buildWorkflowSource).not.toContain('uses: pnpm/action-setup@v4');
+  });
+
+  it('runs the standard quality gates on Windows before packaging', () => {
+    const windowsJob = extractWorkflowJob(buildWorkflowSource, 'build-windows', 'build-linux');
+
+    expect(windowsJob).toContain('pnpm typecheck');
+    expect(windowsJob).toContain('pnpm lint');
+    expect(windowsJob).toContain('pnpm test');
+    expect(windowsJob.indexOf('pnpm test')).toBeLessThan(
+      windowsJob.indexOf('npx electron-builder --win --x64')
+    );
   });
 });

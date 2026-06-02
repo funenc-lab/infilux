@@ -360,6 +360,7 @@ describe('main settings handlers', () => {
           localStorage: {
             'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
             'enso-selected-repo': '/repo/demo',
+            'third-party-cache': 'must-not-cross-ipc',
           },
         });
       }
@@ -425,6 +426,7 @@ describe('main settings handlers', () => {
           localStorage: {
             'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
             'enso-selected-repo': '/repo/demo',
+            'third-party-cache': 'must-not-cross-ipc',
           },
         });
       }
