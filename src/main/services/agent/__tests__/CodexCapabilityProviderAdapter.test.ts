@@ -341,6 +341,65 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
   });
 
+  it('injects runtime config into Windows Codex cmd shim launches', () => {
+    const projection = buildCodexSessionProjection(
+      {
+        cwd: 'C:\\repo\\worktrees\\feat-a',
+        kind: 'agent',
+        shell: 'C:\\Users\\Tester\\AppData\\Roaming\\npm\\codex.cmd',
+        args: ['resume', 'codex-session-1'],
+      },
+      createCapabilities(),
+      createResolvedPolicy({
+        allowedCapabilityIds: ['legacy-skill:ship'],
+        allowedSharedMcpIds: ['shared-project'],
+      }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(true);
+    expect(projection.sessionOverrides?.args).toEqual(
+      expect.arrayContaining([
+        '-c',
+        'mcp_servers.shared-project.transport="stdio"',
+        '-c',
+        'skills.config=[{enabled = false, path = "/repo/worktrees/feat-a/.codex/skills/review/SKILL.md"}, {enabled = true, path = "/repo/.codex/skills/ship/SKILL.md"}]',
+        'resume',
+        'codex-session-1',
+      ])
+    );
+  });
+
+  it('injects runtime config into PowerShell custom executable launches', () => {
+    const projection = buildCodexSessionProjection(
+      {
+        cwd: 'C:\\repo\\worktrees\\feat-a',
+        kind: 'agent',
+        shell: 'pwsh.exe',
+        args: [
+          '-NoLogo',
+          '-Command',
+          "& { & 'C:\\Program Files\\OpenAI\\codex.exe' resume codex-session-9 }",
+        ],
+      },
+      createCapabilities(),
+      createResolvedPolicy({
+        allowedCapabilityIds: ['legacy-skill:ship'],
+        allowedSharedMcpIds: ['shared-project'],
+      }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(true);
+    const injectedCommand = projection.sessionOverrides?.args?.at(-1);
+    expect(injectedCommand).toContain(
+      "& 'C:\\Program Files\\OpenAI\\codex.exe' -c 'mcp_servers.shared-project.transport=\"stdio\"'"
+    );
+    expect(injectedCommand).toContain(
+      '-c \'skills.config=[{enabled = false, path = "/repo/worktrees/feat-a/.codex/skills/review/SKILL.md"}, {enabled = true, path = "/repo/.codex/skills/ship/SKILL.md"}]\' resume codex-session-9'
+    );
+  });
+
   it('ignores unsupported command and subagent entries when building Codex runtime skill config', () => {
     const projection = buildCodexSessionProjection(
       {

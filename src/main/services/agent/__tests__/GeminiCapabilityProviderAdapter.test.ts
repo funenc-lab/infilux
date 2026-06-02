@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import {
   lstatSync,
   mkdirSync,
@@ -131,6 +132,7 @@ describe('GeminiCapabilityProviderAdapter', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (originalHome === undefined) {
       delete process.env.HOME;
     } else {
@@ -258,6 +260,104 @@ describe('GeminiCapabilityProviderAdapter', () => {
     expect(realpathSync(linkedMemoryPath)).toBe(
       realpathSync(join(rootDir, '.gemini', 'memory.md'))
     );
+  });
+
+  it('falls back to local copies when runtime symlink creation is unavailable', async () => {
+    const symlinkSpy = vi
+      .spyOn(fs.promises, 'symlink')
+      .mockRejectedValue(Object.assign(new Error('symlink unavailable'), { code: 'EPERM' }));
+    const resolveClaudePolicy = vi.fn().mockReturnValue(
+      createResolvedPolicy({
+        repoPath,
+        worktreePath,
+        allowedCapabilityIds: ['legacy-skill:user-skill'],
+      })
+    );
+    const adapter = createGeminiCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities,
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy,
+      resolveGeminiCapabilityMcpConfigEntries: vi.fn().mockResolvedValue({
+        sharedById: {},
+        personalById: {},
+      }),
+      tempRootDir: runtimeRoot,
+    });
+
+    const result = await adapter.prepareLaunch(request, {
+      cwd: worktreePath,
+      kind: 'agent',
+      initialCommand: 'gemini',
+    });
+
+    expect(result).not.toBeNull();
+    if (!result?.launchResult.projected) {
+      throw new Error('Expected Gemini launch projection');
+    }
+    expect(result.launchResult.projected.applied).toBe(true);
+    expect(result.launchResult.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Gemini runtime symlink failed'),
+        expect.stringContaining('Falling back to copy.'),
+      ])
+    );
+    expect(symlinkSpy).toHaveBeenCalled();
+
+    const runtimeHome = join(runtimeRoot, 'gemini', 'hash-1');
+    const copiedSkillPath = join(runtimeHome, '.gemini', 'skills', 'user-skill');
+    expect(lstatSync(copiedSkillPath).isSymbolicLink()).toBe(false);
+    expect(readFileSync(join(copiedSkillPath, 'SKILL.md'), 'utf8')).toContain('User Skill');
+
+    const copiedMemoryPath = join(runtimeHome, '.gemini', 'memory.md');
+    expect(lstatSync(copiedMemoryPath).isSymbolicLink()).toBe(false);
+    expect(readFileSync(copiedMemoryPath, 'utf8')).toBe('# Global memory');
+  });
+
+  it('returns unapplied launch metadata when Gemini runtime projection fails', async () => {
+    writeTextFile(join(runtimeRoot, 'gemini', 'hash-1'), 'not a directory');
+    const adapter = createGeminiCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities,
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(
+        createResolvedPolicy({
+          repoPath,
+          worktreePath,
+          allowedCapabilityIds: ['legacy-skill:user-skill'],
+        })
+      ),
+      resolveGeminiCapabilityMcpConfigEntries: vi.fn().mockResolvedValue({
+        sharedById: {},
+        personalById: {},
+      }),
+      tempRootDir: runtimeRoot,
+    });
+
+    const result = await adapter.prepareLaunch(request, {
+      cwd: worktreePath,
+      kind: 'agent',
+      initialCommand: 'gemini',
+    });
+
+    expect(result).not.toBeNull();
+    if (!result?.launchResult.projected) {
+      throw new Error('Expected Gemini launch projection');
+    }
+    expect(result.sessionOverrides).toBeUndefined();
+    expect(result.launchResult.projected.applied).toBe(false);
+    expect(result.launchResult.projected.errors).toEqual([]);
+    expect(result.launchResult.warnings).toEqual([
+      expect.stringContaining(
+        'Gemini runtime capability injection failed. The session was launched without Gemini-specific runtime overrides.'
+      ),
+    ]);
   });
 
   it('prefers the Gemini skill root when duplicate skill definitions exist in the same scope', async () => {

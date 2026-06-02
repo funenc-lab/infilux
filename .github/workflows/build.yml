@@ -378,6 +378,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Typecheck Windows
+        run: pnpm typecheck
+
+      - name: Lint Windows
+        run: pnpm lint
+
+      - name: Test Windows
+        run: pnpm test
+
       - name: Build Windows
         run: npx electron-builder --win --x64
         env:

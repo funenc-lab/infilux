@@ -338,13 +338,46 @@ async function removeLocalPath(targetPath: string): Promise<void> {
   await fs.promises.rm(targetPath, { recursive: true, force: true });
 }
 
-async function linkLocalPath(sourcePath: string, targetPath: string): Promise<void> {
-  await removeLocalPath(targetPath);
-  await ensureLocalDirectory(path.dirname(targetPath));
-  await fs.promises.symlink(sourcePath, targetPath, 'dir');
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-async function linkLocalFile(sourcePath: string, targetPath: string): Promise<void> {
+async function copyLocalPath(sourcePath: string, targetPath: string): Promise<void> {
+  await removeLocalPath(targetPath);
+  await ensureLocalDirectory(path.dirname(targetPath));
+  await fs.promises.cp(sourcePath, targetPath, { recursive: true, force: true });
+}
+
+async function copyLocalFile(sourcePath: string, targetPath: string): Promise<void> {
+  await removeLocalPath(targetPath);
+  await ensureLocalDirectory(path.dirname(targetPath));
+  await fs.promises.copyFile(sourcePath, targetPath);
+}
+
+async function linkLocalPath(
+  sourcePath: string,
+  targetPath: string,
+  warnings: string[]
+): Promise<void> {
+  await removeLocalPath(targetPath);
+  await ensureLocalDirectory(path.dirname(targetPath));
+  try {
+    await fs.promises.symlink(sourcePath, targetPath, 'dir');
+  } catch (error) {
+    warnings.push(
+      `Gemini runtime symlink failed for ${targetPath}. Falling back to copy. ${toErrorMessage(
+        error
+      )}`
+    );
+    await copyLocalPath(sourcePath, targetPath);
+  }
+}
+
+async function linkLocalFile(
+  sourcePath: string,
+  targetPath: string,
+  warnings: string[]
+): Promise<void> {
   try {
     await fs.promises.access(sourcePath, fs.constants.F_OK);
   } catch {
@@ -353,7 +386,16 @@ async function linkLocalFile(sourcePath: string, targetPath: string): Promise<vo
 
   await removeLocalPath(targetPath);
   await ensureLocalDirectory(path.dirname(targetPath));
-  await fs.promises.symlink(sourcePath, targetPath);
+  try {
+    await fs.promises.symlink(sourcePath, targetPath);
+  } catch (error) {
+    warnings.push(
+      `Gemini runtime symlink failed for ${targetPath}. Falling back to copy. ${toErrorMessage(
+        error
+      )}`
+    );
+    await copyLocalFile(sourcePath, targetPath);
+  }
 }
 
 async function ensureRemoteDirectory(connectionId: string, dirPath: string): Promise<void> {
@@ -551,14 +593,16 @@ export function createGeminiCapabilityProviderAdapter(
     for (const fileName of GEMINI_RUNTIME_FILE_NAMES) {
       await linkLocalFile(
         path.join(os.homedir(), '.gemini', fileName),
-        path.join(runtimeGeminiDir, fileName)
+        path.join(runtimeGeminiDir, fileName),
+        warnings
       );
     }
 
     for (const skill of linkedSkills) {
       await linkLocalPath(
         skill.sourceDir,
-        path.join(runtimeSkillsDir, skill.id.replace(/^legacy-skill:/, ''))
+        path.join(runtimeSkillsDir, skill.id.replace(/^legacy-skill:/, '')),
+        warnings
       );
     }
 
@@ -608,12 +652,41 @@ export function createGeminiCapabilityProviderAdapter(
         repoPath: request.repoPath,
         worktreePath: request.worktreePath,
       });
-      const projection = await buildProjection(
-        request,
-        resolvedPolicy,
-        catalog.capabilities,
-        mcpConfigs
-      );
+      let projection: GeminiRuntimeProjection;
+      try {
+        projection = await buildProjection(
+          request,
+          resolvedPolicy,
+          catalog.capabilities,
+          mcpConfigs
+        );
+      } catch (error) {
+        const warnings = [
+          `Gemini runtime capability injection failed. The session was launched without Gemini-specific runtime overrides. ${toErrorMessage(
+            error
+          )}`,
+        ];
+        return {
+          launchResult: {
+            provider: 'gemini',
+            repoPath: request.repoPath,
+            worktreePath: request.worktreePath,
+            hash: resolvedPolicy.hash,
+            warnings,
+            resolvedPolicy,
+            projected: {
+              hash: resolvedPolicy.hash,
+              materializationMode: 'provider-native',
+              applied: false,
+              updatedFiles: [],
+              warnings,
+              errors: [],
+            },
+            policyHash: resolvedPolicy.hash,
+            appliedAt: now(),
+          },
+        };
+      }
 
       return {
         launchResult: {
