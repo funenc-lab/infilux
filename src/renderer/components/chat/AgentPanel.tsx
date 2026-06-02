@@ -180,7 +180,10 @@ import {
 } from './sessionActivityState';
 import { getSessionDisplayName } from './sessionBarLabels';
 import { buildSessionHandoffPrompt } from './sessionHandoffPrompt';
-import { resolveSessionPersistenceNoticeKind } from './sessionPersistenceNoticePolicy';
+import {
+  buildSessionPersistenceNoticeDismissKey,
+  resolveSessionPersistenceNoticeKind,
+} from './sessionPersistenceNoticePolicy';
 import { shouldIgnoreTerminalRuntimeStateRecoveryUpdate } from './sessionRuntimeRecoveryPolicy';
 import {
   getDisplayableSessionSubagents,
@@ -1086,19 +1089,22 @@ export function AgentPanel({
     () => new Set(currentWorktreeSessions.map((session) => session.id)),
     [currentWorktreeSessions]
   );
-  const hasRecoveryRequiredSession = useMemo(
+  const recoveryRequiredSessionIds = useMemo(
     () =>
-      currentWorktreeSessions.some((session) => {
-        const availability = resolveAgentInputAvailability({
-          backendSessionId: session.backendSessionId,
-          runtimeState: session.recoveryState,
-          uiSessionId: session.id,
-          providerSessionId: session.sessionId,
-        });
-        return availability === 'recovery-required';
-      }),
+      currentWorktreeSessions
+        .filter((session) => {
+          const availability = resolveAgentInputAvailability({
+            backendSessionId: session.backendSessionId,
+            runtimeState: session.recoveryState,
+            uiSessionId: session.id,
+            providerSessionId: session.sessionId,
+          });
+          return availability === 'recovery-required';
+        })
+        .map((session) => session.id),
     [currentWorktreeSessions]
   );
+  const hasRecoveryRequiredSession = recoveryRequiredSessionIds.length > 0;
   const sessionPersistenceNoticeKind = useMemo(
     () =>
       resolveSessionPersistenceNoticeKind({
@@ -1116,6 +1122,31 @@ export function AgentPanel({
       tmuxInstalled,
     ]
   );
+  const [dismissedSessionPersistenceNoticeKey, setDismissedSessionPersistenceNoticeKey] = useState<
+    string | null
+  >(null);
+  const sessionPersistenceNoticeDismissKey = useMemo(
+    () =>
+      buildSessionPersistenceNoticeDismissKey({
+        kind: sessionPersistenceNoticeKind,
+        repoPath: normalizePath(repoPath),
+        worktreePath: normalizePath(cwd),
+        recoveryRequiredSessionIds,
+      }),
+    [cwd, recoveryRequiredSessionIds, repoPath, sessionPersistenceNoticeKind]
+  );
+  const visibleSessionPersistenceNoticeKind =
+    sessionPersistenceNoticeDismissKey &&
+    dismissedSessionPersistenceNoticeKey === sessionPersistenceNoticeDismissKey
+      ? null
+      : sessionPersistenceNoticeKind;
+  const handleDismissSessionPersistenceNotice = useCallback(() => {
+    if (!sessionPersistenceNoticeDismissKey) {
+      return;
+    }
+
+    setDismissedSessionPersistenceNoticeKey(sessionPersistenceNoticeDismissKey);
+  }, [sessionPersistenceNoticeDismissKey]);
   const shouldSuppressWorkspaceCanvasPanel =
     agentSessionDisplayMode === 'global-canvas' && !isCurrentWorktreePanel;
   const isWorkspaceCanvasDisplayMode =
@@ -5207,17 +5238,20 @@ export function AgentPanel({
       className="relative h-full w-full"
       style={{ backgroundColor: terminalBgColor }}
     >
-      {sessionPersistenceNoticeKind ? (
+      {visibleSessionPersistenceNoticeKind ? (
         <SessionPersistenceNotice
-          kind={sessionPersistenceNoticeKind}
+          kind={visibleSessionPersistenceNoticeKind}
           isPending={
-            sessionPersistenceNoticeKind === 'tmux-disabled' ? isEnablingSessionPersistence : false
+            visibleSessionPersistenceNoticeKind === 'tmux-disabled'
+              ? isEnablingSessionPersistence
+              : false
           }
           onAction={
-            sessionPersistenceNoticeKind === 'tmux-disabled'
+            visibleSessionPersistenceNoticeKind === 'tmux-disabled'
               ? handleEnableSessionPersistence
               : () => handleNewSession()
           }
+          onDismiss={handleDismissSessionPersistenceNotice}
         />
       ) : null}
       {/* Empty state overlay - shown when current worktree has no sessions */}

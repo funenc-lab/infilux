@@ -1,6 +1,15 @@
-import React from 'react';
+/* @vitest-environment jsdom */
+
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+declare global {
+  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
+}
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
@@ -24,6 +33,18 @@ vi.mock('@/components/ui/button', () => ({
 import { SessionPersistenceNotice } from '../SessionPersistenceNotice';
 
 describe('SessionPersistenceNotice', () => {
+  let root: Root | null = null;
+
+  afterEach(() => {
+    if (root) {
+      act(() => {
+        root?.unmount();
+      });
+      root = null;
+    }
+    document.body.innerHTML = '';
+  });
+
   it('renders the tmux recovery warning and action copy', () => {
     const markup = renderToStaticMarkup(
       React.createElement(SessionPersistenceNotice, {
@@ -67,5 +88,43 @@ describe('SessionPersistenceNotice', () => {
 
     expect(markup).toContain('pointer-events-none absolute right-3 top-3');
     expect(markup).toContain('mt-3 flex justify-end pointer-events-auto');
+  });
+
+  it('renders an accessible dismiss control when dismissal is available', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(SessionPersistenceNotice, {
+        kind: 'recovery-required',
+        onDismiss: () => undefined,
+      })
+    );
+
+    expect(markup).toContain('aria-label="Close"');
+    expect(markup).toContain('title="Close"');
+    expect(markup).toContain('pointer-events-auto');
+  });
+
+  it('calls the dismiss handler from the close control', async () => {
+    const onDismiss = vi.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        React.createElement(SessionPersistenceNotice, {
+          kind: 'recovery-required',
+          onDismiss,
+        })
+      );
+    });
+
+    const closeButton = container.querySelector('button[aria-label="Close"]');
+    expect(closeButton).not.toBeNull();
+
+    await act(async () => {
+      closeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

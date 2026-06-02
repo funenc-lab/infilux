@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildSessionPersistenceNoticeDismissKey,
   resolveSessionPersistenceNoticeKind,
   shouldShowSessionPersistenceNotice,
 } from '../sessionPersistenceNoticePolicy';
@@ -99,5 +100,43 @@ describe('shouldShowSessionPersistenceNotice', () => {
         hasRecoveryRequiredSession: true,
       })
     ).toBe(true);
+  });
+
+  it('builds stable dismiss keys scoped by worktree and unrecoverable sessions', () => {
+    expect(
+      buildSessionPersistenceNoticeDismissKey({
+        kind: 'tmux-disabled',
+        repoPath: '/repo',
+        worktreePath: '/repo/feature',
+      })
+    ).toBe('tmux-disabled:/repo::/repo/feature');
+
+    expect(
+      buildSessionPersistenceNoticeDismissKey({
+        kind: 'recovery-required',
+        repoPath: '/repo',
+        worktreePath: '/repo/feature',
+        recoveryRequiredSessionIds: ['session-b', 'session-a', 'session-a'],
+      })
+    ).toBe('recovery-required:/repo::/repo/feature:session-a,session-b');
+  });
+
+  it('does not build a dismiss key when the active notice scope is incomplete', () => {
+    expect(
+      buildSessionPersistenceNoticeDismissKey({
+        kind: null,
+        repoPath: '/repo',
+        worktreePath: '/repo/feature',
+      })
+    ).toBeNull();
+
+    expect(
+      buildSessionPersistenceNoticeDismissKey({
+        kind: 'recovery-required',
+        repoPath: '/repo',
+        worktreePath: '/repo/feature',
+        recoveryRequiredSessionIds: [],
+      })
+    ).toBeNull();
   });
 });

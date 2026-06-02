@@ -13,7 +13,10 @@ describe('session persistence notice wiring', () => {
     );
     expect(agentPanelSource).toMatch(/window\.electronAPI\.tmux\s*\.\s*check\(repoPath,\s*true\)/m);
     expect(agentPanelSource).toContain('resolveSessionPersistenceNoticeKind({');
+    expect(agentPanelSource).toContain('buildSessionPersistenceNoticeDismissKey({');
+    expect(agentPanelSource).toContain('visibleSessionPersistenceNoticeKind');
     expect(agentPanelSource).toContain('<SessionPersistenceNotice');
+    expect(agentPanelSource).toContain('onDismiss={handleDismissSessionPersistenceNotice}');
     expect(agentPanelSource).toContain('setAgentIntegration({ tmuxEnabled: true });');
   });
 });

@@ -1,4 +1,4 @@
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ interface SessionPersistenceNoticeProps {
   kind: SessionPersistenceNoticeKind;
   isPending?: boolean;
   onAction?: () => void;
+  onDismiss?: () => void;
   className?: string;
 }
 
@@ -15,6 +16,7 @@ export function SessionPersistenceNotice({
   kind,
   isPending = false,
   onAction,
+  onDismiss,
   className,
 }: SessionPersistenceNoticeProps) {
   const { t } = useI18n();
@@ -63,6 +65,17 @@ export function SessionPersistenceNotice({
               </div>
             ) : null}
           </div>
+          {onDismiss ? (
+            <button
+              type="button"
+              className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground pointer-events-auto"
+              aria-label={t('Close')}
+              title={t('Close')}
+              onClick={onDismiss}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
