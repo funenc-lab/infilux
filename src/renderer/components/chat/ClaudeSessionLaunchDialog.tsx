@@ -154,6 +154,14 @@ export function ClaudeSessionLaunchDialog({
     },
     []
   );
+  const handleActiveTabChange = useCallback((nextTab: ClaudeSessionLaunchDialogTab) => {
+    setActiveTab((currentTab) => {
+      if (currentTab !== nextTab) {
+        setSearchQuery('');
+      }
+      return nextTab;
+    });
+  }, []);
 
   const skillItems = useMemo(
     () =>
@@ -257,9 +265,10 @@ export function ClaudeSessionLaunchDialog({
                       type="button"
                       size="sm"
                       variant={activeTab === 'skills' ? 'default' : 'ghost'}
+                      data-session-launch-tab="skills"
                       role="tab"
                       aria-selected={activeTab === 'skills'}
-                      onClick={() => setActiveTab('skills')}
+                      onClick={() => handleActiveTabChange('skills')}
                     >
                       {t('Skills')}
                     </Button>
@@ -267,9 +276,10 @@ export function ClaudeSessionLaunchDialog({
                       type="button"
                       size="sm"
                       variant={activeTab === 'mcp' ? 'default' : 'ghost'}
+                      data-session-launch-tab="mcp"
                       role="tab"
                       aria-selected={activeTab === 'mcp'}
-                      onClick={() => setActiveTab('mcp')}
+                      onClick={() => handleActiveTabChange('mcp')}
                     >
                       {t('MCP')}
                     </Button>
@@ -279,6 +289,7 @@ export function ClaudeSessionLaunchDialog({
                     <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       type="search"
+                      data-session-launch-search="input"
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.currentTarget.value)}
                       placeholder={t('Search skills or MCP')}
@@ -326,7 +337,11 @@ export function ClaudeSessionLaunchDialog({
 
         <DialogFooter variant="bare">
           <DialogClose render={<Button variant="outline">{t('Cancel')}</Button>} />
-          <Button onClick={handleLaunch} disabled={isCatalogLoading}>
+          <Button
+            data-session-launch-action="launch"
+            onClick={handleLaunch}
+            disabled={isCatalogLoading}
+          >
             {t('Launch Agent')}
           </Button>
         </DialogFooter>

@@ -191,6 +191,15 @@ export function ClaudeCapabilityCatalogSection({ repoPath }: ClaudeCapabilityCat
     };
   }, [globalPolicy, repoPath]);
 
+  const handleActiveTabChange = useCallback((nextTab: ClaudeCatalogTab) => {
+    setActiveTab((currentTab) => {
+      if (currentTab !== nextTab) {
+        setSearchQuery('');
+      }
+      return nextTab;
+    });
+  }, []);
+
   const filteredSkills = useMemo(
     () =>
       sortByName(catalog?.capabilities ?? [])
@@ -331,7 +340,7 @@ export function ClaudeCapabilityCatalogSection({ repoPath }: ClaudeCapabilityCat
               data-catalog-tab="skills"
               role="tab"
               aria-selected={activeTab === 'skills'}
-              onClick={() => setActiveTab('skills')}
+              onClick={() => handleActiveTabChange('skills')}
             >
               {t('Skills')}
             </Button>
@@ -342,7 +351,7 @@ export function ClaudeCapabilityCatalogSection({ repoPath }: ClaudeCapabilityCat
               data-catalog-tab="mcp"
               role="tab"
               aria-selected={activeTab === 'mcp'}
-              onClick={() => setActiveTab('mcp')}
+              onClick={() => handleActiveTabChange('mcp')}
             >
               {t('MCP')}
             </Button>

@@ -262,6 +262,14 @@ export function ClaudePolicyEditorDialog({
     },
     []
   );
+  const handleActiveTabChange = useCallback((nextTab: ClaudePolicyEditorTab) => {
+    setActiveTab((currentTab) => {
+      if (currentTab !== nextTab) {
+        setSearchQuery('');
+      }
+      return nextTab;
+    });
+  }, []);
 
   const isDirty = useMemo(
     () => hasClaudePolicyConfigChanges(activePolicy, draft),
@@ -412,7 +420,7 @@ export function ClaudePolicyEditorDialog({
                   data-policy-tab="skills"
                   role="tab"
                   aria-selected={activeTab === 'skills'}
-                  onClick={() => setActiveTab('skills')}
+                  onClick={() => handleActiveTabChange('skills')}
                 >
                   {t('Skills')}
                 </Button>
@@ -423,7 +431,7 @@ export function ClaudePolicyEditorDialog({
                   data-policy-tab="mcp"
                   role="tab"
                   aria-selected={activeTab === 'mcp'}
-                  onClick={() => setActiveTab('mcp')}
+                  onClick={() => handleActiveTabChange('mcp')}
                 >
                   {t('MCP')}
                 </Button>

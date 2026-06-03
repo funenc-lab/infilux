@@ -988,6 +988,15 @@ describe('ClaudePolicyEditorDialog', () => {
       container
         ?.querySelector<HTMLButtonElement>('[data-policy-tab="mcp"]')
         ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    const mcpSearchInput = container?.querySelector<HTMLInputElement>(
+      '[data-policy-search="input"]'
+    );
+    expect(mcpSearchInput?.value).toBe('');
+
+    await act(async () => {
       const searchInput = container?.querySelector<HTMLInputElement>(
         '[data-policy-search="input"]'
       );
@@ -1018,6 +1027,139 @@ describe('ClaudePolicyEditorDialog', () => {
         blockedCapabilityIds: [],
         allowedSharedMcpIds: [],
         blockedSharedMcpIds: ['shared:git'],
+      }),
+      expect.objectContaining({
+        hash: 'hash-preview',
+      })
+    );
+  });
+
+  it('clears tab-local search and saves worktree MCP decisions', async () => {
+    installElectronApi(
+      {
+        capabilities: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'worktree',
+            sourcePath: '/repo/worktrees/feature-a/.agents/skills/planner/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [
+          {
+            id: 'shared:filesystem',
+            name: 'Filesystem',
+            scope: 'shared',
+            sourceScope: 'worktree',
+            sourcePath: '/repo/worktrees/feature-a/.mcp.json',
+            transportType: 'stdio',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        personalMcpServers: [
+          {
+            id: 'personal:browser',
+            name: 'Browser',
+            scope: 'personal',
+            sourceScope: 'user',
+            sourcePath: '/Users/dev/.claude.json',
+            transportType: 'stdio',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {},
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const handleSave = vi.fn();
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'worktree',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          worktreeName: 'feature-a',
+          projectPolicy: null,
+          worktreePolicy: null,
+          onSave: handleSave,
+        })
+      );
+    });
+    await flushEffects();
+
+    const searchInput = container?.querySelector<HTMLInputElement>('[data-policy-search="input"]');
+    expect(searchInput).not.toBeNull();
+
+    await act(async () => {
+      if (searchInput) {
+        setInputValue(searchInput, 'planner');
+      }
+    });
+    await flushEffects();
+
+    expect(container?.querySelector('[data-policy-item-id="legacy-skill:planner"]')).not.toBeNull();
+
+    await act(async () => {
+      container
+        ?.querySelector<HTMLButtonElement>('[data-policy-tab="mcp"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    expect(searchInput?.value).toBe('');
+    expect(container?.querySelector('[data-policy-section="shared-mcp"]')).not.toBeNull();
+    expect(container?.querySelector('[data-policy-item-id="shared:filesystem"]')).not.toBeNull();
+
+    const sharedMcpRow = container?.querySelector('[data-policy-item-id="shared:filesystem"]');
+    await act(async () => {
+      sharedMcpRow
+        ?.querySelector<HTMLButtonElement>('[data-policy-decision="block"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    await act(async () => {
+      container
+        ?.querySelector<HTMLButtonElement>('[data-policy-action="save"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(catalogList).toHaveBeenCalledWith({
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feature-a',
+    });
+    expect(handleSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: ['shared:filesystem'],
       }),
       expect.objectContaining({
         hash: 'hash-preview',
