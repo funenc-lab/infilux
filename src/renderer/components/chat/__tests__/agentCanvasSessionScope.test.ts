@@ -278,10 +278,60 @@ describe('agent canvas session scope', () => {
     ]);
   });
 
-  it('orders workspace groups by the highest session activity before stable path order', () => {
+  it('keeps workspace groups stable by default when activity signals are present', () => {
     expect(
       resolveAgentCanvasSessionGroups({
         currentWorktreePath: '/repo/worktree-a',
+        repoPath: '/repo',
+        scope: 'workspace',
+        sessions: [
+          {
+            id: 'idle-a',
+            repoPath: '/repo',
+            cwd: '/repo/worktree-a',
+          },
+          {
+            id: 'running-z',
+            repoPath: '/repo',
+            cwd: '/repo/worktree-z',
+          },
+          {
+            id: 'running-y',
+            repoPath: '/repo',
+            cwd: '/repo/worktree-y',
+          },
+          {
+            id: 'waiting-b',
+            repoPath: '/repo',
+            cwd: '/repo/worktree-b',
+          },
+          {
+            id: 'completed-c',
+            repoPath: '/repo',
+            cwd: '/repo/worktree-c',
+          },
+        ],
+        sessionActivityStateById: {
+          'completed-c': 'completed',
+          'running-y': 'running',
+          'running-z': 'running',
+          'waiting-b': 'waiting_input',
+        },
+      }).map((group) => group.worktreePath)
+    ).toEqual([
+      '/repo/worktree-a',
+      '/repo/worktree-b',
+      '/repo/worktree-c',
+      '/repo/worktree-y',
+      '/repo/worktree-z',
+    ]);
+  });
+
+  it('orders workspace groups by activity when explicitly requested', () => {
+    expect(
+      resolveAgentCanvasSessionGroups({
+        currentWorktreePath: '/repo/worktree-a',
+        orderingMode: 'activity',
         repoPath: '/repo',
         scope: 'workspace',
         sessions: [
@@ -357,6 +407,7 @@ describe('agent canvas session scope', () => {
     expect(
       resolveAgentCanvasSessionGroups({
         currentWorktreePath: '/repo/worktree-a',
+        orderingMode: 'activity',
         repoPath: '/repo',
         scope: 'workspace',
         sessions: [
@@ -394,6 +445,7 @@ describe('agent canvas session scope', () => {
     expect(
       resolveAgentCanvasSessionGroups({
         currentWorktreePath: '/repo/worktree-a',
+        orderingMode: 'activity',
         repoPath: '/repo',
         scope: 'workspace',
         sessions: [
@@ -435,6 +487,7 @@ describe('agent canvas session scope', () => {
     expect(
       resolveAgentCanvasSessionGroups({
         currentWorktreePath: '/repo/worktree-a',
+        orderingMode: 'activity',
         repoPath: '/repo',
         scope: 'workspace',
         sessions: [

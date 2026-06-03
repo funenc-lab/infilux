@@ -5,6 +5,9 @@ describe('AgentPanel live subagent polling contract', () => {
   it('keeps worktree live subagent polling as an active-panel fallback for unresolved provider sessions', () => {
     const agentPanelSource = readFileSync(new URL('../AgentPanel.tsx', import.meta.url), 'utf8');
 
+    expect(agentPanelSource).toContain('const subagentPollingScopeSessions = useMemo(() => {');
+    expect(agentPanelSource).toContain('return currentWorktreeSessions;');
+    expect(agentPanelSource).toContain('openSessionSubagentInspectorId');
     expect(agentPanelSource).toContain('const fallbackLiveSubagentWorktreePaths = useMemo(() => {');
     expect(agentPanelSource).toContain('!isUnresolvedProviderSession(session)');
     expect(agentPanelSource).toContain(

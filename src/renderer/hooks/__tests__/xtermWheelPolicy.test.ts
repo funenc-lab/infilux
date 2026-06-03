@@ -39,6 +39,25 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
+  it('keeps agent session windows scrollable when terminal mouse tracking is disabled', () => {
+    const decision = resolveAgentWheelPolicy({
+      kind: 'agent',
+      activeBufferType: 'normal',
+      mouseTrackingMode: 'none',
+      deltaMode: DOM_DELTA_LINE,
+      deltaY: 6,
+      carryY: 0,
+      cellHeightPx: 20,
+      devicePixelRatio: 2,
+    });
+
+    expect(decision).toEqual({
+      action: 'consume',
+      carryY: 0,
+      scrollLines: 6,
+    });
+  });
+
   it('routes normal-buffer wheel input to tmux host scrolling when recovered agent history lives in tmux', () => {
     expect(
       resolveAgentWheelPolicy({

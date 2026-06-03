@@ -78,6 +78,7 @@ const testState = vi.hoisted(() => ({
     refresh: () => void;
     focus: () => void;
   }>,
+  viewportSyncCalls: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('@xterm/xterm', () => ({
@@ -322,7 +323,10 @@ vi.mock('../xtermTerminalOptions', () => ({
 }));
 
 vi.mock('../xtermViewportSync', () => ({
-  syncXtermViewportToSession: () => false,
+  syncXtermViewportToSession: (options: Record<string, unknown>) => {
+    testState.viewportSyncCalls.push(options);
+    return false;
+  },
 }));
 
 vi.mock('../xtermWheelHandlerPersistence', () => ({
@@ -441,6 +445,7 @@ describe('useXterm startup loading state', () => {
     testState.unsubscribeFocus.mockClear();
     testState.unsubscribeResize.mockClear();
     testState.activationRefreshCalls = [];
+    testState.viewportSyncCalls = [];
     testState.hookProps = {};
 
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -602,6 +607,20 @@ describe('useXterm startup loading state', () => {
     expect(testState.latestTextarea?.style.pointerEvents).toBe('');
     expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).toBeNull();
     expect(document.activeElement).toBe(testState.latestTextarea);
+
+    await mounted.unmount();
+  });
+
+  it('keeps renderer refresh out of viewport synchronization', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.viewportSyncCalls.length).toBeGreaterThan(0);
+    for (const viewportSyncCall of testState.viewportSyncCalls) {
+      expect(viewportSyncCall).not.toHaveProperty('refreshViewport');
+    }
 
     await mounted.unmount();
   });

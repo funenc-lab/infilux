@@ -15,6 +15,7 @@ export const AGENT_CANVAS_ZOOM_TERMINAL_FONT_SCALE_STEP = 0.05;
 export const AGENT_CANVAS_ZOOM_TERMINAL_FONT_SCALE_LOG_FACTOR = 0.18;
 export const AGENT_CANVAS_CENTER_PROXIMITY_MIN = 40;
 export const AGENT_CANVAS_CENTER_PROXIMITY_RATIO = 0.08;
+export const AGENT_CANVAS_SMOOTH_SCROLL_MAX_VIEWPORTS = 1.5;
 
 export interface AgentCanvasFocusTarget {
   height: number;
@@ -93,8 +94,28 @@ export function resolveAgentCanvasWheelZoomDelta(pendingDelta: number): {
   };
 }
 
-export function resolveAgentCanvasScrollBehavior(prefersReducedMotion: boolean): ScrollBehavior {
-  return prefersReducedMotion ? 'auto' : 'smooth';
+export function resolveAgentCanvasScrollBehavior(dimensions: {
+  clientHeight: number;
+  clientWidth: number;
+  currentLeft: number;
+  currentTop: number;
+  nextLeft: number;
+  nextTop: number;
+  prefersReducedMotion: boolean;
+}): ScrollBehavior {
+  if (dimensions.prefersReducedMotion) {
+    return 'auto';
+  }
+
+  const maxSmoothDistance =
+    Math.max(dimensions.clientHeight, dimensions.clientWidth) *
+    AGENT_CANVAS_SMOOTH_SCROLL_MAX_VIEWPORTS;
+  const distance = Math.max(
+    Math.abs(dimensions.nextLeft - dimensions.currentLeft),
+    Math.abs(dimensions.nextTop - dimensions.currentTop)
+  );
+
+  return distance > maxSmoothDistance ? 'auto' : 'smooth';
 }
 
 export function resolveAgentCanvasWorktreeGroupScrollBehavior(): ScrollBehavior {

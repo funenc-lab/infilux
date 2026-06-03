@@ -44,4 +44,26 @@ describe('syncXtermViewportToSession', () => {
     expect(measureViewport).not.toHaveBeenCalled();
     expect(resizeSession).not.toHaveBeenCalled();
   });
+
+  it('skips backend resize when the measured terminal size is invalid', () => {
+    const resizeSession = vi.fn();
+    const fitViewport = vi.fn();
+    const measureViewport = vi.fn<() => { cols: number; rows: number } | null>().mockReturnValue({
+      cols: 0,
+      rows: 24,
+    });
+
+    const didSync = syncXtermViewportToSession({
+      fitViewport,
+      measureViewport,
+      resizeSession,
+      runtimeState: 'live',
+      sessionId: 'session-1',
+    });
+
+    expect(didSync).toBe(false);
+    expect(fitViewport).toHaveBeenCalledTimes(1);
+    expect(measureViewport).toHaveBeenCalledTimes(1);
+    expect(resizeSession).not.toHaveBeenCalled();
+  });
 });

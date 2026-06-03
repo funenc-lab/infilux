@@ -765,6 +765,25 @@ function mockCanvasViewportMetrics(viewport: HTMLDivElement): void {
   });
 }
 
+function createDomRectLike(input: {
+  height: number;
+  left: number;
+  top: number;
+  width: number;
+}): DOMRect {
+  return {
+    bottom: input.top + input.height,
+    height: input.height,
+    left: input.left,
+    right: input.left + input.width,
+    top: input.top,
+    width: input.width,
+    x: input.left,
+    y: input.top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
 async function mountAgentPanel(
   overrides: Partial<AgentPanelProps> = {}
 ): Promise<MountedAgentPanel> {
@@ -1484,7 +1503,7 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
-  it('orders workspace canvas worktree groups by session activity', async () => {
+  it('keeps workspace canvas worktree group order stable while showing session activity', async () => {
     testState.settings.agentSessionDisplayMode = 'global-canvas';
 
     const idleSession = createSession({
@@ -1574,12 +1593,17 @@ describe('AgentPanel integration', () => {
       Array.from(mounted.container.querySelectorAll('[data-agent-canvas-worktree-group]')).map(
         (group) => group.getAttribute('data-agent-canvas-worktree-path')
       )
-    ).toEqual(['/repo/worktree-c', '/repo/worktree-a', '/repo/worktree-b']);
+    ).toEqual(['/repo/worktree-a', '/repo/worktree-b', '/repo/worktree-c']);
+    expect(
+      mounted.container
+        .querySelector('[data-agent-session-id="session-completed"]')
+        ?.getAttribute('data-agent-activity-state')
+    ).toBe('completed');
 
     await mounted.unmount();
   });
 
-  it('orders idle workspace canvas groups by recent activity without current worktree churn', async () => {
+  it('keeps idle workspace canvas groups stable when recent activity changes', async () => {
     testState.settings.agentSessionDisplayMode = 'global-canvas';
 
     const currentSession = createSession({
@@ -1678,7 +1702,7 @@ describe('AgentPanel integration', () => {
       Array.from(mounted.container.querySelectorAll('[data-agent-canvas-worktree-group]')).map(
         (group) => group.getAttribute('data-agent-canvas-worktree-path')
       )
-    ).toEqual(['/repo/worktree-c', '/repo/worktree-b', '/repo/worktree-a']);
+    ).toEqual(['/repo/worktree-a', '/repo/worktree-b', '/repo/worktree-c']);
 
     await mounted.unmount();
   });
@@ -2688,6 +2712,86 @@ describe('AgentPanel integration', () => {
 
     expect(viewport.scrollLeft).toBe(370);
     expect(viewport.scrollTop).toBe(370);
+
+    await mounted.unmount();
+  });
+
+  it('jumps immediately when focusing a distant worktree canvas session', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-distant-focus',
+      sessionId: 'provider-distant-focus',
+      backendSessionId: 'backend-distant-focus',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Gemini Distant Focus',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-distant-focus',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-distant-focus',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const viewport = mounted.container.querySelector<HTMLDivElement>('.agent-canvas-viewport');
+    const sessionPanel = mounted.container.querySelector<HTMLElement>(
+      '[data-agent-session-id="session-distant-focus"]'
+    );
+    expect(viewport).not.toBeNull();
+    expect(sessionPanel).not.toBeNull();
+    if (!viewport || !sessionPanel) {
+      await mounted.unmount();
+      return;
+    }
+
+    mockCanvasViewportMetrics(viewport);
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = 0;
+    const scrollToSpy = vi.fn();
+    Object.defineProperty(viewport, 'scrollTo', {
+      configurable: true,
+      value: scrollToSpy,
+    });
+    Object.defineProperty(viewport, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => createDomRectLike({ height: 180, left: 0, top: 0, width: 220 }),
+    });
+    Object.defineProperty(sessionPanel, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => createDomRectLike({ height: 180, left: 80, top: 1800, width: 220 }),
+    });
+
+    await mounted.rerender({
+      canvasFocusOnActivateToken: 1,
+      canvasFocusSessionId: session.id,
+    });
+    await act(async () => {
+      await flushRenderTasks();
+    });
+
+    expect(scrollToSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        behavior: 'auto',
+      })
+    );
 
     await mounted.unmount();
   });

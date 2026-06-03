@@ -1179,6 +1179,23 @@ export function AgentPanel({
     () => subagentScopeSessions.map((session) => session.id),
     [subagentScopeSessions]
   );
+  const subagentPollingScopeSessions = useMemo(() => {
+    if (!isWorkspaceCanvasDisplayMode) {
+      return currentWorktreeSessions;
+    }
+
+    const scopedSessionIds = new Set(currentWorktreeSessions.map((session) => session.id));
+    if (openSessionSubagentInspectorId) {
+      scopedSessionIds.add(openSessionSubagentInspectorId);
+    }
+
+    return allSessions.filter((session) => scopedSessionIds.has(session.id));
+  }, [
+    allSessions,
+    currentWorktreeSessions,
+    isWorkspaceCanvasDisplayMode,
+    openSessionSubagentInspectorId,
+  ]);
   const sessionSubagentViewStateBySessionId = useMemo(() => {
     return Object.fromEntries(
       subagentScopeSessions.map((session) => [
@@ -1196,18 +1213,18 @@ export function AgentPanel({
   }, [subagentScopeSessions]);
   const shouldPollSessionSubagents =
     isActive &&
-    subagentScopeSessions.some(
+    subagentPollingScopeSessions.some(
       (session) => sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported'
     );
   const sessionSubagentPollTargets = useMemo(
     () =>
-      subagentScopeSessions.map((session) => ({
+      subagentPollingScopeSessions.map((session) => ({
         sessionId: session.id,
         cwd: session.cwd,
         providerSessionId: session.sessionId,
         enabled: sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported',
       })),
-    [subagentScopeSessions, sessionSubagentViewStateBySessionId]
+    [subagentPollingScopeSessions, sessionSubagentViewStateBySessionId]
   );
   const { itemsBySessionId: sessionScopedSubagentsBySessionId } = useSessionSubagentsBySession({
     enabled: shouldPollSessionSubagents,
@@ -1238,7 +1255,7 @@ export function AgentPanel({
   const singleTrackableSessionWorktreePaths = useMemo(() => {
     const paths = new Map<string, { cwd: string; count: number }>();
 
-    for (const session of subagentScopeSessions) {
+    for (const session of subagentPollingScopeSessions) {
       if (
         !supportsSessionSubagentTracking(session.agentId, session.agentCommand) ||
         isRemoteVirtualPath(session.cwd)
@@ -1257,12 +1274,12 @@ export function AgentPanel({
     return Array.from(paths.values())
       .filter((entry) => entry.count === 1)
       .map((entry) => entry.cwd);
-  }, [subagentScopeSessions]);
+  }, [subagentPollingScopeSessions]);
   const fallbackLiveSubagentWorktreePaths = useMemo(() => {
     const paths = new Map<string, string>();
     const singleTrackablePathKeys = new Set(singleTrackableSessionWorktreePaths.map(normalizePath));
 
-    for (const session of subagentScopeSessions) {
+    for (const session of subagentPollingScopeSessions) {
       if (
         !supportsSessionSubagentTracking(session.agentId, session.agentCommand) ||
         isRemoteVirtualPath(session.cwd)
@@ -1281,7 +1298,7 @@ export function AgentPanel({
     }
 
     return Array.from(paths.values());
-  }, [singleTrackableSessionWorktreePaths, subagentScopeSessions]);
+  }, [singleTrackableSessionWorktreePaths, subagentPollingScopeSessions]);
   const shouldPollLiveSubagents = isActive && fallbackLiveSubagentWorktreePaths.length > 0;
   const liveSubagentsByWorktree = useLiveSubagents(
     shouldPollLiveSubagents ? fallbackLiveSubagentWorktreePaths : []
@@ -2714,7 +2731,15 @@ export function AgentPanel({
       viewport.scrollTo({
         left: nextPosition.left,
         top: nextPosition.top,
-        behavior: resolveAgentCanvasScrollBehavior(prefersReducedMotion),
+        behavior: resolveAgentCanvasScrollBehavior({
+          clientHeight: viewport.clientHeight,
+          clientWidth: viewport.clientWidth,
+          currentLeft: viewport.scrollLeft,
+          currentTop: viewport.scrollTop,
+          nextLeft: nextPosition.left,
+          nextTop: nextPosition.top,
+          prefersReducedMotion,
+        }),
       });
       canvasViewportPositionByWorktreeRef.current[canvasZoomStorageKey] = nextPosition;
     },

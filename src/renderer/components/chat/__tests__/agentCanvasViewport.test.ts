@@ -410,11 +410,42 @@ describe('agent canvas viewport helpers', () => {
     });
   });
 
-  it('prefers smooth focus scrolling unless reduced motion is requested', async () => {
+  it('uses smooth focus scrolling only for short distance moves', async () => {
     const module = await import('../agentCanvasViewport').catch(() => null);
 
-    expect(module?.resolveAgentCanvasScrollBehavior(false)).toBe('smooth');
-    expect(module?.resolveAgentCanvasScrollBehavior(true)).toBe('auto');
+    expect(
+      module?.resolveAgentCanvasScrollBehavior({
+        clientHeight: 600,
+        clientWidth: 800,
+        currentLeft: 400,
+        currentTop: 300,
+        nextLeft: 460,
+        nextTop: 360,
+        prefersReducedMotion: false,
+      })
+    ).toBe('smooth');
+    expect(
+      module?.resolveAgentCanvasScrollBehavior({
+        clientHeight: 600,
+        clientWidth: 800,
+        currentLeft: 0,
+        currentTop: 0,
+        nextLeft: 80,
+        nextTop: 1800,
+        prefersReducedMotion: false,
+      })
+    ).toBe('auto');
+    expect(
+      module?.resolveAgentCanvasScrollBehavior({
+        clientHeight: 600,
+        clientWidth: 800,
+        currentLeft: 400,
+        currentTop: 300,
+        nextLeft: 460,
+        nextTop: 360,
+        prefersReducedMotion: true,
+      })
+    ).toBe('auto');
   });
 
   it('uses immediate scrolling for workspace worktree group focusing', async () => {

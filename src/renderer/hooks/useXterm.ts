@@ -513,6 +513,23 @@ export function useXterm({
     [flushReplaySnapshot]
   );
 
+  const refreshTerminalViewport = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    const addon = rendererAddonRef.current;
+    if (addon && 'clearTextureAtlas' in addon) {
+      try {
+        (addon as WebglAddon).clearTextureAtlas();
+      } catch {
+        // Ignore if addon is disposed.
+      }
+    }
+    terminal.refresh(0, Math.max(0, terminal.rows - 1));
+  }, []);
+
   const syncViewportToSession = useCallback(() => {
     return syncXtermViewportToSession({
       fitViewport: () => {
@@ -586,17 +603,8 @@ export function useXterm({
   }, []);
 
   const refreshRenderer = useCallback(() => {
-    if (!terminalRef.current) return;
-    const addon = rendererAddonRef.current;
-    if (addon && 'clearTextureAtlas' in addon) {
-      try {
-        (addon as WebglAddon).clearTextureAtlas();
-      } catch {
-        // Ignore
-      }
-    }
-    terminalRef.current.refresh(0, terminalRef.current.rows - 1);
-  }, []);
+    refreshTerminalViewport();
+  }, [refreshTerminalViewport]);
 
   const loadRenderer = useCallback((terminal: Terminal, renderer: typeof terminalRenderer) => {
     // Dispose current renderer addon

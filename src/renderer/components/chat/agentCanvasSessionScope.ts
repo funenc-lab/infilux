@@ -3,6 +3,7 @@ import { matchesAgentSessionScope } from './agentSessionScope';
 import { getSessionActivityStatePriority, type SessionActivityState } from './sessionActivityState';
 
 export type AgentCanvasSessionScope = 'worktree' | 'workspace';
+export type AgentCanvasSessionOrderingMode = 'stable' | 'activity';
 
 export interface AgentCanvasSessionCandidate {
   id: string;
@@ -27,6 +28,7 @@ export interface AgentCanvasSessionGroup<TSession extends AgentCanvasSessionCand
 
 interface ResolveAgentCanvasSessionGroupsOptions<TSession extends AgentCanvasSessionCandidate> {
   currentWorktreePath: string;
+  orderingMode?: AgentCanvasSessionOrderingMode;
   repoPath: string;
   scope: AgentCanvasSessionScope;
   sessions: TSession[];
@@ -110,6 +112,7 @@ export function buildAgentCanvasSessionGroupKey(repoPath: string, worktreePath: 
 
 export function resolveAgentCanvasSessionGroups<TSession extends AgentCanvasSessionCandidate>({
   currentWorktreePath,
+  orderingMode = 'stable',
   repoPath,
   scope,
   sessions,
@@ -118,7 +121,9 @@ export function resolveAgentCanvasSessionGroups<TSession extends AgentCanvasSess
   worktrees = [],
 }: ResolveAgentCanvasSessionGroupsOptions<TSession>): AgentCanvasSessionGroup<TSession>[] {
   const isSmartWorkspaceOrderingEnabled =
-    scope === 'workspace' && Boolean(sessionActivityStateById || sessionLastActivityAtById);
+    scope === 'workspace' &&
+    orderingMode === 'activity' &&
+    Boolean(sessionActivityStateById || sessionLastActivityAtById);
   const canvasSessionActivityStateById = isSmartWorkspaceOrderingEnabled
     ? sessionActivityStateById
     : undefined;
