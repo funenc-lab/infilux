@@ -43,7 +43,10 @@ import {
   buildFileWorkflowToastCopy,
 } from '@/lib/feedbackCopy';
 import { isNativeImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
-import { resolveTerminalRuntimeOverlayState } from '@/lib/terminalRuntimeOverlay';
+import {
+  resolveTerminalRuntimeOverlayState,
+  type TerminalRuntimeOverlayState,
+} from '@/lib/terminalRuntimeOverlay';
 import { cn } from '@/lib/utils';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
@@ -183,6 +186,47 @@ interface MouseSelectionPosition {
 interface MouseSelectionTarget {
   bounds: DOMRect;
   element: HTMLElement;
+}
+
+interface AgentTerminalRuntimeOverlayPresentation {
+  descriptionKey: string;
+  showRetry: boolean;
+  titleKey: string;
+}
+
+function resolveAgentTerminalRuntimeOverlayPresentation({
+  isRemoteExecution,
+  state,
+}: {
+  isRemoteExecution: boolean;
+  state: TerminalRuntimeOverlayState;
+}): AgentTerminalRuntimeOverlayPresentation {
+  if (isRemoteExecution) {
+    return state === 'reconnecting'
+      ? {
+          descriptionKey: 'Remote terminal input is temporarily disabled while reconnecting.',
+          showRetry: false,
+          titleKey: 'Remote terminal reconnecting...',
+        }
+      : {
+          descriptionKey:
+            'Remote terminal has disconnected. Reconnect the remote host to continue.',
+          showRetry: false,
+          titleKey: 'Remote terminal disconnected',
+        };
+  }
+
+  return state === 'reconnecting'
+    ? {
+        descriptionKey: 'Terminal input is temporarily disabled while the session reconnects.',
+        showRetry: false,
+        titleKey: 'Terminal session reconnecting...',
+      }
+    : {
+        descriptionKey: 'Terminal session is unavailable. Start a fresh session to continue.',
+        showRetry: true,
+        titleKey: 'Terminal session unavailable',
+      };
 }
 
 function resolveMouseSelectionTarget(container: HTMLElement): MouseSelectionTarget {
@@ -1782,10 +1826,17 @@ export function AgentTerminal({
   const terminalOverlayState = isReadOnlyTranscript
     ? null
     : resolveTerminalRuntimeOverlayState({
+        includeLocalRuntime: true,
         isLoading,
         isRemoteExecution,
         runtimeState,
       });
+  const terminalOverlayPresentation = terminalOverlayState
+    ? resolveAgentTerminalRuntimeOverlayPresentation({
+        isRemoteExecution,
+        state: terminalOverlayState,
+      })
+    : null;
   const isAgentStartupReadinessPending = !isReadOnlyTranscript && !isAgentStartupReady;
   const isAgentStartupActivationPending =
     !isReadOnlyTranscript && runtimeState === 'live' && terminal === null;
@@ -2427,19 +2478,32 @@ export function AgentTerminal({
           </div>
         </div>
       )}
-      {terminalOverlayState && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px]">
+      {terminalOverlayPresentation && (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px]"
+          data-agent-terminal-runtime-overlay="true"
+          role="status"
+          aria-live="polite"
+        >
           <div className="control-floating-muted rounded-xl px-4 py-3 text-center">
-            <div className="text-sm font-medium">
-              {terminalOverlayState === 'reconnecting'
-                ? t('Remote terminal reconnecting...')
-                : t('Remote terminal disconnected')}
-            </div>
+            <div className="text-sm font-medium">{t(terminalOverlayPresentation.titleKey)}</div>
             <div className="mt-1 text-xs text-muted-foreground">
-              {terminalOverlayState === 'reconnecting'
-                ? t('Remote terminal input is temporarily disabled while reconnecting.')
-                : t('Remote terminal has disconnected. Reconnect the remote host to continue.')}
+              {t(terminalOverlayPresentation.descriptionKey)}
             </div>
+            {terminalOverlayPresentation.showRetry ? (
+              <button
+                type="button"
+                onClick={handleRetryAgentStartup}
+                className={cn(
+                  'control-floating-button mt-3 h-7 rounded-lg px-3 text-xs font-medium',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-0'
+                )}
+                title={t('Retry')}
+                aria-label={t('Retry')}
+              >
+                {t('Retry')}
+              </button>
+            ) : null}
           </div>
         </div>
       )}

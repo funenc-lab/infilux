@@ -12,7 +12,7 @@ describe('resolveTerminalRuntimeOverlayState', () => {
     ).toBeNull();
   });
 
-  it('does not show a disconnect overlay for local dead sessions', () => {
+  it('does not show a disconnect overlay for local dead sessions by default', () => {
     expect(
       resolveTerminalRuntimeOverlayState({
         isLoading: false,
@@ -20,6 +20,28 @@ describe('resolveTerminalRuntimeOverlayState', () => {
         runtimeState: 'dead',
       })
     ).toBeNull();
+  });
+
+  it('returns reconnecting for local sessions when local overlays are enabled', () => {
+    expect(
+      resolveTerminalRuntimeOverlayState({
+        includeLocalRuntime: true,
+        isLoading: false,
+        isRemoteExecution: false,
+        runtimeState: 'reconnecting',
+      })
+    ).toBe('reconnecting');
+  });
+
+  it('returns disconnected for local sessions when local overlays are enabled', () => {
+    expect(
+      resolveTerminalRuntimeOverlayState({
+        includeLocalRuntime: true,
+        isLoading: false,
+        isRemoteExecution: false,
+        runtimeState: 'dead',
+      })
+    ).toBe('disconnected');
   });
 
   it('returns reconnecting for remote sessions that are recovering', () => {

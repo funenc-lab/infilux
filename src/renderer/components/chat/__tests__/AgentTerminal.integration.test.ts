@@ -1580,6 +1580,32 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('shows local runtime overlay copy and retry for unavailable local agent sessions', async () => {
+    testState.runtimeContext = { kind: 'local' };
+    testState.xtermResult.runtimeState = 'dead';
+
+    const mounted = await mountAgentTerminal();
+
+    expect(mounted.container.textContent).toContain('Terminal session unavailable');
+    expect(mounted.container.textContent).toContain(
+      'Terminal session is unavailable. Start a fresh session to continue.'
+    );
+
+    const retryButton = mounted.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]'
+    );
+    expect(retryButton).not.toBeNull();
+
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    expect(testState.xtermResult.restartSession).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
   it('focuses transcript terminals without rebinding the active session', async () => {
     const onFocus = vi.fn();
     const mounted = await mountAgentTerminal({
