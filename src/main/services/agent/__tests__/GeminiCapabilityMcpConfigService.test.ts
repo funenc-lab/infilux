@@ -136,7 +136,7 @@ describe('resolveGeminiCapabilityMcpConfigEntries', () => {
     );
   });
 
-  it('includes Codex config.toml MCP entries in remote Gemini runtime config resolution', async () => {
+  it('includes Claude and Codex MCP entries in remote Gemini runtime config resolution', async () => {
     const remoteRepoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
     const remoteWorktreePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktrees/feature-a');
     const remoteFiles: Record<string, string> = {
@@ -173,6 +173,24 @@ describe('resolveGeminiCapabilityMcpConfigEntries', () => {
         }),
         readRepositoryRemoteTextFile: async (_repoPath, targetPath) =>
           remoteFiles[targetPath] ?? null,
+        readRepositoryClaudeJson: async () => ({
+          mcpServers: {
+            'remote-claude-global': {
+              command: 'uvx',
+              args: ['remote-claude-global'],
+            },
+          },
+          projects: {
+            '/srv/repo/worktrees/feature-a': {
+              mcpServers: {
+                'remote-claude-worktree': {
+                  command: 'uvx',
+                  args: ['remote-claude-worktree'],
+                },
+              },
+            },
+          },
+        }),
       }
     );
 
@@ -195,6 +213,20 @@ describe('resolveGeminiCapabilityMcpConfigEntries', () => {
         id: 'remote-codex-worktree',
         sourceScope: 'worktree',
         sourcePath: '/srv/repo/worktrees/feature-a/.codex/config.toml',
+      })
+    );
+    expect(configSet.personalById['remote-claude-global']).toEqual(
+      expect.objectContaining({
+        id: 'remote-claude-global',
+        sourceScope: 'user',
+        sourcePath: '/home/tester/.claude.json',
+      })
+    );
+    expect(configSet.personalById['remote-claude-worktree']).toEqual(
+      expect.objectContaining({
+        id: 'remote-claude-worktree',
+        sourceScope: 'worktree',
+        sourcePath: '/home/tester/.claude.json',
       })
     );
   });

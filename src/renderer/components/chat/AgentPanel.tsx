@@ -68,7 +68,7 @@ import { isReactImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { buildAgentSessionInventory } from '@/stores/agentSessionInventory';
-import { useAgentSessionsStore } from '@/stores/agentSessions';
+import { type SessionRuntimeState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { resolveAgentStatusForSession, useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useEditorStore } from '@/stores/editor';
@@ -415,6 +415,22 @@ function readCanvasViewportSnapshot(viewport: HTMLDivElement): CanvasViewportSna
   };
 }
 
+function pickAgentSessionRuntimeStates(
+  runtimeStates: Record<string, SessionRuntimeState>,
+  sessionIds: readonly string[]
+): Record<string, SessionRuntimeState> {
+  const scopedRuntimeStates: Record<string, SessionRuntimeState> = {};
+
+  for (const sessionId of sessionIds) {
+    const runtimeState = runtimeStates[sessionId];
+    if (runtimeState) {
+      scopedRuntimeStates[sessionId] = runtimeState;
+    }
+  }
+
+  return scopedRuntimeStates;
+}
+
 function isUnresolvedProviderSession(session: Session): boolean {
   return Boolean(session.sessionId) && session.sessionId === session.id;
 }
@@ -576,6 +592,59 @@ const CanvasSessionContentOutlet = memo(function CanvasSessionContentOutlet({
   }, [hostElement]);
 
   return <div ref={outletRef} className={className} />;
+});
+
+const AgentCanvasSessionPanel = memo(function AgentCanvasSessionPanel({
+  canRenderFloatingSessionInPortal,
+  children,
+  className,
+  dataAgentActivityState,
+  dataAgentSessionId,
+  gridColumn,
+  id,
+  isCanvasDisplayMode,
+  left,
+  onMouseDownCapture,
+  width,
+}: {
+  canRenderFloatingSessionInPortal: boolean;
+  children: React.ReactNode;
+  className: string;
+  dataAgentActivityState?: string;
+  dataAgentSessionId?: string;
+  gridColumn?: string;
+  id: string;
+  isCanvasDisplayMode: boolean;
+  left?: string;
+  onMouseDownCapture?: () => void;
+  width?: string;
+}) {
+  return (
+    <div
+      id={id}
+      {...(isCanvasDisplayMode ? { [AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE]: 'true' } : undefined)}
+      data-agent-session-id={dataAgentSessionId}
+      data-agent-activity-state={dataAgentActivityState}
+      className={className}
+      style={
+        isCanvasDisplayMode
+          ? {
+              gridColumn,
+            }
+          : {
+              left,
+              width,
+            }
+      }
+      onMouseDownCapture={onMouseDownCapture}
+    >
+      {canRenderFloatingSessionInPortal ? (
+        <div className="h-full w-full rounded-[inherit] border border-transparent" />
+      ) : (
+        children
+      )}
+    </div>
+  );
 });
 
 export function AgentPanel({
@@ -797,7 +866,6 @@ export function AgentPanel({
   const updateSession = useAgentSessionsStore((state) => state.updateSession);
   const markSessionExited = useAgentSessionsStore((state) => state.markSessionExited);
   const setActiveId = useAgentSessionsStore((state) => state.setActiveId);
-  const sessionRuntimeStates = useAgentSessionsStore((state) => state.runtimeStates);
   const setDerivedActivityState = useWorktreeActivityStore(
     (state) => state.setDerivedActivityState
   );
@@ -806,6 +874,10 @@ export function AgentPanel({
   );
   const workspaceCanvasActivityCountsRef = useRef(
     buildAgentCanvasActivityCounts([] as typeof allSessions)
+  );
+  const sessionById = useMemo(
+    () => new Map(allSessions.map((session) => [session.id, session])),
+    [allSessions]
   );
   const persistableSessions = useMemo(
     () => allSessions.filter((session) => isSessionPersistable(session)),
@@ -817,7 +889,7 @@ export function AgentPanel({
   const getEnhancedInputState = useAgentSessionsStore((state) => state.getEnhancedInputState);
   const shouldRenderEnhancedInput = useCallback(
     (sessionId: string) => {
-      const session = allSessions.find((item) => item.id === sessionId);
+      const session = sessionById.get(sessionId);
       if (!session || supportsAgentNativeTerminalInput(session.agentId)) {
         return false;
       }
@@ -828,7 +900,7 @@ export function AgentPanel({
         inputState.attachments.length > 0
       );
     },
-    [allSessions, agentIntegration.enhancedInputEnabled, getEnhancedInputState]
+    [agentIntegration.enhancedInputEnabled, getEnhancedInputState, sessionById]
   );
 
   // Group states from store (persists across component remounts)
@@ -1340,6 +1412,44 @@ export function AgentPanel({
 
     return subagentsByWorktree;
   }, [liveSubagentsByWorktree, sessionScopedSubagentsByWorktree]);
+  const canvasSessionGroups = useMemo(
+    () =>
+      resolveAgentCanvasSessionGroups({
+        currentWorktreePath: cwd,
+        repoPath,
+        scope: isWorkspaceCanvasDisplayMode ? 'workspace' : 'worktree',
+        sessions: allSessions,
+        worktrees: workspaceCanvasWorktrees,
+      }),
+    [allSessions, cwd, isWorkspaceCanvasDisplayMode, repoPath, workspaceCanvasWorktrees]
+  );
+  const canvasSessions = useMemo(
+    () => canvasSessionGroups.flatMap((group) => group.sessions),
+    [canvasSessionGroups]
+  );
+  const canvasSessionIds = useMemo(
+    () => canvasSessions.map((session) => session.id),
+    [canvasSessions]
+  );
+  const runtimeStateSessionIds = useMemo(() => {
+    const sessionIds = new Set<string>();
+    const runtimeSessions = isCanvasDisplayMode ? canvasSessions : currentWorktreeSessions;
+
+    for (const session of runtimeSessions) {
+      sessionIds.add(session.id);
+    }
+    for (const sessionId of globalSessionIds) {
+      sessionIds.add(sessionId);
+    }
+
+    return Array.from(sessionIds).sort();
+  }, [canvasSessions, currentWorktreeSessions, globalSessionIds, isCanvasDisplayMode]);
+  const selectScopedRuntimeStates = useCallback(
+    (state: ReturnType<typeof useAgentSessionsStore.getState>) =>
+      pickAgentSessionRuntimeStates(state.runtimeStates, runtimeStateSessionIds),
+    [runtimeStateSessionIds]
+  );
+  const sessionRuntimeStates = useAgentSessionsStore(useShallow(selectScopedRuntimeStates));
   const sessionActivityStateById = useMemo(
     () =>
       buildSessionActivityStateBySessionId({
@@ -1358,35 +1468,6 @@ export function AgentPanel({
         ])
       ),
     [sessionRuntimeStates, subagentScopeSessions]
-  );
-  const canvasSessionGroups = useMemo(
-    () =>
-      resolveAgentCanvasSessionGroups({
-        currentWorktreePath: cwd,
-        repoPath,
-        scope: isWorkspaceCanvasDisplayMode ? 'workspace' : 'worktree',
-        sessions: allSessions,
-        sessionActivityStateById,
-        sessionLastActivityAtById,
-        worktrees: workspaceCanvasWorktrees,
-      }),
-    [
-      allSessions,
-      cwd,
-      isWorkspaceCanvasDisplayMode,
-      repoPath,
-      sessionActivityStateById,
-      sessionLastActivityAtById,
-      workspaceCanvasWorktrees,
-    ]
-  );
-  const canvasSessions = useMemo(
-    () => canvasSessionGroups.flatMap((group) => group.sessions),
-    [canvasSessionGroups]
-  );
-  const canvasSessionIds = useMemo(
-    () => canvasSessions.map((session) => session.id),
-    [canvasSessions]
   );
   useEffect(() => {
     const activeCanvasSessionIds = new Set(canvasSessionIds);
@@ -2512,7 +2593,7 @@ export function AgentPanel({
 
   const removeSessionFromUi = useCallback(
     (id: string, groupId?: string) => {
-      const session = allSessions.find((item) => item.id === id);
+      const session = sessionById.get(id);
       const targetCwd = isWorkspaceCanvasDisplayMode ? (session?.cwd ?? cwd) : cwd;
 
       removeSession(id);
@@ -2566,24 +2647,24 @@ export function AgentPanel({
         };
       });
     },
-    [allSessions, cwd, isWorkspaceCanvasDisplayMode, removeSession, updateGroupState]
+    [cwd, isWorkspaceCanvasDisplayMode, removeSession, sessionById, updateGroupState]
   );
 
   const handleCloseSessionNow = useCallback(
     (id: string, groupId?: string) => {
-      const session = allSessions.find((s) => s.id === id);
+      const session = sessionById.get(id);
       if (!session) return;
 
       killBackendSession(session);
       void window.electronAPI.agentSession.abandon(id);
       removeSessionFromUi(id, groupId);
     },
-    [allSessions, killBackendSession, removeSessionFromUi]
+    [killBackendSession, removeSessionFromUi, sessionById]
   );
 
   const handleCloseSession = useCallback(
     (id: string, groupId?: string) => {
-      const session = allSessions.find((s) => s.id === id);
+      const session = sessionById.get(id);
       if (!session) return;
 
       if (!confirmBeforeClosingAgentSession) {
@@ -2597,7 +2678,7 @@ export function AgentPanel({
         name: getSessionDisplayName(session),
       });
     },
-    [allSessions, confirmBeforeClosingAgentSession, handleCloseSessionNow]
+    [confirmBeforeClosingAgentSession, handleCloseSessionNow, sessionById]
   );
 
   const handleConfirmCloseSession = useCallback(() => {
@@ -2798,7 +2879,7 @@ export function AgentPanel({
   // Handle session selection
   const handleSelectSession = useCallback(
     (id: string, groupId?: string, options?: SelectSessionOptions) => {
-      const targetSession = allSessions.find((session) => session.id === id);
+      const targetSession = sessionById.get(id);
       const targetCwd = isWorkspaceCanvasDisplayMode ? (targetSession?.cwd ?? cwd) : cwd;
 
       setActiveId(targetCwd, id);
@@ -2833,12 +2914,12 @@ export function AgentPanel({
       }
     },
     [
-      allSessions,
       cwd,
       focusCanvasViewportOnSession,
       isCanvasDisplayMode,
       isWorkspaceCanvasDisplayMode,
       setActiveId,
+      sessionById,
       updateGroupState,
     ]
   );
@@ -3675,7 +3756,7 @@ export function AgentPanel({
 
   const handleActivatedWithFirstLine = useCallback(
     (id: string, line: string) => {
-      const session = allSessions.find((s) => s.id === id);
+      const session = sessionById.get(id);
       if (!session) return;
 
       const defaultName = getDefaultSessionName(session.agentId);
@@ -3690,12 +3771,12 @@ export function AgentPanel({
 
       updateSession(id, { name: nextTitle });
     },
-    [allSessions, updateSession]
+    [sessionById, updateSession]
   );
 
   const handleRenameSession = useCallback(
     (id: string, name: string) => {
-      const session = allSessions.find((item) => item.id === id);
+      const session = sessionById.get(id);
       if (!session) return;
 
       const storedName = getStoredSessionName(name, session.agentId);
@@ -3705,7 +3786,7 @@ export function AgentPanel({
         userRenamed: storedName === getDefaultSessionName(session.agentId) ? undefined : true,
       });
     },
-    [allSessions, updateSession]
+    [sessionById, updateSession]
   );
   const handleStartCanvasSessionTitleEdit = useCallback((session: Session) => {
     setEditingCanvasSessionTitleId(session.id);
@@ -4238,10 +4319,6 @@ export function AgentPanel({
   const canvasTerminalMountLimit = isWorkspaceCanvasDisplayMode
     ? workspaceCanvasTerminalMountLimit
     : worktreeCanvasTerminalMountLimit;
-  const sessionById = useMemo(
-    () => new Map(allSessions.map((session) => [session.id, session])),
-    [allSessions]
-  );
   const shouldDeferCanvasBackgroundMount = useCallback(
     (sessionId: string) => {
       const session = sessionById.get(sessionId);
@@ -4937,12 +5014,12 @@ export function AgentPanel({
       sessionContentHost !== null ? createPortal(sessionPanelContent, sessionContentHost) : null;
 
     const sessionPanelShell = (
-      <div
+      <AgentCanvasSessionPanel
         key={sessionId}
         id={buildSessionPanelDomId(sessionId)}
-        {...(isCanvasDisplayMode ? { [AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE]: 'true' } : undefined)}
-        data-agent-session-id={isCanvasDisplayMode ? session.id : undefined}
-        data-agent-activity-state={isCanvasDisplayMode ? sessionActivityState : undefined}
+        isCanvasDisplayMode={isCanvasDisplayMode}
+        dataAgentSessionId={isCanvasDisplayMode ? session.id : undefined}
+        dataAgentActivityState={isCanvasDisplayMode ? sessionActivityState : undefined}
         className={cn(
           isCanvasDisplayMode
             ? 'agent-canvas-session-tile flex h-full min-h-0 overflow-hidden rounded-2xl p-2 transition-colors'
@@ -4953,25 +5030,17 @@ export function AgentPanel({
           canRenderCanvasFloatingSessionInPortal && 'opacity-0 pointer-events-none',
           isCanvasDisplayMode && isFocusedSession && 'agent-canvas-session-tile-active'
         )}
-        style={
-          isCanvasDisplayMode
-            ? {
-                gridColumn: `span ${canvasTileColumnSpan} / span ${canvasTileColumnSpan}`,
-              }
-            : {
-                left: `${left}%`,
-                width: `${width}%`,
-              }
-        }
+        gridColumn={`span ${canvasTileColumnSpan} / span ${canvasTileColumnSpan}`}
+        left={`${left}%`}
+        width={`${width}%`}
+        canRenderFloatingSessionInPortal={canRenderCanvasFloatingSessionInPortal}
         onMouseDownCapture={
           isCanvasDisplayMode
             ? () => handleSelectSession(sessionId, groupId ?? undefined)
             : undefined
         }
       >
-        {canRenderCanvasFloatingSessionInPortal ? (
-          <div className="h-full w-full rounded-[inherit] border border-transparent" />
-        ) : sessionContentHost ? (
+        {sessionContentHost ? (
           <CanvasSessionContentOutlet
             className="h-full w-full rounded-[inherit]"
             hostElement={sessionContentHost}
@@ -4979,7 +5048,7 @@ export function AgentPanel({
         ) : (
           sessionPanelContent
         )}
-      </div>
+      </AgentCanvasSessionPanel>
     );
 
     return canRenderCanvasFloatingSessionInPortal ? (
@@ -5589,10 +5658,7 @@ export function AgentPanel({
 
           const isActiveGroup = group.id === activeGroupId;
           const activeSession =
-            group.activeSessionId != null
-              ? (currentWorktreeSessions.find((session) => session.id === group.activeSessionId) ??
-                null)
-              : null;
+            group.activeSessionId != null ? (sessionById.get(group.activeSessionId) ?? null) : null;
           const activeSessionAvailability = resolveAgentInputAvailability({
             backendSessionId: activeSession?.backendSessionId,
             runtimeState: activeSession?.recoveryState,

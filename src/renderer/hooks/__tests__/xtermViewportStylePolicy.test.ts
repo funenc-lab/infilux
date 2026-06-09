@@ -13,4 +13,15 @@ describe('xterm viewport style policy', () => {
     expect(globalsSource).not.toContain('.xterm-scroll-area,');
     expect(globalsSource).not.toContain('.xterm-scrollable-element');
   });
+
+  it('lets xterm own internal viewport and screen dimensions so wheel history scrolling stays aligned', () => {
+    const xtermRootDimensionPattern =
+      /\.xterm[^{]*\{[^}]*\bwidth\s*:\s*100%[^}]*\bheight\s*:\s*100%/;
+
+    expect(globalsSource).toMatch(xtermRootDimensionPattern);
+    const forcedInternalDimensionPattern =
+      /\.(?:xterm-viewport|xterm-screen)[^{]*\{[^}]*\b(?:width|height)\s*:\s*100%/;
+
+    expect(globalsSource).not.toMatch(forcedInternalDimensionPattern);
+  });
 });

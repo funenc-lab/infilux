@@ -273,4 +273,13 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).not.toContain("t('Current')");
     expect(agentPanelSource.match(/<AgentTerminal/g)).toHaveLength(1);
   });
+
+  it('keeps canvas runtime state and session panels scoped for large workspaces', () => {
+    expect(agentPanelSource).toContain('pickAgentSessionRuntimeStates');
+    expect(agentPanelSource).toContain('const runtimeStateSessionIds = useMemo(() => {');
+    expect(agentPanelSource).toContain('const AgentCanvasSessionPanel = memo(function');
+    expect(agentPanelSource).not.toContain(
+      'const sessionRuntimeStates = useAgentSessionsStore((state) => state.runtimeStates);'
+    );
+  });
 });

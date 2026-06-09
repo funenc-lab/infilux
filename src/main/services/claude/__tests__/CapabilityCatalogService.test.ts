@@ -821,4 +821,50 @@ describe('listClaudeCapabilityCatalog', () => {
       ])
     );
   });
+
+  it('does not treat remote Claude project settings as global personal MCP servers', async () => {
+    const remoteRepoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
+    const remoteWorktreePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktrees/feature-a');
+
+    const catalog = await listClaudeCapabilityCatalog(
+      {
+        repoPath: remoteRepoPath,
+        worktreePath: remoteWorktreePath,
+      },
+      {
+        getUserClaudeConfigDirs: () => [],
+        getRepositoryEnvironmentContext: async () => ({
+          kind: 'remote',
+          connectionId: 'connection-1',
+          homeDir: '/home/tester',
+          claudeDir: '/home/tester/.claude',
+          claudeSettingsPath: '/home/tester/.claude/settings.json',
+          claudeJsonPath: '/home/tester/.claude.json',
+          claudePromptPath: '/home/tester/.claude/CLAUDE.md',
+          claudeCommandsDir: '/home/tester/.claude/commands',
+          claudeSkillsDir: '/home/tester/.claude/skills',
+        }),
+        listRepositoryRemoteDirectory: async () => [],
+        readRepositoryRemoteTextFile: async () => null,
+        readRepositoryClaudeJson: async () => ({
+          projects: {
+            '/srv/repo/worktrees/feature-a': {
+              mcpServers: {
+                'personal-remote': { command: 'uvx', args: ['personal-remote'] },
+              },
+            },
+          },
+        }),
+      }
+    );
+
+    expect(catalog.personalMcpServers).toEqual([
+      expect.objectContaining({
+        id: 'personal-remote',
+        sourceScope: 'remote',
+        sourcePath: '/srv/repo/worktrees/feature-a',
+      }),
+    ]);
+    expect(catalog.personalMcpServers.map((item) => item.id)).not.toContain('projects');
+  });
 });

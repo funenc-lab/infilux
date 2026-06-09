@@ -27,6 +27,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const destroyAllLocal = vi.fn();
   const destroyAllLocalAndWait = vi.fn();
   const prepareAgentCapabilityLaunch = vi.fn();
+  const prepareRuntimeHome = vi.fn();
   const browserWindowFromWebContents = vi.fn();
 
   function reset() {
@@ -105,6 +106,12 @@ const sessionTestDoubles = vi.hoisted(() => {
       sessionOverrides: undefined,
     });
 
+    prepareRuntimeHome.mockReset();
+    prepareRuntimeHome.mockReturnValue({
+      homePath: '/runtime/codex/session-1',
+      sourceHomePath: '/Users/test/.codex',
+    });
+
     browserWindowFromWebContents.mockReset();
     browserWindowFromWebContents.mockReturnValue(null);
   }
@@ -123,6 +130,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     destroyAllLocal,
     destroyAllLocalAndWait,
     prepareAgentCapabilityLaunch,
+    prepareRuntimeHome,
     browserWindowFromWebContents,
     reset,
   };
@@ -181,6 +189,12 @@ vi.mock('../../services/agent/AgentCapabilityLaunchService', () => ({
 
     return null;
   }),
+}));
+
+vi.mock('../../services/agent/CodexRuntimeHomeService', () => ({
+  codexRuntimeHomeService: {
+    prepareRuntimeHome: sessionTestDoubles.prepareRuntimeHome,
+  },
 }));
 
 function getHandler(channel: string) {
@@ -270,7 +284,7 @@ describe('session IPC handlers', () => {
     expect(sessionTestDoubles.destroyAllLocalAndWait).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves shell-config launch options for agent startup sessions', async () => {
+  it('preserves shell-config launch options and isolates plain Codex agent sessions', async () => {
     const event = createEvent();
 
     const { registerSessionHandlers } = await import('../session');
@@ -284,14 +298,69 @@ describe('session IPC handlers', () => {
       shellConfig: { shellType: 'zsh' },
       initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
       persistOnDisconnect: true,
+      metadata: {
+        uiSessionId: 'ui-session-plain-codex',
+        agentId: 'codex',
+        agentCommand: 'codex',
+      },
     });
 
+    expect(sessionTestDoubles.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-plain-codex');
+    expect(sessionTestDoubles.create).toHaveBeenCalledWith(
+      event.sender,
+      expect.objectContaining({
+        cwd: '/repo',
+        kind: 'agent',
+        shellConfig: { shellType: 'zsh' },
+        initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+        persistOnDisconnect: true,
+        env: {
+          CODEX_HOME: '/runtime/codex/session-1',
+        },
+        metadata: expect.objectContaining({
+          uiSessionId: 'ui-session-plain-codex',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          codexRuntimeHome: {
+            homePath: '/runtime/codex/session-1',
+            sourceHomePath: '/Users/test/.codex',
+          },
+        }),
+      })
+    );
+  });
+
+  it('preserves explicit Codex home overrides on Codex agent sessions', async () => {
+    const event = createEvent();
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      initialCommand: 'codex',
+      env: {
+        CODEX_HOME: '/custom/codex-home',
+      },
+      metadata: {
+        agentCommand: 'codex',
+      },
+    });
+
+    expect(sessionTestDoubles.prepareRuntimeHome).not.toHaveBeenCalled();
     expect(sessionTestDoubles.create).toHaveBeenCalledWith(event.sender, {
       cwd: '/repo',
       kind: 'agent',
-      shellConfig: { shellType: 'zsh' },
-      initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
-      persistOnDisconnect: true,
+      initialCommand: 'codex',
+      env: {
+        CODEX_HOME: '/custom/codex-home',
+      },
+      metadata: {
+        agentCommand: 'codex',
+      },
     });
   });
 
@@ -516,9 +585,14 @@ describe('session IPC handlers', () => {
         env: {
           BASE_ENV: '1',
           AGENT_CAPABILITY_PROFILE: 'strict',
+          CODEX_HOME: '/runtime/codex/session-1',
         },
         metadata: expect.objectContaining({
           providerLaunchStrategy: 'provider-native',
+          codexRuntimeHome: {
+            homePath: '/runtime/codex/session-1',
+            sourceHomePath: '/Users/test/.codex',
+          },
           agentCapability: expect.objectContaining({
             provider: 'claude',
             hash: 'hash-1',

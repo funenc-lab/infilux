@@ -213,4 +213,48 @@ describe('resolveCapabilityMcpConfigEntries', () => {
       })
     );
   });
+
+  it('does not treat remote Claude project settings as global personal MCP config entries', async () => {
+    const remoteRepoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
+    const remoteWorktreePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktrees/feature-a');
+
+    const configSet = await resolveCapabilityMcpConfigEntries(
+      { repoPath: remoteRepoPath, worktreePath: remoteWorktreePath },
+      {
+        getRepositoryEnvironmentContext: async () => ({
+          kind: 'remote',
+          connectionId: 'connection-1',
+          homeDir: '/home/tester',
+          claudeDir: '/home/tester/.claude',
+          claudeSettingsPath: '/home/tester/.claude/settings.json',
+          claudeJsonPath: '/home/tester/.claude.json',
+          claudePromptPath: '/home/tester/.claude/CLAUDE.md',
+          claudeCommandsDir: '/home/tester/.claude/commands',
+          claudeSkillsDir: '/home/tester/.claude/skills',
+        }),
+        readRepositoryRemoteTextFile: async () => null,
+        readRepositoryClaudeJson: async () => ({
+          projects: {
+            '/srv/repo/worktrees/feature-a': {
+              mcpServers: {
+                'remote-claude-worktree': {
+                  command: 'uvx',
+                  args: ['remote-claude-worktree'],
+                },
+              },
+            },
+          },
+        }),
+      }
+    );
+
+    expect(configSet.personalById['remote-claude-worktree']).toEqual(
+      expect.objectContaining({
+        id: 'remote-claude-worktree',
+        sourceScope: 'remote',
+        sourcePath: '/srv/repo/worktrees/feature-a',
+      })
+    );
+    expect(configSet.personalById.projects).toBeUndefined();
+  });
 });

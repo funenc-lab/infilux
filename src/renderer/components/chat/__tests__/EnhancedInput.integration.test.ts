@@ -40,6 +40,39 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
+function installElectronApiMock() {
+  const electronAPI = {
+    claudeCompletions: {
+      get: vi.fn(async () => ({ items: [] })),
+      learn: vi.fn(async () => undefined),
+      onUpdated: vi.fn(() => undefined),
+    },
+    file: {
+      saveClipboardImageToTemp: vi.fn(async () => ({
+        success: true,
+        path: '/tmp/pasted-image.png',
+      })),
+      saveToTemp: vi.fn(async () => ({
+        success: true,
+        path: '/tmp/pasted-file.png',
+      })),
+    },
+    search: {
+      files: vi.fn(async () => []),
+    },
+    utils: {
+      getPathForFile: vi.fn(() => null),
+    },
+  };
+
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: electronAPI,
+  });
+
+  return electronAPI;
+}
+
 async function mountEnhancedInput(
   overrides: Partial<React.ComponentProps<typeof EnhancedInput>> = {}
 ) {
@@ -100,6 +133,47 @@ describe('EnhancedInput integration', () => {
     focusLockTestState.unlockFocus.mockReset();
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
+  });
+
+  it('pastes a clipboard image while the session input textarea is focused without requiring Escape', async () => {
+    const electronAPI = installElectronApiMock();
+    const onAttachmentsChange = vi.fn();
+    const mounted = await mountEnhancedInput({
+      sessionId: 'session-image-paste',
+      onAttachmentsChange,
+    });
+    const textarea = mounted.container.querySelector('textarea');
+    expect(textarea).not.toBeNull();
+    if (!textarea) return;
+
+    textarea.focus();
+    const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(pasteEvent, 'clipboardData', {
+      value: {
+        items: [],
+        types: ['image/png'],
+      },
+    });
+
+    await act(async () => {
+      textarea.dispatchEvent(pasteEvent);
+      await flushMicrotasks();
+    });
+
+    expect(pasteEvent.defaultPrevented).toBe(true);
+    expect(electronAPI.file.saveClipboardImageToTemp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        format: 'png',
+      })
+    );
+    expect(onAttachmentsChange).toHaveBeenCalledWith([
+      expect.objectContaining({
+        path: '/tmp/pasted-image.png',
+        kind: 'image',
+      }),
+    ]);
+
+    await mounted.unmount();
   });
 
   it('lets IME Enter confirmation pass through without sending the agent message', async () => {

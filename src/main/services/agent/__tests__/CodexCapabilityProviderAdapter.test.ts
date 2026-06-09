@@ -279,6 +279,32 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
   });
 
+  it('does not inject catalog-default enabled skills into Codex runtime config', () => {
+    const projection = buildCodexSessionProjection(
+      {
+        cwd: '/repo/worktrees/feat-a',
+        kind: 'agent',
+        shell: 'codex',
+        args: ['resume', 'codex-session-1'],
+      },
+      createCapabilities(),
+      createResolvedPolicy({
+        allowedCapabilityIds: ['legacy-skill:review', 'legacy-skill:ship'],
+        capabilityProvenance: {
+          'legacy-skill:review': { source: 'catalog', decision: 'allow' },
+          'legacy-skill:ship': { source: 'catalog', decision: 'allow' },
+        },
+      }),
+      {
+        sharedById: {},
+        personalById: {},
+      }
+    );
+
+    expect(projection.applied).toBe(false);
+    expect(projection.sessionOverrides).toBeUndefined();
+  });
+
   it('warns and prefers the personal configuration when the same MCP id exists in both scopes', () => {
     const projection = buildCodexSessionProjection(
       {
@@ -434,16 +460,26 @@ describe('CodexCapabilityProviderAdapter', () => {
       })
     );
     const resolveCapabilityMcpConfigEntriesFn = vi.fn().mockResolvedValue(createMcpConfigs());
+    const codexRuntimeHomeService = {
+      prepareRuntimeHome: vi.fn(() => ({
+        homePath: '/runtime/codex/ui-session-1',
+        sourceHomePath: '/Users/test/.codex',
+      })),
+    };
     const adapter = createCodexCapabilityProviderAdapter({
       listClaudeCapabilityCatalog,
       resolveClaudePolicy: resolveClaudePolicyFn,
       resolveCapabilityMcpConfigEntries: resolveCapabilityMcpConfigEntriesFn,
+      codexRuntimeHomeService,
     });
     const sessionOptions: SessionCreateOptions = {
       cwd: '/repo/worktrees/feat-a',
       kind: 'agent',
       initialCommand: 'codex',
       shellConfig: { shellType: 'zsh' },
+      metadata: {
+        uiSessionId: 'ui-session-1',
+      },
     };
 
     const result = await adapter.prepareLaunch(createRequest(), sessionOptions);
@@ -467,6 +503,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       repoPath: '/repo',
       worktreePath: '/repo/worktrees/feat-a',
     });
+    expect(codexRuntimeHomeService.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-1');
     expect(result.launchResult).toMatchObject({
       provider: 'codex',
       hash: 'hash-1',
@@ -481,6 +518,13 @@ describe('CodexCapabilityProviderAdapter', () => {
         providerLaunchStrategy: 'codex-runtime-config',
         codexMcpServerIds: ['shared-project'],
         codexSkillIds: ['legacy-skill:review', 'legacy-skill:ship'],
+        codexRuntimeHome: {
+          homePath: '/runtime/codex/ui-session-1',
+          sourceHomePath: '/Users/test/.codex',
+        },
+      },
+      env: {
+        CODEX_HOME: '/runtime/codex/ui-session-1',
       },
     });
     expect(result.sessionOverrides?.initialCommand).toContain(

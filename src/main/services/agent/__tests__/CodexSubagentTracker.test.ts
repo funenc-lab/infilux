@@ -340,6 +340,63 @@ describe('CodexSubagentTracker', () => {
     ]);
   });
 
+  it('hydrates recent session metadata when the TUI log file is missing', async () => {
+    const tempDir = createTempDir('codex-subagent-tracker-');
+    const logPath = path.join(tempDir, 'missing-codex-tui.log');
+    const sessionsDir = path.join(tempDir, 'sessions');
+
+    const now = Date.now();
+    const sessionTimestamp = new Date(now - 2_000).toISOString();
+    const sessionDayDir = buildSessionDayDir(sessionsDir, now);
+    mkdirSync(sessionDayDir, { recursive: true });
+
+    writeFileSync(
+      path.join(sessionDayDir, 'rollout-child-1.jsonl'),
+      [
+        JSON.stringify({
+          timestamp: sessionTimestamp,
+          type: 'session_meta',
+          payload: {
+            id: 'child-1',
+            timestamp: sessionTimestamp,
+            cwd: '/repo/worktrees/feature-a',
+            source: {
+              subagent: {
+                thread_spawn: {
+                  parent_thread_id: 'root-1',
+                  agent_role: 'explorer',
+                  agent_nickname: 'Russell',
+                },
+              },
+            },
+            agent_role: 'explorer',
+            agent_nickname: 'Russell',
+          },
+        }),
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    const tracker = new CodexSubagentTracker(logPath, sessionsDir);
+    const result = await tracker.listLive({
+      cwds: ['/repo/worktrees/feature-a'],
+      maxIdleMs: 60_000,
+    });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        id: 'child-1',
+        rootThreadId: 'root-1',
+        parentThreadId: 'root-1',
+        cwd: '/repo/worktrees/feature-a',
+        agentType: 'explorer',
+        label: 'Russell',
+        status: 'running',
+      }),
+    ]);
+  });
+
   it('marks waiting subagents when the latest child tool is wait_agent', () => {
     const state = applyLines([
       '2026-03-29T09:00:00.000Z  INFO session_loop{thread_id=root-1}: codex_core::stream_events_utils: ToolCall: exec_command {"cmd":"pwd","workdir":"/repo/worktrees/feature-a"} thread_id=root-1',

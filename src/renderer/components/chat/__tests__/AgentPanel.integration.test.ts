@@ -2591,6 +2591,79 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('keeps the mounted terminal content inside the floating canvas frame when a session is enlarged', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-floating-content',
+      sessionId: 'provider-floating-content',
+      backendSessionId: 'backend-floating-content',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Floating Content Session',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-floating-content',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-floating-content',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const viewport = mounted.container.querySelector<HTMLDivElement>('.agent-canvas-viewport');
+    expect(viewport).not.toBeNull();
+    if (viewport) {
+      mockCanvasViewportMetrics(viewport);
+      Object.defineProperty(viewport, 'getBoundingClientRect', {
+        configurable: true,
+        value: () =>
+          createDomRectLike({
+            height: 720,
+            left: 24,
+            top: 80,
+            width: 960,
+          }),
+      });
+    }
+
+    expect(
+      mounted.container.querySelector(
+        '[data-testid="agent-terminal"][data-session-id="session-floating-content"]'
+      )
+    ).not.toBeNull();
+
+    await clickElement(mounted.container.querySelector('button[aria-label="Bring to Front"]'));
+    await act(async () => {
+      await flushRenderTasks();
+    });
+
+    const floatingFrame = document.body.querySelector<HTMLElement>('.agent-canvas-floating-frame');
+    expect(floatingFrame).not.toBeNull();
+    expect(
+      floatingFrame?.querySelector(
+        '[data-testid="agent-terminal"][data-session-id="session-floating-content"]'
+      )
+    ).not.toBeNull();
+
+    await mounted.unmount();
+  });
+
   it('freezes the worktree canvas viewport position while locked', async () => {
     testState.settings.agentSessionDisplayMode = 'canvas';
 

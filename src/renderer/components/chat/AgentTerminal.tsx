@@ -31,6 +31,7 @@ import {
   restoreTerminalInteractionAfterCopy,
   writeClipboardText,
 } from '@/hooks/xtermClipboard';
+import { scheduleXtermContainerReady } from '@/hooks/xtermContainerReady';
 import { focusXtermTextInput } from '@/hooks/xtermTextInputFocus';
 import { useI18n } from '@/i18n';
 import { AGENT_ATTACHMENT_PASTE_EVENT_NAME } from '@/lib/agentAttachmentPasteEvent';
@@ -85,7 +86,12 @@ import {
 import { shouldShowAgentStartupOverlayForVisibility } from './agentStartupVisibilityPolicy';
 import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActivityPollingPolicy';
 import { resolveAgentTerminalAttachmentInsertDisposition } from './agentTerminalAttachmentInsertPolicy';
-import { shouldCaptureAgentTerminalClipboardFiles } from './agentTerminalClipboardPastePolicy';
+import {
+  collectAgentTerminalClipboardFiles,
+  hasAgentTerminalClipboardImageSignal,
+  isEditableAgentTerminalClipboardPasteTarget,
+  shouldCaptureAgentTerminalClipboardFiles,
+} from './agentTerminalClipboardPastePolicy';
 import { buildAgentTerminalContextMenuItems } from './agentTerminalContextMenu';
 import {
   INTERRUPT_OUTPUT_IDLE_SETTLE_MS,
@@ -708,9 +714,14 @@ export function AgentTerminal({
     recoveryState === 'missing-host-session' &&
     hasResolvedProviderSessionId(id, sessionId);
   const inputDispatchSessionId = backendSessionId ?? null;
-  const globalPolicy = getClaudeGlobalPolicy();
-  const projectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;
-  const worktreePolicy = cwd ? getClaudeWorktreePolicy(cwd) : null;
+  const agentCapabilityPolicies = useMemo(
+    () => ({
+      globalPolicy: getClaudeGlobalPolicy(),
+      projectPolicy: repoPath ? getClaudeProjectPolicy(repoPath) : null,
+      worktreePolicy: cwd ? getClaudeWorktreePolicy(cwd) : null,
+    }),
+    [cwd, repoPath]
+  );
   const supportsNativeTerminalInput = supportsAgentNativeTerminalInput(agentId);
 
   const clearInterruptIdleResetTimer = useCallback(() => {
@@ -1118,6 +1129,39 @@ export function AgentTerminal({
       saveAttachmentToTemp,
       showOversizedAttachmentWarning,
     ]
+  );
+
+  const handleClipboardAttachmentPaste = useCallback(
+    (event: ClipboardEvent): boolean => {
+      if (event.defaultPrevented) {
+        return false;
+      }
+
+      const clipboardData = event.clipboardData;
+      if (!clipboardData) {
+        return false;
+      }
+
+      const files = collectAgentTerminalClipboardFiles(clipboardData);
+      if (files.length > 0) {
+        if (!shouldCaptureAgentTerminalClipboardFiles(agentId, files)) {
+          return false;
+        }
+
+        event.preventDefault();
+        void resolveAttachmentTargets(files, 'clipboard');
+        return true;
+      }
+
+      if (!hasAgentTerminalClipboardImageSignal(clipboardData)) {
+        return false;
+      }
+
+      event.preventDefault();
+      void pasteClipboardImageAttachment();
+      return true;
+    },
+    [agentId, pasteClipboardImageAttachment, resolveAttachmentTargets]
   );
 
   // Keep isActiveRef in sync with isActive prop
@@ -1692,6 +1736,47 @@ export function AgentTerminal({
     ]
   );
 
+  const agentLaunchMetadata = useMemo(
+    () =>
+      isReadOnlyTranscript
+        ? undefined
+        : buildAgentCapabilityLaunchMetadata({
+            agentId,
+            agentCommand,
+            repoPath,
+            worktreePath: cwd,
+            globalPolicy: agentCapabilityPolicies.globalPolicy,
+            projectPolicy: agentCapabilityPolicies.projectPolicy,
+            worktreePolicy: agentCapabilityPolicies.worktreePolicy,
+            sessionPolicy,
+            materializationMode,
+            metadata:
+              persistenceEnabled && terminalSessionId
+                ? {
+                    uiSessionId: terminalSessionId,
+                    agentId,
+                    agentCommand,
+                    environment,
+                  }
+                : undefined,
+          }),
+    [
+      agentCapabilityPolicies.globalPolicy,
+      agentCapabilityPolicies.projectPolicy,
+      agentCapabilityPolicies.worktreePolicy,
+      agentCommand,
+      agentId,
+      cwd,
+      environment,
+      isReadOnlyTranscript,
+      materializationMode,
+      persistenceEnabled,
+      repoPath,
+      sessionPolicy,
+      terminalSessionId,
+    ]
+  );
+
   const {
     containerRef,
     isLoading,
@@ -1722,28 +1807,7 @@ export function AgentTerminal({
     preferCompatibilityRenderer: true,
     sessionCreateFallback,
     staticContent: transcriptStaticContent,
-    metadata: isReadOnlyTranscript
-      ? undefined
-      : buildAgentCapabilityLaunchMetadata({
-          agentId,
-          agentCommand,
-          repoPath,
-          worktreePath: cwd,
-          globalPolicy,
-          projectPolicy,
-          worktreePolicy,
-          sessionPolicy,
-          materializationMode,
-          metadata:
-            persistenceEnabled && terminalSessionId
-              ? {
-                  uiSessionId: terminalSessionId,
-                  agentId,
-                  agentCommand,
-                  environment,
-                }
-              : undefined,
-        }),
+    metadata: agentLaunchMetadata,
     persistOnDisconnect: shouldPersistAgentSessionOnDisconnect(persistenceEnabled),
     preferHostScrollback:
       hostSession?.kind === 'tmux' &&
@@ -1803,6 +1867,10 @@ export function AgentTerminal({
     if (!layoutRefreshKey || !terminal) {
       return;
     }
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
 
     const lastApplied = lastAppliedLayoutRefreshRef.current;
     if (lastApplied?.key === layoutRefreshKey && lastApplied.terminal === terminal) {
@@ -1813,15 +1881,37 @@ export function AgentTerminal({
       terminal,
     };
 
-    const frameId = requestAnimationFrame(() => {
-      fitTerminalLayout();
-      refreshRenderer();
+    let frameId: number | null = null;
+    const containerReadyCleanup = scheduleXtermContainerReady({
+      container,
+      onReady: () => {
+        frameId = requestAnimationFrame(() => {
+          frameId = null;
+          fitTerminalLayout();
+          refreshRenderer();
+          if (effectiveIsActive) {
+            focusXtermTextInput(terminal);
+          }
+        });
+      },
+      requestAnimationFrame: window.requestAnimationFrame.bind(window),
+      cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
     });
 
     return () => {
-      cancelAnimationFrame(frameId);
+      containerReadyCleanup();
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
     };
-  }, [fitTerminalLayout, layoutRefreshKey, refreshRenderer, terminal]);
+  }, [
+    containerRef,
+    effectiveIsActive,
+    fitTerminalLayout,
+    layoutRefreshKey,
+    refreshRenderer,
+    terminal,
+  ]);
 
   const terminalOverlayState = isReadOnlyTranscript
     ? null
@@ -2101,7 +2191,7 @@ export function AgentTerminal({
   useEffect(() => {
     if (!terminalSessionId || !write) return;
 
-    register(terminalSessionId, write, () => terminal?.focus());
+    register(terminalSessionId, write, () => focusXtermTextInput(terminal));
     return () => unregister(terminalSessionId);
   }, [terminalSessionId, write, terminal, register, unregister]);
 
@@ -2283,38 +2373,34 @@ export function AgentTerminal({
     }
 
     const handlePaste = (event: ClipboardEvent) => {
-      const items = event.clipboardData?.items;
-      if (!items || items.length === 0) {
-        return;
-      }
-
-      const files: File[] = [];
-      for (let index = 0; index < items.length; index += 1) {
-        const item = items[index];
-        if (item.kind !== 'file') {
-          continue;
-        }
-        const file = item.getAsFile();
-        if (file) {
-          files.push(file);
-        }
-      }
-
-      if (files.length === 0) {
-        return;
-      }
-
-      if (!shouldCaptureAgentTerminalClipboardFiles(agentId, files)) {
-        return;
-      }
-
-      event.preventDefault();
-      void resolveAttachmentTargets(files, 'clipboard');
+      handleClipboardAttachmentPaste(event);
     };
 
     wrapper.addEventListener('paste', handlePaste, true);
     return () => wrapper.removeEventListener('paste', handlePaste, true);
-  }, [agentId, isReadOnlyTranscript, resolveAttachmentTargets]);
+  }, [handleClipboardAttachmentPaste, isReadOnlyTranscript]);
+
+  useEffect(() => {
+    if (!isActive || isReadOnlyTranscript) {
+      return;
+    }
+
+    const handleWindowPaste = (event: ClipboardEvent) => {
+      const wrapper = terminalWrapperRef.current;
+      if (wrapper && event.target instanceof Node && wrapper.contains(event.target)) {
+        return;
+      }
+
+      if (isEditableAgentTerminalClipboardPasteTarget(event.target)) {
+        return;
+      }
+
+      handleClipboardAttachmentPaste(event);
+    };
+
+    window.addEventListener('paste', handleWindowPaste);
+    return () => window.removeEventListener('paste', handleWindowPaste);
+  }, [handleClipboardAttachmentPaste, isActive, isReadOnlyTranscript]);
 
   // Keep native terminal input sessions writable after focus moves to session chrome or other UI.
   const handleClick = useCallback(() => {

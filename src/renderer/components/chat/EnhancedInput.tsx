@@ -24,6 +24,23 @@ function getFileName(filePath: string): string {
   return filePath.slice(filePath.lastIndexOf(sep) + 1);
 }
 
+function hasClipboardImagePasteSignal(clipboardData: DataTransfer): boolean {
+  const types = Array.from(clipboardData.types ?? []);
+  if (types.some((type) => type.toLowerCase().startsWith('image/'))) {
+    return true;
+  }
+
+  const items = clipboardData.items;
+  for (let index = 0; index < items.length; index += 1) {
+    const itemType = items[index]?.type?.toLowerCase() ?? '';
+    if (itemType.startsWith('image/')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 interface EnhancedInputProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -651,6 +668,26 @@ export function EnhancedInput({
     [resolveClipboardImageTempFormat]
   );
 
+  const saveCurrentClipboardImageToTemp = useCallback(async (): Promise<string | null> => {
+    try {
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 8);
+      const filename = `${TEMP_INPUT_FILE_PREFIX}-${timestamp}-${random}.png`;
+      const result = await window.electronAPI.file.saveClipboardImageToTemp({
+        filename,
+        format: 'png',
+      });
+
+      if (result.success && result.path) {
+        return result.path;
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const appendDraftAttachments = useCallback(
     (nextAttachments: AgentAttachmentItem[]) => {
       if (nextAttachments.length === 0) {
@@ -724,10 +761,20 @@ export function EnhancedInput({
     ]
   );
 
+  const pasteCurrentClipboardImageAttachment = useCallback(async () => {
+    const imagePath = await saveCurrentClipboardImageToTemp();
+    if (!imagePath) {
+      return;
+    }
+
+    appendDraftAttachments(mergeAgentAttachments([], [imagePath]));
+  }, [appendDraftAttachments, saveCurrentClipboardImageToTemp]);
+
   const handlePaste = useCallback(
     async (e: React.ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
+      const clipboardData = e.clipboardData;
+      const items = clipboardData?.items;
+      if (!clipboardData || !items) return;
 
       const files: File[] = [];
       for (let i = 0; i < items.length; i++) {
@@ -744,9 +791,15 @@ export function EnhancedInput({
       if (files.length > 0) {
         e.preventDefault();
         await resolveAttachmentTargets(files, 'clipboard');
+        return;
+      }
+
+      if (hasClipboardImagePasteSignal(clipboardData)) {
+        e.preventDefault();
+        await pasteCurrentClipboardImageAttachment();
       }
     },
-    [resolveAttachmentTargets]
+    [pasteCurrentClipboardImageAttachment, resolveAttachmentTargets]
   );
 
   if (!open) return null;

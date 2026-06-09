@@ -22,11 +22,13 @@ import type {
   PreparedAgentCapabilityLaunch,
 } from './AgentCapabilityProviderAdapter';
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
+import { type CodexRuntimeHomeService, codexRuntimeHomeService } from './CodexRuntimeHomeService';
 
 export interface CodexCapabilityProviderAdapterDependencies {
   listClaudeCapabilityCatalog?: typeof listClaudeCapabilityCatalog;
   resolveClaudePolicy?: typeof resolveClaudePolicy;
   resolveCapabilityMcpConfigEntries?: typeof resolveCapabilityMcpConfigEntries;
+  codexRuntimeHomeService?: Pick<CodexRuntimeHomeService, 'prepareRuntimeHome'>;
 }
 
 interface CodexResolvedMcpEntry {
@@ -157,6 +159,14 @@ function buildCodexSkillAssignments(entries: CodexResolvedSkillEntry[]): string[
       }))
     )}`,
   ];
+}
+
+function isExplicitPolicyDecision(
+  resolvedPolicy: ResolvedClaudePolicy,
+  capabilityId: string
+): boolean {
+  const provenance = resolvedPolicy.capabilityProvenance[capabilityId];
+  return provenance ? provenance.source !== 'catalog' : true;
 }
 
 function buildCodexCliArgs(assignments: string[]): string[] {
@@ -327,6 +337,12 @@ function buildCodexResolvedSkillEntries(
     }
 
     const enabled = allowedCapabilityIds.has(capability.id);
+    const shouldInjectEnabledSkill =
+      enabled && isExplicitPolicyDecision(resolvedPolicy, capability.id);
+    if (enabled && !shouldInjectEnabledSkill) {
+      continue;
+    }
+
     const preferredSourcePath = selectPreferredSkillSourcePathForProvider({
       provider: 'codex',
       capability,
@@ -461,6 +477,7 @@ export function createCodexCapabilityProviderAdapter(
   const resolvePolicy = dependencies.resolveClaudePolicy ?? resolveClaudePolicy;
   const resolveMcpConfigs =
     dependencies.resolveCapabilityMcpConfigEntries ?? resolveCapabilityMcpConfigEntries;
+  const runtimeHomeService = dependencies.codexRuntimeHomeService ?? codexRuntimeHomeService;
 
   return {
     provider: 'codex',
@@ -492,6 +509,28 @@ export function createCodexCapabilityProviderAdapter(
         resolvedPolicy,
         mcpConfigs
       );
+      const uiSessionId =
+        typeof sessionOptions.metadata?.uiSessionId === 'string' &&
+        sessionOptions.metadata.uiSessionId.length > 0
+          ? sessionOptions.metadata.uiSessionId
+          : undefined;
+      const runtimeHome = runtimeHomeService.prepareRuntimeHome(
+        uiSessionId ?? `${request.worktreePath}:${Date.now()}`
+      );
+      const sessionOverrides: AgentCapabilitySessionOverrides = {
+        ...(projection.sessionOverrides ?? {}),
+        env: {
+          ...(projection.sessionOverrides?.env ?? {}),
+          CODEX_HOME: runtimeHome.homePath,
+        },
+        metadata: {
+          ...(projection.sessionOverrides?.metadata ?? {}),
+          codexRuntimeHome: {
+            homePath: runtimeHome.homePath,
+            sourceHomePath: runtimeHome.sourceHomePath,
+          },
+        },
+      };
 
       return {
         launchResult: {
@@ -512,7 +551,7 @@ export function createCodexCapabilityProviderAdapter(
           policyHash: resolvedPolicy.hash,
           appliedAt: Date.now(),
         },
-        sessionOverrides: projection.sessionOverrides,
+        sessionOverrides,
       };
     },
   };

@@ -17,8 +17,13 @@ describe('agent native terminal input policy', () => {
     expect(agentPanelSource).toContain('shouldRenderEnhancedInput');
     expect(agentPanelSource).toContain('shouldRenderEnhancedInput(session.id)');
     expect(agentPanelSource).toContain('shouldRenderEnhancedInput(activeSession.id)');
+    expect(agentPanelSource).toContain('const sessionById = useMemo(');
+    expect(agentPanelSource).toContain('const session = sessionById.get(sessionId);');
     expect(agentPanelSource).toContain(
       'if (!session || supportsAgentNativeTerminalInput(session.agentId)) {'
+    );
+    expect(agentPanelSource).not.toContain(
+      'const session = allSessions.find((item) => item.id === sessionId);'
     );
   });
 

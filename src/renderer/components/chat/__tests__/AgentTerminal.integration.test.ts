@@ -36,6 +36,7 @@ const testState = vi.hoisted(() => ({
   },
   terminalInstance: null as {
     rows: number;
+    element?: HTMLDivElement;
     focus: ReturnType<typeof vi.fn>;
     hasSelection: ReturnType<typeof vi.fn>;
     paste: ReturnType<typeof vi.fn>;
@@ -43,6 +44,7 @@ const testState = vi.hoisted(() => ({
     refresh: ReturnType<typeof vi.fn>;
     selectAll: ReturnType<typeof vi.fn>;
     scrollLines: ReturnType<typeof vi.fn>;
+    textarea?: HTMLTextAreaElement;
   } | null,
   xtermResult: {
     containerRef: { current: null as HTMLDivElement | null },
@@ -304,10 +306,68 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
+function createDomRectLike(input: {
+  height: number;
+  left?: number;
+  top?: number;
+  width: number;
+}): DOMRect {
+  const left = input.left ?? 0;
+  const top = input.top ?? 0;
+  return {
+    bottom: top + input.height,
+    height: input.height,
+    left,
+    right: left + input.width,
+    top,
+    width: input.width,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function installQueuedAnimationFrame() {
+  let nextFrameId = 1;
+  let queuedFrames: Array<{ callback: FrameRequestCallback; id: number }> = [];
+
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = nextFrameId;
+    nextFrameId += 1;
+    queuedFrames.push({ callback, id });
+    return id;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    queuedFrames = queuedFrames.filter((frame) => frame.id !== id);
+  });
+
+  return {
+    flushNextFrame() {
+      const frame = queuedFrames.shift();
+      expect(frame).toBeDefined();
+      frame?.callback(performance.now());
+    },
+    get pendingFrameCount() {
+      return queuedFrames.length;
+    },
+  };
+}
+
 function getXtermContainer(): HTMLDivElement {
   const container = testState.xtermResult.containerRef.current;
   expect(container).not.toBeNull();
   return container as HTMLDivElement;
+}
+
+function createImageSignalPasteEvent(): Event {
+  const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(pasteEvent, 'clipboardData', {
+    value: {
+      items: [],
+      types: ['image/png'],
+    },
+  });
+  return pasteEvent;
 }
 
 async function mountAgentTerminal(
@@ -1487,6 +1547,77 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('pastes clipboard image signals from the terminal without requiring Escape', async () => {
+    const mounted = await mountAgentTerminal();
+    const pasteEvent = createImageSignalPasteEvent();
+
+    await act(async () => {
+      getXtermContainer().dispatchEvent(pasteEvent);
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(pasteEvent.defaultPrevented).toBe(true);
+    expect(testState.electronAPI.fileSaveClipboardImageToTemp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        format: 'png',
+      })
+    );
+    expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      agentId: 'codex',
+      text: ' /tmp/image.png',
+      submit: false,
+    });
+
+    await mounted.unmount();
+  });
+
+  it('routes active terminal image paste requests from session chrome without requiring Escape', async () => {
+    const mounted = await mountAgentTerminal();
+    const pasteTarget = document.createElement('button');
+    mounted.container.appendChild(pasteTarget);
+    const pasteEvent = createImageSignalPasteEvent();
+
+    await act(async () => {
+      pasteTarget.dispatchEvent(pasteEvent);
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(pasteEvent.defaultPrevented).toBe(true);
+    expect(testState.electronAPI.fileSaveClipboardImageToTemp).toHaveBeenCalledTimes(1);
+    expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      agentId: 'codex',
+      text: ' /tmp/image.png',
+      submit: false,
+    });
+
+    pasteTarget.remove();
+    await mounted.unmount();
+  });
+
+  it('does not steal image paste events from editable controls outside the terminal', async () => {
+    const mounted = await mountAgentTerminal();
+    const pasteTarget = document.createElement('textarea');
+    document.body.appendChild(pasteTarget);
+    const pasteEvent = createImageSignalPasteEvent();
+
+    await act(async () => {
+      pasteTarget.dispatchEvent(pasteEvent);
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(pasteEvent.defaultPrevented).toBe(false);
+    expect(testState.electronAPI.fileSaveClipboardImageToTemp).not.toHaveBeenCalled();
+    expect(testState.electronAPI.agentInputDispatch).not.toHaveBeenCalled();
+
+    pasteTarget.remove();
+    await mounted.unmount();
+  });
+
   it('falls back to renderer temp storage for clipboard image files without showing a false fast-path error', async () => {
     testState.electronAPI.fileSaveClipboardImageToTemp.mockResolvedValue({
       success: false,
@@ -1634,9 +1765,21 @@ describe('AgentTerminal integration', () => {
   });
 
   it('refreshes xterm layout when the terminal content host moves', async () => {
-    const mounted = await mountAgentTerminal({
+    const frames = installQueuedAnimationFrame();
+    const mounted = await mountAgentTerminal();
+    const xtermContainer = getXtermContainer();
+    Object.defineProperty(xtermContainer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => createDomRectLike({ height: 360, width: 640 }),
+    });
+
+    await mounted.rerender({
       layoutRefreshKey: 'tile',
     } as Partial<AgentTerminalProps>);
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
 
     expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
     expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
@@ -1647,6 +1790,103 @@ describe('AgentTerminal integration', () => {
     await mounted.rerender({
       layoutRefreshKey: 'floating',
     } as Partial<AgentTerminalProps>);
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
+
+    expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('restores the xterm IME input target when a canvas terminal host moves to floating mode', async () => {
+    const frames = installQueuedAnimationFrame();
+    const terminalElement = document.createElement('div');
+    const terminalTextarea = document.createElement('textarea');
+    terminalElement.appendChild(terminalTextarea);
+    document.body.appendChild(terminalElement);
+    testState.terminalInstance = {
+      ...testState.terminal,
+      element: terminalElement,
+      textarea: terminalTextarea,
+    };
+
+    const mounted = await mountAgentTerminal();
+    const xtermContainer = getXtermContainer();
+    Object.defineProperty(xtermContainer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => createDomRectLike({ height: 360, width: 640 }),
+    });
+    await mounted.rerender({
+      layoutRefreshKey: 'tile',
+    } as Partial<AgentTerminalProps>);
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
+
+    testState.terminal.focus.mockClear();
+    terminalTextarea.blur();
+    testState.xtermResult.fit.mockClear();
+    testState.xtermResult.refreshRenderer.mockClear();
+
+    await mounted.rerender({
+      layoutRefreshKey: 'floating',
+    } as Partial<AgentTerminalProps>);
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
+
+    expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
+    expect(testState.terminal.focus).toHaveBeenCalledTimes(1);
+    expect(terminalTextarea.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
+    expect(document.activeElement).toBe(terminalTextarea);
+
+    terminalElement.remove();
+    await mounted.unmount();
+  });
+
+  it('waits for a measurable floating host before refreshing xterm layout', async () => {
+    const frames = installQueuedAnimationFrame();
+    let hostReady = true;
+
+    const mounted = await mountAgentTerminal();
+    const xtermContainer = getXtermContainer();
+    Object.defineProperty(xtermContainer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () =>
+        hostReady
+          ? createDomRectLike({ height: 360, width: 640 })
+          : createDomRectLike({ height: 0, width: 0 }),
+    });
+
+    testState.xtermResult.fit.mockClear();
+    testState.xtermResult.refreshRenderer.mockClear();
+    hostReady = false;
+
+    await mounted.rerender({
+      layoutRefreshKey: 'floating',
+    } as Partial<AgentTerminalProps>);
+
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
+
+    expect(testState.xtermResult.fit).not.toHaveBeenCalled();
+    expect(testState.xtermResult.refreshRenderer).not.toHaveBeenCalled();
+    expect(frames.pendingFrameCount).toBeGreaterThan(0);
+
+    hostReady = true;
+    await act(async () => {
+      frames.flushNextFrame();
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
 
     expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
     expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);

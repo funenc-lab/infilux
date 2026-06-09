@@ -12,6 +12,7 @@ import {
   resolveAgentCapabilityLaunchRequest,
 } from '../services/agent/AgentCapabilityLaunchService';
 import type { PreparedAgentCapabilityLaunch } from '../services/agent/AgentCapabilityProviderAdapter';
+import { codexRuntimeHomeService } from '../services/agent/CodexRuntimeHomeService';
 import { sessionManager } from '../services/session/SessionManager';
 
 function toSessionCreateOptions(options: TerminalCreateOptions = {}): SessionCreateOptions {
@@ -79,6 +80,61 @@ function applyPreparedAgentCapabilityLaunch(
   };
 }
 
+function isCodexLaunchCommand(value: string | undefined): boolean {
+  if (!value?.trim()) {
+    return false;
+  }
+
+  return /(^|[\s;&|])(?:"[^"]*\/codex"|'[^']*\/codex'|[^\s'";&|]*\/codex|codex)(?=[\s'";&|]|$)/i.test(
+    value
+  );
+}
+
+function isCodexAgentSession(options: SessionCreateOptions): boolean {
+  const metadata = options.metadata;
+  const agentId = typeof metadata?.agentId === 'string' ? metadata.agentId : undefined;
+  const agentCommand =
+    typeof metadata?.agentCommand === 'string' ? metadata.agentCommand : undefined;
+
+  return (
+    options.kind === 'agent' &&
+    (agentId === 'codex' ||
+      agentCommand === 'codex' ||
+      isCodexLaunchCommand(options.initialCommand) ||
+      isCodexLaunchCommand(options.shell))
+  );
+}
+
+function ensureCodexRuntimeHome(options: SessionCreateOptions): SessionCreateOptions {
+  if (!isCodexAgentSession(options) || options.env?.CODEX_HOME) {
+    return options;
+  }
+
+  const metadata = options.metadata ?? {};
+  const uiSessionId =
+    typeof metadata.uiSessionId === 'string' && metadata.uiSessionId.length > 0
+      ? metadata.uiSessionId
+      : undefined;
+  const runtimeHome = codexRuntimeHomeService.prepareRuntimeHome(
+    uiSessionId ?? `${options.cwd ?? 'codex'}:${Date.now()}`
+  );
+
+  return {
+    ...options,
+    env: {
+      ...(options.env ?? {}),
+      CODEX_HOME: runtimeHome.homePath,
+    },
+    metadata: {
+      ...metadata,
+      codexRuntimeHome: {
+        homePath: runtimeHome.homePath,
+        sourceHomePath: runtimeHome.sourceHomePath,
+      },
+    },
+  };
+}
+
 async function prepareAgentSessionOptions(
   options: SessionCreateOptions
 ): Promise<SessionCreateOptions> {
@@ -88,15 +144,15 @@ async function prepareAgentSessionOptions(
 
   const launchRequest = resolveAgentCapabilityLaunchRequest(options.metadata);
   if (!launchRequest) {
-    return options;
+    return ensureCodexRuntimeHome(options);
   }
 
   const launchResult = await prepareAgentCapabilityLaunch(launchRequest, options);
   if (!launchResult) {
-    return options;
+    return ensureCodexRuntimeHome(options);
   }
 
-  return applyPreparedAgentCapabilityLaunch(options, launchResult);
+  return ensureCodexRuntimeHome(applyPreparedAgentCapabilityLaunch(options, launchResult));
 }
 
 function resolveSessionTarget(sender: WebContents): WebContents | number {

@@ -150,6 +150,12 @@ export const zhTranslations: Record<string, string> = {
     '远程终端正在重连，输入暂时不可用。',
   'Remote terminal has disconnected. Reconnect the remote host to continue.':
     '远程终端已断开，请重新连接远程主机后继续。',
+  'Terminal session reconnecting...': '终端会话正在重连...',
+  'Terminal input is temporarily disabled while the session reconnects.':
+    '终端会话正在重连，输入暂时不可用。',
+  'Terminal session unavailable': '终端会话不可用',
+  'Terminal session is unavailable. Start a fresh session to continue.':
+    '终端会话不可用。请开启新会话继续。',
   'Resolving the latest preview...': '正在解析最新预览...',
   characters: '字符',
   Chat: '聊天',

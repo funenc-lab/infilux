@@ -25,6 +25,14 @@ describe('shared i18n helpers', () => {
     expect(getTranslation('zh', 'Custom font stack')).toBe('自定义字体栈');
     expect(getTranslation('zh', 'New Session')).toBe('新建会话');
     expect(getTranslation('zh', 'Only show live Agent sessions')).toBe('仅显示活跃 Agent 会话');
+    expect(getTranslation('zh', 'Terminal session unavailable')).toBe('终端会话不可用');
+    expect(
+      getTranslation('zh', 'Terminal session is unavailable. Start a fresh session to continue.')
+    ).toBe('终端会话不可用。请开启新会话继续。');
+    expect(getTranslation('zh', 'Terminal session reconnecting...')).toBe('终端会话正在重连...');
+    expect(
+      getTranslation('zh', 'Terminal input is temporarily disabled while the session reconnects.')
+    ).toBe('终端会话正在重连，输入暂时不可用。');
     expect(getTranslation('zh', 'No matching worktrees')).toBe('没有匹配的 worktree');
     expect(getTranslation('zh', 'Worktree not found')).toBe('Worktree 不存在');
     expect(getTranslation('zh', 'No matches found')).toBe('没有搜索结果');

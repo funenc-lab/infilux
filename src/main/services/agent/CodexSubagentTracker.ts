@@ -641,6 +641,7 @@ export class CodexSubagentTracker {
       resetTrackerStateContents(this.state);
       this.state.offset = 0;
       this.state.remainder = '';
+      await this.hydrateSubagentsFromSessionFiles();
       return;
     }
 

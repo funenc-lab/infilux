@@ -14,4 +14,26 @@ describe('agent terminal focus policy', () => {
     );
     expect(agentTerminalSource).toContain('terminalFocusRef.current?.();');
   });
+
+  it('registers external terminal focus through the IME-safe xterm input helper', () => {
+    expect(agentTerminalSource).toContain(
+      'register(terminalSessionId, write, () => focusXtermTextInput(terminal));'
+    );
+    expect(agentTerminalSource).not.toContain(
+      'register(terminalSessionId, write, () => terminal?.focus());'
+    );
+  });
+
+  it('memoizes capability policy reads so parent rerenders do not parse storage repeatedly', () => {
+    expect(agentTerminalSource).toContain('const agentCapabilityPolicies = useMemo(');
+    expect(agentTerminalSource).toContain('const agentLaunchMetadata = useMemo(');
+    expect(agentTerminalSource).toContain('metadata: agentLaunchMetadata,');
+    expect(agentTerminalSource).not.toContain('const globalPolicy = getClaudeGlobalPolicy();');
+    expect(agentTerminalSource).not.toContain(
+      'const projectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;'
+    );
+    expect(agentTerminalSource).not.toContain(
+      'const worktreePolicy = cwd ? getClaudeWorktreePolicy(cwd) : null;'
+    );
+  });
 });

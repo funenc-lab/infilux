@@ -904,7 +904,14 @@ function createRemoteGlobalPersonalMcpItems(
   claudeJson: Record<string, unknown> | null,
   sourcePath: string
 ): ClaudeMcpCatalogItem[] {
-  return Object.entries(normalizeMcpRecord(claudeJson)).map(([id, config]) =>
+  const mcpServers =
+    claudeJson?.mcpServers &&
+    typeof claudeJson.mcpServers === 'object' &&
+    !Array.isArray(claudeJson.mcpServers)
+      ? (claudeJson.mcpServers as Record<string, McpServerConfig>)
+      : {};
+
+  return Object.entries(mcpServers).map(([id, config]) =>
     createMcpItem({
       id,
       name: id,
