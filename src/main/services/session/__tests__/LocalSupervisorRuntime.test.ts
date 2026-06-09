@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const runtimeTestDoubles = vi.hoisted(() => {
-  const HOME_PATH = '/tmp/home';
-  const RUNTIME_DIR = `${HOME_PATH}/.infilux/local-supervisor`;
-  const INFO_PATH = `${RUNTIME_DIR}/local-supervisor-daemon.json`;
-  const SOURCE_PATH = `${RUNTIME_DIR}/local-supervisor-daemon.js`;
+  const pathSeparator = process.platform === 'win32' ? '\\' : '/';
+  const HOME_PATH = process.platform === 'win32' ? 'C:\\tmp\\home' : '/tmp/home';
+  const joinPath = (...segments: string[]) => segments.join(pathSeparator);
+  const RUNTIME_DIR = joinPath(HOME_PATH, '.infilux', 'local-supervisor');
+  const INFO_PATH = joinPath(RUNTIME_DIR, 'local-supervisor-daemon.json');
+  const SOURCE_PATH = joinPath(RUNTIME_DIR, 'local-supervisor-daemon.js');
 
   type MethodHandler = (params: unknown) => unknown;
 

@@ -76,6 +76,10 @@ function collectTestFilePaths(projectRoot: string): string[] {
   return testFilePaths.sort((left, right) => left.localeCompare(right));
 }
 
+function normalizeReportPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
 function walkDirectory(
   projectRoot: string,
   currentDirectory: string,
@@ -95,7 +99,7 @@ function walkDirectory(
       continue;
     }
 
-    testFilePaths.push(path.relative(projectRoot, entryPath));
+    testFilePaths.push(normalizeReportPath(path.relative(projectRoot, entryPath)));
   }
 }
 
@@ -138,7 +142,7 @@ function defaultTestRunsE2e(packageJson: PackageJson): boolean {
 function buildMetrics(entries: TestFileEntry[]): TestQualityMetrics {
   return {
     totalTestFiles: entries.length,
-    e2eTestFiles: entries.filter((entry) => entry.path.split(path.sep)[0] === 'e2e').length,
+    e2eTestFiles: entries.filter((entry) => entry.path.split('/')[0] === 'e2e').length,
     jsdomTestFiles: entries.filter((entry) => hasJsdomEnvironment(entry.content)).length,
     domRuntimeTestFiles: entries.filter((entry) => isDomRuntimeTest(entry.content)).length,
     sourceIntrospectionTestFiles: entries.filter((entry) =>

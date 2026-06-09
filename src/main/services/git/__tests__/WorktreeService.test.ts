@@ -434,6 +434,7 @@ describe('WorktreeService', () => {
     worktreeServiceTestDoubles.createSimpleGit.mockReturnValue(repoGit);
     worktreeServiceTestDoubles.existsSync.mockReturnValue(true);
     worktreeServiceTestDoubles.rm.mockRejectedValueOnce(new Error('still locked'));
+    worktreeServiceTestDoubles.execAsync.mockRejectedValueOnce(new Error('still locked'));
 
     const service = new WorktreeService('/repo');
 

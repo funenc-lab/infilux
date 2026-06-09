@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { IPC_CHANNELS } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +20,8 @@ type MockCleanupSummary = {
 };
 
 type MockWindow = ReturnType<typeof mainIndexTestDoubles.createWindow>;
+
+const HOST_PLATFORM = process.platform;
 
 function createCompletedCleanupSummary(): MockCleanupSummary {
   return {
@@ -83,7 +85,9 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const whenReady = vi.fn(() => readyPromise);
   const ipcHandle = vi.fn();
   const setApplicationMenu = vi.fn();
-  const netFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+  const netFetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
+    async () => new Response('ok', { status: 200 })
+  );
   const appendFileSync = vi.fn();
   const createReadStream = vi.fn(() => ({
     on: vi.fn((event: string, listener: Listener) => {
@@ -1238,7 +1242,9 @@ describe('main entry', () => {
   });
 
   it('loads shell environment on macOS and exposes helper functions', async () => {
-    process.env.PATH = '/tmp/fake-bin:/usr/bin:/bin';
+    const currentPath = ['/tmp/fake-bin', '/usr/bin', '/bin'].join(delimiter);
+    const shellPath = ['/usr/local/bin', '/usr/bin', '/bin', '/tmp/fake-bin'].join(delimiter);
+    process.env.PATH = currentPath;
     mainIndexTestDoubles.readSharedSettings.mockReturnValue({
       'enso-settings': {
         state: {
@@ -1248,7 +1254,7 @@ describe('main entry', () => {
     });
     mainIndexTestDoubles.shellEnvSync.mockReturnValue({
       SHELL_ENV_READY: '1',
-      PATH: '/usr/local/bin:/usr/bin:/bin:/tmp/fake-bin',
+      PATH: shellPath,
     });
 
     const { __testables } = await importMainModule({
@@ -1256,10 +1262,15 @@ describe('main entry', () => {
     });
 
     expect(process.env.SHELL_ENV_READY).toBe('1');
-    expect(process.env.PATH).toBe('/tmp/fake-bin:/usr/bin:/bin:/usr/local/bin');
-    expect(__testables.mergePathEntries('/tmp/fake-bin:/usr/bin', '/usr/local/bin:/usr/bin')).toBe(
-      '/tmp/fake-bin:/usr/bin:/usr/local/bin'
+    expect(process.env.PATH).toBe(
+      ['/tmp/fake-bin', '/usr/bin', '/bin', '/usr/local/bin'].join(delimiter)
     );
+    expect(
+      __testables.mergePathEntries(
+        ['/tmp/fake-bin', '/usr/bin'].join(delimiter),
+        ['/usr/local/bin', '/usr/bin'].join(delimiter)
+      )
+    ).toBe(['/tmp/fake-bin', '/usr/bin', '/usr/local/bin'].join(delimiter));
     expect(__testables.isPrivateIpLiteral('127.0.0.1')).toBe(true);
     expect(__testables.isPrivateIpLiteral('8.8.8.8')).toBe(false);
     expect(await __testables.isAllowedRemoteImageUrl('https://example.com/image.png')).toBe(true);
@@ -1431,7 +1442,7 @@ describe('main entry', () => {
 
     expect(
       mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs
-    ).toHaveBeenCalledWith(['/mock/appData/Infilux-dev/Local Storage/leveldb']);
+    ).toHaveBeenCalledWith([join('/mock/appData', 'Infilux-dev', 'Local Storage', 'leveldb')]);
     expect(mainIndexTestDoubles.writeSharedSessionState).toHaveBeenCalledWith(
       expect.objectContaining({
         localStorage: {
@@ -2337,7 +2348,12 @@ describe('main entry', () => {
       url: 'local-file:///allowed/file.png',
     });
     expect(localFileResponse.status).toBe(200);
-    expect(mainIndexTestDoubles.netFetch).toHaveBeenCalledWith('file:///allowed/file.png');
+    const localFileFetchUrl = mainIndexTestDoubles.netFetch.mock.calls[0]?.[0];
+    if (HOST_PLATFORM === 'win32') {
+      expect(localFileFetchUrl).toMatch(/^file:\/\/\/[A-Z]:\/allowed\/file\.png$/u);
+    } else {
+      expect(localFileFetchUrl).toBe('file:///allowed/file.png');
+    }
 
     const blockedRemoteResponse = await mainIndexTestDoubles.invokeProtocol('local-image', {
       url: 'local-image://remote-fetch?url=http%3A%2F%2F127.0.0.1%2Fsecret.png',

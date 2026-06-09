@@ -1,4 +1,4 @@
-import { join, resolve } from 'node:path';
+import { posix, resolve, win32 } from 'node:path';
 import {
   LOG_FILE_PREFIX,
   RUNTIME_STATE_DIRNAME,
@@ -13,6 +13,33 @@ export interface DefaultDiagnosticsPaths {
   logDirCandidates: string[];
 }
 
+function normalizeDiagnosticsPath(pathValue: string): string {
+  return pathValue.replace(/\\/g, '/');
+}
+
+function joinDiagnosticsPath(root: string, ...segments: string[]): string {
+  const normalizedRoot = normalizeDiagnosticsPath(root).replace(/\/+$/u, '');
+  const normalizedSegments = segments
+    .map((segment) => normalizeDiagnosticsPath(segment).replace(/^\/+|\/+$/gu, ''))
+    .filter((segment) => segment.length > 0);
+
+  return [normalizedRoot, ...normalizedSegments].filter((segment) => segment.length > 0).join('/');
+}
+
+function resolveDiagnosticsPath(pathValue: string): string {
+  const normalized = normalizeDiagnosticsPath(pathValue);
+
+  if (/^[a-zA-Z]:\//u.test(normalized)) {
+    return normalizeDiagnosticsPath(win32.resolve(pathValue));
+  }
+
+  if (normalized.startsWith('/')) {
+    return posix.resolve(normalized);
+  }
+
+  return normalizeDiagnosticsPath(resolve(pathValue));
+}
+
 export function buildDefaultDiagnosticsPaths({
   homeDir,
   platform,
@@ -22,30 +49,30 @@ export function buildDefaultDiagnosticsPaths({
   platform: NodeJS.Platform;
   appName: string;
 }): DefaultDiagnosticsPaths {
-  const sharedRoot = join(homeDir, RUNTIME_STATE_DIRNAME);
-  const settingsPath = join(sharedRoot, SETTINGS_FILENAME);
-  const sessionPath = join(sharedRoot, SESSION_STATE_FILENAME);
+  const sharedRoot = joinDiagnosticsPath(homeDir, RUNTIME_STATE_DIRNAME);
+  const settingsPath = joinDiagnosticsPath(sharedRoot, SETTINGS_FILENAME);
+  const sessionPath = joinDiagnosticsPath(sharedRoot, SESSION_STATE_FILENAME);
 
   const logDirCandidates =
     platform === 'darwin'
       ? [
-          join(homeDir, 'Library', 'Logs', appName),
-          join(homeDir, 'Library', 'Logs', appName.toLowerCase()),
-          join(homeDir, '.config', appName, 'logs'),
-          join(homeDir, '.config', appName.toLowerCase(), 'logs'),
+          joinDiagnosticsPath(homeDir, 'Library', 'Logs', appName),
+          joinDiagnosticsPath(homeDir, 'Library', 'Logs', appName.toLowerCase()),
+          joinDiagnosticsPath(homeDir, '.config', appName, 'logs'),
+          joinDiagnosticsPath(homeDir, '.config', appName.toLowerCase(), 'logs'),
         ]
       : platform === 'win32'
         ? [
-            join(homeDir, 'AppData', 'Roaming', appName, 'logs'),
-            join(homeDir, 'AppData', 'Local', appName, 'logs'),
-            join(homeDir, 'AppData', 'Roaming', appName.toLowerCase(), 'logs'),
-            join(homeDir, 'AppData', 'Local', appName.toLowerCase(), 'logs'),
+            joinDiagnosticsPath(homeDir, 'AppData', 'Roaming', appName, 'logs'),
+            joinDiagnosticsPath(homeDir, 'AppData', 'Local', appName, 'logs'),
+            joinDiagnosticsPath(homeDir, 'AppData', 'Roaming', appName.toLowerCase(), 'logs'),
+            joinDiagnosticsPath(homeDir, 'AppData', 'Local', appName.toLowerCase(), 'logs'),
           ]
         : [
-            join(homeDir, '.config', appName, 'logs'),
-            join(homeDir, '.config', appName.toLowerCase(), 'logs'),
-            join(homeDir, '.cache', appName, 'logs'),
-            join(homeDir, '.cache', appName.toLowerCase(), 'logs'),
+            joinDiagnosticsPath(homeDir, '.config', appName, 'logs'),
+            joinDiagnosticsPath(homeDir, '.config', appName.toLowerCase(), 'logs'),
+            joinDiagnosticsPath(homeDir, '.cache', appName, 'logs'),
+            joinDiagnosticsPath(homeDir, '.cache', appName.toLowerCase(), 'logs'),
           ];
 
   return {
@@ -129,8 +156,8 @@ export function sanitizeDiagnosticsLines(lines: string[]): string[] {
 
 export function formatDiagnosticsArchivePath(outputDir: string, overridePath?: string): string {
   if (overridePath) {
-    return resolve(overridePath);
+    return resolveDiagnosticsPath(overridePath);
   }
 
-  return `${resolve(outputDir)}.tar.gz`;
+  return `${resolveDiagnosticsPath(outputDir)}.tar.gz`;
 }
