@@ -44,14 +44,12 @@ describe('github action runtime compatibility policy', () => {
     expect(buildWorkflowSource).not.toContain('uses: pnpm/action-setup@v4');
   });
 
-  it('runs the standard quality gates on Windows before packaging', () => {
+  it('keeps Windows release packaging separate from the full test gate', () => {
     const windowsJob = extractWorkflowJob(buildWorkflowSource, 'build-windows', 'build-linux');
 
-    expect(windowsJob).toContain('pnpm typecheck');
-    expect(windowsJob).toContain('pnpm lint');
-    expect(windowsJob).toContain('pnpm test');
-    expect(windowsJob.indexOf('pnpm test')).toBeLessThan(
-      windowsJob.indexOf('npx electron-builder --win --x64')
-    );
+    expect(windowsJob).toContain('npx electron-builder --win --x64');
+    expect(windowsJob).not.toContain('pnpm typecheck');
+    expect(windowsJob).not.toContain('pnpm lint');
+    expect(windowsJob).not.toContain('pnpm test');
   });
 });
