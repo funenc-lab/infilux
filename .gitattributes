@@ -1,0 +1,13 @@
+# Keep text files stable across local development and Windows CI.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
