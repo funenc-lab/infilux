@@ -55,6 +55,15 @@ describe('agentTerminalClipboardPastePolicy', () => {
     expect(hasAgentTerminalClipboardImageSignal(clipboardData)).toBe(true);
   });
 
+  it('detects macOS native clipboard image signals when Chromium exposes no file item', () => {
+    const clipboardData = {
+      items: [],
+      types: ['public.tiff'],
+    } as unknown as DataTransfer;
+
+    expect(hasAgentTerminalClipboardImageSignal(clipboardData)).toBe(true);
+  });
+
   it('treats editable controls as paste owners', () => {
     const textarea = document.createElement('textarea');
     const button = document.createElement('button');

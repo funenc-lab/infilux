@@ -1,3 +1,5 @@
+import { hasAgentClipboardImageSignal } from './agentClipboardImagePastePolicy';
+
 interface AgentClipboardFileDescriptor {
   type: string;
 }
@@ -64,20 +66,7 @@ export function collectAgentTerminalClipboardFiles(clipboardData: DataTransfer):
 }
 
 export function hasAgentTerminalClipboardImageSignal(clipboardData: DataTransfer): boolean {
-  const types = Array.from(clipboardData.types ?? []);
-  if (types.some((type) => type.toLowerCase().startsWith('image/'))) {
-    return true;
-  }
-
-  const items = clipboardData.items;
-  for (let index = 0; index < items.length; index += 1) {
-    const itemType = items[index]?.type?.toLowerCase() ?? '';
-    if (itemType.startsWith('image/')) {
-      return true;
-    }
-  }
-
-  return false;
+  return hasAgentClipboardImageSignal(clipboardData);
 }
 
 export function isEditableAgentTerminalClipboardPasteTarget(target: EventTarget | null): boolean {

@@ -359,12 +359,12 @@ function getXtermContainer(): HTMLDivElement {
   return container as HTMLDivElement;
 }
 
-function createImageSignalPasteEvent(): Event {
+function createImageSignalPasteEvent(types = ['image/png']): Event {
   const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
   Object.defineProperty(pasteEvent, 'clipboardData', {
     value: {
       items: [],
-      types: ['image/png'],
+      types,
     },
   });
   return pasteEvent;
@@ -1550,6 +1550,32 @@ describe('AgentTerminal integration', () => {
   it('pastes clipboard image signals from the terminal without requiring Escape', async () => {
     const mounted = await mountAgentTerminal();
     const pasteEvent = createImageSignalPasteEvent();
+
+    await act(async () => {
+      getXtermContainer().dispatchEvent(pasteEvent);
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(pasteEvent.defaultPrevented).toBe(true);
+    expect(testState.electronAPI.fileSaveClipboardImageToTemp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        format: 'png',
+      })
+    );
+    expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      agentId: 'codex',
+      text: ' /tmp/image.png',
+      submit: false,
+    });
+
+    await mounted.unmount();
+  });
+
+  it('pastes macOS native clipboard image signals from the terminal without requiring Escape', async () => {
+    const mounted = await mountAgentTerminal();
+    const pasteEvent = createImageSignalPasteEvent(['public.tiff']);
 
     await act(async () => {
       getXtermContainer().dispatchEvent(pasteEvent);

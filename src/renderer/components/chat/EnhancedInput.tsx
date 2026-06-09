@@ -18,27 +18,11 @@ import {
   resolveAgentAttachmentTargetsFromFiles,
 } from './agentAttachmentInput';
 import { type AgentAttachmentItem, mergeAgentAttachments } from './agentAttachmentTrayModel';
+import { hasAgentClipboardImageSignal } from './agentClipboardImagePastePolicy';
 
 function getFileName(filePath: string): string {
   const sep = filePath.includes('\\') ? '\\' : '/';
   return filePath.slice(filePath.lastIndexOf(sep) + 1);
-}
-
-function hasClipboardImagePasteSignal(clipboardData: DataTransfer): boolean {
-  const types = Array.from(clipboardData.types ?? []);
-  if (types.some((type) => type.toLowerCase().startsWith('image/'))) {
-    return true;
-  }
-
-  const items = clipboardData.items;
-  for (let index = 0; index < items.length; index += 1) {
-    const itemType = items[index]?.type?.toLowerCase() ?? '';
-    if (itemType.startsWith('image/')) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 interface EnhancedInputProps {
@@ -794,7 +778,7 @@ export function EnhancedInput({
         return;
       }
 
-      if (hasClipboardImagePasteSignal(clipboardData)) {
+      if (hasAgentClipboardImageSignal(clipboardData)) {
         e.preventDefault();
         await pasteCurrentClipboardImageAttachment();
       }

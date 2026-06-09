@@ -151,7 +151,7 @@ describe('EnhancedInput integration', () => {
     Object.defineProperty(pasteEvent, 'clipboardData', {
       value: {
         items: [],
-        types: ['image/png'],
+        types: ['public.tiff'],
       },
     });
 
