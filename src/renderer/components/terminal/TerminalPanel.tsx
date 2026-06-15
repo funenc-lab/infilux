@@ -11,6 +11,7 @@ import {
 } from '@/components/layout/consoleTypography';
 import { useI18n } from '@/i18n';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
+import { isNativeImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { useInitScriptStore } from '@/stores/initScript';
@@ -653,6 +654,7 @@ export function TerminalPanel({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return;
+      if (isNativeImeCompositionKeyEvent(e)) return;
 
       if (matchesKeybinding(e, xtermKeybindings.newTab)) {
         e.preventDefault();

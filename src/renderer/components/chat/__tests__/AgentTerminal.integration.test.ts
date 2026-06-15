@@ -1892,6 +1892,7 @@ describe('AgentTerminal integration', () => {
     } as Partial<AgentTerminalProps>);
     await act(async () => {
       frames.flushNextFrame();
+      frames.flushNextFrame();
       await flushMicrotasks();
     });
 
@@ -1905,12 +1906,13 @@ describe('AgentTerminal integration', () => {
     } as Partial<AgentTerminalProps>);
     await act(async () => {
       frames.flushNextFrame();
+      frames.flushNextFrame();
       await flushMicrotasks();
     });
 
     expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
     expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
-    expect(testState.terminal.focus).toHaveBeenCalledTimes(1);
+    expect(testState.terminal.focus).toHaveBeenCalledTimes(2);
     expect(terminalTextarea.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
     expect(document.activeElement).toBe(terminalTextarea);
 

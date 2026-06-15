@@ -22,6 +22,7 @@ const syncSessions = vi.fn();
 const setTerminalCount = vi.fn();
 const registerTerminalCloseHandler = vi.fn(() => vi.fn());
 const clearPendingScriptSpy = vi.fn();
+const matchesKeybindingSpy = vi.hoisted(() => vi.fn((_event: unknown, _binding: unknown) => false));
 
 const terminalSessionsRendered: Array<{
   cwd?: string;
@@ -96,7 +97,7 @@ vi.mock('@/lib/ghosttyTheme', () => ({
 }));
 
 vi.mock('@/lib/keybinding', () => ({
-  matchesKeybinding: () => false,
+  matchesKeybinding: (event: unknown, binding: unknown) => matchesKeybindingSpy(event, binding),
 }));
 
 vi.mock('@/stores/settings', () => ({
@@ -286,6 +287,8 @@ describe('TerminalPanel integration', () => {
     settingsState.autoCreateSessionOnActivate = false;
     settingsState.autoCreateSessionOnTempActivate = false;
     initScriptState.pendingScript = null;
+    matchesKeybindingSpy.mockReset();
+    matchesKeybindingSpy.mockReturnValue(false);
 
     randomUuidSpy = vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => {
       randomCounter += 1;
@@ -366,6 +369,38 @@ describe('TerminalPanel integration', () => {
 
       expect(view.container.querySelectorAll('[data-testid="shell-terminal"]')).toHaveLength(1);
       expect(view.container.textContent).toContain('Untitled-1');
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it('does not handle terminal shortcuts while IME composition is active', async () => {
+    matchesKeybindingSpy.mockReturnValue(true);
+    const view = await mountTerminalPanel({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      isActive: true,
+    });
+
+    try {
+      const event = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 't',
+        metaKey: true,
+      });
+      Object.defineProperty(event, 'isComposing', {
+        configurable: true,
+        value: true,
+      });
+
+      await act(async () => {
+        window.dispatchEvent(event);
+        await Promise.resolve();
+      });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(view.container.querySelector('[data-testid="shell-terminal"]')).toBeNull();
     } finally {
       await view.unmount();
     }

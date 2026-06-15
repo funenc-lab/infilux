@@ -2,6 +2,9 @@ import type { Terminal } from '@xterm/xterm';
 
 const XTERM_TEXTAREA_SELECTOR =
   'textarea.xterm-helper-textarea, textarea[aria-label="Terminal input"], textarea';
+const XTERM_IME_REARM_ATTRIBUTE = 'data-infilux-xterm-ime-rearm';
+const XTERM_IME_REARM_SELECTOR = `textarea[${XTERM_IME_REARM_ATTRIBUTE}="true"]`;
+const XTERM_IME_REARMING_ATTRIBUTE = 'data-infilux-xterm-ime-rearming';
 const PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE = 'data-infilux-programmatic-xterm-focus';
 
 function isHtmlTextarea(value: unknown): value is HTMLTextAreaElement {
@@ -33,6 +36,45 @@ function prepareTextareaForIme(textarea: HTMLTextAreaElement): void {
   textarea.setAttribute('data-infilux-xterm-ime-ready', 'true');
 }
 
+function applyImeRearmTextareaStyle(textarea: HTMLTextAreaElement): void {
+  Object.assign(textarea.style, {
+    border: '0',
+    height: '1px',
+    left: '0',
+    opacity: '0',
+    padding: '0',
+    pointerEvents: 'none',
+    position: 'fixed',
+    resize: 'none',
+    top: '0',
+    width: '1px',
+    zIndex: '-1',
+  });
+}
+
+function removeExistingImeRearmTextareas(document: Document): void {
+  document.querySelectorAll(XTERM_IME_REARM_SELECTOR).forEach((node) => {
+    node.remove();
+  });
+}
+
+function createImeRearmTextarea(document: Document): HTMLTextAreaElement | null {
+  if (!document.body) {
+    return null;
+  }
+
+  removeExistingImeRearmTextareas(document);
+
+  const textarea = document.createElement('textarea');
+  textarea.setAttribute('aria-hidden', 'true');
+  textarea.setAttribute(XTERM_IME_REARM_ATTRIBUTE, 'true');
+  textarea.tabIndex = -1;
+  applyImeRearmTextareaStyle(textarea);
+  prepareTextareaForIme(textarea);
+  document.body.appendChild(textarea);
+  return textarea;
+}
+
 function focusWithoutScroll(textarea: HTMLTextAreaElement): void {
   textarea.focus({ preventScroll: true });
 }
@@ -44,6 +86,55 @@ function focusXtermTextareaWithoutRearmingBridge(textarea: HTMLTextAreaElement):
   } finally {
     textarea.removeAttribute(PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE);
   }
+}
+
+function requestDocumentAnimationFrame(document: Document, callback: () => void): void {
+  const requestFrame =
+    document.defaultView?.requestAnimationFrame ?? globalThis.requestAnimationFrame;
+  if (requestFrame) {
+    requestFrame(callback);
+    return;
+  }
+
+  globalThis.setTimeout(callback, 0);
+}
+
+function isRearmingIme(textarea: HTMLTextAreaElement): boolean {
+  return textarea.getAttribute(XTERM_IME_REARMING_ATTRIBUTE) === 'true';
+}
+
+function rearmImeThenFocusXterm(terminal: Terminal, textarea: HTMLTextAreaElement): void {
+  if (isRearmingIme(textarea)) {
+    return;
+  }
+
+  const rearmTextarea = createImeRearmTextarea(textarea.ownerDocument);
+  if (!rearmTextarea || rearmTextarea.disabled) {
+    focusXtermTextareaWithoutRearmingBridge(textarea);
+    return;
+  }
+
+  textarea.setAttribute(XTERM_IME_REARMING_ATTRIBUTE, 'true');
+  focusWithoutScroll(rearmTextarea);
+
+  requestDocumentAnimationFrame(textarea.ownerDocument, () => {
+    try {
+      if (!textarea.isConnected || textarea.disabled) {
+        return;
+      }
+
+      terminal.focus();
+      prepareTextareaForIme(textarea);
+      focusXtermTextareaWithoutRearmingBridge(textarea);
+    } finally {
+      rearmTextarea.remove();
+      textarea.removeAttribute(XTERM_IME_REARMING_ATTRIBUTE);
+    }
+  });
+}
+
+function hasPendingNativeInput(textarea: HTMLTextAreaElement): boolean {
+  return textarea.value.length > 0;
 }
 
 export function focusXtermTextInput(terminal: Terminal | null | undefined): void {
@@ -60,11 +151,11 @@ export function focusXtermTextInput(terminal: Terminal | null | undefined): void
 
   prepareTextareaForIme(textarea);
 
-  if (textarea.ownerDocument.activeElement === textarea) {
+  if (textarea.ownerDocument.activeElement === textarea && hasPendingNativeInput(textarea)) {
     return;
   }
 
-  focusXtermTextareaWithoutRearmingBridge(textarea);
+  rearmImeThenFocusXterm(terminal, textarea);
 }
 
 export function installXtermImeFocusBridge(terminal: Terminal | null | undefined): {
@@ -80,11 +171,15 @@ export function installXtermImeFocusBridge(terminal: Terminal | null | undefined
   }
 
   const handleFocusIn = () => {
-    if (textarea.getAttribute(PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE) === 'true') {
+    if (
+      textarea.getAttribute(PROGRAMMATIC_XTERM_FOCUS_ATTRIBUTE) === 'true' ||
+      isRearmingIme(textarea)
+    ) {
       return;
     }
 
     prepareTextareaForIme(textarea);
+    rearmImeThenFocusXterm(terminal, textarea);
   };
 
   textarea.addEventListener('focusin', handleFocusIn);

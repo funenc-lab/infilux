@@ -57,6 +57,7 @@ const testState = vi.hoisted(() => ({
   navigationToFile: vi.fn(),
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
+  terminalDataHandler: null as ((data: string) => void) | null,
   textareaEventTypes: [] as string[],
   latestTextarea: null as HTMLTextAreaElement | null,
   terminalFocus: vi.fn(),
@@ -145,8 +146,15 @@ vi.mock('@xterm/xterm', () => ({
     onTitleChange(): { dispose: () => void } {
       return { dispose: () => undefined };
     }
-    onData(): { dispose: () => void } {
-      return { dispose: () => undefined };
+    onData(handler: (data: string) => void): { dispose: () => void } {
+      testState.terminalDataHandler = handler;
+      return {
+        dispose: () => {
+          if (testState.terminalDataHandler === handler) {
+            testState.terminalDataHandler = null;
+          }
+        },
+      };
     }
     attachCustomKeyEventHandler(): void {}
   },
@@ -428,6 +436,7 @@ describe('useXterm startup loading state', () => {
     testState.navigationToFile.mockClear();
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
+    testState.terminalDataHandler = null;
     testState.textareaEventTypes = [];
     testState.latestTextarea = null;
     testState.terminalFocus.mockClear();
@@ -560,7 +569,24 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('prepares the real xterm textarea as the IME input target during activation refresh', async () => {
+  it('writes composed xterm input data to the live pty session', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalDataHandler).toBeTypeOf('function');
+
+    act(() => {
+      testState.terminalDataHandler?.('\u4f60\u597d');
+    });
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', '\u4f60\u597d');
+
+    await mounted.unmount();
+  });
+
+  it('rearms and prepares the real xterm textarea as the IME input target during activation refresh', async () => {
     const mounted = mountHookHarness();
     await act(async () => {
       await flushMicrotasks();
@@ -573,7 +599,7 @@ describe('useXterm startup loading state', () => {
       testState.activationRefreshCalls[0]?.focus();
     });
 
-    expect(testState.terminalFocus).toHaveBeenCalledTimes(1);
+    expect(testState.terminalFocus).toHaveBeenCalledTimes(2);
     expect(testState.latestTextarea?.inputMode).toBe('text');
     expect(testState.latestTextarea?.spellcheck).toBe(false);
     expect(testState.latestTextarea?.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
@@ -582,6 +608,7 @@ describe('useXterm startup loading state', () => {
     expect(testState.latestTextarea?.style.opacity).toBe('');
     expect(testState.latestTextarea?.style.zIndex).toBe('');
     expect(testState.latestTextarea?.style.pointerEvents).toBe('');
+    expect(document.querySelector('textarea[data-infilux-xterm-ime-rearm="true"]')).toBeNull();
     expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).toBeNull();
     expect(document.activeElement).toBe(testState.latestTextarea);
 
