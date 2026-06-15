@@ -1,10 +1,12 @@
 import type { OutputState } from '@/stores/agentSessions';
+import type { AgentAttachmentSource } from './agentAttachmentInput';
 
 interface AgentTerminalAttachmentInsertOptions {
   attachmentCount: number;
   outputState: OutputState;
   runtimeState: 'live' | 'reconnecting' | 'dead';
   sessionId?: string | null;
+  source?: AgentAttachmentSource;
   waitingForInput?: boolean;
 }
 
@@ -22,6 +24,10 @@ export function resolveAgentTerminalAttachmentInsertDisposition(
   }
 
   if (options.waitingForInput) {
+    return 'insert';
+  }
+
+  if (options.source === 'clipboard') {
     return 'insert';
   }
 

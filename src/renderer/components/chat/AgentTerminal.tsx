@@ -906,7 +906,7 @@ export function AgentTerminal({
   }, [dispatchTerminalAttachmentInsert, inputDispatchSessionId, waitingForInput]);
 
   const insertTerminalAttachmentText = useCallback(
-    (nextAttachments: AgentAttachmentItem[]) => {
+    (nextAttachments: AgentAttachmentItem[], source: AgentAttachmentSource = 'unknown') => {
       if (nextAttachments.length === 0) {
         return;
       }
@@ -916,6 +916,7 @@ export function AgentTerminal({
         attachmentCount: nextAttachments.length,
         runtimeState: runtimeStateRef.current,
         outputState: outputStateRef.current,
+        source,
         waitingForInput,
       });
 
@@ -941,9 +942,9 @@ export function AgentTerminal({
   );
 
   const handleResolvedAttachmentTargets = useCallback(
-    (nextDraftAttachments: AgentAttachmentItem[]) => {
+    (nextDraftAttachments: AgentAttachmentItem[], source: AgentAttachmentSource = 'unknown') => {
       if (supportsNativeTerminalInput) {
-        insertTerminalAttachmentText(nextDraftAttachments);
+        insertTerminalAttachmentText(nextDraftAttachments, source);
         return;
       }
       appendDraftAttachments(nextDraftAttachments);
@@ -1043,7 +1044,7 @@ export function AgentTerminal({
       });
 
       if (result.success && result.path) {
-        handleResolvedAttachmentTargets(mergeAgentAttachments([], [result.path]));
+        handleResolvedAttachmentTargets(mergeAgentAttachments([], [result.path]), 'clipboard');
         return;
       }
 
@@ -1121,7 +1122,7 @@ export function AgentTerminal({
         saveClipboardImageToTemp,
         saveFileToTemp: saveAttachmentToTemp,
       });
-      handleResolvedAttachmentTargets(targets.draftAttachments);
+      handleResolvedAttachmentTargets(targets.draftAttachments, source);
     },
     [
       handleResolvedAttachmentTargets,

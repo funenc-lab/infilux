@@ -1573,6 +1573,48 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('pastes clipboard image signals during output without requiring Escape', async () => {
+    const mounted = await mountAgentTerminal();
+    const lastUseXtermCall = testState.useXtermOptions.at(-1) as
+      | {
+          onData?: (data: string) => void;
+          onCustomKey?: (event: KeyboardEvent, ptyId: string) => boolean;
+        }
+      | undefined;
+
+    await act(async () => {
+      lastUseXtermCall?.onCustomKey?.(
+        new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }),
+        'backend-session-1'
+      );
+      lastUseXtermCall?.onData?.('agent is still streaming output'.repeat(10));
+      await flushMicrotasks();
+    });
+    expect(testState.agentSessionsStore.setOutputState).toHaveBeenCalledWith(
+      'ui-session-1',
+      'outputting',
+      true
+    );
+
+    const pasteEvent = createImageSignalPasteEvent();
+
+    await act(async () => {
+      getXtermContainer().dispatchEvent(pasteEvent);
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(pasteEvent.defaultPrevented).toBe(true);
+    expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      agentId: 'codex',
+      text: ' /tmp/image.png',
+      submit: false,
+    });
+
+    await mounted.unmount();
+  });
+
   it('pastes macOS native clipboard image signals from the terminal without requiring Escape', async () => {
     const mounted = await mountAgentTerminal();
     const pasteEvent = createImageSignalPasteEvent(['public.tiff']);

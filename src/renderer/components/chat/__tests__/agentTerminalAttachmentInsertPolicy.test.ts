@@ -29,6 +29,19 @@ describe('agentTerminalAttachmentInsertPolicy', () => {
     expect(canInsertAgentTerminalAttachments(waitingForInputOptions)).toBe(true);
   });
 
+  it('allows direct terminal insertion for clipboard pasted attachments during output', () => {
+    const clipboardPasteOptions = {
+      sessionId: 'backend-1',
+      attachmentCount: 1,
+      runtimeState: 'live' as const,
+      outputState: 'outputting' as const,
+      source: 'clipboard' as const,
+    };
+
+    expect(resolveAgentTerminalAttachmentInsertDisposition(clipboardPasteOptions)).toBe('insert');
+    expect(canInsertAgentTerminalAttachments(clipboardPasteOptions)).toBe(true);
+  });
+
   it('blocks direct terminal insertion when the current session is still outputting', () => {
     expect(
       canInsertAgentTerminalAttachments({
