@@ -28,6 +28,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const destroyAllLocalAndWait = vi.fn();
   const prepareAgentCapabilityLaunch = vi.fn();
   const prepareRuntimeHome = vi.fn();
+  const runExclusive = vi.fn();
   const browserWindowFromWebContents = vi.fn();
 
   function reset() {
@@ -112,6 +113,11 @@ const sessionTestDoubles = vi.hoisted(() => {
       sourceHomePath: '/Users/test/.codex',
     });
 
+    runExclusive.mockReset();
+    runExclusive.mockImplementation(async (_runtimeKey: string, operation: () => unknown) =>
+      operation()
+    );
+
     browserWindowFromWebContents.mockReset();
     browserWindowFromWebContents.mockReturnValue(null);
   }
@@ -131,6 +137,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     destroyAllLocalAndWait,
     prepareAgentCapabilityLaunch,
     prepareRuntimeHome,
+    runExclusive,
     browserWindowFromWebContents,
     reset,
   };
@@ -194,6 +201,7 @@ vi.mock('../../services/agent/AgentCapabilityLaunchService', () => ({
 vi.mock('../../services/agent/CodexRuntimeHomeService', () => ({
   codexRuntimeHomeService: {
     prepareRuntimeHome: sessionTestDoubles.prepareRuntimeHome,
+    runExclusive: sessionTestDoubles.runExclusive,
   },
 }));
 
@@ -328,6 +336,68 @@ describe('session IPC handlers', () => {
         }),
       })
     );
+  });
+
+  it('serializes Codex agent creation by UI session id before starting the runtime process', async () => {
+    const event = createEvent();
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      initialCommand: 'codex',
+      metadata: {
+        uiSessionId: 'ui-session-lock',
+        agentId: 'codex',
+        agentCommand: 'codex',
+      },
+    });
+
+    expect(sessionTestDoubles.runExclusive).toHaveBeenCalledWith(
+      'ui-session-lock',
+      expect.any(Function)
+    );
+    expect(sessionTestDoubles.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes Codex capability launches by UI session id before preparing launch metadata', async () => {
+    const event = createEvent();
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+
+    await createHandler(event, {
+      cwd: '/repo/worktrees/feature-a',
+      kind: 'agent',
+      metadata: {
+        uiSessionId: 'ui-session-capability-lock',
+        agentCapabilityLaunch: {
+          provider: 'codex',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          globalPolicy: null,
+          projectPolicy: null,
+          worktreePolicy: null,
+          sessionPolicy: null,
+          materializationMode: 'provider-native',
+        },
+      },
+    });
+
+    expect(sessionTestDoubles.runExclusive).toHaveBeenCalledWith(
+      'ui-session-capability-lock',
+      expect.any(Function)
+    );
+    expect(sessionTestDoubles.prepareAgentCapabilityLaunch).toHaveBeenCalledTimes(1);
+    expect(sessionTestDoubles.create).toHaveBeenCalledTimes(1);
   });
 
   it('preserves explicit Codex home overrides on Codex agent sessions', async () => {

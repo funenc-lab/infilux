@@ -165,6 +165,8 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const autoUpdaterAttachWindow = vi.fn();
   const autoUpdaterIsQuittingForUpdate = vi.fn(() => false);
   const persistentAgentSessionRepositoryInitialize = vi.fn(async () => undefined);
+  const persistentAgentSessionRepositorySetActiveCodexRuntimeHomeProvider = vi.fn();
+  const sessionManagerListActiveCodexRuntimeHomePaths = vi.fn<() => string[]>(() => []);
   const customProtocolUriToPath = vi.fn((_url: string) => '/mock/image.png');
   const trayInit = vi.fn();
   const trayRefreshMenu = vi.fn();
@@ -502,6 +504,8 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       autoUpdaterAttachWindow,
       autoUpdaterIsQuittingForUpdate,
       persistentAgentSessionRepositoryInitialize,
+      persistentAgentSessionRepositorySetActiveCodexRuntimeHomeProvider,
+      sessionManagerListActiveCodexRuntimeHomePaths,
       customProtocolUriToPath,
       trayInit,
       trayRefreshMenu,
@@ -572,6 +576,9 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     todoExportAllTasks.mockResolvedValue([{ id: 'board-1' }]);
     todoClose.mockResolvedValue(undefined);
     persistentAgentSessionRepositoryInitialize.mockResolvedValue(undefined);
+    persistentAgentSessionRepositorySetActiveCodexRuntimeHomeProvider.mockReset();
+    sessionManagerListActiveCodexRuntimeHomePaths.mockReset();
+    sessionManagerListActiveCodexRuntimeHomePaths.mockReturnValue([]);
     autoUpdaterIsQuittingForUpdate.mockReturnValue(false);
     customProtocolUriToPath.mockImplementation((_url: string) => '/mock/image.png');
     trayInit.mockReset();
@@ -721,6 +728,8 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     autoUpdaterAttachWindow,
     autoUpdaterIsQuittingForUpdate,
     persistentAgentSessionRepositoryInitialize,
+    persistentAgentSessionRepositorySetActiveCodexRuntimeHomeProvider,
+    sessionManagerListActiveCodexRuntimeHomePaths,
     customProtocolUriToPath,
     trayInit,
     trayRefreshMenu,
@@ -905,6 +914,15 @@ vi.mock('../services/SharedSessionState', () => ({
 vi.mock('../services/session/PersistentAgentSessionRepository', () => ({
   persistentAgentSessionRepository: {
     initialize: mainIndexTestDoubles.persistentAgentSessionRepositoryInitialize,
+    setActiveCodexRuntimeHomeProvider:
+      mainIndexTestDoubles.persistentAgentSessionRepositorySetActiveCodexRuntimeHomeProvider,
+  },
+}));
+
+vi.mock('../services/session/SessionManager', () => ({
+  sessionManager: {
+    listActiveCodexRuntimeHomePaths:
+      mainIndexTestDoubles.sessionManagerListActiveCodexRuntimeHomePaths,
   },
 }));
 
@@ -1540,6 +1558,17 @@ describe('main entry', () => {
     expect(warnSpy).toHaveBeenCalledWith('Git is not installed. Some features may not work.');
     expect(mainIndexTestDoubles.registerIpcHandlers).toHaveBeenCalledTimes(1);
     expect(mainIndexTestDoubles.registerClaudeBridgeIpcHandlers).toHaveBeenCalledTimes(1);
+    expect(
+      mainIndexTestDoubles.persistentAgentSessionRepositorySetActiveCodexRuntimeHomeProvider
+    ).toHaveBeenCalledWith(expect.any(Function));
+    mainIndexTestDoubles.sessionManagerListActiveCodexRuntimeHomePaths.mockReturnValue([
+      '/runtime/codex/live-session',
+    ]);
+    const activeRuntimeHomeProvider = mainIndexTestDoubles
+      .persistentAgentSessionRepositorySetActiveCodexRuntimeHomeProvider.mock.calls[0]?.[0] as
+      | (() => string[])
+      | undefined;
+    expect(activeRuntimeHomeProvider?.()).toEqual(['/runtime/codex/live-session']);
     expect(mainIndexTestDoubles.persistentAgentSessionRepositoryInitialize).toHaveBeenCalledTimes(
       1
     );

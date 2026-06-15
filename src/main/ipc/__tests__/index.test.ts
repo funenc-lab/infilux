@@ -337,6 +337,7 @@ vi.mock('../agentSubagent', () => ({
 }));
 
 vi.mock('../../services/SharedSessionState', () => ({
+  getSharedRootPath: vi.fn(() => '/tmp/infilux-test'),
   readPersistentAgentSessions: vi.fn(() => []),
 }));
 

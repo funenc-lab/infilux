@@ -122,6 +122,7 @@ import {
   writeSharedSettings,
 } from './services/SharedSessionState';
 import { persistentAgentSessionRepository } from './services/session/PersistentAgentSessionRepository';
+import { sessionManager } from './services/session/SessionManager';
 import {
   findLegacySettingsImportSourcePath,
   readElectronLocalStorageSnapshotFromLevelDbDirs,
@@ -805,6 +806,10 @@ async function init(): Promise<void> {
 
   // Register Claude IDE Bridge IPC handlers (bridge starts when enabled in settings)
   registerClaudeBridgeIpcHandlers();
+
+  persistentAgentSessionRepository.setActiveCodexRuntimeHomeProvider(() =>
+    sessionManager.listActiveCodexRuntimeHomePaths()
+  );
 
   runDeferredStartupTask('git installation check', async () => {
     const gitInstalled = await checkGitInstalled();

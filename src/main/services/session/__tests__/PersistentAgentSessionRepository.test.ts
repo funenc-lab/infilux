@@ -171,6 +171,7 @@ const repositoryTestDoubles = vi.hoisted(() => {
 
   const appGetPath = vi.fn();
   const readPersistentAgentSessions = vi.fn<() => PersistentAgentSessionRecord[]>(() => []);
+  const pruneOrphanedRuntimeHomes = vi.fn();
   const databases: FakeDatabase[] = [];
   const sqlite3 = {
     OPEN_READWRITE: 1,
@@ -220,6 +221,12 @@ const repositoryTestDoubles = vi.hoisted(() => {
     );
     readPersistentAgentSessions.mockReset();
     readPersistentAgentSessions.mockReturnValue([]);
+    pruneOrphanedRuntimeHomes.mockReset();
+    pruneOrphanedRuntimeHomes.mockReturnValue({
+      prunedHomePaths: [],
+      retainedHomePaths: [],
+      skippedHomePaths: [],
+    });
     sqlite3.Database.mockClear();
     databases.length = 0;
     state.rows = [];
@@ -237,6 +244,7 @@ const repositoryTestDoubles = vi.hoisted(() => {
     registerMainProcessDiagnosticsCollector,
     appGetPath,
     readPersistentAgentSessions,
+    pruneOrphanedRuntimeHomes,
     sqlite3,
     databases,
     state,
@@ -270,6 +278,12 @@ vi.mock('../../SharedSessionState', async () => {
 vi.mock('../../../utils/mainProcessDiagnostics', () => ({
   registerMainProcessDiagnosticsCollector:
     repositoryTestDoubles.registerMainProcessDiagnosticsCollector,
+}));
+
+vi.mock('../../agent/CodexRuntimeHomeService', () => ({
+  codexRuntimeHomeService: {
+    pruneOrphanedRuntimeHomes: repositoryTestDoubles.pruneOrphanedRuntimeHomes,
+  },
 }));
 
 function makeRecord(
@@ -645,6 +659,63 @@ describe('PersistentAgentSessionRepository', () => {
           uiSessionId: 'fresh-live-session',
         }),
       ]);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
+  it('prunes orphaned Codex runtime homes using the remaining Codex session ids', async () => {
+    const staleTimestamp = Date.parse('2026-01-01T00:00:00.000Z');
+    const liveTimestamp = Date.parse('2026-04-09T00:00:00.000Z');
+    const now = Date.parse('2026-04-10T00:00:00.000Z');
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+
+    try {
+      repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([
+        makeRecord({
+          uiSessionId: 'stale-codex-session',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          displayName: 'Codex Stale',
+          lastKnownState: 'dead',
+          updatedAt: staleTimestamp,
+        }),
+        makeRecord({
+          uiSessionId: 'live-codex-session',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          displayName: 'Codex Live',
+          lastKnownState: 'live',
+          updatedAt: liveTimestamp,
+        }),
+        makeRecord({
+          uiSessionId: 'live-claude-session',
+          agentId: 'claude',
+          agentCommand: 'claude',
+          displayName: 'Claude Live',
+          lastKnownState: 'live',
+          updatedAt: liveTimestamp,
+        }),
+      ]);
+
+      const { PersistentAgentSessionRepository } = await import(
+        '../PersistentAgentSessionRepository'
+      );
+      const repository = new PersistentAgentSessionRepository();
+      (
+        repository as unknown as {
+          setActiveCodexRuntimeHomeProvider(provider: () => Iterable<string>): void;
+        }
+      ).setActiveCodexRuntimeHomeProvider(() => ['/runtime/codex/active-ephemeral-session']);
+
+      await repository.initialize();
+
+      expect(repositoryTestDoubles.pruneOrphanedRuntimeHomes).toHaveBeenCalledWith({
+        retainedRuntimeKeys: ['live-codex-session'],
+        retainedHomePaths: ['/runtime/codex/active-ephemeral-session'],
+        minAgeMs: 30 * 24 * 60 * 60 * 1_000,
+        now,
+      });
     } finally {
       dateNowSpy.mockRestore();
     }

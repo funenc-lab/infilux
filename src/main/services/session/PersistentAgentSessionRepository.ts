@@ -2,13 +2,18 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import sqlite3 from 'sqlite3';
+import log from '../../utils/logger';
 import { registerMainProcessDiagnosticsCollector } from '../../utils/mainProcessDiagnostics';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
+import { codexRuntimeHomeService } from '../agent/CodexRuntimeHomeService';
 import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSessionState';
 
 const BUSY_TIMEOUT_MS = 3000;
 const STALE_PERSISTENT_SESSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+const RUNTIME_HOME_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const MAX_METADATA_BYTES = 64 * 1024;
+
+type ActiveCodexRuntimeHomeProvider = () => Iterable<string>;
 
 interface PersistentAgentSessionRow {
   ui_session_id: string;
@@ -281,6 +286,8 @@ export class PersistentAgentSessionRepository {
   private db: sqlite3.Database | null = null;
   private initializePromise: Promise<void> | null = null;
   private cache: PersistentAgentSessionRecord[] = [];
+  private lastRuntimeHomePrunedAt: number | null = null;
+  private activeCodexRuntimeHomeProvider: ActiveCodexRuntimeHomeProvider = () => [];
   private diagnostics = {
     initializeCalls: 0,
     listSessionsCalls: 0,
@@ -299,6 +306,10 @@ export class PersistentAgentSessionRepository {
     registerMainProcessDiagnosticsCollector('persistentAgentSessions', () =>
       this.getDiagnosticsSnapshot()
     );
+  }
+
+  setActiveCodexRuntimeHomeProvider(provider: ActiveCodexRuntimeHomeProvider): void {
+    this.activeCodexRuntimeHomeProvider = provider;
   }
 
   async initialize(): Promise<void> {
@@ -486,6 +497,7 @@ export class PersistentAgentSessionRepository {
 
     if (staleSessionIds.length === 0) {
       this.diagnostics.lastPrunedSessionIds = [];
+      this.pruneCodexRuntimeHomes(now);
       return;
     }
 
@@ -498,6 +510,45 @@ export class PersistentAgentSessionRepository {
     );
     this.cache = removeCachedSessions(this.cache, staleSessionIds);
     this.diagnostics.lastPrunedSessionIds = [...staleSessionIds];
+    this.pruneCodexRuntimeHomes(now);
+  }
+
+  private pruneCodexRuntimeHomes(now: number): void {
+    if (
+      this.lastRuntimeHomePrunedAt !== null &&
+      now - this.lastRuntimeHomePrunedAt < RUNTIME_HOME_PRUNE_INTERVAL_MS
+    ) {
+      return;
+    }
+    this.lastRuntimeHomePrunedAt = now;
+
+    const retainedRuntimeKeys = this.cache
+      .filter((record) => record.agentId === 'codex' || record.agentCommand === 'codex')
+      .map((record) => record.uiSessionId);
+    const retainedHomePaths = this.listActiveCodexRuntimeHomePaths();
+
+    try {
+      codexRuntimeHomeService.pruneOrphanedRuntimeHomes({
+        retainedRuntimeKeys,
+        retainedHomePaths,
+        minAgeMs: STALE_PERSISTENT_SESSION_RETENTION_MS,
+        now,
+      });
+    } catch (error) {
+      log.warn('[PersistentAgentSessionRepository] Failed to prune Codex runtime homes:', error);
+    }
+  }
+
+  private listActiveCodexRuntimeHomePaths(): string[] {
+    try {
+      return [...this.activeCodexRuntimeHomeProvider()].filter(isNonEmptyString);
+    } catch (error) {
+      log.warn(
+        '[PersistentAgentSessionRepository] Failed to resolve active Codex runtime homes:',
+        error
+      );
+      return [];
+    }
   }
 
   private async writeRecord(record: PersistentAgentSessionRecord): Promise<void> {

@@ -87,6 +87,18 @@ function getPersistentUiSessionId(
   return typeof uiSessionId === 'string' && uiSessionId.length > 0 ? uiSessionId : undefined;
 }
 
+function getCodexRuntimeHomePath(
+  metadata: Record<string, unknown> | undefined
+): string | undefined {
+  const runtimeHome = metadata?.codexRuntimeHome;
+  if (!runtimeHome || typeof runtimeHome !== 'object' || Array.isArray(runtimeHome)) {
+    return undefined;
+  }
+
+  const homePath = (runtimeHome as { homePath?: unknown }).homePath;
+  return typeof homePath === 'string' && homePath.length > 0 ? homePath : undefined;
+}
+
 function shouldAbandonPersistentRecordOnLocalExit(session: ManagedSessionRecord): boolean {
   if (session.kind !== 'agent') {
     return false;
@@ -255,6 +267,17 @@ export class SessionManager {
     return [...this.sessions.values()]
       .filter((session) => session.attachedWindowIds.has(windowId))
       .map((session) => this.toDescriptor(session));
+  }
+
+  listActiveCodexRuntimeHomePaths(): string[] {
+    const homePaths = new Set<string>();
+    for (const session of this.sessions.values()) {
+      const homePath = getCodexRuntimeHomePath(session.metadata);
+      if (homePath) {
+        homePaths.add(homePath);
+      }
+    }
+    return [...homePaths];
   }
 
   async detach(target: BrowserWindow | WebContents | number, sessionId: string): Promise<void> {

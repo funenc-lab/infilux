@@ -90,6 +90,16 @@ function isCodexLaunchCommand(value: string | undefined): boolean {
   );
 }
 
+function isCodexCapabilityLaunch(metadata: SessionCreateOptions['metadata']): boolean {
+  const launch = metadata?.agentCapabilityLaunch;
+  return (
+    Boolean(launch) &&
+    typeof launch === 'object' &&
+    !Array.isArray(launch) &&
+    (launch as { provider?: unknown }).provider === 'codex'
+  );
+}
+
 function isCodexAgentSession(options: SessionCreateOptions): boolean {
   const metadata = options.metadata;
   const agentId = typeof metadata?.agentId === 'string' ? metadata.agentId : undefined;
@@ -100,6 +110,7 @@ function isCodexAgentSession(options: SessionCreateOptions): boolean {
     options.kind === 'agent' &&
     (agentId === 'codex' ||
       agentCommand === 'codex' ||
+      isCodexCapabilityLaunch(metadata) ||
       isCodexLaunchCommand(options.initialCommand) ||
       isCodexLaunchCommand(options.shell))
   );
@@ -133,6 +144,15 @@ function ensureCodexRuntimeHome(options: SessionCreateOptions): SessionCreateOpt
       },
     },
   };
+}
+
+function resolveCodexRuntimeHomeLockKey(options: SessionCreateOptions): string | null {
+  if (!isCodexAgentSession(options)) {
+    return null;
+  }
+
+  const uiSessionId = options.metadata?.uiSessionId;
+  return typeof uiSessionId === 'string' && uiSessionId.length > 0 ? uiSessionId : null;
 }
 
 async function prepareAgentSessionOptions(
@@ -175,8 +195,16 @@ export async function destroyAllTerminalsAndWait(): Promise<void> {
 export function registerSessionHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SESSION_CREATE, async (event, options: SessionCreateOptions = {}) => {
     const senderTarget = resolveSessionTarget(event.sender);
-    const preparedOptions = await prepareAgentSessionOptions(options);
-    return sessionManager.create(senderTarget, preparedOptions);
+    const createSession = async () => {
+      const preparedOptions = await prepareAgentSessionOptions(options);
+      return sessionManager.create(senderTarget, preparedOptions);
+    };
+    const codexRuntimeHomeLockKey = resolveCodexRuntimeHomeLockKey(options);
+    if (codexRuntimeHomeLockKey) {
+      return codexRuntimeHomeService.runExclusive(codexRuntimeHomeLockKey, createSession);
+    }
+
+    return createSession();
   });
 
   ipcMain.handle(IPC_CHANNELS.SESSION_ATTACH, async (event, options: SessionAttachOptions) => {
