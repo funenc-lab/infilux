@@ -332,7 +332,7 @@ jobs:
 
   build-windows:
     needs: build-app
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v5

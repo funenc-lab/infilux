@@ -52,4 +52,11 @@ describe('github action runtime compatibility policy', () => {
     expect(windowsJob).not.toContain('pnpm lint');
     expect(windowsJob).not.toContain('pnpm test');
   });
+
+  it('pins Windows release packaging to the Visual Studio 2022 runner image', () => {
+    const windowsJob = extractWorkflowJob(buildWorkflowSource, 'build-windows', 'build-linux');
+
+    expect(windowsJob).toContain('runs-on: windows-2022');
+    expect(windowsJob).not.toContain('runs-on: windows-latest');
+  });
 });
