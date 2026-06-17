@@ -192,7 +192,7 @@ function ensureWindowVisibleOnScreen(win: BrowserWindow, trigger: string): void 
     return;
   }
 
-  console.error('[window] Adjusting window bounds to visible display', {
+  log.warn('[window] Adjusting window bounds to visible display', {
     windowId: win.id,
     trigger,
     before: currentBounds,
@@ -559,7 +559,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
     initialBounds.x !== (state.x ?? initialBounds.x) ||
     initialBounds.y !== (state.y ?? initialBounds.y);
   if (initialBoundsAdjusted) {
-    console.error('[window] Normalized initial bounds to visible display', {
+    log.warn('[window] Normalized initial bounds to visible display', {
       windowId: win.id,
       requestedBounds: state,
       normalizedBounds: initialBounds,

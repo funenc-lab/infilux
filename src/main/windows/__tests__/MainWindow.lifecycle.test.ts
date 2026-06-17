@@ -788,6 +788,25 @@ describe('MainWindow lifecycle', () => {
       x: 0,
       y: 382,
     });
+    expect(mainWindowLifecycleDoubles.logWarn).toHaveBeenCalledWith(
+      '[window] Normalized initial bounds to visible display',
+      expect.objectContaining({
+        windowId: 101,
+        requestedBounds: expect.objectContaining({
+          width: 200,
+          height: 163,
+          x: -271,
+          y: 505,
+        }),
+        normalizedBounds: {
+          width: 685,
+          height: 600,
+          x: 0,
+          y: 382,
+        },
+      })
+    );
+    expect(mainWindowLifecycleDoubles.logError).not.toHaveBeenCalled();
   });
 
   it('reveals the window when did-finish-load fires before ready-to-show', async () => {
@@ -858,6 +877,26 @@ describe('MainWindow lifecycle', () => {
       x: 0,
       y: 382,
     });
+    expect(mainWindowLifecycleDoubles.logWarn).toHaveBeenCalledWith(
+      '[window] Adjusting window bounds to visible display',
+      expect.objectContaining({
+        windowId: 101,
+        trigger: 'reveal',
+        before: {
+          width: 200,
+          height: 163,
+          x: -271,
+          y: 505,
+        },
+        after: {
+          width: 685,
+          height: 600,
+          x: 0,
+          y: 382,
+        },
+      })
+    );
+    expect(mainWindowLifecycleDoubles.logError).not.toHaveBeenCalled();
     expect(win.show).toHaveBeenCalledTimes(1);
   });
 
