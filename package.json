@@ -1,6 +1,6 @@
 {
   "name": "infilux",
-  "version": "0.4.18",
+  "version": "0.4.19",
   "description": "Infilux - Git Worktree Manager with AI Agent",
   "main": "./out/main/index.cjs",
   "author": {
@@ -130,6 +130,15 @@
       "app-builder-lib": "26.4.0",
       "electron-builder-squirrel-windows": "26.4.0"
     },
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "@vscode/ripgrep",
+      "cloudflared",
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "node-pty"
+    ],
     "ignoredBuiltDependencies": [
       "sqlite3"
     ]
