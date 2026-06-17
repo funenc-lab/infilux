@@ -543,6 +543,17 @@ describe('agent canvas viewport helpers', () => {
     const module = await import('../agentCanvasViewport').catch(() => null);
 
     expect(
+      module?.resolveAgentCanvasFloatingTerminalViewportFrame({
+        frameHeight: 576,
+        frameWidth: 768,
+        reservedChromeHeight: 57,
+      })
+    ).toEqual({
+      height: 519,
+      width: 768,
+    });
+
+    expect(
       module?.resolveAgentCanvasFloatingTerminalFontScale({
         frameHeight: 720,
         frameWidth: 960,

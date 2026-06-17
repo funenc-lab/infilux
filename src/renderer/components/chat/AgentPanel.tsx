@@ -126,6 +126,7 @@ import {
   resolveAgentCanvasElementFocusTarget,
   resolveAgentCanvasFloatingFrame,
   resolveAgentCanvasFloatingTerminalFontScale,
+  resolveAgentCanvasFloatingTerminalViewportFrame,
   resolveAgentCanvasFocusScrollPosition,
   resolveAgentCanvasScrollBehavior,
   resolveAgentCanvasViewportMetrics,
@@ -1683,9 +1684,14 @@ export function AgentPanel({
       return 1;
     }
 
-    return resolveAgentCanvasFloatingTerminalFontScale({
+    const floatingTerminalFrame = resolveAgentCanvasFloatingTerminalViewportFrame({
       frameHeight: canvasFloatingFrame.height,
       frameWidth: canvasFloatingFrame.width,
+    });
+
+    return resolveAgentCanvasFloatingTerminalFontScale({
+      frameHeight: floatingTerminalFrame.height,
+      frameWidth: floatingTerminalFrame.width,
     });
   }, [canvasFloatingFrame]);
   const canvasZoomTerminalFontScale = useMemo(
@@ -5104,7 +5110,7 @@ export function AgentPanel({
               </div>
             </div>
             <CanvasSessionContentOutlet
-              className="min-h-0 flex-1"
+              className="min-h-0 w-full flex-1 overflow-hidden"
               hostElement={sessionContentHost}
             />
           </div>,

@@ -9,6 +9,7 @@ export const AGENT_CANVAS_FLOATING_TERMINAL_FONT_SCALE_MIN = 0.9;
 export const AGENT_CANVAS_FLOATING_TERMINAL_FONT_SCALE_MAX = 1.6;
 export const AGENT_CANVAS_FLOATING_TERMINAL_REFERENCE_WIDTH = 720;
 export const AGENT_CANVAS_FLOATING_TERMINAL_REFERENCE_HEIGHT = 540;
+export const AGENT_CANVAS_FLOATING_TERMINAL_RESERVED_CHROME_HEIGHT = 57;
 export const AGENT_CANVAS_ZOOM_TERMINAL_FONT_SCALE_MIN = 0.85;
 export const AGENT_CANVAS_ZOOM_TERMINAL_FONT_SCALE_MAX = 1.25;
 export const AGENT_CANVAS_ZOOM_TERMINAL_FONT_SCALE_STEP = 0.05;
@@ -564,6 +565,28 @@ export function resolveAgentCanvasFloatingFrame(dimensions: {
     left: dimensions.viewportLeft + (dimensions.viewportWidth - width) / 2,
     top: dimensions.viewportTop + (dimensions.viewportHeight - height) / 2,
     width,
+  };
+}
+
+export function resolveAgentCanvasFloatingTerminalViewportFrame(dimensions: {
+  frameHeight: number;
+  frameWidth: number;
+  reservedChromeHeight?: number;
+}): {
+  height: number;
+  width: number;
+} {
+  const requestedReservedChromeHeight = dimensions.reservedChromeHeight;
+  const reservedChromeHeight =
+    typeof requestedReservedChromeHeight === 'number' &&
+    Number.isFinite(requestedReservedChromeHeight) &&
+    requestedReservedChromeHeight > 0
+      ? requestedReservedChromeHeight
+      : AGENT_CANVAS_FLOATING_TERMINAL_RESERVED_CHROME_HEIGHT;
+
+  return {
+    height: Math.max(0, dimensions.frameHeight - reservedChromeHeight),
+    width: Math.max(0, dimensions.frameWidth),
   };
 }
 

@@ -174,6 +174,7 @@ vi.mock('../AgentTerminal', () => ({
     id?: string;
     isActive?: boolean;
     layoutRefreshKey?: string;
+    terminalFontScale?: number;
     canMerge?: boolean;
     onSplit?: () => void;
     onMerge?: () => void;
@@ -195,6 +196,7 @@ vi.mock('../AgentTerminal', () => ({
         'data-session-id': props.id ?? '',
         'data-active': String(Boolean(props.isActive)),
         'data-layout-refresh-key': props.layoutRefreshKey ?? '',
+        'data-terminal-font-scale': String(props.terminalFontScale ?? ''),
       },
       React.createElement(
         'button',
@@ -2655,11 +2657,20 @@ describe('AgentPanel integration', () => {
 
     const floatingFrame = document.body.querySelector<HTMLElement>('.agent-canvas-floating-frame');
     expect(floatingFrame).not.toBeNull();
+    const floatingContentOutlet = floatingFrame?.children.item(1) as HTMLElement | null;
+    expect(floatingContentOutlet?.className).toContain('overflow-hidden');
     expect(
       floatingFrame?.querySelector(
         '[data-testid="agent-terminal"][data-session-id="session-floating-content"]'
       )
     ).not.toBeNull();
+    expect(
+      floatingFrame
+        ?.querySelector<HTMLElement>(
+          '[data-testid="agent-terminal"][data-session-id="session-floating-content"]'
+        )
+        ?.getAttribute('data-terminal-font-scale')
+    ).toBe('0.96');
 
     await mounted.unmount();
   });
