@@ -377,6 +377,7 @@ export interface SettingsState {
   layoutMode: LayoutMode;
   fileTreeDisplayMode: FileTreeDisplayMode;
   repositoryListDisplayMode: RepositoryListDisplayMode;
+  floatingSidebarEnabled: boolean;
   agentSessionDisplayMode: AgentSessionDisplayMode;
   language: Locale;
   fontSize: number;
@@ -511,6 +512,7 @@ export interface SettingsState {
   setLayoutMode: (mode: LayoutMode) => void;
   setFileTreeDisplayMode: (mode: FileTreeDisplayMode) => void;
   setRepositoryListDisplayMode: (mode: RepositoryListDisplayMode) => void;
+  setFloatingSidebarEnabled: (enabled: boolean) => void;
   setAgentSessionDisplayMode: (mode: AgentSessionDisplayMode) => void;
   setLanguage: (language: Locale) => void;
   setFontSize: (size: number) => void;

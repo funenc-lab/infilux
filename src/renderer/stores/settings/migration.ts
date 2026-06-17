@@ -24,6 +24,9 @@ type LegacyClaudeCodeIntegrationSettings = {
     tmuxEnabled?: unknown;
   };
 };
+type LegacyFloatingSidebarSettings = {
+  sidebarHoverRevealEnabled?: unknown;
+};
 
 const COLOR_PRESETS: ColorPreset[] = [
   'graphite-ink',
@@ -206,7 +209,8 @@ export function migrateSettings(
     return currentState;
   }
 
-  const persisted = persistedState;
+  const { sidebarHoverRevealEnabled: legacyFloatingSidebarEnabled, ...persisted } =
+    persistedState as Partial<SettingsState> & LegacyFloatingSidebarSettings;
   const sanitizedLanguage = normalizeLocale(persisted.language);
   const sanitizedColorPreset = sanitizeColorPreset(persisted.colorPreset, currentState.colorPreset);
   const sanitizedCustomAccentColor = sanitizeCustomAccentColor(persisted.customAccentColor);
@@ -339,6 +343,10 @@ export function migrateSettings(
     typeof persisted.retainSessionBackedChatPanels === 'boolean'
       ? persisted.retainSessionBackedChatPanels
       : currentState.retainSessionBackedChatPanels;
+  const floatingSidebarEnabled = sanitizeBoolean(
+    persisted.floatingSidebarEnabled,
+    sanitizeBoolean(legacyFloatingSidebarEnabled, currentState.floatingSidebarEnabled)
+  );
   const worktreeCanvasTerminalMountLimit = normalizeWorktreeCanvasTerminalMountLimit(
     persisted.worktreeCanvasTerminalMountLimit,
     currentState.worktreeCanvasTerminalMountLimit
@@ -397,6 +405,7 @@ export function migrateSettings(
     terminalScrollback,
     chatPanelInactivityThresholdMinutes,
     retainSessionBackedChatPanels,
+    floatingSidebarEnabled,
     worktreeCanvasTerminalMountLimit,
     workspaceCanvasTerminalMountLimit,
     xtermKeybindings: migratedXtermKeybindings,
@@ -622,6 +631,19 @@ function preserveLegacyClaudeCodeIntegration(state: Record<string, unknown>): vo
   };
 }
 
+function preserveLegacyFloatingSidebarSetting(state: Record<string, unknown>): void {
+  if (typeof state.floatingSidebarEnabled === 'boolean') {
+    return;
+  }
+
+  const legacyFloatingSidebarEnabled = state.sidebarHoverRevealEnabled;
+  if (typeof legacyFloatingSidebarEnabled !== 'boolean') {
+    return;
+  }
+
+  state.floatingSidebarEnabled = legacyFloatingSidebarEnabled;
+}
+
 /**
  * Clean up legacy fields from persisted state
  * TODO: Remove this function after v1.0 release
@@ -640,11 +662,13 @@ export async function cleanupLegacyFields(): Promise<void> {
         'agentKeybindings',
         'terminalPaneKeybindings',
         'claudeCodeIntegration',
+        'sidebarHoverRevealEnabled',
       ];
       const hasLegacy = legacyFields.some((f) => f in ensoSettings.state!);
 
       if (hasLegacy) {
         preserveLegacyClaudeCodeIntegration(ensoSettings.state);
+        preserveLegacyFloatingSidebarSetting(ensoSettings.state);
         for (const field of legacyFields) {
           delete ensoSettings.state[field];
         }

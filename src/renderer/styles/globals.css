@@ -1612,6 +1612,134 @@
     gap: 0.5rem;
   }
 
+  .control-sidebar-hover-reveal-group[data-sidebar-hover-reveal-group='active'] {
+    padding-block: var(--control-sidebar-hover-edge-gap);
+    padding-inline-start: 0;
+    padding-inline-end: var(--control-sidebar-hover-edge-gap);
+  }
+
+  .control-sidebar-hover-rail[data-sidebar-hover-reveal='active'] {
+    width: var(--control-sidebar-hover-trigger-width);
+    min-width: var(--control-sidebar-hover-trigger-width);
+    overflow: visible;
+    z-index: 30;
+  }
+
+  .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']
+    > [data-sidebar-hover-content='true'] {
+    --control-sidebar-hover-surface: color-mix(
+      in oklch,
+      var(--control-surface-muted) 62%,
+      var(--sidebar) 38%
+    );
+    --control-sidebar-hover-border: color-mix(
+      in oklch,
+      var(--border) 82%,
+      var(--foreground) 8%
+    );
+    --control-sidebar-hover-shadow-edge: color-mix(
+      in oklch,
+      var(--border) 72%,
+      transparent
+    );
+    --control-sidebar-hover-shadow-contact: color-mix(
+      in oklch,
+      var(--foreground) 8%,
+      transparent
+    );
+    --control-sidebar-hover-shadow-ambient: color-mix(
+      in oklch,
+      var(--foreground) 4%,
+      transparent
+    );
+    --control-sidebar-hover-shadow-vertical: color-mix(
+      in oklch,
+      var(--foreground) 5%,
+      transparent
+    );
+    width: var(--control-sidebar-hover-panel-width);
+    min-width: var(--control-sidebar-hover-panel-width);
+    max-width: var(--control-sidebar-hover-panel-width);
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(
+      calc(-1 * var(--control-sidebar-hover-panel-width) + var(--control-sidebar-hover-trigger-width)),
+      0,
+      0
+    );
+    will-change: opacity, transform;
+    overflow: hidden;
+    border-radius: 0 0.625rem 0.625rem 0;
+    background: var(--control-sidebar-hover-surface);
+    transition:
+      opacity 110ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 190ms cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow:
+      inset 0 -1px 0 var(--control-sidebar-hover-border),
+      inset 0 1px 0 color-mix(in oklch, var(--control-sidebar-hover-border) 64%, transparent),
+      1px 0 0 var(--control-sidebar-hover-shadow-edge),
+      0 2px 10px var(--control-sidebar-hover-shadow-vertical),
+      0 -2px 10px var(--control-sidebar-hover-shadow-vertical),
+      6px 0 14px var(--control-sidebar-hover-shadow-contact),
+      14px 0 28px var(--control-sidebar-hover-shadow-ambient);
+  }
+
+  .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']
+    > [data-sidebar-hover-content='true']
+    .control-sidebar {
+    border-color: var(--control-sidebar-hover-border);
+    background: var(--control-sidebar-hover-surface);
+  }
+
+  .dark
+    .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']
+    > [data-sidebar-hover-content='true'] {
+    --control-sidebar-hover-surface: color-mix(
+      in oklch,
+      var(--control-surface-muted) 58%,
+      var(--sidebar) 42%
+    );
+    --control-sidebar-hover-border: color-mix(
+      in oklch,
+      var(--border) 70%,
+      var(--background) 30%
+    );
+    --control-sidebar-hover-shadow-contact: color-mix(
+      in oklch,
+      var(--background) 40%,
+      transparent
+    );
+    --control-sidebar-hover-shadow-ambient: color-mix(
+      in oklch,
+      var(--background) 20%,
+      transparent
+    );
+    --control-sidebar-hover-shadow-vertical: color-mix(
+      in oklch,
+      var(--background) 28%,
+      transparent
+    );
+  }
+
+  .control-sidebar-hover-rail[data-sidebar-hover-reveal-state='open']
+    > [data-sidebar-hover-content='true'],
+  .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']:hover
+    > [data-sidebar-hover-content='true'],
+  .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']:focus-within
+    > [data-sidebar-hover-content='true'] {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate3d(0, 0, 0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']
+      > [data-sidebar-hover-content='true'] {
+      transition: opacity 70ms linear;
+    }
+  }
+
   .control-sidebar-tooltip-shortcut {
     display: inline-flex;
     align-items: center;

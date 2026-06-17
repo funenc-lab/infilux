@@ -829,6 +829,9 @@ export const zhTranslations: Record<string, string> = {
   'Choose how worktree agent sessions are displayed': '选择 Worktree 中 Agent 会话的展示方式',
   'Choose sidebar layout mode': '选择侧边栏布局模式',
   'Choose file tree display mode': '选择文件树展示模式',
+  'Floating sidebar': '\u60ac\u6d6e\u4fa7\u8fb9\u680f',
+  'Show the sidebar as a floating overlay when the pointer reaches the left edge.':
+    '\u9f20\u6807\u9760\u8fd1\u5de6\u4fa7\u8fb9\u7f18\u65f6\uff0c\u4ee5\u60ac\u6d6e\u5c42\u663e\u793a\u4fa7\u8fb9\u680f\u3002',
   Clear: '清除',
   Columns: '三栏',
   'Committing...': '提交中...',

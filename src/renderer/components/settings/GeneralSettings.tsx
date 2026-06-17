@@ -199,6 +199,8 @@ export function GeneralSettings() {
     setFileTreeDisplayMode,
     repositoryListDisplayMode,
     setRepositoryListDisplayMode,
+    floatingSidebarEnabled,
+    setFloatingSidebarEnabled,
     agentSessionDisplayMode,
     setAgentSessionDisplayMode,
     worktreeCanvasTerminalMountLimit,
@@ -894,6 +896,24 @@ export function GeneralSettings() {
               />
             ))}
           </div>
+
+          <Field className="settings-field-row settings-field-row-start border-t border-border/70 pt-5">
+            <div className="space-y-1">
+              <FieldLabel>{t('Floating sidebar')}</FieldLabel>
+              <FieldDescription>
+                {t(
+                  'Show the sidebar as a floating overlay when the pointer reaches the left edge.'
+                )}
+              </FieldDescription>
+            </div>
+            <div className="flex items-center justify-start">
+              <Switch
+                checked={floatingSidebarEnabled}
+                onCheckedChange={setFloatingSidebarEnabled}
+                aria-label={t('Floating sidebar')}
+              />
+            </div>
+          </Field>
         </div>
       </div>
 

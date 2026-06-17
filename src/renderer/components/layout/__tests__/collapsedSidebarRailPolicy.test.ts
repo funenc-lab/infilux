@@ -22,9 +22,15 @@ const collapsedSidebarRailSource = readFileSync(
 );
 
 describe('collapsed sidebar rail policy', () => {
-  it('keeps collapsed panels mounted and passes collapsed state through App layout', () => {
-    expect(appSource).toContain('collapsed={repositoryCollapsed}');
-    expect(appSource).toContain('collapsed={worktreeCollapsed}');
+  it('keeps collapsed panels mounted and passes effective collapsed state through App layout', () => {
+    expect(appSource).toMatch(
+      /const repositorySidebarCollapsedForRender = repositorySidebarFrame\.floating\s+\? false\s+:\s+repositoryCollapsed;/s
+    );
+    expect(appSource).toMatch(
+      /const worktreeSidebarCollapsedForRender = worktreeSidebarFrame\.floating\s+\? false\s+:\s+worktreeCollapsed;/s
+    );
+    expect(appSource).toContain('collapsed={repositorySidebarCollapsedForRender}');
+    expect(appSource).toContain('collapsed={worktreeSidebarCollapsedForRender}');
     expect(appSource).toContain('collapsed={fileSidebarCollapsed}');
     expect(appSource).not.toContain('!repositoryCollapsed && (');
     expect(appSource).not.toContain('!worktreeCollapsed && (');

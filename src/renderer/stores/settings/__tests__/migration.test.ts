@@ -2,8 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupLegacyFields, migrateSettings } from '../migration';
 import type { SettingsState, TerminalKeybinding } from '../types';
 
+type SettingsMigrationInput = Omit<Partial<SettingsState>, 'floatingSidebarEnabled'> & {
+  floatingSidebarEnabled?: unknown;
+  sidebarHoverRevealEnabled?: unknown;
+};
+
 function key(key: string): TerminalKeybinding {
   return { key };
+}
+
+function migrationInput(input: SettingsMigrationInput): Partial<SettingsState> {
+  return input as Partial<SettingsState>;
 }
 
 function createCurrentState(): SettingsState {
@@ -14,6 +23,7 @@ function createCurrentState(): SettingsState {
     agentSessionDisplayMode: 'tab',
     chatPanelInactivityThresholdMinutes: 5,
     retainSessionBackedChatPanels: true,
+    floatingSidebarEnabled: true,
     worktreeCanvasTerminalMountLimit: 6,
     workspaceCanvasTerminalMountLimit: 12,
     backgroundOpacity: 0.85,
@@ -308,6 +318,57 @@ describe('migrateSettings', () => {
         currentState
       ).retainSessionBackedChatPanels
     ).toBe(currentState.retainSessionBackedChatPanels);
+  });
+
+  it('preserves explicit floating sidebar settings and migrates legacy hover reveal settings', () => {
+    const currentState = createCurrentState();
+
+    expect(
+      migrateSettings(
+        migrationInput({
+          floatingSidebarEnabled: true,
+        }),
+        currentState
+      ).floatingSidebarEnabled
+    ).toBe(true);
+
+    expect(
+      migrateSettings(
+        migrationInput({
+          floatingSidebarEnabled: false,
+        }),
+        currentState
+      ).floatingSidebarEnabled
+    ).toBe(false);
+
+    expect(
+      migrateSettings(
+        migrationInput({
+          sidebarHoverRevealEnabled: false,
+        }),
+        currentState
+      ).floatingSidebarEnabled
+    ).toBe(false);
+
+    expect(
+      migrateSettings(
+        migrationInput({
+          floatingSidebarEnabled: 'yes',
+          sidebarHoverRevealEnabled: true,
+        }),
+        currentState
+      ).floatingSidebarEnabled
+    ).toBe(true);
+
+    expect(
+      migrateSettings(
+        migrationInput({
+          floatingSidebarEnabled: 'yes',
+          sidebarHoverRevealEnabled: 'yes',
+        }),
+        currentState
+      ).floatingSidebarEnabled
+    ).toBe(currentState.floatingSidebarEnabled);
   });
 
   it('clamps persisted canvas terminal mount limits to bounded whole numbers', () => {
@@ -851,6 +912,35 @@ describe('cleanupLegacyFields', () => {
     expect(write).toHaveBeenCalledWith({
       'enso-settings': {
         state: {
+          untouched: true,
+        },
+      },
+    });
+  });
+
+  it('preserves legacy sidebar hover reveal settings before removing the old key', async () => {
+    const read = vi.fn().mockResolvedValue({
+      'enso-settings': {
+        state: {
+          sidebarHoverRevealEnabled: false,
+          untouched: true,
+        },
+      },
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+
+    vi.stubGlobal('window', {
+      electronAPI: {
+        settings: { read, write },
+      },
+    });
+
+    await cleanupLegacyFields();
+
+    expect(write).toHaveBeenCalledWith({
+      'enso-settings': {
+        state: {
+          floatingSidebarEnabled: false,
           untouched: true,
         },
       },
