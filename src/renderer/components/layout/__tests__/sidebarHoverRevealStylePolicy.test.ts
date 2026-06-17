@@ -224,4 +224,17 @@ describe('sidebar hover reveal style policy', () => {
     expect(globalsSource).toContain('width: var(--control-sidebar-hover-panel-width);');
     expect(globalsSource).not.toContain('[data-collapsed-sidebar]');
   });
+
+  it('hides top collapse buttons while sidebars are floating', () => {
+    expect(appSource).toMatch(
+      /const repositorySidebarCollapseHandler = repositorySidebarFrame\.floating\s*\?\s*undefined\s*:\s*handleRepositorySidebarCollapse;/
+    );
+    expect(appSource).toMatch(
+      /const worktreeSidebarCollapseHandler = worktreeSidebarFrame\.floating\s*\?\s*undefined\s*:\s*handleWorktreeSidebarCollapse;/
+    );
+    expect(appSource.match(/onCollapse=\{repositorySidebarCollapseHandler\}/g)).toHaveLength(2);
+    expect(appSource.match(/onCollapse=\{worktreeSidebarCollapseHandler\}/g)).toHaveLength(2);
+    expect(appSource).not.toContain('onCollapse={handleRepositorySidebarCollapse}');
+    expect(appSource).not.toContain('onCollapse={handleWorktreeSidebarCollapse}');
+  });
 });

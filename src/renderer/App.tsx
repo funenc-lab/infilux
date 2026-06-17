@@ -568,6 +568,13 @@ export default function App() {
     setFloatingSidebarActive(false);
   }, [setWorktreeCollapsed]);
 
+  const repositorySidebarCollapseHandler = repositorySidebarFrame.floating
+    ? undefined
+    : handleRepositorySidebarCollapse;
+  const worktreeSidebarCollapseHandler = worktreeSidebarFrame.floating
+    ? undefined
+    : handleWorktreeSidebarCollapse;
+
   const worktreeError = useWorktreeStore((s) => s.error);
   const setWorktreeError = useWorktreeStore((s) => s.setError);
   const setAgentActiveId = useAgentSessionsStore((state) => state.setActiveId);
@@ -1641,7 +1648,7 @@ export default function App() {
                       onInitGit={handleInitGit}
                       onOpenSettings={openSettings}
                       collapsed={repositorySidebarCollapsedForRender}
-                      onCollapse={handleRepositorySidebarCollapse}
+                      onCollapse={repositorySidebarCollapseHandler}
                       onExpand={() => setRepositoryCollapsed(false)}
                       groups={sortedGroups}
                       activeGroupId={activeGroupId}
@@ -1715,7 +1722,7 @@ export default function App() {
                         onReorderRepositories={handleReorderRepositories}
                         onOpenSettings={openSettings}
                         collapsed={repositorySidebarCollapsedForRender}
-                        onCollapse={handleRepositorySidebarCollapse}
+                        onCollapse={repositorySidebarCollapseHandler}
                         onExpand={() => setRepositoryCollapsed(false)}
                         groups={sortedGroups}
                         activeGroupId={activeGroupId}
@@ -1778,7 +1785,7 @@ export default function App() {
                           onRequestDelete={(id) => openTempDelete(id)}
                           onRefresh={rehydrateTempWorkspaces}
                           collapsed={worktreeSidebarCollapsedForRender}
-                          onCollapse={handleWorktreeSidebarCollapse}
+                          onCollapse={worktreeSidebarCollapseHandler}
                           onExpand={() => setWorktreeCollapsed(false)}
                         />
                       ) : (
@@ -1814,7 +1821,7 @@ export default function App() {
                           selectedSubagentByWorktree={selectedSubagentByWorktree}
                           width={worktreeWidth}
                           collapsed={worktreeSidebarCollapsedForRender}
-                          onCollapse={handleWorktreeSidebarCollapse}
+                          onCollapse={worktreeSidebarCollapseHandler}
                           onExpand={() => setWorktreeCollapsed(false)}
                           repositoryCollapsed={repositorySidebarCollapsedForRender}
                           onExpandRepository={() => setRepositoryCollapsed(false)}
