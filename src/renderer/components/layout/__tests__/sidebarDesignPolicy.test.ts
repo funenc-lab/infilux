@@ -150,17 +150,17 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).not.toContain('const activePaths = worktrees');
   });
 
-  it('keeps repository paths visible and worktree paths subordinate to branch identity', () => {
+  it('keeps repository paths visible while worktree rows stay branch-focused', () => {
     expect(treeSidebarSource).toContain('title={displayRepoPath}');
     expect(treeSidebarSource).toContain('{displayRepoPath}');
     expect(treeSidebarSource).toContain('<RepositoryTreeSummary');
     expect(repositorySidebarSource).toContain('<RepositoryTreeSummary');
     expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">trees</span>');
     expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">live</span>');
-    expect(treeSidebarSource).toContain('title={displayWorktreePath}');
-    expect(treeSidebarSource).toContain('{displayWorktreePath}');
-    expect(worktreePanelSource).toContain('title={displayWorktreePath}');
-    expect(worktreePanelSource).toContain('{displayWorktreePath}');
+    expect(treeSidebarSource).not.toContain('title={displayWorktreePath}');
+    expect(treeSidebarSource).not.toContain('>{displayWorktreePath}</');
+    expect(worktreePanelSource).not.toContain('title={displayWorktreePath}');
+    expect(worktreePanelSource).not.toContain('>{displayWorktreePath}</');
     expect(treeSidebarSource).not.toContain('pl-11');
     expect(repositorySidebarSource).not.toContain('pl-[1.375rem]');
   });
@@ -871,8 +871,8 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="worktree"] .control-tree-primary[data-surface="row"] {'
     );
-    expect(treeSidebarSource).toContain('title={displayWorktreePath}');
-    expect(worktreePanelSource).toContain('title={displayWorktreePath}');
+    expect(treeSidebarSource).not.toContain('title={displayWorktreePath}');
+    expect(worktreePanelSource).not.toContain('title={displayWorktreePath}');
     expect(treeSidebarSource).not.toContain('rounded-[inherit]');
     expect(worktreePanelSource).not.toContain('rounded-[inherit]');
   });

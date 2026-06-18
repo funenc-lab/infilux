@@ -8,6 +8,16 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const openInMenuSource = readFileSync(resolve(currentDir, '../../app/OpenInMenu.tsx'), 'utf8');
 const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.css'), 'utf8');
 
+function getCssSection(startMarker: string, endMarker: string): string {
+  const startIndex = globalsSource.indexOf(startMarker);
+  expect(startIndex).toBeGreaterThanOrEqual(0);
+
+  const endIndex = globalsSource.indexOf(endMarker, startIndex + startMarker.length);
+  expect(endIndex).toBeGreaterThan(startIndex);
+
+  return globalsSource.slice(startIndex, endIndex);
+}
+
 describe('main content topbar policy', () => {
   it('keeps repository and worktree context out of the header', () => {
     expect(mainContentSource).not.toContain(
@@ -73,21 +83,41 @@ describe('main content topbar policy', () => {
   });
 
   it('defines right-edge floating toolbar trigger, surface, and reveal motion styles', () => {
+    const floatingToolbarPanelRuleSource = getCssSection(
+      '.control-floating-toolbar-panel {',
+      '\n  .dark .control-floating-toolbar-panel'
+    );
+    const floatingToolbarRevealRuleSource = getCssSection(
+      '.control-floating-toolbar-rail:hover .control-floating-toolbar-panel',
+      '\n  .control-floating-toolbar-nav'
+    );
+
     expect(globalsSource).toContain('.control-floating-toolbar-rail {');
     expect(globalsSource).toContain('right: 0;');
     expect(globalsSource).toContain('width: var(--control-floating-toolbar-trigger-width);');
-    expect(globalsSource).toContain('.control-floating-toolbar-panel {');
-    expect(globalsSource).toContain('width: var(--control-floating-toolbar-panel-width);');
-    expect(globalsSource).toContain(
-      'transform: translate3d(calc(var(--control-floating-toolbar-panel-width) - var(--control-floating-toolbar-trigger-width)), 0, 0);'
+    expect(floatingToolbarPanelRuleSource).toContain(
+      'width: var(--control-floating-toolbar-panel-width);'
     );
-    expect(globalsSource).toContain(
+    expect(floatingToolbarPanelRuleSource).toContain(
+      'right: var(--control-floating-toolbar-edge-gap);'
+    );
+    expect(floatingToolbarPanelRuleSource).toContain('border-radius: 0.625rem;');
+    expect(floatingToolbarPanelRuleSource).toContain(
+      'transform: translate3d(calc(var(--control-floating-toolbar-panel-width) + var(--control-floating-toolbar-edge-gap) - var(--control-floating-toolbar-trigger-width)), 0, 0);'
+    );
+    expect(floatingToolbarRevealRuleSource).toContain(
       '.control-floating-toolbar-rail:hover .control-floating-toolbar-panel'
     );
-    expect(globalsSource).toContain(
+    expect(floatingToolbarRevealRuleSource).toContain(
       '.control-floating-toolbar-rail:focus-within .control-floating-toolbar-panel'
     );
-    expect(globalsSource).toContain('opacity 110ms cubic-bezier(0.16, 1, 0.3, 1)');
-    expect(globalsSource).toContain('transform 190ms cubic-bezier(0.16, 1, 0.3, 1)');
+    expect(floatingToolbarPanelRuleSource).toContain('opacity 90ms cubic-bezier(0.4, 0, 1, 1)');
+    expect(floatingToolbarPanelRuleSource).toContain('transform 140ms cubic-bezier(0.4, 0, 1, 1)');
+    expect(floatingToolbarRevealRuleSource).toContain(
+      'opacity 130ms cubic-bezier(0.16, 1, 0.3, 1)'
+    );
+    expect(floatingToolbarRevealRuleSource).toContain(
+      'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)'
+    );
   });
 });

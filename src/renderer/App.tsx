@@ -12,7 +12,7 @@ import { isRemoteVirtualPath, toRemoteVirtualPath } from '@shared/utils/remotePa
 import { buildRepositoryId } from '@shared/utils/workspace';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { CSSProperties, FocusEvent, ReactNode } from 'react';
+import type { CSSProperties, FocusEvent, PointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppOverlays } from './App/AppOverlays';
 import {
@@ -86,9 +86,12 @@ import { DeferredRepositorySidebar } from './components/layout/DeferredRepositor
 import { DeferredTreeSidebar } from './components/layout/DeferredTreeSidebar';
 import { DeferredWorktreePanel } from './components/layout/DeferredWorktreePanel';
 import {
+  isSidebarHoverRevealTextSelectionActive,
   resolveSidebarHoverRevealFrame,
   SIDEBAR_HOVER_REVEAL_FLOATING_GAP,
   type SidebarHoverRevealFrame,
+  shouldOpenSidebarHoverReveal,
+  shouldSyncSidebarHoverRevealAfterWindowFocus,
 } from './components/layout/sidebarHoverRevealPolicy';
 import { TemporaryWorkspacePanel } from './components/layout/TemporaryWorkspacePanel';
 import { resolveTreeSidebarSelectedWorktrees } from './components/layout/treeSidebarSelectedWorktrees';
@@ -458,6 +461,7 @@ export default function App() {
   const defaultTemporaryPath = useSettingsStore((s) => s.defaultTemporaryPath);
   const floatingSidebarEnabled = useSettingsStore((s) => s.floatingSidebarEnabled);
   const [floatingSidebarActive, setFloatingSidebarActive] = useState(false);
+  const sidebarHoverRevealGroupRef = useRef<HTMLDivElement | null>(null);
   const rendererEnv = getRendererEnvironment();
   const isWindows = rendererEnv.platform === 'win32';
   const pathSep = isWindows ? '\\' : '/';
@@ -541,13 +545,86 @@ export default function App() {
     }
   }, [floatingSidebarEnabled]);
 
-  const openSidebarHoverReveal = useCallback(() => {
-    setFloatingSidebarActive(true);
-  }, []);
+  const hasActiveSidebarHoverRevealTextSelection = useCallback(
+    () => isSidebarHoverRevealTextSelectionActive(window.getSelection()),
+    []
+  );
+
+  const handleSidebarHoverRevealPointerEvent = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      setFloatingSidebarActive(
+        shouldOpenSidebarHoverReveal({
+          documentFocused: document.hasFocus(),
+          hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
+          pointerButtons: event.buttons,
+          trigger: 'pointer',
+        })
+      );
+    },
+    [hasActiveSidebarHoverRevealTextSelection]
+  );
+
+  const handleSidebarHoverRevealFocus = useCallback(() => {
+    setFloatingSidebarActive(
+      shouldOpenSidebarHoverReveal({
+        documentFocused: document.hasFocus(),
+        hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
+        pointerButtons: 0,
+        trigger: 'keyboard',
+      })
+    );
+  }, [hasActiveSidebarHoverRevealTextSelection]);
 
   const closeSidebarHoverReveal = useCallback(() => {
     setFloatingSidebarActive(false);
   }, []);
+
+  const syncSidebarHoverRevealAfterWindowFocus = useCallback(() => {
+    if (!floatingSidebarEnabled) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const groupElement = sidebarHoverRevealGroupRef.current;
+      if (!groupElement) {
+        setFloatingSidebarActive(false);
+        return;
+      }
+
+      setFloatingSidebarActive(
+        shouldSyncSidebarHoverRevealAfterWindowFocus({
+          documentFocused: document.hasFocus(),
+          groupHovered: groupElement.matches(':hover'),
+          hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
+        })
+      );
+    });
+  }, [floatingSidebarEnabled, hasActiveSidebarHoverRevealTextSelection]);
+
+  useEffect(() => {
+    if (!floatingSidebarEnabled) {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncSidebarHoverRevealAfterWindowFocus();
+        return;
+      }
+
+      setFloatingSidebarActive(false);
+    };
+
+    window.addEventListener('focus', syncSidebarHoverRevealAfterWindowFocus);
+    window.addEventListener('blur', closeSidebarHoverReveal);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', syncSidebarHoverRevealAfterWindowFocus);
+      window.removeEventListener('blur', closeSidebarHoverReveal);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [closeSidebarHoverReveal, floatingSidebarEnabled, syncSidebarHoverRevealAfterWindowFocus]);
 
   const handleSidebarHoverRevealBlur = useCallback((event: FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
@@ -1587,12 +1664,18 @@ export default function App() {
           }`}
         >
           <div
+            ref={sidebarHoverRevealGroupRef}
             className={getSidebarHoverRevealGroupClassName(floatingSidebarEnabled)}
             style={getSidebarHoverRevealGroupStyle(floatingSidebarEnabled)}
             data-sidebar-hover-reveal-group={floatingSidebarEnabled ? 'active' : undefined}
-            onMouseEnter={floatingSidebarEnabled ? openSidebarHoverReveal : undefined}
-            onMouseLeave={floatingSidebarEnabled ? closeSidebarHoverReveal : undefined}
-            onFocusCapture={floatingSidebarEnabled ? openSidebarHoverReveal : undefined}
+            onPointerEnter={
+              floatingSidebarEnabled ? handleSidebarHoverRevealPointerEvent : undefined
+            }
+            onPointerMove={
+              floatingSidebarEnabled ? handleSidebarHoverRevealPointerEvent : undefined
+            }
+            onPointerLeave={floatingSidebarEnabled ? closeSidebarHoverReveal : undefined}
+            onFocusCapture={floatingSidebarEnabled ? handleSidebarHoverRevealFocus : undefined}
             onBlurCapture={floatingSidebarEnabled ? handleSidebarHoverRevealBlur : undefined}
           >
             {layoutMode === 'tree' ? (

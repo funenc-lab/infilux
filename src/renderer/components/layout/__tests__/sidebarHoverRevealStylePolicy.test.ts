@@ -53,6 +53,13 @@ function getHoverRevealContentRuleSource(): string {
   );
 }
 
+function getHoverRevealOpenStateRuleSource(): string {
+  return getCssSection(
+    ".control-sidebar-hover-rail[data-sidebar-hover-reveal-state='open']\n    > [data-sidebar-hover-content='true'] {",
+    '\n  @media (prefers-reduced-motion: reduce)'
+  );
+}
+
 function expectCssDeclaration(source: string, propertyName: string, valuePattern: string): void {
   expect(source).toMatch(new RegExp(`${propertyName}:\\s*${valuePattern}\\s*;`));
 }
@@ -99,7 +106,9 @@ describe('sidebar hover reveal style policy', () => {
     expect(globalsSource).toContain('padding-block: var(--control-sidebar-hover-edge-gap);');
     expect(globalsSource).toContain('padding-inline-start: 0;');
     expect(globalsSource).toContain('padding-inline-end: var(--control-sidebar-hover-edge-gap);');
-    expect(globalsSource).toContain('border-radius: 0 0.625rem 0.625rem 0;');
+    expect(globalsSource).toContain('margin-inline-start: var(--control-sidebar-hover-edge-gap);');
+    expect(globalsSource).toContain('border-radius: 0.625rem;');
+    expect(globalsSource).not.toContain('border-radius: 0 0.625rem 0.625rem 0;');
   });
 
   it('uses proportioned elevation so the floating sidebar separates without looking heavy', () => {
@@ -198,16 +207,19 @@ describe('sidebar hover reveal style policy', () => {
 
   it('uses fast eased motion for hover reveal without layout animation', () => {
     const hoverRevealContentRuleSource = getHoverRevealContentRuleSource();
+    const hoverRevealOpenRuleSource = getHoverRevealOpenStateRuleSource();
 
     expect(hoverRevealContentRuleSource).toContain('will-change: opacity, transform;');
     expectCssDeclaration(
       hoverRevealContentRuleSource,
       'transform',
-      'translate3d\\(\\s*calc\\(-1 \\* var\\(--control-sidebar-hover-panel-width\\) \\+ var\\(--control-sidebar-hover-trigger-width\\)\\),\\s*0,\\s*0\\s*\\)'
+      'translate3d\\(\\s*calc\\(-1 \\* var\\(--control-sidebar-hover-panel-width\\) - var\\(--control-sidebar-hover-edge-gap\\) \\+ var\\(--control-sidebar-hover-trigger-width\\)\\),\\s*0,\\s*0\\s*\\)'
     );
-    expect(hoverRevealContentRuleSource).toContain('opacity 110ms cubic-bezier(0.16, 1, 0.3, 1)');
-    expect(hoverRevealContentRuleSource).toContain('transform 190ms cubic-bezier(0.16, 1, 0.3, 1)');
-    expectCssDeclaration(globalsSource, 'transform', 'translate3d\\(0, 0, 0\\)');
+    expect(hoverRevealContentRuleSource).toContain('opacity 90ms cubic-bezier(0.4, 0, 1, 1)');
+    expect(hoverRevealContentRuleSource).toContain('transform 140ms cubic-bezier(0.4, 0, 1, 1)');
+    expect(hoverRevealOpenRuleSource).toContain('opacity 130ms cubic-bezier(0.16, 1, 0.3, 1)');
+    expect(hoverRevealOpenRuleSource).toContain('transform 220ms cubic-bezier(0.16, 1, 0.3, 1)');
+    expectCssDeclaration(hoverRevealOpenRuleSource, 'transform', 'translate3d\\(0, 0, 0\\)');
     expect(hoverRevealContentRuleSource).not.toContain('opacity 140ms ease');
     expect(hoverRevealContentRuleSource).not.toContain('transform 180ms ease');
     expect(hoverRevealContentRuleSource).not.toContain('transition: opacity 80ms ease;');
@@ -223,6 +235,29 @@ describe('sidebar hover reveal style policy', () => {
     expect(globalsSource).toContain('pointer-events: auto;');
     expect(globalsSource).toContain('width: var(--control-sidebar-hover-panel-width);');
     expect(globalsSource).not.toContain('[data-collapsed-sidebar]');
+  });
+
+  it('uses explicit reveal state instead of raw hover css so selection drags can stay closed', () => {
+    expect(appSource).toMatch(
+      /onPointerEnter=\{\s*floatingSidebarEnabled\s*\?\s*handleSidebarHoverRevealPointerEvent\s*:\s*undefined\s*\}/
+    );
+    expect(appSource).toMatch(
+      /onPointerMove=\{\s*floatingSidebarEnabled\s*\?\s*handleSidebarHoverRevealPointerEvent\s*:\s*undefined\s*\}/
+    );
+    expect(appSource).toMatch(
+      /onFocusCapture=\{\s*floatingSidebarEnabled\s*\?\s*handleSidebarHoverRevealFocus\s*:\s*undefined\s*\}/
+    );
+    expect(appSource).toContain(
+      "window.addEventListener('focus', syncSidebarHoverRevealAfterWindowFocus);"
+    );
+    expect(appSource).toContain('shouldOpenSidebarHoverReveal');
+    expect(appSource).toContain('shouldSyncSidebarHoverRevealAfterWindowFocus');
+    expect(globalsSource).not.toContain(
+      ".control-sidebar-hover-rail[data-sidebar-hover-reveal='active']:hover"
+    );
+    expect(globalsSource).not.toContain(
+      ".control-sidebar-hover-rail[data-sidebar-hover-reveal='active']:focus-within"
+    );
   });
 
   it('hides top collapse buttons while sidebars are floating', () => {

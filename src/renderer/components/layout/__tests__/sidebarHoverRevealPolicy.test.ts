@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isSidebarHoverRevealTextSelectionActive,
   resolveSidebarHoverRevealFrame,
   SIDEBAR_HOVER_REVEAL_FLOATING_GAP,
   SIDEBAR_HOVER_REVEAL_TRIGGER_WIDTH,
+  shouldOpenSidebarHoverReveal,
+  shouldSyncSidebarHoverRevealAfterWindowFocus,
 } from '../sidebarHoverRevealPolicy';
 
 describe('resolveSidebarHoverRevealFrame', () => {
@@ -65,5 +68,75 @@ describe('resolveSidebarHoverRevealFrame', () => {
       floating: true,
       visible: true,
     });
+  });
+
+  it('does not open from pointer hover while the user is dragging or selecting text', () => {
+    expect(
+      shouldOpenSidebarHoverReveal({
+        documentFocused: true,
+        hasActiveTextSelection: false,
+        pointerButtons: 1,
+        trigger: 'pointer',
+      })
+    ).toBe(false);
+    expect(
+      shouldOpenSidebarHoverReveal({
+        documentFocused: true,
+        hasActiveTextSelection: true,
+        pointerButtons: 0,
+        trigger: 'pointer',
+      })
+    ).toBe(false);
+  });
+
+  it('keeps keyboard focus reveal available when text remains selected', () => {
+    expect(
+      shouldOpenSidebarHoverReveal({
+        documentFocused: true,
+        hasActiveTextSelection: true,
+        pointerButtons: 0,
+        trigger: 'keyboard',
+      })
+    ).toBe(true);
+  });
+
+  it('resyncs hover reveal after window focus only when the pointer is already over the rail', () => {
+    expect(
+      shouldSyncSidebarHoverRevealAfterWindowFocus({
+        documentFocused: true,
+        groupHovered: true,
+        hasActiveTextSelection: false,
+      })
+    ).toBe(true);
+    expect(
+      shouldSyncSidebarHoverRevealAfterWindowFocus({
+        documentFocused: true,
+        groupHovered: true,
+        hasActiveTextSelection: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldSyncSidebarHoverRevealAfterWindowFocus({
+        documentFocused: false,
+        groupHovered: true,
+        hasActiveTextSelection: false,
+      })
+    ).toBe(false);
+  });
+
+  it('detects meaningful native text selections', () => {
+    expect(isSidebarHoverRevealTextSelectionActive(null)).toBe(false);
+    expect(
+      isSidebarHoverRevealTextSelectionActive({
+        isCollapsed: false,
+        toString: () => '  ',
+      })
+    ).toBe(false);
+    expect(
+      isSidebarHoverRevealTextSelectionActive({
+        isCollapsed: false,
+        toString: () => 'selected text',
+      })
+    ).toBe(true);
   });
 });
