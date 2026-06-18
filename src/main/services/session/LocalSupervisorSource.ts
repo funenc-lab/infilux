@@ -1,3 +1,8 @@
+import {
+  AGENT_SESSION_REPLAY_CHAR_LIMIT,
+  TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+} from '@shared/utils/agentTerminalHistoryPolicy';
+
 export const LOCAL_SUPERVISOR_RUNTIME_VERSION = '0.1.0';
 
 export function getLocalSupervisorSource(): string {
@@ -11,7 +16,8 @@ const crypto = require('node:crypto');
 
 const LOCAL_SUPERVISOR_RUNTIME_VERSION = ${JSON.stringify(LOCAL_SUPERVISOR_RUNTIME_VERSION)};
 const DAEMON_INFO_FILENAME = 'local-supervisor-daemon.json';
-const REPLAY_LIMIT_CHARS = 65536;
+	const TERMINAL_SESSION_REPLAY_CHAR_LIMIT = ${TERMINAL_SESSION_REPLAY_CHAR_LIMIT};
+	const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};
 const AUTH_TOKEN_BYTES = 36;
 
 let cachedNodePty = undefined;
@@ -83,12 +89,19 @@ function broadcast(event, payload) {
   }
 }
 
-function appendReplayTail(current, chunk) {
+function getSessionReplayCharLimit(session) {
+  return session && session.kind === 'agent'
+    ? AGENT_SESSION_REPLAY_CHAR_LIMIT
+    : TERMINAL_SESSION_REPLAY_CHAR_LIMIT;
+}
+
+function appendReplayTail(session, chunk) {
   if (!chunk) {
-    return current;
+    return session.replay;
   }
-  const combined = current + chunk;
-  return combined.length > REPLAY_LIMIT_CHARS ? combined.slice(-REPLAY_LIMIT_CHARS) : combined;
+  const limit = getSessionReplayCharLimit(session);
+  const combined = session.replay + chunk;
+  return combined.length > limit ? combined.slice(-limit) : combined;
 }
 
 function loadNodePty() {
@@ -292,7 +305,7 @@ async function createSession(params = {}) {
 
   pty.onData((data) => {
     session.lastDataAt = Date.now();
-    session.replay = appendReplayTail(session.replay, data);
+    session.replay = appendReplayTail(session, data);
     broadcast('session:data', {
       sessionId: session.sessionId,
       data,

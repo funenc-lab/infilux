@@ -2741,6 +2741,11 @@ describe('AgentPanel integration', () => {
         '[data-testid="agent-terminal"][data-session-id="session-floating-content"]'
       )
     ).not.toBeNull();
+    const floatingHost = floatingFrame?.querySelector<HTMLElement>(
+      '[data-agent-canvas-content-host="session-floating-content"]'
+    );
+    expect(floatingHost?.className).toContain('min-h-0');
+    expect(floatingHost?.className).toContain('overflow-hidden');
     expect(
       floatingFrame
         ?.querySelector<HTMLElement>(
@@ -2748,6 +2753,13 @@ describe('AgentPanel integration', () => {
         )
         ?.getAttribute('data-terminal-font-scale')
     ).toBe('0.96');
+    expect(
+      floatingFrame
+        ?.querySelector<HTMLElement>(
+          '[data-testid="agent-terminal"][data-session-id="session-floating-content"]'
+        )
+        ?.getAttribute('data-layout-refresh-key')
+    ).toBe('floating:host:frame:768x576');
 
     await mounted.unmount();
   });

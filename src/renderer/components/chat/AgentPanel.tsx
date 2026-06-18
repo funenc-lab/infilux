@@ -1101,7 +1101,7 @@ export function AgentPanel({
     }
 
     const nextHost = document.createElement('div');
-    nextHost.className = 'h-full w-full';
+    nextHost.className = 'flex h-full min-h-0 w-full flex-col overflow-hidden';
     nextHost.dataset.agentCanvasContentHost = sessionId;
     canvasSessionContentHostByIdRef.current.set(sessionId, nextHost);
     return nextHost;
@@ -4609,6 +4609,12 @@ export function AgentPanel({
       AGENT_CANVAS_GRID_COLUMN_UNITS / Math.max(canvasColumnCount, 1);
     const canRenderCanvasFloatingSessionInPortal =
       sessionContentHost !== null && isCanvasFloatingSession && canvasFloatingFrame !== null;
+    const canvasSessionLayoutFrameKey =
+      isCanvasFloatingSession && canvasFloatingFrame
+        ? `frame:${Math.round(canvasFloatingFrame.width)}x${Math.round(canvasFloatingFrame.height)}`
+        : isCanvasFloatingSession
+          ? 'frame:pending'
+          : 'frame:tile';
     const shouldDimCanvasTile =
       isCanvasDisplayMode && canvasFloatingSessionId !== null && !isCanvasFloatingSession;
     const tileRepoLabel = getDisplayPathBasename(session.repoPath) || session.repoPath;
@@ -4862,7 +4868,7 @@ export function AgentPanel({
             isVisible={isTerminalVisible}
             layoutRefreshKey={
               isCanvasDisplayMode
-                ? `${isCanvasFloatingSession ? 'floating' : 'tile'}:${sessionContentHost ? 'host' : 'inline'}:${canvasFloatingFrame ? 'frame' : 'pending'}`
+                ? `${isCanvasFloatingSession ? 'floating' : 'tile'}:${sessionContentHost ? 'host' : 'inline'}:${canvasSessionLayoutFrameKey}`
                 : undefined
             }
             terminalFontScale={
@@ -5061,7 +5067,7 @@ export function AgentPanel({
       >
         {sessionContentHost ? (
           <CanvasSessionContentOutlet
-            className="h-full w-full rounded-[inherit]"
+            className="h-full min-h-0 w-full overflow-hidden rounded-[inherit]"
             hostElement={sessionContentHost}
           />
         ) : (

@@ -1,3 +1,7 @@
+import {
+  AGENT_SESSION_REPLAY_CHAR_LIMIT,
+  TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+} from '@shared/utils/agentTerminalHistoryPolicy';
 import { buildAppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import { describe, expect, it } from 'vitest';
 import pkg from '../../../../../package.json';
@@ -58,6 +62,22 @@ describe('getRemoteServerSource', () => {
     expect(source).toContain(
       'clearCachedTmuxScrollPane(normalizedServerName, normalizedSessionName);'
     );
+  });
+
+  it('uses the expanded agent replay budget in the generated remote session helper', () => {
+    const source = getRemoteServerSource(buildAppRuntimeIdentity('test'));
+
+    expect(source).toContain(
+      `const TERMINAL_SESSION_REPLAY_CHAR_LIMIT = ${TERMINAL_SESSION_REPLAY_CHAR_LIMIT};`
+    );
+    expect(source).toContain(
+      `const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};`
+    );
+    expect(source).toContain('function getSessionReplayCharLimit(session) {');
+    expect(source).toContain(
+      'session.replay = (session.replay + chunk).slice(-getSessionReplayCharLimit(session));'
+    );
+    expect(source).not.toContain('MAX_SESSION_REPLAY_CHARS');
   });
 
   it('keeps remote search behavior aligned with the shared search contract', () => {

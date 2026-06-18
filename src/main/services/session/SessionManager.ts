@@ -16,6 +16,10 @@ import {
   type AgentStartupTimelineLogger,
   createAgentStartupTimelineLogger,
 } from '@shared/utils/agentStartupTimeline';
+import {
+  appendSessionReplayTail,
+  getSessionReplayCharLimit,
+} from '@shared/utils/agentTerminalHistoryPolicy';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { BrowserWindow, type WebContents } from 'electron';
 import log from '../../utils/logger';
@@ -42,7 +46,6 @@ interface ManagedSessionRecord extends SessionDescriptor {
   pendingExit?: SessionExitEvent;
 }
 
-const MAX_SESSION_REPLAY_CHARS = 65_536;
 const SESSION_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 type TmuxHostSessionCreateOptions = SessionCreateOptions & {
   hostSession: {
@@ -210,7 +213,7 @@ export class SessionManager {
         );
         const record = this.registerRemoteSession(windowId, existing.connectionId, result.session);
         this.setSessionRuntimeState(record.sessionId, 'live');
-        record.replayBuffer = result.replay ?? '';
+        record.replayBuffer = this.trimReplayBuffer(record, result.replay ?? '');
         return {
           session: this.toDescriptor(record),
           replay: result.replay,
@@ -255,7 +258,7 @@ export class SessionManager {
     );
     const record = this.registerRemoteSession(windowId, connectionId, result.session);
     this.setSessionRuntimeState(record.sessionId, 'live');
-    record.replayBuffer = result.replay ?? '';
+    record.replayBuffer = this.trimReplayBuffer(record, result.replay ?? '');
     return {
       session: this.toDescriptor(record),
       replay: result.replay,
@@ -775,7 +778,7 @@ export class SessionManager {
       options.hostSession.serverName
     );
     startupLogger?.markStage('tmux-history-capture-done');
-    return replay.slice(-MAX_SESSION_REPLAY_CHARS);
+    return replay.slice(-getSessionReplayCharLimit(options.kind));
   }
 
   private async createSupervisorSession(
@@ -815,7 +818,7 @@ export class SessionManager {
     session.createdAt = result.session.createdAt;
     session.metadata = result.session.metadata;
     session.localRuntime = 'supervisor';
-    session.replayBuffer = result.replay ?? '';
+    session.replayBuffer = this.trimReplayBuffer(session, result.replay ?? '');
     session.streamState = 'live';
     return {
       session: this.toDescriptor(session),
@@ -834,7 +837,7 @@ export class SessionManager {
       backend: 'local',
       localRuntime: 'supervisor',
       attachedWindowIds: new Set([windowId]),
-      replayBuffer: result.replay ?? '',
+      replayBuffer: this.trimReplayBuffer(result.session, result.replay ?? ''),
       streamState: 'live',
     };
     this.sessions.set(sessionId, record);
@@ -865,7 +868,7 @@ export class SessionManager {
       }
     );
     const record = this.registerRemoteSession(windowId, connectionId, result.session);
-    record.replayBuffer = result.replay ?? '';
+    record.replayBuffer = this.trimReplayBuffer(record, result.replay ?? '');
     return {
       session: this.toDescriptor(record),
       replay: result.replay,
@@ -1169,7 +1172,7 @@ export class SessionManager {
               session.kind = mergedDescriptor.kind;
               session.persistOnDisconnect = mergedDescriptor.persistOnDisconnect;
               session.metadata = mergedDescriptor.metadata;
-              const replay = restored.replay ?? '';
+              const replay = this.trimReplayBuffer(session, restored.replay ?? '');
               const delta = this.getReplayDelta(session.replayBuffer, replay);
               session.replayBuffer = replay;
               if (delta) {
@@ -1282,8 +1285,18 @@ export class SessionManager {
       return;
     }
 
-    const replay = `${session.replayBuffer || ''}${data}`;
-    session.replayBuffer = replay.slice(-MAX_SESSION_REPLAY_CHARS);
+    session.replayBuffer = appendSessionReplayTail(session.replayBuffer, data, session.kind);
+  }
+
+  private trimReplayBuffer(
+    session: Pick<SessionDescriptor, 'kind'>,
+    replay: string | undefined
+  ): string {
+    if (!replay) {
+      return '';
+    }
+
+    return replay.slice(-getSessionReplayCharLimit(session.kind));
   }
 
   private getReplayDelta(previousReplay: string | undefined, nextReplay: string): string {

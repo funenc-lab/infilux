@@ -885,6 +885,7 @@ export function useXterm({
 
       const nextTerminal = new Terminal(
         buildXtermTerminalOptions({
+          kind,
           platform: getRendererEnvironment().platform,
           settings,
         })

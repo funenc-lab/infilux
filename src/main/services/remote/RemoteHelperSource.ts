@@ -1,4 +1,8 @@
 import { REMOTE_SESSION_STATE_SUBPATH, REMOTE_SETTINGS_SUBPATH } from '@shared/paths';
+import {
+  AGENT_SESSION_REPLAY_CHAR_LIMIT,
+  TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+} from '@shared/utils/agentTerminalHistoryPolicy';
 import { APP_RUNTIME_NAMESPACE, type AppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import pkg from '../../../../package.json';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
@@ -40,7 +44,8 @@ const GIT_LOG_FIELD_SEPARATOR = ${JSON.stringify(GIT_LOG_FIELD_SEPARATOR)};
 const GIT_LOG_RECORD_SEPARATOR = ${JSON.stringify(GIT_LOG_RECORD_SEPARATOR)};
 const GIT_LOG_PRETTY_FORMAT = ${JSON.stringify(GIT_LOG_PRETTY_FORMAT)};
 const DAEMON_INFO_FILE = ${JSON.stringify(REMOTE_DAEMON_INFO_FILE)};
-const MAX_SESSION_REPLAY_CHARS = 65536;
+    const TERMINAL_SESSION_REPLAY_CHAR_LIMIT = ${TERMINAL_SESSION_REPLAY_CHAR_LIMIT};
+    const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};
 const EXEC_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
     const EXEC_COMMAND_OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
     const REMOTE_PTY_UNAVAILABLE = 'REMOTE_PTY_UNAVAILABLE';
@@ -2748,8 +2753,14 @@ function createSessionDescriptor(session) {
   };
 }
 
+function getSessionReplayCharLimit(session) {
+  return session && session.kind === 'agent'
+    ? AGENT_SESSION_REPLAY_CHAR_LIMIT
+    : TERMINAL_SESSION_REPLAY_CHAR_LIMIT;
+}
+
 function appendReplay(session, chunk) {
-  session.replay = (session.replay + chunk).slice(-MAX_SESSION_REPLAY_CHARS);
+  session.replay = (session.replay + chunk).slice(-getSessionReplayCharLimit(session));
   session.lastDataAt = Date.now();
 }
 

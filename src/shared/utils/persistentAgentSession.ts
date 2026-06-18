@@ -1,4 +1,4 @@
-const DEFAULT_REPLAY_SNAPSHOT_MAX_CHARS = 24 * 1024;
+import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from './agentTerminalHistoryPolicy';
 
 interface PersistentAgentSessionReplayNamespace {
   replaySnapshot?: string;
@@ -20,7 +20,7 @@ function normalizeCapturedAt(value: unknown): number | undefined {
 export function appendPersistentAgentReplaySnapshot(
   current: string | undefined,
   chunk: string,
-  maxChars = DEFAULT_REPLAY_SNAPSHOT_MAX_CHARS
+  maxChars = PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT
 ): string {
   if (!chunk) {
     return current ?? '';

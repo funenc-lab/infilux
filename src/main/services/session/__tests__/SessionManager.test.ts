@@ -1,4 +1,5 @@
 import { IPC_CHANNELS, type SessionAttachResult, type SessionDescriptor } from '@shared/types';
+import { TERMINAL_SESSION_REPLAY_CHAR_LIMIT } from '@shared/utils/agentTerminalHistoryPolicy';
 import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -414,6 +415,32 @@ describe('SessionManager', () => {
 
     expect(pty.destroy).toHaveBeenCalledWith(sessionId);
     expect(manager.list(1)).toEqual([]);
+  });
+
+  it('keeps an expanded local replay tail for agent sessions without expanding shell terminals', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+
+    const agentSession = await manager.create(1, { cwd: '/repo-agent', kind: 'agent' });
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const agentSessionId = agentSession.session.sessionId;
+    const agentOutput = 'A'.repeat(TERMINAL_SESSION_REPLAY_CHAR_LIMIT + 1024);
+
+    pty.emitData(agentSessionId, agentOutput);
+
+    await expect(manager.attach(1, { sessionId: agentSessionId })).resolves.toMatchObject({
+      replay: agentOutput,
+    });
+
+    const terminalSession = await manager.create(1, { cwd: '/repo-terminal', kind: 'terminal' });
+    const terminalSessionId = terminalSession.session.sessionId;
+    const terminalOutput = 'T'.repeat(TERMINAL_SESSION_REPLAY_CHAR_LIMIT + 1024);
+
+    pty.emitData(terminalSessionId, terminalOutput);
+
+    await expect(manager.attach(1, { sessionId: terminalSessionId })).resolves.toMatchObject({
+      replay: terminalOutput.slice(-TERMINAL_SESSION_REPLAY_CHAR_LIMIT),
+    });
   });
 
   it('creates local sessions from web contents, rolls back failed PTY creation, and proxies local controls', async () => {

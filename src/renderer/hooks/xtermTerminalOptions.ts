@@ -1,3 +1,5 @@
+import type { SessionKind } from '@shared/types';
+import { AGENT_TERMINAL_SCROLLBACK_LINE_FLOOR } from '@shared/utils/agentTerminalHistoryPolicy';
 import type { ITerminalOptions } from '@xterm/xterm';
 
 export interface XtermTerminalSettings {
@@ -13,11 +15,24 @@ export interface XtermTerminalSettings {
 
 interface BuildXtermTerminalOptionsInput {
   platform: string;
+  kind?: SessionKind;
   settings: XtermTerminalSettings;
+}
+
+function resolveTerminalScrollback(
+  kind: SessionKind | undefined,
+  configuredScrollback: number
+): number {
+  if (kind === 'agent') {
+    return Math.max(configuredScrollback, AGENT_TERMINAL_SCROLLBACK_LINE_FLOOR);
+  }
+
+  return configuredScrollback;
 }
 
 export function buildXtermTerminalOptions({
   platform,
+  kind,
   settings,
 }: BuildXtermTerminalOptionsInput): ITerminalOptions {
   return {
@@ -28,7 +43,7 @@ export function buildXtermTerminalOptions({
     fontWeight: settings.fontWeight,
     fontWeightBold: settings.fontWeightBold,
     theme: settings.theme,
-    scrollback: settings.scrollback,
+    scrollback: resolveTerminalScrollback(kind, settings.scrollback),
     macOptionIsMeta: settings.optionIsMeta,
     macOptionClickForcesSelection: platform === 'darwin' ? true : undefined,
     allowProposedApi: true,
