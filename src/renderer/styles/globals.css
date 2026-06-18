@@ -1034,6 +1034,217 @@
     color: var(--foreground);
   }
 
+  .control-floating-toolbar-rail {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 35;
+    width: var(--control-floating-toolbar-trigger-width);
+    min-width: var(--control-floating-toolbar-trigger-width);
+    overflow: visible;
+    pointer-events: auto;
+  }
+
+  .control-floating-toolbar-panel {
+    --control-floating-toolbar-surface: color-mix(
+      in oklch,
+      var(--control-surface-muted) 62%,
+      var(--background) 38%
+    );
+    --control-floating-toolbar-border: color-mix(
+      in oklch,
+      var(--border) 82%,
+      var(--foreground) 8%
+    );
+    --control-floating-toolbar-shadow-edge: color-mix(
+      in oklch,
+      var(--border) 72%,
+      transparent
+    );
+    --control-floating-toolbar-shadow-contact: color-mix(
+      in oklch,
+      var(--foreground) 8%,
+      transparent
+    );
+    --control-floating-toolbar-shadow-ambient: color-mix(
+      in oklch,
+      var(--foreground) 4%,
+      transparent
+    );
+    --control-floating-toolbar-shadow-vertical: color-mix(
+      in oklch,
+      var(--foreground) 5%,
+      transparent
+    );
+    position: absolute;
+    top: var(--control-floating-toolbar-edge-gap);
+    right: 0;
+    bottom: var(--control-floating-toolbar-edge-gap);
+    display: flex;
+    width: var(--control-floating-toolbar-panel-width);
+    min-width: var(--control-floating-toolbar-panel-width);
+    max-width: var(--control-floating-toolbar-panel-width);
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+    padding: 0.375rem;
+    border-radius: 0.625rem 0 0 0.625rem;
+    background: var(--control-floating-toolbar-surface);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(calc(var(--control-floating-toolbar-panel-width) - var(--control-floating-toolbar-trigger-width)), 0, 0);
+    will-change: opacity, transform;
+    transition:
+      opacity 110ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 190ms cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow:
+      inset 0 -1px 0 var(--control-floating-toolbar-border),
+      inset 0 1px 0 color-mix(in oklch, var(--control-floating-toolbar-border) 64%, transparent),
+      -1px 0 0 var(--control-floating-toolbar-shadow-edge),
+      0 2px 10px var(--control-floating-toolbar-shadow-vertical),
+      0 -2px 10px var(--control-floating-toolbar-shadow-vertical),
+      -6px 0 14px var(--control-floating-toolbar-shadow-contact),
+      -14px 0 28px var(--control-floating-toolbar-shadow-ambient);
+  }
+
+  .dark .control-floating-toolbar-panel {
+    --control-floating-toolbar-surface: color-mix(
+      in oklch,
+      var(--control-surface-muted) 58%,
+      var(--background) 42%
+    );
+    --control-floating-toolbar-border: color-mix(
+      in oklch,
+      var(--border) 70%,
+      var(--background) 30%
+    );
+    --control-floating-toolbar-shadow-contact: color-mix(
+      in oklch,
+      var(--background) 40%,
+      transparent
+    );
+    --control-floating-toolbar-shadow-ambient: color-mix(
+      in oklch,
+      var(--background) 20%,
+      transparent
+    );
+    --control-floating-toolbar-shadow-vertical: color-mix(
+      in oklch,
+      var(--background) 28%,
+      transparent
+    );
+  }
+
+  .control-floating-toolbar-rail:hover .control-floating-toolbar-panel,
+  .control-floating-toolbar-rail:focus-within .control-floating-toolbar-panel {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .control-floating-toolbar-nav {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .control-floating-toolbar-tabs,
+  .control-floating-toolbar-actions-cluster {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .control-floating-toolbar-actions-cluster {
+    margin-top: auto;
+    border-top: 1px solid color-mix(in oklch, var(--control-floating-toolbar-border) 62%, transparent);
+    padding-top: 0.375rem;
+  }
+
+  .control-floating-toolbar-tab,
+  .control-floating-toolbar-action {
+    position: relative;
+    display: inline-flex;
+    height: var(--control-button-header-size);
+    min-height: var(--control-button-header-size);
+    width: var(--control-button-header-size);
+    min-width: var(--control-button-header-size);
+    isolation: isolate;
+    overflow: hidden;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: color-mix(in oklch, var(--muted-foreground) 88%, transparent);
+    transition:
+      color 140ms ease,
+      background-color 140ms ease,
+      border-color 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  .control-floating-toolbar-tab-icon {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    height: 1.125rem;
+    width: 1.125rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .control-floating-toolbar-tab-surface {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: color-mix(in oklch, var(--control-surface) 36%, transparent);
+  }
+
+  .control-floating-toolbar-tab[data-active="true"],
+  .control-floating-toolbar-action[data-active="true"] {
+    border-color: color-mix(in oklch, var(--control-floating-toolbar-border) 82%, transparent);
+    color: var(--foreground);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 24%, transparent);
+  }
+
+  .control-floating-toolbar-tab[data-active="false"]:hover,
+  .control-floating-toolbar-action:hover,
+  .control-floating-toolbar-action[data-state='open'] {
+    border-color: color-mix(in oklch, var(--control-floating-toolbar-border) 72%, transparent);
+    background: color-mix(in oklch, var(--control-surface-muted) 22%, transparent);
+    color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);
+  }
+
+  .control-floating-toolbar-panel .control-toolbar-badge-anchor {
+    align-items: center;
+    justify-content: center;
+    margin-inline: 0;
+    padding: 0;
+  }
+
+  .control-floating-toolbar-panel .control-toolbar-badge {
+    box-shadow: 0 0 0 1.5px var(--control-floating-toolbar-surface);
+  }
+
+  .control-floating-toolbar-open-in {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .control-floating-toolbar-panel {
+      transition: opacity 70ms linear;
+    }
+  }
+
   .control-topbar {
     display: flex;
     flex-direction: column;

@@ -34,4 +34,14 @@ describe('floating sidebar settings', () => {
       '<div className="settings-field-row settings-field-row-start border-t border-border/70 pt-5">'
     );
   });
+
+  it('exposes the floating toolbar setting inside layout settings', () => {
+    expect(layoutSectionSource).toContain('floatingToolbarEnabled');
+    expect(layoutSectionSource).toContain('setFloatingToolbarEnabled');
+    expect(layoutSectionSource).toContain("t('Floating toolbar')");
+    expect(layoutSectionSource).toContain(
+      'Show the toolbar as a floating overlay when the pointer reaches the right edge.'
+    );
+    expect(layoutSectionSource).toContain('onCheckedChange={setFloatingToolbarEnabled}');
+  });
 });

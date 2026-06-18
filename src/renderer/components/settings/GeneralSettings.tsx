@@ -201,6 +201,8 @@ export function GeneralSettings() {
     setRepositoryListDisplayMode,
     floatingSidebarEnabled,
     setFloatingSidebarEnabled,
+    floatingToolbarEnabled,
+    setFloatingToolbarEnabled,
     agentSessionDisplayMode,
     setAgentSessionDisplayMode,
     worktreeCanvasTerminalMountLimit,
@@ -911,6 +913,24 @@ export function GeneralSettings() {
                 checked={floatingSidebarEnabled}
                 onCheckedChange={setFloatingSidebarEnabled}
                 aria-label={t('Floating sidebar')}
+              />
+            </div>
+          </Field>
+
+          <Field className="settings-field-row settings-field-row-start border-t border-border/70 pt-5">
+            <div className="space-y-1">
+              <FieldLabel>{t('Floating toolbar')}</FieldLabel>
+              <FieldDescription>
+                {t(
+                  'Show the toolbar as a floating overlay when the pointer reaches the right edge.'
+                )}
+              </FieldDescription>
+            </div>
+            <div className="flex items-center justify-start">
+              <Switch
+                checked={floatingToolbarEnabled}
+                onCheckedChange={setFloatingToolbarEnabled}
+                aria-label={t('Floating toolbar')}
               />
             </div>
           </Field>

@@ -347,6 +347,10 @@ export function migrateSettings(
     persisted.floatingSidebarEnabled,
     sanitizeBoolean(legacyFloatingSidebarEnabled, currentState.floatingSidebarEnabled)
   );
+  const floatingToolbarEnabled = sanitizeBoolean(
+    persisted.floatingToolbarEnabled,
+    currentState.floatingToolbarEnabled
+  );
   const worktreeCanvasTerminalMountLimit = normalizeWorktreeCanvasTerminalMountLimit(
     persisted.worktreeCanvasTerminalMountLimit,
     currentState.worktreeCanvasTerminalMountLimit
@@ -406,6 +410,7 @@ export function migrateSettings(
     chatPanelInactivityThresholdMinutes,
     retainSessionBackedChatPanels,
     floatingSidebarEnabled,
+    floatingToolbarEnabled,
     worktreeCanvasTerminalMountLimit,
     workspaceCanvasTerminalMountLimit,
     xtermKeybindings: migratedXtermKeybindings,

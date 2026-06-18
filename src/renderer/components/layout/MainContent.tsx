@@ -177,6 +177,7 @@ export function MainContent({
   const retainSessionBackedChatPanels = useSettingsStore(
     (state) => state.retainSessionBackedChatPanels
   );
+  const floatingToolbarEnabled = useSettingsStore((state) => state.floatingToolbarEnabled);
   const todoEnabled = useSettingsStore((state) => state.todoEnabled);
   const bgImageEnabled = useSettingsStore((state) => state.backgroundImageEnabled);
   const editorTabCount = useEditorStore((state) => state.tabs.length);
@@ -797,10 +798,11 @@ export function MainContent({
   const showOpenInToolbar = showOpenInMenu && activeTab === 'file' && Boolean(effectiveOpenInPath);
 
   return (
-    <main className={cn('flex min-w-0 flex-1 flex-col overflow-hidden bg-background')}>
+    <main className={cn('relative flex min-w-0 flex-1 flex-col overflow-hidden bg-background')}>
       <MainContentTopbar
         bgImageEnabled={bgImageEnabled}
         needsTrafficLightPadding={needsTrafficLightPadding}
+        floatingToolbarEnabled={floatingToolbarEnabled}
         fileSidebarCollapsed={fileSidebarCollapsed}
         onExpandFileSidebar={onExpandFileSidebar}
         tabs={tabs}

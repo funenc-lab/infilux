@@ -2,8 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupLegacyFields, migrateSettings } from '../migration';
 import type { SettingsState, TerminalKeybinding } from '../types';
 
-type SettingsMigrationInput = Omit<Partial<SettingsState>, 'floatingSidebarEnabled'> & {
+type SettingsMigrationInput = Omit<
+  Partial<SettingsState>,
+  'floatingSidebarEnabled' | 'floatingToolbarEnabled'
+> & {
   floatingSidebarEnabled?: unknown;
+  floatingToolbarEnabled?: unknown;
   sidebarHoverRevealEnabled?: unknown;
 };
 
@@ -24,6 +28,7 @@ function createCurrentState(): SettingsState {
     chatPanelInactivityThresholdMinutes: 5,
     retainSessionBackedChatPanels: true,
     floatingSidebarEnabled: true,
+    floatingToolbarEnabled: false,
     worktreeCanvasTerminalMountLimit: 6,
     workspaceCanvasTerminalMountLimit: 12,
     backgroundOpacity: 0.85,
@@ -369,6 +374,37 @@ describe('migrateSettings', () => {
         currentState
       ).floatingSidebarEnabled
     ).toBe(currentState.floatingSidebarEnabled);
+  });
+
+  it('preserves explicit floating toolbar settings and falls back to the current default', () => {
+    const currentState = createCurrentState();
+
+    expect(
+      migrateSettings(
+        migrationInput({
+          floatingToolbarEnabled: true,
+        }),
+        currentState
+      ).floatingToolbarEnabled
+    ).toBe(true);
+
+    expect(
+      migrateSettings(
+        migrationInput({
+          floatingToolbarEnabled: false,
+        }),
+        currentState
+      ).floatingToolbarEnabled
+    ).toBe(false);
+
+    expect(
+      migrateSettings(
+        migrationInput({
+          floatingToolbarEnabled: 'yes',
+        }),
+        currentState
+      ).floatingToolbarEnabled
+    ).toBe(currentState.floatingToolbarEnabled);
   });
 
   it('clamps persisted canvas terminal mount limits to bounded whole numbers', () => {

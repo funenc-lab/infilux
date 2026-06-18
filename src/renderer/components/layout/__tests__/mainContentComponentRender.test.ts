@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import type { LiveAgentSubagent } from '@shared/types';
+import { Sparkles } from 'lucide-react';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -20,6 +21,7 @@ type SettingsState = {
   agentSessionDisplayMode: 'tab' | 'canvas' | 'global-canvas';
   chatPanelInactivityThresholdMinutes: number;
   retainSessionBackedChatPanels: boolean;
+  floatingToolbarEnabled: boolean;
   todoEnabled: boolean;
   backgroundImageEnabled: boolean;
 };
@@ -70,6 +72,7 @@ const settingsState: SettingsState = {
   agentSessionDisplayMode: 'tab',
   chatPanelInactivityThresholdMinutes: 5,
   retainSessionBackedChatPanels: true,
+  floatingToolbarEnabled: false,
   todoEnabled: false,
   backgroundImageEnabled: false,
 };
@@ -552,6 +555,7 @@ describe('MainContent component render', () => {
       React.createElement(MainContentTopbar, {
         bgImageEnabled: false,
         needsTrafficLightPadding: false,
+        floatingToolbarEnabled: false,
         fileSidebarCollapsed: false,
         onExpandFileSidebar: vi.fn(),
         tabs: [],
@@ -1343,5 +1347,25 @@ describe('MainContent component render', () => {
     const markup = await renderMainContent('file');
 
     expect(markup).toContain('control-topbar-header');
+  });
+
+  it('renders the toolbar as a right-edge floating rail when floating toolbar mode is enabled', async () => {
+    const markup = await renderMainContentTopbar({
+      floatingToolbarEnabled: true,
+      tabs: [
+        {
+          id: 'chat',
+          icon: Sparkles,
+          label: 'Agent',
+        },
+      ],
+    });
+
+    expect(markup).toContain('control-floating-toolbar-rail');
+    expect(markup).toContain('control-floating-toolbar-panel');
+    expect(markup).toContain('data-floating-toolbar-reveal="active"');
+    expect(markup).toContain('aria-label="Toolbar"');
+    expect(markup).toContain('title="Agent"');
+    expect(markup).not.toContain('control-topbar-header');
   });
 });

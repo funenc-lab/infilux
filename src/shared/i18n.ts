@@ -832,6 +832,9 @@ export const zhTranslations: Record<string, string> = {
   'Floating sidebar': '\u60ac\u6d6e\u4fa7\u8fb9\u680f',
   'Show the sidebar as a floating overlay when the pointer reaches the left edge.':
     '\u9f20\u6807\u9760\u8fd1\u5de6\u4fa7\u8fb9\u7f18\u65f6\uff0c\u4ee5\u60ac\u6d6e\u5c42\u663e\u793a\u4fa7\u8fb9\u680f\u3002',
+  'Floating toolbar': '\u60ac\u6d6e\u5de5\u5177\u680f',
+  'Show the toolbar as a floating overlay when the pointer reaches the right edge.':
+    '\u9f20\u6807\u9760\u8fd1\u53f3\u4fa7\u8fb9\u7f18\u65f6\uff0c\u4ee5\u60ac\u6d6e\u5c42\u663e\u793a\u5de5\u5177\u680f\u3002',
   Clear: '清除',
   Columns: '三栏',
   'Committing...': '提交中...',
@@ -1233,6 +1236,10 @@ export const zhTranslations: Record<string, string> = {
   'Hide Groups': '隐藏分组',
   'Hide group management panel and show all repositories': '隐藏分组管理面板，显示所有仓库',
   'Quick Open': '快捷打开',
+  'Open in app': '\u5728\u5e94\u7528\u4e2d\u6253\u5f00',
+  'Loading apps': '\u6b63\u5728\u52a0\u8f7d\u5e94\u7528...',
+  'No apps': '\u6ca1\u6709\u53ef\u7528\u5e94\u7528',
+  'Choose app': '\u9009\u62e9\u5e94\u7528',
   'Configure apps shown in the quick open menu': '配置快捷打开菜单中显示的应用',
   'File Manager': '文件管理器',
   Terminals: '终端',
@@ -2231,6 +2238,8 @@ export const zhTranslations: Record<string, string> = {
   'Enter a prompt template.\nAvailable variables:\n• {text} - Raw requirement text':
     '输入提示词模板。\n可用变量：\n• {text} - 原始需求文本',
   'App runtime status': '应用运行时状态',
+  Toolbar: '\u5de5\u5177\u680f',
+  'Main sections': '\u4e3b\u8981\u5206\u533a',
   'App runtime': '应用运行时',
   'Review the current runtime footprint for this window.': '查看当前窗口对应的应用运行时资源占用。',
   'Refresh runtime metrics': '刷新运行时指标',

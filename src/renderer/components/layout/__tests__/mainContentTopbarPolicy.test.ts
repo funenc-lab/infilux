@@ -59,4 +59,35 @@ describe('main content topbar policy', () => {
     expect(mainContentSource).not.toContain("t('Expand Worktree')");
     expect(mainContentSource).not.toContain("t('Expand File Sidebar')");
   });
+
+  it('supports a right-edge floating toolbar mode without occupying top layout space', () => {
+    expect(mainContentSource).toContain('floatingToolbarEnabled');
+    expect(mainContentSource).toContain('resolveFloatingToolbarRevealFrame');
+    expect(mainContentSource).toContain('getFloatingToolbarRevealStyle(toolbarRevealFrame)');
+    expect(mainContentSource).toContain('control-floating-toolbar-rail');
+    expect(mainContentSource).toContain('data-floating-toolbar-reveal="active"');
+    expect(mainContentSource).toContain("aria-label={t('Toolbar')}");
+    expect(mainContentSource).toContain('title={tab.label}');
+    expect(mainContentSource).toContain('control-floating-toolbar-tab');
+    expect(mainContentSource).toContain('control-floating-toolbar-actions-cluster');
+  });
+
+  it('defines right-edge floating toolbar trigger, surface, and reveal motion styles', () => {
+    expect(globalsSource).toContain('.control-floating-toolbar-rail {');
+    expect(globalsSource).toContain('right: 0;');
+    expect(globalsSource).toContain('width: var(--control-floating-toolbar-trigger-width);');
+    expect(globalsSource).toContain('.control-floating-toolbar-panel {');
+    expect(globalsSource).toContain('width: var(--control-floating-toolbar-panel-width);');
+    expect(globalsSource).toContain(
+      'transform: translate3d(calc(var(--control-floating-toolbar-panel-width) - var(--control-floating-toolbar-trigger-width)), 0, 0);'
+    );
+    expect(globalsSource).toContain(
+      '.control-floating-toolbar-rail:hover .control-floating-toolbar-panel'
+    );
+    expect(globalsSource).toContain(
+      '.control-floating-toolbar-rail:focus-within .control-floating-toolbar-panel'
+    );
+    expect(globalsSource).toContain('opacity 110ms cubic-bezier(0.16, 1, 0.3, 1)');
+    expect(globalsSource).toContain('transform 190ms cubic-bezier(0.16, 1, 0.3, 1)');
+  });
 });

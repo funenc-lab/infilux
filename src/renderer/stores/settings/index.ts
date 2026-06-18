@@ -88,6 +88,7 @@ function getInitialState() {
     fileTreeDisplayMode: 'legacy' as const,
     repositoryListDisplayMode: 'list' as const,
     floatingSidebarEnabled: true,
+    floatingToolbarEnabled: false,
     agentSessionDisplayMode: 'tab' as const,
     language: defaultLanguage,
     fontSize: 14,
@@ -358,6 +359,8 @@ export const useSettingsStore = create<SettingsState>()(
         set({ repositoryListDisplayMode }),
 
       setFloatingSidebarEnabled: (floatingSidebarEnabled) => set({ floatingSidebarEnabled }),
+
+      setFloatingToolbarEnabled: (floatingToolbarEnabled) => set({ floatingToolbarEnabled }),
 
       setAgentSessionDisplayMode: (agentSessionDisplayMode) => set({ agentSessionDisplayMode }),
 

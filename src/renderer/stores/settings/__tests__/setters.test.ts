@@ -611,6 +611,7 @@ describe('settings store setters', () => {
     expect(env.useSettingsStore.getState().worktreeCanvasTerminalMountLimit).toBe(6);
     expect(env.useSettingsStore.getState().workspaceCanvasTerminalMountLimit).toBe(12);
     expect(env.useSettingsStore.getState().floatingSidebarEnabled).toBe(true);
+    expect(env.useSettingsStore.getState().floatingToolbarEnabled).toBe(false);
 
     store.setLayoutMode('columns');
     store.setFileTreeDisplayMode('current');
@@ -687,6 +688,7 @@ describe('settings store setters', () => {
     store.setSettingsDisplayMode('draggable-modal');
     store.setSettingsModalPosition({ x: 120, y: 240 });
     store.setFloatingSidebarEnabled(false);
+    store.setFloatingToolbarEnabled(true);
     store.setHideGroups(true);
     store.toggleHiddenOpenInApp('com.example.finder');
     store.toggleHiddenOpenInApp('com.example.finder');
@@ -711,6 +713,7 @@ describe('settings store setters', () => {
     expect(state.settingsDisplayMode).toBe('draggable-modal');
     expect(state.settingsModalPosition).toEqual({ x: 120, y: 240 });
     expect(state.floatingSidebarEnabled).toBe(false);
+    expect(state.floatingToolbarEnabled).toBe(true);
     expect(state.hideGroups).toBe(true);
     expect(state.hiddenOpenInApps).toEqual([]);
     expect(state.openInMenuFilterEnabled).toBe(true);
