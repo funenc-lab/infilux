@@ -58,6 +58,10 @@ const testState = vi.hoisted(() => ({
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
   terminalDataHandler: null as ((data: string) => void) | null,
+  customKeyHandler: null as ((event: KeyboardEvent) => boolean) | null,
+  terminalBufferLines: [] as Array<{ text: string; isWrapped?: boolean }>,
+  terminalCursorY: 0,
+  terminalBaseY: 0,
   textareaEventTypes: [] as string[],
   latestTextarea: null as HTMLTextAreaElement | null,
   terminalFocus: vi.fn(),
@@ -93,9 +97,20 @@ vi.mock('@xterm/xterm', () => ({
     buffer = {
       active: {
         type: 'normal',
-        cursorY: 0,
-        baseY: 0,
-        getLine: () => null,
+        get cursorY() {
+          return testState.terminalCursorY;
+        },
+        get baseY() {
+          return testState.terminalBaseY;
+        },
+        getLine: (index: number) => {
+          const line = testState.terminalBufferLines[index];
+          if (!line) return null;
+          return {
+            isWrapped: Boolean(line.isWrapped),
+            translateToString: () => line.text,
+          };
+        },
       },
     };
     modes = { mouseTrackingMode: 'none' };
@@ -156,7 +171,9 @@ vi.mock('@xterm/xterm', () => ({
         },
       };
     }
-    attachCustomKeyEventHandler(): void {}
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {
+      testState.customKeyHandler = handler;
+    }
   },
 }));
 
@@ -437,6 +454,10 @@ describe('useXterm startup loading state', () => {
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
     testState.terminalDataHandler = null;
+    testState.customKeyHandler = null;
+    testState.terminalBufferLines = [];
+    testState.terminalCursorY = 0;
+    testState.terminalBaseY = 0;
     testState.textareaEventTypes = [];
     testState.latestTextarea = null;
     testState.terminalFocus.mockClear();
@@ -582,6 +603,40 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', '\u4f60\u597d');
+
+    await mounted.unmount();
+  });
+
+  it('passes the full wrapped current input line to custom key handlers', async () => {
+    const capturedLine = vi.fn();
+    const mounted = mountHookHarness({
+      onCustomKey: (_event, _ptyId, getCurrentLine) => {
+        capturedLine(getCurrentLine?.());
+        return true;
+      },
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    testState.terminalBufferLines = [
+      {
+        text: '› Investigate long-running canvas session title without ',
+      },
+      {
+        text: 'losing context and without dropping the beginning',
+        isWrapped: true,
+      },
+    ];
+    testState.terminalCursorY = 1;
+
+    act(() => {
+      testState.customKeyHandler?.(new KeyboardEvent('keydown', { key: 'Enter' }));
+    });
+
+    expect(capturedLine).toHaveBeenCalledWith(
+      '› Investigate long-running canvas session title without losing context and without dropping the beginning'
+    );
 
     await mounted.unmount();
   });

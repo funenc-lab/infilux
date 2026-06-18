@@ -77,8 +77,6 @@ const FILE_PATH_REGEX =
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences require ESC character
 const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
-// Maximum length for session name derived from terminal current line
-const SESSION_NAME_MAX_LENGTH = 36;
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 
 interface InternalTerminalSearchDecorations {
@@ -123,6 +121,29 @@ interface PendingHostScrollRequest {
   serverName?: string;
   direction: 'up' | 'down';
   amount: number;
+}
+
+function resolveCurrentTerminalInputLine(terminal: Terminal): string | null {
+  const buffer = terminal.buffer.active;
+  const cursorRow = buffer.baseY + buffer.cursorY;
+  let firstRow = cursorRow;
+  let firstLine = buffer.getLine(firstRow);
+
+  while (firstLine?.isWrapped && firstRow > 0) {
+    firstRow -= 1;
+    firstLine = buffer.getLine(firstRow);
+  }
+
+  const parts: string[] = [];
+  for (let row = firstRow; row <= cursorRow; row += 1) {
+    const line = buffer.getLine(row);
+    if (!line) continue;
+    const shouldTrimRight = row === cursorRow;
+    parts.push(line.translateToString(shouldTrimRight).replace(ANSI_ESCAPE_REGEX, ''));
+  }
+
+  const trimmed = parts.join('').trim();
+  return trimmed || null;
 }
 
 export interface XtermSessionCreateFallbackOptions {
@@ -1177,18 +1198,7 @@ export function useXterm({
         const getCurrentLine = (): string | null => {
           const term = terminalRef.current;
           if (!term) return null;
-          const buf = term.buffer.active;
-          // Use absolute row (baseY + cursorY) to handle scrolled-back buffers
-          const y = buf.baseY + buf.cursorY;
-          const line = buf.getLine(y);
-          if (!line) return null;
-          const raw = line.translateToString();
-          const stripped = raw.replace(ANSI_ESCAPE_REGEX, '');
-          const trimmed = stripped.trim();
-          if (!trimmed) return null;
-          return trimmed.length > SESSION_NAME_MAX_LENGTH
-            ? `${trimmed.slice(0, SESSION_NAME_MAX_LENGTH)}…`
-            : trimmed;
+          return resolveCurrentTerminalInputLine(term);
         };
         return onCustomKeyRef.current(event, ptyIdRef.current, getCurrentLine);
       }

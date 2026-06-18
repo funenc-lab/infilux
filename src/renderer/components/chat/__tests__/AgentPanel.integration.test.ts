@@ -155,6 +155,20 @@ vi.mock('@/i18n', () => ({
   }),
 }));
 
+vi.mock('@/components/ui/tooltip', () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, children),
+  TooltipTrigger: ({
+    render,
+    children,
+  }: {
+    render?: React.ReactElement<Record<string, unknown>>;
+    children?: React.ReactNode;
+  }) => render ?? React.createElement(React.Fragment, null, children),
+  TooltipPopup: ({ children, className }: { children: React.ReactNode; className?: string }) =>
+    React.createElement('div', { className, 'data-testid': 'tooltip-popup' }, children),
+}));
+
 vi.mock('../agentAvailability', () => ({
   probeRemoteAgentAvailability: vi.fn(async (request: { agentId: string }) => ({
     available: true,
@@ -2367,6 +2381,69 @@ describe('AgentPanel integration', () => {
     expect(mounted.container.querySelectorAll('[data-agent-canvas-deferred="true"]')).toHaveLength(
       4
     );
+
+    await mounted.unmount();
+  });
+
+  it('keeps long canvas session titles discoverable in tile and floating headers', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const longTitle = 'Investigate long-running canvas session title without losing context';
+    const session = createSession({
+      id: 'session-long-title',
+      sessionId: 'provider-long-title',
+      backendSessionId: 'backend-long-title',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: longTitle,
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-long-title',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-long-title',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const titleButton = mounted.container.querySelector<HTMLButtonElement>(
+      '[data-agent-canvas-session-title-button="true"][data-agent-canvas-session-id="session-long-title"]'
+    );
+    expect(titleButton).not.toBeNull();
+    expect(titleButton?.getAttribute('aria-label')).toBe(longTitle);
+    expect(
+      Array.from(mounted.container.querySelectorAll('[data-testid="tooltip-popup"]')).some(
+        (tooltip) => tooltip.textContent === longTitle
+      )
+    ).toBe(true);
+
+    await clickElement(mounted.container.querySelector('button[aria-label="Bring to Front"]'));
+
+    const floatingTitleRegion = document.body.querySelector<HTMLElement>(
+      '.agent-canvas-floating-frame [data-agent-canvas-floating-title-region="true"]'
+    );
+    expect(floatingTitleRegion?.className).toContain('flex-1');
+    expect(floatingTitleRegion?.className).toContain('min-w-0');
+    expect(
+      Array.from(document.body.querySelectorAll('[data-testid="tooltip-popup"]')).some(
+        (tooltip) => tooltip.textContent === longTitle
+      )
+    ).toBe(true);
 
     await mounted.unmount();
   });

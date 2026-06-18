@@ -35,6 +35,7 @@ import {
 import {
   Fragment,
   memo,
+  type ReactElement,
   type PointerEvent as ReactPointerEvent,
   type UIEvent as ReactUIEvent,
   type WheelEvent as ReactWheelEvent,
@@ -54,6 +55,7 @@ import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { toastManager } from '@/components/ui/toast';
+import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useSessionSubagentsBySession } from '@/hooks/useSessionSubagentsBySession';
 import { useI18n } from '@/i18n';
@@ -4649,30 +4651,41 @@ export function AgentPanel({
           }}
         />
       ) : (
-        <button
-          type="button"
-          data-agent-canvas-session-title-button="true"
-          data-agent-canvas-session-id={session.id}
-          className="min-w-0 flex-1 truncate rounded-lg px-1 text-left text-sm font-semibold text-foreground transition-colors hover:bg-accent/20"
-          aria-label={sessionDisplayName}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            handleStartCanvasSessionTitleEdit(session);
-          }}
-          onDoubleClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            handleStartCanvasSessionTitleEdit(session);
-          }}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            handleStartCanvasSessionTitleEdit(session);
-          }}
-        >
-          {sessionDisplayName}
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              (
+                <button
+                  type="button"
+                  data-agent-canvas-session-title-button="true"
+                  data-agent-canvas-session-id={session.id}
+                  className="min-w-0 flex-1 truncate rounded-lg px-1 text-left text-sm font-semibold text-foreground transition-colors hover:bg-accent/20"
+                  aria-label={sessionDisplayName}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleStartCanvasSessionTitleEdit(session);
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleStartCanvasSessionTitleEdit(session);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleStartCanvasSessionTitleEdit(session);
+                  }}
+                >
+                  {sessionDisplayName}
+                </button>
+              ) as ReactElement<Record<string, unknown>>
+            }
+          />
+          <TooltipPopup align="start" className="max-w-sm whitespace-normal text-left break-words">
+            {sessionDisplayName}
+          </TooltipPopup>
+        </Tooltip>
       );
     const renderSessionHeaderSummary = () => (
       <div className="flex min-w-0 items-center gap-2">
@@ -5078,7 +5091,9 @@ export function AgentPanel({
             }
           >
             <div className="control-panel-muted pointer-events-auto relative z-20 flex shrink-0 items-start justify-between gap-3 border-b border-border/60 px-3 py-2 no-drag">
-              <div className="min-w-0">{renderSessionHeaderSummary()}</div>
+              <div className="min-w-0 flex-1" data-agent-canvas-floating-title-region="true">
+                {renderSessionHeaderSummary()}
+              </div>
               <div className="flex shrink-0 items-center gap-2">
                 {renderSessionSubagentTrigger(
                   'control-panel pointer-events-auto relative z-20 flex h-10 w-10 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-accent/30 no-drag'
