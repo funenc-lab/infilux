@@ -505,7 +505,6 @@ describe('MainContent component render', () => {
           repoPath: '/repo/main',
           worktreePath: '/repo/main/worktrees/current',
         },
-        visibleChatBridgeContext: null,
         hasActiveWorktree: true,
         worktreeCollapsed: false,
         onExpandWorktree: vi.fn(),
@@ -820,27 +819,25 @@ describe('MainContent component render', () => {
     );
   });
 
-  it('keeps the previous chat panel visible while the next worktree panel restores in the background', async () => {
+  it('keeps the current chat panel visible while a previous worktree remains cached', async () => {
     const markup = await renderMainContentPanels({
       currentWorktreePath: '/repo/main/worktrees/next',
       retainedChatContext: {
         repoPath: '/repo/main',
         worktreePath: '/repo/main/worktrees/next',
       },
-      visibleChatBridgeContext: {
-        repoPath: '/repo/main',
-        worktreePath: '/repo/main/worktrees/current',
-      },
+      cachedChatPanelPaths: ['/repo/main/worktrees/current'],
+      getRepoPathForWorktree: () => '/repo/main',
     });
 
     expect(markup).toMatch(
-      /class="absolute inset-0 bg-background invisible pointer-events-none z-0"><div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/next"/
+      /class="absolute inset-0 bg-background z-10"><div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/next"/
     );
     expect(markup).toMatch(
-      /class="absolute inset-0 bg-background z-10"><div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"/
+      /class="absolute inset-0 bg-background invisible pointer-events-none z-0"><div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"/
     );
     expect(markup).toMatch(
-      /<div data-panel="agent"[^>]*data-active="true"[^>]*data-cwd="\/repo\/main\/worktrees\/current"|<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/current"[^>]*data-active="true"/
+      /<div data-panel="agent"[^>]*data-active="true"[^>]*data-cwd="\/repo\/main\/worktrees\/next"|<div data-panel="agent"[^>]*data-cwd="\/repo\/main\/worktrees\/next"[^>]*data-active="true"/
     );
   });
 

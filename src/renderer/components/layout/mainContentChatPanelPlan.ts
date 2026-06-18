@@ -32,7 +32,6 @@ interface ResolveMainContentChatPanelPlanOptions {
   retainedChatContext: MainContentContext | null;
   shouldRenderCurrentChatPanel: boolean;
   showSubagentTranscript: boolean;
-  visibleChatBridgeContext: MainContentContext | null;
 }
 
 export function resolveMainContentChatPanelPlan({
@@ -44,7 +43,6 @@ export function resolveMainContentChatPanelPlan({
   retainedChatContext,
   shouldRenderCurrentChatPanel,
   showSubagentTranscript,
-  visibleChatBridgeContext,
 }: ResolveMainContentChatPanelPlanOptions): MainContentChatPanelEntry[] {
   const currentWorktreePath = shouldRenderCurrentChatPanel
     ? (retainedChatContext?.worktreePath ?? null)
@@ -54,22 +52,14 @@ export function resolveMainContentChatPanelPlan({
     : null;
   const currentWorktreeKey = currentWorktreePath ? normalizePath(currentWorktreePath) : null;
   const visibleCurrentPanel = activeTab === 'chat' && !showSubagentTranscript;
-  const visibleWorktreePath = visibleCurrentPanel
-    ? (visibleChatBridgeContext?.worktreePath ?? currentWorktreePath)
-    : null;
+  const visibleWorktreePath = visibleCurrentPanel ? currentWorktreePath : null;
   const visibleWorktreeKey = visibleWorktreePath ? normalizePath(visibleWorktreePath) : null;
   const seenPaths = new Set<string>();
   const entries: MainContentChatPanelEntry[] = [];
   const plannedWorktreePaths =
     agentSessionDisplayMode === 'global-canvas'
       ? [...(currentWorktreePath ? [currentWorktreePath] : [])]
-      : [
-          ...(currentWorktreePath ? [currentWorktreePath] : []),
-          ...(visibleChatBridgeContext?.worktreePath
-            ? [visibleChatBridgeContext.worktreePath]
-            : []),
-          ...cachedChatPanelPaths,
-        ];
+      : [...(currentWorktreePath ? [currentWorktreePath] : []), ...cachedChatPanelPaths];
 
   for (const worktreePath of plannedWorktreePaths) {
     const normalizedPath = normalizePath(worktreePath);
@@ -80,11 +70,7 @@ export function resolveMainContentChatPanelPlan({
 
     const isCurrent = currentWorktreeKey === normalizedPath;
     const isVisible = visibleCurrentPanel && visibleWorktreeKey === normalizedPath;
-    const repoPath = isCurrent
-      ? currentRepoPath
-      : visibleChatBridgeContext && visibleWorktreeKey === normalizedPath
-        ? visibleChatBridgeContext.repoPath
-        : getRepoPathForWorktree(worktreePath);
+    const repoPath = isCurrent ? currentRepoPath : getRepoPathForWorktree(worktreePath);
     if (!repoPath) {
       continue;
     }

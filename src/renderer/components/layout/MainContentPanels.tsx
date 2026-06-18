@@ -39,7 +39,6 @@ export interface MainContentPanelsProps {
   currentRepoPath: string | null;
   currentWorktreePath: string | null;
   retainedChatContext: MainContentContext | null;
-  visibleChatBridgeContext?: MainContentContext | null;
   hasActiveWorktree: boolean;
   worktreeCollapsed: boolean;
   onExpandWorktree?: () => void;
@@ -136,7 +135,6 @@ export function MainContentPanels({
   currentRepoPath,
   currentWorktreePath,
   retainedChatContext,
-  visibleChatBridgeContext = null,
   hasActiveWorktree,
   worktreeCollapsed,
   onExpandWorktree,
@@ -209,7 +207,6 @@ export function MainContentPanels({
     retainedChatContext,
     shouldRenderCurrentChatPanel,
     showSubagentTranscript,
-    visibleChatBridgeContext,
   });
 
   return (
