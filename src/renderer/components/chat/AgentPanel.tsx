@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Crosshair,
   Diamond,
+  FileText,
   GitBranch,
   Lock,
   LockOpen,
@@ -82,6 +83,7 @@ import { buildConsoleButtonStyle, buildConsoleTypographyModel } from '../layout/
 import { AgentCloseSessionDialog } from './AgentCloseSessionDialog';
 import { AgentGroup } from './AgentGroup';
 import { AgentSessionControlCenter } from './AgentSessionControlCenter';
+import { AgentSessionTranscriptDrawer } from './AgentSessionTranscriptDrawer';
 import { AgentTerminal } from './AgentTerminal';
 import { AgentPanelEmptyState } from './agent-panel/AgentPanelEmptyState';
 import { SessionSubagentInspector } from './agent-panel/SessionSubagentInspector';
@@ -827,6 +829,7 @@ export function AgentPanel({
   const [openSessionSubagentInspectorId, setOpenSessionSubagentInspectorId] = useState<
     string | null
   >(null);
+  const [transcriptSessionId, setTranscriptSessionId] = useState<string | null>(null);
   const [selectedSubagentThreadIdBySessionId, setSelectedSubagentThreadIdBySessionId] = useState<
     Record<string, string | null>
   >({});
@@ -882,6 +885,15 @@ export function AgentPanel({
     () => new Map(allSessions.map((session) => [session.id, session])),
     [allSessions]
   );
+  const transcriptSession = useMemo(
+    () => (transcriptSessionId ? (sessionById.get(transcriptSessionId) ?? null) : null),
+    [sessionById, transcriptSessionId]
+  );
+  useEffect(() => {
+    if (transcriptSessionId && !sessionById.has(transcriptSessionId)) {
+      setTranscriptSessionId(null);
+    }
+  }, [sessionById, transcriptSessionId]);
   const persistableSessions = useMemo(
     () => allSessions.filter((session) => isSessionPersistable(session)),
     [allSessions]
@@ -5722,8 +5734,36 @@ export function AgentPanel({
                   );
                 })()
               : null;
+          const activeSessionTranscriptToolbarAccessory =
+            activeSession != null ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    (
+                      <button
+                        type="button"
+                        data-agent-session-transcript-trigger={activeSession.id}
+                        className="control-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors"
+                        aria-label={t('Transcript')}
+                        title={t('Transcript')}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setTranscriptSessionId(activeSession.id);
+                        }}
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                      </button>
+                    ) as ReactElement<Record<string, unknown>>
+                  }
+                />
+                <TooltipPopup>{t('Transcript')}</TooltipPopup>
+              </Tooltip>
+            ) : null;
           const activeSessionToolbarAccessory =
-            isActiveGroup || activeSessionSubagentToolbarAccessory ? (
+            isActiveGroup ||
+            activeSessionTranscriptToolbarAccessory ||
+            activeSessionSubagentToolbarAccessory ? (
               <div className="flex items-center gap-1">
                 {isActiveGroup ? (
                   <AgentSessionControlCenter
@@ -5733,6 +5773,7 @@ export function AgentPanel({
                     buttonClassName="h-8 w-8 rounded-lg"
                   />
                 ) : null}
+                {activeSessionTranscriptToolbarAccessory}
                 {activeSessionSubagentToolbarAccessory}
               </div>
             ) : null;
@@ -5840,6 +5881,15 @@ export function AgentPanel({
           onLaunch={handleLaunchSessionWithOptions}
         />
       ) : null}
+      <AgentSessionTranscriptDrawer
+        open={transcriptSession != null}
+        session={transcriptSession}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTranscriptSessionId(null);
+          }
+        }}
+      />
       <AgentCloseSessionDialog
         pendingCloseSession={pendingCloseSession}
         onConfirm={handleConfirmCloseSession}

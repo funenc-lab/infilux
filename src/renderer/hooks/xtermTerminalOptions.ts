@@ -1,6 +1,6 @@
 import type { SessionKind } from '@shared/types';
-import { AGENT_TERMINAL_SCROLLBACK_LINE_FLOOR } from '@shared/utils/agentTerminalHistoryPolicy';
 import type { ITerminalOptions } from '@xterm/xterm';
+import { MAX_TERMINAL_SCROLLBACK } from '@/stores/settings/terminalScrollbackPolicy';
 
 export interface XtermTerminalSettings {
   theme: ITerminalOptions['theme'];
@@ -24,7 +24,7 @@ function resolveTerminalScrollback(
   configuredScrollback: number
 ): number {
   if (kind === 'agent') {
-    return Math.max(configuredScrollback, AGENT_TERMINAL_SCROLLBACK_LINE_FLOOR);
+    return Math.min(configuredScrollback, MAX_TERMINAL_SCROLLBACK);
   }
 
   return configuredScrollback;

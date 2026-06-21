@@ -49,6 +49,46 @@ const rendererZhTranslations: Record<string, string> = {
   'Repository workspace': decodeEscapedUnicode('\\u4ed3\\u5e93\\u5de5\\u4f5c\\u533a'),
   'Current worktree: {{name}}': decodeEscapedUnicode('\\u5f53\\u524d Worktree\\uff1a{{name}}'),
   'Agent Sessions': decodeEscapedUnicode('Agent \\u4f1a\\u8bdd'),
+  'Latest retained output': decodeEscapedUnicode('\\u6700\\u65b0\\u4fdd\\u7559\\u8f93\\u51fa'),
+  'No active agent session selected.': decodeEscapedUnicode(
+    '\\u672a\\u9009\\u62e9\\u6d3b\\u52a8 Agent \\u4f1a\\u8bdd\\u3002'
+  ),
+  '{{count}} chars': decodeEscapedUnicode('{{count}} \\u5b57\\u7b26'),
+  '{{count}} matches': decodeEscapedUnicode('{{count}} \\u4e2a\\u5339\\u914d'),
+  'Lines {{start}}-{{end}} of {{total}}': decodeEscapedUnicode(
+    '\\u7b2c {{start}}-{{end}} \\u884c\\uff0c\\u5171 {{total}} \\u884c'
+  ),
+  Latest: decodeEscapedUnicode('\\u6700\\u65b0'),
+  '{{count}} older matches are omitted from this view.': decodeEscapedUnicode(
+    '\\u6b64\\u89c6\\u56fe\\u5df2\\u7701\\u7565 {{count}} \\u6761\\u8f83\\u65e9\\u5339\\u914d\\u7ed3\\u679c\\u3002'
+  ),
+  '{{count}} older retained lines are omitted from this view.': decodeEscapedUnicode(
+    '\\u6b64\\u89c6\\u56fe\\u5df2\\u7701\\u7565 {{count}} \\u884c\\u8f83\\u65e9\\u4fdd\\u7559\\u5185\\u5bb9\\u3002'
+  ),
+  'No matching retained output': decodeEscapedUnicode(
+    '\\u6ca1\\u6709\\u5339\\u914d\\u7684\\u4fdd\\u7559\\u8f93\\u51fa'
+  ),
+  'No retained terminal output yet': decodeEscapedUnicode(
+    '\\u6682\\u65e0\\u4fdd\\u7559\\u7684\\u7ec8\\u7aef\\u8f93\\u51fa'
+  ),
+  'Adjust the search query to inspect this retained transcript.': decodeEscapedUnicode(
+    '\\u8c03\\u6574\\u641c\\u7d22\\u5185\\u5bb9\\u4ee5\\u67e5\\u770b\\u6b64\\u4fdd\\u7559\\u4f1a\\u8bdd\\u8bb0\\u5f55\\u3002'
+  ),
+  'Run the session or wait for output before opening the transcript.': decodeEscapedUnicode(
+    '\\u8fd0\\u884c\\u4f1a\\u8bdd\\u6216\\u7b49\\u5f85\\u8f93\\u51fa\\u540e\\u518d\\u6253\\u5f00\\u4f1a\\u8bdd\\u8bb0\\u5f55\\u3002'
+  ),
+  'Terminal keeps a lightweight live scrollback; this drawer reads the latest retained replay snapshot.':
+    decodeEscapedUnicode(
+      '\\u7ec8\\u7aef\\u4ec5\\u4fdd\\u7559\\u8f7b\\u91cf\\u5b9e\\u65f6\\u6eda\\u52a8\\u7f13\\u51b2\\uff1b\\u6b64\\u62bd\\u5c49\\u8bfb\\u53d6\\u6700\\u65b0\\u4fdd\\u7559\\u7684\\u56de\\u653e\\u5feb\\u7167\\u3002'
+    ),
+  'Unable to copy transcript output.': decodeEscapedUnicode(
+    '\\u65e0\\u6cd5\\u590d\\u5236\\u4f1a\\u8bdd\\u8bb0\\u5f55\\u8f93\\u51fa\\u3002'
+  ),
+  Export: decodeEscapedUnicode('\\u5bfc\\u51fa'),
+  'Export failed': decodeEscapedUnicode('\\u5bfc\\u51fa\\u5931\\u8d25'),
+  'Unable to export transcript output.': decodeEscapedUnicode(
+    '\\u65e0\\u6cd5\\u5bfc\\u51fa\\u4f1a\\u8bdd\\u8bb0\\u5f55\\u8f93\\u51fa\\u3002'
+  ),
   'Needs Attention': decodeEscapedUnicode('\\u9700\\u8981\\u5904\\u7406'),
   'Running Sessions': decodeEscapedUnicode('\\u8fd0\\u884c\\u4e2d\\u4f1a\\u8bdd'),
   'Idle Sessions': decodeEscapedUnicode('\\u7a7a\\u95f2\\u4f1a\\u8bdd'),

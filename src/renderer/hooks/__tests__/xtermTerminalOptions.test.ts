@@ -1,5 +1,5 @@
-import { AGENT_TERMINAL_SCROLLBACK_LINE_FLOOR } from '@shared/utils/agentTerminalHistoryPolicy';
 import { describe, expect, it } from 'vitest';
+import { MAX_TERMINAL_SCROLLBACK } from '../../stores/settings/terminalScrollbackPolicy';
 import { buildXtermTerminalOptions } from '../xtermTerminalOptions';
 
 const baseSettings = {
@@ -17,7 +17,7 @@ const baseSettings = {
 } as const;
 
 describe('xtermTerminalOptions', () => {
-  it('uses an expanded scrollback floor for agent terminals', () => {
+  it('keeps agent terminal scrollback at the configured interactive budget', () => {
     const input = {
       platform: 'darwin',
       kind: 'agent' as const,
@@ -29,20 +29,20 @@ describe('xtermTerminalOptions', () => {
 
     const options = buildXtermTerminalOptions(input);
 
-    expect(options.scrollback).toBe(AGENT_TERMINAL_SCROLLBACK_LINE_FLOOR);
+    expect(options.scrollback).toBe(3000);
   });
 
-  it('keeps a user-configured agent scrollback when it is larger than the transcript floor', () => {
+  it('caps oversized agent scrollback so long transcripts do not overload the renderer', () => {
     const options = buildXtermTerminalOptions({
       platform: 'darwin',
       kind: 'agent',
       settings: {
         ...baseSettings,
-        scrollback: AGENT_TERMINAL_SCROLLBACK_LINE_FLOOR + 1_000,
+        scrollback: MAX_TERMINAL_SCROLLBACK + 95_000,
       },
     });
 
-    expect(options.scrollback).toBe(AGENT_TERMINAL_SCROLLBACK_LINE_FLOOR + 1_000);
+    expect(options.scrollback).toBe(MAX_TERMINAL_SCROLLBACK);
   });
 
   it('keeps shell terminal scrollback at the configured value', () => {
