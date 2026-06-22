@@ -125,6 +125,24 @@ function isDisposedWindowSendError(error: unknown): boolean {
   );
 }
 
+function isWebContentsUnavailable(webContents: WebContents): boolean {
+  if (webContents.isDestroyed()) {
+    return true;
+  }
+
+  try {
+    const mainFrame = webContents.mainFrame;
+    return mainFrame.isDestroyed() || mainFrame.detached;
+  } catch (error) {
+    if (isDisposedWindowSendError(error)) {
+      return true;
+    }
+
+    console.warn('[session] Failed to inspect window frame before event delivery:', error);
+    return true;
+  }
+}
+
 export class SessionManager {
   readonly localPtyManager = new PtyManager();
 
@@ -1493,7 +1511,7 @@ export class SessionManager {
           : channel === 'session:exit'
             ? IPC_CHANNELS.SESSION_EXIT
             : IPC_CHANNELS.SESSION_STATE;
-      if (window.webContents.isDestroyed()) {
+      if (isWebContentsUnavailable(window.webContents)) {
         this.suspendWindow(windowId);
         continue;
       }

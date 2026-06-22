@@ -215,6 +215,30 @@ function collectValidSessionIds(ids: Iterable<string>, validSessionIds: Set<stri
   return collectedIds;
 }
 
+function areSessionIdSetsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const sessionId of left) {
+    if (!right.has(sessionId)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function reconcileMountedAgentPanelSessionIdSet(
+  currentSessionIds: ReadonlySet<string>,
+  mountedSessionIds: Iterable<string>
+): Set<string> {
+  const nextSessionIds = new Set(mountedSessionIds);
+  return areSessionIdSetsEqual(currentSessionIds, nextSessionIds)
+    ? (currentSessionIds as Set<string>)
+    : nextSessionIds;
+}
+
 function isEligibleBackgroundMountSession({
   baseMountedSessionIds,
   sessionId,

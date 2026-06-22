@@ -1,8 +1,6 @@
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import { extractPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
 
-const LIVE_REPLAY_SNAPSHOT_PERSIST_INTERVAL_MS = 10_000;
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -77,30 +75,9 @@ function shouldPersistReplaySnapshotChange(
   }
 
   const nextReplay = extractPersistentAgentReplaySnapshot(nextRecord.metadata);
-  if (!nextReplay.replaySnapshot) {
-    return false;
-  }
-
   const previousReplay = extractPersistentAgentReplaySnapshot(previousRecord?.metadata);
-  if (!previousReplay.replaySnapshot) {
-    return true;
-  }
 
-  if (previousReplay.replaySnapshot === nextReplay.replaySnapshot) {
-    return false;
-  }
-
-  if (
-    typeof previousReplay.replaySnapshotCapturedAt !== 'number' ||
-    typeof nextReplay.replaySnapshotCapturedAt !== 'number'
-  ) {
-    return true;
-  }
-
-  return (
-    nextReplay.replaySnapshotCapturedAt - previousReplay.replaySnapshotCapturedAt >=
-    LIVE_REPLAY_SNAPSHOT_PERSIST_INTERVAL_MS
-  );
+  return previousReplay.replaySnapshot !== nextReplay.replaySnapshot;
 }
 
 export function diffPersistentAgentSessionRecords({

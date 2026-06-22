@@ -1,5 +1,7 @@
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
+import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from '@shared/utils/agentTerminalHistoryPolicy';
+import { withPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Handler = (...args: unknown[]) => unknown;
@@ -198,6 +200,59 @@ describe('agentSession IPC handlers', () => {
     await expect(
       restoreWorktreeHandler({}, { repoPath: '/repo', cwd: '/repo/worktree' })
     ).rejects.toThrow('restore failed');
+  });
+
+  it('accepts persistent replay snapshot metadata within the transcript recovery budget', async () => {
+    const { registerAgentSessionHandlers } = await import('../agentSession');
+    registerAgentSessionHandlers();
+
+    const markPersistentHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT);
+    const record = makeRecord({
+      metadata: withPersistentAgentReplaySnapshot(
+        undefined,
+        'x'.repeat(PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT),
+        123
+      ),
+    });
+
+    await expect(markPersistentHandler({}, record)).resolves.toEqual([
+      expect.objectContaining({ uiSessionId: 'session-1' }),
+    ]);
+    expect(agentSessionTestDoubles.upsertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          persistentAgentSession: expect.objectContaining({
+            replaySnapshot: 'x'.repeat(PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT),
+          }),
+        }),
+      })
+    );
+  });
+
+  it('normalizes legacy null optional persistent record fields', async () => {
+    const { registerAgentSessionHandlers } = await import('../agentSession');
+    registerAgentSessionHandlers();
+
+    const markPersistentHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT);
+    const record = {
+      ...makeRecord(),
+      backendSessionId: null,
+      providerSessionId: null,
+      customPath: null,
+      customArgs: null,
+    };
+
+    await expect(markPersistentHandler({}, record)).resolves.toEqual([
+      expect.objectContaining({ uiSessionId: 'session-1' }),
+    ]);
+    expect(agentSessionTestDoubles.upsertSession).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        backendSessionId: expect.anything(),
+        providerSessionId: expect.anything(),
+        customPath: expect.anything(),
+        customArgs: expect.anything(),
+      })
+    );
   });
 
   it('rejects malformed restore and persistent record payloads before service calls', async () => {

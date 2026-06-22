@@ -4,6 +4,7 @@ import type {
   RestoreWorktreeSessionsRequest,
 } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
+import { PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT } from '@shared/utils/persistentAgentSession';
 import { ipcMain } from 'electron';
 import { agentProviderSessionService } from '../services/agent/AgentProviderSessionService';
 import { persistentAgentSessionService } from '../services/session/PersistentAgentSessionService';
@@ -24,7 +25,7 @@ const REQUIRED_STRING_FIELDS = [
   'displayName',
   'hostSessionKey',
 ];
-const MAX_METADATA_BYTES = 64 * 1024;
+const MAX_METADATA_BYTES = PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT;
 
 interface AgentSessionHandlerDiagnosticsSnapshot {
   listRecoverableCalls: number;
@@ -62,6 +63,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isOptionalString(value: unknown): value is string | null | undefined {
+  return value === undefined || value === null || typeof value === 'string';
 }
 
 function assertAgentSessionId(value: unknown): string {
@@ -121,9 +126,7 @@ function isValidMetadata(value: unknown): value is Record<string, unknown> | und
 function isValidPersistentRecord(value: Record<string, unknown>): boolean {
   return (
     REQUIRED_STRING_FIELDS.every((field) => isNonEmptyString(value[field])) &&
-    OPTIONAL_STRING_FIELDS.every(
-      (field) => value[field] === undefined || typeof value[field] === 'string'
-    ) &&
+    OPTIONAL_STRING_FIELDS.every((field) => isOptionalString(value[field])) &&
     (value.environment === 'native' ||
       value.environment === 'hapi' ||
       value.environment === 'happy') &&
@@ -168,16 +171,16 @@ function assertPersistentAgentSessionRecord(value: unknown): PersistentAgentSess
     lastKnownState: value.lastKnownState as PersistentAgentSessionRecord['lastKnownState'],
   };
 
-  if (value.backendSessionId !== undefined) {
+  if (typeof value.backendSessionId === 'string') {
     record.backendSessionId = value.backendSessionId as string;
   }
-  if (value.providerSessionId !== undefined) {
+  if (typeof value.providerSessionId === 'string') {
     record.providerSessionId = value.providerSessionId as string;
   }
-  if (value.customPath !== undefined) {
+  if (typeof value.customPath === 'string') {
     record.customPath = value.customPath as string;
   }
-  if (value.customArgs !== undefined) {
+  if (typeof value.customArgs === 'string') {
     record.customArgs = value.customArgs as string;
   }
   if (value.metadata !== undefined) {

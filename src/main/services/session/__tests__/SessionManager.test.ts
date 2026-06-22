@@ -4,23 +4,36 @@ import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sessionTestDoubles = vi.hoisted(() => {
+  type MockWebContents = {
+    send: ReturnType<typeof vi.fn>;
+    isDestroyed: () => boolean;
+    mainFrame: {
+      isDestroyed: () => boolean;
+      detached: boolean;
+    };
+  };
+
   const windowRegistry = new Map<
     number,
     {
-      webContents: { send: ReturnType<typeof vi.fn>; isDestroyed: () => boolean };
+      webContents: MockWebContents;
       isDestroyed: () => boolean;
     }
   >();
 
   class MockBrowserWindow {
     id: number;
-    webContents: { send: ReturnType<typeof vi.fn>; isDestroyed: () => boolean };
+    webContents: MockWebContents;
 
     constructor(id: number) {
       this.id = id;
       this.webContents = {
         send: vi.fn(),
         isDestroyed: () => false,
+        mainFrame: {
+          isDestroyed: () => false,
+          detached: false,
+        },
       };
       windowRegistry.set(id, this as never);
     }
@@ -33,7 +46,7 @@ const sessionTestDoubles = vi.hoisted(() => {
       return windowRegistry.get(id) ?? null;
     }
 
-    static fromWebContents(target: { send: ReturnType<typeof vi.fn>; isDestroyed: () => boolean }) {
+    static fromWebContents(target: MockWebContents) {
       for (const window of windowRegistry.values()) {
         if (window.webContents === target) {
           return window as MockBrowserWindow;
@@ -2454,6 +2467,35 @@ describe('SessionManager', () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it('detaches windows whose main frame is already unavailable before session delivery', async () => {
+    const staleWindow = createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+
+    const opened = await manager.create(1, { cwd: '/repo-a' });
+    await manager.attach(2, { sessionId: opened.session.sessionId });
+    const emitData = getPrivateMethod<[string, string, Set<number>?], void>(manager, 'emitData');
+    const sessions = getManagedSessions(manager);
+    const session = sessions.get(opened.session.sessionId);
+    if (!session) {
+      throw new Error('Expected managed session to exist');
+    }
+
+    staleWindow.webContents.mainFrame.isDestroyed = () => true;
+
+    emitData(opened.session.sessionId, 'first payload');
+    emitData(opened.session.sessionId, 'second payload');
+
+    expect(staleWindow.webContents.send).not.toHaveBeenCalled();
+    expect(getWindowSendCalls(2)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId: opened.session.sessionId, data: 'first payload' }],
+      [IPC_CHANNELS.SESSION_DATA, { sessionId: opened.session.sessionId, data: 'second payload' }],
+    ]);
+    expect(session.attachedWindowIds.has(1)).toBe(false);
+    expect(session.attachedWindowIds.has(2)).toBe(true);
+    expect(Reflect.get(manager, 'suspendedWindowIds') as Set<number>).toEqual(new Set([1]));
   });
 
   it('kills matching local sessions by workdir and cleans remote listeners on disconnect', async () => {

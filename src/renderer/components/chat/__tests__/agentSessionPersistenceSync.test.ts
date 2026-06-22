@@ -81,7 +81,7 @@ describe('agent session persistence sync', () => {
     expect(result?.removedSessionIds).toEqual(['session-b']);
   });
 
-  it('suppresses replay-only persistence churn while a live session is still producing output', async () => {
+  it('persists committed live replay snapshot changes after session-level throttling', async () => {
     const module = await import('../agentSessionPersistenceSync').catch(() => null);
 
     const previousRecord = createRecord('session-a', {
@@ -108,9 +108,35 @@ describe('agent session persistence sync', () => {
       records: [currentRecord],
     });
 
-    expect(result?.changedRecords).toEqual([]);
+    expect(result?.changedRecords).toEqual([currentRecord]);
     expect(result?.nextSnapshotBySessionId.get('session-a')).toBe(
-      serializePersistentAgentSessionRecordSnapshot(previousRecord)
+      serializePersistentAgentSessionRecordSnapshot(currentRecord)
+    );
+  });
+
+  it('persists committed live replay snapshot removals', async () => {
+    const module = await import('../agentSessionPersistenceSync').catch(() => null);
+
+    const previousRecord = createRecord('session-a', {
+      metadata: {
+        persistentAgentSession: {
+          replaySnapshot: 'hello',
+          replaySnapshotCapturedAt: 1_000,
+        },
+      },
+    });
+    const currentRecord = createRecord('session-a');
+
+    const result = module?.diffPersistentAgentSessionRecords({
+      previousSnapshotBySessionId: new Map<string, string>([
+        ['session-a', serializePersistentAgentSessionRecordSnapshot(previousRecord)],
+      ]),
+      records: [currentRecord],
+    });
+
+    expect(result?.changedRecords).toEqual([currentRecord]);
+    expect(result?.nextSnapshotBySessionId.get('session-a')).toBe(
+      serializePersistentAgentSessionRecordSnapshot(currentRecord)
     );
   });
 

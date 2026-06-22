@@ -1,5 +1,5 @@
 import { ArrowDownToLine, Copy, Download, FileText, Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -13,6 +13,7 @@ import {
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
+import type { AgentReplaySnapshotStore } from './agentReplaySnapshotStore';
 import {
   type AgentSessionTranscriptView,
   buildAgentSessionTranscriptView,
@@ -26,6 +27,7 @@ type AgentSessionTranscriptSession = Pick<
 
 interface AgentSessionTranscriptDrawerProps {
   open: boolean;
+  replaySnapshotStore?: AgentReplaySnapshotStore;
   session: AgentSessionTranscriptSession | null;
   onOpenChange: (open: boolean) => void;
 }
@@ -104,21 +106,46 @@ function TranscriptLine({ lineNumber, text }: { lineNumber: number; text: string
 
 export function AgentSessionTranscriptDrawer({
   open,
+  replaySnapshotStore,
   session,
   onOpenChange,
 }: AgentSessionTranscriptDrawerProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
-  const snapshot = session?.replaySnapshot ?? '';
+  const sessionId = session?.id ?? null;
+  const subscribeToLiveSnapshot = useCallback(
+    (onStoreChange: () => void) =>
+      replaySnapshotStore && sessionId
+        ? replaySnapshotStore.subscribe(sessionId, onStoreChange)
+        : () => undefined,
+    [replaySnapshotStore, sessionId]
+  );
+  const getLiveSnapshot = useCallback(
+    () =>
+      replaySnapshotStore && sessionId ? replaySnapshotStore.getSnapshot(sessionId) : undefined,
+    [replaySnapshotStore, sessionId]
+  );
+  const liveSnapshot = useSyncExternalStore(
+    subscribeToLiveSnapshot,
+    getLiveSnapshot,
+    getLiveSnapshot
+  );
+  const snapshot =
+    liveSnapshot !== undefined
+      ? (liveSnapshot.replaySnapshot ?? '')
+      : (session?.replaySnapshot ?? '');
   const view = useMemo(
     () => buildAgentSessionTranscriptView({ query, snapshot }),
     [query, snapshot]
   );
-  const capturedAtLabel = formatSnapshotCapturedAt(session?.replaySnapshotCapturedAt);
+  const capturedAtLabel = formatSnapshotCapturedAt(
+    liveSnapshot !== undefined
+      ? liveSnapshot.replaySnapshotCapturedAt
+      : session?.replaySnapshotCapturedAt
+  );
   const rangeLabel = getTranscriptRangeLabel(view, t);
   const hasSnapshot = view.hasSnapshot && snapshot.length > 0;
   const hasVisibleLines = view.visibleLines.length > 0;
-  const sessionId = session?.id ?? null;
 
   useEffect(() => {
     if (open || sessionId === null) {

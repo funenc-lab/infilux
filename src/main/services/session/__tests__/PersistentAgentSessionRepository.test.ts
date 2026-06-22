@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PersistentAgentSessionRecord } from '@shared/types';
+import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from '@shared/utils/agentTerminalHistoryPolicy';
+import { withPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
 import { buildAppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -516,6 +518,34 @@ describe('PersistentAgentSessionRepository', () => {
       }),
     ]);
     expect(repositoryTestDoubles.databases[0]?.all.mock.calls.length).toBe(allCallsAfterInitialize);
+  });
+
+  it('round-trips replay snapshot metadata within the transcript recovery budget', async () => {
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+    await repository.initialize();
+
+    await repository.upsertSession(
+      makeRecord({
+        metadata: withPersistentAgentReplaySnapshot(
+          undefined,
+          'x'.repeat(PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT),
+          123
+        ),
+      })
+    );
+
+    await expect(repository.listSessions()).resolves.toEqual([
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          persistentAgentSession: expect.objectContaining({
+            replaySnapshot: 'x'.repeat(PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT),
+          }),
+        }),
+      }),
+    ]);
   });
 
   it('reports repository operation counters through the diagnostics snapshot', async () => {

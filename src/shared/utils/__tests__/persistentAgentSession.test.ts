@@ -3,6 +3,7 @@ import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from '../agentTerminalHis
 import {
   appendPersistentAgentReplaySnapshot,
   extractPersistentAgentReplaySnapshot,
+  PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT,
   withPersistentAgentReplaySnapshot,
 } from '../persistentAgentSession';
 
@@ -51,5 +52,17 @@ describe('persistent agent session metadata', () => {
 
     expect(next).toHaveLength(PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT);
     expect(next).toBe(output.slice(-PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT));
+  });
+
+  it('keeps replay snapshot metadata within the persistent session payload budget', () => {
+    const metadata = withPersistentAgentReplaySnapshot(
+      undefined,
+      'x'.repeat(PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT),
+      123
+    );
+
+    expect(JSON.stringify(metadata).length).toBeLessThanOrEqual(
+      PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT
+    );
   });
 });

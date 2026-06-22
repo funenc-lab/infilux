@@ -579,6 +579,79 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('batches retained replay snapshot updates separately from terminal writes', async () => {
+    const onReplaySnapshotChange = vi.fn();
+    const mounted = mountHookHarness({ onReplaySnapshotChange });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+        replay: '',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await flushMicrotasks();
+    });
+    onReplaySnapshotChange.mockClear();
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'first output\n',
+      });
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'second output\n',
+      });
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('first output\nsecond output\n');
+    onReplaySnapshotChange.mockClear();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+      await flushMicrotasks();
+    });
+
+    expect(
+      onReplaySnapshotChange.mock.calls
+        .filter(([snapshot]) => snapshot)
+        .map(([snapshot]) => snapshot)
+    ).toEqual([]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+      await flushMicrotasks();
+    });
+
+    expect(onReplaySnapshotChange).toHaveBeenCalledTimes(1);
+    expect(onReplaySnapshotChange).toHaveBeenLastCalledWith(
+      'first output\nsecond output\n',
+      expect.any(Number)
+    );
+
+    await mounted.unmount();
+  });
+
   it('does not add a competing compositionend textarea handler around xterm IME handling', async () => {
     const mounted = mountHookHarness();
     await act(async () => {

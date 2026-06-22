@@ -3,6 +3,7 @@ import {
   AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
   collectMountedAgentSessionIds,
   DEFAULT_WORKTREE_TERMINAL_MOUNT_LIMIT,
+  reconcileMountedAgentPanelSessionIdSet,
   resolveBackgroundAgentCanvasMountPlan,
   resolveBackgroundAgentCanvasMountSessionIds,
   resolveMountedAgentPanelSessionIds,
@@ -57,6 +58,24 @@ describe('collectMountedAgentSessionIds', () => {
         '/users/tanzv/development/git/lads-gateway/worktrees/feat-skill-mcp'
       )
     ).toEqual(['session-a']);
+  });
+});
+
+describe('reconcileMountedAgentPanelSessionIdSet', () => {
+  it('returns the current set when mounted session ids are unchanged', () => {
+    const current = new Set(['session-a', 'session-b']);
+
+    expect(reconcileMountedAgentPanelSessionIdSet(current, ['session-b', 'session-a'])).toBe(
+      current
+    );
+  });
+
+  it('returns a new set when mounted session ids changed', () => {
+    const current = new Set(['session-a', 'session-b']);
+    const next = reconcileMountedAgentPanelSessionIdSet(current, ['session-b', 'session-c']);
+
+    expect(next).not.toBe(current);
+    expect([...next].sort()).toEqual(['session-b', 'session-c']);
   });
 });
 

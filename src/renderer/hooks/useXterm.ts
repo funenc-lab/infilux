@@ -78,6 +78,7 @@ const FILE_PATH_REGEX =
 const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
+const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
 
 interface InternalTerminalSearchDecorations {
   matchBackground?: string;
@@ -450,6 +451,8 @@ export function useXterm({
   );
   const replaySnapshotRef = useRef(recoveredReplaySnapshot ?? '');
   const replaySnapshotFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const replaySnapshotAppendBufferRef = useRef('');
+  const replaySnapshotAppendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const buildSearchOptions = useCallback(
     (options?: {
@@ -505,8 +508,46 @@ export function useXterm({
     replaySnapshotFlushTimerRef.current = setTimeout(emit, 150);
   }, []);
 
+  const clearReplaySnapshotAppendTimer = useCallback(() => {
+    if (!replaySnapshotAppendTimerRef.current) {
+      return;
+    }
+
+    clearTimeout(replaySnapshotAppendTimerRef.current);
+    replaySnapshotAppendTimerRef.current = null;
+  }, []);
+
+  const flushReplaySnapshotAppendBuffer = useCallback(() => {
+    const chunk = replaySnapshotAppendBufferRef.current;
+    if (!chunk) {
+      return false;
+    }
+
+    replaySnapshotAppendBufferRef.current = '';
+    const nextSnapshot = appendPersistentAgentReplaySnapshot(replaySnapshotRef.current, chunk);
+    if (nextSnapshot === replaySnapshotRef.current) {
+      return false;
+    }
+
+    replaySnapshotRef.current = nextSnapshot;
+    return true;
+  }, []);
+
+  const flushReplaySnapshotWithPendingOutput = useCallback(
+    (immediate = false) => {
+      clearReplaySnapshotAppendTimer();
+      const didUpdateSnapshot = flushReplaySnapshotAppendBuffer();
+      if (didUpdateSnapshot || immediate) {
+        flushReplaySnapshot(immediate);
+      }
+    },
+    [clearReplaySnapshotAppendTimer, flushReplaySnapshot, flushReplaySnapshotAppendBuffer]
+  );
+
   const replaceReplaySnapshot = useCallback(
     (nextSnapshot: string | undefined) => {
+      clearReplaySnapshotAppendTimer();
+      replaySnapshotAppendBufferRef.current = '';
       const normalized = nextSnapshot ? appendPersistentAgentReplaySnapshot('', nextSnapshot) : '';
       if (normalized === replaySnapshotRef.current) {
         return;
@@ -514,7 +555,7 @@ export function useXterm({
       replaySnapshotRef.current = normalized;
       flushReplaySnapshot();
     },
-    [flushReplaySnapshot]
+    [clearReplaySnapshotAppendTimer, flushReplaySnapshot]
   );
 
   const appendReplaySnapshot = useCallback(
@@ -523,15 +564,19 @@ export function useXterm({
         return;
       }
 
-      const nextSnapshot = appendPersistentAgentReplaySnapshot(replaySnapshotRef.current, chunk);
-      if (nextSnapshot === replaySnapshotRef.current) {
+      replaySnapshotAppendBufferRef.current += chunk;
+      if (replaySnapshotAppendTimerRef.current) {
         return;
       }
 
-      replaySnapshotRef.current = nextSnapshot;
-      flushReplaySnapshot();
+      replaySnapshotAppendTimerRef.current = setTimeout(() => {
+        replaySnapshotAppendTimerRef.current = null;
+        if (flushReplaySnapshotAppendBuffer()) {
+          flushReplaySnapshot(true);
+        }
+      }, REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS);
     },
-    [flushReplaySnapshot]
+    [flushReplaySnapshot, flushReplaySnapshotAppendBuffer]
   );
 
   const refreshTerminalViewport = useCallback(() => {
@@ -1322,7 +1367,7 @@ export function useXterm({
           },
           onExit: () => {
             setRuntimeState('dead');
-            flushReplaySnapshot(true);
+            flushReplaySnapshotWithPendingOutput(true);
             exitFlushTimerRef.current = setTimeout(() => {
               exitFlushTimerRef.current = null;
               if (writeBufferRef.current.length > 0) {
@@ -1565,7 +1610,7 @@ export function useXterm({
     loadRenderer,
     resetSessionBinding,
     appendReplaySnapshot,
-    flushReplaySnapshot,
+    flushReplaySnapshotWithPendingOutput,
     replaceReplaySnapshot,
     staticContent,
     staticContentKey,
@@ -1735,13 +1780,14 @@ export function useXterm({
 
   useEffect(() => {
     return () => {
-      flushReplaySnapshot(true);
+      flushReplaySnapshotWithPendingOutput(true);
+      clearReplaySnapshotAppendTimer();
       if (replaySnapshotFlushTimerRef.current) {
         clearTimeout(replaySnapshotFlushTimerRef.current);
         replaySnapshotFlushTimerRef.current = null;
       }
     };
-  }, [flushReplaySnapshot]);
+  }, [clearReplaySnapshotAppendTimer, flushReplaySnapshotWithPendingOutput]);
 
   // Cleanup on unmount.
   // Setup: reset isUnmountedRef so StrictMode re-mount can re-initialize.

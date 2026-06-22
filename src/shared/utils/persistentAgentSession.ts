@@ -1,5 +1,7 @@
 import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from './agentTerminalHistoryPolicy';
 
+export const PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT = 1024 * 1024;
+
 interface PersistentAgentSessionReplayNamespace {
   replaySnapshot?: string;
   replaySnapshotCapturedAt?: number;

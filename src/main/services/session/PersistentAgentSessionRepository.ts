@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { PersistentAgentSessionRecord } from '@shared/types';
+import { PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT } from '@shared/utils/persistentAgentSession';
 import sqlite3 from 'sqlite3';
 import log from '../../utils/logger';
 import { registerMainProcessDiagnosticsCollector } from '../../utils/mainProcessDiagnostics';
@@ -11,7 +12,7 @@ import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSession
 const BUSY_TIMEOUT_MS = 3000;
 const STALE_PERSISTENT_SESSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const RUNTIME_HOME_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1_000;
-const MAX_METADATA_BYTES = 64 * 1024;
+const MAX_METADATA_BYTES = PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT;
 
 type ActiveCodexRuntimeHomeProvider = () => Iterable<string>;
 

@@ -150,10 +150,17 @@ import {
 import { supportsAgentNativeTerminalInput } from './agentInputMode';
 import {
   collectMountedAgentSessionIds,
+  reconcileMountedAgentPanelSessionIdSet,
   resolveBackgroundAgentCanvasMountPlan,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
 import { resolvePersistentProviderSessionId } from './agentProviderSessionIdentity';
+import {
+  type AgentReplaySnapshotValue,
+  areAgentReplaySnapshotValuesEqual,
+  resolveReplaySnapshotSessionCommitDecision,
+} from './agentReplaySnapshotCommitPolicy';
+import { createAgentReplaySnapshotStore } from './agentReplaySnapshotStore';
 import {
   reconcileAgentSessionExit,
   shouldDeferPersistentSessionDeadState,
@@ -281,6 +288,29 @@ function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
       session.replaySnapshotCapturedAt
     ),
   };
+}
+
+function getSessionReplaySnapshotValue(session: Session | undefined): AgentReplaySnapshotValue {
+  if (!session) {
+    return {};
+  }
+
+  const value: AgentReplaySnapshotValue = {};
+  if (typeof session.replaySnapshot === 'string') {
+    value.replaySnapshot = session.replaySnapshot;
+  }
+  if (
+    typeof session.replaySnapshotCapturedAt === 'number' &&
+    Number.isFinite(session.replaySnapshotCapturedAt)
+  ) {
+    value.replaySnapshotCapturedAt = session.replaySnapshotCapturedAt;
+  }
+
+  return value;
+}
+
+function findAgentSessionById(sessionId: string): Session | undefined {
+  return useAgentSessionsStore.getState().sessions.find((session) => session.id === sessionId);
 }
 
 /**
@@ -830,6 +860,12 @@ export function AgentPanel({
     string | null
   >(null);
   const [transcriptSessionId, setTranscriptSessionId] = useState<string | null>(null);
+  const replaySnapshotStore = useMemo(() => createAgentReplaySnapshotStore(), []);
+  const pendingReplaySnapshotBySessionIdRef = useRef(new Map<string, AgentReplaySnapshotValue>());
+  const replaySnapshotCommitTimerBySessionIdRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>()
+  );
+  const replaySnapshotLastCommittedAtBySessionIdRef = useRef(new Map<string, number>());
   const [selectedSubagentThreadIdBySessionId, setSelectedSubagentThreadIdBySessionId] = useState<
     Record<string, string | null>
   >({});
@@ -897,6 +933,137 @@ export function AgentPanel({
   const persistableSessions = useMemo(
     () => allSessions.filter((session) => isSessionPersistable(session)),
     [allSessions]
+  );
+  const clearReplaySnapshotCommitTimer = useCallback((sessionId: string) => {
+    const timer = replaySnapshotCommitTimerBySessionIdRef.current.get(sessionId);
+    if (!timer) {
+      return;
+    }
+
+    clearTimeout(timer);
+    replaySnapshotCommitTimerBySessionIdRef.current.delete(sessionId);
+  }, []);
+  const commitPendingReplaySnapshot = useCallback(
+    (sessionId: string) => {
+      const pendingSnapshot = pendingReplaySnapshotBySessionIdRef.current.get(sessionId);
+      if (!pendingSnapshot) {
+        return;
+      }
+
+      const session = findAgentSessionById(sessionId);
+      if (!session) {
+        pendingReplaySnapshotBySessionIdRef.current.delete(sessionId);
+        clearReplaySnapshotCommitTimer(sessionId);
+        replaySnapshotLastCommittedAtBySessionIdRef.current.delete(sessionId);
+        replaySnapshotStore.clearSnapshot(sessionId);
+        return;
+      }
+
+      const currentSnapshot = getSessionReplaySnapshotValue(session);
+      pendingReplaySnapshotBySessionIdRef.current.delete(sessionId);
+      clearReplaySnapshotCommitTimer(sessionId);
+
+      if (areAgentReplaySnapshotValuesEqual(currentSnapshot, pendingSnapshot)) {
+        return;
+      }
+
+      replaySnapshotLastCommittedAtBySessionIdRef.current.set(sessionId, Date.now());
+      updateSession(sessionId, {
+        replaySnapshot: pendingSnapshot.replaySnapshot,
+        replaySnapshotCapturedAt: pendingSnapshot.replaySnapshotCapturedAt,
+      });
+    },
+    [clearReplaySnapshotCommitTimer, replaySnapshotStore, updateSession]
+  );
+  const scheduleReplaySnapshotCommit = useCallback(
+    (sessionId: string, delayMs: number) => {
+      if (replaySnapshotCommitTimerBySessionIdRef.current.has(sessionId)) {
+        return;
+      }
+
+      const timer = setTimeout(
+        () => {
+          replaySnapshotCommitTimerBySessionIdRef.current.delete(sessionId);
+          commitPendingReplaySnapshot(sessionId);
+        },
+        Math.max(0, delayMs)
+      );
+
+      replaySnapshotCommitTimerBySessionIdRef.current.set(sessionId, timer);
+    },
+    [commitPendingReplaySnapshot]
+  );
+  const handleReplaySnapshotChange = useCallback(
+    (
+      sessionId: string,
+      replaySnapshot: string | undefined,
+      replaySnapshotCapturedAt: number | undefined,
+      options: { force?: boolean } = {}
+    ) => {
+      const nextSnapshot: AgentReplaySnapshotValue = {};
+      if (typeof replaySnapshot === 'string') {
+        nextSnapshot.replaySnapshot = replaySnapshot;
+      }
+      if (
+        typeof replaySnapshotCapturedAt === 'number' &&
+        Number.isFinite(replaySnapshotCapturedAt)
+      ) {
+        nextSnapshot.replaySnapshotCapturedAt = replaySnapshotCapturedAt;
+      }
+
+      replaySnapshotStore.setSnapshot(sessionId, nextSnapshot);
+      pendingReplaySnapshotBySessionIdRef.current.set(sessionId, nextSnapshot);
+
+      const currentSnapshot = getSessionReplaySnapshotValue(findAgentSessionById(sessionId));
+      const decision = resolveReplaySnapshotSessionCommitDecision({
+        current: currentSnapshot,
+        force: options.force,
+        lastCommittedAt: replaySnapshotLastCommittedAtBySessionIdRef.current.get(sessionId),
+        next: nextSnapshot,
+        now: Date.now(),
+      });
+
+      if (decision.kind === 'commit') {
+        commitPendingReplaySnapshot(sessionId);
+        return;
+      }
+
+      if (decision.kind === 'schedule') {
+        scheduleReplaySnapshotCommit(sessionId, decision.delayMs);
+        return;
+      }
+
+      pendingReplaySnapshotBySessionIdRef.current.delete(sessionId);
+    },
+    [commitPendingReplaySnapshot, replaySnapshotStore, scheduleReplaySnapshotCommit]
+  );
+  useEffect(() => {
+    const sessionIds = allSessions.map((session) => session.id);
+    const sessionIdSet = new Set(sessionIds);
+    replaySnapshotStore.prune(sessionIds);
+
+    for (const sessionId of pendingReplaySnapshotBySessionIdRef.current.keys()) {
+      if (sessionIdSet.has(sessionId)) {
+        continue;
+      }
+
+      pendingReplaySnapshotBySessionIdRef.current.delete(sessionId);
+      clearReplaySnapshotCommitTimer(sessionId);
+      replaySnapshotLastCommittedAtBySessionIdRef.current.delete(sessionId);
+    }
+  }, [allSessions, clearReplaySnapshotCommitTimer, replaySnapshotStore]);
+  useEffect(
+    () => () => {
+      for (const timer of replaySnapshotCommitTimerBySessionIdRef.current.values()) {
+        clearTimeout(timer);
+      }
+      replaySnapshotCommitTimerBySessionIdRef.current.clear();
+
+      for (const sessionId of Array.from(pendingReplaySnapshotBySessionIdRef.current.keys())) {
+        commitPendingReplaySnapshot(sessionId);
+      }
+    },
+    [commitPendingReplaySnapshot]
   );
 
   // Enhanced input state actions from store
@@ -4149,22 +4316,8 @@ export function AgentPanel({
   // Worktree-level panel caching already preserves terminals across worktree switches.
   useEffect(() => {
     const mountedSessionIds = collectMountedAgentSessionIds(allSessions, repoPath, cwd);
-    const mountedSessionIdSet = new Set(mountedSessionIds);
 
-    setGlobalSessionIds((prev) => {
-      const next = new Set(prev);
-      for (const id of mountedSessionIds) {
-        next.add(id);
-      }
-
-      for (const id of next) {
-        if (!mountedSessionIdSet.has(id)) {
-          next.delete(id);
-        }
-      }
-
-      return next;
-    });
+    setGlobalSessionIds((prev) => reconcileMountedAgentPanelSessionIdSet(prev, mountedSessionIds));
   }, [allSessions, cwd, repoPath]);
 
   useEffect(() => {
@@ -4938,18 +5091,12 @@ export function AgentPanel({
               });
             }}
             onReplaySnapshotChange={(replaySnapshot, replaySnapshotCapturedAt) => {
-              if (
-                session.replaySnapshot === replaySnapshot &&
-                session.replaySnapshotCapturedAt === replaySnapshotCapturedAt
-              ) {
-                return;
-              }
-              updateSession(sessionId, {
-                replaySnapshot,
-                replaySnapshotCapturedAt,
-              });
+              handleReplaySnapshotChange(sessionId, replaySnapshot, replaySnapshotCapturedAt);
             }}
             onRuntimeStateChange={(runtimeState) => {
+              if (runtimeState !== 'live') {
+                commitPendingReplaySnapshot(sessionId);
+              }
               if (shouldDeferPersistentSessionDeadState(session, runtimeState)) return;
               if (shouldIgnoreTerminalRuntimeStateRecoveryUpdate(session, runtimeState)) return;
               if (session.recoveryState === runtimeState) return;
@@ -5883,6 +6030,7 @@ export function AgentPanel({
       ) : null}
       <AgentSessionTranscriptDrawer
         open={transcriptSession != null}
+        replaySnapshotStore={replaySnapshotStore}
         session={transcriptSession}
         onOpenChange={(open) => {
           if (!open) {

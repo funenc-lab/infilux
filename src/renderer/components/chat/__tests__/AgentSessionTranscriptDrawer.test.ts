@@ -3,6 +3,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { createAgentReplaySnapshotStore } from '../agentReplaySnapshotStore';
 import { MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT } from '../agentSessionTranscriptModel';
 
 vi.mock('lucide-react', () => {
@@ -120,5 +121,30 @@ describe('AgentSessionTranscriptDrawer', () => {
 
     expect(markup).toContain('No retained terminal output yet');
     expect(markup).toContain('Run the session or wait for output before opening the transcript.');
+  });
+
+  it('prefers the latest live snapshot over the throttled session snapshot', () => {
+    const replaySnapshotStore = createAgentReplaySnapshotStore();
+    replaySnapshotStore.setSnapshot('session-3', {
+      replaySnapshot: 'live latest output',
+      replaySnapshotCapturedAt: Date.parse('2026-06-21T08:01:00.000Z'),
+    });
+
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentSessionTranscriptDrawer, {
+        open: true,
+        replaySnapshotStore,
+        session: {
+          id: 'session-3',
+          name: 'Live Session',
+          replaySnapshot: 'throttled older output',
+          replaySnapshotCapturedAt: Date.parse('2026-06-21T08:00:00.000Z'),
+        },
+        onOpenChange: () => undefined,
+      })
+    );
+
+    expect(markup).toContain('live latest output');
+    expect(markup).not.toContain('throttled older output');
   });
 });
