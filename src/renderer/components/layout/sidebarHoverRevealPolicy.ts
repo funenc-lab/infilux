@@ -32,6 +32,18 @@ interface SidebarHoverRevealOpenInput {
   trigger: SidebarHoverRevealTrigger;
 }
 
+interface SidebarHoverRevealPointerActiveInput {
+  currentActive: boolean;
+  documentFocused: boolean;
+  hasActiveTextSelection: boolean;
+  pointerButtons: number;
+}
+
+interface SidebarHoverRevealFocusChangeInput {
+  groupHovered: boolean;
+  nextFocusInside: boolean;
+}
+
 interface SidebarHoverRevealWindowFocusInput {
   documentFocused: boolean;
   groupHovered: boolean;
@@ -102,6 +114,30 @@ export function shouldOpenSidebarHoverReveal({
   }
 
   return !hasActiveTextSelection;
+}
+
+export function resolveSidebarHoverRevealPointerActiveState({
+  currentActive,
+  documentFocused,
+  hasActiveTextSelection,
+  pointerButtons,
+}: SidebarHoverRevealPointerActiveInput): boolean {
+  if (!documentFocused) {
+    return false;
+  }
+
+  if (currentActive) {
+    return true;
+  }
+
+  return pointerButtons === 0 && !hasActiveTextSelection;
+}
+
+export function shouldCloseSidebarHoverRevealAfterFocusChange({
+  groupHovered,
+  nextFocusInside,
+}: SidebarHoverRevealFocusChangeInput): boolean {
+  return !nextFocusInside && !groupHovered;
 }
 
 export function shouldSyncSidebarHoverRevealAfterWindowFocus({

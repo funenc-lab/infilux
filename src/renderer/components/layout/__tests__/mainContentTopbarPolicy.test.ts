@@ -45,6 +45,13 @@ describe('main content topbar policy', () => {
     expect(openInMenuSource).not.toContain('text-[12px]');
   });
 
+  it('keeps compact open-in controls to one dock button', () => {
+    expect(openInMenuSource).toContain('if (compact) {');
+    expect(openInMenuSource).not.toContain(
+      "compact\n          ? 'control-floating-toolbar-open-in'"
+    );
+  });
+
   it('keeps runtime and token usage entries available from the shared main topbar', () => {
     expect(mainContentSource).toContain('AppResourceStatusPopover');
     expect(mainContentSource).toContain('TokenUsagePopover');
@@ -76,16 +83,26 @@ describe('main content topbar policy', () => {
     expect(mainContentSource).toContain('getFloatingToolbarRevealStyle(toolbarRevealFrame)');
     expect(mainContentSource).toContain('control-floating-toolbar-rail');
     expect(mainContentSource).toContain('data-floating-toolbar-reveal="active"');
+    expect(mainContentSource).toContain('id="floating-main-toolbar"');
+    expect(mainContentSource).toContain('role="toolbar"');
+    expect(mainContentSource).toContain('control-floating-toolbar-nav');
+    expect(mainContentSource).not.toContain('Command');
+    expect(mainContentSource).not.toContain('CircleEllipsis');
+    expect(mainContentSource).not.toContain('PanelRightOpen');
+    expect(mainContentSource).not.toContain('Orbit');
+    expect(mainContentSource).not.toContain('control-floating-toolbar-handle');
+    expect(mainContentSource).not.toContain('control-floating-toolbar-satellite');
+    expect(mainContentSource).not.toContain('control-floating-toolbar-dismiss-zone');
     expect(mainContentSource).toContain("aria-label={t('Toolbar')}");
     expect(mainContentSource).toContain('title={tab.label}');
     expect(mainContentSource).toContain('control-floating-toolbar-tab');
     expect(mainContentSource).toContain('control-floating-toolbar-actions-cluster');
   });
 
-  it('defines right-edge floating toolbar trigger, surface, and reveal motion styles', () => {
+  it('defines right-edge hover dock trigger, surface, and reveal motion styles', () => {
     const floatingToolbarPanelRuleSource = getCssSection(
       '.control-floating-toolbar-panel {',
-      '\n  .dark .control-floating-toolbar-panel'
+      '\n  .dark .control-floating-toolbar-rail'
     );
     const floatingToolbarRevealRuleSource = getCssSection(
       '.control-floating-toolbar-rail:hover .control-floating-toolbar-panel',
@@ -95,15 +112,23 @@ describe('main content topbar policy', () => {
     expect(globalsSource).toContain('.control-floating-toolbar-rail {');
     expect(globalsSource).toContain('right: 0;');
     expect(globalsSource).toContain('width: var(--control-floating-toolbar-trigger-width);');
+    expect(globalsSource).toContain('pointer-events: auto;');
+    expect(globalsSource).toContain('--control-floating-toolbar-button-size: 2.75rem;');
+    expect(globalsSource).toContain('--control-floating-toolbar-icon-size: 1.05rem;');
     expect(floatingToolbarPanelRuleSource).toContain(
       'width: var(--control-floating-toolbar-panel-width);'
     );
     expect(floatingToolbarPanelRuleSource).toContain(
       'right: var(--control-floating-toolbar-edge-gap);'
     );
-    expect(floatingToolbarPanelRuleSource).toContain('border-radius: 0.625rem;');
+    expect(floatingToolbarPanelRuleSource).toContain('border-radius: 0.875rem;');
+    expect(floatingToolbarPanelRuleSource).toContain('opacity: 0;');
+    expect(floatingToolbarPanelRuleSource).toContain('pointer-events: none;');
     expect(floatingToolbarPanelRuleSource).toContain(
       'transform: translate3d(calc(var(--control-floating-toolbar-panel-width) + var(--control-floating-toolbar-edge-gap) - var(--control-floating-toolbar-trigger-width)), 0, 0);'
+    );
+    expect(floatingToolbarPanelRuleSource).toContain(
+      'box-shadow:\n      inset 0 -1px 0 var(--control-floating-toolbar-border)'
     );
     expect(floatingToolbarRevealRuleSource).toContain(
       '.control-floating-toolbar-rail:hover .control-floating-toolbar-panel'
@@ -111,6 +136,12 @@ describe('main content topbar policy', () => {
     expect(floatingToolbarRevealRuleSource).toContain(
       '.control-floating-toolbar-rail:focus-within .control-floating-toolbar-panel'
     );
+    expect(floatingToolbarRevealRuleSource).toContain('opacity: 1;');
+    expect(floatingToolbarRevealRuleSource).toContain('pointer-events: auto;');
+    expect(floatingToolbarRevealRuleSource).toContain('transform: translate3d(0, 0, 0);');
+    expect(globalsSource).toContain('height: var(--control-floating-toolbar-button-size);');
+    expect(globalsSource).toContain('width: var(--control-floating-toolbar-button-size);');
+    expect(globalsSource).toContain('border-radius: 0.625rem;');
     expect(floatingToolbarPanelRuleSource).toContain('opacity 90ms cubic-bezier(0.4, 0, 1, 1)');
     expect(floatingToolbarPanelRuleSource).toContain('transform 140ms cubic-bezier(0.4, 0, 1, 1)');
     expect(floatingToolbarRevealRuleSource).toContain(
@@ -119,5 +150,8 @@ describe('main content topbar policy', () => {
     expect(floatingToolbarRevealRuleSource).toContain(
       'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)'
     );
+    expect(globalsSource).not.toContain('control-floating-toolbar-handle');
+    expect(globalsSource).not.toContain('control-floating-toolbar-satellite');
+    expect(globalsSource).not.toContain('control-floating-toolbar-dismiss-zone');
   });
 });

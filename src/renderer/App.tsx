@@ -88,8 +88,10 @@ import { DeferredWorktreePanel } from './components/layout/DeferredWorktreePanel
 import {
   isSidebarHoverRevealTextSelectionActive,
   resolveSidebarHoverRevealFrame,
+  resolveSidebarHoverRevealPointerActiveState,
   SIDEBAR_HOVER_REVEAL_FLOATING_GAP,
   type SidebarHoverRevealFrame,
+  shouldCloseSidebarHoverRevealAfterFocusChange,
   shouldOpenSidebarHoverReveal,
   shouldSyncSidebarHoverRevealAfterWindowFocus,
 } from './components/layout/sidebarHoverRevealPolicy';
@@ -552,12 +554,12 @@ export default function App() {
 
   const handleSidebarHoverRevealPointerEvent = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
-      setFloatingSidebarActive(
-        shouldOpenSidebarHoverReveal({
+      setFloatingSidebarActive((currentActive) =>
+        resolveSidebarHoverRevealPointerActiveState({
+          currentActive,
           documentFocused: document.hasFocus(),
           hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
           pointerButtons: event.buttons,
-          trigger: 'pointer',
         })
       );
     },
@@ -628,7 +630,13 @@ export default function App() {
 
   const handleSidebarHoverRevealBlur = useCallback((event: FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
-    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+    const nextFocusInside = nextTarget instanceof Node && event.currentTarget.contains(nextTarget);
+    if (
+      !shouldCloseSidebarHoverRevealAfterFocusChange({
+        groupHovered: event.currentTarget.matches(':hover'),
+        nextFocusInside,
+      })
+    ) {
       return;
     }
 

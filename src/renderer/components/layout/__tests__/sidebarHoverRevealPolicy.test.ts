@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   isSidebarHoverRevealTextSelectionActive,
   resolveSidebarHoverRevealFrame,
+  resolveSidebarHoverRevealPointerActiveState,
   SIDEBAR_HOVER_REVEAL_FLOATING_GAP,
   SIDEBAR_HOVER_REVEAL_TRIGGER_WIDTH,
+  shouldCloseSidebarHoverRevealAfterFocusChange,
   shouldOpenSidebarHoverReveal,
   shouldSyncSidebarHoverRevealAfterWindowFocus,
 } from '../sidebarHoverRevealPolicy';
@@ -89,6 +91,25 @@ describe('resolveSidebarHoverRevealFrame', () => {
     ).toBe(false);
   });
 
+  it('keeps an already open reveal active during pointer-pressed content interactions', () => {
+    expect(
+      resolveSidebarHoverRevealPointerActiveState({
+        currentActive: true,
+        documentFocused: true,
+        hasActiveTextSelection: true,
+        pointerButtons: 1,
+      })
+    ).toBe(true);
+    expect(
+      resolveSidebarHoverRevealPointerActiveState({
+        currentActive: false,
+        documentFocused: true,
+        hasActiveTextSelection: true,
+        pointerButtons: 1,
+      })
+    ).toBe(false);
+  });
+
   it('keeps keyboard focus reveal available when text remains selected', () => {
     expect(
       shouldOpenSidebarHoverReveal({
@@ -96,6 +117,27 @@ describe('resolveSidebarHoverRevealFrame', () => {
         hasActiveTextSelection: true,
         pointerButtons: 0,
         trigger: 'keyboard',
+      })
+    ).toBe(true);
+  });
+
+  it('keeps the reveal open when focus blurs to non-focusable content under the pointer', () => {
+    expect(
+      shouldCloseSidebarHoverRevealAfterFocusChange({
+        groupHovered: true,
+        nextFocusInside: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldCloseSidebarHoverRevealAfterFocusChange({
+        groupHovered: false,
+        nextFocusInside: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldCloseSidebarHoverRevealAfterFocusChange({
+        groupHovered: false,
+        nextFocusInside: false,
       })
     ).toBe(true);
   });

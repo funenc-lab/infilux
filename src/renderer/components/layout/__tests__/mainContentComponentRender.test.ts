@@ -1346,7 +1346,7 @@ describe('MainContent component render', () => {
     expect(markup).toContain('control-topbar-header');
   });
 
-  it('renders the toolbar as a right-edge floating rail when floating toolbar mode is enabled', async () => {
+  it('renders the toolbar as a right-edge hover dock when floating toolbar mode is enabled', async () => {
     const markup = await renderMainContentTopbar({
       floatingToolbarEnabled: true,
       tabs: [

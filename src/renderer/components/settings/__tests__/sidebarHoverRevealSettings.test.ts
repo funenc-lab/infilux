@@ -40,7 +40,7 @@ describe('floating sidebar settings', () => {
     expect(layoutSectionSource).toContain('setFloatingToolbarEnabled');
     expect(layoutSectionSource).toContain("t('Floating toolbar')");
     expect(layoutSectionSource).toContain(
-      'Show the toolbar as a floating overlay when the pointer reaches the right edge.'
+      'Show the toolbar as a right-edge Dock when the pointer reaches the right edge.'
     );
     expect(layoutSectionSource).toContain('onCheckedChange={setFloatingToolbarEnabled}');
   });

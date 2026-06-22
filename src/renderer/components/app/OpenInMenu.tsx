@@ -136,36 +136,97 @@ export function OpenInMenu({ path, activeTab, compact = false }: OpenInMenuProps
   const isOpeningFile = activeTab === 'file' && activeTabPath;
   const displayIcon = isOpeningFile ? FileCode : FolderOpen;
 
+  const appMenuOptions = (
+    <>
+      {/* Finder */}
+      {groupedApps.finder.length > 0 && (
+        <>
+          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+            {t('File Manager')}
+          </div>
+          {groupedApps.finder.map((app) => (
+            <SelectItem key={app.bundleId} value={app.bundleId}>
+              <div className="flex items-center gap-2">
+                <AppIcon bundleId={app.bundleId} name={app.name} fallback={FolderOpen} />
+                <span>{app.name}</span>
+              </div>
+            </SelectItem>
+          ))}
+        </>
+      )}
+
+      {/* Terminals */}
+      {groupedApps.terminal.length > 0 && (
+        <>
+          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+            {t('Terminals')}
+          </div>
+          {groupedApps.terminal.map((app) => (
+            <SelectItem key={app.bundleId} value={app.bundleId}>
+              <div className="flex items-center gap-2">
+                <AppIcon bundleId={app.bundleId} name={app.name} fallback={Terminal} />
+                <span>{app.name}</span>
+              </div>
+            </SelectItem>
+          ))}
+        </>
+      )}
+
+      {/* Editors */}
+      {groupedApps.editor.length > 0 && (
+        <>
+          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+            {t('Editors')}
+          </div>
+          {groupedApps.editor.map((app) => (
+            <SelectItem key={app.bundleId} value={app.bundleId}>
+              <div className="flex items-center gap-2">
+                <AppIcon bundleId={app.bundleId} name={app.name} fallback={FileCode} />
+                <span>{app.name}</span>
+              </div>
+            </SelectItem>
+          ))}
+        </>
+      )}
+    </>
+  );
+
+  if (compact) {
+    return (
+      <Select value="" onValueChange={handleOpen}>
+        <SelectTrigger
+          className={cn(
+            actionClassName,
+            'hover:bg-muted/40 data-[state=open]:bg-muted/40 focus-visible:border-0 focus-visible:ring-0',
+            '[&_[data-slot=select-icon]]:hidden'
+          )}
+          aria-label={openInLabel}
+          title={`${openInLabel}: ${defaultApp.name}`}
+        >
+          <AppIcon bundleId={defaultApp.bundleId} name={defaultApp.name} fallback={displayIcon} />
+        </SelectTrigger>
+        <SelectPopup>{appMenuOptions}</SelectPopup>
+      </Select>
+    );
+  }
+
   return (
-    <div
-      className={
-        compact
-          ? 'control-floating-toolbar-open-in'
-          : 'control-topbar-action h-8 rounded-lg border-0 p-0'
-      }
-      title={openInLabel}
-    >
+    <div className="control-topbar-action h-8 rounded-lg border-0 p-0" title={openInLabel}>
       <button
         type="button"
         onClick={handleQuickOpen}
-        className={cn(
-          compact
-            ? 'control-floating-toolbar-action'
-            : 'flex h-full min-w-0 items-center gap-1.5 rounded-l-lg px-2.5 transition-colors hover:bg-muted/40'
-        )}
+        className="flex h-full min-w-0 items-center gap-1.5 rounded-l-lg px-2.5 transition-colors hover:bg-muted/40"
         aria-label={`${openInLabel}: ${defaultApp.name}`}
         title={`${openInLabel}: ${defaultApp.name}`}
       >
         <AppIcon bundleId={defaultApp.bundleId} name={defaultApp.name} fallback={displayIcon} />
-        <span className={compact ? 'sr-only' : 'max-w-28 truncate'}>{defaultApp.name}</span>
+        <span className="max-w-28 truncate">{defaultApp.name}</span>
       </button>
 
       <Select value="" onValueChange={handleOpen}>
         <SelectTrigger
           className={cn(
-            compact
-              ? 'control-floating-toolbar-action'
-              : 'h-full min-h-0 w-6 min-w-0 gap-0 rounded-r-lg border-0 bg-transparent p-0 px-1 shadow-none ring-0',
+            'h-full min-h-0 w-6 min-w-0 gap-0 rounded-r-lg border-0 bg-transparent p-0 px-1 shadow-none ring-0',
             'hover:bg-muted/40 data-[state=open]:bg-muted/40 focus-visible:border-0 focus-visible:ring-0',
             '[&_[data-slot=select-icon]]:hidden'
           )}
@@ -174,58 +235,7 @@ export function OpenInMenu({ path, activeTab, compact = false }: OpenInMenuProps
         >
           <ChevronDown className="h-3 w-3" />
         </SelectTrigger>
-        <SelectPopup>
-          {/* Finder */}
-          {groupedApps.finder.length > 0 && (
-            <>
-              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                {t('File Manager')}
-              </div>
-              {groupedApps.finder.map((app) => (
-                <SelectItem key={app.bundleId} value={app.bundleId}>
-                  <div className="flex items-center gap-2">
-                    <AppIcon bundleId={app.bundleId} name={app.name} fallback={FolderOpen} />
-                    <span>{app.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </>
-          )}
-
-          {/* Terminals */}
-          {groupedApps.terminal.length > 0 && (
-            <>
-              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                {t('Terminals')}
-              </div>
-              {groupedApps.terminal.map((app) => (
-                <SelectItem key={app.bundleId} value={app.bundleId}>
-                  <div className="flex items-center gap-2">
-                    <AppIcon bundleId={app.bundleId} name={app.name} fallback={Terminal} />
-                    <span>{app.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </>
-          )}
-
-          {/* Editors */}
-          {groupedApps.editor.length > 0 && (
-            <>
-              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                {t('Editors')}
-              </div>
-              {groupedApps.editor.map((app) => (
-                <SelectItem key={app.bundleId} value={app.bundleId}>
-                  <div className="flex items-center gap-2">
-                    <AppIcon bundleId={app.bundleId} name={app.name} fallback={FileCode} />
-                    <span>{app.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </>
-          )}
-        </SelectPopup>
+        <SelectPopup>{appMenuOptions}</SelectPopup>
       </Select>
     </div>
   );

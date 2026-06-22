@@ -833,8 +833,8 @@ export const zhTranslations: Record<string, string> = {
   'Show the sidebar as a floating overlay when the pointer reaches the left edge.':
     '\u9f20\u6807\u9760\u8fd1\u5de6\u4fa7\u8fb9\u7f18\u65f6\uff0c\u4ee5\u60ac\u6d6e\u5c42\u663e\u793a\u4fa7\u8fb9\u680f\u3002',
   'Floating toolbar': '\u60ac\u6d6e\u5de5\u5177\u680f',
-  'Show the toolbar as a floating overlay when the pointer reaches the right edge.':
-    '\u9f20\u6807\u9760\u8fd1\u53f3\u4fa7\u8fb9\u7f18\u65f6\uff0c\u4ee5\u60ac\u6d6e\u5c42\u663e\u793a\u5de5\u5177\u680f\u3002',
+  'Show the toolbar as a right-edge Dock when the pointer reaches the right edge.':
+    '\u9f20\u6807\u9760\u8fd1\u53f3\u4fa7\u8fb9\u7f18\u65f6\uff0c\u4ee5\u53f3\u4fa7 Dock \u663e\u793a\u5de5\u5177\u680f\u3002',
   Clear: '清除',
   Columns: '三栏',
   'Committing...': '提交中...',

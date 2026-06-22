@@ -211,7 +211,12 @@ export function MainContentTopbar({
         data-floating-toolbar-reveal="active"
         style={getFloatingToolbarRevealStyle(toolbarRevealFrame)}
       >
-        <aside className="control-floating-toolbar-panel" aria-label={t('Toolbar')}>
+        <aside
+          id="floating-main-toolbar"
+          className="control-floating-toolbar-panel"
+          aria-label={t('Toolbar')}
+          role="toolbar"
+        >
           <div
             className="control-floating-toolbar-nav"
             role="tablist"

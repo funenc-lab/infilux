@@ -21,7 +21,7 @@ describe('floating toolbar reveal policy', () => {
     });
   });
 
-  it('removes the toolbar from normal layout flow and keeps a right-edge trigger when enabled', () => {
+  it('removes the toolbar from normal layout flow and reserves a right-edge hover target when enabled', () => {
     expect(
       resolveFloatingToolbarRevealFrame({
         floatingToolbarEnabled: true,

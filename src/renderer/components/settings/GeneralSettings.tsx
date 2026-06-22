@@ -922,7 +922,7 @@ export function GeneralSettings() {
               <FieldLabel>{t('Floating toolbar')}</FieldLabel>
               <FieldDescription>
                 {t(
-                  'Show the toolbar as a floating overlay when the pointer reaches the right edge.'
+                  'Show the toolbar as a right-edge Dock when the pointer reaches the right edge.'
                 )}
               </FieldDescription>
             </div>

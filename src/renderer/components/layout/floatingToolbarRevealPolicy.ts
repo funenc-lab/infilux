@@ -1,6 +1,6 @@
-export const FLOATING_TOOLBAR_TRIGGER_WIDTH = 10;
-export const FLOATING_TOOLBAR_PANEL_WIDTH = 52;
-export const FLOATING_TOOLBAR_FLOATING_GAP = 6;
+export const FLOATING_TOOLBAR_TRIGGER_WIDTH = 12;
+export const FLOATING_TOOLBAR_PANEL_WIDTH = 56;
+export const FLOATING_TOOLBAR_FLOATING_GAP = 8;
 
 interface FloatingToolbarRevealFrameInput {
   floatingToolbarEnabled: boolean;
