@@ -1,7 +1,10 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { PersistentAgentSessionRecord } from '@shared/types';
-import { PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT } from '@shared/utils/persistentAgentSession';
+import {
+  normalizePersistentAgentSessionMetadata,
+  PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT,
+} from '@shared/utils/persistentAgentSession';
 import sqlite3 from 'sqlite3';
 import log from '../../utils/logger';
 import { registerMainProcessDiagnosticsCollector } from '../../utils/mainProcessDiagnostics';
@@ -12,7 +15,7 @@ import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSession
 const BUSY_TIMEOUT_MS = 3000;
 const STALE_PERSISTENT_SESSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const RUNTIME_HOME_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1_000;
-const MAX_METADATA_BYTES = PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT;
+const MAX_RAW_METADATA_BYTES = PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT * 8;
 
 type ActiveCodexRuntimeHomeProvider = () => Iterable<string>;
 
@@ -133,16 +136,30 @@ function isValidRuntimeState(
 }
 
 function safeParseMetadata(value: unknown): Record<string, unknown> | undefined {
-  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_METADATA_BYTES) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_RAW_METADATA_BYTES) {
     return undefined;
   }
 
   try {
     const parsed = JSON.parse(value) as unknown;
-    return isPlainObject(parsed) ? parsed : undefined;
+    return isPlainObject(parsed) ? normalizePersistentAgentSessionMetadata(parsed) : undefined;
   } catch {
     return undefined;
   }
+}
+
+function normalizeRecordMetadata(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  return normalizePersistentAgentSessionMetadata(metadata);
+}
+
+function normalizeRecord(record: PersistentAgentSessionRecord): PersistentAgentSessionRecord {
+  const metadata = normalizeRecordMetadata(record.metadata);
+  return {
+    ...record,
+    metadata,
+  };
 }
 
 function rowToRecord(row: PersistentAgentSessionRow): PersistentAgentSessionRecord | null {
@@ -195,6 +212,7 @@ function rowToRecord(row: PersistentAgentSessionRow): PersistentAgentSessionReco
 }
 
 function recordToParams(record: PersistentAgentSessionRecord): unknown[] {
+  const metadata = normalizeRecordMetadata(record.metadata);
   return [
     record.uiSessionId,
     record.backendSessionId ?? null,
@@ -215,15 +233,12 @@ function recordToParams(record: PersistentAgentSessionRecord): unknown[] {
     record.createdAt,
     record.updatedAt,
     record.lastKnownState,
-    record.metadata ? JSON.stringify(record.metadata) : null,
+    metadata ? JSON.stringify(metadata) : null,
   ];
 }
 
 function cloneRecord(record: PersistentAgentSessionRecord): PersistentAgentSessionRecord {
-  return {
-    ...record,
-    metadata: record.metadata ? { ...record.metadata } : undefined,
-  };
+  return normalizeRecord(record);
 }
 
 function compareByUpdatedAtDesc(
@@ -342,11 +357,12 @@ export class PersistentAgentSessionRepository {
   }
 
   async upsertSession(record: PersistentAgentSessionRecord): Promise<void> {
+    const normalizedRecord = normalizeRecord(record);
     this.diagnostics.upsertCalls += 1;
-    this.diagnostics.lastMarkedSessionId = record.uiSessionId;
+    this.diagnostics.lastMarkedSessionId = normalizedRecord.uiSessionId;
     await this.initialize();
-    await this.writeRecord(record);
-    this.cache = upsertCachedRecord(this.cache, record);
+    await this.writeRecord(normalizedRecord);
+    this.cache = upsertCachedRecord(this.cache, normalizedRecord);
     await this.pruneStaleSessions();
   }
 
@@ -468,8 +484,9 @@ export class PersistentAgentSessionRepository {
     }
 
     for (const record of legacyRecords) {
-      await this.writeRecord(record);
-      this.cache = upsertCachedRecord(this.cache, record);
+      const normalizedRecord = normalizeRecord(record);
+      await this.writeRecord(normalizedRecord);
+      this.cache = upsertCachedRecord(this.cache, normalizedRecord);
     }
   }
 

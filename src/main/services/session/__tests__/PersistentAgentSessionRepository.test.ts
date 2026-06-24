@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from '@shared/utils/agentTerminalHistoryPolicy';
-import { withPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
+import {
+  extractPersistentAgentReplaySnapshot,
+  PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT,
+  withPersistentAgentReplaySnapshot,
+} from '@shared/utils/persistentAgentSession';
 import { buildAppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -546,6 +550,39 @@ describe('PersistentAgentSessionRepository', () => {
         }),
       }),
     ]);
+  });
+
+  it('normalizes legacy replay snapshot metadata when reading sqlite records', async () => {
+    const oversizedSnapshot = '\u001b[38;5;248m\u001b[1mx\u001b(B\u001b[m'.repeat(
+      PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT
+    );
+    repositoryTestDoubles.state.rows.push(
+      makeRow({
+        metadata_json: JSON.stringify({
+          persistentAgentSession: {
+            replaySnapshot: oversizedSnapshot,
+            replaySnapshotCapturedAt: 123,
+          },
+        }),
+      })
+    );
+
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+    await repository.initialize();
+
+    const [record] = await repository.listSessions();
+    const replay = extractPersistentAgentReplaySnapshot(record?.metadata);
+
+    expect(replay.replaySnapshot).toBeTruthy();
+    expect(replay.replaySnapshot?.length).toBeLessThanOrEqual(
+      PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT
+    );
+    expect(JSON.stringify(record?.metadata).length).toBeLessThanOrEqual(
+      PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT
+    );
   });
 
   it('reports repository operation counters through the diagnostics snapshot', async () => {

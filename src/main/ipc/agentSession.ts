@@ -4,7 +4,10 @@ import type {
   RestoreWorktreeSessionsRequest,
 } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
-import { PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT } from '@shared/utils/persistentAgentSession';
+import {
+  normalizePersistentAgentSessionMetadata,
+  PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT,
+} from '@shared/utils/persistentAgentSession';
 import { ipcMain } from 'electron';
 import { agentProviderSessionService } from '../services/agent/AgentProviderSessionService';
 import { persistentAgentSessionService } from '../services/session/PersistentAgentSessionService';
@@ -123,7 +126,20 @@ function isValidMetadata(value: unknown): value is Record<string, unknown> | und
   }
 }
 
-function isValidPersistentRecord(value: Record<string, unknown>): boolean {
+function normalizeRecordMetadata(value: unknown): Record<string, unknown> | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  return normalizePersistentAgentSessionMetadata(value);
+}
+
+function isValidPersistentRecord(
+  value: Record<string, unknown>,
+  metadata: Record<string, unknown> | undefined
+): boolean {
   return (
     REQUIRED_STRING_FIELDS.every((field) => isNonEmptyString(value[field])) &&
     OPTIONAL_STRING_FIELDS.every((field) => isOptionalString(value[field])) &&
@@ -144,12 +160,17 @@ function isValidPersistentRecord(value: Record<string, unknown>): boolean {
       value.lastKnownState === 'reconnecting' ||
       value.lastKnownState === 'dead' ||
       value.lastKnownState === 'missing-host-session') &&
-    isValidMetadata(value.metadata)
+    isValidMetadata(metadata)
   );
 }
 
 function assertPersistentAgentSessionRecord(value: unknown): PersistentAgentSessionRecord {
-  if (!isPlainObject(value) || !isValidPersistentRecord(value)) {
+  if (!isPlainObject(value)) {
+    throw new Error('Invalid persistent agent session record');
+  }
+
+  const normalizedMetadata = normalizeRecordMetadata(value.metadata);
+  if (normalizedMetadata === null || !isValidPersistentRecord(value, normalizedMetadata)) {
     throw new Error('Invalid persistent agent session record');
   }
 
@@ -183,8 +204,8 @@ function assertPersistentAgentSessionRecord(value: unknown): PersistentAgentSess
   if (typeof value.customArgs === 'string') {
     record.customArgs = value.customArgs as string;
   }
-  if (value.metadata !== undefined) {
-    record.metadata = value.metadata as Record<string, unknown>;
+  if (normalizedMetadata !== undefined) {
+    record.metadata = normalizedMetadata;
   }
 
   return record;

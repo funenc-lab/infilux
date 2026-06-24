@@ -1,7 +1,11 @@
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from '@shared/utils/agentTerminalHistoryPolicy';
-import { withPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
+import {
+  extractPersistentAgentReplaySnapshot,
+  PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT,
+  withPersistentAgentReplaySnapshot,
+} from '@shared/utils/persistentAgentSession';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Handler = (...args: unknown[]) => unknown;
@@ -252,6 +256,42 @@ describe('agentSession IPC handlers', () => {
         customPath: expect.anything(),
         customArgs: expect.anything(),
       })
+    );
+  });
+
+  it('normalizes oversized persistent replay metadata before upserting', async () => {
+    const { registerAgentSessionHandlers } = await import('../agentSession');
+    registerAgentSessionHandlers();
+
+    const markPersistentHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT);
+    const oversizedSnapshot = '\u001b[38;5;248m\u001b[1mx\u001b(B\u001b[m'.repeat(
+      PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT
+    );
+
+    await expect(
+      markPersistentHandler(
+        {},
+        makeRecord({
+          metadata: {
+            persistentAgentSession: {
+              replaySnapshot: oversizedSnapshot,
+              replaySnapshotCapturedAt: 123,
+            },
+          },
+        })
+      )
+    ).resolves.toEqual([expect.objectContaining({ uiSessionId: 'session-1' })]);
+
+    const upsertedRecord = agentSessionTestDoubles.upsertSession.mock.calls[0]?.[0] as
+      | PersistentAgentSessionRecord
+      | undefined;
+    const replay = extractPersistentAgentReplaySnapshot(upsertedRecord?.metadata);
+    expect(replay.replaySnapshot).toBeTruthy();
+    expect(replay.replaySnapshot?.length).toBeLessThanOrEqual(
+      PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT
+    );
+    expect(JSON.stringify(upsertedRecord?.metadata).length).toBeLessThanOrEqual(
+      PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT
     );
   });
 
