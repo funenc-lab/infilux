@@ -705,7 +705,7 @@ describe('ClaudePolicyEditorDialog', () => {
       skillRow?.querySelector('[data-policy-native-warning="legacy-skill:planner"]')
     ).not.toBeNull();
     expect(skillRow?.textContent).toContain(
-      'This skill is disabled in policy, but its source file is inside this worktree .claude/skills folder. Claude may still auto-load it until the file is moved, renamed, or removed.'
+      'This skill is disabled in policy, but its source file is inside this workspace native skill directory. The runtime may still auto-load it until the file is moved, renamed, or removed.'
     );
   });
 
@@ -799,6 +799,98 @@ describe('ClaudePolicyEditorDialog', () => {
     expect(handleNativeSkillFileChanged).toHaveBeenCalled();
   });
 
+  it('quarantines a disabled project-native agent skill from the project policy action', async () => {
+    installElectronApi(
+      {
+        capabilities: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'project',
+            sourcePath: '/repo/.agents/skills/planner/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: ['legacy-skill:planner'],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {
+          'legacy-skill:planner': {
+            source: 'project-policy',
+            decision: 'block',
+          },
+        },
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const handleCatalogRefresh = vi.fn();
+    const handleNativeSkillFileChanged = vi.fn();
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'project',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          projectPolicy: {
+            repoPath: '/repo',
+            allowedCapabilityIds: [],
+            blockedCapabilityIds: ['legacy-skill:planner'],
+            allowedSharedMcpIds: [],
+            blockedSharedMcpIds: [],
+            allowedPersonalMcpIds: [],
+            blockedPersonalMcpIds: [],
+            updatedAt: 1,
+          },
+          worktreePolicy: null,
+          onCatalogRefresh: handleCatalogRefresh,
+          onNativeSkillFileChanged: handleNativeSkillFileChanged,
+          onSave: vi.fn(),
+        })
+      );
+    });
+    await flushEffects();
+
+    const skillRow = container?.querySelector('[data-policy-item-id="legacy-skill:planner"]');
+    expect(
+      skillRow?.querySelector('[data-policy-native-warning="legacy-skill:planner"]')
+    ).not.toBeNull();
+
+    await act(async () => {
+      skillRow
+        ?.querySelector<HTMLButtonElement>('[data-policy-native-action="disable-file"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    expect(nativeSkillDisable).toHaveBeenCalledWith({
+      worktreePath: '/repo',
+      sourcePath: '/repo/.agents/skills/planner/SKILL.md',
+    });
+    expect(handleCatalogRefresh).toHaveBeenCalled();
+    expect(handleNativeSkillFileChanged).toHaveBeenCalled();
+  });
+
   it('restores a quarantined worktree-native Claude skill from the restore action', async () => {
     installElectronApi(
       {
@@ -876,6 +968,86 @@ describe('ClaudePolicyEditorDialog', () => {
     expect(nativeSkillRestore).toHaveBeenCalledWith({
       worktreePath: '/repo/worktrees/feature-a',
       sourcePath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner/SKILL.md',
+    });
+    expect(handleCatalogRefresh).toHaveBeenCalled();
+    expect(handleNativeSkillFileChanged).toHaveBeenCalled();
+  });
+
+  it('restores a quarantined project-native agent skill from the project policy action', async () => {
+    installElectronApi(
+      {
+        capabilities: [],
+        disabledNativeSkills: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'project',
+            sourcePath: '/repo/.agents/skills.disabled/planner/SKILL.md',
+            isAvailable: false,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {},
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const handleCatalogRefresh = vi.fn();
+    const handleNativeSkillFileChanged = vi.fn();
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'project',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          projectPolicy: null,
+          worktreePolicy: null,
+          onCatalogRefresh: handleCatalogRefresh,
+          onNativeSkillFileChanged: handleNativeSkillFileChanged,
+          onSave: vi.fn(),
+        })
+      );
+    });
+    await flushEffects();
+
+    const restoredRow = container?.querySelector(
+      '[data-policy-disabled-native-item-id="legacy-skill:planner"]'
+    );
+    expect(restoredRow?.textContent).toContain('Planner');
+    expect(restoredRow?.textContent).toContain('Quarantined');
+
+    await act(async () => {
+      restoredRow
+        ?.querySelector<HTMLButtonElement>('[data-policy-native-action="restore-file"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    expect(nativeSkillRestore).toHaveBeenCalledWith({
+      worktreePath: '/repo',
+      sourcePath: '/repo/.agents/skills.disabled/planner/SKILL.md',
     });
     expect(handleCatalogRefresh).toHaveBeenCalled();
     expect(handleNativeSkillFileChanged).toHaveBeenCalled();

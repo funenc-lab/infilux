@@ -199,6 +199,62 @@ describe('AgentCapabilityLaunchService smoke tests', () => {
     );
   });
 
+  it('resolves Codex launch metadata with blocked workspace .agents skills', async () => {
+    const agentSkillPath = join(worktreePath, '.agents', 'skills', 'agent-review', 'SKILL.md');
+    writeTextFile(
+      agentSkillPath,
+      [
+        '---',
+        'name: Agent Review',
+        'description: Review with Codex agents',
+        '---',
+        '',
+        '# Review',
+      ].join('\n')
+    );
+    const metadata = createLaunchMetadata({
+      provider: 'codex',
+      repoPath,
+      worktreePath,
+      sessionPolicy: createPolicy({
+        blockedCapabilityIds: ['legacy-skill:agent-review'],
+      }),
+    });
+    const launchRequest = resolveAgentCapabilityLaunchRequest(metadata);
+    expect(launchRequest).not.toBeNull();
+    if (!launchRequest) {
+      throw new Error('Expected Codex launch request');
+    }
+
+    const preparedLaunch = await prepareAgentCapabilityLaunch(launchRequest, {
+      cwd: worktreePath,
+      kind: 'agent',
+      shell: 'codex',
+      args: ['resume', 'codex-session-2'],
+    });
+
+    expect(preparedLaunch).not.toBeNull();
+    if (!preparedLaunch) {
+      throw new Error('Expected Codex prepared launch');
+    }
+
+    expect(preparedLaunch.launchResult.resolvedPolicy?.blockedCapabilityIds).toEqual([
+      'legacy-skill:agent-review',
+    ]);
+    expect(preparedLaunch.sessionOverrides?.metadata).toMatchObject({
+      providerLaunchStrategy: 'codex-runtime-config',
+      codexSkillIds: ['legacy-skill:agent-review'],
+    });
+    expect(preparedLaunch.sessionOverrides?.args).toEqual(
+      expect.arrayContaining([
+        '-c',
+        `skills.config=[{enabled = false, path = "${agentSkillPath}"}]`,
+        'resume',
+        'codex-session-2',
+      ])
+    );
+  });
+
   it('resolves Gemini launch metadata into an isolated runtime home and disabled skill settings', async () => {
     const metadata = createLaunchMetadata({
       provider: 'gemini',

@@ -270,6 +270,8 @@ export function ClaudePolicyEditorDialog({
       return nextTab;
     });
   }, []);
+  const nativeSkillRootPath =
+    scope === 'global' ? undefined : scope === 'project' ? repoPath : worktreePath || repoPath;
 
   const isDirty = useMemo(
     () => hasClaudePolicyConfigChanges(activePolicy, draft),
@@ -310,16 +312,16 @@ export function ClaudePolicyEditorDialog({
 
   const handleDisableNativeSkill = useCallback(
     async (sourcePath: string) => {
-      const effectiveWorktreePath = worktreePath || repoPath;
+      const effectiveNativeSkillRootPath = nativeSkillRootPath || repoPath;
       try {
         await window.electronAPI.claudePolicy.nativeSkill.disable({
-          worktreePath: effectiveWorktreePath,
+          worktreePath: effectiveNativeSkillRootPath,
           sourcePath,
         });
         toastManager.add({
           type: 'success',
           title: t('Skill file disabled'),
-          description: t('The skill folder was moved out of the worktree .claude/skills path.'),
+          description: t('The skill folder was moved out of the workspace native skill directory.'),
         });
         await refreshCatalog();
         onCatalogRefresh?.();
@@ -332,21 +334,23 @@ export function ClaudePolicyEditorDialog({
         });
       }
     },
-    [onCatalogRefresh, onNativeSkillFileChanged, refreshCatalog, repoPath, t, worktreePath]
+    [nativeSkillRootPath, onCatalogRefresh, onNativeSkillFileChanged, refreshCatalog, repoPath, t]
   );
 
   const handleRestoreNativeSkill = useCallback(
     async (sourcePath: string) => {
-      const effectiveWorktreePath = worktreePath || repoPath;
+      const effectiveNativeSkillRootPath = nativeSkillRootPath || repoPath;
       try {
         await window.electronAPI.claudePolicy.nativeSkill.restore({
-          worktreePath: effectiveWorktreePath,
+          worktreePath: effectiveNativeSkillRootPath,
           sourcePath,
         });
         toastManager.add({
           type: 'success',
           title: t('Skill file restored'),
-          description: t('The skill folder was moved back into the worktree .claude/skills path.'),
+          description: t(
+            'The skill folder was moved back into the workspace native skill directory.'
+          ),
         });
         await refreshCatalog();
         onCatalogRefresh?.();
@@ -359,7 +363,7 @@ export function ClaudePolicyEditorDialog({
         });
       }
     },
-    [onCatalogRefresh, onNativeSkillFileChanged, refreshCatalog, repoPath, t, worktreePath]
+    [nativeSkillRootPath, onCatalogRefresh, onNativeSkillFileChanged, refreshCatalog, repoPath, t]
   );
 
   const dialogTitle =
@@ -460,12 +464,12 @@ export function ClaudePolicyEditorDialog({
                   )}
                   items={filteredSkillItems}
                   policy={draft}
-                  worktreePath={worktreePath || repoPath}
+                  nativeSkillRootPath={nativeSkillRootPath}
                   onDecisionChange={handleCapabilityDecisionChange}
                   onBatchDecisionChange={handleCapabilityBatchDecisionChange}
-                  onDisableNativeSkill={scope === 'worktree' ? handleDisableNativeSkill : undefined}
+                  onDisableNativeSkill={nativeSkillRootPath ? handleDisableNativeSkill : undefined}
                 />
-                {scope === 'worktree' ? (
+                {nativeSkillRootPath ? (
                   <ClaudePolicyDisabledNativeSkillList
                     items={filteredDisabledNativeSkillItems}
                     onRestoreNativeSkill={handleRestoreNativeSkill}

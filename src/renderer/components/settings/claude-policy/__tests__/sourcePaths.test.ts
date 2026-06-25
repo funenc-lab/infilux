@@ -18,6 +18,21 @@ describe('claude policy source paths', () => {
     ).toEqual(['/repo/worktrees/feature-a/.claude/skills/planner/SKILL.md']);
   });
 
+  it('detects source paths inside the active workspace agent skills directory', () => {
+    expect(
+      getWorkspaceNativeClaudeSkillSourcePaths(
+        {
+          sourcePath: '/repo/worktrees/feature-a/.agents/skills/planner/SKILL.md',
+          sourcePaths: [
+            '/repo/.agents/skills/planner/SKILL.md',
+            '/repo/worktrees/feature-a/.agents/skills/planner/SKILL.md',
+          ],
+        },
+        '/repo/worktrees/feature-a'
+      )
+    ).toEqual(['/repo/worktrees/feature-a/.agents/skills/planner/SKILL.md']);
+  });
+
   it('normalizes Windows separators before matching native Claude skill paths', () => {
     expect(
       getWorkspaceNativeClaudeSkillSourcePaths(
@@ -29,11 +44,11 @@ describe('claude policy source paths', () => {
     ).toEqual(['C:\\repo\\feature-a\\.claude\\skills\\planner\\SKILL.md']);
   });
 
-  it('ignores non-Claude skill roots inside the active worktree', () => {
+  it('ignores unsupported skill roots inside the active worktree', () => {
     expect(
       getWorkspaceNativeClaudeSkillSourcePaths(
         {
-          sourcePath: '/repo/worktrees/feature-a/.agents/skills/planner/SKILL.md',
+          sourcePath: '/repo/worktrees/feature-a/.gemini/skills/planner/SKILL.md',
         },
         '/repo/worktrees/feature-a'
       )

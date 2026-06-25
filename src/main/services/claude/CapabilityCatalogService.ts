@@ -434,11 +434,14 @@ async function listLocalSkillItems(
 
 async function listLocalSkillItemsFromRoots(
   rootDirs: string[],
-  sourceScope: ClaudeCapabilitySourceScope
+  sourceScope: ClaudeCapabilitySourceScope,
+  options: {
+    isAvailable?: boolean;
+  } = {}
 ): Promise<ClaudeCapabilityCatalogItem[]> {
   const items: ClaudeCapabilityCatalogItem[] = [];
   for (const rootDir of uniqueResolvedPaths(rootDirs)) {
-    items.push(...(await listLocalSkillItems(rootDir, sourceScope)));
+    items.push(...(await listLocalSkillItems(rootDir, sourceScope, options)));
   }
   return items;
 }
@@ -534,7 +537,10 @@ async function listRemoteSkillItemsFromRoots(
   repoPath: string,
   rootDirs: string[],
   listRemoteDirectory: typeof listRepositoryRemoteDirectory,
-  readRemoteTextFile: (repoPath: string, remotePath: string) => Promise<string | null>
+  readRemoteTextFile: (repoPath: string, remotePath: string) => Promise<string | null>,
+  options: {
+    isAvailable?: boolean;
+  } = {}
 ): Promise<ClaudeCapabilityCatalogItem[]> {
   const items: ClaudeCapabilityCatalogItem[] = [];
   const visited = new Set<string>();
@@ -550,7 +556,8 @@ async function listRemoteSkillItemsFromRoots(
         repoPath,
         normalizedRoot,
         listRemoteDirectory,
-        readRemoteTextFile
+        readRemoteTextFile,
+        options
       ))
     );
   }
@@ -700,6 +707,13 @@ function getLocalWorkspaceSkillRootDirs(workspacePath: string): string[] {
   ]);
 }
 
+function getLocalWorkspaceDisabledSkillRootDirs(workspacePath: string): string[] {
+  return uniqueResolvedPaths([
+    path.join(workspacePath, '.claude', 'skills.disabled'),
+    path.join(workspacePath, '.agents', 'skills.disabled'),
+  ]);
+}
+
 function getRemoteUserSkillRootDirs(homeDir: string, claudeSkillsDir: string): string[] {
   return [
     claudeSkillsDir,
@@ -716,6 +730,14 @@ function getRemoteWorkspaceSkillRootDirs(workspacePath: string): string[] {
     `${normalizedWorkspacePath}/.gemini/skills`,
     `${normalizedWorkspacePath}/.agents/skills`,
     `${normalizedWorkspacePath}/.codex/skills`,
+  ];
+}
+
+function getRemoteWorkspaceDisabledSkillRootDirs(workspacePath: string): string[] {
+  const normalizedWorkspacePath = toPosixRemotePath(workspacePath);
+  return [
+    `${normalizedWorkspacePath}/.claude/skills.disabled`,
+    `${normalizedWorkspacePath}/.agents/skills.disabled`,
   ];
 }
 
@@ -1072,9 +1094,9 @@ export async function listClaudeCapabilityCatalog(
       }
       if (worktreePath && isRemoteVirtualPath(worktreePath)) {
         disabledNativeSkills.push(
-          ...(await listRemoteSkillItems(
+          ...(await listRemoteSkillItemsFromRoots(
             repoPath,
-            `${normalizeRemoteWorkspacePath(worktreePath)}/.claude/skills.disabled`,
+            getRemoteWorkspaceDisabledSkillRootDirs(normalizeRemoteWorkspacePath(worktreePath)),
             listRemoteDirectory,
             readRemoteTextFile,
             { isAvailable: false }
@@ -1200,6 +1222,15 @@ export async function listClaudeCapabilityCatalog(
           'project'
         ))
       );
+      disabledNativeSkills.push(
+        ...(await listLocalSkillItemsFromRoots(
+          getLocalWorkspaceDisabledSkillRootDirs(repoPath),
+          'project',
+          {
+            isAvailable: false,
+          }
+        ))
+      );
     }
 
     if (worktreePath && worktreePath !== repoPath) {
@@ -1232,8 +1263,8 @@ export async function listClaudeCapabilityCatalog(
         ))
       );
       disabledNativeSkills.push(
-        ...(await listLocalSkillItems(
-          path.join(worktreePath, '.claude', 'skills.disabled'),
+        ...(await listLocalSkillItemsFromRoots(
+          getLocalWorkspaceDisabledSkillRootDirs(worktreePath),
           'worktree',
           { isAvailable: false }
         ))

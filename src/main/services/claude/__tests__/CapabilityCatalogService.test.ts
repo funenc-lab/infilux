@@ -432,6 +432,68 @@ describe('listClaudeCapabilityCatalog', () => {
     ]);
   });
 
+  it('lists quarantined project-native Claude skills when the project root is the active workspace', async () => {
+    writeTextFile(
+      join(repoPath, '.claude', 'skills.disabled', 'planner', 'SKILL.md'),
+      ['---', 'name: Planner', 'description: Quarantined planner', '---'].join('\n')
+    );
+
+    const catalog = await listClaudeCapabilityCatalog(
+      { repoPath, worktreePath: repoPath },
+      {
+        getUserClaudeConfigDirs: () => [userClaudeDir],
+        readLocalClaudeJson: async () => null,
+        readLocalProjectSettings: async () => null,
+        readLocalGeminiSettings: async () => null,
+        readLocalGeminiProjectSettings: async () => null,
+      }
+    );
+
+    expect(catalog.capabilities.map((item) => item.id)).not.toContain('legacy-skill:planner');
+    expect(catalog.disabledNativeSkills).toEqual([
+      expect.objectContaining({
+        id: 'legacy-skill:planner',
+        kind: 'legacy-skill',
+        name: 'Planner',
+        sourceScope: 'project',
+        sourcePath: join(repoPath, '.claude', 'skills.disabled', 'planner', 'SKILL.md'),
+        isAvailable: false,
+        isConfigurable: true,
+      }),
+    ]);
+  });
+
+  it('lists quarantined project-native agent skills when the project root is the active workspace', async () => {
+    writeTextFile(
+      join(repoPath, '.agents', 'skills.disabled', 'planner', 'SKILL.md'),
+      ['---', 'name: Planner', 'description: Quarantined planner', '---'].join('\n')
+    );
+
+    const catalog = await listClaudeCapabilityCatalog(
+      { repoPath, worktreePath: repoPath },
+      {
+        getUserClaudeConfigDirs: () => [userClaudeDir],
+        readLocalClaudeJson: async () => null,
+        readLocalProjectSettings: async () => null,
+        readLocalGeminiSettings: async () => null,
+        readLocalGeminiProjectSettings: async () => null,
+      }
+    );
+
+    expect(catalog.capabilities.map((item) => item.id)).not.toContain('legacy-skill:planner');
+    expect(catalog.disabledNativeSkills).toEqual([
+      expect.objectContaining({
+        id: 'legacy-skill:planner',
+        kind: 'legacy-skill',
+        name: 'Planner',
+        sourceScope: 'project',
+        sourcePath: join(repoPath, '.agents', 'skills.disabled', 'planner', 'SKILL.md'),
+        isAvailable: false,
+        isConfigurable: true,
+      }),
+    ]);
+  });
+
   it('discovers remote commands, subagents, skills from supported roots, and MCP sources with remote tagging', async () => {
     const remoteRepoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
     const remoteWorktreePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktrees/feature-a');

@@ -304,7 +304,7 @@ export function ClaudeSessionLaunchDialog({
                     title={t('Skills')}
                     items={skillItems}
                     policy={draft}
-                    worktreePath={worktreePath}
+                    nativeSkillRootPath={worktreePath}
                     onDecisionChange={handleCapabilityDecisionChange}
                     onBatchDecisionChange={handleCapabilityBatchDecisionChange}
                   />

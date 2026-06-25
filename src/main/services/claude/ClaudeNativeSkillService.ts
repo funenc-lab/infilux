@@ -20,6 +20,15 @@ interface RuntimePathContext {
   sourcePath: string;
 }
 
+const WORKSPACE_NATIVE_SKILL_ROOTS = ['.claude', '.agents'] as const;
+
+type WorkspaceNativeSkillRoot = (typeof WORKSPACE_NATIVE_SKILL_ROOTS)[number];
+
+interface NativeSkillSourceLocation {
+  rootName: WorkspaceNativeSkillRoot;
+  skillName: string;
+}
+
 function toComparablePath(inputPath: string): string {
   return inputPath.replace(/\\/g, '/').replace(/\/+$/, '');
 }
@@ -32,7 +41,7 @@ function toRuntimePathContext(
 
   if (!worktreeIsRemote) {
     if (sourceIsRemote) {
-      throw new Error('Worktree path and source path must use the same runtime');
+      throw new Error('Workspace root path and source path must use the same runtime');
     }
 
     return {
@@ -47,7 +56,7 @@ function toRuntimePathContext(
   if (sourceIsRemote) {
     const sourceTarget = parseRemoteVirtualPath(request.sourcePath);
     if (worktreeTarget.connectionId !== sourceTarget.connectionId) {
-      throw new Error('Worktree path and source path must use the same remote connection');
+      throw new Error('Workspace root path and source path must use the same remote connection');
     }
     sourcePath = sourceTarget.remotePath;
   }
@@ -63,22 +72,27 @@ function toRuntimePathContext(
 function assertNativeSkillSourcePath(
   context: RuntimePathContext,
   directoryName: 'skills' | 'skills.disabled'
-): string {
+): NativeSkillSourceLocation {
   const sourcePath = toComparablePath(context.sourcePath);
-  const nativeSkillRoot = `${toComparablePath(context.worktreePath)}/.claude/${directoryName}/`;
   const suffix = '/SKILL.md';
-  if (!sourcePath.startsWith(nativeSkillRoot) || !sourcePath.endsWith(suffix)) {
-    throw new Error(
-      `Source path must be a SKILL.md file inside the worktree .claude/${directoryName} directory`
-    );
+
+  for (const rootName of WORKSPACE_NATIVE_SKILL_ROOTS) {
+    const nativeSkillRoot = `${toComparablePath(context.worktreePath)}/${rootName}/${directoryName}/`;
+    if (!sourcePath.startsWith(nativeSkillRoot) || !sourcePath.endsWith(suffix)) {
+      continue;
+    }
+
+    const skillName = sourcePath.slice(nativeSkillRoot.length, -suffix.length);
+    if (!skillName || skillName.includes('/')) {
+      throw new Error('Source path must point to a direct workspace skill directory');
+    }
+
+    return { rootName, skillName };
   }
 
-  const skillName = sourcePath.slice(nativeSkillRoot.length, -suffix.length);
-  if (!skillName || skillName.includes('/')) {
-    throw new Error('Source path must point to a direct worktree Claude skill directory');
-  }
-
-  return skillName;
+  throw new Error(
+    'Source path must be a SKILL.md file inside a supported workspace skill directory'
+  );
 }
 
 function toResultPath(context: RuntimePathContext, runtimePath: string): string {
@@ -102,10 +116,10 @@ export async function disableWorkspaceNativeClaudeSkill(
   request: DisableClaudeNativeSkillRequest
 ): Promise<DisableClaudeNativeSkillResult> {
   const context = toRuntimePathContext(request);
-  const skillName = assertNativeSkillSourcePath(context, 'skills');
+  const { rootName, skillName } = assertNativeSkillSourcePath(context, 'skills');
   const joinPath = context.isRemote ? path.posix.join : path.join;
-  const sourceDir = joinPath(context.worktreePath, '.claude', 'skills', skillName);
-  const disabledDir = joinPath(context.worktreePath, '.claude', 'skills.disabled', skillName);
+  const sourceDir = joinPath(context.worktreePath, rootName, 'skills', skillName);
+  const disabledDir = joinPath(context.worktreePath, rootName, 'skills.disabled', skillName);
   const disabledExists = context.isRemote
     ? await remoteRepositoryBackend.exists(toResultPath(context, disabledDir))
     : await localPathExists(disabledDir);
@@ -135,10 +149,10 @@ export async function restoreWorkspaceNativeClaudeSkill(
   request: RestoreClaudeNativeSkillRequest
 ): Promise<RestoreClaudeNativeSkillResult> {
   const context = toRuntimePathContext(request);
-  const skillName = assertNativeSkillSourcePath(context, 'skills.disabled');
+  const { rootName, skillName } = assertNativeSkillSourcePath(context, 'skills.disabled');
   const joinPath = context.isRemote ? path.posix.join : path.join;
-  const sourceDir = joinPath(context.worktreePath, '.claude', 'skills.disabled', skillName);
-  const restoredDir = joinPath(context.worktreePath, '.claude', 'skills', skillName);
+  const sourceDir = joinPath(context.worktreePath, rootName, 'skills.disabled', skillName);
+  const restoredDir = joinPath(context.worktreePath, rootName, 'skills', skillName);
   const restoredExists = context.isRemote
     ? await remoteRepositoryBackend.exists(toResultPath(context, restoredDir))
     : await localPathExists(restoredDir);

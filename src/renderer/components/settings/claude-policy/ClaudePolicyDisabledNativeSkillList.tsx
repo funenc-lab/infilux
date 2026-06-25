@@ -23,7 +23,7 @@ export function ClaudePolicyDisabledNativeSkillList({
       <div className="space-y-1">
         <h3 className="ui-type-block-title">{t('Quarantined Skills')}</h3>
         <p className="ui-type-meta text-muted-foreground">
-          {t('Skill folders moved out of this worktree .claude/skills path.')}
+          {t('Skill folders moved out of this workspace native skill directory.')}
         </p>
       </div>
 

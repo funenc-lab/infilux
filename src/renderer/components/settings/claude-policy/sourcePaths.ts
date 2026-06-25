@@ -1,6 +1,9 @@
 import type { ClaudeCapabilityCatalogItem } from '@shared/types';
 import { isRemoteVirtualPath, parseRemoteVirtualPath } from '@shared/utils/remotePath';
 
+const WORKSPACE_NATIVE_SKILL_ROOTS = ['.claude', '.agents'] as const;
+const NATIVE_SKILL_FILE_SUFFIX = '/SKILL.md';
+
 export function getCapabilitySourcePaths(item: {
   sourcePath?: ClaudeCapabilityCatalogItem['sourcePath'];
   sourcePaths?: ClaudeCapabilityCatalogItem['sourcePaths'];
@@ -38,8 +41,9 @@ export function getWorkspaceNativeClaudeSkillSourcePaths(
   worktreePath: string
 ): string[] {
   const comparableWorktreePath = normalizeComparablePath(worktreePath);
-  const nativeSkillRoot = `${comparableWorktreePath.path}/.claude/skills/`;
-  const nativeSkillFileSuffix = '/SKILL.md';
+  const nativeSkillRoots = WORKSPACE_NATIVE_SKILL_ROOTS.map(
+    (rootName) => `${comparableWorktreePath.path}/${rootName}/skills/`
+  );
 
   return getCapabilitySourcePaths(item).filter((sourcePath) => {
     const comparableSourcePath = normalizeComparablePath(sourcePath);
@@ -58,16 +62,16 @@ export function getWorkspaceNativeClaudeSkillSourcePaths(
     }
 
     const normalizedSourcePath = comparableSourcePath.path;
-    if (
-      !normalizedSourcePath.startsWith(nativeSkillRoot) ||
-      !normalizedSourcePath.endsWith(nativeSkillFileSuffix)
-    ) {
+    const nativeSkillRoot = nativeSkillRoots.find((rootPath) =>
+      normalizedSourcePath.startsWith(rootPath)
+    );
+    if (!nativeSkillRoot || !normalizedSourcePath.endsWith(NATIVE_SKILL_FILE_SUFFIX)) {
       return false;
     }
 
     const skillName = normalizedSourcePath.slice(
       nativeSkillRoot.length,
-      -nativeSkillFileSuffix.length
+      -NATIVE_SKILL_FILE_SUFFIX.length
     );
     return Boolean(skillName) && !skillName.includes('/');
   });

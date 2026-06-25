@@ -13,7 +13,7 @@ interface ClaudePolicyCapabilityListProps {
   description?: string;
   items: ClaudeCapabilityCatalogItem[];
   policy: ClaudePolicyConfig;
-  worktreePath?: string;
+  nativeSkillRootPath?: string;
   onDecisionChange: (id: string, decision: ClaudePolicyDecisionValue) => void;
   onBatchDecisionChange: (ids: string[], decision: ClaudePolicyDecisionValue) => void;
   onDisableNativeSkill?: (sourcePath: string) => void;
@@ -25,7 +25,7 @@ export function ClaudePolicyCapabilityList({
   description,
   items,
   policy,
-  worktreePath,
+  nativeSkillRootPath,
   onDecisionChange,
   onBatchDecisionChange,
   onDisableNativeSkill,
@@ -50,8 +50,8 @@ export function ClaudePolicyCapabilityList({
         {items.map((item) => {
           const decision = getClaudePolicyDecision(policy, 'capability', item.id);
           const nativeClaudeSkillPaths =
-            decision === 'block' && item.kind === 'legacy-skill' && worktreePath
-              ? getWorkspaceNativeClaudeSkillSourcePaths(item, worktreePath)
+            decision === 'block' && item.kind === 'legacy-skill' && nativeSkillRootPath
+              ? getWorkspaceNativeClaudeSkillSourcePaths(item, nativeSkillRootPath)
               : [];
 
           return (
@@ -82,7 +82,7 @@ export function ClaudePolicyCapabilityList({
                     >
                       <span>
                         {t(
-                          'This skill is disabled in policy, but its source file is inside this worktree .claude/skills folder. Claude may still auto-load it until the file is moved, renamed, or removed.'
+                          'This skill is disabled in policy, but its source file is inside this workspace native skill directory. The runtime may still auto-load it until the file is moved, renamed, or removed.'
                         )}
                       </span>
                       {onDisableNativeSkill ? (

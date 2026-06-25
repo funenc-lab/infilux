@@ -49,6 +49,24 @@ describe('ClaudeNativeSkillService', () => {
     expect(readFileSync(join(result.disabledPath, 'SKILL.md'), 'utf8')).toContain('name: planner');
   });
 
+  it('renames a workspace agent skill directory to a matching disabled backup path', async () => {
+    const worktreePath = join(rootDir, 'repo', 'worktrees', 'feature-a');
+    const skillDir = join(worktreePath, '.agents', 'skills', 'planner');
+    const skillFile = join(skillDir, 'SKILL.md');
+    await mkdir(skillDir, { recursive: true });
+    writeFileSync(skillFile, '---\nname: planner\n---\n', 'utf8');
+
+    const result = await disableWorkspaceNativeClaudeSkill({
+      worktreePath,
+      sourcePath: skillFile,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(existsSync(skillDir)).toBe(false);
+    expect(result.disabledPath).toBe(join(worktreePath, '.agents', 'skills.disabled', 'planner'));
+    expect(readFileSync(join(result.disabledPath, 'SKILL.md'), 'utf8')).toContain('name: planner');
+  });
+
   it('rejects source paths outside the active worktree native Claude skills directory', async () => {
     const worktreePath = join(rootDir, 'repo', 'worktrees', 'feature-a');
     const sourcePath = join(rootDir, 'repo', '.claude', 'skills', 'planner', 'SKILL.md');
@@ -59,7 +77,7 @@ describe('ClaudeNativeSkillService', () => {
         sourcePath,
       })
     ).rejects.toThrow(
-      'Source path must be a SKILL.md file inside the worktree .claude/skills directory'
+      'Source path must be a SKILL.md file inside a supported workspace skill directory'
     );
   });
 
@@ -137,6 +155,24 @@ describe('ClaudeNativeSkillService', () => {
     expect(result.ok).toBe(true);
     expect(existsSync(disabledDir)).toBe(false);
     expect(existsSync(result.restoredPath)).toBe(true);
+    expect(readFileSync(join(result.restoredPath, 'SKILL.md'), 'utf8')).toContain('name: planner');
+  });
+
+  it('restores a quarantined workspace agent skill directory to the active path', async () => {
+    const worktreePath = join(rootDir, 'repo', 'worktrees', 'feature-a');
+    const disabledDir = join(worktreePath, '.agents', 'skills.disabled', 'planner');
+    const disabledFile = join(disabledDir, 'SKILL.md');
+    await mkdir(disabledDir, { recursive: true });
+    writeFileSync(disabledFile, '---\nname: planner\n---\n', 'utf8');
+
+    const result = await restoreWorkspaceNativeClaudeSkill({
+      worktreePath,
+      sourcePath: disabledFile,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(existsSync(disabledDir)).toBe(false);
+    expect(result.restoredPath).toBe(join(worktreePath, '.agents', 'skills', 'planner'));
     expect(readFileSync(join(result.restoredPath, 'SKILL.md'), 'utf8')).toContain('name: planner');
   });
 

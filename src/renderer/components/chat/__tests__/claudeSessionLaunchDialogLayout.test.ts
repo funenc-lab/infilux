@@ -14,6 +14,6 @@ describe('ClaudeSessionLaunchDialog layout', () => {
   });
 
   it('passes the active worktree path to skill policy rows for native source warnings', () => {
-    expect(dialogSource).toContain('worktreePath={worktreePath}');
+    expect(dialogSource).toContain('nativeSkillRootPath={worktreePath}');
   });
 });
