@@ -16,11 +16,18 @@ declare global {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const translateMock = vi.fn((value: string) => value);
+const toastAddMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
     t: (value: string) => translateMock(value),
   }),
+}));
+
+vi.mock('@/components/ui/toast', () => ({
+  toastManager: {
+    add: toastAddMock,
+  },
 }));
 
 vi.mock('@/components/ui/dialog', () => ({
@@ -128,6 +135,7 @@ describe('ClaudePolicyEditorDialog', () => {
     previewResolve.mockReset();
     nativeSkillDisable.mockReset();
     nativeSkillRestore.mockReset();
+    toastAddMock.mockReset();
     translateMock.mockReset();
     translateMock.mockImplementation((value: string) => value);
     container = document.createElement('div');
@@ -369,6 +377,138 @@ describe('ClaudePolicyEditorDialog', () => {
         hash: 'hash-preview',
       })
     );
+  });
+
+  it('renders the policy search field as an input group with a non-overlapping icon', async () => {
+    installElectronApi(
+      {
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {},
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'project',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          projectPolicy: null,
+          worktreePolicy: null,
+          onSave: vi.fn(),
+        })
+      );
+    });
+    await flushEffects();
+
+    const searchInput = container?.querySelector<HTMLInputElement>('[data-policy-search="input"]');
+    expect(searchInput).not.toBeNull();
+    expect(searchInput?.closest('[data-slot="input-group"]')).not.toBeNull();
+    expect(searchInput?.parentElement?.className).not.toContain('pl-9');
+  });
+
+  it('shows a success toast after saving project policy changes', async () => {
+    installElectronApi(
+      {
+        capabilities: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'project',
+            sourcePath: '/repo/.agents/skills/planner/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo',
+        allowedCapabilityIds: ['legacy-skill:planner'],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {
+          'legacy-skill:planner': {
+            source: 'project-policy',
+            decision: 'allow',
+          },
+        },
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const handleSave = vi.fn();
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudePolicyEditorDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          scope: 'project',
+          globalPolicy: null,
+          repoPath: '/repo',
+          repoName: 'repo',
+          projectPolicy: null,
+          worktreePolicy: null,
+          onSave: handleSave,
+        })
+      );
+    });
+    await flushEffects();
+
+    await act(async () => {
+      container
+        ?.querySelector('[data-policy-item-id="legacy-skill:planner"]')
+        ?.querySelector<HTMLButtonElement>('[data-policy-decision="allow"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    await act(async () => {
+      container
+        ?.querySelector<HTMLButtonElement>('[data-policy-action="save"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(handleSave).toHaveBeenCalled();
+    expect(toastAddMock).toHaveBeenCalledWith({
+      type: 'success',
+      title: 'Policy saved',
+      description: 'Project skill and MCP settings were saved.',
+    });
   });
 
   it('keeps project draft skill decisions across parent rerenders while open', async () => {

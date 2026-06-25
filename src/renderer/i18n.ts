@@ -189,6 +189,16 @@ const rendererZhTranslations: Record<string, string> = {
   'Unable to restore skill file': decodeEscapedUnicode(
     '\\u65e0\\u6cd5\\u6062\\u590d Skill \\u6587\\u4ef6'
   ),
+  'Policy saved': decodeEscapedUnicode('\\u914d\\u7f6e\\u5df2\\u4fdd\\u5b58'),
+  'Global skill and MCP settings were saved.': decodeEscapedUnicode(
+    '\\u5168\\u5c40 Skill \\u4e0e MCP \\u8bbe\\u7f6e\\u5df2\\u4fdd\\u5b58\\u3002'
+  ),
+  'Project skill and MCP settings were saved.': decodeEscapedUnicode(
+    '\\u9879\\u76ee Skill \\u4e0e MCP \\u8bbe\\u7f6e\\u5df2\\u4fdd\\u5b58\\u3002'
+  ),
+  'Worktree skill and MCP settings were saved.': decodeEscapedUnicode(
+    'Worktree Skill \\u4e0e MCP \\u8bbe\\u7f6e\\u5df2\\u4fdd\\u5b58\\u3002'
+  ),
   'Needs attention': decodeEscapedUnicode('\\u9700\\u8981\\u5173\\u6ce8'),
   'Agent worktrees': decodeEscapedUnicode('Agent \\u5de5\\u4f5c\\u6811'),
   'Worktree panel actions': decodeEscapedUnicode('Worktree \\u9762\\u677f\\u64cd\\u4f5c'),

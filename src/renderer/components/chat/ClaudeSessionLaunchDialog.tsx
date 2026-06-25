@@ -15,7 +15,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useI18n } from '@/i18n';
 import { ClaudePolicyCapabilityList } from '../settings/claude-policy/ClaudePolicyCapabilityList';
@@ -285,17 +285,18 @@ export function ClaudeSessionLaunchDialog({
                     </Button>
                   </div>
 
-                  <div className="relative min-w-0 md:w-72">
-                    <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
+                  <InputGroup className="min-w-0 md:w-72">
+                    <InputGroupAddon>
+                      <Search className="h-4 w-4" />
+                    </InputGroupAddon>
+                    <InputGroupInput
                       type="search"
                       data-session-launch-search="input"
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.currentTarget.value)}
                       placeholder={t('Search skills or MCP')}
-                      className="pl-9"
                     />
-                  </div>
+                  </InputGroup>
                 </div>
 
                 {activeTab === 'skills' ? (

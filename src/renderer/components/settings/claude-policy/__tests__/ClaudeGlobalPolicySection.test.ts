@@ -37,7 +37,10 @@ vi.mock('@/components/ui/badge', () => ({
 }));
 
 vi.mock('@/components/ui/input', () => ({
-  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) =>
+  Input: ({
+    unstyled: _unstyled,
+    ...props
+  }: React.InputHTMLAttributes<HTMLInputElement> & { unstyled?: boolean }) =>
     React.createElement('input', props),
 }));
 
