@@ -83,6 +83,14 @@ function filterMcpItems(items: ClaudeMcpCatalogItem[], query: string): ClaudeMcp
   );
 }
 
+function getPolicyDraftSeedKey(
+  scope: ClaudePolicyEditorScope,
+  repoPath: string,
+  worktreePath?: string
+): string {
+  return [scope, repoPath, scope === 'worktree' ? worktreePath || repoPath : ''].join('\0');
+}
+
 interface ClaudePolicyEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -132,17 +140,28 @@ export function ClaudePolicyEditorDialog({
   const [searchQuery, setSearchQuery] = useState('');
   const catalogRequestIdRef = useRef(0);
   const previewRequestIdRef = useRef(0);
+  const draftSeedKeyRef = useRef<string | null>(null);
+  const draftSeedKey = useMemo(
+    () => getPolicyDraftSeedKey(scope, repoPath, worktreePath),
+    [repoPath, scope, worktreePath]
+  );
 
   useEffect(() => {
     if (!open) {
+      draftSeedKeyRef.current = null;
       return;
     }
 
+    if (draftSeedKeyRef.current === draftSeedKey) {
+      return;
+    }
+
+    draftSeedKeyRef.current = draftSeedKey;
     setDraft(createClaudePolicyDraft(activePolicy));
     setIsPreviewExpanded(false);
     setActiveTab('skills');
     setSearchQuery('');
-  }, [activePolicy, open]);
+  }, [activePolicy, draftSeedKey, open]);
 
   const refreshCatalog = useCallback(async () => {
     const requestId = catalogRequestIdRef.current + 1;
