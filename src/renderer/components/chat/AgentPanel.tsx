@@ -621,7 +621,7 @@ const CanvasSessionContentOutlet = memo(function CanvasSessionContentOutlet({
 
     return () => {
       if (hostElement.parentElement === outletElement) {
-        outletElement.replaceChildren();
+        hostElement.remove();
       }
     };
   }, [hostElement]);
@@ -3265,41 +3265,32 @@ export function AgentPanel({
     }
     canvasWheelZoomStateRef.current = createInitialCanvasWheelZoomState();
   }, []);
-  const updateCanvasViewportBounds = useCallback(
-    (viewport: HTMLDivElement) => {
-      const rect = viewport.getBoundingClientRect();
-      const nextBounds = {
-        height: rect.height,
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-      };
-      setCanvasViewportWidth((previousWidth) =>
-        previousWidth === nextBounds.width ? previousWidth : nextBounds.width
-      );
-      const nextStoredBounds = canvasFloatingSessionId ? nextBounds : null;
+  const updateCanvasViewportBounds = useCallback((viewport: HTMLDivElement) => {
+    const rect = viewport.getBoundingClientRect();
+    const nextBounds = {
+      height: rect.height,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+    };
+    setCanvasViewportWidth((previousWidth) =>
+      previousWidth === nextBounds.width ? previousWidth : nextBounds.width
+    );
 
-      setCanvasViewportBounds((previousBounds) => {
-        if (previousBounds === null && nextStoredBounds === null) {
-          return previousBounds;
-        }
+    setCanvasViewportBounds((previousBounds) => {
+      if (
+        previousBounds &&
+        previousBounds.height === nextBounds.height &&
+        previousBounds.left === nextBounds.left &&
+        previousBounds.top === nextBounds.top &&
+        previousBounds.width === nextBounds.width
+      ) {
+        return previousBounds;
+      }
 
-        if (
-          previousBounds &&
-          nextStoredBounds &&
-          previousBounds.height === nextStoredBounds.height &&
-          previousBounds.left === nextStoredBounds.left &&
-          previousBounds.top === nextStoredBounds.top &&
-          previousBounds.width === nextStoredBounds.width
-        ) {
-          return previousBounds;
-        }
-
-        return nextStoredBounds;
-      });
-    },
-    [canvasFloatingSessionId]
-  );
+      return nextBounds;
+    });
+  }, []);
   const applyCanvasViewportPosition = useCallback(
     (viewport: HTMLDivElement, position: CanvasViewportPosition): CanvasViewportPosition => {
       const snapshot = readCanvasViewportSnapshot(viewport);
@@ -4774,12 +4765,7 @@ export function AgentPanel({
       AGENT_CANVAS_GRID_COLUMN_UNITS / Math.max(canvasColumnCount, 1);
     const canRenderCanvasFloatingSessionInPortal =
       sessionContentHost !== null && isCanvasFloatingSession && canvasFloatingFrame !== null;
-    const canvasSessionLayoutFrameKey =
-      isCanvasFloatingSession && canvasFloatingFrame
-        ? `frame:${Math.round(canvasFloatingFrame.width)}x${Math.round(canvasFloatingFrame.height)}`
-        : isCanvasFloatingSession
-          ? 'frame:pending'
-          : 'frame:tile';
+    const canvasSessionLayoutSurfaceKey = isCanvasFloatingSession ? 'floating' : 'tile';
     const shouldDimCanvasTile =
       isCanvasDisplayMode && canvasFloatingSessionId !== null && !isCanvasFloatingSession;
     const tileRepoLabel = getDisplayPathBasename(session.repoPath) || session.repoPath;
@@ -5033,7 +5019,7 @@ export function AgentPanel({
             isVisible={isTerminalVisible}
             layoutRefreshKey={
               isCanvasDisplayMode
-                ? `${isCanvasFloatingSession ? 'floating' : 'tile'}:${sessionContentHost ? 'host' : 'inline'}:${canvasSessionLayoutFrameKey}`
+                ? `${canvasSessionLayoutSurfaceKey}:${sessionContentHost ? 'host' : 'inline'}`
                 : undefined
             }
             terminalFontScale={

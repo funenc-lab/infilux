@@ -26,7 +26,7 @@ describe('syncXtermViewportToSession', () => {
     });
   });
 
-  it('skips backend resize when the session is not live', () => {
+  it('fits the local viewport but skips backend resize when the session is not live', () => {
     const resizeSession = vi.fn();
     const fitViewport = vi.fn();
     const measureViewport = vi.fn<() => { cols: number; rows: number } | null>();
@@ -40,7 +40,26 @@ describe('syncXtermViewportToSession', () => {
     });
 
     expect(didSync).toBe(false);
-    expect(fitViewport).not.toHaveBeenCalled();
+    expect(fitViewport).toHaveBeenCalledTimes(1);
+    expect(measureViewport).not.toHaveBeenCalled();
+    expect(resizeSession).not.toHaveBeenCalled();
+  });
+
+  it('fits the local viewport but skips backend resize before a session id is available', () => {
+    const resizeSession = vi.fn();
+    const fitViewport = vi.fn();
+    const measureViewport = vi.fn<() => { cols: number; rows: number } | null>();
+
+    const didSync = syncXtermViewportToSession({
+      fitViewport,
+      measureViewport,
+      resizeSession,
+      runtimeState: 'live',
+      sessionId: null,
+    });
+
+    expect(didSync).toBe(false);
+    expect(fitViewport).toHaveBeenCalledTimes(1);
     expect(measureViewport).not.toHaveBeenCalled();
     expect(resizeSession).not.toHaveBeenCalled();
   });

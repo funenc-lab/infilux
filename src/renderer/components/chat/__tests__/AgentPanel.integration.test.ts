@@ -2759,7 +2759,92 @@ describe('AgentPanel integration', () => {
           '[data-testid="agent-terminal"][data-session-id="session-floating-content"]'
         )
         ?.getAttribute('data-layout-refresh-key')
-    ).toBe('floating:host:frame:768x576');
+    ).toBe('floating:host');
+
+    await mounted.unmount();
+  });
+
+  it('keeps the floating canvas terminal refresh key stable across viewport resizes', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-floating-resize',
+      sessionId: 'provider-floating-resize',
+      backendSessionId: 'backend-floating-resize',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Floating Resize Session',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-floating-resize',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-floating-resize',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    let viewportRect = createDomRectLike({
+      height: 720,
+      left: 24,
+      top: 80,
+      width: 960,
+    });
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const viewport = mounted.container.querySelector<HTMLDivElement>('.agent-canvas-viewport');
+    expect(viewport).not.toBeNull();
+    if (viewport) {
+      mockCanvasViewportMetrics(viewport);
+      Object.defineProperty(viewport, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => viewportRect,
+      });
+    }
+
+    await clickElement(mounted.container.querySelector('button[aria-label="Bring to Front"]'));
+    await act(async () => {
+      await flushRenderTasks();
+    });
+
+    const terminalSelector =
+      '[data-testid="agent-terminal"][data-session-id="session-floating-resize"]';
+    const firstKey = document.body
+      .querySelector<HTMLElement>(terminalSelector)
+      ?.getAttribute('data-layout-refresh-key');
+    expect(firstKey).toBe('floating:host');
+
+    viewportRect = createDomRectLike({
+      height: 840,
+      left: 24,
+      top: 80,
+      width: 1160,
+    });
+    await mounted.rerender({
+      isActive: true,
+    });
+    await act(async () => {
+      await flushRenderTasks();
+    });
+
+    expect(
+      document.body
+        .querySelector<HTMLElement>(terminalSelector)
+        ?.getAttribute('data-layout-refresh-key')
+    ).toBe(firstKey);
 
     await mounted.unmount();
   });

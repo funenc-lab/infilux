@@ -57,6 +57,8 @@ const testState = vi.hoisted(() => ({
   navigationToFile: vi.fn(),
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
+  terminalWriteCallbacks: [] as Array<() => void>,
+  terminalScrollToBottom: vi.fn(),
   terminalDataHandler: null as ((data: string) => void) | null,
   customKeyHandler: null as ((event: KeyboardEvent) => boolean) | null,
   terminalBufferLines: [] as Array<{ text: string; isWrapped?: boolean }>,
@@ -141,8 +143,11 @@ vi.mock('@xterm/xterm', () => ({
     }
     refresh(): void {}
     reset(): void {}
-    write(data: string): void {
+    write(data: string, callback?: () => void): void {
       testState.terminalWrite(data);
+      if (callback) {
+        testState.terminalWriteCallbacks.push(callback);
+      }
     }
     clear(): void {}
     focus(): void {
@@ -154,6 +159,9 @@ vi.mock('@xterm/xterm', () => ({
       return false;
     }
     paste(): void {}
+    scrollToBottom(): void {
+      testState.terminalScrollToBottom();
+    }
     scrollLines(): void {}
     registerLinkProvider(): { dispose: () => void } {
       return { dispose: () => undefined };
@@ -453,6 +461,8 @@ describe('useXterm startup loading state', () => {
     testState.navigationToFile.mockClear();
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
+    testState.terminalWriteCallbacks = [];
+    testState.terminalScrollToBottom.mockClear();
     testState.terminalDataHandler = null;
     testState.customKeyHandler = null;
     testState.terminalBufferLines = [];
@@ -825,8 +835,103 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('cancels buffered terminal writes when unmounted before the flush timer runs', async () => {
+  it('keeps restored replay hidden until xterm has written it and then starts at the bottom', async () => {
     const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.latestSnapshot.isLoading).toBe(true);
+
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+        replay: 'line 1\nline 2\nlatest line\n',
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('line 1\nline 2\nlatest line\n');
+    expect(testState.terminalWriteCallbacks).toHaveLength(1);
+    expect(testState.terminalScrollToBottom).not.toHaveBeenCalled();
+    expect(testState.latestSnapshot.isLoading).toBe(true);
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalScrollToBottom).toHaveBeenCalledTimes(1);
+    expect(testState.latestSnapshot.isLoading).toBe(false);
+
+    await mounted.unmount();
+  });
+
+  it('scrolls updated static transcript content to the bottom after xterm writes it', async () => {
+    const mounted = mountHookHarness({
+      staticContent: {
+        text: 'old transcript\n',
+        identity: 'old',
+      },
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    testState.terminalWrite.mockClear();
+    testState.terminalWriteCallbacks = [];
+    testState.terminalScrollToBottom.mockClear();
+
+    mounted.rerender({
+      staticContent: {
+        text: 'new transcript\nlatest line\n',
+        identity: 'new',
+      },
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('new transcript\nlatest line\n');
+    expect(testState.terminalWriteCallbacks).toHaveLength(1);
+    expect(testState.terminalScrollToBottom).not.toHaveBeenCalled();
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalScrollToBottom).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('flushes buffered terminal writes when unmounted before the flush timer runs', async () => {
+    const onData = vi.fn();
+    const mounted = mountHookHarness({ onData });
 
     await act(async () => {
       await flushMicrotasks();
@@ -838,7 +943,7 @@ describe('useXterm startup loading state', () => {
     await act(async () => {
       testState.sessionHandlers?.onData?.({
         sessionId: 'backend-session-1',
-        data: 'stale output\n',
+        data: 'final output\n',
       });
       await flushMicrotasks();
     });
@@ -847,12 +952,15 @@ describe('useXterm startup loading state', () => {
 
     await mounted.unmount();
 
+    expect(testState.terminalWrite).toHaveBeenCalledWith('final output\n');
+    expect(onData).toHaveBeenCalledWith('final output\n');
+
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30);
       await flushMicrotasks();
     });
 
-    expect(testState.terminalWrite).not.toHaveBeenCalled();
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
   });
 
   it('does not auto-start from initialCommand while inactive when that activation path is disabled', async () => {

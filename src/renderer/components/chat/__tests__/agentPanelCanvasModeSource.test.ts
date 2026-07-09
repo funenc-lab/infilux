@@ -247,7 +247,11 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('viewport.scrollTo({');
     expect(agentPanelSource).toContain('behavior: resolveAgentCanvasScrollBehavior');
     expect(agentPanelSource).toContain('buildSessionPanelDomId(id)');
-    expect(agentPanelSource).toContain('canvasFloatingSessionId ? nextBounds : null');
+    expect(agentPanelSource).toContain(
+      "const canvasSessionLayoutSurfaceKey = isCanvasFloatingSession ? 'floating' : 'tile'"
+    );
+    expect(agentPanelSource).toContain("sessionContentHost ? 'host' : 'inline'");
+    expect(agentPanelSource).not.toContain('canvasSessionLayoutFrameKey');
     expect(agentPanelSource).toContain('mountedCurrentWorktreeSessionIds');
     expect(agentPanelSource).not.toContain(
       'return isActive ? canvasSessions.map((session) => session.id) : []'

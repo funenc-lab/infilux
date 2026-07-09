@@ -30,11 +30,11 @@ export function syncXtermViewportToSession({
   runtimeState,
   sessionId,
 }: SyncXtermViewportToSessionOptions): boolean {
+  fitViewport();
+
   if (runtimeState !== 'live' || !sessionId) {
     return false;
   }
-
-  fitViewport();
 
   const viewportSize = measureViewport();
   if (!isValidViewportSize(viewportSize)) {
