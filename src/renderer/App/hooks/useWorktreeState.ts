@@ -11,6 +11,7 @@ import {
   STORAGE_KEYS,
   saveTabOrder,
   saveWorktreeOrderMap,
+  scheduleManagedLocalStorageSync,
 } from '../storage';
 
 function getInitialActiveTab(): TabId {
@@ -52,6 +53,7 @@ export function useWorktreeState() {
   // Persist worktree tab map to localStorage
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.WORKTREE_TABS, JSON.stringify(worktreeTabMap));
+    scheduleManagedLocalStorageSync();
   }, [worktreeTabMap]);
 
   // Persist panel tab order to localStorage
@@ -66,6 +68,7 @@ export function useWorktreeState() {
         setRepoWorktreeMap((prev) => {
           const updated = { ...prev, [selectedRepo]: worktree.path };
           localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKTREES, JSON.stringify(updated));
+          scheduleManagedLocalStorageSync();
           return updated;
         });
       } else if (selectedRepo && !worktree) {
@@ -73,6 +76,7 @@ export function useWorktreeState() {
           const updated = { ...prev };
           delete updated[selectedRepo];
           localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKTREES, JSON.stringify(updated));
+          scheduleManagedLocalStorageSync();
           return updated;
         });
       }

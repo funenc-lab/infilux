@@ -44,6 +44,45 @@ type RepositoryStateSnapshot = ReturnType<typeof useRepositoryState>;
 
 let latestSnapshot: RepositoryStateSnapshot | null = null;
 
+function installSessionStorageBridge(sharedSnapshot: Record<string, string> = {}) {
+  const sessionStorage = {
+    get: vi.fn(async () => ({ localStorage: sharedSnapshot })),
+    syncLocalStorage: vi.fn(async (_snapshot: Record<string, string>) => true),
+    importLocalStorage: vi.fn(async (_snapshot: Record<string, string>) => true),
+    isLegacyLocalStorageMigrated: vi.fn(async () => true),
+  };
+
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: {
+      env: {
+        platform: 'darwin',
+      },
+      sessionStorage,
+    },
+  });
+
+  return sessionStorage;
+}
+
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+  }
+
+  throw lastError;
+}
+
 function RepositoryStateHarness() {
   latestSnapshot = useRepositoryState();
   return React.createElement('div');
@@ -101,6 +140,31 @@ describe('useRepositoryState', () => {
       groupId: 'group-b',
     });
     expect(latestSnapshot?.repositories[0]?.groupId).toBe('group-b');
+
+    await mounted.unmount();
+  });
+
+  it('syncs an explicitly cleared repository list to shared session storage', async () => {
+    const sessionStorage = installSessionStorageBridge({
+      [STORAGE_KEYS.REPOSITORIES]: JSON.stringify(REPOSITORIES),
+      [STORAGE_KEYS.SELECTED_REPO]: '/repo/a',
+    });
+    const mounted = await mountRepositoryStateHarness();
+
+    await act(async () => {
+      latestSnapshot?.saveRepositories([]);
+      latestSnapshot?.setSelectedRepo(null);
+    });
+
+    await waitForAssertion(() => {
+      expect(sessionStorage.syncLocalStorage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          [STORAGE_KEYS.REPOSITORIES]: '[]',
+        })
+      );
+    });
+    const syncedSnapshot = sessionStorage.syncLocalStorage.mock.calls.at(-1)?.[0] ?? {};
+    expect(syncedSnapshot).not.toHaveProperty(STORAGE_KEYS.SELECTED_REPO);
 
     await mounted.unmount();
   });

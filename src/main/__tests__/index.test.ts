@@ -96,6 +96,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     destroy: vi.fn(),
   }));
   const mkdirSync = vi.fn();
+  const readdirSync = vi.fn<(path: string, options?: unknown) => string[]>(() => []);
   const existsSync = vi.fn<(path: string) => boolean>(() => false);
   const readFileSync = vi.fn<(path: string, encoding?: BufferEncoding) => string | Buffer>(
     (_path: string, encoding?: BufferEncoding) => {
@@ -105,7 +106,9 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       return Buffer.from('file');
     }
   );
-  const statSync = vi.fn<(path: string) => { isDirectory: () => boolean; size: number }>(() => ({
+  const statSync = vi.fn<
+    (path: string) => { isDirectory: () => boolean; size: number; mtimeMs?: number }
+  >(() => ({
     isDirectory: () => false,
     size: 64,
   }));
@@ -459,6 +462,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       appendFileSync,
       createReadStream,
       mkdirSync,
+      readdirSync,
       existsSync,
       readFileSync,
       statSync,
@@ -533,6 +537,8 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     netFetch.mockImplementation(async () => new Response('ok', { status: 200 }));
     appendFileSync.mockReset();
     mkdirSync.mockReset();
+    readdirSync.mockReset();
+    readdirSync.mockReturnValue([]);
     existsSync.mockReturnValue(false);
     readFileSync.mockImplementation((_path: string, encoding?: BufferEncoding) => {
       if (encoding === 'utf-8') {
@@ -683,6 +689,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     appendFileSync,
     createReadStream,
     mkdirSync,
+    readdirSync,
     existsSync,
     readFileSync,
     statSync,
@@ -770,6 +777,7 @@ vi.mock('node:fs', () => ({
   appendFileSync: mainIndexTestDoubles.appendFileSync,
   createReadStream: mainIndexTestDoubles.createReadStream,
   mkdirSync: mainIndexTestDoubles.mkdirSync,
+  readdirSync: mainIndexTestDoubles.readdirSync,
   existsSync: mainIndexTestDoubles.existsSync,
   readFileSync: mainIndexTestDoubles.readFileSync,
   statSync: mainIndexTestDoubles.statSync,
@@ -1468,6 +1476,46 @@ describe('main entry', () => {
             '[{"id":"local:/repo/demo","name":"demo","path":"/repo/demo","kind":"local"}]',
           'enso-selected-repo': '/repo/demo',
           'enso-worktree-tabs': '{}',
+        },
+      })
+    );
+  });
+
+  it('recovers shared localStorage from a newer current profile leveldb when shared repos are stale', async () => {
+    const sharedRepositories =
+      '[{"id":"local:/repo/old","name":"old","path":"/repo/old","kind":"local"}]';
+    const profileRepositories =
+      '[{"id":"local:/repo/current","name":"current","path":"/repo/current","kind":"local"}]';
+    mainIndexTestDoubles.readSharedSessionState.mockReturnValue({
+      version: 2,
+      updatedAt: 100,
+      localStorage: {
+        'enso-repositories': sharedRepositories,
+        'enso-selected-repo': '/repo/old',
+      },
+    });
+    mainIndexTestDoubles.readdirSync.mockReturnValue(['000001.log', '000002.ldb']);
+    mainIndexTestDoubles.statSync.mockImplementation((targetPath: string) => ({
+      isDirectory: () => false,
+      size: 64,
+      mtimeMs: targetPath.endsWith('000002.ldb') ? 500 : 250,
+    }));
+    mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs.mockReturnValue({
+      'enso-repositories': profileRepositories,
+      'enso-selected-repo': '/repo/current',
+    });
+
+    const { __testables } = await importMainModule({
+      platform: 'darwin',
+    });
+
+    __testables.recoverSharedLocalStorageFromCurrentProfileIfNeeded();
+
+    expect(mainIndexTestDoubles.writeSharedSessionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        localStorage: {
+          'enso-repositories': profileRepositories,
+          'enso-selected-repo': '/repo/current',
         },
       })
     );

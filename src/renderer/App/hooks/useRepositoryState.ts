@@ -18,6 +18,7 @@ import {
   STORAGE_KEYS,
   saveActiveGroupId,
   saveGroups,
+  scheduleManagedLocalStorageSync,
 } from '../storage';
 import { resolveActiveGroupId } from './activeGroupPolicy';
 
@@ -69,6 +70,7 @@ export function useRepositoryState() {
         });
         if (needsMigration) {
           localStorage.setItem(STORAGE_KEYS.REPOSITORIES, JSON.stringify(parsed));
+          scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
         }
         setRepositories(parsed);
       } catch {
@@ -85,6 +87,7 @@ export function useRepositoryState() {
   // Save repositories to localStorage
   const saveRepositories = useCallback((repos: Repository[]) => {
     localStorage.setItem(STORAGE_KEYS.REPOSITORIES, JSON.stringify(repos));
+    scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
     setRepositories(repos);
   }, []);
 
@@ -95,6 +98,7 @@ export function useRepositoryState() {
     } else {
       localStorage.removeItem(STORAGE_KEYS.SELECTED_REPO);
     }
+    scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
   }, [selectedRepo]);
 
   // Group management

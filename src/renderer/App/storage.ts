@@ -110,6 +110,85 @@ export function shouldSyncManagedLocalStorageToSharedSession(options: {
   return hasManagedLocalStorageDifferences(sharedSnapshot, currentSnapshot);
 }
 
+interface ManagedLocalStorageSyncOptions {
+  allowEmptyRepositoryState?: boolean;
+}
+
+let pendingManagedLocalStorageSync: Promise<boolean> | null = null;
+let rerunManagedLocalStorageSync = false;
+let queuedAllowEmptyRepositoryState = false;
+
+async function syncManagedLocalStorageToSharedSession(
+  options: ManagedLocalStorageSyncOptions = {}
+): Promise<boolean> {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const sessionStorage = window.electronAPI?.sessionStorage;
+  if (!sessionStorage?.get || !sessionStorage?.syncLocalStorage) {
+    return false;
+  }
+
+  const currentSnapshot = getManagedLocalStorageSnapshot();
+  if (Object.keys(currentSnapshot).length === 0) {
+    return false;
+  }
+
+  try {
+    const sessionState = await sessionStorage.get();
+    const sharedSnapshot = sessionState?.localStorage ?? {};
+    const shouldSync = options.allowEmptyRepositoryState
+      ? hasManagedLocalStorageDifferences(sharedSnapshot, currentSnapshot)
+      : shouldSyncManagedLocalStorageToSharedSession({
+          currentSnapshot,
+          sharedSnapshot,
+        });
+
+    if (!shouldSync) {
+      return false;
+    }
+
+    await sessionStorage.syncLocalStorage(currentSnapshot);
+    return true;
+  } catch (error) {
+    console.warn('[storage] Failed to sync managed localStorage to shared session', error);
+    return false;
+  }
+}
+
+function runQueuedManagedLocalStorageSync(): void {
+  const allowEmptyRepositoryState = queuedAllowEmptyRepositoryState;
+  queuedAllowEmptyRepositoryState = false;
+
+  pendingManagedLocalStorageSync = syncManagedLocalStorageToSharedSession({
+    allowEmptyRepositoryState,
+  }).finally(() => {
+    pendingManagedLocalStorageSync = null;
+
+    if (!rerunManagedLocalStorageSync && !queuedAllowEmptyRepositoryState) {
+      return;
+    }
+
+    rerunManagedLocalStorageSync = false;
+    runQueuedManagedLocalStorageSync();
+  });
+}
+
+export function scheduleManagedLocalStorageSync(
+  options: ManagedLocalStorageSyncOptions = {}
+): void {
+  queuedAllowEmptyRepositoryState =
+    queuedAllowEmptyRepositoryState || options.allowEmptyRepositoryState === true;
+
+  if (pendingManagedLocalStorageSync) {
+    rerunManagedLocalStorageSync = true;
+    return;
+  }
+
+  runQueuedManagedLocalStorageSync();
+}
+
 export function applyImportedLegacyLocalStorageSnapshot(
   snapshot: Record<string, string>
 ): string[] {
@@ -192,6 +271,7 @@ export const getStoredWorktreeOrderMap = (): Record<string, Record<string, numbe
 
 export const saveWorktreeOrderMap = (orderMap: Record<string, Record<string, number>>): void => {
   localStorage.setItem(STORAGE_KEYS.WORKTREE_ORDER, JSON.stringify(orderMap));
+  scheduleManagedLocalStorageSync();
 };
 
 // Panel tab order: array of TabId
@@ -253,6 +333,7 @@ export const getStoredTabOrder = (): TabId[] => {
 
 export const saveTabOrder = (order: TabId[]): void => {
   localStorage.setItem(STORAGE_KEYS.TAB_ORDER, JSON.stringify(normalizeTabOrder(order)));
+  scheduleManagedLocalStorageSync();
 };
 
 // Get platform for path normalization
@@ -358,6 +439,7 @@ export const saveRepositorySettings = (repoPath: string, settings: RepositorySet
   const normalizedPath = normalizeWorkspacePathKey(repoPath);
   allSettings[normalizedPath] = settings;
   localStorage.setItem(STORAGE_KEYS.REPOSITORY_SETTINGS, JSON.stringify(allSettings));
+  scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
 };
 
 interface ClaudePolicyValueShape {
@@ -469,6 +551,7 @@ export const getClaudeGlobalPolicy = (): ClaudeGlobalPolicy | null => {
 export const saveClaudeGlobalPolicy = (policy: ClaudeGlobalPolicy | null): void => {
   if (!policy) {
     localStorage.removeItem(STORAGE_KEYS.CLAUDE_GLOBAL_POLICY);
+    scheduleManagedLocalStorageSync();
     return;
   }
 
@@ -476,6 +559,7 @@ export const saveClaudeGlobalPolicy = (policy: ClaudeGlobalPolicy | null): void 
     STORAGE_KEYS.CLAUDE_GLOBAL_POLICY,
     JSON.stringify(normalizeClaudeGlobalPolicyEntry(policy))
   );
+  scheduleManagedLocalStorageSync();
 };
 
 export const getClaudeProjectPolicy = (repoPath: string): ClaudeProjectPolicy | null => {
@@ -497,6 +581,7 @@ export const saveClaudeProjectPolicy = (
   }
 
   localStorage.setItem(STORAGE_KEYS.CLAUDE_PROJECT_POLICIES, JSON.stringify(policies));
+  scheduleManagedLocalStorageSync();
 };
 
 export const getStoredClaudeWorktreePolicies = (): Record<string, ClaudeWorktreePolicy> => {
@@ -546,6 +631,7 @@ export const saveClaudeWorktreePolicy = (
   }
 
   localStorage.setItem(STORAGE_KEYS.CLAUDE_WORKTREE_POLICIES, JSON.stringify(policies));
+  scheduleManagedLocalStorageSync();
 };
 
 export const getStoredGroups = (): RepositoryGroup[] => {
@@ -584,6 +670,7 @@ export const getStoredGroups = (): RepositoryGroup[] => {
 
 export const saveGroups = (groups: RepositoryGroup[]): void => {
   localStorage.setItem(STORAGE_KEYS.REPOSITORY_GROUPS, JSON.stringify(groups));
+  scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
 };
 
 export const getActiveGroupId = (): string => {
@@ -592,14 +679,17 @@ export const getActiveGroupId = (): string => {
 
 export const saveActiveGroupId = (groupId: string): void => {
   localStorage.setItem(STORAGE_KEYS.ACTIVE_GROUP, groupId);
+  scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
 };
 
 export const migrateRepositoryGroups = (): void => {
   if (localStorage.getItem(STORAGE_KEYS.REPOSITORY_GROUPS) === null) {
     localStorage.setItem(STORAGE_KEYS.REPOSITORY_GROUPS, JSON.stringify([]));
+    scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
   }
   if (localStorage.getItem(STORAGE_KEYS.ACTIVE_GROUP) === null) {
     localStorage.setItem(STORAGE_KEYS.ACTIVE_GROUP, ALL_GROUP_ID);
+    scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
   }
 };
 
@@ -617,6 +707,7 @@ export const getStoredGroupCollapsedState = (): Record<string, boolean> => {
 
 export const saveGroupCollapsedState = (state: Record<string, boolean>): void => {
   localStorage.setItem(STORAGE_KEYS.GROUP_COLLAPSED_STATE, JSON.stringify(state));
+  scheduleManagedLocalStorageSync();
 };
 
 export const getStoredTreeSidebarExpandedRepos = (): string[] => {
@@ -645,6 +736,7 @@ export const saveTreeSidebarExpandedRepos = (repoPaths: string[]): void => {
     STORAGE_KEYS.TREE_SIDEBAR_EXPANDED_REPOS,
     JSON.stringify([...new Set(repoPaths.map(normalizePath))])
   );
+  scheduleManagedLocalStorageSync();
 };
 
 export const getStoredTreeSidebarTempExpanded = (): boolean =>
@@ -652,6 +744,7 @@ export const getStoredTreeSidebarTempExpanded = (): boolean =>
 
 export const saveTreeSidebarTempExpanded = (expanded: boolean): void => {
   localStorage.setItem(STORAGE_KEYS.TREE_SIDEBAR_TEMP_EXPANDED, String(expanded));
+  scheduleManagedLocalStorageSync();
 };
 
 // File tree expanded paths helpers (per-worktree, keyed by rootPath)
@@ -671,6 +764,7 @@ export const loadFileTreeExpandedPaths = (rootPath: string): Set<string> => {
 export const saveFileTreeExpandedPaths = (rootPath: string, paths: Set<string>): void => {
   try {
     localStorage.setItem(getFileTreeExpandedKey(rootPath), JSON.stringify([...paths]));
+    scheduleManagedLocalStorageSync();
   } catch {
     // Silently ignore storage errors (e.g. private mode / quota exceeded)
   }

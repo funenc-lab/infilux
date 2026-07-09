@@ -4,6 +4,7 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
@@ -730,6 +731,52 @@ async function migrateLegacyTodoIfNeeded(): Promise<void> {
   }
 }
 
+function hasRepositoryListSnapshot(snapshot: Record<string, string>): boolean {
+  return typeof snapshot['enso-repositories'] === 'string';
+}
+
+function localStorageSnapshotsDiffer(
+  currentSnapshot: Record<string, string>,
+  nextSnapshot: Record<string, string>
+): boolean {
+  const keys = new Set([...Object.keys(currentSnapshot), ...Object.keys(nextSnapshot)]);
+
+  for (const key of keys) {
+    if (currentSnapshot[key] !== nextSnapshot[key]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getNewestLevelDbFileMtimeMs(levelDbDir: string): number | null {
+  let fileNames: string[];
+  try {
+    fileNames = readdirSync(levelDbDir, { encoding: 'utf8' }).filter((fileName) =>
+      /\.(ldb|log)$/i.test(fileName)
+    );
+  } catch {
+    return null;
+  }
+
+  let newestMtimeMs: number | null = null;
+  for (const fileName of fileNames) {
+    try {
+      const fileStat = statSync(join(levelDbDir, fileName));
+      const mtimeMs = fileStat.mtimeMs;
+      if (typeof mtimeMs !== 'number' || !Number.isFinite(mtimeMs)) {
+        continue;
+      }
+      newestMtimeMs = newestMtimeMs === null ? mtimeMs : Math.max(newestMtimeMs, mtimeMs);
+    } catch {
+      // Ignore files that disappear while Chromium compacts LevelDB.
+    }
+  }
+
+  return newestMtimeMs;
+}
+
 function recoverSharedLocalStorageFromCurrentProfileIfNeeded(): void {
   const currentSession = readSharedSessionState();
   const currentLocalStorage =
@@ -737,14 +784,48 @@ function recoverSharedLocalStorageFromCurrentProfileIfNeeded(): void {
       ? currentSession.localStorage
       : {};
 
-  if (currentLocalStorage['enso-repositories']) {
-    return;
-  }
-
   const levelDbDir = join(app.getPath('userData'), 'Local Storage', 'leveldb');
   const recoveredSnapshotFromCurrentProfile = readElectronLocalStorageSnapshotFromLevelDbDirs([
     levelDbDir,
   ]);
+  const currentProfileMtimeMs = getNewestLevelDbFileMtimeMs(levelDbDir);
+  const sharedSessionUpdatedAt =
+    typeof currentSession.updatedAt === 'number' && Number.isFinite(currentSession.updatedAt)
+      ? currentSession.updatedAt
+      : 0;
+  const sharedHasRepositoryList = hasRepositoryListSnapshot(currentLocalStorage);
+  const currentProfileHasRepositoryList =
+    !!recoveredSnapshotFromCurrentProfile &&
+    hasRepositoryListSnapshot(recoveredSnapshotFromCurrentProfile);
+
+  if (
+    sharedHasRepositoryList &&
+    currentProfileHasRepositoryList &&
+    currentProfileMtimeMs !== null &&
+    currentProfileMtimeMs > sharedSessionUpdatedAt &&
+    localStorageSnapshotsDiffer(currentLocalStorage, recoveredSnapshotFromCurrentProfile)
+  ) {
+    writeSharedSessionState({
+      ...currentSession,
+      updatedAt: Date.now(),
+      localStorage: {
+        ...currentLocalStorage,
+        ...recoveredSnapshotFromCurrentProfile,
+      },
+    });
+    log.info('[migration] Recovered shared localStorage from newer current profile state', {
+      levelDbDir,
+      currentProfileMtimeMs,
+      sharedSessionUpdatedAt,
+      recoveredKeyCount: Object.keys(recoveredSnapshotFromCurrentProfile).length,
+    });
+    return;
+  }
+
+  if (sharedHasRepositoryList) {
+    return;
+  }
+
   const legacySourcePath = findLegacySettingsImportSourcePath({
     homeDir: app.getPath('home'),
     env: process.env,

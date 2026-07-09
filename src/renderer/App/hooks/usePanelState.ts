@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getStoredBoolean, STORAGE_KEYS } from '../storage';
+import { getStoredBoolean, STORAGE_KEYS, scheduleManagedLocalStorageSync } from '../storage';
 
 export function usePanelState() {
   // Panel collapsed states - initialize from localStorage
@@ -23,10 +23,12 @@ export function usePanelState() {
   // Save collapsed states to localStorage
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.REPOSITORY_COLLAPSED, String(repositoryCollapsed));
+    scheduleManagedLocalStorageSync();
   }, [repositoryCollapsed]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.WORKTREE_COLLAPSED, String(worktreeCollapsed));
+    scheduleManagedLocalStorageSync();
   }, [worktreeCollapsed]);
 
   const handleAddRepository = useCallback(() => {
