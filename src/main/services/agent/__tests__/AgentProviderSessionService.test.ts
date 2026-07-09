@@ -1,12 +1,16 @@
+import type { ReadStream } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentProviderSessionService } from '../AgentProviderSessionService';
 
 const TEMP_DIRECTORIES: string[] = [];
 
 afterEach(async () => {
+  vi.doUnmock('node:fs');
+  vi.resetModules();
+
   await Promise.all(
     TEMP_DIRECTORIES.splice(0).map(async (dirPath) => {
       await rm(dirPath, { recursive: true, force: true });
@@ -158,5 +162,61 @@ describe('AgentProviderSessionService', () => {
     ).resolves.toEqual({
       providerSessionId: null,
     });
+  });
+
+  it('deduplicates concurrent codex session meta reads for the same candidate file', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+
+    await writeCodexSessionFile({
+      rootDir: tempRoot,
+      dayPath: '2026/04/07',
+      threadId: 'codex-current-session',
+      cwd: '/repo/worktree-a',
+      timestamp: '2026-04-07T02:28:16.200Z',
+    });
+
+    const trackedStreams: ReadStream[] = [];
+    vi.doMock('node:fs', async () => {
+      const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+      return {
+        ...actual,
+        createReadStream: vi.fn(
+          (filePath: string, options?: Parameters<typeof actual.createReadStream>[1]) => {
+            const stream = actual.createReadStream(filePath, options);
+            trackedStreams.push(stream);
+            return stream;
+          }
+        ),
+      };
+    });
+    vi.resetModules();
+    const { AgentProviderSessionService: IsolatedAgentProviderSessionService } = await import(
+      '../AgentProviderSessionService'
+    );
+    const service = new IsolatedAgentProviderSessionService(tempRoot);
+    const request = {
+      agentCommand: 'codex',
+      cwd: '/repo/worktree-a',
+      createdAt: Date.parse('2026-04-07T02:28:10.000Z'),
+      observedAt: Date.parse('2026-04-07T02:28:18.000Z'),
+    };
+
+    const results = await Promise.all([
+      service.resolveProviderSession(request),
+      service.resolveProviderSession(request),
+      service.resolveProviderSession(request),
+    ]);
+
+    expect(results).toEqual([
+      { providerSessionId: 'codex-current-session' },
+      { providerSessionId: 'codex-current-session' },
+      { providerSessionId: 'codex-current-session' },
+    ]);
+    expect(trackedStreams).toHaveLength(1);
+    expect(trackedStreams.every((stream) => stream.closed || stream.destroyed)).toBe(true);
+
+    vi.doUnmock('node:fs');
+    vi.resetModules();
   });
 });

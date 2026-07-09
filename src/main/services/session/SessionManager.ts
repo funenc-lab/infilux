@@ -1532,6 +1532,26 @@ export class SessionManager {
     for (const session of this.sessions.values()) {
       session.attachedWindowIds.delete(windowId);
     }
+    this.cleanupDetachedLocalSessions();
+  }
+
+  private cleanupDetachedLocalSessions(): void {
+    for (const session of Array.from(this.sessions.values())) {
+      if (session.attachedWindowIds.size > 0 || session.backend !== 'local') {
+        continue;
+      }
+
+      if (session.localRuntime === 'supervisor') {
+        void localSupervisorRuntime.detachSession(session.sessionId).catch(() => {});
+        this.sessions.delete(session.sessionId);
+        continue;
+      }
+
+      if (session.localRuntime === 'pty') {
+        this.localPtyManager.destroy(session.sessionId);
+        this.sessions.delete(session.sessionId);
+      }
+    }
   }
 
   private toDescriptor(session: ManagedSessionRecord): SessionDescriptor {

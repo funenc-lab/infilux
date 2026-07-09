@@ -165,6 +165,8 @@ function resolveSessionDiscoveryWindow(
 }
 
 export class AgentProviderSessionService {
+  private readonly pendingSessionMetaReads = new Map<string, Promise<CodexSessionMeta | null>>();
+
   constructor(private readonly codexSessionsDir = CODEX_SESSIONS_DIR) {}
 
   async resolveProviderSession(
@@ -184,7 +186,7 @@ export class AgentProviderSessionService {
 
     const matches: CodexSessionMeta[] = [];
     for (const filePath of candidateFiles) {
-      const sessionMeta = await readCodexSessionMeta(filePath);
+      const sessionMeta = await this.readCodexSessionMeta(filePath);
       if (!sessionMeta || sessionMeta.cwd !== request.cwd) {
         continue;
       }
@@ -206,6 +208,19 @@ export class AgentProviderSessionService {
     return {
       providerSessionId: matches[0]?.threadId ?? null,
     };
+  }
+
+  private readCodexSessionMeta(filePath: string): Promise<CodexSessionMeta | null> {
+    const pendingRead = this.pendingSessionMetaReads.get(filePath);
+    if (pendingRead) {
+      return pendingRead;
+    }
+
+    const read = readCodexSessionMeta(filePath).finally(() => {
+      this.pendingSessionMetaReads.delete(filePath);
+    });
+    this.pendingSessionMetaReads.set(filePath, read);
+    return read;
   }
 }
 

@@ -2498,6 +2498,23 @@ describe('SessionManager', () => {
     expect(Reflect.get(manager, 'suspendedWindowIds') as Set<number>).toEqual(new Set([1]));
   });
 
+  it('destroys local PTY sessions when the only attached window becomes unavailable during delivery', async () => {
+    const staleWindow = createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-orphaned-pty', kind: 'agent' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const emitData = getPrivateMethod<[string, string, Set<number>?], void>(manager, 'emitData');
+
+    staleWindow.webContents.mainFrame.isDestroyed = () => true;
+
+    emitData(sessionId, 'payload after renderer crash');
+
+    expect(staleWindow.webContents.send).not.toHaveBeenCalled();
+    expect(pty.destroy).toHaveBeenCalledWith(sessionId);
+    expect(manager.getSessionDescriptor(sessionId)).toBeNull();
+  });
+
   it('kills matching local sessions by workdir and cleans remote listeners on disconnect', async () => {
     createWindow(1);
     createWindow(2);
