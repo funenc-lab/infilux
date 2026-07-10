@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { type GitAutoFetchCompletedPayload, IPC_CHANNELS } from '@shared/types';
 import type { BrowserWindow } from 'electron';
@@ -6,6 +6,7 @@ import { GitService } from './GitService';
 
 const FETCH_INTERVAL_MS = 3 * 60 * 1000;
 const HEAD_POLL_INTERVAL_MS = 5 * 1000;
+const HEAD_POLL_CONCURRENCY = 4;
 const MIN_FOCUS_INTERVAL_MS = 1 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 30_000;
 const RESOURCE_EXHAUSTION_BACKOFF_MS = 10 * 60 * 1000;
@@ -15,6 +16,11 @@ type HeadTrackingState = {
   repositoryPath: string;
   headPath: string;
   signature: string | null;
+};
+
+type PendingHeadTracking = {
+  repositoryPath: string;
+  version: number;
 };
 
 function isDisposedWindowSendError(error: unknown): boolean {
@@ -45,45 +51,35 @@ async function withTimeout<T>(task: Promise<T>, timeoutMs: number, label: string
   }
 }
 
-function resolveTrackedHeadPath(worktreePath: string): string | null {
+async function resolveTrackedHeadPath(worktreePath: string): Promise<string | null> {
   const gitPath = join(worktreePath, '.git');
 
-  if (!existsSync(gitPath)) {
-    return null;
-  }
-
   try {
-    const gitStats = statSync(gitPath);
+    const gitStats = await fs.stat(gitPath);
     if (gitStats.isDirectory()) {
-      const headPath = join(gitPath, 'HEAD');
-      return existsSync(headPath) ? headPath : null;
+      return join(gitPath, 'HEAD');
     }
 
     if (!gitStats.isFile()) {
       return null;
     }
 
-    const gitDirEntry = readFileSync(gitPath, 'utf8');
+    const gitDirEntry = await fs.readFile(gitPath, 'utf8');
     const gitDirMatch = gitDirEntry.match(/^gitdir:\s*(.+)\s*$/im);
     if (!gitDirMatch?.[1]) {
       return null;
     }
 
     const resolvedGitDir = resolve(worktreePath, gitDirMatch[1].trim());
-    const headPath = join(resolvedGitDir, 'HEAD');
-    return existsSync(headPath) ? headPath : null;
+    return join(resolvedGitDir, 'HEAD');
   } catch {
     return null;
   }
 }
 
-function readHeadSignature(headPath: string): string | null {
+async function readHeadSignature(headPath: string): Promise<string | null> {
   try {
-    if (!existsSync(headPath)) {
-      return null;
-    }
-
-    return readFileSync(headPath, 'utf8').trim();
+    return (await fs.readFile(headPath, 'utf8')).trim();
   } catch {
     return null;
   }
@@ -117,6 +113,10 @@ class GitAutoFetchService {
   private fetching = false;
   private onFocusHandler: (() => void) | null = null;
   private trackedHeadStates: Map<string, HeadTrackingState> = new Map();
+  private pendingHeadTracking = new Map<string, PendingHeadTracking>();
+  private headTrackingVersions = new Map<string, number>();
+  private headPollInFlight = false;
+  private headPollGeneration = 0;
   private resourceBackoffUntil = 0;
 
   init(window: BrowserWindow): void {
@@ -148,6 +148,8 @@ class GitAutoFetchService {
   cleanup(): void {
     this.stop();
     this.stopHeadPolling();
+    this.headPollGeneration += 1;
+    this.headPollInFlight = false;
     this.clearWorktrees();
 
     if (this.mainWindow && this.onFocusHandler) {
@@ -244,7 +246,16 @@ class GitAutoFetchService {
   }
 
   clearWorktrees(): void {
+    const trackedPaths = new Set([
+      ...this.trackedHeadStates.keys(),
+      ...this.pendingHeadTracking.keys(),
+      ...this.worktreeRepositoryPaths.keys(),
+    ]);
+    for (const worktreePath of trackedPaths) {
+      this.invalidateHeadTracking(worktreePath);
+    }
     this.trackedHeadStates.clear();
+    this.pendingHeadTracking.clear();
     this.repositoryWorktreePaths.clear();
     this.worktreeRepositoryPaths.clear();
     this.syncHeadPolling();
@@ -372,24 +383,50 @@ class GitAutoFetchService {
   }
 
   private pollHeadChanges(): void {
-    if (!this.mainWindow) {
+    if (!this.mainWindow || this.headPollInFlight) {
       return;
     }
 
+    this.headPollInFlight = true;
+    const generation = this.headPollGeneration;
+    void this.pollHeadChangesAsync().finally(() => {
+      if (this.headPollGeneration === generation) {
+        this.headPollInFlight = false;
+      }
+    });
+  }
+
+  private async pollHeadChangesAsync(): Promise<void> {
     const changedRepositoryPaths = new Set<string>();
+    const headStates = [...this.trackedHeadStates.entries()];
+    let nextIndex = 0;
 
-    for (const headState of this.trackedHeadStates.values()) {
-      const nextSignature = readHeadSignature(headState.headPath);
-      if (nextSignature === headState.signature) {
-        continue;
+    const pollNextHead = async (): Promise<void> => {
+      while (nextIndex < headStates.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        const [worktreePath, headState] = headStates[currentIndex];
+        const nextSignature = await readHeadSignature(headState.headPath);
+
+        if (this.trackedHeadStates.get(worktreePath) !== headState) {
+          continue;
+        }
+
+        if (nextSignature === headState.signature) {
+          continue;
+        }
+
+        if (headState.signature !== null) {
+          changedRepositoryPaths.add(headState.repositoryPath);
+        }
+
+        headState.signature = nextSignature;
       }
+    };
 
-      if (headState.signature !== null) {
-        changedRepositoryPaths.add(headState.repositoryPath);
-      }
-
-      headState.signature = nextSignature;
-    }
+    await Promise.all(
+      Array.from({ length: Math.min(HEAD_POLL_CONCURRENCY, headStates.length) }, pollNextHead)
+    );
 
     if (changedRepositoryPaths.size > 0) {
       this.notifyCompleted([...changedRepositoryPaths]);
@@ -415,33 +452,73 @@ class GitAutoFetchService {
     this.repositoryWorktreePaths.set(normalizedRepositoryPath, repositoryWorktrees);
     this.worktreeRepositoryPaths.set(normalizedPath, normalizedRepositoryPath);
 
-    const trackedHeadPath = resolveTrackedHeadPath(normalizedPath);
-    if (!trackedHeadPath) {
-      this.trackedHeadStates.delete(normalizedPath);
+    this.scheduleHeadTracking(normalizedPath, normalizedRepositoryPath);
+  }
+
+  private removeTrackedHeadState(worktreePath: string): void {
+    this.invalidateHeadTracking(worktreePath);
+    this.trackedHeadStates.delete(worktreePath);
+
+    this.syncHeadPolling();
+  }
+
+  private scheduleHeadTracking(worktreePath: string, repositoryPath: string): void {
+    const currentState = this.trackedHeadStates.get(worktreePath);
+    const pending = this.pendingHeadTracking.get(worktreePath);
+    if (
+      currentState?.repositoryPath === repositoryPath ||
+      pending?.repositoryPath === repositoryPath
+    ) {
       this.syncHeadPolling();
       return;
     }
 
-    const previousHeadState = this.trackedHeadStates.get(normalizedPath);
-    const signature =
-      previousHeadState?.headPath === trackedHeadPath
-        ? previousHeadState.signature
-        : readHeadSignature(trackedHeadPath);
-
-    this.trackedHeadStates.set(normalizedPath, {
-      repositoryPath: normalizedRepositoryPath,
-      headPath: trackedHeadPath,
-      signature,
-    });
-    this.syncHeadPolling();
+    const version = this.invalidateHeadTracking(worktreePath);
+    this.trackedHeadStates.delete(worktreePath);
+    this.pendingHeadTracking.set(worktreePath, { repositoryPath, version });
+    void this.resolveHeadTrackingState(worktreePath, repositoryPath, version);
   }
 
-  private removeTrackedHeadState(worktreePath: string): void {
-    if (!this.trackedHeadStates.delete(worktreePath)) {
-      return;
-    }
+  private async resolveHeadTrackingState(
+    worktreePath: string,
+    repositoryPath: string,
+    version: number
+  ): Promise<void> {
+    try {
+      const headPath = await resolveTrackedHeadPath(worktreePath);
+      const signature = headPath ? await readHeadSignature(headPath) : null;
+      if (
+        this.headTrackingVersions.get(worktreePath) !== version ||
+        this.worktreeRepositoryPaths.get(worktreePath) !== repositoryPath
+      ) {
+        return;
+      }
 
-    this.syncHeadPolling();
+      if (!headPath || signature === null) {
+        this.trackedHeadStates.delete(worktreePath);
+        return;
+      }
+
+      this.trackedHeadStates.set(worktreePath, {
+        repositoryPath,
+        headPath,
+        signature,
+      });
+    } finally {
+      const pending = this.pendingHeadTracking.get(worktreePath);
+      if (pending?.version === version) {
+        this.pendingHeadTracking.delete(worktreePath);
+      }
+
+      this.syncHeadPolling();
+    }
+  }
+
+  private invalidateHeadTracking(worktreePath: string): number {
+    const version = (this.headTrackingVersions.get(worktreePath) ?? 0) + 1;
+    this.headTrackingVersions.set(worktreePath, version);
+    this.pendingHeadTracking.delete(worktreePath);
+    return version;
   }
 }
 

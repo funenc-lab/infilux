@@ -71,6 +71,7 @@ const fileResourceOwners = new Set<number>();
 const remoteWatchers = new Map<string, RemoteWatcherRegistration>();
 const remoteWatcherConnectionSubscriptions = new Map<string, () => void>();
 const pendingRemoteWatcherConnectionSubscriptions = new Map<string, Promise<void>>();
+const FILE_LIST_STAT_CONCURRENCY = 32;
 const shouldLogFileListDiagnostics =
   process.env.NODE_ENV !== 'test' &&
   (process.env.ENSO_DEBUG_FILE_LIST === '1' ||
@@ -91,6 +92,26 @@ function emitFileListRuntimeDiagnostics(stage: string, payload: Record<string, u
   }
 
   console.error(`[file-list-debug] ${stage}`, payload);
+}
+
+async function mapWithConcurrency<TInput, TOutput>(
+  items: readonly TInput[],
+  limit: number,
+  mapper: (item: TInput) => Promise<TOutput>
+): Promise<TOutput[]> {
+  const results: TOutput[] = [];
+  let nextIndex = 0;
+
+  const worker = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
 }
 
 function buildFileWatcherCountSummary(): Record<string, number> {
@@ -693,25 +714,28 @@ export function registerFileHandlers(): void {
         gitRoot: resolvedGitRoot,
         count: entries.length,
       });
-      const result: FileEntry[] = [];
-
-      for (const name of entries) {
-        const fullPath = join(resolvedDirPath, name);
-        try {
-          const stats = await stat(fullPath);
-          result.push({
-            name,
-            path: fullPath,
-            isDirectory: stats.isDirectory(),
-            size: stats.size,
-            modifiedAt: stats.mtimeMs,
-          });
-        } catch {
-          // Skip files we can't stat
+      const statResults = await mapWithConcurrency(
+        entries,
+        FILE_LIST_STAT_CONCURRENCY,
+        async (name) => {
+          const fullPath = join(resolvedDirPath, name);
+          try {
+            const stats = await stat(fullPath);
+            return {
+              name,
+              path: fullPath,
+              isDirectory: stats.isDirectory(),
+              size: stats.size,
+              modifiedAt: stats.mtimeMs,
+            } satisfies FileEntry;
+          } catch {
+            return null;
+          }
         }
-      }
+      );
+      const result = statResults.filter((entry): entry is FileEntry => entry !== null);
 
-      // 检查 gitignore
+      // Apply Git ignore markers after all local metadata reads complete.
       if (resolvedGitRoot) {
         try {
           const git = createSimpleGit(resolvedGitRoot);
@@ -725,7 +749,7 @@ export function registerFileHandlers(): void {
             file.ignored = ignoredSet.has(relPath);
           }
         } catch {
-          // 忽略 git 错误
+          // Ignore Git failures and return the filesystem entries unchanged.
         }
       }
 

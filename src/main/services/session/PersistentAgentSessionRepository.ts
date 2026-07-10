@@ -356,6 +356,12 @@ export class PersistentAgentSessionRepository {
     return this.listCachedSessions();
   }
 
+  async getSession(uiSessionId: string): Promise<PersistentAgentSessionRecord | undefined> {
+    await this.initialize();
+    const record = this.cache.find((entry) => entry.uiSessionId === uiSessionId);
+    return record ? cloneRecord(record) : undefined;
+  }
+
   async upsertSession(record: PersistentAgentSessionRecord): Promise<void> {
     const normalizedRecord = normalizeRecord(record);
     this.diagnostics.upsertCalls += 1;

@@ -33,6 +33,7 @@ import { isRemoteVirtualPath, parseRemoteVirtualPath } from '../remote/RemotePat
 import { PtyManager } from '../terminal/PtyManager';
 import { localSupervisorRuntime } from './LocalSupervisorRuntime';
 import { persistentAgentSessionService } from './PersistentAgentSessionService';
+import { SessionOutputBatcher } from './SessionOutputBatcher';
 
 interface ManagedSessionRecord extends SessionDescriptor {
   attachedWindowIds: Set<number>;
@@ -161,6 +162,11 @@ export class SessionManager {
   private readonly remoteDisconnectSubscriptions = new Map<string, () => void>();
   private readonly remoteStatusSubscriptions = new Map<string, () => void>();
   private readonly remoteRecoveryPromises = new Map<string, Promise<void>>();
+  private readonly localOutputBatcher = new SessionOutputBatcher({
+    deliver: (windowId, sessionId, data) => {
+      this.emitToWindows(new Set([windowId]), 'session:data', { sessionId, data });
+    },
+  });
 
   constructor() {
     registerMainProcessDiagnosticsCollector('sessions', () => this.buildDiagnosticsSnapshot());
@@ -309,6 +315,7 @@ export class SessionManager {
     }
 
     session.attachedWindowIds.delete(windowId);
+    this.localOutputBatcher.discard(windowId, sessionId);
     if (session.backend === 'local' && session.localRuntime === 'supervisor') {
       await localSupervisorRuntime.detachSession(sessionId).catch(() => {});
       if (session.attachedWindowIds.size === 0) {
@@ -967,7 +974,7 @@ export class SessionManager {
     this.appendReplayBuffer(session, nextData);
 
     if (session.streamState === 'live') {
-      this.emitData(sessionId, nextData, new Set(session.attachedWindowIds));
+      this.emitBatchedLocalData(sessionId, nextData, new Set(session.attachedWindowIds));
     }
   }
 
@@ -1474,8 +1481,26 @@ export class SessionManager {
     );
   }
 
+  private emitBatchedLocalData(sessionId: string, data: string, windowIds?: Set<number>): void {
+    if (!data || !windowIds || windowIds.size === 0) {
+      return;
+    }
+
+    for (const windowId of windowIds) {
+      if (this.suspendedWindowIds.has(windowId)) {
+        continue;
+      }
+
+      this.localOutputBatcher.enqueue(windowId, sessionId, data);
+    }
+  }
+
   private emitExit(event: SessionExitEvent, windowIds?: Set<number>): void {
-    this.emitToWindows(windowIds, 'session:exit', event);
+    const targetWindowIds = windowIds ?? this.sessions.get(event.sessionId)?.attachedWindowIds;
+    if (targetWindowIds) {
+      this.localOutputBatcher.flushSession(event.sessionId, targetWindowIds);
+    }
+    this.emitToWindows(targetWindowIds, 'session:exit', event);
   }
 
   private emitState(event: SessionStateEvent, windowIds?: Set<number>): void {
@@ -1529,6 +1554,7 @@ export class SessionManager {
 
   private suspendWindow(windowId: number): void {
     this.suspendedWindowIds.add(windowId);
+    this.localOutputBatcher.discardWindow(windowId);
     for (const session of this.sessions.values()) {
       session.attachedWindowIds.delete(windowId);
     }
@@ -1588,6 +1614,7 @@ export class SessionManager {
       kindCounts,
       suspendedWindowCount: this.suspendedWindowIds.size,
       attachedWindowCount,
+      localOutputBatcher: this.localOutputBatcher.getDiagnostics(),
       localPty: this.localPtyManager.getDiagnosticsSummary(),
       sampleSessions: Array.from(this.sessions.values())
         .slice(0, 6)

@@ -113,7 +113,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     size: 64,
   }));
   const writeFileSync = vi.fn();
-  const shellEnvSync = vi.fn<() => Record<string, string>>(() => ({
+  const shellEnv = vi.fn<() => Promise<Record<string, string>>>(async () => ({
     SHELL_ENV_READY: '1',
   }));
   const autoStartHapi = vi.fn<() => Promise<void>>(async () => undefined);
@@ -467,7 +467,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       readFileSync,
       statSync,
       writeFileSync,
-      shellEnvSync,
+      shellEnv,
       autoStartHapi,
       cleanupAllResources,
       cleanupAllResourcesSync,
@@ -559,7 +559,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
 
       return [{ address: '203.0.113.10', family: 4 }];
     });
-    shellEnvSync.mockReturnValue({
+    shellEnv.mockResolvedValue({
       SHELL_ENV_READY: '1',
     });
     autoStartHapi.mockResolvedValue(undefined);
@@ -694,7 +694,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     readFileSync,
     statSync,
     writeFileSync,
-    shellEnvSync,
+    shellEnv,
     autoStartHapi,
     cleanupAllResources,
     cleanupAllResourcesSync,
@@ -785,7 +785,7 @@ vi.mock('node:fs', () => ({
 }));
 
 vi.mock('shell-env', () => ({
-  shellEnvSync: mainIndexTestDoubles.shellEnvSync,
+  shellEnv: mainIndexTestDoubles.shellEnv,
 }));
 
 vi.mock('node:dns/promises', () => ({
@@ -1278,7 +1278,7 @@ describe('main entry', () => {
         },
       },
     });
-    mainIndexTestDoubles.shellEnvSync.mockReturnValue({
+    mainIndexTestDoubles.shellEnv.mockResolvedValue({
       SHELL_ENV_READY: '1',
       PATH: shellPath,
     });
@@ -1286,6 +1286,9 @@ describe('main entry', () => {
     const { __testables } = await importMainModule({
       platform: 'darwin',
     });
+
+    expect(mainIndexTestDoubles.shellEnv).not.toHaveBeenCalled();
+    await __testables.startShellEnvironmentHydration();
 
     expect(process.env.SHELL_ENV_READY).toBe('1');
     expect(process.env.PATH).toBe(
@@ -1800,6 +1803,28 @@ describe('main entry', () => {
       activatedWindow
     );
     expect(mainIndexTestDoubles.autoUpdaterAttachWindow).toHaveBeenLastCalledWith(activatedWindow);
+  });
+
+  it('does not delay main window creation while previous temp input cleanup is pending', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    let resolveCleanup: () => void = () => undefined;
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    mainIndexTestDoubles.cleanupTempFiles.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveCleanup = () => resolve(undefined);
+        })
+    );
+
+    await importMainModule({ autoReady: true, platform: 'win32' });
+
+    expect(mainIndexTestDoubles.cleanupTempFiles).toHaveBeenCalledTimes(1);
+    expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledWith({
+      bootstrapMainStage: 'main-init-complete',
+    });
+
+    resolveCleanup();
+    await flushMicrotasks();
   });
 
   it('initializes the tray on macOS and keeps the app alive when windows close', async () => {

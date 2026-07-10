@@ -43,7 +43,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
     restoreWorktreeSessions.mockResolvedValue({ items: [recoverableItem] });
     reconcileSession.mockResolvedValue(recoverableItem);
     resolveProviderSession.mockResolvedValue({ providerSessionId: 'provider-2' });
-    upsertSession.mockResolvedValue([record]);
+    upsertSession.mockResolvedValue(undefined);
     abandonSession.mockResolvedValue([]);
   }
 
@@ -178,9 +178,7 @@ describe('agentSession IPC handlers', () => {
     expect(await resolveProviderSessionHandler({}, resolveRequest)).toEqual({
       providerSessionId: 'provider-2',
     });
-    expect(await markPersistentHandler({}, record)).toEqual([
-      expect.objectContaining({ uiSessionId: 'session-1' }),
-    ]);
+    expect(await markPersistentHandler({}, record)).toBeUndefined();
     expect(await abandonHandler({}, 'session-1')).toEqual([]);
 
     expect(agentSessionTestDoubles.listRecoverableSessions).toHaveBeenCalledTimes(1);
@@ -219,9 +217,7 @@ describe('agentSession IPC handlers', () => {
       ),
     });
 
-    await expect(markPersistentHandler({}, record)).resolves.toEqual([
-      expect.objectContaining({ uiSessionId: 'session-1' }),
-    ]);
+    await expect(markPersistentHandler({}, record)).resolves.toBeUndefined();
     expect(agentSessionTestDoubles.upsertSession).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
@@ -246,9 +242,7 @@ describe('agentSession IPC handlers', () => {
       customArgs: null,
     };
 
-    await expect(markPersistentHandler({}, record)).resolves.toEqual([
-      expect.objectContaining({ uiSessionId: 'session-1' }),
-    ]);
+    await expect(markPersistentHandler({}, record)).resolves.toBeUndefined();
     expect(agentSessionTestDoubles.upsertSession).toHaveBeenCalledWith(
       expect.not.objectContaining({
         backendSessionId: expect.anything(),
@@ -280,7 +274,7 @@ describe('agentSession IPC handlers', () => {
           },
         })
       )
-    ).resolves.toEqual([expect.objectContaining({ uiSessionId: 'session-1' })]);
+    ).resolves.toBeUndefined();
 
     const upsertedRecord = agentSessionTestDoubles.upsertSession.mock.calls[0]?.[0] as
       | PersistentAgentSessionRecord

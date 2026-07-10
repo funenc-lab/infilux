@@ -8,6 +8,13 @@ interface PersistentAgentSessionReplayNamespace {
   replaySnapshotCapturedAt?: number;
 }
 
+export interface PersistentAgentSessionTitleMetadata {
+  defaultName?: string;
+  userRenamed?: true;
+}
+
+const PERSISTENT_AGENT_SESSION_DEFAULT_NAME_LENGTH_LIMIT = 512;
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -23,6 +30,48 @@ function normalizeReplaySnapshot(value: unknown): string | undefined {
 
 function normalizeCapturedAt(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeDefaultName(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.replace(/\s+/gu, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.slice(0, PERSISTENT_AGENT_SESSION_DEFAULT_NAME_LENGTH_LIMIT);
+}
+
+function buildMetadataWithTitle(
+  metadata: Record<string, unknown>,
+  title: PersistentAgentSessionTitleMetadata
+): Record<string, unknown> {
+  const nextMetadata = { ...metadata };
+  const previousNamespace = isPlainObject(nextMetadata.persistentAgentSession)
+    ? nextMetadata.persistentAgentSession
+    : {};
+  const nextNamespace = { ...previousNamespace };
+  const defaultName = normalizeDefaultName(title.defaultName);
+
+  if (defaultName || title.userRenamed) {
+    nextNamespace.title = {
+      ...(defaultName ? { defaultName } : {}),
+      ...(title.userRenamed ? { userRenamed: true } : {}),
+    };
+  } else {
+    delete nextNamespace.title;
+  }
+
+  if (Object.keys(nextNamespace).length > 0) {
+    nextMetadata.persistentAgentSession = nextNamespace;
+  } else {
+    delete nextMetadata.persistentAgentSession;
+  }
+
+  return nextMetadata;
 }
 
 function getSerializedLength(value: Record<string, unknown>): number | null {
@@ -147,6 +196,25 @@ export function extractPersistentAgentReplaySnapshot(
   };
 }
 
+export function extractPersistentAgentSessionTitleMetadata(
+  metadata: Record<string, unknown> | undefined
+): PersistentAgentSessionTitleMetadata {
+  if (!isPlainObject(metadata)) {
+    return {};
+  }
+
+  const namespace = metadata.persistentAgentSession;
+  if (!isPlainObject(namespace) || !isPlainObject(namespace.title)) {
+    return {};
+  }
+
+  const defaultName = normalizeDefaultName(namespace.title.defaultName);
+  return {
+    ...(defaultName ? { defaultName } : {}),
+    ...(namespace.title.userRenamed === true ? { userRenamed: true } : {}),
+  };
+}
+
 export function normalizePersistentAgentSessionMetadata(
   metadata: Record<string, unknown> | undefined
 ): Record<string, unknown> | undefined {
@@ -156,13 +224,22 @@ export function normalizePersistentAgentSessionMetadata(
 
   const { replaySnapshot, replaySnapshotCapturedAt } =
     extractPersistentAgentReplaySnapshot(metadata);
-  const normalizedMetadata = buildMetadataWithReplaySnapshot(
-    metadata,
-    replaySnapshot,
-    replaySnapshotCapturedAt
+  const title = extractPersistentAgentSessionTitleMetadata(metadata);
+  const normalizedMetadata = buildMetadataWithTitle(
+    buildMetadataWithReplaySnapshot(metadata, replaySnapshot, replaySnapshotCapturedAt),
+    title
   );
 
   return fitPersistentReplaySnapshotToBudget(normalizedMetadata);
+}
+
+export function withPersistentAgentSessionTitleMetadata(
+  metadata: Record<string, unknown> | undefined,
+  title: PersistentAgentSessionTitleMetadata
+): Record<string, unknown> | undefined {
+  return normalizePersistentAgentSessionMetadata(
+    buildMetadataWithTitle(isPlainObject(metadata) ? metadata : {}, title)
+  );
 }
 
 export function withPersistentAgentReplaySnapshot(

@@ -5,6 +5,9 @@ import type { PersistentSessionHost } from '../SessionHost';
 
 const persistentAgentSessionServiceTestDoubles = vi.hoisted(() => {
   const listSessions = vi.fn<() => Promise<PersistentAgentSessionRecord[]>>(async () => []);
+  const getSession = vi.fn<
+    (uiSessionId: string) => Promise<PersistentAgentSessionRecord | undefined>
+  >(async (_uiSessionId) => undefined);
   const upsertSession = vi.fn<(record: PersistentAgentSessionRecord) => Promise<void>>(
     async (_record) => undefined
   );
@@ -16,6 +19,7 @@ const persistentAgentSessionServiceTestDoubles = vi.hoisted(() => {
 
   return {
     listSessions,
+    getSession,
     upsertSession,
     deleteSession,
     listCachedSessions,
@@ -26,6 +30,7 @@ const persistentAgentSessionServiceTestDoubles = vi.hoisted(() => {
 vi.mock('../PersistentAgentSessionRepository', () => ({
   persistentAgentSessionRepository: {
     listSessions: persistentAgentSessionServiceTestDoubles.listSessions,
+    getSession: persistentAgentSessionServiceTestDoubles.getSession,
     upsertSession: persistentAgentSessionServiceTestDoubles.upsertSession,
     deleteSession: persistentAgentSessionServiceTestDoubles.deleteSession,
     listCachedSessions: persistentAgentSessionServiceTestDoubles.listCachedSessions,
@@ -68,6 +73,7 @@ describe('PersistentAgentSessionService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([]);
+    persistentAgentSessionServiceTestDoubles.getSession.mockResolvedValue(undefined);
     persistentAgentSessionServiceTestDoubles.listCachedSessions.mockReturnValue([]);
     persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture.mockReset();
     persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture.mockReturnValue(
@@ -75,7 +81,7 @@ describe('PersistentAgentSessionService', () => {
     );
   });
 
-  it('upserts persistent session records by ui session id', async () => {
+  it('upserts persistent session records without probing the host', async () => {
     const host: PersistentSessionHost = {
       kind: 'tmux',
       probeSession: vi.fn(async (record) => record.lastKnownState),
@@ -90,18 +96,17 @@ describe('PersistentAgentSessionService', () => {
     await service.upsertSession(record);
 
     expect(persistentAgentSessionServiceTestDoubles.upsertSession).toHaveBeenCalledWith(record);
+    expect(host.probeSession).not.toHaveBeenCalled();
   });
 
-  it('reconciles host state before upserting persistent session records', async () => {
-    const record = makeRecord({
+  it('preserves authoritative dead state when host identity is unchanged', async () => {
+    const existingRecord = makeRecord({
       uiSessionId: 'session-1',
-      displayName: 'Claude Updated',
-      updatedAt: 22,
-      lastKnownState: 'live',
+      lastKnownState: 'dead',
     });
-    const probeSession = vi.fn<() => Promise<'missing-host-session'>>(
-      async () => 'missing-host-session'
-    );
+    persistentAgentSessionServiceTestDoubles.getSession.mockResolvedValue(existingRecord);
+    const record = makeRecord({ displayName: 'Claude Updated', updatedAt: 22 });
+    const probeSession = vi.fn(async () => 'live' as const);
     const host: PersistentSessionHost = {
       kind: 'tmux',
       probeSession,
@@ -110,14 +115,40 @@ describe('PersistentAgentSessionService', () => {
 
     await service.upsertSession(record);
 
-    expect(probeSession).toHaveBeenCalledWith(record);
+    expect(probeSession).not.toHaveBeenCalled();
     expect(persistentAgentSessionServiceTestDoubles.upsertSession).toHaveBeenCalledWith(
       expect.objectContaining({
         uiSessionId: 'session-1',
-        lastKnownState: 'missing-host-session',
+        displayName: 'Claude Updated',
+        lastKnownState: 'dead',
       })
     );
-    expect(persistentAgentSessionServiceTestDoubles.upsertSession).not.toHaveBeenCalledWith(record);
+  });
+
+  it('preserves authoritative missing host state when host identity is unchanged', async () => {
+    persistentAgentSessionServiceTestDoubles.getSession.mockResolvedValue(
+      makeRecord({ lastKnownState: 'missing-host-session' })
+    );
+    const service = new PersistentAgentSessionService();
+
+    await service.upsertSession(makeRecord({ displayName: 'Claude Updated', updatedAt: 22 }));
+
+    expect(persistentAgentSessionServiceTestDoubles.upsertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ lastKnownState: 'missing-host-session' })
+    );
+  });
+
+  it('accepts incoming state when the persisted host identity changed', async () => {
+    persistentAgentSessionServiceTestDoubles.getSession.mockResolvedValue(
+      makeRecord({ lastKnownState: 'dead', hostSessionKey: 'previous-host' })
+    );
+    const service = new PersistentAgentSessionService();
+
+    await service.upsertSession(makeRecord({ hostSessionKey: 'replacement-host' }));
+
+    expect(persistentAgentSessionServiceTestDoubles.upsertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ hostSessionKey: 'replacement-host', lastKnownState: 'live' })
+    );
   });
 
   it('restores worktree sessions and preserves non-recoverable records for metadata recovery', async () => {
@@ -450,7 +481,7 @@ describe('PersistentAgentSessionService', () => {
   });
 
   it('reconcileSession preserves live records when the host probe succeeds', async () => {
-    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([makeRecord()]);
+    persistentAgentSessionServiceTestDoubles.getSession.mockResolvedValue(makeRecord());
     const probeSession = vi.fn<() => Promise<'live'>>(async () => 'live');
     const host: PersistentSessionHost = {
       kind: 'tmux',
@@ -471,6 +502,7 @@ describe('PersistentAgentSessionService', () => {
       })
     );
     expect(persistentAgentSessionServiceTestDoubles.upsertSession).not.toHaveBeenCalled();
+    expect(persistentAgentSessionServiceTestDoubles.listSessions).not.toHaveBeenCalled();
   });
 
   it('matches local worktree paths after normalization on case-insensitive platforms', async () => {

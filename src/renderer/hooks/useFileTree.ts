@@ -6,6 +6,10 @@ import {
   resolveFileListGitRoot,
   resolveFileListPath,
 } from '@/components/files/breadcrumbPathUtils';
+import {
+  buildFileTreeRestoreBatches,
+  mapFileTreeRequestsWithConcurrency,
+} from './fileTreeConcurrency';
 import { shouldEmitFileTreeRuntimeDiagnostics } from './fileTreeDiagnosticsPolicy';
 import {
   FILE_TREE_ROOT_QUERY_STALE_TIME_MS,
@@ -252,23 +256,29 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       return;
     }
 
-    // Sort shallow-first so parent nodes are populated before their children
-    const sortedPaths = [...restored].sort((a, b) => a.split('/').length - b.split('/').length);
-
     let cancelled = false;
 
     const restoreChildren = async () => {
       let restoredTree = merged;
 
-      for (const expandedPath of sortedPaths) {
+      for (const batch of buildFileTreeRestoreBatches([...restored])) {
         if (cancelled) return;
-        try {
-          const children = await loadChildren(expandedPath);
-          if (cancelled) return;
-          const childNodes = cloneEntriesToNodes(children) as FileTreeNode[];
-          restoredTree = replaceNodeChildren(restoredTree, expandedPath, childNodes);
-        } catch {
-          // Silently skip paths that fail to load (e.g. deleted directories)
+
+        const loadedChildren = await mapFileTreeRequestsWithConcurrency(batch, async (path) => {
+          try {
+            return { path, children: await loadChildren(path) };
+          } catch {
+            return null;
+          }
+        });
+
+        if (cancelled) return;
+        for (const loaded of loadedChildren) {
+          if (!loaded) {
+            continue;
+          }
+          const childNodes = cloneEntriesToNodes(loaded.children) as FileTreeNode[];
+          restoredTree = replaceNodeChildren(restoredTree, loaded.path, childNodes);
         }
       }
       // Only mark as restored after all children loaded successfully without cancellation
@@ -279,7 +289,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
       }
     };
 
-    restoreChildren();
+    void restoreChildren();
     return () => {
       cancelled = true;
     };
@@ -545,8 +555,9 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     queryClient.invalidateQueries({ queryKey: ['file', 'list'] });
     await queryClient.refetchQueries({ queryKey: ['file', 'list', rootPath] });
     const currentExpanded = Array.from(expandedPathsRef.current);
-    await Promise.all(
-      currentExpanded.filter((path) => path !== rootPath).map((path) => refreshNodeChildren(path))
+    await mapFileTreeRequestsWithConcurrency(
+      currentExpanded.filter((path) => path !== rootPath),
+      refreshNodeChildren
     );
   }, [queryClient, rootPath, refreshNodeChildren]);
 
@@ -596,7 +607,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         await queryClient.refetchQueries({ queryKey: ['file', 'list', rootPath] });
       }
 
-      await Promise.all(refreshPlan.refreshNodePaths.map((path) => refreshNodeChildren(path)));
+      await mapFileTreeRequestsWithConcurrency(refreshPlan.refreshNodePaths, refreshNodeChildren);
     };
 
     const scheduleFlush = () => {

@@ -488,6 +488,13 @@ describe('PersistentAgentSessionRepository', () => {
         metadata: { retries: 2 },
       }),
     ]);
+    await expect(repository.getSession('session-1')).resolves.toEqual(
+      expect.objectContaining({
+        uiSessionId: 'session-1',
+        displayName: 'Claude Updated',
+      })
+    );
+    await expect(repository.getSession('missing-session')).resolves.toBeUndefined();
 
     await repository.deleteSession('session-2');
     expect(repository.listCachedSessions()).toEqual([

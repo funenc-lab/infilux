@@ -31,6 +31,53 @@ describe('sessionBarLabels', () => {
     ).toBe('Build dashboard');
   });
 
+  it('keeps a canonical session name ahead of later terminal title changes', () => {
+    expect(
+      getSessionDisplayName({
+        name: 'Investigate session recovery',
+        terminalTitle: 'Temporary terminal status',
+        agentId: 'codex',
+      })
+    ).toBe('Investigate session recovery');
+
+    expect(
+      getSessionHoverTitle({
+        name: 'Investigate session recovery',
+        terminalTitle: 'Temporary terminal status',
+        agentId: 'codex',
+      })
+    ).toBe('Investigate session recovery');
+  });
+
+  it('preserves an explicit user title even when it resembles terminal noise', () => {
+    expect(
+      getSessionDisplayName({
+        name: 'npm migration investigation',
+        terminalTitle: 'Codex',
+        agentId: 'codex',
+        userRenamed: true,
+      })
+    ).toBe('npm migration investigation');
+  });
+
+  it('ignores terminal titles that only repeat the agent default name', () => {
+    expect(
+      getSessionDisplayName({
+        name: 'Codex',
+        terminalTitle: 'codex',
+        agentId: 'codex',
+      })
+    ).toBe('Codex');
+
+    expect(
+      getSessionDisplayName({
+        name: 'Claude (Hapi)',
+        terminalTitle: 'Claude',
+        agentId: 'claude-hapi',
+      })
+    ).toBe('Claude (Hapi)');
+  });
+
   it('falls back when the terminal title is only whitespace or prompt chrome', () => {
     expect(
       getSessionDisplayName({

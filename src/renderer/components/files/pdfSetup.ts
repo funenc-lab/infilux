@@ -1,6 +1,3 @@
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-
 export type {
   PageViewport as PDFPageViewport,
   PDFDocumentLoadingTask as PDFLoadingTask,
@@ -30,10 +27,13 @@ export async function getPDFJS(): Promise<PDFJS> {
   }
 
   if (!pdfjsPromise) {
-    pdfjsPromise = Promise.resolve()
-      .then(() => {
-        const loadedPdfjs = pdfjs as PDFJS;
-        loadedPdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+    pdfjsPromise = Promise.all([
+      import('pdfjs-dist/legacy/build/pdf.mjs'),
+      import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+    ])
+      .then(([pdfjsModule, workerUrlModule]) => {
+        const loadedPdfjs = pdfjsModule as unknown as PDFJS;
+        loadedPdfjs.GlobalWorkerOptions.workerSrc = workerUrlModule.default;
         pdfjsInstance = loadedPdfjs;
         return loadedPdfjs;
       })

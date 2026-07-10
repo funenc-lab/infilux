@@ -43,6 +43,12 @@ import {
   writeClipboardText,
 } from './xtermClipboard';
 import { isXtermContainerReady, scheduleXtermContainerReady } from './xtermContainerReady';
+import {
+  XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
+  XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK,
+  XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT,
+  XtermOutputBuffer,
+} from './xtermOutputBuffer';
 import { resolveXtermRenderer } from './xtermRendererPolicy';
 import {
   buildXtermRecoveryAttemptKey,
@@ -58,7 +64,7 @@ import {
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions } from './xtermTerminalOptions';
 import { focusXtermTextInput, installXtermImeFocusBridge } from './xtermTextInputFocus';
-import { syncXtermViewportToSession } from './xtermViewportSync';
+import { syncXtermViewportToSession, type XtermViewportSyncSnapshot } from './xtermViewportSync';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
@@ -79,21 +85,40 @@ const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
+const TERMINAL_OUTPUT_OVERFLOW_NOTICE =
+  '\r\n[Terminal output was skipped while the renderer caught up.]\r\n';
 
-function writeInitialTerminalContent(terminal: Terminal, content: string): Promise<void> {
+function writeInitialTerminalContentChunks(
+  terminal: Terminal,
+  content: string,
+  shouldContinue: () => boolean
+): Promise<void> {
   if (!content) {
     return Promise.resolve();
   }
 
+  const outputBuffer = new XtermOutputBuffer();
+  outputBuffer.append(content);
+
   return new Promise((resolve) => {
-    terminal.write(content, () => {
-      try {
+    const writeNextChunk = () => {
+      if (!shouldContinue()) {
+        resolve();
+        return;
+      }
+
+      const chunk = outputBuffer.take();
+      if (!chunk) {
         terminal.scrollToBottom();
         terminal.refresh(0, Math.max(0, terminal.rows - 1));
-      } finally {
         resolve();
+        return;
       }
-    });
+
+      terminal.write(chunk, writeNextChunk);
+    };
+
+    writeNextChunk();
   });
 }
 
@@ -139,6 +164,11 @@ interface PendingHostScrollRequest {
   serverName?: string;
   direction: 'up' | 'down';
   amount: number;
+}
+
+interface InFlightTerminalWrite {
+  generation: number;
+  terminal: Terminal;
 }
 
 function resolveCurrentTerminalInputLine(terminal: Terminal): string | null {
@@ -361,6 +391,7 @@ export function useXterm({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const ptyIdRef = useRef<string | null>(null);
+  const lastSyncedViewportRef = useRef<XtermViewportSyncSnapshot | null>(null);
   const sessionEventsCleanupRef = useRef<(() => void) | null>(null);
   const terminalInputCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const terminalImeFocusCleanupRef = useRef<{ dispose: () => void } | null>(null);
@@ -378,6 +409,7 @@ export function useXterm({
   const containerReadyCleanupRef = useRef<(() => void) | null>(null);
   const createRequestIdRef = useRef(0);
   const appliedStaticContentKeyRef = useRef<string | null>(null);
+  const initializingStaticContentKeyRef = useRef<string | null>(null);
   const agentStartupLoggerRef = useRef<ReturnType<typeof createAgentStartupTimelineLogger> | null>(
     null
   );
@@ -454,9 +486,17 @@ export function useXterm({
       }),
     [backendSessionId, cwd, kind, persistOnDisconnect, staticContent, staticContentKey]
   );
-  // rAF write buffer for smooth rendering
-  const writeBufferRef = useRef('');
+  // Batches terminal output before xterm accepts the next write.
+  const terminalOutputBufferRef = useRef(new XtermOutputBuffer());
+  const terminalOutputBacklogWarningRef = useRef(false);
+  const terminalOutputBacklogOverflowCountRef = useRef(0);
+  const initialTerminalWriteInProgressRef = useRef(false);
+  const initialTerminalWriteGenerationRef = useRef(0);
   const isFlushPendingRef = useRef(false);
+  const terminalWriteInFlightRef = useRef(false);
+  const terminalWriteInFlightIdentityRef = useRef<InFlightTerminalWrite | null>(null);
+  const terminalWriteGenerationRef = useRef(0);
+  const pendingTerminalExitRef = useRef(false);
   const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCarryRef = useRef(0);
@@ -581,7 +621,10 @@ export function useXterm({
         return;
       }
 
-      replaySnapshotAppendBufferRef.current += chunk;
+      replaySnapshotAppendBufferRef.current = appendPersistentAgentReplaySnapshot(
+        replaySnapshotAppendBufferRef.current,
+        chunk
+      );
       if (replaySnapshotAppendTimerRef.current) {
         return;
       }
@@ -618,6 +661,7 @@ export function useXterm({
       fitViewport: () => {
         fitAddonRef.current?.fit();
       },
+      lastSyncedViewport: lastSyncedViewportRef,
       measureViewport: () => {
         const fitAddon = fitAddonRef.current;
         const terminal = terminalRef.current;
@@ -720,10 +764,40 @@ export function useXterm({
     terminal.refresh(0, terminal.rows - 1);
   }, []);
 
+  const flushPendingTerminalExit = useCallback(() => {
+    if (
+      !pendingTerminalExitRef.current ||
+      terminalWriteInFlightRef.current ||
+      initialTerminalWriteInProgressRef.current ||
+      terminalOutputBufferRef.current.hasPending ||
+      dataFlushTimerRef.current ||
+      exitFlushTimerRef.current
+    ) {
+      return false;
+    }
+
+    pendingTerminalExitRef.current = false;
+    onExitRef.current?.();
+    return true;
+  }, []);
+  const flushPendingTerminalExitRef = useRef<() => boolean>(() => false);
+  flushPendingTerminalExitRef.current = flushPendingTerminalExit;
+  const flushBufferedTerminalOutputRef = useRef<(terminal?: Terminal | null) => boolean>(
+    () => false
+  );
+
   const flushBufferedTerminalOutput = useCallback(
     (terminal: Terminal | null = terminalRef.current) => {
-      const bufferedData = writeBufferRef.current;
-      if (bufferedData.length === 0) {
+      const outputBuffer = terminalOutputBufferRef.current;
+      if (!outputBuffer.hasPending) {
+        return false;
+      }
+
+      if (
+        !terminal ||
+        terminalWriteInFlightRef.current ||
+        initialTerminalWriteInProgressRef.current
+      ) {
         return false;
       }
 
@@ -731,11 +805,88 @@ export function useXterm({
         clearTimeout(dataFlushTimerRef.current);
         dataFlushTimerRef.current = null;
       }
-      writeBufferRef.current = '';
+      const bufferedData = outputBuffer.take();
+      if (!bufferedData) {
+        return false;
+      }
+      if (outputBuffer.charCount <= XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK) {
+        terminalOutputBacklogWarningRef.current = false;
+      }
       isFlushPendingRef.current = false;
-      terminal?.write(bufferedData);
+      const writeGeneration = terminalWriteGenerationRef.current;
+      terminalWriteInFlightRef.current = true;
+      terminalWriteInFlightIdentityRef.current = {
+        generation: writeGeneration,
+        terminal,
+      };
+      terminal.write(bufferedData, () => {
+        const inFlightIdentity = terminalWriteInFlightIdentityRef.current;
+        if (
+          !terminalWriteInFlightRef.current ||
+          !inFlightIdentity ||
+          inFlightIdentity.generation !== writeGeneration ||
+          inFlightIdentity.terminal !== terminal
+        ) {
+          return;
+        }
+
+        terminalWriteInFlightRef.current = false;
+        terminalWriteInFlightIdentityRef.current = null;
+        if (
+          terminalWriteGenerationRef.current !== writeGeneration ||
+          isUnmountedRef.current ||
+          terminalRef.current !== terminal
+        ) {
+          return;
+        }
+
+        if (dataFlushTimerRef.current || !terminalOutputBufferRef.current.hasPending) {
+          flushPendingTerminalExitRef.current();
+          return;
+        }
+
+        flushBufferedTerminalOutputRef.current(terminal);
+      });
       onDataRef.current?.(bufferedData);
       return true;
+    },
+    []
+  );
+  flushBufferedTerminalOutputRef.current = flushBufferedTerminalOutput;
+
+  const writeInitialTerminalContent = useCallback(
+    async (terminal: Terminal, content: string): Promise<boolean> => {
+      if (!content) {
+        return true;
+      }
+
+      const initialWriteGeneration = ++initialTerminalWriteGenerationRef.current;
+      const terminalWriteGeneration = terminalWriteGenerationRef.current;
+      initialTerminalWriteInProgressRef.current = true;
+
+      try {
+        await writeInitialTerminalContentChunks(terminal, content, () => {
+          return (
+            initialTerminalWriteGenerationRef.current === initialWriteGeneration &&
+            terminalWriteGenerationRef.current === terminalWriteGeneration &&
+            !isUnmountedRef.current &&
+            terminalRef.current === terminal
+          );
+        });
+        return (
+          initialTerminalWriteGenerationRef.current === initialWriteGeneration &&
+          terminalWriteGenerationRef.current === terminalWriteGeneration &&
+          !isUnmountedRef.current &&
+          terminalRef.current === terminal
+        );
+      } finally {
+        if (initialTerminalWriteGenerationRef.current === initialWriteGeneration) {
+          initialTerminalWriteInProgressRef.current = false;
+          if (!flushBufferedTerminalOutputRef.current(terminal)) {
+            flushPendingTerminalExitRef.current();
+          }
+        }
+      }
     },
     []
   );
@@ -749,9 +900,49 @@ export function useXterm({
       clearTimeout(exitFlushTimerRef.current);
       exitFlushTimerRef.current = null;
     }
-    writeBufferRef.current = '';
+    terminalOutputBufferRef.current.clear();
+    terminalOutputBacklogWarningRef.current = false;
+    terminalOutputBacklogOverflowCountRef.current = 0;
+    initialTerminalWriteInProgressRef.current = false;
+    initialTerminalWriteGenerationRef.current += 1;
     isFlushPendingRef.current = false;
+    terminalWriteGenerationRef.current += 1;
+    pendingTerminalExitRef.current = false;
   }, []);
+
+  const disposeTerminal = useCallback(() => {
+    clearTerminalWriteFlushTimers();
+    terminalInputCleanupRef.current?.dispose();
+    terminalInputCleanupRef.current = null;
+    terminalImeFocusCleanupRef.current?.dispose();
+    terminalImeFocusCleanupRef.current = null;
+    transcriptModeCleanupRef.current?.dispose();
+    transcriptModeCleanupRef.current = null;
+    if (copyOnSelectionHandlerRef.current) {
+      terminalRef.current?.element?.removeEventListener(
+        'mouseup',
+        copyOnSelectionHandlerRef.current
+      );
+      copyOnSelectionHandlerRef.current = null;
+    }
+    if (copyEventHandlerRef.current) {
+      window.removeEventListener('copy', copyEventHandlerRef.current);
+      copyEventHandlerRef.current = null;
+    }
+    linkProviderDisposableRef.current?.dispose();
+    linkProviderDisposableRef.current = null;
+    rendererAddonRef.current?.dispose();
+    rendererAddonRef.current = null;
+    terminalRef.current?.dispose();
+    terminalRef.current = null;
+    fitAddonRef.current = null;
+    searchAddonRef.current = null;
+    terminalWriteInFlightRef.current = false;
+    terminalWriteInFlightIdentityRef.current = null;
+    if ((window as InfiluxE2ETerminalWindow).__INFILUX_E2E_ENABLE__ === true) {
+      (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = undefined;
+    }
+  }, [clearTerminalWriteFlushTimers]);
 
   const flushPendingHostScroll = useCallback(() => {
     if (hostScrollFlushTimerRef.current) {
@@ -827,35 +1018,28 @@ export function useXterm({
     [flushPendingHostScroll]
   );
 
-  const resetSessionBinding = useCallback(
-    async (terminal: Terminal, clearTerminal: boolean) => {
-      createRequestIdRef.current += 1;
-      activeSessionBindingRef.current = null;
-      deadRecoveryAttemptKeyRef.current = null;
-      hasReceivedDataRef.current = false;
-      firstOutputWaitersRef.current.clear();
-      wheelCarryRef.current = 0;
-      clearPendingHostScroll();
-      onHostScrollbackStateChangeRef.current?.(false);
-      setSearchState(createEmptyTerminalSearchState());
-      sessionEventsCleanupRef.current?.();
-      sessionEventsCleanupRef.current = null;
-      flushBufferedTerminalOutput(terminal);
-      clearTerminalWriteFlushTimers();
-      setRuntimeState('live');
+  const resetSessionBinding = useCallback(async () => {
+    createRequestIdRef.current += 1;
+    activeSessionBindingRef.current = null;
+    deadRecoveryAttemptKeyRef.current = null;
+    hasReceivedDataRef.current = false;
+    firstOutputWaitersRef.current.clear();
+    wheelCarryRef.current = 0;
+    clearPendingHostScroll();
+    onHostScrollbackStateChangeRef.current?.(false);
+    setSearchState(createEmptyTerminalSearchState());
+    sessionEventsCleanupRef.current?.();
+    sessionEventsCleanupRef.current = null;
+    clearTerminalWriteFlushTimers();
+    setRuntimeState('live');
 
-      const currentSessionId = ptyIdRef.current;
-      ptyIdRef.current = null;
-      if (currentSessionId) {
-        await window.electronAPI.session.detach(currentSessionId).catch(() => {});
-      }
-
-      if (clearTerminal) {
-        terminal.reset();
-      }
-    },
-    [clearPendingHostScroll, clearTerminalWriteFlushTimers, flushBufferedTerminalOutput]
-  );
+    const currentSessionId = ptyIdRef.current;
+    ptyIdRef.current = null;
+    lastSyncedViewportRef.current = null;
+    if (currentSessionId) {
+      await window.electronAPI.session.detach(currentSessionId).catch(() => {});
+    }
+  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers]);
 
   const handleTerminalWheelEvent = useCallback(
     (event: WheelEvent) => {
@@ -920,6 +1104,9 @@ export function useXterm({
     const initAttemptId = ++initAttemptIdRef.current;
     containerReadyCleanupRef.current?.();
     containerReadyCleanupRef.current = null;
+    if (staticContent) {
+      initializingStaticContentKeyRef.current = staticContentKey;
+    }
     setIsLoading(true);
     if (!staticContent && kind === 'agent') {
       agentStartupFirstOutputLoggedRef.current = false;
@@ -934,6 +1121,17 @@ export function useXterm({
     }
 
     let terminal = terminalRef.current;
+
+    if (terminal) {
+      await resetSessionBinding();
+      disposeTerminal();
+      terminal = null;
+
+      if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
+        setIsLoading(false);
+        return;
+      }
+    }
 
     if (!terminal) {
       const initialContainer = containerRef.current;
@@ -1148,9 +1346,6 @@ export function useXterm({
       fitAddonRef.current = fitAddon;
       searchAddonRef.current = searchAddon;
       setWheelHandlerAttachmentEpoch((current) => current + 1);
-    } else {
-      await resetSessionBinding(terminal, true);
-      setWheelHandlerAttachmentEpoch((current) => current + 1);
     }
 
     // Custom key handler
@@ -1289,10 +1484,12 @@ export function useXterm({
       return true;
     });
 
-    terminal.options.disableStdin = Boolean(staticContentRef.current);
+    terminal.options.disableStdin = Boolean(staticContent);
 
-    if (staticContentRef.current) {
-      hasReceivedDataRef.current = staticContentRef.current.text.length > 0;
+    if (staticContent) {
+      const staticContentKeyForAttempt = staticContentKey;
+      initializingStaticContentKeyRef.current = staticContentKeyForAttempt;
+      hasReceivedDataRef.current = staticContent.text.length > 0;
       activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
         cwd: cwd || getRendererEnvironment().HOME,
         kind,
@@ -1302,14 +1499,17 @@ export function useXterm({
       deadRecoveryAttemptKeyRef.current = null;
       setRuntimeState('live');
 
-      if (staticContentRef.current.text) {
-        await writeInitialTerminalContent(terminal, staticContentRef.current.text);
+      if (staticContent.text) {
+        await writeInitialTerminalContent(terminal, staticContent.text);
       }
       if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
         return;
       }
       setIsLoading(false);
-      appliedStaticContentKeyRef.current = staticContentKey;
+      if (initializingStaticContentKeyRef.current === staticContentKeyForAttempt) {
+        appliedStaticContentKeyRef.current = staticContentKeyForAttempt;
+        initializingStaticContentKeyRef.current = null;
+      }
 
       return;
     }
@@ -1358,6 +1558,9 @@ export function useXterm({
       const createOptions = buildCreateOptions();
 
       const setCurrentSessionId = (sessionId: string) => {
+        if (ptyIdRef.current !== sessionId) {
+          lastSyncedViewportRef.current = null;
+        }
         ptyIdRef.current = sessionId;
         setRuntimeState('live');
         onInitRef.current?.(sessionId);
@@ -1389,7 +1592,37 @@ export function useXterm({
               agentStartupFirstOutputLoggedRef.current = true;
               agentStartupLoggerRef.current?.markStage('first-output');
             }
-            writeBufferRef.current += event.data;
+            const outputBuffer = terminalOutputBufferRef.current;
+            outputBuffer.append(event.data);
+            if (outputBuffer.charCount > XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT) {
+              const retainedOutputChars = Math.min(
+                event.data.length,
+                XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT - TERMINAL_OUTPUT_OVERFLOW_NOTICE.length
+              );
+              const discardedChars = Math.max(0, outputBuffer.charCount - retainedOutputChars);
+              terminalOutputBacklogOverflowCountRef.current += 1;
+              terminalOutputBacklogWarningRef.current = true;
+              outputBuffer.replaceWithTail(
+                event.data,
+                XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT,
+                TERMINAL_OUTPUT_OVERFLOW_NOTICE
+              );
+              console.error('[xterm] Terminal output backlog exceeded maximum capacity', {
+                sessionId: event.sessionId,
+                discardedChars,
+                overflowCount: terminalOutputBacklogOverflowCountRef.current,
+                retainedChars: outputBuffer.charCount,
+              });
+            } else if (
+              !terminalOutputBacklogWarningRef.current &&
+              outputBuffer.charCount >= XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK
+            ) {
+              terminalOutputBacklogWarningRef.current = true;
+              console.warn('[xterm] Terminal output backlog exceeded high-water mark', {
+                sessionId: event.sessionId,
+                pendingChars: outputBuffer.charCount,
+              });
+            }
             appendReplaySnapshot(event.data);
 
             if (!isFlushPendingRef.current) {
@@ -1401,13 +1634,17 @@ export function useXterm({
             }
           },
           onExit: () => {
+            pendingTerminalExitRef.current = true;
             flushBufferedTerminalOutput(terminal);
             setRuntimeState('dead');
             flushReplaySnapshotWithPendingOutput(true);
+            if (exitFlushTimerRef.current) {
+              clearTimeout(exitFlushTimerRef.current);
+            }
             exitFlushTimerRef.current = setTimeout(() => {
               exitFlushTimerRef.current = null;
               flushBufferedTerminalOutput(terminal);
-              onExitRef.current?.();
+              flushPendingTerminalExit();
             }, 30);
           },
           onState: (event) => {
@@ -1644,13 +1881,16 @@ export function useXterm({
     navigateToFile,
     loadRenderer,
     resetSessionBinding,
+    disposeTerminal,
     appendReplaySnapshot,
     flushReplaySnapshotWithPendingOutput,
     replaceReplaySnapshot,
     staticContent,
     staticContentKey,
     write,
+    writeInitialTerminalContent,
     flushBufferedTerminalOutput,
+    flushPendingTerminalExit,
   ]);
 
   useEffect(() => {
@@ -1743,6 +1983,7 @@ export function useXterm({
   useEffect(() => {
     if (!staticContent) {
       appliedStaticContentKeyRef.current = null;
+      initializingStaticContentKeyRef.current = null;
       return;
     }
 
@@ -1760,32 +2001,15 @@ export function useXterm({
       return;
     }
 
-    if (appliedStaticContentKeyRef.current === staticContentKey) {
+    if (
+      appliedStaticContentKeyRef.current === staticContentKey ||
+      initializingStaticContentKeyRef.current === staticContentKey
+    ) {
       return;
     }
 
-    searchAddonRef.current?.clearDecorations();
-    setSearchState(createEmptyTerminalSearchState());
-    flushBufferedTerminalOutput(terminal);
-    clearTerminalWriteFlushTimers();
-    terminal.reset();
-    terminal.options.disableStdin = true;
-    if (staticContent.text) {
-      void writeInitialTerminalContent(terminal, staticContent.text);
-    }
-    appliedStaticContentKeyRef.current = staticContentKey;
-
-    requestAnimationFrame(() => {
-      fitTerminal();
-    });
-  }, [
-    clearTerminalWriteFlushTimers,
-    fitTerminal,
-    flushBufferedTerminalOutput,
-    initTerminal,
-    staticContent,
-    staticContentKey,
-  ]);
+    void initTerminal();
+  }, [initTerminal, staticContent, staticContentKey]);
 
   useEffect(() => {
     if (wheelHandlerAttachmentEpoch === 0) {
@@ -1849,48 +2073,21 @@ export function useXterm({
       firstOutputWaitersRef.current.clear();
       createRequestIdRef.current += 1;
       appliedStaticContentKeyRef.current = null;
+      initializingStaticContentKeyRef.current = null;
       activeSessionBindingRef.current = null;
       deadRecoveryAttemptKeyRef.current = null;
       wheelCarryRef.current = 0;
       clearPendingHostScroll();
-      flushBufferedTerminalOutput(terminalRef.current);
-      clearTerminalWriteFlushTimers();
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
-      terminalInputCleanupRef.current?.dispose();
-      terminalInputCleanupRef.current = null;
-      terminalImeFocusCleanupRef.current?.dispose();
-      terminalImeFocusCleanupRef.current = null;
-      transcriptModeCleanupRef.current?.dispose();
-      transcriptModeCleanupRef.current = null;
       if (ptyIdRef.current) {
         window.electronAPI.session.detach(ptyIdRef.current).catch(() => {});
         ptyIdRef.current = null;
       }
-      // Remove copy-on-selection listener before disposing terminal
-      if (copyOnSelectionHandlerRef.current) {
-        terminalRef.current?.element?.removeEventListener(
-          'mouseup',
-          copyOnSelectionHandlerRef.current
-        );
-        copyOnSelectionHandlerRef.current = null;
-      }
-      if (copyEventHandlerRef.current) {
-        window.removeEventListener('copy', copyEventHandlerRef.current);
-        copyEventHandlerRef.current = null;
-      }
-      // Dispose addons before terminal to prevent async callback errors
-      linkProviderDisposableRef.current?.dispose();
-      linkProviderDisposableRef.current = null;
-      rendererAddonRef.current?.dispose();
-      rendererAddonRef.current = null;
-      terminalRef.current?.dispose();
-      terminalRef.current = null;
-      if ((window as InfiluxE2ETerminalWindow).__INFILUX_E2E_ENABLE__ === true) {
-        (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = undefined;
-      }
+      flushBufferedTerminalOutput(terminalRef.current);
+      disposeTerminal();
     };
-  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers, flushBufferedTerminalOutput]);
+  }, [clearPendingHostScroll, disposeTerminal, flushBufferedTerminalOutput]);
 
   // Update settings dynamically
   useEffect(() => {

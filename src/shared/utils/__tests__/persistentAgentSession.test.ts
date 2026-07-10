@@ -3,9 +3,11 @@ import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from '../agentTerminalHis
 import {
   appendPersistentAgentReplaySnapshot,
   extractPersistentAgentReplaySnapshot,
+  extractPersistentAgentSessionTitleMetadata,
   normalizePersistentAgentSessionMetadata,
   PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT,
   withPersistentAgentReplaySnapshot,
+  withPersistentAgentSessionTitleMetadata,
 } from '../persistentAgentSession';
 
 describe('persistent agent session metadata', () => {
@@ -38,6 +40,43 @@ describe('persistent agent session metadata', () => {
     ).toEqual({
       replaySnapshot: 'snapshot-output',
       replaySnapshotCapturedAt: 456,
+    });
+  });
+
+  it('round-trips normalized session title provenance metadata', () => {
+    const metadata = withPersistentAgentSessionTitleMetadata(undefined, {
+      defaultName: '  Custom   Agent (Hapi)  ',
+      userRenamed: true,
+    });
+
+    expect(metadata).toEqual({
+      persistentAgentSession: {
+        title: {
+          defaultName: 'Custom Agent (Hapi)',
+          userRenamed: true,
+        },
+      },
+    });
+    expect(extractPersistentAgentSessionTitleMetadata(metadata)).toEqual({
+      defaultName: 'Custom Agent (Hapi)',
+      userRenamed: true,
+    });
+  });
+
+  it('preserves title provenance while replay metadata is updated', () => {
+    const titleMetadata = withPersistentAgentSessionTitleMetadata(undefined, {
+      defaultName: 'Codex',
+      userRenamed: true,
+    });
+    const metadata = withPersistentAgentReplaySnapshot(titleMetadata, 'snapshot-output', 123);
+
+    expect(extractPersistentAgentSessionTitleMetadata(metadata)).toEqual({
+      defaultName: 'Codex',
+      userRenamed: true,
+    });
+    expect(extractPersistentAgentReplaySnapshot(metadata)).toEqual({
+      replaySnapshot: 'snapshot-output',
+      replaySnapshotCapturedAt: 123,
     });
   });
 

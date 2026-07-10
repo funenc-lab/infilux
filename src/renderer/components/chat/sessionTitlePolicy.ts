@@ -1,4 +1,5 @@
 import {
+  areSessionTitlesEqual,
   getMeaningfulTerminalTitle,
   isUnusableSessionTitle,
   normalizeSessionTitleText,
@@ -30,11 +31,12 @@ export function resolveSessionTitleFromFirstInput(
     return null;
   }
 
-  if (getMeaningfulTerminalTitle(input.terminalTitle)) {
+  const terminalTitle = getMeaningfulTerminalTitle(input.terminalTitle);
+  if (terminalTitle && !areSessionTitlesEqual(terminalTitle, input.defaultName)) {
     return null;
   }
 
-  if (input.currentName !== input.defaultName) {
+  if (!areSessionTitlesEqual(input.currentName, input.defaultName)) {
     return null;
   }
 

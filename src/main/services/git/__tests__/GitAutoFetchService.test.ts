@@ -6,9 +6,8 @@ type MockStats = {
 };
 
 const gitAutoFetchTestDoubles = vi.hoisted(() => {
-  const existsSync = vi.fn();
-  const statSync = vi.fn();
-  const readFileSync = vi.fn();
+  const stat = vi.fn();
+  const readFile = vi.fn();
   const watch = vi.fn();
   const fetch = vi.fn();
   const listSubmodules = vi.fn();
@@ -39,9 +38,8 @@ const gitAutoFetchTestDoubles = vi.hoisted(() => {
   }
 
   function reset() {
-    existsSync.mockReset();
-    statSync.mockReset();
-    readFileSync.mockReset();
+    stat.mockReset();
+    readFile.mockReset();
     watch.mockReset();
     fetch.mockReset();
     listSubmodules.mockReset();
@@ -50,8 +48,7 @@ const gitAutoFetchTestDoubles = vi.hoisted(() => {
     directories.clear();
     files.clear();
 
-    existsSync.mockImplementation((target: string) => directories.has(target) || files.has(target));
-    statSync.mockImplementation((target: string): MockStats => {
+    stat.mockImplementation(async (target: string): Promise<MockStats> => {
       if (directories.has(target)) {
         return {
           isDirectory: () => true,
@@ -68,7 +65,7 @@ const gitAutoFetchTestDoubles = vi.hoisted(() => {
 
       throw createMissingPathError(target);
     });
-    readFileSync.mockImplementation((target: string) => {
+    readFile.mockImplementation(async (target: string) => {
       const content = files.get(target);
       if (content === undefined) {
         throw createMissingPathError(target);
@@ -90,9 +87,8 @@ const gitAutoFetchTestDoubles = vi.hoisted(() => {
   }
 
   return {
-    existsSync,
-    statSync,
-    readFileSync,
+    stat,
+    readFile,
     watch,
     fetch,
     listSubmodules,
@@ -106,9 +102,10 @@ const gitAutoFetchTestDoubles = vi.hoisted(() => {
 });
 
 vi.mock('node:fs', () => ({
-  existsSync: gitAutoFetchTestDoubles.existsSync,
-  readFileSync: gitAutoFetchTestDoubles.readFileSync,
-  statSync: gitAutoFetchTestDoubles.statSync,
+  promises: {
+    readFile: gitAutoFetchTestDoubles.readFile,
+    stat: gitAutoFetchTestDoubles.stat,
+  },
   watch: gitAutoFetchTestDoubles.watch,
 }));
 
@@ -208,6 +205,70 @@ describe('GitAutoFetchService', () => {
     expect(warnSpy).toHaveBeenCalledWith('GitAutoFetchService already initialized');
     expect(vi.getTimerCount()).toBe(0);
   }, 20_000);
+
+  it('bounds concurrent asynchronous HEAD reads and skips overlapping poll cycles', async () => {
+    const send = vi.fn();
+    const window = {
+      on: vi.fn(),
+      off: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        send,
+      },
+    };
+    const worktreePaths = Array.from({ length: 5 }, (_, index) => `/repo-${index}`);
+    for (const worktreePath of worktreePaths) {
+      gitAutoFetchTestDoubles.setDirectory(`${worktreePath}/.git`);
+      gitAutoFetchTestDoubles.setFile(`${worktreePath}/.git/HEAD`, 'ref: refs/heads/main\n');
+    }
+
+    const gitAutoFetchService = await loadGitAutoFetchService();
+    gitAutoFetchService.init(window as never);
+    for (const worktreePath of worktreePaths) {
+      gitAutoFetchService.registerWorktree(worktreePath);
+    }
+    await vi.advanceTimersByTimeAsync(0);
+
+    let activeReads = 0;
+    let maximumActiveReads = 0;
+    const resolvers: Array<() => void> = [];
+    gitAutoFetchTestDoubles.readFile.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          activeReads += 1;
+          maximumActiveReads = Math.max(maximumActiveReads, activeReads);
+          resolvers.push(() => {
+            activeReads -= 1;
+            resolve('ref: refs/heads/main\n');
+          });
+        })
+    );
+
+    const service = gitAutoFetchService as unknown as {
+      pollHeadChanges: () => void;
+    };
+    service.pollHeadChanges();
+    service.pollHeadChanges();
+
+    expect(activeReads).toBe(4);
+    expect(maximumActiveReads).toBe(4);
+
+    resolvers.splice(0, 4).forEach((resolve) => {
+      resolve();
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(activeReads).toBe(1);
+
+    resolvers.splice(0).forEach((resolve) => {
+      resolve();
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(maximumActiveReads).toBe(4);
+    expect(send).not.toHaveBeenCalled();
+  });
 
   it('handles fetch failures, disabled state, and destroyed windows safely', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
@@ -457,6 +518,7 @@ describe('GitAutoFetchService', () => {
 
     expect(gitAutoFetchTestDoubles.watch).not.toHaveBeenCalled();
 
+    await vi.advanceTimersByTimeAsync(0);
     gitAutoFetchTestDoubles.updateFile(headPath, 'ref: refs/heads/feature-b\n');
     await vi.advanceTimersByTimeAsync(5000);
 

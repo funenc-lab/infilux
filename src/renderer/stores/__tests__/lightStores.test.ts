@@ -179,6 +179,22 @@ describe('lightweight renderer stores', () => {
     expect(useSourceControlStore.getState().expandedFolders.size).toBe(0);
   });
 
+  it('updates multiple source control folder expansions in one state transition', () => {
+    const store = useSourceControlStore.getState();
+
+    store.setFoldersExpanded(['/repo/src', '/repo/docs', '/repo/src'], true);
+    expect(useSourceControlStore.getState().expandedFolders).toEqual(
+      new Set(['/repo/src', '/repo/docs'])
+    );
+
+    const previousFolders = useSourceControlStore.getState().expandedFolders;
+    store.setFoldersExpanded(['/repo/src', '/repo/docs'], true);
+    expect(useSourceControlStore.getState().expandedFolders).toBe(previousFolders);
+
+    store.setFoldersExpanded(['/repo/src', '/repo/docs'], false);
+    expect(useSourceControlStore.getState().expandedFolders).toEqual(new Set());
+  });
+
   it('switches worktree metadata and records the transition log', () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
     const store = useWorktreeStore.getState();

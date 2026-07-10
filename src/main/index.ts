@@ -32,7 +32,7 @@ import {
   type StartupTimelineEntry,
 } from '@shared/utils/startupTimeline';
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, net, protocol } from 'electron';
-import { shellEnvSync } from 'shell-env';
+import { shellEnv } from 'shell-env';
 
 // Register custom protocol privileges
 protocol.registerSchemesAsPrivileged([
@@ -82,13 +82,26 @@ function mergeShellEnvironment(
   return mergedShellEnv;
 }
 
-// Fix environment for packaged app (macOS GUI apps don't inherit shell env)
-if (process.platform === 'darwin') {
-  try {
-    Object.assign(process.env, mergeShellEnvironment(process.env, shellEnvSync()));
-  } catch {
-    // Ignore errors - will use default env
+let shellEnvironmentHydration: Promise<void> | null = null;
+
+function startShellEnvironmentHydration(): Promise<void> {
+  if (process.platform !== 'darwin') {
+    return Promise.resolve();
   }
+
+  if (shellEnvironmentHydration) {
+    return shellEnvironmentHydration;
+  }
+
+  shellEnvironmentHydration = shellEnv()
+    .then((environment) => {
+      Object.assign(process.env, mergeShellEnvironment(process.env, environment));
+    })
+    .catch(() => {
+      // Ignore errors and retain the process environment supplied by Electron.
+    });
+
+  return shellEnvironmentHydration;
 }
 
 import {
@@ -893,6 +906,7 @@ async function init(): Promise<void> {
   );
 
   runDeferredStartupTask('git installation check', async () => {
+    await startShellEnvironmentHydration();
     const gitInstalled = await checkGitInstalled();
     if (!gitInstalled) {
       console.warn('Git is not installed. Some features may not work.');
@@ -922,6 +936,7 @@ function openOrRestoreMainWindow(): BrowserWindow {
 
 app.whenReady().then(async () => {
   recordMainStartupStage('app-ready');
+  void startShellEnvironmentHydration();
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.infilux.app');
@@ -937,8 +952,8 @@ app.whenReady().then(async () => {
   const infiluxInputDir = join(app.getPath('temp'), TEMP_INPUT_DIRNAME);
   registerAllowedLocalFileRoot(infiluxInputDir);
 
-  // Clean up temp files from previous sessions
-  await cleanupTempFiles();
+  // Cleanup is isolated from startup because a large previous temp directory can take time to remove.
+  runDeferredStartupTask('temp input cleanup', cleanupTempFiles);
 
   const sharedPaths = getSharedStatePaths();
   log.info('Shared state paths', sharedPaths);
@@ -1949,4 +1964,5 @@ export const __testables = {
   openOrRestoreMainWindow,
   resolveAppIconPath,
   syncDockIconWithAppearance,
+  startShellEnvironmentHydration,
 };

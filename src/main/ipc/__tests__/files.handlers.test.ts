@@ -635,6 +635,47 @@ describe('file handlers', () => {
     expect(fileHandlerTestDoubles.registerAllowedLocalFileRoot).toHaveBeenCalledWith('/repo', 3);
   });
 
+  it('bounds concurrent local file metadata reads for large directories', async () => {
+    const sender = createSender(9);
+    const listHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_LIST);
+    const names = Array.from({ length: 33 }, (_, index) => `file-${index}.ts`);
+    const resolvers: Array<() => void> = [];
+    let activeReads = 0;
+    let maximumActiveReads = 0;
+
+    fileHandlerTestDoubles.readdir.mockResolvedValueOnce(names);
+    fileHandlerTestDoubles.stat.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          activeReads += 1;
+          maximumActiveReads = Math.max(maximumActiveReads, activeReads);
+          resolvers.push(() => {
+            activeReads -= 1;
+            resolve(makeStats({ isFile: true, size: 1, mtimeMs: 1 }));
+          });
+        })
+    );
+
+    const listPromise = listHandler?.({ sender }, '/repo', '/repo');
+    await vi.waitFor(() => {
+      expect(fileHandlerTestDoubles.stat).toHaveBeenCalledTimes(32);
+    });
+    expect(maximumActiveReads).toBe(32);
+
+    resolvers.splice(0).forEach((resolve) => {
+      resolve();
+    });
+    await vi.waitFor(() => {
+      expect(fileHandlerTestDoubles.stat).toHaveBeenCalledTimes(33);
+    });
+    resolvers.splice(0).forEach((resolve) => {
+      resolve();
+    });
+
+    await expect(listPromise).resolves.toHaveLength(33);
+    expect(maximumActiveReads).toBe(32);
+  });
+
   it('recovers prefixed absolute local paths before listing directory contents', async () => {
     const sender = createSender(4);
     const listHandler = fileHandlerTestDoubles.handlers.get(IPC_CHANNELS.FILE_LIST);

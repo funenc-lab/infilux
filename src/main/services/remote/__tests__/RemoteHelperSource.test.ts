@@ -8,6 +8,24 @@ import pkg from '../../../../../package.json';
 import { getRemoteServerSource, REMOTE_SERVER_VERSION } from '../RemoteHelperSource';
 
 describe('getRemoteServerSource', () => {
+  it('uses bounded asynchronous reads and secure fingerprints for remote untracked diff stats', () => {
+    const source = getRemoteServerSource();
+
+    expect(source).toContain('untrackedDiffStatsCache: new Map()');
+    expect(source).toContain('const untrackedFileEntry = await fsp.lstat(absolutePath);');
+    expect(source).toContain('untrackedFileEntry.isSymbolicLink()');
+    expect(source).toContain('const UNTRACKED_FILE_OPEN_FLAGS =');
+    expect(source).toContain('fs.constants.O_NOFOLLOW');
+    expect(source).toContain(
+      'const handle = await fsp.open(absolutePath, UNTRACKED_FILE_OPEN_FLAGS);'
+    );
+    expect(source).toContain('const openedFileEntry = await handle.stat();');
+    expect(source).toContain('matchesUntrackedFileIdentity(untrackedFileEntry, openedFileEntry)');
+    expect(source).toContain('const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;');
+    expect(source).toContain("['ctimeMs', 'ino', 'dev', 'mode']");
+    expect(source).not.toContain('fsp.readFile(absolutePath)');
+  });
+
   it('keeps the remote server version aligned with the app release version', () => {
     expect(REMOTE_SERVER_VERSION).toBe(pkg.version);
     expect(getRemoteServerSource()).toContain(

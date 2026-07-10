@@ -3,6 +3,7 @@ import { ChevronRight, Eye, EyeOff, FileCode, FileX, Maximize2, MessageSquare } 
 import type * as monaco from 'monaco-editor';
 import {
   forwardRef,
+  Suspense,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -38,6 +39,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { BreadcrumbTreeMenu } from './BreadcrumbTreeMenu';
 import { buildBreadcrumbSegments } from './breadcrumbPathUtils';
+import { DeferredMarkdownPreview, DeferredPdfPreview } from './deferredPreviewComponents';
 import { CommentForm, useEditorLineComment } from './EditorLineComment';
 import { EditorTabs } from './EditorTabs';
 import { ExternalModificationBanner } from './ExternalModificationBanner';
@@ -60,10 +62,8 @@ import { runEditorReloadTask } from './editorReloadQueue';
 import { setupDoubleClickScope } from './editorScopeSelection';
 import { setEditorSelectionText } from './editorSelectionCache';
 import { ImagePreview } from './ImagePreview';
-import { MarkdownPreview } from './MarkdownPreview';
 import { ensureMonacoSetup, monaco as monacoApi } from './monacoSetup';
 import { CUSTOM_THEME_NAME, defineMonacoTheme } from './monacoTheme';
-import { PdfPreview } from './PdfPreview';
 import { useEditorBlame } from './useEditorBlame';
 
 type Monaco = typeof monaco;
@@ -71,6 +71,18 @@ const EXTERNAL_CHANGE_BATCH_MS = 48;
 
 function getPrimaryEditorStateDetail(details: EditorEmptyStateDetail[]) {
   return details.at(-1) ?? null;
+}
+
+function PreviewLoadingFallback({ label }: { label: string }) {
+  return (
+    <div
+      aria-busy="true"
+      role="status"
+      className="flex h-full items-center justify-center text-sm text-muted-foreground"
+    >
+      {label}
+    </div>
+  );
 }
 
 function renderEditorStateFooter(details: EditorEmptyStateDetail[]) {
@@ -1511,7 +1523,9 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
               ) : isImage ? (
                 <ImagePreview path={activeTab.path} />
               ) : isPdf ? (
-                <PdfPreview path={activeTab.path} />
+                <Suspense fallback={<PreviewLoadingFallback label={t('Loading...')} />}>
+                  <DeferredPdfPreview path={activeTab.path} />
+                </Suspense>
               ) : !isMonacoReady ? (
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   {t('Loading...')}
@@ -1599,11 +1613,13 @@ export const EditorArea = forwardRef<EditorAreaRef, EditorAreaProps>(function Ed
                 }}
                 onScroll={handlePreviewScroll}
               >
-                <MarkdownPreview
-                  content={activeTab.content}
-                  filePath={activeTab.path}
-                  rootPath={rootPath}
-                />
+                <Suspense fallback={<PreviewLoadingFallback label={t('Loading...')} />}>
+                  <DeferredMarkdownPreview
+                    content={activeTab.content}
+                    filePath={activeTab.path}
+                    rootPath={rootPath}
+                  />
+                </Suspense>
               </div>
             )}
           </>

@@ -7,7 +7,7 @@ import type {
 import { getDisplayPath, getDisplayPathBasename } from '@shared/utils/path';
 import { LayoutGroup } from 'framer-motion';
 import { GitBranch, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   getClaudeGlobalPolicy,
   getClaudeProjectPolicy,
@@ -28,15 +28,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
+import { useRegisterWorktreeDiffStatsScope } from '@/hooks/useWorktreeDiffStatsScheduler';
 import { useI18n } from '@/i18n';
 import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
-import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
-import { shouldPollSidebarDiffStats } from './sidebarDiffPollingPolicy';
 import { WorktreeItem } from './worktree-panel/WorktreeItem';
 import { resolveWorktreeLoadErrorState } from './worktreeLoadErrorState';
 import { resolveWorktreePanelSnapshot } from './worktreePanelSnapshot';
@@ -201,8 +200,6 @@ export function WorktreePanel({
   );
   const errorState = useMemo(() => resolveWorktreeLoadErrorState(error), [error]);
   const showBlockingError = Boolean(errorState && safeWorktrees.length === 0);
-  const diffStatPaths = useMemo(() => safeWorktrees.map((wt) => wt.path), [safeWorktrees]);
-  const diffStatPathKey = useMemo(() => diffStatPaths.join('\n'), [diffStatPaths]);
 
   // Keep track of original indices for drag reorder when filtering
   const filteredWorktreesWithIndex = safeWorktrees
@@ -212,6 +209,14 @@ export function WorktreePanel({
         wt.branch?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         getDisplayPath(wt.path).toLowerCase().includes(searchQuery.toLowerCase())
     );
+  const shouldPoll = useShouldPoll();
+  useRegisterWorktreeDiffStatsScope({
+    collapsed,
+    enabled: shouldPoll,
+    selectedPath: activeWorktree?.path,
+    livePaths: [],
+    visiblePaths: filteredWorktreesWithIndex.map(({ worktree }) => worktree.path),
+  });
   const renderSidebarMeta = useCallback(
     (items: Array<{ label: string; value: string }>) => (
       <div className="space-y-1">
@@ -231,13 +236,6 @@ export function WorktreePanel({
   const workdir = mainWorktree?.path || '';
   const policyRepoPath = repositoryPath || workdir;
 
-  const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
-  const shouldPoll = useShouldPoll();
-  const shouldPollDiffStats = shouldPollSidebarDiffStats({
-    collapsed,
-    diffStatPathKey,
-    shouldPoll,
-  });
   const isRemoteReconnecting = remoteStatus?.phase === 'reconnecting';
   const isRemoteFailed = Boolean(
     inactiveRemote &&
@@ -255,17 +253,6 @@ export function WorktreePanel({
     : isRemoteFailed
       ? remoteStatus?.error || t('Remote connection lost')
       : t('Click the selected repository again to connect and load worktrees.');
-
-  useEffect(() => {
-    if (!shouldPollDiffStats) return;
-    const paths = diffStatPathKey.split('\n');
-
-    fetchDiffStats(paths);
-    const interval = setInterval(() => {
-      fetchDiffStats(paths);
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [diffStatPathKey, fetchDiffStats, shouldPollDiffStats]);
 
   const isToolbarRefreshActive = !!isLoading && !inactiveRemote;
   const refreshWorktreesLabel = inactiveRemote

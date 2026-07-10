@@ -1,4 +1,3 @@
-import mermaid from 'mermaid';
 import { useEffect, useId, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -15,14 +14,26 @@ interface MermaidAPI {
 }
 
 let mermaidInstance: MermaidAPI | null = null;
+let mermaidPromise: Promise<MermaidAPI> | null = null;
 
 async function getMermaid(): Promise<MermaidAPI> {
   if (mermaidInstance) {
     return mermaidInstance;
   }
 
-  mermaidInstance = mermaid as MermaidAPI;
-  return mermaidInstance;
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid')
+      .then(({ default: mermaid }) => {
+        mermaidInstance = mermaid as MermaidAPI;
+        return mermaidInstance;
+      })
+      .catch((error) => {
+        mermaidPromise = null;
+        throw error;
+      });
+  }
+
+  return mermaidPromise;
 }
 
 interface MermaidRendererProps {

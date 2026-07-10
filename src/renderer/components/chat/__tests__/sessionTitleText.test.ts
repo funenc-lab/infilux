@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getCanonicalSessionName,
   getDefaultSessionName,
+  getMeaningfulSessionTerminalTitle,
   getMeaningfulTerminalTitle,
   getStoredSessionName,
   normalizeSessionTitleText,
@@ -42,5 +44,29 @@ describe('sessionTitleText', () => {
     expect(getStoredSessionName('/bin/zsh', 'claude')).toBe('Claude');
     expect(getStoredSessionName('npm test', 'codex')).toBe('Codex');
     expect(getStoredSessionName('root: /repo/worktree', 'codex')).toBe('Codex');
+  });
+
+  it('uses the explicit default label for custom agent title promotion', () => {
+    expect(
+      getCanonicalSessionName({
+        agentId: 'custom-agent-hapi',
+        defaultName: 'Custom Agent (Hapi)',
+        name: 'Custom Agent (Hapi)',
+        terminalTitle: 'Investigate custom recovery',
+      })
+    ).toBe('Investigate custom recovery');
+
+    expect(
+      getMeaningfulSessionTerminalTitle('Custom Agent', 'custom-agent-hapi', 'Custom Agent (Hapi)')
+    ).toBeUndefined();
+
+    expect(
+      getCanonicalSessionName({
+        agentId: 'custom-agent-happy',
+        defaultName: 'Custom Agent (Happy)',
+        name: 'Custom Agent (Happy)',
+        terminalTitle: 'Investigate happy recovery',
+      })
+    ).toBe('Investigate happy recovery');
   });
 });

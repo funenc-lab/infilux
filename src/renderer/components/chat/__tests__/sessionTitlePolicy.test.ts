@@ -76,6 +76,24 @@ describe('sessionTitlePolicy', () => {
         terminalTitle: '   ',
       })
     ).toBe('Recover session title after restart');
+
+    expect(
+      resolveSessionTitleFromFirstInput({
+        line: 'Recover session title after restart',
+        currentName: 'Codex',
+        defaultName: 'Codex',
+        terminalTitle: 'codex',
+      })
+    ).toBe('Recover session title after restart');
+
+    expect(
+      resolveSessionTitleFromFirstInput({
+        line: 'Recover session title after restart',
+        currentName: 'codex',
+        defaultName: 'Codex',
+        terminalTitle: 'codex',
+      })
+    ).toBe('Recover session title after restart');
   });
 
   it('does not promote macOS malloc diagnostic titles from the first captured input line', () => {

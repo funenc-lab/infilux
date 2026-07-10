@@ -4,11 +4,9 @@ import {
   BUILTIN_AGENT_IDS,
   type ClaudePolicyConfig,
   type LiveAgentSubagent,
-  type PersistentAgentSessionRecord,
 } from '@shared/types';
 import { supportsAgentCapabilityPolicyLaunch } from '@shared/utils/agentCapabilityPolicy';
 import { getDisplayPathBasename } from '@shared/utils/path';
-import { withPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { resolveTmuxServerNameForPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
 import {
@@ -60,10 +58,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useSessionSubagentsBySession } from '@/hooks/useSessionSubagentsBySession';
 import { useI18n } from '@/i18n';
-import {
-  isSessionPersistable,
-  isSessionPersistenceEnabledForHost,
-} from '@/lib/agentSessionPersistence';
+import { isSessionPersistenceEnabledForHost } from '@/lib/agentSessionPersistence';
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
@@ -154,7 +149,6 @@ import {
   resolveBackgroundAgentCanvasMountPlan,
   resolveMountedAgentPanelSessionIds,
 } from './agentPanelMountPolicy';
-import { resolvePersistentProviderSessionId } from './agentProviderSessionIdentity';
 import {
   type AgentReplaySnapshotValue,
   areAgentReplaySnapshotValuesEqual,
@@ -173,7 +167,6 @@ import {
   buildAgentSessionPlacementIndex,
   resolveAgentGroupPositions,
 } from './agentSessionLayoutIndex';
-import { diffPersistentAgentSessionRecords } from './agentSessionPersistenceSync';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { shouldDeferBackgroundAgentRuntimeMount } from './agentSessionRuntimeSafetyPolicy';
 import { matchesAgentSessionRepoPath, matchesAgentSessionScope } from './agentSessionScope';
@@ -205,10 +198,10 @@ import {
 import { resolveSessionSubagentTriggerPresentation } from './sessionSubagentTriggerPolicy';
 import { resolveSessionTitleFromFirstInput } from './sessionTitlePolicy';
 import {
-  getDefaultSessionName,
-  getMeaningfulTerminalTitle,
+  getCanonicalSessionName,
+  getExplicitSessionName,
+  getMeaningfulSessionTerminalTitle,
   getStoredSessionName,
-  normalizeSessionTitleText,
 } from './sessionTitleText';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
@@ -246,50 +239,6 @@ interface SessionLaunchPolicyDialogState {
   initialPolicy?: ClaudePolicyConfig | null;
 }
 
-function buildPersistentRecord(session: Session): PersistentAgentSessionRecord {
-  const { platform, runtimeChannel } = getRendererEnvironment();
-  const isWindows = platform === 'win32';
-  const createdAt = session.createdAt ?? Date.now();
-  const hostSessionKey = resolveSessionPersistentHostSessionKey({
-    session,
-    platform,
-    runtimeChannel,
-  });
-
-  return {
-    uiSessionId: session.id,
-    backendSessionId: session.backendSessionId,
-    providerSessionId: resolvePersistentProviderSessionId({
-      agentCommand: session.agentCommand,
-      uiSessionId: session.id,
-      providerSessionId: session.sessionId,
-      hostSessionKey,
-      providerSessionIdentityValid: session.providerSessionIdentityValid,
-    }),
-    agentId: session.agentId,
-    agentCommand: session.agentCommand,
-    customPath: session.customPath,
-    customArgs: session.customArgs,
-    environment: session.environment || 'native',
-    repoPath: session.repoPath,
-    cwd: session.cwd,
-    displayName: getStoredSessionName(session.name, session.agentId),
-    activated: Boolean(session.activated),
-    initialized: session.initialized,
-    hostKind: isWindows ? 'supervisor' : 'tmux',
-    hostSessionKey,
-    recoveryPolicy: 'auto',
-    createdAt,
-    updatedAt: Date.now(),
-    lastKnownState: session.recoveryState ?? 'live',
-    metadata: withPersistentAgentReplaySnapshot(
-      undefined,
-      session.replaySnapshot,
-      session.replaySnapshotCapturedAt
-    ),
-  };
-}
-
 function getSessionReplaySnapshotValue(session: Session | undefined): AgentReplaySnapshotValue {
   if (!session) {
     return {};
@@ -311,14 +260,6 @@ function getSessionReplaySnapshotValue(session: Session | undefined): AgentRepla
 
 function findAgentSessionById(sessionId: string): Session | undefined {
   return useAgentSessionsStore.getState().sessions.find((session) => session.id === sessionId);
-}
-
-/**
- * Whether the session uses Cursor CLI. Terminal-title sync only applies to Cursor.
- */
-function isCursorAgent(agentId: string): boolean {
-  const baseId = agentId.replace(/-(hapi|happy)$/, '');
-  return baseId === 'cursor';
 }
 
 function getDefaultAgentId(
@@ -511,6 +452,7 @@ function createSession(
     providerSessionIdentityValid: false,
     createdAt: Date.now(),
     name: displayName,
+    defaultName: displayName,
     agentId,
     agentCommand: info.command,
     customPath,
@@ -813,7 +755,6 @@ export function AgentPanel({
   const [sessionLaunchPolicyDialog, setSessionLaunchPolicyDialog] =
     useState<SessionLaunchPolicyDialogState | null>(null);
   const autoRolledOverSessionIdsRef = useRef<Set<string>>(new Set());
-  const persistentRecordSnapshotBySessionIdRef = useRef<Map<string, string>>(new Map());
   const quickTerminalFocusLeaseRef = useRef<{
     release: (() => void) | null;
     sessionId: string | null;
@@ -930,10 +871,20 @@ export function AgentPanel({
       setTranscriptSessionId(null);
     }
   }, [sessionById, transcriptSessionId]);
-  const persistableSessions = useMemo(
-    () => allSessions.filter((session) => isSessionPersistable(session)),
-    [allSessions]
-  );
+  useEffect(() => {
+    for (const session of allSessions) {
+      if (session.defaultName) {
+        continue;
+      }
+
+      const defaultName = getAgentDisplayLabel(session.agentId, customAgents);
+      const name = getCanonicalSessionName({ ...session, defaultName });
+      updateSession(session.id, {
+        defaultName,
+        ...(name !== session.name ? { name } : {}),
+      });
+    }
+  }, [allSessions, customAgents, updateSession]);
   const clearReplaySnapshotCommitTimer = useCallback((sessionId: string) => {
     const timer = replaySnapshotCommitTimerBySessionIdRef.current.get(sessionId);
     if (!timer) {
@@ -2050,59 +2001,6 @@ export function AgentPanel({
       );
     });
   }, []);
-
-  const cleanupRemovedPersistentRecord = useCallback((record: PersistentAgentSessionRecord) => {
-    const { runtimeChannel } = getRendererEnvironment();
-
-    if (record.hostKind === 'tmux') {
-      const serverName = resolveTmuxServerNameForPersistentAgentHostSessionKey(
-        record.hostSessionKey,
-        runtimeChannel
-      );
-      void window.electronAPI.tmux
-        .killSession(record.cwd, { name: record.hostSessionKey, serverName })
-        .catch(() => {});
-    }
-
-    if (!record.backendSessionId) {
-      return;
-    }
-
-    void window.electronAPI.session.kill(record.backendSessionId).catch((error) => {
-      console.error(
-        `[AgentPanel] Failed to kill removed backend session ${record.backendSessionId}`,
-        error
-      );
-    });
-  }, []);
-
-  useEffect(() => {
-    const records = persistableSessions.map((session) => buildPersistentRecord(session));
-    const { changedRecords, removedRecords, removedSessionIds, nextSnapshotBySessionId } =
-      diffPersistentAgentSessionRecords({
-        previousSnapshotBySessionId: persistentRecordSnapshotBySessionIdRef.current,
-        records,
-      });
-
-    persistentRecordSnapshotBySessionIdRef.current = nextSnapshotBySessionId;
-    if (changedRecords.length === 0 && removedSessionIds.length === 0) {
-      return;
-    }
-
-    const removedRecordIds = new Set(removedRecords.map((record) => record.uiSessionId));
-    void Promise.allSettled([
-      ...changedRecords.map((record) => window.electronAPI.agentSession.markPersistent(record)),
-      ...removedRecords.map(async (record) => {
-        cleanupRemovedPersistentRecord(record);
-        return window.electronAPI.agentSession.abandon(record.uiSessionId);
-      }),
-      ...removedSessionIds.map((uiSessionId) =>
-        removedRecordIds.has(uiSessionId)
-          ? Promise.resolve(undefined)
-          : window.electronAPI.agentSession.abandon(uiSessionId)
-      ),
-    ]);
-  }, [cleanupRemovedPersistentRecord, persistableSessions]);
 
   useEffect(() => {
     if (!worktreeSessionRecoveryKey) {
@@ -3934,10 +3832,11 @@ export function AgentPanel({
 
   const handleActivatedWithFirstLine = useCallback(
     (id: string, line: string) => {
-      const session = sessionById.get(id);
+      const session = findAgentSessionById(id);
       if (!session) return;
 
-      const defaultName = getDefaultSessionName(session.agentId);
+      const defaultName =
+        session.defaultName ?? getAgentDisplayLabel(session.agentId, customAgents);
       const nextTitle = resolveSessionTitleFromFirstInput({
         line,
         currentName: session.name,
@@ -3949,22 +3848,52 @@ export function AgentPanel({
 
       updateSession(id, { name: nextTitle });
     },
-    [sessionById, updateSession]
+    [customAgents, updateSession]
   );
 
   const handleRenameSession = useCallback(
     (id: string, name: string) => {
-      const session = sessionById.get(id);
+      const session = findAgentSessionById(id);
       if (!session) return;
 
-      const storedName = getStoredSessionName(name, session.agentId);
+      const defaultName =
+        session.defaultName ?? getAgentDisplayLabel(session.agentId, customAgents);
+      const storedName = getExplicitSessionName(name, session.agentId, defaultName);
       updateSession(id, {
+        defaultName,
         name: storedName,
         terminalTitle: undefined,
-        userRenamed: storedName === getDefaultSessionName(session.agentId) ? undefined : true,
+        userRenamed: true,
       });
     },
-    [sessionById, updateSession]
+    [customAgents, updateSession]
+  );
+  const handleTerminalTitleChange = useCallback(
+    (id: string, title: string) => {
+      const session = findAgentSessionById(id);
+      if (!session || session.userRenamed) return;
+
+      const defaultName =
+        session.defaultName ?? getAgentDisplayLabel(session.agentId, customAgents);
+      const nextTerminalTitle = getMeaningfulSessionTerminalTitle(
+        title,
+        session.agentId,
+        defaultName
+      );
+      const currentName = getStoredSessionName(session.name, session.agentId, defaultName);
+      const nextName = getCanonicalSessionName({
+        agentId: session.agentId,
+        defaultName,
+        name: currentName,
+        terminalTitle: nextTerminalTitle,
+      });
+      updateSession(id, {
+        defaultName,
+        terminalTitle: nextTerminalTitle,
+        ...(nextName !== currentName ? { name: nextName } : {}),
+      });
+    },
+    [customAgents, updateSession]
   );
   const handleStartCanvasSessionTitleEdit = useCallback((session: Session) => {
     setEditingCanvasSessionTitleId(session.id);
@@ -5037,20 +4966,7 @@ export function AgentPanel({
             onActivated={() => handleActivated(sessionId)}
             onActivatedWithFirstLine={(line) => handleActivatedWithFirstLine(sessionId, line)}
             onExit={() => handleSessionExit(sessionId, groupId || undefined)}
-            onTerminalTitleChange={(title) => {
-              if (session.userRenamed) return;
-              const nextTerminalTitle = getMeaningfulTerminalTitle(title);
-              const defaultName = getDefaultSessionName(session.agentId);
-              const currentName = normalizeSessionTitleText(session.name);
-              const syncName =
-                nextTerminalTitle &&
-                isCursorAgent(session.agentId) &&
-                (!currentName || currentName === normalizeSessionTitleText(defaultName));
-              updateSession(sessionId, {
-                terminalTitle: nextTerminalTitle,
-                ...(syncName ? { name: nextTerminalTitle } : {}),
-              });
-            }}
+            onTerminalTitleChange={(title) => handleTerminalTitleChange(sessionId, title)}
             onBackendSessionIdChange={(backendSessionId) => {
               if (session.backendSessionId === backendSessionId) return;
               updateSession(sessionId, { backendSessionId });

@@ -6,6 +6,11 @@ import {
   onPreToolUseNotification,
 } from '@/lib/electronNotification';
 import { resolveGitPollingInterval } from '@/lib/gitPollingError';
+import {
+  type DiffStatsScopeInput,
+  mergeDiffStatsScopes,
+  type RegisteredDiffStatsScopeInput,
+} from '@/lib/worktreeDiffStatsSchedule';
 import { useAgentSessionsStore } from './agentSessions';
 
 // Agent activity state for tree sidebar display
@@ -26,6 +31,7 @@ type CloseHandler = (worktreePath: string) => void;
 interface WorktreeActivityState {
   activities: Record<string, WorktreeActivity>;
   diffStats: Record<string, DiffStats>;
+  diffStatsScopes: Record<string, RegisteredDiffStatsScopeInput>;
   activityStates: Record<string, AgentActivityState>; // Agent activity states per worktree
   hookActivityStates: Record<string, AgentActivityState>;
   derivedActivityStates: Record<string, AgentActivityState>;
@@ -43,6 +49,12 @@ interface WorktreeActivityState {
   // Diff stats tracking
   setDiffStats: (worktreePath: string, stats: DiffStats) => void;
   fetchDiffStats: (worktreePaths: string[]) => Promise<void>;
+  registerDiffStatsScope: (
+    ownerId: string,
+    scope: DiffStatsScopeInput & { enabled: boolean }
+  ) => void;
+  unregisterDiffStatsScope: (ownerId: string) => void;
+  getDiffStatsScope: () => string[];
 
   // Activity state tracking
   setActivityState: (worktreePath: string, state: AgentActivityState) => void;
@@ -74,9 +86,23 @@ export const DIFF_STATS_FRESHNESS_MS = 4000;
 const DIFF_STATS_TRANSIENT_BACKOFF_MS = 30000;
 const DIFF_STATS_MAX_CONCURRENT_REQUESTS = 3;
 
-const diffStatsInFlight = new Map<string, Promise<DiffStats>>();
+type DiffStatsInFlightRequest = {
+  generation: number;
+  request: Promise<DiffStats | null>;
+};
+
+const diffStatsInFlight = new Map<string, DiffStatsInFlightRequest>();
 const diffStatsNextFetchAt = new Map<string, number>();
 const diffStatsDisabledPaths = new Set<string>();
+const diffStatsGenerations = new Map<string, number>();
+
+function getDiffStatsGeneration(worktreePath: string): number {
+  return diffStatsGenerations.get(worktreePath) ?? 0;
+}
+
+function advanceDiffStatsGeneration(worktreePath: string): void {
+  diffStatsGenerations.set(worktreePath, getDiffStatsGeneration(worktreePath) + 1);
+}
 
 function shouldReuseRecentDiffStats(worktreePath: string, now: number): boolean {
   if (diffStatsDisabledPaths.has(worktreePath)) {
@@ -87,23 +113,34 @@ function shouldReuseRecentDiffStats(worktreePath: string, now: number): boolean 
   return nextFetchAt !== undefined && now < nextFetchAt;
 }
 
-async function fetchDiffStatsForPath(worktreePath: string): Promise<DiffStats> {
+async function fetchDiffStatsForPath(
+  worktreePath: string,
+  generation: number
+): Promise<DiffStats | null> {
   if (diffStatsDisabledPaths.has(worktreePath)) {
-    return defaultDiffStats;
+    return null;
   }
 
   const inFlight = diffStatsInFlight.get(worktreePath);
-  if (inFlight) {
-    return inFlight;
+  if (inFlight?.generation === generation) {
+    return inFlight.request;
   }
+
+  const isCurrentGeneration = () => getDiffStatsGeneration(worktreePath) === generation;
 
   const request = window.electronAPI.git
     .getDiffStats(worktreePath)
     .then((stats) => {
-      diffStatsNextFetchAt.set(worktreePath, Date.now() + DIFF_STATS_FRESHNESS_MS);
+      if (isCurrentGeneration()) {
+        diffStatsNextFetchAt.set(worktreePath, Date.now() + DIFF_STATS_FRESHNESS_MS);
+      }
       return stats;
     })
     .catch((error) => {
+      if (!isCurrentGeneration()) {
+        return null;
+      }
+
       const nextInterval = resolveGitPollingInterval(
         error,
         DIFF_STATS_FRESHNESS_MS,
@@ -117,13 +154,15 @@ async function fetchDiffStatsForPath(worktreePath: string): Promise<DiffStats> {
         diffStatsNextFetchAt.set(worktreePath, Date.now() + nextInterval);
       }
 
-      return defaultDiffStats;
+      return null;
     })
     .finally(() => {
-      diffStatsInFlight.delete(worktreePath);
+      if (diffStatsInFlight.get(worktreePath)?.generation === generation) {
+        diffStatsInFlight.delete(worktreePath);
+      }
     });
 
-  diffStatsInFlight.set(worktreePath, request);
+  diffStatsInFlight.set(worktreePath, { generation, request });
   return request;
 }
 
@@ -131,6 +170,26 @@ function hasSameDiffStats(left: DiffStats | undefined, right: DiffStats) {
   return (
     (left?.insertions ?? defaultDiffStats.insertions) === right.insertions &&
     (left?.deletions ?? defaultDiffStats.deletions) === right.deletions
+  );
+}
+
+function hasSameDiffStatsScope(
+  left: RegisteredDiffStatsScopeInput | undefined,
+  right: RegisteredDiffStatsScopeInput
+): boolean {
+  if (!left) {
+    return false;
+  }
+
+  const hasSamePaths = (first: readonly string[], second: readonly string[]) =>
+    first.length === second.length && first.every((path, index) => path === second[index]);
+
+  return (
+    left.collapsed === right.collapsed &&
+    left.enabled === right.enabled &&
+    left.selectedPath === right.selectedPath &&
+    hasSamePaths(left.livePaths, right.livePaths) &&
+    hasSamePaths(left.visiblePaths, right.visiblePaths)
   );
 }
 
@@ -181,6 +240,7 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
   subscribeWithSelector((set, get) => ({
     activities: {},
     diffStats: {},
+    diffStatsScopes: {},
     activityStates: {},
     hookActivityStates: {},
     derivedActivityStates: {},
@@ -278,15 +338,19 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
         pathsToFetch,
         DIFF_STATS_MAX_CONCURRENT_REQUESTS,
         async (path) => {
-          const stats = await fetchDiffStatsForPath(path);
-          return { path, stats };
+          const generation = getDiffStatsGeneration(path);
+          const stats = await fetchDiffStatsForPath(path, generation);
+          return { path, stats, generation };
         }
       );
 
       set((state) => {
         let didChange = false;
         const newDiffStats = { ...state.diffStats };
-        for (const { path, stats } of results) {
+        for (const { path, stats, generation } of results) {
+          if (!stats || getDiffStatsGeneration(path) !== generation) {
+            continue;
+          }
           if (hasSameDiffStats(state.diffStats[path], stats)) {
             continue;
           }
@@ -296,6 +360,34 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
 
         return didChange ? { diffStats: newDiffStats } : state;
       });
+    },
+
+    registerDiffStatsScope: (ownerId, scope) =>
+      set((state) => {
+        if (hasSameDiffStatsScope(state.diffStatsScopes[ownerId], scope)) {
+          return state;
+        }
+
+        return {
+          diffStatsScopes: {
+            ...state.diffStatsScopes,
+            [ownerId]: scope,
+          },
+        };
+      }),
+
+    unregisterDiffStatsScope: (ownerId) =>
+      set((state) => {
+        if (!(ownerId in state.diffStatsScopes)) {
+          return state;
+        }
+        const { [ownerId]: _, ...remainingScopes } = state.diffStatsScopes;
+        return { diffStatsScopes: remainingScopes };
+      }),
+
+    getDiffStatsScope: () => {
+      const scopes = Object.values(get().diffStatsScopes);
+      return mergeDiffStatsScopes(scopes);
     },
 
     hasActivity: (worktreePath) => {
@@ -433,6 +525,7 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
         diffStatsInFlight.delete(worktreePath);
         diffStatsNextFetchAt.delete(worktreePath);
         diffStatsDisabledPaths.delete(worktreePath);
+        advanceDiffStatsGeneration(worktreePath);
         // Clean up session mappings - agentSessions handles session cleanup
         const { [worktreePath]: _, ...restActivities } = state.activities;
         const { [worktreePath]: __, ...restActivityStates } = state.activityStates;

@@ -136,7 +136,7 @@ function deduplicateRecoveredWorktreeItems(
 
 type PersistentAgentSessionRepositoryPort = Pick<
   PersistentAgentSessionRepository,
-  'listSessions' | 'listCachedSessions' | 'upsertSession' | 'deleteSession'
+  'listSessions' | 'listCachedSessions' | 'getSession' | 'upsertSession' | 'deleteSession'
 >;
 
 export class PersistentAgentSessionService {
@@ -162,14 +162,17 @@ export class PersistentAgentSessionService {
     return reconciled.map((record) => this.toRecoveryItem(record));
   }
 
-  async upsertSession(
-    record: PersistentAgentSessionRecord
-  ): Promise<PersistentAgentSessionRecord[]> {
-    const nextRecord = supportsPersistentAgentRecovery(record)
-      ? await this.reconcileRecord(record, { persistOnChange: false })
+  async upsertSession(record: PersistentAgentSessionRecord): Promise<void> {
+    const existingRecord = await this.repository.getSession(record.uiSessionId);
+    const preservesAuthoritativeState =
+      existingRecord?.hostKind === record.hostKind &&
+      existingRecord.hostSessionKey === record.hostSessionKey &&
+      (existingRecord.lastKnownState === 'dead' ||
+        existingRecord.lastKnownState === 'missing-host-session');
+    const nextRecord = preservesAuthoritativeState
+      ? { ...record, lastKnownState: existingRecord.lastKnownState }
       : record;
     await this.repository.upsertSession(nextRecord);
-    return this.listSessions();
   }
 
   async abandonSession(uiSessionId: string): Promise<PersistentAgentSessionRecord[]> {
@@ -178,11 +181,11 @@ export class PersistentAgentSessionService {
   }
 
   async reconcileSession(uiSessionId: string) {
-    return (
-      (await this.listRecoverableSessions()).find(
-        (item) => item.record.uiSessionId === uiSessionId
-      ) ?? null
-    );
+    const record = await this.repository.getSession(uiSessionId);
+    if (!record || !supportsPersistentAgentRecovery(record)) {
+      return null;
+    }
+    return this.toRecoveryItem(await this.reconcileRecord(record));
   }
 
   async restoreWorktreeSessions(

@@ -192,6 +192,7 @@ vi.mock('../AgentTerminal', () => ({
     canMerge?: boolean;
     onSplit?: () => void;
     onMerge?: () => void;
+    onTerminalTitleChange?: (title: string) => void;
     onRuntimeStateChange?: (state: 'live' | 'reconnecting' | 'dead') => void;
   }) => {
     React.useEffect(() => {
@@ -231,7 +232,37 @@ vi.mock('../AgentTerminal', () => ({
             },
             'merge-terminal'
           )
-        : null
+        : null,
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          'data-testid': `emit-terminal-title-${props.id ?? ''}`,
+          onClick: () => props.onTerminalTitleChange?.('Investigate terminal recovery'),
+        },
+        'emit-terminal-title'
+      ),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          'data-testid': `emit-default-terminal-title-${props.id ?? ''}`,
+          onClick: () => props.onTerminalTitleChange?.('gemini'),
+        },
+        'emit-default-terminal-title'
+      ),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          'data-testid': `emit-terminal-title-sequence-${props.id ?? ''}`,
+          onClick: () => {
+            props.onTerminalTitleChange?.('Investigate first terminal title');
+            props.onTerminalTitleChange?.('Investigate second terminal title');
+          },
+        },
+        'emit-terminal-title-sequence'
+      )
     );
   },
 }));
@@ -2385,6 +2416,136 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('promotes the first meaningful terminal title without allowing later defaults to erase it', async () => {
+    const session = createSession({
+      id: 'session-terminal-title',
+      sessionId: 'provider-terminal-title',
+      backendSessionId: 'backend-terminal-title',
+      name: 'Gemini',
+      agentId: 'gemini',
+      agentCommand: 'gemini',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-terminal-title',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-terminal-title',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({ cwd: '/repo/worktree' });
+
+    await clickByTestId(mounted.container, 'emit-terminal-title-session-terminal-title');
+
+    expect(useAgentSessionsStore.getState().sessions[0]).toMatchObject({
+      name: 'Investigate terminal recovery',
+      terminalTitle: 'Investigate terminal recovery',
+    });
+
+    await clickByTestId(mounted.container, 'emit-default-terminal-title-session-terminal-title');
+
+    expect(useAgentSessionsStore.getState().sessions[0]).toMatchObject({
+      name: 'Investigate terminal recovery',
+    });
+
+    await mounted.unmount();
+  });
+
+  it('keeps the first canonical title across a synchronous terminal title sequence', async () => {
+    const session = createSession({
+      id: 'session-terminal-title-sequence',
+      name: 'Gemini',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: { '/repo/worktree': session.id },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-terminal-title-sequence',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-terminal-title-sequence',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({ cwd: '/repo/worktree' });
+    await clickByTestId(
+      mounted.container,
+      'emit-terminal-title-sequence-session-terminal-title-sequence'
+    );
+
+    expect(useAgentSessionsStore.getState().sessions[0]?.name).toBe(
+      'Investigate first terminal title'
+    );
+
+    await mounted.unmount();
+  });
+
+  it('promotes terminal titles for custom agent environment labels', async () => {
+    testState.settings.customAgents = [
+      {
+        id: 'custom-agent',
+        name: 'Custom Agent',
+        command: 'custom-agent',
+      },
+    ];
+    const session = createSession({
+      id: 'session-custom-terminal-title',
+      name: 'Custom Agent (Hapi)',
+      agentId: 'custom-agent-hapi',
+      agentCommand: 'custom-agent',
+      environment: 'hapi',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: { '/repo/worktree': session.id },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-custom-terminal-title',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-custom-terminal-title',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({ cwd: '/repo/worktree' });
+    expect(useAgentSessionsStore.getState().sessions[0]?.defaultName).toBe('Custom Agent (Hapi)');
+    await clickByTestId(mounted.container, 'emit-terminal-title-session-custom-terminal-title');
+
+    expect(useAgentSessionsStore.getState().sessions[0]?.name).toBe(
+      'Investigate terminal recovery'
+    );
+
+    await mounted.unmount();
+  });
+
   it('keeps long canvas session titles discoverable in tile and floating headers', async () => {
     testState.settings.agentSessionDisplayMode = 'canvas';
 
@@ -2497,7 +2658,7 @@ describe('AgentPanel integration', () => {
 
     await act(async () => {
       if (titleInput) {
-        setInputValue(titleInput, 'Renamed Canvas Session');
+        setInputValue(titleInput, 'npm migration investigation');
       }
       await flushRenderTasks();
     });
@@ -2514,8 +2675,36 @@ describe('AgentPanel integration', () => {
     const renamedSession = useAgentSessionsStore
       .getState()
       .sessions.find((candidate) => candidate.id === session.id);
-    expect(renamedSession?.name).toBe('Renamed Canvas Session');
+    expect(renamedSession?.name).toBe('npm migration investigation');
     expect(renamedSession?.userRenamed).toBe(true);
+
+    const renamedTitleButton = mounted.container.querySelector<HTMLButtonElement>(
+      '[data-agent-canvas-session-title-button="true"][data-agent-canvas-session-id="session-title"]'
+    );
+    await clickElement(renamedTitleButton);
+    const defaultTitleInput = mounted.container.querySelector<HTMLInputElement>(
+      'input[data-agent-canvas-session-title-input="true"][data-agent-canvas-session-id="session-title"]'
+    );
+    await act(async () => {
+      if (defaultTitleInput) {
+        setInputValue(defaultTitleInput, 'Gemini');
+      }
+      await flushRenderTasks();
+    });
+    await act(async () => {
+      mounted.container
+        .querySelector<HTMLInputElement>(
+          'input[data-agent-canvas-session-title-input="true"][data-agent-canvas-session-id="session-title"]'
+        )
+        ?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+      await flushRenderTasks();
+    });
+    await clickByTestId(mounted.container, 'emit-terminal-title-session-title');
+
+    expect(useAgentSessionsStore.getState().sessions[0]).toMatchObject({
+      name: 'Gemini',
+      userRenamed: true,
+    });
 
     await mounted.unmount();
   });

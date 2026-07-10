@@ -12,8 +12,24 @@ function stripPersistentAgentSessionMetadata(
     return undefined;
   }
 
-  const { persistentAgentSession: _persistentAgentSession, ...rest } = metadata;
-  return Object.keys(rest).length > 0 ? rest : undefined;
+  const nextMetadata = { ...metadata };
+  const namespace = nextMetadata.persistentAgentSession;
+  if (isPlainObject(namespace)) {
+    const {
+      replaySnapshot: _replaySnapshot,
+      replaySnapshotCapturedAt: _replaySnapshotCapturedAt,
+      ...stableNamespace
+    } = namespace;
+    if (Object.keys(stableNamespace).length > 0) {
+      nextMetadata.persistentAgentSession = stableNamespace;
+    } else {
+      delete nextMetadata.persistentAgentSession;
+    }
+  } else {
+    delete nextMetadata.persistentAgentSession;
+  }
+
+  return Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined;
 }
 
 type DiffPersistentAgentSessionRecordsOptions = {

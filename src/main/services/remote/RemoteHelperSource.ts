@@ -37,6 +37,7 @@ const state = {
   sessions: new Map(),
   watchers: new Map(),
   activeSearches: new Map(),
+  untrackedDiffStatsCache: new Map(),
 };
 
 const REMOTE_SERVER_VERSION = ${JSON.stringify(REMOTE_SERVER_VERSION)};
@@ -47,6 +48,11 @@ const DAEMON_INFO_FILE = ${JSON.stringify(REMOTE_DAEMON_INFO_FILE)};
     const TERMINAL_SESSION_REPLAY_CHAR_LIMIT = ${TERMINAL_SESSION_REPLAY_CHAR_LIMIT};
     const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};
 const EXEC_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;
+const UNTRACKED_BINARY_INSPECTION_SIZE = 8000;
+const UNTRACKED_FILE_OPEN_FLAGS = process.platform === 'win32'
+  ? fs.constants.O_RDONLY
+  : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
     const EXEC_COMMAND_OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
     const REMOTE_PTY_UNAVAILABLE = 'REMOTE_PTY_UNAVAILABLE';
     const REMOTE_SETTINGS_PATH = ${JSON.stringify(REMOTE_SETTINGS_SUBPATH)};
@@ -858,34 +864,69 @@ function mergeDiffStats(...stats) {
   );
 }
 
-function isProbablyBinaryContent(buffer) {
-  const inspectedLength = Math.min(buffer.length, 8000);
-  for (let index = 0; index < inspectedLength; index += 1) {
-    if (buffer[index] === 0) {
-      return true;
+function createUntrackedFingerprint(stats) {
+  const fingerprint = { size: stats.size, mtimeMs: stats.mtimeMs };
+  for (const key of ['ctimeMs', 'ino', 'dev', 'mode']) {
+    if (typeof stats[key] === 'number') {
+      fingerprint[key] = stats[key];
     }
   }
-  return false;
+  return fingerprint;
 }
 
-function countBufferLines(buffer) {
-  if (!buffer || buffer.length === 0) {
-    return 0;
-  }
+function matchesUntrackedFingerprint(cached, current) {
+  return cached.size === current.size &&
+    cached.mtimeMs === current.mtimeMs &&
+    cached.ctimeMs === current.ctimeMs &&
+    cached.ino === current.ino &&
+    cached.dev === current.dev &&
+    cached.mode === current.mode;
+}
 
+function matchesUntrackedFileIdentity(expected, actual) {
+  const matchesOptionalValue = (left, right) => left === undefined || right === undefined || left === right;
+  return matchesOptionalValue(expected.size, actual.size) &&
+    matchesOptionalValue(expected.mtimeMs, actual.mtimeMs) &&
+    matchesOptionalValue(expected.ctimeMs, actual.ctimeMs) &&
+    matchesOptionalValue(expected.ino, actual.ino) &&
+    matchesOptionalValue(expected.dev, actual.dev) &&
+    matchesOptionalValue(expected.mode, actual.mode);
+}
+
+async function countUntrackedFileInsertions(handle) {
+  const buffer = Buffer.allocUnsafe(UNTRACKED_DIFF_READ_CHUNK_SIZE);
+  let inspectedBytes = 0;
   let lineCount = 0;
-  for (let index = 0; index < buffer.length; index += 1) {
-    const byte = buffer[index];
-    if (byte === 10) {
-      lineCount += 1;
-      continue;
-    }
-    if (byte === 13 && buffer[index + 1] !== 10) {
-      lineCount += 1;
+  let previousByteWasCarriageReturn = false;
+  let lastByte;
+
+  while (true) {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+    if (bytesRead === 0) break;
+
+    for (let index = 0; index < bytesRead; index += 1) {
+      const byte = buffer[index];
+      if (inspectedBytes < UNTRACKED_BINARY_INSPECTION_SIZE && byte === 0) {
+        return 0;
+      }
+      inspectedBytes += 1;
+
+      if (byte === 10) {
+        lineCount += 1;
+        previousByteWasCarriageReturn = false;
+      } else if (byte === 13) {
+        if (previousByteWasCarriageReturn) lineCount += 1;
+        previousByteWasCarriageReturn = true;
+      } else if (previousByteWasCarriageReturn) {
+        lineCount += 1;
+        previousByteWasCarriageReturn = false;
+      }
+      lastByte = byte;
     }
   }
 
-  const lastByte = buffer[buffer.length - 1];
+  if (lastByte === undefined) return 0;
+  if (previousByteWasCarriageReturn) lineCount += 1;
   return lastByte === 10 || lastByte === 13 ? lineCount : lineCount + 1;
 }
 
@@ -1110,24 +1151,58 @@ async function gitDiffStats(rootPath) {
   }
 
   let untrackedInsertions = 0;
-  try {
-    const { stdout } = await execCommand(
-      'git',
-      ['ls-files', '--others', '--exclude-standard', '-z'],
-      { cwd: rootPath }
-    );
+  const { stdout } = await execCommand(
+    'git',
+    ['ls-files', '--others', '--exclude-standard', '-z'],
+    { cwd: rootPath }
+  );
     const relativePaths = stdout.split('\0').filter(Boolean);
+    const cachePrefix = rootPath + '\0';
+    const currentCacheKeys = new Set();
     for (const relativePath of relativePaths) {
       try {
         const absolutePath = path.resolve(rootPath, relativePath);
-        const content = fs.readFileSync(absolutePath);
-        if (isProbablyBinaryContent(content)) {
+        const relativeToRoot = path.relative(rootPath, absolutePath);
+        if (relativeToRoot === '..' || relativeToRoot.startsWith('..' + path.sep)) {
           continue;
         }
-        untrackedInsertions += countBufferLines(content);
+        const cacheKey = cachePrefix + relativePath;
+        currentCacheKeys.add(cacheKey);
+        const untrackedFileEntry = await fsp.lstat(absolutePath);
+        if (untrackedFileEntry.isSymbolicLink() || !untrackedFileEntry.isFile()) {
+          continue;
+        }
+        const fingerprint = createUntrackedFingerprint(untrackedFileEntry);
+        const cached = state.untrackedDiffStatsCache.get(cacheKey);
+        if (cached && matchesUntrackedFingerprint(cached, fingerprint)) {
+          untrackedInsertions += cached.insertions;
+          continue;
+        }
+        const handle = await fsp.open(absolutePath, UNTRACKED_FILE_OPEN_FLAGS);
+        try {
+          const openedFileEntry = await handle.stat();
+          if (
+            !openedFileEntry.isFile() ||
+            !matchesUntrackedFileIdentity(untrackedFileEntry, openedFileEntry)
+          ) {
+            continue;
+          }
+          const insertions = await countUntrackedFileInsertions(handle);
+          state.untrackedDiffStatsCache.set(cacheKey, {
+            ...fingerprint,
+            insertions,
+          });
+          untrackedInsertions += insertions;
+        } finally {
+          await handle.close();
+        }
       } catch {}
     }
-  } catch {}
+    for (const cacheKey of state.untrackedDiffStatsCache.keys()) {
+      if (cacheKey.startsWith(cachePrefix) && !currentCacheKeys.has(cacheKey)) {
+        state.untrackedDiffStatsCache.delete(cacheKey);
+      }
+    }
 
   return mergeDiffStats(trackedStats, { insertions: untrackedInsertions, deletions: 0 });
 }

@@ -184,6 +184,13 @@ const MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX = 32;
 const MOUSE_SELECTION_AUTO_SCROLL_INTERVAL_MS = 50;
 const MOUSE_SELECTION_AUTO_SCROLL_MAX_LINES = 4;
 
+function getFirstMeaningfulInputLine(input?: string | null): string | undefined {
+  return input
+    ?.split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find(Boolean);
+}
+
 interface MouseSelectionPosition {
   clientX: number;
   clientY: number;
@@ -665,6 +672,12 @@ export function AgentTerminal({
   const startTimeRef = useRef<number | null>(null);
   const hasInitializedRef = useRef(false);
   const hasActivatedRef = useRef(false);
+  const activatedRef = useRef(activated);
+  const onActivatedRef = useRef(onActivated);
+  const onActivatedWithFirstLineRef = useRef(onActivatedWithFirstLine);
+  activatedRef.current = activated;
+  onActivatedRef.current = onActivated;
+  onActivatedWithFirstLineRef.current = onActivatedWithFirstLine;
   const hasAutoConfirmedTrustPromptRef = useRef(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enterDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Delay after Enter before arming idle monitor.
@@ -1577,6 +1590,20 @@ export function AgentTerminal({
   );
 
   // Handle Shift+Enter for newline (Ctrl+J / LF for all agents)
+  const activateSessionFromInput = useCallback((input?: string | null) => {
+    if (hasActivatedRef.current || activatedRef.current) {
+      return;
+    }
+
+    hasActivatedRef.current = true;
+    onActivatedRef.current?.();
+
+    const firstLine = getFirstMeaningfulInputLine(input);
+    if (firstLine) {
+      onActivatedWithFirstLineRef.current?.(firstLine);
+    }
+  }, []);
+
   // Also detect Enter key press to mark session as activated
   // biome-ignore lint/correctness/useExhaustiveDependencies: terminal is accessed via try-catch for safety and defined after this callback
   const handleCustomKey = useCallback(
@@ -1620,14 +1647,7 @@ export function AgentTerminal({
         currentOutputBlockRef.current = '';
 
         // First Enter activates the session; optionally pass current line for session name.
-        if (!hasActivatedRef.current && !activated) {
-          hasActivatedRef.current = true;
-          onActivated?.();
-          if (getCurrentLine && onActivatedWithFirstLine) {
-            const line = getCurrentLine();
-            if (line) onActivatedWithFirstLine(line);
-          }
-        }
+        activateSessionFromInput(getCurrentLine?.());
         // Reset output counter.
         dataSinceEnterRef.current = 0;
         lastInterruptRequestAtRef.current = null;
@@ -1719,9 +1739,7 @@ export function AgentTerminal({
       return true;
     },
     [
-      activated,
-      onActivated,
-      onActivatedWithFirstLine,
+      activateSessionFromInput,
       agentNotificationEnterDelay,
       clearInterruptIdleResetTimer,
       startActivityPolling,
@@ -2420,7 +2438,7 @@ export function AgentTerminal({
   }, [isActive, isReadOnlyTranscript, onFocus]);
 
   const sendTerminalMessage = useCallback(
-    (message: string, delay: number) => {
+    (message: string, delay: number, onSent?: () => void) => {
       if (isReadOnlyTranscript) {
         return false;
       }
@@ -2440,6 +2458,9 @@ export function AgentTerminal({
           submit: true,
           submitDelayMs: delay,
         })
+        .then(() => {
+          onSent?.();
+        })
         .catch((error) => {
           console.error('[AgentTerminal] Failed to dispatch agent input', error);
         });
@@ -2457,9 +2478,14 @@ export function AgentTerminal({
         return false;
       }
 
-      return sendTerminalMessage(message, resolveAgentAttachmentSendDelay(message, attachments));
+      const sent = sendTerminalMessage(
+        message,
+        resolveAgentAttachmentSendDelay(message, attachments),
+        () => activateSessionFromInput(content)
+      );
+      return sent;
     },
-    [sendTerminalMessage]
+    [activateSessionFromInput, sendTerminalMessage]
   );
 
   useEffect(() => {

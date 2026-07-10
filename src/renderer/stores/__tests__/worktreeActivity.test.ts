@@ -70,6 +70,26 @@ describe('worktree activity store', () => {
     expect(useWorktreeActivityStore.getState().diffStats).toBe(previousDiffStats);
   });
 
+  it('retains the last complete diff stats when a refresh fails', async () => {
+    vi.useFakeTimers();
+    const getDiffStats = vi
+      .fn()
+      .mockResolvedValueOnce({ insertions: 8, deletions: 2 })
+      .mockRejectedValueOnce(new Error('temporary failure'));
+    window.electronAPI.git.getDiffStats = getDiffStats;
+    const { useWorktreeActivityStore } = await import('../worktreeActivity');
+    const store = useWorktreeActivityStore.getState();
+
+    await store.fetchDiffStats(['/repo']);
+    vi.advanceTimersByTime(4_001);
+    await store.fetchDiffStats(['/repo']);
+
+    expect(useWorktreeActivityStore.getState().diffStats['/repo']).toEqual({
+      insertions: 8,
+      deletions: 2,
+    });
+  });
+
   it('deduplicates concurrent diff stat fetches for the same worktree path', async () => {
     const getDiffStats = vi.fn(
       () =>
@@ -98,6 +118,95 @@ describe('worktree activity store', () => {
       insertions: 5,
       deletions: 2,
     });
+  });
+
+  it('does not restore stale diff stats after a worktree is cleared and re-added', async () => {
+    const resolvers: Array<(stats: { insertions: number; deletions: number }) => void> = [];
+    const getDiffStats = vi.fn(
+      () =>
+        new Promise<{ insertions: number; deletions: number }>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    vi.stubGlobal('window', {
+      electronAPI: {
+        git: { getDiffStats },
+        worktree: { activate: vi.fn() },
+      },
+    });
+
+    const { useWorktreeActivityStore } = await import('../worktreeActivity');
+    const store = useWorktreeActivityStore.getState();
+    const staleRefresh = store.fetchDiffStats(['/repo']);
+    await vi.waitFor(() => {
+      expect(getDiffStats).toHaveBeenCalledTimes(1);
+    });
+
+    store.clearWorktree('/repo');
+    const currentRefresh = store.fetchDiffStats(['/repo']);
+    await vi.waitFor(() => {
+      expect(getDiffStats).toHaveBeenCalledTimes(2);
+    });
+
+    resolvers[0]({ insertions: 1, deletions: 1 });
+    await staleRefresh;
+    expect(useWorktreeActivityStore.getState().diffStats['/repo']).toBeUndefined();
+
+    resolvers[1]({ insertions: 9, deletions: 4 });
+    await currentRefresh;
+    expect(useWorktreeActivityStore.getState().diffStats['/repo']).toEqual({
+      insertions: 9,
+      deletions: 4,
+    });
+  });
+
+  it('keeps global selected and live diff stats priorities independent of scope registration order', async () => {
+    const { useWorktreeActivityStore } = await import('../worktreeActivity');
+    const store = useWorktreeActivityStore.getState();
+
+    store.registerDiffStatsScope('visible', {
+      collapsed: false,
+      enabled: true,
+      livePaths: [],
+      visiblePaths: ['/repo/visible'],
+    });
+    store.registerDiffStatsScope('selected', {
+      collapsed: false,
+      enabled: true,
+      selectedPath: '/repo/selected',
+      livePaths: [],
+      visiblePaths: ['/repo/selected'],
+    });
+    store.registerDiffStatsScope('live', {
+      collapsed: false,
+      enabled: true,
+      livePaths: ['/repo/live'],
+      visiblePaths: ['/repo/live'],
+    });
+
+    expect(store.getDiffStatsScope()).toEqual(['/repo/selected', '/repo/live', '/repo/visible']);
+  });
+
+  it('does not rewrite an unchanged diff stats scope registration', async () => {
+    const { useWorktreeActivityStore } = await import('../worktreeActivity');
+    const store = useWorktreeActivityStore.getState();
+    const scope = {
+      collapsed: false,
+      enabled: true,
+      selectedPath: '/repo/main',
+      livePaths: ['/repo/main'],
+      visiblePaths: ['/repo/main'],
+    };
+
+    store.registerDiffStatsScope('sidebar', scope);
+    const previousScopes = useWorktreeActivityStore.getState().diffStatsScopes;
+    store.registerDiffStatsScope('sidebar', {
+      ...scope,
+      livePaths: [...scope.livePaths],
+      visiblePaths: [...scope.visiblePaths],
+    });
+
+    expect(useWorktreeActivityStore.getState().diffStatsScopes).toBe(previousScopes);
   });
 
   it('limits concurrent diff stat requests across many worktrees', async () => {

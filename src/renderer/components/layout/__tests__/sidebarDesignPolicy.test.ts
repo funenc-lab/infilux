@@ -136,17 +136,14 @@ describe('sidebar design policy', () => {
   });
 
   it('keeps git diff polling available for loaded worktrees instead of activity-only rows', () => {
-    expect(treeSidebarSource).toContain('const diffStatPaths = useMemo(() => {');
-    expect(treeSidebarSource).toContain('const diffStatPathKey = useMemo(() => diffStatPaths.join');
-    expect(treeSidebarSource).toContain("const paths = diffStatPathKey.split('\\n');");
+    expect(treeSidebarSource).toContain('useRegisterWorktreeDiffStatsScope({');
+    expect(treeSidebarSource).toContain('livePaths: liveDiffStatPaths');
+    expect(treeSidebarSource).toContain('visiblePaths: visibleDiffStatPaths');
+    expect(worktreePanelSource).toContain('useRegisterWorktreeDiffStatsScope({');
+    expect(worktreePanelSource).toContain(
+      'visiblePaths: filteredWorktreesWithIndex.map(({ worktree }) => worktree.path)'
+    );
     expect(treeSidebarSource).not.toContain('const activePaths = allWorktrees');
-    expect(worktreePanelSource).toContain(
-      'const diffStatPaths = useMemo(() => safeWorktrees.map((wt) => wt.path), [safeWorktrees]);'
-    );
-    expect(worktreePanelSource).toContain(
-      'const diffStatPathKey = useMemo(() => diffStatPaths.join'
-    );
-    expect(worktreePanelSource).toContain("const paths = diffStatPathKey.split('\\n');");
     expect(worktreePanelSource).not.toContain('const activePaths = worktrees');
   });
 

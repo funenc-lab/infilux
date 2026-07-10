@@ -78,6 +78,7 @@ import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
+import { useRegisterWorktreeDiffStatsScope } from '@/hooks/useWorktreeDiffStatsScheduler';
 import { useI18n } from '@/i18n';
 import { buildRemovalDialogCopy, buildWorkspaceToastCopy } from '@/lib/feedbackCopy';
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
@@ -92,7 +93,6 @@ import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummar
 import { SidebarAiCenterButton } from './SidebarAiCenterButton';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
-import { shouldPollSidebarDiffStats } from './sidebarDiffPollingPolicy';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 import { TempWorkspaceTreeItem } from './tree-sidebar/TempWorkspaceTreeItem';
 import { WorktreeTreeItem } from './tree-sidebar/WorktreeTreeItem';
@@ -512,7 +512,6 @@ export function TreeSidebar({
   const mainWorktree = selectedRepoWorktrees.find((wt) => wt.isMainWorktree);
   const workdir = mainWorktree?.path || selectedRepo || '';
 
-  const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
   const activities = useWorktreeActivityStore((s) => s.activities);
   const agentSessions = useAgentSessionsStore((s) => s.sessions);
   const shouldPoll = useShouldPoll();
@@ -525,27 +524,7 @@ export function TreeSidebar({
       ),
     [activities]
   );
-  const diffStatPaths = useMemo(() => {
-    const allWorktrees = sanitizeGitWorktrees(Object.values(worktreesMap).flat());
-    return [...new Set([...selectedSnapshotWorktrees, ...allWorktrees].map((wt) => wt.path))];
-  }, [selectedSnapshotWorktrees, worktreesMap]);
-  const diffStatPathKey = useMemo(() => diffStatPaths.join('\n'), [diffStatPaths]);
-  const shouldPollDiffStats = shouldPollSidebarDiffStats({
-    collapsed,
-    diffStatPathKey,
-    shouldPoll,
-  });
-
-  useEffect(() => {
-    if (!shouldPollDiffStats) return;
-    const paths = diffStatPathKey.split('\n');
-
-    fetchDiffStats(paths);
-    const interval = setInterval(() => {
-      fetchDiffStats(paths);
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [diffStatPathKey, fetchDiffStats, shouldPollDiffStats]);
+  const liveDiffStatPaths = useMemo(() => [...activePathSet], [activePathSet]);
 
   // Auto-expand selected repo (only when selectedRepo changes externally, not from tree click)
   const prevSelectedRepoRef = useRef<string | null>(null);
@@ -1078,6 +1057,74 @@ export function TreeSidebar({
     },
     [activities, matchesAgentWorktreeFilter, parsedSearch, showAgentWorktreesOnly]
   );
+
+  const renderedDiffStatRepos = useMemo(() => {
+    if (showSections) {
+      return groupedSections
+        .filter((section) => !collapsedGroups[section.groupId])
+        .flatMap((section) => section.repos.map(({ repo }) => repo));
+    }
+
+    return filteredRepos.map(({ repo }) => repo);
+  }, [collapsedGroups, filteredRepos, groupedSections, showSections]);
+  const visibleDiffStatPaths = useMemo(() => {
+    const visiblePaths = new Set<string>();
+
+    for (const repo of renderedDiffStatRepos) {
+      const isExpanded = expandedRepos.has(normalizePath(repo.path));
+      const repoCanLoad = canLoadRepo(repo.path);
+      if (!isExpanded || !repoCanLoad) {
+        continue;
+      }
+
+      const repoSnapshot = resolveTreeSidebarRepoSnapshot({
+        repoPath: repo.path,
+        selectedRepo,
+        selectedWorktrees: selectedSnapshotWorktrees,
+        selectedActiveWorktreePath: activeWorktree?.path ?? null,
+        selectedIsLoading: selectedRepoLoading,
+        selectedIsFetching: selectedRepoFetching,
+        selectedError: selectedRepoError,
+        worktreesMap,
+        loadingMap,
+        errorsMap,
+        isExpanded,
+        canLoad: repoCanLoad,
+      });
+      const prefetchedRepoWorktrees = getSearchableRepoWorktrees(repo.path);
+      const repoWorktrees = getFilteredWorktrees(
+        mergeWorktreesByPath(repoSnapshot.worktrees, prefetchedRepoWorktrees)
+      );
+
+      for (const worktree of repoWorktrees) {
+        visiblePaths.add(worktree.path);
+      }
+    }
+
+    return [...visiblePaths];
+  }, [
+    activeWorktree?.path,
+    canLoadRepo,
+    errorsMap,
+    expandedRepos,
+    getFilteredWorktrees,
+    getSearchableRepoWorktrees,
+    loadingMap,
+    renderedDiffStatRepos,
+    selectedRepo,
+    selectedRepoError,
+    selectedRepoFetching,
+    selectedRepoLoading,
+    selectedSnapshotWorktrees,
+    worktreesMap,
+  ]);
+  useRegisterWorktreeDiffStatsScope({
+    collapsed,
+    enabled: shouldPoll,
+    selectedPath: activeWorktree?.path,
+    livePaths: liveDiffStatPaths,
+    visiblePaths: visibleDiffStatPaths,
+  });
 
   const renderRepoItem = (repo: Repository, originalIndex: number, sectionGroupId?: string) => {
     const isSelected = selectedRepo === repo.path;

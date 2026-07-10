@@ -11,6 +11,7 @@ describe('syncXtermViewportToSession', () => {
 
     const didSync = syncXtermViewportToSession({
       fitViewport,
+      lastSyncedViewport: { current: null },
       measureViewport,
       resizeSession,
       runtimeState: 'live',
@@ -33,6 +34,7 @@ describe('syncXtermViewportToSession', () => {
 
     const didSync = syncXtermViewportToSession({
       fitViewport,
+      lastSyncedViewport: { current: null },
       measureViewport,
       resizeSession,
       runtimeState: 'dead',
@@ -52,6 +54,7 @@ describe('syncXtermViewportToSession', () => {
 
     const didSync = syncXtermViewportToSession({
       fitViewport,
+      lastSyncedViewport: { current: null },
       measureViewport,
       resizeSession,
       runtimeState: 'live',
@@ -64,6 +67,69 @@ describe('syncXtermViewportToSession', () => {
     expect(resizeSession).not.toHaveBeenCalled();
   });
 
+  it('does not resize the backend again when the live session dimensions are unchanged', () => {
+    const resizeSession = vi.fn();
+    const fitViewport = vi.fn();
+    const lastSyncedViewport = { current: null };
+    const measureViewport = vi
+      .fn<() => { cols: number; rows: number } | null>()
+      .mockReturnValue({ cols: 132, rows: 41 });
+
+    const firstSync = syncXtermViewportToSession({
+      fitViewport,
+      measureViewport,
+      resizeSession,
+      runtimeState: 'live',
+      sessionId: 'session-1',
+      lastSyncedViewport,
+    });
+    const secondSync = syncXtermViewportToSession({
+      fitViewport,
+      measureViewport,
+      resizeSession,
+      runtimeState: 'live',
+      sessionId: 'session-1',
+      lastSyncedViewport,
+    });
+
+    expect(firstSync).toBe(true);
+    expect(secondSync).toBe(false);
+    expect(resizeSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('resizes a newly bound session even when its dimensions match the previous session', () => {
+    const resizeSession = vi.fn();
+    const fitViewport = vi.fn();
+    const lastSyncedViewport = { current: null };
+    const measureViewport = vi
+      .fn<() => { cols: number; rows: number } | null>()
+      .mockReturnValue({ cols: 132, rows: 41 });
+
+    syncXtermViewportToSession({
+      fitViewport,
+      measureViewport,
+      resizeSession,
+      runtimeState: 'live',
+      sessionId: 'session-1',
+      lastSyncedViewport,
+    });
+    const didSync = syncXtermViewportToSession({
+      fitViewport,
+      measureViewport,
+      resizeSession,
+      runtimeState: 'live',
+      sessionId: 'session-2',
+      lastSyncedViewport,
+    });
+
+    expect(didSync).toBe(true);
+    expect(resizeSession).toHaveBeenCalledTimes(2);
+    expect(resizeSession).toHaveBeenLastCalledWith('session-2', {
+      cols: 132,
+      rows: 41,
+    });
+  });
+
   it('skips backend resize when the measured terminal size is invalid', () => {
     const resizeSession = vi.fn();
     const fitViewport = vi.fn();
@@ -74,6 +140,7 @@ describe('syncXtermViewportToSession', () => {
 
     const didSync = syncXtermViewportToSession({
       fitViewport,
+      lastSyncedViewport: { current: null },
       measureViewport,
       resizeSession,
       runtimeState: 'live',

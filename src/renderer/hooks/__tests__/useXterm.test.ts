@@ -4,6 +4,10 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type UseXtermOptions, useXterm } from '../useXterm';
+import {
+  XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT,
+  XTERM_OUTPUT_WRITE_CHAR_LIMIT,
+} from '../xtermOutputBuffer';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -22,6 +26,7 @@ const testState = vi.hoisted(() => ({
     isLoading: false,
     runtimeState: 'live' as 'live' | 'reconnecting' | 'dead',
   },
+  restartSession: null as (() => void) | null,
   sessionHandlers: null as SessionSubscriptionHandlers | null,
   attachPromise: null as Promise<unknown> | null,
   resolveAttach: null as ((value: unknown) => void) | null,
@@ -57,7 +62,10 @@ const testState = vi.hoisted(() => ({
   navigationToFile: vi.fn(),
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
+  terminalWriteInstanceIds: [] as number[],
   terminalWriteCallbacks: [] as Array<() => void>,
+  terminalDispose: vi.fn(),
+  terminalInstanceCount: 0,
   terminalScrollToBottom: vi.fn(),
   terminalDataHandler: null as ((data: string) => void) | null,
   customKeyHandler: null as ((event: KeyboardEvent) => boolean) | null,
@@ -90,6 +98,7 @@ const testState = vi.hoisted(() => ({
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
+    private readonly instanceId = testState.terminalInstanceCount++;
     cols = 80;
     rows = 24;
     element = document.createElement('div');
@@ -145,6 +154,7 @@ vi.mock('@xterm/xterm', () => ({
     reset(): void {}
     write(data: string, callback?: () => void): void {
       testState.terminalWrite(data);
+      testState.terminalWriteInstanceIds.push(this.instanceId);
       if (callback) {
         testState.terminalWriteCallbacks.push(callback);
       }
@@ -153,7 +163,9 @@ vi.mock('@xterm/xterm', () => ({
     focus(): void {
       testState.terminalFocus();
     }
-    dispose(): void {}
+    dispose(): void {
+      testState.terminalDispose(this.instanceId);
+    }
     selectAll(): void {}
     hasSelection(): boolean {
       return false;
@@ -391,6 +403,7 @@ function HookHarness() {
     isLoading: hook.isLoading,
     runtimeState: hook.runtimeState,
   };
+  testState.restartSession = hook.restartSession;
 
   return React.createElement('div', {
     ref: hook.containerRef,
@@ -441,6 +454,7 @@ describe('useXterm startup loading state', () => {
       isLoading: false,
       runtimeState: 'live',
     };
+    testState.restartSession = null;
     testState.sessionHandlers = null;
     testState.attachPromise = null;
     testState.resolveAttach = null;
@@ -461,7 +475,10 @@ describe('useXterm startup loading state', () => {
     testState.navigationToFile.mockClear();
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
+    testState.terminalWriteInstanceIds = [];
     testState.terminalWriteCallbacks = [];
+    testState.terminalDispose.mockClear();
+    testState.terminalInstanceCount = 0;
     testState.terminalScrollToBottom.mockClear();
     testState.terminalDataHandler = null;
     testState.customKeyHandler = null;
@@ -879,6 +896,57 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('writes restored replay in bounded xterm chunks', async () => {
+    const mounted = mountHookHarness();
+    const replay = 'x'.repeat(XTERM_OUTPUT_WRITE_CHAR_LIMIT + 2);
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+        replay,
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith(
+      replay.slice(0, XTERM_OUTPUT_WRITE_CHAR_LIMIT)
+    );
+    expect(testState.terminalWrite).not.toHaveBeenCalledWith(replay);
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith(
+      replay.slice(XTERM_OUTPUT_WRITE_CHAR_LIMIT)
+    );
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    await mounted.unmount();
+  });
+
   it('scrolls updated static transcript content to the bottom after xterm writes it', async () => {
     const mounted = mountHookHarness({
       staticContent: {
@@ -961,6 +1029,268 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for xterm to consume one output batch before writing the next batch', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'first batch\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('first batch\n');
+    expect(testState.terminalWriteCallbacks).toHaveLength(1);
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'second batch\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(2);
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('second batch\n');
+
+    await mounted.unmount();
+  });
+
+  it('splits queued terminal output into bounded xterm writes', async () => {
+    const mounted = mountHookHarness();
+    const output = 'x'.repeat(64 * 1024 + 2);
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: output,
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith(output.slice(0, 64 * 1024));
+    expect(testState.terminalWrite).not.toHaveBeenCalledWith(output);
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith(output.slice(64 * 1024));
+
+    await mounted.unmount();
+  });
+
+  it('keeps terminal output backlog bounded when xterm does not consume writes', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const mounted = mountHookHarness();
+    const output = 'x'.repeat(XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT + 1);
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: output,
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[xterm] Terminal output backlog exceeded maximum capacity',
+      expect.objectContaining({
+        discardedChars: expect.any(Number),
+        retainedChars: expect.any(Number),
+        sessionId: 'backend-session-1',
+      })
+    );
+    expect(testState.terminalWrite.mock.calls[0]?.[0]).toContain(
+      '[Terminal output was skipped while the renderer caught up.]'
+    );
+
+    errorSpy.mockRestore();
+    await mounted.unmount();
+  });
+
+  it('waits for queued terminal output before notifying the session exit', async () => {
+    const onExit = vi.fn();
+    const mounted = mountHookHarness({ onExit });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    expect(testState.sessionHandlers?.onExit).toBeTypeOf('function');
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'first batch\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'second batch\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      testState.sessionHandlers?.onExit?.({
+        sessionId: 'backend-session-1',
+        exitCode: 0,
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(onExit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('second batch\n');
+    expect(onExit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(onExit).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('keeps new-terminal write backpressure isolated from a late old-terminal callback', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'old in-flight output\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'discarded queued output\n',
+      });
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+        replay: '',
+      });
+      await flushMicrotasks();
+    });
+
+    const oldWriteCallback = testState.terminalWriteCallbacks[0];
+    expect(oldWriteCallback).toBeTypeOf('function');
+    expect(testState.terminalWriteInstanceIds).toEqual([0]);
+
+    await act(async () => {
+      testState.restartSession?.();
+      await vi.advanceTimersByTimeAsync(32);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalDispose).toHaveBeenCalledWith(0);
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'new in-flight output\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    const newWriteCallback = testState.terminalWriteCallbacks[1];
+    expect(newWriteCallback).toBeTypeOf('function');
+    expect(testState.terminalWriteInstanceIds).toEqual([0, 1]);
+
+    await act(async () => {
+      oldWriteCallback?.();
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'queued new-terminal output\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      newWriteCallback?.();
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(3);
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('queued new-terminal output\n');
+
+    await mounted.unmount();
   });
 
   it('does not auto-start from initialCommand while inactive when that activation path is disabled', async () => {

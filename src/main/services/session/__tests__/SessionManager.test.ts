@@ -863,6 +863,100 @@ describe('SessionManager', () => {
     expect(manager.list(1)).toEqual([]);
   });
 
+  it('coalesces consecutive live session output chunks before sending them to the renderer', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-output-batch' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, 'first ');
+    pty.emitData(sessionId, 'second');
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: 'first second' }],
+    ]);
+  });
+
+  it('drops queued local output when the renderer detaches before the batch deadline', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-output-detach' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, 'discarded output');
+    await manager.detach(1, sessionId);
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+  });
+
+  it('splits an oversized local output chunk into bounded renderer payloads', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-output-limit' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const output = 'x'.repeat(64 * 1024 + 2);
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, output);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: output.slice(0, 64 * 1024) }],
+    ]);
+
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: output.slice(0, 64 * 1024) }],
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: output.slice(64 * 1024) }],
+    ]);
+  });
+
+  it('does not split a surrogate pair when bounding local output payloads', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-output-unicode' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const firstChunk = 'x'.repeat(64 * 1024 - 1);
+    const output = `${firstChunk}\ud83d\ude00tail`;
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, output);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: firstChunk }],
+    ]);
+
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: firstChunk }],
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: '\ud83d\ude00tail' }],
+    ]);
+  });
+
   it('ignores empty local output and late PTY data after a session has already been removed', async () => {
     createWindow(1);
     const manager = new SessionManager();

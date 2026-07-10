@@ -48,6 +48,7 @@ import {
   useWorktreeState,
   useWorktreeSync,
 } from './App/hooks';
+import { useAgentSessionPersistence } from './App/hooks/useAgentSessionPersistence';
 import { resolveMainContentRepoPath } from './App/mainContentRepoPathPolicy';
 import {
   resolveWorktreeTabForPersistence,
@@ -112,6 +113,7 @@ import {
   useWorktreeRemove,
   useWorktreeResolveConflict,
 } from './hooks/useWorktree';
+import { useWorktreeDiffStatsScheduler } from './hooks/useWorktreeDiffStatsScheduler';
 import { worktreeQueryKeys } from './hooks/worktreeQueryKeys';
 import { useI18n } from './i18n';
 import { getRendererEnvironment } from './lib/electronEnvironment';
@@ -183,6 +185,8 @@ function SidebarHoverRevealContent({
 }
 
 export default function App() {
+  useAgentSessionPersistence();
+  useWorktreeDiffStatsScheduler();
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [agentCanvasRecenterRequest, setAgentCanvasRecenterRequest] = useState<{

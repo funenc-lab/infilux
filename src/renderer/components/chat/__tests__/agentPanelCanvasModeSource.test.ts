@@ -259,7 +259,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('if (!isActive || !isCanvasDisplayMode) {');
     expect(agentPanelSource).toContain('if (!isCanvasDisplayMode || !isActive) {');
     expect(agentPanelSource).toContain('if (!isActive || !canvasFloatingSessionId) {');
-    expect(agentPanelSource).toContain('diffPersistentAgentSessionRecords');
+    expect(agentPanelSource).not.toContain('diffPersistentAgentSessionRecords');
     expect(agentPanelSource).toContain('currentWorktreeAgentStatuses');
     expect(agentPanelSource).toContain('useAgentStatusStore(');
     expect(agentPanelSource).toContain('useShallow((state) =>');

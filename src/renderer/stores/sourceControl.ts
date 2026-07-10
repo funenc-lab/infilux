@@ -17,6 +17,7 @@ interface SourceControlState {
   setViewMode: (mode: ViewMode) => void;
   expandedFolders: Set<string>;
   toggleFolder: (path: string) => void;
+  setFoldersExpanded: (paths: Iterable<string>, expanded: boolean) => void;
 }
 
 export const useSourceControlStore = create<SourceControlState>((set) => ({
@@ -36,5 +37,23 @@ export const useSourceControlStore = create<SourceControlState>((set) => ({
         newExpanded.add(path);
       }
       return { expandedFolders: newExpanded };
+    }),
+  setFoldersExpanded: (paths, expanded) =>
+    set((state) => {
+      const nextExpanded = new Set(state.expandedFolders);
+      let changed = false;
+
+      for (const path of new Set(paths)) {
+        if (expanded) {
+          if (!nextExpanded.has(path)) {
+            nextExpanded.add(path);
+            changed = true;
+          }
+        } else if (nextExpanded.delete(path)) {
+          changed = true;
+        }
+      }
+
+      return changed ? { expandedFolders: nextExpanded } : state;
     }),
 }));

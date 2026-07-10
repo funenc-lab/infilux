@@ -1,5 +1,6 @@
 import { exec } from 'node:child_process';
-import { existsSync, promises as fs } from 'node:fs';
+import { existsSync, promises as fs, constants as fsConstants } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -35,6 +36,12 @@ const execAsync = promisify(exec);
 const MAX_GIT_STATUS_ENTRIES = 5000;
 const MAX_GIT_FILE_CHANGES = 5000;
 const GIT_STATUS_STREAM_TIMEOUT_MS = 15000;
+const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;
+const UNTRACKED_BINARY_INSPECTION_SIZE = 8000;
+const UNTRACKED_FILE_OPEN_FLAGS =
+  process.platform === 'win32'
+    ? fsConstants.O_RDONLY
+    : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
 const DEFAULT_DIFF_STATS = Object.freeze({ insertions: 0, deletions: 0 });
 
 type PorcelainBranchInfo = {
@@ -57,6 +64,18 @@ type DiffStats = {
   insertions: number;
   deletions: number;
 };
+
+type UntrackedDiffStatCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  ctimeMs?: number;
+  ino?: number;
+  dev?: number;
+  mode?: number;
+  stats: DiffStats;
+};
+
+type UntrackedFileFingerprint = Omit<UntrackedDiffStatCacheEntry, 'stats'>;
 
 function parseNumStatOutput(output: string): DiffStats {
   let insertions = 0;
@@ -94,42 +113,59 @@ function mergeDiffStats(...stats: DiffStats[]): DiffStats {
   );
 }
 
-function bufferContainsBinaryContent(buffer: Buffer): boolean {
-  const inspectedLength = Math.min(buffer.length, 8000);
-  for (let index = 0; index < inspectedLength; index += 1) {
-    if (buffer[index] === 0) {
-      return true;
-    }
-  }
-
-  return false;
+function createUntrackedFileFingerprint(stats: {
+  size: number;
+  mtimeMs: number;
+  ctimeMs?: number;
+  ino?: number;
+  dev?: number;
+  mode?: number;
+}): UntrackedFileFingerprint {
+  return {
+    size: stats.size,
+    mtimeMs: stats.mtimeMs,
+    ...(typeof stats.ctimeMs === 'number' ? { ctimeMs: stats.ctimeMs } : {}),
+    ...(typeof stats.ino === 'number' ? { ino: stats.ino } : {}),
+    ...(typeof stats.dev === 'number' ? { dev: stats.dev } : {}),
+    ...(typeof stats.mode === 'number' ? { mode: stats.mode } : {}),
+  };
 }
 
-function countBufferLines(buffer: Buffer): number {
-  if (buffer.length === 0) {
-    return 0;
-  }
+function matchesUntrackedFileFingerprint(
+  cached: UntrackedDiffStatCacheEntry,
+  current: UntrackedFileFingerprint
+): boolean {
+  return (
+    cached.size === current.size &&
+    cached.mtimeMs === current.mtimeMs &&
+    cached.ctimeMs === current.ctimeMs &&
+    cached.ino === current.ino &&
+    cached.dev === current.dev &&
+    cached.mode === current.mode
+  );
+}
 
-  let lineCount = 0;
-  for (let index = 0; index < buffer.length; index += 1) {
-    const byte = buffer[index];
-    if (byte === 10) {
-      lineCount += 1;
-      continue;
-    }
+function matchesUntrackedFileIdentity(
+  expected: UntrackedFileFingerprint,
+  actual: UntrackedFileFingerprint
+): boolean {
+  const matchesOptionalValue = (left: number | undefined, right: number | undefined) =>
+    left === undefined || right === undefined || left === right;
 
-    if (byte === 13 && buffer[index + 1] !== 10) {
-      lineCount += 1;
-    }
-  }
-
-  const lastByte = buffer[buffer.length - 1];
-  return lastByte === 10 || lastByte === 13 ? lineCount : lineCount + 1;
+  return (
+    matchesOptionalValue(expected.size, actual.size) &&
+    matchesOptionalValue(expected.mtimeMs, actual.mtimeMs) &&
+    matchesOptionalValue(expected.ctimeMs, actual.ctimeMs) &&
+    matchesOptionalValue(expected.ino, actual.ino) &&
+    matchesOptionalValue(expected.dev, actual.dev) &&
+    matchesOptionalValue(expected.mode, actual.mode)
+  );
 }
 
 export class GitService {
   private git: SimpleGit;
   private workdir: string;
+  private untrackedDiffStatsCache = new Map<string, UntrackedDiffStatCacheEntry>();
 
   constructor(workdir: string) {
     this.git = createSimpleGit(workdir);
@@ -919,13 +955,9 @@ export class GitService {
   }
 
   async getDiffStats(): Promise<{ insertions: number; deletions: number }> {
-    try {
-      const trackedStats = await this.getTrackedDiffStats();
-      const untrackedStats = await this.getUntrackedDiffStats();
-      return mergeDiffStats(trackedStats, untrackedStats);
-    } catch {
-      return DEFAULT_DIFF_STATS;
-    }
+    const trackedStats = await this.getTrackedDiffStats();
+    const untrackedStats = await this.getUntrackedDiffStats();
+    return mergeDiffStats(trackedStats, untrackedStats);
   }
 
   private async getTrackedDiffStats(): Promise<DiffStats> {
@@ -951,20 +983,111 @@ export class GitService {
     }
 
     let insertions = 0;
+    const currentPaths = new Set(relativePaths);
     for (const relativePath of relativePaths) {
       try {
         const absolutePath = path.resolve(this.workdir, relativePath);
-        const content = await fs.readFile(absolutePath);
-        if (bufferContainsBinaryContent(content)) {
+        if (!this.isPathWithinWorkdir(absolutePath)) {
           continue;
         }
-        insertions += countBufferLines(content);
+        const entry = await fs.lstat(absolutePath);
+        if (entry.isSymbolicLink() || !entry.isFile()) {
+          continue;
+        }
+        const fingerprint = createUntrackedFileFingerprint(entry);
+        const cached = this.untrackedDiffStatsCache.get(relativePath);
+        if (cached && matchesUntrackedFileFingerprint(cached, fingerprint)) {
+          insertions += cached.stats.insertions;
+          continue;
+        }
+        const handle = await fs.open(absolutePath, UNTRACKED_FILE_OPEN_FLAGS);
+        try {
+          const openedFileEntry = await handle.stat();
+          if (
+            !openedFileEntry.isFile() ||
+            !matchesUntrackedFileIdentity(
+              fingerprint,
+              createUntrackedFileFingerprint(openedFileEntry)
+            )
+          ) {
+            continue;
+          }
+
+          const stats = await this.countUntrackedFileStats(handle);
+          this.untrackedDiffStatsCache.set(relativePath, { ...fingerprint, stats });
+          insertions += stats.insertions;
+        } finally {
+          await handle.close();
+        }
       } catch {
         // Ignore files that disappear or cannot be read during polling.
       }
     }
 
+    for (const cachedPath of this.untrackedDiffStatsCache.keys()) {
+      if (!currentPaths.has(cachedPath)) {
+        this.untrackedDiffStatsCache.delete(cachedPath);
+      }
+    }
+
     return { insertions, deletions: 0 };
+  }
+
+  private async countUntrackedFileStats(handle: FileHandle): Promise<DiffStats> {
+    const buffer = Buffer.allocUnsafe(UNTRACKED_DIFF_READ_CHUNK_SIZE);
+    let inspectedBytes = 0;
+    let lineCount = 0;
+    let previousByteWasCarriageReturn = false;
+    let lastByte: number | undefined;
+
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) {
+        break;
+      }
+
+      for (let index = 0; index < bytesRead; index += 1) {
+        const byte = buffer[index];
+        if (inspectedBytes < UNTRACKED_BINARY_INSPECTION_SIZE && byte === 0) {
+          return DEFAULT_DIFF_STATS;
+        }
+        inspectedBytes += 1;
+
+        if (byte === 10) {
+          lineCount += 1;
+          previousByteWasCarriageReturn = false;
+        } else if (byte === 13) {
+          if (previousByteWasCarriageReturn) {
+            lineCount += 1;
+          }
+          previousByteWasCarriageReturn = true;
+        } else {
+          if (previousByteWasCarriageReturn) {
+            lineCount += 1;
+            previousByteWasCarriageReturn = false;
+          }
+        }
+        lastByte = byte;
+      }
+    }
+
+    if (lastByte === undefined) {
+      return DEFAULT_DIFF_STATS;
+    }
+    if (previousByteWasCarriageReturn) {
+      lineCount += 1;
+    }
+    return {
+      insertions: lastByte === 10 || lastByte === 13 ? lineCount : lineCount + 1,
+      deletions: 0,
+    };
+  }
+
+  private isPathWithinWorkdir(targetPath: string): boolean {
+    const relativePath = path.relative(this.workdir, targetPath);
+    return (
+      relativePath === '' || (!relativePath.startsWith(`..${path.sep}`) && relativePath !== '..')
+    );
   }
 
   // GitHub CLI methods

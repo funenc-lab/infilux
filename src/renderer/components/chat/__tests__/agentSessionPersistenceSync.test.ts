@@ -140,6 +140,38 @@ describe('agent session persistence sync', () => {
     );
   });
 
+  it('persists title provenance changes inside persistent session metadata', async () => {
+    const module = await import('../agentSessionPersistenceSync').catch(() => null);
+    const previousRecord = createRecord('session-a', {
+      metadata: {
+        persistentAgentSession: {
+          title: {
+            defaultName: 'Claude',
+          },
+        },
+      },
+    });
+    const currentRecord = createRecord('session-a', {
+      metadata: {
+        persistentAgentSession: {
+          title: {
+            defaultName: 'Claude',
+            userRenamed: true,
+          },
+        },
+      },
+    });
+
+    const result = module?.diffPersistentAgentSessionRecords({
+      previousSnapshotBySessionId: new Map([
+        ['session-a', serializePersistentAgentSessionRecordSnapshot(previousRecord)],
+      ]),
+      records: [currentRecord],
+    });
+
+    expect(result?.changedRecords).toEqual([currentRecord]);
+  });
+
   it('flushes replay snapshot updates immediately once the session is no longer live', async () => {
     const module = await import('../agentSessionPersistenceSync').catch(() => null);
 

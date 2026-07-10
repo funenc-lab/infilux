@@ -670,6 +670,93 @@ describe('AgentTerminal integration', () => {
     expect(unregisterSender).toHaveBeenCalledWith('ui-session-1');
   });
 
+  it('activates the session and derives its title from the first enhanced input only', async () => {
+    const registerSender = vi.fn();
+    const onActivated = vi.fn();
+    const onActivatedWithFirstLine = vi.fn();
+    const mounted = await mountAgentTerminal({
+      activated: false,
+      onActivated,
+      onActivatedWithFirstLine,
+      onRegisterEnhancedInputSender: registerSender,
+    });
+    const sender = registerSender.mock.calls[0]?.[1] as
+      | ((content: string, attachments: Array<Record<string, string>>) => boolean)
+      | undefined;
+
+    expect(sender?.('Investigate enhanced input title\nInclude recovery behavior', [])).toBe(true);
+    expect(sender?.('Do not replace the first title', [])).toBe(true);
+    await flushMicrotasks();
+
+    expect(onActivated).toHaveBeenCalledTimes(1);
+    expect(onActivatedWithFirstLine).toHaveBeenCalledTimes(1);
+    expect(onActivatedWithFirstLine).toHaveBeenCalledWith('Investigate enhanced input title');
+
+    await mounted.unmount();
+  });
+
+  it('activates attachment-only enhanced input without using an attachment path as the title', async () => {
+    const registerSender = vi.fn();
+    const onActivated = vi.fn();
+    const onActivatedWithFirstLine = vi.fn();
+    const mounted = await mountAgentTerminal({
+      activated: false,
+      onActivated,
+      onActivatedWithFirstLine,
+      onRegisterEnhancedInputSender: registerSender,
+    });
+    const sender = registerSender.mock.calls[0]?.[1] as
+      | ((content: string, attachments: Array<Record<string, string>>) => boolean)
+      | undefined;
+
+    expect(
+      sender?.('', [
+        {
+          id: 'attachment-1',
+          kind: 'file',
+          name: 'notes.md',
+          path: '/tmp/notes.md',
+        },
+      ])
+    ).toBe(true);
+    await flushMicrotasks();
+
+    expect(onActivated).toHaveBeenCalledTimes(1);
+    expect(onActivatedWithFirstLine).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('does not activate the session when enhanced input dispatch fails', async () => {
+    const dispatchError = new Error('dispatch failed');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    testState.electronAPI.agentInputDispatch.mockRejectedValueOnce(dispatchError);
+    const registerSender = vi.fn();
+    const onActivated = vi.fn();
+    const onActivatedWithFirstLine = vi.fn();
+    const mounted = await mountAgentTerminal({
+      activated: false,
+      onActivated,
+      onActivatedWithFirstLine,
+      onRegisterEnhancedInputSender: registerSender,
+    });
+    const sender = registerSender.mock.calls[0]?.[1] as
+      | ((content: string, attachments: Array<Record<string, string>>) => boolean)
+      | undefined;
+
+    expect(sender?.('Do not persist failed input', [])).toBe(true);
+    await flushMicrotasks();
+
+    expect(onActivated).not.toHaveBeenCalled();
+    expect(onActivatedWithFirstLine).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[AgentTerminal] Failed to dispatch agent input',
+      dispatchError
+    );
+
+    await mounted.unmount();
+  });
+
   it('requests compatibility rendering for agent TUI sessions to avoid WebGL redraw artifacts', async () => {
     const mounted = await mountAgentTerminal();
 
@@ -683,11 +770,15 @@ describe('AgentTerminal integration', () => {
 
   it('returns false from the registered sender for read-only transcripts', async () => {
     const registerSender = vi.fn();
+    const onActivated = vi.fn();
+    const onActivatedWithFirstLine = vi.fn();
     const mounted = await mountAgentTerminal({
       readOnlyTranscript: {
         identity: 'transcript-read-only',
         entries: [],
       },
+      onActivated,
+      onActivatedWithFirstLine,
       onRegisterEnhancedInputSender: registerSender,
     });
 
@@ -698,6 +789,8 @@ describe('AgentTerminal integration', () => {
     expect(sender?.('Ping transcript', [])).toBe(false);
     expect(testState.electronAPI.agentInputDispatch).not.toHaveBeenCalled();
     expect(testState.terminal.focus).not.toHaveBeenCalled();
+    expect(onActivated).not.toHaveBeenCalled();
+    expect(onActivatedWithFirstLine).not.toHaveBeenCalled();
 
     await mounted.unmount();
   });
@@ -706,7 +799,11 @@ describe('AgentTerminal integration', () => {
     testState.xtermResult.runtimeState = 'dead';
 
     const registerSender = vi.fn();
+    const onActivated = vi.fn();
+    const onActivatedWithFirstLine = vi.fn();
     const mounted = await mountAgentTerminal({
+      onActivated,
+      onActivatedWithFirstLine,
       onRegisterEnhancedInputSender: registerSender,
     });
 
@@ -716,6 +813,8 @@ describe('AgentTerminal integration', () => {
 
     expect(sender?.('Ping agent', [])).toBe(false);
     expect(testState.electronAPI.agentInputDispatch).not.toHaveBeenCalled();
+    expect(onActivated).not.toHaveBeenCalled();
+    expect(onActivatedWithFirstLine).not.toHaveBeenCalled();
 
     await mounted.unmount();
   });

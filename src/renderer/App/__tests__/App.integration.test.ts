@@ -183,6 +183,9 @@ const settingsStoreState = {
 
 const worktreeActivityState = {
   activities: {} as Record<string, { agentCount: number; terminalCount: number }>,
+  diffStatsScopes: {},
+  fetchDiffStats: vi.fn(async () => undefined),
+  getDiffStatsScope: () => [],
   closeAgentSessions,
   closeTerminalSessions,
   clearWorktree: clearWorktreeActivity,
@@ -490,8 +493,11 @@ vi.mock('../../hooks/useWorktree', () => ({
 }));
 
 vi.mock('../../stores/agentSessions', () => ({
-  useAgentSessionsStore: (selector: (state: { setActiveId: typeof setAgentActiveId }) => unknown) =>
+  useAgentSessionsStore: (
+    selector: (state: { sessions: []; setActiveId: typeof setAgentActiveId }) => unknown
+  ) =>
     selector({
+      sessions: [],
       setActiveId: setAgentActiveId,
     }),
 }));

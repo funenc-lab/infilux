@@ -3,7 +3,11 @@ import {
   supportsAgentCapabilityPolicyLaunch,
   supportsClaudeCapabilityPolicyLaunch,
 } from '@shared/utils/agentCapabilityPolicy';
-import { extractPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
+import {
+  extractPersistentAgentReplaySnapshot,
+  extractPersistentAgentSessionTitleMetadata,
+  type PersistentAgentSessionTitleMetadata,
+} from '@shared/utils/persistentAgentSession';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { normalizePath, pathsEqual } from '@/App/storage';
@@ -18,6 +22,10 @@ import {
 } from '@/components/chat/agentSessionScope';
 import type { Session } from '@/components/chat/SessionBar';
 import {
+  areSessionTitlesEqual,
+  getCanonicalSessionName,
+  getDefaultSessionName,
+  getExplicitSessionName,
   getMeaningfulTerminalTitle,
   getStoredSessionName,
 } from '@/components/chat/sessionTitleText';
@@ -321,21 +329,17 @@ function sanitizePersistedSession(session: Session): Session {
     replaySnapshotCapturedAt: _replaySnapshotCapturedAt,
     ...persistedSession
   } = session;
+  const defaultName = session.defaultName
+    ? getDefaultSessionName(session.agentId, session.defaultName)
+    : undefined;
+  const canonicalName = getCanonicalSessionName({ ...session, defaultName });
   return {
     ...persistedSession,
-    name: getStoredSessionName(session.name, session.agentId),
+    defaultName,
+    name: canonicalName,
     terminalTitle: getMeaningfulTerminalTitle(session.terminalTitle),
-    userRenamed:
-      session.userRenamed || resolveProtectedStoredSessionTitle(session.name, session.agentId),
+    userRenamed: session.userRenamed,
   };
-}
-
-function shouldProtectStoredSessionTitle(title: string, agentId?: string): boolean {
-  return getStoredSessionName(title, agentId) !== getStoredSessionName('', agentId);
-}
-
-function resolveProtectedStoredSessionTitle(title: string, agentId?: string): true | undefined {
-  return shouldProtectStoredSessionTitle(title, agentId) ? true : undefined;
 }
 
 function isTrackedClaudePolicySession(session: Session): boolean {
@@ -390,6 +394,42 @@ function resolveRecoveredProviderSessionId(
   }
 
   return record.uiSessionId;
+}
+
+function resolveRecoveredSessionName(
+  record: PersistentAgentSessionRecord,
+  titleMetadata: PersistentAgentSessionTitleMetadata,
+  existing?: Session
+): string {
+  const defaultName = getDefaultSessionName(
+    record.agentId,
+    titleMetadata.defaultName ?? existing?.defaultName
+  );
+  const recoveredName = titleMetadata.userRenamed
+    ? getExplicitSessionName(record.displayName, record.agentId, defaultName)
+    : getStoredSessionName(record.displayName, record.agentId, defaultName);
+  if (!existing) {
+    return recoveredName;
+  }
+
+  const existingName = getCanonicalSessionName({
+    ...existing,
+    defaultName: existing.defaultName ?? defaultName,
+  });
+  const existingDefaultName = getDefaultSessionName(
+    record.agentId,
+    existing.defaultName ?? defaultName
+  );
+  const existingNameIsMeaningful = !areSessionTitlesEqual(existingName, existingDefaultName);
+  if (existingNameIsMeaningful && existing.userRenamed) {
+    return existingName;
+  }
+
+  if (titleMetadata.userRenamed) {
+    return recoveredName;
+  }
+
+  return existingNameIsMeaningful ? existingName : recoveredName;
 }
 
 function loadFromStorage(): PersistedAgentSessionsSnapshot {
@@ -848,6 +888,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
         const { replaySnapshot, replaySnapshotCapturedAt } = extractPersistentAgentReplaySnapshot(
           record.metadata
         );
+        const titleMetadata = extractPersistentAgentSessionTitleMetadata(record.metadata);
+        const recoveredDefaultName = titleMetadata.defaultName ?? existing?.defaultName;
+        const recoveredName = resolveRecoveredSessionName(record, titleMetadata, existing);
         const recoveredSession: Session = {
           id: record.uiSessionId,
           sessionId: resolveRecoveredProviderSessionId(record, existing),
@@ -858,7 +901,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           }),
           backendSessionId: record.backendSessionId ?? existing?.backendSessionId,
           createdAt: record.createdAt,
-          name: getStoredSessionName(record.displayName, record.agentId),
+          name: recoveredName,
+          defaultName: recoveredDefaultName,
           agentId: record.agentId,
           agentCommand: record.agentCommand,
           customPath: record.customPath,
@@ -870,9 +914,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           environment: record.environment,
           displayOrder: existing?.displayOrder,
           terminalTitle: getMeaningfulTerminalTitle(existing?.terminalTitle),
-          userRenamed:
-            existing?.userRenamed ||
-            resolveProtectedStoredSessionTitle(record.displayName, record.agentId),
+          userRenamed: existing?.userRenamed ?? titleMetadata.userRenamed,
           pendingCommand: existing?.pendingCommand,
           persistenceEnabled: true,
           hostSessionKey: record.hostKind === 'tmux' ? record.hostSessionKey : undefined,

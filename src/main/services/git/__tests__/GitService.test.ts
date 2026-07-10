@@ -7,6 +7,7 @@ const gitServiceTestDoubles = vi.hoisted(() => {
   const unlink = vi.fn();
   const stat = vi.fn();
   const rm = vi.fn();
+  const open = vi.fn();
   const readFile = vi.fn();
   const toGitPath = vi.fn((_: string, targetPath: string) => targetPath);
   const createGitEnv = vi.fn(() => ({ PATH: '/usr/bin' }));
@@ -22,6 +23,7 @@ const gitServiceTestDoubles = vi.hoisted(() => {
     unlink,
     stat,
     rm,
+    open,
     readFile,
     toGitPath,
     createGitEnv,
@@ -44,6 +46,7 @@ vi.mock('node:fs', async () => {
       unlink: gitServiceTestDoubles.unlink,
       stat: gitServiceTestDoubles.stat,
       rm: gitServiceTestDoubles.rm,
+      open: gitServiceTestDoubles.open,
       readFile: gitServiceTestDoubles.readFile,
     },
   };
@@ -96,16 +99,41 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
+function createChunkedFileHandle(content: Buffer) {
+  let offset = 0;
+  return {
+    read: vi.fn(async (buffer: Buffer) => {
+      const bytesRead = content.copy(buffer, 0, offset, offset + buffer.length);
+      offset += bytesRead;
+      return { bytesRead };
+    }),
+    stat: vi.fn().mockResolvedValue({
+      isFile: () => true,
+      size: content.length,
+      mtimeMs: 1,
+      ctimeMs: 1,
+      ino: 1,
+      dev: 1,
+      mode: 0o100644,
+    }),
+    close: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 type ProgressHandler = (event: { method: string; stage: string; progress: number }) => void;
 
 describe('GitService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     gitServiceTestDoubles.existsSync.mockReturnValue(false);
-    gitServiceTestDoubles.lstat.mockResolvedValue(null);
+    gitServiceTestDoubles.lstat.mockResolvedValue({
+      isSymbolicLink: () => false,
+      isFile: () => true,
+    });
     gitServiceTestDoubles.unlink.mockResolvedValue(undefined);
     gitServiceTestDoubles.stat.mockResolvedValue(null);
     gitServiceTestDoubles.rm.mockResolvedValue(undefined);
+    gitServiceTestDoubles.open.mockResolvedValue(createChunkedFileHandle(Buffer.alloc(0)));
     gitServiceTestDoubles.readFile.mockResolvedValue(Buffer.from(''));
     gitServiceTestDoubles.toGitPath.mockImplementation((_, targetPath: string) => targetPath);
     gitServiceTestDoubles.createGitEnv.mockReturnValue({ PATH: '/usr/bin' });
@@ -251,9 +279,10 @@ describe('GitService', () => {
       diff,
       raw,
     });
-    gitServiceTestDoubles.readFile
-      .mockResolvedValueOnce(Buffer.from('one\ntwo\nthree\n'))
-      .mockResolvedValueOnce(Buffer.from('alpha\nbeta\n'));
+    gitServiceTestDoubles.stat.mockResolvedValue({ size: 1, mtimeMs: 1 });
+    gitServiceTestDoubles.open
+      .mockResolvedValueOnce(createChunkedFileHandle(Buffer.from('one\ntwo\nthree\n')))
+      .mockResolvedValueOnce(createChunkedFileHandle(Buffer.from('alpha\nbeta\n')));
 
     const service = new GitService('/repo');
 
@@ -278,6 +307,238 @@ describe('GitService', () => {
     expect(raw).toHaveBeenNthCalledWith(1, ['ls-files', '--others', '--exclude-standard', '-z']);
     expect(raw).toHaveBeenNthCalledWith(2, ['ls-files', '--others', '--exclude-standard', '-z']);
     expect(raw).toHaveBeenNthCalledWith(3, ['ls-files', '--others', '--exclude-standard', '-z']);
+  });
+
+  it('reuses untracked diff stats when the file fingerprint is unchanged', async () => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('notes.md\0');
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.lstat.mockResolvedValue({
+      isSymbolicLink: () => false,
+      isFile: () => true,
+    });
+    gitServiceTestDoubles.stat.mockResolvedValue({
+      mtimeMs: 100,
+      ctimeMs: 100,
+      size: 9,
+      ino: 1,
+      dev: 1,
+      mode: 0o100644,
+    });
+    const fileHandle = createChunkedFileHandle(Buffer.from('one\ntwo\n'));
+    gitServiceTestDoubles.open.mockResolvedValue(fileHandle);
+    const service = new GitService('/repo');
+
+    await service.getDiffStats();
+    await service.getDiffStats();
+
+    expect(gitServiceTestDoubles.open).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects untracked symbolic links even when the link path is inside the worktree', async () => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('linked.txt\0');
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.lstat.mockResolvedValue({
+      isSymbolicLink: () => true,
+      isFile: () => true,
+    });
+
+    await expect(new GitService('/repo').getDiffStats()).resolves.toEqual({
+      insertions: 0,
+      deletions: 0,
+    });
+    expect(gitServiceTestDoubles.open).not.toHaveBeenCalled();
+  });
+
+  it('does not read an untracked file when its opened descriptor no longer matches lstat', async () => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('notes.md\0');
+    const fileHandle = createChunkedFileHandle(Buffer.from('private\ncontent\n'));
+    fileHandle.stat.mockResolvedValue({
+      isFile: () => true,
+      size: 16,
+      mtimeMs: 2,
+      ctimeMs: 2,
+      ino: 2,
+      dev: 1,
+      mode: 0o100644,
+    });
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.lstat.mockResolvedValue({
+      isSymbolicLink: () => false,
+      isFile: () => true,
+      size: 16,
+      mtimeMs: 1,
+      ctimeMs: 1,
+      ino: 1,
+      dev: 1,
+      mode: 0o100644,
+    });
+    gitServiceTestDoubles.stat.mockResolvedValue({
+      size: 16,
+      mtimeMs: 1,
+      ctimeMs: 1,
+      ino: 1,
+      dev: 1,
+      mode: 0o100644,
+    });
+    gitServiceTestDoubles.open.mockResolvedValue(fileHandle);
+
+    await expect(new GitService('/repo').getDiffStats()).resolves.toEqual({
+      insertions: 0,
+      deletions: 0,
+    });
+
+    expect(fileHandle.read).not.toHaveBeenCalled();
+    expect(fileHandle.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts chunked CRLF text without exceeding the bounded read size', async () => {
+    const maxReadSize = 256 * 1024;
+    const content = Buffer.concat([Buffer.alloc(maxReadSize - 1, 'a'), Buffer.from('\r\nsecond')]);
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('chunked.txt\0');
+    const fileHandle = createChunkedFileHandle(content);
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.lstat.mockResolvedValue({
+      isSymbolicLink: () => false,
+      isFile: () => true,
+    });
+    gitServiceTestDoubles.stat.mockResolvedValue({ size: content.length, mtimeMs: 1 });
+    gitServiceTestDoubles.open.mockResolvedValue(fileHandle);
+
+    await expect(new GitService('/repo').getDiffStats()).resolves.toEqual({
+      insertions: 2,
+      deletions: 0,
+    });
+    for (const [buffer] of fileHandle.read.mock.calls) {
+      expect(buffer.length).toBeLessThanOrEqual(maxReadSize);
+    }
+  });
+
+  it('treats binary untracked content as zero insertions during chunked reads', async () => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('binary.bin\0');
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.lstat.mockResolvedValue({
+      isSymbolicLink: () => false,
+      isFile: () => true,
+    });
+    gitServiceTestDoubles.stat.mockResolvedValue({ size: 4, mtimeMs: 1 });
+    gitServiceTestDoubles.open.mockResolvedValue(
+      createChunkedFileHandle(Buffer.from([65, 0, 66, 10]))
+    );
+
+    await expect(new GitService('/repo').getDiffStats()).resolves.toEqual({
+      insertions: 0,
+      deletions: 0,
+    });
+  });
+
+  it('stops reading a large untracked binary file after detecting its first null byte', async () => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('binary.bin\0');
+    const content = Buffer.alloc(256 * 1024 * 2);
+    content[0] = 0;
+    const fileHandle = createChunkedFileHandle(content);
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.open.mockResolvedValue(fileHandle);
+
+    await expect(new GitService('/repo').getDiffStats()).resolves.toEqual({
+      insertions: 0,
+      deletions: 0,
+    });
+
+    expect(fileHandle.read).toHaveBeenCalledTimes(1);
+    expect(fileHandle.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['counts CR-separated text', Buffer.from('first\rsecond\r'), 2],
+    ['treats an empty file as zero insertions', Buffer.alloc(0), 0],
+    ['counts text without a trailing newline', Buffer.from('first\nsecond'), 2],
+  ])('handles %s during bounded untracked reads', async (_label, content, insertions) => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('notes.md\0');
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.open.mockResolvedValue(createChunkedFileHandle(content));
+
+    await expect(new GitService('/repo').getDiffStats()).resolves.toEqual({
+      insertions,
+      deletions: 0,
+    });
+  });
+
+  it('closes a descriptor after an untracked read failure', async () => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('notes.md\0');
+    const fileHandle = createChunkedFileHandle(Buffer.from('contents'));
+    fileHandle.read.mockRejectedValue(new Error('read failed'));
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.stat.mockResolvedValue({ size: 8, mtimeMs: 1 });
+    gitServiceTestDoubles.open.mockResolvedValue(fileHandle);
+
+    await expect(new GitService('/repo').getDiffStats()).resolves.toEqual({
+      insertions: 0,
+      deletions: 0,
+    });
+
+    expect(fileHandle.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates cached untracked statistics when ctime changes with stable size and mtime', async () => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockResolvedValue('notes.md\0');
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+    gitServiceTestDoubles.lstat
+      .mockResolvedValueOnce({
+        isSymbolicLink: () => false,
+        isFile: () => true,
+        size: 8,
+        mtimeMs: 1,
+        ctimeMs: 1,
+        ino: 1,
+        dev: 1,
+        mode: 0o100644,
+      })
+      .mockResolvedValueOnce({
+        isSymbolicLink: () => false,
+        isFile: () => true,
+        size: 8,
+        mtimeMs: 1,
+        ctimeMs: 2,
+        ino: 1,
+        dev: 1,
+        mode: 0o100644,
+      });
+    const firstHandle = createChunkedFileHandle(Buffer.from('one\ntwo\n'));
+    const secondHandle = createChunkedFileHandle(Buffer.from('one\ntwo'));
+    secondHandle.stat.mockResolvedValue({
+      isFile: () => true,
+      size: 8,
+      mtimeMs: 1,
+      ctimeMs: 2,
+      ino: 1,
+      dev: 1,
+      mode: 0o100644,
+    });
+    gitServiceTestDoubles.open
+      .mockResolvedValueOnce(firstHandle)
+      .mockResolvedValueOnce(secondHandle);
+    const service = new GitService('/repo');
+
+    await expect(service.getDiffStats()).resolves.toMatchObject({ insertions: 2 });
+    await expect(service.getDiffStats()).resolves.toMatchObject({ insertions: 2 });
+    expect(gitServiceTestDoubles.open).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects diff stat requests when the top-level untracked scan fails', async () => {
+    const diff = vi.fn().mockResolvedValue('0\t0\ttracked.ts\n');
+    const raw = vi.fn().mockRejectedValue(new Error('ls-files failed'));
+    gitServiceTestDoubles.createSimpleGit.mockReturnValue({ diff, raw });
+
+    await expect(new GitService('/repo').getDiffStats()).rejects.toThrow('ls-files failed');
   });
 
   it('validates clone targets and forwards clone progress updates', async () => {

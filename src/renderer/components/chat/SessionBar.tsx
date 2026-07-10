@@ -66,6 +66,7 @@ export interface Session {
   backendSessionId?: string; // Backend session host ID used by the unified session API
   createdAt?: number; // Stable session creation time used for persistence metadata
   name: string;
+  defaultName?: string; // Initial provider label used to distinguish generated titles from custom labels
   agentId: string; // which agent CLI to use (e.g., 'claude', 'codex', 'gemini', 'claude-hapi', 'claude-happy')
   agentCommand: string; // the CLI command to run (e.g., 'claude', 'codex')
   customPath?: string; // custom absolute path to the agent CLI (overrides agentCommand lookup)

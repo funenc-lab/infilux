@@ -96,8 +96,11 @@ vi.mock('@/stores/agentSessions', () => ({
 const worktreeActivityState = {
   activities: {},
   diffStats: {},
+  diffStatsScopes: {},
   activityStates: {},
   fetchDiffStats: vi.fn(),
+  registerDiffStatsScope: vi.fn(),
+  unregisterDiffStatsScope: vi.fn(),
   closeAgentSessions: vi.fn(),
   closeTerminalSessions: vi.fn(),
 };
@@ -850,24 +853,36 @@ describe('TreeSidebar agent filter', () => {
     }
   });
 
-  it('skips diff stat polling while the tree sidebar is collapsed', async () => {
+  it('registers a collapsed diff stat scope without requesting stats directly', async () => {
     shouldPollValue = true;
     const view = await mountTreeSidebar({ collapsed: true });
 
     try {
+      expect(worktreeActivityState.registerDiffStatsScope).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          collapsed: true,
+          enabled: true,
+        })
+      );
       expect(worktreeActivityState.fetchDiffStats).not.toHaveBeenCalled();
     } finally {
       view.unmount();
     }
   });
 
-  it('polls diff stats immediately when the tree sidebar is expanded and polling is allowed', async () => {
+  it('registers visible worktrees for the app-level diff stat scheduler when expanded', async () => {
     shouldPollValue = true;
     const view = await mountTreeSidebar({ collapsed: false });
 
     try {
-      expect(worktreeActivityState.fetchDiffStats).toHaveBeenCalledWith(
-        expect.arrayContaining(['/repo-a/main', '/repo-a/agent-task'])
+      expect(worktreeActivityState.registerDiffStatsScope).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          collapsed: false,
+          enabled: true,
+          visiblePaths: expect.arrayContaining(['/repo-a/main', '/repo-a/agent-task']),
+        })
       );
     } finally {
       view.unmount();

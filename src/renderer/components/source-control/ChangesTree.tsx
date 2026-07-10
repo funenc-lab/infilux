@@ -13,13 +13,19 @@ import {
   Plus,
   RotateCcw,
 } from 'lucide-react';
-import { useCallback, useMemo } from 'react';
+import type { ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SmoothCollapse } from '@/components/ui/smooth-collapse';
 import { useI18n } from '@/i18n';
 import { getFileStatusTextClass } from '@/lib/fileStatusTone';
 import { cn } from '@/lib/utils';
 import { useSourceControlStore } from '@/stores/sourceControl';
+import {
+  buildChangesTree,
+  type ChangeTreeNode,
+  collectChangesTreeFolderPaths,
+} from './changesTreeModel';
 import { useChangesActions } from './useChangesActions';
 
 interface ChangesTreeProps {
@@ -44,72 +50,33 @@ const statusIcons: Record<FileChangeStatus, React.ElementType> = {
   U: FilePlus,
   X: FileWarning,
 };
+const CHANGE_TREE_COLLAPSE_DURATION_MS = 200;
 
-interface TreeNode {
-  name: string;
-  path: string;
-  type: 'file' | 'folder';
-  file?: FileChange;
-  children?: TreeNode[];
-}
+function CollapsibleChangeTreeChildren({ open, children }: { open: boolean; children: ReactNode }) {
+  const [shouldRenderChildren, setShouldRenderChildren] = useState(open);
 
-function buildTree(files: FileChange[]): TreeNode[] {
-  const root: TreeNode[] = [];
-
-  for (const file of files) {
-    const parts = file.path.split('/');
-    let currentLevel = root;
-
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      const isFile = i === parts.length - 1;
-      const currentPath = parts.slice(0, i + 1).join('/');
-
-      let node = currentLevel.find((n) => n.name === part);
-
-      if (!node) {
-        node = {
-          name: part,
-          path: currentPath,
-          type: isFile ? 'file' : 'folder',
-          ...(isFile ? { file } : { children: [] }),
-        };
-        currentLevel.push(node);
-      }
-
-      if (!isFile && node.children) {
-        currentLevel = node.children;
-      }
+  useEffect(() => {
+    if (open) {
+      setShouldRenderChildren(true);
+      return;
     }
+
+    const timer = setTimeout(
+      () => setShouldRenderChildren(false),
+      CHANGE_TREE_COLLAPSE_DURATION_MS
+    );
+    return () => clearTimeout(timer);
+  }, [open]);
+
+  if (!shouldRenderChildren) {
+    return null;
   }
 
-  return compactTree(root);
-}
-
-// 压缩只有单个子目录的节点，类似 VS Code 的 Compact Folders
-function compactTree(nodes: TreeNode[]): TreeNode[] {
-  return nodes.map((node) => {
-    if (node.type === 'file') return node;
-
-    // 递归处理子节点
-    const compactedChildren = node.children ? compactTree(node.children) : [];
-
-    // 如果只有一个子节点且是目录，则合并
-    if (compactedChildren.length === 1 && compactedChildren[0].type === 'folder') {
-      const child = compactedChildren[0];
-      return {
-        ...child,
-        name: `${node.name}/${child.name}`,
-        // path 保持为最深层的路径，用于展开/折叠状态
-      };
-    }
-
-    return { ...node, children: compactedChildren };
-  });
+  return <SmoothCollapse open={open}>{children}</SmoothCollapse>;
 }
 
 interface FileTreeNodeProps {
-  node: TreeNode;
+  node: ChangeTreeNode;
   level: number;
   staged: boolean;
   selectedFile: { path: string; staged: boolean } | null;
@@ -118,17 +85,6 @@ interface FileTreeNodeProps {
   actionIcon: React.ElementType;
   actionTitle: string;
   onDiscard?: (paths: string[]) => void;
-}
-
-// 收集文件夹下所有文件路径
-function collectFilePaths(node: TreeNode): string[] {
-  if (node.type === 'file' && node.file) {
-    return [node.file.path];
-  }
-  if (node.children) {
-    return node.children.flatMap(collectFilePaths);
-  }
-  return [];
 }
 
 function FileTreeNode({
@@ -143,12 +99,12 @@ function FileTreeNode({
   onDiscard,
 }: FileTreeNodeProps) {
   const { t } = useI18n();
-  const { expandedFolders, toggleFolder } = useSourceControlStore();
-  const isExpanded = expandedFolders.has(node.path);
+  const isExpanded = useSourceControlStore((state) => state.expandedFolders.has(node.path));
+  const toggleFolder = useSourceControlStore((state) => state.toggleFolder);
 
   if (node.type === 'folder') {
     const Icon = isExpanded ? FolderOpen : Folder;
-    const folderPaths = collectFilePaths(node);
+    const folderPaths = node.filePaths;
 
     return (
       <>
@@ -201,9 +157,9 @@ function FileTreeNode({
         </div>
 
         {node.children && (
-          <SmoothCollapse open={isExpanded}>
+          <CollapsibleChangeTreeChildren open={isExpanded}>
             {node.children.map((child) => (
-              <FileTreeNode
+              <MemoizedFileTreeNode
                 key={child.path}
                 node={child}
                 level={level + 1}
@@ -216,7 +172,7 @@ function FileTreeNode({
                 onDiscard={onDiscard}
               />
             ))}
-          </SmoothCollapse>
+          </CollapsibleChangeTreeChildren>
         )}
       </>
     );
@@ -288,6 +244,8 @@ function FileTreeNode({
   );
 }
 
+const MemoizedFileTreeNode = memo(FileTreeNode);
+
 export function ChangesTree({
   staged,
   trackedChanges,
@@ -300,27 +258,21 @@ export function ChangesTree({
   onDeleteUntracked,
 }: ChangesTreeProps) {
   const { t } = useI18n();
-  const { expandedFolders, toggleFolder } = useSourceControlStore();
-  const stagedTree = useMemo(() => buildTree(staged), [staged]);
-  const trackedTree = useMemo(() => buildTree(trackedChanges), [trackedChanges]);
-  const untrackedTree = useMemo(() => buildTree(untrackedChanges), [untrackedChanges]);
+  const expandedFolders = useSourceControlStore((state) => state.expandedFolders);
+  const setFoldersExpanded = useSourceControlStore((state) => state.setFoldersExpanded);
+  const stagedTree = useMemo(() => buildChangesTree(staged), [staged]);
+  const trackedTree = useMemo(() => buildChangesTree(trackedChanges), [trackedChanges]);
+  const untrackedTree = useMemo(() => buildChangesTree(untrackedChanges), [untrackedChanges]);
 
   // Collect all folder paths from all trees
   const allFolderPaths = useMemo(() => {
-    const folders = new Set<string>();
-    const collectFolders = (nodes: TreeNode[]) => {
-      for (const node of nodes) {
-        if (node.type === 'folder') {
-          folders.add(node.path);
-          if (node.children) {
-            collectFolders(node.children);
-          }
-        }
-      }
-    };
-    collectFolders(stagedTree);
-    collectFolders(trackedTree);
-    collectFolders(untrackedTree);
+    const folders = collectChangesTreeFolderPaths(stagedTree);
+    for (const folder of collectChangesTreeFolderPaths(trackedTree)) {
+      folders.add(folder);
+    }
+    for (const folder of collectChangesTreeFolderPaths(untrackedTree)) {
+      folders.add(folder);
+    }
     return folders;
   }, [stagedTree, trackedTree, untrackedTree]);
 
@@ -350,22 +302,8 @@ export function ChangesTree({
   });
 
   const handleToggleAll = useCallback(() => {
-    if (allExpanded) {
-      // Collapse all
-      for (const folder of allFolderPaths) {
-        if (expandedFolders.has(folder)) {
-          toggleFolder(folder);
-        }
-      }
-    } else {
-      // Expand all
-      for (const folder of allFolderPaths) {
-        if (!expandedFolders.has(folder)) {
-          toggleFolder(folder);
-        }
-      }
-    }
-  }, [allExpanded, allFolderPaths, expandedFolders, toggleFolder]);
+    setFoldersExpanded(allFolderPaths, !allExpanded);
+  }, [allExpanded, allFolderPaths, setFoldersExpanded]);
 
   const isEmpty =
     staged.length === 0 && trackedChanges.length === 0 && untrackedChanges.length === 0;
@@ -422,7 +360,7 @@ export function ChangesTree({
             </div>
             <div className="space-y-0.5">
               {stagedTree.map((node) => (
-                <FileTreeNode
+                <MemoizedFileTreeNode
                   key={node.path}
                   node={node}
                   level={0}
@@ -465,7 +403,7 @@ export function ChangesTree({
             </div>
             <div className="space-y-0.5">
               {trackedTree.map((node) => (
-                <FileTreeNode
+                <MemoizedFileTreeNode
                   key={node.path}
                   node={node}
                   level={0}
@@ -511,7 +449,7 @@ export function ChangesTree({
             </div>
             <div className="space-y-0.5">
               {untrackedTree.map((node) => (
-                <FileTreeNode
+                <MemoizedFileTreeNode
                   key={node.path}
                   node={node}
                   level={0}

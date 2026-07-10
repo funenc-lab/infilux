@@ -5,8 +5,13 @@ export type XtermViewportSize = {
   rows: number;
 };
 
+export type XtermViewportSyncSnapshot = XtermViewportSize & {
+  sessionId: string;
+};
+
 type SyncXtermViewportToSessionOptions = {
   fitViewport: () => void;
+  lastSyncedViewport: { current: XtermViewportSyncSnapshot | null };
   measureViewport: () => XtermViewportSize | null;
   resizeSession: (sessionId: string, size: XtermViewportSize) => void;
   runtimeState: SessionRuntimeState;
@@ -25,6 +30,7 @@ function isValidViewportSize(size: XtermViewportSize | null): size is XtermViewp
 
 export function syncXtermViewportToSession({
   fitViewport,
+  lastSyncedViewport,
   measureViewport,
   resizeSession,
   runtimeState,
@@ -41,6 +47,19 @@ export function syncXtermViewportToSession({
     return false;
   }
 
+  const previousViewport = lastSyncedViewport.current;
+  if (
+    previousViewport?.sessionId === sessionId &&
+    previousViewport.cols === viewportSize.cols &&
+    previousViewport.rows === viewportSize.rows
+  ) {
+    return false;
+  }
+
   resizeSession(sessionId, viewportSize);
+  lastSyncedViewport.current = {
+    sessionId,
+    ...viewportSize,
+  };
   return true;
 }
