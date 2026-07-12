@@ -24,6 +24,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const list = vi.fn();
   const getActivity = vi.fn();
   const getSessionRuntimeInfo = vi.fn();
+  const getTranscriptPage = vi.fn();
   const destroyAllLocal = vi.fn();
   const destroyAllLocalAndWait = vi.fn();
   const prepareAgentCapabilityLaunch = vi.fn();
@@ -66,6 +67,13 @@ const sessionTestDoubles = vi.hoisted(() => {
       pid: 1234,
       isActive: false,
       isAlive: true,
+    });
+
+    getTranscriptPage.mockReset();
+    getTranscriptPage.mockResolvedValue({
+      text: 'latest archived output',
+      totalBytes: 4096,
+      health: 'complete',
     });
 
     destroyAllLocal.mockReset();
@@ -133,6 +141,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     list,
     getActivity,
     getSessionRuntimeInfo,
+    getTranscriptPage,
     destroyAllLocal,
     destroyAllLocalAndWait,
     prepareAgentCapabilityLaunch,
@@ -165,6 +174,7 @@ vi.mock('../../services/session/SessionManager', () => ({
     list: sessionTestDoubles.list,
     getActivity: sessionTestDoubles.getActivity,
     getSessionRuntimeInfo: sessionTestDoubles.getSessionRuntimeInfo,
+    getTranscriptPage: sessionTestDoubles.getTranscriptPage,
     destroyAllLocal: sessionTestDoubles.destroyAllLocal,
     destroyAllLocalAndWait: sessionTestDoubles.destroyAllLocalAndWait,
   },
@@ -248,6 +258,7 @@ describe('session IPC handlers', () => {
     const listHandler = getHandler(IPC_CHANNELS.SESSION_LIST);
     const activityHandler = getHandler(IPC_CHANNELS.SESSION_GET_ACTIVITY);
     const runtimeInfoHandler = getHandler(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO);
+    const transcriptHandler = getHandler(IPC_CHANNELS.SESSION_GET_TRANSCRIPT_PAGE);
 
     expect(await createHandler(event, { cwd: '/repo', shell: '/bin/zsh' })).toEqual({
       session: {
@@ -268,6 +279,20 @@ describe('session IPC handlers', () => {
       isActive: false,
       isAlive: true,
     });
+    expect(
+      await transcriptHandler(
+        {},
+        {
+          sessionId: 'session-1',
+          beforeByteOffset: 4096,
+          maxBytes: 1024,
+        }
+      )
+    ).toEqual({
+      text: 'latest archived output',
+      totalBytes: 4096,
+      health: 'complete',
+    });
 
     expect(sessionTestDoubles.create).toHaveBeenCalledWith(event.sender, {
       cwd: '/repo',
@@ -284,6 +309,11 @@ describe('session IPC handlers', () => {
     expect(sessionTestDoubles.list).toHaveBeenCalledWith(event.sender);
     expect(sessionTestDoubles.getActivity).toHaveBeenCalledWith('session-1');
     expect(sessionTestDoubles.getSessionRuntimeInfo).toHaveBeenCalledWith('session-1');
+    expect(sessionTestDoubles.getTranscriptPage).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      beforeByteOffset: 4096,
+      maxBytes: 1024,
+    });
 
     destroyAllTerminals();
     await destroyAllTerminalsAndWait();

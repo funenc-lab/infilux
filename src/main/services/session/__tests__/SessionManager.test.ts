@@ -1,5 +1,8 @@
 import { IPC_CHANNELS, type SessionAttachResult, type SessionDescriptor } from '@shared/types';
-import { TERMINAL_SESSION_REPLAY_CHAR_LIMIT } from '@shared/utils/agentTerminalHistoryPolicy';
+import {
+  AGENT_SESSION_REPLAY_CHAR_LIMIT,
+  TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+} from '@shared/utils/agentTerminalHistoryPolicy';
 import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,6 +27,8 @@ const sessionTestDoubles = vi.hoisted(() => {
   class MockBrowserWindow {
     id: number;
     webContents: MockWebContents;
+    private destroyed = false;
+    private readonly closedListeners = new Set<() => void>();
 
     constructor(id: number) {
       this.id = id;
@@ -39,7 +44,33 @@ const sessionTestDoubles = vi.hoisted(() => {
     }
 
     isDestroyed(): boolean {
-      return false;
+      return this.destroyed;
+    }
+
+    on(event: string, listener: () => void): this {
+      if (event === 'closed') {
+        this.closedListeners.add(listener);
+      }
+      return this;
+    }
+
+    removeListener(event: string, listener: () => void): this {
+      if (event === 'closed') {
+        this.closedListeners.delete(listener);
+      }
+      return this;
+    }
+
+    emitClosed(): void {
+      this.destroyed = true;
+      for (const listener of this.closedListeners) {
+        listener();
+      }
+      this.closedListeners.clear();
+    }
+
+    getClosedListenerCount(): number {
+      return this.closedListeners.size;
     }
 
     static fromId(id: number) {
@@ -136,6 +167,10 @@ const sessionTestDoubles = vi.hoisted(() => {
   const supervisorOnExit = vi.fn();
   const supervisorOnDisconnect = vi.fn();
   const persistentAbandonSession = vi.fn();
+  const transcriptArchiveOpen = vi.fn();
+  const transcriptArchiveAppend = vi.fn();
+  const transcriptArchiveFlush = vi.fn();
+  const transcriptArchiveReadPage = vi.fn();
   const tmuxEnsureServerHealthy = vi.fn();
   const tmuxProbeSession = vi.fn();
   const tmuxCaptureSessionHistory = vi.fn();
@@ -211,6 +246,16 @@ const sessionTestDoubles = vi.hoisted(() => {
     supervisorOnExit,
     supervisorOnDisconnect,
     persistentAbandonSession,
+    transcriptArchiveOpen,
+    transcriptArchiveAppend,
+    transcriptArchiveFlush,
+    transcriptArchiveReadPage,
+    sessionTranscriptArchive: {
+      open: transcriptArchiveOpen,
+      append: transcriptArchiveAppend,
+      flush: transcriptArchiveFlush,
+      readPage: transcriptArchiveReadPage,
+    },
     tmuxEnsureServerHealthy,
     tmuxProbeSession,
     tmuxCaptureSessionHistory,
@@ -254,6 +299,11 @@ vi.mock('../PersistentAgentSessionService', () => ({
   persistentAgentSessionService: {
     abandonSession: sessionTestDoubles.persistentAbandonSession,
   },
+}));
+
+vi.mock('../SessionTranscriptArchive', () => ({
+  MAX_SESSION_TRANSCRIPT_PAGE_BYTES: 256 * 1024,
+  sessionTranscriptArchive: sessionTestDoubles.sessionTranscriptArchive,
 }));
 
 vi.mock('../../cli/TmuxDetector', () => ({
@@ -306,6 +356,22 @@ function getPrivateMethod<Args extends unknown[], Return>(
   name: string
 ): (...args: Args) => Return {
   return Reflect.get(manager, name).bind(manager) as (...args: Args) => Return;
+}
+
+function emitSessionData(
+  manager: SessionManager,
+  sessionId: string,
+  data: string,
+  windowIds?: Set<number>
+): void {
+  const emitToWindows = getPrivateMethod<
+    [Set<number> | undefined, 'session:data', { sessionId: string; data: string }],
+    void
+  >(manager, 'emitToWindows');
+  const targetWindowIds =
+    windowIds ?? getManagedSessions(manager).get(sessionId)?.attachedWindowIds;
+
+  emitToWindows(targetWindowIds, 'session:data', { sessionId, data });
 }
 
 function makeRemoteDescriptor(overrides: Partial<SessionDescriptor> = {}): SessionDescriptor {
@@ -388,6 +454,20 @@ describe('SessionManager', () => {
     sessionTestDoubles.supervisorOnDisconnect.mockReturnValue(() => {});
     sessionTestDoubles.persistentAbandonSession.mockReset();
     sessionTestDoubles.persistentAbandonSession.mockResolvedValue([]);
+    sessionTestDoubles.transcriptArchiveOpen.mockReset();
+    sessionTestDoubles.transcriptArchiveOpen.mockResolvedValue(undefined);
+    sessionTestDoubles.transcriptArchiveAppend.mockReset();
+    sessionTestDoubles.transcriptArchiveFlush.mockReset();
+    sessionTestDoubles.transcriptArchiveFlush.mockResolvedValue(undefined);
+    sessionTestDoubles.transcriptArchiveReadPage.mockReset();
+    sessionTestDoubles.transcriptArchiveReadPage.mockResolvedValue({
+      text: 'archived latest output',
+      startByteOffset: 512,
+      endByteOffset: 1024,
+      hasMore: true,
+      totalBytes: 1024,
+      health: 'complete',
+    });
     sessionTestDoubles.tmuxEnsureServerHealthy.mockReset();
     sessionTestDoubles.tmuxEnsureServerHealthy.mockResolvedValue(true);
     sessionTestDoubles.tmuxProbeSession.mockReset();
@@ -453,6 +533,90 @@ describe('SessionManager', () => {
 
     await expect(manager.attach(1, { sessionId: terminalSessionId })).resolves.toMatchObject({
       replay: terminalOutput.slice(-TERMINAL_SESSION_REPLAY_CHAR_LIMIT),
+    });
+  });
+
+  it('archives local agent output before dispatching exit', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-agent', kind: 'agent' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    let resolveFlush: (() => void) | undefined;
+    sessionTestDoubles.transcriptArchiveFlush.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFlush = resolve;
+        })
+    );
+
+    pty.emitData(sessionId, 'latest agent output');
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    pty.emitExit(sessionId, 0);
+
+    expect(sessionTestDoubles.transcriptArchiveOpen).toHaveBeenCalledWith(sessionId);
+    expect(sessionTestDoubles.transcriptArchiveAppend).toHaveBeenCalledWith(
+      sessionId,
+      'latest agent output'
+    );
+    expect(sessionTestDoubles.transcriptArchiveFlush).toHaveBeenCalledWith(sessionId);
+    expect(getWindowSendCalls(1)).not.toContainEqual([
+      'session:exit',
+      { sessionId, exitCode: 0, signal: undefined },
+    ]);
+
+    resolveFlush?.();
+    await flushAsyncWork();
+
+    expect(getWindowSendCalls(1)).toContainEqual([
+      'session:exit',
+      { sessionId, exitCode: 0, signal: undefined },
+    ]);
+  });
+
+  it('reads bounded local agent transcript pages from the archive', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-agent', kind: 'agent' });
+    const request = {
+      sessionId: opened.session.sessionId,
+      beforeByteOffset: 1024,
+      maxBytes: 512,
+    };
+
+    await expect(manager.getTranscriptPage(request)).resolves.toEqual({
+      text: 'archived latest output',
+      nextBeforeByteOffset: 512,
+      totalBytes: 1024,
+      health: 'complete',
+    });
+
+    expect(sessionTestDoubles.transcriptArchiveReadPage).toHaveBeenCalledWith(request);
+  });
+
+  it('reads a local agent transcript after its PTY has exited', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-agent', kind: 'agent' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    pty.emitExit(sessionId, 0);
+    await flushAsyncWork();
+
+    await expect(manager.getTranscriptPage({ sessionId, maxBytes: 512 })).resolves.toEqual({
+      text: 'archived latest output',
+      nextBeforeByteOffset: 512,
+      totalBytes: 1024,
+      health: 'complete',
+    });
+    expect(sessionTestDoubles.transcriptArchiveReadPage).toHaveBeenCalledWith({
+      sessionId,
+      beforeByteOffset: undefined,
+      maxBytes: 512,
     });
   });
 
@@ -606,6 +770,36 @@ describe('SessionManager', () => {
       'enso'
     );
     expect(attached.replay).toBe('RECOVERY-LINE-001\nRECOVERY-LINE-002\nprompt> ');
+  });
+
+  it('archives complete recovered tmux history while retaining a bounded live replay', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = `H${'x'.repeat(AGENT_SESSION_REPLAY_CHAR_LIMIT + 1024)}`;
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'infilux-ui-session-full-history',
+      },
+    });
+
+    await expect(manager.attach(1, { sessionId: opened.session.sessionId })).resolves.toMatchObject(
+      {
+        replay: capturedHistory.slice(-AGENT_SESSION_REPLAY_CHAR_LIMIT),
+      }
+    );
+    const archivedHistory = sessionTestDoubles.transcriptArchiveAppend.mock.calls.find(
+      ([sessionId]) => sessionId === opened.session.sessionId
+    )?.[1];
+    expect(archivedHistory).toHaveLength(capturedHistory.length);
+    expect(archivedHistory?.startsWith('H')).toBe(true);
+    expect(archivedHistory?.endsWith('x'.repeat(1024))).toBe(true);
   });
 
   it('records tmux agent startup stages before creating the local pty', async () => {
@@ -902,6 +1096,37 @@ describe('SessionManager', () => {
     await vi.advanceTimersByTimeAsync(16);
 
     expect(getWindowSendCalls(1)).toEqual([]);
+  });
+
+  it('drops queued local output immediately when its window closes before batch delivery', async () => {
+    const staleWindow = createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-output-unavailable' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const buildDiagnosticsSnapshot = getPrivateMethod<[], Record<string, unknown>>(
+      manager,
+      'buildDiagnosticsSnapshot'
+    );
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    staleWindow.webContents.send.mockClear();
+
+    pty.emitData(sessionId, 'queued output');
+    staleWindow.emitClosed();
+
+    expect(buildDiagnosticsSnapshot()).toMatchObject({
+      sessionOutputBatcher: {
+        pendingBatchCount: 0,
+        pendingCharCount: 0,
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(16);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(staleWindow.webContents.send).not.toHaveBeenCalled();
   });
 
   it('splits an oversized local output chunk into bounded renderer payloads', async () => {
@@ -1274,6 +1499,39 @@ describe('SessionManager', () => {
     }
   });
 
+  it('coalesces consecutive supervisor output chunks before sending them to the renderer', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+      const onData = sessionTestDoubles.supervisorOnData.mock.calls[0]?.[0] as
+        | ((event: { sessionId: string; data: string }) => void)
+        | undefined;
+
+      onData?.({ sessionId: opened.session.sessionId, data: 'supervisor ' });
+      onData?.({ sessionId: opened.session.sessionId, data: 'output' });
+
+      expect(getWindowSendCalls(1)).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(16);
+
+      expect(getWindowSendCalls(1)).toEqual([
+        [
+          IPC_CHANNELS.SESSION_DATA,
+          { sessionId: opened.session.sessionId, data: 'supervisor output' },
+        ],
+      ]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
   it('ignores supervisor runtime data for unknown sessions', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -1531,6 +1789,140 @@ describe('SessionManager', () => {
         sessionId: 'remote-ignore',
       }),
     ]);
+  });
+
+  it('coalesces consecutive remote output chunks before sending them to the renderer', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-batch', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({ sessionId: 'remote-batch', cwd: '/workspace' });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: '' };
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, { sessionId: 'remote-batch', cwd: remotePath });
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    const onData = sessionTestDoubles.remoteDataListeners.get('conn-batch');
+    onData?.({ sessionId: 'remote-batch', data: 'remote ' });
+    onData?.({ sessionId: 'remote-batch', data: 'output' });
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId: 'remote-batch', data: 'remote output' }],
+    ]);
+  });
+
+  it('flushes queued remote output before emitting its exit event', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-exit-flush', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-exit-flush',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: '' };
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, { sessionId: 'remote-exit-flush', cwd: remotePath });
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    sessionTestDoubles.remoteDataListeners.get('conn-exit-flush')?.({
+      sessionId: 'remote-exit-flush',
+      data: 'final output',
+    });
+    sessionTestDoubles.remoteExitListeners.get('conn-exit-flush')?.({
+      sessionId: 'remote-exit-flush',
+      exitCode: 0,
+    });
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_STATE, { sessionId: 'remote-exit-flush', state: 'dead' }],
+      [IPC_CHANNELS.SESSION_DATA, { sessionId: 'remote-exit-flush', data: 'final output' }],
+      [IPC_CHANNELS.SESSION_EXIT, { sessionId: 'remote-exit-flush', exitCode: 0 }],
+    ]);
+  });
+
+  it('flushes queued remote output before its exit event when the session is killed', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-kill-flush', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-kill-flush',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: '' };
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, { sessionId: 'remote-kill-flush', cwd: remotePath });
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    sessionTestDoubles.remoteDataListeners.get('conn-kill-flush')?.({
+      sessionId: 'remote-kill-flush',
+      data: 'final output',
+    });
+    await manager.kill('remote-kill-flush');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_STATE, { sessionId: 'remote-kill-flush', state: 'dead' }],
+      [IPC_CHANNELS.SESSION_DATA, { sessionId: 'remote-kill-flush', data: 'final output' }],
+      [IPC_CHANNELS.SESSION_EXIT, { sessionId: 'remote-kill-flush', exitCode: 0 }],
+    ]);
+  });
+
+  it('drops queued remote output when the renderer detaches before the batch deadline', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-detach-batch', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-detach-batch',
+      cwd: '/workspace',
+    });
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method === 'session:attach') {
+          return { session: remoteDescriptor, replay: '' };
+        }
+        return undefined;
+      }
+    );
+
+    await manager.attach(1, { sessionId: 'remote-detach-batch', cwd: remotePath });
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    sessionTestDoubles.remoteDataListeners.get('conn-detach-batch')?.({
+      sessionId: 'remote-detach-batch',
+      data: 'discarded output',
+    });
+    await manager.detach(1, 'remote-detach-batch');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
   });
 
   it('reuses a pending remote subscription setup across concurrent attach calls', async () => {
@@ -1870,6 +2262,89 @@ describe('SessionManager', () => {
     ).rejects.toThrow('attach failed while connected');
   });
 
+  it('rolls back a new remote attachment and window subscription when healthy reattach fails', async () => {
+    const firstWindow = createWindow(1);
+    const secondWindow = createWindow(2);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-healthy-rollback', '/workspace');
+    const remoteDescriptor = makeRemoteDescriptor({
+      sessionId: 'remote-healthy-rollback',
+      cwd: '/workspace',
+    });
+    const buildDiagnosticsSnapshot = getPrivateMethod<[], Record<string, unknown>>(
+      manager,
+      'buildDiagnosticsSnapshot'
+    );
+    let attachCallCount = 0;
+    let rejectReattach: ((reason?: unknown) => void) | undefined;
+
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation(
+      async (_connectionId, method) => {
+        if (method !== 'session:attach') {
+          return undefined;
+        }
+
+        attachCallCount += 1;
+        if (attachCallCount === 1) {
+          return { session: remoteDescriptor, replay: 'cached replay' };
+        }
+
+        return new Promise<never>((_, reject) => {
+          rejectReattach = reject;
+        });
+      }
+    );
+    sessionTestDoubles.remoteConnectionManager.getStatus.mockReturnValue({
+      connected: true,
+      recoverable: true,
+    });
+
+    await manager.attach(1, {
+      sessionId: 'remote-healthy-rollback',
+      cwd: remotePath,
+    });
+
+    const reattach = manager.attach(2, { sessionId: 'remote-healthy-rollback' });
+    await flushAsyncWork();
+    sessionTestDoubles.remoteDataListeners.get('conn-healthy-rollback')?.({
+      sessionId: 'remote-healthy-rollback',
+      data: 'pending output',
+    });
+
+    expect(buildDiagnosticsSnapshot()).toMatchObject({
+      sessionOutputBatcher: {
+        pendingBatchCount: 2,
+        pendingCharCount: 'pending output'.length * 2,
+      },
+    });
+    expect(secondWindow.getClosedListenerCount()).toBe(1);
+
+    rejectReattach?.(new Error('attach failed while connected'));
+
+    await expect(reattach).rejects.toThrow('attach failed while connected');
+
+    expect(manager.list(2)).toEqual([]);
+    expect(secondWindow.getClosedListenerCount()).toBe(0);
+    expect(manager.list(1)).toEqual([
+      expect.objectContaining({ sessionId: 'remote-healthy-rollback' }),
+    ]);
+    expect(firstWindow.getClosedListenerCount()).toBe(1);
+    expect(buildDiagnosticsSnapshot()).toMatchObject({
+      sessionOutputBatcher: {
+        pendingBatchCount: 1,
+        pendingCharCount: 'pending output'.length,
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_DATA,
+      { sessionId: 'remote-healthy-rollback', data: 'pending output' },
+    ]);
+    expect(getWindowSendCalls(2)).toEqual([]);
+  });
+
   it('emits dead state when supervisor-backed write and resize operations fail', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -2034,6 +2509,8 @@ describe('SessionManager', () => {
       data: ' world',
     });
 
+    await vi.advanceTimersByTimeAsync(16);
+
     expect(getWindowSendCalls(1)).toContainEqual([
       IPC_CHANNELS.SESSION_DATA,
       { sessionId: 'remote-3', data: ' world' },
@@ -2055,6 +2532,7 @@ describe('SessionManager', () => {
       recoverable: true,
     });
     await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(16);
 
     expect(getWindowSendCalls(1)).toContainEqual([
       IPC_CHANNELS.SESSION_DATA,
@@ -2518,7 +2996,6 @@ describe('SessionManager', () => {
     try {
       const opened = await manager.create(1, { cwd: '/repo-a' });
       await manager.attach(2, { sessionId: opened.session.sessionId });
-      const emitData = getPrivateMethod<[string, string, Set<number>?], void>(manager, 'emitData');
       const buildDiagnosticsSnapshot = getPrivateMethod<[], Record<string, unknown>>(
         manager,
         'buildDiagnosticsSnapshot'
@@ -2533,8 +3010,8 @@ describe('SessionManager', () => {
         throw new Error('Render frame was disposed before WebFrameMain could be accessed');
       });
 
-      emitData(opened.session.sessionId, 'first payload');
-      emitData(opened.session.sessionId, 'second payload');
+      emitSessionData(manager, opened.session.sessionId, 'first payload');
+      emitSessionData(manager, opened.session.sessionId, 'second payload');
 
       expect(windowOne.webContents.send).toHaveBeenCalledTimes(1);
       expect(getWindowSendCalls(2)).toEqual([
@@ -2570,7 +3047,6 @@ describe('SessionManager', () => {
 
     const opened = await manager.create(1, { cwd: '/repo-a' });
     await manager.attach(2, { sessionId: opened.session.sessionId });
-    const emitData = getPrivateMethod<[string, string, Set<number>?], void>(manager, 'emitData');
     const sessions = getManagedSessions(manager);
     const session = sessions.get(opened.session.sessionId);
     if (!session) {
@@ -2579,8 +3055,8 @@ describe('SessionManager', () => {
 
     staleWindow.webContents.mainFrame.isDestroyed = () => true;
 
-    emitData(opened.session.sessionId, 'first payload');
-    emitData(opened.session.sessionId, 'second payload');
+    emitSessionData(manager, opened.session.sessionId, 'first payload');
+    emitSessionData(manager, opened.session.sessionId, 'second payload');
 
     expect(staleWindow.webContents.send).not.toHaveBeenCalled();
     expect(getWindowSendCalls(2)).toEqual([
@@ -2598,11 +3074,10 @@ describe('SessionManager', () => {
     const opened = await manager.create(1, { cwd: '/repo-orphaned-pty', kind: 'agent' });
     const sessionId = opened.session.sessionId;
     const pty = sessionTestDoubles.ptyInstances[0];
-    const emitData = getPrivateMethod<[string, string, Set<number>?], void>(manager, 'emitData');
 
     staleWindow.webContents.mainFrame.isDestroyed = () => true;
 
-    emitData(sessionId, 'payload after renderer crash');
+    emitSessionData(manager, sessionId, 'payload after renderer crash');
 
     expect(staleWindow.webContents.send).not.toHaveBeenCalled();
     expect(pty.destroy).toHaveBeenCalledWith(sessionId);

@@ -9,11 +9,13 @@ import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { requestMainProcessDiagnosticsCapture } from '../../utils/mainProcessDiagnostics';
 import { SupervisorSessionHost } from './hosts/SupervisorSessionHost';
 import { TmuxSessionHost } from './hosts/TmuxSessionHost';
+import { localSupervisorRuntime } from './LocalSupervisorRuntime';
 import {
   type PersistentAgentSessionRepository,
   persistentAgentSessionRepository,
 } from './PersistentAgentSessionRepository';
 import type { PersistentSessionHost } from './SessionHost';
+import { sessionTranscriptArchive } from './SessionTranscriptArchive';
 
 function compareByUpdatedAtDesc(
   left: PersistentAgentSessionRecord,
@@ -139,12 +141,31 @@ type PersistentAgentSessionRepositoryPort = Pick<
   'listSessions' | 'listCachedSessions' | 'getSession' | 'upsertSession' | 'deleteSession'
 >;
 
+type PersistentAgentTranscriptDeleter = (record: PersistentAgentSessionRecord) => Promise<void>;
+
+async function deletePersistentAgentTranscript(
+  record: PersistentAgentSessionRecord
+): Promise<void> {
+  const sessionId = record.backendSessionId;
+  if (!sessionId) {
+    return;
+  }
+
+  if (record.hostKind === 'supervisor') {
+    await localSupervisorRuntime.deleteTranscript(sessionId);
+    return;
+  }
+
+  await sessionTranscriptArchive.delete(sessionId);
+}
+
 export class PersistentAgentSessionService {
   constructor(
     private readonly repository: PersistentAgentSessionRepositoryPort = persistentAgentSessionRepository,
     private readonly resolveHost: (
       record: PersistentAgentSessionRecord
-    ) => PersistentSessionHost = defaultHostResolver
+    ) => PersistentSessionHost = defaultHostResolver,
+    private readonly deleteTranscript: PersistentAgentTranscriptDeleter = deletePersistentAgentTranscript
   ) {}
 
   listCachedSessionsSync(): PersistentAgentSessionRecord[] {
@@ -176,6 +197,10 @@ export class PersistentAgentSessionService {
   }
 
   async abandonSession(uiSessionId: string): Promise<PersistentAgentSessionRecord[]> {
+    const record = await this.repository.getSession(uiSessionId);
+    if (record) {
+      await this.deleteTranscript(record);
+    }
     await this.repository.deleteSession(uiSessionId);
     return this.listSessions();
   }

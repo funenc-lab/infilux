@@ -85,6 +85,8 @@ import type {
   SessionStateEvent,
   SessionTodoProject,
   SessionTodoTask,
+  SessionTranscriptPage,
+  SessionTranscriptPageRequest,
   ShellConfig,
   ShellInfo,
   TempWorkspaceCheckResult,
@@ -548,6 +550,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_ACTIVITY, sessionId),
     getRuntimeInfo: (sessionId: string): Promise<SessionRuntimeInfo | null> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO, sessionId),
+    getTranscriptPage: (request: SessionTranscriptPageRequest): Promise<SessionTranscriptPage> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_TRANSCRIPT_PAGE, request),
     onData: (callback: (event: SessionDataEvent) => void): (() => void) =>
       sessionEventRouter.onData(callback),
     onExit: (callback: (event: SessionExitEvent) => void): (() => void) =>

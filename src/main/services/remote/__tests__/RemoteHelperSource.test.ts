@@ -7,7 +7,172 @@ import { describe, expect, it } from 'vitest';
 import pkg from '../../../../../package.json';
 import { getRemoteServerSource, REMOTE_SERVER_VERSION } from '../RemoteHelperSource';
 
+type GeneratedSession = {
+  sessionId: string;
+  kind: 'agent' | 'terminal';
+  replay: string;
+  lastDataAt: number;
+  streamState: 'attaching' | 'buffering' | 'live';
+  attachCount: number;
+  pendingExit: { exitCode: number; signal?: number } | null;
+  writable: null;
+};
+
+type GeneratedSessionEvent = {
+  event: string;
+  payload: { sessionId: string; data?: string; exitCode?: number; signal?: number };
+};
+
+type GeneratedSessionFunctions = {
+  activateSessionAfterAttach: (sessionId: string, replayLength: number) => void;
+  appendReplay: (session: GeneratedSession, chunk: string) => void;
+};
+
+type GeneratedSessionFactory = (
+  state: { clients: Set<unknown>; sessions: Map<string, GeneratedSession> },
+  sessionOutputQueues: Map<string, { data: string; timer: unknown }>,
+  broadcast: (event: string, payload: GeneratedSessionEvent['payload']) => void,
+  setTimeout: (callback: () => void, delay: number) => unknown,
+  clearTimeout: (timer: unknown) => void,
+  terminalReplayLimit: number,
+  agentReplayLimit: number
+) => GeneratedSessionFunctions;
+
+function createGeneratedSessionFunctions(source: string): GeneratedSessionFactory {
+  const helperStart = source.indexOf('function isHighSurrogate(code) {');
+  const helperEnd = source.indexOf('function resolvePathWithinRoot', helperStart);
+  const start = source.indexOf('function getSessionReplayCharLimit(session) {');
+  const end = source.indexOf('function pauseAttachedSessions() {');
+
+  expect(helperStart).toBeGreaterThan(-1);
+  expect(helperEnd).toBeGreaterThan(helperStart);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  const helperSource = source.slice(helperStart, helperEnd);
+  const sessionSource = source.slice(start, end);
+  const factory = new Function(
+    'state',
+    'sessionOutputQueues',
+    'broadcast',
+    'setTimeout',
+    'clearTimeout',
+    'TERMINAL_SESSION_REPLAY_CHAR_LIMIT',
+    'AGENT_SESSION_REPLAY_CHAR_LIMIT',
+    `
+      const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
+      const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
+      const isSessionTranscriptAgent = (session) => Boolean(session && session.kind === 'agent');
+      const flushSessionTranscript = async () => true;
+      ${helperSource}
+      ${sessionSource}
+      return { activateSessionAfterAttach, appendReplay };
+    `
+  ) as GeneratedSessionFactory;
+
+  return factory;
+}
+
 describe('getRemoteServerSource', () => {
+  it('parses the generated remote helper source', () => {
+    const source = getRemoteServerSource();
+
+    expect(() => new Function(source.replace(/^#!.*\r?\n/, ''))).not.toThrow();
+  });
+
+  it('batches attach delta before a pending exit without splitting surrogate pairs', () => {
+    const source = getRemoteServerSource();
+    const createSessionFunctions = createGeneratedSessionFunctions(source);
+    const sessionId = 'session-1';
+    const delta = `${'x'.repeat(64 * 1024 - 1)}😀tail`;
+    const session: GeneratedSession = {
+      sessionId,
+      kind: 'terminal',
+      replay: delta,
+      lastDataAt: 0,
+      streamState: 'attaching',
+      attachCount: 1,
+      pendingExit: { exitCode: 0 },
+      writable: null,
+    };
+    const state = {
+      clients: new Set<unknown>([{}]),
+      sessions: new Map<string, GeneratedSession>([[sessionId, session]]),
+    };
+    const sessionOutputQueues = new Map<string, { data: string; timer: unknown }>();
+    const events: GeneratedSessionEvent[] = [];
+    const { activateSessionAfterAttach } = createSessionFunctions(
+      state,
+      sessionOutputQueues,
+      (event, payload) => events.push({ event, payload }),
+      () => 0,
+      () => {},
+      TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+      AGENT_SESSION_REPLAY_CHAR_LIMIT
+    );
+
+    activateSessionAfterAttach(sessionId, 0);
+
+    const dataEvents = events.filter((event) => event.event === 'session:data');
+    const exitEventIndex = events.findIndex((event) => event.event === 'session:exit');
+
+    expect(dataEvents).toHaveLength(2);
+    expect(dataEvents.map((event) => event.payload.data).join('')).toBe(delta);
+    expect(dataEvents.every((event) => (event.payload.data?.length ?? 0) <= 64 * 1024)).toBe(true);
+    expect(
+      dataEvents.every((event) => {
+        const data = event.payload.data ?? '';
+        const firstCode = data.charCodeAt(0);
+        const lastCode = data.charCodeAt(data.length - 1);
+        return (
+          !(firstCode >= 0xdc00 && firstCode <= 0xdfff) &&
+          !(lastCode >= 0xd800 && lastCode <= 0xdbff)
+        );
+      })
+    ).toBe(true);
+    expect(events.findLastIndex((event) => event.event === 'session:data')).toBeLessThan(
+      exitEventIndex
+    );
+    expect(sessionOutputQueues.size).toBe(0);
+  });
+
+  it('batches live remote session output with bounded Unicode-safe payloads', () => {
+    const source = getRemoteServerSource();
+
+    expect(source).toContain('const SESSION_OUTPUT_BATCH_DELAY_MS = 16;');
+    expect(source).toContain('const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;');
+    expect(source).toContain('const sessionOutputQueues = new Map();');
+    expect(source).toContain('function takeSessionOutputChunk(data, maxLength) {');
+    expect(source).toContain('isHighSurrogate(data.charCodeAt(end - 1))');
+    expect(source).toContain('isLowSurrogate(data.charCodeAt(end))');
+    expect(source).toContain('function enqueueSessionOutput(session, chunk) {');
+    expect(source).toContain('function flushSessionOutput(sessionId) {');
+    expect(source).toContain('function discardSessionOutput(sessionId) {');
+    expect(source).toContain(
+      'setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS)'
+    );
+    expect(source).toContain('queue.data.length >= SESSION_OUTPUT_BATCH_MAX_CHARS');
+    expect(source).toContain(
+      'if (!nextChunk) {\n      flushSessionOutput(session.sessionId);\n      continue;\n    }'
+    );
+    expect(source).toContain('enqueueSessionOutput(session, chunk);');
+  });
+
+  it('flushes live output before session exit and discards queues without consumers', () => {
+    const source = getRemoteServerSource();
+    const exitFlushIndex = source.indexOf('flushSessionOutput(session.sessionId);');
+    const exitEventIndex = source.indexOf('emitSessionExit(session, session.pendingExit.exitCode');
+
+    expect(exitFlushIndex).toBeGreaterThan(-1);
+    expect(exitEventIndex).toBeGreaterThan(exitFlushIndex);
+    expect(source).toContain(
+      'discardSessionOutput(sessionId);\n  state.sessions.delete(sessionId);'
+    );
+    expect(source).toMatch(
+      /function pauseAttachedSessions\(\) \{[\s\S]*discardSessionOutput\(session\.sessionId\);/
+    );
+  });
+
   it('uses bounded asynchronous reads and secure fingerprints for remote untracked diff stats', () => {
     const source = getRemoteServerSource();
 
@@ -93,9 +258,46 @@ describe('getRemoteServerSource', () => {
     );
     expect(source).toContain('function getSessionReplayCharLimit(session) {');
     expect(source).toContain(
-      'session.replay = (session.replay + chunk).slice(-getSessionReplayCharLimit(session));'
+      'session.replay = takeUtf16Tail(session.replay + chunk, getSessionReplayCharLimit(session));'
     );
     expect(source).not.toContain('MAX_SESSION_REPLAY_CHARS');
+  });
+
+  it('keeps generated remote replay tails Unicode-safe', () => {
+    const createSessionFunctions = createGeneratedSessionFunctions(getRemoteServerSource());
+    const session: GeneratedSession = {
+      sessionId: 'session-utf16-tail',
+      kind: 'terminal',
+      replay: '',
+      lastDataAt: 0,
+      streamState: 'live',
+      attachCount: 1,
+      pendingExit: null,
+      writable: null,
+    };
+    const { appendReplay } = createSessionFunctions(
+      { clients: new Set(), sessions: new Map() },
+      new Map(),
+      () => {},
+      () => 0,
+      () => {},
+      3,
+      3
+    );
+
+    appendReplay(session, `A\u{1F680}BC`);
+
+    expect(session.replay).toBe('BC');
+  });
+
+  it('archives generated remote agent output before transport batching', () => {
+    const source = getRemoteServerSource();
+
+    expect(source).toContain('appendSessionTranscript(session, chunk);');
+    expect(source).toContain(
+      "'session:transcript:read': ({ sessionId, beforeByteOffset, maxBytes }) =>"
+    );
+    expect(source).toContain("'session:transcript:delete': ({ sessionId }) =>");
   });
 
   it('keeps remote search behavior aligned with the shared search contract', () => {

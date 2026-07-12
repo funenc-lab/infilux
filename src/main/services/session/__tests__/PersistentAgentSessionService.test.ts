@@ -586,4 +586,21 @@ describe('PersistentAgentSessionService', () => {
       expect.objectContaining({ uiSessionId: 'session-2' }),
     ]);
   });
+
+  it('deletes a persistent session transcript before removing its record', async () => {
+    const record = makeRecord({ backendSessionId: 'backend-transcript-1' });
+    const deleteTranscript = vi.fn(async (_record: PersistentAgentSessionRecord) => undefined);
+    persistentAgentSessionServiceTestDoubles.getSession.mockResolvedValue(record);
+    const service = new PersistentAgentSessionService(undefined, undefined, deleteTranscript);
+
+    await service.abandonSession(record.uiSessionId);
+
+    expect(deleteTranscript).toHaveBeenCalledWith(record);
+    expect(persistentAgentSessionServiceTestDoubles.deleteSession).toHaveBeenCalledWith(
+      record.uiSessionId
+    );
+    expect(deleteTranscript.mock.invocationCallOrder[0]).toBeLessThan(
+      persistentAgentSessionServiceTestDoubles.deleteSession.mock.invocationCallOrder[0] ?? Infinity
+    );
+  });
 });

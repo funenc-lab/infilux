@@ -11,6 +11,7 @@ import {
   GIT_LOG_PRETTY_FORMAT,
   GIT_LOG_RECORD_SEPARATOR,
 } from '../git/gitLogFormat';
+import { getSessionTranscriptArchiveRuntimeSource } from '../session/SessionTranscriptArchiveSource';
 
 export const REMOTE_SERVER_VERSION = pkg.version;
 export const REMOTE_HELPER_VERSION = REMOTE_SERVER_VERSION;
@@ -39,6 +40,7 @@ const state = {
   activeSearches: new Map(),
   untrackedDiffStatsCache: new Map(),
 };
+const sessionOutputQueues = new Map();
 
 const REMOTE_SERVER_VERSION = ${JSON.stringify(REMOTE_SERVER_VERSION)};
 const GIT_LOG_FIELD_SEPARATOR = ${JSON.stringify(GIT_LOG_FIELD_SEPARATOR)};
@@ -48,6 +50,8 @@ const DAEMON_INFO_FILE = ${JSON.stringify(REMOTE_DAEMON_INFO_FILE)};
     const TERMINAL_SESSION_REPLAY_CHAR_LIMIT = ${TERMINAL_SESSION_REPLAY_CHAR_LIMIT};
     const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};
 const EXEC_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
+const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
 const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;
 const UNTRACKED_BINARY_INSPECTION_SIZE = 8000;
 const UNTRACKED_FILE_OPEN_FLAGS = process.platform === 'win32'
@@ -236,15 +240,38 @@ function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\\''") + "'";
 }
 
-function appendOutputTail(current, chunk, limit) {
+function isHighSurrogate(code) {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code) {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+function takeUtf16Tail(value, maxCodeUnits) {
+  if (!value || maxCodeUnits <= 0 || Number.isNaN(maxCodeUnits)) {
+    return '';
+  }
+  if (maxCodeUnits === Number.POSITIVE_INFINITY || value.length <= maxCodeUnits) {
+    return value;
+  }
+  const limit = Math.floor(maxCodeUnits);
   if (limit <= 0) {
     return '';
   }
-  if (chunk.length >= limit) {
-    return chunk.slice(-limit);
+  let start = value.length - limit;
+  if (
+    start > 0 &&
+    isLowSurrogate(value.charCodeAt(start)) &&
+    isHighSurrogate(value.charCodeAt(start - 1))
+  ) {
+    start += 1;
   }
-  const combined = current + chunk;
-  return combined.length > limit ? combined.slice(-limit) : combined;
+  return value.slice(start);
+}
+
+function appendOutputTail(current, chunk, limit) {
+  return takeUtf16Tail(current + chunk, limit);
 }
 
 function resolvePathWithinRoot(rootPath, filePath) {
@@ -1804,6 +1831,12 @@ function getDaemonInfoPath() {
   return path.join(path.dirname(__filename), DAEMON_INFO_FILE);
 }
 
+function getSessionTranscriptRootDirectory() {
+  return path.dirname(__filename);
+}
+
+${getSessionTranscriptArchiveRuntimeSource()}
+
 async function readDaemonInfo() {
   try {
     const raw = await fsp.readFile(getDaemonInfoPath(), 'utf8');
@@ -2835,20 +2868,102 @@ function getSessionReplayCharLimit(session) {
 }
 
 function appendReplay(session, chunk) {
-  session.replay = (session.replay + chunk).slice(-getSessionReplayCharLimit(session));
+  session.replay = takeUtf16Tail(session.replay + chunk, getSessionReplayCharLimit(session));
   session.lastDataAt = Date.now();
+}
+
+function takeSessionOutputChunk(data, maxLength) {
+  if (data.length <= maxLength) {
+    return data;
+  }
+
+  let end = maxLength;
+  if (isHighSurrogate(data.charCodeAt(end - 1)) && isLowSurrogate(data.charCodeAt(end))) {
+    end -= 1;
+  }
+  return data.slice(0, end);
+}
+
+function discardSessionOutput(sessionId) {
+  const queue = sessionOutputQueues.get(sessionId);
+  if (!queue) {
+    return;
+  }
+  clearTimeout(queue.timer);
+  sessionOutputQueues.delete(sessionId);
+}
+
+function flushSessionOutput(sessionId) {
+  const queue = sessionOutputQueues.get(sessionId);
+  if (!queue) {
+    return;
+  }
+
+  clearTimeout(queue.timer);
+  sessionOutputQueues.delete(sessionId);
+  const session = state.sessions.get(sessionId);
+  if (
+    !session ||
+    session.streamState !== 'live' ||
+    session.attachCount <= 0 ||
+    state.clients.size === 0
+  ) {
+    return;
+  }
+
+  broadcast('session:data', {
+    sessionId,
+    data: queue.data,
+  });
+}
+
+function enqueueSessionOutput(session, chunk) {
+  if (
+    session.streamState !== 'live' ||
+    session.attachCount <= 0 ||
+    state.clients.size === 0
+  ) {
+    discardSessionOutput(session.sessionId);
+    return;
+  }
+
+  let remaining = chunk;
+  while (remaining) {
+    let queue = sessionOutputQueues.get(session.sessionId);
+    if (!queue) {
+      const sessionId = session.sessionId;
+      queue = {
+        data: '',
+        timer: setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS),
+      };
+      sessionOutputQueues.set(sessionId, queue);
+    }
+
+    const availableLength = SESSION_OUTPUT_BATCH_MAX_CHARS - queue.data.length;
+    if (availableLength === 0) {
+      flushSessionOutput(session.sessionId);
+      continue;
+    }
+
+    const nextChunk = takeSessionOutputChunk(remaining, availableLength);
+    if (!nextChunk) {
+      flushSessionOutput(session.sessionId);
+      continue;
+    }
+    queue.data += nextChunk;
+    remaining = remaining.slice(nextChunk.length);
+
+    if (queue.data.length >= SESSION_OUTPUT_BATCH_MAX_CHARS) {
+      flushSessionOutput(session.sessionId);
+    }
+  }
 }
 
 function emitSessionData(session, chunk) {
   if (!chunk) return;
+  appendSessionTranscript(session, chunk);
   appendReplay(session, chunk);
-  if (session.streamState !== 'live' || session.attachCount <= 0) {
-    return;
-  }
-  broadcast('session:data', {
-    sessionId: session.sessionId,
-    data: chunk,
-  });
+  enqueueSessionOutput(session, chunk);
 }
 
 function removeSession(sessionId) {
@@ -2861,6 +2976,7 @@ function removeSession(sessionId) {
     } catch {}
   }
 
+  discardSessionOutput(sessionId);
   state.sessions.delete(sessionId);
 }
 
@@ -2871,6 +2987,36 @@ function emitSessionExit(session, exitCode, signal) {
     sessionId: session.sessionId,
     exitCode: normalizedExitCode,
     signal: normalizedSignal,
+  });
+}
+
+function completeSessionExit(session) {
+  if (!session.pendingExit) {
+    return;
+  }
+
+  flushSessionOutput(session.sessionId);
+  const finish = () => {
+    emitSessionExit(session, session.pendingExit.exitCode, session.pendingExit.signal);
+    removeSession(session.sessionId);
+  };
+
+  if (!isSessionTranscriptAgent(session)) {
+    finish();
+    return;
+  }
+
+  void flushSessionTranscript(session).then(finish);
+}
+
+function removeSessionAfterTranscriptFlush(session) {
+  if (!isSessionTranscriptAgent(session)) {
+    removeSession(session.sessionId);
+    return;
+  }
+
+  void flushSessionTranscript(session).then(() => {
+    removeSession(session.sessionId);
   });
 }
 
@@ -2889,13 +3035,12 @@ function finalizeSessionExit(session, exitCode, signal) {
   };
 
   if (session.streamState === 'live' && session.attachCount > 0) {
-    emitSessionExit(session, session.pendingExit.exitCode, session.pendingExit.signal);
-    removeSession(session.sessionId);
+    completeSessionExit(session);
     return;
   }
 
   if (session.attachCount <= 0) {
-    removeSession(session.sessionId);
+    removeSessionAfterTranscriptFlush(session);
   }
 }
 
@@ -2913,15 +3058,11 @@ function activateSessionAfterAttach(sessionId, replayLength) {
   session.streamState = 'live';
   const delta = session.replay.slice(replayLength);
   if (delta) {
-    broadcast('session:data', {
-      sessionId: session.sessionId,
-      data: delta,
-    });
+    enqueueSessionOutput(session, delta);
   }
 
   if (session.pendingExit) {
-    emitSessionExit(session, session.pendingExit.exitCode, session.pendingExit.signal);
-    removeSession(session.sessionId);
+    completeSessionExit(session);
   }
 }
 
@@ -2931,6 +3072,7 @@ function pauseAttachedSessions() {
   }
 
   for (const session of state.sessions.values()) {
+    discardSessionOutput(session.sessionId);
     if (session.exited || session.attachCount <= 0) {
       continue;
     }
@@ -3068,6 +3210,7 @@ async function createSession(options = {}) {
     writable: null,
   };
 
+  await openSessionTranscript(session);
   const launch = await buildSessionLaunch(options);
   spawnPtySession(session, launch, {
     cwd: session.cwd,
@@ -3151,6 +3294,7 @@ async function detachSession(sessionId) {
 
   if (session.attachCount === 0) {
     session.streamState = 'buffering';
+    discardSessionOutput(session.sessionId);
   }
 
   if (!session.persistOnDisconnect && session.attachCount === 0) {
@@ -3545,6 +3689,9 @@ async function startDaemon() {
     for (const session of state.sessions.values()) {
       killChildTree(session);
     }
+    await Promise.allSettled(
+      [...state.sessions.values()].map((session) => flushSessionTranscript(session))
+    );
     state.sessions.clear();
     for (const child of state.activeSearches.values()) {
       try {
@@ -3672,6 +3819,10 @@ const handlers = {
   'session:resize': ({ sessionId, cols, rows }) => resizeSession(sessionId, cols, rows),
   'session:list': () => listSessions(),
   'session:getActivity': ({ sessionId }) => getSessionActivity(sessionId),
+  'session:transcript:read': ({ sessionId, beforeByteOffset, maxBytes }) =>
+    readSessionTranscriptPage({ sessionId, beforeByteOffset, maxBytes }),
+  'session:transcript:delete': ({ sessionId }) =>
+    deleteSessionTranscript({ sessionId }),
 };
 
 async function main() {

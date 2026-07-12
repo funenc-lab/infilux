@@ -1,4 +1,5 @@
 import type { SessionKind } from '@shared/types';
+import { takeUtf16Tail } from './utf16Tail';
 
 export const TERMINAL_SESSION_REPLAY_CHAR_LIMIT = 64 * 1024;
 export const AGENT_SESSION_REPLAY_CHAR_LIMIT = 4 * 1024 * 1024;
@@ -19,5 +20,5 @@ export function appendSessionReplayTail(
 
   const limit = getSessionReplayCharLimit(kind);
   const combined = `${current ?? ''}${chunk}`;
-  return combined.length > limit ? combined.slice(-limit) : combined;
+  return takeUtf16Tail(combined, limit);
 }

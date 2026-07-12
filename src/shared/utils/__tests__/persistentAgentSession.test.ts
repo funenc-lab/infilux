@@ -85,6 +85,10 @@ describe('persistent agent session metadata', () => {
     expect(next).toBe('cdef');
   });
 
+  it('does not begin a bounded replay snapshot with a low surrogate', () => {
+    expect(appendPersistentAgentReplaySnapshot('', `A\u{1F680}BC`, 3)).toBe('BC');
+  });
+
   it('keeps a larger default replay snapshot for active agent transcript recovery', () => {
     const output = 'x'.repeat(PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT + 10);
 
@@ -107,6 +111,22 @@ describe('persistent agent session metadata', () => {
     ).toEqual({
       replaySnapshot: legacySnapshot.slice(-PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT),
       replaySnapshotCapturedAt: 456,
+    });
+  });
+
+  it('normalizes oversized legacy replay snapshots without splitting a surrogate pair', () => {
+    const trailing = 'x'.repeat(PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT - 1);
+    const legacySnapshot = `A\u{1F680}${trailing}`;
+
+    expect(
+      extractPersistentAgentReplaySnapshot({
+        persistentAgentSession: {
+          replaySnapshot: legacySnapshot,
+        },
+      })
+    ).toEqual({
+      replaySnapshot: trailing,
+      replaySnapshotCapturedAt: undefined,
     });
   });
 

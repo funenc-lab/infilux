@@ -46,7 +46,6 @@ import { isXtermContainerReady, scheduleXtermContainerReady } from './xtermConta
 import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK,
-  XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT,
   XtermOutputBuffer,
 } from './xtermOutputBuffer';
 import { resolveXtermRenderer } from './xtermRendererPolicy';
@@ -85,8 +84,6 @@ const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
-const TERMINAL_OUTPUT_OVERFLOW_NOTICE =
-  '\r\n[Terminal output was skipped while the renderer caught up.]\r\n';
 
 function writeInitialTerminalContentChunks(
   terminal: Terminal,
@@ -489,7 +486,6 @@ export function useXterm({
   // Batches terminal output before xterm accepts the next write.
   const terminalOutputBufferRef = useRef(new XtermOutputBuffer());
   const terminalOutputBacklogWarningRef = useRef(false);
-  const terminalOutputBacklogOverflowCountRef = useRef(0);
   const initialTerminalWriteInProgressRef = useRef(false);
   const initialTerminalWriteGenerationRef = useRef(0);
   const isFlushPendingRef = useRef(false);
@@ -902,7 +898,6 @@ export function useXterm({
     }
     terminalOutputBufferRef.current.clear();
     terminalOutputBacklogWarningRef.current = false;
-    terminalOutputBacklogOverflowCountRef.current = 0;
     initialTerminalWriteInProgressRef.current = false;
     initialTerminalWriteGenerationRef.current += 1;
     isFlushPendingRef.current = false;
@@ -1594,26 +1589,7 @@ export function useXterm({
             }
             const outputBuffer = terminalOutputBufferRef.current;
             outputBuffer.append(event.data);
-            if (outputBuffer.charCount > XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT) {
-              const retainedOutputChars = Math.min(
-                event.data.length,
-                XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT - TERMINAL_OUTPUT_OVERFLOW_NOTICE.length
-              );
-              const discardedChars = Math.max(0, outputBuffer.charCount - retainedOutputChars);
-              terminalOutputBacklogOverflowCountRef.current += 1;
-              terminalOutputBacklogWarningRef.current = true;
-              outputBuffer.replaceWithTail(
-                event.data,
-                XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT,
-                TERMINAL_OUTPUT_OVERFLOW_NOTICE
-              );
-              console.error('[xterm] Terminal output backlog exceeded maximum capacity', {
-                sessionId: event.sessionId,
-                discardedChars,
-                overflowCount: terminalOutputBacklogOverflowCountRef.current,
-                retainedChars: outputBuffer.charCount,
-              });
-            } else if (
+            if (
               !terminalOutputBacklogWarningRef.current &&
               outputBuffer.charCount >= XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK
             ) {

@@ -308,6 +308,13 @@ describe('preload bridge', () => {
         run: () => api.session.getRuntimeInfo('session-1'),
         expected: [IPC_CHANNELS.SESSION_GET_RUNTIME_INFO, 'session-1'],
       },
+      {
+        run: () => api.session.getTranscriptPage({ sessionId: 'session-1', maxBytes: 4096 }),
+        expected: [
+          IPC_CHANNELS.SESSION_GET_TRANSCRIPT_PAGE,
+          { sessionId: 'session-1', maxBytes: 4096 },
+        ],
+      },
       { run: () => api.agent.list(), expected: [IPC_CHANNELS.AGENT_LIST] },
       {
         run: () => api.agentSubagent.listLive({ cwds: ['/repo/worktree'] }),

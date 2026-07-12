@@ -1,7 +1,6 @@
 export const XTERM_OUTPUT_WRITE_CHAR_LIMIT = 64 * 1024;
 export const XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK = 4 * 1024 * 1024;
 export const XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK = 1 * 1024 * 1024;
-export const XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT = 8 * 1024 * 1024;
 
 function isHighSurrogate(value: number): boolean {
   return value >= 0xd800 && value <= 0xdbff;
@@ -108,34 +107,6 @@ export class XtermOutputBuffer {
     this.headIndex = 0;
     this.headOffset = 0;
     this.pendingCharCount = 0;
-  }
-
-  replaceWithTail(data: string, maxChars: number, prefix = ''): void {
-    this.clear();
-    if (!Number.isSafeInteger(maxChars) || maxChars <= 0) {
-      return;
-    }
-
-    if (prefix.length >= maxChars) {
-      this.append(prefix.slice(-maxChars));
-      return;
-    }
-
-    this.append(prefix);
-    if (!data) {
-      return;
-    }
-
-    const availableChars = maxChars - prefix.length;
-    let startIndex = Math.max(0, data.length - availableChars);
-    if (
-      startIndex > 0 &&
-      isLowSurrogate(data.charCodeAt(startIndex)) &&
-      isHighSurrogate(data.charCodeAt(startIndex - 1))
-    ) {
-      startIndex += 1;
-    }
-    this.append(data.slice(startIndex));
   }
 
   private compact(): void {

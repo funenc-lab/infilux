@@ -1,4 +1,5 @@
 import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from './agentTerminalHistoryPolicy';
+import { takeUtf16Tail } from './utf16Tail';
 
 export const PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT = 1024 * 1024;
 export const PERSISTENT_AGENT_REPLAY_SNAPSHOT_METADATA_BYTE_LIMIT = 256 * 1024;
@@ -23,9 +24,7 @@ function normalizeReplaySnapshot(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0) {
     return undefined;
   }
-  return value.length > PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT
-    ? value.slice(-PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT)
-    : value;
+  return takeUtf16Tail(value, PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT);
 }
 
 function normalizeCapturedAt(value: unknown): number | undefined {
@@ -143,7 +142,7 @@ function fitPersistentReplaySnapshotToBudget(
     const middle = Math.floor((lower + upper) / 2);
     const candidate = buildMetadataWithReplaySnapshot(
       metadata,
-      middle > 0 ? namespace.replaySnapshot.slice(-middle) : undefined,
+      middle > 0 ? takeUtf16Tail(namespace.replaySnapshot, middle) : undefined,
       capturedAt
     );
     const candidateLength = getSerializedLength(candidate);
@@ -172,7 +171,7 @@ export function appendPersistentAgentReplaySnapshot(
   }
 
   const combined = `${current ?? ''}${chunk}`;
-  return combined.length > maxChars ? combined.slice(-maxChars) : combined;
+  return takeUtf16Tail(combined, maxChars);
 }
 
 export function extractPersistentAgentReplaySnapshot(

@@ -16,6 +16,10 @@ import {
   getLocalSupervisorSource,
   LOCAL_SUPERVISOR_RUNTIME_VERSION,
 } from './LocalSupervisorSource';
+import type {
+  SessionTranscriptArchivePage,
+  SessionTranscriptArchivePageRequest,
+} from './SessionTranscriptArchive';
 
 const LOCAL_SUPERVISOR_DIRNAME = 'local-supervisor';
 const DAEMON_INFO_FILENAME = 'local-supervisor-daemon.json';
@@ -173,6 +177,16 @@ export class LocalSupervisorRuntime {
 
   async hasSession(sessionId: string): Promise<boolean> {
     return this.request<boolean>('session:has', { sessionId });
+  }
+
+  async getTranscriptPage(
+    request: SessionTranscriptArchivePageRequest
+  ): Promise<SessionTranscriptArchivePage> {
+    return this.request<SessionTranscriptArchivePage>('session:transcript:read', request);
+  }
+
+  async deleteTranscript(sessionId: string): Promise<void> {
+    await this.request('session:transcript:delete', { sessionId });
   }
 
   private emitData(event: SessionDataEvent): void {

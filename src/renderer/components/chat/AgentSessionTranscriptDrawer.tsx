@@ -1,4 +1,5 @@
-import { ArrowDownToLine, Copy, Download, FileText, Search } from 'lucide-react';
+import type { SessionTranscriptHealth, SessionTranscriptPage } from '@shared/types';
+import { ArrowDownToLine, ArrowUpToLine, Copy, Download, FileText, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +23,7 @@ import type { Session } from './SessionBar';
 
 type AgentSessionTranscriptSession = Pick<
   Session,
-  'id' | 'name' | 'replaySnapshot' | 'replaySnapshotCapturedAt'
+  'id' | 'name' | 'backendSessionId' | 'replaySnapshot' | 'replaySnapshotCapturedAt'
 >;
 
 interface AgentSessionTranscriptDrawerProps {
@@ -33,6 +34,31 @@ interface AgentSessionTranscriptDrawerProps {
 }
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+const TRANSCRIPT_ARCHIVE_PAGE_BYTES = 64 * 1024;
+
+interface ArchiveTranscriptState {
+  backendSessionId: string;
+  health: SessionTranscriptHealth;
+  nextBeforeByteOffset?: number;
+  text: string;
+  totalBytes: number;
+}
+
+function toArchiveTranscriptState(
+  backendSessionId: string,
+  page: SessionTranscriptPage
+): ArchiveTranscriptState {
+  return {
+    backendSessionId,
+    health: page.health,
+    ...(page.nextBeforeByteOffset !== undefined
+      ? { nextBeforeByteOffset: page.nextBeforeByteOffset }
+      : {}),
+    text: page.text,
+    totalBytes: page.totalBytes,
+  };
+}
 
 function formatCount(value: number): string {
   return value.toLocaleString();
@@ -112,7 +138,12 @@ export function AgentSessionTranscriptDrawer({
 }: AgentSessionTranscriptDrawerProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
+  const [archiveTranscript, setArchiveTranscript] = useState<ArchiveTranscriptState | null>(null);
+  const [archiveError, setArchiveError] = useState(false);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const sessionId = session?.id ?? null;
+  const backendSessionId = session?.backendSessionId ?? null;
   const subscribeToLiveSnapshot = useCallback(
     (onStoreChange: () => void) =>
       replaySnapshotStore && sessionId
@@ -134,18 +165,63 @@ export function AgentSessionTranscriptDrawer({
     liveSnapshot !== undefined
       ? (liveSnapshot.replaySnapshot ?? '')
       : (session?.replaySnapshot ?? '');
+  const usesArchive =
+    archiveTranscript?.backendSessionId === backendSessionId &&
+    archiveTranscript.health !== 'unavailable';
+  const transcript = usesArchive ? (archiveTranscript?.text ?? '') : snapshot;
   const view = useMemo(
-    () => buildAgentSessionTranscriptView({ query, snapshot }),
-    [query, snapshot]
+    () => buildAgentSessionTranscriptView({ query, snapshot: transcript }),
+    [query, transcript]
   );
-  const capturedAtLabel = formatSnapshotCapturedAt(
-    liveSnapshot !== undefined
-      ? liveSnapshot.replaySnapshotCapturedAt
-      : session?.replaySnapshotCapturedAt
-  );
+  const capturedAtLabel = usesArchive
+    ? null
+    : formatSnapshotCapturedAt(
+        liveSnapshot !== undefined
+          ? liveSnapshot.replaySnapshotCapturedAt
+          : session?.replaySnapshotCapturedAt
+      );
   const rangeLabel = getTranscriptRangeLabel(view, t);
-  const hasSnapshot = view.hasSnapshot && snapshot.length > 0;
+  const hasSnapshot = view.hasSnapshot && transcript.length > 0;
   const hasVisibleLines = view.visibleLines.length > 0;
+
+  useEffect(() => {
+    if (!open || !backendSessionId) {
+      if (!backendSessionId) {
+        setArchiveTranscript(null);
+        setArchiveError(false);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingArchive(true);
+    setArchiveError(false);
+    void window.electronAPI.session
+      .getTranscriptPage({
+        sessionId: backendSessionId,
+        maxBytes: TRANSCRIPT_ARCHIVE_PAGE_BYTES,
+      })
+      .then((page) => {
+        if (!cancelled) {
+          setArchiveTranscript(toArchiveTranscriptState(backendSessionId, page));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setArchiveTranscript(null);
+          setArchiveError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingArchive(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backendSessionId, open]);
 
   useEffect(() => {
     if (open || sessionId === null) {
@@ -159,7 +235,7 @@ export function AgentSessionTranscriptDrawer({
     }
 
     try {
-      await navigator.clipboard.writeText(snapshot);
+      await navigator.clipboard.writeText(transcript);
       toastManager.add({
         type: 'success',
         title: t('Copied'),
@@ -172,7 +248,7 @@ export function AgentSessionTranscriptDrawer({
         description: t('Unable to copy transcript output.'),
       });
     }
-  }, [hasSnapshot, session, snapshot, t]);
+  }, [hasSnapshot, session, t, transcript]);
 
   const handleExport = useCallback(() => {
     if (!session || !hasSnapshot) {
@@ -180,7 +256,7 @@ export function AgentSessionTranscriptDrawer({
     }
 
     try {
-      downloadTranscriptSnapshot(buildTranscriptFileName(session), snapshot);
+      downloadTranscriptSnapshot(buildTranscriptFileName(session), transcript);
     } catch {
       toastManager.add({
         type: 'error',
@@ -188,11 +264,82 @@ export function AgentSessionTranscriptDrawer({
         description: t('Unable to export transcript output.'),
       });
     }
-  }, [hasSnapshot, session, snapshot, t]);
+  }, [hasSnapshot, session, t, transcript]);
 
   const handleJumpToLatest = useCallback(() => {
     setQuery('');
-  }, []);
+    if (!backendSessionId) {
+      return;
+    }
+
+    setIsLoadingArchive(true);
+    setArchiveError(false);
+    void window.electronAPI.session
+      .getTranscriptPage({
+        sessionId: backendSessionId,
+        maxBytes: TRANSCRIPT_ARCHIVE_PAGE_BYTES,
+      })
+      .then((page) => {
+        setArchiveTranscript(toArchiveTranscriptState(backendSessionId, page));
+      })
+      .catch(() => {
+        setArchiveError(true);
+      })
+      .finally(() => {
+        setIsLoadingArchive(false);
+      });
+  }, [backendSessionId]);
+
+  const handleLoadOlder = useCallback(() => {
+    if (
+      !backendSessionId ||
+      !archiveTranscript ||
+      archiveTranscript.backendSessionId !== backendSessionId ||
+      archiveTranscript.nextBeforeByteOffset === undefined ||
+      isLoadingOlder
+    ) {
+      return;
+    }
+
+    const beforeByteOffset = archiveTranscript.nextBeforeByteOffset;
+    setIsLoadingOlder(true);
+    setArchiveError(false);
+    void window.electronAPI.session
+      .getTranscriptPage({
+        sessionId: backendSessionId,
+        beforeByteOffset,
+        maxBytes: TRANSCRIPT_ARCHIVE_PAGE_BYTES,
+      })
+      .then((page) => {
+        setArchiveTranscript((current) => {
+          if (!current || current.backendSessionId !== backendSessionId) {
+            return current;
+          }
+
+          return {
+            backendSessionId,
+            health: page.health === 'degraded' ? 'degraded' : current.health,
+            ...(page.nextBeforeByteOffset !== undefined
+              ? { nextBeforeByteOffset: page.nextBeforeByteOffset }
+              : {}),
+            text: `${page.text}${current.text}`,
+            totalBytes: page.totalBytes,
+          };
+        });
+      })
+      .catch(() => {
+        setArchiveError(true);
+      })
+      .finally(() => {
+        setIsLoadingOlder(false);
+      });
+  }, [archiveTranscript, backendSessionId, isLoadingOlder]);
+
+  const canLoadOlder =
+    usesArchive &&
+    archiveTranscript?.nextBeforeByteOffset !== undefined &&
+    !isLoadingOlder &&
+    !isLoadingArchive;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -222,6 +369,20 @@ export function AgentSessionTranscriptDrawer({
                 <span className="control-chip">
                   {t('{{count}} chars', { count: formatCount(view.totalCharacters) })}
                 </span>
+                {usesArchive && archiveTranscript ? (
+                  <span className="control-chip">
+                    {t('{{count}} archived bytes', {
+                      count: formatCount(archiveTranscript.totalBytes),
+                    })}
+                  </span>
+                ) : null}
+                {usesArchive && archiveTranscript ? (
+                  <span className="control-chip">
+                    {archiveTranscript.health === 'complete'
+                      ? t('Archive complete')
+                      : t('Archive degraded')}
+                  </span>
+                ) : null}
                 {capturedAtLabel ? <span className="control-chip">{capturedAtLabel}</span> : null}
               </div>
             </div>
@@ -246,13 +407,32 @@ export function AgentSessionTranscriptDrawer({
               size="sm"
               className="h-9 gap-2 rounded-lg px-3"
               onClick={handleJumpToLatest}
-              disabled={!query}
+              disabled={!query && !backendSessionId}
               title={t('Latest retained output')}
             >
               <ArrowDownToLine className="h-4 w-4" />
               <span>{t('Latest')}</span>
             </Button>
+            {usesArchive ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-2 rounded-lg px-3"
+                onClick={handleLoadOlder}
+                disabled={!canLoadOlder}
+                title={t('Load older transcript output')}
+              >
+                <ArrowUpToLine className="h-4 w-4" />
+                <span>{t('Load older')}</span>
+              </Button>
+            ) : null}
           </div>
+
+          {archiveError ? (
+            <div className="rounded-lg border border-amber-500/35 bg-amber-500/8 px-3 py-2 text-xs text-muted-foreground">
+              {t('Transcript archive is temporarily unavailable. Showing retained output instead.')}
+            </div>
+          ) : null}
 
           {view.omittedOlderLineCount > 0 || view.omittedSearchResultCount > 0 ? (
             <div className="rounded-lg border border-border/70 bg-muted/16 px-3 py-2 text-xs text-muted-foreground">
@@ -269,7 +449,13 @@ export function AgentSessionTranscriptDrawer({
           <div className="overflow-hidden rounded-xl border border-border/70 bg-[color:color-mix(in_oklch,var(--background)_78%,var(--control-surface)_22%)]">
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border/70 px-3 py-2 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">{rangeLabel}</span>
-              <span>{t('Showing the latest')}</span>
+              <span>
+                {isLoadingArchive
+                  ? t('Loading transcript...')
+                  : usesArchive
+                    ? t('Archive page')
+                    : t('Showing the latest')}
+              </span>
             </div>
             {hasVisibleLines ? (
               <div
@@ -303,9 +489,11 @@ export function AgentSessionTranscriptDrawer({
 
         <SheetFooter className="items-center justify-between gap-2 sm:justify-between">
           <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-            {t(
-              'Terminal keeps a lightweight live scrollback; this drawer reads the latest retained replay snapshot.'
-            )}
+            {usesArchive
+              ? t('Transcript archive is loaded in bounded pages.')
+              : t(
+                  'Terminal keeps a lightweight live scrollback; this drawer reads the latest retained replay snapshot.'
+                )}
           </span>
           <div className="flex shrink-0 items-center gap-2">
             <Button

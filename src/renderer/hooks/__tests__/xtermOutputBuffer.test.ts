@@ -31,22 +31,4 @@ describe('XtermOutputBuffer', () => {
     expect(buffer.take(8)).toBe(`${'x'.repeat(7)}\ud83d\ude00`);
     expect(buffer.take(8)).toBe('tail');
   });
-
-  it('replaces excessive output with a bounded tail and prefix', () => {
-    const buffer = new XtermOutputBuffer();
-
-    buffer.replaceWithTail('abcdefghijklmnop', 10, '...');
-
-    expect(buffer.charCount).toBe(10);
-    expect(buffer.take()).toBe('...jklmnop');
-  });
-
-  it('keeps the retained tail within the requested limit at a surrogate boundary', () => {
-    const buffer = new XtermOutputBuffer();
-
-    buffer.replaceWithTail(`${'x'.repeat(7)}\ud83d\ude00tail`, 5);
-
-    expect(buffer.charCount).toBeLessThanOrEqual(5);
-    expect(buffer.take()).toBe('tail');
-  });
 });

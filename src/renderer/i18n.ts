@@ -50,6 +50,21 @@ const rendererZhTranslations: Record<string, string> = {
   'Current worktree: {{name}}': decodeEscapedUnicode('\\u5f53\\u524d Worktree\\uff1a{{name}}'),
   'Agent Sessions': decodeEscapedUnicode('Agent \\u4f1a\\u8bdd'),
   'Latest retained output': decodeEscapedUnicode('\\u6700\\u65b0\\u4fdd\\u7559\\u8f93\\u51fa'),
+  '{{count}} archived bytes': decodeEscapedUnicode('{{count}} \\u5df2\\u5f52\\u6863\\u5b57\\u8282'),
+  'Archive complete': decodeEscapedUnicode('\\u5f52\\u6863\\u5b8c\\u6574'),
+  'Archive degraded': decodeEscapedUnicode('\\u5f52\\u6863\\u964d\\u7ea7'),
+  'Load older transcript output': decodeEscapedUnicode(
+    '\\u52a0\\u8f7d\\u66f4\\u65e9\\u7684\\u4f1a\\u8bdd\\u8bb0\\u5f55\\u8f93\\u51fa'
+  ),
+  'Load older': decodeEscapedUnicode('\\u52a0\\u8f7d\\u66f4\\u65e9\\u5185\\u5bb9'),
+  'Transcript archive is temporarily unavailable. Showing retained output instead.':
+    decodeEscapedUnicode(
+      '\\u4f1a\\u8bdd\\u8bb0\\u5f55\\u5f52\\u6863\\u6682\\u65f6\\u4e0d\\u53ef\\u7528\\uff0c\\u6b63\\u5728\\u663e\\u793a\\u4fdd\\u7559\\u7684\\u8f93\\u51fa\\u3002'
+    ),
+  'Archive page': decodeEscapedUnicode('\\u5f52\\u6863\\u9875'),
+  'Transcript archive is loaded in bounded pages.': decodeEscapedUnicode(
+    '\\u4f1a\\u8bdd\\u8bb0\\u5f55\\u5f52\\u6863\\u6309\\u53d7\\u9650\\u5206\\u9875\\u52a0\\u8f7d\\u3002'
+  ),
   'No active agent session selected.': decodeEscapedUnicode(
     '\\u672a\\u9009\\u62e9\\u6d3b\\u52a8 Agent \\u4f1a\\u8bdd\\u3002'
   ),

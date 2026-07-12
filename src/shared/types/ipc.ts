@@ -125,6 +125,7 @@ export const IPC_CHANNELS = {
   SESSION_LIST: 'session:list',
   SESSION_GET_ACTIVITY: 'session:getActivity',
   SESSION_GET_RUNTIME_INFO: 'session:getRuntimeInfo',
+  SESSION_GET_TRANSCRIPT_PAGE: 'session:getTranscriptPage',
   SESSION_DATA: 'session:data',
   SESSION_EXIT: 'session:exit',
   SESSION_STATE: 'session:state',

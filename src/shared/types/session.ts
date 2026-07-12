@@ -57,6 +57,21 @@ export interface SessionRuntimeInfo {
   isAlive: boolean | null;
 }
 
+export type SessionTranscriptHealth = 'complete' | 'degraded' | 'unavailable';
+
+export interface SessionTranscriptPageRequest {
+  sessionId: string;
+  beforeByteOffset?: number;
+  maxBytes?: number;
+}
+
+export interface SessionTranscriptPage {
+  text: string;
+  nextBeforeByteOffset?: number;
+  totalBytes: number;
+  health: SessionTranscriptHealth;
+}
+
 export interface SessionOpenResult {
   session: SessionDescriptor;
   replay?: string;

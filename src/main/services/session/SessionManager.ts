@@ -11,6 +11,9 @@ import {
   type SessionRuntimeInfo,
   type SessionRuntimeState,
   type SessionStateEvent,
+  type SessionTranscriptHealth,
+  type SessionTranscriptPage,
+  type SessionTranscriptPageRequest,
 } from '@shared/types';
 import {
   type AgentStartupTimelineLogger,
@@ -20,6 +23,7 @@ import {
   appendSessionReplayTail,
   getSessionReplayCharLimit,
 } from '@shared/utils/agentTerminalHistoryPolicy';
+import { takeUtf16Tail } from '@shared/utils/utf16Tail';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { BrowserWindow, type WebContents } from 'electron';
 import log from '../../utils/logger';
@@ -34,6 +38,11 @@ import { PtyManager } from '../terminal/PtyManager';
 import { localSupervisorRuntime } from './LocalSupervisorRuntime';
 import { persistentAgentSessionService } from './PersistentAgentSessionService';
 import { SessionOutputBatcher } from './SessionOutputBatcher';
+import {
+  MAX_SESSION_TRANSCRIPT_PAGE_BYTES,
+  type SessionTranscriptArchivePage,
+  sessionTranscriptArchive,
+} from './SessionTranscriptArchive';
 
 interface ManagedSessionRecord extends SessionDescriptor {
   attachedWindowIds: Set<number>;
@@ -45,9 +54,11 @@ interface ManagedSessionRecord extends SessionDescriptor {
   pendingHostReplayDedup?: boolean;
   streamState?: 'buffering' | 'attaching' | 'live';
   pendingExit?: SessionExitEvent;
+  transcriptArchiveState?: 'ready' | 'degraded';
 }
 
 const SESSION_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
+const DEFAULT_SESSION_TRANSCRIPT_PAGE_BYTES = 64 * 1024;
 type TmuxHostSessionCreateOptions = SessionCreateOptions & {
   hostSession: {
     kind: 'tmux';
@@ -70,6 +81,18 @@ function getWindowId(target: BrowserWindow | WebContents | number): number {
     throw new Error('Window not found for session');
   }
   return window.id;
+}
+
+function resolveBrowserWindow(target: BrowserWindow | WebContents | number): BrowserWindow | null {
+  if (typeof target === 'number') {
+    return BrowserWindow.fromId(target);
+  }
+
+  if (target instanceof BrowserWindow) {
+    return target;
+  }
+
+  return BrowserWindow.fromWebContents(target);
 }
 
 function now(): number {
@@ -162,7 +185,14 @@ export class SessionManager {
   private readonly remoteDisconnectSubscriptions = new Map<string, () => void>();
   private readonly remoteStatusSubscriptions = new Map<string, () => void>();
   private readonly remoteRecoveryPromises = new Map<string, Promise<void>>();
-  private readonly localOutputBatcher = new SessionOutputBatcher({
+  private readonly windowCloseSubscriptions = new Map<
+    number,
+    {
+      window: BrowserWindow;
+      listener: () => void;
+    }
+  >();
+  private readonly sessionOutputBatcher = new SessionOutputBatcher({
     deliver: (windowId, sessionId, data) => {
       this.emitToWindows(new Set([windowId]), 'session:data', { sessionId, data });
     },
@@ -177,11 +207,18 @@ export class SessionManager {
     options: SessionCreateOptions = {}
   ): Promise<SessionOpenResult> {
     const windowId = getWindowId(target);
+    this.ensureWindowCloseSubscription(target, windowId);
     this.suspendedWindowIds.delete(windowId);
     if (options.cwd && isRemoteVirtualPath(options.cwd)) {
-      return this.createRemote(windowId, options);
+      return this.createRemote(windowId, options).catch((error) => {
+        this.cleanupWindowCloseSubscriptionIfUnused(windowId);
+        throw error;
+      });
     }
-    return this.createLocal(windowId, options);
+    return this.createLocal(windowId, options).catch((error) => {
+      this.cleanupWindowCloseSubscriptionIfUnused(windowId);
+      throw error;
+    });
   }
 
   async attach(
@@ -189,6 +226,7 @@ export class SessionManager {
     options: SessionAttachOptions
   ): Promise<SessionAttachResult> {
     const windowId = getWindowId(target);
+    this.ensureWindowCloseSubscription(target, windowId);
     this.suspendedWindowIds.delete(windowId);
     const existing = this.sessions.get(options.sessionId);
     if (existing?.backend === 'local') {
@@ -208,6 +246,7 @@ export class SessionManager {
     }
 
     if (existing?.backend === 'remote' && existing.connectionId) {
+      const wasAttached = existing.attachedWindowIds.has(windowId);
       existing.attachedWindowIds.add(windowId);
       const status = remoteConnectionManager.getStatus(existing.connectionId);
       if (!status.connected) {
@@ -259,34 +298,48 @@ export class SessionManager {
             replay: existing.replayBuffer || undefined,
           };
         }
+        if (!wasAttached) {
+          existing.attachedWindowIds.delete(windowId);
+          this.sessionOutputBatcher.discard(windowId, existing.sessionId);
+          this.cleanupWindowCloseSubscriptionIfUnused(windowId);
+        }
         throw error;
       }
     }
 
     if (this.shouldUseLocalSupervisorAttach(options)) {
-      return this.restoreSupervisorSession(windowId, options.sessionId);
+      return this.restoreSupervisorSession(windowId, options.sessionId).catch((error) => {
+        this.cleanupWindowCloseSubscriptionIfUnused(windowId);
+        throw error;
+      });
     }
 
     if (!options.cwd || !isRemoteVirtualPath(options.cwd)) {
+      this.cleanupWindowCloseSubscriptionIfUnused(windowId);
       throw new Error(`Session not found: ${options.sessionId}`);
     }
 
     const { connectionId } = parseRemoteVirtualPath(options.cwd);
-    await this.ensureRemoteSubscriptions(connectionId);
-    const result = await remoteConnectionManager.call<SessionAttachResult>(
-      connectionId,
-      'session:attach',
-      {
-        sessionId: options.sessionId,
-      }
-    );
-    const record = this.registerRemoteSession(windowId, connectionId, result.session);
-    this.setSessionRuntimeState(record.sessionId, 'live');
-    record.replayBuffer = this.trimReplayBuffer(record, result.replay ?? '');
-    return {
-      session: this.toDescriptor(record),
-      replay: result.replay,
-    };
+    try {
+      await this.ensureRemoteSubscriptions(connectionId);
+      const result = await remoteConnectionManager.call<SessionAttachResult>(
+        connectionId,
+        'session:attach',
+        {
+          sessionId: options.sessionId,
+        }
+      );
+      const record = this.registerRemoteSession(windowId, connectionId, result.session);
+      this.setSessionRuntimeState(record.sessionId, 'live');
+      record.replayBuffer = this.trimReplayBuffer(record, result.replay ?? '');
+      return {
+        session: this.toDescriptor(record),
+        replay: result.replay,
+      };
+    } catch (error) {
+      this.cleanupWindowCloseSubscriptionIfUnused(windowId);
+      throw error;
+    }
   }
 
   list(target: BrowserWindow | WebContents | number): SessionDescriptor[] {
@@ -311,11 +364,13 @@ export class SessionManager {
     const windowId = getWindowId(target);
     const session = this.sessions.get(sessionId);
     if (!session) {
+      this.cleanupWindowCloseSubscriptionIfUnused(windowId);
       return;
     }
 
     session.attachedWindowIds.delete(windowId);
-    this.localOutputBatcher.discard(windowId, sessionId);
+    this.sessionOutputBatcher.discard(windowId, sessionId);
+    this.cleanupWindowCloseSubscriptionIfUnused(windowId);
     if (session.backend === 'local' && session.localRuntime === 'supervisor') {
       await localSupervisorRuntime.detachSession(sessionId).catch(() => {});
       if (session.attachedWindowIds.size === 0) {
@@ -397,6 +452,7 @@ export class SessionManager {
     this.sessions.delete(sessionId);
     this.localPtyManager.destroy(sessionId);
     await this.cleanupPersistentSessionForExplicitTermination(session);
+    await this.flushLocalAgentTranscript(session);
     this.emitExit(
       {
         sessionId,
@@ -563,6 +619,121 @@ export class SessionManager {
     return this.toDescriptor(session);
   }
 
+  async getTranscriptPage(request: SessionTranscriptPageRequest): Promise<SessionTranscriptPage> {
+    const maxBytes = this.resolveSessionTranscriptPageSize(request.maxBytes);
+    const session = this.sessions.get(request.sessionId);
+    if (!session) {
+      try {
+        const page = await sessionTranscriptArchive.readPage({
+          sessionId: request.sessionId,
+          beforeByteOffset: request.beforeByteOffset,
+          maxBytes,
+        });
+        return this.toSessionTranscriptPage(null, page);
+      } catch {
+        return {
+          text: '',
+          totalBytes: 0,
+          health: 'unavailable',
+        };
+      }
+    }
+
+    if (session.kind !== 'agent') {
+      return {
+        text: '',
+        totalBytes: 0,
+        health: 'unavailable',
+      };
+    }
+
+    try {
+      const page = await this.readTranscriptArchivePage(session, {
+        sessionId: request.sessionId,
+        beforeByteOffset: request.beforeByteOffset,
+        maxBytes,
+      });
+      return this.toSessionTranscriptPage(session, page);
+    } catch (error) {
+      console.warn('[session] Failed to read agent transcript archive:', {
+        sessionId: session.sessionId,
+        backend: session.backend,
+        localRuntime: session.localRuntime ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.buildTranscriptFallback(session, 'degraded');
+    }
+  }
+
+  private resolveSessionTranscriptPageSize(maxBytes: number | undefined): number {
+    const resolved = maxBytes ?? DEFAULT_SESSION_TRANSCRIPT_PAGE_BYTES;
+    if (
+      !Number.isSafeInteger(resolved) ||
+      resolved <= 0 ||
+      resolved > MAX_SESSION_TRANSCRIPT_PAGE_BYTES
+    ) {
+      throw new RangeError(`Invalid session transcript page size: ${resolved}`);
+    }
+    return resolved;
+  }
+
+  private async readTranscriptArchivePage(
+    session: ManagedSessionRecord,
+    request: {
+      sessionId: string;
+      beforeByteOffset?: number;
+      maxBytes: number;
+    }
+  ): Promise<SessionTranscriptArchivePage> {
+    if (session.backend === 'remote') {
+      if (!session.connectionId) {
+        throw new Error(`Remote session has no connection: ${session.sessionId}`);
+      }
+      await this.ensureRemoteSubscriptions(session.connectionId);
+      return remoteConnectionManager.call<SessionTranscriptArchivePage>(
+        session.connectionId,
+        'session:transcript:read',
+        request
+      );
+    }
+
+    if (session.localRuntime === 'supervisor') {
+      return localSupervisorRuntime.getTranscriptPage(request);
+    }
+
+    return sessionTranscriptArchive.readPage(request);
+  }
+
+  private toSessionTranscriptPage(
+    session: ManagedSessionRecord | null,
+    page: SessionTranscriptArchivePage
+  ): SessionTranscriptPage {
+    const health: SessionTranscriptHealth =
+      session?.transcriptArchiveState === 'degraded' ? 'degraded' : page.health;
+    if (session && health === 'unavailable' && session.replayBuffer) {
+      return this.buildTranscriptFallback(session, 'degraded');
+    }
+
+    return {
+      text: page.text,
+      ...(page.hasMore ? { nextBeforeByteOffset: page.startByteOffset } : {}),
+      totalBytes: page.totalBytes,
+      health,
+    };
+  }
+
+  private buildTranscriptFallback(
+    session: ManagedSessionRecord,
+    health: SessionTranscriptHealth
+  ): SessionTranscriptPage {
+    const text = session.replayBuffer ?? '';
+    return {
+      text,
+      totalBytes: Buffer.byteLength(text, 'utf8'),
+      health,
+    };
+  }
+
   async detachWindowSessions(windowId: number): Promise<void> {
     this.suspendedWindowIds.delete(windowId);
     const ids = [...this.sessions.values()]
@@ -570,6 +741,7 @@ export class SessionManager {
       .map((session) => session.sessionId);
 
     await Promise.allSettled(ids.map((sessionId) => this.detach(windowId, sessionId)));
+    this.cleanupWindowCloseSubscriptionIfUnused(windowId);
   }
 
   async killByWorkdir(workdir: string): Promise<void> {
@@ -706,6 +878,7 @@ export class SessionManager {
     }
 
     const initialReplay = await this.loadLocalReplaySeed(options, startupLogger);
+    const initialReplayTail = takeUtf16Tail(initialReplay, getSessionReplayCharLimit(options.kind));
     const kind = options.kind ?? 'terminal';
     const cwd = options.cwd || process.env.HOME || process.env.USERPROFILE || '/';
     const sessionId = this.localPtyManager.allocateId();
@@ -721,11 +894,13 @@ export class SessionManager {
       metadata: options.metadata,
       attachedWindowIds: new Set([windowId]),
       ...(options.hostSession ? { hostSession: options.hostSession } : {}),
-      replayBuffer: initialReplay,
-      pendingHostReplayDedup: initialReplay.length > 0 && this.shouldSeedTmuxHostReplay(options),
+      replayBuffer: initialReplayTail,
+      pendingHostReplayDedup:
+        initialReplayTail.length > 0 && this.shouldSeedTmuxHostReplay(options),
       streamState: 'buffering',
     };
     this.sessions.set(sessionId, record);
+    await this.initializeLocalAgentTranscript(record, initialReplay);
 
     try {
       startupLogger?.markStage('pty-create-start');
@@ -803,7 +978,7 @@ export class SessionManager {
       options.hostSession.serverName
     );
     startupLogger?.markStage('tmux-history-capture-done');
-    return replay.slice(-getSessionReplayCharLimit(options.kind));
+    return replay;
   }
 
   private async createSupervisorSession(
@@ -928,6 +1103,78 @@ export class SessionManager {
     return record;
   }
 
+  private isLocalPtyAgentSession(session: ManagedSessionRecord): boolean {
+    return (
+      session.backend === 'local' && session.localRuntime === 'pty' && session.kind === 'agent'
+    );
+  }
+
+  private async initializeLocalAgentTranscript(
+    session: ManagedSessionRecord,
+    initialReplay: string
+  ): Promise<void> {
+    if (!this.isLocalPtyAgentSession(session)) {
+      return;
+    }
+
+    try {
+      await sessionTranscriptArchive.open(session.sessionId);
+      session.transcriptArchiveState = 'ready';
+      this.archiveLocalAgentOutput(session, initialReplay);
+    } catch (error) {
+      this.markLocalAgentTranscriptDegraded(session, error);
+    }
+  }
+
+  private archiveLocalAgentOutput(session: ManagedSessionRecord, data: string): void {
+    if (!data || !this.isLocalPtyAgentSession(session)) {
+      return;
+    }
+
+    try {
+      sessionTranscriptArchive.append(session.sessionId, data);
+      session.transcriptArchiveState = 'ready';
+    } catch (error) {
+      this.markLocalAgentTranscriptDegraded(session, error);
+    }
+  }
+
+  private async flushLocalAgentTranscript(session: ManagedSessionRecord): Promise<void> {
+    if (!this.isLocalPtyAgentSession(session)) {
+      return;
+    }
+
+    try {
+      await sessionTranscriptArchive.flush(session.sessionId);
+      session.transcriptArchiveState = 'ready';
+    } catch (error) {
+      this.markLocalAgentTranscriptDegraded(session, error);
+    }
+  }
+
+  private markLocalAgentTranscriptDegraded(session: ManagedSessionRecord, error: unknown): void {
+    session.transcriptArchiveState = 'degraded';
+    console.warn('[session] Agent transcript archive is degraded:', {
+      sessionId: session.sessionId,
+      cwd: session.cwd,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  private finalizeLocalExit(session: ManagedSessionRecord, event: SessionExitEvent): void {
+    const attachedWindowIds = new Set(session.attachedWindowIds);
+    this.sessions.delete(session.sessionId);
+
+    if (!this.isLocalPtyAgentSession(session)) {
+      this.emitExit(event, attachedWindowIds);
+      return;
+    }
+
+    void this.flushLocalAgentTranscript(session).then(() => {
+      this.emitExit(event, attachedWindowIds);
+    });
+  }
+
   private handleLocalExit(sessionId: string, exitCode: number, signal?: number): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -947,9 +1194,7 @@ export class SessionManager {
       return;
     }
 
-    const attachedWindowIds = new Set(session.attachedWindowIds);
-    this.sessions.delete(sessionId);
-    this.emitExit(event, attachedWindowIds);
+    this.finalizeLocalExit(session, event);
   }
 
   private handleLocalData(sessionId: string, data: string): void {
@@ -971,10 +1216,11 @@ export class SessionManager {
       session.pendingHostReplayDedup = false;
     }
 
+    this.archiveLocalAgentOutput(session, nextData);
     this.appendReplayBuffer(session, nextData);
 
     if (session.streamState === 'live') {
-      this.emitBatchedLocalData(sessionId, nextData, new Set(session.attachedWindowIds));
+      this.emitBatchedSessionData(sessionId, nextData, new Set(session.attachedWindowIds));
     }
   }
 
@@ -995,14 +1241,12 @@ export class SessionManager {
       const replayBuffer = session.replayBuffer || '';
       const delta = replayBuffer.slice(replayCursor);
       if (delta) {
-        this.emitData(sessionId, delta, new Set(session.attachedWindowIds));
+        this.emitBatchedSessionData(sessionId, delta, new Set(session.attachedWindowIds));
       }
 
       if (session.pendingExit) {
         const pendingExit = session.pendingExit;
-        const attachedWindowIds = new Set(session.attachedWindowIds);
-        this.sessions.delete(sessionId);
-        this.emitExit(pendingExit, attachedWindowIds);
+        this.finalizeLocalExit(session, pendingExit);
       }
     }, 0);
   }
@@ -1021,7 +1265,7 @@ export class SessionManager {
       }
 
       this.appendReplayBuffer(session, event.data);
-      this.emitData(event.sessionId, event.data, new Set(session.attachedWindowIds));
+      this.emitBatchedSessionData(event.sessionId, event.data, new Set(session.attachedWindowIds));
     });
 
     localSupervisorRuntime.onExit((event) => {
@@ -1056,7 +1300,7 @@ export class SessionManager {
           if (session?.backend === 'remote') {
             this.appendReplayBuffer(session, event.data);
           }
-          this.emitData(event.sessionId, event.data);
+          this.emitBatchedSessionData(event.sessionId, event.data);
         }
       );
 
@@ -1201,7 +1445,11 @@ export class SessionManager {
               const delta = this.getReplayDelta(session.replayBuffer, replay);
               session.replayBuffer = replay;
               if (delta) {
-                this.emitData(session.sessionId, delta, new Set(session.attachedWindowIds));
+                this.emitBatchedSessionData(
+                  session.sessionId,
+                  delta,
+                  new Set(session.attachedWindowIds)
+                );
               }
               this.setSessionRuntimeState(session.sessionId, 'live');
               return;
@@ -1321,7 +1569,7 @@ export class SessionManager {
       return '';
     }
 
-    return replay.slice(-getSessionReplayCharLimit(session.kind));
+    return takeUtf16Tail(replay, getSessionReplayCharLimit(session.kind));
   }
 
   private getReplayDelta(previousReplay: string | undefined, nextReplay: string): string {
@@ -1338,7 +1586,7 @@ export class SessionManager {
   }
 
   private getReplayOverlap(previousReplay: string, nextReplay: string): number {
-    const previousTail = previousReplay.slice(-nextReplay.length);
+    const previousTail = takeUtf16Tail(previousReplay, nextReplay.length);
     if (previousTail.length === 0 || nextReplay.length === 0) {
       return 0;
     }
@@ -1466,41 +1714,28 @@ export class SessionManager {
     });
   }
 
-  private emitData(sessionId: string, data: string, windowIds?: Set<number>): void {
-    if (!data) {
+  private emitBatchedSessionData(sessionId: string, data: string, windowIds?: Set<number>): void {
+    const targetWindowIds = windowIds ?? this.sessions.get(sessionId)?.attachedWindowIds;
+    if (!data || !targetWindowIds || targetWindowIds.size === 0) {
       return;
     }
 
-    this.emitToWindows(
-      windowIds ?? this.sessions.get(sessionId)?.attachedWindowIds,
-      'session:data',
-      {
-        sessionId,
-        data,
-      }
-    );
-  }
-
-  private emitBatchedLocalData(sessionId: string, data: string, windowIds?: Set<number>): void {
-    if (!data || !windowIds || windowIds.size === 0) {
-      return;
-    }
-
-    for (const windowId of windowIds) {
+    for (const windowId of targetWindowIds) {
       if (this.suspendedWindowIds.has(windowId)) {
         continue;
       }
 
-      this.localOutputBatcher.enqueue(windowId, sessionId, data);
+      this.sessionOutputBatcher.enqueue(windowId, sessionId, data);
     }
   }
 
   private emitExit(event: SessionExitEvent, windowIds?: Set<number>): void {
     const targetWindowIds = windowIds ?? this.sessions.get(event.sessionId)?.attachedWindowIds;
     if (targetWindowIds) {
-      this.localOutputBatcher.flushSession(event.sessionId, targetWindowIds);
+      this.sessionOutputBatcher.flushSession(event.sessionId, targetWindowIds);
     }
     this.emitToWindows(targetWindowIds, 'session:exit', event);
+    this.cleanupWindowCloseSubscriptionsIfUnused(targetWindowIds ?? []);
   }
 
   private emitState(event: SessionStateEvent, windowIds?: Set<number>): void {
@@ -1553,12 +1788,65 @@ export class SessionManager {
   }
 
   private suspendWindow(windowId: number): void {
+    this.removeWindowCloseSubscription(windowId);
     this.suspendedWindowIds.add(windowId);
-    this.localOutputBatcher.discardWindow(windowId);
+    this.sessionOutputBatcher.discardWindow(windowId);
     for (const session of this.sessions.values()) {
       session.attachedWindowIds.delete(windowId);
     }
     this.cleanupDetachedLocalSessions();
+  }
+
+  private ensureWindowCloseSubscription(
+    target: BrowserWindow | WebContents | number,
+    windowId: number
+  ): void {
+    const window = resolveBrowserWindow(target);
+    if (!window || window.isDestroyed()) {
+      this.removeWindowCloseSubscription(windowId);
+      return;
+    }
+
+    const existing = this.windowCloseSubscriptions.get(windowId);
+    if (existing?.window === window) {
+      return;
+    }
+
+    this.removeWindowCloseSubscription(windowId);
+    const listener = () => {
+      const current = this.windowCloseSubscriptions.get(windowId);
+      if (current?.window === window && current.listener === listener) {
+        this.windowCloseSubscriptions.delete(windowId);
+      }
+      this.suspendWindow(windowId);
+    };
+    window.on('closed', listener);
+    this.windowCloseSubscriptions.set(windowId, { window, listener });
+  }
+
+  private removeWindowCloseSubscription(windowId: number): void {
+    const subscription = this.windowCloseSubscriptions.get(windowId);
+    if (!subscription) {
+      return;
+    }
+
+    this.windowCloseSubscriptions.delete(windowId);
+    subscription.window.removeListener('closed', subscription.listener);
+  }
+
+  private cleanupWindowCloseSubscriptionIfUnused(windowId: number): void {
+    const isAttached = [...this.sessions.values()].some((session) =>
+      session.attachedWindowIds.has(windowId)
+    );
+    if (!isAttached) {
+      this.removeWindowCloseSubscription(windowId);
+    }
+  }
+
+  private cleanupWindowCloseSubscriptionsIfUnused(windowIds: Iterable<number>): void {
+    for (const windowId of windowIds) {
+      this.cleanupWindowCloseSubscriptionIfUnused(windowId);
+    }
   }
 
   private cleanupDetachedLocalSessions(): void {
@@ -1614,7 +1902,7 @@ export class SessionManager {
       kindCounts,
       suspendedWindowCount: this.suspendedWindowIds.size,
       attachedWindowCount,
-      localOutputBatcher: this.localOutputBatcher.getDiagnostics(),
+      sessionOutputBatcher: this.sessionOutputBatcher.getDiagnostics(),
       localPty: this.localPtyManager.getDiagnosticsSummary(),
       sampleSessions: Array.from(this.sessions.values())
         .slice(0, 6)

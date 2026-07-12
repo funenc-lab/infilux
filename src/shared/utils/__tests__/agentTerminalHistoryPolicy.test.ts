@@ -29,4 +29,11 @@ describe('agentTerminalHistoryPolicy', () => {
 
     expect(replay).toBe(output);
   });
+
+  it('does not begin a bounded replay tail with a low surrogate', () => {
+    const trailing = 't'.repeat(TERMINAL_SESSION_REPLAY_CHAR_LIMIT - 1);
+    const output = `A\u{1F680}${trailing}`;
+
+    expect(appendSessionReplayTail('', output, 'terminal')).toBe(trailing);
+  });
 });

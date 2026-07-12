@@ -2,6 +2,7 @@ import {
   AGENT_SESSION_REPLAY_CHAR_LIMIT,
   TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
 } from '@shared/utils/agentTerminalHistoryPolicy';
+import { getSessionTranscriptArchiveRuntimeSource } from './SessionTranscriptArchiveSource';
 
 export const LOCAL_SUPERVISOR_RUNTIME_VERSION = '0.1.0';
 
@@ -95,13 +96,43 @@ function getSessionReplayCharLimit(session) {
     : TERMINAL_SESSION_REPLAY_CHAR_LIMIT;
 }
 
+function isHighSurrogate(codeUnit) {
+  return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+}
+
+function isLowSurrogate(codeUnit) {
+  return codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
+}
+
+function takeUtf16Tail(value, maxCodeUnits) {
+  if (!value || maxCodeUnits <= 0 || Number.isNaN(maxCodeUnits)) {
+    return '';
+  }
+  if (maxCodeUnits === Number.POSITIVE_INFINITY || value.length <= maxCodeUnits) {
+    return value;
+  }
+  const limit = Math.floor(maxCodeUnits);
+  if (limit <= 0) {
+    return '';
+  }
+  let start = value.length - limit;
+  if (
+    start > 0 &&
+    isLowSurrogate(value.charCodeAt(start)) &&
+    isHighSurrogate(value.charCodeAt(start - 1))
+  ) {
+    start += 1;
+  }
+  return value.slice(start);
+}
+
 function appendReplayTail(session, chunk) {
   if (!chunk) {
     return session.replay;
   }
   const limit = getSessionReplayCharLimit(session);
   const combined = session.replay + chunk;
-  return combined.length > limit ? combined.slice(-limit) : combined;
+  return takeUtf16Tail(combined, limit);
 }
 
 function loadNodePty() {
@@ -122,6 +153,12 @@ function loadNodePty() {
 function getDaemonDirectory() {
   return path.dirname(__filename);
 }
+
+function getSessionTranscriptRootDirectory() {
+  return getDaemonDirectory();
+}
+
+${getSessionTranscriptArchiveRuntimeSource()}
 
 function getDaemonInfoPath() {
   return path.join(getDaemonDirectory(), DAEMON_INFO_FILENAME);
@@ -238,11 +275,20 @@ function finalizeSessionExit(session, exitCode, signal) {
   }
 
   state.sessions.delete(session.sessionId);
-  broadcast('session:exit', {
-    sessionId: session.sessionId,
-    exitCode,
-    signal,
-  });
+  const emitExit = () => {
+    broadcast('session:exit', {
+      sessionId: session.sessionId,
+      exitCode,
+      signal,
+    });
+  };
+
+  if (!isSessionTranscriptAgent(session)) {
+    emitExit();
+    return;
+  }
+
+  void flushSessionTranscript(session).then(emitExit);
 }
 
 function destroySession(session, signal) {
@@ -294,6 +340,8 @@ async function createSession(params = {}) {
     pty: null,
   };
 
+  await openSessionTranscript(session);
+
   const pty = nodePty.spawn(launch.shell, launch.args, {
     name: 'xterm-256color',
     cols: Number.isFinite(options.cols) && options.cols > 0 ? options.cols : 80,
@@ -304,6 +352,7 @@ async function createSession(params = {}) {
   });
 
   pty.onData((data) => {
+    appendSessionTranscript(session, data);
     session.lastDataAt = Date.now();
     session.replay = appendReplayTail(session, data);
     broadcast('session:data', {
@@ -444,6 +493,8 @@ const handlers = {
   'session:list': () => listSessions(),
   'session:getActivity': (params) => getSessionActivity(params),
   'session:has': (params) => hasSession(params),
+  'session:transcript:read': (params) => readSessionTranscriptPage(params),
+  'session:transcript:delete': (params) => deleteSessionTranscript(params),
 };
 
 async function dispatchRequest(stream, message, authState) {
@@ -521,6 +572,9 @@ async function startDaemon() {
     for (const session of state.sessions.values()) {
       destroySession(session);
     }
+    await Promise.allSettled(
+      [...state.sessions.values()].map((session) => flushSessionTranscript(session))
+    );
     state.sessions.clear();
     for (const client of state.clients) {
       client.destroy();

@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type UseXtermOptions, useXterm } from '../useXterm';
 import {
-  XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT,
+  XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_WRITE_CHAR_LIMIT,
 } from '../xtermOutputBuffer';
 
@@ -1113,10 +1113,10 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('keeps terminal output backlog bounded when xterm does not consume writes', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  it('preserves every pending terminal output chunk when xterm falls behind', async () => {
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const mounted = mountHookHarness();
-    const output = 'x'.repeat(XTERM_OUTPUT_BACKLOG_MAX_CHAR_LIMIT + 1);
+    const output = `begin:${'x'.repeat(XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK * 2)}:end`;
 
     await act(async () => {
       await flushMicrotasks();
@@ -1134,19 +1134,25 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[xterm] Terminal output backlog exceeded maximum capacity',
+    await act(async () => {
+      while (testState.terminalWriteCallbacks.length > 0) {
+        testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+          callback();
+        });
+        await flushMicrotasks();
+      }
+    });
+
+    expect(testState.terminalWrite.mock.calls.map(([data]) => data).join('')).toBe(output);
+    expect(warningSpy).toHaveBeenCalledWith(
+      '[xterm] Terminal output backlog exceeded high-water mark',
       expect.objectContaining({
-        discardedChars: expect.any(Number),
-        retainedChars: expect.any(Number),
+        pendingChars: output.length,
         sessionId: 'backend-session-1',
       })
     );
-    expect(testState.terminalWrite.mock.calls[0]?.[0]).toContain(
-      '[Terminal output was skipped while the renderer caught up.]'
-    );
 
-    errorSpy.mockRestore();
+    warningSpy.mockRestore();
     await mounted.unmount();
   });
 

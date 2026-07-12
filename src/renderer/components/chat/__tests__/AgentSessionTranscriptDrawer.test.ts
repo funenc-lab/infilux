@@ -1,8 +1,9 @@
 /* @vitest-environment jsdom */
 
-import React from 'react';
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAgentReplaySnapshotStore } from '../agentReplaySnapshotStore';
 import { MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT } from '../agentSessionTranscriptModel';
 
@@ -10,6 +11,7 @@ vi.mock('lucide-react', () => {
   const Icon = (props: React.SVGProps<SVGSVGElement>) => React.createElement('svg', props);
   return {
     ArrowDownToLine: Icon,
+    ArrowUpToLine: Icon,
     Copy: Icon,
     Download: Icon,
     FileText: Icon,
@@ -72,6 +74,36 @@ vi.mock('@/lib/utils', () => ({
 }));
 
 import { AgentSessionTranscriptDrawer } from '../AgentSessionTranscriptDrawer';
+
+const getTranscriptPage = vi.fn();
+const originalActEnvironment = Reflect.get(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+
+beforeEach(() => {
+  Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
+  getTranscriptPage.mockReset();
+  getTranscriptPage.mockResolvedValue({
+    text: 'archived transcript output',
+    totalBytes: 256,
+    health: 'complete',
+  });
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: {
+      session: {
+        getTranscriptPage,
+      },
+    },
+  });
+});
+
+afterEach(() => {
+  Reflect.deleteProperty(window, 'electronAPI');
+  if (originalActEnvironment === undefined) {
+    Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+  } else {
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', originalActEnvironment);
+  }
+});
 
 function buildRetainedSnapshot(lineCount: number): string {
   return Array.from(
@@ -146,5 +178,91 @@ describe('AgentSessionTranscriptDrawer', () => {
 
     expect(markup).toContain('live latest output');
     expect(markup).not.toContain('throttled older output');
+  });
+
+  it('loads the latest archive page for the active backend session', async () => {
+    const container = document.createElement('div');
+    const root: Root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        React.createElement(AgentSessionTranscriptDrawer, {
+          open: true,
+          session: {
+            id: 'ui-session-1',
+            backendSessionId: 'backend-session-1',
+            name: 'Codex Work',
+            replaySnapshot: 'fallback snapshot',
+          },
+          onOpenChange: () => undefined,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(getTranscriptPage).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      maxBytes: 64 * 1024,
+    });
+    expect(container.textContent).toContain('archived transcript output');
+    expect(container.textContent).not.toContain('fallback snapshot');
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it('keeps the latest archive page when older output is loaded', async () => {
+    getTranscriptPage
+      .mockResolvedValueOnce({
+        text: 'latest archive output',
+        nextBeforeByteOffset: 64,
+        totalBytes: 128,
+        health: 'complete',
+      })
+      .mockResolvedValueOnce({
+        text: 'older archive output\n',
+        totalBytes: 128,
+        health: 'complete',
+      });
+    const container = document.createElement('div');
+    const root: Root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        React.createElement(AgentSessionTranscriptDrawer, {
+          open: true,
+          session: {
+            id: 'ui-session-2',
+            backendSessionId: 'backend-session-2',
+            name: 'Codex Work',
+          },
+          onOpenChange: () => undefined,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const loadOlderButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Load older')
+    );
+    expect(loadOlderButton).toBeDefined();
+
+    await act(async () => {
+      loadOlderButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(getTranscriptPage).toHaveBeenLastCalledWith({
+      sessionId: 'backend-session-2',
+      beforeByteOffset: 64,
+      maxBytes: 64 * 1024,
+    });
+    expect(container.textContent).toContain('older archive output');
+    expect(container.textContent).toContain('latest archive output');
+
+    await act(async () => {
+      root.unmount();
+    });
   });
 });

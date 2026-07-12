@@ -3,6 +3,7 @@ import {
   type SessionAttachOptions,
   type SessionCreateOptions,
   type SessionResizeOptions,
+  type SessionTranscriptPageRequest,
   type TerminalCreateOptions,
   type TerminalResizeOptions,
 } from '@shared/types';
@@ -184,6 +185,40 @@ function resolveSessionTarget(sender: WebContents): WebContents | number {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeTranscriptPageRequest(value: unknown): SessionTranscriptPageRequest {
+  if (!isPlainObject(value) || typeof value.sessionId !== 'string' || !value.sessionId.trim()) {
+    throw new Error('Invalid session transcript request');
+  }
+
+  const request: SessionTranscriptPageRequest = {
+    sessionId: value.sessionId,
+  };
+  const beforeByteOffset = value.beforeByteOffset;
+  if (beforeByteOffset !== undefined) {
+    if (
+      typeof beforeByteOffset !== 'number' ||
+      !Number.isSafeInteger(beforeByteOffset) ||
+      beforeByteOffset < 0
+    ) {
+      throw new Error('Invalid session transcript cursor');
+    }
+    request.beforeByteOffset = beforeByteOffset;
+  }
+  const maxBytes = value.maxBytes;
+  if (maxBytes !== undefined) {
+    if (typeof maxBytes !== 'number' || !Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+      throw new Error('Invalid session transcript page size');
+    }
+    request.maxBytes = maxBytes;
+  }
+
+  return request;
+}
+
 export function destroyAllTerminals(): void {
   sessionManager.destroyAllLocal();
 }
@@ -240,6 +275,10 @@ export function registerSessionHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO, async (_, sessionId: string) => {
     return sessionManager.getSessionRuntimeInfo(sessionId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_GET_TRANSCRIPT_PAGE, async (_, request: unknown) => {
+    return sessionManager.getTranscriptPage(normalizeTranscriptPageRequest(request));
   });
 
   // Compatibility wrappers for legacy terminal callers while renderer migrates.
