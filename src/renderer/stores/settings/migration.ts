@@ -1,5 +1,5 @@
 import { normalizeLocale } from '@shared/i18n';
-import { normalizeAgentProviderProfileList } from '@shared/types';
+import { normalizeAgentProviderProfileList, sanitizeProjectConfigSchemes } from '@shared/types';
 import { resolvePresetThemeTokens } from '@/lib/appTheme';
 import {
   normalizeWorkspaceCanvasTerminalMountLimit,
@@ -489,6 +489,10 @@ export function migrateSettings(
     agentDetectionStatus: migratedAgentDetectionStatus,
     mcpServers: persisted.mcpServers ?? currentState.mcpServers,
     promptPresets: persisted.promptPresets ?? currentState.promptPresets,
+    projectConfigSchemes:
+      persisted.projectConfigSchemes === undefined
+        ? currentState.projectConfigSchemes
+        : sanitizeProjectConfigSchemes(persisted.projectConfigSchemes),
     quickTerminal: {
       ...currentState.quickTerminal,
       ...persisted.quickTerminal,

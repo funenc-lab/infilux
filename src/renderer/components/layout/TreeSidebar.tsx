@@ -2155,6 +2155,9 @@ export function TreeSidebar({
               markClaudePolicyStaleForRepo(repoPolicyTarget.path);
             }
           }}
+          onConfigSchemeSelectionChange={() => {
+            markClaudePolicyStaleForRepo(repoPolicyTarget.path);
+          }}
         />
       ) : null}
 
@@ -2190,6 +2193,12 @@ export function TreeSidebar({
             }
           }}
           onNativeSkillFileChanged={() => {
+            markClaudePolicyStaleForWorktree(
+              worktreePolicyTarget.repo.path,
+              worktreePolicyTarget.worktree.path
+            );
+          }}
+          onConfigSchemeSelectionChange={() => {
             markClaudePolicyStaleForWorktree(
               worktreePolicyTarget.repo.path,
               worktreePolicyTarget.worktree.path

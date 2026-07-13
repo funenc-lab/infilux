@@ -5,6 +5,7 @@ import {
   DEFAULT_REPOSITORY_SETTINGS,
   getClaudeGlobalPolicy,
   getClaudeProjectPolicy,
+  getProjectConfigSchemeSelection,
   getRepositorySettings,
   type RepositorySettings,
   saveClaudeProjectPolicy,
@@ -16,6 +17,7 @@ import {
   hasClaudePolicyConfigChanges,
   isLegacySkillCapabilityId,
 } from '@/components/settings/claude-policy/model';
+import { resolveProjectConfigSchemePreviewPolicies } from '@/components/settings/claude-policy/projectConfigSchemePreview';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -32,6 +34,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
+import { useSettingsStore } from '@/stores/settings';
 
 interface RepositorySettingsDialogProps {
   open: boolean;
@@ -89,13 +92,16 @@ export function RepositorySettingsDialog({
   const [projectPolicy, setProjectPolicy] = useState<ClaudeProjectPolicy | null>(null);
   const [projectPreview, setProjectPreview] = useState<ResolvedClaudePolicy | null>(null);
   const [policyEditorOpen, setPolicyEditorOpen] = useState(false);
+  const [selectedProjectSchemeId, setSelectedProjectSchemeId] = useState<string | null>(null);
   const markClaudePolicyStaleForRepo = useAgentSessionsStore((s) => s.markClaudePolicyStaleForRepo);
+  const projectConfigSchemes = useSettingsStore((s) => s.projectConfigSchemes);
 
   useEffect(() => {
     if (open && repoPath) {
       setSettings(getRepositorySettings(repoPath));
       setGlobalPolicy(getClaudeGlobalPolicy());
       setProjectPolicy(getClaudeProjectPolicy(repoPath));
+      setSelectedProjectSchemeId(getProjectConfigSchemeSelection(repoPath)?.schemeId ?? null);
     }
   }, [open, repoPath]);
 
@@ -105,12 +111,22 @@ export function RepositorySettingsDialog({
     }
 
     let cancelled = false;
+    const schemePolicies = resolveProjectConfigSchemePreviewPolicies({
+      repoPath,
+      worktreePath: repoPath,
+      schemes: projectConfigSchemes,
+      repositorySchemeId: selectedProjectSchemeId,
+      worktreeSchemeId: null,
+      projectPolicy,
+      worktreePolicy: null,
+    });
+
     window.electronAPI.claudePolicy.preview
       .resolve({
         repoPath,
         worktreePath: repoPath,
         globalPolicy,
-        projectPolicy,
+        projectPolicy: schemePolicies.projectPolicy,
         worktreePolicy: null,
       })
       .then((preview) => {
@@ -127,7 +143,7 @@ export function RepositorySettingsDialog({
     return () => {
       cancelled = true;
     };
-  }, [globalPolicy, open, projectPolicy, repoPath]);
+  }, [globalPolicy, open, projectConfigSchemes, projectPolicy, repoPath, selectedProjectSchemeId]);
 
   const handleSave = useCallback(() => {
     saveRepositorySettings(repoPath, settings);
@@ -309,6 +325,10 @@ export function RepositorySettingsDialog({
             if (changed) {
               markClaudePolicyStaleForRepo(repoPath);
             }
+          }}
+          onConfigSchemeSelectionChange={() => {
+            setSelectedProjectSchemeId(getProjectConfigSchemeSelection(repoPath)?.schemeId ?? null);
+            markClaudePolicyStaleForRepo(repoPath);
           }}
         />
       </DialogPopup>

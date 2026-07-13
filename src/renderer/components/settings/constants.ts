@@ -7,6 +7,7 @@ export type SettingsCategory =
   | 'editor'
   | 'keybindings'
   | 'claudeCatalog'
+  | 'projectSchemes'
   | 'agent'
   | 'ai'
   | 'input'

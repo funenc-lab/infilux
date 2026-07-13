@@ -1,5 +1,5 @@
 import { normalizeLocale } from '@shared/i18n';
-import type { CustomAgent, McpServer, PromptPreset } from '@shared/types';
+import type { CustomAgent, McpServer, ProjectConfigScheme, PromptPreset } from '@shared/types';
 import { normalizeAgentProviderProfileInput } from '@shared/types';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -179,6 +179,7 @@ function getInitialState() {
     // MCP, Prompts defaults
     mcpServers: [] as McpServer[],
     promptPresets: [] as PromptPreset[],
+    projectConfigSchemes: [] as ProjectConfigScheme[],
 
     // Settings display mode
     settingsDisplayMode: 'tab' as const,
@@ -821,6 +822,24 @@ export const useSettingsStore = create<SettingsState>()(
             ...p,
             enabled: p.id === id,
           })),
+        })),
+
+      // Project config scheme setters
+      addProjectConfigScheme: (scheme) =>
+        set((state) => ({
+          projectConfigSchemes: [...state.projectConfigSchemes, scheme],
+        })),
+
+      updateProjectConfigScheme: (id, updates) =>
+        set((state) => ({
+          projectConfigSchemes: state.projectConfigSchemes.map((scheme) =>
+            scheme.id === id ? { ...scheme, ...updates, id, updatedAt: Date.now() } : scheme
+          ),
+        })),
+
+      removeProjectConfigScheme: (id) =>
+        set((state) => ({
+          projectConfigSchemes: state.projectConfigSchemes.filter((scheme) => scheme.id !== id),
         })),
 
       // Settings Display Setters

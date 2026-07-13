@@ -15,6 +15,8 @@ import {
   getClaudeGlobalPolicy,
   getClaudeProjectPolicy,
   getClaudeWorktreePolicy,
+  getProjectConfigSchemeSelection,
+  getWorktreeConfigSchemeSelection,
 } from '@/App/storage';
 import {
   TerminalSearchBar,
@@ -108,6 +110,7 @@ import { shouldRetryDeadAgentSession } from './agentTerminalRecoveryPolicy';
 import { formatAgentTranscriptForTerminal } from './agentTranscriptTerminalFormat';
 import { extractClaudePolicySessionMetadata } from './claudePolicyLaunch';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
+import { resolveProjectConfigSchemeLaunchState } from './projectConfigSchemeLaunch';
 
 export interface AgentTerminalReadOnlyTranscript {
   entries: AgentSubagentTranscriptEntry[];
@@ -447,6 +450,8 @@ export function AgentTerminal({
     hapiSettings,
     shellConfig,
     agentIntegration,
+    projectConfigSchemes,
+    promptPresets,
   } = useSettingsStore(
     useShallow((state) => ({
       agentNotificationEnabled: state.agentNotificationEnabled,
@@ -455,6 +460,8 @@ export function AgentTerminal({
       hapiSettings: state.hapiSettings,
       shellConfig: state.shellConfig,
       agentIntegration: state.agentIntegration,
+      projectConfigSchemes: state.projectConfigSchemes,
+      promptPresets: state.promptPresets,
     }))
   );
   const { data: runtimeContext } = useRepositoryRuntimeContext(cwd);
@@ -727,14 +734,37 @@ export function AgentTerminal({
     recoveryState === 'missing-host-session' &&
     hasResolvedProviderSessionId(id, sessionId);
   const inputDispatchSessionId = backendSessionId ?? null;
-  const agentCapabilityPolicies = useMemo(
-    () => ({
+  const agentCapabilityPolicies = useMemo(() => {
+    const directProjectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;
+    const directWorktreePolicy = cwd ? getClaudeWorktreePolicy(cwd) : null;
+    const schemeLaunchState =
+      repoPath && cwd
+        ? resolveProjectConfigSchemeLaunchState({
+            repoPath,
+            worktreePath: cwd,
+            schemes: projectConfigSchemes,
+            promptPresets,
+            repositorySelection: getProjectConfigSchemeSelection(repoPath),
+            worktreeSelection: getWorktreeConfigSchemeSelection(cwd, repoPath),
+            directProjectPolicy,
+            directWorktreePolicy,
+            existingInitialPrompt: initialPrompt,
+            applySchemePrompt: !initialized,
+          })
+        : {
+            projectPolicy: directProjectPolicy,
+            worktreePolicy: directWorktreePolicy,
+            initialPrompt: initialPrompt ?? null,
+          };
+
+    return {
       globalPolicy: getClaudeGlobalPolicy(),
-      projectPolicy: repoPath ? getClaudeProjectPolicy(repoPath) : null,
-      worktreePolicy: cwd ? getClaudeWorktreePolicy(cwd) : null,
-    }),
-    [cwd, repoPath]
-  );
+      projectPolicy: schemeLaunchState.projectPolicy,
+      worktreePolicy: schemeLaunchState.worktreePolicy,
+      initialPrompt: schemeLaunchState.initialPrompt,
+    };
+  }, [cwd, initialPrompt, initialized, projectConfigSchemes, promptPresets, repoPath]);
+  const effectiveInitialPrompt = agentCapabilityPolicies.initialPrompt ?? undefined;
   const supportsNativeTerminalInput = supportsAgentNativeTerminalInput(agentId);
 
   const clearInterruptIdleResetTimer = useCallback(() => {
@@ -1402,7 +1432,7 @@ export function AgentTerminal({
         agentCommand,
         customPath,
         customArgs,
-        initialPrompt,
+        initialPrompt: effectiveInitialPrompt,
         resumeSessionId,
         initialized,
         environment,
@@ -1422,7 +1452,7 @@ export function AgentTerminal({
       claudeIdeStatus?.canUseIde,
       customPath,
       customArgs,
-      initialPrompt,
+      effectiveInitialPrompt,
       resumeSessionId,
       initialized,
       isReadOnlyTranscript,

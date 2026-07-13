@@ -147,6 +147,9 @@ describe('storage helpers', () => {
     );
     expect(macEnv.cleanPath('/Repo/Main///')).toBe('/Repo/Main');
     expect(macEnv.normalizeWorkspacePathKey('/Repo/Main///')).toBe('/repo/main');
+    expect(macEnv.normalizeWorkspacePathKey('/__enso_remote__/conn-1/srv/Repo/Main///')).toBe(
+      '/__enso_remote__/conn-1/srv/Repo/Main'
+    );
     expect(macEnv.pathsEqual('/Repo/Main/', '/repo/main')).toBe(true);
     expect(
       macEnv.pathsEqual('/private/var/folders/demo/worktree', '/var/folders/demo/worktree')
@@ -744,6 +747,8 @@ function envKey(key: keyof typeof import('../storage').STORAGE_KEYS): string {
     CLAUDE_GLOBAL_POLICY: 'enso-claude-global-policy',
     CLAUDE_PROJECT_POLICIES: 'enso-claude-project-policies',
     CLAUDE_WORKTREE_POLICIES: 'enso-claude-worktree-policies',
+    PROJECT_CONFIG_SCHEME_SELECTIONS: 'enso-project-config-scheme-selections',
+    WORKTREE_CONFIG_SCHEME_SELECTIONS: 'enso-worktree-config-scheme-selections',
     REPOSITORY_GROUPS: 'enso-repository-groups',
     ACTIVE_GROUP: 'enso-active-group',
     GROUP_COLLAPSED_STATE: 'enso-group-collapsed-state',

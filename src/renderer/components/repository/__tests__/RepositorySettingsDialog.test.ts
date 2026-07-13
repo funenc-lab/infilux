@@ -13,6 +13,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const getRepositorySettings = vi.fn();
 const getClaudeGlobalPolicy = vi.fn();
 const getClaudeProjectPolicy = vi.fn();
+const getProjectConfigSchemeSelection = vi.fn();
 
 vi.mock('@/App/storage', () => ({
   DEFAULT_REPOSITORY_SETTINGS: {
@@ -25,6 +26,7 @@ vi.mock('@/App/storage', () => ({
   saveRepositorySettings: vi.fn(),
   getClaudeProjectPolicy,
   saveClaudeProjectPolicy: vi.fn(),
+  getProjectConfigSchemeSelection,
 }));
 
 vi.mock('@/i18n', () => ({
@@ -104,6 +106,13 @@ vi.mock('@/stores/agentSessions', () => ({
     }),
 }));
 
+vi.mock('@/stores/settings', () => ({
+  useSettingsStore: (selector: (state: { projectConfigSchemes: [] }) => unknown) =>
+    selector({
+      projectConfigSchemes: [],
+    }),
+}));
+
 describe('RepositorySettingsDialog', () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
@@ -112,6 +121,7 @@ describe('RepositorySettingsDialog', () => {
     getRepositorySettings.mockReset();
     getClaudeGlobalPolicy.mockReset();
     getClaudeProjectPolicy.mockReset();
+    getProjectConfigSchemeSelection.mockReset();
     getRepositorySettings.mockReturnValue({
       hidden: false,
       autoInitWorktree: false,
@@ -128,6 +138,7 @@ describe('RepositorySettingsDialog', () => {
       blockedPersonalMcpIds: [],
       updatedAt: 1,
     });
+    getProjectConfigSchemeSelection.mockReturnValue(null);
 
     vi.stubGlobal('window', {
       ...window,

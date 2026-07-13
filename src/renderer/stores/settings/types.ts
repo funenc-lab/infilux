@@ -8,6 +8,7 @@ import type {
   CustomAgent,
   GitHostMapping,
   McpServer,
+  ProjectConfigScheme,
   PromptPreset,
   ProxySettings,
   ReasoningEffort,
@@ -467,6 +468,7 @@ export interface SettingsState {
   // MCP, Prompts management
   mcpServers: McpServer[];
   promptPresets: PromptPreset[];
+  projectConfigSchemes: ProjectConfigScheme[];
 
   // Settings display mode
   settingsDisplayMode: SettingsDisplayMode;
@@ -632,6 +634,11 @@ export interface SettingsState {
   updatePromptPreset: (id: string, updates: Partial<PromptPreset>) => void;
   removePromptPreset: (id: string) => void;
   setPromptPresetEnabled: (id: string) => void;
+
+  // Setters - Project config schemes
+  addProjectConfigScheme: (scheme: ProjectConfigScheme) => void;
+  updateProjectConfigScheme: (id: string, updates: Partial<ProjectConfigScheme>) => void;
+  removeProjectConfigScheme: (id: string) => void;
 
   // Setters - Settings display
   setSettingsDisplayMode: (mode: SettingsDisplayMode) => void;

@@ -1,9 +1,16 @@
-import type { ClaudeGlobalPolicy, ClaudeProjectPolicy, ClaudeWorktreePolicy } from '@shared/types';
+import type {
+  ClaudeGlobalPolicy,
+  ClaudeProjectPolicy,
+  ClaudeWorktreePolicy,
+  ProjectConfigSchemeSelection,
+  WorktreeConfigSchemeSelection,
+} from '@shared/types';
 import {
   filterManagedLocalStorageSnapshot,
   MANAGED_LOCAL_STORAGE_KEYS,
   shouldImportLegacyLocalStorageKey,
 } from '@shared/utils/legacyLocalStorage';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { buildRepositoryId, normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { normalizeHexColor } from '@/lib/colors';
 import {
@@ -374,10 +381,12 @@ export const normalizeWorkspacePathKey = (
 ): string => {
   const detectedPlatform =
     platform ??
-    ((getPlatform() === 'win32' || getPlatform() === 'darwin' ? getPlatform() : 'linux') as
-      | 'linux'
-      | 'darwin'
-      | 'win32');
+    (isRemoteVirtualPath(path)
+      ? 'linux'
+      : ((getPlatform() === 'win32' || getPlatform() === 'darwin' ? getPlatform() : 'linux') as
+          | 'linux'
+          | 'darwin'
+          | 'win32'));
   return normalizeWorkspaceKey(path, detectedPlatform);
 };
 
@@ -631,6 +640,152 @@ export const saveClaudeWorktreePolicy = (
   }
 
   localStorage.setItem(STORAGE_KEYS.CLAUDE_WORKTREE_POLICIES, JSON.stringify(policies));
+  scheduleManagedLocalStorageSync();
+};
+
+function normalizeProjectConfigSchemeSelectionValue(
+  value: unknown
+): ProjectConfigSchemeSelection | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Partial<ProjectConfigSchemeSelection>;
+  if (typeof candidate.schemeId !== 'string' || candidate.schemeId.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    schemeId: candidate.schemeId,
+    updatedAt:
+      typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt)
+        ? candidate.updatedAt
+        : 0,
+  };
+}
+
+function normalizeWorktreeConfigSchemeSelectionValue(
+  value: unknown
+): WorktreeConfigSchemeSelection | null {
+  const selection = normalizeProjectConfigSchemeSelectionValue(value);
+  if (!selection || !value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Partial<WorktreeConfigSchemeSelection>;
+  if (typeof candidate.repoPath !== 'string' || candidate.repoPath.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    repoPath: normalizeWorkspacePathKey(candidate.repoPath),
+    schemeId: selection.schemeId,
+    updatedAt: selection.updatedAt,
+  };
+}
+
+export const getStoredProjectConfigSchemeSelections = (): Record<
+  string,
+  ProjectConfigSchemeSelection
+> => {
+  const stored = parseStoredRecord(STORAGE_KEYS.PROJECT_CONFIG_SCHEME_SELECTIONS);
+  const selections: Record<string, ProjectConfigSchemeSelection> = {};
+
+  for (const [repoPath, value] of Object.entries(stored)) {
+    const normalizedSelection = normalizeProjectConfigSchemeSelectionValue(value);
+    if (!normalizedSelection) {
+      continue;
+    }
+
+    selections[normalizeWorkspacePathKey(repoPath)] = normalizedSelection;
+  }
+
+  return selections;
+};
+
+export const getProjectConfigSchemeSelection = (
+  repoPath: string
+): ProjectConfigSchemeSelection | null => {
+  const selections = getStoredProjectConfigSchemeSelections();
+  return selections[normalizeWorkspacePathKey(repoPath)] ?? null;
+};
+
+export const saveProjectConfigSchemeSelection = (
+  repoPath: string,
+  selection: ProjectConfigSchemeSelection | null
+): void => {
+  const selections = getStoredProjectConfigSchemeSelections();
+  const normalizedRepoPath = normalizeWorkspacePathKey(repoPath);
+
+  if (selection) {
+    const normalizedSelection = normalizeProjectConfigSchemeSelectionValue(selection);
+    if (normalizedSelection) {
+      selections[normalizedRepoPath] = normalizedSelection;
+    }
+  } else {
+    delete selections[normalizedRepoPath];
+  }
+
+  localStorage.setItem(STORAGE_KEYS.PROJECT_CONFIG_SCHEME_SELECTIONS, JSON.stringify(selections));
+  scheduleManagedLocalStorageSync();
+};
+
+export const getStoredWorktreeConfigSchemeSelections = (): Record<
+  string,
+  WorktreeConfigSchemeSelection
+> => {
+  const stored = parseStoredRecord(STORAGE_KEYS.WORKTREE_CONFIG_SCHEME_SELECTIONS);
+  const selections: Record<string, WorktreeConfigSchemeSelection> = {};
+
+  for (const [worktreePath, value] of Object.entries(stored)) {
+    const normalizedWorktreePath = normalizeWorkspacePathKey(worktreePath);
+    const normalizedSelection = normalizeWorktreeConfigSchemeSelectionValue(value);
+    if (!normalizedSelection) {
+      continue;
+    }
+
+    selections[normalizedWorktreePath] = normalizedSelection;
+  }
+
+  return selections;
+};
+
+export const getWorktreeConfigSchemeSelection = (
+  worktreePath: string,
+  repoPath?: string
+): WorktreeConfigSchemeSelection | null => {
+  const selections = getStoredWorktreeConfigSchemeSelections();
+  const selection = selections[normalizeWorkspacePathKey(worktreePath)] ?? null;
+  if (!selection || !repoPath) {
+    return selection;
+  }
+
+  return selection.repoPath === normalizeWorkspacePathKey(repoPath) ? selection : null;
+};
+
+export const saveWorktreeConfigSchemeSelection = (
+  repoPath: string,
+  worktreePath: string,
+  selection: ProjectConfigSchemeSelection | null
+): void => {
+  const selections = getStoredWorktreeConfigSchemeSelections();
+  const normalizedRepoPath = normalizeWorkspacePathKey(repoPath);
+  const normalizedWorktreePath = normalizeWorkspacePathKey(worktreePath);
+
+  if (selection) {
+    const normalizedSelection = normalizeProjectConfigSchemeSelectionValue(selection);
+    if (normalizedSelection) {
+      selections[normalizedWorktreePath] = {
+        repoPath: normalizedRepoPath,
+        schemeId: normalizedSelection.schemeId,
+        updatedAt: normalizedSelection.updatedAt,
+      };
+    }
+  } else {
+    delete selections[normalizedWorktreePath];
+  }
+
+  localStorage.setItem(STORAGE_KEYS.WORKTREE_CONFIG_SCHEME_SELECTIONS, JSON.stringify(selections));
   scheduleManagedLocalStorageSync();
 };
 

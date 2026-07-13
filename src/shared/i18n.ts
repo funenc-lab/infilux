@@ -192,6 +192,16 @@ export const zhTranslations: Record<string, string> = {
   'Project Policy': '\u9879\u76ee\u7b56\u7565',
   'Project Configuration': '项目配置',
   'Project Skill & MCP': '项目 Skill 与 MCP',
+  'Project Scheme': '\u9879\u76ee\u65b9\u6848',
+  'Project Scheme Skill & MCP': '项目方案 Skill 与 MCP',
+  'Project Schemes': '\u9879\u76ee\u65b9\u6848',
+  'Project scheme selection saved': '\u9879\u76ee\u65b9\u6848\u9009\u62e9\u5df2\u4fdd\u5b58',
+  'Future sessions will use the selected scheme.':
+    '\u540e\u7eed\u4f1a\u8bdd\u5c06\u4f7f\u7528\u6240\u9009\u65b9\u6848\u3002',
+  'Choose a reusable scheme for future sessions, then use direct decisions below for local overrides.':
+    '\u9009\u62e9\u7528\u4e8e\u540e\u7eed\u4f1a\u8bdd\u7684\u53ef\u590d\u7528\u65b9\u6848\uff0c\u5e76\u5728\u4e0b\u65b9\u4f7f\u7528\u76f4\u63a5\u51b3\u7b56\u8fdb\u884c\u5c40\u90e8\u8986\u76d6\u3002',
+  'Inherit without scheme': '\u4e0d\u4f7f\u7528\u65b9\u6848\uff0c\u7ee7\u627f\u9ed8\u8ba4',
+  'Missing scheme': '\u65b9\u6848\u4e0d\u5b58\u5728',
   'Current repository context': '\u5f53\u524d\u4ed3\u5e93\u4e0a\u4e0b\u6587',
   'Global default baseline': '\u5168\u5c40\u9ed8\u8ba4\u57fa\u7ebf',
   'Currently enabled': '\u5f53\u524d\u5df2\u542f\u7528',
@@ -2047,6 +2057,30 @@ export const zhTranslations: Record<string, string> = {
   'Create or edit a prompt preset for CLAUDE.md': '创建或编辑 CLAUDE.md 提示词预设',
   'Default Prompt': '默认提示词',
   'This content will be written to ~/.claude/CLAUDE.md': '此内容将写入 ~/.claude/CLAUDE.md',
+  'Edit Project Scheme': '\u7f16\u8f91\u9879\u76ee\u65b9\u6848',
+  'Add Project Scheme': '\u6dfb\u52a0\u9879\u76ee\u65b9\u6848',
+  'Create a reusable template for skill, MCP, and prompt settings.':
+    '\u521b\u5efa\u53ef\u590d\u7528\u6a21\u677f\uff0c\u7528\u4e8e Skill\u3001MCP \u548c\u63d0\u793a\u8bcd\u8bbe\u7f6e\u3002',
+  'Release hardening': '\u53d1\u5e03\u52a0\u56fa',
+  'Optional notes for this scheme': '\u6b64\u65b9\u6848\u7684\u53ef\u9009\u8bf4\u660e',
+  'Prompt Preset': '\u63d0\u793a\u8bcd\u9884\u8bbe',
+  'No prompt preset': '\u4e0d\u4f7f\u7528\u63d0\u793a\u8bcd\u9884\u8bbe',
+  'Project scheme saved': '\u9879\u76ee\u65b9\u6848\u5df2\u4fdd\u5b58',
+  'Future sessions will use the updated scheme selection.':
+    '\u540e\u7eed\u4f1a\u8bdd\u5c06\u4f7f\u7528\u66f4\u65b0\u540e\u7684\u65b9\u6848\u9009\u62e9\u3002',
+  'Edit project scheme': '编辑项目方案',
+  'Delete project scheme': '删除项目方案',
+  'Project scheme skill and MCP settings were saved.': '项目方案 Skill 与 MCP 设置已保存。',
+  'Project scheme removed': '\u9879\u76ee\u65b9\u6848\u5df2\u79fb\u9664',
+  'Repositories and worktrees selecting this scheme will inherit defaults.':
+    '\u9009\u62e9\u6b64\u65b9\u6848\u7684\u4ed3\u5e93\u548c worktree \u5c06\u7ee7\u627f\u9ed8\u8ba4\u8bbe\u7f6e\u3002',
+  'Repositories and worktrees using this scheme will fall back to their direct policy settings.':
+    '使用此方案的仓库和 worktree 将回退到各自的直接策略设置。',
+  'Missing prompt preset': '\u63d0\u793a\u8bcd\u9884\u8bbe\u4e0d\u5b58\u5728',
+  'Create reusable templates for skill, MCP, and prompt settings.':
+    '\u521b\u5efa\u53ef\u590d\u7528\u6a21\u677f\uff0c\u7528\u4e8e Skill\u3001MCP \u548c\u63d0\u793a\u8bcd\u8bbe\u7f6e\u3002',
+  'Add Scheme': '\u6dfb\u52a0\u65b9\u6848',
+  'No project schemes configured': '\u6682\u65e0\u9879\u76ee\u65b9\u6848',
   // AddRepositoryDialog
   'Add a local Git repository or clone from a remote URL.': '添加本地 Git 仓库或从远程 URL 克隆',
   Local: '本地',

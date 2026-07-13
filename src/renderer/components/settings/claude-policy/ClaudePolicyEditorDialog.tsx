@@ -10,6 +10,12 @@ import type {
 } from '@shared/types';
 import { ChevronRight, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  getProjectConfigSchemeSelection,
+  getWorktreeConfigSchemeSelection,
+  saveProjectConfigSchemeSelection,
+  saveWorktreeConfigSchemeSelection,
+} from '@/App/storage';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -23,8 +29,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { useSettingsStore } from '@/stores/settings';
 import { ClaudePolicyCapabilityList } from './ClaudePolicyCapabilityList';
 import { ClaudePolicyDisabledNativeSkillList } from './ClaudePolicyDisabledNativeSkillList';
 import { ClaudePolicyMcpList } from './ClaudePolicyMcpList';
@@ -39,10 +53,12 @@ import {
   setClaudePolicyDecision,
   setClaudePolicyDecisionForIds,
 } from './model';
+import { resolveProjectConfigSchemePreviewPolicies } from './projectConfigSchemePreview';
 import { getCapabilitySourcePaths } from './sourcePaths';
 
 type ClaudePolicyEditorScope = 'global' | 'project' | 'worktree';
 type ClaudePolicyEditorTab = 'skills' | 'mcp';
+const NO_SCHEME_VALUE = '__inherit__';
 
 function matchesPolicySearch(query: string, candidate: Array<string | undefined>): boolean {
   if (!query) {
@@ -107,7 +123,11 @@ interface ClaudePolicyEditorDialogProps {
     preview: ResolvedClaudePolicy | null
   ) => void;
   onCatalogRefresh?: () => void;
+  onConfigSchemeSelectionChange?: () => void;
   onNativeSkillFileChanged?: () => void;
+  title?: string;
+  description?: string;
+  saveSuccessDescription?: string;
 }
 
 export function ClaudePolicyEditorDialog({
@@ -123,12 +143,20 @@ export function ClaudePolicyEditorDialog({
   worktreePolicy,
   onSave,
   onCatalogRefresh,
+  onConfigSchemeSelectionChange,
   onNativeSkillFileChanged,
+  title,
+  description,
+  saveSuccessDescription,
 }: ClaudePolicyEditorDialogProps) {
   const { t } = useI18n();
+  const { projectConfigSchemes } = useSettingsStore((state) => ({
+    projectConfigSchemes: state.projectConfigSchemes,
+  }));
   const activePolicy =
     scope === 'global' ? globalPolicy : scope === 'project' ? projectPolicy : worktreePolicy;
   const [draft, setDraft] = useState(() => createClaudePolicyDraft(activePolicy));
+  const [selectedSchemeId, setSelectedSchemeId] = useState<string>(NO_SCHEME_VALUE);
   const [catalog, setCatalog] = useState<ClaudeCapabilityCatalog | null>(null);
   const [resolvedPolicy, setResolvedPolicy] = useState<ResolvedClaudePolicy | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -145,6 +173,19 @@ export function ClaudePolicyEditorDialog({
     () => getPolicyDraftSeedKey(scope, repoPath, worktreePath),
     [repoPath, scope, worktreePath]
   );
+  const canSelectScheme = scope === 'project' || scope === 'worktree';
+
+  useEffect(() => {
+    if (!open || !canSelectScheme) {
+      return;
+    }
+
+    const selection =
+      scope === 'project'
+        ? getProjectConfigSchemeSelection(repoPath)
+        : getWorktreeConfigSchemeSelection(worktreePath || repoPath, repoPath);
+    setSelectedSchemeId(selection?.schemeId ?? NO_SCHEME_VALUE);
+  }, [canSelectScheme, open, repoPath, scope, worktreePath]);
 
   useEffect(() => {
     if (!open) {
@@ -202,19 +243,50 @@ export function ClaudePolicyEditorDialog({
 
   const previewRequest = useMemo<ResolveClaudePolicyPreviewRequest>(() => {
     const effectiveWorktreePath = worktreePath || repoPath;
+    const directProjectPolicy =
+      scope === 'project' ? buildClaudeProjectPolicy(repoPath, draft) : projectPolicy;
+    const directWorktreePolicy =
+      scope === 'worktree' && effectiveWorktreePath
+        ? buildClaudeWorktreePolicy(repoPath, effectiveWorktreePath, draft)
+        : worktreePolicy;
+    const repositorySchemeId =
+      scope === 'project'
+        ? selectedSchemeId === NO_SCHEME_VALUE
+          ? null
+          : selectedSchemeId
+        : scope === 'worktree'
+          ? (getProjectConfigSchemeSelection(repoPath)?.schemeId ?? null)
+          : null;
+    const worktreeSchemeId =
+      scope === 'worktree' && selectedSchemeId !== NO_SCHEME_VALUE ? selectedSchemeId : null;
+    const schemePolicies = resolveProjectConfigSchemePreviewPolicies({
+      repoPath,
+      worktreePath: effectiveWorktreePath,
+      schemes: projectConfigSchemes,
+      repositorySchemeId,
+      worktreeSchemeId,
+      projectPolicy: directProjectPolicy,
+      worktreePolicy: directWorktreePolicy,
+    });
 
     return {
       repoPath,
       worktreePath: effectiveWorktreePath,
       globalPolicy: scope === 'global' ? buildClaudeGlobalPolicy(draft) : globalPolicy,
-      projectPolicy:
-        scope === 'project' ? buildClaudeProjectPolicy(repoPath, draft) : projectPolicy,
-      worktreePolicy:
-        scope === 'worktree' && effectiveWorktreePath
-          ? buildClaudeWorktreePolicy(repoPath, effectiveWorktreePath, draft)
-          : worktreePolicy,
+      projectPolicy: schemePolicies.projectPolicy,
+      worktreePolicy: schemePolicies.worktreePolicy,
     };
-  }, [draft, globalPolicy, projectPolicy, repoPath, scope, worktreePath, worktreePolicy]);
+  }, [
+    draft,
+    globalPolicy,
+    projectConfigSchemes,
+    projectPolicy,
+    repoPath,
+    scope,
+    selectedSchemeId,
+    worktreePath,
+    worktreePolicy,
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -289,6 +361,33 @@ export function ClaudePolicyEditorDialog({
       return nextTab;
     });
   }, []);
+  const handleSchemeSelectionChange = useCallback(
+    (value: string | null) => {
+      if (!value) {
+        return;
+      }
+
+      const nextSchemeId = value === NO_SCHEME_VALUE ? null : value;
+      const selection = nextSchemeId ? { schemeId: nextSchemeId, updatedAt: Date.now() } : null;
+
+      if (scope === 'project') {
+        saveProjectConfigSchemeSelection(repoPath, selection);
+      } else if (scope === 'worktree') {
+        saveWorktreeConfigSchemeSelection(repoPath, worktreePath || repoPath, selection);
+      } else {
+        return;
+      }
+
+      setSelectedSchemeId(nextSchemeId ?? NO_SCHEME_VALUE);
+      onConfigSchemeSelectionChange?.();
+      toastManager.add({
+        type: 'success',
+        title: t('Project scheme selection saved'),
+        description: t('Future sessions will use the selected scheme.'),
+      });
+    },
+    [onConfigSchemeSelectionChange, repoPath, scope, t, worktreePath]
+  );
   const nativeSkillRootPath =
     scope === 'global' ? undefined : scope === 'project' ? repoPath : worktreePath || repoPath;
 
@@ -329,16 +428,28 @@ export function ClaudePolicyEditorDialog({
     toastManager.add({
       type: 'success',
       title: t('Policy saved'),
-      description: t(
-        scope === 'global'
-          ? 'Global skill and MCP settings were saved.'
-          : scope === 'project'
-            ? 'Project skill and MCP settings were saved.'
-            : 'Worktree skill and MCP settings were saved.'
-      ),
+      description:
+        saveSuccessDescription ??
+        t(
+          scope === 'global'
+            ? 'Global skill and MCP settings were saved.'
+            : scope === 'project'
+              ? 'Project skill and MCP settings were saved.'
+              : 'Worktree skill and MCP settings were saved.'
+        ),
     });
     onOpenChange(false);
-  }, [draft, onOpenChange, onSave, repoPath, resolvedPolicy, scope, t, worktreePath]);
+  }, [
+    draft,
+    onOpenChange,
+    onSave,
+    repoPath,
+    resolvedPolicy,
+    saveSuccessDescription,
+    scope,
+    t,
+    worktreePath,
+  ]);
 
   const handleDisableNativeSkill = useCallback(
     async (sourcePath: string) => {
@@ -407,17 +518,51 @@ export function ClaudePolicyEditorDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup data-policy-dialog="editor" className="max-w-5xl h-[min(85vh,54rem)]">
         <DialogHeader>
-          <DialogTitle>{t(dialogTitle)}</DialogTitle>
+          <DialogTitle>{title ?? t(dialogTitle)}</DialogTitle>
           <DialogDescription>
-            {scope === 'global'
-              ? repoName || repoPath || t('All repositories')
-              : scope === 'project'
-                ? repoName || repoPath
-                : `${worktreeName || worktreePath || repoPath}`}
+            {description ??
+              (scope === 'global'
+                ? repoName || repoPath || t('All repositories')
+                : scope === 'project'
+                  ? repoName || repoPath
+                  : `${worktreeName || worktreePath || repoPath}`)}
           </DialogDescription>
         </DialogHeader>
 
         <DialogPanel className="flex-1 min-h-0 space-y-6">
+          {canSelectScheme ? (
+            <section className="rounded-xl border border-border/70 bg-background/45 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <h3 className="ui-type-block-title">{t('Project Scheme')}</h3>
+                  <p className="ui-type-meta text-muted-foreground">
+                    {t(
+                      'Choose a reusable scheme for future sessions, then use direct decisions below for local overrides.'
+                    )}
+                  </p>
+                </div>
+                <Select value={selectedSchemeId} onValueChange={handleSchemeSelectionChange}>
+                  <SelectTrigger className="min-w-0 md:w-64">
+                    <SelectValue>
+                      {selectedSchemeId === NO_SCHEME_VALUE
+                        ? t('Inherit without scheme')
+                        : (projectConfigSchemes.find((scheme) => scheme.id === selectedSchemeId)
+                            ?.name ?? t('Missing scheme'))}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    <SelectItem value={NO_SCHEME_VALUE}>{t('Inherit without scheme')}</SelectItem>
+                    {projectConfigSchemes.map((scheme) => (
+                      <SelectItem key={scheme.id} value={scheme.id}>
+                        {scheme.name}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </div>
+            </section>
+          ) : null}
+
           {catalogError ? (
             <div className="rounded-xl border border-warning/45 bg-warning/8 p-4 text-warning-foreground">
               <div className="ui-type-block-title">{t('Catalog warning')}</div>

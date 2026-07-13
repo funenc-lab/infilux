@@ -7,6 +7,7 @@ import {
   Keyboard,
   Link,
   Palette,
+  PanelsTopLeft,
   Paperclip,
   Server,
   Settings,
@@ -27,6 +28,7 @@ import { HapiSettings } from './HapiSettings';
 import { InputSettings } from './InputSettings';
 import { IntegrationSettings } from './IntegrationSettings';
 import { KeybindingsSettings } from './KeybindingsSettings';
+import { ProjectConfigSchemesSection } from './project-config-schemes';
 import { RemoteSettings } from './RemoteSettings';
 import { WebInspectorSettings } from './WebInspectorSettings';
 
@@ -57,6 +59,7 @@ export function SettingsShell({
         { id: 'editor', icon: FileCode, label: t('Editor') },
         { id: 'keybindings', icon: Keyboard, label: t('Keybindings') },
         { id: 'claudeCatalog', icon: Boxes, label: t('Skill & MCP') },
+        { id: 'projectSchemes', icon: PanelsTopLeft, label: t('Project Schemes') },
         { id: 'agent', icon: Bot, label: t('Agent') },
         { id: 'ai', icon: Sparkles, label: t('AI') },
         { id: 'input', icon: Paperclip, label: t('Advanced Features') },
@@ -126,6 +129,7 @@ export function SettingsShell({
         {activeCategory === 'editor' && <EditorSettings />}
         {activeCategory === 'keybindings' && <KeybindingsSettings />}
         {activeCategory === 'claudeCatalog' && <ClaudeCapabilityCatalogSection />}
+        {activeCategory === 'projectSchemes' && <ProjectConfigSchemesSection repoPath={repoPath} />}
         {activeCategory === 'agent' && <AgentSettings repoPath={repoPath} />}
         {activeCategory === 'ai' && <AISettings />}
         {activeCategory === 'input' && <InputSettings />}
