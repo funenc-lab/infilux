@@ -3,6 +3,7 @@ import { Bot, TerminalSquare, X } from 'lucide-react';
 import { type WheelEvent as ReactWheelEvent, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSessionSubagents } from '@/hooks/useSessionSubagents';
 import { useSubagentTranscript } from '@/hooks/useSubagentTranscript';
 import { useI18n } from '@/i18n';
@@ -540,14 +541,26 @@ export function SessionSubagentInspector({
 
               <div className="mt-3 min-w-0">
                 {isMac ? (
-                  <div
-                    className={cn(
-                      'truncate font-mono text-[13px] font-semibold tracking-[0.01em]',
-                      primaryTextClassName
-                    )}
-                  >
-                    {sessionName}
-                  </div>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <div
+                          className={cn(
+                            'truncate font-mono text-[13px] font-semibold tracking-[0.01em]',
+                            primaryTextClassName
+                          )}
+                        >
+                          {sessionName}
+                        </div>
+                      }
+                    />
+                    <TooltipPopup
+                      align="start"
+                      className="max-w-sm whitespace-normal text-left break-words"
+                    >
+                      {sessionName}
+                    </TooltipPopup>
+                  </Tooltip>
                 ) : (
                   <div
                     className={cn(
@@ -555,9 +568,21 @@ export function SessionSubagentInspector({
                       primaryTextClassName
                     )}
                   >
-                    <span className="truncate text-[13px] font-semibold tracking-[0.01em]">
-                      {sessionName}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span className="truncate text-[13px] font-semibold tracking-[0.01em]">
+                            {sessionName}
+                          </span>
+                        }
+                      />
+                      <TooltipPopup
+                        align="start"
+                        className="max-w-sm whitespace-normal text-left break-words"
+                      >
+                        {sessionName}
+                      </TooltipPopup>
+                    </Tooltip>
                     <span className={terminalCountClassName}>terminal-view</span>
                   </div>
                 )}

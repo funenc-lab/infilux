@@ -17,6 +17,7 @@ import type { Session } from '@/components/chat/SessionBar';
 import { getSessionDisplayName } from '@/components/chat/sessionBarLabels';
 import { Dialog, DialogPopup } from '@/components/ui/dialog';
 import { toastManager } from '@/components/ui/toast';
+import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
@@ -436,24 +437,37 @@ export function RunningProjectsPopover({
                     }
 
                     if (item.type === 'agent') {
+                      const agentSessionLabel = getAgentSessionLabel(item.session);
+
                       return (
-                        <button
-                          key={itemId}
-                          type="button"
-                          data-index={index}
-                          className={cn(
-                            'ui-type-panel-description flex w-full items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground',
-                            isSelected && 'bg-theme/10 text-foreground'
-                          )}
-                          onClick={() => handleSelectItem(item)}
-                          onMouseEnter={() => setSelectedIndex(index)}
-                        >
-                          <Bot className="h-3.5 w-3.5 shrink-0" />
-                          <span className="min-w-0 flex-1 truncate text-left">
-                            {getAgentSessionLabel(item.session)}
-                          </span>
-                          <span className="control-badge shrink-0">{t('Agent')}</span>
-                        </button>
+                        <Tooltip key={itemId}>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                data-index={index}
+                                className={cn(
+                                  'ui-type-panel-description flex w-full items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-muted-foreground transition-colors hover:bg-theme/8 hover:text-foreground',
+                                  isSelected && 'bg-theme/10 text-foreground'
+                                )}
+                                onClick={() => handleSelectItem(item)}
+                                onMouseEnter={() => setSelectedIndex(index)}
+                              >
+                                <Bot className="h-3.5 w-3.5 shrink-0" />
+                                <span className="min-w-0 flex-1 truncate text-left">
+                                  {agentSessionLabel}
+                                </span>
+                                <span className="control-badge shrink-0">{t('Agent')}</span>
+                              </button>
+                            }
+                          />
+                          <TooltipPopup
+                            align="start"
+                            className="max-w-sm whitespace-normal text-left break-words"
+                          >
+                            {agentSessionLabel}
+                          </TooltipPopup>
+                        </Tooltip>
                       );
                     }
 

@@ -5251,38 +5251,52 @@ export function AgentPanel({
         onMouseDownCapture={() => handleSelectSession(session.id, groupId)}
       >
         <div className="flex h-full min-w-0 flex-1 flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/35 p-3">
-          <button
-            type="button"
-            {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
-            className="min-w-0 rounded-lg text-left transition-colors hover:bg-accent/20"
-            onClick={(event) => {
-              event.stopPropagation();
-              handleOpenCanvasFloatingSession(session.id, groupId);
-            }}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              {sessionActivityState === 'idle' ? (
-                <span className="h-1.5 w-1.5 shrink-0 rounded-[0.25rem] bg-[color:var(--control-idle)]" />
-              ) : (
-                <ActivityIndicator
-                  state={sessionActivityState}
-                  size="sm"
-                  className="relative z-10"
-                />
-              )}
-              <span className="control-chip max-w-[38%] shrink-0 gap-1.5 truncate">
-                <GitBranch className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{tileLocationLabel}</span>
-              </span>
-              <span className="control-chip max-w-[30%] shrink-0 gap-1.5 truncate">
-                {renderAgentLabelIcon(session.agentId)}
-                <span className="truncate">{tileAgentLabel}</span>
-              </span>
-            </div>
-            <div className="mt-2 min-w-0 truncate text-sm font-semibold text-foreground">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                (
+                  <button
+                    type="button"
+                    {...{ [AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE]: 'true' }}
+                    className="min-w-0 rounded-lg text-left transition-colors hover:bg-accent/20"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleOpenCanvasFloatingSession(session.id, groupId);
+                    }}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      {sessionActivityState === 'idle' ? (
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-[0.25rem] bg-[color:var(--control-idle)]" />
+                      ) : (
+                        <ActivityIndicator
+                          state={sessionActivityState}
+                          size="sm"
+                          className="relative z-10"
+                        />
+                      )}
+                      <span className="control-chip max-w-[38%] shrink-0 gap-1.5 truncate">
+                        <GitBranch className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{tileLocationLabel}</span>
+                      </span>
+                      <span className="control-chip max-w-[30%] shrink-0 gap-1.5 truncate">
+                        {renderAgentLabelIcon(session.agentId)}
+                        <span className="truncate">{tileAgentLabel}</span>
+                      </span>
+                    </div>
+                    <div className="mt-2 min-w-0 truncate text-sm font-semibold text-foreground">
+                      {sessionDisplayName}
+                    </div>
+                  </button>
+                ) as ReactElement<Record<string, unknown>>
+              }
+            />
+            <TooltipPopup
+              align="start"
+              className="max-w-sm whitespace-normal text-left break-words"
+            >
               {sessionDisplayName}
-            </div>
-          </button>
+            </TooltipPopup>
+          </Tooltip>
           <div className="flex min-w-0 items-center justify-between gap-3">
             <span className="control-chip shrink-0">{t('Paused')}</span>
             <button

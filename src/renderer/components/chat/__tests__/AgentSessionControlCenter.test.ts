@@ -175,4 +175,61 @@ describe('AgentSessionControlCenter', () => {
 
     expect(onFocusSession).toHaveBeenCalledWith('session-codex');
   });
+
+  it('reveals long session titles on hover without blocking focus actions', async () => {
+    const longTitle = 'Investigate a long-running session title without losing its full context';
+    const onFocusSession = vi.fn();
+    ({ container, root } = await renderControlCenter({
+      inventoryItems: [
+        inventoryItem({
+          sessionId: 'session-long-title',
+          displayName: longTitle,
+        }),
+      ],
+      onFocusSession,
+    }));
+
+    const focusButton = container.querySelector<HTMLButtonElement>(
+      '[data-testid="focus-session-session-long-title"]'
+    );
+    expect(focusButton).not.toBeNull();
+
+    class ResizeObserverMock {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+
+    vi.useFakeTimers();
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(performance.now()), 0)
+    );
+    vi.stubGlobal('cancelAnimationFrame', window.clearTimeout);
+
+    try {
+      await act(async () => {
+        focusButton?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+        focusButton?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const tooltip = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[data-slot="tooltip-popup"]')
+      ).find((element) => element.textContent === longTitle);
+      expect(tooltip?.hasAttribute('data-open')).toBe(true);
+
+      await act(async () => {
+        focusButton?.click();
+      });
+      expect(onFocusSession).toHaveBeenCalledWith('session-long-title');
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
 });

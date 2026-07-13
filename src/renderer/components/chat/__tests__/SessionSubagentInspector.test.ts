@@ -323,6 +323,66 @@ describe('SessionSubagentInspector', () => {
     expect(markup).not.toContain('session://subagents');
   });
 
+  it('reveals long parent session titles on hover in every platform header', async () => {
+    const longTitle =
+      'Investigate a long-running parent session title without losing its full context';
+
+    class ResizeObserverMock {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+
+    vi.useFakeTimers();
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(performance.now()), 0)
+    );
+    vi.stubGlobal('cancelAnimationFrame', window.clearTimeout);
+
+    try {
+      for (const platform of ['linux', 'darwin'] as const) {
+        platformState.value = platform;
+        const mounted = mountInspector({
+          sessionName: longTitle,
+          agentLabel: 'Codex',
+          viewState: {
+            kind: 'supported',
+            provider: 'codex',
+          },
+          subagents: [],
+          selectedThreadId: null,
+          onSelectThread: () => undefined,
+          onClose: () => undefined,
+        });
+        const parentTitle = Array.from(
+          mounted.container.querySelectorAll<HTMLElement>('.truncate')
+        ).find((element) => element.textContent === longTitle);
+        expect(parentTitle).not.toBeUndefined();
+
+        await act(async () => {
+          parentTitle?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+          parentTitle?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+          await vi.advanceTimersByTimeAsync(600);
+        });
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        const tooltip = Array.from(
+          document.body.querySelectorAll<HTMLElement>('[data-slot="tooltip-popup"]')
+        ).find((element) => element.textContent === longTitle);
+        expect(tooltip?.hasAttribute('data-open')).toBe(true);
+
+        mounted.unmount();
+      }
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('uses viewport-bounded dimensions and elastic stacked rows on short windows', () => {
     setViewport(900, 640);
     sessionSubagentState.items = [createSubagent()];

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { Menu, MenuPopup, MenuTrigger } from '@/components/ui/menu';
+import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { AgentSessionInventoryItem } from '@/stores/agentSessionInventory';
@@ -180,52 +181,63 @@ export function AgentSessionControlCenter({
                     const locationLabel = getLocationLabel(item);
 
                     return (
-                      <button
-                        key={item.sessionId}
-                        type="button"
-                        data-testid={`focus-session-${item.sessionId}`}
-                        className={cn(
-                          'control-menu-item flex w-full min-w-0 items-start gap-3 rounded-xl px-3 py-2.5 text-left text-foreground transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          item.isActive && 'bg-accent/20'
-                        )}
-                        onClick={() => onFocusSession(item.sessionId)}
-                      >
-                        <StatusIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="min-w-0 truncate text-sm font-medium">
-                              {item.displayName}
-                            </span>
-                            {item.isActive ? (
-                              <span className="control-chip control-chip-strong shrink-0">
-                                {t('Active')}
-                              </span>
-                            ) : null}
-                            {item.isStale ? (
-                              <span className="control-chip control-chip-wait shrink-0">
-                                {t('Stale')}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                            <span className="truncate">{item.agentName}</span>
-                            <span aria-hidden="true">/</span>
-                            <span className="truncate">{locationLabel}</span>
-                          </div>
-                          {item.task ? (
-                            <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                              <ListChecks className="h-3.5 w-3.5 shrink-0" />
-                              <span className="min-w-0 truncate">
-                                {t('Task: {{title}}', { title: item.task.title })}
-                              </span>
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <span className={status.chipClassName}>{t(status.labelKey)}</span>
-                          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-                        </div>
-                      </button>
+                      <Tooltip key={item.sessionId}>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              data-testid={`focus-session-${item.sessionId}`}
+                              className={cn(
+                                'control-menu-item flex w-full min-w-0 items-start gap-3 rounded-xl px-3 py-2.5 text-left text-foreground transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                item.isActive && 'bg-accent/20'
+                              )}
+                              onClick={() => onFocusSession(item.sessionId)}
+                            >
+                              <StatusIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="min-w-0 truncate text-sm font-medium">
+                                    {item.displayName}
+                                  </span>
+                                  {item.isActive ? (
+                                    <span className="control-chip control-chip-strong shrink-0">
+                                      {t('Active')}
+                                    </span>
+                                  ) : null}
+                                  {item.isStale ? (
+                                    <span className="control-chip control-chip-wait shrink-0">
+                                      {t('Stale')}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                                  <span className="truncate">{item.agentName}</span>
+                                  <span aria-hidden="true">/</span>
+                                  <span className="truncate">{locationLabel}</span>
+                                </div>
+                                {item.task ? (
+                                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                                    <ListChecks className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="min-w-0 truncate">
+                                      {t('Task: {{title}}', { title: item.task.title })}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <span className={status.chipClassName}>{t(status.labelKey)}</span>
+                                <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+                              </div>
+                            </button>
+                          }
+                        />
+                        <TooltipPopup
+                          align="start"
+                          className="max-w-sm whitespace-normal text-left break-words"
+                        >
+                          {item.displayName}
+                        </TooltipPopup>
+                      </Tooltip>
                     );
                   })}
                 </div>

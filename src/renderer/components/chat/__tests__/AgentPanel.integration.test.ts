@@ -26,6 +26,7 @@ declare global {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const testState = vi.hoisted(() => ({
+  useActualTooltip: false,
   installedAgents: ['gemini'] as string[],
   sessionScopedSubagentsBySessionId: {} as Record<string, Array<Record<string, unknown>>>,
   liveSubagentsByWorktree: new Map<string, Array<Record<string, unknown>>>(),
@@ -155,19 +156,38 @@ vi.mock('@/i18n', () => ({
   }),
 }));
 
-vi.mock('@/components/ui/tooltip', () => ({
-  Tooltip: ({ children }: { children: React.ReactNode }) =>
-    React.createElement(React.Fragment, null, children),
-  TooltipTrigger: ({
-    render,
-    children,
-  }: {
-    render?: React.ReactElement<Record<string, unknown>>;
-    children?: React.ReactNode;
-  }) => render ?? React.createElement(React.Fragment, null, children),
-  TooltipPopup: ({ children, className }: { children: React.ReactNode; className?: string }) =>
-    React.createElement('div', { className, 'data-testid': 'tooltip-popup' }, children),
-}));
+vi.mock('@/components/ui/tooltip', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/ui/tooltip')>();
+
+  return {
+    Tooltip: ({ children }: { children: React.ReactNode }) =>
+      testState.useActualTooltip
+        ? React.createElement(actual.Tooltip, null, children)
+        : React.createElement(React.Fragment, null, children),
+    TooltipTrigger: ({
+      render,
+      children,
+    }: {
+      render?: React.ReactElement<Record<string, unknown>>;
+      children?: React.ReactNode;
+    }) =>
+      testState.useActualTooltip
+        ? React.createElement(actual.TooltipTrigger, { render }, children)
+        : (render ?? React.createElement(React.Fragment, null, children)),
+    TooltipPopup: ({
+      align,
+      children,
+      className,
+    }: {
+      align?: 'center' | 'end' | 'start';
+      children: React.ReactNode;
+      className?: string;
+    }) =>
+      testState.useActualTooltip
+        ? React.createElement(actual.TooltipPopup, { align, className }, children)
+        : React.createElement('div', { className, 'data-testid': 'tooltip-popup' }, children),
+  };
+});
 
 vi.mock('../agentAvailability', () => ({
   probeRemoteAgentAvailability: vi.fn(async (request: { agentId: string }) => ({
@@ -686,6 +706,37 @@ function createSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
+function setDeferredCanvasSessionFixtures(longTitle: string): void {
+  const sessions = Array.from({ length: 8 }, (_, index) =>
+    createSession({
+      id: `session-${index}`,
+      sessionId: `provider-${index}`,
+      backendSessionId: `backend-${index}`,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: index === 7 ? longTitle : `Gemini ${index}`,
+    })
+  );
+
+  useAgentSessionsStore.setState({
+    sessions,
+    activeIds: {
+      '/repo/worktree': 'session-0',
+    },
+    groupStates: {
+      '/repo/worktree': {
+        groups: sessions.map((session, index) => ({
+          id: `group-${index}`,
+          sessionIds: [session.id],
+          activeSessionId: session.id,
+        })),
+        activeGroupId: 'group-0',
+        flexPercents: sessions.map(() => 100 / sessions.length),
+      },
+    },
+  });
+}
+
 function createRecoveredRecord(
   overrides: Partial<PersistentAgentSessionRecord> = {}
 ): PersistentAgentSessionRecord {
@@ -896,6 +947,7 @@ describe('AgentPanel integration', () => {
     resetTodoStore();
 
     testState.installedAgents = ['gemini'];
+    testState.useActualTooltip = false;
     testState.sessionScopedSubagentsBySessionId = {};
     testState.liveSubagentsByWorktree = new Map();
     testState.rendererEnvironment = {
@@ -2607,6 +2659,85 @@ describe('AgentPanel integration', () => {
     ).toBe(true);
 
     await mounted.unmount();
+  });
+
+  it('keeps long titles discoverable on deferred canvas tiles', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+    testState.settings.worktreeCanvasTerminalMountLimit = 4;
+
+    const longTitle =
+      'Investigate long-running deferred canvas session title without losing context';
+    setDeferredCanvasSessionFixtures(longTitle);
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const deferredTile = mounted.container.querySelector<HTMLElement>(
+      '[data-agent-canvas-deferred="true"][data-agent-session-id="session-7"]'
+    );
+    const deferredTitleAction = Array.from(deferredTile?.querySelectorAll('button') ?? []).find(
+      (button) => button.textContent?.includes(longTitle)
+    );
+
+    expect(deferredTile).not.toBeNull();
+    expect(deferredTitleAction).toBeDefined();
+    expect(
+      Array.from(deferredTile?.querySelectorAll('[data-testid="tooltip-popup"]') ?? []).some(
+        (tooltip) => tooltip.textContent === longTitle
+      )
+    ).toBe(true);
+
+    await mounted.unmount();
+  });
+
+  it('reveals deferred canvas titles after a resting mouse hover', async () => {
+    testState.useActualTooltip = true;
+    testState.settings.agentSessionDisplayMode = 'canvas';
+    testState.settings.worktreeCanvasTerminalMountLimit = 4;
+
+    const longTitle =
+      'Investigate the full deferred canvas session title after a resting mouse hover';
+    setDeferredCanvasSessionFixtures(longTitle);
+
+    let mounted: MountedAgentPanel | null = null;
+    try {
+      mounted = await mountAgentPanel({
+        cwd: '/repo/worktree',
+      });
+      const deferredTile = mounted.container.querySelector<HTMLElement>(
+        '[data-agent-canvas-deferred="true"][data-agent-session-id="session-7"]'
+      );
+      const deferredTitleAction = Array.from(deferredTile?.querySelectorAll('button') ?? []).find(
+        (button) => button.textContent?.includes(longTitle)
+      );
+      expect(deferredTitleAction).toBeDefined();
+
+      vi.useFakeTimers();
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+        window.setTimeout(() => callback(performance.now()), 0)
+      );
+      vi.stubGlobal('cancelAnimationFrame', window.clearTimeout);
+
+      await act(async () => {
+        deferredTitleAction?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+        deferredTitleAction?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const tooltip = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[data-slot="tooltip-popup"]')
+      ).find((element) => element.textContent === longTitle);
+      expect(tooltip?.hasAttribute('data-open')).toBe(true);
+    } finally {
+      await mounted?.unmount();
+      testState.useActualTooltip = false;
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('renames a worktree canvas session title from the tile header', async () => {
