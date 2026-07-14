@@ -73,8 +73,9 @@ describe('agent native terminal input policy', () => {
     expect(agentPanelSource).not.toContain('onPreToolUseNotification');
   });
 
-  it('keeps agent sessions in transcript mode so pointer and wheel gestures do not move the cursor into the output region', () => {
-    expect(useXtermSource).toContain('attachAgentTranscriptMode');
-    expect(useXtermSource).toContain('attachAgentTranscriptMode(nextTerminal, kind)');
+  it('keeps agent pointer handling separate from terminal output parsing', () => {
+    expect(useXtermSource).toContain('resolveAgentWheelPolicy');
+    expect(useXtermSource).toContain('attachPersistentCustomWheelEventHandler');
+    expect(useXtermSource).not.toContain('xtermAgentTranscriptPolicy');
   });
 });

@@ -65,6 +65,9 @@ const testState = vi.hoisted(() => ({
   terminalWriteInstanceIds: [] as number[],
   terminalWriteCallbacks: [] as Array<() => void>,
   terminalDispose: vi.fn(),
+  terminalParserRegisterCsiHandler: vi.fn((_identifier: unknown, _handler: unknown) => ({
+    dispose: () => undefined,
+  })),
   terminalInstanceCount: 0,
   terminalScrollToBottom: vi.fn(),
   terminalDataHandler: null as ((data: string) => void) | null,
@@ -104,6 +107,10 @@ vi.mock('@xterm/xterm', () => ({
     element = document.createElement('div');
     textarea: HTMLTextAreaElement | null = document.createElement('textarea');
     options: Record<string, unknown> = {};
+    parser = {
+      registerCsiHandler: (identifier: unknown, handler: unknown) =>
+        testState.terminalParserRegisterCsiHandler(identifier, handler),
+    };
     unicode = { activeVersion: '11' };
     buffer = {
       active: {
@@ -328,12 +335,6 @@ vi.mock('../xtermActivationRefresh', () => ({
   },
 }));
 
-vi.mock('../xtermAgentTranscriptPolicy', () => ({
-  attachAgentTranscriptMode: () => ({
-    dispose: () => undefined,
-  }),
-}));
-
 vi.mock('../xtermClipboard', () => ({
   copyTerminalSelectionToClipboard: vi.fn(async () => undefined),
   getTerminalSelectionText: vi.fn(() => ''),
@@ -478,6 +479,7 @@ describe('useXterm startup loading state', () => {
     testState.terminalWriteInstanceIds = [];
     testState.terminalWriteCallbacks = [];
     testState.terminalDispose.mockClear();
+    testState.terminalParserRegisterCsiHandler.mockClear();
     testState.terminalInstanceCount = 0;
     testState.terminalScrollToBottom.mockClear();
     testState.terminalDataHandler = null;
@@ -569,6 +571,18 @@ describe('useXterm startup loading state', () => {
     vi.useRealTimers();
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
+  });
+
+  it('leaves agent terminal private mode handling to xterm', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalParserRegisterCsiHandler).not.toHaveBeenCalled();
+
+    await mounted.unmount();
   });
 
   it('stops reporting loading and finalizes session startup after the first session output arrives even if attach is still pending', async () => {

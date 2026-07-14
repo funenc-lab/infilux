@@ -34,7 +34,6 @@ import { useNavigationStore } from '@/stores/navigation';
 import { useSettingsStore } from '@/stores/settings';
 import { recordAgentStartup } from '@/utils/logging';
 import { scheduleXtermActivationRefresh } from './xtermActivationRefresh';
-import { attachAgentTranscriptMode } from './xtermAgentTranscriptPolicy';
 import {
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
@@ -392,7 +391,6 @@ export function useXterm({
   const sessionEventsCleanupRef = useRef<(() => void) | null>(null);
   const terminalInputCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const terminalImeFocusCleanupRef = useRef<{ dispose: () => void } | null>(null);
-  const transcriptModeCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<{ dispose: () => void } | null>(null);
   const copyOnSelectionHandlerRef = useRef<(() => void) | null>(null);
@@ -911,8 +909,6 @@ export function useXterm({
     terminalInputCleanupRef.current = null;
     terminalImeFocusCleanupRef.current?.dispose();
     terminalImeFocusCleanupRef.current = null;
-    transcriptModeCleanupRef.current?.dispose();
-    transcriptModeCleanupRef.current = null;
     if (copyOnSelectionHandlerRef.current) {
       terminalRef.current?.element?.removeEventListener(
         'mouseup',
@@ -1167,8 +1163,6 @@ export function useXterm({
         })
       );
       terminal = nextTerminal;
-      transcriptModeCleanupRef.current?.dispose();
-      transcriptModeCleanupRef.current = attachAgentTranscriptMode(nextTerminal, kind);
 
       const fitAddon = new FitAddon();
       const searchAddon = new SearchAddon();
