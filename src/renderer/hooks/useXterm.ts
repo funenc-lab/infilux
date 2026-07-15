@@ -1072,6 +1072,13 @@ export function useXterm({
         return false;
       }
 
+      if (decision.action === 'program-scroll') {
+        write(decision.sequence.repeat(decision.repeat));
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+
       if (typeof decision.scrollLines === 'number') {
         if (decision.scrollLines !== 0) {
           terminal.scrollLines(decision.scrollLines);
@@ -1085,7 +1092,7 @@ export function useXterm({
       event.stopPropagation();
       return false;
     },
-    [cwd, hostSession, kind, preferHostScrollback, scheduleHostScroll]
+    [cwd, hostSession, kind, preferHostScrollback, scheduleHostScroll, write]
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect

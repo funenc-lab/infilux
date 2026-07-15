@@ -6,7 +6,9 @@ const source = readFileSync(resolve(__dirname, '../ClaudePolicyEditorDialog.tsx'
 
 describe('project config scheme policy selection wiring', () => {
   it('allows project and worktree policy dialogs to save selected schemes', () => {
-    expect(source).toContain('projectConfigSchemes: state.projectConfigSchemes');
+    expect(source).toContain(
+      'const projectConfigSchemes = useSettingsStore((state) => state.projectConfigSchemes);'
+    );
     expect(source).toContain('saveProjectConfigSchemeSelection(repoPath');
     expect(source).toContain('saveWorktreeConfigSchemeSelection(repoPath');
     expect(source).toContain(

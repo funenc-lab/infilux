@@ -150,9 +150,7 @@ export function ClaudePolicyEditorDialog({
   saveSuccessDescription,
 }: ClaudePolicyEditorDialogProps) {
   const { t } = useI18n();
-  const { projectConfigSchemes } = useSettingsStore((state) => ({
-    projectConfigSchemes: state.projectConfigSchemes,
-  }));
+  const projectConfigSchemes = useSettingsStore((state) => state.projectConfigSchemes);
   const activePolicy =
     scope === 'global' ? globalPolicy : scope === 'project' ? projectPolicy : worktreePolicy;
   const [draft, setDraft] = useState(() => createClaudePolicyDraft(activePolicy));

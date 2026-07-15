@@ -129,6 +129,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const registerWindowHandlers = vi.fn(() => registerWindowHandlersCleanup);
   const registerClaudeBridgeIpcHandlers = vi.fn();
   const unwatchClaudeSettings = vi.fn();
+  const initializeAppScopedProviderConfig = vi.fn();
   const isAllowedLocalFilePath = vi.fn(() => true);
   const registerAllowedLocalFileRoot = vi.fn();
   const checkGitInstalled = vi.fn(async () => true);
@@ -157,6 +158,48 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const readElectronLocalStorageSnapshotFromLevelDbDirs = vi.fn<
     () => Record<string, string> | null
   >(() => null);
+  const hasValidRepositoryListSnapshot = vi.fn((snapshot: Record<string, string>) => {
+    const repositories = snapshot['enso-repositories'];
+    if (typeof repositories !== 'string') {
+      return false;
+    }
+
+    try {
+      return Array.isArray(JSON.parse(repositories));
+    } catch {
+      return false;
+    }
+  });
+  const deriveRepositoryListFromSnapshot = vi.fn((snapshot: Record<string, string>) => {
+    const candidatePaths = new Set<string>();
+    const selectedRepo = snapshot['enso-selected-repo'];
+
+    if (typeof selectedRepo === 'string' && selectedRepo.startsWith('/')) {
+      candidatePaths.add(selectedRepo);
+    }
+
+    try {
+      const parsedTabs = JSON.parse(snapshot['enso-worktree-tabs'] ?? '{}') as Record<
+        string,
+        unknown
+      >;
+      for (const repoPath of Object.keys(parsedTabs)) {
+        if (repoPath.startsWith('/')) {
+          candidatePaths.add(repoPath);
+        }
+      }
+    } catch {
+      return null;
+    }
+
+    const repositories = [...candidatePaths].map((repoPath) => ({
+      name: repoPath.split('/').at(-1) || repoPath,
+      path: repoPath,
+      kind: 'local',
+    }));
+
+    return repositories.length > 0 ? JSON.stringify(repositories) : null;
+  });
   const readPersistentAgentSessions = vi.fn(() => []);
   const todoInitialize = vi.fn(async () => undefined);
   const todoExportAllTasks = vi.fn(async () => [{ id: 'board-1' }]);
@@ -479,6 +522,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       registerWindowHandlers,
       registerClaudeBridgeIpcHandlers,
       unwatchClaudeSettings,
+      initializeAppScopedProviderConfig,
       isAllowedLocalFilePath,
       registerAllowedLocalFileRoot,
       checkGitInstalled,
@@ -497,6 +541,8 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       writeSharedSessionState,
       writeSharedSettings,
       readElectronLocalStorageSnapshotFromLevelDbDirs,
+      hasValidRepositoryListSnapshot,
+      deriveRepositoryListFromSnapshot,
       readPersistentAgentSessions,
       todoInitialize,
       todoExportAllTasks,
@@ -577,6 +623,48 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     readSharedSessionState.mockReturnValue({ version: 1 });
     readSharedSettings.mockReturnValue({});
     readElectronLocalStorageSnapshotFromLevelDbDirs.mockReturnValue(null);
+    hasValidRepositoryListSnapshot.mockImplementation((snapshot: Record<string, string>) => {
+      const repositories = snapshot['enso-repositories'];
+      if (typeof repositories !== 'string') {
+        return false;
+      }
+
+      try {
+        return Array.isArray(JSON.parse(repositories));
+      } catch {
+        return false;
+      }
+    });
+    deriveRepositoryListFromSnapshot.mockImplementation((snapshot: Record<string, string>) => {
+      const candidatePaths = new Set<string>();
+      const selectedRepo = snapshot['enso-selected-repo'];
+
+      if (typeof selectedRepo === 'string' && selectedRepo.startsWith('/')) {
+        candidatePaths.add(selectedRepo);
+      }
+
+      try {
+        const parsedTabs = JSON.parse(snapshot['enso-worktree-tabs'] ?? '{}') as Record<
+          string,
+          unknown
+        >;
+        for (const repoPath of Object.keys(parsedTabs)) {
+          if (repoPath.startsWith('/')) {
+            candidatePaths.add(repoPath);
+          }
+        }
+      } catch {
+        return null;
+      }
+
+      const repositories = [...candidatePaths].map((repoPath) => ({
+        name: repoPath.split('/').at(-1) || repoPath,
+        path: repoPath,
+        kind: 'local',
+      }));
+
+      return repositories.length > 0 ? JSON.stringify(repositories) : null;
+    });
     readPersistentAgentSessions.mockReturnValue([]);
     todoInitialize.mockResolvedValue(undefined);
     todoExportAllTasks.mockResolvedValue([{ id: 'board-1' }]);
@@ -706,6 +794,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     registerWindowHandlers,
     registerClaudeBridgeIpcHandlers,
     unwatchClaudeSettings,
+    initializeAppScopedProviderConfig,
     isAllowedLocalFilePath,
     registerAllowedLocalFileRoot,
     checkGitInstalled,
@@ -724,6 +813,8 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     writeSharedSessionState,
     writeSharedSettings,
     readElectronLocalStorageSnapshotFromLevelDbDirs,
+    hasValidRepositoryListSnapshot,
+    deriveRepositoryListFromSnapshot,
     readPersistentAgentSessions,
     todoInitialize,
     todoExportAllTasks,
@@ -881,6 +972,10 @@ vi.mock('../services/claude/ClaudeProviderManager', () => ({
   unwatchClaudeSettings: mainIndexTestDoubles.unwatchClaudeSettings,
 }));
 
+vi.mock('../services/agentProvider/AppScopedProviderConfig', () => ({
+  initializeAppScopedProviderConfig: mainIndexTestDoubles.initializeAppScopedProviderConfig,
+}));
+
 vi.mock('../services/files/LocalFileAccess', () => ({
   isAllowedLocalFilePath: mainIndexTestDoubles.isAllowedLocalFilePath,
   registerAllowedLocalFileRoot: mainIndexTestDoubles.registerAllowedLocalFileRoot,
@@ -935,7 +1030,9 @@ vi.mock('../services/session/SessionManager', () => ({
 }));
 
 vi.mock('../services/settings/legacyImport', () => ({
+  deriveRepositoryListFromSnapshot: mainIndexTestDoubles.deriveRepositoryListFromSnapshot,
   findLegacySettingsImportSourcePath: vi.fn(() => null),
+  hasValidRepositoryListSnapshot: mainIndexTestDoubles.hasValidRepositoryListSnapshot,
   readElectronLocalStorageSnapshotFromLevelDbDirs:
     mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs,
   readLegacyElectronLocalStorageSnapshot: vi.fn(() => null),
@@ -1484,7 +1581,39 @@ describe('main entry', () => {
     );
   });
 
-  it('recovers shared localStorage from a newer current profile leveldb when shared repos are stale', async () => {
+  it('rebuilds invalid shared repositories from shared sidebar state before reading leveldb', async () => {
+    mainIndexTestDoubles.readSharedSessionState.mockReturnValue({
+      version: 2,
+      updatedAt: 100,
+      localStorage: {
+        'enso-repositories': '[{"path":"/repo/bad","name":"bad\u0001","kind":"local"}]',
+        'enso-selected-repo': '/repo/demo',
+        'enso-worktree-tabs': '{"/repo/demo":"chat","/repo/next":"chat"}',
+      },
+    });
+
+    const { __testables } = await importMainModule({
+      platform: 'darwin',
+    });
+
+    __testables.recoverSharedLocalStorageFromCurrentProfileIfNeeded();
+
+    expect(
+      mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs
+    ).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.writeSharedSessionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        localStorage: {
+          'enso-repositories':
+            '[{"name":"demo","path":"/repo/demo","kind":"local"},{"name":"next","path":"/repo/next","kind":"local"}]',
+          'enso-selected-repo': '/repo/demo',
+          'enso-worktree-tabs': '{"/repo/demo":"chat","/repo/next":"chat"}',
+        },
+      })
+    );
+  });
+
+  it('does not overwrite valid shared localStorage from a newer current profile leveldb', async () => {
     const sharedRepositories =
       '[{"id":"local:/repo/old","name":"old","path":"/repo/old","kind":"local"}]';
     const profileRepositories =
@@ -1497,12 +1626,6 @@ describe('main entry', () => {
         'enso-selected-repo': '/repo/old',
       },
     });
-    mainIndexTestDoubles.readdirSync.mockReturnValue(['000001.log', '000002.ldb']);
-    mainIndexTestDoubles.statSync.mockImplementation((targetPath: string) => ({
-      isDirectory: () => false,
-      size: 64,
-      mtimeMs: targetPath.endsWith('000002.ldb') ? 500 : 250,
-    }));
     mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs.mockReturnValue({
       'enso-repositories': profileRepositories,
       'enso-selected-repo': '/repo/current',
@@ -1514,14 +1637,10 @@ describe('main entry', () => {
 
     __testables.recoverSharedLocalStorageFromCurrentProfileIfNeeded();
 
-    expect(mainIndexTestDoubles.writeSharedSessionState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        localStorage: {
-          'enso-repositories': profileRepositories,
-          'enso-selected-repo': '/repo/current',
-        },
-      })
-    );
+    expect(
+      mainIndexTestDoubles.readElectronLocalStorageSnapshotFromLevelDbDirs
+    ).not.toHaveBeenCalled();
+    expect(mainIndexTestDoubles.writeSharedSessionState).not.toHaveBeenCalled();
   });
 
   it('marks missing legacy files, warns on migration failures, and initializes AppImage auto updates', async () => {
@@ -1605,6 +1724,7 @@ describe('main entry', () => {
     await __testables.initAutoUpdater(window as never);
 
     expect(mainIndexTestDoubles.initLogger).toHaveBeenCalledWith(true, 'debug', 14);
+    expect(mainIndexTestDoubles.initializeAppScopedProviderConfig).toHaveBeenCalledTimes(1);
     expect(mainIndexTestDoubles.logInfo).toHaveBeenCalledWith('Infilux started');
     expect(warnSpy).toHaveBeenCalledWith('Git is not installed. Some features may not work.');
     expect(mainIndexTestDoubles.registerIpcHandlers).toHaveBeenCalledTimes(1);

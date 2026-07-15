@@ -17,6 +17,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const translateMock = vi.fn((value: string) => value);
 const toastAddMock = vi.hoisted(() => vi.fn());
+const settingsStoreStateMock = vi.hoisted(() => ({
+  projectConfigSchemes: [],
+}));
 
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
@@ -28,6 +31,11 @@ vi.mock('@/components/ui/toast', () => ({
   toastManager: {
     add: toastAddMock,
   },
+}));
+
+vi.mock('@/stores/settings', () => ({
+  useSettingsStore: (selector: (state: typeof settingsStoreStateMock) => unknown) =>
+    selector(settingsStoreStateMock),
 }));
 
 vi.mock('@/components/ui/dialog', () => ({
@@ -104,6 +112,10 @@ function installElectronApi(
           disable: nativeSkillDisable,
           restore: nativeSkillRestore,
         },
+      },
+      settings: {
+        read: vi.fn(async () => ({})),
+        write: vi.fn(async () => true),
       },
     },
   });

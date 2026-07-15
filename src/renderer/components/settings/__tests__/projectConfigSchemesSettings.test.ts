@@ -8,6 +8,10 @@ const projectSchemesSectionSource = readFileSync(
   resolve(__dirname, '../project-config-schemes/ProjectConfigSchemesSection.tsx'),
   'utf8'
 );
+const claudePolicyEditorDialogSource = readFileSync(
+  resolve(__dirname, '../claude-policy/ClaudePolicyEditorDialog.tsx'),
+  'utf8'
+);
 
 describe('project config schemes settings wiring', () => {
   it('adds a settings category for reusable project schemes', () => {
@@ -29,5 +33,10 @@ describe('project config schemes settings wiring', () => {
     expect(projectSchemesSectionSource).toContain(
       "saveSuccessDescription={t('Project scheme skill and MCP settings were saved.')}"
     );
+  });
+
+  it('uses stable settings selectors in project scheme surfaces', () => {
+    expect(projectSchemesSectionSource).not.toContain('useSettingsStore((state) => ({');
+    expect(claudePolicyEditorDialogSource).not.toContain('useSettingsStore((state) => ({');
   });
 });

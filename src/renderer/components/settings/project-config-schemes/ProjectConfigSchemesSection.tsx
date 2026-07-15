@@ -25,19 +25,11 @@ interface ProjectConfigSchemesSectionProps {
 
 export function ProjectConfigSchemesSection({ repoPath }: ProjectConfigSchemesSectionProps) {
   const { t } = useI18n();
-  const {
-    projectConfigSchemes,
-    promptPresets,
-    addProjectConfigScheme,
-    updateProjectConfigScheme,
-    removeProjectConfigScheme,
-  } = useSettingsStore((state) => ({
-    projectConfigSchemes: state.projectConfigSchemes,
-    promptPresets: state.promptPresets,
-    addProjectConfigScheme: state.addProjectConfigScheme,
-    updateProjectConfigScheme: state.updateProjectConfigScheme,
-    removeProjectConfigScheme: state.removeProjectConfigScheme,
-  }));
+  const projectConfigSchemes = useSettingsStore((state) => state.projectConfigSchemes);
+  const promptPresets = useSettingsStore((state) => state.promptPresets);
+  const addProjectConfigScheme = useSettingsStore((state) => state.addProjectConfigScheme);
+  const updateProjectConfigScheme = useSettingsStore((state) => state.updateProjectConfigScheme);
+  const removeProjectConfigScheme = useSettingsStore((state) => state.removeProjectConfigScheme);
   const markClaudePolicyStaleGlobally = useAgentSessionsStore(
     (state) => state.markClaudePolicyStaleGlobally
   );

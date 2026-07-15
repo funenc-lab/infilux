@@ -289,7 +289,20 @@ function isLikelyRepositoryRootPath(value: string): boolean {
   return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value);
 }
 
-function deriveLegacyRepositoriesFromSnapshot(snapshot: Record<string, string>): string | null {
+export function hasValidRepositoryListSnapshot(snapshot: Record<string, string>): boolean {
+  const repositories = snapshot['enso-repositories'];
+  if (typeof repositories !== 'string') {
+    return false;
+  }
+
+  try {
+    return Array.isArray(JSON.parse(repositories));
+  } catch {
+    return false;
+  }
+}
+
+export function deriveRepositoryListFromSnapshot(snapshot: Record<string, string>): string | null {
   const candidatePaths = new Set<string>();
 
   const selectedRepo = snapshot['enso-selected-repo'];
@@ -322,6 +335,27 @@ function deriveLegacyRepositoriesFromSnapshot(snapshot: Record<string, string>):
   }));
 
   return repositories.length > 0 ? JSON.stringify(repositories) : null;
+}
+
+function isValidLegacyJsonValue(key: string, value: string): boolean {
+  if (key === 'enso-repositories') {
+    return hasValidRepositoryListSnapshot({ [key]: value });
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) || isPlainObject(parsed);
+  } catch {
+    return false;
+  }
+}
+
+function isValidLegacyLocalStorageValue(
+  key: string,
+  value: string,
+  kind: LegacyLocalStorageValueKind
+): boolean {
+  return kind !== 'json' || isValidLegacyJsonValue(key, value);
 }
 
 function getLegacyElectronLocalStorageCandidateDirs(
@@ -400,7 +434,7 @@ export function readElectronLocalStorageSnapshotFromLevelDbDirs(
         }
 
         const value = parseLegacyLocalStorageValue(buffer, keyIndex + keyBuffer.length, kind);
-        if (!value) {
+        if (!value || !isValidLegacyLocalStorageValue(key, value, kind)) {
           continue;
         }
 
@@ -410,8 +444,8 @@ export function readElectronLocalStorageSnapshotFromLevelDbDirs(
     }
   }
 
-  if (!snapshot['enso-repositories']) {
-    const derivedRepositories = deriveLegacyRepositoriesFromSnapshot(snapshot);
+  if (!hasValidRepositoryListSnapshot(snapshot)) {
+    const derivedRepositories = deriveRepositoryListFromSnapshot(snapshot);
     if (derivedRepositories) {
       snapshot['enso-repositories'] = derivedRepositories;
     }

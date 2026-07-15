@@ -22,7 +22,20 @@ function createTempRoot(): string {
 }
 
 describe('CodexRuntimeHomeService', () => {
+  const originalCodexHome = process.env.CODEX_HOME;
+  const originalHome = process.env.HOME;
+
   afterEach(() => {
+    if (originalCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = originalCodexHome;
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
     for (const root of tempRoots.splice(0)) {
       rmSync(root, { recursive: true, force: true });
     }
@@ -46,6 +59,27 @@ describe('CodexRuntimeHomeService', () => {
     );
     expect(readlinkSync(path.join(result.homePath, 'config.toml'))).toBe(
       path.join(sourceHome, 'config.toml')
+    );
+  });
+
+  it('resolves the scoped Codex home when the application config is initialized after module loading', () => {
+    const homeDir = createTempRoot();
+    const scopedCodexHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    process.env.HOME = homeDir;
+    delete process.env.CODEX_HOME;
+    mkdirSync(path.join(homeDir, '.codex'), { recursive: true });
+    writeFileSync(path.join(homeDir, '.codex', 'config.toml'), 'model = "global-model"');
+    const service = new CodexRuntimeHomeService(undefined, runtimeRoot);
+
+    writeFileSync(path.join(scopedCodexHome, 'config.toml'), 'model = "scoped-model"');
+    process.env.CODEX_HOME = scopedCodexHome;
+
+    const result = service.prepareRuntimeHome('scoped-session');
+
+    expect(result.sourceHomePath).toBe(scopedCodexHome);
+    expect(readlinkSync(path.join(result.homePath, 'config.toml'))).toBe(
+      path.join(scopedCodexHome, 'config.toml')
     );
   });
 

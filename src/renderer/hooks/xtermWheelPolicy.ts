@@ -3,8 +3,12 @@ import type { SessionKind } from '@shared/types';
 export const DOM_DELTA_PIXEL = 0;
 export const DOM_DELTA_LINE = 1;
 export const DOM_DELTA_PAGE = 2;
+export const PAGE_UP_SEQUENCE = '\x1b[5~';
+export const PAGE_DOWN_SEQUENCE = '\x1b[6~';
 
 const TRACKPAD_PIXEL_DELTA_THRESHOLD = 50;
+const PROGRAM_SCROLL_LINES_PER_PAGE = 8;
+const MAX_PROGRAM_SCROLL_PAGES_PER_EVENT = 3;
 
 export type XtermBufferType = 'normal' | 'alternate';
 export type XtermMouseTrackingMode = 'none' | 'x10' | 'vt200' | 'drag' | 'any';
@@ -33,10 +37,23 @@ type AgentWheelPolicyDecision =
       scrollLines: number;
     }
   | {
+      action: 'program-scroll';
+      carryY: number;
+      sequence: string;
+      repeat: number;
+    }
+  | {
       action: 'consume';
       carryY: number;
       scrollLines: number;
     };
+
+function resolveProgramScrollRepeat(scrollLines: number): number {
+  return Math.min(
+    MAX_PROGRAM_SCROLL_PAGES_PER_EVENT,
+    Math.max(1, Math.ceil(Math.abs(scrollLines) / PROGRAM_SCROLL_LINES_PER_PAGE))
+  );
+}
 
 function normalizePixelWheelDelta(
   deltaY: number,
@@ -140,6 +157,15 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
       action: 'host-scroll',
       carryY,
       scrollLines: steps,
+    };
+  }
+
+  if (input.activeBufferType === 'alternate') {
+    return {
+      action: 'program-scroll',
+      carryY,
+      sequence: steps < 0 ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE,
+      repeat: resolveProgramScrollRepeat(steps),
     };
   }
 

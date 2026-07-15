@@ -43,6 +43,7 @@ function createResolvedPolicy(partial: Partial<ResolvedClaudePolicy> = {}): Reso
 }
 
 describe('GeminiCapabilityProviderAdapter', () => {
+  const originalGeminiCliHome = process.env.GEMINI_CLI_HOME;
   const originalHome = process.env.HOME;
   let rootDir: string;
   let repoPath: string;
@@ -133,6 +134,11 @@ describe('GeminiCapabilityProviderAdapter', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (originalGeminiCliHome === undefined) {
+      delete process.env.GEMINI_CLI_HOME;
+    } else {
+      process.env.GEMINI_CLI_HOME = originalGeminiCliHome;
+    }
     if (originalHome === undefined) {
       delete process.env.HOME;
     } else {
@@ -260,6 +266,42 @@ describe('GeminiCapabilityProviderAdapter', () => {
     expect(realpathSync(linkedMemoryPath)).toBe(
       realpathSync(join(rootDir, '.gemini', 'memory.md'))
     );
+  });
+
+  it('uses the scoped Gemini home as the source for new Infilux sessions', async () => {
+    const scopedGeminiHome = join(rootDir, 'infilux-provider-config', 'gemini');
+    writeTextFile(
+      join(scopedGeminiHome, 'settings.json'),
+      JSON.stringify({ general: { vimMode: false, source: 'infilux' } })
+    );
+    process.env.GEMINI_CLI_HOME = scopedGeminiHome;
+    const adapter = createGeminiCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities,
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi
+        .fn()
+        .mockReturnValue(createResolvedPolicy({ repoPath, worktreePath })),
+      resolveGeminiCapabilityMcpConfigEntries: vi.fn().mockResolvedValue({
+        personalById: {},
+        sharedById: {},
+      }),
+      tempRootDir: runtimeRoot,
+    });
+
+    await adapter.prepareLaunch(request, {
+      cwd: worktreePath,
+      initialCommand: 'gemini',
+      kind: 'agent',
+    });
+
+    const runtimeSettings = JSON.parse(
+      readFileSync(join(runtimeRoot, 'gemini', 'hash-1', '.gemini', 'settings.json'), 'utf8')
+    ) as { general?: { source?: string; vimMode?: boolean } };
+    expect(runtimeSettings.general).toMatchObject({ source: 'infilux', vimMode: false });
   });
 
   it('falls back to local copies when runtime symlink creation is unavailable', async () => {

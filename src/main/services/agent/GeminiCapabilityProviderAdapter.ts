@@ -74,6 +74,10 @@ const GEMINI_RUNTIME_FILE_NAMES = [
 ];
 const GEMINI_FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---/;
 
+function resolveLocalGeminiConfigDir(): string {
+  return process.env.GEMINI_CLI_HOME?.trim() || path.join(os.homedir(), '.gemini');
+}
+
 function toStableValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((entry) => toStableValue(entry));
@@ -574,6 +578,7 @@ export function createGeminiCapabilityProviderAdapter(
       };
     }
 
+    const localGeminiConfigDir = resolveLocalGeminiConfigDir();
     const runtimeHome = path.join(tempRootDir, 'gemini', resolvedPolicy.hash);
     const runtimeGeminiDir = path.join(runtimeHome, '.gemini');
     const runtimeSkillsDir = path.join(runtimeGeminiDir, 'skills');
@@ -581,7 +586,7 @@ export function createGeminiCapabilityProviderAdapter(
     await ensureLocalDirectory(runtimeSkillsDir);
 
     const baseSettings = readJsonText(
-      await readLocalTextFile(path.join(os.homedir(), '.gemini', 'settings.json'))
+      await readLocalTextFile(path.join(localGeminiConfigDir, 'settings.json'))
     );
     const settings = buildGeminiSettings(baseSettings, mcpEntries, [...disabledSkillNames]);
     await fs.promises.writeFile(
@@ -592,7 +597,7 @@ export function createGeminiCapabilityProviderAdapter(
 
     for (const fileName of GEMINI_RUNTIME_FILE_NAMES) {
       await linkLocalFile(
-        path.join(os.homedir(), '.gemini', fileName),
+        path.join(localGeminiConfigDir, fileName),
         path.join(runtimeGeminiDir, fileName),
         warnings
       );

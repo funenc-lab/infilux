@@ -78,7 +78,7 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('maps alternate-buffer wheel input to viewport scrolling so agent transcript history moves instead of terminal input history', () => {
+  it('sends alternate-buffer wheel input to the agent program so new interactive sessions can scroll', () => {
     expect(
       resolveAgentWheelPolicy({
         kind: 'agent',
@@ -91,9 +91,10 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'consume',
+      action: 'program-scroll',
       carryY: 0,
-      scrollLines: -12,
+      sequence: '\x1b[5~',
+      repeat: 2,
     });
   });
 
@@ -117,7 +118,7 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('treats modest trackpad deltas as viewport scroll steps instead of swallowing them behind a large fixed threshold', () => {
+  it('turns modest alternate-buffer trackpad deltas into agent program scroll input', () => {
     const decision = resolveAgentWheelPolicy({
       kind: 'agent',
       activeBufferType: 'alternate',
@@ -129,11 +130,11 @@ describe('xtermWheelPolicy', () => {
       devicePixelRatio: 2,
     });
 
-    expect(decision.action).toBe('consume');
-    if (decision.action !== 'consume') {
-      return;
-    }
-    expect(decision.scrollLines).toBe(-1);
+    expect(decision).toMatchObject({
+      action: 'program-scroll',
+      sequence: '\x1b[5~',
+      repeat: 1,
+    });
     expect(decision.carryY).toBeCloseTo(-0.2, 5);
   });
 
@@ -185,11 +186,11 @@ describe('xtermWheelPolicy', () => {
       devicePixelRatio: 2,
     });
 
-    expect(third.action).toBe('consume');
-    if (third.action !== 'consume') {
-      return;
-    }
-    expect(third.scrollLines).toBe(1);
+    expect(third).toMatchObject({
+      action: 'program-scroll',
+      sequence: '\x1b[6~',
+      repeat: 1,
+    });
     expect(third.carryY).toBeCloseTo(0.35, 5);
   });
 

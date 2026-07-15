@@ -4,7 +4,6 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
@@ -114,6 +113,7 @@ import { initClaudeProviderWatcher } from './ipc/claudeProvider';
 import { cleanupTempFiles } from './ipc/files';
 import { readSettings } from './ipc/settings';
 import { registerWindowHandlers } from './ipc/window';
+import { initializeAppScopedProviderConfig } from './services/agentProvider/AppScopedProviderConfig';
 import { registerClaudeBridgeIpcHandlers } from './services/claude/ClaudeIdeBridge';
 import { unwatchClaudeSettings } from './services/claude/ClaudeProviderManager';
 import {
@@ -138,7 +138,9 @@ import {
 import { persistentAgentSessionRepository } from './services/session/PersistentAgentSessionRepository';
 import { sessionManager } from './services/session/SessionManager';
 import {
+  deriveRepositoryListFromSnapshot,
   findLegacySettingsImportSourcePath,
+  hasValidRepositoryListSnapshot,
   readElectronLocalStorageSnapshotFromLevelDbDirs,
   readLegacyElectronLocalStorageSnapshot,
   readLegacyImportLocalStorageSnapshot,
@@ -744,50 +746,26 @@ async function migrateLegacyTodoIfNeeded(): Promise<void> {
   }
 }
 
-function hasRepositoryListSnapshot(snapshot: Record<string, string>): boolean {
-  return typeof snapshot['enso-repositories'] === 'string';
+function removeInvalidRepositoryListSnapshot(
+  snapshot: Record<string, string>
+): Record<string, string> {
+  if (hasValidRepositoryListSnapshot(snapshot)) {
+    return snapshot;
+  }
+
+  const { 'enso-repositories': _invalidRepositories, ...sanitizedSnapshot } = snapshot;
+  return sanitizedSnapshot;
 }
 
-function localStorageSnapshotsDiffer(
-  currentSnapshot: Record<string, string>,
-  nextSnapshot: Record<string, string>
-): boolean {
-  const keys = new Set([...Object.keys(currentSnapshot), ...Object.keys(nextSnapshot)]);
-
-  for (const key of keys) {
-    if (currentSnapshot[key] !== nextSnapshot[key]) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function getNewestLevelDbFileMtimeMs(levelDbDir: string): number | null {
-  let fileNames: string[];
-  try {
-    fileNames = readdirSync(levelDbDir, { encoding: 'utf8' }).filter((fileName) =>
-      /\.(ldb|log)$/i.test(fileName)
-    );
-  } catch {
-    return null;
-  }
-
-  let newestMtimeMs: number | null = null;
-  for (const fileName of fileNames) {
-    try {
-      const fileStat = statSync(join(levelDbDir, fileName));
-      const mtimeMs = fileStat.mtimeMs;
-      if (typeof mtimeMs !== 'number' || !Number.isFinite(mtimeMs)) {
-        continue;
-      }
-      newestMtimeMs = newestMtimeMs === null ? mtimeMs : Math.max(newestMtimeMs, mtimeMs);
-    } catch {
-      // Ignore files that disappear while Chromium compacts LevelDB.
-    }
-  }
-
-  return newestMtimeMs;
+function selectValidRepositorySnapshot(
+  snapshots: Array<Record<string, string> | null | undefined>
+): Record<string, string> | null {
+  return (
+    snapshots.find(
+      (snapshot): snapshot is Record<string, string> =>
+        !!snapshot && hasValidRepositoryListSnapshot(snapshot)
+    ) ?? null
+  );
 }
 
 function recoverSharedLocalStorageFromCurrentProfileIfNeeded(): void {
@@ -797,47 +775,30 @@ function recoverSharedLocalStorageFromCurrentProfileIfNeeded(): void {
       ? currentSession.localStorage
       : {};
 
-  const levelDbDir = join(app.getPath('userData'), 'Local Storage', 'leveldb');
-  const recoveredSnapshotFromCurrentProfile = readElectronLocalStorageSnapshotFromLevelDbDirs([
-    levelDbDir,
-  ]);
-  const currentProfileMtimeMs = getNewestLevelDbFileMtimeMs(levelDbDir);
-  const sharedSessionUpdatedAt =
-    typeof currentSession.updatedAt === 'number' && Number.isFinite(currentSession.updatedAt)
-      ? currentSession.updatedAt
-      : 0;
-  const sharedHasRepositoryList = hasRepositoryListSnapshot(currentLocalStorage);
-  const currentProfileHasRepositoryList =
-    !!recoveredSnapshotFromCurrentProfile &&
-    hasRepositoryListSnapshot(recoveredSnapshotFromCurrentProfile);
+  if (hasValidRepositoryListSnapshot(currentLocalStorage)) {
+    return;
+  }
 
-  if (
-    sharedHasRepositoryList &&
-    currentProfileHasRepositoryList &&
-    currentProfileMtimeMs !== null &&
-    currentProfileMtimeMs > sharedSessionUpdatedAt &&
-    localStorageSnapshotsDiffer(currentLocalStorage, recoveredSnapshotFromCurrentProfile)
-  ) {
+  const derivedRepositories = deriveRepositoryListFromSnapshot(currentLocalStorage);
+  if (derivedRepositories) {
     writeSharedSessionState({
       ...currentSession,
       updatedAt: Date.now(),
       localStorage: {
         ...currentLocalStorage,
-        ...recoveredSnapshotFromCurrentProfile,
+        'enso-repositories': derivedRepositories,
       },
     });
-    log.info('[migration] Recovered shared localStorage from newer current profile state', {
-      levelDbDir,
-      currentProfileMtimeMs,
-      sharedSessionUpdatedAt,
-      recoveredKeyCount: Object.keys(recoveredSnapshotFromCurrentProfile).length,
+    log.info('[migration] Rebuilt shared localStorage repository snapshot from shared state', {
+      recoveredKeyCount: Object.keys(currentLocalStorage).length,
     });
     return;
   }
 
-  if (sharedHasRepositoryList) {
-    return;
-  }
+  const levelDbDir = join(app.getPath('userData'), 'Local Storage', 'leveldb');
+  const recoveredSnapshotFromCurrentProfile = readElectronLocalStorageSnapshotFromLevelDbDirs([
+    levelDbDir,
+  ]);
 
   const legacySourcePath = findLegacySettingsImportSourcePath({
     homeDir: app.getPath('home'),
@@ -849,11 +810,12 @@ function recoverSharedLocalStorageFromCurrentProfileIfNeeded(): void {
         ...(readLegacyImportLocalStorageSnapshot(legacySourcePath) ?? {}),
       }
     : null;
-  const recoveredSnapshot = recoveredSnapshotFromCurrentProfile?.['enso-repositories']
-    ? recoveredSnapshotFromCurrentProfile
-    : recoveredSnapshotFromLegacySource;
+  const recoveredSnapshot = selectValidRepositorySnapshot([
+    recoveredSnapshotFromCurrentProfile,
+    recoveredSnapshotFromLegacySource,
+  ]);
 
-  if (!recoveredSnapshot?.['enso-repositories']) {
+  if (!recoveredSnapshot) {
     log.info('[migration] No recoverable repository snapshot found in current or legacy profiles', {
       levelDbDir,
       legacySourcePath,
@@ -866,7 +828,7 @@ function recoverSharedLocalStorageFromCurrentProfileIfNeeded(): void {
     updatedAt: Date.now(),
     localStorage: {
       ...recoveredSnapshot,
-      ...currentLocalStorage,
+      ...removeInvalidRepositoryListSnapshot(currentLocalStorage),
     },
   });
   log.info('[migration] Recovered shared localStorage from existing profile state', {
@@ -877,6 +839,9 @@ function recoverSharedLocalStorageFromCurrentProfileIfNeeded(): void {
 }
 
 async function init(): Promise<void> {
+  await startShellEnvironmentHydration();
+  initializeAppScopedProviderConfig();
+
   // Initialize logger from settings
   const settings = readSettings();
   const ensoSettings = settings?.['enso-settings'] as

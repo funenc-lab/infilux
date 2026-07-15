@@ -33,29 +33,35 @@ function resolveSourceCodexHome(): string {
 }
 
 export class CodexRuntimeHomeService {
-  private readonly delegate: AgentRuntimeHomeService;
+  private delegate: AgentRuntimeHomeService | null = null;
 
   constructor(
-    sourceHomePath = resolveSourceCodexHome(),
-    runtimeRootPath = path.join(getSharedRootPath(), 'codex-runtime-homes')
-  ) {
-    this.delegate = new AgentRuntimeHomeService({
-      sourceHomePath,
-      runtimeRootPath,
-      sharedEntryNames: SAFE_SHARED_CODEX_ENTRIES,
-    });
+    private readonly sourceHomePath?: string,
+    private readonly runtimeRootPath = path.join(getSharedRootPath(), 'codex-runtime-homes')
+  ) {}
+
+  private getDelegate(): AgentRuntimeHomeService {
+    if (!this.delegate) {
+      this.delegate = new AgentRuntimeHomeService({
+        sourceHomePath: this.sourceHomePath ?? resolveSourceCodexHome(),
+        runtimeRootPath: this.runtimeRootPath,
+        sharedEntryNames: SAFE_SHARED_CODEX_ENTRIES,
+      });
+    }
+
+    return this.delegate;
   }
 
   prepareRuntimeHome(runtimeKey: string): CodexRuntimeHomeResult {
-    return this.delegate.prepareRuntimeHome(runtimeKey);
+    return this.getDelegate().prepareRuntimeHome(runtimeKey);
   }
 
   async runExclusive<T>(runtimeKey: string, operation: () => Promise<T> | T): Promise<T> {
-    return this.delegate.runExclusive(runtimeKey, operation);
+    return this.getDelegate().runExclusive(runtimeKey, operation);
   }
 
   pruneOrphanedRuntimeHomes(options: AgentRuntimeHomePruneOptions): AgentRuntimeHomePruneResult {
-    return this.delegate.pruneOrphanedRuntimeHomes(options);
+    return this.getDelegate().pruneOrphanedRuntimeHomes(options);
   }
 }
 

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLegacySettingsImportPayload,
   buildLegacySettingsImportPreview,
+  deriveRepositoryListFromSnapshot,
   findLegacySettingsImportSourcePath,
   getLegacySettingsImportCandidatePaths,
+  hasValidRepositoryListSnapshot,
   readElectronLocalStorageSnapshotFromLevelDbDirs,
   readLegacyElectronLocalStorageSnapshot,
   readLegacyImportLocalStorageSnapshot,
@@ -221,6 +223,65 @@ describe('legacySettingsImport', () => {
     expect(snapshot).toEqual({
       'enso-repositories': '[{"path":"/repo/demo","name":"demo","id":"local:/repo/demo"}]',
       'enso-selected-repo': '/repo/demo',
+    });
+  });
+
+  it('validates repository snapshots before treating them as recoverable', () => {
+    expect(
+      hasValidRepositoryListSnapshot({
+        'enso-repositories': '[{"path":"/repo/demo","name":"demo","kind":"local"}]',
+      })
+    ).toBe(true);
+    expect(
+      hasValidRepositoryListSnapshot({
+        'enso-repositories': '[{"path":"/repo/demo","name":"bad\u0001","kind":"local"}]',
+      })
+    ).toBe(false);
+  });
+
+  it('derives repository snapshots from selected repository and worktree tabs', () => {
+    const derivedRepositories = deriveRepositoryListFromSnapshot({
+      'enso-selected-repo': '/repo/current',
+      'enso-worktree-tabs': JSON.stringify({
+        '/repo/current': 'chat',
+        '/repo/next': 'chat',
+        '/Users/tester/.infilux/ensoai/workspaces/temp': 'chat',
+      }),
+    });
+
+    expect(derivedRepositories).toBe(
+      '[{"name":"current","path":"/repo/current","kind":"local"},{"name":"next","path":"/repo/next","kind":"local"}]'
+    );
+  });
+
+  it('rejects malformed leveldb repository JSON and derives from valid sidebar state', () => {
+    const snapshot = readElectronLocalStorageSnapshotFromLevelDbDirs(['/profile/leveldb'], {
+      listDirectories: (targetPath) => {
+        expect(targetPath).toBe('/profile/leveldb');
+        return ['000003.log'];
+      },
+      readBinaryFile: () =>
+        Buffer.from(
+          [
+            'META:file://',
+            '_file://',
+            'enso-repositories',
+            '[{"id":"local:/repo/bad","name":"bad\u0001","path":"/repo/bad","kind":"local"}]',
+            '_file://',
+            'enso-selected-repo',
+            '/repo/demo',
+            '_file://',
+            'enso-worktree-tabs',
+            '{"/repo/demo":"chat"}',
+          ].join('\x01'),
+          'utf8'
+        ),
+    });
+
+    expect(snapshot).toEqual({
+      'enso-selected-repo': '/repo/demo',
+      'enso-worktree-tabs': '{"/repo/demo":"chat"}',
+      'enso-repositories': '[{"name":"demo","path":"/repo/demo","kind":"local"}]',
     });
   });
 
