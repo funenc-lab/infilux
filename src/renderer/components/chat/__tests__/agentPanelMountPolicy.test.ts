@@ -346,6 +346,26 @@ describe('resolveMountedAgentPanelSessionIds', () => {
     ).toEqual(['session-0', 'session-1', 'session-2', 'session-3']);
   });
 
+  it('does not mount metadata-only missing-host sessions when the canvas is below its limit', () => {
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [
+          { id: 'session-live', recovered: true, recoveryState: 'live' },
+          {
+            id: 'session-missing',
+            recovered: true,
+            recoveryState: 'missing-host-session',
+          },
+        ],
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isCanvasDisplayMode: true,
+        isWorkspaceCanvasDisplayMode: false,
+        worktreeTerminalMountLimit: 6,
+      })
+    ).toEqual(['session-live']);
+  });
+
   it('preserves existing current-worktree mount ordering with cached hidden sessions', () => {
     expect(
       resolveMountedAgentPanelSessionIds({

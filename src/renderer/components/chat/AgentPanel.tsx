@@ -170,6 +170,7 @@ import {
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { shouldDeferBackgroundAgentRuntimeMount } from './agentSessionRuntimeSafetyPolicy';
 import { matchesAgentSessionRepoPath, matchesAgentSessionScope } from './agentSessionScope';
+import { shouldPreferAgentTerminalCompatibilityRenderer } from './agentTerminalRendererPolicy';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
 import { ClaudeSessionLaunchDialog } from './ClaudeSessionLaunchDialog';
 import { EnhancedInputContainer } from './EnhancedInputContainer';
@@ -4466,6 +4467,10 @@ export function AgentPanel({
     shouldDeferCanvasBackgroundMount,
     userRequestedCanvasMountSessionIds,
   ]);
+  const preferAgentTerminalCompatibilityRenderer = shouldPreferAgentTerminalCompatibilityRenderer({
+    isCanvasDisplayMode,
+    mountedTerminalCount: stagedCanvasMountSessionIds.length,
+  });
   useEffect(() => {
     if (!isCanvasDisplayMode || shouldSuppressWorkspaceCanvasPanel) {
       setBackgroundMountedCanvasSessionIds((current) =>
@@ -4946,6 +4951,7 @@ export function AgentPanel({
             recoveryState={session.recoveryState}
             isActive={isTerminalActive}
             isVisible={isTerminalVisible}
+            preferCompatibilityRenderer={preferAgentTerminalCompatibilityRenderer}
             layoutRefreshKey={
               isCanvasDisplayMode
                 ? `${canvasSessionLayoutSurfaceKey}:${sessionContentHost ? 'host' : 'inline'}`

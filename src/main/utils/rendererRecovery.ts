@@ -24,6 +24,26 @@ interface RendererFailureContextOptions {
   exitCode?: number;
 }
 
+export interface RendererRecoveryReloadDecisionInput {
+  isLoading: boolean;
+  maxRecoveryAttempts: number;
+  recoveryAttemptCount: number;
+}
+
+export type RendererRecoveryReloadDecision = 'budget-exhausted' | 'reload' | 'skip-loading';
+
+export function resolveRendererRecoveryReloadDecision({
+  isLoading,
+  maxRecoveryAttempts,
+  recoveryAttemptCount,
+}: RendererRecoveryReloadDecisionInput): RendererRecoveryReloadDecision {
+  if (isLoading) {
+    return 'skip-loading';
+  }
+
+  return recoveryAttemptCount >= maxRecoveryAttempts ? 'budget-exhausted' : 'reload';
+}
+
 export function shouldAutoRecoverRenderer(reason: string): boolean {
   return reason !== 'clean-exit' && reason !== 'killed';
 }

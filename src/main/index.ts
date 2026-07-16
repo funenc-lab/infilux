@@ -153,6 +153,7 @@ import log, { initLogger } from './utils/logger';
 import {
   buildRendererFailureContext,
   captureRendererDiagnostics,
+  resolveRendererRecoveryReloadDecision,
   shouldAutoRecoverRenderer,
 } from './utils/rendererRecovery';
 import { openLocalWindow } from './windows/WindowManager';
@@ -218,7 +219,6 @@ if (isDev && process.env.INFILUX_ENABLE_REMOTE_DEBUGGING === 'true') {
 process.env.INFILUX_RUNTIME_CHANNEL = resolveStartupRuntimeChannel();
 const FORCE_EXIT_TIMEOUT_MS = 8000;
 const MAX_RENDERER_RECOVERY_ATTEMPTS = 2;
-const RENDERER_RECOVERY_WINDOW_MS = 30_000;
 const mainStartupTimeline = createStartupTimelineRecorder('main');
 const pendingMainStartupTimelineEntries: StartupTimelineEntry[] = [];
 let canLogMainStartupTimeline = false;
@@ -407,27 +407,27 @@ async function fetchAllowedRemoteImage(input: string): Promise<Response> {
 function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
   const webContents = window.webContents;
   let recoveryAttemptCount = 0;
-  let recoveryWindowStartedAt = 0;
 
   const attemptRendererRecovery = (trigger: string) => {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
       return;
     }
 
-    const now = Date.now();
-    if (now - recoveryWindowStartedAt > RENDERER_RECOVERY_WINDOW_MS) {
-      recoveryWindowStartedAt = now;
-      recoveryAttemptCount = 0;
-    }
-
-    recoveryAttemptCount += 1;
-    if (recoveryAttemptCount > MAX_RENDERER_RECOVERY_ATTEMPTS) {
-      log.error('[renderer-recovery] Recovery budget exhausted', {
+    const decision = resolveRendererRecoveryReloadDecision({
+      isLoading: webContents.isLoading(),
+      maxRecoveryAttempts: MAX_RENDERER_RECOVERY_ATTEMPTS,
+      recoveryAttemptCount,
+    });
+    if (decision !== 'reload') {
+      log.warn('[renderer-recovery] Skipping renderer reload', {
+        decision,
         trigger,
         windowId: window.id,
       });
       return;
     }
+
+    recoveryAttemptCount += 1;
 
     setTimeout(() => {
       if (window.isDestroyed() || window.webContents.isDestroyed()) {
@@ -492,9 +492,14 @@ function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
     }
   };
 
+  const handleDidFinishLoad = () => {
+    recoveryAttemptCount = 0;
+  };
+
   webContents.on('render-process-gone', handleRenderProcessGone);
   window.on('unresponsive', handleUnresponsive);
   webContents.on('did-fail-load', handleDidFailLoad);
+  webContents.on('did-finish-load', handleDidFinishLoad);
 
   return () => {
     if (!window.isDestroyed()) {
@@ -503,6 +508,7 @@ function attachRendererRecoveryHandlers(window: BrowserWindow): () => void {
     if (!webContents.isDestroyed()) {
       webContents.removeListener('render-process-gone', handleRenderProcessGone);
       webContents.removeListener('did-fail-load', handleDidFailLoad);
+      webContents.removeListener('did-finish-load', handleDidFinishLoad);
     }
   };
 }

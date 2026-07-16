@@ -97,6 +97,10 @@ function requiresRecoveryMount(session: MountedAgentPanelSessionCandidate): bool
   return session.recovered === true && session.recoveryState !== 'missing-host-session';
 }
 
+function isRuntimeMountableCanvasSession(session: MountedAgentPanelSessionCandidate): boolean {
+  return session.recoveryState !== 'missing-host-session';
+}
+
 function requiresImmediateRuntimeMount(session: MountedAgentPanelSessionCandidate): boolean {
   return Boolean(session.pendingCommand);
 }
@@ -382,11 +386,12 @@ function resolveWorkspaceCanvasMountedSessionIds<
   | 'workspaceCanvasTerminalMountLimit'
 >): string[] {
   const limit = normalizeWorkspaceCanvasTerminalMountLimit(workspaceCanvasTerminalMountLimit);
-  if (canvasSessions.length <= limit) {
-    return canvasSessions.map((session) => session.id);
+  const mountableCanvasSessions = canvasSessions.filter(isRuntimeMountableCanvasSession);
+  if (mountableCanvasSessions.length <= limit) {
+    return mountableCanvasSessions.map((session) => session.id);
   }
 
-  const validSessionIds = new Set(canvasSessions.map((session) => session.id));
+  const validSessionIds = new Set(mountableCanvasSessions.map((session) => session.id));
   const selectedSessionIds = new Set<string>();
   addSessionId(selectedSessionIds, canvasFocusedSessionId, validSessionIds);
   addSessionId(selectedSessionIds, canvasFloatingSessionId, validSessionIds);
@@ -397,7 +402,7 @@ function resolveWorkspaceCanvasMountedSessionIds<
     addSessionId(selectedSessionIds, sessionId, validSessionIds);
   }
 
-  const rankedSessions = canvasSessions.map((session, index) => ({
+  const rankedSessions = mountableCanvasSessions.map((session, index) => ({
     index,
     priority: getSessionActivityStatePriority(sessionActivityStateById[session.id] ?? 'idle'),
     session,
@@ -474,7 +479,7 @@ function resolveWorkspaceCanvasMountedSessionIds<
     selectedSessionIds.add(item.session.id);
   }
 
-  return canvasSessions
+  return mountableCanvasSessions
     .filter((session) => selectedSessionIds.has(session.id))
     .map((session) => session.id);
 }

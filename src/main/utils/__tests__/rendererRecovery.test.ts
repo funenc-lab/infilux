@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildRendererFailureContext,
   type RendererDiagnosticsSnapshot,
+  resolveRendererRecoveryReloadDecision,
   shouldAutoRecoverRenderer,
 } from '../rendererRecovery';
 
@@ -14,6 +15,36 @@ describe('rendererRecovery', () => {
   it('does not auto-recover after a clean exit', () => {
     expect(shouldAutoRecoverRenderer('clean-exit')).toBe(false);
     expect(shouldAutoRecoverRenderer('killed')).toBe(false);
+  });
+
+  it('does not reload an unresponsive renderer while its previous recovery load is pending', () => {
+    expect(
+      resolveRendererRecoveryReloadDecision({
+        isLoading: true,
+        recoveryAttemptCount: 1,
+        maxRecoveryAttempts: 2,
+      })
+    ).toBe('skip-loading');
+  });
+
+  it('stops reloading after the recovery budget is exhausted', () => {
+    expect(
+      resolveRendererRecoveryReloadDecision({
+        isLoading: false,
+        recoveryAttemptCount: 2,
+        maxRecoveryAttempts: 2,
+      })
+    ).toBe('budget-exhausted');
+  });
+
+  it('allows a recovery reload while the renderer is idle and within budget', () => {
+    expect(
+      resolveRendererRecoveryReloadDecision({
+        isLoading: false,
+        recoveryAttemptCount: 1,
+        maxRecoveryAttempts: 2,
+      })
+    ).toBe('reload');
   });
 
   it('builds a structured failure context for logging', () => {

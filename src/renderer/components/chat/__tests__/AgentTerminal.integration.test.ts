@@ -768,6 +768,17 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('honors a canvas policy request to use the configured renderer', async () => {
+    const mounted = await mountAgentTerminal({ preferCompatibilityRenderer: false });
+
+    expect(testState.useXtermOptions.at(-1)).toMatchObject({
+      kind: 'agent',
+      preferCompatibilityRenderer: false,
+    });
+
+    await mounted.unmount();
+  });
+
   it('returns false from the registered sender for read-only transcripts', async () => {
     const registerSender = vi.fn();
     const onActivated = vi.fn();
