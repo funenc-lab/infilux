@@ -2101,14 +2101,16 @@ export function useXterm({
       clearPendingHostScroll();
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
-      if (ptyIdRef.current) {
+      // Agent sessions can move between canvas hosts within the same window.
+      // Keep their backend attachment until explicit closure or window teardown.
+      if (ptyIdRef.current && kind !== 'agent') {
         window.electronAPI.session.detach(ptyIdRef.current).catch(() => {});
-        ptyIdRef.current = null;
       }
+      ptyIdRef.current = null;
       flushBufferedTerminalOutput(terminalRef.current);
       disposeTerminal();
     };
-  }, [clearPendingHostScroll, disposeTerminal, flushBufferedTerminalOutput]);
+  }, [clearPendingHostScroll, disposeTerminal, flushBufferedTerminalOutput, kind]);
 
   // Update settings dynamically
   useEffect(() => {

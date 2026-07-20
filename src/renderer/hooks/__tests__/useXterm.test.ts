@@ -614,6 +614,50 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('keeps an agent backend session attached when its terminal view unmounts', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    await mounted.unmount();
+
+    expect(testState.sessionDetach).not.toHaveBeenCalledWith('backend-session-1');
+  });
+
+  it('detaches a non-agent backend session when its terminal view unmounts', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'terminal',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+    const mounted = mountHookHarness({ kind: 'terminal' });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    await mounted.unmount();
+
+    expect(testState.sessionDetach).toHaveBeenCalledWith('backend-session-1');
+  });
+
   it('recreates a healthy WebGL renderer after a Canvas layout transition', async () => {
     testState.terminalRenderer = 'webgl';
     const mounted = mountHookHarness();
