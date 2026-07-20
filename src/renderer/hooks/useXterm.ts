@@ -160,6 +160,8 @@ interface PendingHostScrollRequest {
   serverName?: string;
   direction: 'up' | 'down';
   amount: number;
+  terminal: Terminal;
+  sessionEpoch: number;
 }
 
 interface InFlightTerminalWrite {
@@ -970,6 +972,17 @@ export function useXterm({
       return;
     }
 
+    const fallbackToLocalScrollback = () => {
+      if (
+        terminalRef.current !== request.terminal ||
+        createRequestIdRef.current !== request.sessionEpoch
+      ) {
+        return;
+      }
+
+      request.terminal.scrollLines(request.direction === 'up' ? -request.amount : request.amount);
+    };
+
     void window.electronAPI.tmux
       .scrollClient(request.cwd, {
         sessionName: request.sessionName,
@@ -978,6 +991,9 @@ export function useXterm({
         amount: request.amount,
       })
       .then((result) => {
+        if (!result.applied) {
+          fallbackToLocalScrollback();
+        }
         const nextHostScrollbackState =
           typeof result.inMode === 'boolean'
             ? result.inMode
@@ -985,6 +1001,7 @@ export function useXterm({
         onHostScrollbackStateChangeRef.current?.(nextHostScrollbackState);
       })
       .catch(() => {
+        fallbackToLocalScrollback();
         onHostScrollbackStateChangeRef.current?.(false);
       });
   }, []);
@@ -1009,7 +1026,9 @@ export function useXterm({
         pending.cwd === request.cwd &&
         pending.sessionName === request.sessionName &&
         pending.serverName === request.serverName &&
-        pending.direction === request.direction
+        pending.direction === request.direction &&
+        pending.terminal === request.terminal &&
+        pending.sessionEpoch === request.sessionEpoch
       ) {
         pendingHostScrollRef.current = {
           ...pending,
@@ -1088,6 +1107,8 @@ export function useXterm({
             serverName: hostSession.serverName,
             direction: decision.scrollLines < 0 ? 'up' : 'down',
             amount: Math.abs(decision.scrollLines),
+            terminal,
+            sessionEpoch: createRequestIdRef.current,
           });
         }
         event.preventDefault();

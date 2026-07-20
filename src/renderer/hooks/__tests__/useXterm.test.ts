@@ -70,6 +70,7 @@ const testState = vi.hoisted(() => ({
   })),
   terminalInstanceCount: 0,
   terminalScrollToBottom: vi.fn(),
+  terminalScrollLines: vi.fn(),
   terminalDataHandler: null as ((data: string) => void) | null,
   customKeyHandler: null as ((event: KeyboardEvent) => boolean) | null,
   terminalBufferLines: [] as Array<{ text: string; isWrapped?: boolean }>,
@@ -187,7 +188,9 @@ vi.mock('@xterm/xterm', () => ({
     scrollToBottom(): void {
       testState.terminalScrollToBottom();
     }
-    scrollLines(): void {}
+    scrollLines(amount?: number): void {
+      testState.terminalScrollLines(amount);
+    }
     registerLinkProvider(): { dispose: () => void } {
       return { dispose: () => undefined };
     }
@@ -504,6 +507,7 @@ describe('useXterm startup loading state', () => {
     testState.terminalParserRegisterCsiHandler.mockClear();
     testState.terminalInstanceCount = 0;
     testState.terminalScrollToBottom.mockClear();
+    testState.terminalScrollLines.mockClear();
     testState.terminalDataHandler = null;
     testState.customKeyHandler = null;
     testState.terminalBufferLines = [];
@@ -1602,9 +1606,104 @@ describe('useXterm startup loading state', () => {
       direction: 'up',
       amount: 4,
     });
+    expect(testState.terminalScrollLines).not.toHaveBeenCalled();
     expect(onHostScrollbackStateChange).toHaveBeenCalledWith(true);
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(stopPropagation).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('falls back to local history when tmux host scrolling is not applied', async () => {
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -4,
+    } as never);
+    testState.tmuxScrollClient.mockResolvedValue({
+      applied: false,
+      inMode: false,
+      paneId: '%0',
+    });
+    const onHostScrollbackStateChange = vi.fn();
+
+    const mounted = mountHookHarness({
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'tmux-session-1',
+      },
+      preferHostScrollback: true,
+      onHostScrollbackStateChange,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -4,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as WheelEvent);
+      await vi.advanceTimersByTimeAsync(20);
+      await flushMicrotasks();
+    });
+
+    expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
+      sessionName: 'tmux-session-1',
+      serverName: 'infilux',
+      direction: 'up',
+      amount: 4,
+    });
+    expect(testState.terminalScrollLines).toHaveBeenCalledWith(-4);
+    expect(onHostScrollbackStateChange).toHaveBeenCalledWith(false);
+
+    await mounted.unmount();
+  });
+
+  it('falls back to local history when tmux host scrolling fails', async () => {
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -3,
+    } as never);
+    testState.tmuxScrollClient.mockRejectedValue(new Error('tmux unavailable'));
+    const onHostScrollbackStateChange = vi.fn();
+
+    const mounted = mountHookHarness({
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'tmux-session-1',
+      },
+      preferHostScrollback: true,
+      onHostScrollbackStateChange,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -3,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as WheelEvent);
+      await vi.advanceTimersByTimeAsync(20);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalScrollLines).toHaveBeenCalledWith(-3);
+    expect(onHostScrollbackStateChange).toHaveBeenCalledWith(false);
 
     await mounted.unmount();
   });
