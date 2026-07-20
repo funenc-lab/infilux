@@ -97,6 +97,12 @@ const testState = vi.hoisted(() => ({
     focus: () => void;
   }>,
   viewportSyncCalls: [] as Array<Record<string, unknown>>,
+  terminalRenderer: 'dom' as 'dom' | 'webgl',
+  recreateWebglRenderer: null as (() => void) | null,
+  webglAddons: [] as Array<{
+    dispose: ReturnType<typeof vi.fn>;
+    contextLossHandler: (() => void) | null;
+  }>,
 }));
 
 vi.mock('@xterm/xterm', () => ({
@@ -233,9 +239,23 @@ vi.mock('@xterm/addon-unicode11', () => ({
 
 vi.mock('@xterm/addon-webgl', () => ({
   WebglAddon: class {
-    onContextLoss(): void {}
+    private readonly state = {
+      dispose: vi.fn(),
+      contextLossHandler: null as (() => void) | null,
+    };
+
+    constructor() {
+      testState.webglAddons.push(this.state);
+    }
+
+    onContextLoss(handler: () => void): { dispose: () => void } {
+      this.state.contextLossHandler = handler;
+      return { dispose: () => undefined };
+    }
     clearTextureAtlas(): void {}
-    dispose(): void {}
+    dispose(): void {
+      this.state.dispose();
+    }
   },
 }));
 
@@ -299,7 +319,7 @@ vi.mock('@/stores/settings', () => ({
       terminalOptionIsMeta: boolean;
       xtermKeybindings: Record<string, never>;
       backgroundImageEnabled: boolean;
-      terminalRenderer: 'dom';
+      terminalRenderer: 'dom' | 'webgl';
       copyOnSelection: boolean;
       shellConfig: { shellType: 'zsh' };
     }) => unknown
@@ -314,7 +334,7 @@ vi.mock('@/stores/settings', () => ({
       terminalOptionIsMeta: true,
       xtermKeybindings: {},
       backgroundImageEnabled: false,
-      terminalRenderer: 'dom',
+      terminalRenderer: testState.terminalRenderer,
       copyOnSelection: false,
       shellConfig: { shellType: 'zsh' },
     }),
@@ -405,6 +425,8 @@ function HookHarness() {
     runtimeState: hook.runtimeState,
   };
   testState.restartSession = hook.restartSession;
+  testState.recreateWebglRenderer =
+    (hook as typeof hook & { recreateWebglRenderer?: () => void }).recreateWebglRenderer ?? null;
 
   return React.createElement('div', {
     ref: hook.containerRef,
@@ -506,6 +528,9 @@ describe('useXterm startup loading state', () => {
     testState.activationRefreshCalls = [];
     testState.viewportSyncCalls = [];
     testState.hookProps = {};
+    testState.terminalRenderer = 'dom';
+    testState.recreateWebglRenderer = null;
+    testState.webglAddons = [];
 
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
@@ -581,6 +606,53 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.terminalParserRegisterCsiHandler).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('recreates a healthy WebGL renderer after a Canvas layout transition', async () => {
+    testState.terminalRenderer = 'webgl';
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const initialAddonCount = testState.webglAddons.length;
+    const activeAddon = testState.webglAddons.at(-1);
+    expect(initialAddonCount).toBeGreaterThan(0);
+    expect(testState.recreateWebglRenderer).toBeTypeOf('function');
+
+    act(() => {
+      testState.recreateWebglRenderer?.();
+    });
+
+    expect(activeAddon?.dispose).toHaveBeenCalledTimes(1);
+    expect(testState.webglAddons).toHaveLength(initialAddonCount + 1);
+
+    await mounted.unmount();
+  });
+
+  it('does not reactivate WebGL after its context is lost', async () => {
+    testState.terminalRenderer = 'webgl';
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const initialAddonCount = testState.webglAddons.length;
+    const activeAddon = testState.webglAddons.at(-1);
+    expect(activeAddon?.contextLossHandler).toBeTypeOf('function');
+    expect(testState.recreateWebglRenderer).toBeTypeOf('function');
+
+    act(() => {
+      activeAddon?.contextLossHandler?.();
+      testState.recreateWebglRenderer?.();
+    });
+
+    expect(activeAddon?.dispose).toHaveBeenCalledTimes(1);
+    expect(testState.webglAddons).toHaveLength(initialAddonCount);
 
     await mounted.unmount();
   });

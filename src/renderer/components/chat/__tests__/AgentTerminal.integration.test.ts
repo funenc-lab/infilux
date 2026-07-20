@@ -67,6 +67,7 @@ const testState = vi.hoisted(() => ({
     clear: vi.fn(),
     fit: vi.fn(),
     refreshRenderer: vi.fn(),
+    recreateWebglRenderer: vi.fn(),
     restartSession: vi.fn(),
     write: vi.fn(),
   },
@@ -451,6 +452,7 @@ describe('AgentTerminal integration', () => {
     testState.xtermResult.clear.mockReset();
     testState.xtermResult.fit.mockReset();
     testState.xtermResult.refreshRenderer.mockReset();
+    testState.xtermResult.recreateWebglRenderer.mockReset();
     testState.xtermResult.restartSession.mockReset();
     testState.xtermResult.write.mockReset();
 
@@ -1961,9 +1963,11 @@ describe('AgentTerminal integration', () => {
 
     expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
     expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.recreateWebglRenderer).toHaveBeenCalledTimes(1);
 
     testState.xtermResult.fit.mockClear();
     testState.xtermResult.refreshRenderer.mockClear();
+    testState.xtermResult.recreateWebglRenderer.mockClear();
 
     await mounted.rerender({
       layoutRefreshKey: 'floating',
@@ -1975,6 +1979,85 @@ describe('AgentTerminal integration', () => {
 
     expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
     expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.recreateWebglRenderer).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('recreates the WebGL renderer when a Canvas zoom changes the terminal font scale', async () => {
+    const frames = installQueuedAnimationFrame();
+    const mounted = await mountAgentTerminal();
+    const xtermContainer = getXtermContainer();
+    Object.defineProperty(xtermContainer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => createDomRectLike({ height: 360, width: 640 }),
+    });
+
+    await mounted.rerender({
+      layoutRefreshKey: 'tile',
+      terminalFontScale: 1,
+    } as Partial<AgentTerminalProps>);
+
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
+
+    testState.xtermResult.fit.mockClear();
+    testState.xtermResult.refreshRenderer.mockClear();
+    testState.xtermResult.recreateWebglRenderer.mockClear();
+
+    await mounted.rerender({
+      terminalFontScale: 1.1,
+    } as Partial<AgentTerminalProps>);
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
+
+    expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.recreateWebglRenderer).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('recreates the WebGL renderer when a terminal returns to the same Canvas tile', async () => {
+    const frames = installQueuedAnimationFrame();
+    const mounted = await mountAgentTerminal();
+    const xtermContainer = getXtermContainer();
+    Object.defineProperty(xtermContainer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => createDomRectLike({ height: 360, width: 640 }),
+    });
+
+    await mounted.rerender({
+      layoutRefreshKey: 'tile',
+    } as Partial<AgentTerminalProps>);
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
+
+    await mounted.rerender({
+      layoutRefreshKey: undefined,
+    } as Partial<AgentTerminalProps>);
+
+    testState.xtermResult.fit.mockClear();
+    testState.xtermResult.refreshRenderer.mockClear();
+    testState.xtermResult.recreateWebglRenderer.mockClear();
+
+    await mounted.rerender({
+      layoutRefreshKey: 'tile',
+    } as Partial<AgentTerminalProps>);
+    await act(async () => {
+      frames.flushNextFrame();
+      await flushMicrotasks();
+    });
+
+    expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
+    expect(testState.xtermResult.recreateWebglRenderer).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });

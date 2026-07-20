@@ -1841,6 +1841,7 @@ export function AgentTerminal({
     terminal,
     clear,
     refreshRenderer,
+    recreateWebglRenderer,
     restartSession,
     write,
   } = useXterm({
@@ -1900,6 +1901,7 @@ export function AgentTerminal({
   const lastAppliedLayoutRefreshRef = useRef<{
     key: string;
     terminal: NonNullable<typeof terminal>;
+    terminalFontScale: number | undefined;
   } | null>(null);
   useEffect(() => {
     if (runtimeState === 'live') {
@@ -1916,6 +1918,7 @@ export function AgentTerminal({
 
   useEffect(() => {
     if (!layoutRefreshKey || !terminal) {
+      lastAppliedLayoutRefreshRef.current = null;
       return;
     }
     const container = containerRef.current;
@@ -1924,12 +1927,17 @@ export function AgentTerminal({
     }
 
     const lastApplied = lastAppliedLayoutRefreshRef.current;
-    if (lastApplied?.key === layoutRefreshKey && lastApplied.terminal === terminal) {
+    if (
+      lastApplied?.key === layoutRefreshKey &&
+      lastApplied.terminal === terminal &&
+      lastApplied.terminalFontScale === terminalFontScale
+    ) {
       return;
     }
     lastAppliedLayoutRefreshRef.current = {
       key: layoutRefreshKey,
       terminal,
+      terminalFontScale,
     };
 
     let frameId: number | null = null;
@@ -1940,6 +1948,7 @@ export function AgentTerminal({
           frameId = null;
           fitTerminalLayout();
           refreshRenderer();
+          recreateWebglRenderer();
           if (effectiveIsActive) {
             focusXtermTextInput(terminal);
           }
@@ -1960,8 +1969,10 @@ export function AgentTerminal({
     effectiveIsActive,
     fitTerminalLayout,
     layoutRefreshKey,
+    recreateWebglRenderer,
     refreshRenderer,
     terminal,
+    terminalFontScale,
   ]);
 
   const terminalOverlayState = isReadOnlyTranscript

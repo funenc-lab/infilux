@@ -264,6 +264,8 @@ export interface UseXtermResult {
   clear: () => void;
   /** Manually refresh renderer (clear WebGL atlas + refresh) */
   refreshRenderer: () => void;
+  /** Recreate a healthy WebGL renderer after an external layout transition. */
+  recreateWebglRenderer: () => void;
   /** Restart the current session binding */
   restartSession: () => void;
 }
@@ -393,6 +395,7 @@ export function useXterm({
   const terminalImeFocusCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<{ dispose: () => void } | null>(null);
+  const webglContextLostRef = useRef(false);
   const copyOnSelectionHandlerRef = useRef<(() => void) | null>(null);
   const copyEventHandlerRef = useRef<((event: ClipboardEvent) => void) | null>(null);
   const activeSessionBindingRef = useRef<ReturnType<
@@ -734,22 +737,28 @@ export function useXterm({
 
     // Load renderer based on settings (webgl > canvas > dom)
     if (renderer === 'webgl') {
+      webglContextLostRef.current = false;
       try {
         const webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => {
           // Guard against disposed terminal
-          if (terminalRef.current && rendererAddonRef.current === webglAddon) {
+          if (terminalRef.current === terminal && rendererAddonRef.current === webglAddon) {
+            webglContextLostRef.current = true;
             console.warn('[xterm] WebGL context lost, falling back to DOM renderer');
             webglAddon.dispose();
             rendererAddonRef.current = null;
+            terminal.refresh(0, terminal.rows - 1);
           }
         });
         terminal.loadAddon(webglAddon);
         rendererAddonRef.current = webglAddon;
       } catch (error) {
+        webglContextLostRef.current = true;
         console.warn('[xterm] WebGL failed, falling back to DOM renderer:', error);
         rendererAddonRef.current = null;
       }
+    } else {
+      webglContextLostRef.current = false;
     }
     // 'dom' or 'canvas' uses the default DOM renderer, no addon needed
     // Note: 'canvas' support is removed in favor of DOM as legacy fallback
@@ -757,6 +766,20 @@ export function useXterm({
     // Trigger refresh to ensure render
     terminal.refresh(0, terminal.rows - 1);
   }, []);
+
+  const recreateWebglRenderer = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (
+      !terminal ||
+      effectiveTerminalRenderer !== 'webgl' ||
+      webglContextLostRef.current ||
+      !rendererAddonRef.current
+    ) {
+      return;
+    }
+
+    loadRenderer(terminal, 'webgl');
+  }, [effectiveTerminalRenderer, loadRenderer]);
 
   const flushPendingTerminalExit = useCallback(() => {
     if (
@@ -2287,6 +2310,7 @@ export function useXterm({
     clearSearch,
     clear,
     refreshRenderer,
+    recreateWebglRenderer,
     restartSession,
   };
 }
