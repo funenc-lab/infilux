@@ -12,6 +12,10 @@ const claudePolicyEditorDialogSource = readFileSync(
   resolve(__dirname, '../claude-policy/ClaudePolicyEditorDialog.tsx'),
   'utf8'
 );
+const projectConfigSchemeDialogSource = readFileSync(
+  resolve(__dirname, '../project-config-schemes/ProjectConfigSchemeDialog.tsx'),
+  'utf8'
+);
 
 describe('project config schemes settings wiring', () => {
   it('adds a settings category for reusable project schemes', () => {
@@ -38,5 +42,10 @@ describe('project config schemes settings wiring', () => {
   it('uses stable settings selectors in project scheme surfaces', () => {
     expect(projectSchemesSectionSource).not.toContain('useSettingsStore((state) => ({');
     expect(claudePolicyEditorDialogSource).not.toContain('useSettingsStore((state) => ({');
+  });
+
+  it('layers project scheme selects above their modal backdrops', () => {
+    expect(claudePolicyEditorDialogSource).toContain('zIndex={Z_INDEX.DROPDOWN_IN_MODAL}');
+    expect(projectConfigSchemeDialogSource).toContain('zIndex={Z_INDEX.DROPDOWN_IN_NESTED_MODAL}');
   });
 });

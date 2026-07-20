@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
 import { ClaudePolicyCapabilityList } from './ClaudePolicyCapabilityList';
 import { ClaudePolicyDisabledNativeSkillList } from './ClaudePolicyDisabledNativeSkillList';
@@ -548,7 +549,7 @@ export function ClaudePolicyEditorDialog({
                             ?.name ?? t('Missing scheme'))}
                     </SelectValue>
                   </SelectTrigger>
-                  <SelectPopup>
+                  <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
                     <SelectItem value={NO_SCHEME_VALUE}>{t('Inherit without scheme')}</SelectItem>
                     {projectConfigSchemes.map((scheme) => (
                       <SelectItem key={scheme.id} value={scheme.id}>

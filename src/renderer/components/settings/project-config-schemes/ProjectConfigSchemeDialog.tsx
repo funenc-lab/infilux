@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useI18n } from '@/i18n';
+import { Z_INDEX } from '@/lib/z-index';
 
 interface ProjectConfigSchemeDialogProps {
   open: boolean;
@@ -132,7 +133,7 @@ export function ProjectConfigSchemeDialog({
                     t('No prompt preset')}
                 </SelectValue>
               </SelectTrigger>
-              <SelectPopup>
+              <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_NESTED_MODAL}>
                 <SelectItem value={NO_PROMPT_VALUE}>{t('No prompt preset')}</SelectItem>
                 {promptPresets.map((preset) => (
                   <SelectItem key={preset.id} value={preset.id}>
