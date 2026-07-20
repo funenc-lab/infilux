@@ -194,6 +194,38 @@ describe('Claude policy IPC handlers', () => {
     expect(claudePolicyTestDoubles.prepareClaudeAgentLaunch).toHaveBeenCalledWith(previewRequest);
   });
 
+  it('resolves previews from a supplied catalog without scanning it again', async () => {
+    const { registerClaudePolicyHandlers } = await import('../claudePolicy');
+    registerClaudePolicyHandlers();
+
+    const catalog = {
+      capabilities: [{ id: 'legacy-skill:planner' }],
+      sharedMcpServers: [],
+      personalMcpServers: [],
+      generatedAt: 1,
+    };
+    const request = {
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feature-a',
+      globalPolicy: null,
+      projectPolicy: null,
+      worktreePolicy: null,
+      catalog,
+    };
+
+    await getHandler(IPC_CHANNELS.CLAUDE_POLICY_PREVIEW_RESOLVE)({}, request);
+
+    expect(claudePolicyTestDoubles.listClaudeCapabilityCatalog).not.toHaveBeenCalled();
+    expect(claudePolicyTestDoubles.resolveClaudePolicy).toHaveBeenCalledWith({
+      catalog,
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feature-a',
+      globalPolicy: null,
+      projectPolicy: null,
+      worktreePolicy: null,
+    });
+  });
+
   it('delegates native skill disable requests to the native skill service', async () => {
     const { registerClaudePolicyHandlers } = await import('../claudePolicy');
     registerClaudePolicyHandlers();

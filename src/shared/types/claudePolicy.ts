@@ -94,6 +94,7 @@ export interface ResolvedClaudePolicy {
 export interface ResolveClaudePolicyPreviewRequest {
   repoPath: string;
   worktreePath: string;
+  catalog?: ClaudeCapabilityCatalog;
   globalPolicy?: ClaudeGlobalPolicy | null;
   projectPolicy: ClaudeProjectPolicy | null;
   worktreePolicy: ClaudeWorktreePolicy | null;

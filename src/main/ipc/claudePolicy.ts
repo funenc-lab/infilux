@@ -26,10 +26,12 @@ export function registerClaudePolicyHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.CLAUDE_POLICY_PREVIEW_RESOLVE,
     async (_, request: ResolveClaudePolicyPreviewRequest) => {
-      const catalog = await listClaudeCapabilityCatalog({
-        repoPath: request.repoPath,
-        worktreePath: request.worktreePath,
-      });
+      const catalog =
+        request.catalog ??
+        (await listClaudeCapabilityCatalog({
+          repoPath: request.repoPath,
+          worktreePath: request.worktreePath,
+        }));
       return resolveClaudePolicy({
         catalog,
         repoPath: request.repoPath,

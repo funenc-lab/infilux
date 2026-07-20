@@ -288,7 +288,7 @@ export function ClaudePolicyEditorDialog({
   ]);
 
   useEffect(() => {
-    if (!open) {
+    if (!open || !catalog) {
       return;
     }
 
@@ -298,7 +298,7 @@ export function ClaudePolicyEditorDialog({
     setPreviewError(null);
 
     window.electronAPI.claudePolicy.preview
-      .resolve(previewRequest)
+      .resolve({ ...previewRequest, catalog })
       .then((nextPreview) => {
         if (previewRequestIdRef.current === requestId) {
           setResolvedPolicy(nextPreview);
@@ -314,7 +314,7 @@ export function ClaudePolicyEditorDialog({
           setIsPreviewLoading(false);
         }
       });
-  }, [open, previewRequest]);
+  }, [catalog, open, previewRequest]);
 
   const handleCapabilityDecisionChange = useCallback(
     (id: string, decision: ClaudePolicyDecisionValue) => {
@@ -378,6 +378,7 @@ export function ClaudePolicyEditorDialog({
       }
 
       setSelectedSchemeId(nextSchemeId ?? NO_SCHEME_VALUE);
+      setSearchQuery('');
       onConfigSchemeSelectionChange?.();
       toastManager.add({
         type: 'success',
