@@ -14,6 +14,7 @@ import type {
   CustomThemeDocument,
   SettingsState,
   TerminalKeybinding,
+  TerminalRenderer,
   ThemeTokenSet,
   XtermKeybindings,
 } from './types';
@@ -123,6 +124,18 @@ function sanitizeAgentSessionDisplayMode(
   fallback: AgentSessionDisplayMode
 ): AgentSessionDisplayMode {
   return value === 'canvas' || value === 'global-canvas' || value === 'tab' ? value : fallback;
+}
+
+function sanitizeTerminalRenderer(value: unknown, fallback: TerminalRenderer): TerminalRenderer {
+  if (value === 'dom' || value === 'webgl') {
+    return value;
+  }
+
+  if (value === 'canvas') {
+    return 'webgl';
+  }
+
+  return fallback;
 }
 
 function sanitizeThemeTokenSet(value: unknown, fallback: ThemeTokenSet): ThemeTokenSet {
@@ -325,12 +338,10 @@ export function migrateSettings(
       ? persisted.backgroundSizeMode
       : currentState.backgroundSizeMode;
 
-  // Upgrade legacy default renderers to WebGL while keeping unsupported values on the current default.
-  const terminalRenderer =
-    (persisted.terminalRenderer as string) === 'canvas' ||
-    (persisted.terminalRenderer as string) === 'dom'
-      ? 'webgl'
-      : persisted.terminalRenderer;
+  const terminalRenderer = sanitizeTerminalRenderer(
+    persisted.terminalRenderer,
+    currentState.terminalRenderer
+  );
   const terminalScrollback = normalizeTerminalScrollback(
     persisted.terminalScrollback,
     currentState.terminalScrollback
@@ -405,7 +416,7 @@ export function migrateSettings(
           }
         : sanitizedActiveThemeSelection,
     // Override with migrated/sanitized values
-    ...(terminalRenderer && { terminalRenderer }),
+    terminalRenderer,
     terminalScrollback,
     chatPanelInactivityThresholdMinutes,
     retainSessionBackedChatPanels,

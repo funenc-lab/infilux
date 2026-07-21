@@ -185,7 +185,7 @@ describe('migrateSettings', () => {
     expect(migrateSettings(undefined, currentState)).toBe(currentState);
   });
 
-  it('clamps persisted background values, migrates url source path, and upgrades legacy DOM and canvas renderers', () => {
+  it('clamps persisted background values, migrates url source path, and upgrades legacy canvas renderers', () => {
     const result = migrateSettings(
       {
         backgroundOpacity: 99,
@@ -208,15 +208,31 @@ describe('migrateSettings', () => {
     expect(result.terminalRenderer).toBe('webgl');
   });
 
-  it('upgrades persisted dom renderer values to webgl', () => {
+  it('preserves persisted dom renderer values', () => {
     const result = migrateSettings(
       {
-        terminalRenderer: 'dom' as never,
+        terminalRenderer: 'dom',
       },
       createCurrentState()
     );
 
-    expect(result.terminalRenderer).toBe('webgl');
+    expect(result.terminalRenderer).toBe('dom');
+  });
+
+  it('falls back to the current terminal renderer for unsupported persisted renderer values', () => {
+    const currentState = {
+      ...createCurrentState(),
+      terminalRenderer: 'dom' as const,
+    };
+
+    const result = migrateSettings(
+      {
+        terminalRenderer: 'unknown-renderer' as never,
+      },
+      currentState
+    );
+
+    expect(result.terminalRenderer).toBe('dom');
   });
 
   it('clamps persisted terminal scrollback to the tighter runtime budget', () => {
