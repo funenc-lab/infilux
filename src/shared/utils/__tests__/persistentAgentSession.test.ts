@@ -46,6 +46,7 @@ describe('persistent agent session metadata', () => {
   it('round-trips normalized session title provenance metadata', () => {
     const metadata = withPersistentAgentSessionTitleMetadata(undefined, {
       defaultName: '  Custom   Agent (Hapi)  ',
+      titleSource: 'manual',
       userRenamed: true,
     });
 
@@ -53,12 +54,14 @@ describe('persistent agent session metadata', () => {
       persistentAgentSession: {
         title: {
           defaultName: 'Custom Agent (Hapi)',
+          titleSource: 'manual',
           userRenamed: true,
         },
       },
     });
     expect(extractPersistentAgentSessionTitleMetadata(metadata)).toEqual({
       defaultName: 'Custom Agent (Hapi)',
+      titleSource: 'manual',
       userRenamed: true,
     });
   });
@@ -66,12 +69,14 @@ describe('persistent agent session metadata', () => {
   it('preserves title provenance while replay metadata is updated', () => {
     const titleMetadata = withPersistentAgentSessionTitleMetadata(undefined, {
       defaultName: 'Codex',
+      titleSource: 'manual',
       userRenamed: true,
     });
     const metadata = withPersistentAgentReplaySnapshot(titleMetadata, 'snapshot-output', 123);
 
     expect(extractPersistentAgentSessionTitleMetadata(metadata)).toEqual({
       defaultName: 'Codex',
+      titleSource: 'manual',
       userRenamed: true,
     });
     expect(extractPersistentAgentReplaySnapshot(metadata)).toEqual({

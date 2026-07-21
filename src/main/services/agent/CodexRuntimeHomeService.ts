@@ -1,4 +1,14 @@
-import os from 'node:os';
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+} from 'node:fs';
 import path from 'node:path';
 import { getSharedRootPath } from '../SharedSessionState';
 import {
@@ -7,6 +17,7 @@ import {
   type AgentRuntimeHomeResult,
   AgentRuntimeHomeService,
 } from './AgentRuntimeHomeService';
+import { resolveSourceCodexHome } from './CodexHomePaths';
 
 export type CodexRuntimeHomeResult = AgentRuntimeHomeResult;
 
@@ -27,9 +38,70 @@ const SAFE_SHARED_CODEX_ENTRIES = [
   'version.json',
 ] as const;
 
-function resolveSourceCodexHome(): string {
-  const codexHome = process.env.CODEX_HOME?.trim();
-  return codexHome || path.join(os.homedir(), '.codex');
+function resolveSymlinkTarget(linkPath: string, linkValue: string): string {
+  return path.resolve(path.dirname(linkPath), linkValue);
+}
+
+function copyMissingTreeContents(sourceDir: string, targetDir: string): void {
+  if (!existsSync(sourceDir)) {
+    return;
+  }
+
+  mkdirSync(targetDir, { recursive: true });
+
+  for (const entryName of readdirSync(sourceDir)) {
+    const sourcePath = path.join(sourceDir, entryName);
+    const targetPath = path.join(targetDir, entryName);
+    const sourceStat = lstatSync(sourcePath);
+
+    if (sourceStat.isDirectory() && !sourceStat.isSymbolicLink()) {
+      copyMissingTreeContents(sourcePath, targetPath);
+      continue;
+    }
+
+    if (existsSync(targetPath)) {
+      continue;
+    }
+
+    if (sourceStat.isSymbolicLink()) {
+      symlinkSync(readlinkSync(sourcePath), targetPath);
+      continue;
+    }
+
+    if (sourceStat.isFile()) {
+      mkdirSync(path.dirname(targetPath), { recursive: true });
+      copyFileSync(sourcePath, targetPath);
+    }
+  }
+}
+
+function ensureSharedCodexRuntimeSessions(sourceHomePath: string, runtimeHomePath: string): void {
+  const sourceSessionsPath = path.join(sourceHomePath, 'sessions');
+  const runtimeSessionsPath = path.join(runtimeHomePath, 'sessions');
+
+  mkdirSync(sourceSessionsPath, { recursive: true });
+
+  if (existsSync(runtimeSessionsPath)) {
+    const runtimeSessionsStat = lstatSync(runtimeSessionsPath);
+    if (runtimeSessionsStat.isSymbolicLink()) {
+      const linkedTarget = resolveSymlinkTarget(
+        runtimeSessionsPath,
+        readlinkSync(runtimeSessionsPath)
+      );
+      if (linkedTarget === path.resolve(sourceSessionsPath)) {
+        return;
+      }
+      unlinkSync(runtimeSessionsPath);
+    } else if (runtimeSessionsStat.isDirectory()) {
+      copyMissingTreeContents(runtimeSessionsPath, sourceSessionsPath);
+      rmSync(runtimeSessionsPath, { recursive: true, force: true });
+    } else {
+      return;
+    }
+  }
+
+  const symlinkType = process.platform === 'win32' ? 'junction' : undefined;
+  symlinkSync(sourceSessionsPath, runtimeSessionsPath, symlinkType);
 }
 
 export class CodexRuntimeHomeService {
@@ -53,7 +125,9 @@ export class CodexRuntimeHomeService {
   }
 
   prepareRuntimeHome(runtimeKey: string): CodexRuntimeHomeResult {
-    return this.getDelegate().prepareRuntimeHome(runtimeKey);
+    const runtimeHome = this.getDelegate().prepareRuntimeHome(runtimeKey);
+    ensureSharedCodexRuntimeSessions(runtimeHome.sourceHomePath, runtimeHome.homePath);
+    return runtimeHome;
   }
 
   async runExclusive<T>(runtimeKey: string, operation: () => Promise<T> | T): Promise<T> {

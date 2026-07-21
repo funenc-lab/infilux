@@ -216,7 +216,7 @@ describe('agent session recovery store', () => {
     ]);
   });
 
-  it('keeps meaningful recovered display names canonical without inferring a manual rename', async () => {
+  it('resets a recovered title that has no trusted provenance', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
 
@@ -229,7 +229,36 @@ describe('agent session recovery store', () => {
     expect(env.useAgentSessionsStore.getState().sessions).toEqual([
       expect.objectContaining({
         id: 'session-1',
+        name: 'Codex',
+        titleSource: 'default',
+        userRenamed: undefined,
+      }),
+    ]);
+  });
+
+  it('restores a transcript-derived title only when persistent metadata records its source', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.upsertRecoveredSession(
+      makeRecoveredRecord({
+        displayName: 'Investigate session recovery title',
+        metadata: {
+          persistentAgentSession: {
+            title: {
+              defaultName: 'Codex',
+              titleSource: 'provider-transcript',
+            },
+          },
+        },
+      })
+    );
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'session-1',
         name: 'Investigate session recovery title',
+        titleSource: 'provider-transcript',
         userRenamed: undefined,
       }),
     ]);
@@ -265,6 +294,7 @@ describe('agent session recovery store', () => {
           persistentAgentSession: {
             title: {
               defaultName: 'Codex',
+              titleSource: 'manual',
               userRenamed: true,
             },
           },
@@ -499,7 +529,6 @@ describe('agent session recovery store', () => {
     });
     store.updateSession('session-1', {
       displayOrder: 7,
-      terminalTitle: 'terminal-title',
       userRenamed: true,
       pendingCommand: 'continue work',
     });
@@ -520,7 +549,7 @@ describe('agent session recovery store', () => {
         hostSessionKey: 'enso-session-1',
         name: 'Local name',
         displayOrder: 7,
-        terminalTitle: 'terminal-title',
+        titleSource: 'manual',
         userRenamed: true,
         pendingCommand: 'continue work',
         agentCapabilityProvider: 'codex',
@@ -533,7 +562,7 @@ describe('agent session recovery store', () => {
     ]);
   });
 
-  it('does not downgrade a meaningful local title with a recovered default title', async () => {
+  it('resets an unproven local title when recovery only has the default title', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
 
@@ -560,12 +589,13 @@ describe('agent session recovery store', () => {
     expect(env.useAgentSessionsStore.getState().sessions).toEqual([
       expect.objectContaining({
         id: 'session-1',
-        name: 'Investigate session recovery',
+        name: 'Codex',
+        titleSource: 'default',
       }),
     ]);
   });
 
-  it('promotes an existing terminal title when recovery only has the default title', async () => {
+  it('keeps the default title when recovery only has the default title', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
 
@@ -573,7 +603,6 @@ describe('agent session recovery store', () => {
       id: 'session-1',
       sessionId: 'provider-local',
       name: 'Codex',
-      terminalTitle: 'Investigate terminal recovery',
       agentId: 'codex',
       agentCommand: 'codex',
       initialized: true,
@@ -593,8 +622,8 @@ describe('agent session recovery store', () => {
     expect(env.useAgentSessionsStore.getState().sessions).toEqual([
       expect.objectContaining({
         id: 'session-1',
-        name: 'Investigate terminal recovery',
-        terminalTitle: 'Investigate terminal recovery',
+        name: 'Codex',
+        titleSource: 'default',
       }),
     ]);
   });
@@ -786,7 +815,7 @@ describe('agent session recovery store', () => {
     });
   });
 
-  it('keeps meaningful persisted names canonical without inferring a manual rename', async () => {
+  it('resets persisted names that have no trusted title source', async () => {
     const persistedPayload = {
       sessions: [
         {
@@ -819,14 +848,14 @@ describe('agent session recovery store', () => {
     expect(env.useAgentSessionsStore.getState().sessions).toEqual([
       expect.objectContaining({
         id: 'session-1',
-        name: 'Investigate session recovery title',
-        terminalTitle: 'codex',
+        name: 'Codex',
+        titleSource: 'default',
         userRenamed: undefined,
       }),
     ]);
   });
 
-  it('promotes a persisted terminal title into the canonical session name during hydration', async () => {
+  it('does not promote a persisted terminal title during hydration', async () => {
     const persistedPayload = {
       sessions: [
         {
@@ -859,8 +888,8 @@ describe('agent session recovery store', () => {
     expect(env.useAgentSessionsStore.getState().sessions).toEqual([
       expect.objectContaining({
         id: 'session-1',
-        name: 'Investigate persisted terminal title',
-        terminalTitle: 'Investigate persisted terminal title',
+        name: 'Codex',
+        titleSource: 'default',
       }),
     ]);
   });

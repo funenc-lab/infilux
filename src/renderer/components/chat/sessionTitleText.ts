@@ -3,7 +3,6 @@ const GENERIC_SHELL_TITLE = /[/\\](pwsh|powershell|cmd|bash|zsh|sh|fish|nu|wsl)(
 const PRIVILEGED_SESSION_TITLE = /^(Administrator|root)\s*:/i;
 const GENERIC_COMMAND_TITLE = /^(npm|npx|node|python|py|pnpm|yarn|bun|deno|cargo|go|java|ruby)\s/i;
 const MACOS_MALLOC_DIAGNOSTIC_TITLE = /^\S+\(\d+\)\s+Malloc\w*/;
-const SESSION_ENVIRONMENT_SUFFIX = /\s+\((?:Hapi|Happy)\)$/iu;
 const UNUSABLE_SESSION_TITLE_PATTERNS = [
   GENERIC_SHELL_TITLE,
   PRIVILEGED_SESSION_TITLE,
@@ -34,20 +33,6 @@ function isUnusableNormalizedSessionTitle(title: string): boolean {
 
 export function isUnusableSessionTitle(title?: string | null): boolean {
   return isUnusableNormalizedSessionTitle(normalizeSessionTitleText(title ?? ''));
-}
-
-export function getMeaningfulTerminalTitle(title?: string | null): string | undefined {
-  const trimmedTitle = title?.trim();
-  if (!trimmedTitle) {
-    return undefined;
-  }
-
-  const normalizedTitle = normalizeSessionTitleText(trimmedTitle);
-  if (isUnusableNormalizedSessionTitle(normalizedTitle)) {
-    return undefined;
-  }
-
-  return normalizedTitle;
 }
 
 export function areSessionTitlesEqual(left: string, right: string): boolean {
@@ -84,31 +69,6 @@ export function getDefaultSessionName(agentId?: string, explicitDefaultName?: st
   return baseName;
 }
 
-export function getMeaningfulSessionTerminalTitle(
-  title?: string | null,
-  agentId?: string,
-  explicitDefaultName?: string
-): string | undefined {
-  const meaningfulTitle = getMeaningfulTerminalTitle(title);
-  if (!meaningfulTitle) {
-    return undefined;
-  }
-
-  const baseAgentId = agentId?.replace(/-(?:hapi|happy)$/u, '');
-  const defaultName = getDefaultSessionName(agentId, explicitDefaultName);
-  const defaultNames = new Set([
-    defaultName,
-    defaultName.replace(SESSION_ENVIRONMENT_SUFFIX, ''),
-    getDefaultSessionName(agentId),
-    getDefaultSessionName(baseAgentId),
-  ]);
-  return [...defaultNames].some((defaultName) =>
-    areSessionTitlesEqual(meaningfulTitle, defaultName)
-  )
-    ? undefined
-    : meaningfulTitle;
-}
-
 export function getStoredSessionName(
   name: string,
   agentId?: string,
@@ -133,7 +93,6 @@ export function getCanonicalSessionName(input: {
   agentId?: string;
   defaultName?: string;
   name: string;
-  terminalTitle?: string | null;
   userRenamed?: boolean;
 }): string {
   if (input.userRenamed) {
@@ -141,13 +100,5 @@ export function getCanonicalSessionName(input: {
   }
 
   const defaultName = getDefaultSessionName(input.agentId, input.defaultName);
-  const storedName = getStoredSessionName(input.name, input.agentId, input.defaultName);
-  if (!areSessionTitlesEqual(storedName, defaultName)) {
-    return storedName;
-  }
-
-  return (
-    getMeaningfulSessionTerminalTitle(input.terminalTitle, input.agentId, input.defaultName) ??
-    defaultName
-  );
+  return getStoredSessionName(input.name, input.agentId, defaultName);
 }

@@ -42,6 +42,21 @@ async function writeCodexSessionFile(params: {
   );
 }
 
+async function writeCodexTranscriptFile(params: {
+  rootDir: string;
+  dayPath: string;
+  threadId: string;
+  lines: Array<Record<string, unknown>>;
+}): Promise<void> {
+  const targetDir = path.join(params.rootDir, params.dayPath);
+  await mkdir(targetDir, { recursive: true });
+  await writeFile(
+    path.join(targetDir, `rollout-${params.dayPath.replaceAll('/', '-')}-${params.threadId}.jsonl`),
+    `${params.lines.map((line) => JSON.stringify(line)).join('\n')}\n`,
+    'utf8'
+  );
+}
+
 describe('AgentProviderSessionService', () => {
   it('resolves the nearest codex provider session id for the same cwd inside the startup window', async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
@@ -162,6 +177,98 @@ describe('AgentProviderSessionService', () => {
     ).resolves.toEqual({
       providerSessionId: null,
     });
+  });
+
+  it('reads the first real Codex user message from the resolved provider transcript', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+
+    await writeCodexTranscriptFile({
+      rootDir: tempRoot,
+      dayPath: '2026/07/21',
+      threadId: 'codex-title-session',
+      lines: [
+        {
+          type: 'session_meta',
+          payload: { id: 'codex-title-session', cwd: '/repo/worktree-a' },
+        },
+        { type: 'event_msg', payload: { type: 'task_started' } },
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'input_text', text: '<environment_context>bootstrap</environment_context>' },
+            ],
+          },
+        },
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: 'Investigate worktree canvas session recovery',
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const service = new AgentProviderSessionService(tempRoot);
+
+    await expect(
+      service.readProviderSessionTitle({
+        agentCommand: 'codex',
+        providerSessionId: 'codex-title-session',
+      })
+    ).resolves.toEqual({ title: 'Investigate worktree canvas session recovery' });
+  });
+
+  it('resolves codex sessions from the current CODEX_HOME when no sessions directory is injected', async () => {
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+    const codexHome = path.join(tempRoot, 'codex-home');
+
+    await writeCodexSessionFile({
+      rootDir: path.join(codexHome, 'sessions'),
+      dayPath: '2026/05/01',
+      threadId: 'codex-scoped-home-session',
+      cwd: '/repo/worktree-scoped-home',
+      timestamp: '2026-05-01T08:12:16.200Z',
+    });
+
+    process.env.CODEX_HOME = codexHome;
+    vi.resetModules();
+    const { AgentProviderSessionService: IsolatedAgentProviderSessionService } = await import(
+      '../AgentProviderSessionService'
+    );
+    const service = new IsolatedAgentProviderSessionService();
+
+    try {
+      await expect(
+        service.resolveProviderSession({
+          agentCommand: 'codex',
+          cwd: '/repo/worktree-scoped-home',
+          createdAt: Date.parse('2026-05-01T08:12:10.000Z'),
+          observedAt: Date.parse('2026-05-01T08:12:18.000Z'),
+        })
+      ).resolves.toEqual({
+        providerSessionId: 'codex-scoped-home-session',
+      });
+    } finally {
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = originalCodexHome;
+      }
+      vi.resetModules();
+    }
   });
 
   it('deduplicates concurrent codex session meta reads for the same candidate file', async () => {

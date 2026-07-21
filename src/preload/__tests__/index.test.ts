@@ -716,6 +716,18 @@ describe('preload bridge', () => {
       }
     );
 
+    await api.agentSession.readProviderSessionTitle({
+      agentCommand: 'codex',
+      providerSessionId: 'provider-1',
+    });
+    expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.AGENT_SESSION_READ_PROVIDER_TITLE,
+      {
+        agentCommand: 'codex',
+        providerSessionId: 'provider-1',
+      }
+    );
+
     await api.agentSession.markPersistent(persistentRecord);
     expect(preloadTestDoubles.invoke).toHaveBeenLastCalledWith(
       IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT,

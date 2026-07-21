@@ -1,5 +1,6 @@
 import type {
   PersistentAgentSessionRecord,
+  ReadAgentProviderSessionTitleRequest,
   ResolveAgentProviderSessionRequest,
   RestoreWorktreeSessionsRequest,
 } from '@shared/types';
@@ -35,6 +36,7 @@ interface AgentSessionHandlerDiagnosticsSnapshot {
   restoreWorktreeCalls: number;
   reconcileCalls: number;
   resolveProviderCalls: number;
+  readProviderTitleCalls: number;
   markPersistentCalls: number;
   abandonCalls: number;
   lastMarkedPersistentSessionId: string | null;
@@ -46,6 +48,7 @@ const agentSessionHandlerDiagnostics: AgentSessionHandlerDiagnosticsSnapshot = {
   restoreWorktreeCalls: 0,
   reconcileCalls: 0,
   resolveProviderCalls: 0,
+  readProviderTitleCalls: 0,
   markPersistentCalls: 0,
   abandonCalls: 0,
   lastMarkedPersistentSessionId: null,
@@ -108,6 +111,23 @@ function assertResolveProviderSessionRequest(value: unknown): ResolveAgentProvid
     cwd: value.cwd,
     createdAt: value.createdAt,
     observedAt: value.observedAt,
+  };
+}
+
+function assertReadProviderSessionTitleRequest(
+  value: unknown
+): ReadAgentProviderSessionTitleRequest {
+  if (
+    !isPlainObject(value) ||
+    !isNonEmptyString(value.agentCommand) ||
+    !isNonEmptyString(value.providerSessionId)
+  ) {
+    throw new Error('Invalid agent provider session title request');
+  }
+
+  return {
+    agentCommand: value.agentCommand,
+    providerSessionId: value.providerSessionId,
   };
 }
 
@@ -237,6 +257,13 @@ export function registerAgentSessionHandlers(): void {
     agentSessionHandlerDiagnostics.resolveProviderCalls += 1;
     return agentProviderSessionService.resolveProviderSession(
       assertResolveProviderSessionRequest(request)
+    );
+  });
+
+  ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_READ_PROVIDER_TITLE, async (_, request: unknown) => {
+    agentSessionHandlerDiagnostics.readProviderTitleCalls += 1;
+    return agentProviderSessionService.readProviderSessionTitle(
+      assertReadProviderSessionTitleRequest(request)
     );
   });
 

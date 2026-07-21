@@ -181,7 +181,6 @@ describe('SessionBar recovery render', () => {
     ({ container, root } = await renderSessionBar(
       createRecoveredSession({
         name: '›',
-        terminalTitle: '›',
       })
     ));
 
@@ -194,7 +193,6 @@ describe('SessionBar recovery render', () => {
     ({ container, root } = await renderSessionBar(
       createRecoveredSession({
         name: 'Investigate session recovery title',
-        terminalTitle: '›',
       })
     ));
 

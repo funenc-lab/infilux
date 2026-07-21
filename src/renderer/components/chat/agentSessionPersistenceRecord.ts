@@ -7,7 +7,7 @@ import type { RendererEnvironment } from '@/lib/electronEnvironment';
 import { resolvePersistentProviderSessionId } from './agentProviderSessionIdentity';
 import { resolveSessionPersistentHostSessionKey } from './persistentHostSession';
 import type { Session } from './SessionBar';
-import { getCanonicalSessionName } from './sessionTitleText';
+import { resolveSessionTitleState } from './sessionTitlePolicy';
 
 export function buildPersistentAgentSessionRecord(
   session: Session,
@@ -20,9 +20,17 @@ export function buildPersistentAgentSessionRecord(
     platform,
     runtimeChannel,
   });
+  const titleState = resolveSessionTitleState({
+    agentId: session.agentId,
+    currentName: session.name,
+    defaultName: session.defaultName,
+    titleSource: session.titleSource,
+    userRenamed: session.userRenamed,
+  });
   const titleMetadata = withPersistentAgentSessionTitleMetadata(undefined, {
     defaultName: session.defaultName,
-    userRenamed: session.userRenamed ? true : undefined,
+    titleSource: titleState.titleSource,
+    userRenamed: titleState.titleSource === 'manual' ? true : undefined,
   });
 
   return {
@@ -42,7 +50,7 @@ export function buildPersistentAgentSessionRecord(
     environment: session.environment || 'native',
     repoPath: session.repoPath,
     cwd: session.cwd,
-    displayName: getCanonicalSessionName(session),
+    displayName: titleState.name,
     activated: Boolean(session.activated),
     initialized: session.initialized,
     hostKind: platform === 'win32' ? 'supervisor' : 'tmux',

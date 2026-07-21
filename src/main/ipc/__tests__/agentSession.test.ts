@@ -17,6 +17,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
   const restoreWorktreeSessions = vi.fn();
   const reconcileSession = vi.fn();
   const resolveProviderSession = vi.fn();
+  const readProviderSessionTitle = vi.fn();
   const upsertSession = vi.fn();
   const abandonSession = vi.fn();
 
@@ -28,6 +29,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
     restoreWorktreeSessions.mockReset();
     reconcileSession.mockReset();
     resolveProviderSession.mockReset();
+    readProviderSessionTitle.mockReset();
     upsertSession.mockReset();
     abandonSession.mockReset();
 
@@ -43,6 +45,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
     restoreWorktreeSessions.mockResolvedValue({ items: [recoverableItem] });
     reconcileSession.mockResolvedValue(recoverableItem);
     resolveProviderSession.mockResolvedValue({ providerSessionId: 'provider-2' });
+    readProviderSessionTitle.mockResolvedValue({ title: 'Investigate provider session titles' });
     upsertSession.mockResolvedValue(undefined);
     abandonSession.mockResolvedValue([]);
   }
@@ -54,6 +57,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
     restoreWorktreeSessions,
     reconcileSession,
     resolveProviderSession,
+    readProviderSessionTitle,
     upsertSession,
     abandonSession,
     reset,
@@ -81,6 +85,7 @@ vi.mock('../../services/session/PersistentAgentSessionService', () => ({
 vi.mock('../../services/agent/AgentProviderSessionService', () => ({
   agentProviderSessionService: {
     resolveProviderSession: agentSessionTestDoubles.resolveProviderSession,
+    readProviderSessionTitle: agentSessionTestDoubles.readProviderSessionTitle,
   },
 }));
 
@@ -141,6 +146,9 @@ describe('agentSession IPC handlers', () => {
     const restoreWorktreeHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RESTORE_WORKTREE);
     const reconcileHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RECONCILE);
     const resolveProviderSessionHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER);
+    const readProviderSessionTitleHandler = getHandler(
+      IPC_CHANNELS.AGENT_SESSION_READ_PROVIDER_TITLE
+    );
     const markPersistentHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT);
     const abandonHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_ABANDON);
 
@@ -154,6 +162,10 @@ describe('agentSession IPC handlers', () => {
       cwd: '/repo/worktree',
       createdAt: 1,
       observedAt: 2,
+    };
+    const titleRequest = {
+      agentCommand: 'codex',
+      providerSessionId: 'provider-2',
     };
 
     expect(await listRecoverableHandler({})).toEqual([
@@ -178,6 +190,9 @@ describe('agentSession IPC handlers', () => {
     expect(await resolveProviderSessionHandler({}, resolveRequest)).toEqual({
       providerSessionId: 'provider-2',
     });
+    expect(await readProviderSessionTitleHandler({}, titleRequest)).toEqual({
+      title: 'Investigate provider session titles',
+    });
     expect(await markPersistentHandler({}, record)).toBeUndefined();
     expect(await abandonHandler({}, 'session-1')).toEqual([]);
 
@@ -185,6 +200,7 @@ describe('agentSession IPC handlers', () => {
     expect(agentSessionTestDoubles.restoreWorktreeSessions).toHaveBeenCalledWith(restoreRequest);
     expect(agentSessionTestDoubles.reconcileSession).toHaveBeenCalledWith('session-1');
     expect(agentSessionTestDoubles.resolveProviderSession).toHaveBeenCalledWith(resolveRequest);
+    expect(agentSessionTestDoubles.readProviderSessionTitle).toHaveBeenCalledWith(titleRequest);
     expect(agentSessionTestDoubles.upsertSession).toHaveBeenCalledWith(record);
     expect(agentSessionTestDoubles.abandonSession).toHaveBeenCalledWith('session-1');
   });
@@ -296,6 +312,9 @@ describe('agentSession IPC handlers', () => {
     const restoreWorktreeHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RESTORE_WORKTREE);
     const reconcileHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RECONCILE);
     const resolveProviderSessionHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER);
+    const readProviderSessionTitleHandler = getHandler(
+      IPC_CHANNELS.AGENT_SESSION_READ_PROVIDER_TITLE
+    );
     const markPersistentHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT);
     const abandonHandler = getHandler(IPC_CHANNELS.AGENT_SESSION_ABANDON);
 
@@ -315,6 +334,9 @@ describe('agentSession IPC handlers', () => {
       )
     ).rejects.toThrow('Invalid agent provider session resolve request');
     await expect(
+      readProviderSessionTitleHandler({}, { agentCommand: 'codex', providerSessionId: '' })
+    ).rejects.toThrow('Invalid agent provider session title request');
+    await expect(
       markPersistentHandler(
         {},
         makeRecord({
@@ -327,6 +349,7 @@ describe('agentSession IPC handlers', () => {
     expect(agentSessionTestDoubles.restoreWorktreeSessions).not.toHaveBeenCalled();
     expect(agentSessionTestDoubles.reconcileSession).not.toHaveBeenCalled();
     expect(agentSessionTestDoubles.resolveProviderSession).not.toHaveBeenCalled();
+    expect(agentSessionTestDoubles.readProviderSessionTitle).not.toHaveBeenCalled();
     expect(agentSessionTestDoubles.upsertSession).not.toHaveBeenCalled();
     expect(agentSessionTestDoubles.abandonSession).not.toHaveBeenCalled();
   });

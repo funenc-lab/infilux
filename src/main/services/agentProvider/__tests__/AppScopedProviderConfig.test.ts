@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -78,6 +86,23 @@ describe('AppScopedProviderConfig', () => {
 
     expect(readFileSync(join(configRoot, 'codex', 'config.toml'), 'utf8')).toBe(
       'model = "initial-global-model"\n'
+    );
+  });
+
+  it('links existing Codex session history into an already initialized provider scope', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const env: NodeJS.ProcessEnv = {};
+
+    writeTextFile(join(homeDir, '.codex', 'sessions', '.keep'), '');
+    writeTextFile(join(configRoot, 'codex', '.infilux-provider-scope-v1'), '1\n');
+
+    initializeAppScopedProviderConfig({ configRoot, env, homeDir });
+
+    expect(env.CODEX_HOME).toBe(join(configRoot, 'codex'));
+    expect(readlinkSync(join(configRoot, 'codex', 'sessions'))).toBe(
+      join(homeDir, '.codex', 'sessions')
     );
   });
 

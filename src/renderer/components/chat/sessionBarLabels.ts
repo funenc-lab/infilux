@@ -1,12 +1,10 @@
 import {
   getCanonicalSessionName,
   getExplicitSessionName,
-  getMeaningfulTerminalTitle,
   getStoredSessionName,
 } from './sessionTitleText';
 
 export interface SessionBarLabelInput {
-  terminalTitle?: string;
   name: string;
   defaultName?: string;
   agentId?: string;
@@ -23,7 +21,7 @@ export function getSessionDisplayName(session: SessionBarLabelInput): string {
     return getCanonicalSessionName(session);
   }
 
-  return getMeaningfulTerminalTitle(session.terminalTitle) ?? fallbackName;
+  return fallbackName;
 }
 
 export function getSessionHoverTitle(session: SessionBarLabelInput): string {

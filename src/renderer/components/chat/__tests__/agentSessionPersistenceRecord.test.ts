@@ -20,6 +20,7 @@ describe('buildPersistentAgentSessionRecord', () => {
       createdAt: 10,
       name: 'Custom title',
       defaultName: 'Custom Agent',
+      titleSource: 'manual',
       userRenamed: true,
       agentId: 'custom-agent',
       agentCommand: 'custom-agent',
@@ -45,6 +46,7 @@ describe('buildPersistentAgentSessionRecord', () => {
     );
     expect(extractPersistentAgentSessionTitleMetadata(record.metadata)).toEqual({
       defaultName: 'Custom Agent',
+      titleSource: 'manual',
       userRenamed: true,
     });
     expect(record.metadata).toEqual(
@@ -57,7 +59,7 @@ describe('buildPersistentAgentSessionRecord', () => {
     );
   });
 
-  it('does not infer a custom agent default label when legacy session provenance is missing', () => {
+  it('records a default title source when legacy session provenance is missing', () => {
     const session: Session = {
       id: 'legacy-custom-session',
       name: 'Custom Agent (Hapi)',
@@ -72,6 +74,8 @@ describe('buildPersistentAgentSessionRecord', () => {
 
     const record = buildPersistentAgentSessionRecord(session, environment);
 
-    expect(extractPersistentAgentSessionTitleMetadata(record.metadata)).toEqual({});
+    expect(extractPersistentAgentSessionTitleMetadata(record.metadata)).toEqual({
+      titleSource: 'default',
+    });
   });
 });

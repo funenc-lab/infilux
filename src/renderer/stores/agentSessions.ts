@@ -21,14 +21,8 @@ import {
   matchesAgentSessionScope,
 } from '@/components/chat/agentSessionScope';
 import type { Session } from '@/components/chat/SessionBar';
-import {
-  areSessionTitlesEqual,
-  getCanonicalSessionName,
-  getDefaultSessionName,
-  getExplicitSessionName,
-  getMeaningfulTerminalTitle,
-  getStoredSessionName,
-} from '@/components/chat/sessionTitleText';
+import { resolveSessionTitleState } from '@/components/chat/sessionTitlePolicy';
+import { getDefaultSessionName } from '@/components/chat/sessionTitleText';
 import type { AgentGroupState } from '@/components/chat/types';
 import { createInitialGroupState } from '@/components/chat/types';
 import type { TodoTask } from '@/components/todo/types';
@@ -327,17 +321,24 @@ function sanitizePersistedSession(session: Session): Session {
   const {
     replaySnapshot: _replaySnapshot,
     replaySnapshotCapturedAt: _replaySnapshotCapturedAt,
+    terminalTitle: _legacyTerminalTitle,
     ...persistedSession
-  } = session;
+  } = session as Session & { terminalTitle?: unknown };
   const defaultName = session.defaultName
     ? getDefaultSessionName(session.agentId, session.defaultName)
     : undefined;
-  const canonicalName = getCanonicalSessionName({ ...session, defaultName });
+  const titleState = resolveSessionTitleState({
+    agentId: session.agentId,
+    currentName: session.name,
+    defaultName,
+    titleSource: session.titleSource,
+    userRenamed: session.userRenamed,
+  });
   return {
     ...persistedSession,
     defaultName,
-    name: canonicalName,
-    terminalTitle: getMeaningfulTerminalTitle(session.terminalTitle),
+    name: titleState.name,
+    titleSource: titleState.titleSource,
     userRenamed: session.userRenamed,
   };
 }
@@ -396,40 +397,74 @@ function resolveRecoveredProviderSessionId(
   return record.uiSessionId;
 }
 
-function resolveRecoveredSessionName(
+function resolveRecoveredSessionTitleState(
   record: PersistentAgentSessionRecord,
   titleMetadata: PersistentAgentSessionTitleMetadata,
   existing?: Session
-): string {
+): {
+  defaultName: string;
+  name: string;
+  titleSource: Session['titleSource'];
+  userRenamed?: boolean;
+} {
   const defaultName = getDefaultSessionName(
     record.agentId,
     titleMetadata.defaultName ?? existing?.defaultName
   );
-  const recoveredName = titleMetadata.userRenamed
-    ? getExplicitSessionName(record.displayName, record.agentId, defaultName)
-    : getStoredSessionName(record.displayName, record.agentId, defaultName);
-  if (!existing) {
-    return recoveredName;
-  }
-
-  const existingName = getCanonicalSessionName({
-    ...existing,
-    defaultName: existing.defaultName ?? defaultName,
+  const recoveredTitleState = resolveSessionTitleState({
+    agentId: record.agentId,
+    currentName: record.displayName,
+    defaultName,
+    titleSource: titleMetadata.titleSource,
+    userRenamed: titleMetadata.userRenamed,
   });
-  const existingDefaultName = getDefaultSessionName(
-    record.agentId,
-    existing.defaultName ?? defaultName
-  );
-  const existingNameIsMeaningful = !areSessionTitlesEqual(existingName, existingDefaultName);
-  if (existingNameIsMeaningful && existing.userRenamed) {
-    return existingName;
+  if (!existing) {
+    return {
+      defaultName,
+      ...recoveredTitleState,
+      userRenamed: titleMetadata.userRenamed,
+    };
   }
 
-  if (titleMetadata.userRenamed) {
-    return recoveredName;
+  const existingTitleState = resolveSessionTitleState({
+    agentId: record.agentId,
+    currentName: existing.name,
+    defaultName: existing.defaultName ?? defaultName,
+    titleSource: existing.titleSource,
+    userRenamed: existing.userRenamed,
+  });
+  if (existingTitleState.titleSource === 'manual') {
+    return {
+      defaultName,
+      ...existingTitleState,
+      userRenamed: true,
+    };
   }
 
-  return existingNameIsMeaningful ? existingName : recoveredName;
+  if (recoveredTitleState.titleSource === 'manual') {
+    return {
+      defaultName,
+      ...recoveredTitleState,
+      userRenamed: true,
+    };
+  }
+
+  if (
+    existingTitleState.titleSource !== 'default' &&
+    recoveredTitleState.titleSource === 'default'
+  ) {
+    return {
+      defaultName,
+      ...existingTitleState,
+      userRenamed: existing.userRenamed,
+    };
+  }
+
+  return {
+    defaultName,
+    ...recoveredTitleState,
+    userRenamed: titleMetadata.userRenamed,
+  };
 }
 
 function loadFromStorage(): PersistedAgentSessionsSnapshot {
@@ -889,8 +924,11 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           record.metadata
         );
         const titleMetadata = extractPersistentAgentSessionTitleMetadata(record.metadata);
-        const recoveredDefaultName = titleMetadata.defaultName ?? existing?.defaultName;
-        const recoveredName = resolveRecoveredSessionName(record, titleMetadata, existing);
+        const recoveredTitleState = resolveRecoveredSessionTitleState(
+          record,
+          titleMetadata,
+          existing
+        );
         const recoveredSession: Session = {
           id: record.uiSessionId,
           sessionId: resolveRecoveredProviderSessionId(record, existing),
@@ -901,8 +939,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           }),
           backendSessionId: record.backendSessionId ?? existing?.backendSessionId,
           createdAt: record.createdAt,
-          name: recoveredName,
-          defaultName: recoveredDefaultName,
+          name: recoveredTitleState.name,
+          defaultName: recoveredTitleState.defaultName,
+          titleSource: recoveredTitleState.titleSource,
           agentId: record.agentId,
           agentCommand: record.agentCommand,
           customPath: record.customPath,
@@ -913,8 +952,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
           cwd: record.cwd,
           environment: record.environment,
           displayOrder: existing?.displayOrder,
-          terminalTitle: getMeaningfulTerminalTitle(existing?.terminalTitle),
-          userRenamed: existing?.userRenamed ?? titleMetadata.userRenamed,
+          userRenamed: recoveredTitleState.userRenamed,
           pendingCommand: existing?.pendingCommand,
           persistenceEnabled: true,
           hostSessionKey: record.hostKind === 'tmux' ? record.hostSessionKey : undefined,

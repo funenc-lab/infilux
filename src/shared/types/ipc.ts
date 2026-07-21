@@ -145,6 +145,7 @@ export const IPC_CHANNELS = {
   AGENT_SESSION_RESTORE_WORKTREE: 'agentSession:restoreWorktree',
   AGENT_SESSION_RECONCILE: 'agentSession:reconcile',
   AGENT_SESSION_RESOLVE_PROVIDER: 'agentSession:resolveProvider',
+  AGENT_SESSION_READ_PROVIDER_TITLE: 'agentSession:readProviderTitle',
   AGENT_SESSION_ABANDON: 'agentSession:abandon',
   AGENT_SESSION_MARK_PERSISTENT: 'agentSession:markPersistent',
   AGENT_STOP_NOTIFICATION: 'agent:stop:notification',

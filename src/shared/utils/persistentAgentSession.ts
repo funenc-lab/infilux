@@ -1,3 +1,4 @@
+import { type AgentSessionTitleSource, isAgentSessionTitleSource } from '../types/agentSession';
 import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from './agentTerminalHistoryPolicy';
 import { takeUtf16Tail } from './utf16Tail';
 
@@ -11,6 +12,7 @@ interface PersistentAgentSessionReplayNamespace {
 
 export interface PersistentAgentSessionTitleMetadata {
   defaultName?: string;
+  titleSource?: AgentSessionTitleSource;
   userRenamed?: true;
 }
 
@@ -44,6 +46,10 @@ function normalizeDefaultName(value: unknown): string | undefined {
   return normalized.slice(0, PERSISTENT_AGENT_SESSION_DEFAULT_NAME_LENGTH_LIMIT);
 }
 
+function normalizeTitleSource(value: unknown): AgentSessionTitleSource | undefined {
+  return isAgentSessionTitleSource(value) ? value : undefined;
+}
+
 function buildMetadataWithTitle(
   metadata: Record<string, unknown>,
   title: PersistentAgentSessionTitleMetadata
@@ -54,10 +60,12 @@ function buildMetadataWithTitle(
     : {};
   const nextNamespace = { ...previousNamespace };
   const defaultName = normalizeDefaultName(title.defaultName);
+  const titleSource = normalizeTitleSource(title.titleSource);
 
-  if (defaultName || title.userRenamed) {
+  if (defaultName || titleSource || title.userRenamed) {
     nextNamespace.title = {
       ...(defaultName ? { defaultName } : {}),
+      ...(titleSource ? { titleSource } : {}),
       ...(title.userRenamed ? { userRenamed: true } : {}),
     };
   } else {
@@ -208,8 +216,10 @@ export function extractPersistentAgentSessionTitleMetadata(
   }
 
   const defaultName = normalizeDefaultName(namespace.title.defaultName);
+  const titleSource = normalizeTitleSource(namespace.title.titleSource);
   return {
     ...(defaultName ? { defaultName } : {}),
+    ...(titleSource ? { titleSource } : {}),
     ...(namespace.title.userRenamed === true ? { userRenamed: true } : {}),
   };
 }

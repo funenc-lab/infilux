@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   getCanonicalSessionName,
   getDefaultSessionName,
-  getMeaningfulSessionTerminalTitle,
-  getMeaningfulTerminalTitle,
   getStoredSessionName,
+  isUnusableSessionTitle,
   normalizeSessionTitleText,
 } from '../sessionTitleText';
 
@@ -15,16 +14,16 @@ describe('sessionTitleText', () => {
     expect(normalizeSessionTitleText('❯   Investigate    logs')).toBe('Investigate logs');
   });
 
-  it('filters generic terminal titles and preserves meaningful ones', () => {
-    expect(getMeaningfulTerminalTitle()).toBeUndefined();
-    expect(getMeaningfulTerminalTitle('   ')).toBeUndefined();
-    expect(getMeaningfulTerminalTitle('/bin/zsh')).toBeUndefined();
-    expect(getMeaningfulTerminalTitle('root: /repo/worktree')).toBeUndefined();
-    expect(getMeaningfulTerminalTitle('npm test')).toBeUndefined();
-    expect(getMeaningfulTerminalTitle('codex(99841) MallocStackLogging')).toBeUndefined();
-    expect(getMeaningfulTerminalTitle('› codex(85487) MallocSt')).toBeUndefined();
-    expect(getMeaningfulTerminalTitle('> codex(85487) MallocStackLogging')).toBeUndefined();
-    expect(getMeaningfulTerminalTitle('  > Fix failing coverage  ')).toBe('Fix failing coverage');
+  it('filters generic automatic title candidates', () => {
+    expect(isUnusableSessionTitle()).toBe(true);
+    expect(isUnusableSessionTitle('   ')).toBe(true);
+    expect(isUnusableSessionTitle('/bin/zsh')).toBe(true);
+    expect(isUnusableSessionTitle('root: /repo/worktree')).toBe(true);
+    expect(isUnusableSessionTitle('npm test')).toBe(true);
+    expect(isUnusableSessionTitle('codex(99841) MallocStackLogging')).toBe(true);
+    expect(isUnusableSessionTitle('› codex(85487) MallocSt')).toBe(true);
+    expect(isUnusableSessionTitle('> codex(85487) MallocStackLogging')).toBe(true);
+    expect(isUnusableSessionTitle('  > Fix failing coverage  ')).toBe(false);
   });
 
   it('derives default session names for builtin, suffixed, and unknown agents', () => {
@@ -46,27 +45,21 @@ describe('sessionTitleText', () => {
     expect(getStoredSessionName('root: /repo/worktree', 'codex')).toBe('Codex');
   });
 
-  it('uses the explicit default label for custom agent title promotion', () => {
+  it('does not derive canonical session names from terminal titles', () => {
     expect(
       getCanonicalSessionName({
         agentId: 'custom-agent-hapi',
         defaultName: 'Custom Agent (Hapi)',
         name: 'Custom Agent (Hapi)',
-        terminalTitle: 'Investigate custom recovery',
       })
-    ).toBe('Investigate custom recovery');
-
-    expect(
-      getMeaningfulSessionTerminalTitle('Custom Agent', 'custom-agent-hapi', 'Custom Agent (Hapi)')
-    ).toBeUndefined();
+    ).toBe('Custom Agent (Hapi)');
 
     expect(
       getCanonicalSessionName({
         agentId: 'custom-agent-happy',
         defaultName: 'Custom Agent (Happy)',
         name: 'Custom Agent (Happy)',
-        terminalTitle: 'Investigate happy recovery',
       })
-    ).toBe('Investigate happy recovery');
+    ).toBe('Custom Agent (Happy)');
   });
 });

@@ -206,6 +206,10 @@ vi.mock('@/hooks/useAgentProviderSessionDiscovery', () => ({
   },
 }));
 
+vi.mock('@/hooks/useAgentProviderSessionTitle', () => ({
+  useAgentProviderSessionTitle: () => undefined,
+}));
+
 vi.mock('@/hooks/useRepositoryRuntimeContext', () => ({
   useRepositoryRuntimeContext: () => ({
     data: testState.runtimeContext,
@@ -1453,6 +1457,39 @@ describe('AgentTerminal integration', () => {
     expect(result).toBe(true);
     expect(onActivated).not.toHaveBeenCalled();
     expect(testState.electronAPI.sessionGetActivity).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('does not derive a session title from a native terminal menu line', async () => {
+    const onActivated = vi.fn();
+    const onActivatedWithFirstLine = vi.fn();
+    const mounted = await mountAgentTerminal({
+      activated: false,
+      onActivated,
+      onActivatedWithFirstLine,
+    });
+    const lastUseXtermCall = testState.useXtermOptions.at(-1) as
+      | {
+          onCustomKey?: (
+            event: KeyboardEvent,
+            ptyId: string,
+            getCurrentLine?: () => string | null
+          ) => boolean;
+        }
+      | undefined;
+
+    await act(async () => {
+      lastUseXtermCall?.onCustomKey?.(
+        new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }),
+        'backend-session-1',
+        () => '2. Skip'
+      );
+      await flushMicrotasks();
+    });
+
+    expect(onActivated).toHaveBeenCalledTimes(1);
+    expect(onActivatedWithFirstLine).not.toHaveBeenCalled();
 
     await mounted.unmount();
   });

@@ -253,7 +253,6 @@ describe('useAgentSessionNotifications', () => {
       makeSession({
         id: 'session-1',
         sessionId: 'provider-1',
-        terminalTitle: 'Feature work',
       }),
     ];
 
@@ -285,7 +284,6 @@ describe('useAgentSessionNotifications', () => {
       makeSession({
         id: 'session-1',
         sessionId: 'provider-1',
-        terminalTitle: 'Feature work',
       }),
     ];
 

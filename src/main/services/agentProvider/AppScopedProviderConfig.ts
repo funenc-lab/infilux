@@ -1,4 +1,16 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getSharedRootPath } from '../SharedSessionState';
@@ -20,6 +32,7 @@ interface InitializeAppScopedProviderConfigOptions {
 interface ProviderScopeSeed {
   envKey: keyof NodeJS.ProcessEnv;
   files: readonly string[];
+  linkedDirectories?: readonly string[];
   sourceDir: string;
   targetDir: string;
 }
@@ -53,21 +66,63 @@ function copyMissingProviderFile(sourcePath: string, targetPath: string): void {
   chmodSync(targetPath, 0o600);
 }
 
+function resolveSymlinkTarget(linkPath: string, linkValue: string): string {
+  return path.resolve(path.dirname(linkPath), linkValue);
+}
+
+function isEmptyDirectory(targetPath: string): boolean {
+  try {
+    return readdirSync(targetPath).length === 0;
+  } catch {
+    return false;
+  }
+}
+
+function ensureLinkedDirectory(sourcePath: string, targetPath: string): void {
+  if (!existsSync(sourcePath)) {
+    return;
+  }
+
+  if (existsSync(targetPath)) {
+    const targetStat = lstatSync(targetPath);
+    if (targetStat.isSymbolicLink()) {
+      const linkedTarget = resolveSymlinkTarget(targetPath, readlinkSync(targetPath));
+      if (linkedTarget === path.resolve(sourcePath)) {
+        return;
+      }
+      unlinkSync(targetPath);
+    } else if (targetStat.isDirectory() && isEmptyDirectory(targetPath)) {
+      rmSync(targetPath, { recursive: true, force: true });
+    } else {
+      return;
+    }
+  }
+
+  const symlinkType = process.platform === 'win32' ? 'junction' : undefined;
+  symlinkSync(sourcePath, targetPath, symlinkType);
+}
+
 function initializeProviderScope(seed: ProviderScopeSeed): boolean {
   const markerPath = path.join(seed.targetDir, SCOPE_MARKER_FILE_NAME);
-  if (existsSync(markerPath)) {
-    return true;
-  }
+  const initialized = existsSync(markerPath);
 
   try {
     mkdirSync(seed.targetDir, { recursive: true, mode: 0o700 });
-    for (const fileName of seed.files) {
-      copyMissingProviderFile(
-        path.join(seed.sourceDir, fileName),
-        path.join(seed.targetDir, fileName)
+    if (!initialized) {
+      for (const fileName of seed.files) {
+        copyMissingProviderFile(
+          path.join(seed.sourceDir, fileName),
+          path.join(seed.targetDir, fileName)
+        );
+      }
+      writeFileSync(markerPath, '1\n', { encoding: 'utf8', mode: 0o600 });
+    }
+    for (const directoryName of seed.linkedDirectories ?? []) {
+      ensureLinkedDirectory(
+        path.join(seed.sourceDir, directoryName),
+        path.join(seed.targetDir, directoryName)
       );
     }
-    writeFileSync(markerPath, '1\n', { encoding: 'utf8', mode: 0o600 });
     return true;
   } catch (error) {
     const errorName = error instanceof Error ? error.name : 'UnknownError';
@@ -93,6 +148,7 @@ export function initializeAppScopedProviderConfig(
     {
       envKey: 'CODEX_HOME',
       files: ['auth.json', 'config.toml'],
+      linkedDirectories: ['sessions'],
       sourceDir: path.join(homeDir, '.codex'),
       targetDir: paths.codexHome,
     },

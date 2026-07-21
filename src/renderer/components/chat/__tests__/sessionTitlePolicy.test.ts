@@ -1,125 +1,95 @@
 import { describe, expect, it } from 'vitest';
-import { resolveSessionTitleFromFirstInput } from '../sessionTitlePolicy';
+import { resolveSessionTitleFromTrustedUserMessage } from '../sessionTitlePolicy';
 
 describe('sessionTitlePolicy', () => {
-  it('adopts the first meaningful input when the session still uses its default name', () => {
+  it('adopts a trusted user message when the session still uses its default name', () => {
     expect(
-      resolveSessionTitleFromFirstInput({
-        line: '  Fix   SessionBar   hover title  ',
+      resolveSessionTitleFromTrustedUserMessage({
+        text: '  Fix   SessionBar   hover title  ',
         currentName: 'Codex',
         defaultName: 'Codex',
+        titleSource: 'default',
       })
     ).toBe('Fix SessionBar hover title');
 
     expect(
-      resolveSessionTitleFromFirstInput({
-        line: '  ›   Fix   SessionBar   hover title  ',
+      resolveSessionTitleFromTrustedUserMessage({
+        text: '  ›   Fix   SessionBar   hover title  ',
         currentName: 'Codex',
         defaultName: 'Codex',
+        titleSource: 'default',
       })
     ).toBe('Fix SessionBar hover title');
   });
 
   it('keeps the existing title when the session was renamed or already promoted', () => {
     expect(
-      resolveSessionTitleFromFirstInput({
-        line: 'Investigate contrast',
+      resolveSessionTitleFromTrustedUserMessage({
+        text: 'Investigate contrast',
         currentName: 'Investigate contrast',
         defaultName: 'Codex',
+        titleSource: 'provider-transcript',
       })
     ).toBeNull();
 
     expect(
-      resolveSessionTitleFromFirstInput({
-        line: 'Investigate contrast',
+      resolveSessionTitleFromTrustedUserMessage({
+        text: 'Investigate contrast',
         currentName: 'Codex',
         defaultName: 'Codex',
+        titleSource: 'manual',
         userRenamed: true,
       })
     ).toBeNull();
   });
 
-  it('ignores slash commands and sessions that already have a terminal title', () => {
+  it('does not require terminal state to name a session from a trusted message', () => {
     expect(
-      resolveSessionTitleFromFirstInput({
-        line: '/clear',
+      resolveSessionTitleFromTrustedUserMessage({
+        text: 'Fix SessionBar hover title',
         currentName: 'Codex',
         defaultName: 'Codex',
+        titleSource: 'default',
       })
-    ).toBeNull();
+    ).toBe('Fix SessionBar hover title');
+  });
 
+  it('ignores slash commands without interpreting terminal output', () => {
     expect(
-      resolveSessionTitleFromFirstInput({
-        line: 'Fix SessionBar hover title',
+      resolveSessionTitleFromTrustedUserMessage({
+        text: '/clear',
         currentName: 'Codex',
         defaultName: 'Codex',
-        terminalTitle: 'Build dashboard',
+        titleSource: 'default',
       })
     ).toBeNull();
   });
 
-  it('still promotes the first input when the terminal title is only placeholder chrome', () => {
+  it('does not promote generic user commands as titles', () => {
     expect(
-      resolveSessionTitleFromFirstInput({
-        line: 'Recover session title after restart',
+      resolveSessionTitleFromTrustedUserMessage({
+        text: '› codex(85487) MallocSt',
         currentName: 'Codex',
         defaultName: 'Codex',
-        terminalTitle: '›',
-      })
-    ).toBe('Recover session title after restart');
-
-    expect(
-      resolveSessionTitleFromFirstInput({
-        line: 'Recover session title after restart',
-        currentName: 'Codex',
-        defaultName: 'Codex',
-        terminalTitle: '   ',
-      })
-    ).toBe('Recover session title after restart');
-
-    expect(
-      resolveSessionTitleFromFirstInput({
-        line: 'Recover session title after restart',
-        currentName: 'Codex',
-        defaultName: 'Codex',
-        terminalTitle: 'codex',
-      })
-    ).toBe('Recover session title after restart');
-
-    expect(
-      resolveSessionTitleFromFirstInput({
-        line: 'Recover session title after restart',
-        currentName: 'codex',
-        defaultName: 'Codex',
-        terminalTitle: 'codex',
-      })
-    ).toBe('Recover session title after restart');
-  });
-
-  it('does not promote macOS malloc diagnostic titles from the first captured input line', () => {
-    expect(
-      resolveSessionTitleFromFirstInput({
-        line: '› codex(85487) MallocSt',
-        currentName: 'Codex',
-        defaultName: 'Codex',
-      })
-    ).toBeNull();
-  });
-
-  it('does not promote generic terminal titles from the first captured input line', () => {
-    expect(
-      resolveSessionTitleFromFirstInput({
-        line: 'npm test',
-        currentName: 'Codex',
-        defaultName: 'Codex',
+        titleSource: 'default',
       })
     ).toBeNull();
 
     expect(
-      resolveSessionTitleFromFirstInput({
-        line: '/bin/zsh',
+      resolveSessionTitleFromTrustedUserMessage({
+        text: 'npm test',
         currentName: 'Codex',
         defaultName: 'Codex',
+        titleSource: 'default',
+      })
+    ).toBeNull();
+
+    expect(
+      resolveSessionTitleFromTrustedUserMessage({
+        text: '/bin/zsh',
+        currentName: 'Codex',
+        defaultName: 'Codex',
+        titleSource: 'default',
       })
     ).toBeNull();
   });

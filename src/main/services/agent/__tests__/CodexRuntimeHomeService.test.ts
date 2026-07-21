@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readlinkSync,
   rmSync,
   utimesSync,
@@ -80,6 +81,30 @@ describe('CodexRuntimeHomeService', () => {
     expect(result.sourceHomePath).toBe(scopedCodexHome);
     expect(readlinkSync(path.join(result.homePath, 'config.toml'))).toBe(
       path.join(scopedCodexHome, 'config.toml')
+    );
+  });
+
+  it('migrates existing runtime session files before linking shared Codex session history', () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const runtimeHome = path.join(runtimeRoot, 'ui-session-legacy');
+    const sessionDayPath = path.join('sessions', '2026', '07', '20');
+    mkdirSync(path.join(sourceHome, sessionDayPath), { recursive: true });
+    mkdirSync(path.join(runtimeHome, sessionDayPath), { recursive: true });
+    writeFileSync(path.join(sourceHome, sessionDayPath, 'rollout-shared.jsonl'), 'shared');
+    writeFileSync(path.join(runtimeHome, sessionDayPath, 'rollout-local.jsonl'), 'local');
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    const result = service.prepareRuntimeHome('ui-session-legacy');
+
+    expect(readlinkSync(path.join(result.homePath, 'sessions'))).toBe(
+      path.join(sourceHome, 'sessions')
+    );
+    expect(
+      readFileSync(path.join(sourceHome, sessionDayPath, 'rollout-shared.jsonl'), 'utf8')
+    ).toBe('shared');
+    expect(readFileSync(path.join(sourceHome, sessionDayPath, 'rollout-local.jsonl'), 'utf8')).toBe(
+      'local'
     );
   });
 

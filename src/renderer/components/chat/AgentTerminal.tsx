@@ -1,5 +1,6 @@
 import { TEMP_INPUT_FILE_PREFIX } from '@shared/paths';
 import type {
+  AgentSessionTitleSource,
   AgentSubagentTranscriptEntry,
   ClaudeIdeBridgeStatus,
   ClaudePolicyConfig,
@@ -24,6 +25,7 @@ import {
 } from '@/components/terminal/TerminalSearchBar';
 import { toastManager } from '@/components/ui/toast';
 import { useAgentProviderSessionDiscovery } from '@/hooks/useAgentProviderSessionDiscovery';
+import { useAgentProviderSessionTitle } from '@/hooks/useAgentProviderSessionTitle';
 import { useRepositoryRuntimeContext } from '@/hooks/useRepositoryRuntimeContext';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
@@ -153,10 +155,11 @@ interface AgentTerminalProps {
   onEnhancedInputOpenChange?: (open: boolean) => void;
   onInitialized?: () => void;
   onActivated?: () => void;
-  /** Called when session is activated with the current line content (for session name fallback). */
+  /** Called after a successful enhanced-input dispatch with its first meaningful line. */
   onActivatedWithFirstLine?: (line: string) => void;
+  titleSource?: AgentSessionTitleSource;
+  onProviderSessionTitle?: (title: string) => void;
   onExit?: () => void;
-  onTerminalTitleChange?: (title: string) => void;
   onSplit?: () => void;
   onMerge?: () => void;
   onFocus?: () => void; // called when terminal is clicked/focused to activate the group
@@ -412,8 +415,9 @@ export function AgentTerminal({
   onInitialized,
   onActivated,
   onActivatedWithFirstLine,
+  titleSource,
+  onProviderSessionTitle,
   onExit,
-  onTerminalTitleChange,
   onSplit,
   onMerge,
   onFocus,
@@ -789,6 +793,14 @@ export function AgentTerminal({
       validateResolvedProviderSession: shouldValidateResolvedProviderSession,
       onProviderSessionIdChange,
     });
+  useAgentProviderSessionTitle({
+    agentCommand: isReadOnlyTranscript ? '' : agentCommand,
+    uiSessionId: id,
+    providerSessionId: sessionId,
+    titleSource,
+    isRemoteExecution,
+    onProviderSessionTitle,
+  });
   const resumeSessionId = providerSessionResolutionPending
     ? id
     : resolvedProviderSessionId === null
@@ -1613,13 +1625,9 @@ export function AgentTerminal({
   );
 
   // Handle terminal title changes (OSC escape sequences)
-  const handleTitleChange = useCallback(
-    (title: string) => {
-      currentTitleRef.current = title;
-      onTerminalTitleChange?.(title);
-    },
-    [onTerminalTitleChange]
-  );
+  const handleTitleChange = useCallback((title: string) => {
+    currentTitleRef.current = title;
+  }, []);
 
   // Handle Shift+Enter for newline (Ctrl+J / LF for all agents)
   const activateSessionFromInput = useCallback((input?: string | null) => {
@@ -1639,7 +1647,7 @@ export function AgentTerminal({
   // Also detect Enter key press to mark session as activated
   // biome-ignore lint/correctness/useExhaustiveDependencies: terminal is accessed via try-catch for safety and defined after this callback
   const handleCustomKey = useCallback(
-    (event: KeyboardEvent, ptyId: string, getCurrentLine?: () => string | null) => {
+    (event: KeyboardEvent, ptyId: string) => {
       if (isNativeImeCompositionKeyEvent(event)) {
         return true;
       }
@@ -1678,8 +1686,9 @@ export function AgentTerminal({
         }
         currentOutputBlockRef.current = '';
 
-        // First Enter activates the session; optionally pass current line for session name.
-        activateSessionFromInput(getCurrentLine?.());
+        // Terminal buffer content can be agent output, such as an interactive menu option.
+        // Only explicit enhanced input is allowed to supply an automatic session title.
+        activateSessionFromInput();
         // Reset output counter.
         dataSinceEnterRef.current = 0;
         lastInterruptRequestAtRef.current = null;

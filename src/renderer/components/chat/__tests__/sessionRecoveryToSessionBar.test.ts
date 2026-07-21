@@ -131,7 +131,7 @@ async function loadRecoveryRenderModules() {
   };
 }
 
-function createRestoreResult(displayName: string) {
+function createRestoreResult(displayName: string, titleSource?: 'provider-transcript') {
   return {
     items: [
       {
@@ -155,6 +155,18 @@ function createRestoreResult(displayName: string) {
           createdAt: 1,
           updatedAt: 2,
           lastKnownState: 'live' as const,
+          ...(titleSource
+            ? {
+                metadata: {
+                  persistentAgentSession: {
+                    title: {
+                      defaultName: 'Codex',
+                      titleSource,
+                    },
+                  },
+                },
+              }
+            : {}),
         },
       },
     ],
@@ -184,7 +196,7 @@ describe('worktree recovery to SessionBar', () => {
     vi.restoreAllMocks();
   });
 
-  async function recoverAndRender(displayName: string) {
+  async function recoverAndRender(displayName: string, titleSource?: 'provider-transcript') {
     const { SessionBar, useAgentSessionsStore, restoreWorktreeAgentSessions, resetRecoveryCache } =
       await loadRecoveryRenderModules();
 
@@ -193,7 +205,9 @@ describe('worktree recovery to SessionBar', () => {
     await restoreWorktreeAgentSessions({
       repoPath: '/repo',
       cwd: '/repo/worktree',
-      restoreWorktreeSessions: vi.fn().mockResolvedValue(createRestoreResult(displayName)),
+      restoreWorktreeSessions: vi
+        .fn()
+        .mockResolvedValue(createRestoreResult(displayName, titleSource)),
       upsertRecoveredSession: useAgentSessionsStore.getState().upsertRecoveredSession,
       updateGroupState: useAgentSessionsStore.getState().updateGroupState,
     });
@@ -238,8 +252,11 @@ describe('worktree recovery to SessionBar', () => {
     expect(tab?.getAttribute('aria-label')).toBe('Codex');
   }, 20000);
 
-  it('renders the recovered session name after worktree recovery when the stored title is meaningful', async () => {
-    const { tab, sessions } = await recoverAndRender('Investigate session recovery title');
+  it('renders the recovered session name after worktree recovery when persistent metadata records its source', async () => {
+    const { tab, sessions } = await recoverAndRender(
+      'Investigate session recovery title',
+      'provider-transcript'
+    );
 
     expect(sessions).toEqual([
       expect.objectContaining({

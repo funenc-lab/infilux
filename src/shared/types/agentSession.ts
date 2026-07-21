@@ -4,6 +4,22 @@ export type PersistentAgentRecoveryPolicy = 'auto' | 'manual' | 'metadata-only';
 
 export type PersistentAgentRuntimeState = 'live' | 'reconnecting' | 'dead' | 'missing-host-session';
 
+export const AGENT_SESSION_TITLE_SOURCES = [
+  'default',
+  'launch-prompt',
+  'enhanced-input',
+  'provider-transcript',
+  'manual',
+] as const;
+
+export type AgentSessionTitleSource = (typeof AGENT_SESSION_TITLE_SOURCES)[number];
+
+export function isAgentSessionTitleSource(value: unknown): value is AgentSessionTitleSource {
+  return (
+    typeof value === 'string' && (AGENT_SESSION_TITLE_SOURCES as readonly string[]).includes(value)
+  );
+}
+
 export interface PersistentAgentSessionRecord {
   uiSessionId: string;
   backendSessionId?: string;
@@ -52,4 +68,13 @@ export interface ResolveAgentProviderSessionRequest {
 
 export interface ResolveAgentProviderSessionResult {
   providerSessionId: string | null;
+}
+
+export interface ReadAgentProviderSessionTitleRequest {
+  agentCommand: string;
+  providerSessionId: string;
+}
+
+export interface ReadAgentProviderSessionTitleResult {
+  title: string | null;
 }

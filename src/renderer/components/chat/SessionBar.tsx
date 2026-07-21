@@ -1,6 +1,7 @@
 import {
   type AgentCapabilityProvider,
   type AgentProviderProfile,
+  type AgentSessionTitleSource,
   BUILTIN_AGENT_CATALOG,
   BUILTIN_AGENT_IDS,
   type ClaudePolicyConfig,
@@ -67,6 +68,7 @@ export interface Session {
   createdAt?: number; // Stable session creation time used for persistence metadata
   name: string;
   defaultName?: string; // Initial provider label used to distinguish generated titles from custom labels
+  titleSource?: AgentSessionTitleSource; // Provenance for automatic session titles
   agentId: string; // which agent CLI to use (e.g., 'claude', 'codex', 'gemini', 'claude-hapi', 'claude-happy')
   agentCommand: string; // the CLI command to run (e.g., 'claude', 'codex')
   customPath?: string; // custom absolute path to the agent CLI (overrides agentCommand lookup)
@@ -77,7 +79,6 @@ export interface Session {
   cwd: string; // worktree path this session belongs to
   environment?: 'native' | 'hapi' | 'happy'; // execution environment (default: native)
   displayOrder?: number; // order in SessionBar (lower = first), used for drag reorder
-  terminalTitle?: string; // current terminal title from OSC escape sequence
   userRenamed?: boolean; // true when user has manually renamed this session
   pendingCommand?: string; // command to send after agent is ready (e.g., from todo task)
   persistenceEnabled?: boolean; // whether this session should be restored across app restarts

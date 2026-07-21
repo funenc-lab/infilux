@@ -128,7 +128,7 @@ function makeWorktree(path: string): GitWorktree {
   };
 }
 
-function createRestoreResult(displayName: string) {
+function createRestoreResult(displayName: string, titleSource?: 'provider-transcript') {
   return {
     items: [
       {
@@ -152,6 +152,18 @@ function createRestoreResult(displayName: string) {
           createdAt: 1,
           updatedAt: 2,
           lastKnownState: 'live' as const,
+          ...(titleSource
+            ? {
+                metadata: {
+                  persistentAgentSession: {
+                    title: {
+                      defaultName: 'Codex',
+                      titleSource,
+                    },
+                  },
+                },
+              }
+            : {}),
         },
       },
     ],
@@ -175,11 +187,16 @@ function HookHarness({ activeWorktree }: { activeWorktree: GitWorktree }) {
   return React.createElement('div');
 }
 
-async function loadStartupRecoveryModules(displayName: string) {
+async function loadStartupRecoveryModules(
+  displayName: string,
+  titleSource?: 'provider-transcript'
+) {
   vi.resetModules();
 
   const localStorageMock = createLocalStorageMock();
-  const restoreWorktreeSessions = vi.fn().mockResolvedValue(createRestoreResult(displayName));
+  const restoreWorktreeSessions = vi
+    .fn()
+    .mockResolvedValue(createRestoreResult(displayName, titleSource));
 
   vi.stubGlobal('localStorage', localStorageMock);
   vi.stubGlobal('ResizeObserver', ResizeObserverMock);
@@ -252,9 +269,12 @@ describe('useStartupAgentSessionRecovery to SessionBar', () => {
     vi.restoreAllMocks();
   });
 
-  async function recoverAtStartupAndRender(displayName: string) {
+  async function recoverAtStartupAndRender(
+    displayName: string,
+    titleSource?: 'provider-transcript'
+  ) {
     const { SessionBar, useAgentSessionsStore, restoreWorktreeSessions } =
-      await loadStartupRecoveryModules(displayName);
+      await loadStartupRecoveryModules(displayName, titleSource);
 
     hookContainer = document.createElement('div');
     document.body.appendChild(hookContainer);
@@ -315,9 +335,10 @@ describe('useStartupAgentSessionRecovery to SessionBar', () => {
     expect(tab?.getAttribute('aria-label')).toBe('Codex');
   });
 
-  it('renders the recovered session name after startup prewarm when the stored title is meaningful', async () => {
+  it('renders the recovered session name after startup prewarm when persistent metadata records its source', async () => {
     const { restoreWorktreeSessions, sessions, tab } = await recoverAtStartupAndRender(
-      'Investigate startup recovery title'
+      'Investigate startup recovery title',
+      'provider-transcript'
     );
 
     expect(restoreWorktreeSessions).toHaveBeenCalledWith({

@@ -640,6 +640,9 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_RECONCILE, uiSessionId),
     resolveProviderSession: (request: import('@shared/types').ResolveAgentProviderSessionRequest) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_RESOLVE_PROVIDER, request),
+    readProviderSessionTitle: (
+      request: import('@shared/types').ReadAgentProviderSessionTitleRequest
+    ) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_READ_PROVIDER_TITLE, request),
     markPersistent: (record: PersistentAgentSessionRecord) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SESSION_MARK_PERSISTENT, record),
     abandon: (uiSessionId: string) =>

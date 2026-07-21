@@ -1,15 +1,18 @@
 import { access, readdir } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type {
+  ReadAgentProviderSessionTitleRequest,
+  ReadAgentProviderSessionTitleResult,
   ResolveAgentProviderSessionRequest,
   ResolveAgentProviderSessionResult,
 } from '@shared/types';
+import { resolveCodexSessionsDir } from './CodexHomePaths';
+import { findCodexSessionFileByThreadId } from './codexSessionMetadata';
 import { closeFileLineReader, createFileLineReader } from './fileLineReader';
 
-const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
 const SESSION_DISCOVERY_CLOCK_SKEW_MS = 5_000;
 const SESSION_DISCOVERY_MAX_START_AGE_MS = 2 * 60_000;
+type CodexSessionsDirProvider = string | (() => string);
 
 interface CodexSessionMeta {
   threadId: string;
@@ -21,6 +24,11 @@ interface SessionDiscoveryWindow {
   earliestStartedAt: number;
   latestStartedAt: number;
   sortTargetAt: number;
+}
+
+interface CodexTranscriptContentPart {
+  type?: string;
+  text?: string;
 }
 
 function safeJsonParse(value: string): Record<string, unknown> | null {
@@ -139,6 +147,96 @@ function isCodexAgentCommand(agentCommand: string): boolean {
   return agentCommand === 'codex';
 }
 
+function extractCodexMessageText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content.trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .flatMap((part) => {
+      if (!part || typeof part !== 'object') {
+        return [];
+      }
+
+      const typedPart = part as CodexTranscriptContentPart;
+      if (
+        (typedPart.type === 'input_text' || typedPart.type === 'output_text') &&
+        typeof typedPart.text === 'string'
+      ) {
+        return [typedPart.text.trim()];
+      }
+
+      return [];
+    })
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+}
+
+function isCodexBootstrapTranscriptText(text: string): boolean {
+  return (
+    text.includes('# AGENTS.md instructions') ||
+    text.includes('<INSTRUCTIONS>') ||
+    text.includes('<environment_context>')
+  );
+}
+
+async function readCodexFirstUserMessage(filePath: string): Promise<string | null> {
+  const reader = createFileLineReader(filePath);
+  let taskStarted = false;
+
+  try {
+    for await (const rawLine of reader.lineReader) {
+      const parsed = safeJsonParse(rawLine.trim());
+      if (!parsed) {
+        continue;
+      }
+
+      if (parsed.type === 'event_msg' && parsed.payload && typeof parsed.payload === 'object') {
+        const payload = parsed.payload as Record<string, unknown>;
+        if (payload.type === 'task_started') {
+          taskStarted = true;
+        }
+        continue;
+      }
+
+      if (
+        !taskStarted ||
+        parsed.type !== 'response_item' ||
+        !parsed.payload ||
+        typeof parsed.payload !== 'object'
+      ) {
+        continue;
+      }
+
+      const payload = parsed.payload as Record<string, unknown>;
+      if (payload.type !== 'message' || payload.role !== 'user') {
+        continue;
+      }
+
+      const text = extractCodexMessageText(payload.content);
+      if (text && !isCodexBootstrapTranscriptText(text)) {
+        return text;
+      }
+    }
+  } finally {
+    await closeFileLineReader(reader);
+  }
+
+  return null;
+}
+
+function createCodexSessionsDirResolver(provider: CodexSessionsDirProvider): () => string {
+  if (typeof provider === 'string') {
+    return () => provider;
+  }
+  return provider;
+}
+
 function resolveSessionDiscoveryWindow(
   request: ResolveAgentProviderSessionRequest
 ): SessionDiscoveryWindow {
@@ -166,8 +264,12 @@ function resolveSessionDiscoveryWindow(
 
 export class AgentProviderSessionService {
   private readonly pendingSessionMetaReads = new Map<string, Promise<CodexSessionMeta | null>>();
+  private readonly pendingSessionTitleReads = new Map<string, Promise<string | null>>();
+  private readonly resolveCodexSessionsDir: () => string;
 
-  constructor(private readonly codexSessionsDir = CODEX_SESSIONS_DIR) {}
+  constructor(codexSessionsDir: CodexSessionsDirProvider = resolveCodexSessionsDir) {
+    this.resolveCodexSessionsDir = createCodexSessionsDirResolver(codexSessionsDir);
+  }
 
   async resolveProviderSession(
     request: ResolveAgentProviderSessionRequest
@@ -178,8 +280,9 @@ export class AgentProviderSessionService {
 
     const { earliestStartedAt, latestStartedAt, sortTargetAt } =
       resolveSessionDiscoveryWindow(request);
+    const codexSessionsDir = this.resolveCodexSessionsDir();
     const candidateFiles = await listCandidateSessionFiles(
-      this.codexSessionsDir,
+      codexSessionsDir,
       earliestStartedAt,
       latestStartedAt
     );
@@ -210,6 +313,24 @@ export class AgentProviderSessionService {
     };
   }
 
+  async readProviderSessionTitle(
+    request: ReadAgentProviderSessionTitleRequest
+  ): Promise<ReadAgentProviderSessionTitleResult> {
+    if (!isCodexAgentCommand(request.agentCommand)) {
+      return { title: null };
+    }
+
+    const sessionFile = await findCodexSessionFileByThreadId(
+      this.resolveCodexSessionsDir(),
+      request.providerSessionId
+    );
+    if (!sessionFile) {
+      return { title: null };
+    }
+
+    return { title: await this.readCodexFirstUserMessage(sessionFile) };
+  }
+
   private readCodexSessionMeta(filePath: string): Promise<CodexSessionMeta | null> {
     const pendingRead = this.pendingSessionMetaReads.get(filePath);
     if (pendingRead) {
@@ -220,6 +341,19 @@ export class AgentProviderSessionService {
       this.pendingSessionMetaReads.delete(filePath);
     });
     this.pendingSessionMetaReads.set(filePath, read);
+    return read;
+  }
+
+  private readCodexFirstUserMessage(filePath: string): Promise<string | null> {
+    const pendingRead = this.pendingSessionTitleReads.get(filePath);
+    if (pendingRead) {
+      return pendingRead;
+    }
+
+    const read = readCodexFirstUserMessage(filePath).finally(() => {
+      this.pendingSessionTitleReads.delete(filePath);
+    });
+    this.pendingSessionTitleReads.set(filePath, read);
     return read;
   }
 }
