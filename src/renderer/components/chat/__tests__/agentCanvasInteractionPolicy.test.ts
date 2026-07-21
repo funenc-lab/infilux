@@ -4,6 +4,7 @@ import {
   AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE,
   AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
   shouldBlockAgentCanvasViewportScroll,
+  shouldHandleAgentCanvasViewportZoom,
   shouldStartAgentCanvasPan,
 } from '../agentCanvasInteractionPolicy';
 
@@ -211,6 +212,74 @@ describe('agent canvas interaction policy', () => {
           isCanvasDisplayMode: true,
           isCanvasLocked: true,
           target: terminalContent,
+        })
+      ).toBe(false);
+    });
+  });
+
+  it('handles modified wheel zoom only from canvas-owned surfaces', () => {
+    withMockElementGlobal(() => {
+      const blankCanvasTarget = createElement();
+
+      expect(
+        shouldHandleAgentCanvasViewportZoom({
+          ctrlKey: true,
+          isCanvasDisplayMode: true,
+          isCanvasLocked: false,
+          metaKey: false,
+          target: blankCanvasTarget,
+        })
+      ).toBe(true);
+
+      const sessionPanel = createElement();
+      sessionPanel.setAttribute(AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE, 'true');
+      const scrollSurface = createElement();
+      scrollSurface.setAttribute(AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE, 'true');
+      const terminalContent = createElement();
+      sessionPanel.append(scrollSurface);
+      scrollSurface.append(terminalContent);
+
+      expect(
+        shouldHandleAgentCanvasViewportZoom({
+          ctrlKey: true,
+          isCanvasDisplayMode: true,
+          isCanvasLocked: false,
+          metaKey: false,
+          target: terminalContent,
+        })
+      ).toBe(false);
+    });
+  });
+
+  it('does not handle viewport zoom without canvas mode, an unlocked canvas, or a modifier', () => {
+    withMockElementGlobal(() => {
+      const target = createElement();
+
+      expect(
+        shouldHandleAgentCanvasViewportZoom({
+          ctrlKey: true,
+          isCanvasDisplayMode: false,
+          isCanvasLocked: false,
+          metaKey: false,
+          target,
+        })
+      ).toBe(false);
+      expect(
+        shouldHandleAgentCanvasViewportZoom({
+          ctrlKey: true,
+          isCanvasDisplayMode: true,
+          isCanvasLocked: true,
+          metaKey: false,
+          target,
+        })
+      ).toBe(false);
+      expect(
+        shouldHandleAgentCanvasViewportZoom({
+          ctrlKey: false,
+          isCanvasDisplayMode: true,
+          isCanvasLocked: false,
+          metaKey: false,
+          target,
         })
       ).toBe(false);
     });

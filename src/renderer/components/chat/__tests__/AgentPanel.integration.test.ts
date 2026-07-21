@@ -213,6 +213,7 @@ vi.mock('../AgentTerminal', () => ({
     onSplit?: () => void;
     onMerge?: () => void;
     onTerminalTitleChange?: (title: string) => void;
+    onProviderSessionTitle?: (title: string) => void;
     onRuntimeStateChange?: (state: 'live' | 'reconnecting' | 'dead') => void;
   }) => {
     React.useEffect(() => {
@@ -232,6 +233,7 @@ vi.mock('../AgentTerminal', () => ({
         'data-active': String(Boolean(props.isActive)),
         'data-layout-refresh-key': props.layoutRefreshKey ?? '',
         'data-terminal-font-scale': String(props.terminalFontScale ?? ''),
+        'data-agent-canvas-scroll-surface': 'true',
       },
       React.createElement(
         'button',
@@ -261,6 +263,15 @@ vi.mock('../AgentTerminal', () => ({
           onClick: () => props.onTerminalTitleChange?.('Investigate terminal recovery'),
         },
         'emit-terminal-title'
+      ),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          'data-testid': `emit-provider-title-${props.id ?? ''}`,
+          onClick: () => props.onProviderSessionTitle?.('Recover title from provider transcript'),
+        },
+        'emit-provider-title'
       ),
       React.createElement(
         'button',
@@ -694,6 +705,7 @@ function createSession(overrides: Partial<Session> = {}): Session {
     backendSessionId: 'backend-session-1',
     createdAt: 1,
     name: 'Gemini',
+    titleSource: 'provider-transcript',
     agentId: 'gemini',
     agentCommand: 'gemini',
     initialized: true,
@@ -2468,7 +2480,7 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
-  it('promotes the first meaningful terminal title without allowing later defaults to erase it', async () => {
+  it('does not derive an agent session title from terminal OSC output', async () => {
     const session = createSession({
       id: 'session-terminal-title',
       sessionId: 'provider-terminal-title',
@@ -2503,20 +2515,19 @@ describe('AgentPanel integration', () => {
     await clickByTestId(mounted.container, 'emit-terminal-title-session-terminal-title');
 
     expect(useAgentSessionsStore.getState().sessions[0]).toMatchObject({
-      name: 'Investigate terminal recovery',
-      terminalTitle: 'Investigate terminal recovery',
+      name: 'Gemini',
     });
 
     await clickByTestId(mounted.container, 'emit-default-terminal-title-session-terminal-title');
 
     expect(useAgentSessionsStore.getState().sessions[0]).toMatchObject({
-      name: 'Investigate terminal recovery',
+      name: 'Gemini',
     });
 
     await mounted.unmount();
   });
 
-  it('keeps the first canonical title across a synchronous terminal title sequence', async () => {
+  it('does not promote terminal title sequences into agent session titles', async () => {
     const session = createSession({
       id: 'session-terminal-title-sequence',
       name: 'Gemini',
@@ -2546,14 +2557,54 @@ describe('AgentPanel integration', () => {
       'emit-terminal-title-sequence-session-terminal-title-sequence'
     );
 
-    expect(useAgentSessionsStore.getState().sessions[0]?.name).toBe(
-      'Investigate first terminal title'
-    );
+    expect(useAgentSessionsStore.getState().sessions[0]?.name).toBe('Gemini');
 
     await mounted.unmount();
   });
 
-  it('promotes terminal titles for custom agent environment labels', async () => {
+  it('promotes a title received from the provider transcript', async () => {
+    const session = createSession({
+      id: 'session-provider-title',
+      sessionId: 'provider-title',
+      backendSessionId: 'backend-provider-title',
+      name: 'Codex',
+      defaultName: 'Codex',
+      titleSource: 'default',
+      agentId: 'codex',
+      agentCommand: 'codex',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: { '/repo/worktree': session.id },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-provider-title',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-provider-title',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({ cwd: '/repo/worktree' });
+
+    await clickByTestId(mounted.container, 'emit-provider-title-session-provider-title');
+
+    expect(useAgentSessionsStore.getState().sessions[0]).toMatchObject({
+      name: 'Recover title from provider transcript',
+      titleSource: 'provider-transcript',
+    });
+
+    await mounted.unmount();
+  });
+
+  it('keeps custom agent environment labels when terminal output changes', async () => {
     testState.settings.customAgents = [
       {
         id: 'custom-agent',
@@ -2591,9 +2642,7 @@ describe('AgentPanel integration', () => {
     expect(useAgentSessionsStore.getState().sessions[0]?.defaultName).toBe('Custom Agent (Hapi)');
     await clickByTestId(mounted.container, 'emit-terminal-title-session-custom-terminal-title');
 
-    expect(useAgentSessionsStore.getState().sessions[0]?.name).toBe(
-      'Investigate terminal recovery'
-    );
+    expect(useAgentSessionsStore.getState().sessions[0]?.name).toBe('Custom Agent (Hapi)');
 
     await mounted.unmount();
   });
@@ -3430,6 +3479,68 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('keeps modified wheel input inside terminal scroll surfaces from changing canvas zoom', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-terminal-wheel',
+      sessionId: 'provider-terminal-wheel',
+      backendSessionId: 'backend-terminal-wheel',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Gemini Terminal Wheel',
+    });
+
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-terminal-wheel',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-terminal-wheel',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const resetZoomButton = mounted.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Reset Zoom"]'
+    );
+    const terminalSurface = getAgentTerminalElement(session.id);
+    expect(resetZoomButton).not.toBeNull();
+    expect(resetZoomButton?.textContent?.trim()).toBe('100%');
+    expect(terminalSurface).not.toBeNull();
+
+    const terminalWheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: 120,
+    });
+    const preventDefault = vi.spyOn(terminalWheelEvent, 'preventDefault');
+
+    await act(async () => {
+      terminalSurface?.dispatchEvent(terminalWheelEvent);
+      await flushRenderTasks();
+    });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(resetZoomButton?.textContent?.trim()).toBe('100%');
+
+    await mounted.unmount();
+  });
+
   it('mounts recovered workspace canvas sessions immediately so recovery does not wait for tile expansion', async () => {
     testState.settings.agentSessionDisplayMode = 'global-canvas';
 
@@ -3827,7 +3938,6 @@ describe('AgentPanel integration', () => {
       sessionId: 'provider-close',
       backendSessionId: 'backend-close',
       name: 'Gemini Close',
-      terminalTitle: 'Close Target',
     });
     useAgentSessionsStore.setState({
       sessions: [session],

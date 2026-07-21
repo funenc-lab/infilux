@@ -97,6 +97,7 @@ import {
   AGENT_CANVAS_INTERACTIVE_SURFACE_ATTRIBUTE,
   AGENT_CANVAS_SESSION_PANEL_ATTRIBUTE,
   shouldBlockAgentCanvasViewportScroll,
+  shouldHandleAgentCanvasViewportZoom,
   shouldStartAgentCanvasPan,
 } from './agentCanvasInteractionPolicy';
 import {
@@ -197,13 +198,11 @@ import {
   supportsSessionSubagentTracking,
 } from './sessionSubagentState';
 import { resolveSessionSubagentTriggerPresentation } from './sessionSubagentTriggerPolicy';
-import { resolveSessionTitleFromFirstInput } from './sessionTitlePolicy';
 import {
-  getCanonicalSessionName,
-  getExplicitSessionName,
-  getMeaningfulSessionTerminalTitle,
-  getStoredSessionName,
-} from './sessionTitleText';
+  resolveSessionTitleFromTrustedUserMessage,
+  resolveSessionTitleState,
+} from './sessionTitlePolicy';
+import { getExplicitSessionName } from './sessionTitleText';
 import type { AgentGroupState, AgentGroup as AgentGroupType } from './types';
 import { createInitialGroupState } from './types';
 import { useAgentCanvasViewportRestore } from './useAgentCanvasViewportRestore';
@@ -454,6 +453,7 @@ function createSession(
     createdAt: Date.now(),
     name: displayName,
     defaultName: displayName,
+    titleSource: 'default',
     agentId,
     agentCommand: info.command,
     customPath,
@@ -478,10 +478,28 @@ function createSessionWithOverrides(
   persistenceEnabled: boolean,
   overrides: Partial<Session> = {}
 ): Session {
-  return {
+  const session = {
     ...createSession(repoPath, cwd, agentId, customAgents, agentSettings, persistenceEnabled),
     ...overrides,
   };
+  if (
+    !overrides.name &&
+    !overrides.titleSource &&
+    !overrides.userRenamed &&
+    overrides.pendingCommand
+  ) {
+    const title = resolveSessionTitleFromTrustedUserMessage({
+      text: overrides.pendingCommand,
+      currentName: session.name,
+      defaultName: session.defaultName ?? session.name,
+      titleSource: session.titleSource,
+    });
+    if (title) {
+      return { ...session, name: title, titleSource: 'launch-prompt' };
+    }
+  }
+
+  return session;
 }
 
 function resolveLaunchTargetSessionPersistence({
@@ -874,15 +892,27 @@ export function AgentPanel({
   }, [sessionById, transcriptSessionId]);
   useEffect(() => {
     for (const session of allSessions) {
-      if (session.defaultName) {
+      const defaultName =
+        session.defaultName ?? getAgentDisplayLabel(session.agentId, customAgents);
+      const titleState = resolveSessionTitleState({
+        agentId: session.agentId,
+        currentName: session.name,
+        defaultName,
+        titleSource: session.titleSource,
+        userRenamed: session.userRenamed,
+      });
+      if (
+        session.defaultName === defaultName &&
+        session.name === titleState.name &&
+        session.titleSource === titleState.titleSource
+      ) {
         continue;
       }
 
-      const defaultName = getAgentDisplayLabel(session.agentId, customAgents);
-      const name = getCanonicalSessionName({ ...session, defaultName });
       updateSession(session.id, {
         defaultName,
-        ...(name !== session.name ? { name } : {}),
+        name: titleState.name,
+        titleSource: titleState.titleSource,
       });
     }
   }, [allSessions, customAgents, updateSession]);
@@ -3248,14 +3278,19 @@ export function AgentPanel({
         return;
       }
 
-      if (!(event.metaKey || event.ctrlKey)) {
+      if (
+        !shouldHandleAgentCanvasViewportZoom({
+          ctrlKey: event.ctrlKey,
+          isCanvasDisplayMode,
+          isCanvasLocked,
+          metaKey: event.metaKey,
+          target: event.target,
+        })
+      ) {
         return;
       }
 
       event.preventDefault();
-      if (isCanvasLocked) {
-        return;
-      }
       const wheelZoomState = canvasWheelZoomStateRef.current;
       wheelZoomState.pendingDelta += event.deltaY;
 
@@ -3838,16 +3873,37 @@ export function AgentPanel({
 
       const defaultName =
         session.defaultName ?? getAgentDisplayLabel(session.agentId, customAgents);
-      const nextTitle = resolveSessionTitleFromFirstInput({
-        line,
+      const nextTitle = resolveSessionTitleFromTrustedUserMessage({
+        text: line,
         currentName: session.name,
         defaultName,
-        terminalTitle: session.terminalTitle,
+        titleSource: session.titleSource,
         userRenamed: session.userRenamed,
       });
       if (!nextTitle) return;
 
-      updateSession(id, { name: nextTitle });
+      updateSession(id, { name: nextTitle, titleSource: 'enhanced-input' });
+    },
+    [customAgents, updateSession]
+  );
+
+  const handleProviderSessionTitle = useCallback(
+    (id: string, title: string) => {
+      const session = findAgentSessionById(id);
+      if (!session) return;
+
+      const defaultName =
+        session.defaultName ?? getAgentDisplayLabel(session.agentId, customAgents);
+      const nextTitle = resolveSessionTitleFromTrustedUserMessage({
+        text: title,
+        currentName: session.name,
+        defaultName,
+        titleSource: session.titleSource,
+        userRenamed: session.userRenamed,
+      });
+      if (!nextTitle) return;
+
+      updateSession(id, { name: nextTitle, titleSource: 'provider-transcript' });
     },
     [customAgents, updateSession]
   );
@@ -3863,35 +3919,8 @@ export function AgentPanel({
       updateSession(id, {
         defaultName,
         name: storedName,
-        terminalTitle: undefined,
+        titleSource: 'manual',
         userRenamed: true,
-      });
-    },
-    [customAgents, updateSession]
-  );
-  const handleTerminalTitleChange = useCallback(
-    (id: string, title: string) => {
-      const session = findAgentSessionById(id);
-      if (!session || session.userRenamed) return;
-
-      const defaultName =
-        session.defaultName ?? getAgentDisplayLabel(session.agentId, customAgents);
-      const nextTerminalTitle = getMeaningfulSessionTerminalTitle(
-        title,
-        session.agentId,
-        defaultName
-      );
-      const currentName = getStoredSessionName(session.name, session.agentId, defaultName);
-      const nextName = getCanonicalSessionName({
-        agentId: session.agentId,
-        defaultName,
-        name: currentName,
-        terminalTitle: nextTerminalTitle,
-      });
-      updateSession(id, {
-        defaultName,
-        terminalTitle: nextTerminalTitle,
-        ...(nextName !== currentName ? { name: nextName } : {}),
       });
     },
     [customAgents, updateSession]
@@ -4971,8 +5000,9 @@ export function AgentPanel({
             onInitialized={() => handleInitialized(sessionId)}
             onActivated={() => handleActivated(sessionId)}
             onActivatedWithFirstLine={(line) => handleActivatedWithFirstLine(sessionId, line)}
+            titleSource={session.titleSource}
+            onProviderSessionTitle={(title) => handleProviderSessionTitle(sessionId, title)}
             onExit={() => handleSessionExit(sessionId, groupId || undefined)}
-            onTerminalTitleChange={(title) => handleTerminalTitleChange(sessionId, title)}
             onBackendSessionIdChange={(backendSessionId) => {
               if (session.backendSessionId === backendSessionId) return;
               updateSession(sessionId, { backendSessionId });

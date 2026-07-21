@@ -20,6 +20,22 @@ type ShouldBlockAgentCanvasViewportScrollOptions = {
   target?: EventTarget | null;
 };
 
+type ShouldHandleAgentCanvasViewportZoomOptions = {
+  ctrlKey: boolean;
+  isCanvasDisplayMode: boolean;
+  isCanvasLocked: boolean;
+  metaKey: boolean;
+  target?: EventTarget | null;
+};
+
+function isInsideAgentCanvasScrollSurface(target?: EventTarget | null): boolean {
+  return (
+    typeof Element !== 'undefined' &&
+    target instanceof Element &&
+    target.closest(AGENT_CANVAS_SCROLL_SURFACE_SELECTOR) !== null
+  );
+}
+
 export function shouldStartAgentCanvasPan({
   isCanvasDisplayMode,
   isCanvasLocked,
@@ -56,13 +72,23 @@ export function shouldBlockAgentCanvasViewportScroll({
     return false;
   }
 
-  if (
-    typeof Element !== 'undefined' &&
-    target instanceof Element &&
-    target.closest(AGENT_CANVAS_SCROLL_SURFACE_SELECTOR) !== null
-  ) {
+  if (isInsideAgentCanvasScrollSurface(target)) {
     return false;
   }
 
   return true;
+}
+
+export function shouldHandleAgentCanvasViewportZoom({
+  ctrlKey,
+  isCanvasDisplayMode,
+  isCanvasLocked,
+  metaKey,
+  target,
+}: ShouldHandleAgentCanvasViewportZoomOptions): boolean {
+  if (!isCanvasDisplayMode || isCanvasLocked || !(metaKey || ctrlKey)) {
+    return false;
+  }
+
+  return !isInsideAgentCanvasScrollSurface(target);
 }

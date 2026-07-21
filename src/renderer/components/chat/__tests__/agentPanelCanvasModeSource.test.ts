@@ -166,6 +166,7 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('"agent-canvas-floating-frame fixed z-30');
     expect(agentPanelSource).toContain('handleCanvasViewportWheel');
     expect(agentPanelSource).toContain('shouldBlockAgentCanvasViewportScroll');
+    expect(agentPanelSource).toContain('shouldHandleAgentCanvasViewportZoom');
     expect(agentPanelSource).toContain('canvasLockedByWorktree');
     expect(agentPanelSource).toContain('isCanvasLocked');
     expect(agentPanelSource).toContain('setCanvasLockedByWorktree');
