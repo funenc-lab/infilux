@@ -64,6 +64,7 @@ export interface ResolveAgentProviderSessionRequest {
   cwd: string;
   createdAt: number;
   observedAt: number;
+  providerSessionId?: string;
 }
 
 export interface ResolveAgentProviderSessionResult {

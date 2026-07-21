@@ -278,6 +278,21 @@ export class AgentProviderSessionService {
       return { providerSessionId: null };
     }
 
+    const requestedProviderSessionId = request.providerSessionId?.trim();
+    if (requestedProviderSessionId) {
+      const sessionFile = await findCodexSessionFileByThreadId(
+        this.resolveCodexSessionsDir(),
+        requestedProviderSessionId
+      );
+      if (sessionFile) {
+        const sessionMeta = await this.readCodexSessionMeta(sessionFile);
+        if (sessionMeta?.cwd === request.cwd) {
+          return { providerSessionId: requestedProviderSessionId };
+        }
+      }
+      return { providerSessionId: null };
+    }
+
     const { earliestStartedAt, latestStartedAt, sortTargetAt } =
       resolveSessionDiscoveryWindow(request);
     const codexSessionsDir = this.resolveCodexSessionsDir();

@@ -162,6 +162,7 @@ describe('useAgentProviderSessionDiscovery', () => {
         agentCommand: 'codex',
         cwd: '/repo/worktree-a',
         createdAt: 100,
+        providerSessionId: 'codex-session-1',
       })
     );
     expect(onProviderSessionIdChange).not.toHaveBeenCalled();

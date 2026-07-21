@@ -111,6 +111,9 @@ function assertResolveProviderSessionRequest(value: unknown): ResolveAgentProvid
     cwd: value.cwd,
     createdAt: value.createdAt,
     observedAt: value.observedAt,
+    ...(typeof value.providerSessionId === 'string'
+      ? { providerSessionId: value.providerSessionId }
+      : {}),
   };
 }
 

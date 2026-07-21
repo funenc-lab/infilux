@@ -129,6 +129,32 @@ describe('AgentProviderSessionService', () => {
     });
   });
 
+  it('validates an existing codex provider session id outside the discovery window', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+
+    await writeCodexSessionFile({
+      rootDir: tempRoot,
+      dayPath: '2026/04/07',
+      threadId: 'codex-resumed-session',
+      cwd: '/repo/worktree-a',
+      timestamp: '2026-04-07T05:10:00.000Z',
+    });
+
+    const service = new AgentProviderSessionService(tempRoot);
+    const result = await service.resolveProviderSession({
+      agentCommand: 'codex',
+      cwd: '/repo/worktree-a',
+      createdAt: Date.parse('2026-04-07T02:28:10.000Z'),
+      observedAt: Date.parse('2026-04-07T08:30:00.000Z'),
+      providerSessionId: 'codex-resumed-session',
+    });
+
+    expect(result).toEqual({
+      providerSessionId: 'codex-resumed-session',
+    });
+  });
+
   it('does not lose the matching codex session when a recovery day has more than sixty-four session files', async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
     TEMP_DIRECTORIES.push(tempRoot);

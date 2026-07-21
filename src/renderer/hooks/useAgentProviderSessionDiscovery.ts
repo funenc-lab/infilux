@@ -146,6 +146,7 @@ export function useAgentProviderSessionDiscovery(
           cwd: cwd!,
           createdAt: createdAt!,
           observedAt,
+          ...(resolutionMode === 'validate' ? { providerSessionId } : {}),
         });
 
         if (cancelled) {

@@ -162,6 +162,7 @@ describe('agentSession IPC handlers', () => {
       cwd: '/repo/worktree',
       createdAt: 1,
       observedAt: 2,
+      providerSessionId: 'provider-2',
     };
     const titleRequest = {
       agentCommand: 'codex',
