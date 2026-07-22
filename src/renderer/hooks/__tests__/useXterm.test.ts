@@ -99,9 +99,13 @@ const testState = vi.hoisted(() => ({
   }>,
   viewportSyncCalls: [] as Array<Record<string, unknown>>,
   terminalRenderer: 'dom' as 'dom' | 'webgl',
+  terminalFontSize: 14,
+  terminalFontFamily: 'monospace',
+  backgroundImageEnabled: false,
   recreateWebglRenderer: null as (() => void) | null,
   webglAddons: [] as Array<{
     dispose: ReturnType<typeof vi.fn>;
+    clearTextureAtlas: ReturnType<typeof vi.fn>;
     contextLossHandler: (() => void) | null;
   }>,
 }));
@@ -244,6 +248,7 @@ vi.mock('@xterm/addon-webgl', () => ({
   WebglAddon: class {
     private readonly state = {
       dispose: vi.fn(),
+      clearTextureAtlas: vi.fn(),
       contextLossHandler: null as (() => void) | null,
     };
 
@@ -255,7 +260,9 @@ vi.mock('@xterm/addon-webgl', () => ({
       this.state.contextLossHandler = handler;
       return { dispose: () => undefined };
     }
-    clearTextureAtlas(): void {}
+    clearTextureAtlas(): void {
+      this.state.clearTextureAtlas();
+    }
     dispose(): void {
       this.state.dispose();
     }
@@ -329,14 +336,14 @@ vi.mock('@/stores/settings', () => ({
   ) =>
     selector({
       terminalTheme: 'dark',
-      terminalFontSize: 14,
-      terminalFontFamily: 'monospace',
+      terminalFontSize: testState.terminalFontSize,
+      terminalFontFamily: testState.terminalFontFamily,
       terminalFontWeight: 'normal',
       terminalFontWeightBold: 'bold',
       terminalScrollback: 1000,
       terminalOptionIsMeta: true,
       xtermKeybindings: {},
-      backgroundImageEnabled: false,
+      backgroundImageEnabled: testState.backgroundImageEnabled,
       terminalRenderer: testState.terminalRenderer,
       copyOnSelection: false,
       shellConfig: { shellType: 'zsh' },
@@ -533,6 +540,9 @@ describe('useXterm startup loading state', () => {
     testState.viewportSyncCalls = [];
     testState.hookProps = {};
     testState.terminalRenderer = 'dom';
+    testState.terminalFontSize = 14;
+    testState.terminalFontFamily = 'monospace';
+    testState.backgroundImageEnabled = false;
     testState.recreateWebglRenderer = null;
     testState.webglAddons = [];
 
@@ -701,6 +711,30 @@ describe('useXterm startup loading state', () => {
 
     expect(activeAddon?.dispose).toHaveBeenCalledTimes(1);
     expect(testState.webglAddons).toHaveLength(initialAddonCount);
+
+    await mounted.unmount();
+  });
+
+  it('clears the WebGL texture atlas when terminal visual settings change', async () => {
+    testState.terminalRenderer = 'webgl';
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const activeAddon = testState.webglAddons.at(-1);
+    expect(activeAddon).toBeDefined();
+    activeAddon?.clearTextureAtlas.mockClear();
+
+    testState.terminalFontFamily = '"SF Mono", monospace';
+    mounted.rerender();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(activeAddon?.clearTextureAtlas).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });
@@ -1208,6 +1242,48 @@ describe('useXterm startup loading state', () => {
 
     expect(testState.terminalWrite).toHaveBeenCalledTimes(2);
     expect(testState.terminalWrite).toHaveBeenLastCalledWith('second batch\n');
+
+    await mounted.unmount();
+  });
+
+  it('defers a viewport sync requested during terminal output until xterm finishes the write', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    vi.useFakeTimers();
+    testState.viewportSyncCalls = [];
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: '\x1bM',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWriteCallbacks).toHaveLength(1);
+
+    testState.terminalFontSize = 15;
+    mounted.rerender();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.viewportSyncCalls).toEqual([]);
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.viewportSyncCalls).toHaveLength(1);
 
     await mounted.unmount();
   });

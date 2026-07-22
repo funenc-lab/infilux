@@ -74,4 +74,18 @@ describe('xtermTerminalOptions', () => {
 
     expect(options.macOptionClickForcesSelection).toBeUndefined();
   });
+
+  it('inserts macOS CJK fallbacks before the terminal generic monospace fallback', () => {
+    const options = buildXtermTerminalOptions({
+      platform: 'darwin',
+      settings: {
+        ...baseSettings,
+        fontFamily: 'ui-monospace, SF Mono, Menlo, Monaco, Consolas, monospace',
+      },
+    });
+
+    expect(options.fontFamily).toBe(
+      'ui-monospace, SF Mono, Menlo, Monaco, Consolas, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", monospace'
+    );
+  });
 });

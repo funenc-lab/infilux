@@ -63,6 +63,10 @@ import {
 import { buildXtermTerminalOptions } from './xtermTerminalOptions';
 import { focusXtermTextInput, installXtermImeFocusBridge } from './xtermTextInputFocus';
 import { syncXtermViewportToSession, type XtermViewportSyncSnapshot } from './xtermViewportSync';
+import {
+  createXtermViewportSyncController,
+  type XtermViewportSyncController,
+} from './xtermViewportSyncController';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
@@ -70,6 +74,11 @@ import '@xterm/xterm/css/xterm.css';
 interface InfiluxE2ETerminalWindow extends Window {
   __INFILUX_E2E_ENABLE__?: boolean;
   __INFILUX_E2E_LAST_XTERM__?: Terminal;
+}
+
+interface XtermRendererAddon {
+  dispose: () => void;
+  clearTextureAtlas?: () => void;
 }
 
 // Regex to match file paths with optional line:column
@@ -334,6 +343,34 @@ function useTerminalSettings(fontSizeScale = 1) {
   );
 }
 
+function buildWebglVisualSignature(settings: ReturnType<typeof useTerminalSettings>): string {
+  const themeEntries = Object.entries(settings.theme)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  return JSON.stringify({
+    backgroundImageEnabled: settings.backgroundImageEnabled,
+    fontFamily: settings.fontFamily,
+    fontSize: settings.fontSize,
+    fontWeight: settings.fontWeight,
+    fontWeightBold: settings.fontWeightBold,
+    theme: themeEntries,
+  });
+}
+
+function clearWebglTextureAtlas(addon: XtermRendererAddon | null): boolean {
+  if (!addon?.clearTextureAtlas) {
+    return false;
+  }
+
+  try {
+    addon.clearTextureAtlas();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function useXterm({
   backendSessionId,
   cwd,
@@ -370,6 +407,7 @@ export function useXterm({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const settings = useTerminalSettings(fontSizeScale);
+  const webglVisualSignature = useMemo(() => buildWebglVisualSignature(settings), [settings]);
   const { terminalRenderer, copyOnSelection, shellConfig } = useSettingsStore(
     useShallow((state) => ({
       terminalRenderer: state.terminalRenderer,
@@ -396,8 +434,11 @@ export function useXterm({
   const terminalInputCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const terminalImeFocusCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
-  const rendererAddonRef = useRef<{ dispose: () => void } | null>(null);
+  const rendererAddonRef = useRef<XtermRendererAddon | null>(null);
   const webglContextLostRef = useRef(false);
+  const webglVisualSignatureRef = useRef<string | null>(null);
+  const latestWebglVisualSignatureRef = useRef(webglVisualSignature);
+  latestWebglVisualSignatureRef.current = webglVisualSignature;
   const copyOnSelectionHandlerRef = useRef<(() => void) | null>(null);
   const copyEventHandlerRef = useRef<((event: ClipboardEvent) => void) | null>(null);
   const activeSessionBindingRef = useRef<ReturnType<
@@ -495,6 +536,14 @@ export function useXterm({
   const terminalWriteInFlightRef = useRef(false);
   const terminalWriteInFlightIdentityRef = useRef<InFlightTerminalWrite | null>(null);
   const terminalWriteGenerationRef = useRef(0);
+  const performViewportSyncRef = useRef<() => boolean>(() => false);
+  const viewportSyncControllerRef = useRef<XtermViewportSyncController>(
+    createXtermViewportSyncController({
+      isTerminalWriteInProgress: () =>
+        initialTerminalWriteInProgressRef.current || terminalWriteInFlightRef.current,
+      syncViewport: () => performViewportSyncRef.current(),
+    })
+  );
   const pendingTerminalExitRef = useRef(false);
   const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -644,18 +693,11 @@ export function useXterm({
       return;
     }
 
-    const addon = rendererAddonRef.current;
-    if (addon && 'clearTextureAtlas' in addon) {
-      try {
-        (addon as WebglAddon).clearTextureAtlas();
-      } catch {
-        // Ignore if addon is disposed.
-      }
-    }
+    clearWebglTextureAtlas(rendererAddonRef.current);
     terminal.refresh(0, Math.max(0, terminal.rows - 1));
   }, []);
 
-  const syncViewportToSession = useCallback(() => {
+  const performViewportSync = useCallback(() => {
     return syncXtermViewportToSession({
       fitViewport: () => {
         fitAddonRef.current?.fit();
@@ -686,10 +728,21 @@ export function useXterm({
       sessionId: ptyIdRef.current,
     });
   }, []);
+  performViewportSyncRef.current = performViewportSync;
+
+  const requestViewportSync = useCallback(() => {
+    return viewportSyncControllerRef.current.request();
+  }, []);
+
+  const flushPendingViewportSync = useCallback(() => {
+    return viewportSyncControllerRef.current.flush();
+  }, []);
+  const flushPendingViewportSyncRef = useRef<() => boolean>(() => false);
+  flushPendingViewportSyncRef.current = flushPendingViewportSync;
 
   const fitTerminal = useCallback(() => {
-    syncViewportToSession();
-  }, [syncViewportToSession]);
+    requestViewportSync();
+  }, [requestViewportSync]);
 
   const findNext = useCallback(
     (
@@ -732,42 +785,53 @@ export function useXterm({
     refreshTerminalViewport();
   }, [refreshTerminalViewport]);
 
-  const loadRenderer = useCallback((terminal: Terminal, renderer: typeof terminalRenderer) => {
-    // Dispose current renderer addon
-    rendererAddonRef.current?.dispose();
-    rendererAddonRef.current = null;
+  const loadRenderer = useCallback(
+    (
+      terminal: Terminal,
+      renderer: typeof terminalRenderer,
+      visualSignature: string | null = null
+    ) => {
+      // Dispose current renderer addon
+      rendererAddonRef.current?.dispose();
+      rendererAddonRef.current = null;
 
-    // Load renderer based on settings (webgl > canvas > dom)
-    if (renderer === 'webgl') {
-      webglContextLostRef.current = false;
-      try {
-        const webglAddon = new WebglAddon();
-        webglAddon.onContextLoss(() => {
-          // Guard against disposed terminal
-          if (terminalRef.current === terminal && rendererAddonRef.current === webglAddon) {
-            webglContextLostRef.current = true;
-            console.warn('[xterm] WebGL context lost, falling back to DOM renderer');
-            webglAddon.dispose();
-            rendererAddonRef.current = null;
-            terminal.refresh(0, terminal.rows - 1);
-          }
-        });
-        terminal.loadAddon(webglAddon);
-        rendererAddonRef.current = webglAddon;
-      } catch (error) {
-        webglContextLostRef.current = true;
-        console.warn('[xterm] WebGL failed, falling back to DOM renderer:', error);
-        rendererAddonRef.current = null;
+      // Load renderer based on settings (webgl > canvas > dom)
+      if (renderer === 'webgl') {
+        webglContextLostRef.current = false;
+        try {
+          const webglAddon = new WebglAddon();
+          webglAddon.onContextLoss(() => {
+            // Guard against disposed terminal
+            if (terminalRef.current === terminal && rendererAddonRef.current === webglAddon) {
+              webglContextLostRef.current = true;
+              console.warn('[xterm] WebGL context lost, falling back to DOM renderer');
+              webglAddon.dispose();
+              rendererAddonRef.current = null;
+              webglVisualSignatureRef.current = null;
+              terminal.refresh(0, terminal.rows - 1);
+            }
+          });
+          terminal.loadAddon(webglAddon);
+          rendererAddonRef.current = webglAddon;
+          webglVisualSignatureRef.current = visualSignature;
+        } catch (error) {
+          webglContextLostRef.current = true;
+          console.warn('[xterm] WebGL failed, falling back to DOM renderer:', error);
+          rendererAddonRef.current = null;
+          webglVisualSignatureRef.current = null;
+        }
+      } else {
+        webglContextLostRef.current = false;
+        webglVisualSignatureRef.current = null;
       }
-    } else {
-      webglContextLostRef.current = false;
-    }
-    // 'dom' or 'canvas' uses the default DOM renderer, no addon needed
-    // Note: 'canvas' support is removed in favor of DOM as legacy fallback
+      // 'dom' or 'canvas' uses the default DOM renderer, no addon needed
+      // Note: 'canvas' support is removed in favor of DOM as legacy fallback
 
-    // Trigger refresh to ensure render
-    terminal.refresh(0, terminal.rows - 1);
-  }, []);
+      // Trigger refresh to ensure render
+      terminal.refresh(0, terminal.rows - 1);
+    },
+    []
+  );
 
   const recreateWebglRenderer = useCallback(() => {
     const terminal = terminalRef.current;
@@ -780,7 +844,7 @@ export function useXterm({
       return;
     }
 
-    loadRenderer(terminal, 'webgl');
+    loadRenderer(terminal, 'webgl', latestWebglVisualSignatureRef.current);
   }, [effectiveTerminalRenderer, loadRenderer]);
 
   const flushPendingTerminalExit = useCallback(() => {
@@ -860,6 +924,7 @@ export function useXterm({
         }
 
         if (dataFlushTimerRef.current || !terminalOutputBufferRef.current.hasPending) {
+          flushPendingViewportSyncRef.current();
           flushPendingTerminalExitRef.current();
           return;
         }
@@ -902,6 +967,7 @@ export function useXterm({
         if (initialTerminalWriteGenerationRef.current === initialWriteGeneration) {
           initialTerminalWriteInProgressRef.current = false;
           if (!flushBufferedTerminalOutputRef.current(terminal)) {
+            flushPendingViewportSyncRef.current();
             flushPendingTerminalExitRef.current();
           }
         }
@@ -925,6 +991,7 @@ export function useXterm({
     initialTerminalWriteGenerationRef.current += 1;
     isFlushPendingRef.current = false;
     terminalWriteGenerationRef.current += 1;
+    viewportSyncControllerRef.current.reset();
     pendingTerminalExitRef.current = false;
   }, []);
 
@@ -1235,7 +1302,7 @@ export function useXterm({
         onTitleChangeRef.current?.(title);
       });
 
-      loadRenderer(terminal, effectiveTerminalRenderer);
+      loadRenderer(terminal, effectiveTerminalRenderer, latestWebglVisualSignatureRef.current);
 
       const linkProviderDisposable = terminal.registerLinkProvider({
         provideLinks: (bufferLineNumber, callback) => {
@@ -2062,7 +2129,11 @@ export function useXterm({
   // Handle dynamic renderer switching
   useEffect(() => {
     if (terminalRef.current) {
-      loadRenderer(terminalRef.current, effectiveTerminalRenderer);
+      loadRenderer(
+        terminalRef.current,
+        effectiveTerminalRenderer,
+        latestWebglVisualSignatureRef.current
+      );
     }
   }, [effectiveTerminalRenderer, loadRenderer]);
 
@@ -2114,17 +2185,36 @@ export function useXterm({
 
   // Update settings dynamically
   useEffect(() => {
-    if (terminalRef.current) {
-      terminalRef.current.options.theme = settings.theme;
-      terminalRef.current.options.fontSize = settings.fontSize;
-      terminalRef.current.options.fontFamily = settings.fontFamily;
-      terminalRef.current.options.fontWeight = settings.fontWeight;
-      terminalRef.current.options.fontWeightBold = settings.fontWeightBold;
+    const terminal = terminalRef.current;
+    if (terminal) {
+      terminal.options.theme = settings.theme;
+      terminal.options.fontSize = settings.fontSize;
+      terminal.options.fontFamily = settings.fontFamily;
+      terminal.options.fontWeight = settings.fontWeight;
+      terminal.options.fontWeightBold = settings.fontWeightBold;
       // Update transparency options dynamically
-      terminalRef.current.options.allowTransparency = settings.backgroundImageEnabled;
-      syncViewportToSession();
+      terminal.options.allowTransparency = settings.backgroundImageEnabled;
+      requestViewportSync();
+
+      if (effectiveTerminalRenderer !== 'webgl') {
+        webglVisualSignatureRef.current = null;
+        return;
+      }
+
+      const previousVisualSignature = webglVisualSignatureRef.current;
+      webglVisualSignatureRef.current = webglVisualSignature;
+
+      if (
+        rendererAddonRef.current &&
+        !webglContextLostRef.current &&
+        previousVisualSignature !== null &&
+        previousVisualSignature !== webglVisualSignature &&
+        clearWebglTextureAtlas(rendererAddonRef.current)
+      ) {
+        terminal.refresh(0, Math.max(0, terminal.rows - 1));
+      }
     }
-  }, [settings, syncViewportToSession]);
+  }, [effectiveTerminalRenderer, requestViewportSync, settings, webglVisualSignature]);
 
   // Handle resize
   useEffect(() => {
@@ -2133,16 +2223,9 @@ export function useXterm({
     }
 
     const handleResize = () => {
-      if (syncViewportToSession()) {
+      if (requestViewportSync()) {
         // Clear WebGL texture atlas on resize to prevent glitches
-        const addon = rendererAddonRef.current;
-        if (addon && 'clearTextureAtlas' in addon) {
-          try {
-            (addon as WebglAddon).clearTextureAtlas();
-          } catch {
-            // Ignore if addon is disposed
-          }
-        }
+        clearWebglTextureAtlas(rendererAddonRef.current);
       }
     };
 
@@ -2175,7 +2258,7 @@ export function useXterm({
       observer.disconnect();
       intersectionObserver.disconnect();
     };
-  }, [shouldSyncVisibleLayout, syncViewportToSession]);
+  }, [requestViewportSync, shouldSyncVisibleLayout]);
 
   // Fit and focus when becoming active (only after loading completes)
   useEffect(() => {
@@ -2254,14 +2337,7 @@ export function useXterm({
       if (!document.hidden && terminalRef.current) {
         requestAnimationFrame(() => {
           // Clear WebGL texture atlas when page becomes visible (GPU resources may have been reclaimed)
-          const addon = rendererAddonRef.current;
-          if (addon && 'clearTextureAtlas' in addon) {
-            try {
-              (addon as WebglAddon).clearTextureAtlas();
-            } catch {
-              // Ignore if addon is disposed
-            }
-          }
+          clearWebglTextureAtlas(rendererAddonRef.current);
           terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
           fitTerminal();
         });
@@ -2295,20 +2371,10 @@ export function useXterm({
 
     const preventGlitchInterval = setInterval(
       () => {
-        const addon = rendererAddonRef.current;
-        if (
-          effectiveTerminalRenderer === 'webgl' &&
-          terminalRef.current &&
-          addon &&
-          'clearTextureAtlas' in addon &&
-          !document.hidden
-        ) {
+        if (effectiveTerminalRenderer === 'webgl' && terminalRef.current && !document.hidden) {
           requestAnimationFrame(() => {
-            try {
-              (addon as WebglAddon).clearTextureAtlas();
+            if (clearWebglTextureAtlas(rendererAddonRef.current)) {
               terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
-            } catch {
-              // Ignore errors if addon is disposed or method missing
             }
           });
         }
