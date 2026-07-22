@@ -18,6 +18,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
   const reconcileSession = vi.fn();
   const resolveProviderSession = vi.fn();
   const readProviderSessionTitle = vi.fn();
+  const releaseProviderSession = vi.fn();
   const upsertSession = vi.fn();
   const abandonSession = vi.fn();
 
@@ -30,6 +31,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
     reconcileSession.mockReset();
     resolveProviderSession.mockReset();
     readProviderSessionTitle.mockReset();
+    releaseProviderSession.mockReset();
     upsertSession.mockReset();
     abandonSession.mockReset();
 
@@ -58,6 +60,7 @@ const agentSessionTestDoubles = vi.hoisted(() => {
     reconcileSession,
     resolveProviderSession,
     readProviderSessionTitle,
+    releaseProviderSession,
     upsertSession,
     abandonSession,
     reset,
@@ -86,6 +89,7 @@ vi.mock('../../services/agent/AgentProviderSessionService', () => ({
   agentProviderSessionService: {
     resolveProviderSession: agentSessionTestDoubles.resolveProviderSession,
     readProviderSessionTitle: agentSessionTestDoubles.readProviderSessionTitle,
+    releaseProviderSession: agentSessionTestDoubles.releaseProviderSession,
   },
 }));
 
@@ -159,6 +163,7 @@ describe('agentSession IPC handlers', () => {
     const record = makeRecord({ uiSessionId: 'session-persist' });
     const resolveRequest = {
       agentCommand: 'codex',
+      uiSessionId: 'session-1',
       cwd: '/repo/worktree',
       createdAt: 1,
       observedAt: 2,
@@ -204,6 +209,7 @@ describe('agentSession IPC handlers', () => {
     expect(agentSessionTestDoubles.readProviderSessionTitle).toHaveBeenCalledWith(titleRequest);
     expect(agentSessionTestDoubles.upsertSession).toHaveBeenCalledWith(record);
     expect(agentSessionTestDoubles.abandonSession).toHaveBeenCalledWith('session-1');
+    expect(agentSessionTestDoubles.releaseProviderSession).toHaveBeenCalledWith('session-1');
   });
 
   it('propagates restore errors so renderer can surface recovery failures', async () => {
@@ -330,6 +336,42 @@ describe('agentSession IPC handlers', () => {
           agentCommand: 'codex',
           cwd: '/repo/worktree',
           createdAt: '1',
+          observedAt: 2,
+        }
+      )
+    ).rejects.toThrow('Invalid agent provider session resolve request');
+    await expect(
+      resolveProviderSessionHandler(
+        {},
+        {
+          agentCommand: 'codex',
+          cwd: '/repo/worktree',
+          createdAt: 1,
+          observedAt: 2,
+          providerSessionId: '',
+        }
+      )
+    ).rejects.toThrow('Invalid agent provider session resolve request');
+    await expect(
+      resolveProviderSessionHandler(
+        {},
+        {
+          agentCommand: 'codex',
+          cwd: '/repo/worktree',
+          createdAt: 1,
+          observedAt: 2,
+          providerSessionId: 42,
+        }
+      )
+    ).rejects.toThrow('Invalid agent provider session resolve request');
+    await expect(
+      resolveProviderSessionHandler(
+        {},
+        {
+          agentCommand: 'codex',
+          uiSessionId: '',
+          cwd: '/repo/worktree',
+          createdAt: 1,
           observedAt: 2,
         }
       )

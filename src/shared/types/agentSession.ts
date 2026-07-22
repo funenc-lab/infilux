@@ -61,6 +61,7 @@ export interface RestoreWorktreeSessionsResult {
 
 export interface ResolveAgentProviderSessionRequest {
   agentCommand: string;
+  uiSessionId?: string;
   cwd: string;
   createdAt: number;
   observedAt: number;

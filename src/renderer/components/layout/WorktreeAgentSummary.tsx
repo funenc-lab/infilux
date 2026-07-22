@@ -30,6 +30,7 @@ export function WorktreeAgentSummary({
     <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
       <button
         type="button"
+        title={sessionDisplayName}
         className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-theme/10 hover:text-foreground"
         onClick={(event) => {
           event.stopPropagation();

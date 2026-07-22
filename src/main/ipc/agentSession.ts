@@ -97,6 +97,8 @@ function assertResolveProviderSessionRequest(value: unknown): ResolveAgentProvid
   if (
     !isPlainObject(value) ||
     !isNonEmptyString(value.agentCommand) ||
+    (value.uiSessionId !== undefined && !isNonEmptyString(value.uiSessionId)) ||
+    (value.providerSessionId !== undefined && !isNonEmptyString(value.providerSessionId)) ||
     !isNonEmptyString(value.cwd) ||
     typeof value.createdAt !== 'number' ||
     !Number.isFinite(value.createdAt) ||
@@ -108,6 +110,7 @@ function assertResolveProviderSessionRequest(value: unknown): ResolveAgentProvid
 
   return {
     agentCommand: value.agentCommand,
+    ...(typeof value.uiSessionId === 'string' ? { uiSessionId: value.uiSessionId } : {}),
     cwd: value.cwd,
     createdAt: value.createdAt,
     observedAt: value.observedAt,
@@ -280,6 +283,8 @@ export function registerAgentSessionHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.AGENT_SESSION_ABANDON, async (_, uiSessionId: unknown) => {
     agentSessionHandlerDiagnostics.abandonCalls += 1;
-    return persistentAgentSessionService.abandonSession(assertAgentSessionId(uiSessionId));
+    const validatedUiSessionId = assertAgentSessionId(uiSessionId);
+    agentProviderSessionService.releaseProviderSession(validatedUiSessionId);
+    return persistentAgentSessionService.abandonSession(validatedUiSessionId);
   });
 }

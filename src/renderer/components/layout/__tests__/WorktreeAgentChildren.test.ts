@@ -66,6 +66,7 @@ describe('WorktreeAgentChildren', () => {
 
     expect(markup).toContain('data-worktree-child-kind="agent"');
     expect(markup).toContain('data-worktree-child-kind="subagent"');
+    expect(markup).toContain('title="Codex Main"');
     expect(markup).toContain('Codex Main');
     expect(markup).toContain('Reviewer 1');
   });

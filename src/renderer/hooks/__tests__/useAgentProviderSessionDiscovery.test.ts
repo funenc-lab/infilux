@@ -95,6 +95,7 @@ describe('useAgentProviderSessionDiscovery', () => {
     expect(resolveProviderSession).toHaveBeenCalledWith(
       expect.objectContaining({
         agentCommand: 'codex',
+        uiSessionId: 'ui-session-1',
         cwd: '/repo/worktree-a',
         createdAt: 100,
       })

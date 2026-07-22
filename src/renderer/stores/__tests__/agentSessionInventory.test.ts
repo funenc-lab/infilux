@@ -152,6 +152,29 @@ describe('agent session inventory', () => {
     ]);
   });
 
+  it('preserves explicit user titles consistently with session tabs', () => {
+    const items = buildAgentSessionInventory({
+      sessions: [
+        session({
+          id: 'session-codex',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          name: 'npm migration investigation',
+          userRenamed: true,
+        }),
+      ],
+      activeIds: {},
+      runtimeStates: {},
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        sessionId: 'session-codex',
+        displayName: 'npm migration investigation',
+      }),
+    ]);
+  });
+
   it('filters by repo and worktree while keeping dead sessions visible for cleanup', () => {
     const items = buildAgentSessionInventory({
       sessions: [

@@ -148,6 +148,7 @@ export function WorktreeAgentChildren({
     <div className={cn('flex min-w-0 flex-col gap-1 pt-1', className)}>
       <button
         type="button"
+        title={sessionDisplayName}
         data-worktree-child-kind="agent"
         data-selected={isAgentSelected ? 'true' : 'false'}
         className={cn(

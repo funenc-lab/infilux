@@ -143,6 +143,7 @@ export function useAgentProviderSessionDiscovery(
       try {
         const result = await window.electronAPI.agentSession.resolveProviderSession({
           agentCommand,
+          uiSessionId: uiSessionId!,
           cwd: cwd!,
           createdAt: createdAt!,
           observedAt,
@@ -207,6 +208,7 @@ export function useAgentProviderSessionDiscovery(
     resolutionKey,
     resolutionMode,
     shouldPoll,
+    uiSessionId,
   ]);
 
   return {

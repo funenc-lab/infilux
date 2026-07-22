@@ -29,6 +29,11 @@ function mountHookHarness(args: Parameters<typeof useAgentProviderSessionTitle>[
   });
 
   return {
+    rerender(nextArgs: Parameters<typeof useAgentProviderSessionTitle>[0]) {
+      act(() => {
+        root.render(React.createElement(HookHarness, { args: nextArgs }));
+      });
+    },
     unmount() {
       act(() => {
         root.unmount();
@@ -121,6 +126,72 @@ describe('useAgentProviderSessionTitle', () => {
     });
 
     expect(readProviderSessionTitle).not.toHaveBeenCalled();
+
+    mounted.unmount();
+  });
+
+  it('retries after terminal activity when the initial polling window expires', async () => {
+    readProviderSessionTitle
+      .mockResolvedValueOnce({ title: null })
+      .mockResolvedValueOnce({ title: null })
+      .mockResolvedValueOnce({ title: 'Late provider transcript title' });
+
+    const baseArgs = {
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'codex-session-1',
+      titleSource: 'default' as const,
+      onProviderSessionTitle,
+      pollIntervalMs: 1000,
+      maxAttempts: 2,
+    };
+    const mounted = mountHookHarness({ ...baseArgs, activitySignal: 0 });
+
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(readProviderSessionTitle).toHaveBeenCalledTimes(2);
+
+    mounted.rerender({ ...baseArgs, activitySignal: 1 });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(readProviderSessionTitle).toHaveBeenCalledTimes(3);
+    expect(onProviderSessionTitle).toHaveBeenCalledWith('Late provider transcript title');
+
+    mounted.unmount();
+  });
+
+  it('retries when terminal activity arrives during the final polling attempt', async () => {
+    readProviderSessionTitle
+      .mockResolvedValueOnce({ title: null })
+      .mockResolvedValueOnce({ title: null })
+      .mockResolvedValueOnce({ title: 'Title written during final lookup' });
+
+    const baseArgs = {
+      agentCommand: 'codex',
+      uiSessionId: 'ui-session-1',
+      providerSessionId: 'codex-session-1',
+      titleSource: 'default' as const,
+      onProviderSessionTitle,
+      pollIntervalMs: 1000,
+      maxAttempts: 2,
+    };
+    const mounted = mountHookHarness({ ...baseArgs, activitySignal: 0 });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    mounted.rerender({ ...baseArgs, activitySignal: 1 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      await Promise.resolve();
+    });
+
+    expect(readProviderSessionTitle).toHaveBeenCalledTimes(3);
+    expect(onProviderSessionTitle).toHaveBeenCalledWith('Title written during final lookup');
 
     mounted.unmount();
   });

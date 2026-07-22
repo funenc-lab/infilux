@@ -6,6 +6,7 @@ import type {
   ResolveAgentProviderSessionRequest,
   ResolveAgentProviderSessionResult,
 } from '@shared/types';
+import { normalizeAgentSessionTitleText } from '@shared/utils/agentSessionTitle';
 import { resolveCodexSessionsDir } from './CodexHomePaths';
 import { findCodexSessionFileByThreadId } from './codexSessionMetadata';
 import { closeFileLineReader, createFileLineReader } from './fileLineReader';
@@ -25,6 +26,17 @@ interface SessionDiscoveryWindow {
   latestStartedAt: number;
   sortTargetAt: number;
 }
+
+interface PendingSessionDiscovery {
+  cwd: string;
+  createdAt: number;
+  earliestStartedAt: number;
+  latestStartedAt: number;
+  token: symbol;
+  requiresBatch: boolean;
+}
+
+type ConcurrentClaimResult = 'not-concurrent' | 'waiting' | 'assigned';
 
 interface CodexTranscriptContentPart {
   type?: string;
@@ -178,11 +190,16 @@ function extractCodexMessageText(content: unknown): string {
 }
 
 function isCodexBootstrapTranscriptText(text: string): boolean {
-  return (
-    text.includes('# AGENTS.md instructions') ||
-    text.includes('<INSTRUCTIONS>') ||
-    text.includes('<environment_context>')
-  );
+  const trimmedText = text.trim();
+  const isAgentInstructions =
+    /^# AGENTS\.md instructions(?: for [^\n]+)?\s*\n+<INSTRUCTIONS>[\s\S]*<\/INSTRUCTIONS>(?:\s*<environment_context>[\s\S]*<\/environment_context>)?\s*$/u.test(
+      trimmedText
+    );
+  const isEnvironmentContext =
+    trimmedText.startsWith('<environment_context>') &&
+    trimmedText.endsWith('</environment_context>');
+
+  return isAgentInstructions || isEnvironmentContext;
 }
 
 async function readCodexFirstUserMessage(filePath: string): Promise<string | null> {
@@ -219,8 +236,13 @@ async function readCodexFirstUserMessage(filePath: string): Promise<string | nul
       }
 
       const text = extractCodexMessageText(payload.content);
-      if (text && !isCodexBootstrapTranscriptText(text)) {
-        return text;
+      if (!text || isCodexBootstrapTranscriptText(text)) {
+        continue;
+      }
+
+      const title = normalizeAgentSessionTitleText(text);
+      if (title) {
+        return title;
       }
     }
   } finally {
@@ -262,9 +284,33 @@ function resolveSessionDiscoveryWindow(
   };
 }
 
+function discoveryWindowsOverlap(
+  left: Pick<SessionDiscoveryWindow, 'earliestStartedAt' | 'latestStartedAt'>,
+  right: Pick<SessionDiscoveryWindow, 'earliestStartedAt' | 'latestStartedAt'>
+): boolean {
+  return (
+    Math.max(left.earliestStartedAt, right.earliestStartedAt) <=
+    Math.min(left.latestStartedAt, right.latestStartedAt)
+  );
+}
+
+function isSessionWithinDiscoveryWindow(
+  session: CodexSessionMeta,
+  discovery: PendingSessionDiscovery
+): boolean {
+  return (
+    session.startedAt >= discovery.earliestStartedAt &&
+    session.startedAt <= discovery.latestStartedAt
+  );
+}
+
 export class AgentProviderSessionService {
   private readonly pendingSessionMetaReads = new Map<string, Promise<CodexSessionMeta | null>>();
   private readonly pendingSessionTitleReads = new Map<string, Promise<string | null>>();
+  private readonly providerSessionIdByUiSessionId = new Map<string, string>();
+  private readonly uiSessionIdByProviderSessionId = new Map<string, string>();
+  private readonly pendingDiscoveryByUiSessionId = new Map<string, PendingSessionDiscovery>();
+  private readonly activeResolutionTokenByUiSessionId = new Map<string, symbol>();
   private readonly resolveCodexSessionsDir: () => string;
 
   constructor(codexSessionsDir: CodexSessionsDirProvider = resolveCodexSessionsDir) {
@@ -279,53 +325,153 @@ export class AgentProviderSessionService {
     }
 
     const requestedProviderSessionId = request.providerSessionId?.trim();
-    if (requestedProviderSessionId) {
-      const sessionFile = await findCodexSessionFileByThreadId(
-        this.resolveCodexSessionsDir(),
-        requestedProviderSessionId
+    const claimedProviderSessionId = request.uiSessionId
+      ? this.providerSessionIdByUiSessionId.get(request.uiSessionId)
+      : undefined;
+    if (claimedProviderSessionId) {
+      return {
+        providerSessionId:
+          !requestedProviderSessionId || requestedProviderSessionId === claimedProviderSessionId
+            ? claimedProviderSessionId
+            : null,
+      };
+    }
+
+    const resolutionToken = request.uiSessionId ? Symbol(request.uiSessionId) : undefined;
+    const discoveryWindow = requestedProviderSessionId
+      ? undefined
+      : resolveSessionDiscoveryWindow(request);
+    if (request.uiSessionId && resolutionToken) {
+      this.activeResolutionTokenByUiSessionId.set(request.uiSessionId, resolutionToken);
+      if (discoveryWindow) {
+        const concurrentDiscoveries = Array.from(this.pendingDiscoveryByUiSessionId.entries())
+          .filter(
+            ([uiSessionId, discovery]) =>
+              discovery.cwd === request.cwd &&
+              discoveryWindowsOverlap(discovery, discoveryWindow) &&
+              this.isResolutionActiveForToken(uiSessionId, discovery.token)
+          )
+          .map(([, discovery]) => discovery);
+        const requiresBatch = concurrentDiscoveries.length > 0;
+        for (const discovery of concurrentDiscoveries) {
+          discovery.requiresBatch = true;
+        }
+        this.pendingDiscoveryByUiSessionId.set(request.uiSessionId, {
+          cwd: request.cwd,
+          createdAt: request.createdAt,
+          earliestStartedAt: discoveryWindow.earliestStartedAt,
+          latestStartedAt: discoveryWindow.latestStartedAt,
+          token: resolutionToken,
+          requiresBatch,
+        });
+      }
+    }
+
+    try {
+      if (requestedProviderSessionId) {
+        const sessionFile = await findCodexSessionFileByThreadId(
+          this.resolveCodexSessionsDir(),
+          requestedProviderSessionId
+        );
+        if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+          return { providerSessionId: null };
+        }
+        if (sessionFile) {
+          const sessionMeta = await this.readCodexSessionMeta(sessionFile);
+          if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+            return { providerSessionId: null };
+          }
+          if (
+            sessionMeta?.cwd === request.cwd &&
+            this.claimProviderSession(request.uiSessionId, requestedProviderSessionId)
+          ) {
+            return { providerSessionId: requestedProviderSessionId };
+          }
+        }
+        return { providerSessionId: null };
+      }
+
+      const { earliestStartedAt, latestStartedAt, sortTargetAt } =
+        discoveryWindow ?? resolveSessionDiscoveryWindow(request);
+      const codexSessionsDir = this.resolveCodexSessionsDir();
+      const candidateFiles = await listCandidateSessionFiles(
+        codexSessionsDir,
+        earliestStartedAt,
+        latestStartedAt
       );
-      if (sessionFile) {
-        const sessionMeta = await this.readCodexSessionMeta(sessionFile);
-        if (sessionMeta?.cwd === request.cwd) {
-          return { providerSessionId: requestedProviderSessionId };
+      if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+        return { providerSessionId: null };
+      }
+
+      const matches: CodexSessionMeta[] = [];
+      for (const filePath of candidateFiles) {
+        const sessionMeta = await this.readCodexSessionMeta(filePath);
+        if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+          return { providerSessionId: null };
+        }
+        if (!sessionMeta || sessionMeta.cwd !== request.cwd) {
+          continue;
+        }
+        if (sessionMeta.startedAt < earliestStartedAt || sessionMeta.startedAt > latestStartedAt) {
+          continue;
+        }
+        matches.push(sessionMeta);
+      }
+
+      matches.sort((left, right) => {
+        const leftDistance = Math.abs(left.startedAt - sortTargetAt);
+        const rightDistance = Math.abs(right.startedAt - sortTargetAt);
+        if (leftDistance !== rightDistance) {
+          return leftDistance - rightDistance;
+        }
+        return right.startedAt - left.startedAt;
+      });
+
+      if (!request.uiSessionId) {
+        return { providerSessionId: matches[0]?.threadId ?? null };
+      }
+
+      const concurrentClaimResult = this.claimConcurrentProviderSessions(
+        request.uiSessionId,
+        matches
+      );
+      const concurrentlyClaimedProviderSessionId = this.providerSessionIdByUiSessionId.get(
+        request.uiSessionId
+      );
+      if (concurrentlyClaimedProviderSessionId) {
+        return { providerSessionId: concurrentlyClaimedProviderSessionId };
+      }
+      if (concurrentClaimResult === 'waiting') {
+        return { providerSessionId: null };
+      }
+
+      if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+        return { providerSessionId: null };
+      }
+      for (const match of matches) {
+        if (this.claimProviderSession(request.uiSessionId, match.threadId)) {
+          return { providerSessionId: match.threadId };
         }
       }
+
       return { providerSessionId: null };
+    } finally {
+      this.completeResolution(request.uiSessionId, resolutionToken);
+    }
+  }
+
+  releaseProviderSession(uiSessionId: string): void {
+    this.activeResolutionTokenByUiSessionId.delete(uiSessionId);
+    this.pendingDiscoveryByUiSessionId.delete(uiSessionId);
+    const providerSessionId = this.providerSessionIdByUiSessionId.get(uiSessionId);
+    if (!providerSessionId) {
+      return;
     }
 
-    const { earliestStartedAt, latestStartedAt, sortTargetAt } =
-      resolveSessionDiscoveryWindow(request);
-    const codexSessionsDir = this.resolveCodexSessionsDir();
-    const candidateFiles = await listCandidateSessionFiles(
-      codexSessionsDir,
-      earliestStartedAt,
-      latestStartedAt
-    );
-
-    const matches: CodexSessionMeta[] = [];
-    for (const filePath of candidateFiles) {
-      const sessionMeta = await this.readCodexSessionMeta(filePath);
-      if (!sessionMeta || sessionMeta.cwd !== request.cwd) {
-        continue;
-      }
-      if (sessionMeta.startedAt < earliestStartedAt || sessionMeta.startedAt > latestStartedAt) {
-        continue;
-      }
-      matches.push(sessionMeta);
+    this.providerSessionIdByUiSessionId.delete(uiSessionId);
+    if (this.uiSessionIdByProviderSessionId.get(providerSessionId) === uiSessionId) {
+      this.uiSessionIdByProviderSessionId.delete(providerSessionId);
     }
-
-    matches.sort((left, right) => {
-      const leftDistance = Math.abs(left.startedAt - sortTargetAt);
-      const rightDistance = Math.abs(right.startedAt - sortTargetAt);
-      if (leftDistance !== rightDistance) {
-        return leftDistance - rightDistance;
-      }
-      return right.startedAt - left.startedAt;
-    });
-
-    return {
-      providerSessionId: matches[0]?.threadId ?? null,
-    };
   }
 
   async readProviderSessionTitle(
@@ -357,6 +503,120 @@ export class AgentProviderSessionService {
     });
     this.pendingSessionMetaReads.set(filePath, read);
     return read;
+  }
+
+  private claimProviderSession(
+    uiSessionId: string | undefined,
+    providerSessionId: string
+  ): boolean {
+    if (!uiSessionId) {
+      return true;
+    }
+
+    const existingProviderSessionId = this.providerSessionIdByUiSessionId.get(uiSessionId);
+    if (existingProviderSessionId) {
+      return existingProviderSessionId === providerSessionId;
+    }
+
+    const claimedUiSessionId = this.uiSessionIdByProviderSessionId.get(providerSessionId);
+    if (claimedUiSessionId && claimedUiSessionId !== uiSessionId) {
+      return false;
+    }
+
+    this.providerSessionIdByUiSessionId.set(uiSessionId, providerSessionId);
+    this.uiSessionIdByProviderSessionId.set(providerSessionId, uiSessionId);
+    return true;
+  }
+
+  private claimConcurrentProviderSessions(
+    uiSessionId: string,
+    matches: CodexSessionMeta[]
+  ): ConcurrentClaimResult {
+    const currentDiscovery = this.pendingDiscoveryByUiSessionId.get(uiSessionId);
+    if (!currentDiscovery) {
+      return 'not-concurrent';
+    }
+
+    const pendingDiscoveries = Array.from(this.pendingDiscoveryByUiSessionId.entries())
+      .filter(
+        ([pendingUiSessionId, discovery]) =>
+          discovery.cwd === currentDiscovery.cwd &&
+          discoveryWindowsOverlap(discovery, currentDiscovery) &&
+          this.isResolutionActiveForToken(pendingUiSessionId, discovery.token) &&
+          !this.providerSessionIdByUiSessionId.has(pendingUiSessionId)
+      )
+      .sort(([leftUiSessionId, left], [rightUiSessionId, right]) => {
+        if (left.createdAt !== right.createdAt) {
+          return left.createdAt - right.createdAt;
+        }
+        return leftUiSessionId.localeCompare(rightUiSessionId);
+      });
+    if (pendingDiscoveries.length < 2) {
+      return pendingDiscoveries.some(([, discovery]) => discovery.requiresBatch)
+        ? 'waiting'
+        : 'not-concurrent';
+    }
+
+    const availableMatches = matches
+      .filter((match) => !this.uiSessionIdByProviderSessionId.has(match.threadId))
+      .sort((left, right) => {
+        if (left.startedAt !== right.startedAt) {
+          return left.startedAt - right.startedAt;
+        }
+        return left.threadId.localeCompare(right.threadId);
+      });
+    if (availableMatches.length < pendingDiscoveries.length) {
+      return 'waiting';
+    }
+    const selectedMatches = availableMatches.slice(-pendingDiscoveries.length);
+    const everyMatchFitsItsDiscovery = pendingDiscoveries.every(([, discovery], index) => {
+      const match = selectedMatches[index];
+      return Boolean(match && isSessionWithinDiscoveryWindow(match, discovery));
+    });
+    if (!everyMatchFitsItsDiscovery) {
+      return 'waiting';
+    }
+
+    for (let index = 0; index < pendingDiscoveries.length; index += 1) {
+      const uiSessionId = pendingDiscoveries[index]?.[0];
+      const providerSessionId = selectedMatches[index]?.threadId;
+      if (uiSessionId && providerSessionId) {
+        this.claimProviderSession(uiSessionId, providerSessionId);
+      }
+    }
+
+    return 'assigned';
+  }
+
+  private isResolutionActiveForToken(
+    uiSessionId: string | undefined,
+    resolutionToken: symbol | undefined
+  ): boolean {
+    if (!uiSessionId) {
+      return true;
+    }
+    return Boolean(
+      resolutionToken &&
+        this.activeResolutionTokenByUiSessionId.get(uiSessionId) === resolutionToken
+    );
+  }
+
+  private completeResolution(
+    uiSessionId: string | undefined,
+    resolutionToken: symbol | undefined
+  ): void {
+    if (
+      !uiSessionId ||
+      !resolutionToken ||
+      this.activeResolutionTokenByUiSessionId.get(uiSessionId) !== resolutionToken
+    ) {
+      return;
+    }
+
+    this.activeResolutionTokenByUiSessionId.delete(uiSessionId);
+    if (this.pendingDiscoveryByUiSessionId.get(uiSessionId)?.token === resolutionToken) {
+      this.pendingDiscoveryByUiSessionId.delete(uiSessionId);
+    }
   }
 
   private readCodexFirstUserMessage(filePath: string): Promise<string | null> {

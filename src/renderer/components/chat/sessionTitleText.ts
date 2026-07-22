@@ -1,15 +1,25 @@
-const SESSION_TITLE_PROMPT_PREFIX = /^(?:[›❯»→➜>]+)\s*/u;
+import { normalizeAgentSessionTitleText } from '@shared/utils/agentSessionTitle';
+
 const GENERIC_SHELL_TITLE = /[/\\](pwsh|powershell|cmd|bash|zsh|sh|fish|nu|wsl)(\.exe)?["']?\s*$/i;
 const PRIVILEGED_SESSION_TITLE = /^(Administrator|root)\s*:/i;
-const GENERIC_COMMAND_TITLE = /^(npm|npx|node|python|py|pnpm|yarn|bun|deno|cargo|go|java|ruby)\s/i;
+const GENERIC_COMMAND_TITLE_PATTERNS = [
+  /^(?:npm|pnpm|yarn|bun)(?:\s+(?:run|exec|test|start|install|add|remove|update|upgrade|build|dev|lint|check|typecheck|dlx)(?:\s|$)|\s*$)/i,
+  /^npx(?:\s+(?:--?[\w-]+|\S+)|\s*$)/i,
+  /^node(?:\s+(?:--?[\w-]+|\S+\.(?:c?js|mjs|ts))(?:\s|$)|\s*$)/i,
+  /^python(?:\d+(?:\.\d+)?)?(?:\s+(?:--?[\w-]+|\S+\.py)(?:\s|$)|\s*$)/i,
+  /^py(?:\s+(?:--?[\w-]+|\S+\.py)(?:\s|$)|\s*$)/i,
+  /^go(?:\s+(?:build|clean|doc|env|fmt|generate|get|install|list|mod|run|test|tool|version|vet|work)(?:\s|$)|\s*$)/i,
+  /^deno(?:\s+(?:run|test|task|fmt|lint|check|compile|install)(?:\s|$)|\s*$)/i,
+  /^cargo(?:\s+(?:build|check|clean|doc|install|run|test|update|bench|clippy|fmt)(?:\s|$)|\s*$)/i,
+  /^java(?:\s+(?:--?[\w-]+|\S+\.(?:jar|class))(?:\s|$)|\s*$)/i,
+  /^ruby(?:\s+(?:--?[\w-]+|\S+\.rb)(?:\s|$)|\s*$)/i,
+] as const;
 const MACOS_MALLOC_DIAGNOSTIC_TITLE = /^\S+\(\d+\)\s+Malloc\w*/;
 const UNUSABLE_SESSION_TITLE_PATTERNS = [
   GENERIC_SHELL_TITLE,
   PRIVILEGED_SESSION_TITLE,
-  GENERIC_COMMAND_TITLE,
   MACOS_MALLOC_DIAGNOSTIC_TITLE,
 ] as const;
-
 const BUILTIN_AGENT_NAMES: Record<string, string> = {
   claude: 'Claude',
   codex: 'Codex',
@@ -21,14 +31,15 @@ const BUILTIN_AGENT_NAMES: Record<string, string> = {
 };
 
 export function normalizeSessionTitleText(text: string): string {
-  const normalizedWhitespace = text.replace(/\s+/g, ' ').trim();
-  if (!normalizedWhitespace) return '';
-
-  return normalizedWhitespace.replace(SESSION_TITLE_PROMPT_PREFIX, '').trim();
+  return normalizeAgentSessionTitleText(text);
 }
 
 function isUnusableNormalizedSessionTitle(title: string): boolean {
-  return !title || UNUSABLE_SESSION_TITLE_PATTERNS.some((pattern) => pattern.test(title));
+  return (
+    !title ||
+    UNUSABLE_SESSION_TITLE_PATTERNS.some((pattern) => pattern.test(title)) ||
+    GENERIC_COMMAND_TITLE_PATTERNS.some((pattern) => pattern.test(title))
+  );
 }
 
 export function isUnusableSessionTitle(title?: string | null): boolean {

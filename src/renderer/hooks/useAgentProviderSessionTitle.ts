@@ -1,5 +1,5 @@
 import type { AgentSessionTitleSource } from '@shared/types';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShouldPoll } from './useWindowFocus';
 
 const DEFAULT_POLL_INTERVAL_MS = 1_500;
@@ -11,6 +11,7 @@ interface UseAgentProviderSessionTitleOptions {
   providerSessionId?: string;
   titleSource?: AgentSessionTitleSource;
   isRemoteExecution?: boolean;
+  activitySignal?: number;
   onProviderSessionTitle?: (title: string) => void;
   pollIntervalMs?: number;
   maxAttempts?: number;
@@ -44,12 +45,16 @@ export function useAgentProviderSessionTitle(options: UseAgentProviderSessionTit
     providerSessionId,
     titleSource,
     isRemoteExecution,
+    activitySignal,
     onProviderSessionTitle,
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
   } = options;
   const shouldPoll = useShouldPoll();
   const onProviderSessionTitleRef = useRef(onProviderSessionTitle);
+  const exhaustedTitleKeyRef = useRef<string | null>(null);
+  const previousActivitySignalRef = useRef(activitySignal);
+  const [retryGeneration, setRetryGeneration] = useState(0);
   const hasProviderSessionTitleHandler = Boolean(onProviderSessionTitle);
   const titleKey = useMemo(
     () =>
@@ -72,19 +77,39 @@ export function useAgentProviderSessionTitle(options: UseAgentProviderSessionTit
       uiSessionId,
     ]
   );
+  const lookupKey = useMemo(
+    () => (titleKey ? `${titleKey}\u0000${retryGeneration}` : null),
+    [retryGeneration, titleKey]
+  );
 
   useEffect(() => {
     onProviderSessionTitleRef.current = onProviderSessionTitle;
   }, [onProviderSessionTitle]);
 
   useEffect(() => {
-    if (!titleKey || !providerSessionId) {
+    const activityChanged = previousActivitySignalRef.current !== activitySignal;
+    previousActivitySignalRef.current = activitySignal;
+
+    if (!titleKey) {
+      exhaustedTitleKeyRef.current = null;
+      return;
+    }
+
+    if (activityChanged && exhaustedTitleKeyRef.current === titleKey) {
+      exhaustedTitleKeyRef.current = null;
+      setRetryGeneration((generation) => generation + 1);
+    }
+  }, [activitySignal, titleKey]);
+
+  useEffect(() => {
+    if (!lookupKey || !titleKey || !providerSessionId) {
       return;
     }
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
+    const activitySignalAtStart = previousActivitySignalRef.current;
 
     const runLookup = async () => {
       attempts += 1;
@@ -99,6 +124,7 @@ export function useAgentProviderSessionTitle(options: UseAgentProviderSessionTit
         }
 
         if (result.title) {
+          exhaustedTitleKeyRef.current = null;
           onProviderSessionTitleRef.current?.(result.title);
           return;
         }
@@ -109,6 +135,14 @@ export function useAgentProviderSessionTitle(options: UseAgentProviderSessionTit
       }
 
       if (cancelled || attempts >= maxAttempts) {
+        if (!cancelled) {
+          if (previousActivitySignalRef.current !== activitySignalAtStart) {
+            exhaustedTitleKeyRef.current = null;
+            setRetryGeneration((generation) => generation + 1);
+          } else {
+            exhaustedTitleKeyRef.current = titleKey;
+          }
+        }
         return;
       }
 
@@ -125,5 +159,5 @@ export function useAgentProviderSessionTitle(options: UseAgentProviderSessionTit
         clearTimeout(timer);
       }
     };
-  }, [agentCommand, maxAttempts, pollIntervalMs, providerSessionId, titleKey]);
+  }, [agentCommand, lookupKey, maxAttempts, pollIntervalMs, providerSessionId, titleKey]);
 }

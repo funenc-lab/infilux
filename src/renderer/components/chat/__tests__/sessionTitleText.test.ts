@@ -14,12 +14,27 @@ describe('sessionTitleText', () => {
     expect(normalizeSessionTitleText('❯   Investigate    logs')).toBe('Investigate logs');
   });
 
+  it('removes invisible formatting controls and bounds persisted title length', () => {
+    expect(normalizeSessionTitleText('\u200BReview\u202E auth\u2069 flow')).toBe(
+      'Review auth flow'
+    );
+    expect(normalizeSessionTitleText('a'.repeat(200))).toBe(`${'a'.repeat(159)}…`);
+    expect(normalizeSessionTitleText('\u200B\u2060\uFEFF')).toBe('');
+  });
+
   it('filters generic automatic title candidates', () => {
     expect(isUnusableSessionTitle()).toBe(true);
     expect(isUnusableSessionTitle('   ')).toBe(true);
     expect(isUnusableSessionTitle('/bin/zsh')).toBe(true);
     expect(isUnusableSessionTitle('root: /repo/worktree')).toBe(true);
     expect(isUnusableSessionTitle('npm test')).toBe(true);
+    expect(isUnusableSessionTitle('pnpm run build')).toBe(true);
+    expect(isUnusableSessionTitle('go test ./...')).toBe(true);
+    expect(isUnusableSessionTitle('python script.py')).toBe(true);
+    expect(isUnusableSessionTitle('node --inspect app.js')).toBe(true);
+    expect(isUnusableSessionTitle('Go fix the session title')).toBe(false);
+    expect(isUnusableSessionTitle('Python code review')).toBe(false);
+    expect(isUnusableSessionTitle('Node memory investigation')).toBe(false);
     expect(isUnusableSessionTitle('codex(99841) MallocStackLogging')).toBe(true);
     expect(isUnusableSessionTitle('› codex(85487) MallocSt')).toBe(true);
     expect(isUnusableSessionTitle('> codex(85487) MallocStackLogging')).toBe(true);

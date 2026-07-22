@@ -793,12 +793,16 @@ export function AgentTerminal({
       validateResolvedProviderSession: shouldValidateResolvedProviderSession,
       onProviderSessionIdChange,
     });
+  const lastSessionActivityAt = useAgentSessionsStore(
+    (state) => state.runtimeStates[terminalSessionId ?? '']?.lastActivityAt
+  );
   useAgentProviderSessionTitle({
     agentCommand: isReadOnlyTranscript ? '' : agentCommand,
     uiSessionId: id,
     providerSessionId: sessionId,
     titleSource,
     isRemoteExecution,
+    activitySignal: lastSessionActivityAt,
     onProviderSessionTitle,
   });
   const resumeSessionId = providerSessionResolutionPending
@@ -841,9 +845,6 @@ export function AgentTerminal({
     : localEnhancedInputOpen;
   const waitingForInput = useAgentSessionsStore(
     (state) => state.runtimeStates[terminalSessionId ?? '']?.waitingForInput ?? false
-  );
-  const lastSessionActivityAt = useAgentSessionsStore(
-    (state) => state.runtimeStates[terminalSessionId ?? '']?.lastActivityAt
   );
   const setEnhancedInputOpen = useCallback(
     (open: boolean) => {
