@@ -517,7 +517,9 @@ function SessionTab({
       )}
       <Tooltip>
         <TooltipTrigger render={tabElement as React.ReactElement<Record<string, unknown>>} />
-        <TooltipPopup>{sessionHoverTitle}</TooltipPopup>
+        <TooltipPopup className="max-w-sm whitespace-normal text-left break-words">
+          {sessionHoverTitle}
+        </TooltipPopup>
       </Tooltip>
       {/* Drop indicator - right side */}
       {dropTargetIndex === index && draggedTabIndex !== null && draggedTabIndex < index && (

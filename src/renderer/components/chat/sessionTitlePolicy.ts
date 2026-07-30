@@ -1,5 +1,6 @@
 import type { AgentSessionTitleSource } from '@shared/types';
 import {
+  areSessionTitlesEqual,
   getDefaultSessionName,
   getExplicitSessionName,
   getStoredSessionName,
@@ -23,6 +24,11 @@ export interface SessionTitleStateInput {
   userRenamed?: boolean;
 }
 
+export interface ResolvedSessionTitleState {
+  name: string;
+  titleSource: AgentSessionTitleSource;
+}
+
 export function resolveSessionTitleSource(input: {
   titleSource?: AgentSessionTitleSource;
   userRenamed?: boolean;
@@ -38,10 +44,7 @@ export function resolveSessionTitleSource(input: {
   return 'default';
 }
 
-export function resolveSessionTitleState(input: SessionTitleStateInput): {
-  name: string;
-  titleSource: AgentSessionTitleSource;
-} {
+export function resolveSessionTitleState(input: SessionTitleStateInput): ResolvedSessionTitleState {
   const titleSource = resolveSessionTitleSource(input);
   const defaultName = getDefaultSessionName(input.agentId, input.defaultName);
 
@@ -59,6 +62,26 @@ export function resolveSessionTitleState(input: SessionTitleStateInput): {
   return {
     name: getStoredSessionName(input.currentName, input.agentId, defaultName),
     titleSource,
+  };
+}
+
+export function resolveLegacySessionTitleState(
+  input: SessionTitleStateInput
+): ResolvedSessionTitleState {
+  const resolvedTitleState = resolveSessionTitleState(input);
+  if (input.userRenamed || input.titleSource !== undefined) {
+    return resolvedTitleState;
+  }
+
+  const defaultName = getDefaultSessionName(input.agentId, input.defaultName);
+  const legacyName = getStoredSessionName(input.currentName, input.agentId, defaultName);
+  if (areSessionTitlesEqual(legacyName, defaultName)) {
+    return resolvedTitleState;
+  }
+
+  return {
+    name: legacyName,
+    titleSource: 'legacy-unknown',
   };
 }
 

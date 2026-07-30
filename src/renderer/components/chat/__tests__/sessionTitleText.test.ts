@@ -14,11 +14,11 @@ describe('sessionTitleText', () => {
     expect(normalizeSessionTitleText('❯   Investigate    logs')).toBe('Investigate logs');
   });
 
-  it('removes invisible formatting controls and bounds persisted title length', () => {
+  it('removes invisible formatting controls without truncating persisted titles', () => {
     expect(normalizeSessionTitleText('\u200BReview\u202E auth\u2069 flow')).toBe(
       'Review auth flow'
     );
-    expect(normalizeSessionTitleText('a'.repeat(200))).toBe(`${'a'.repeat(159)}…`);
+    expect(normalizeSessionTitleText('a'.repeat(200))).toBe('a'.repeat(200));
     expect(normalizeSessionTitleText('\u200B\u2060\uFEFF')).toBe('');
   });
 

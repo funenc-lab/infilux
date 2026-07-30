@@ -6,6 +6,7 @@ export type PersistentAgentRuntimeState = 'live' | 'reconnecting' | 'dead' | 'mi
 
 export const AGENT_SESSION_TITLE_SOURCES = [
   'default',
+  'legacy-unknown',
   'launch-prompt',
   'enhanced-input',
   'provider-transcript',

@@ -1,6 +1,8 @@
 import type { PersistentAgentSessionRecord } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const TEST_SESSIONS_STORAGE_KEY = 'enso-agent-sessions';
+
 function createLocalStorageMock(initial?: Record<string, string>) {
   const data = new Map(Object.entries(initial ?? {}));
   return {
@@ -216,7 +218,7 @@ describe('agent session recovery store', () => {
     ]);
   });
 
-  it('resets a recovered title that has no trusted provenance', async () => {
+  it('preserves a meaningful recovered title whose legacy record has no provenance metadata', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
 
@@ -229,9 +231,43 @@ describe('agent session recovery store', () => {
     expect(env.useAgentSessionsStore.getState().sessions).toEqual([
       expect.objectContaining({
         id: 'session-1',
-        name: 'Codex',
-        titleSource: 'default',
+        name: 'Investigate session recovery title',
+        titleSource: 'legacy-unknown',
         userRenamed: undefined,
+      }),
+    ]);
+  });
+
+  it('preserves a meaningful local storage title whose legacy record has no provenance metadata', async () => {
+    const env = await loadAgentSessionsStore({
+      [TEST_SESSIONS_STORAGE_KEY]: JSON.stringify({
+        sessions: [
+          {
+            id: 'legacy-session-1',
+            sessionId: 'provider-1',
+            name: 'Investigate persisted session title',
+            agentId: 'codex',
+            agentCommand: 'codex',
+            initialized: true,
+            activated: true,
+            persistenceEnabled: true,
+            repoPath: '/repo',
+            cwd: '/repo/worktree',
+            environment: 'native',
+          },
+        ],
+        activeIds: {},
+        groupStates: {},
+        runtimeStates: {},
+        enhancedInputStates: {},
+      }),
+    });
+
+    expect(env.useAgentSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: 'legacy-session-1',
+        name: 'Investigate persisted session title',
+        titleSource: 'legacy-unknown',
       }),
     ]);
   });
@@ -562,7 +598,7 @@ describe('agent session recovery store', () => {
     ]);
   });
 
-  it('resets an unproven local title when recovery only has the default title', async () => {
+  it('preserves a meaningful legacy local title when recovery only has the default title', async () => {
     const env = await loadAgentSessionsStore();
     const store = env.useAgentSessionsStore.getState();
 
@@ -589,8 +625,8 @@ describe('agent session recovery store', () => {
     expect(env.useAgentSessionsStore.getState().sessions).toEqual([
       expect.objectContaining({
         id: 'session-1',
-        name: 'Codex',
-        titleSource: 'default',
+        name: 'Investigate session recovery',
+        titleSource: 'legacy-unknown',
       }),
     ]);
   });
@@ -815,7 +851,7 @@ describe('agent session recovery store', () => {
     });
   });
 
-  it('resets persisted names that have no trusted title source', async () => {
+  it('preserves meaningful persisted names whose legacy records have no title source', async () => {
     const persistedPayload = {
       sessions: [
         {
@@ -848,8 +884,8 @@ describe('agent session recovery store', () => {
     expect(env.useAgentSessionsStore.getState().sessions).toEqual([
       expect.objectContaining({
         id: 'session-1',
-        name: 'Codex',
-        titleSource: 'default',
+        name: 'Investigate session recovery title',
+        titleSource: 'legacy-unknown',
         userRenamed: undefined,
       }),
     ]);

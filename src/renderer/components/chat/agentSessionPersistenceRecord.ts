@@ -7,7 +7,7 @@ import type { RendererEnvironment } from '@/lib/electronEnvironment';
 import { resolvePersistentProviderSessionId } from './agentProviderSessionIdentity';
 import { resolveSessionPersistentHostSessionKey } from './persistentHostSession';
 import type { Session } from './SessionBar';
-import { resolveSessionTitleState } from './sessionTitlePolicy';
+import { resolveLegacySessionTitleState } from './sessionTitlePolicy';
 
 export function buildPersistentAgentSessionRecord(
   session: Session,
@@ -20,7 +20,7 @@ export function buildPersistentAgentSessionRecord(
     platform,
     runtimeChannel,
   });
-  const titleState = resolveSessionTitleState({
+  const titleState = resolveLegacySessionTitleState({
     agentId: session.agentId,
     currentName: session.name,
     defaultName: session.defaultName,

@@ -59,7 +59,7 @@ describe('buildPersistentAgentSessionRecord', () => {
     );
   });
 
-  it('records a default title source when legacy session provenance is missing', () => {
+  it('records a compatibility title source when a legacy custom session has no provenance', () => {
     const session: Session = {
       id: 'legacy-custom-session',
       name: 'Custom Agent (Hapi)',
@@ -75,7 +75,29 @@ describe('buildPersistentAgentSessionRecord', () => {
     const record = buildPersistentAgentSessionRecord(session, environment);
 
     expect(extractPersistentAgentSessionTitleMetadata(record.metadata)).toEqual({
-      titleSource: 'default',
+      titleSource: 'legacy-unknown',
+    });
+  });
+
+  it('preserves a meaningful legacy title and its full length when serializing a session record', () => {
+    const title = 'Investigate persisted title recovery '.repeat(8).trim();
+    const session: Session = {
+      id: 'legacy-session',
+      name: title,
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      persistenceEnabled: true,
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    };
+
+    const record = buildPersistentAgentSessionRecord(session, environment);
+
+    expect(record.displayName).toBe(title);
+    expect(extractPersistentAgentSessionTitleMetadata(record.metadata)).toEqual({
+      titleSource: 'legacy-unknown',
     });
   });
 });

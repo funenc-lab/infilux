@@ -76,8 +76,8 @@ vi.mock('@/components/ui/tooltip', () => ({
     children?: React.ReactNode;
     render?: React.ReactElement;
   }) => render ?? children ?? null,
-  TooltipPopup: ({ children }: { children: React.ReactNode }) =>
-    React.createElement('div', { 'data-testid': 'tooltip-popup' }, children),
+  TooltipPopup: ({ children, className }: { children: React.ReactNode; className?: string }) =>
+    React.createElement('div', { className, 'data-testid': 'tooltip-popup' }, children),
 }));
 
 vi.mock('@/components/ui/glow-card', () => ({
@@ -199,5 +199,21 @@ describe('SessionBar recovery render', () => {
     const tab = container.querySelector('[role="tab"]');
     expect(tab?.textContent).toContain('Investigate session recovery title');
     expect(tab?.getAttribute('aria-label')).toBe('Investigate session recovery title');
+  });
+
+  it('keeps the complete recovered title in a wrapping tooltip', async () => {
+    const title = 'Investigate the complete recovered session title '.repeat(8).trim();
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        name: title,
+        titleSource: 'provider-transcript',
+      })
+    ));
+
+    const tooltip = container.querySelector<HTMLElement>('[data-testid="tooltip-popup"]');
+    expect(tooltip?.textContent).toBe(title);
+    expect(tooltip?.className).toContain('max-w-sm');
+    expect(tooltip?.className).toContain('whitespace-normal');
+    expect(tooltip?.className).toContain('break-words');
   });
 });

@@ -21,7 +21,7 @@ import {
   matchesAgentSessionScope,
 } from '@/components/chat/agentSessionScope';
 import type { Session } from '@/components/chat/SessionBar';
-import { resolveSessionTitleState } from '@/components/chat/sessionTitlePolicy';
+import { resolveLegacySessionTitleState } from '@/components/chat/sessionTitlePolicy';
 import { getDefaultSessionName } from '@/components/chat/sessionTitleText';
 import type { AgentGroupState } from '@/components/chat/types';
 import { createInitialGroupState } from '@/components/chat/types';
@@ -327,7 +327,7 @@ function sanitizePersistedSession(session: Session): Session {
   const defaultName = session.defaultName
     ? getDefaultSessionName(session.agentId, session.defaultName)
     : undefined;
-  const titleState = resolveSessionTitleState({
+  const titleState = resolveLegacySessionTitleState({
     agentId: session.agentId,
     currentName: session.name,
     defaultName,
@@ -411,7 +411,7 @@ function resolveRecoveredSessionTitleState(
     record.agentId,
     titleMetadata.defaultName ?? existing?.defaultName
   );
-  const recoveredTitleState = resolveSessionTitleState({
+  const recoveredTitleState = resolveLegacySessionTitleState({
     agentId: record.agentId,
     currentName: record.displayName,
     defaultName,
@@ -426,7 +426,7 @@ function resolveRecoveredSessionTitleState(
     };
   }
 
-  const existingTitleState = resolveSessionTitleState({
+  const existingTitleState = resolveLegacySessionTitleState({
     agentId: record.agentId,
     currentName: existing.name,
     defaultName: existing.defaultName ?? defaultName,

@@ -339,7 +339,7 @@ describe('AgentProviderSessionService', () => {
     });
   });
 
-  it('normalizes and bounds provider transcript titles before returning them over IPC', async () => {
+  it('normalizes provider transcript titles without truncating them before returning them over IPC', async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
     TEMP_DIRECTORIES.push(tempRoot);
 
@@ -376,7 +376,7 @@ describe('AgentProviderSessionService', () => {
         agentCommand: 'codex',
         providerSessionId: 'codex-bounded-title-session',
       })
-    ).resolves.toEqual({ title: `${'a'.repeat(159)}…` });
+    ).resolves.toEqual({ title: 'a'.repeat(200) });
   });
 
   it('assigns concurrent sessions in the same cwd to distinct provider transcripts', async () => {

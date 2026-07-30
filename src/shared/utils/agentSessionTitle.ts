@@ -1,5 +1,4 @@
 const SESSION_TITLE_PROMPT_PREFIX = /^(?:[›❯»→➜>]+)\s*/u;
-const MAX_AGENT_SESSION_TITLE_CODE_POINTS = 160;
 
 function isInvisibleAgentSessionTitleCharacter(character: string): boolean {
   const codePoint = character.codePointAt(0);
@@ -29,14 +28,5 @@ export function normalizeAgentSessionTitleText(text: string): string {
     return '';
   }
 
-  const normalizedTitle = normalizedWhitespace.replace(SESSION_TITLE_PROMPT_PREFIX, '').trim();
-  const codePoints = Array.from(normalizedTitle);
-  if (codePoints.length <= MAX_AGENT_SESSION_TITLE_CODE_POINTS) {
-    return normalizedTitle;
-  }
-
-  return `${codePoints
-    .slice(0, MAX_AGENT_SESSION_TITLE_CODE_POINTS - 1)
-    .join('')
-    .trimEnd()}…`;
+  return normalizedWhitespace.replace(SESSION_TITLE_PROMPT_PREFIX, '').trim();
 }
