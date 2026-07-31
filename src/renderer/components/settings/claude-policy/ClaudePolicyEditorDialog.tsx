@@ -3,6 +3,7 @@ import type {
   ClaudeCapabilityCatalogItem,
   ClaudeGlobalPolicy,
   ClaudeMcpCatalogItem,
+  ClaudePolicyConfig,
   ClaudeProjectPolicy,
   ClaudeWorktreePolicy,
   ResolveClaudePolicyPreviewRequest,
@@ -106,6 +107,40 @@ function getPolicyDraftSeedKey(
   worktreePath?: string
 ): string {
   return [scope, repoPath, scope === 'worktree' ? worktreePath || repoPath : ''].join('\0');
+}
+
+function getPolicyDecisionSnapshot(
+  policy: ClaudePolicyConfig | null | undefined
+): Omit<ClaudePolicyConfig, 'updatedAt'> | null {
+  if (!policy) {
+    return null;
+  }
+
+  const { updatedAt: _updatedAt, ...decisions } = createClaudePolicyDraft(policy);
+  return decisions;
+}
+
+function getPolicyPreviewRequestSignature(request: ResolveClaudePolicyPreviewRequest): string {
+  return JSON.stringify({
+    repoPath: request.repoPath,
+    worktreePath: request.worktreePath,
+    globalPolicy: getPolicyDecisionSnapshot(request.globalPolicy),
+    projectPolicy: getPolicyDecisionSnapshot(request.projectPolicy),
+    worktreePolicy: getPolicyDecisionSnapshot(request.worktreePolicy),
+  });
+}
+
+function useStablePolicyPreviewRequest(
+  request: ResolveClaudePolicyPreviewRequest
+): ResolveClaudePolicyPreviewRequest {
+  const signature = getPolicyPreviewRequestSignature(request);
+  const stableRequestRef = useRef({ request, signature });
+
+  if (stableRequestRef.current.signature !== signature) {
+    stableRequestRef.current = { request, signature };
+  }
+
+  return stableRequestRef.current.request;
 }
 
 interface ClaudePolicyEditorDialogProps {
@@ -286,6 +321,7 @@ export function ClaudePolicyEditorDialog({
     worktreePath,
     worktreePolicy,
   ]);
+  const stablePreviewRequest = useStablePolicyPreviewRequest(previewRequest);
 
   useEffect(() => {
     if (!open || !catalog) {
@@ -298,7 +334,7 @@ export function ClaudePolicyEditorDialog({
     setPreviewError(null);
 
     window.electronAPI.claudePolicy.preview
-      .resolve({ ...previewRequest, catalog })
+      .resolve({ ...stablePreviewRequest, catalog })
       .then((nextPreview) => {
         if (previewRequestIdRef.current === requestId) {
           setResolvedPolicy(nextPreview);
@@ -314,7 +350,7 @@ export function ClaudePolicyEditorDialog({
           setIsPreviewLoading(false);
         }
       });
-  }, [catalog, open, previewRequest]);
+  }, [catalog, open, stablePreviewRequest]);
 
   const handleCapabilityDecisionChange = useCallback(
     (id: string, decision: ClaudePolicyDecisionValue) => {

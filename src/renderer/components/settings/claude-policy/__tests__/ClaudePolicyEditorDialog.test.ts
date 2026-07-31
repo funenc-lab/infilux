@@ -3,6 +3,7 @@
 import type {
   ClaudeCapabilityCatalog,
   ClaudeProjectPolicy,
+  ClaudeWorktreePolicy,
   ProjectConfigScheme,
   ResolveClaudePolicyPreviewResult,
 } from '@shared/types';
@@ -835,6 +836,94 @@ describe('ClaudePolicyEditorDialog', () => {
         hash: 'hash-preview',
       })
     );
+  });
+
+  it('keeps worktree save availability stable across equivalent parent policy rerenders', async () => {
+    installElectronApi(
+      {
+        capabilities: [
+          {
+            id: 'legacy-skill:planner',
+            kind: 'legacy-skill',
+            name: 'Planner',
+            sourceScope: 'worktree',
+            sourcePath: '/repo/worktrees/feature-a/.agents/skills/planner/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      },
+      {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: ['legacy-skill:planner'],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        capabilityProvenance: {},
+        sharedMcpProvenance: {},
+        personalMcpProvenance: {},
+        hash: 'hash-preview',
+        policyHash: 'hash-preview',
+      }
+    );
+
+    const createWorktreePolicy = (): ClaudeWorktreePolicy => ({
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feature-a',
+      allowedCapabilityIds: [],
+      blockedCapabilityIds: ['legacy-skill:planner'],
+      allowedSharedMcpIds: [],
+      blockedSharedMcpIds: [],
+      allowedPersonalMcpIds: [],
+      blockedPersonalMcpIds: [],
+      updatedAt: 1,
+    });
+    const { ClaudePolicyEditorDialog } = await import('../ClaudePolicyEditorDialog');
+    const renderDialog = (worktreePolicy: ClaudeWorktreePolicy) =>
+      React.createElement(ClaudePolicyEditorDialog, {
+        open: true,
+        onOpenChange: vi.fn(),
+        scope: 'worktree' as const,
+        globalPolicy: null,
+        repoPath: '/repo',
+        repoName: 'repo',
+        worktreePath: '/repo/worktrees/feature-a',
+        worktreeName: 'feature-a',
+        projectPolicy: null,
+        worktreePolicy,
+        onSave: vi.fn(),
+      });
+
+    await act(async () => {
+      root?.render(renderDialog(createWorktreePolicy()));
+    });
+    await flushEffects();
+
+    await act(async () => {
+      container
+        ?.querySelector('[data-policy-item-id="legacy-skill:planner"]')
+        ?.querySelector<HTMLButtonElement>('[data-policy-decision="allow"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    const previewCallCount = previewResolve.mock.calls.length;
+    const saveButton = container?.querySelector<HTMLButtonElement>('[data-policy-action="save"]');
+    expect(saveButton?.disabled).toBe(false);
+
+    previewResolve.mockImplementationOnce(() => new Promise(() => {}));
+    await act(async () => {
+      root?.render(renderDialog(createWorktreePolicy()));
+    });
+
+    expect(previewResolve).toHaveBeenCalledTimes(previewCallCount);
+    expect(saveButton?.disabled).toBe(false);
   });
 
   it('renders the localized project policy title through the i18n translator', async () => {
