@@ -114,11 +114,24 @@ describe('resolveSidebarHoverRevealFrame', () => {
     expect(
       shouldOpenSidebarHoverReveal({
         documentFocused: true,
+        focusVisible: true,
         hasActiveTextSelection: true,
         pointerButtons: 0,
         trigger: 'keyboard',
       })
     ).toBe(true);
+  });
+
+  it('does not open after pointer-driven dialog focus restoration', () => {
+    expect(
+      shouldOpenSidebarHoverReveal({
+        documentFocused: true,
+        focusVisible: false,
+        hasActiveTextSelection: false,
+        pointerButtons: 0,
+        trigger: 'keyboard',
+      })
+    ).toBe(false);
   });
 
   it('keeps the reveal open when focus blurs to non-focusable content under the pointer', () => {

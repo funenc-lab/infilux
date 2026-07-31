@@ -570,16 +570,22 @@ export default function App() {
     [hasActiveSidebarHoverRevealTextSelection]
   );
 
-  const handleSidebarHoverRevealFocus = useCallback(() => {
-    setFloatingSidebarActive(
-      shouldOpenSidebarHoverReveal({
-        documentFocused: document.hasFocus(),
-        hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
-        pointerButtons: 0,
-        trigger: 'keyboard',
-      })
-    );
-  }, [hasActiveSidebarHoverRevealTextSelection]);
+  const handleSidebarHoverRevealFocus = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      const focusVisible =
+        event.target instanceof Element && event.target.matches(':focus-visible');
+      setFloatingSidebarActive(
+        shouldOpenSidebarHoverReveal({
+          documentFocused: document.hasFocus(),
+          focusVisible,
+          hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
+          pointerButtons: 0,
+          trigger: 'keyboard',
+        })
+      );
+    },
+    [hasActiveSidebarHoverRevealTextSelection]
+  );
 
   const closeSidebarHoverReveal = useCallback(() => {
     setFloatingSidebarActive(false);

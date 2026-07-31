@@ -25,12 +25,17 @@ export interface SidebarHoverRevealFrame {
   visible: boolean;
 }
 
-interface SidebarHoverRevealOpenInput {
+interface SidebarHoverRevealOpenBaseInput {
   documentFocused: boolean;
   hasActiveTextSelection: boolean;
   pointerButtons: number;
-  trigger: SidebarHoverRevealTrigger;
 }
+
+type SidebarHoverRevealOpenInput = SidebarHoverRevealOpenBaseInput &
+  (
+    | { trigger: Extract<SidebarHoverRevealTrigger, 'keyboard'>; focusVisible: boolean }
+    | { trigger: Extract<SidebarHoverRevealTrigger, 'pointer'> }
+  );
 
 interface SidebarHoverRevealPointerActiveInput {
   currentActive: boolean;
@@ -99,21 +104,16 @@ export function isSidebarHoverRevealTextSelectionActive(
   return selection.toString().trim().length > 0;
 }
 
-export function shouldOpenSidebarHoverReveal({
-  documentFocused,
-  hasActiveTextSelection,
-  pointerButtons,
-  trigger,
-}: SidebarHoverRevealOpenInput): boolean {
-  if (trigger === 'keyboard') {
-    return documentFocused;
+export function shouldOpenSidebarHoverReveal(input: SidebarHoverRevealOpenInput): boolean {
+  if (input.trigger === 'keyboard') {
+    return input.documentFocused && input.focusVisible;
   }
 
-  if (!documentFocused || pointerButtons !== 0) {
+  if (!input.documentFocused || input.pointerButtons !== 0) {
     return false;
   }
 
-  return !hasActiveTextSelection;
+  return !input.hasActiveTextSelection;
 }
 
 export function resolveSidebarHoverRevealPointerActiveState({
