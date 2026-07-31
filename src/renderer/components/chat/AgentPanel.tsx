@@ -4414,7 +4414,7 @@ export function AgentPanel({
         isWorkspaceCanvasDisplayMode,
         sessionLastActivityAtById,
         sessionActivityStateById,
-        suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel,
+        suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel || !isActive,
         worktreeTerminalMountLimit: worktreeCanvasTerminalMountLimit,
         workspaceCanvasTerminalMountLimit,
       }),
@@ -4426,6 +4426,7 @@ export function AgentPanel({
       currentWorktreeVisibleSessionIds,
       foregroundCanvasSessionIds,
       globalSessionIds,
+      isActive,
       isCanvasDisplayMode,
       isWorkspaceCanvasDisplayMode,
       sessionLastActivityAtById,
@@ -4501,7 +4502,7 @@ export function AgentPanel({
     mountedTerminalCount: stagedCanvasMountSessionIds.length,
   });
   useEffect(() => {
-    if (!isCanvasDisplayMode || shouldSuppressWorkspaceCanvasPanel) {
+    if (!isActive || !isCanvasDisplayMode || shouldSuppressWorkspaceCanvasPanel) {
       setBackgroundMountedCanvasSessionIds((current) =>
         current.size === 0 ? current : new Set<string>()
       );
@@ -4549,6 +4550,7 @@ export function AgentPanel({
     backgroundMountedCanvasSessionIds,
     canvasSessionIds,
     canvasTerminalMountLimit,
+    isActive,
     isCanvasDisplayMode,
     mountedCurrentWorktreeSessionIdSet,
     shouldDeferCanvasBackgroundMount,

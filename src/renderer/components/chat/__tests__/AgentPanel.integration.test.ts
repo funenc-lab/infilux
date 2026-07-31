@@ -1208,6 +1208,65 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('releases retained panel terminals while the chat panel is inactive', async () => {
+    const session = createSession({
+      id: 'retained-session',
+      sessionId: 'retained-provider-session',
+      backendSessionId: 'retained-backend-session',
+    });
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'retained-group',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'retained-group',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel();
+
+    expect(
+      mounted.container.querySelector(
+        '[data-testid="agent-terminal"][data-session-id="retained-session"]'
+      )
+    ).not.toBeNull();
+
+    await mounted.rerender({ isActive: false });
+
+    expect(
+      mounted.container.querySelector(
+        '[data-testid="agent-terminal"][data-session-id="retained-session"]'
+      )
+    ).toBeNull();
+    expect(useAgentSessionsStore.getState().sessions).toContainEqual(
+      expect.objectContaining({
+        backendSessionId: 'retained-backend-session',
+        id: 'retained-session',
+      })
+    );
+
+    await mounted.rerender({ isActive: true });
+
+    expect(
+      mounted.container.querySelector(
+        '[data-testid="agent-terminal"][data-session-id="retained-session"]'
+      )
+    ).not.toBeNull();
+
+    await mounted.unmount();
+  });
+
   it('shows a recovery state instead of the empty state while worktree sessions are restoring', async () => {
     const recovery = createDeferred<RestoreWorktreeSessionsResult>();
     testState.electronAPI.restoreWorktreeSessions.mockReturnValue(recovery.promise);
