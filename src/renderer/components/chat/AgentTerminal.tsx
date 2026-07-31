@@ -402,7 +402,7 @@ export function AgentTerminal({
   recoveryState,
   isActive = false,
   isVisible = isActive,
-  preferCompatibilityRenderer = true,
+  preferCompatibilityRenderer = false,
   terminalFontScale,
   hasPendingCommand = false,
   initialPrompt,

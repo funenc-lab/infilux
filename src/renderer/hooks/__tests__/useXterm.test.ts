@@ -65,10 +65,12 @@ const testState = vi.hoisted(() => ({
   terminalWriteInstanceIds: [] as number[],
   terminalWriteCallbacks: [] as Array<() => void>,
   terminalDispose: vi.fn(),
+  terminalLoadAddonError: null as Error | null,
   terminalParserRegisterCsiHandler: vi.fn((_identifier: unknown, _handler: unknown) => ({
     dispose: () => undefined,
   })),
   terminalInstanceCount: 0,
+  terminalConstructorOptions: [] as Array<Record<string, unknown>>,
   terminalScrollToBottom: vi.fn(),
   terminalScrollLines: vi.fn(),
   terminalDataHandler: null as ((data: string) => void) | null,
@@ -103,6 +105,7 @@ const testState = vi.hoisted(() => ({
   terminalFontFamily: 'monospace',
   backgroundImageEnabled: false,
   recreateWebglRenderer: null as (() => void) | null,
+  webglAddonInstances: [] as object[],
   webglAddons: [] as Array<{
     dispose: ReturnType<typeof vi.fn>;
     clearTextureAtlas: ReturnType<typeof vi.fn>;
@@ -117,7 +120,7 @@ vi.mock('@xterm/xterm', () => ({
     rows = 24;
     element = document.createElement('div');
     textarea: HTMLTextAreaElement | null = document.createElement('textarea');
-    options: Record<string, unknown> = {};
+    options: Record<string, unknown>;
     parser = {
       registerCsiHandler: (identifier: unknown, handler: unknown) =>
         testState.terminalParserRegisterCsiHandler(identifier, handler),
@@ -151,7 +154,16 @@ vi.mock('@xterm/xterm', () => ({
       },
     };
 
-    loadAddon(): void {}
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = { ...options };
+      testState.terminalConstructorOptions.push(this.options);
+    }
+
+    loadAddon(addon: object): void {
+      if (testState.terminalLoadAddonError && testState.webglAddonInstances.includes(addon)) {
+        throw testState.terminalLoadAddonError;
+      }
+    }
     open(container: HTMLElement): void {
       container.appendChild(this.element);
       if (this.textarea) {
@@ -253,6 +265,7 @@ vi.mock('@xterm/addon-webgl', () => ({
     };
 
     constructor() {
+      testState.webglAddonInstances.push(this);
       testState.webglAddons.push(this.state);
     }
 
@@ -394,10 +407,6 @@ vi.mock('../xtermSessionRecovery', async () => {
   };
 });
 
-vi.mock('../xtermTerminalOptions', () => ({
-  buildXtermTerminalOptions: () => ({}),
-}));
-
 vi.mock('../xtermViewportSync', () => ({
   syncXtermViewportToSession: (options: Record<string, unknown>) => {
     testState.viewportSyncCalls.push(options);
@@ -511,8 +520,10 @@ describe('useXterm startup loading state', () => {
     testState.terminalWriteInstanceIds = [];
     testState.terminalWriteCallbacks = [];
     testState.terminalDispose.mockClear();
+    testState.terminalLoadAddonError = null;
     testState.terminalParserRegisterCsiHandler.mockClear();
     testState.terminalInstanceCount = 0;
+    testState.terminalConstructorOptions = [];
     testState.terminalScrollToBottom.mockClear();
     testState.terminalScrollLines.mockClear();
     testState.terminalDataHandler = null;
@@ -544,6 +555,7 @@ describe('useXterm startup loading state', () => {
     testState.terminalFontFamily = 'monospace';
     testState.backgroundImageEnabled = false;
     testState.recreateWebglRenderer = null;
+    testState.webglAddonInstances = [];
     testState.webglAddons = [];
 
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -668,6 +680,28 @@ describe('useXterm startup loading state', () => {
     expect(testState.sessionDetach).toHaveBeenCalledWith('backend-session-1');
   });
 
+  it('disposes a WebGL addon when activation fails', async () => {
+    testState.terminalRenderer = 'webgl';
+    testState.terminalLoadAddonError = new Error('WebGL activation failed');
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const failedAddons = [...testState.webglAddons];
+    expect(failedAddons.length).toBeGreaterThan(0);
+    for (const failedAddon of failedAddons) {
+      expect(failedAddon.dispose).toHaveBeenCalledTimes(1);
+    }
+
+    await mounted.unmount();
+
+    for (const failedAddon of failedAddons) {
+      expect(failedAddon.dispose).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('recreates a healthy WebGL renderer after a Canvas layout transition', async () => {
     testState.terminalRenderer = 'webgl';
     const mounted = mountHookHarness();
@@ -735,6 +769,55 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(activeAddon?.clearTextureAtlas).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('keeps the WebGL texture atlas when font settings resolve to the same runtime stack', async () => {
+    testState.terminalRenderer = 'webgl';
+    testState.terminalFontFamily = 'monospace';
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const activeAddon = testState.webglAddons.at(-1);
+    expect(activeAddon).toBeDefined();
+    activeAddon?.clearTextureAtlas.mockClear();
+
+    testState.terminalFontFamily = '"PingFang SC", monospace';
+    mounted.rerender();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(activeAddon?.clearTextureAtlas).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('preserves the resolved CJK font fallback when terminal settings rerender', async () => {
+    testState.terminalRenderer = 'webgl';
+    testState.terminalFontFamily = 'ui-monospace, monospace';
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const terminalOptions = testState.terminalConstructorOptions.at(-1);
+
+    testState.terminalFontSize = 15;
+    mounted.rerender();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(terminalOptions?.fontSize).toBe(15);
+    expect(terminalOptions?.fontFamily).toContain('"PingFang SC"');
 
     await mounted.unmount();
   });

@@ -51,7 +51,7 @@ function getTerminalCjkFontFallbacks(platform: string): string[] {
   return ['"Noto Sans CJK SC"', '"WenQuanYi Micro Hei"'];
 }
 
-function resolveTerminalFontFamily(platform: string, configuredFontFamily: string): string {
+export function resolveTerminalFontFamily(platform: string, configuredFontFamily: string): string {
   const configuredTokens = configuredFontFamily
     .split(',')
     .map((token) => token.trim())

@@ -60,7 +60,7 @@ import {
   shouldRebindXtermSession,
   shouldRetrySessionCreateWithoutHost,
 } from './xtermSessionRecovery';
-import { buildXtermTerminalOptions } from './xtermTerminalOptions';
+import { buildXtermTerminalOptions, resolveTerminalFontFamily } from './xtermTerminalOptions';
 import { focusXtermTextInput, installXtermImeFocusBridge } from './xtermTextInputFocus';
 import { syncXtermViewportToSession, type XtermViewportSyncSnapshot } from './xtermViewportSync';
 import {
@@ -343,14 +343,17 @@ function useTerminalSettings(fontSizeScale = 1) {
   );
 }
 
-function buildWebglVisualSignature(settings: ReturnType<typeof useTerminalSettings>): string {
+function buildWebglVisualSignature(
+  settings: ReturnType<typeof useTerminalSettings>,
+  runtimeFontFamily: string
+): string {
   const themeEntries = Object.entries(settings.theme)
     .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
     .sort(([left], [right]) => left.localeCompare(right));
 
   return JSON.stringify({
     backgroundImageEnabled: settings.backgroundImageEnabled,
-    fontFamily: settings.fontFamily,
+    fontFamily: runtimeFontFamily,
     fontSize: settings.fontSize,
     fontWeight: settings.fontWeight,
     fontWeightBold: settings.fontWeightBold,
@@ -407,7 +410,14 @@ export function useXterm({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const settings = useTerminalSettings(fontSizeScale);
-  const webglVisualSignature = useMemo(() => buildWebglVisualSignature(settings), [settings]);
+  const runtimeFontFamily = useMemo(
+    () => resolveTerminalFontFamily(getRendererEnvironment().platform, settings.fontFamily),
+    [settings.fontFamily]
+  );
+  const webglVisualSignature = useMemo(
+    () => buildWebglVisualSignature(settings, runtimeFontFamily),
+    [runtimeFontFamily, settings]
+  );
   const { terminalRenderer, copyOnSelection, shellConfig } = useSettingsStore(
     useShallow((state) => ({
       terminalRenderer: state.terminalRenderer,
@@ -798,23 +808,26 @@ export function useXterm({
       // Load renderer based on settings (webgl > canvas > dom)
       if (renderer === 'webgl') {
         webglContextLostRef.current = false;
+        let webglAddon: WebglAddon | null = null;
         try {
-          const webglAddon = new WebglAddon();
-          webglAddon.onContextLoss(() => {
+          const candidate = new WebglAddon();
+          webglAddon = candidate;
+          candidate.onContextLoss(() => {
             // Guard against disposed terminal
-            if (terminalRef.current === terminal && rendererAddonRef.current === webglAddon) {
+            if (terminalRef.current === terminal && rendererAddonRef.current === candidate) {
               webglContextLostRef.current = true;
               console.warn('[xterm] WebGL context lost, falling back to DOM renderer');
-              webglAddon.dispose();
+              candidate.dispose();
               rendererAddonRef.current = null;
               webglVisualSignatureRef.current = null;
               terminal.refresh(0, terminal.rows - 1);
             }
           });
-          terminal.loadAddon(webglAddon);
-          rendererAddonRef.current = webglAddon;
+          terminal.loadAddon(candidate);
+          rendererAddonRef.current = candidate;
           webglVisualSignatureRef.current = visualSignature;
         } catch (error) {
+          webglAddon?.dispose();
           webglContextLostRef.current = true;
           console.warn('[xterm] WebGL failed, falling back to DOM renderer:', error);
           rendererAddonRef.current = null;
@@ -2189,7 +2202,7 @@ export function useXterm({
     if (terminal) {
       terminal.options.theme = settings.theme;
       terminal.options.fontSize = settings.fontSize;
-      terminal.options.fontFamily = settings.fontFamily;
+      terminal.options.fontFamily = runtimeFontFamily;
       terminal.options.fontWeight = settings.fontWeight;
       terminal.options.fontWeightBold = settings.fontWeightBold;
       // Update transparency options dynamically
@@ -2214,7 +2227,13 @@ export function useXterm({
         terminal.refresh(0, Math.max(0, terminal.rows - 1));
       }
     }
-  }, [effectiveTerminalRenderer, requestViewportSync, settings, webglVisualSignature]);
+  }, [
+    effectiveTerminalRenderer,
+    requestViewportSync,
+    runtimeFontFamily,
+    settings,
+    webglVisualSignature,
+  ]);
 
   // Handle resize
   useEffect(() => {

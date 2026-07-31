@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_TERMINAL_SCROLLBACK } from '../../stores/settings/terminalScrollbackPolicy';
-import { buildXtermTerminalOptions } from '../xtermTerminalOptions';
+import { buildXtermTerminalOptions, resolveTerminalFontFamily } from '../xtermTerminalOptions';
 
 const baseSettings = {
   theme: {
@@ -17,6 +17,12 @@ const baseSettings = {
 } as const;
 
 describe('xtermTerminalOptions', () => {
+  it('exposes the resolved runtime font family for hook updates', () => {
+    expect(resolveTerminalFontFamily('darwin', 'ui-monospace, monospace')).toBe(
+      'ui-monospace, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", monospace'
+    );
+  });
+
   it('keeps agent terminal scrollback at the configured interactive budget', () => {
     const input = {
       platform: 'darwin',

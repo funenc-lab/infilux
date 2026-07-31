@@ -763,23 +763,23 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
-  it('requests compatibility rendering for agent TUI sessions to avoid WebGL redraw artifacts', async () => {
+  it('uses the configured renderer by default', async () => {
     const mounted = await mountAgentTerminal();
 
     expect(testState.useXtermOptions.at(-1)).toMatchObject({
       kind: 'agent',
-      preferCompatibilityRenderer: true,
+      preferCompatibilityRenderer: false,
     });
 
     await mounted.unmount();
   });
 
-  it('honors a canvas policy request to use the configured renderer', async () => {
-    const mounted = await mountAgentTerminal({ preferCompatibilityRenderer: false });
+  it('honors an explicit compatibility renderer override', async () => {
+    const mounted = await mountAgentTerminal({ preferCompatibilityRenderer: true });
 
     expect(testState.useXtermOptions.at(-1)).toMatchObject({
       kind: 'agent',
-      preferCompatibilityRenderer: false,
+      preferCompatibilityRenderer: true,
     });
 
     await mounted.unmount();
