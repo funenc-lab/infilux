@@ -740,7 +740,13 @@ describe('TreeSidebar agent filter', () => {
         repoActionsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      const newWorktreeButton = Array.from(view.container.querySelectorAll('button')).find(
+      const repositoryMenu = document.querySelector(
+        '[role="menu"][aria-label="Repository actions"]'
+      );
+      expect(repositoryMenu).not.toBeNull();
+      expect(view.container.contains(repositoryMenu)).toBe(false);
+
+      const newWorktreeButton = Array.from(repositoryMenu?.querySelectorAll('button') ?? []).find(
         (button) => button.textContent?.includes('New Worktree')
       );
 

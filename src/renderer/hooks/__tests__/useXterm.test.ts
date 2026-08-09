@@ -992,7 +992,7 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('rearms and prepares the real xterm textarea as the IME input target during activation refresh', async () => {
+  it('focuses and prepares the real xterm textarea without an intermediate IME target during activation refresh', async () => {
     const mounted = mountHookHarness();
     await act(async () => {
       await flushMicrotasks();
@@ -1005,7 +1005,7 @@ describe('useXterm startup loading state', () => {
       testState.activationRefreshCalls[0]?.focus();
     });
 
-    expect(testState.terminalFocus).toHaveBeenCalledTimes(2);
+    expect(testState.terminalFocus).toHaveBeenCalledTimes(1);
     expect(testState.latestTextarea?.inputMode).toBe('text');
     expect(testState.latestTextarea?.spellcheck).toBe(false);
     expect(testState.latestTextarea?.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');

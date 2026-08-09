@@ -64,6 +64,7 @@ import {
 } from './repository-sidebar/RepositoryTreeItem';
 import { SidebarAiCenterButton } from './SidebarAiCenterButton';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { SidebarFloatingMenuPortal } from './SidebarFloatingMenuPortal';
 import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 
@@ -801,7 +802,7 @@ export function RepositorySidebar({
 
       {/* Context Menu */}
       {menuOpen && (
-        <>
+        <SidebarFloatingMenuPortal>
           <div
             className="fixed inset-0 z-50"
             onClick={() => setMenuOpen(false)}
@@ -869,7 +870,7 @@ export function RepositorySidebar({
               {t('Remove repository')}
             </button>
           </div>
-        </>
+        </SidebarFloatingMenuPortal>
       )}
 
       {/* Remove confirmation dialog */}

@@ -92,6 +92,7 @@ import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummary';
 import { SidebarAiCenterButton } from './SidebarAiCenterButton';
 import { SidebarEmptyState } from './SidebarEmptyState';
+import { SidebarFloatingMenuPortal } from './SidebarFloatingMenuPortal';
 import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
 import { TempWorkspaceTreeItem } from './tree-sidebar/TempWorkspaceTreeItem';
@@ -1841,7 +1842,7 @@ export function TreeSidebar({
 
       {/* Repository Context Menu */}
       {repoMenuOpen && (
-        <>
+        <SidebarFloatingMenuPortal>
           <div
             className="fixed inset-0 z-50"
             onClick={() => setRepoMenuOpen(false)}
@@ -1985,7 +1986,7 @@ export function TreeSidebar({
               {t('Remove repository')}
             </button>
           </div>
-        </>
+        </SidebarFloatingMenuPortal>
       )}
 
       {/* Remove repository confirmation dialog */}

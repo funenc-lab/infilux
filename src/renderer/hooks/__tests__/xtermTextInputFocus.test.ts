@@ -28,24 +28,12 @@ describe('xterm text input focus', () => {
     document.body.innerHTML = '';
   });
 
-  it('rearms direct xterm textarea focus with a transient IME target', () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      frames.push(callback);
-      return frames.length;
-    });
+  it('keeps direct xterm textarea focus on the real input', () => {
     const { terminal, textarea } = createTerminalHarness();
     const bridge = installXtermImeFocusBridge(terminal);
 
     textarea.focus();
 
-    const rearmTarget = document.querySelector<HTMLTextAreaElement>(XTERM_IME_REARM_SELECTOR);
-    expect(rearmTarget).not.toBeNull();
-    expect(document.activeElement).toBe(rearmTarget);
-
-    frames.shift()?.(0);
-
-    expect(terminal.focus).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(textarea);
     expect(textarea.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
     expect(document.querySelector(XTERM_IME_REARM_SELECTOR)).toBeNull();
@@ -66,24 +54,12 @@ describe('xterm text input focus', () => {
     bridge.dispose();
   });
 
-  it('focuses and prepares the xterm textarea after transient IME rearm', () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      frames.push(callback);
-      return frames.length;
-    });
+  it('focuses and prepares the xterm textarea without an intermediate input', () => {
     const { terminal, textarea } = createTerminalHarness();
 
     focusXtermTextInput(terminal);
 
     expect(terminal.focus).toHaveBeenCalledTimes(1);
-    expect(document.activeElement).toBe(
-      document.querySelector<HTMLTextAreaElement>(XTERM_IME_REARM_SELECTOR)
-    );
-
-    frames.shift()?.(0);
-
-    expect(terminal.focus).toHaveBeenCalledTimes(2);
     expect(document.activeElement).toBe(textarea);
     expect(textarea.inputMode).toBe('text');
     expect(textarea.spellcheck).toBe(false);
@@ -92,24 +68,14 @@ describe('xterm text input focus', () => {
     expect(document.querySelector(LEGACY_IME_PRIMER_SELECTOR)).toBeNull();
   });
 
-  it('rearms an already active empty xterm textarea', () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      frames.push(callback);
-      return frames.length;
-    });
+  it('preserves the active textarea while native composition is in progress', () => {
     const { terminal, textarea } = createTerminalHarness();
 
     textarea.focus();
+    textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
     expect(document.activeElement).toBe(textarea);
 
     focusXtermTextInput(terminal);
-
-    const rearmTarget = document.querySelector<HTMLTextAreaElement>(XTERM_IME_REARM_SELECTOR);
-    expect(rearmTarget).not.toBeNull();
-    expect(document.activeElement).toBe(rearmTarget);
-
-    frames.shift()?.(0);
 
     expect(document.activeElement).toBe(textarea);
     expect(document.querySelector(XTERM_IME_REARM_SELECTOR)).toBeNull();

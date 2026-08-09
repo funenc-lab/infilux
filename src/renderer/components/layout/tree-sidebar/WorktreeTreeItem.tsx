@@ -23,6 +23,7 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
+import { SidebarFloatingMenuPortal } from '../SidebarFloatingMenuPortal';
 import { useCompletedWorktreeActivityClear } from '../useCompletedWorktreeActivityClear';
 import { buildWorktreeInlineItems } from '../worktreeRowSignals';
 
@@ -335,7 +336,7 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
       </div>
 
       {menuOpen && (
-        <>
+        <SidebarFloatingMenuPortal>
           <div
             className="fixed inset-0 z-50"
             onClick={() => setMenuOpen(false)}
@@ -478,7 +479,7 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
               {isPrunable ? t('Clean up records') : t('Delete')}
             </button>
           </div>
-        </>
+        </SidebarFloatingMenuPortal>
       )}
     </>
   );
