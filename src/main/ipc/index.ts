@@ -1,4 +1,5 @@
 import { stopAllCodeReviews } from '../services/ai';
+import { disposeClaudeCapabilityCatalogCache } from '../services/claude/CapabilityCatalogService';
 import { disposeClaudeIdeBridge } from '../services/claude/ClaudeIdeBridge';
 import { persistentAgentSessionRepository } from '../services/session/PersistentAgentSessionRepository';
 import { autoUpdaterService } from '../services/updater/AutoUpdater';
@@ -252,6 +253,9 @@ export async function cleanupAllResources(): Promise<CleanupSummary> {
   syncResults.push(runSyncCleanupTask('worktreeServices', () => clearAllWorktreeServices()));
   syncResults.push(runSyncCleanupTask('autoUpdater', () => autoUpdaterService.cleanup()));
   syncResults.push(runSyncCleanupTask('claudeIdeBridge', () => disposeClaudeIdeBridge()));
+  syncResults.push(
+    runSyncCleanupTask('claudeCapabilityCatalog', () => disposeClaudeCapabilityCatalogCache())
+  );
 
   return buildCleanupSummary([...asyncResults, ...syncResults]);
 }
@@ -290,6 +294,9 @@ export function cleanupAllResourcesSync(): void {
 
   // Dispose Claude IDE Bridge (sync)
   disposeClaudeIdeBridge();
+
+  // Dispose capability catalog watchers (sync)
+  disposeClaudeCapabilityCatalogCache();
 
   void remoteConnectionManager.cleanup();
 

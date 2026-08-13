@@ -6,6 +6,7 @@ import type {
   ClaudeCapabilityCatalogItem,
   ClaudeCapabilitySourceScope,
   ClaudeMcpCatalogItem,
+  ClaudePolicyCatalogRequest,
   McpServerConfig,
 } from '@shared/types';
 import { isHttpMcpConfig } from '@shared/types';
@@ -16,6 +17,11 @@ import {
   listRepositoryRemoteDirectory,
   readRepositoryClaudeJson,
 } from '../remote/RemoteEnvironmentService';
+import {
+  type CapabilityCatalogWatcher,
+  type CapabilityCatalogWatchTarget,
+  ClaudeCapabilityCatalogCache,
+} from './CapabilityCatalogCache';
 import { parseCodexMcpRecord } from './CodexMcpToml';
 
 const BUILTIN_COMMANDS: Array<{ id: string; name: string; description: string }> = [
@@ -358,21 +364,20 @@ async function listLocalCommandItems(
     fileNameMatcher: (name) => name.toLowerCase().endsWith('.md'),
   });
 
-  const items: ClaudeCapabilityCatalogItem[] = [];
-  for (const filePath of files) {
-    const content = await readTextFileSafe(filePath);
-    const commandId = toCommandId(filePath);
-    items.push(
-      createCapabilityItem({
+  const items = await Promise.all(
+    files.map(async (filePath) => {
+      const content = await readTextFileSafe(filePath);
+      const commandId = toCommandId(filePath);
+      return createCapabilityItem({
         id: commandId,
         kind: 'command',
         name: path.basename(filePath, path.extname(filePath)),
         description: content ? parseMarkdownHeading(content) : undefined,
         sourceScope,
         sourcePath: filePath,
-      })
-    );
-  }
+      });
+    })
+  );
   return items;
 }
 
@@ -384,20 +389,19 @@ async function listLocalSubagentItems(
     fileNameMatcher: (name) => name.toLowerCase().endsWith('.md'),
   });
 
-  const items: ClaudeCapabilityCatalogItem[] = [];
-  for (const filePath of files) {
-    const content = await readTextFileSafe(filePath);
-    items.push(
-      createCapabilityItem({
+  const items = await Promise.all(
+    files.map(async (filePath) => {
+      const content = await readTextFileSafe(filePath);
+      return createCapabilityItem({
         id: toSubagentId(filePath),
         kind: 'subagent',
         name: path.basename(filePath, path.extname(filePath)),
         description: content ? parseMarkdownHeading(content) : undefined,
         sourceScope,
         sourcePath: filePath,
-      })
-    );
-  }
+      });
+    })
+  );
   return items;
 }
 
@@ -413,12 +417,11 @@ async function listLocalSkillItems(
     fileNameMatcher: (name) => name.toLowerCase() === 'skill.md',
   });
 
-  const items: ClaudeCapabilityCatalogItem[] = [];
-  for (const filePath of files) {
-    const content = await readTextFileSafe(filePath);
-    const meta = content ? parseFrontMatter(content) : null;
-    items.push(
-      createCapabilityItem({
+  const items = await Promise.all(
+    files.map(async (filePath) => {
+      const content = await readTextFileSafe(filePath);
+      const meta = content ? parseFrontMatter(content) : null;
+      return createCapabilityItem({
         id: toSkillId(filePath),
         kind: 'legacy-skill',
         name: meta?.name ?? path.basename(path.dirname(filePath)),
@@ -426,9 +429,9 @@ async function listLocalSkillItems(
         sourceScope,
         sourcePath: filePath,
         isAvailable: options.isAvailable,
-      })
-    );
-  }
+      });
+    })
+  );
   return items;
 }
 
@@ -439,11 +442,12 @@ async function listLocalSkillItemsFromRoots(
     isAvailable?: boolean;
   } = {}
 ): Promise<ClaudeCapabilityCatalogItem[]> {
-  const items: ClaudeCapabilityCatalogItem[] = [];
-  for (const rootDir of uniqueResolvedPaths(rootDirs)) {
-    items.push(...(await listLocalSkillItems(rootDir, sourceScope, options)));
-  }
-  return items;
+  const itemGroups = await Promise.all(
+    uniqueResolvedPaths(rootDirs).map((rootDir) =>
+      listLocalSkillItems(rootDir, sourceScope, options)
+    )
+  );
+  return itemGroups.flat();
 }
 
 async function listRemoteCommandItems(
@@ -712,6 +716,127 @@ function getLocalWorkspaceDisabledSkillRootDirs(workspacePath: string): string[]
     path.join(workspacePath, '.claude', 'skills.disabled'),
     path.join(workspacePath, '.agents', 'skills.disabled'),
   ]);
+}
+
+function addWatchTarget(
+  targets: CapabilityCatalogWatchTarget[],
+  target: CapabilityCatalogWatchTarget
+): void {
+  const normalizedPath = path.resolve(target.directoryPath);
+  const exists = targets.some(
+    (candidate) =>
+      path.resolve(candidate.directoryPath) === normalizedPath &&
+      candidate.expectedFileName === target.expectedFileName &&
+      candidate.recursive === target.recursive
+  );
+  if (!exists) {
+    targets.push({ ...target, directoryPath: normalizedPath });
+  }
+}
+
+function addLocalSkillWatchTargets(
+  targets: CapabilityCatalogWatchTarget[],
+  rootDirs: string[]
+): void {
+  for (const rootDir of uniqueResolvedPaths(rootDirs)) {
+    addWatchTarget(targets, { directoryPath: rootDir, recursive: true });
+    addWatchTarget(targets, {
+      directoryPath: path.dirname(rootDir),
+      expectedFileName: path.basename(rootDir),
+    });
+  }
+}
+
+function addWorkspaceWatchTargets(
+  targets: CapabilityCatalogWatchTarget[],
+  workspacePath: string
+): void {
+  addWatchTarget(targets, {
+    directoryPath: workspacePath,
+    expectedFileName: '.mcp.json',
+  });
+  addWatchTarget(targets, {
+    directoryPath: workspacePath,
+    expectedFileName: '.claude',
+  });
+  addWatchTarget(targets, {
+    directoryPath: workspacePath,
+    expectedFileName: '.gemini',
+  });
+  addWatchTarget(targets, {
+    directoryPath: workspacePath,
+    expectedFileName: '.agents',
+  });
+  addWatchTarget(targets, {
+    directoryPath: workspacePath,
+    expectedFileName: '.codex',
+  });
+  addWatchTarget(targets, {
+    directoryPath: path.join(workspacePath, '.claude', 'commands'),
+  });
+  addWatchTarget(targets, {
+    directoryPath: path.join(workspacePath, '.claude', 'agents'),
+  });
+  addWatchTarget(targets, {
+    directoryPath: path.join(workspacePath, '.gemini'),
+    expectedFileName: 'settings.json',
+  });
+  addWatchTarget(targets, {
+    directoryPath: path.join(workspacePath, '.codex'),
+    expectedFileName: 'config.toml',
+  });
+  addLocalSkillWatchTargets(targets, getLocalWorkspaceSkillRootDirs(workspacePath));
+  addLocalSkillWatchTargets(targets, getLocalWorkspaceDisabledSkillRootDirs(workspacePath));
+}
+
+function getLocalCatalogWatchTargets(
+  request: ClaudePolicyCatalogRequest
+): CapabilityCatalogWatchTarget[] {
+  const targets: CapabilityCatalogWatchTarget[] = [];
+  const userClaudeDirs = getUserClaudeConfigDirs();
+  const homeDir = os.homedir();
+
+  addWatchTarget(targets, {
+    directoryPath: homeDir,
+    expectedFileName: '.claude.json',
+  });
+  addWatchTarget(targets, {
+    directoryPath: path.join(homeDir, '.gemini'),
+    expectedFileName: 'settings.json',
+  });
+  addWatchTarget(targets, {
+    directoryPath: path.join(homeDir, '.codex'),
+    expectedFileName: 'config.toml',
+  });
+  for (const configDir of userClaudeDirs) {
+    addWatchTarget(targets, { directoryPath: path.join(configDir, 'commands') });
+    addWatchTarget(targets, { directoryPath: path.join(configDir, 'agents') });
+  }
+  addLocalSkillWatchTargets(targets, getLocalUserSkillRootDirs(userClaudeDirs));
+
+  if (request.repoPath) {
+    addWorkspaceWatchTargets(targets, request.repoPath);
+  }
+  if (request.worktreePath && request.worktreePath !== request.repoPath) {
+    addWorkspaceWatchTargets(targets, request.worktreePath);
+  }
+  return targets;
+}
+
+function watchLocalCatalogDirectory(
+  target: CapabilityCatalogWatchTarget,
+  onChange: (fileName?: string | null) => void
+): CapabilityCatalogWatcher | null {
+  try {
+    return fs.watch(
+      target.directoryPath,
+      { recursive: target.recursive ?? false },
+      (_eventType, fileName) =>
+        onChange(typeof fileName === 'string' ? fileName : fileName?.toString())
+    );
+  } catch {
+    return null;
+  }
 }
 
 function getRemoteUserSkillRootDirs(homeDir: string, claudeSkillsDir: string): string[] {
@@ -997,7 +1122,7 @@ async function readRemoteCodexPersonalMcpItems(
   );
 }
 
-export async function listClaudeCapabilityCatalog(
+async function listClaudeCapabilityCatalogUncached(
   params: { repoPath?: string; worktreePath?: string },
   dependencies: CapabilityCatalogServiceDependencies = {}
 ): Promise<ClaudeCapabilityCatalog> {
@@ -1279,4 +1404,31 @@ export async function listClaudeCapabilityCatalog(
     personalMcpServers: dedupeById(personalMcpServers),
     generatedAt: Date.now(),
   };
+}
+
+const capabilityCatalogCache = new ClaudeCapabilityCatalogCache({
+  listCatalog: (request) => listClaudeCapabilityCatalogUncached(request),
+  getWatchTargets: getLocalCatalogWatchTargets,
+  watchDirectory: watchLocalCatalogDirectory,
+});
+
+export function invalidateClaudeCapabilityCatalogWorkspace(workspacePath: string): void {
+  if (isRemoteVirtualPath(workspacePath)) {
+    return;
+  }
+  capabilityCatalogCache.invalidateWorkspace(workspacePath);
+}
+
+export function disposeClaudeCapabilityCatalogCache(): void {
+  capabilityCatalogCache.dispose();
+}
+
+export async function listClaudeCapabilityCatalog(
+  params: ClaudePolicyCatalogRequest,
+  dependencies: CapabilityCatalogServiceDependencies = {}
+): Promise<ClaudeCapabilityCatalog> {
+  if (Object.keys(dependencies).length > 0) {
+    return listClaudeCapabilityCatalogUncached(params, dependencies);
+  }
+  return capabilityCatalogCache.getCatalog(params);
 }

@@ -7,7 +7,10 @@ import type {
 } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain } from 'electron';
-import { listClaudeCapabilityCatalog } from '../services/claude/CapabilityCatalogService';
+import {
+  invalidateClaudeCapabilityCatalogWorkspace,
+  listClaudeCapabilityCatalog,
+} from '../services/claude/CapabilityCatalogService';
 import {
   disableWorkspaceNativeClaudeSkill,
   restoreWorkspaceNativeClaudeSkill,
@@ -53,14 +56,18 @@ export function registerClaudePolicyHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_DISABLE,
     async (_, request: DisableClaudeNativeSkillRequest) => {
-      return disableWorkspaceNativeClaudeSkill(request);
+      const result = await disableWorkspaceNativeClaudeSkill(request);
+      invalidateClaudeCapabilityCatalogWorkspace(request.worktreePath);
+      return result;
     }
   );
 
   ipcMain.handle(
     IPC_CHANNELS.CLAUDE_POLICY_NATIVE_SKILL_RESTORE,
     async (_, request: RestoreClaudeNativeSkillRequest) => {
-      return restoreWorkspaceNativeClaudeSkill(request);
+      const result = await restoreWorkspaceNativeClaudeSkill(request);
+      invalidateClaudeCapabilityCatalogWorkspace(request.worktreePath);
+      return result;
     }
   );
 }

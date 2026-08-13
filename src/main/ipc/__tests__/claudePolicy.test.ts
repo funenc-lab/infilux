@@ -6,6 +6,7 @@ type Handler = (...args: unknown[]) => unknown;
 const claudePolicyTestDoubles = vi.hoisted(() => {
   const handlers = new Map<string, Handler>();
   const listClaudeCapabilityCatalog = vi.fn();
+  const invalidateClaudeCapabilityCatalogWorkspace = vi.fn();
   const resolveClaudePolicy = vi.fn();
   const prepareClaudeAgentLaunch = vi.fn();
   const disableWorkspaceNativeClaudeSkill = vi.fn();
@@ -20,6 +21,7 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
       personalMcpServers: [],
       generatedAt: 1,
     });
+    invalidateClaudeCapabilityCatalogWorkspace.mockReset();
     resolveClaudePolicy.mockReset();
     resolveClaudePolicy.mockReturnValue({
       repoPath: '/repo',
@@ -69,6 +71,7 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
   return {
     handlers,
     listClaudeCapabilityCatalog,
+    invalidateClaudeCapabilityCatalogWorkspace,
     resolveClaudePolicy,
     prepareClaudeAgentLaunch,
     disableWorkspaceNativeClaudeSkill,
@@ -87,6 +90,8 @@ vi.mock('electron', () => ({
 
 vi.mock('../../services/claude/CapabilityCatalogService', () => ({
   listClaudeCapabilityCatalog: claudePolicyTestDoubles.listClaudeCapabilityCatalog,
+  invalidateClaudeCapabilityCatalogWorkspace:
+    claudePolicyTestDoubles.invalidateClaudeCapabilityCatalogWorkspace,
 }));
 
 vi.mock('../../services/claude/ClaudePolicyResolver', () => ({
@@ -243,6 +248,9 @@ describe('Claude policy IPC handlers', () => {
       disabledPath: '/repo/worktrees/feature-a/.claude/skills.disabled/planner',
     });
     expect(claudePolicyTestDoubles.disableWorkspaceNativeClaudeSkill).toHaveBeenCalledWith(request);
+    expect(claudePolicyTestDoubles.invalidateClaudeCapabilityCatalogWorkspace).toHaveBeenCalledWith(
+      request.worktreePath
+    );
   });
 
   it('delegates native skill restore requests to the native skill service', async () => {
@@ -262,5 +270,8 @@ describe('Claude policy IPC handlers', () => {
       restoredPath: '/repo/worktrees/feature-a/.claude/skills/planner',
     });
     expect(claudePolicyTestDoubles.restoreWorkspaceNativeClaudeSkill).toHaveBeenCalledWith(request);
+    expect(claudePolicyTestDoubles.invalidateClaudeCapabilityCatalogWorkspace).toHaveBeenCalledWith(
+      request.worktreePath
+    );
   });
 });
