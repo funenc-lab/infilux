@@ -22,6 +22,10 @@ function createScheme(overrides: Partial<ProjectConfigScheme> = {}): ProjectConf
     description: '',
     claudePolicy: createPolicy(),
     promptPresetId: null,
+    worktreeInitialization: {
+      autoInitWorktree: false,
+      initScript: '',
+    },
     createdAt: 1,
     updatedAt: 1,
     ...overrides,

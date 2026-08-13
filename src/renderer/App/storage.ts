@@ -3,6 +3,7 @@ import type {
   ClaudeProjectPolicy,
   ClaudeWorktreePolicy,
   ProjectConfigSchemeSelection,
+  ProjectConfigSchemeWorktreeInitialization,
   WorktreeConfigSchemeSelection,
 } from '@shared/types';
 import {
@@ -416,37 +417,98 @@ export const pathsEqual = (path1: string, path2: string): boolean => {
 export interface RepositorySettings {
   autoInitWorktree: boolean;
   initScript: string;
+  worktreeInitializationOverride: ProjectConfigSchemeWorktreeInitialization | null;
   hidden: boolean;
 }
 
 export const DEFAULT_REPOSITORY_SETTINGS: RepositorySettings = {
   autoInitWorktree: false,
   initScript: '',
+  worktreeInitializationOverride: null,
   hidden: false,
 };
 
+function isStorageRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeWorktreeInitialization(
+  value: unknown
+): ProjectConfigSchemeWorktreeInitialization | null {
+  if (!isStorageRecord(value)) {
+    return null;
+  }
+
+  return {
+    autoInitWorktree: value.autoInitWorktree === true,
+    initScript: typeof value.initScript === 'string' ? value.initScript : '',
+  };
+}
+
+function normalizeRepositorySettings(value: unknown): RepositorySettings | null {
+  if (!isStorageRecord(value)) {
+    return null;
+  }
+
+  const autoInitWorktree = value.autoInitWorktree === true;
+  const initScript = typeof value.initScript === 'string' ? value.initScript : '';
+  const hasInitializationOverride = Object.hasOwn(value, 'worktreeInitializationOverride');
+  const worktreeInitializationOverride = hasInitializationOverride
+    ? normalizeWorktreeInitialization(value.worktreeInitializationOverride)
+    : autoInitWorktree || initScript.trim().length > 0
+      ? { autoInitWorktree, initScript }
+      : null;
+
+  return {
+    autoInitWorktree,
+    initScript,
+    worktreeInitializationOverride,
+    hidden: value.hidden === true,
+  };
+}
+
 export const getStoredRepositorySettings = (): Record<string, RepositorySettings> => {
   const saved = localStorage.getItem(STORAGE_KEYS.REPOSITORY_SETTINGS);
-  if (saved) {
-    try {
-      return JSON.parse(saved) as Record<string, RepositorySettings>;
-    } catch {
+  if (!saved) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(saved) as unknown;
+    if (!isStorageRecord(parsed)) {
       return {};
     }
+
+    const settings: Record<string, RepositorySettings> = {};
+    for (const [repoPath, value] of Object.entries(parsed)) {
+      const normalized = normalizeRepositorySettings(value);
+      if (normalized) {
+        settings[normalizeWorkspacePathKey(repoPath)] = normalized;
+      }
+    }
+    return settings;
+  } catch {
+    return {};
   }
-  return {};
 };
 
 export const getRepositorySettings = (repoPath: string): RepositorySettings => {
   const allSettings = getStoredRepositorySettings();
   const normalizedPath = normalizeWorkspacePathKey(repoPath);
-  return allSettings[normalizedPath] || DEFAULT_REPOSITORY_SETTINGS;
+  return allSettings[normalizedPath] ?? DEFAULT_REPOSITORY_SETTINGS;
+};
+
+export const getRepositoryWorktreeInitializationOverride = (
+  repoPath: string
+): ProjectConfigSchemeWorktreeInitialization | null => {
+  return getRepositorySettings(repoPath).worktreeInitializationOverride;
 };
 
 export const saveRepositorySettings = (repoPath: string, settings: RepositorySettings): void => {
   const allSettings = getStoredRepositorySettings();
   const normalizedPath = normalizeWorkspacePathKey(repoPath);
-  allSettings[normalizedPath] = settings;
+  allSettings[normalizedPath] =
+    normalizeRepositorySettings(settings) ?? DEFAULT_REPOSITORY_SETTINGS;
   localStorage.setItem(STORAGE_KEYS.REPOSITORY_SETTINGS, JSON.stringify(allSettings));
   scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
 };
@@ -787,6 +849,68 @@ export const saveWorktreeConfigSchemeSelection = (
 
   localStorage.setItem(STORAGE_KEYS.WORKTREE_CONFIG_SCHEME_SELECTIONS, JSON.stringify(selections));
   scheduleManagedLocalStorageSync();
+};
+
+export interface ProjectConfigSchemeReferenceRemovalResult {
+  repositorySelections: number;
+  worktreeSelections: number;
+}
+
+export const removeProjectConfigSchemeReferences = (
+  schemeId: string
+): ProjectConfigSchemeReferenceRemovalResult => {
+  const normalizedSchemeId = schemeId.trim();
+  if (!normalizedSchemeId) {
+    return {
+      repositorySelections: 0,
+      worktreeSelections: 0,
+    };
+  }
+
+  const repositorySelections = getStoredProjectConfigSchemeSelections();
+  const worktreeSelections = getStoredWorktreeConfigSchemeSelections();
+  let removedRepositorySelections = 0;
+  let removedWorktreeSelections = 0;
+
+  for (const [repoPath, selection] of Object.entries(repositorySelections)) {
+    if (selection.schemeId !== normalizedSchemeId) {
+      continue;
+    }
+
+    delete repositorySelections[repoPath];
+    removedRepositorySelections += 1;
+  }
+
+  for (const [worktreePath, selection] of Object.entries(worktreeSelections)) {
+    if (selection.schemeId !== normalizedSchemeId) {
+      continue;
+    }
+
+    delete worktreeSelections[worktreePath];
+    removedWorktreeSelections += 1;
+  }
+
+  if (removedRepositorySelections === 0 && removedWorktreeSelections === 0) {
+    return {
+      repositorySelections: 0,
+      worktreeSelections: 0,
+    };
+  }
+
+  localStorage.setItem(
+    STORAGE_KEYS.PROJECT_CONFIG_SCHEME_SELECTIONS,
+    JSON.stringify(repositorySelections)
+  );
+  localStorage.setItem(
+    STORAGE_KEYS.WORKTREE_CONFIG_SCHEME_SELECTIONS,
+    JSON.stringify(worktreeSelections)
+  );
+  scheduleManagedLocalStorageSync();
+
+  return {
+    repositorySelections: removedRepositorySelections,
+    worktreeSelections: removedWorktreeSelections,
+  };
 };
 
 export const getStoredGroups = (): RepositoryGroup[] => {

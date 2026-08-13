@@ -1,4 +1,4 @@
-import type { ProjectConfigScheme } from '@shared/types';
+import type { ProjectConfigScheme, PromptPreset } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 function createLocalStorageMock() {
@@ -32,6 +32,22 @@ function createScheme(overrides: Partial<ProjectConfigScheme> = {}): ProjectConf
       updatedAt: 1,
     },
     promptPresetId: 'prompt-alpha',
+    worktreeInitialization: {
+      autoInitWorktree: false,
+      initScript: '',
+    },
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function createPromptPreset(overrides: Partial<PromptPreset> = {}): PromptPreset {
+  return {
+    id: 'prompt-alpha',
+    name: 'Alpha prompt',
+    content: 'Follow the project conventions.',
+    enabled: false,
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
@@ -146,11 +162,33 @@ describe('project config schemes settings', () => {
     expect(useSettingsStore.getState().projectConfigSchemes).toEqual([]);
   });
 
+  it('clears prompt preset references from schemes when a prompt preset is removed', async () => {
+    const useSettingsStore = await loadSettingsStore();
+    const state = useSettingsStore.getState();
+
+    state.addPromptPreset(createPromptPreset());
+    state.addPromptPreset(createPromptPreset({ id: 'prompt-beta', name: 'Beta prompt' }));
+    state.addProjectConfigScheme(createScheme());
+    state.addProjectConfigScheme(
+      createScheme({ id: 'scheme-beta', promptPresetId: 'prompt-beta' })
+    );
+
+    useSettingsStore.getState().removePromptPreset('prompt-alpha');
+
+    expect(useSettingsStore.getState().projectConfigSchemes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'scheme-alpha', promptPresetId: null }),
+        expect.objectContaining({ id: 'scheme-beta', promptPresetId: 'prompt-beta' }),
+      ])
+    );
+  });
+
   it('hydrates persisted project config schemes', async () => {
     const scheme = createScheme({ id: 'persisted-scheme', name: 'Persisted' });
     const useSettingsStore = await loadSettingsStore({
       'enso-settings': {
         state: {
+          promptPresets: [createPromptPreset()],
           projectConfigSchemes: [scheme],
         },
       },
@@ -160,6 +198,25 @@ describe('project config schemes settings', () => {
     await Promise.resolve();
 
     expect(useSettingsStore.getState().projectConfigSchemes).toEqual([scheme]);
+  });
+
+  it('clears scheme prompt references that are missing from persisted prompt presets', async () => {
+    const scheme = createScheme({ id: 'persisted-scheme', name: 'Persisted' });
+    const useSettingsStore = await loadSettingsStore({
+      'enso-settings': {
+        state: {
+          promptPresets: [],
+          projectConfigSchemes: [scheme],
+        },
+      },
+    });
+
+    await useSettingsStore.persist.rehydrate();
+    await Promise.resolve();
+
+    expect(useSettingsStore.getState().projectConfigSchemes).toEqual([
+      expect.objectContaining({ id: 'persisted-scheme', promptPresetId: null }),
+    ]);
   });
 
   it('sanitizes malformed persisted project config schemes', async () => {
@@ -211,6 +268,10 @@ describe('project config schemes settings', () => {
           updatedAt: 0,
         },
         promptPresetId: null,
+        worktreeInitialization: {
+          autoInitWorktree: false,
+          initScript: '',
+        },
         createdAt: 0,
         updatedAt: 8,
       },

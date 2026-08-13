@@ -200,6 +200,11 @@ export const zhTranslations: Record<string, string> = {
     '\u540e\u7eed\u4f1a\u8bdd\u5c06\u4f7f\u7528\u6240\u9009\u65b9\u6848\u3002',
   'Choose a reusable scheme for future sessions, then use direct decisions below for local overrides.':
     '\u9009\u62e9\u7528\u4e8e\u540e\u7eed\u4f1a\u8bdd\u7684\u53ef\u590d\u7528\u65b9\u6848\uff0c\u5e76\u5728\u4e0b\u65b9\u4f7f\u7528\u76f4\u63a5\u51b3\u7b56\u8fdb\u884c\u5c40\u90e8\u8986\u76d6\u3002',
+  'Using the selected project scheme defaults for new worktrees.':
+    '\u4f7f\u7528\u6240\u9009\u9879\u76ee\u65b9\u6848\u7684\u9ed8\u8ba4\u8bbe\u7f6e\u521b\u5efa\u65b0 worktree\u3002',
+  'Use Scheme Defaults': '\u4f7f\u7528\u65b9\u6848\u9ed8\u8ba4\u8bbe\u7f6e',
+  'Skill and MCP controls apply to Claude, Codex, and Gemini.':
+    'Skill \u4e0e MCP \u63a7\u5236\u5bf9 Claude\u3001Codex \u548c Gemini \u751f\u6548\u3002',
   'Inherit without scheme': '\u4e0d\u4f7f\u7528\u65b9\u6848\uff0c\u7ee7\u627f\u9ed8\u8ba4',
   'Missing scheme': '\u65b9\u6848\u4e0d\u5b58\u5728',
   'Current repository context': '\u5f53\u524d\u4ed3\u5e93\u4e0a\u4e0b\u6587',
@@ -2063,6 +2068,11 @@ export const zhTranslations: Record<string, string> = {
     '\u521b\u5efa\u53ef\u590d\u7528\u6a21\u677f\uff0c\u7528\u4e8e Skill\u3001MCP \u548c\u63d0\u793a\u8bcd\u8bbe\u7f6e\u3002',
   'Release hardening': '\u53d1\u5e03\u52a0\u56fa',
   'Optional notes for this scheme': '\u6b64\u65b9\u6848\u7684\u53ef\u9009\u8bf4\u660e',
+  "Run this scheme's init script after creating a new worktree.":
+    '\u5728\u521b\u5efa\u65b0 worktree \u540e\u8fd0\u884c\u6b64\u65b9\u6848\u7684\u521d\u59cb\u5316\u811a\u672c\u3002',
+  'The scheme was removed and all project and worktree references were cleared.':
+    '\u5df2\u79fb\u9664\u6b64\u65b9\u6848\uff0c\u5e76\u6e05\u9664\u6240\u6709\u9879\u76ee\u4e0e worktree \u5f15\u7528\u3002',
+  'Worktree initialization': 'worktree \u521d\u59cb\u5316',
   'Prompt Preset': '\u63d0\u793a\u8bcd\u9884\u8bbe',
   'No prompt preset': '\u4e0d\u4f7f\u7528\u63d0\u793a\u8bcd\u9884\u8bbe',
   'Project scheme saved': '\u9879\u76ee\u65b9\u6848\u5df2\u4fdd\u5b58',

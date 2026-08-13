@@ -185,6 +185,12 @@ describe('migrateSettings', () => {
     expect(migrateSettings(undefined, currentState)).toBe(currentState);
   });
 
+  it('defaults project schemes when migrating a state created before schemes existed', () => {
+    const result = migrateSettings({}, createCurrentState());
+
+    expect(result.projectConfigSchemes).toEqual([]);
+  });
+
   it('clamps persisted background values, migrates url source path, and upgrades legacy canvas renderers', () => {
     const result = migrateSettings(
       {

@@ -152,4 +152,86 @@ describe('project config scheme selection storage', () => {
     expect(env.getProjectConfigSchemeSelection('/repo/main')).toBeNull();
     expect(env.getWorktreeConfigSchemeSelection('/repo/main/worktrees/feature')).toBeNull();
   });
+
+  it('removes every repository and worktree selection that references a deleted scheme', async () => {
+    const env = await loadStorageModule({ platform: 'MacIntel' });
+
+    env.saveProjectConfigSchemeSelection('/Repo/Alpha', {
+      schemeId: 'scheme-shared',
+      updatedAt: 1,
+    });
+    env.saveProjectConfigSchemeSelection('/Repo/Beta', {
+      schemeId: 'scheme-other',
+      updatedAt: 2,
+    });
+    env.saveWorktreeConfigSchemeSelection('/Repo/Alpha', '/Repo/Alpha/worktrees/one', {
+      schemeId: 'scheme-shared',
+      updatedAt: 3,
+    });
+    env.saveWorktreeConfigSchemeSelection('/Repo/Beta', '/Repo/Beta/worktrees/two', {
+      schemeId: 'scheme-other',
+      updatedAt: 4,
+    });
+
+    expect(env.removeProjectConfigSchemeReferences('scheme-shared')).toEqual({
+      repositorySelections: 1,
+      worktreeSelections: 1,
+    });
+    expect(env.getProjectConfigSchemeSelection('/Repo/Alpha')).toBeNull();
+    expect(env.getProjectConfigSchemeSelection('/Repo/Beta')).toEqual({
+      schemeId: 'scheme-other',
+      updatedAt: 2,
+    });
+    expect(env.getWorktreeConfigSchemeSelection('/Repo/Alpha/worktrees/one')).toBeNull();
+    expect(env.getWorktreeConfigSchemeSelection('/Repo/Beta/worktrees/two')).toEqual({
+      repoPath: '/repo/beta',
+      schemeId: 'scheme-other',
+      updatedAt: 4,
+    });
+  });
+
+  it('preserves meaningful legacy initialization settings as direct repository overrides', async () => {
+    const env = await loadStorageModule({
+      platform: 'MacIntel',
+      initialStorage: {
+        'enso-repository-settings': JSON.stringify({
+          '/repo/defaults': {
+            autoInitWorktree: false,
+            initScript: '',
+            hidden: false,
+          },
+          '/repo/initialized': {
+            autoInitWorktree: true,
+            initScript: 'pnpm install',
+            hidden: false,
+          },
+        }),
+      },
+    });
+
+    expect(env.getRepositoryWorktreeInitializationOverride('/Repo/Defaults')).toBeNull();
+    expect(env.getRepositoryWorktreeInitializationOverride('/Repo/Initialized')).toEqual({
+      autoInitWorktree: true,
+      initScript: 'pnpm install',
+    });
+  });
+
+  it('persists an explicit repository initialization override', async () => {
+    const env = await loadStorageModule({ platform: 'MacIntel' });
+
+    env.saveRepositorySettings('/Repo/Main', {
+      hidden: false,
+      autoInitWorktree: false,
+      initScript: '',
+      worktreeInitializationOverride: {
+        autoInitWorktree: false,
+        initScript: '',
+      },
+    });
+
+    expect(env.getRepositoryWorktreeInitializationOverride('/Repo/Main')).toEqual({
+      autoInitWorktree: false,
+      initScript: '',
+    });
+  });
 });

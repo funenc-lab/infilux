@@ -31,6 +31,10 @@ function createScheme(overrides: Partial<ProjectConfigScheme> = {}): ProjectConf
       allowedSharedMcpIds: ['shared-search'],
     }),
     promptPresetId: 'prompt-alpha',
+    worktreeInitialization: {
+      autoInitWorktree: false,
+      initScript: '',
+    },
     createdAt: 1,
     updatedAt: 1,
     ...overrides,

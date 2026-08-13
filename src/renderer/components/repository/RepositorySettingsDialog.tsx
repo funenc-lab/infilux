@@ -1,4 +1,10 @@
-import type { ClaudeGlobalPolicy, ClaudeProjectPolicy, ResolvedClaudePolicy } from '@shared/types';
+import type {
+  ClaudeGlobalPolicy,
+  ClaudeProjectPolicy,
+  ProjectConfigSchemeWorktreeInitialization,
+  ResolvedClaudePolicy,
+} from '@shared/types';
+import { resolveProjectConfigSchemeWorktreeInitialization } from '@shared/types';
 import { CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -158,6 +164,50 @@ export function RepositorySettingsDialog({
     () => getEffectivePolicySummaryItems(projectPreview),
     [projectPreview]
   );
+  const selectedProjectScheme = useMemo(
+    () => projectConfigSchemes.find((scheme) => scheme.id === selectedProjectSchemeId) ?? null,
+    [projectConfigSchemes, selectedProjectSchemeId]
+  );
+  const effectiveWorktreeInitialization = useMemo(
+    () =>
+      resolveProjectConfigSchemeWorktreeInitialization({
+        schemes: projectConfigSchemes,
+        selectedSchemeId: selectedProjectSchemeId,
+        directInitialization: settings.worktreeInitializationOverride,
+      }),
+    [projectConfigSchemes, selectedProjectSchemeId, settings.worktreeInitializationOverride]
+  );
+
+  const handleWorktreeInitializationChange = useCallback(
+    (updates: Partial<ProjectConfigSchemeWorktreeInitialization>) => {
+      const nextInitialization = {
+        ...effectiveWorktreeInitialization,
+        ...updates,
+      };
+
+      setSettings((current) => ({
+        ...current,
+        autoInitWorktree: nextInitialization.autoInitWorktree,
+        initScript: nextInitialization.initScript,
+        worktreeInitializationOverride: nextInitialization,
+      }));
+    },
+    [effectiveWorktreeInitialization]
+  );
+
+  const handleUseSchemeDefaults = useCallback(() => {
+    if (!selectedProjectScheme) {
+      return;
+    }
+
+    const { worktreeInitialization } = selectedProjectScheme;
+    setSettings((current) => ({
+      ...current,
+      autoInitWorktree: worktreeInitialization.autoInitWorktree,
+      initScript: worktreeInitialization.initScript,
+      worktreeInitializationOverride: null,
+    }));
+  }, [selectedProjectScheme]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -205,16 +255,25 @@ export function RepositorySettingsDialog({
                   {t('Auto-initialize new worktrees')}
                 </label>
                 <p className="ui-type-meta text-muted-foreground">
-                  {t('Automatically run init script when creating new worktrees')}
+                  {selectedProjectScheme && !settings.worktreeInitializationOverride
+                    ? t('Using the selected project scheme defaults for new worktrees.')
+                    : t('Automatically run init script when creating new worktrees')}
                 </p>
               </div>
-              <Switch
-                id="auto-init-switch"
-                checked={settings.autoInitWorktree}
-                onCheckedChange={(checked) =>
-                  setSettings((prev) => ({ ...prev, autoInitWorktree: checked }))
-                }
-              />
+              <div className="flex shrink-0 items-center gap-2">
+                {selectedProjectScheme && settings.worktreeInitializationOverride ? (
+                  <Button variant="ghost" size="sm" onClick={handleUseSchemeDefaults}>
+                    {t('Use Scheme Defaults')}
+                  </Button>
+                ) : null}
+                <Switch
+                  id="auto-init-switch"
+                  checked={effectiveWorktreeInitialization.autoInitWorktree}
+                  onCheckedChange={(autoInitWorktree) =>
+                    handleWorktreeInitializationChange({ autoInitWorktree })
+                  }
+                />
+              </div>
             </div>
 
             <div className="space-y-4 rounded-xl border border-border/70 bg-background/60 p-4">
@@ -281,7 +340,7 @@ export function RepositorySettingsDialog({
               </div>
             </div>
 
-            {settings.autoInitWorktree && (
+            {effectiveWorktreeInitialization.autoInitWorktree && (
               <div className="space-y-2">
                 <label className="ui-type-block-title" htmlFor="init-script">
                   {t('Init Script')}
@@ -289,8 +348,12 @@ export function RepositorySettingsDialog({
                 <Textarea
                   id="init-script"
                   placeholder={t('e.g., pnpm install && pnpm dev')}
-                  value={settings.initScript}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, initScript: e.target.value }))}
+                  value={effectiveWorktreeInitialization.initScript}
+                  onChange={(event) =>
+                    handleWorktreeInitializationChange({
+                      initScript: event.currentTarget.value,
+                    })
+                  }
                   className="ui-type-panel-description min-h-24 font-mono"
                 />
                 <p className="ui-type-meta text-muted-foreground">
@@ -305,7 +368,9 @@ export function RepositorySettingsDialog({
 
         <DialogFooter variant="bare">
           <DialogClose render={<Button variant="outline">{t('Cancel')}</Button>} />
-          <Button onClick={handleSave}>{t('Save')}</Button>
+          <Button data-repository-settings-action="save" onClick={handleSave}>
+            {t('Save')}
+          </Button>
         </DialogFooter>
 
         <ClaudePolicyEditorDialog

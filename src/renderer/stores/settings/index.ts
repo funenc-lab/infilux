@@ -812,9 +812,24 @@ export const useSettingsStore = create<SettingsState>()(
         })),
 
       removePromptPreset: (id) =>
-        set((state) => ({
-          promptPresets: state.promptPresets.filter((p) => p.id !== id),
-        })),
+        set((state) => {
+          const promptPresets = state.promptPresets.filter((preset) => preset.id !== id);
+          const hasSchemeReferences = state.projectConfigSchemes.some(
+            (scheme) => scheme.promptPresetId === id
+          );
+
+          if (!hasSchemeReferences) {
+            return { promptPresets };
+          }
+
+          const updatedAt = Date.now();
+          return {
+            promptPresets,
+            projectConfigSchemes: state.projectConfigSchemes.map((scheme) =>
+              scheme.promptPresetId === id ? { ...scheme, promptPresetId: null, updatedAt } : scheme
+            ),
+          };
+        }),
 
       setPromptPresetEnabled: (id) =>
         set((state) => ({

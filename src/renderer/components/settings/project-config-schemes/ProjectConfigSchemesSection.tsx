@@ -1,6 +1,7 @@
 import type { ClaudeGlobalPolicy, ProjectConfigScheme } from '@shared/types';
 import { Edit2, Plus, Settings2, Trash2 } from 'lucide-react';
 import * as React from 'react';
+import { removeProjectConfigSchemeReferences } from '@/App/storage';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -71,13 +72,16 @@ export function ProjectConfigSchemesSection({ repoPath }: ProjectConfigSchemesSe
     }
 
     const scheme = deleteSchemeCandidate;
+    removeProjectConfigSchemeReferences(scheme.id);
     removeProjectConfigScheme(scheme.id);
     markClaudePolicyStaleGlobally();
     setDeleteSchemeCandidate(null);
     toastManager.add({
       type: 'success',
       title: t('Project scheme removed'),
-      description: t('Repositories and worktrees selecting this scheme will inherit defaults.'),
+      description: t(
+        'The scheme was removed and all project and worktree references were cleared.'
+      ),
     });
   };
 
@@ -99,6 +103,9 @@ export function ProjectConfigSchemesSection({ repoPath }: ProjectConfigSchemesSe
           <h3 className="text-lg font-medium">{t('Project Schemes')}</h3>
           <p className="text-sm text-muted-foreground">
             {t('Create reusable templates for skill, MCP, and prompt settings.')}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {t('Skill and MCP controls apply to Claude, Codex, and Gemini.')}
           </p>
         </div>
         <Button onClick={handleAdd}>
@@ -126,6 +133,10 @@ export function ProjectConfigSchemesSection({ repoPath }: ProjectConfigSchemesSe
                   ) : null}
                   <p className="text-xs text-muted-foreground">
                     {t('Prompt')}: {getPromptName(scheme)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('Worktree initialization')}:{' '}
+                    {scheme.worktreeInitialization.autoInitWorktree ? t('Enabled') : t('Disabled')}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">

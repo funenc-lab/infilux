@@ -210,6 +210,12 @@ function sanitizeCustomThemes(value: unknown): CustomThemeDocument[] {
     .filter((entry): entry is CustomThemeDocument => entry !== null);
 }
 
+function readProjectConfigSchemes(
+  settings: Partial<SettingsState>
+): SettingsState['projectConfigSchemes'] {
+  return Array.isArray(settings.projectConfigSchemes) ? settings.projectConfigSchemes : [];
+}
+
 /**
  * Migrate persisted state to current state format
  * Handles version upgrades, field sanitization, and legacy data migration
@@ -241,6 +247,17 @@ export function migrateSettings(
           currentState.terminalAccentSync
         );
   const sanitizedCustomThemes = sanitizeCustomThemes(persisted.customThemes);
+  const migratedPromptPresets = persisted.promptPresets ?? currentState.promptPresets;
+  const availablePromptPresetIds = new Set(migratedPromptPresets.map((preset) => preset.id));
+  const migratedProjectConfigSchemes =
+    persisted.projectConfigSchemes === undefined
+      ? readProjectConfigSchemes(currentState)
+      : sanitizeProjectConfigSchemes(persisted.projectConfigSchemes);
+  const projectConfigSchemes = migratedProjectConfigSchemes.map((scheme) =>
+    scheme.promptPresetId && !availablePromptPresetIds.has(scheme.promptPresetId)
+      ? { ...scheme, promptPresetId: null }
+      : scheme
+  );
   const persistedActiveThemeSelection = persisted.activeThemeSelection;
   const sanitizedCustomThemeId =
     persistedActiveThemeSelection?.kind === 'custom'
@@ -499,11 +516,8 @@ export function migrateSettings(
     },
     agentDetectionStatus: migratedAgentDetectionStatus,
     mcpServers: persisted.mcpServers ?? currentState.mcpServers,
-    promptPresets: persisted.promptPresets ?? currentState.promptPresets,
-    projectConfigSchemes:
-      persisted.projectConfigSchemes === undefined
-        ? currentState.projectConfigSchemes
-        : sanitizeProjectConfigSchemes(persisted.projectConfigSchemes),
+    promptPresets: migratedPromptPresets,
+    projectConfigSchemes,
     quickTerminal: {
       ...currentState.quickTerminal,
       ...persisted.quickTerminal,

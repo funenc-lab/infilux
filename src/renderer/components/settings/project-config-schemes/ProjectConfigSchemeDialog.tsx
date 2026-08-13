@@ -1,5 +1,12 @@
-import type { ProjectConfigScheme, PromptPreset } from '@shared/types';
-import { createEmptyProjectConfigSchemePolicy } from '@shared/types';
+import type {
+  ProjectConfigScheme,
+  ProjectConfigSchemeWorktreeInitialization,
+  PromptPreset,
+} from '@shared/types';
+import {
+  createDefaultProjectConfigSchemeWorktreeInitialization,
+  createEmptyProjectConfigSchemePolicy,
+} from '@shared/types';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,6 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/i18n';
 import { Z_INDEX } from '@/lib/z-index';
 
@@ -45,6 +54,10 @@ export function ProjectConfigSchemeDialog({
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [promptPresetId, setPromptPresetId] = React.useState<string | null>(null);
+  const [worktreeInitialization, setWorktreeInitialization] =
+    React.useState<ProjectConfigSchemeWorktreeInitialization>(
+      createDefaultProjectConfigSchemeWorktreeInitialization
+    );
   const isEditing = Boolean(scheme);
 
   React.useEffect(() => {
@@ -55,6 +68,9 @@ export function ProjectConfigSchemeDialog({
     setName(scheme?.name ?? '');
     setDescription(scheme?.description ?? '');
     setPromptPresetId(scheme?.promptPresetId ?? null);
+    setWorktreeInitialization(
+      scheme?.worktreeInitialization ?? createDefaultProjectConfigSchemeWorktreeInitialization()
+    );
   }, [open, scheme]);
 
   const handleSave = () => {
@@ -71,6 +87,7 @@ export function ProjectConfigSchemeDialog({
             name: trimmedName,
             description: description.trim(),
             promptPresetId,
+            worktreeInitialization,
             updatedAt: now,
           }
         : {
@@ -79,6 +96,7 @@ export function ProjectConfigSchemeDialog({
             description: description.trim(),
             claudePolicy: createEmptyProjectConfigSchemePolicy(now),
             promptPresetId,
+            worktreeInitialization,
             createdAt: now,
             updatedAt: now,
           }
@@ -93,7 +111,8 @@ export function ProjectConfigSchemeDialog({
             {isEditing ? t('Edit Project Scheme') : t('Add Project Scheme')}
           </DialogTitle>
           <DialogDescription className="ui-type-panel-description">
-            {t('Create a reusable template for skill, MCP, and prompt settings.')}
+            {t('Create a reusable template for skill, MCP, and prompt settings.')}{' '}
+            {t('Skill and MCP controls apply to Claude, Codex, and Gemini.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -142,6 +161,40 @@ export function ProjectConfigSchemeDialog({
                 ))}
               </SelectPopup>
             </Select>
+          </Field>
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-muted/20 px-3 py-3">
+            <div className="space-y-0.5">
+              <label className="ui-type-block-title" htmlFor="scheme-auto-init-switch">
+                {t('Auto-initialize new worktrees')}
+              </label>
+              <p className="ui-type-meta text-muted-foreground">
+                {t("Run this scheme's init script after creating a new worktree.")}
+              </p>
+            </div>
+            <Switch
+              id="scheme-auto-init-switch"
+              checked={worktreeInitialization.autoInitWorktree}
+              onCheckedChange={(autoInitWorktree) =>
+                setWorktreeInitialization((current) => ({ ...current, autoInitWorktree }))
+              }
+            />
+          </div>
+
+          <Field>
+            <FieldLabel>{t('Init Script')}</FieldLabel>
+            <Textarea
+              placeholder={t('e.g., pnpm install && pnpm dev')}
+              value={worktreeInitialization.initScript}
+              disabled={!worktreeInitialization.autoInitWorktree}
+              onChange={(event) =>
+                setWorktreeInitialization((current) => ({
+                  ...current,
+                  initScript: event.currentTarget.value,
+                }))
+              }
+              className="ui-type-panel-description min-h-24 font-mono"
+            />
           </Field>
         </DialogPanel>
 

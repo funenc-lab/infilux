@@ -30,6 +30,7 @@ describe('project config schemes settings wiring', () => {
     expect(projectSchemesSectionSource).toContain('deleteSchemeCandidate');
     expect(projectSchemesSectionSource).toContain("aria-label={t('Edit project scheme')}");
     expect(projectSchemesSectionSource).toContain("aria-label={t('Delete project scheme')}");
+    expect(projectSchemesSectionSource).toContain('removeProjectConfigSchemeReferences(scheme.id)');
   });
 
   it('opens the policy editor with project scheme context', () => {
@@ -37,6 +38,24 @@ describe('project config schemes settings wiring', () => {
     expect(projectSchemesSectionSource).toContain(
       "saveSuccessDescription={t('Project scheme skill and MCP settings were saved.')}"
     );
+  });
+
+  it('states the provider scope of scheme skill and MCP controls', () => {
+    expect(projectSchemesSectionSource).toContain(
+      'Skill and MCP controls apply to Claude, Codex, and Gemini.'
+    );
+    expect(projectConfigSchemeDialogSource).toContain(
+      'Skill and MCP controls apply to Claude, Codex, and Gemini.'
+    );
+    expect(claudePolicyEditorDialogSource).toContain(
+      'Skill and MCP controls apply to Claude, Codex, and Gemini.'
+    );
+  });
+
+  it('allows schemes to define worktree initialization defaults', () => {
+    expect(projectConfigSchemeDialogSource).toContain('worktreeInitialization');
+    expect(projectConfigSchemeDialogSource).toContain('Auto-initialize new worktrees');
+    expect(projectConfigSchemeDialogSource).toContain('Init Script');
   });
 
   it('uses stable settings selectors in project scheme surfaces', () => {

@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import type { ProjectConfigScheme } from '@shared/types';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,16 +15,19 @@ const getRepositorySettings = vi.fn();
 const getClaudeGlobalPolicy = vi.fn();
 const getClaudeProjectPolicy = vi.fn();
 const getProjectConfigSchemeSelection = vi.fn();
+const saveRepositorySettings = vi.fn();
+const projectConfigSchemes: ProjectConfigScheme[] = [];
 
 vi.mock('@/App/storage', () => ({
   DEFAULT_REPOSITORY_SETTINGS: {
     hidden: false,
     autoInitWorktree: false,
     initScript: '',
+    worktreeInitializationOverride: null,
   },
   getRepositorySettings,
   getClaudeGlobalPolicy,
-  saveRepositorySettings: vi.fn(),
+  saveRepositorySettings,
   getClaudeProjectPolicy,
   saveClaudeProjectPolicy: vi.fn(),
   getProjectConfigSchemeSelection,
@@ -107,9 +111,11 @@ vi.mock('@/stores/agentSessions', () => ({
 }));
 
 vi.mock('@/stores/settings', () => ({
-  useSettingsStore: (selector: (state: { projectConfigSchemes: [] }) => unknown) =>
+  useSettingsStore: (
+    selector: (state: { projectConfigSchemes: ProjectConfigScheme[] }) => unknown
+  ) =>
     selector({
-      projectConfigSchemes: [],
+      projectConfigSchemes,
     }),
 }));
 
@@ -122,10 +128,13 @@ describe('RepositorySettingsDialog', () => {
     getClaudeGlobalPolicy.mockReset();
     getClaudeProjectPolicy.mockReset();
     getProjectConfigSchemeSelection.mockReset();
+    saveRepositorySettings.mockReset();
+    projectConfigSchemes.length = 0;
     getRepositorySettings.mockReturnValue({
       hidden: false,
       autoInitWorktree: false,
       initScript: '',
+      worktreeInitializationOverride: null,
     });
     getClaudeGlobalPolicy.mockReturnValue(null);
     getClaudeProjectPolicy.mockReturnValue({
@@ -222,6 +231,69 @@ describe('RepositorySettingsDialog', () => {
 
     expect(container?.querySelector('[data-testid="policy-editor"]')?.textContent).toBe(
       'editor:project'
+    );
+  });
+
+  it('inherits scheme worktree initialization and creates an explicit local override on edit', async () => {
+    projectConfigSchemes.push({
+      id: 'scheme-alpha',
+      name: 'Alpha',
+      description: '',
+      claudePolicy: {
+        allowedCapabilityIds: [],
+        blockedCapabilityIds: [],
+        allowedSharedMcpIds: [],
+        blockedSharedMcpIds: [],
+        allowedPersonalMcpIds: [],
+        blockedPersonalMcpIds: [],
+        updatedAt: 1,
+      },
+      promptPresetId: null,
+      worktreeInitialization: {
+        autoInitWorktree: true,
+        initScript: 'pnpm install',
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    getProjectConfigSchemeSelection.mockReturnValue({ schemeId: 'scheme-alpha', updatedAt: 1 });
+
+    const { RepositorySettingsDialog } = await import('../RepositorySettingsDialog');
+    await act(async () => {
+      root?.render(
+        React.createElement(RepositorySettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          repoPath: '/repo',
+          repoName: 'repo',
+        })
+      );
+    });
+
+    const autoInitSwitch = container?.querySelector<HTMLInputElement>('#auto-init-switch');
+    const initScript = container?.querySelector<HTMLTextAreaElement>('#init-script');
+    expect(autoInitSwitch?.checked).toBe(true);
+    expect(initScript?.value).toBe('pnpm install');
+
+    await act(async () => {
+      autoInitSwitch?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {
+      container
+        ?.querySelector<HTMLButtonElement>('[data-repository-settings-action="save"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(saveRepositorySettings).toHaveBeenCalledWith(
+      '/repo',
+      expect.objectContaining({
+        autoInitWorktree: false,
+        initScript: 'pnpm install',
+        worktreeInitializationOverride: {
+          autoInitWorktree: false,
+          initScript: 'pnpm install',
+        },
+      })
     );
   });
 });

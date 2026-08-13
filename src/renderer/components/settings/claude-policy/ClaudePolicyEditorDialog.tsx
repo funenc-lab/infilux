@@ -576,6 +576,9 @@ export function ClaudePolicyEditorDialog({
                       'Choose a reusable scheme for future sessions, then use direct decisions below for local overrides.'
                     )}
                   </p>
+                  <p className="ui-type-meta text-muted-foreground">
+                    {t('Skill and MCP controls apply to Claude, Codex, and Gemini.')}
+                  </p>
                 </div>
                 <Select value={selectedSchemeId} onValueChange={handleSchemeSelectionChange}>
                   <SelectTrigger className="min-w-0 md:w-64">

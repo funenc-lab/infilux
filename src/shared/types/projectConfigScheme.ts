@@ -1,11 +1,17 @@
 import type { ClaudePolicyConfig } from './claudePolicy';
 
+export interface ProjectConfigSchemeWorktreeInitialization {
+  autoInitWorktree: boolean;
+  initScript: string;
+}
+
 export interface ProjectConfigScheme {
   id: string;
   name: string;
   description: string;
   claudePolicy: ClaudePolicyConfig;
   promptPresetId: string | null;
+  worktreeInitialization: ProjectConfigSchemeWorktreeInitialization;
   createdAt: number;
   updatedAt: number;
 }
@@ -29,6 +35,12 @@ interface ResolveProjectConfigSchemePromptPresetIdParams {
   schemes: ProjectConfigScheme[];
   repositorySchemeId?: string | null;
   worktreeSchemeId?: string | null;
+}
+
+interface ResolveProjectConfigSchemeWorktreeInitializationParams {
+  schemes: ProjectConfigScheme[];
+  selectedSchemeId?: string | null;
+  directInitialization?: ProjectConfigSchemeWorktreeInitialization | null;
 }
 
 type PolicyListKey =
@@ -77,6 +89,14 @@ function normalizeStringList(values: unknown): string[] {
 
 function normalizeTimestamp(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function sanitizeWorktreeInitialization(value: unknown): ProjectConfigSchemeWorktreeInitialization {
+  const candidate = isRecord(value) ? value : {};
+  return {
+    autoInitWorktree: candidate.autoInitWorktree === true,
+    initScript: typeof candidate.initScript === 'string' ? candidate.initScript : '',
+  };
 }
 
 function sanitizeClaudePolicyConfig(policy: unknown): ClaudePolicyConfig {
@@ -141,6 +161,13 @@ export function createEmptyProjectConfigSchemePolicy(updatedAt = 0): ClaudePolic
   };
 }
 
+export function createDefaultProjectConfigSchemeWorktreeInitialization(): ProjectConfigSchemeWorktreeInitialization {
+  return {
+    autoInitWorktree: false,
+    initScript: '',
+  };
+}
+
 export function sanitizeProjectConfigScheme(value: unknown): ProjectConfigScheme | null {
   if (!isRecord(value)) {
     return null;
@@ -164,6 +191,7 @@ export function sanitizeProjectConfigScheme(value: unknown): ProjectConfigScheme
     description,
     claudePolicy: sanitizeClaudePolicyConfig(value.claudePolicy),
     promptPresetId,
+    worktreeInitialization: sanitizeWorktreeInitialization(value.worktreeInitialization),
     createdAt: normalizeTimestamp(value.createdAt),
     updatedAt: normalizeTimestamp(value.updatedAt),
   };
@@ -224,4 +252,19 @@ export function resolveProjectConfigSchemePromptPresetId({
 
   const repositoryScheme = findScheme(schemes, repositorySchemeId);
   return repositoryScheme?.promptPresetId ?? null;
+}
+
+export function resolveProjectConfigSchemeWorktreeInitialization({
+  schemes,
+  selectedSchemeId,
+  directInitialization,
+}: ResolveProjectConfigSchemeWorktreeInitializationParams): ProjectConfigSchemeWorktreeInitialization {
+  if (directInitialization) {
+    return sanitizeWorktreeInitialization(directInitialization);
+  }
+
+  const selectedScheme = findScheme(schemes, selectedSchemeId);
+  return selectedScheme
+    ? sanitizeWorktreeInitialization(selectedScheme.worktreeInitialization)
+    : createDefaultProjectConfigSchemeWorktreeInitialization();
 }

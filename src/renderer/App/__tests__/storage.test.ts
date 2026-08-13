@@ -223,12 +223,20 @@ describe('storage helpers', () => {
       '/repo/current': {
         autoInitWorktree: true,
         initScript: 'echo ready',
+        worktreeInitializationOverride: {
+          autoInitWorktree: true,
+          initScript: 'echo ready',
+        },
         hidden: true,
       },
     });
     expect(env.getRepositorySettings('/Repo/Current')).toEqual({
       autoInitWorktree: true,
       initScript: 'echo ready',
+      worktreeInitializationOverride: {
+        autoInitWorktree: true,
+        initScript: 'echo ready',
+      },
       hidden: true,
     });
     expect(env.getRepositorySettings('/Repo/Unknown')).toBe(env.DEFAULT_REPOSITORY_SETTINGS);
@@ -253,6 +261,10 @@ describe('storage helpers', () => {
     env.saveRepositorySettings('/Repo/New', {
       autoInitWorktree: true,
       initScript: 'pnpm install',
+      worktreeInitializationOverride: {
+        autoInitWorktree: true,
+        initScript: 'pnpm install',
+      },
       hidden: false,
     });
     env.saveGroups([
@@ -270,11 +282,19 @@ describe('storage helpers', () => {
         '/repo/current': {
           autoInitWorktree: true,
           initScript: 'echo ready',
+          worktreeInitializationOverride: {
+            autoInitWorktree: true,
+            initScript: 'echo ready',
+          },
           hidden: true,
         },
         '/repo/new': {
           autoInitWorktree: true,
           initScript: 'pnpm install',
+          worktreeInitializationOverride: {
+            autoInitWorktree: true,
+            initScript: 'pnpm install',
+          },
           hidden: false,
         },
       })

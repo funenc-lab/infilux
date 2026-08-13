@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ClaudePolicyConfig, ProjectConfigScheme } from '..';
 import {
+  createDefaultProjectConfigSchemeWorktreeInitialization,
   createEmptyProjectConfigSchemePolicy,
   resolveProjectConfigSchemePolicy,
   resolveProjectConfigSchemePromptPresetId,
+  resolveProjectConfigSchemeWorktreeInitialization,
   sanitizeProjectConfigSchemes,
 } from '..';
 
@@ -30,6 +32,10 @@ function createScheme(overrides: Partial<ProjectConfigScheme> = {}): ProjectConf
       blockedSharedMcpIds: ['dangerous-mcp'],
     }),
     promptPresetId: 'prompt-alpha',
+    worktreeInitialization: {
+      autoInitWorktree: false,
+      initScript: '',
+    },
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
@@ -89,6 +95,36 @@ describe('project config scheme helpers', () => {
     expect(promptPresetId).toBe('worktree-prompt');
   });
 
+  it('uses a selected scheme worktree initialization unless the repository supplies an override', () => {
+    const scheme = createScheme({
+      worktreeInitialization: {
+        autoInitWorktree: true,
+        initScript: 'pnpm install',
+      },
+    });
+
+    expect(
+      resolveProjectConfigSchemeWorktreeInitialization({
+        schemes: [scheme],
+        selectedSchemeId: scheme.id,
+        directInitialization: null,
+      })
+    ).toEqual({
+      autoInitWorktree: true,
+      initScript: 'pnpm install',
+    });
+    expect(
+      resolveProjectConfigSchemeWorktreeInitialization({
+        schemes: [scheme],
+        selectedSchemeId: scheme.id,
+        directInitialization: {
+          autoInitWorktree: false,
+          initScript: '',
+        },
+      })
+    ).toEqual(createDefaultProjectConfigSchemeWorktreeInitialization());
+  });
+
   it('falls back to repository prompt preset when worktree scheme is missing', () => {
     const promptPresetId = resolveProjectConfigSchemePromptPresetId({
       schemes: [createScheme({ id: 'repo-scheme', promptPresetId: 'repo-prompt' })],
@@ -141,6 +177,10 @@ describe('project config scheme helpers', () => {
           updatedAt: 0,
         },
         promptPresetId: null,
+        worktreeInitialization: {
+          autoInitWorktree: false,
+          initScript: '',
+        },
         createdAt: 0,
         updatedAt: 9,
       },

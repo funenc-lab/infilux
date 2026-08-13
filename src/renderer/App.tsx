@@ -7,6 +7,7 @@ import type {
   WorktreeMergeOptions,
   WorktreeMergeResult,
 } from '@shared/types';
+import { resolveProjectConfigSchemeWorktreeInitialization } from '@shared/types';
 import { getDisplayPath, getDisplayPathBasename } from '@shared/utils/path';
 import { isRemoteVirtualPath, toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { buildRepositoryId } from '@shared/utils/workspace';
@@ -62,7 +63,8 @@ import {
   type StartupBlockingKey,
 } from './App/startupOverlayPolicy';
 import {
-  getRepositorySettings,
+  getProjectConfigSchemeSelection,
+  getRepositoryWorktreeInitializationOverride,
   getStoredBoolean,
   getStoredWorktreeMap,
   normalizePath,
@@ -466,6 +468,7 @@ export default function App() {
   const fileTreeDisplayMode = useSettingsStore((s) => s.fileTreeDisplayMode);
   const defaultTemporaryPath = useSettingsStore((s) => s.defaultTemporaryPath);
   const floatingSidebarEnabled = useSettingsStore((s) => s.floatingSidebarEnabled);
+  const projectConfigSchemes = useSettingsStore((s) => s.projectConfigSchemes);
   const [floatingSidebarActive, setFloatingSidebarActive] = useState(false);
   const sidebarHoverRevealGroupRef = useRef<HTMLDivElement | null>(null);
   const rendererEnv = getRendererEnvironment();
@@ -574,8 +577,9 @@ export default function App() {
     (event: FocusEvent<HTMLDivElement>) => {
       const focusVisible =
         event.target instanceof Element && event.target.matches(':focus-visible');
-      setFloatingSidebarActive(
+      setFloatingSidebarActive((currentActive) =>
         shouldOpenSidebarHoverReveal({
+          currentActive,
           documentFocused: document.hasFocus(),
           focusVisible,
           hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
@@ -641,10 +645,14 @@ export default function App() {
   const handleSidebarHoverRevealBlur = useCallback((event: FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
     const nextFocusInside = nextTarget instanceof Node && event.currentTarget.contains(nextTarget);
+    const nextFocusManagedBySidebar =
+      nextTarget instanceof Element &&
+      nextTarget.closest('[data-sidebar-floating-menu-portal="true"]') !== null;
     if (
       !shouldCloseSidebarHoverRevealAfterFocusChange({
         groupHovered: event.currentTarget.matches(':hover'),
         nextFocusInside,
+        nextFocusManagedBySidebar,
       })
     ) {
       return;
@@ -1390,8 +1398,12 @@ export default function App() {
         options,
       });
 
-      const repoSettings = getRepositorySettings(selectedRepo);
-      if (repoSettings.autoInitWorktree) {
+      const worktreeInitialization = resolveProjectConfigSchemeWorktreeInitialization({
+        schemes: projectConfigSchemes,
+        selectedSchemeId: getProjectConfigSchemeSelection(selectedRepo)?.schemeId ?? null,
+        directInitialization: getRepositoryWorktreeInitializationOverride(selectedRepo),
+      });
+      if (worktreeInitialization.autoInitWorktree) {
         const newWorktreePath = options.path;
         const newWorktree: GitWorktree = {
           path: newWorktreePath,
@@ -1404,10 +1416,10 @@ export default function App() {
 
         handleSelectWorktree(newWorktree);
 
-        if (repoSettings.initScript.trim()) {
+        if (worktreeInitialization.initScript.trim()) {
           setPendingScript({
             worktreePath: newWorktreePath,
-            script: repoSettings.initScript,
+            script: worktreeInitialization.initScript,
           });
           setActiveTab('terminal');
         }
