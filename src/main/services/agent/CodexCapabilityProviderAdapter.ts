@@ -23,6 +23,7 @@ import type {
 } from './AgentCapabilityProviderAdapter';
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
 import { type CodexRuntimeHomeService, codexRuntimeHomeService } from './CodexRuntimeHomeService';
+import { shouldShareCodexSessionHistory } from './CodexSessionHistoryPolicy';
 
 export interface CodexCapabilityProviderAdapterDependencies {
   listClaudeCapabilityCatalog?: typeof listClaudeCapabilityCatalog;
@@ -322,6 +323,11 @@ function buildCodexResolvedSkillEntries(
       continue;
     }
 
+    const enabled = allowedCapabilityIds.has(capability.id);
+    if (!enabled || !isExplicitPolicyDecision(resolvedPolicy, capability.id)) {
+      continue;
+    }
+
     const sourcePaths = [
       ...new Set([
         ...(capability.sourcePaths ?? []),
@@ -336,24 +342,13 @@ function buildCodexResolvedSkillEntries(
       continue;
     }
 
-    const enabled = allowedCapabilityIds.has(capability.id);
-    const shouldInjectEnabledSkill =
-      enabled && isExplicitPolicyDecision(resolvedPolicy, capability.id);
-    if (enabled && !shouldInjectEnabledSkill) {
-      continue;
-    }
-
     const preferredSourcePath = selectPreferredSkillSourcePathForProvider({
       provider: 'codex',
       capability,
       repoPath: resolvedPolicy.repoPath,
       worktreePath: resolvedPolicy.worktreePath,
     });
-    const injectedSourcePaths = enabled
-      ? preferredSourcePath
-        ? [preferredSourcePath]
-        : sourcePaths
-      : sourcePaths;
+    const injectedSourcePaths = preferredSourcePath ? [preferredSourcePath] : sourcePaths;
 
     for (const sourcePath of injectedSourcePaths) {
       skillEntries.push({
@@ -515,7 +510,8 @@ export function createCodexCapabilityProviderAdapter(
           ? sessionOptions.metadata.uiSessionId
           : undefined;
       const runtimeHome = runtimeHomeService.prepareRuntimeHome(
-        uiSessionId ?? `${request.worktreePath}:${Date.now()}`
+        uiSessionId ?? `${request.worktreePath}:${Date.now()}`,
+        { shareSessions: shouldShareCodexSessionHistory(sessionOptions) }
       );
       const sessionOverrides: AgentCapabilitySessionOverrides = {
         ...(projection.sessionOverrides ?? {}),

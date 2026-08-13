@@ -21,6 +21,10 @@ import { resolveSourceCodexHome } from './CodexHomePaths';
 
 export type CodexRuntimeHomeResult = AgentRuntimeHomeResult;
 
+export interface CodexRuntimeHomeOptions {
+  shareSessions?: boolean;
+}
+
 const SAFE_SHARED_CODEX_ENTRIES = [
   'AGENTS.md',
   'agents',
@@ -31,7 +35,6 @@ const SAFE_SHARED_CODEX_ENTRIES = [
   'memories',
   'prompts',
   'rules',
-  'sessions',
   'skills',
   'skills.disabled',
   'vendor_imports',
@@ -104,6 +107,24 @@ function ensureSharedCodexRuntimeSessions(sourceHomePath: string, runtimeHomePat
   symlinkSync(sourceSessionsPath, runtimeSessionsPath, symlinkType);
 }
 
+function ensureIsolatedCodexRuntimeSessions(runtimeHomePath: string): void {
+  const runtimeSessionsPath = path.join(runtimeHomePath, 'sessions');
+
+  if (existsSync(runtimeSessionsPath)) {
+    const runtimeSessionsStat = lstatSync(runtimeSessionsPath);
+    if (runtimeSessionsStat.isDirectory() && !runtimeSessionsStat.isSymbolicLink()) {
+      return;
+    }
+    if (runtimeSessionsStat.isSymbolicLink()) {
+      unlinkSync(runtimeSessionsPath);
+    } else {
+      return;
+    }
+  }
+
+  mkdirSync(runtimeSessionsPath, { recursive: true });
+}
+
 export class CodexRuntimeHomeService {
   private delegate: AgentRuntimeHomeService | null = null;
 
@@ -124,9 +145,16 @@ export class CodexRuntimeHomeService {
     return this.delegate;
   }
 
-  prepareRuntimeHome(runtimeKey: string): CodexRuntimeHomeResult {
+  prepareRuntimeHome(
+    runtimeKey: string,
+    options: CodexRuntimeHomeOptions = {}
+  ): CodexRuntimeHomeResult {
     const runtimeHome = this.getDelegate().prepareRuntimeHome(runtimeKey);
-    ensureSharedCodexRuntimeSessions(runtimeHome.sourceHomePath, runtimeHome.homePath);
+    if (options.shareSessions) {
+      ensureSharedCodexRuntimeSessions(runtimeHome.sourceHomePath, runtimeHome.homePath);
+    } else {
+      ensureIsolatedCodexRuntimeSessions(runtimeHome.homePath);
+    }
     return runtimeHome;
   }
 

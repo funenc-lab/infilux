@@ -343,7 +343,9 @@ describe('session IPC handlers', () => {
       },
     });
 
-    expect(sessionTestDoubles.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-plain-codex');
+    expect(sessionTestDoubles.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-plain-codex', {
+      shareSessions: false,
+    });
     expect(sessionTestDoubles.create).toHaveBeenCalledWith(
       event.sender,
       expect.objectContaining({
@@ -366,6 +368,31 @@ describe('session IPC handlers', () => {
         }),
       })
     );
+  });
+
+  it('shares Codex history only for explicit resume launches', async () => {
+    const event = createEvent();
+
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: 'codex',
+      args: ['resume', 'codex-session-1'],
+      metadata: {
+        uiSessionId: 'ui-session-resume-codex',
+        agentId: 'codex',
+        agentCommand: 'codex',
+      },
+    });
+
+    expect(sessionTestDoubles.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-resume-codex', {
+      shareSessions: true,
+    });
   });
 
   it('serializes Codex agent creation by UI session id before starting the runtime process', async () => {

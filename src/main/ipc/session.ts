@@ -14,6 +14,7 @@ import {
 } from '../services/agent/AgentCapabilityLaunchService';
 import type { PreparedAgentCapabilityLaunch } from '../services/agent/AgentCapabilityProviderAdapter';
 import { codexRuntimeHomeService } from '../services/agent/CodexRuntimeHomeService';
+import { shouldShareCodexSessionHistory } from '../services/agent/CodexSessionHistoryPolicy';
 import { sessionManager } from '../services/session/SessionManager';
 
 function toSessionCreateOptions(options: TerminalCreateOptions = {}): SessionCreateOptions {
@@ -128,7 +129,8 @@ function ensureCodexRuntimeHome(options: SessionCreateOptions): SessionCreateOpt
       ? metadata.uiSessionId
       : undefined;
   const runtimeHome = codexRuntimeHomeService.prepareRuntimeHome(
-    uiSessionId ?? `${options.cwd ?? 'codex'}:${Date.now()}`
+    uiSessionId ?? `${options.cwd ?? 'codex'}:${Date.now()}`,
+    { shareSessions: shouldShareCodexSessionHistory(options) }
   );
 
   return {

@@ -101,6 +101,33 @@ afterEach(() => {
 });
 
 describe('CodexSessionSubagentService', () => {
+  it('resolves recent root session files from shared metadata without fallback path scans', async () => {
+    const sessionsDir = createTempDir('codex-session-subagents-');
+    let now = Date.now();
+    writeSessionMetaFile({
+      sessionsDir,
+      threadId: 'root-1',
+      timestampMs: now - 10_000,
+      cwd: '/repo/worktree',
+    });
+    const metadata = await import('../codexSessionMetadata');
+    const findCodexSessionFileByThreadId = vi.fn(metadata.findCodexSessionFileByThreadId);
+    const listLive = vi.fn<() => Promise<ListLiveAgentSubagentsResult>>().mockResolvedValue({
+      items: [],
+      generatedAt: now,
+    });
+    const service = new CodexSessionSubagentService({ listLive }, sessionsDir, {
+      now: () => now,
+      metadata: { findCodexSessionFileByThreadId },
+    });
+
+    await service.listSession({ providerSessionId: 'root-1', cwd: '/repo/worktree' });
+    now += 10_000;
+    await service.listSession({ providerSessionId: 'root-1', cwd: '/repo/worktree' });
+
+    expect(findCodexSessionFileByThreadId).not.toHaveBeenCalled();
+  });
+
   it('lists completed subagents for a provider session across nested descendants', async () => {
     const sessionsDir = createTempDir('codex-session-subagents-');
     const now = Date.now();

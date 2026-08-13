@@ -99,6 +99,16 @@ interface CodexSessionSubagentMetaRecord {
   meta: CodexSessionSubagentMeta;
 }
 
+interface CodexSubagentTrackerMetadataAccess {
+  findCodexSessionFileByThreadId: typeof findCodexSessionFileByThreadId;
+  readCodexSessionMeta: typeof readCodexSessionMeta;
+  readCodexSessionMetaRecords: typeof readCodexSessionMetaRecords;
+}
+
+export interface CodexSubagentTrackerOptions {
+  metadata?: Partial<CodexSubagentTrackerMetadataAccess>;
+}
+
 export interface CodexSubagentTrackerState {
   offset: number;
   remainder: string;
@@ -608,12 +618,24 @@ async function readAppendedLogChunk(
 export class CodexSubagentTracker {
   private readonly state = createEmptyCodexSubagentTrackerState();
   private readonly logPath: string;
+  private readonly metadata: CodexSubagentTrackerMetadataAccess;
+  private refreshPromise: Promise<void> | null = null;
   private readonly sessionsDir: string;
   private readonly sessionFileByThreadId = new Map<string, string>();
 
-  constructor(logPath = CODEX_TUI_LOG_PATH, sessionsDir = CODEX_SESSIONS_DIR) {
+  constructor(
+    logPath = CODEX_TUI_LOG_PATH,
+    sessionsDir = CODEX_SESSIONS_DIR,
+    options: CodexSubagentTrackerOptions = {}
+  ) {
     this.logPath = logPath;
     this.sessionsDir = sessionsDir;
+    this.metadata = {
+      findCodexSessionFileByThreadId,
+      readCodexSessionMeta,
+      readCodexSessionMetaRecords,
+      ...options.metadata,
+    };
   }
 
   async listLive(
@@ -632,7 +654,29 @@ export class CodexSubagentTracker {
     };
   }
 
-  private async refresh(): Promise<void> {
+  private refresh(): Promise<void> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    const refreshPromise = this.refreshNow();
+    this.refreshPromise = refreshPromise;
+    void refreshPromise.then(
+      () => {
+        if (this.refreshPromise === refreshPromise) {
+          this.refreshPromise = null;
+        }
+      },
+      () => {
+        if (this.refreshPromise === refreshPromise) {
+          this.refreshPromise = null;
+        }
+      }
+    );
+    return refreshPromise;
+  }
+
+  private async refreshNow(): Promise<void> {
     let fileStat: Stats;
 
     try {
@@ -674,7 +718,7 @@ export class CodexSubagentTracker {
   private async hydrateSubagentsFromSessionFiles(): Promise<void> {
     const cutoff = Date.now() - MAX_TRACKED_STATE_RETENTION_MS;
     const recentMetaRecords: CodexSessionSubagentMetaRecord[] = (
-      await readCodexSessionMetaRecords(this.sessionsDir, cutoff)
+      await this.metadata.readCodexSessionMetaRecords(this.sessionsDir, cutoff)
     ).flatMap((record) => {
       const meta = toCodexSessionSubagentMeta(record.meta);
       return meta ? [{ ...record, meta }] : [];
@@ -698,7 +742,7 @@ export class CodexSubagentTracker {
         continue;
       }
 
-      const meta = await readCodexSessionMeta(sessionFile);
+      const meta = await this.metadata.readCodexSessionMeta(sessionFile);
       const subagentMeta = meta ? toCodexSessionSubagentMeta(meta) : null;
       if (!subagentMeta) {
         continue;
@@ -714,7 +758,7 @@ export class CodexSubagentTracker {
       return cached;
     }
 
-    const resolved = await findCodexSessionFileByThreadId(this.sessionsDir, threadId);
+    const resolved = await this.metadata.findCodexSessionFileByThreadId(this.sessionsDir, threadId);
     if (resolved) {
       this.sessionFileByThreadId.set(threadId, resolved);
     }

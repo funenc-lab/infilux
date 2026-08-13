@@ -620,6 +620,38 @@ describe('SessionManager', () => {
     });
   });
 
+  it('uses the persistent UI session identity for local agent transcripts', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      metadata: { uiSessionId: 'agent-ui-session-1' },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    pty.emitData(sessionId, 'latest agent output');
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    pty.emitExit(sessionId, 0);
+    await flushAsyncWork();
+
+    await manager.getTranscriptPage({ sessionId, maxBytes: 512 });
+
+    expect(sessionTestDoubles.transcriptArchiveOpen).toHaveBeenCalledWith('agent-ui-session-1');
+    expect(sessionTestDoubles.transcriptArchiveAppend).toHaveBeenCalledWith(
+      'agent-ui-session-1',
+      'latest agent output'
+    );
+    expect(sessionTestDoubles.transcriptArchiveFlush).toHaveBeenCalledWith('agent-ui-session-1');
+    expect(sessionTestDoubles.transcriptArchiveReadPage).toHaveBeenCalledWith({
+      sessionId: 'agent-ui-session-1',
+      beforeByteOffset: undefined,
+      maxBytes: 512,
+    });
+  });
+
   it('creates local sessions from web contents, rolls back failed PTY creation, and proxies local controls', async () => {
     const window = createWindow(1);
     const target = window.webContents as unknown as Parameters<SessionManager['create']>[0];

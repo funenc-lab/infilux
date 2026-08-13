@@ -17,6 +17,7 @@ const SESSION_TRANSCRIPT_FILENAME_SUFFIX = '.log';
 const SESSION_TRANSCRIPT_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/u;
 
 export const MAX_SESSION_TRANSCRIPT_PAGE_BYTES = 256 * 1024;
+export const DEFAULT_MAX_SESSION_TRANSCRIPT_BYTES = 32 * 1024 * 1024;
 
 export interface SessionTranscriptArchivePageRequest {
   sessionId: string;
@@ -35,6 +36,7 @@ export interface SessionTranscriptArchivePage {
 
 export interface SessionTranscriptArchiveOptions {
   rootDirectory?: string;
+  maxBytes?: number;
 }
 
 function isUtf8ContinuationByte(value: number | undefined): boolean {
@@ -107,18 +109,40 @@ function normalizeBeforeByteOffset(value: number | undefined, size: number): num
   return value;
 }
 
+function normalizeArchiveCapacity(maxBytes: number | undefined): number {
+  const resolved = maxBytes ?? DEFAULT_MAX_SESSION_TRANSCRIPT_BYTES;
+  if (!Number.isSafeInteger(resolved) || resolved <= 0) {
+    throw new RangeError(`Invalid session transcript capacity: ${resolved}`);
+  }
+  return resolved;
+}
+
+function takeUtf8ByteTail(buffer: Buffer, maxBytes: number): Buffer {
+  if (maxBytes <= 0 || buffer.length === 0) {
+    return Buffer.alloc(0);
+  }
+
+  const requestedStart = Math.max(0, buffer.length - maxBytes);
+  const candidate = buffer.subarray(requestedStart);
+  const safeStart = findSafeUtf8Start(candidate);
+  const safeEnd = findSafeUtf8End(candidate, safeStart);
+  return Buffer.from(candidate.subarray(safeStart, safeEnd));
+}
+
 function getDefaultRootDirectory(): string {
   return join(homedir(), RUNTIME_STATE_DIRNAME, SESSION_TRANSCRIPT_ARCHIVE_DIRNAME);
 }
 
 export class SessionTranscriptArchive {
   private readonly rootDirectory: string;
+  private readonly maxBytes: number;
   private readonly queues = new Map<string, Promise<void>>();
   private readonly openedSessionIds = new Set<string>();
   private readonly failures = new Map<string, Error>();
 
   constructor(options: SessionTranscriptArchiveOptions = {}) {
     this.rootDirectory = options.rootDirectory ?? getDefaultRootDirectory();
+    this.maxBytes = normalizeArchiveCapacity(options.maxBytes);
   }
 
   async open(sessionId: string): Promise<void> {
@@ -134,7 +158,7 @@ export class SessionTranscriptArchive {
 
     void this.enqueue(normalizedSessionId, async () => {
       await this.ensureOpen(normalizedSessionId);
-      await appendFile(this.getFilePath(normalizedSessionId), data, 'utf8');
+      await this.appendBounded(normalizedSessionId, data);
     });
   }
 
@@ -241,6 +265,41 @@ export class SessionTranscriptArchive {
     await writeFile(filePath, '', { encoding: 'utf8', flag: 'a', mode: 0o600 });
     await chmod(filePath, 0o600);
     this.openedSessionIds.add(sessionId);
+  }
+
+  private async appendBounded(sessionId: string, data: string): Promise<void> {
+    const filePath = this.getFilePath(sessionId);
+    const incoming = takeUtf8ByteTail(Buffer.from(data, 'utf8'), this.maxBytes);
+    if (incoming.length === 0) {
+      return;
+    }
+
+    const file = await openFile(filePath, 'r');
+    let size: number;
+    try {
+      ({ size } = await file.stat());
+      if (size + incoming.length <= this.maxBytes) {
+        await appendFile(filePath, incoming);
+        return;
+      }
+
+      const retainedBytes = Math.max(0, this.maxBytes - incoming.length);
+      const existing = await this.readUtf8Tail(file, size, retainedBytes);
+      await writeFile(filePath, Buffer.concat([existing, incoming]));
+    } finally {
+      await file.close();
+    }
+  }
+
+  private async readUtf8Tail(file: FileHandle, size: number, maxBytes: number): Promise<Buffer> {
+    if (maxBytes <= 0 || size <= 0) {
+      return Buffer.alloc(0);
+    }
+
+    const requestedStart = Math.max(0, size - maxBytes);
+    const buffer = Buffer.alloc(size - requestedStart);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, requestedStart);
+    return takeUtf8ByteTail(buffer.subarray(0, bytesRead), maxBytes);
   }
 
   private getFilePath(sessionId: string): string {

@@ -34,6 +34,50 @@ describe('SessionTranscriptArchive', () => {
     });
   });
 
+  it('retains only the newest transcript bytes when the archive reaches its capacity', async () => {
+    const boundedArchive = new SessionTranscriptArchive({
+      rootDirectory,
+      maxBytes: 16,
+    });
+
+    boundedArchive.append('agent-1', 'start-');
+    boundedArchive.append('agent-1', 'middle-');
+    boundedArchive.append('agent-1', 'end-123456');
+    await boundedArchive.flush('agent-1');
+
+    await expect(
+      boundedArchive.readPage({ sessionId: 'agent-1', maxBytes: 1024 })
+    ).resolves.toEqual({
+      text: 'iddle-end-123456',
+      startByteOffset: 0,
+      endByteOffset: 16,
+      hasMore: false,
+      totalBytes: 16,
+      health: 'complete',
+    });
+  });
+
+  it('retains complete UTF-8 characters when compacting a transcript', async () => {
+    const boundedArchive = new SessionTranscriptArchive({
+      rootDirectory,
+      maxBytes: 8,
+    });
+
+    boundedArchive.append('agent-1', `ab\u{1F680}cdef`);
+    await boundedArchive.flush('agent-1');
+
+    await expect(
+      boundedArchive.readPage({ sessionId: 'agent-1', maxBytes: 1024 })
+    ).resolves.toEqual({
+      text: `\u{1F680}cdef`,
+      startByteOffset: 0,
+      endByteOffset: 8,
+      hasMore: false,
+      totalBytes: 8,
+      health: 'complete',
+    });
+  });
+
   it('returns a valid UTF-8 page when the byte boundary crosses an emoji', async () => {
     archive.append('agent-1', `a\u{1F680}b`);
     await archive.flush('agent-1');

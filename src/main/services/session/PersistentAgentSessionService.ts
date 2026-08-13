@@ -146,17 +146,19 @@ type PersistentAgentTranscriptDeleter = (record: PersistentAgentSessionRecord) =
 async function deletePersistentAgentTranscript(
   record: PersistentAgentSessionRecord
 ): Promise<void> {
-  const sessionId = record.backendSessionId;
-  if (!sessionId) {
+  const backendSessionId = record.backendSessionId;
+  if (!backendSessionId) {
     return;
   }
 
   if (record.hostKind === 'supervisor') {
-    await localSupervisorRuntime.deleteTranscript(sessionId);
+    await localSupervisorRuntime.deleteTranscript(backendSessionId);
     return;
   }
 
-  await sessionTranscriptArchive.delete(sessionId);
+  if (record.uiSessionId) {
+    await sessionTranscriptArchive.delete(record.uiSessionId);
+  }
 }
 
 export class PersistentAgentSessionService {

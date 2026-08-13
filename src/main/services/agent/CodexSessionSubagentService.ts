@@ -18,7 +18,9 @@ import {
 
 const DEFAULT_LIVE_IDLE_MS = 15 * 60 * 1_000;
 const MAX_SESSION_SCAN_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
-const DEFAULT_METADATA_CACHE_TTL_MS = 5_000;
+const DEFAULT_METADATA_CACHE_TTL_MS = 15_000;
+const DEFAULT_MISSING_SESSION_FILE_CACHE_TTL_MS = 5_000;
+const DEFAULT_SESSION_FILE_CACHE_TTL_MS = 60_000;
 const METADATA_SCAN_BUCKET_MS = 60_000;
 
 interface LiveSubagentLookup {
@@ -49,8 +51,11 @@ interface CodexSessionMetadataAccess {
 
 interface CodexSessionSubagentServiceOptions {
   cacheTtlMs?: number;
+  metadataCacheTtlMs?: number;
+  missingSessionFileCacheTtlMs?: number;
   metadata?: Partial<CodexSessionMetadataAccess>;
   now?: () => number;
+  sessionFileCacheTtlMs?: number;
 }
 
 type ListSessionAgentSubagentsRequestWithLiveSnapshot = ListSessionAgentSubagentsRequest & {
@@ -171,11 +176,13 @@ function mergeSessionSubagentItems(
 }
 
 export class CodexSessionSubagentService {
-  private readonly cacheTtlMs: number;
   private inFlightLiveLookup: CachedLiveLookup | null = null;
   private readonly metadata: CodexSessionMetadataAccess;
+  private readonly metadataCacheTtlMs: number;
   private metadataRecordsLookup: CachedSessionMetaRecordsLookup | null = null;
+  private readonly missingSessionFileCacheTtlMs: number;
   private readonly now: () => number;
+  private readonly sessionFileCacheTtlMs: number;
   private readonly sessionFileLookupByThreadId = new Map<string, CachedSessionFileLookup>();
 
   constructor(
@@ -183,7 +190,21 @@ export class CodexSessionSubagentService {
     private readonly sessionsDir = CODEX_SESSIONS_DIR,
     options: CodexSessionSubagentServiceOptions = {}
   ) {
-    this.cacheTtlMs = Math.max(0, options.cacheTtlMs ?? DEFAULT_METADATA_CACHE_TTL_MS);
+    const compatibilityCacheTtlMs = options.cacheTtlMs;
+    this.metadataCacheTtlMs = Math.max(
+      0,
+      options.metadataCacheTtlMs ?? compatibilityCacheTtlMs ?? DEFAULT_METADATA_CACHE_TTL_MS
+    );
+    this.missingSessionFileCacheTtlMs = Math.max(
+      0,
+      options.missingSessionFileCacheTtlMs ??
+        compatibilityCacheTtlMs ??
+        DEFAULT_MISSING_SESSION_FILE_CACHE_TTL_MS
+    );
+    this.sessionFileCacheTtlMs = Math.max(
+      0,
+      options.sessionFileCacheTtlMs ?? compatibilityCacheTtlMs ?? DEFAULT_SESSION_FILE_CACHE_TTL_MS
+    );
     this.metadata = {
       findCodexSessionFileByThreadId,
       readCodexSessionMeta,
@@ -263,18 +284,44 @@ export class CodexSessionSubagentService {
       return cached.promise;
     }
 
-    const promise = this.metadata.findCodexSessionFileByThreadId(this.sessionsDir, threadId);
+    const promise = this.resolveSessionFileByThreadId(threadId, nowMs);
     this.sessionFileLookupByThreadId.set(threadId, {
-      expiresAt: nowMs + this.cacheTtlMs,
+      expiresAt: nowMs + this.missingSessionFileCacheTtlMs,
       promise,
     });
-    void promise.catch(() => {
-      const current = this.sessionFileLookupByThreadId.get(threadId);
-      if (current?.promise === promise) {
-        this.sessionFileLookupByThreadId.delete(threadId);
+    void promise.then(
+      (filePath) => {
+        const current = this.sessionFileLookupByThreadId.get(threadId);
+        if (current?.promise === promise) {
+          current.expiresAt =
+            this.now() +
+            (filePath ? this.sessionFileCacheTtlMs : this.missingSessionFileCacheTtlMs);
+        }
+      },
+      () => {
+        const current = this.sessionFileLookupByThreadId.get(threadId);
+        if (current?.promise === promise) {
+          this.sessionFileLookupByThreadId.delete(threadId);
+        }
       }
-    });
+    );
     return promise;
+  }
+
+  private async resolveSessionFileByThreadId(
+    threadId: string,
+    nowMs: number
+  ): Promise<string | null> {
+    const recentRecords = await this.readSessionMetaRecords(
+      Math.max(0, nowMs - MAX_SESSION_SCAN_WINDOW_MS),
+      nowMs
+    );
+    const recentRecord = recentRecords.find((record) => record.meta.threadId === threadId);
+    if (recentRecord) {
+      return recentRecord.filePath;
+    }
+
+    return this.metadata.findCodexSessionFileByThreadId(this.sessionsDir, threadId);
   }
 
   private async readSessionMetaRecords(
@@ -295,7 +342,7 @@ export class CodexSessionSubagentService {
       endMs
     );
     this.metadataRecordsLookup = {
-      expiresAt: nowMs + this.cacheTtlMs,
+      expiresAt: nowMs + this.metadataCacheTtlMs,
       promise,
       startMs: bucketedStartMs,
     };

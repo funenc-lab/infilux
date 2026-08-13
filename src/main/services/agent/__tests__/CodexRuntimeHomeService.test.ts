@@ -1,5 +1,6 @@
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -47,6 +48,8 @@ describe('CodexRuntimeHomeService', () => {
     const runtimeRoot = createTempRoot();
     writeFileSync(path.join(sourceHome, 'auth.json'), '{}');
     writeFileSync(path.join(sourceHome, 'config.toml'), 'model = "gpt-5.5"');
+    mkdirSync(path.join(sourceHome, 'sessions'), { recursive: true });
+    writeFileSync(path.join(sourceHome, 'sessions', 'global-history.jsonl'), 'global');
     const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
 
     const result = service.prepareRuntimeHome('session/with spaces');
@@ -61,6 +64,8 @@ describe('CodexRuntimeHomeService', () => {
     expect(readlinkSync(path.join(result.homePath, 'config.toml'))).toBe(
       path.join(sourceHome, 'config.toml')
     );
+    expect(lstatSync(path.join(result.homePath, 'sessions')).isSymbolicLink()).toBe(false);
+    expect(existsSync(path.join(result.homePath, 'sessions', 'global-history.jsonl'))).toBe(false);
   });
 
   it('resolves the scoped Codex home when the application config is initialized after module loading', () => {
@@ -95,7 +100,7 @@ describe('CodexRuntimeHomeService', () => {
     writeFileSync(path.join(runtimeHome, sessionDayPath, 'rollout-local.jsonl'), 'local');
     const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
 
-    const result = service.prepareRuntimeHome('ui-session-legacy');
+    const result = service.prepareRuntimeHome('ui-session-legacy', { shareSessions: true });
 
     expect(readlinkSync(path.join(result.homePath, 'sessions'))).toBe(
       path.join(sourceHome, 'sessions')

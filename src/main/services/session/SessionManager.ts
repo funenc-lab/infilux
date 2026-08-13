@@ -55,6 +55,7 @@ interface ManagedSessionRecord extends SessionDescriptor {
   streamState?: 'buffering' | 'attaching' | 'live';
   pendingExit?: SessionExitEvent;
   transcriptArchiveState?: 'ready' | 'degraded';
+  transcriptArchiveId?: string;
 }
 
 const SESSION_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
@@ -171,6 +172,7 @@ export class SessionManager {
   readonly localPtyManager = new PtyManager();
 
   private readonly sessions = new Map<string, ManagedSessionRecord>();
+  private readonly transcriptArchiveIdsByBackendSessionId = new Map<string, string>();
   private readonly suspendedWindowIds = new Set<number>();
   private localSupervisorSubscriptionsInitialized = false;
   private readonly remoteSubscriptions = new Map<
@@ -624,8 +626,10 @@ export class SessionManager {
     const session = this.sessions.get(request.sessionId);
     if (!session) {
       try {
+        const transcriptArchiveId =
+          this.transcriptArchiveIdsByBackendSessionId.get(request.sessionId) ?? request.sessionId;
         const page = await sessionTranscriptArchive.readPage({
-          sessionId: request.sessionId,
+          sessionId: transcriptArchiveId,
           beforeByteOffset: request.beforeByteOffset,
           maxBytes,
         });
@@ -701,7 +705,10 @@ export class SessionManager {
       return localSupervisorRuntime.getTranscriptPage(request);
     }
 
-    return sessionTranscriptArchive.readPage(request);
+    return sessionTranscriptArchive.readPage({
+      ...request,
+      sessionId: session.transcriptArchiveId ?? request.sessionId,
+    });
   }
 
   private toSessionTranscriptPage(
@@ -882,6 +889,8 @@ export class SessionManager {
     const kind = options.kind ?? 'terminal';
     const cwd = options.cwd || process.env.HOME || process.env.USERPROFILE || '/';
     const sessionId = this.localPtyManager.allocateId();
+    const transcriptArchiveId =
+      kind === 'agent' ? (getPersistentUiSessionId(options.metadata) ?? sessionId) : undefined;
     startupLabel = sessionId;
     const record: ManagedSessionRecord = {
       sessionId,
@@ -893,6 +902,7 @@ export class SessionManager {
       createdAt: now(),
       metadata: options.metadata,
       attachedWindowIds: new Set([windowId]),
+      ...(transcriptArchiveId ? { transcriptArchiveId } : {}),
       ...(options.hostSession ? { hostSession: options.hostSession } : {}),
       replayBuffer: initialReplayTail,
       pendingHostReplayDedup:
@@ -900,6 +910,9 @@ export class SessionManager {
       streamState: 'buffering',
     };
     this.sessions.set(sessionId, record);
+    if (transcriptArchiveId) {
+      this.transcriptArchiveIdsByBackendSessionId.set(sessionId, transcriptArchiveId);
+    }
     await this.initializeLocalAgentTranscript(record, initialReplay);
 
     try {
@@ -926,6 +939,7 @@ export class SessionManager {
         errorCode: typeof nodeError.code === 'string' ? nodeError.code : null,
       });
       this.sessions.delete(sessionId);
+      this.transcriptArchiveIdsByBackendSessionId.delete(sessionId);
       throw error;
     }
 
@@ -1118,7 +1132,7 @@ export class SessionManager {
     }
 
     try {
-      await sessionTranscriptArchive.open(session.sessionId);
+      await sessionTranscriptArchive.open(session.transcriptArchiveId ?? session.sessionId);
       session.transcriptArchiveState = 'ready';
       this.archiveLocalAgentOutput(session, initialReplay);
     } catch (error) {
@@ -1132,7 +1146,7 @@ export class SessionManager {
     }
 
     try {
-      sessionTranscriptArchive.append(session.sessionId, data);
+      sessionTranscriptArchive.append(session.transcriptArchiveId ?? session.sessionId, data);
       session.transcriptArchiveState = 'ready';
     } catch (error) {
       this.markLocalAgentTranscriptDegraded(session, error);
@@ -1145,7 +1159,7 @@ export class SessionManager {
     }
 
     try {
-      await sessionTranscriptArchive.flush(session.sessionId);
+      await sessionTranscriptArchive.flush(session.transcriptArchiveId ?? session.sessionId);
       session.transcriptArchiveState = 'ready';
     } catch (error) {
       this.markLocalAgentTranscriptDegraded(session, error);

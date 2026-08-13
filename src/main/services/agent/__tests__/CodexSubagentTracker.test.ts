@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   applyCodexLogLine,
   applyCodexSessionSubagentMeta,
@@ -49,6 +49,28 @@ function buildSessionDayDir(rootDir: string, timestampMs: number): string {
 }
 
 describe('CodexSubagentTracker', () => {
+  it('coalesces concurrent refreshes before scanning Codex session metadata', async () => {
+    const tempDir = createTempDir('codex-subagent-tracker-');
+    let resolveMetadataScan: (records: []) => void = () => undefined;
+    const metadataScan = new Promise<[]>((resolve) => {
+      resolveMetadataScan = resolve;
+    });
+    const readCodexSessionMetaRecords = vi.fn(() => metadataScan);
+    const tracker = new CodexSubagentTracker(path.join(tempDir, 'missing.log'), tempDir, {
+      metadata: { readCodexSessionMetaRecords },
+    });
+
+    const firstLookup = tracker.listLive();
+    const secondLookup = tracker.listLive();
+    await vi.waitFor(() => {
+      expect(readCodexSessionMetaRecords).toHaveBeenCalledTimes(1);
+    });
+    resolveMetadataScan([]);
+    await Promise.all([firstLookup, secondLookup]);
+
+    expect(readCodexSessionMetaRecords).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps incremental reads when the unread tail stays within the bounded window', () => {
     expect(resolveCodexLogReadWindow(4_096, 6_144, 8_192)).toEqual({
       start: 4_096,

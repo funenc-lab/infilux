@@ -140,7 +140,7 @@ describe('CodexCapabilityProviderAdapter', () => {
         '-c',
         'mcp_servers.shared-project.enabled=true',
         '-c',
-        'skills.config=[{enabled = false, path = "/repo/worktrees/feat-a/.codex/skills/review/SKILL.md"}, {enabled = true, path = "/repo/.codex/skills/ship/SKILL.md"}]',
+        'skills.config=[{enabled = true, path = "/repo/.codex/skills/ship/SKILL.md"}]',
         'resume',
         'codex-session-1',
       ])
@@ -149,11 +149,11 @@ describe('CodexCapabilityProviderAdapter', () => {
       'codex -c "mcp_servers.shared-project.transport=\\"stdio\\""'
     );
     expect(projection.sessionOverrides?.fallbackArgs?.at(-1)).toContain(
-      ' -c "skills.config=[{enabled = false, path = \\"/repo/worktrees/feat-a/.codex/skills/review/SKILL.md\\"}, {enabled = true, path = \\"/repo/.codex/skills/ship/SKILL.md\\"}]"'
+      ' -c "skills.config=[{enabled = true, path = \\"/repo/.codex/skills/ship/SKILL.md\\"}]"'
     );
   });
 
-  it('injects every discovered source path for the same logical skill id', () => {
+  it('does not inject disabled skills into Codex runtime configuration', () => {
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
@@ -185,13 +185,9 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
 
     expect(projection.applied).toBe(true);
-    expect(projection.sessionOverrides?.args).toEqual(
-      expect.arrayContaining([
-        '-c',
-        'skills.config=[{enabled = false, path = "/Users/test/.agents/skills/skill-creator/SKILL.md"}, {enabled = false, path = "/Users/test/.codex/skills/.system/skill-creator/SKILL.md"}, {enabled = false, path = "/Users/test/.codex/skills/skill-creator/SKILL.md"}]',
-        'resume',
-        'codex-session-1',
-      ])
+    expect(projection.sessionOverrides?.metadata?.codexSkillIds).toEqual([]);
+    expect(projection.sessionOverrides?.args ?? []).not.toContainEqual(
+      expect.stringContaining('skills.config')
     );
   });
 
@@ -389,7 +385,7 @@ describe('CodexCapabilityProviderAdapter', () => {
         '-c',
         'mcp_servers.shared-project.transport="stdio"',
         '-c',
-        'skills.config=[{enabled = false, path = "/repo/worktrees/feat-a/.codex/skills/review/SKILL.md"}, {enabled = true, path = "/repo/.codex/skills/ship/SKILL.md"}]',
+        'skills.config=[{enabled = true, path = "/repo/.codex/skills/ship/SKILL.md"}]',
         'resume',
         'codex-session-1',
       ])
@@ -422,7 +418,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       "& 'C:\\Program Files\\OpenAI\\codex.exe' -c 'mcp_servers.shared-project.transport=\"stdio\"'"
     );
     expect(injectedCommand).toContain(
-      '-c \'skills.config=[{enabled = false, path = "/repo/worktrees/feat-a/.codex/skills/review/SKILL.md"}, {enabled = true, path = "/repo/.codex/skills/ship/SKILL.md"}]\' resume codex-session-9'
+      '-c \'skills.config=[{enabled = true, path = "/repo/.codex/skills/ship/SKILL.md"}]\' resume codex-session-9'
     );
   });
 
@@ -503,7 +499,9 @@ describe('CodexCapabilityProviderAdapter', () => {
       repoPath: '/repo',
       worktreePath: '/repo/worktrees/feat-a',
     });
-    expect(codexRuntimeHomeService.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-1');
+    expect(codexRuntimeHomeService.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-1', {
+      shareSessions: false,
+    });
     expect(result.launchResult).toMatchObject({
       provider: 'codex',
       hash: 'hash-1',
@@ -517,7 +515,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       metadata: {
         providerLaunchStrategy: 'codex-runtime-config',
         codexMcpServerIds: ['shared-project'],
-        codexSkillIds: ['legacy-skill:review', 'legacy-skill:ship'],
+        codexSkillIds: ['legacy-skill:ship'],
         codexRuntimeHome: {
           homePath: '/runtime/codex/ui-session-1',
           sourceHomePath: '/Users/test/.codex',
@@ -531,7 +529,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       'mcp_servers.shared-project.command=\\"/bin/echo\\"'
     );
     expect(result.sessionOverrides?.initialCommand).toContain(
-      'skills.config=[{enabled = false, path = \\"/repo/worktrees/feat-a/.codex/skills/review/SKILL.md\\"}, {enabled = true, path = \\"/repo/.codex/skills/ship/SKILL.md\\"}]'
+      'skills.config=[{enabled = true, path = \\"/repo/.codex/skills/ship/SKILL.md\\"}]'
     );
   });
 });

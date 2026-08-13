@@ -16,6 +16,7 @@ const persistentAgentSessionServiceTestDoubles = vi.hoisted(() => {
   });
   const listCachedSessions = vi.fn<() => PersistentAgentSessionRecord[]>(() => []);
   const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-persistent-session');
+  const deleteTranscriptArchive = vi.fn(async (_sessionId: string) => undefined);
 
   return {
     listSessions,
@@ -24,6 +25,7 @@ const persistentAgentSessionServiceTestDoubles = vi.hoisted(() => {
     deleteSession,
     listCachedSessions,
     requestMainProcessDiagnosticsCapture,
+    deleteTranscriptArchive,
   };
 });
 
@@ -40,6 +42,12 @@ vi.mock('../PersistentAgentSessionRepository', () => ({
 vi.mock('../../../utils/mainProcessDiagnostics', () => ({
   requestMainProcessDiagnosticsCapture:
     persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture,
+}));
+
+vi.mock('../SessionTranscriptArchive', () => ({
+  sessionTranscriptArchive: {
+    delete: persistentAgentSessionServiceTestDoubles.deleteTranscriptArchive,
+  },
 }));
 
 import { PersistentAgentSessionService } from '../PersistentAgentSessionService';
@@ -79,6 +87,8 @@ describe('PersistentAgentSessionService', () => {
     persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture.mockReturnValue(
       'diag-persistent-session'
     );
+    persistentAgentSessionServiceTestDoubles.deleteTranscriptArchive.mockReset();
+    persistentAgentSessionServiceTestDoubles.deleteTranscriptArchive.mockResolvedValue(undefined);
   });
 
   it('upserts persistent session records without probing the host', async () => {
@@ -601,6 +611,21 @@ describe('PersistentAgentSessionService', () => {
     );
     expect(deleteTranscript.mock.invocationCallOrder[0]).toBeLessThan(
       persistentAgentSessionServiceTestDoubles.deleteSession.mock.invocationCallOrder[0] ?? Infinity
+    );
+  });
+
+  it('deletes local PTY transcripts by stable UI session identity', async () => {
+    const record = makeRecord({
+      uiSessionId: 'agent-ui-session-1',
+      backendSessionId: 'backend-transcript-1',
+    });
+    persistentAgentSessionServiceTestDoubles.getSession.mockResolvedValue(record);
+    const service = new PersistentAgentSessionService();
+
+    await service.abandonSession(record.uiSessionId);
+
+    expect(persistentAgentSessionServiceTestDoubles.deleteTranscriptArchive).toHaveBeenCalledWith(
+      'agent-ui-session-1'
     );
   });
 });
