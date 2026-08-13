@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { scheduleXtermActivationRefresh } from '../xtermActivationRefresh';
 
 describe('xtermActivationRefresh', () => {
-  it('runs fit, refresh, and focus after the activation frame settles', () => {
+  it('runs fit and refresh after the activation frame settles', () => {
     const scheduledFrames: FrameRequestCallback[] = [];
     const runFrame = () => {
       const callback = scheduledFrames.shift();
@@ -14,12 +14,9 @@ describe('xtermActivationRefresh', () => {
 
     const fitViewport = vi.fn();
     const refresh = vi.fn();
-    const focus = vi.fn();
-
     scheduleXtermActivationRefresh({
       fitViewport,
       refresh,
-      focus,
       requestAnimationFrame: (callback) => {
         scheduledFrames.push(callback);
         return scheduledFrames.length;
@@ -29,21 +26,17 @@ describe('xtermActivationRefresh', () => {
 
     expect(fitViewport).not.toHaveBeenCalled();
     expect(refresh).not.toHaveBeenCalled();
-    expect(focus).not.toHaveBeenCalled();
 
     runFrame();
     expect(fitViewport).not.toHaveBeenCalled();
     expect(refresh).not.toHaveBeenCalled();
-    expect(focus).not.toHaveBeenCalled();
 
     runFrame();
     expect(fitViewport).toHaveBeenCalledTimes(1);
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(focus).toHaveBeenCalledTimes(1);
     expect(refresh.mock.invocationCallOrder[0]).toBeGreaterThan(
       fitViewport.mock.invocationCallOrder[0]
     );
-    expect(focus.mock.invocationCallOrder[0]).toBeGreaterThan(refresh.mock.invocationCallOrder[0]);
   });
 
   it('cancels any pending activation refresh frames during cleanup', () => {
@@ -59,7 +52,6 @@ describe('xtermActivationRefresh', () => {
     const cleanup = scheduleXtermActivationRefresh({
       fitViewport: vi.fn(),
       refresh: vi.fn(),
-      focus: vi.fn(),
       requestAnimationFrame: (callback) => {
         const id = nextId++;
         scheduledFrames.push({ id, callback });

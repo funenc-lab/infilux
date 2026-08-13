@@ -134,6 +134,19 @@ describe('resolveSidebarHoverRevealFrame', () => {
     ).toBe(false);
   });
 
+  it('keeps an open reveal active when a pointer interaction focuses a sidebar control', () => {
+    expect(
+      shouldOpenSidebarHoverReveal({
+        currentActive: true,
+        documentFocused: true,
+        focusVisible: false,
+        hasActiveTextSelection: false,
+        pointerButtons: 0,
+        trigger: 'keyboard',
+      })
+    ).toBe(true);
+  });
+
   it('keeps the reveal open when focus blurs to non-focusable content under the pointer', () => {
     expect(
       shouldCloseSidebarHoverRevealAfterFocusChange({
@@ -145,6 +158,13 @@ describe('resolveSidebarHoverRevealFrame', () => {
       shouldCloseSidebarHoverRevealAfterFocusChange({
         groupHovered: false,
         nextFocusInside: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldCloseSidebarHoverRevealAfterFocusChange({
+        groupHovered: false,
+        nextFocusInside: false,
+        nextFocusManagedBySidebar: true,
       })
     ).toBe(false);
     expect(

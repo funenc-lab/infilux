@@ -26,8 +26,8 @@ describe('AgentPanel canvas mode source', () => {
     expect(agentPanelSource).toContain('canvasSessions');
     expect(agentPanelSource).toContain('workspaceCanvasWorktrees');
     expect(agentPanelSource).toContain('subagentScopeSessions');
-    expect(agentPanelSource).toContain(
-      'suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel'
+    expect(agentPanelSource).toMatch(
+      /suppressSessionMounting:\s+shouldSuppressWorkspaceCanvasPanel \|\| \(!isActive && !isCanvasDisplayMode\)/
     );
     expect(agentPanelSource).toContain(
       'isWorkspaceCanvasDisplayMode ? canvasSessions : currentWorktreeSessions'

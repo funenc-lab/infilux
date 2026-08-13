@@ -64,6 +64,7 @@ describe('SidebarFloatingMenuPortal', () => {
 
     expect(command).not.toBeNull();
     expect(host?.contains(command ?? null)).toBe(false);
+    expect(command?.closest('[data-sidebar-floating-menu-portal="true"]')).not.toBeNull();
 
     act(() => {
       command?.click();

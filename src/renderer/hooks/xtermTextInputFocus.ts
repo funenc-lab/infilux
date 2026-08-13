@@ -2,6 +2,7 @@ import type { Terminal } from '@xterm/xterm';
 
 const XTERM_TEXTAREA_SELECTOR =
   'textarea.xterm-helper-textarea, textarea[aria-label="Terminal input"], textarea';
+const XTERM_IME_COMPOSING_ATTRIBUTE = 'data-infilux-xterm-ime-composing';
 
 function isHtmlTextarea(value: unknown): value is HTMLTextAreaElement {
   return value instanceof HTMLTextAreaElement;
@@ -36,19 +37,27 @@ function focusWithoutScroll(textarea: HTMLTextAreaElement): void {
   textarea.focus({ preventScroll: true });
 }
 
+function isNativeCompositionActive(textarea: HTMLTextAreaElement): boolean {
+  return textarea.getAttribute(XTERM_IME_COMPOSING_ATTRIBUTE) === 'true';
+}
+
 export function focusXtermTextInput(terminal: Terminal | null | undefined): void {
   if (!terminal) {
     return;
   }
 
-  terminal.focus();
-
   const textarea = resolveXtermTextarea(terminal);
   if (!textarea || textarea.disabled) {
+    terminal.focus();
+    return;
+  }
+
+  if (isNativeCompositionActive(textarea)) {
     return;
   }
 
   prepareTextareaForIme(textarea);
+  terminal.focus();
   if (textarea.ownerDocument.activeElement !== textarea) {
     focusWithoutScroll(textarea);
   }
@@ -69,13 +78,24 @@ export function installXtermImeFocusBridge(terminal: Terminal | null | undefined
   const handleFocusIn = () => {
     prepareTextareaForIme(textarea);
   };
+  const handleCompositionStart = () => {
+    textarea.setAttribute(XTERM_IME_COMPOSING_ATTRIBUTE, 'true');
+  };
+  const handleCompositionEnd = () => {
+    textarea.removeAttribute(XTERM_IME_COMPOSING_ATTRIBUTE);
+  };
 
   prepareTextareaForIme(textarea);
   textarea.addEventListener('focusin', handleFocusIn);
+  textarea.addEventListener('compositionstart', handleCompositionStart);
+  textarea.addEventListener('compositionend', handleCompositionEnd);
 
   return {
     dispose: () => {
       textarea.removeEventListener('focusin', handleFocusIn);
+      textarea.removeEventListener('compositionstart', handleCompositionStart);
+      textarea.removeEventListener('compositionend', handleCompositionEnd);
+      textarea.removeAttribute(XTERM_IME_COMPOSING_ATTRIBUTE);
     },
   };
 }

@@ -10,5 +10,8 @@ export function SidebarFloatingMenuPortal({ children }: SidebarFloatingMenuPorta
     return null;
   }
 
-  return createPortal(children, document.body);
+  return createPortal(
+    <div data-sidebar-floating-menu-portal="true">{children}</div>,
+    document.body
+  );
 }

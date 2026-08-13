@@ -1,7 +1,6 @@
 interface ScheduleXtermActivationRefreshOptions {
   fitViewport: () => void;
   refresh: () => void;
-  focus: () => void;
   requestAnimationFrame: (callback: FrameRequestCallback) => number;
   cancelAnimationFrame: (handle: number) => void;
 }
@@ -9,7 +8,6 @@ interface ScheduleXtermActivationRefreshOptions {
 export function scheduleXtermActivationRefresh({
   fitViewport,
   refresh,
-  focus,
   requestAnimationFrame,
   cancelAnimationFrame,
 }: ScheduleXtermActivationRefreshOptions): () => void {
@@ -19,7 +17,6 @@ export function scheduleXtermActivationRefresh({
       innerFrameId = null;
       fitViewport();
       refresh();
-      focus();
     });
   });
   let innerFrameId: number | null = null;

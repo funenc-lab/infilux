@@ -1959,9 +1959,6 @@ export function AgentTerminal({
           fitTerminalLayout();
           refreshRenderer();
           recreateWebglRenderer();
-          if (effectiveIsActive) {
-            focusXtermTextInput(terminal);
-          }
         });
       },
       requestAnimationFrame: window.requestAnimationFrame.bind(window),
@@ -1976,7 +1973,6 @@ export function AgentTerminal({
     };
   }, [
     containerRef,
-    effectiveIsActive,
     fitTerminalLayout,
     layoutRefreshKey,
     recreateWebglRenderer,

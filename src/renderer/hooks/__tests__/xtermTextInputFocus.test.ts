@@ -70,6 +70,7 @@ describe('xterm text input focus', () => {
 
   it('preserves the active textarea while native composition is in progress', () => {
     const { terminal, textarea } = createTerminalHarness();
+    const bridge = installXtermImeFocusBridge(terminal);
 
     textarea.focus();
     textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
@@ -78,7 +79,25 @@ describe('xterm text input focus', () => {
     focusXtermTextInput(terminal);
 
     expect(document.activeElement).toBe(textarea);
+    expect(terminal.focus).not.toHaveBeenCalled();
     expect(document.querySelector(XTERM_IME_REARM_SELECTOR)).toBeNull();
+
+    bridge.dispose();
+  });
+
+  it('restores explicit terminal focus after native composition ends', () => {
+    const { terminal, textarea } = createTerminalHarness();
+    const bridge = installXtermImeFocusBridge(terminal);
+
+    textarea.focus();
+    textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+
+    focusXtermTextInput(terminal);
+
+    expect(terminal.focus).toHaveBeenCalledTimes(1);
+
+    bridge.dispose();
   });
 
   it('preserves an already active xterm textarea with pending native input', () => {

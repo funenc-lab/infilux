@@ -2099,7 +2099,7 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
-  it('restores the real xterm IME input target when a canvas terminal host moves to floating mode', async () => {
+  it('refreshes a moved canvas terminal without stealing focus from the active input target', async () => {
     const frames = installQueuedAnimationFrame();
     const terminalElement = document.createElement('div');
     const terminalTextarea = document.createElement('textarea');
@@ -2140,9 +2140,8 @@ describe('AgentTerminal integration', () => {
 
     expect(testState.xtermResult.fit).toHaveBeenCalledTimes(1);
     expect(testState.xtermResult.refreshRenderer).toHaveBeenCalledTimes(1);
-    expect(testState.terminal.focus).toHaveBeenCalledTimes(1);
-    expect(terminalTextarea.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
-    expect(document.activeElement).toBe(terminalTextarea);
+    expect(testState.terminal.focus).not.toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(terminalTextarea);
 
     terminalElement.remove();
     await mounted.unmount();

@@ -97,7 +97,6 @@ const testState = vi.hoisted(() => ({
   activationRefreshCalls: [] as Array<{
     fitViewport: () => void;
     refresh: () => void;
-    focus: () => void;
   }>,
   viewportSyncCalls: [] as Array<Record<string, unknown>>,
   terminalRenderer: 'dom' as 'dom' | 'webgl',
@@ -368,11 +367,7 @@ vi.mock('@/utils/logging', () => ({
 }));
 
 vi.mock('../xtermActivationRefresh', () => ({
-  scheduleXtermActivationRefresh: (options: {
-    fitViewport: () => void;
-    refresh: () => void;
-    focus: () => void;
-  }) => {
+  scheduleXtermActivationRefresh: (options: { fitViewport: () => void; refresh: () => void }) => {
     testState.activationRefreshCalls.push(options);
     return () => undefined;
   },
@@ -930,17 +925,6 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('does not add a competing compositionend textarea handler around xterm IME handling', async () => {
-    const mounted = mountHookHarness();
-    await act(async () => {
-      await flushMicrotasks();
-    });
-
-    expect(testState.textareaEventTypes).not.toContain('compositionend');
-
-    await mounted.unmount();
-  });
-
   it('writes composed xterm input data to the live pty session', async () => {
     const mounted = mountHookHarness();
     await act(async () => {
@@ -992,7 +976,7 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('focuses and prepares the real xterm textarea without an intermediate IME target during activation refresh', async () => {
+  it('refreshes the active terminal without scheduling a focus restore', async () => {
     const mounted = mountHookHarness();
     await act(async () => {
       await flushMicrotasks();
@@ -1001,11 +985,7 @@ describe('useXterm startup loading state', () => {
     expect(testState.activationRefreshCalls).toHaveLength(1);
     expect(testState.latestTextarea).not.toBeNull();
 
-    act(() => {
-      testState.activationRefreshCalls[0]?.focus();
-    });
-
-    expect(testState.terminalFocus).toHaveBeenCalledTimes(1);
+    expect(testState.terminalFocus).not.toHaveBeenCalled();
     expect(testState.latestTextarea?.inputMode).toBe('text');
     expect(testState.latestTextarea?.spellcheck).toBe(false);
     expect(testState.latestTextarea?.getAttribute('data-infilux-xterm-ime-ready')).toBe('true');
@@ -1016,7 +996,7 @@ describe('useXterm startup loading state', () => {
     expect(testState.latestTextarea?.style.pointerEvents).toBe('');
     expect(document.querySelector('textarea[data-infilux-xterm-ime-rearm="true"]')).toBeNull();
     expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).toBeNull();
-    expect(document.activeElement).toBe(testState.latestTextarea);
+    expect(document.activeElement).not.toBe(testState.latestTextarea);
 
     await mounted.unmount();
   });

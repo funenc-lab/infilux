@@ -72,6 +72,7 @@ import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
+import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { selectTasks, useTodoStore } from '@/stores/todo';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { buildConsoleButtonStyle, buildConsoleTypographyModel } from '../layout/consoleTypography';
@@ -168,6 +169,7 @@ import {
   buildAgentSessionPlacementIndex,
   resolveAgentGroupPositions,
 } from './agentSessionLayoutIndex';
+import { isOpenAgentSession } from './agentSessionLiveness';
 import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
 import { shouldDeferBackgroundAgentRuntimeMount } from './agentSessionRuntimeSafetyPolicy';
 import { matchesAgentSessionRepoPath, matchesAgentSessionScope } from './agentSessionScope';
@@ -1050,6 +1052,7 @@ export function AgentPanel({
   // Enhanced input state actions from store
   const setEnhancedInputOpen = useAgentSessionsStore((state) => state.setEnhancedInputOpen);
   const getEnhancedInputState = useAgentSessionsStore((state) => state.getEnhancedInputState);
+  const focusTerminal = useTerminalWriteStore((state) => state.focus);
   const shouldRenderEnhancedInput = useCallback(
     (sessionId: string) => {
       const session = sessionById.get(sessionId);
@@ -1387,6 +1390,17 @@ export function AgentPanel({
   const isWorkspaceCanvasDisplayMode =
     agentSessionDisplayMode === 'global-canvas' && isCurrentWorktreePanel;
   const isCanvasDisplayMode = agentSessionDisplayMode === 'canvas' || isWorkspaceCanvasDisplayMode;
+  const [canvasActivationEpoch, setCanvasActivationEpoch] = useState(0);
+  const wasCanvasActiveRef = useRef(isCanvasDisplayMode && isActive);
+  useEffect(() => {
+    const isCanvasActive = isCanvasDisplayMode && isActive;
+    const wasCanvasActive = wasCanvasActiveRef.current;
+    wasCanvasActiveRef.current = isCanvasActive;
+
+    if (isCanvasActive && !wasCanvasActive) {
+      setCanvasActivationEpoch((current) => current + 1);
+    }
+  }, [isActive, isCanvasDisplayMode]);
   const worktreeSessionRecoveryKey = useMemo(() => {
     if (
       isWorkspaceCanvasDisplayMode ||
@@ -1446,21 +1460,20 @@ export function AgentPanel({
       ])
     );
   }, [subagentScopeSessions]);
-  const shouldPollSessionSubagents =
-    isActive &&
-    subagentPollingScopeSessions.some(
-      (session) => sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported'
-    );
   const sessionSubagentPollTargets = useMemo(
     () =>
       subagentPollingScopeSessions.map((session) => ({
         sessionId: session.id,
         cwd: session.cwd,
         providerSessionId: session.sessionId,
-        enabled: sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported',
+        enabled:
+          isOpenAgentSession(session) &&
+          sessionSubagentViewStateBySessionId[session.id]?.kind === 'supported',
       })),
     [subagentPollingScopeSessions, sessionSubagentViewStateBySessionId]
   );
+  const shouldPollSessionSubagents =
+    isActive && sessionSubagentPollTargets.some((target) => target.enabled);
   const { itemsBySessionId: sessionScopedSubagentsBySessionId } = useSessionSubagentsBySession({
     enabled: shouldPollSessionSubagents,
     targets: sessionSubagentPollTargets,
@@ -3068,7 +3081,19 @@ export function AgentPanel({
         g.id === activeGroupId ? { ...g, activeSessionId: nextSessionId } : g
       ),
     }));
-  }, [groups, activeGroupId, cwd, setActiveId, updateCurrentGroupState]);
+
+    if (!getEnhancedInputState(nextSessionId).open) {
+      requestAnimationFrame(() => focusTerminal(nextSessionId));
+    }
+  }, [
+    activeGroupId,
+    cwd,
+    focusTerminal,
+    getEnhancedInputState,
+    groups,
+    setActiveId,
+    updateCurrentGroupState,
+  ]);
 
   const handlePrevSession = useCallback(() => {
     const activeGroup = groups.find((g) => g.id === activeGroupId);
@@ -3085,7 +3110,19 @@ export function AgentPanel({
         g.id === activeGroupId ? { ...g, activeSessionId: prevSessionId } : g
       ),
     }));
-  }, [groups, activeGroupId, cwd, setActiveId, updateCurrentGroupState]);
+
+    if (!getEnhancedInputState(prevSessionId).open) {
+      requestAnimationFrame(() => focusTerminal(prevSessionId));
+    }
+  }, [
+    activeGroupId,
+    cwd,
+    focusTerminal,
+    getEnhancedInputState,
+    groups,
+    setActiveId,
+    updateCurrentGroupState,
+  ]);
   const handleNextCanvasSession = useCallback(() => {
     if (canvasSessions.length <= 1) {
       return;
@@ -4413,7 +4450,8 @@ export function AgentPanel({
         isWorkspaceCanvasDisplayMode,
         sessionLastActivityAtById,
         sessionActivityStateById,
-        suppressSessionMounting: shouldSuppressWorkspaceCanvasPanel || !isActive,
+        suppressSessionMounting:
+          shouldSuppressWorkspaceCanvasPanel || (!isActive && !isCanvasDisplayMode),
         worktreeTerminalMountLimit: worktreeCanvasTerminalMountLimit,
         workspaceCanvasTerminalMountLimit,
       }),
@@ -4497,7 +4535,7 @@ export function AgentPanel({
     userRequestedCanvasMountSessionIds,
   ]);
   useEffect(() => {
-    if (!isActive || !isCanvasDisplayMode || shouldSuppressWorkspaceCanvasPanel) {
+    if (!isCanvasDisplayMode || shouldSuppressWorkspaceCanvasPanel) {
       setBackgroundMountedCanvasSessionIds((current) =>
         current.size === 0 ? current : new Set<string>()
       );
@@ -4545,7 +4583,6 @@ export function AgentPanel({
     backgroundMountedCanvasSessionIds,
     canvasSessionIds,
     canvasTerminalMountLimit,
-    isActive,
     isCanvasDisplayMode,
     mountedCurrentWorktreeSessionIdSet,
     shouldDeferCanvasBackgroundMount,
@@ -4979,7 +5016,7 @@ export function AgentPanel({
             isVisible={isTerminalVisible}
             layoutRefreshKey={
               isCanvasDisplayMode
-                ? `${canvasSessionLayoutSurfaceKey}:${sessionContentHost ? 'host' : 'inline'}`
+                ? `${canvasSessionLayoutSurfaceKey}:${sessionContentHost ? 'host' : 'inline'}:${canvasActivationEpoch}`
                 : undefined
             }
             terminalFontScale={

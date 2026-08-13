@@ -26,6 +26,7 @@ export interface SidebarHoverRevealFrame {
 }
 
 interface SidebarHoverRevealOpenBaseInput {
+  currentActive?: boolean;
   documentFocused: boolean;
   hasActiveTextSelection: boolean;
   pointerButtons: number;
@@ -47,6 +48,7 @@ interface SidebarHoverRevealPointerActiveInput {
 interface SidebarHoverRevealFocusChangeInput {
   groupHovered: boolean;
   nextFocusInside: boolean;
+  nextFocusManagedBySidebar?: boolean;
 }
 
 interface SidebarHoverRevealWindowFocusInput {
@@ -105,6 +107,10 @@ export function isSidebarHoverRevealTextSelectionActive(
 }
 
 export function shouldOpenSidebarHoverReveal(input: SidebarHoverRevealOpenInput): boolean {
+  if (input.currentActive) {
+    return true;
+  }
+
   if (input.trigger === 'keyboard') {
     return input.documentFocused && input.focusVisible;
   }
@@ -136,8 +142,9 @@ export function resolveSidebarHoverRevealPointerActiveState({
 export function shouldCloseSidebarHoverRevealAfterFocusChange({
   groupHovered,
   nextFocusInside,
+  nextFocusManagedBySidebar = false,
 }: SidebarHoverRevealFocusChangeInput): boolean {
-  return !nextFocusInside && !groupHovered;
+  return !nextFocusInside && !nextFocusManagedBySidebar && !groupHovered;
 }
 
 export function shouldSyncSidebarHoverRevealAfterWindowFocus({

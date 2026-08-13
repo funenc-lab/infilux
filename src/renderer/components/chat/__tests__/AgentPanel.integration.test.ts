@@ -10,6 +10,7 @@ import { useAgentStatusStore } from '@/stores/agentStatus';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useEditorStore } from '@/stores/editor';
 import { useTerminalStore } from '@/stores/terminal';
+import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { useTodoStore } from '@/stores/todo';
 import { resetWorktreeAgentSessionRecoveryCacheForTests } from '../agentSessionRecovery';
 import { AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS } from '../agentSessionRuntimeSafetyPolicy';
@@ -53,10 +54,10 @@ const testState = vi.hoisted(() => ({
     agentDetectionStatus: {},
     customAgents: [] as Array<{ id: string; name: string; command: string }>,
     xtermKeybindings: {
-      newTab: 'cmd+t',
-      closeTab: 'cmd+w',
-      nextTab: 'ctrl+tab',
-      prevTab: 'ctrl+shift+tab',
+      newTab: { key: 't', meta: true },
+      closeTab: { key: 'w', meta: true },
+      nextTab: { key: ']', meta: true },
+      prevTab: { key: '[', meta: true },
     },
     hapiSettings: {
       enabled: false,
@@ -652,6 +653,14 @@ function resetTerminalStore(): void {
   });
 }
 
+function resetTerminalWriteStore(): void {
+  useTerminalWriteStore.setState({
+    writers: new Map(),
+    focusers: new Map(),
+    activeSessionId: null,
+  });
+}
+
 function resetEditorStore(): void {
   useEditorStore.setState({
     tabs: [],
@@ -953,6 +962,7 @@ describe('AgentPanel integration', () => {
     resetWorktreeAgentSessionRecoveryCacheForTests();
     resetAgentSessionsStore();
     resetTerminalStore();
+    resetTerminalWriteStore();
     resetEditorStore();
     resetAgentStatusStore();
     resetCodeReviewContinueStore();
@@ -1208,7 +1218,9 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
-  it('releases retained panel terminals while the chat panel is inactive', async () => {
+  it('retains canvas terminal instances while the chat panel is inactive', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
     const session = createSession({
       id: 'retained-session',
       sessionId: 'retained-provider-session',
@@ -1248,7 +1260,7 @@ describe('AgentPanel integration', () => {
       mounted.container.querySelector(
         '[data-testid="agent-terminal"][data-session-id="retained-session"]'
       )
-    ).toBeNull();
+    ).not.toBeNull();
     expect(useAgentSessionsStore.getState().sessions).toContainEqual(
       expect.objectContaining({
         backendSessionId: 'retained-backend-session',
@@ -1263,6 +1275,54 @@ describe('AgentPanel integration', () => {
         '[data-testid="agent-terminal"][data-session-id="retained-session"]'
       )
     ).not.toBeNull();
+
+    await mounted.unmount();
+  });
+
+  it('refreshes a canvas terminal layout after a retained panel becomes active again', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+    const session = createSession({
+      id: 'retained-canvas-session',
+      sessionId: 'retained-canvas-provider-session',
+      backendSessionId: 'retained-canvas-backend-session',
+    });
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'retained-canvas-group',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'retained-canvas-group',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel();
+    const terminalSelector =
+      '[data-testid="agent-terminal"][data-session-id="retained-canvas-session"]';
+    const initialRefreshKey = mounted.container
+      .querySelector(terminalSelector)
+      ?.getAttribute('data-layout-refresh-key');
+
+    await mounted.rerender({ isActive: false });
+    await mounted.rerender({ isActive: true });
+
+    const reactivatedRefreshKey = mounted.container
+      .querySelector(terminalSelector)
+      ?.getAttribute('data-layout-refresh-key');
+
+    expect(initialRefreshKey).toMatch(/^tile:host:/);
+    expect(reactivatedRefreshKey).toMatch(/^tile:host:/);
+    expect(reactivatedRefreshKey).not.toBe(initialRefreshKey);
 
     await mounted.unmount();
   });
@@ -1496,6 +1556,57 @@ describe('AgentPanel integration', () => {
         .querySelector('[data-testid="status-line"]')
         ?.getAttribute('data-session-id')
     ).toBe('session-b');
+
+    await mounted.unmount();
+  });
+
+  it('focuses the target terminal after a user switches sessions with the configured shortcut', async () => {
+    const firstSession = createSession({
+      id: 'session-shortcut-a',
+      backendSessionId: 'backend-shortcut-a',
+    });
+    const secondSession = createSession({
+      id: 'session-shortcut-b',
+      backendSessionId: 'backend-shortcut-b',
+    });
+    useAgentSessionsStore.setState({
+      sessions: [firstSession, secondSession],
+      activeIds: {
+        '/repo/worktree': firstSession.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-shortcut',
+              sessionIds: [firstSession.id, secondSession.id],
+              activeSessionId: firstSession.id,
+            },
+          ],
+          activeGroupId: 'group-shortcut',
+          flexPercents: [100],
+        },
+      },
+    });
+    const focusTargetTerminal = vi.fn();
+    useTerminalWriteStore.getState().register(secondSession.id, vi.fn(), focusTargetTerminal);
+
+    const mounted = await mountAgentPanel();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          bubbles: true,
+          code: 'BracketRight',
+          key: ']',
+          metaKey: true,
+        })
+      );
+      await flushRenderTasks();
+    });
+
+    expect(useAgentSessionsStore.getState().activeIds['/repo/worktree']).toBe(secondSession.id);
+    expect(focusTargetTerminal).toHaveBeenCalledTimes(1);
 
     await mounted.unmount();
   });
@@ -3187,7 +3298,7 @@ describe('AgentPanel integration', () => {
           '[data-testid="agent-terminal"][data-session-id="session-floating-content"]'
         )
         ?.getAttribute('data-layout-refresh-key')
-    ).toBe('floating:host');
+    ).toMatch(/^floating:host:/);
 
     await mounted.unmount();
   });
@@ -3253,7 +3364,7 @@ describe('AgentPanel integration', () => {
     const firstKey = document.body
       .querySelector<HTMLElement>(terminalSelector)
       ?.getAttribute('data-layout-refresh-key');
-    expect(firstKey).toBe('floating:host');
+    expect(firstKey).toMatch(/^floating:host:/);
 
     viewportRect = createDomRectLike({
       height: 840,

@@ -20,6 +20,7 @@ describe('AgentPanel live subagent polling contract', () => {
     expect(agentPanelSource).toContain(
       'supportsSessionSubagentTracking(session.agentId, session.agentCommand)'
     );
+    expect(agentPanelSource).toContain('isOpenAgentSession(session)');
     expect(agentPanelSource).toContain('useSessionSubagentsBySession({');
     expect(agentPanelSource).toContain('sessionScopedSubagentsBySessionId[session.id] ?? []');
     expect(agentPanelSource).toContain('getDisplayableSessionSubagents({');
