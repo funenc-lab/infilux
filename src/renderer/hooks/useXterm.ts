@@ -2330,7 +2330,6 @@ export function useXterm({
         surfaceRefreshCleanup = scheduleXtermActivationRefresh({
           fitViewport: fitTerminal,
           refresh: refreshRenderer,
-          focus: () => undefined,
           requestAnimationFrame: window.requestAnimationFrame.bind(window),
           cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
         });
