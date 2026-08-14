@@ -1143,6 +1143,11 @@ const electronAPI = {
     catalog: {
       list: (request?: ClaudePolicyCatalogRequest): Promise<ClaudeCapabilityCatalog> =>
         ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_POLICY_CATALOG_LIST, request),
+      onInvalidated: (callback: (request: ClaudePolicyCatalogRequest) => void): (() => void) => {
+        const handler = (_: unknown, request: ClaudePolicyCatalogRequest) => callback(request);
+        ipcRenderer.on(IPC_CHANNELS.CLAUDE_POLICY_CATALOG_INVALIDATED, handler);
+        return () => ipcRenderer.off(IPC_CHANNELS.CLAUDE_POLICY_CATALOG_INVALIDATED, handler);
+      },
     },
     preview: {
       resolve: (request: ResolveClaudePolicyPreviewRequest): Promise<ResolvedClaudePolicy> =>

@@ -294,6 +294,7 @@ export const IPC_CHANNELS = {
 
   // Claude Policy
   CLAUDE_POLICY_CATALOG_LIST: 'claude:policy:catalog:list',
+  CLAUDE_POLICY_CATALOG_INVALIDATED: 'claude:policy:catalog:invalidated',
   CLAUDE_POLICY_PREVIEW_RESOLVE: 'claude:policy:preview:resolve',
   CLAUDE_POLICY_LAUNCH_PREPARE: 'claude:policy:launch:prepare',
   CLAUDE_POLICY_NATIVE_SKILL_DISABLE: 'claude:policy:nativeSkill:disable',

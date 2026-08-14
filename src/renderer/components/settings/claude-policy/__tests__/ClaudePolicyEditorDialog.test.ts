@@ -559,6 +559,10 @@ describe('ClaudePolicyEditorDialog', () => {
           updatedAt: 1,
         },
         promptPresetId: null,
+        worktreeInitialization: {
+          autoInitWorktree: false,
+          initScript: '',
+        },
         createdAt: 1,
         updatedAt: 1,
       },

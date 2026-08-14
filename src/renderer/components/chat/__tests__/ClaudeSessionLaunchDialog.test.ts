@@ -43,6 +43,10 @@ const catalogList =
     (request: { repoPath: string; worktreePath: string }) => Promise<ClaudeCapabilityCatalog>
   >();
 
+let catalogInvalidationListener:
+  | ((request: { repoPath?: string; worktreePath?: string }) => void)
+  | undefined;
+
 function installElectronApi(catalog: ClaudeCapabilityCatalog) {
   catalogList.mockResolvedValue(catalog);
   Object.defineProperty(window, 'electronAPI', {
@@ -51,6 +55,14 @@ function installElectronApi(catalog: ClaudeCapabilityCatalog) {
       claudePolicy: {
         catalog: {
           list: catalogList,
+          onInvalidated: (
+            listener: (request: { repoPath?: string; worktreePath?: string }) => void
+          ) => {
+            catalogInvalidationListener = listener;
+            return () => {
+              catalogInvalidationListener = undefined;
+            };
+          },
         },
       },
     },
@@ -80,6 +92,7 @@ describe('ClaudeSessionLaunchDialog', () => {
 
   beforeEach(() => {
     catalogList.mockReset();
+    catalogInvalidationListener = undefined;
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -194,5 +207,66 @@ describe('ClaudeSessionLaunchDialog', () => {
       }),
       undefined
     );
+  });
+
+  it('reloads the open dialog when a newly added skill invalidates its catalog scope', async () => {
+    catalogList
+      .mockResolvedValueOnce({
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      })
+      .mockResolvedValueOnce({
+        capabilities: [
+          {
+            id: 'legacy-skill:new-skill',
+            kind: 'legacy-skill',
+            name: 'New Skill',
+            sourceScope: 'worktree',
+            sourcePath: '/repo/worktrees/feature-a/.agents/skills/new-skill/SKILL.md',
+            isAvailable: true,
+            isConfigurable: true,
+          },
+        ],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 2,
+      });
+    installElectronApi({
+      capabilities: [],
+      sharedMcpServers: [],
+      personalMcpServers: [],
+      generatedAt: 1,
+    });
+    const { ClaudeSessionLaunchDialog } = await import('../ClaudeSessionLaunchDialog');
+
+    await act(async () => {
+      root?.render(
+        React.createElement(ClaudeSessionLaunchDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/feature-a',
+          agentLabel: 'Claude',
+          initialPolicy: null,
+          onLaunch: vi.fn(),
+        })
+      );
+    });
+    await flushEffects();
+
+    await act(async () => {
+      catalogInvalidationListener?.({
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feature-a',
+      });
+    });
+    await flushEffects();
+
+    expect(catalogList).toHaveBeenCalledTimes(2);
+    expect(
+      container?.querySelector('[data-policy-item-id="legacy-skill:new-skill"]')
+    ).not.toBeNull();
   });
 });

@@ -6,10 +6,11 @@ import type {
   RestoreClaudeNativeSkillRequest,
 } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import {
   invalidateClaudeCapabilityCatalogWorkspace,
   listClaudeCapabilityCatalog,
+  onClaudeCapabilityCatalogInvalidated,
 } from '../services/claude/CapabilityCatalogService';
 import {
   disableWorkspaceNativeClaudeSkill,
@@ -19,6 +20,19 @@ import { resolveClaudePolicy } from '../services/claude/ClaudePolicyResolver';
 import { prepareClaudeAgentLaunch } from '../services/claude/ClaudeSessionLaunchPreparation';
 
 export function registerClaudePolicyHandlers(): void {
+  onClaudeCapabilityCatalogInvalidated((request) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed()) {
+        continue;
+      }
+      try {
+        window.webContents.send(IPC_CHANNELS.CLAUDE_POLICY_CATALOG_INVALIDATED, request);
+      } catch {
+        // Window may be destroyed after the guard above.
+      }
+    }
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.CLAUDE_POLICY_CATALOG_LIST,
     async (_, request?: ClaudePolicyCatalogRequest) => {

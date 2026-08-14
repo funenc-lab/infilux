@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toastManager } from '@/components/ui/toast';
+import { useClaudeCapabilityCatalogInvalidation } from '@/hooks/useClaudeCapabilityCatalogInvalidation';
 import { useI18n } from '@/i18n';
 import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
@@ -200,6 +201,10 @@ export function ClaudePolicyEditorDialog({
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ClaudePolicyEditorTab>('skills');
   const [searchQuery, setSearchQuery] = useState('');
+  const catalogRequest = useMemo(
+    () => ({ repoPath, worktreePath: worktreePath || repoPath }),
+    [repoPath, worktreePath]
+  );
   const catalogRequestIdRef = useRef(0);
   const previewRequestIdRef = useRef(0);
   const draftSeedKeyRef = useRef<string | null>(null);
@@ -245,10 +250,7 @@ export function ClaudePolicyEditorDialog({
     setCatalogError(null);
 
     try {
-      const nextCatalog = await window.electronAPI.claudePolicy.catalog.list({
-        repoPath,
-        worktreePath: worktreePath || repoPath,
-      });
+      const nextCatalog = await window.electronAPI.claudePolicy.catalog.list(catalogRequest);
       if (catalogRequestIdRef.current === requestId) {
         setCatalog(nextCatalog);
       }
@@ -261,7 +263,7 @@ export function ClaudePolicyEditorDialog({
         setIsCatalogLoading(false);
       }
     }
-  }, [repoPath, worktreePath]);
+  }, [catalogRequest]);
 
   useEffect(() => {
     if (!open) {
@@ -274,6 +276,10 @@ export function ClaudePolicyEditorDialog({
       catalogRequestIdRef.current += 1;
     };
   }, [open, refreshCatalog]);
+
+  useClaudeCapabilityCatalogInvalidation(catalogRequest, open, () => {
+    void refreshCatalog();
+  });
 
   const previewRequest = useMemo<ResolveClaudePolicyPreviewRequest>(() => {
     const effectiveWorktreePath = worktreePath || repoPath;

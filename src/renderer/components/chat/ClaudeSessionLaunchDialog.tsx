@@ -4,7 +4,7 @@ import type {
   ClaudePolicyMaterializationMode,
 } from '@shared/types';
 import { Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useClaudeCapabilityCatalogInvalidation } from '@/hooks/useClaudeCapabilityCatalogInvalidation';
 import { useI18n } from '@/i18n';
 import { ClaudePolicyCapabilityList } from '../settings/claude-policy/ClaudePolicyCapabilityList';
 import { ClaudePolicyMcpList } from '../settings/claude-policy/ClaudePolicyMcpList';
@@ -72,6 +73,8 @@ export function ClaudeSessionLaunchDialog({
   const [isCatalogLoading, setIsCatalogLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<ClaudeSessionLaunchDialogTab>('skills');
   const [searchQuery, setSearchQuery] = useState('');
+  const catalogRequestIdRef = useRef(0);
+  const catalogRequest = useMemo(() => ({ repoPath, worktreePath }), [repoPath, worktreePath]);
 
   useEffect(() => {
     if (!open) {
@@ -83,40 +86,43 @@ export function ClaudeSessionLaunchDialog({
     setSearchQuery('');
   }, [initialPolicy, open]);
 
+  const refreshCatalog = useCallback(async () => {
+    const requestId = catalogRequestIdRef.current + 1;
+    catalogRequestIdRef.current = requestId;
+    setIsCatalogLoading(true);
+    setCatalogError(null);
+
+    try {
+      const nextCatalog = await window.electronAPI.claudePolicy.catalog.list(catalogRequest);
+      if (catalogRequestIdRef.current === requestId) {
+        setCatalog(nextCatalog);
+      }
+    } catch (error) {
+      if (catalogRequestIdRef.current === requestId) {
+        setCatalogError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (catalogRequestIdRef.current === requestId) {
+        setIsCatalogLoading(false);
+      }
+    }
+  }, [catalogRequest]);
+
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    let cancelled = false;
-    setIsCatalogLoading(true);
-    setCatalogError(null);
-
-    window.electronAPI.claudePolicy.catalog
-      .list({
-        repoPath,
-        worktreePath,
-      })
-      .then((nextCatalog) => {
-        if (!cancelled) {
-          setCatalog(nextCatalog);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setCatalogError(error instanceof Error ? error.message : String(error));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsCatalogLoading(false);
-        }
-      });
+    void refreshCatalog();
 
     return () => {
-      cancelled = true;
+      catalogRequestIdRef.current += 1;
     };
-  }, [open, repoPath, worktreePath]);
+  }, [open, refreshCatalog]);
+
+  useClaudeCapabilityCatalogInvalidation(catalogRequest, open, () => {
+    void refreshCatalog();
+  });
 
   const handleCapabilityDecisionChange = useCallback(
     (id: string, decision: ClaudePolicyDecisionValue) => {

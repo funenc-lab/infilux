@@ -17,6 +17,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { useClaudeCapabilityCatalogInvalidation } from '@/hooks/useClaudeCapabilityCatalogInvalidation';
 import { useI18n } from '@/i18n';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { ClaudePolicySourcePaths } from './ClaudePolicySourcePaths';
@@ -128,31 +129,38 @@ export function ClaudeCapabilityCatalogSection({ repoPath }: ClaudeCapabilityCat
   const markClaudePolicyStaleGlobally = useAgentSessionsStore(
     (s) => s.markClaudePolicyStaleGlobally
   );
+  const catalogRequest = useMemo(
+    () =>
+      repoPath
+        ? {
+            repoPath,
+            worktreePath: repoPath,
+          }
+        : undefined,
+    [repoPath]
+  );
 
   const loadCatalog = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const nextCatalog = await window.electronAPI.claudePolicy.catalog.list(
-        repoPath
-          ? {
-              repoPath,
-              worktreePath: repoPath,
-            }
-          : undefined
-      );
+      const nextCatalog = await window.electronAPI.claudePolicy.catalog.list(catalogRequest);
       setCatalog(nextCatalog);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setIsLoading(false);
     }
-  }, [repoPath]);
+  }, [catalogRequest]);
 
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  useClaudeCapabilityCatalogInvalidation(catalogRequest, true, () => {
+    void loadCatalog();
+  });
 
   useEffect(() => {
     setGlobalPolicy(getClaudeGlobalPolicy());

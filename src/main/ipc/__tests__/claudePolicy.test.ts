@@ -7,6 +7,15 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
   const handlers = new Map<string, Handler>();
   const listClaudeCapabilityCatalog = vi.fn();
   const invalidateClaudeCapabilityCatalogWorkspace = vi.fn();
+  let catalogInvalidationListener:
+    | ((request: { repoPath?: string; worktreePath?: string }) => void)
+    | null = null;
+  const onClaudeCapabilityCatalogInvalidated = vi.fn((listener) => {
+    catalogInvalidationListener = listener;
+    return () => {
+      catalogInvalidationListener = null;
+    };
+  });
   const resolveClaudePolicy = vi.fn();
   const prepareClaudeAgentLaunch = vi.fn();
   const disableWorkspaceNativeClaudeSkill = vi.fn();
@@ -22,6 +31,8 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
       generatedAt: 1,
     });
     invalidateClaudeCapabilityCatalogWorkspace.mockReset();
+    catalogInvalidationListener = null;
+    onClaudeCapabilityCatalogInvalidated.mockClear();
     resolveClaudePolicy.mockReset();
     resolveClaudePolicy.mockReturnValue({
       repoPath: '/repo',
@@ -72,6 +83,9 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
     handlers,
     listClaudeCapabilityCatalog,
     invalidateClaudeCapabilityCatalogWorkspace,
+    onClaudeCapabilityCatalogInvalidated,
+    emitCatalogInvalidated: (request: { repoPath?: string; worktreePath?: string }) =>
+      catalogInvalidationListener?.(request),
     resolveClaudePolicy,
     prepareClaudeAgentLaunch,
     disableWorkspaceNativeClaudeSkill,
@@ -81,6 +95,9 @@ const claudePolicyTestDoubles = vi.hoisted(() => {
 });
 
 vi.mock('electron', () => ({
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => []),
+  },
   ipcMain: {
     handle: vi.fn((channel: string, handler: Handler) => {
       claudePolicyTestDoubles.handlers.set(channel, handler);
@@ -92,6 +109,8 @@ vi.mock('../../services/claude/CapabilityCatalogService', () => ({
   listClaudeCapabilityCatalog: claudePolicyTestDoubles.listClaudeCapabilityCatalog,
   invalidateClaudeCapabilityCatalogWorkspace:
     claudePolicyTestDoubles.invalidateClaudeCapabilityCatalogWorkspace,
+  onClaudeCapabilityCatalogInvalidated:
+    claudePolicyTestDoubles.onClaudeCapabilityCatalogInvalidated,
 }));
 
 vi.mock('../../services/claude/ClaudePolicyResolver', () => ({
@@ -228,6 +247,26 @@ describe('Claude policy IPC handlers', () => {
       globalPolicy: null,
       projectPolicy: null,
       worktreePolicy: null,
+    });
+  });
+
+  it('broadcasts catalog invalidation events so open views reload newly discovered skills', async () => {
+    const webContents = { send: vi.fn() };
+    const { BrowserWindow } = await import('electron');
+    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
+      { isDestroyed: () => false, webContents },
+    ] as never);
+    const { registerClaudePolicyHandlers } = await import('../claudePolicy');
+    registerClaudePolicyHandlers();
+
+    claudePolicyTestDoubles.emitCatalogInvalidated({
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feature-a',
+    });
+
+    expect(webContents.send).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_POLICY_CATALOG_INVALIDATED, {
+      repoPath: '/repo',
+      worktreePath: '/repo/worktrees/feature-a',
     });
   });
 
