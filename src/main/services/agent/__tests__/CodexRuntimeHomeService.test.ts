@@ -50,6 +50,9 @@ describe('CodexRuntimeHomeService', () => {
     writeFileSync(path.join(sourceHome, 'config.toml'), 'model = "gpt-5.5"');
     mkdirSync(path.join(sourceHome, 'sessions'), { recursive: true });
     writeFileSync(path.join(sourceHome, 'sessions', 'global-history.jsonl'), 'global');
+    mkdirSync(path.join(sourceHome, 'plugins', 'cache', 'marketplace', 'review-plugin'), {
+      recursive: true,
+    });
     const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
 
     const result = service.prepareRuntimeHome('session/with spaces');
@@ -63,6 +66,9 @@ describe('CodexRuntimeHomeService', () => {
     );
     expect(readlinkSync(path.join(result.homePath, 'config.toml'))).toBe(
       path.join(sourceHome, 'config.toml')
+    );
+    expect(readlinkSync(path.join(result.homePath, 'plugins'))).toBe(
+      path.join(sourceHome, 'plugins')
     );
     expect(lstatSync(path.join(result.homePath, 'sessions')).isSymbolicLink()).toBe(false);
     expect(existsSync(path.join(result.homePath, 'sessions', 'global-history.jsonl'))).toBe(false);
@@ -87,6 +93,24 @@ describe('CodexRuntimeHomeService', () => {
     expect(readlinkSync(path.join(result.homePath, 'config.toml'))).toBe(
       path.join(scopedCodexHome, 'config.toml')
     );
+  });
+
+  it('links marketplace snapshots into a new isolated runtime home', () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const marketplacePath = path.join(sourceHome, '.tmp', 'marketplaces');
+    mkdirSync(path.join(marketplacePath, 'review-marketplace', '.claude-plugin'), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(marketplacePath, 'review-marketplace', '.claude-plugin', 'marketplace.json'),
+      '{"name":"review-marketplace"}'
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    const result = service.prepareRuntimeHome('new-session');
+
+    expect(readlinkSync(path.join(result.homePath, '.tmp', 'marketplaces'))).toBe(marketplacePath);
   });
 
   it('migrates existing runtime session files before linking shared Codex session history', () => {

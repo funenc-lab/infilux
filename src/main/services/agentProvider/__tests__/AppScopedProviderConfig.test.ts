@@ -40,6 +40,24 @@ describe('AppScopedProviderConfig', () => {
 
     writeTextFile(join(homeDir, '.codex', 'config.toml'), 'model = "global-model"\n');
     writeTextFile(join(homeDir, '.codex', 'auth.json'), '{"auth":"global"}\n');
+    writeTextFile(join(homeDir, '.codex', 'skills', 'new-skill', 'SKILL.md'), '# New Skill\n');
+    writeTextFile(
+      join(homeDir, '.codex', 'skills.disabled', 'disabled-skill', 'SKILL.md'),
+      '# Disabled Skill\n'
+    );
+    writeTextFile(
+      join(
+        homeDir,
+        '.codex',
+        'plugins',
+        'cache',
+        'marketplace',
+        'review-plugin',
+        '1.0.0',
+        'plugin.json'
+      ),
+      '{"name":"review-plugin"}\n'
+    );
     writeTextFile(join(homeDir, '.gemini', '.env'), 'GEMINI_MODEL="global-gemini"\n');
     writeTextFile(join(homeDir, '.gemini', 'settings.json'), '{"theme":"global"}\n');
     writeTextFile(join(homeDir, '.claude', 'settings.json'), '{"model":"global-claude"}\n');
@@ -61,6 +79,15 @@ describe('AppScopedProviderConfig', () => {
     );
     expect(readFileSync(join(configRoot, 'codex', 'auth.json'), 'utf8')).toBe(
       '{"auth":"global"}\n'
+    );
+    expect(readlinkSync(join(configRoot, 'codex', 'skills'))).toBe(
+      join(homeDir, '.codex', 'skills')
+    );
+    expect(readlinkSync(join(configRoot, 'codex', 'skills.disabled'))).toBe(
+      join(homeDir, '.codex', 'skills.disabled')
+    );
+    expect(readlinkSync(join(configRoot, 'codex', 'plugins'))).toBe(
+      join(homeDir, '.codex', 'plugins')
     );
     expect(readFileSync(join(configRoot, 'gemini', '.env'), 'utf8')).toBe(
       'GEMINI_MODEL="global-gemini"\n'
@@ -104,6 +131,97 @@ describe('AppScopedProviderConfig', () => {
     expect(readlinkSync(join(configRoot, 'codex', 'sessions'))).toBe(
       join(homeDir, '.codex', 'sessions')
     );
+  });
+
+  it('links Codex skills into an already initialized provider scope', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+
+    writeTextFile(join(homeDir, '.codex', 'skills', 'new-skill', 'SKILL.md'), '# New Skill\n');
+    writeTextFile(join(configRoot, 'codex', '.infilux-provider-scope-v1'), '1\n');
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    expect(readlinkSync(join(configRoot, 'codex', 'skills'))).toBe(
+      join(homeDir, '.codex', 'skills')
+    );
+  });
+
+  it('links Codex marketplace snapshots into the app-scoped configuration', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const marketplacePath = join(homeDir, '.codex', '.tmp', 'marketplaces');
+
+    writeTextFile(
+      join(marketplacePath, 'review-marketplace', '.claude-plugin', 'marketplace.json'),
+      '{"name":"review-marketplace"}\n'
+    );
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    expect(readlinkSync(join(configRoot, 'codex', '.tmp', 'marketplaces'))).toBe(marketplacePath);
+  });
+
+  it('replaces a stale app-scoped Codex marketplace snapshot with the global snapshot', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const marketplacePath = join(homeDir, '.codex', '.tmp', 'marketplaces');
+
+    writeTextFile(
+      join(marketplacePath, 'review-marketplace', '.claude-plugin', 'marketplace.json'),
+      '{"name":"review-marketplace"}\n'
+    );
+    writeTextFile(
+      join(
+        configRoot,
+        'codex',
+        '.tmp',
+        'marketplaces',
+        'stale-marketplace',
+        '.claude-plugin',
+        'marketplace.json'
+      ),
+      '{"name":"stale-marketplace"}\n'
+    );
+    writeTextFile(join(configRoot, 'codex', '.infilux-provider-scope-v1'), '1\n');
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    expect(readlinkSync(join(configRoot, 'codex', '.tmp', 'marketplaces'))).toBe(marketplacePath);
+  });
+
+  it('synchronizes Codex plugin configuration without overwriting isolated provider settings', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+
+    writeTextFile(join(homeDir, '.codex', 'config.toml'), 'model = "initial-global-model"\n');
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    writeTextFile(
+      join(homeDir, '.codex', 'config.toml'),
+      [
+        'model = "changed-global-model"',
+        '',
+        '[marketplaces.review-marketplace]',
+        'source = "https://example.com/review-marketplace.git"',
+        '',
+        '[plugins."review-plugin@review-marketplace"]',
+        'enabled = true',
+      ].join('\n')
+    );
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    const scopedConfig = readFileSync(join(configRoot, 'codex', 'config.toml'), 'utf8');
+    expect(scopedConfig).toContain('model = "initial-global-model"');
+    expect(scopedConfig).toContain('[marketplaces.review-marketplace]');
+    expect(scopedConfig).toContain('source = "https://example.com/review-marketplace.git"');
+    expect(scopedConfig).toContain('[plugins."review-plugin@review-marketplace"]');
+    expect(scopedConfig).toContain('enabled = true');
   });
 
   it('preserves an explicit host-provided provider configuration directory', () => {

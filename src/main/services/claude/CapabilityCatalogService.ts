@@ -22,7 +22,7 @@ import {
   type CapabilityCatalogWatchTarget,
   ClaudeCapabilityCatalogCache,
 } from './CapabilityCatalogCache';
-import { parseCodexMcpRecord } from './CodexMcpToml';
+import { parseCodexEnabledPluginIds, parseCodexMcpRecord } from './CodexMcpToml';
 
 const BUILTIN_COMMANDS: Array<{ id: string; name: string; description: string }> = [
   { id: 'help', name: 'Help', description: 'Show command help' },
@@ -702,6 +702,64 @@ function getLocalUserSkillRootDirs(userClaudeDirs: string[]): string[] {
   ]);
 }
 
+function isSafePathSegment(value: string): boolean {
+  return value.length > 0 && value !== '.' && value !== '..' && !/[\\/]/.test(value);
+}
+
+function parseCodexPluginId(
+  pluginId: string
+): { marketplaceName: string; pluginName: string } | null {
+  const separatorIndex = pluginId.lastIndexOf('@');
+  if (separatorIndex <= 0 || separatorIndex === pluginId.length - 1) {
+    return null;
+  }
+
+  const pluginName = pluginId.slice(0, separatorIndex);
+  const marketplaceName = pluginId.slice(separatorIndex + 1);
+  if (!isSafePathSegment(pluginName) || !isSafePathSegment(marketplaceName)) {
+    return null;
+  }
+
+  return { marketplaceName, pluginName };
+}
+
+async function listLocalDirectoryNames(directoryPath: string): Promise<string[]> {
+  try {
+    const entries = await fs.promises.readdir(directoryPath, { withFileTypes: true });
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+async function getLocalEnabledCodexPluginSkillRootDirs(): Promise<string[]> {
+  const codexHomeDir = path.join(os.homedir(), '.codex');
+  const configContent = await readTextFileSafe(path.join(codexHomeDir, 'config.toml'));
+  const cacheRootDir = path.join(codexHomeDir, 'plugins', 'cache');
+  const rootDirs: string[] = [];
+
+  for (const pluginId of parseCodexEnabledPluginIds(configContent)) {
+    const parsedPluginId = parseCodexPluginId(pluginId);
+    if (!parsedPluginId) {
+      continue;
+    }
+
+    const pluginCacheDir = path.join(
+      cacheRootDir,
+      parsedPluginId.marketplaceName,
+      parsedPluginId.pluginName
+    );
+    const versions = await listLocalDirectoryNames(pluginCacheDir);
+    for (const version of versions) {
+      if (isSafePathSegment(version)) {
+        rootDirs.push(path.join(pluginCacheDir, version, 'skills'));
+      }
+    }
+  }
+
+  return uniqueResolvedPaths(rootDirs);
+}
+
 function getLocalWorkspaceSkillRootDirs(workspacePath: string): string[] {
   return uniqueResolvedPaths([
     path.join(workspacePath, '.claude', 'skills'),
@@ -740,9 +798,14 @@ function addLocalSkillWatchTargets(
 ): void {
   for (const rootDir of uniqueResolvedPaths(rootDirs)) {
     addWatchTarget(targets, { directoryPath: rootDir, recursive: true });
+    const parentDir = path.dirname(rootDir);
     addWatchTarget(targets, {
-      directoryPath: path.dirname(rootDir),
+      directoryPath: parentDir,
       expectedFileName: path.basename(rootDir),
+    });
+    addWatchTarget(targets, {
+      directoryPath: path.dirname(parentDir),
+      expectedFileName: path.basename(parentDir),
     });
   }
 }
@@ -808,6 +871,10 @@ function getLocalCatalogWatchTargets(
     directoryPath: path.join(homeDir, '.codex'),
     expectedFileName: 'config.toml',
   });
+  addWatchTarget(targets, {
+    directoryPath: path.join(homeDir, '.codex', 'plugins'),
+    recursive: true,
+  });
   for (const configDir of userClaudeDirs) {
     addWatchTarget(targets, { directoryPath: path.join(configDir, 'commands') });
     addWatchTarget(targets, { directoryPath: path.join(configDir, 'agents') });
@@ -831,8 +898,7 @@ function watchLocalCatalogDirectory(
     return fs.watch(
       target.directoryPath,
       { recursive: target.recursive ?? false },
-      (_eventType, fileName) =>
-        onChange(typeof fileName === 'string' ? fileName : fileName?.toString())
+      (_eventType, fileName) => onChange(fileName)
     );
   } catch {
     return null;
@@ -1318,7 +1384,13 @@ async function listClaudeCapabilityCatalogUncached(
       );
     }
     capabilities.push(
-      ...(await listLocalSkillItemsFromRoots(getLocalUserSkillRootDirs(userClaudeDirs), 'user'))
+      ...(await listLocalSkillItemsFromRoots(
+        [
+          ...getLocalUserSkillRootDirs(userClaudeDirs),
+          ...(await getLocalEnabledCodexPluginSkillRootDirs()),
+        ],
+        'user'
+      ))
     );
 
     if (repoPath) {
@@ -1417,6 +1489,12 @@ export function invalidateClaudeCapabilityCatalogWorkspace(workspacePath: string
     return;
   }
   capabilityCatalogCache.invalidateWorkspace(workspacePath);
+}
+
+export function onClaudeCapabilityCatalogInvalidated(
+  listener: (request: ClaudePolicyCatalogRequest) => void
+): () => void {
+  return capabilityCatalogCache.onInvalidated(listener);
 }
 
 export function disposeClaudeCapabilityCatalogCache(): void {

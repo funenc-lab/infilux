@@ -33,6 +33,7 @@ const SAFE_SHARED_CODEX_ENTRIES = [
   'config.toml',
   'installation_id',
   'memories',
+  'plugins',
   'prompts',
   'rules',
   'skills',
@@ -125,6 +126,43 @@ function ensureIsolatedCodexRuntimeSessions(runtimeHomePath: string): void {
   mkdirSync(runtimeSessionsPath, { recursive: true });
 }
 
+function ensureSharedCodexMarketplaceSnapshots(
+  sourceHomePath: string,
+  runtimeHomePath: string
+): void {
+  const sourceMarketplacesPath = path.join(sourceHomePath, '.tmp', 'marketplaces');
+  if (!existsSync(sourceMarketplacesPath)) {
+    return;
+  }
+
+  const runtimeMarketplacesPath = path.join(runtimeHomePath, '.tmp', 'marketplaces');
+  mkdirSync(path.dirname(runtimeMarketplacesPath), { recursive: true });
+
+  if (existsSync(runtimeMarketplacesPath)) {
+    const runtimeMarketplacesStat = lstatSync(runtimeMarketplacesPath);
+    if (runtimeMarketplacesStat.isSymbolicLink()) {
+      const linkedTarget = resolveSymlinkTarget(
+        runtimeMarketplacesPath,
+        readlinkSync(runtimeMarketplacesPath)
+      );
+      if (linkedTarget === path.resolve(sourceMarketplacesPath)) {
+        return;
+      }
+      unlinkSync(runtimeMarketplacesPath);
+    } else if (runtimeMarketplacesStat.isDirectory()) {
+      if (readdirSync(runtimeMarketplacesPath).length > 0) {
+        return;
+      }
+      rmSync(runtimeMarketplacesPath, { recursive: true, force: true });
+    } else {
+      return;
+    }
+  }
+
+  const symlinkType = process.platform === 'win32' ? 'junction' : undefined;
+  symlinkSync(sourceMarketplacesPath, runtimeMarketplacesPath, symlinkType);
+}
+
 export class CodexRuntimeHomeService {
   private delegate: AgentRuntimeHomeService | null = null;
 
@@ -150,6 +188,7 @@ export class CodexRuntimeHomeService {
     options: CodexRuntimeHomeOptions = {}
   ): CodexRuntimeHomeResult {
     const runtimeHome = this.getDelegate().prepareRuntimeHome(runtimeKey);
+    ensureSharedCodexMarketplaceSnapshots(runtimeHome.sourceHomePath, runtimeHome.homePath);
     if (options.shareSessions) {
       ensureSharedCodexRuntimeSessions(runtimeHome.sourceHomePath, runtimeHome.homePath);
     } else {

@@ -27,6 +27,10 @@ export interface ClaudeCapabilityCatalogCacheDependencies {
   maxEntries?: number;
 }
 
+export type ClaudeCapabilityCatalogInvalidationListener = (
+  request: ClaudePolicyCatalogRequest
+) => void;
+
 interface CacheEntry {
   catalog: ClaudeCapabilityCatalog;
   revision: number;
@@ -38,6 +42,7 @@ interface CacheEntry {
 interface PendingCatalogRequest {
   promise: Promise<ClaudeCapabilityCatalog>;
   revision: number;
+  watchers: CapabilityCatalogWatcher[];
 }
 
 function toCacheKey(request: ClaudePolicyCatalogRequest): string {
@@ -61,6 +66,7 @@ export class ClaudeCapabilityCatalogCache {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly pending = new Map<string, PendingCatalogRequest>();
   private readonly revisions = new Map<string, number>();
+  private readonly invalidationListeners = new Set<ClaudeCapabilityCatalogInvalidationListener>();
   private disposed = false;
   private readonly now: () => number;
   private readonly cacheTtlMs: number;
@@ -94,21 +100,54 @@ export class ClaudeCapabilityCatalogCache {
       return pending.promise;
     }
 
-    const catalogPromise = this.dependencies
-      .listCatalog(request)
+    let resolveCatalog!: (catalog: ClaudeCapabilityCatalog) => void;
+    let rejectCatalog!: (error: unknown) => void;
+    const catalogPromise = new Promise<ClaudeCapabilityCatalog>((resolve, reject) => {
+      resolveCatalog = resolve;
+      rejectCatalog = reject;
+    });
+    const pendingRequest: PendingCatalogRequest = {
+      promise: catalogPromise,
+      revision,
+      watchers: [],
+    };
+    this.pending.set(key, pendingRequest);
+    pendingRequest.watchers = this.createWatchers(key, request);
+
+    let listingPromise: Promise<ClaudeCapabilityCatalog>;
+    try {
+      listingPromise = Promise.resolve(this.dependencies.listCatalog(request));
+    } catch (error) {
+      this.pending.delete(key);
+      this.closeWatchers(pendingRequest.watchers);
+      rejectCatalog(error);
+      return catalogPromise;
+    }
+
+    void listingPromise
       .then((catalog) => {
         if (!this.disposed && this.getRevision(key) === revision) {
-          this.storeCatalog(key, request, catalog, revision);
+          this.storeCatalog(key, catalog, revision, pendingRequest.watchers);
         }
-        return catalog;
+        resolveCatalog(catalog);
+      })
+      .catch((error: unknown) => {
+        rejectCatalog(error);
       })
       .finally(() => {
         if (this.pending.get(key)?.promise === catalogPromise) {
           this.pending.delete(key);
+          if (this.cache.get(key)?.watchers !== pendingRequest.watchers) {
+            this.closeWatchers(pendingRequest.watchers);
+          }
         }
       });
-    this.pending.set(key, { promise: catalogPromise, revision });
     return catalogPromise;
+  }
+
+  onInvalidated(listener: ClaudeCapabilityCatalogInvalidationListener): () => void {
+    this.invalidationListeners.add(listener);
+    return () => this.invalidationListeners.delete(listener);
   }
 
   invalidateWorkspace(workspacePath: string): void {
@@ -129,33 +168,22 @@ export class ClaudeCapabilityCatalogCache {
     for (const [key, entry] of this.cache) {
       this.removeEntry(key, entry);
     }
+    for (const pending of this.pending.values()) {
+      this.closeWatchers(pending.watchers);
+    }
     this.pending.clear();
     this.revisions.clear();
+    this.invalidationListeners.clear();
   }
 
   private storeCatalog(
     key: string,
-    request: ClaudePolicyCatalogRequest,
     catalog: ClaudeCapabilityCatalog,
-    revision: number
+    revision: number,
+    watchers: CapabilityCatalogWatcher[]
   ): void {
     this.removeEntry(key);
 
-    const watchers = this.dependencies
-      .getWatchTargets(request)
-      .map((target) =>
-        this.dependencies.watchDirectory(target, (fileName) => {
-          if (
-            target.expectedFileName &&
-            fileName &&
-            path.basename(fileName) !== target.expectedFileName
-          ) {
-            return;
-          }
-          this.invalidateKey(key);
-        })
-      )
-      .filter((watcher): watcher is CapabilityCatalogWatcher => watcher !== null);
     const currentTime = this.now();
     this.cache.set(key, {
       catalog,
@@ -189,9 +217,7 @@ export class ClaudeCapabilityCatalogCache {
       return;
     }
     this.cache.delete(key);
-    for (const watcher of entry.watchers) {
-      watcher.close();
-    }
+    this.closeWatchers(entry.watchers);
   }
 
   private getRevision(key: string): number {
@@ -199,7 +225,57 @@ export class ClaudeCapabilityCatalogCache {
   }
 
   private invalidateKey(key: string): void {
+    const pending = this.pending.get(key);
+    const hasActiveCatalog = this.cache.has(key) || Boolean(pending);
     this.revisions.set(key, this.getRevision(key) + 1);
     this.removeEntry(key);
+    if (pending) {
+      this.pending.delete(key);
+      this.closeWatchers(pending.watchers);
+    }
+    if (hasActiveCatalog) {
+      this.notifyInvalidated(this.fromCacheKey(key));
+    }
+  }
+
+  private createWatchers(
+    key: string,
+    request: ClaudePolicyCatalogRequest
+  ): CapabilityCatalogWatcher[] {
+    return this.dependencies
+      .getWatchTargets(request)
+      .map((target) =>
+        this.dependencies.watchDirectory(target, (fileName) => {
+          if (
+            target.expectedFileName &&
+            fileName &&
+            path.basename(fileName) !== target.expectedFileName
+          ) {
+            return;
+          }
+          this.invalidateKey(key);
+        })
+      )
+      .filter((watcher): watcher is CapabilityCatalogWatcher => watcher !== null);
+  }
+
+  private closeWatchers(watchers: CapabilityCatalogWatcher[]): void {
+    for (const watcher of watchers) {
+      watcher.close();
+    }
+  }
+
+  private fromCacheKey(key: string): ClaudePolicyCatalogRequest {
+    const [repoPath, worktreePath] = JSON.parse(key) as [string, string];
+    return {
+      ...(repoPath ? { repoPath } : {}),
+      ...(worktreePath ? { worktreePath } : {}),
+    };
+  }
+
+  private notifyInvalidated(request: ClaudePolicyCatalogRequest): void {
+    for (const listener of this.invalidationListeners) {
+      listener(request);
+    }
   }
 }

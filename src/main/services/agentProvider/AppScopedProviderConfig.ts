@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
   rmSync,
   symlinkSync,
@@ -33,8 +34,14 @@ interface ProviderScopeSeed {
   envKey: keyof NodeJS.ProcessEnv;
   files: readonly string[];
   linkedDirectories?: readonly string[];
+  replaceLinkedDirectories?: readonly string[];
+  synchronizedTomlSections?: readonly string[];
   sourceDir: string;
   targetDir: string;
+}
+
+interface EnsureLinkedDirectoryOptions {
+  replaceExistingDirectory?: boolean;
 }
 
 function resolveHomeDir(env: NodeJS.ProcessEnv): string {
@@ -78,10 +85,16 @@ function isEmptyDirectory(targetPath: string): boolean {
   }
 }
 
-function ensureLinkedDirectory(sourcePath: string, targetPath: string): void {
+function ensureLinkedDirectory(
+  sourcePath: string,
+  targetPath: string,
+  options: EnsureLinkedDirectoryOptions = {}
+): void {
   if (!existsSync(sourcePath)) {
     return;
   }
+
+  mkdirSync(path.dirname(targetPath), { recursive: true, mode: 0o700 });
 
   if (existsSync(targetPath)) {
     const targetStat = lstatSync(targetPath);
@@ -91,7 +104,10 @@ function ensureLinkedDirectory(sourcePath: string, targetPath: string): void {
         return;
       }
       unlinkSync(targetPath);
-    } else if (targetStat.isDirectory() && isEmptyDirectory(targetPath)) {
+    } else if (
+      targetStat.isDirectory() &&
+      (isEmptyDirectory(targetPath) || options.replaceExistingDirectory)
+    ) {
       rmSync(targetPath, { recursive: true, force: true });
     } else {
       return;
@@ -100,6 +116,93 @@ function ensureLinkedDirectory(sourcePath: string, targetPath: string): void {
 
   const symlinkType = process.platform === 'win32' ? 'junction' : undefined;
   symlinkSync(sourcePath, targetPath, symlinkType);
+}
+
+interface TomlSectionBlock {
+  lines: string[];
+  sectionName: string | null;
+}
+
+function getTomlSectionName(line: string): string | null {
+  const trimmed = line.trim();
+  const isArray = trimmed.startsWith('[[');
+  const openingLength = isArray ? 2 : 1;
+  const closing = isArray ? ']]' : ']';
+  if (!trimmed.startsWith(isArray ? '[[' : '[') || !trimmed.endsWith(closing)) {
+    return null;
+  }
+
+  const header = trimmed.slice(openingLength, -closing.length).trim();
+  const firstSegment = header.split('.', 1)[0]?.trim();
+  if (!firstSegment) {
+    return null;
+  }
+
+  return firstSegment.replace(/^["']|["']$/g, '');
+}
+
+function splitTomlSectionBlocks(content: string): TomlSectionBlock[] {
+  const blocks: TomlSectionBlock[] = [];
+  let current: TomlSectionBlock = { lines: [], sectionName: null };
+
+  for (const line of content.split(/\r?\n/)) {
+    const sectionName = getTomlSectionName(line);
+    if (sectionName !== null) {
+      if (current.lines.length > 0) {
+        blocks.push(current);
+      }
+      current = { lines: [line], sectionName };
+      continue;
+    }
+    current.lines.push(line);
+  }
+
+  if (current.lines.length > 0) {
+    blocks.push(current);
+  }
+  return blocks;
+}
+
+function serializeTomlSectionBlocks(blocks: TomlSectionBlock[]): string {
+  return blocks
+    .map((block) => block.lines.join('\n'))
+    .join('\n')
+    .replace(/\n+$/, '');
+}
+
+function synchronizeTomlSections(
+  sourcePath: string,
+  targetPath: string,
+  sectionNames: readonly string[]
+): void {
+  if (!existsSync(sourcePath) || !existsSync(targetPath)) {
+    return;
+  }
+
+  const synchronizedSectionNames = new Set(sectionNames);
+  const sourceContent = readFileSync(sourcePath, 'utf8');
+  const targetContent = readFileSync(targetPath, 'utf8');
+  const sourceBlocks = splitTomlSectionBlocks(sourceContent);
+  const targetBlocks = splitTomlSectionBlocks(targetContent);
+  const sourceSections = sourceBlocks.filter(
+    (block) => block.sectionName !== null && synchronizedSectionNames.has(block.sectionName)
+  );
+  const targetSections = targetBlocks.filter(
+    (block) => block.sectionName !== null && synchronizedSectionNames.has(block.sectionName)
+  );
+
+  if (serializeTomlSectionBlocks(sourceSections) === serializeTomlSectionBlocks(targetSections)) {
+    return;
+  }
+
+  const preservedTargetBlocks = targetBlocks.filter(
+    (block) => block.sectionName === null || !synchronizedSectionNames.has(block.sectionName)
+  );
+  const contentParts = [
+    serializeTomlSectionBlocks(preservedTargetBlocks),
+    serializeTomlSectionBlocks(sourceSections),
+  ].filter((part) => part.length > 0);
+  writeFileSync(targetPath, `${contentParts.join('\n\n')}\n`, 'utf8');
 }
 
 function initializeProviderScope(seed: ProviderScopeSeed): boolean {
@@ -120,7 +223,17 @@ function initializeProviderScope(seed: ProviderScopeSeed): boolean {
     for (const directoryName of seed.linkedDirectories ?? []) {
       ensureLinkedDirectory(
         path.join(seed.sourceDir, directoryName),
-        path.join(seed.targetDir, directoryName)
+        path.join(seed.targetDir, directoryName),
+        {
+          replaceExistingDirectory: seed.replaceLinkedDirectories?.includes(directoryName),
+        }
+      );
+    }
+    if (seed.synchronizedTomlSections && seed.synchronizedTomlSections.length > 0) {
+      synchronizeTomlSections(
+        path.join(seed.sourceDir, 'config.toml'),
+        path.join(seed.targetDir, 'config.toml'),
+        seed.synchronizedTomlSections
       );
     }
     return true;
@@ -148,7 +261,9 @@ export function initializeAppScopedProviderConfig(
     {
       envKey: 'CODEX_HOME',
       files: ['auth.json', 'config.toml'],
-      linkedDirectories: ['sessions'],
+      linkedDirectories: ['.tmp/marketplaces', 'plugins', 'sessions', 'skills', 'skills.disabled'],
+      replaceLinkedDirectories: ['.tmp/marketplaces'],
+      synchronizedTomlSections: ['marketplaces', 'plugins'],
       sourceDir: path.join(homeDir, '.codex'),
       targetDir: paths.codexHome,
     },

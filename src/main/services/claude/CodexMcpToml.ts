@@ -384,3 +384,15 @@ export function parseCodexMcpRecord(content: string | null): Record<string, McpS
 
   return servers;
 }
+
+export function parseCodexEnabledPluginIds(content: string | null): string[] {
+  const rawPlugins = parseCodexToml(content).plugins;
+  if (!isRecord(rawPlugins)) {
+    return [];
+  }
+
+  return Object.entries(rawPlugins)
+    .filter(([, value]) => isRecord(value) && value.enabled === true)
+    .map(([id]) => id)
+    .sort((left, right) => left.localeCompare(right));
+}

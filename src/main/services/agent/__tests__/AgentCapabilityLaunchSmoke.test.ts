@@ -229,7 +229,7 @@ describe('AgentCapabilityLaunchService smoke tests', () => {
     expect(preparedLaunch.launchResult.resolvedPolicy?.blockedCapabilityIds).toEqual([
       'legacy-skill:agent-review',
     ]);
-    expect(preparedLaunch.launchResult.projected.applied).toBe(true);
+    expect(preparedLaunch.launchResult.projected).toMatchObject({ applied: true });
     expect(preparedLaunch.sessionOverrides?.metadata).toMatchObject({
       codexSkillIds: [],
     });

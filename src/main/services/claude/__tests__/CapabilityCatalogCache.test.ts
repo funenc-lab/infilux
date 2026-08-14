@@ -95,6 +95,54 @@ describe('ClaudeCapabilityCatalogCache', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it('notifies listeners when a nested skill file invalidates a cached workspace catalog', async () => {
+    let notifyChange: ((fileName?: string | null) => void) | undefined;
+    const onInvalidated = vi.fn();
+    const cache = createCache({
+      getWatchTargets: () => [{ directoryPath: '/repo/.agents/skills', recursive: true }],
+      watchDirectory: (_target, onChange) => {
+        notifyChange = onChange;
+        return { close: vi.fn() };
+      },
+    });
+    caches.push(cache);
+
+    cache.onInvalidated(onInvalidated);
+    await cache.getCatalog({ repoPath: '/repo', worktreePath: '/repo/worktree' });
+    notifyChange?.('new-skill/SKILL.md');
+
+    expect(onInvalidated).toHaveBeenCalledWith({
+      repoPath: '/repo',
+      worktreePath: '/repo/worktree',
+    });
+  });
+
+  it('starts watching before discovery so a new skill cannot be retained by an in-flight scan', async () => {
+    let notifyChange: ((fileName?: string | null) => void) | undefined;
+    const listCatalog = vi
+      .fn<() => Promise<ClaudeCapabilityCatalog>>()
+      .mockImplementationOnce(async () => {
+        notifyChange?.('new-skill/SKILL.md');
+        return createCatalog(1);
+      })
+      .mockResolvedValueOnce(createCatalog(2));
+    const cache = createCache({
+      listCatalog,
+      getWatchTargets: () => [{ directoryPath: '/repo/.agents/skills', recursive: true }],
+      watchDirectory: (_target, onChange) => {
+        notifyChange = onChange;
+        return { close: vi.fn() };
+      },
+    });
+    caches.push(cache);
+    const request = { repoPath: '/repo', worktreePath: '/repo/worktree' };
+
+    await cache.getCatalog(request);
+    await expect(cache.getCatalog(request)).resolves.toEqual(createCatalog(2));
+
+    expect(listCatalog).toHaveBeenCalledTimes(2);
+  });
+
   it('refreshes a catalog when an explicit workspace mutation invalidates its scope', async () => {
     const listCatalog = vi
       .fn<() => Promise<ClaudeCapabilityCatalog>>()
@@ -145,7 +193,8 @@ describe('ClaudeCapabilityCatalogCache', () => {
           })
       )
       .mockResolvedValueOnce(createCatalog(2));
-    const watchDirectory = vi.fn(() => ({ close: vi.fn() }));
+    const close = vi.fn();
+    const watchDirectory = vi.fn(() => ({ close }));
     const cache = createCache({
       listCatalog,
       getWatchTargets: () => [{ directoryPath: '/catalog-root' }],
@@ -161,7 +210,8 @@ describe('ClaudeCapabilityCatalogCache', () => {
 
     await expect(cache.getCatalog(request)).resolves.toEqual(createCatalog(2));
     expect(listCatalog).toHaveBeenCalledTimes(2);
-    expect(watchDirectory).not.toHaveBeenCalled();
+    expect(watchDirectory).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('does not cache remote catalogs', async () => {

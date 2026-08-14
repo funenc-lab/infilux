@@ -401,6 +401,86 @@ describe('listClaudeCapabilityCatalog', () => {
     );
   });
 
+  it('discovers skills supplied by enabled Codex plugins only', async () => {
+    writeTextFile(
+      join(rootDir, '.codex', 'config.toml'),
+      [
+        '[plugins."review-plugin@review-marketplace"]',
+        'enabled = true',
+        '',
+        '[plugins."disabled-plugin@review-marketplace"]',
+        'enabled = false',
+      ].join('\n')
+    );
+    writeTextFile(
+      join(
+        rootDir,
+        '.codex',
+        'plugins',
+        'cache',
+        'review-marketplace',
+        'review-plugin',
+        '1.0.0',
+        'skills',
+        'review-changes',
+        'SKILL.md'
+      ),
+      ['---', 'name: Review Changes', 'description: Review Git changes', '---'].join('\n')
+    );
+    writeTextFile(
+      join(
+        rootDir,
+        '.codex',
+        'plugins',
+        'cache',
+        'review-marketplace',
+        'disabled-plugin',
+        '1.0.0',
+        'skills',
+        'disabled-review',
+        'SKILL.md'
+      ),
+      ['---', 'name: Disabled Review', 'description: Disabled plugin skill', '---'].join('\n')
+    );
+
+    const catalog = await listClaudeCapabilityCatalog(
+      { repoPath, worktreePath },
+      {
+        getUserClaudeConfigDirs: () => [userClaudeDir],
+        readLocalClaudeJson: async () => null,
+        readLocalProjectSettings: async () => null,
+        readLocalGeminiSettings: async () => null,
+        readLocalGeminiProjectSettings: async () => null,
+      }
+    );
+
+    expect(catalog.capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'legacy-skill:review-changes',
+          kind: 'legacy-skill',
+          name: 'Review Changes',
+          sourceScope: 'user',
+          sourcePath: join(
+            rootDir,
+            '.codex',
+            'plugins',
+            'cache',
+            'review-marketplace',
+            'review-plugin',
+            '1.0.0',
+            'skills',
+            'review-changes',
+            'SKILL.md'
+          ),
+        }),
+      ])
+    );
+    expect(catalog.capabilities.map((item) => item.id)).not.toContain(
+      'legacy-skill:disabled-review'
+    );
+  });
+
   it('lists quarantined worktree-native Claude skills separately from active capabilities', async () => {
     writeTextFile(
       join(worktreePath, '.claude', 'skills.disabled', 'planner', 'SKILL.md'),
