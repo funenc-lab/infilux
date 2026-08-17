@@ -53,6 +53,9 @@ interface ManagedSessionRecord extends SessionDescriptor {
   replayBuffer?: string;
   pendingHostReplayDedup?: boolean;
   pendingHostReplayCursor?: number;
+  pendingHostReplayScreenBuffer?: string;
+  pendingHostReplayScreenMatched?: boolean;
+  pendingHostReplayScreenFlushTimer?: ReturnType<typeof setTimeout>;
   streamState?: 'buffering' | 'attaching' | 'live';
   pendingExit?: SessionExitEvent;
   transcriptArchiveState?: 'ready' | 'degraded';
@@ -61,6 +64,10 @@ interface ManagedSessionRecord extends SessionDescriptor {
 
 const SESSION_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 const DEFAULT_SESSION_TRANSCRIPT_PAGE_BYTES = 64 * 1024;
+const TERMINAL_ESCAPE = String.fromCharCode(0x1b);
+const TERMINAL_BELL = String.fromCharCode(0x07);
+const PENDING_HOST_REPLAY_SCREEN_BUFFER_CHAR_LIMIT = 64 * 1024;
+const PENDING_HOST_REPLAY_SCREEN_FLUSH_DELAY_MS = 100;
 type TmuxHostSessionCreateOptions = SessionCreateOptions & {
   hostSession: {
     kind: 'tmux';
@@ -1225,22 +1232,61 @@ export class SessionManager {
     }
 
     let nextData = data;
-    if (session.pendingHostReplayDedup && session.streamState !== 'live') {
+    if (session.pendingHostReplayDedup) {
       nextData = this.consumePendingHostReplay(session, data);
       if (!nextData) {
         return;
       }
     }
 
-    this.archiveLocalAgentOutput(session, nextData);
-    this.appendReplayBuffer(session, nextData);
-
-    if (session.streamState === 'live') {
-      this.emitBatchedSessionData(sessionId, nextData, new Set(session.attachedWindowIds));
-    }
+    this.publishLocalData(session, nextData);
   }
 
   private consumePendingHostReplay(session: ManagedSessionRecord, data: string): string {
+    const bufferedScreenData = session.pendingHostReplayScreenBuffer;
+    if (!bufferedScreenData && this.isInvisibleTerminalPrelude(data)) {
+      return this.appendPendingHostReplayScreenBuffer(session, data);
+    }
+
+    if (this.hasIncompleteTerminalControlSequence(data)) {
+      return this.appendPendingHostReplayScreenBuffer(session, data);
+    }
+
+    if (session.pendingHostReplayScreenMatched && !this.containsTerminalControlSequence(data)) {
+      const liveData = `${bufferedScreenData ?? ''}${data}`;
+      this.completeHostReplayDedup(session);
+      return liveData;
+    }
+
+    if (bufferedScreenData || this.containsTerminalControlSequence(data)) {
+      const screenData = `${bufferedScreenData ?? ''}${data}`;
+      const replayText = this.normalizeTerminalScreenText(session.replayBuffer ?? '');
+      const screenText = this.normalizeTerminalScreenText(screenData);
+
+      if (!screenText) {
+        return this.replacePendingHostReplayScreenBuffer(session, screenData);
+      }
+
+      if (
+        this.isTerminalScreenRedraw(screenData) &&
+        this.matchesCapturedHostReplayScreen(replayText, screenText)
+      ) {
+        this.clearPendingHostReplayScreenBuffer(session);
+        session.pendingHostReplayScreenMatched = true;
+        return '';
+      }
+
+      if (
+        screenData.length < getSessionReplayCharLimit(session.kind) &&
+        this.isPotentialCapturedHostReplayScreen(replayText, screenText, screenData)
+      ) {
+        return this.replacePendingHostReplayScreenBuffer(session, screenData);
+      }
+
+      this.completeHostReplayDedup(session);
+      return screenData;
+    }
+
     const replay = session.replayBuffer ?? '';
     const cursor = Math.min(session.pendingHostReplayCursor ?? 0, replay.length);
     const expectedChunk = replay.slice(cursor, cursor + data.length);
@@ -1259,19 +1305,203 @@ export class SessionManager {
     const contiguousReplayLength = this.getCommonPrefixLength(replay.slice(cursor), data);
     if (contiguousReplayLength > 0) {
       session.pendingHostReplayCursor = cursor + contiguousReplayLength;
-      session.pendingHostReplayDedup = false;
+      this.completeHostReplayDedup(session);
       return data.slice(contiguousReplayLength);
     }
 
     const replayOverlapLength = this.getReplayOverlap(replay.slice(cursor), data);
     if (replayOverlapLength > 0) {
       session.pendingHostReplayCursor = replay.length;
-      session.pendingHostReplayDedup = false;
+      this.completeHostReplayDedup(session);
       return data.slice(replayOverlapLength);
     }
 
-    session.pendingHostReplayDedup = false;
+    this.completeHostReplayDedup(session);
     return data;
+  }
+
+  private publishLocalData(session: ManagedSessionRecord, data: string): void {
+    this.archiveLocalAgentOutput(session, data);
+    this.appendReplayBuffer(session, data);
+
+    if (session.streamState === 'live') {
+      this.emitBatchedSessionData(session.sessionId, data, new Set(session.attachedWindowIds));
+    }
+  }
+
+  private appendPendingHostReplayScreenBuffer(session: ManagedSessionRecord, data: string): string {
+    return this.replacePendingHostReplayScreenBuffer(
+      session,
+      `${session.pendingHostReplayScreenBuffer ?? ''}${data}`
+    );
+  }
+
+  private replacePendingHostReplayScreenBuffer(
+    session: ManagedSessionRecord,
+    data: string
+  ): string {
+    if (data.length > PENDING_HOST_REPLAY_SCREEN_BUFFER_CHAR_LIMIT) {
+      this.completeHostReplayDedup(session);
+      return data;
+    }
+
+    session.pendingHostReplayScreenBuffer = data;
+    if (!session.pendingHostReplayScreenFlushTimer) {
+      session.pendingHostReplayScreenFlushTimer = setTimeout(() => {
+        this.flushPendingHostReplayScreenBuffer(session.sessionId);
+      }, PENDING_HOST_REPLAY_SCREEN_FLUSH_DELAY_MS);
+    }
+    return '';
+  }
+
+  private flushPendingHostReplayScreenBuffer(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.backend !== 'local' || !session.pendingHostReplayDedup) {
+      return;
+    }
+
+    const bufferedScreenData = session.pendingHostReplayScreenBuffer;
+    if (!bufferedScreenData) {
+      return;
+    }
+
+    session.pendingHostReplayScreenFlushTimer = undefined;
+    this.completeHostReplayDedup(session);
+    this.publishLocalData(session, bufferedScreenData);
+  }
+
+  private clearPendingHostReplayScreenBuffer(session: ManagedSessionRecord): void {
+    if (session.pendingHostReplayScreenFlushTimer) {
+      clearTimeout(session.pendingHostReplayScreenFlushTimer);
+    }
+    session.pendingHostReplayScreenBuffer = undefined;
+    session.pendingHostReplayScreenFlushTimer = undefined;
+  }
+
+  private containsTerminalControlSequence(data: string): boolean {
+    return data.includes(TERMINAL_ESCAPE);
+  }
+
+  private isTerminalScreenRedraw(data: string): boolean {
+    return (
+      data.includes(`${TERMINAL_ESCAPE}[H`) ||
+      data.includes(`${TERMINAL_ESCAPE}[1;1H`) ||
+      data.includes(`${TERMINAL_ESCAPE}[2J`)
+    );
+  }
+
+  private isInvisibleTerminalPrelude(data: string): boolean {
+    if (!data) {
+      return false;
+    }
+
+    for (const character of data) {
+      const code = character.charCodeAt(0);
+      if (code > 0x1f && code !== 0x7f) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private hasIncompleteTerminalControlSequence(data: string): boolean {
+    if (data.endsWith(TERMINAL_ESCAPE)) {
+      return true;
+    }
+
+    const finalEscapeIndex = data.lastIndexOf(TERMINAL_ESCAPE);
+    if (finalEscapeIndex < 0) {
+      return false;
+    }
+
+    const sequence = data.slice(finalEscapeIndex + TERMINAL_ESCAPE.length);
+    if (sequence.startsWith('[')) {
+      return /^[0-?]*[ -/]*$/.test(sequence.slice(1));
+    }
+
+    return (
+      sequence.startsWith(']') &&
+      !sequence.includes(TERMINAL_BELL) &&
+      !sequence.includes(`${TERMINAL_ESCAPE}\\`)
+    );
+  }
+
+  private normalizeTerminalScreenText(data: string): string {
+    return data
+      .replace(
+        new RegExp(
+          `${TERMINAL_ESCAPE}\\][\\s\\S]*?(?:${TERMINAL_BELL}|${TERMINAL_ESCAPE}\\\\)`,
+          'g'
+        ),
+        ''
+      )
+      .replace(new RegExp(`${TERMINAL_ESCAPE}\\[[0-?]*[ -/]*[@-~]`, 'g'), '')
+      .replace(new RegExp(`${TERMINAL_ESCAPE}[()][0-9A-Z]`, 'g'), '')
+      .replace(new RegExp(`${TERMINAL_ESCAPE}[=>]`, 'g'), '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
+  }
+
+  private matchesCapturedHostReplayScreen(replayText: string, screenText: string): boolean {
+    const replayPayload = this.getTerminalScreenPayload(replayText);
+    const screenPayload = this.getTerminalScreenPayload(screenText);
+    if (!replayPayload || !screenPayload) {
+      return false;
+    }
+
+    const minimumMatchLength = Math.min(replayPayload.length, 16);
+    return screenPayload.length >= minimumMatchLength && replayPayload.endsWith(screenPayload);
+  }
+
+  private getTerminalScreenPayload(text: string): string {
+    const lines = text.split('\n').map((line) => line.trimEnd());
+    while (lines.length > 0 && !lines[0]?.trim()) {
+      lines.shift();
+    }
+    while (lines.length > 0 && !lines.at(-1)?.trim()) {
+      lines.pop();
+    }
+
+    if (this.isTmuxStatusLine(lines.at(-1))) {
+      lines.pop();
+    }
+    while (lines.length > 0 && !lines.at(-1)?.trim()) {
+      lines.pop();
+    }
+
+    return lines.join('\n');
+  }
+
+  private isTmuxStatusLine(line: string | undefined): boolean {
+    return Boolean(line && /^\[[^:\]]+:[^\n]*["*][^\n]*$/.test(line));
+  }
+
+  private isPotentialCapturedHostReplayScreen(
+    replayText: string,
+    screenText: string,
+    screenData: string
+  ): boolean {
+    const replayPayload = this.getTerminalScreenPayload(replayText);
+    const screenPayload = this.getTerminalScreenPayload(screenText);
+    if (
+      !this.isTerminalScreenRedraw(screenData) ||
+      !replayPayload ||
+      !screenPayload ||
+      screenPayload.length >= replayPayload.length
+    ) {
+      return false;
+    }
+
+    const minimumFragmentLength = 1;
+    return screenPayload.length >= minimumFragmentLength && replayPayload.includes(screenPayload);
+  }
+
+  private completeHostReplayDedup(session: ManagedSessionRecord): void {
+    session.pendingHostReplayDedup = false;
+    session.pendingHostReplayCursor = undefined;
+    this.clearPendingHostReplayScreenBuffer(session);
+    session.pendingHostReplayScreenMatched = undefined;
   }
 
   private activateLocalStreamAfterAttach(sessionId: string, replayCursor: number): void {
@@ -1287,8 +1517,6 @@ export class SessionManager {
       }
 
       session.streamState = 'live';
-      session.pendingHostReplayDedup = false;
-      session.pendingHostReplayCursor = undefined;
       const replayBuffer = session.replayBuffer || '';
       const delta = replayBuffer.slice(replayCursor);
       if (delta) {

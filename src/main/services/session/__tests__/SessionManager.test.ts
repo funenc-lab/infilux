@@ -831,6 +831,339 @@ describe('SessionManager', () => {
     });
   });
 
+  it('does not replay captured tmux history after the local stream becomes live', async () => {
+    createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+    const capturedHistory = 'RECOVERY-LINE-001\nRECOVERY-LINE-002\n';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-live-history',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await expect(manager.attach(1, { sessionId })).resolves.toMatchObject({
+      replay: capturedHistory,
+    });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, 'RECOVERY-LINE-001\n');
+    pty.emitData(sessionId, 'RECOVERY-LINE-002\n');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+    pty.emitData(sessionId, 'LIVE-LINE-003\n');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: 'LIVE-LINE-003\n' }],
+    ]);
+    await expect(manager.attach(2, { sessionId })).resolves.toMatchObject({
+      replay: `${capturedHistory}LIVE-LINE-003\n`,
+    });
+  });
+
+  it('does not replay ANSI-encoded tmux screens after the local stream becomes live', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = 'RECOVERY-LINE-001\nRECOVERY-LINE-002';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-ansi-history',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(
+      sessionId,
+      '\x1b[?1049h\x1b[H\x1b[2J\x1b[HRECOVERY-LINE-001\x1b[K\r\nRECOVERY-LINE-002\x1b[K\r\n'
+    );
+    pty.emitData(
+      sessionId,
+      '\x1b[?25l\x1b[1;1HRECOVERY-LINE-001\x1b[K\r\nRECOVERY-LINE-002\x1b[K\r\n'
+    );
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+    pty.emitData(sessionId, 'LIVE-LINE-003\n');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: 'LIVE-LINE-003\n' }],
+    ]);
+  });
+
+  it('keeps deduplication armed across an invisible tmux prelude before an ANSI screen redraw', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = 'RECOVERY-LINE-001\nRECOVERY-LINE-002';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-ansi-prelude-history',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, '\r');
+    pty.emitData(
+      sessionId,
+      '\x1b[?25l\x1b[1;1HRECOVERY-LINE-001\x1b[K\r\nRECOVERY-LINE-002\x1b[K\r\n'
+    );
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+    pty.emitData(sessionId, 'LIVE-LINE-003\n');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: 'LIVE-LINE-003\n' }],
+    ]);
+  });
+
+  it('keeps deduplication armed when a tmux ANSI sequence is split across PTY chunks', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = 'RECOVERY-LINE-001\nRECOVERY-LINE-002';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-split-ansi-history',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, '\x1b[');
+    pty.emitData(sessionId, '?25l\x1b[1;1HRECOVERY-LINE-001\x1b[K\r\nRECOVERY-LINE-002\x1b[K\r\n');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+    pty.emitData(sessionId, 'LIVE-LINE-003\n');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: 'LIVE-LINE-003\n' }],
+    ]);
+  });
+
+  it('forwards an ANSI redraw that contains output newer than the captured tmux history', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = 'RECOVERY-LINE-001\nRECOVERY-LINE-002';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-ansi-live-redraw',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const redrawWithLiveOutput =
+      '\x1b[?25l\x1b[1;1HRECOVERY-LINE-001\x1b[K\r\nRECOVERY-LINE-002\x1b[K\r\nLIVE-LINE-003\x1b[K\r\n';
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, redrawWithLiveOutput);
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: redrawWithLiveOutput }],
+    ]);
+  });
+
+  it('forwards a plain live line that equals the recovered screen content', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = 'PROMPT> ';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-repeated-live-prompt',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, '\x1b[1;1HPROMPT> ');
+    await vi.advanceTimersByTimeAsync(16);
+    expect(getWindowSendCalls(1)).toEqual([]);
+
+    pty.emitData(sessionId, 'PROMPT> ');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: 'PROMPT> ' }],
+    ]);
+  });
+
+  it('forwards a styled live line that equals the recovered screen content', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = 'PROMPT> ';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-styled-live-prompt',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const styledPrompt = '\x1b[32mPROMPT> \x1b[0m';
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, '\x1b[1;1HPROMPT> ');
+    await vi.advanceTimersByTimeAsync(16);
+    expect(getWindowSendCalls(1)).toEqual([]);
+
+    pty.emitData(sessionId, styledPrompt);
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: styledPrompt }],
+    ]);
+  });
+
+  it('buffers a short visible ANSI screen fragment until it can match captured history', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = 'RECOVERY-LINE-001\nRECOVERY-LINE-002';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-short-ansi-history',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const firstScreenData = '\x1b[HRECOV';
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, firstScreenData);
+    await vi.advanceTimersByTimeAsync(16);
+    expect(getWindowSendCalls(1)).toEqual([]);
+    pty.emitData(sessionId, 'ERY-LINE-001\x1b[K\r\nRECOVERY-LINE-002\x1b[K\r\n');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+    pty.emitData(sessionId, 'LIVE-LINE-003\n');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: 'LIVE-LINE-003\n' }],
+    ]);
+  });
+
+  it('flushes an unterminated OSC fragment instead of buffering it indefinitely', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce('RECOVERY-LINE-001');
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-unterminated-osc',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+    const unterminatedOsc = '\x1b]0;unterminated';
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    pty.emitData(sessionId, unterminatedOsc);
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: unterminatedOsc }],
+    ]);
+  });
+
   it('archives complete recovered tmux history while retaining a bounded live replay', async () => {
     createWindow(1);
     const manager = new SessionManager();
