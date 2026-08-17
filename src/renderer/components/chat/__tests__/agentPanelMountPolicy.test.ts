@@ -366,6 +366,48 @@ describe('resolveMountedAgentPanelSessionIds', () => {
     ).toEqual(['session-live']);
   });
 
+  it('mounts provider-backed missing-host sessions so their runtime can resume', () => {
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [
+          {
+            id: 'session-resumable',
+            agentCommand: 'codex',
+            providerSessionIdentityValid: true,
+            recovered: true,
+            recoveryState: 'missing-host-session',
+          },
+        ],
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isCanvasDisplayMode: true,
+        isWorkspaceCanvasDisplayMode: false,
+        worktreeTerminalMountLimit: 6,
+      })
+    ).toEqual(['session-resumable']);
+  });
+
+  it('keeps unverified missing-host provider identities metadata-only', () => {
+    expect(
+      resolveMountedAgentPanelSessionIds({
+        canvasSessions: [
+          {
+            id: 'session-unverified',
+            agentCommand: 'codex',
+            providerSessionIdentityValid: false,
+            recovered: true,
+            recoveryState: 'missing-host-session',
+          },
+        ],
+        currentWorktreeSessions: [],
+        globalSessionIds: [],
+        isCanvasDisplayMode: true,
+        isWorkspaceCanvasDisplayMode: false,
+        worktreeTerminalMountLimit: 6,
+      })
+    ).toEqual([]);
+  });
+
   it('preserves existing current-worktree mount ordering with cached hidden sessions', () => {
     expect(
       resolveMountedAgentPanelSessionIds({

@@ -1,3 +1,4 @@
+import { supportsProviderSessionResume } from '@shared/utils/agentInputMode';
 import { normalizePath } from '@/App/storage';
 import {
   AGENT_BACKGROUND_RUNTIME_DORMANT_THRESHOLD_MS,
@@ -25,6 +26,7 @@ interface MountedAgentPanelSessionCandidate {
   displayOrder?: number;
   id: string;
   pendingCommand?: string;
+  providerSessionIdentityValid?: boolean;
   repoPath?: string;
   recovered?: boolean;
   recoveryState?: string;
@@ -98,7 +100,16 @@ function requiresRecoveryMount(session: MountedAgentPanelSessionCandidate): bool
 }
 
 function isRuntimeMountableCanvasSession(session: MountedAgentPanelSessionCandidate): boolean {
-  return session.recoveryState !== 'missing-host-session';
+  if (session.recoveryState !== 'missing-host-session') {
+    return true;
+  }
+
+  return Boolean(
+    session.recovered &&
+      session.providerSessionIdentityValid &&
+      session.agentCommand &&
+      supportsProviderSessionResume(session.agentCommand)
+  );
 }
 
 function requiresImmediateRuntimeMount(session: MountedAgentPanelSessionCandidate): boolean {
