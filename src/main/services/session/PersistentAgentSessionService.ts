@@ -4,6 +4,7 @@ import type {
   RestoreWorktreeSessionsRequest,
   RestoreWorktreeSessionsResult,
 } from '@shared/types';
+import { supportsProviderSessionResume } from '@shared/utils/agentInputMode';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { requestMainProcessDiagnosticsCapture } from '../../utils/mainProcessDiagnostics';
@@ -83,12 +84,27 @@ function hasResolvedProviderSessionIdentity(record: PersistentAgentSessionRecord
   );
 }
 
+function isRecoverableRecord(record: PersistentAgentSessionRecord): boolean {
+  return (
+    isRecoverableState(record.lastKnownState) ||
+    (record.lastKnownState === 'missing-host-session' &&
+      hasResolvedProviderSessionIdentity(record) &&
+      supportsProviderSessionResume(record.agentCommand))
+  );
+}
+
 function compareRecoveryItemPriority(
   left: RestoreWorktreeSessionsResult['items'][number],
   right: RestoreWorktreeSessionsResult['items'][number]
 ): number {
   if (left.recoverable !== right.recoverable) {
     return left.recoverable ? -1 : 1;
+  }
+
+  const leftHasAvailableHost = isRecoverableState(left.runtimeState);
+  const rightHasAvailableHost = isRecoverableState(right.runtimeState);
+  if (leftHasAvailableHost !== rightHasAvailableHost) {
+    return leftHasAvailableHost ? -1 : 1;
   }
 
   if (right.record.updatedAt !== left.record.updatedAt) {
@@ -280,7 +296,7 @@ export class PersistentAgentSessionService {
     return {
       record,
       runtimeState: record.lastKnownState,
-      recoverable: isRecoverableState(record.lastKnownState),
+      recoverable: isRecoverableRecord(record),
       reason: buildRecoveryReason(record.lastKnownState),
     };
   }

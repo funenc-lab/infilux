@@ -307,7 +307,7 @@ describe('PersistentAgentSessionService', () => {
     ]);
   });
 
-  it('prefers recoverable duplicate provider sessions over newer metadata-only recovery records', async () => {
+  it('prefers an available host over a newer provider-resumable record', async () => {
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
       makeRecord({
         uiSessionId: 'session-missing',
@@ -347,7 +347,7 @@ describe('PersistentAgentSessionService', () => {
     ]);
   });
 
-  it('reconciles host state and returns missing tmux sessions for metadata recovery', async () => {
+  it('reconciles a missing tmux host into a recoverable provider session', async () => {
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([makeRecord()]);
     const probeSession = vi.fn<() => Promise<'live' | 'missing-host-session'>>(
       async () => 'missing-host-session'
@@ -379,11 +379,35 @@ describe('PersistentAgentSessionService', () => {
           lastKnownState: 'missing-host-session',
         }),
         runtimeState: 'missing-host-session',
-        recoverable: false,
+        recoverable: true,
         reason: 'missing-host-session',
       }),
     ]);
     expect(persistentAgentSessionServiceTestDoubles.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps missing host sessions metadata-only when their agent cannot resume provider sessions', async () => {
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
+      makeRecord({ agentId: 'gemini', agentCommand: 'gemini' }),
+    ]);
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession: vi.fn(async () => 'missing-host-session' as const),
+    };
+    const service = new PersistentAgentSessionService(undefined, () => host);
+
+    const result = await service.restoreWorktreeSessions({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        record: expect.objectContaining({ agentCommand: 'gemini' }),
+        runtimeState: 'missing-host-session',
+        recoverable: false,
+      }),
+    ]);
   });
 
   it('captures diagnostics when tmux recovery falls back to metadata-only recovery without a provider session id', async () => {
@@ -404,10 +428,17 @@ describe('PersistentAgentSessionService', () => {
     };
     const service = new PersistentAgentSessionService(undefined, () => host);
 
-    await service.restoreWorktreeSessions({
+    const result = await service.restoreWorktreeSessions({
       repoPath: '/repo',
       cwd: '/repo/worktree',
     });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        runtimeState: 'missing-host-session',
+        recoverable: false,
+      }),
+    ]);
 
     expect(
       persistentAgentSessionServiceTestDoubles.requestMainProcessDiagnosticsCapture

@@ -7,3 +7,9 @@ export function getAgentInputBaseId(agentId: string): string {
 export function supportsAgentNativeTerminalInput(agentId: string): boolean {
   return NATIVE_TERMINAL_INPUT_AGENT_IDS.has(getAgentInputBaseId(agentId));
 }
+
+export function supportsProviderSessionResume(agentCommand: string): boolean {
+  return (
+    agentCommand === 'codex' || agentCommand === 'cursor-agent' || agentCommand.startsWith('claude')
+  );
+}

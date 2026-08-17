@@ -463,6 +463,57 @@ describe('agentSessionRecovery', () => {
     expect(groupState).toEqual(createInitialGroupState());
   });
 
+  it('restores provider-resumable sessions when the tmux host is gone', async () => {
+    const recoverableResult = createRecoverableRestoreResult('session-resume');
+    const item = recoverableResult.items[0];
+    if (!item) {
+      throw new Error('Expected a recoverable session item');
+    }
+    const providerResumableResult = {
+      items: [
+        {
+          ...item,
+          runtimeState: 'missing-host-session' as const,
+          reason: 'missing-host-session',
+          record: {
+            ...item.record,
+            lastKnownState: 'missing-host-session' as const,
+          },
+        },
+      ],
+    };
+
+    const restoreWorktreeSessions = vi.fn().mockResolvedValue(providerResumableResult);
+    const upsertRecoveredSession = vi.fn();
+    let groupState: AgentGroupState = createInitialGroupState();
+    const updateGroupState = vi.fn(
+      (_cwd: string, updater: (state: AgentGroupState) => AgentGroupState) => {
+        groupState = updater(groupState);
+      }
+    );
+
+    await expect(
+      restoreWorktreeAgentSessions({
+        repoPath: '/repo',
+        cwd: '/repo/worktree',
+        restoreWorktreeSessions,
+        upsertRecoveredSession,
+        updateGroupState,
+      })
+    ).resolves.toEqual(['session-resume']);
+
+    expect(upsertRecoveredSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'session-resume',
+        lastKnownState: 'missing-host-session',
+      })
+    );
+    expect(groupState.groups[0]).toMatchObject({
+      sessionIds: ['session-resume'],
+      activeSessionId: 'session-resume',
+    });
+  });
+
   it('does not complete the recovery cache after metadata-only restore so later host recovery can attach', async () => {
     const restoreWorktreeSessions = vi
       .fn()

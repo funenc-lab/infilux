@@ -1,5 +1,6 @@
 import type { SessionHostSessionOptions } from '@shared/types';
 import { AGENT_TMUX_UNSET_ENV_KEYS, buildEnvUnsetPrefix } from '@shared/utils/agentEnvironment';
+import { supportsProviderSessionResume } from '@shared/utils/agentInputMode';
 import {
   type AppRuntimeChannel,
   buildPersistentAgentHostSessionKey,
@@ -66,6 +67,10 @@ function buildSessionResumeArgs(params: {
     useTmuxHostSession,
   } = params;
   if (!resumeSessionId) {
+    return [];
+  }
+
+  if (!supportsProviderSessionResume(agentCommand)) {
     return [];
   }
 
