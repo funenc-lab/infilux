@@ -1,0 +1,38 @@
+schema: spec-driven
+
+context: |
+  Product: Infilux is an Electron desktop application for Git worktree management and multi-agent development workflows.
+  Stack: Electron 39, React 19, TypeScript 5.9, Tailwind CSS 4, Zustand, Monaco, xterm.js, simple-git, Vitest, and pnpm.
+  Architecture: renderer -> preload bridge -> typed IPC -> main services. Shared contracts live under src/shared.
+  State: extend existing stores and hooks; do not create parallel state sources. Editor state is worktree-scoped and navigation is one-shot.
+  Repository model: local and remote repositories coexist. File, Git, session, and path behavior must not assume local disk access.
+  IPC: every capability change updates shared types/channels, main handlers, preload exposure, and renderer consumers together. Payloads must be serializable.
+  Quality: no as any or ts-ignore. Prefer narrow services and explicit dependencies. Test-driven changes require targeted tests before implementation and fresh verification output.
+  Language: source code and code comments are English only. Chinese is allowed only in documentation under docs/ or user-docs/.
+  Commits: use Angular-style conventional commits. Preserve unrelated working-tree changes.
+
+rules:
+  proposal:
+    - Include Goals, Non-goals, User impact, Risks, and measurable acceptance criteria.
+    - State whether the change applies to local repositories, remote repositories, or both.
+  design:
+    - Identify ownership across shared contracts, main services, preload, renderer hooks/stores, and UI.
+    - Name extension points and failure or recovery behavior explicitly.
+    - Do not introduce a second source of truth for Git, session, or editor state.
+  specs:
+    - Write observable SHALL requirements with success, failure, and remote-path scenarios where applicable.
+    - Preserve existing session recovery, worktree switching, and cleanup behavior unless the change explicitly replaces it.
+  tasks:
+    - Order tasks by dependency and make every task independently verifiable.
+    - Include exact test scope and acceptance evidence for each user-visible behavior.
+    - Separate contract, main-process, preload, renderer, and end-to-end work when a capability crosses process boundaries.
+
+operations:
+  apply:
+    guidance:
+      - Read the nearest AGENTS.md files before changing each subsystem.
+      - Run focused tests after each task and pnpm typecheck, pnpm lint, and relevant broader tests before completion.
+      - Treat session, terminal, remote, and worktree switching as lifecycle-sensitive paths.
+  archive:
+    guidance:
+      - Archive only after every task is complete and fresh verification evidence is recorded.
