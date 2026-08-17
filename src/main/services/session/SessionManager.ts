@@ -52,6 +52,7 @@ interface ManagedSessionRecord extends SessionDescriptor {
   runtimeState?: SessionRuntimeState;
   replayBuffer?: string;
   pendingHostReplayDedup?: boolean;
+  pendingHostReplayCursor?: number;
   streamState?: 'buffering' | 'attaching' | 'live';
   pendingExit?: SessionExitEvent;
   transcriptArchiveState?: 'ready' | 'degraded';
@@ -886,6 +887,8 @@ export class SessionManager {
 
     const initialReplay = await this.loadLocalReplaySeed(options, startupLogger);
     const initialReplayTail = takeUtf16Tail(initialReplay, getSessionReplayCharLimit(options.kind));
+    const pendingHostReplayDedup =
+      initialReplayTail.length > 0 && this.shouldSeedTmuxHostReplay(options);
     const kind = options.kind ?? 'terminal';
     const cwd = options.cwd || process.env.HOME || process.env.USERPROFILE || '/';
     const sessionId = this.localPtyManager.allocateId();
@@ -905,8 +908,8 @@ export class SessionManager {
       ...(transcriptArchiveId ? { transcriptArchiveId } : {}),
       ...(options.hostSession ? { hostSession: options.hostSession } : {}),
       replayBuffer: initialReplayTail,
-      pendingHostReplayDedup:
-        initialReplayTail.length > 0 && this.shouldSeedTmuxHostReplay(options),
+      pendingHostReplayDedup,
+      ...(pendingHostReplayDedup ? { pendingHostReplayCursor: 0 } : {}),
       streamState: 'buffering',
     };
     this.sessions.set(sessionId, record);
@@ -1223,11 +1226,10 @@ export class SessionManager {
 
     let nextData = data;
     if (session.pendingHostReplayDedup && session.streamState !== 'live') {
-      nextData = this.getReplayDelta(session.replayBuffer, data);
+      nextData = this.consumePendingHostReplay(session, data);
       if (!nextData) {
         return;
       }
-      session.pendingHostReplayDedup = false;
     }
 
     this.archiveLocalAgentOutput(session, nextData);
@@ -1236,6 +1238,40 @@ export class SessionManager {
     if (session.streamState === 'live') {
       this.emitBatchedSessionData(sessionId, nextData, new Set(session.attachedWindowIds));
     }
+  }
+
+  private consumePendingHostReplay(session: ManagedSessionRecord, data: string): string {
+    const replay = session.replayBuffer ?? '';
+    const cursor = Math.min(session.pendingHostReplayCursor ?? 0, replay.length);
+    const expectedChunk = replay.slice(cursor, cursor + data.length);
+
+    if (expectedChunk === data) {
+      session.pendingHostReplayCursor = cursor + data.length;
+      return '';
+    }
+
+    const matchingChunkIndex = replay.indexOf(data, cursor);
+    if (matchingChunkIndex >= 0) {
+      session.pendingHostReplayCursor = matchingChunkIndex + data.length;
+      return '';
+    }
+
+    const contiguousReplayLength = this.getCommonPrefixLength(replay.slice(cursor), data);
+    if (contiguousReplayLength > 0) {
+      session.pendingHostReplayCursor = cursor + contiguousReplayLength;
+      session.pendingHostReplayDedup = false;
+      return data.slice(contiguousReplayLength);
+    }
+
+    const replayOverlapLength = this.getReplayOverlap(replay.slice(cursor), data);
+    if (replayOverlapLength > 0) {
+      session.pendingHostReplayCursor = replay.length;
+      session.pendingHostReplayDedup = false;
+      return data.slice(replayOverlapLength);
+    }
+
+    session.pendingHostReplayDedup = false;
+    return data;
   }
 
   private activateLocalStreamAfterAttach(sessionId: string, replayCursor: number): void {
@@ -1252,6 +1288,7 @@ export class SessionManager {
 
       session.streamState = 'live';
       session.pendingHostReplayDedup = false;
+      session.pendingHostReplayCursor = undefined;
       const replayBuffer = session.replayBuffer || '';
       const delta = replayBuffer.slice(replayCursor);
       if (delta) {
@@ -1640,6 +1677,15 @@ export class SessionManager {
     }
 
     return matched;
+  }
+
+  private getCommonPrefixLength(left: string, right: string): number {
+    const length = Math.min(left.length, right.length);
+    let index = 0;
+    while (index < length && left[index] === right[index]) {
+      index += 1;
+    }
+    return index;
   }
 
   private markRemoteSessionDead(session: ManagedSessionRecord): void {

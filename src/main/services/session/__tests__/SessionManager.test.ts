@@ -804,6 +804,33 @@ describe('SessionManager', () => {
     expect(attached.replay).toBe('RECOVERY-LINE-001\nRECOVERY-LINE-002\nprompt> ');
   });
 
+  it('does not append recovered tmux history when the host emits it in sequential chunks', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const capturedHistory = 'RECOVERY-LINE-001\nRECOVERY-LINE-002\n';
+    sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValueOnce(capturedHistory);
+
+    const opened = await manager.create(1, {
+      cwd: '/repo-agent',
+      kind: 'agent',
+      persistOnDisconnect: true,
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'enso',
+        sessionName: 'enso-ui-session-sequential-history',
+      },
+    });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    pty.emitData(sessionId, 'RECOVERY-LINE-001\n');
+    pty.emitData(sessionId, 'RECOVERY-LINE-002\n');
+
+    await expect(manager.attach(1, { sessionId })).resolves.toMatchObject({
+      replay: capturedHistory,
+    });
+  });
+
   it('archives complete recovered tmux history while retaining a bounded live replay', async () => {
     createWindow(1);
     const manager = new SessionManager();
