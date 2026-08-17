@@ -221,6 +221,40 @@ describe('EnhancedInput integration', () => {
     await mounted.unmount();
   });
 
+  it('restores focus after an IME composition ends while the input remains blurred', async () => {
+    focusLockTestState.isLocked = true;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+
+    const mounted = await mountEnhancedInput({ sessionId: 'session-ime-recovery' });
+    const textarea = mounted.container.querySelector('textarea');
+    expect(textarea).not.toBeNull();
+    if (!textarea) return;
+
+    const focusSpy = vi.spyOn(textarea, 'focus');
+    textarea.focus();
+    focusSpy.mockClear();
+
+    await act(async () => {
+      textarea.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+      textarea.blur();
+      await flushMicrotasks();
+    });
+
+    expect(focusSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      textarea.dispatchEvent(new Event('compositionend', { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
   it('restores focus on blur when focus lock is active and IME is not composing', async () => {
     focusLockTestState.isLocked = true;
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {

@@ -940,6 +940,7 @@ export function EnhancedInput({
               }}
               onCompositionEnd={() => {
                 composingRef.current = false;
+                handleBlur();
               }}
               onPaste={handlePaste}
               onBlur={handleBlur}
