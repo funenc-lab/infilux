@@ -1327,6 +1327,77 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('refreshes a canvas terminal layout when an inactive session becomes focused', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+    const firstSession = createSession({
+      id: 'canvas-first-session',
+      sessionId: 'canvas-first-provider-session',
+      backendSessionId: 'canvas-first-backend-session',
+    });
+    const secondSession = createSession({
+      id: 'canvas-second-session',
+      sessionId: 'canvas-second-provider-session',
+      backendSessionId: 'canvas-second-backend-session',
+    });
+    useAgentSessionsStore.setState({
+      sessions: [firstSession, secondSession],
+      activeIds: {
+        '/repo/worktree': firstSession.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'canvas-focus-group',
+              sessionIds: [firstSession.id, secondSession.id],
+              activeSessionId: firstSession.id,
+            },
+          ],
+          activeGroupId: 'canvas-focus-group',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel();
+    const firstTerminalSelector =
+      '[data-testid="agent-terminal"][data-session-id="canvas-first-session"]';
+    const secondTerminalSelector =
+      '[data-testid="agent-terminal"][data-session-id="canvas-second-session"]';
+    const initialFirstKey = mounted.container
+      .querySelector(firstTerminalSelector)
+      ?.getAttribute('data-layout-refresh-key');
+    const initialSecondKey = mounted.container
+      .querySelector(secondTerminalSelector)
+      ?.getAttribute('data-layout-refresh-key');
+    const secondTile = mounted.container.querySelector<HTMLElement>(
+      '[data-agent-session-id="canvas-second-session"]'
+    );
+
+    expect(secondTile).not.toBeNull();
+
+    await act(async () => {
+      secondTile?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      await flushRenderTasks();
+    });
+
+    expect(
+      mounted.container.querySelector(secondTerminalSelector)?.getAttribute('data-active')
+    ).toBe('true');
+    expect(
+      mounted.container
+        .querySelector(firstTerminalSelector)
+        ?.getAttribute('data-layout-refresh-key')
+    ).not.toBe(initialFirstKey);
+    expect(
+      mounted.container
+        .querySelector(secondTerminalSelector)
+        ?.getAttribute('data-layout-refresh-key')
+    ).not.toBe(initialSecondKey);
+
+    await mounted.unmount();
+  });
+
   it('shows a recovery state instead of the empty state while worktree sessions are restoring', async () => {
     const recovery = createDeferred<RestoreWorktreeSessionsResult>();
     testState.electronAPI.restoreWorktreeSessions.mockReturnValue(recovery.promise);

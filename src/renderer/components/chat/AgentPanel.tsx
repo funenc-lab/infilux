@@ -5016,7 +5016,7 @@ export function AgentPanel({
             isVisible={isTerminalVisible}
             layoutRefreshKey={
               isCanvasDisplayMode
-                ? `${canvasSessionLayoutSurfaceKey}:${sessionContentHost ? 'host' : 'inline'}:${canvasActivationEpoch}`
+                ? `${canvasSessionLayoutSurfaceKey}:${sessionContentHost ? 'host' : 'inline'}:${canvasActivationEpoch}:${isFocusedSession ? 'focused' : 'inactive'}`
                 : undefined
             }
             terminalFontScale={
