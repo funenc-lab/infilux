@@ -511,6 +511,8 @@ export function useXterm({
   // Track if this terminal should respond to global shortcuts
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  const isVisibleRef = useRef(isVisible);
+  isVisibleRef.current = isVisible;
   const shouldSyncVisibleLayout = isActive || isVisible;
   const shouldActivateFromVisibleSurface = isActive || isVisible;
   const shouldActivateFromInitialCommand =
@@ -546,6 +548,7 @@ export function useXterm({
   const terminalWriteInFlightRef = useRef(false);
   const terminalWriteInFlightIdentityRef = useRef<InFlightTerminalWrite | null>(null);
   const terminalWriteGenerationRef = useRef(0);
+  const pendingOutputResyncRef = useRef<{ sessionId: string; replay: string } | null>(null);
   const performViewportSyncRef = useRef<() => boolean>(() => false);
   const viewportSyncControllerRef = useRef<XtermViewportSyncController>(
     createXtermViewportSyncController({
@@ -1007,6 +1010,45 @@ export function useXterm({
     viewportSyncControllerRef.current.reset();
     pendingTerminalExitRef.current = false;
   }, []);
+
+  const restoreOutputAfterResync = useCallback(
+    async (sessionId: string, replay: string): Promise<void> => {
+      const terminal = terminalRef.current;
+      if (!terminal || ptyIdRef.current !== sessionId || !isVisibleRef.current) {
+        return;
+      }
+
+      let restoredOutput = replay;
+      if (kind === 'agent') {
+        try {
+          const page = await window.electronAPI.session.getTranscriptPage({
+            sessionId,
+            maxBytes: 256 * 1024,
+          });
+          if (page.health !== 'unavailable' || page.text) {
+            restoredOutput = page.text;
+          }
+        } catch (error) {
+          console.warn('[xterm] Failed to restore session output from transcript archive:', error);
+        }
+      }
+
+      if (terminalRef.current !== terminal || ptyIdRef.current !== sessionId) {
+        return;
+      }
+
+      clearTerminalWriteFlushTimers();
+      terminalWriteInFlightRef.current = false;
+      terminalWriteInFlightIdentityRef.current = null;
+      terminal.reset();
+      replaceReplaySnapshot(restoredOutput);
+      await writeInitialTerminalContent(terminal, restoredOutput);
+      await window.electronAPI.session.acknowledgeOutputResync(sessionId).catch((error) => {
+        console.warn('[xterm] Failed to acknowledge session output resync:', error);
+      });
+    },
+    [clearTerminalWriteFlushTimers, kind, replaceReplaySnapshot, writeInitialTerminalContent]
+  );
 
   const disposeTerminal = useCallback(() => {
     clearTerminalWriteFlushTimers();
@@ -1726,6 +1768,10 @@ export function useXterm({
             }
             appendReplaySnapshot(event.data);
 
+            if (!isVisibleRef.current) {
+              return;
+            }
+
             if (!isFlushPendingRef.current) {
               isFlushPendingRef.current = true;
               dataFlushTimerRef.current = setTimeout(() => {
@@ -1733,6 +1779,13 @@ export function useXterm({
                 flushBufferedTerminalOutput(terminal);
               }, 30);
             }
+          },
+          onResync: (event) => {
+            if (!isVisibleRef.current) {
+              pendingOutputResyncRef.current = event;
+              return;
+            }
+            void restoreOutputAfterResync(event.sessionId, event.replay);
           },
           onExit: () => {
             pendingTerminalExitRef.current = true;
@@ -1752,6 +1805,11 @@ export function useXterm({
             setRuntimeState(event.state);
           },
         });
+        void window.electronAPI.session
+          .setOutputDelivery(sessionId, isVisibleRef.current)
+          .catch((error) => {
+            console.warn('[xterm] Failed to update session output delivery mode:', error);
+          });
       };
 
       const createFirstSessionOutputWaiter = () => {
@@ -2161,6 +2219,23 @@ export function useXterm({
     };
   }, [clearReplaySnapshotAppendTimer, flushReplaySnapshotWithPendingOutput]);
 
+  useEffect(() => {
+    const sessionId = ptyIdRef.current;
+    if (!sessionId || staticContent) {
+      return;
+    }
+
+    void window.electronAPI.session.setOutputDelivery(sessionId, isVisible).catch((error) => {
+      console.warn('[xterm] Failed to update session output delivery mode:', error);
+    });
+
+    const pendingResync = pendingOutputResyncRef.current;
+    if (isVisible && pendingResync?.sessionId === sessionId) {
+      pendingOutputResyncRef.current = null;
+      void restoreOutputAfterResync(pendingResync.sessionId, pendingResync.replay);
+    }
+  }, [isVisible, restoreOutputAfterResync, staticContent]);
+
   // Cleanup on unmount.
   // Setup: reset isUnmountedRef so StrictMode re-mount can re-initialize.
   // Cleanup: reset activation/data refs so the next mount gets consistent state;
@@ -2185,6 +2260,9 @@ export function useXterm({
       clearPendingHostScroll();
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
+      if (ptyIdRef.current) {
+        void window.electronAPI.session.setOutputDelivery(ptyIdRef.current, false).catch(() => {});
+      }
       // Agent sessions can move between canvas hosts within the same window.
       // Keep their backend attachment until explicit closure or window teardown.
       if (ptyIdRef.current && kind !== 'agent') {

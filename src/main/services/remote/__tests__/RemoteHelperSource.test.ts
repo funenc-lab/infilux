@@ -158,6 +158,17 @@ describe('getRemoteServerSource', () => {
     expect(source).toContain('enqueueSessionOutput(session, chunk);');
   });
 
+  it('bounds remote client write queues when socket backpressure applies', () => {
+    const source = getRemoteServerSource();
+
+    expect(source).toContain('const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;');
+    expect(source).toContain('const clientWriteStates = new Map();');
+    expect(source).toContain('function flushClientWrites(stream, writeState) {');
+    expect(source).toContain('if (!stream.write(line)) {');
+    expect(source).toContain('if (state.queuedChars > SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS) {');
+    expect(source).toContain('stream.destroy();');
+  });
+
   it('flushes live output before session exit and discards queues without consumers', () => {
     const source = getRemoteServerSource();
     const exitFlushIndex = source.indexOf('flushSessionOutput(session.sessionId);');

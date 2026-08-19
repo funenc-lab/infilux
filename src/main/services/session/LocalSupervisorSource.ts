@@ -19,7 +19,10 @@ const LOCAL_SUPERVISOR_RUNTIME_VERSION = ${JSON.stringify(LOCAL_SUPERVISOR_RUNTI
 const DAEMON_INFO_FILENAME = 'local-supervisor-daemon.json';
 	const TERMINAL_SESSION_REPLAY_CHAR_LIMIT = ${TERMINAL_SESSION_REPLAY_CHAR_LIMIT};
 	const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};
-const AUTH_TOKEN_BYTES = 36;
+	const AUTH_TOKEN_BYTES = 36;
+	const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
+	const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
+	const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;
 
 let cachedNodePty = undefined;
 let cachedNodePtyError = null;
@@ -29,6 +32,8 @@ const state = {
   sessions: new Map(),
   clients: new Set(),
 };
+const sessionOutputQueues = new Map();
+const clientWriteStates = new Map();
 
 function formatError(error) {
   if (error instanceof Error) {
@@ -58,7 +63,47 @@ process.on('unhandledRejection', (error) => {
 });
 
 function sendMessage(stream, message) {
-  stream.write(JSON.stringify(message) + '\n');
+  if (!stream.writable || stream.destroyed) {
+    return;
+  }
+
+  const line = JSON.stringify(message) + '\n';
+  const state = clientWriteStates.get(stream);
+  if (state) {
+    state.lines.push(line);
+    state.queuedChars += line.length;
+    if (state.queuedChars > SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS) {
+      stream.destroy();
+    }
+    return;
+  }
+
+  if (!stream.write(line)) {
+    const writeState = {
+      lines: [],
+      queuedChars: 0,
+    };
+    clientWriteStates.set(stream, writeState);
+    stream.once('drain', () => flushClientWrites(stream, writeState));
+  }
+}
+
+function flushClientWrites(stream, writeState) {
+  if (clientWriteStates.get(stream) !== writeState || stream.destroyed || !stream.writable) {
+    clientWriteStates.delete(stream);
+    return;
+  }
+
+  while (writeState.lines.length > 0) {
+    const line = writeState.lines.shift();
+    writeState.queuedChars -= line.length;
+    if (!stream.write(line)) {
+      stream.once('drain', () => flushClientWrites(stream, writeState));
+      return;
+    }
+  }
+
+  clientWriteStates.delete(stream);
 }
 
 function reply(stream, id, result) {
@@ -126,6 +171,24 @@ function takeUtf16Tail(value, maxCodeUnits) {
   return value.slice(start);
 }
 
+function takeUtf16Prefix(value, maxCodeUnits) {
+  if (!value || maxCodeUnits <= 0 || Number.isNaN(maxCodeUnits)) {
+    return '';
+  }
+  if (value.length <= maxCodeUnits || maxCodeUnits === Number.POSITIVE_INFINITY) {
+    return value;
+  }
+  let end = Math.floor(maxCodeUnits);
+  if (
+    end > 0 &&
+    isHighSurrogate(value.charCodeAt(end - 1)) &&
+    isLowSurrogate(value.charCodeAt(end))
+  ) {
+    end -= 1;
+  }
+  return value.slice(0, Math.max(1, end));
+}
+
 function appendReplayTail(session, chunk) {
   if (!chunk) {
     return session.replay;
@@ -133,6 +196,54 @@ function appendReplayTail(session, chunk) {
   const limit = getSessionReplayCharLimit(session);
   const combined = session.replay + chunk;
   return takeUtf16Tail(combined, limit);
+}
+
+function queueSessionOutput(session, data) {
+  if (!session || !data) {
+    return;
+  }
+
+  const existing = sessionOutputQueues.get(session.sessionId);
+  if (existing) {
+    existing.data += data;
+    if (existing.data.length >= SESSION_OUTPUT_BATCH_MAX_CHARS) {
+      flushSessionOutput(session.sessionId);
+    }
+    return;
+  }
+
+  const queue = {
+    session,
+    data,
+    timer: setTimeout(() => flushSessionOutput(session.sessionId), SESSION_OUTPUT_BATCH_DELAY_MS),
+  };
+  sessionOutputQueues.set(session.sessionId, queue);
+}
+
+function flushSessionOutput(sessionId, drainAll = false) {
+  let queue = sessionOutputQueues.get(sessionId);
+  while (queue) {
+    clearTimeout(queue.timer);
+    const data = takeUtf16Prefix(queue.data, SESSION_OUTPUT_BATCH_MAX_CHARS);
+    queue.data = queue.data.slice(data.length);
+    if (queue.data) {
+      if (!drainAll) {
+        queue.timer = setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS);
+      }
+    } else {
+      sessionOutputQueues.delete(sessionId);
+    }
+
+    broadcast('session:data', {
+      sessionId,
+      data,
+    });
+
+    if (!drainAll || !queue.data) {
+      return;
+    }
+    queue = sessionOutputQueues.get(sessionId);
+  }
 }
 
 function loadNodePty() {
@@ -276,6 +387,7 @@ function finalizeSessionExit(session, exitCode, signal) {
 
   state.sessions.delete(session.sessionId);
   const emitExit = () => {
+    flushSessionOutput(session.sessionId, true);
     broadcast('session:exit', {
       sessionId: session.sessionId,
       exitCode,
@@ -355,10 +467,7 @@ async function createSession(params = {}) {
     appendSessionTranscript(session, data);
     session.lastDataAt = Date.now();
     session.replay = appendReplayTail(session, data);
-    broadcast('session:data', {
-      sessionId: session.sessionId,
-      data,
-    });
+    queueSessionOutput(session, data);
   });
 
   pty.onExit(({ exitCode, signal }) => {
@@ -541,6 +650,7 @@ async function startDaemon() {
     });
 
     socket.on('close', () => {
+      clientWriteStates.delete(socket);
       if (authState.subscribed) {
         state.clients.delete(socket);
       }

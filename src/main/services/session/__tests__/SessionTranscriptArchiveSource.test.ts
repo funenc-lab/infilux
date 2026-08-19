@@ -81,4 +81,54 @@ describe('getSessionTranscriptArchiveRuntimeSource', () => {
       health: 'complete',
     });
   });
+
+  it('keeps generated archive output in a bounded pending batch before flushing', () => {
+    const source = getSessionTranscriptArchiveRuntimeSource();
+
+    expect(source).toContain('const sessionTranscriptPendingAppends = new Map();');
+    expect(source).toContain('function queueSessionTranscriptAppend(sessionId, chunk) {');
+    expect(source).toContain('await flushPendingSessionTranscriptAppend(normalizedSessionId);');
+  });
+
+  it('rebuilds generated V2 archive pages when the manifest is missing', async () => {
+    const runtime = createGeneratedTranscriptRuntime(rootDirectory);
+    const segmentDirectory = path.join(
+      rootDirectory,
+      'session-transcripts',
+      'v2',
+      'agent-1',
+      'segments'
+    );
+    await fsp.mkdir(segmentDirectory, { recursive: true });
+    await fsp.writeFile(path.join(segmentDirectory, '00000000000000000000.log'), 'first-');
+    await fsp.writeFile(path.join(segmentDirectory, '00000000000000000001.log'), 'second');
+
+    await expect(
+      runtime.readSessionTranscriptPage({ sessionId: 'agent-1', maxBytes: 1024 })
+    ).resolves.toEqual({
+      text: 'first-second',
+      startByteOffset: 0,
+      endByteOffset: 12,
+      hasMore: false,
+      totalBytes: 12,
+      health: 'complete',
+    });
+  });
+
+  it('migrates generated legacy V1 output into V2 segments on open', async () => {
+    const runtime = createGeneratedTranscriptRuntime(rootDirectory);
+    await fsp.mkdir(path.join(rootDirectory, 'session-transcripts'), { recursive: true });
+    await fsp.writeFile(path.join(rootDirectory, 'session-transcripts', 'agent-1.log'), 'legacy');
+
+    await expect(
+      runtime.openSessionTranscript({ sessionId: 'agent-1', kind: 'agent' })
+    ).resolves.toBe(true);
+    await expect(
+      runtime.readSessionTranscriptPage({ sessionId: 'agent-1', maxBytes: 1024 })
+    ).resolves.toMatchObject({
+      text: 'legacy',
+      totalBytes: 6,
+      health: 'complete',
+    });
+  });
 });

@@ -41,6 +41,7 @@ const state = {
   untrackedDiffStatsCache: new Map(),
 };
 const sessionOutputQueues = new Map();
+const clientWriteStates = new Map();
 
 const REMOTE_SERVER_VERSION = ${JSON.stringify(REMOTE_SERVER_VERSION)};
 const GIT_LOG_FIELD_SEPARATOR = ${JSON.stringify(GIT_LOG_FIELD_SEPARATOR)};
@@ -52,6 +53,7 @@ const DAEMON_INFO_FILE = ${JSON.stringify(REMOTE_DAEMON_INFO_FILE)};
 const EXEC_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
 const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
+const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;
 const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;
 const UNTRACKED_BINARY_INSPECTION_SIZE = 8000;
 const UNTRACKED_FILE_OPEN_FLAGS = process.platform === 'win32'
@@ -197,7 +199,47 @@ process.on('unhandledRejection', (error) => {
 });
 
 function sendMessage(stream, message) {
-  stream.write(JSON.stringify(message) + '\n');
+  if (!stream.writable || stream.destroyed) {
+    return;
+  }
+
+  const line = JSON.stringify(message) + '\n';
+  const state = clientWriteStates.get(stream);
+  if (state) {
+    state.lines.push(line);
+    state.queuedChars += line.length;
+    if (state.queuedChars > SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS) {
+      stream.destroy();
+    }
+    return;
+  }
+
+  if (!stream.write(line)) {
+    const writeState = {
+      lines: [],
+      queuedChars: 0,
+    };
+    clientWriteStates.set(stream, writeState);
+    stream.once('drain', () => flushClientWrites(stream, writeState));
+  }
+}
+
+function flushClientWrites(stream, writeState) {
+  if (clientWriteStates.get(stream) !== writeState || stream.destroyed || !stream.writable) {
+    clientWriteStates.delete(stream);
+    return;
+  }
+
+  while (writeState.lines.length > 0) {
+    const line = writeState.lines.shift();
+    writeState.queuedChars -= line.length;
+    if (!stream.write(line)) {
+      stream.once('drain', () => flushClientWrites(stream, writeState));
+      return;
+    }
+  }
+
+  clientWriteStates.delete(stream);
 }
 
 function reply(stream, id, result) {
@@ -3654,6 +3696,7 @@ async function startDaemon() {
     });
 
     socket.on('close', () => {
+      clientWriteStates.delete(socket);
       if (authState.subscribed) {
         state.clients.delete(socket);
         pauseAttachedSessions();

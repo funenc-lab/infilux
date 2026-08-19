@@ -1521,6 +1521,45 @@ describe('SessionManager', () => {
     expect(staleWindow.webContents.send).not.toHaveBeenCalled();
   });
 
+  it('pauses hidden session delivery and resyncs the replay before live output resumes', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-output-visibility' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+    const buildDiagnosticsSnapshot = getPrivateMethod<[], Record<string, unknown>>(
+      manager,
+      'buildDiagnosticsSnapshot'
+    );
+
+    manager.setOutputDelivery(1, sessionId, false);
+    pty.emitData(sessionId, 'hidden output');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+    expect(buildDiagnosticsSnapshot()).toMatchObject({ outputSuspendedSessionCount: 1 });
+
+    manager.setOutputDelivery(1, sessionId, true);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_OUTPUT_RESYNC, { sessionId, replay: 'hidden output' }],
+    ]);
+
+    manager.acknowledgeOutputResync(1, sessionId);
+    pty.emitData(sessionId, ' live output');
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_DATA,
+      { sessionId, data: ' live output' },
+    ]);
+    expect(buildDiagnosticsSnapshot()).toMatchObject({ outputSuspendedSessionCount: 0 });
+  });
+
   it('splits an oversized local output chunk into bounded renderer payloads', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -1534,6 +1573,10 @@ describe('SessionManager', () => {
     sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
 
     pty.emitData(sessionId, output);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(16);
 
     expect(getWindowSendCalls(1)).toEqual([
       [IPC_CHANNELS.SESSION_DATA, { sessionId, data: output.slice(0, 64 * 1024) }],
@@ -1561,6 +1604,10 @@ describe('SessionManager', () => {
     sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
 
     pty.emitData(sessionId, output);
+
+    expect(getWindowSendCalls(1)).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(16);
 
     expect(getWindowSendCalls(1)).toEqual([
       [IPC_CHANNELS.SESSION_DATA, { sessionId, data: firstChunk }],

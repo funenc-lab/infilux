@@ -84,6 +84,11 @@ export interface SessionDataEvent {
   data: string;
 }
 
+export interface SessionOutputResyncEvent {
+  sessionId: string;
+  replay: string;
+}
+
 export interface SessionExitEvent {
   sessionId: string;
   exitCode: number;

@@ -2,11 +2,13 @@ import {
   IPC_CHANNELS,
   type SessionDataEvent,
   type SessionExitEvent,
+  type SessionOutputResyncEvent,
   type SessionStateEvent,
 } from '../shared/types';
 
 type SessionEventMap = {
   data: SessionDataEvent;
+  resync: SessionOutputResyncEvent;
   exit: SessionExitEvent;
   state: SessionStateEvent;
 };
@@ -16,6 +18,7 @@ type SessionEventCallback<TKey extends SessionEventKey> = (event: SessionEventMa
 
 type SessionEventHandlers = {
   onData?: SessionEventCallback<'data'>;
+  onResync?: SessionEventCallback<'resync'>;
   onExit?: SessionEventCallback<'exit'>;
   onState?: SessionEventCallback<'state'>;
 };
@@ -79,6 +82,7 @@ function removeSessionListener<TKey extends SessionEventKey>(
 export function createSessionEventRouter(ipcRenderer: IpcRendererLike) {
   const buckets: { [TKey in SessionEventKey]: SessionEventBucket<TKey> } = {
     data: createBucket<'data'>(IPC_CHANNELS.SESSION_DATA),
+    resync: createBucket<'resync'>(IPC_CHANNELS.SESSION_OUTPUT_RESYNC),
     exit: createBucket<'exit'>(IPC_CHANNELS.SESSION_EXIT),
     state: createBucket<'state'>(IPC_CHANNELS.SESSION_STATE),
   };
@@ -147,10 +151,13 @@ export function createSessionEventRouter(ipcRenderer: IpcRendererLike) {
 
   return {
     onData: (callback: SessionEventCallback<'data'>) => subscribeGlobal('data', callback),
+    onResync: (callback: SessionEventCallback<'resync'>) => subscribeGlobal('resync', callback),
     onExit: (callback: SessionEventCallback<'exit'>) => subscribeGlobal('exit', callback),
     onState: (callback: SessionEventCallback<'state'>) => subscribeGlobal('state', callback),
     onDataForSession: (sessionId: string, callback: SessionEventCallback<'data'>) =>
       subscribeSession('data', sessionId, callback),
+    onResyncForSession: (sessionId: string, callback: SessionEventCallback<'resync'>) =>
+      subscribeSession('resync', sessionId, callback),
     onExitForSession: (sessionId: string, callback: SessionEventCallback<'exit'>) =>
       subscribeSession('exit', sessionId, callback),
     onStateForSession: (sessionId: string, callback: SessionEventCallback<'state'>) =>
@@ -158,6 +165,7 @@ export function createSessionEventRouter(ipcRenderer: IpcRendererLike) {
     subscribe: (sessionId: string, handlers: SessionEventHandlers) => {
       const cleanups = [
         handlers.onData ? subscribeSession('data', sessionId, handlers.onData) : null,
+        handlers.onResync ? subscribeSession('resync', sessionId, handlers.onResync) : null,
         handlers.onExit ? subscribeSession('exit', sessionId, handlers.onExit) : null,
         handlers.onState ? subscribeSession('state', sessionId, handlers.onState) : null,
       ].filter((cleanup): cleanup is () => void => cleanup !== null);

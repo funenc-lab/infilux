@@ -283,6 +283,26 @@ export function registerSessionHandlers(): void {
     return sessionManager.getTranscriptPage(normalizeTranscriptPageRequest(request));
   });
 
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_ACKNOWLEDGE_OUTPUT_RESYNC,
+    async (event, sessionId: unknown) => {
+      if (typeof sessionId !== 'string' || !sessionId.trim()) {
+        throw new Error('Invalid session output resync acknowledgement');
+      }
+      sessionManager.acknowledgeOutputResync(resolveSessionTarget(event.sender), sessionId);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_SET_OUTPUT_DELIVERY,
+    async (event, sessionId: unknown, isVisible: unknown) => {
+      if (typeof sessionId !== 'string' || !sessionId.trim() || typeof isVisible !== 'boolean') {
+        throw new Error('Invalid session output delivery request');
+      }
+      sessionManager.setOutputDelivery(resolveSessionTarget(event.sender), sessionId, isVisible);
+    }
+  );
+
   // Compatibility wrappers for legacy terminal callers while renderer migrates.
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_CREATE,

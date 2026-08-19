@@ -80,6 +80,7 @@ import type {
   SessionDescriptor,
   SessionExitEvent,
   SessionOpenResult,
+  SessionOutputResyncEvent,
   SessionResizeOptions,
   SessionRuntimeInfo,
   SessionStateEvent,
@@ -552,8 +553,14 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO, sessionId),
     getTranscriptPage: (request: SessionTranscriptPageRequest): Promise<SessionTranscriptPage> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_TRANSCRIPT_PAGE, request),
+    acknowledgeOutputResync: (sessionId: string): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_ACKNOWLEDGE_OUTPUT_RESYNC, sessionId),
+    setOutputDelivery: (sessionId: string, isVisible: boolean): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_SET_OUTPUT_DELIVERY, sessionId, isVisible),
     onData: (callback: (event: SessionDataEvent) => void): (() => void) =>
       sessionEventRouter.onData(callback),
+    onResync: (callback: (event: SessionOutputResyncEvent) => void): (() => void) =>
+      sessionEventRouter.onResync(callback),
     onExit: (callback: (event: SessionExitEvent) => void): (() => void) =>
       sessionEventRouter.onExit(callback),
     onState: (callback: (event: SessionStateEvent) => void): (() => void) =>
@@ -562,6 +569,10 @@ const electronAPI = {
       sessionId: string,
       callback: (event: SessionDataEvent) => void
     ): (() => void) => sessionEventRouter.onDataForSession(sessionId, callback),
+    onResyncForSession: (
+      sessionId: string,
+      callback: (event: SessionOutputResyncEvent) => void
+    ): (() => void) => sessionEventRouter.onResyncForSession(sessionId, callback),
     onExitForSession: (
       sessionId: string,
       callback: (event: SessionExitEvent) => void
@@ -574,6 +585,7 @@ const electronAPI = {
       sessionId: string,
       handlers: {
         onData?: (event: SessionDataEvent) => void;
+        onResync?: (event: SessionOutputResyncEvent) => void;
         onExit?: (event: SessionExitEvent) => void;
         onState?: (event: SessionStateEvent) => void;
       }

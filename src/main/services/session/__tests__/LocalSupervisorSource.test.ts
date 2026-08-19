@@ -76,4 +76,28 @@ describe('getLocalSupervisorSource', () => {
       "'session:transcript:delete': (params) => deleteSessionTranscript(params),"
     );
   });
+
+  it('batches generated supervisor PTY output before writing it to subscription sockets', () => {
+    const source = getLocalSupervisorSource();
+
+    expect(source).toContain('const SESSION_OUTPUT_BATCH_DELAY_MS = 16;');
+    expect(source).toContain('const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;');
+    expect(source).toContain('const sessionOutputQueues = new Map();');
+    expect(source).toContain('function queueSessionOutput(session, data) {');
+    expect(source).toContain('queueSessionOutput(session, data);');
+    expect(source).toContain('const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;');
+    expect(source).toContain('const clientWriteStates = new Map();');
+    expect(source).toContain('function flushClientWrites(stream, writeState) {');
+    expect(source).toContain('if (!stream.write(line)) {');
+    expect(source).toContain('stream.destroy();');
+  });
+
+  it('drains all queued supervisor output before emitting a session exit', () => {
+    const source = getLocalSupervisorSource();
+    const outputFlushIndex = source.indexOf('flushSessionOutput(session.sessionId, true);');
+    const exitBroadcastIndex = source.indexOf("broadcast('session:exit', {");
+
+    expect(outputFlushIndex).toBeGreaterThan(-1);
+    expect(exitBroadcastIndex).toBeGreaterThan(outputFlushIndex);
+  });
 });

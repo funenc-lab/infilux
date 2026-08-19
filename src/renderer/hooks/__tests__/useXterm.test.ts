@@ -17,6 +17,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 interface SessionSubscriptionHandlers {
   onData?: (event: { sessionId: string; data: string }) => void;
+  onResync?: (event: { sessionId: string; replay: string }) => void;
   onExit?: (event: { sessionId: string; exitCode: number; signal?: number }) => void;
   onState?: (event: { sessionId: string; state: 'live' | 'reconnecting' | 'dead' }) => void;
 }
@@ -53,6 +54,13 @@ const testState = vi.hoisted(() => ({
   sessionResize: vi.fn(async () => undefined),
   sessionWrite: vi.fn(async () => undefined),
   sessionGetRuntimeInfo: vi.fn(async () => null),
+  sessionGetTranscriptPage: vi.fn(async () => ({
+    text: '',
+    totalBytes: 0,
+    health: 'unavailable' as 'complete' | 'degraded' | 'unavailable',
+  })),
+  sessionAcknowledgeOutputResync: vi.fn(async () => undefined),
+  sessionSetOutputDelivery: vi.fn(async () => undefined),
   tmuxScrollClient: vi.fn(async () => ({
     applied: true,
     inMode: true,
@@ -502,6 +510,9 @@ describe('useXterm startup loading state', () => {
     testState.sessionResize.mockClear();
     testState.sessionWrite.mockClear();
     testState.sessionGetRuntimeInfo.mockClear();
+    testState.sessionGetTranscriptPage.mockClear();
+    testState.sessionAcknowledgeOutputResync.mockClear();
+    testState.sessionSetOutputDelivery.mockClear();
     testState.tmuxScrollClient.mockClear();
     testState.tmuxScrollClient.mockResolvedValue({
       applied: true,
@@ -603,6 +614,9 @@ describe('useXterm startup loading state', () => {
         write: testState.sessionWrite,
         resize: testState.sessionResize,
         getRuntimeInfo: testState.sessionGetRuntimeInfo,
+        getTranscriptPage: testState.sessionGetTranscriptPage,
+        acknowledgeOutputResync: testState.sessionAcknowledgeOutputResync,
+        setOutputDelivery: testState.sessionSetOutputDelivery,
         subscribe: (_sessionId: string, handlers: SessionSubscriptionHandlers) => {
           testState.sessionHandlers = handlers;
           return () => {
@@ -673,6 +687,43 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
 
     expect(testState.sessionDetach).toHaveBeenCalledWith('backend-session-1');
+  });
+
+  it('restores archived agent output before acknowledging a resync request', async () => {
+    testState.sessionGetTranscriptPage.mockResolvedValueOnce({
+      text: 'archived output',
+      totalBytes: 15,
+      health: 'complete',
+    });
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onResync).toBeTypeOf('function');
+
+    await act(async () => {
+      testState.sessionHandlers?.onResync?.({
+        sessionId: 'backend-session-1',
+        replay: 'fallback output',
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionGetTranscriptPage).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      maxBytes: 256 * 1024,
+    });
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('archived output');
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.at(-1)?.();
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionAcknowledgeOutputResync).toHaveBeenCalledWith('backend-session-1');
+    await mounted.unmount();
   });
 
   it('disposes a WebGL addon when activation fails', async () => {

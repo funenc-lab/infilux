@@ -8,6 +8,7 @@ import {
   type SessionDescriptor,
   type SessionExitEvent,
   type SessionOpenResult,
+  type SessionOutputResyncEvent,
   type SessionRuntimeInfo,
   type SessionRuntimeState,
   type SessionStateEvent,
@@ -202,9 +203,13 @@ export class SessionManager {
       listener: () => void;
     }
   >();
+  private readonly outputSuspendedSessionIdsByWindowId = new Map<number, Set<string>>();
   private readonly sessionOutputBatcher = new SessionOutputBatcher({
     deliver: (windowId, sessionId, data) => {
       this.emitToWindows(new Set([windowId]), 'session:data', { sessionId, data });
+    },
+    requestResync: (windowId, sessionId) => {
+      this.emitSessionOutputResync(windowId, sessionId);
     },
   });
 
@@ -311,6 +316,7 @@ export class SessionManager {
         if (!wasAttached) {
           existing.attachedWindowIds.delete(windowId);
           this.sessionOutputBatcher.discard(windowId, existing.sessionId);
+          this.clearOutputSuspension(windowId, existing.sessionId);
           this.cleanupWindowCloseSubscriptionIfUnused(windowId);
         }
         throw error;
@@ -380,6 +386,7 @@ export class SessionManager {
 
     session.attachedWindowIds.delete(windowId);
     this.sessionOutputBatcher.discard(windowId, sessionId);
+    this.clearOutputSuspension(windowId, sessionId);
     this.cleanupWindowCloseSubscriptionIfUnused(windowId);
     if (session.backend === 'local' && session.localRuntime === 'supervisor') {
       await localSupervisorRuntime.detachSession(sessionId).catch(() => {});
@@ -674,6 +681,39 @@ export class SessionManager {
         error: error instanceof Error ? error.message : String(error),
       });
       return this.buildTranscriptFallback(session, 'degraded');
+    }
+  }
+
+  acknowledgeOutputResync(target: BrowserWindow | WebContents | number, sessionId: string): void {
+    this.sessionOutputBatcher.acknowledgeResync(getWindowId(target), sessionId);
+  }
+
+  setOutputDelivery(
+    target: BrowserWindow | WebContents | number,
+    sessionId: string,
+    isVisible: boolean
+  ): void {
+    const windowId = getWindowId(target);
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.attachedWindowIds.has(windowId)) {
+      return;
+    }
+    const suspendedSessionIds =
+      this.outputSuspendedSessionIdsByWindowId.get(windowId) ?? new Set<string>();
+
+    if (!isVisible) {
+      suspendedSessionIds.add(sessionId);
+      this.outputSuspendedSessionIdsByWindowId.set(windowId, suspendedSessionIds);
+      this.sessionOutputBatcher.discard(windowId, sessionId);
+      return;
+    }
+
+    const wasSuspended = suspendedSessionIds.delete(sessionId);
+    if (suspendedSessionIds.size === 0) {
+      this.outputSuspendedSessionIdsByWindowId.delete(windowId);
+    }
+    if (wasSuspended) {
+      this.sessionOutputBatcher.requestResync(windowId, sessionId);
     }
   }
 
@@ -2009,7 +2049,7 @@ export class SessionManager {
     }
 
     for (const windowId of targetWindowIds) {
-      if (this.suspendedWindowIds.has(windowId)) {
+      if (this.suspendedWindowIds.has(windowId) || this.isOutputSuspended(windowId, sessionId)) {
         continue;
       }
 
@@ -2026,6 +2066,14 @@ export class SessionManager {
     this.cleanupWindowCloseSubscriptionsIfUnused(targetWindowIds ?? []);
   }
 
+  private emitSessionOutputResync(windowId: number, sessionId: string): void {
+    const event: SessionOutputResyncEvent = {
+      sessionId,
+      replay: this.sessions.get(sessionId)?.replayBuffer ?? '',
+    };
+    this.emitToWindows(new Set([windowId]), 'session:outputResync', event);
+  }
+
   private emitState(event: SessionStateEvent, windowIds?: Set<number>): void {
     this.emitToWindows(
       windowIds ?? this.sessions.get(event.sessionId)?.attachedWindowIds,
@@ -2036,8 +2084,8 @@ export class SessionManager {
 
   private emitToWindows(
     windowIds: Set<number> | undefined,
-    channel: 'session:data' | 'session:exit' | 'session:state',
-    payload: SessionDataEvent | SessionExitEvent | SessionStateEvent
+    channel: 'session:data' | 'session:outputResync' | 'session:exit' | 'session:state',
+    payload: SessionDataEvent | SessionOutputResyncEvent | SessionExitEvent | SessionStateEvent
   ): void {
     if (!windowIds || windowIds.size === 0) {
       return;
@@ -2056,9 +2104,11 @@ export class SessionManager {
       const resolvedChannel =
         channel === 'session:data'
           ? IPC_CHANNELS.SESSION_DATA
-          : channel === 'session:exit'
-            ? IPC_CHANNELS.SESSION_EXIT
-            : IPC_CHANNELS.SESSION_STATE;
+          : channel === 'session:outputResync'
+            ? IPC_CHANNELS.SESSION_OUTPUT_RESYNC
+            : channel === 'session:exit'
+              ? IPC_CHANNELS.SESSION_EXIT
+              : IPC_CHANNELS.SESSION_STATE;
       if (isWebContentsUnavailable(window.webContents)) {
         this.suspendWindow(windowId);
         continue;
@@ -2079,10 +2129,23 @@ export class SessionManager {
     this.removeWindowCloseSubscription(windowId);
     this.suspendedWindowIds.add(windowId);
     this.sessionOutputBatcher.discardWindow(windowId);
+    this.outputSuspendedSessionIdsByWindowId.delete(windowId);
     for (const session of this.sessions.values()) {
       session.attachedWindowIds.delete(windowId);
     }
     this.cleanupDetachedLocalSessions();
+  }
+
+  private isOutputSuspended(windowId: number, sessionId: string): boolean {
+    return this.outputSuspendedSessionIdsByWindowId.get(windowId)?.has(sessionId) ?? false;
+  }
+
+  private clearOutputSuspension(windowId: number, sessionId: string): void {
+    const suspendedSessionIds = this.outputSuspendedSessionIdsByWindowId.get(windowId);
+    suspendedSessionIds?.delete(sessionId);
+    if (suspendedSessionIds?.size === 0) {
+      this.outputSuspendedSessionIdsByWindowId.delete(windowId);
+    }
   }
 
   private ensureWindowCloseSubscription(
@@ -2174,6 +2237,7 @@ export class SessionManager {
     const runtimeStateCounts: Record<string, number> = {};
     const kindCounts: Record<string, number> = {};
     let attachedWindowCount = 0;
+    let outputSuspendedSessionCount = 0;
 
     for (const session of this.sessions.values()) {
       backendCounts[session.backend] = (backendCounts[session.backend] ?? 0) + 1;
@@ -2181,6 +2245,9 @@ export class SessionManager {
       runtimeStateCounts[runtimeState] = (runtimeStateCounts[runtimeState] ?? 0) + 1;
       kindCounts[session.kind] = (kindCounts[session.kind] ?? 0) + 1;
       attachedWindowCount += session.attachedWindowIds.size;
+    }
+    for (const sessionIds of this.outputSuspendedSessionIdsByWindowId.values()) {
+      outputSuspendedSessionCount += sessionIds.size;
     }
 
     return {
@@ -2190,6 +2257,7 @@ export class SessionManager {
       kindCounts,
       suspendedWindowCount: this.suspendedWindowIds.size,
       attachedWindowCount,
+      outputSuspendedSessionCount,
       sessionOutputBatcher: this.sessionOutputBatcher.getDiagnostics(),
       localPty: this.localPtyManager.getDiagnosticsSummary(),
       sampleSessions: Array.from(this.sessions.values())

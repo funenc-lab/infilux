@@ -25,6 +25,8 @@ const sessionTestDoubles = vi.hoisted(() => {
   const getActivity = vi.fn();
   const getSessionRuntimeInfo = vi.fn();
   const getTranscriptPage = vi.fn();
+  const acknowledgeOutputResync = vi.fn();
+  const setOutputDelivery = vi.fn();
   const destroyAllLocal = vi.fn();
   const destroyAllLocalAndWait = vi.fn();
   const prepareAgentCapabilityLaunch = vi.fn();
@@ -75,6 +77,9 @@ const sessionTestDoubles = vi.hoisted(() => {
       totalBytes: 4096,
       health: 'complete',
     });
+
+    acknowledgeOutputResync.mockReset();
+    setOutputDelivery.mockReset();
 
     destroyAllLocal.mockReset();
     destroyAllLocalAndWait.mockReset();
@@ -142,6 +147,8 @@ const sessionTestDoubles = vi.hoisted(() => {
     getActivity,
     getSessionRuntimeInfo,
     getTranscriptPage,
+    acknowledgeOutputResync,
+    setOutputDelivery,
     destroyAllLocal,
     destroyAllLocalAndWait,
     prepareAgentCapabilityLaunch,
@@ -175,6 +182,8 @@ vi.mock('../../services/session/SessionManager', () => ({
     getActivity: sessionTestDoubles.getActivity,
     getSessionRuntimeInfo: sessionTestDoubles.getSessionRuntimeInfo,
     getTranscriptPage: sessionTestDoubles.getTranscriptPage,
+    acknowledgeOutputResync: sessionTestDoubles.acknowledgeOutputResync,
+    setOutputDelivery: sessionTestDoubles.setOutputDelivery,
     destroyAllLocal: sessionTestDoubles.destroyAllLocal,
     destroyAllLocalAndWait: sessionTestDoubles.destroyAllLocalAndWait,
   },
@@ -259,6 +268,10 @@ describe('session IPC handlers', () => {
     const activityHandler = getHandler(IPC_CHANNELS.SESSION_GET_ACTIVITY);
     const runtimeInfoHandler = getHandler(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO);
     const transcriptHandler = getHandler(IPC_CHANNELS.SESSION_GET_TRANSCRIPT_PAGE);
+    const acknowledgeOutputResyncHandler = getHandler(
+      IPC_CHANNELS.SESSION_ACKNOWLEDGE_OUTPUT_RESYNC
+    );
+    const setOutputDeliveryHandler = getHandler(IPC_CHANNELS.SESSION_SET_OUTPUT_DELIVERY);
 
     expect(await createHandler(event, { cwd: '/repo', shell: '/bin/zsh' })).toEqual({
       session: {
@@ -293,6 +306,8 @@ describe('session IPC handlers', () => {
       totalBytes: 4096,
       health: 'complete',
     });
+    await acknowledgeOutputResyncHandler(event, 'session-1');
+    await setOutputDeliveryHandler(event, 'session-1', false);
 
     expect(sessionTestDoubles.create).toHaveBeenCalledWith(event.sender, {
       cwd: '/repo',
@@ -314,6 +329,15 @@ describe('session IPC handlers', () => {
       beforeByteOffset: 4096,
       maxBytes: 1024,
     });
+    expect(sessionTestDoubles.acknowledgeOutputResync).toHaveBeenCalledWith(
+      event.sender,
+      'session-1'
+    );
+    expect(sessionTestDoubles.setOutputDelivery).toHaveBeenCalledWith(
+      event.sender,
+      'session-1',
+      false
+    );
 
     destroyAllTerminals();
     await destroyAllTerminalsAndWait();

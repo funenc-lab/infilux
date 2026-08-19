@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -34,6 +34,31 @@ describe('SessionTranscriptArchive', () => {
     });
   });
 
+  it('batches pending output in memory and drains it before an explicit flush', async () => {
+    archive.append('agent-1', 'first');
+    archive.append('agent-1', 'second');
+
+    expect(archive.getDiagnostics('agent-1')).toEqual({
+      retainedBytes: 0,
+      segmentCount: 0,
+      pendingAppendBytes: 11,
+    });
+
+    await archive.flush('agent-1');
+
+    expect(archive.getDiagnostics('agent-1')).toEqual({
+      retainedBytes: 11,
+      segmentCount: 1,
+      pendingAppendBytes: 0,
+    });
+    await expect(archive.readPage({ sessionId: 'agent-1', maxBytes: 1024 })).resolves.toMatchObject(
+      {
+        text: 'firstsecond',
+        totalBytes: 11,
+      }
+    );
+  });
+
   it('retains only the newest transcript bytes when the archive reaches its capacity', async () => {
     const boundedArchive = new SessionTranscriptArchive({
       rootDirectory,
@@ -54,6 +79,61 @@ describe('SessionTranscriptArchive', () => {
       hasMore: false,
       totalBytes: 16,
       health: 'complete',
+    });
+  });
+
+  it('rebuilds a V2 archive from segments when its manifest is missing', async () => {
+    const segmentDirectory = join(rootDirectory, 'v2', 'agent-1', 'segments');
+    await mkdir(segmentDirectory, { recursive: true });
+    await writeFile(join(segmentDirectory, '00000000000000000000.log'), 'first-');
+    await writeFile(join(segmentDirectory, '00000000000000000001.log'), 'second');
+
+    await expect(archive.readPage({ sessionId: 'agent-1', maxBytes: 1024 })).resolves.toEqual({
+      text: 'first-second',
+      startByteOffset: 0,
+      endByteOffset: 12,
+      hasMore: false,
+      totalBytes: 12,
+      health: 'complete',
+    });
+  });
+
+  it('migrates readable legacy V1 output into V2 segments on open', async () => {
+    await writeFile(join(rootDirectory, 'agent-1.log'), 'legacy output');
+
+    await archive.open('agent-1');
+
+    await expect(archive.readPage({ sessionId: 'agent-1', maxBytes: 1024 })).resolves.toEqual({
+      text: 'legacy output',
+      startByteOffset: 0,
+      endByteOffset: 13,
+      hasMore: false,
+      totalBytes: 13,
+      health: 'complete',
+    });
+  });
+
+  it('reports bounded V2 segment retention after rotating archived output', async () => {
+    const boundedArchive = new SessionTranscriptArchive({
+      rootDirectory,
+      maxBytes: 10,
+      segmentBytes: 4,
+    });
+
+    boundedArchive.append('agent-1', '0123456789');
+    boundedArchive.append('agent-1', 'abcdefghij');
+    await boundedArchive.flush('agent-1');
+
+    expect(boundedArchive.getDiagnostics('agent-1')).toEqual({
+      retainedBytes: 10,
+      segmentCount: 3,
+      pendingAppendBytes: 0,
+    });
+    await expect(
+      boundedArchive.readPage({ sessionId: 'agent-1', maxBytes: 1024 })
+    ).resolves.toMatchObject({
+      text: 'abcdefghij',
+      totalBytes: 10,
     });
   });
 
@@ -92,13 +172,13 @@ describe('SessionTranscriptArchive', () => {
     });
   });
 
-  it('creates transcript files with owner-only permissions', async () => {
+  it('creates V2 transcript manifests with owner-only permissions', async () => {
     await archive.open('agent-1');
 
-    const filePath = join(rootDirectory, 'agent-1.log');
+    const filePath = join(rootDirectory, 'v2', 'agent-1', 'manifest.json');
     const [contents, fileStats] = await Promise.all([readFile(filePath, 'utf8'), stat(filePath)]);
 
-    expect(contents).toBe('');
+    expect(contents).toContain('"version":2');
     expect(fileStats.mode & 0o777).toBe(0o600);
   });
 

@@ -126,7 +126,10 @@ export const IPC_CHANNELS = {
   SESSION_GET_ACTIVITY: 'session:getActivity',
   SESSION_GET_RUNTIME_INFO: 'session:getRuntimeInfo',
   SESSION_GET_TRANSCRIPT_PAGE: 'session:getTranscriptPage',
+  SESSION_ACKNOWLEDGE_OUTPUT_RESYNC: 'session:acknowledgeOutputResync',
+  SESSION_SET_OUTPUT_DELIVERY: 'session:setOutputDelivery',
   SESSION_DATA: 'session:data',
+  SESSION_OUTPUT_RESYNC: 'session:outputResync',
   SESSION_EXIT: 'session:exit',
   SESSION_STATE: 'session:state',
 

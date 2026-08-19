@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { IPC_CHANNELS, type SessionDataEvent, type SessionStateEvent } from '../../shared/types';
+import {
+  IPC_CHANNELS,
+  type SessionDataEvent,
+  type SessionOutputResyncEvent,
+  type SessionStateEvent,
+} from '../../shared/types';
 import { createSessionEventRouter } from '../sessionEventRouter';
 
 function createIpcRendererMock() {
@@ -64,15 +69,17 @@ describe('sessionEventRouter', () => {
     expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_DATA)).toBe(0);
   });
 
-  it('supports grouped session subscriptions across data, exit, and state', () => {
+  it('supports grouped session subscriptions across data, resync, exit, and state', () => {
     const ipcRenderer = createIpcRendererMock();
     const router = createSessionEventRouter(ipcRenderer);
     const onData = vi.fn();
+    const onResync = vi.fn();
     const onExit = vi.fn();
     const onState = vi.fn();
 
     const cleanup = router.subscribe('session-1', {
       onData,
+      onResync,
       onExit,
       onState,
     });
@@ -85,18 +92,24 @@ describe('sessionEventRouter', () => {
       sessionId: 'session-1',
       state: 'reconnecting',
     } satisfies SessionStateEvent);
+    ipcRenderer.emit(IPC_CHANNELS.SESSION_OUTPUT_RESYNC, {
+      sessionId: 'session-1',
+      replay: 'replay-output',
+    } satisfies SessionOutputResyncEvent);
     ipcRenderer.emit(IPC_CHANNELS.SESSION_EXIT, {
       sessionId: 'session-1',
       exitCode: 1,
     });
 
     expect(onData).toHaveBeenCalledTimes(1);
+    expect(onResync).toHaveBeenCalledTimes(1);
     expect(onExit).toHaveBeenCalledTimes(1);
     expect(onState).toHaveBeenCalledTimes(1);
 
     cleanup();
 
     expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_DATA)).toBe(0);
+    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_OUTPUT_RESYNC)).toBe(0);
     expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_EXIT)).toBe(0);
     expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_STATE)).toBe(0);
   });
