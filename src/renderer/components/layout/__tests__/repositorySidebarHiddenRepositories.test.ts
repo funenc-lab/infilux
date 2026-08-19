@@ -21,6 +21,7 @@ vi.mock('lucide-react', () => {
     React.createElement('svg', { ...props, 'data-icon': name });
   return {
     BrainCircuit: icon('BrainCircuit'),
+    ChevronDown: icon('ChevronDown'),
     ChevronRight: icon('ChevronRight'),
     Clock: icon('Clock'),
     FolderGit2: icon('FolderGit2'),
@@ -38,7 +39,8 @@ vi.mock('lucide-react', () => {
 
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
-    t: (value: string) => value,
+    t: (value: string, variables?: Record<string, string | number>) =>
+      value.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => String(variables?.[key] ?? '')),
   }),
 }));
 
@@ -127,7 +129,25 @@ vi.mock('../SidebarEmptyState', () => ({
     React.createElement('div', { 'data-sidebar-empty': title }, icon, title),
 }));
 
-async function mountRepositorySidebar() {
+async function mountRepositorySidebar(
+  repositories: Array<{
+    id: string;
+    name: string;
+    path: string;
+    lastAccessedAt?: number;
+  }> = [
+    {
+      id: 'visible-repo',
+      name: 'Visible Repo',
+      path: '/visible-repo',
+    },
+    {
+      id: 'hidden-repo',
+      name: 'Hidden Repo',
+      path: '/hidden-repo',
+    },
+  ]
+) {
   const { RepositorySidebar } = await import('../RepositorySidebar');
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -136,17 +156,8 @@ async function mountRepositorySidebar() {
   await act(async () => {
     root.render(
       React.createElement(RepositorySidebar, {
-        repositories: [
-          {
-            name: 'Visible Repo',
-            path: '/visible-repo',
-          },
-          {
-            name: 'Hidden Repo',
-            path: '/hidden-repo',
-          },
-        ],
-        selectedRepo: '/visible-repo',
+        repositories,
+        selectedRepo: repositories[0]?.path ?? null,
         onSelectRepo: vi.fn(),
         canLoadRepo: () => true,
         onAddRepository: vi.fn(),
@@ -231,6 +242,37 @@ describe('RepositorySidebar hidden repositories', () => {
           '[data-sidebar-empty="No matches"] svg[data-icon="ListFilter"]'
         )
       ).not.toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('shows recent inactive repositories progressively and reveals more in place', async () => {
+    repositorySettings.hidden = {};
+    const repositories = Array.from({ length: 12 }, (_, index) => ({
+      id: `repo-${index}`,
+      name: `Repo ${index}`,
+      path: `/repo/${index}`,
+      lastAccessedAt: index,
+    }));
+    const view = await mountRepositorySidebar(repositories);
+
+    try {
+      expect(view.container.textContent).toContain('Repo 0');
+      expect(view.container.querySelector('[title="/repo/1"]')).toBeNull();
+      const showMoreButton = view.container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Show 3 more projects"]'
+      );
+      expect(showMoreButton).not.toBeNull();
+
+      await act(async () => {
+        showMoreButton?.click();
+      });
+
+      expect(view.container.querySelector('[title="/repo/1"]')).not.toBeNull();
+      expect(
+        view.container.querySelector('button[aria-label^="Show "][aria-label$=" more projects"]')
+      ).toBeNull();
     } finally {
       view.unmount();
     }

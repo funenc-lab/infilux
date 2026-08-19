@@ -13,7 +13,7 @@ import { isRemoteVirtualPath, toRemoteVirtualPath } from '@shared/utils/remotePa
 import { buildRepositoryId } from '@shared/utils/workspace';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { CSSProperties, FocusEvent, PointerEvent, ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppOverlays } from './App/AppOverlays';
 import {
@@ -88,15 +88,10 @@ import { DeferredMainContent } from './components/layout/DeferredMainContent';
 import { DeferredRepositorySidebar } from './components/layout/DeferredRepositorySidebar';
 import { DeferredTreeSidebar } from './components/layout/DeferredTreeSidebar';
 import { DeferredWorktreePanel } from './components/layout/DeferredWorktreePanel';
+import { SidebarHoverRevealGroup } from './components/layout/SidebarHoverRevealGroup';
 import {
-  isSidebarHoverRevealTextSelectionActive,
   resolveSidebarHoverRevealFrame,
-  resolveSidebarHoverRevealPointerActiveState,
-  SIDEBAR_HOVER_REVEAL_FLOATING_GAP,
   type SidebarHoverRevealFrame,
-  shouldCloseSidebarHoverRevealAfterFocusChange,
-  shouldOpenSidebarHoverReveal,
-  shouldSyncSidebarHoverRevealAfterWindowFocus,
 } from './components/layout/sidebarHoverRevealPolicy';
 import { TemporaryWorkspacePanel } from './components/layout/TemporaryWorkspacePanel';
 import { resolveTreeSidebarSelectedWorktrees } from './components/layout/treeSidebarSelectedWorktrees';
@@ -137,34 +132,15 @@ function getSidebarHoverRevealClassName(frame: SidebarHoverRevealFrame): string 
   }`;
 }
 
-function getSidebarHoverRevealStyle(frame: SidebarHoverRevealFrame): CSSProperties {
+function getSidebarHoverRevealStyle(
+  frame: SidebarHoverRevealFrame,
+  panelOffset = 0
+): CSSProperties {
   return {
+    width: frame.trackWidth,
     '--control-sidebar-hover-trigger-width': `${frame.triggerWidth}px`,
     '--control-sidebar-hover-panel-width': `${frame.panelWidth}px`,
-  } as CSSProperties;
-}
-
-function getSidebarHoverRevealState(frame: SidebarHoverRevealFrame): 'open' | 'closed' | undefined {
-  if (!frame.floating) {
-    return undefined;
-  }
-
-  return frame.visible ? 'open' : 'closed';
-}
-
-function getSidebarHoverRevealGroupClassName(hoverRevealEnabled: boolean): string {
-  return hoverRevealEnabled
-    ? 'control-sidebar-hover-reveal-group absolute left-0 top-0 z-30 flex h-full shrink-0 overflow-visible'
-    : 'flex h-full shrink-0';
-}
-
-function getSidebarHoverRevealGroupStyle(hoverRevealEnabled: boolean): CSSProperties | undefined {
-  if (!hoverRevealEnabled) {
-    return undefined;
-  }
-
-  return {
-    '--control-sidebar-hover-edge-gap': `${SIDEBAR_HOVER_REVEAL_FLOATING_GAP}px`,
+    '--control-sidebar-hover-panel-offset': `${panelOffset}px`,
   } as CSSProperties;
 }
 
@@ -469,8 +445,6 @@ export default function App() {
   const defaultTemporaryPath = useSettingsStore((s) => s.defaultTemporaryPath);
   const floatingSidebarEnabled = useSettingsStore((s) => s.floatingSidebarEnabled);
   const projectConfigSchemes = useSettingsStore((s) => s.projectConfigSchemes);
-  const [floatingSidebarActive, setFloatingSidebarActive] = useState(false);
-  const sidebarHoverRevealGroupRef = useRef<HTMLDivElement | null>(null);
   const rendererEnv = getRendererEnvironment();
   const isWindows = rendererEnv.platform === 'win32';
   const pathSep = isWindows ? '\\' : '/';
@@ -516,30 +490,23 @@ export default function App() {
     () =>
       resolveSidebarHoverRevealFrame({
         collapsed: repositoryCollapsed,
-        hoverRevealActive: floatingSidebarActive,
+        hoverRevealActive: false,
         hoverRevealEnabled: floatingSidebarEnabled,
         expandedWidth: layoutMode === 'tree' ? treeSidebarWidth : repositoryWidth,
         collapsedWidth: COLLAPSED_SIDEBAR_RAIL_WIDTH,
       }),
-    [
-      layoutMode,
-      repositoryCollapsed,
-      repositoryWidth,
-      floatingSidebarActive,
-      floatingSidebarEnabled,
-      treeSidebarWidth,
-    ]
+    [layoutMode, repositoryCollapsed, repositoryWidth, floatingSidebarEnabled, treeSidebarWidth]
   );
   const worktreeSidebarFrame = useMemo(
     () =>
       resolveSidebarHoverRevealFrame({
         collapsed: worktreeCollapsed,
-        hoverRevealActive: floatingSidebarActive,
+        hoverRevealActive: false,
         hoverRevealEnabled: floatingSidebarEnabled,
         expandedWidth: worktreeWidth,
         collapsedWidth: COLLAPSED_SIDEBAR_RAIL_WIDTH,
       }),
-    [floatingSidebarActive, floatingSidebarEnabled, worktreeCollapsed, worktreeWidth]
+    [floatingSidebarEnabled, worktreeCollapsed, worktreeWidth]
   );
   const repositorySidebarCollapsedForRender = repositorySidebarFrame.floating
     ? false
@@ -547,128 +514,17 @@ export default function App() {
   const worktreeSidebarCollapsedForRender = worktreeSidebarFrame.floating
     ? false
     : worktreeCollapsed;
-
-  useEffect(() => {
-    if (!floatingSidebarEnabled) {
-      setFloatingSidebarActive(false);
-    }
-  }, [floatingSidebarEnabled]);
-
-  const hasActiveSidebarHoverRevealTextSelection = useCallback(
-    () => isSidebarHoverRevealTextSelectionActive(window.getSelection()),
-    []
-  );
-
-  const handleSidebarHoverRevealPointerEvent = useCallback(
-    (event: PointerEvent<HTMLDivElement>) => {
-      setFloatingSidebarActive((currentActive) =>
-        resolveSidebarHoverRevealPointerActiveState({
-          currentActive,
-          documentFocused: document.hasFocus(),
-          hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
-          pointerButtons: event.buttons,
-        })
-      );
-    },
-    [hasActiveSidebarHoverRevealTextSelection]
-  );
-
-  const handleSidebarHoverRevealFocus = useCallback(
-    (event: FocusEvent<HTMLDivElement>) => {
-      const focusVisible =
-        event.target instanceof Element && event.target.matches(':focus-visible');
-      setFloatingSidebarActive((currentActive) =>
-        shouldOpenSidebarHoverReveal({
-          currentActive,
-          documentFocused: document.hasFocus(),
-          focusVisible,
-          hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
-          pointerButtons: 0,
-          trigger: 'keyboard',
-        })
-      );
-    },
-    [hasActiveSidebarHoverRevealTextSelection]
-  );
-
-  const closeSidebarHoverReveal = useCallback(() => {
-    setFloatingSidebarActive(false);
-  }, []);
-
-  const syncSidebarHoverRevealAfterWindowFocus = useCallback(() => {
-    if (!floatingSidebarEnabled) {
-      return;
-    }
-
-    window.requestAnimationFrame(() => {
-      const groupElement = sidebarHoverRevealGroupRef.current;
-      if (!groupElement) {
-        setFloatingSidebarActive(false);
-        return;
-      }
-
-      setFloatingSidebarActive(
-        shouldSyncSidebarHoverRevealAfterWindowFocus({
-          documentFocused: document.hasFocus(),
-          groupHovered: groupElement.matches(':hover'),
-          hasActiveTextSelection: hasActiveSidebarHoverRevealTextSelection(),
-        })
-      );
-    });
-  }, [floatingSidebarEnabled, hasActiveSidebarHoverRevealTextSelection]);
-
-  useEffect(() => {
-    if (!floatingSidebarEnabled) {
-      return;
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        syncSidebarHoverRevealAfterWindowFocus();
-        return;
-      }
-
-      setFloatingSidebarActive(false);
-    };
-
-    window.addEventListener('focus', syncSidebarHoverRevealAfterWindowFocus);
-    window.addEventListener('blur', closeSidebarHoverReveal);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener('focus', syncSidebarHoverRevealAfterWindowFocus);
-      window.removeEventListener('blur', closeSidebarHoverReveal);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [closeSidebarHoverReveal, floatingSidebarEnabled, syncSidebarHoverRevealAfterWindowFocus]);
-
-  const handleSidebarHoverRevealBlur = useCallback((event: FocusEvent<HTMLDivElement>) => {
-    const nextTarget = event.relatedTarget;
-    const nextFocusInside = nextTarget instanceof Node && event.currentTarget.contains(nextTarget);
-    const nextFocusManagedBySidebar =
-      nextTarget instanceof Element &&
-      nextTarget.closest('[data-sidebar-floating-menu-portal="true"]') !== null;
-    if (
-      !shouldCloseSidebarHoverRevealAfterFocusChange({
-        groupHovered: event.currentTarget.matches(':hover'),
-        nextFocusInside,
-        nextFocusManagedBySidebar,
-      })
-    ) {
-      return;
-    }
-
-    setFloatingSidebarActive(false);
-  }, []);
+  const worktreeSidebarFloatingOffset =
+    layoutMode === 'columns' && repositorySidebarFrame.floating && worktreeSidebarFrame.floating
+      ? repositorySidebarFrame.panelWidth - repositorySidebarFrame.trackWidth
+      : 0;
 
   const handleRepositorySidebarCollapse = useCallback(() => {
     setRepositoryCollapsed(true);
-    setFloatingSidebarActive(false);
   }, [setRepositoryCollapsed]);
 
   const handleWorktreeSidebarCollapse = useCallback(() => {
     setWorktreeCollapsed(true);
-    setFloatingSidebarActive(false);
   }, [setWorktreeCollapsed]);
 
   const repositorySidebarCollapseHandler = repositorySidebarFrame.floating
@@ -1693,40 +1549,20 @@ export default function App() {
             showStartupOverlay ? 'invisible pointer-events-none' : ''
           }`}
         >
-          <div
-            ref={sidebarHoverRevealGroupRef}
-            className={getSidebarHoverRevealGroupClassName(floatingSidebarEnabled)}
-            style={getSidebarHoverRevealGroupStyle(floatingSidebarEnabled)}
-            data-sidebar-hover-reveal-group={floatingSidebarEnabled ? 'active' : undefined}
-            onPointerEnter={
-              floatingSidebarEnabled ? handleSidebarHoverRevealPointerEvent : undefined
-            }
-            onPointerMove={
-              floatingSidebarEnabled ? handleSidebarHoverRevealPointerEvent : undefined
-            }
-            onPointerLeave={floatingSidebarEnabled ? closeSidebarHoverReveal : undefined}
-            onFocusCapture={floatingSidebarEnabled ? handleSidebarHoverRevealFocus : undefined}
-            onBlurCapture={floatingSidebarEnabled ? handleSidebarHoverRevealBlur : undefined}
-          >
+          <SidebarHoverRevealGroup enabled={floatingSidebarEnabled}>
             {layoutMode === 'tree' ? (
               // Tree Layout: Single sidebar with repos as root nodes and worktrees as children
               <AnimatePresence initial={false}>
                 <motion.div
                   ref={repositorySidebarRef}
                   key="tree-sidebar"
-                  initial={{ width: 0, opacity: 0 }}
-                  animate={{
-                    width: repositorySidebarFrame.trackWidth,
-                    opacity: 1,
-                  }}
-                  exit={{ width: 0, opacity: 0 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
                   transition={panelTransition}
                   className={getSidebarHoverRevealClassName(repositorySidebarFrame)}
                   style={getSidebarHoverRevealStyle(repositorySidebarFrame)}
                   data-sidebar-hover-reveal={repositorySidebarFrame.floating ? 'active' : undefined}
-                  data-sidebar-hover-reveal-state={getSidebarHoverRevealState(
-                    repositorySidebarFrame
-                  )}
                 >
                   <SidebarHoverRevealContent frame={repositorySidebarFrame}>
                     <DeferredTreeSidebar
@@ -1806,21 +1642,15 @@ export default function App() {
                   <motion.div
                     ref={repositorySidebarRef}
                     key="repository"
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{
-                      width: repositorySidebarFrame.trackWidth,
-                      opacity: 1,
-                    }}
-                    exit={{ width: 0, opacity: 0 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
                     transition={panelTransition}
                     className={getSidebarHoverRevealClassName(repositorySidebarFrame)}
                     style={getSidebarHoverRevealStyle(repositorySidebarFrame)}
                     data-sidebar-hover-reveal={
                       repositorySidebarFrame.floating ? 'active' : undefined
                     }
-                    data-sidebar-hover-reveal-state={getSidebarHoverRevealState(
-                      repositorySidebarFrame
-                    )}
                   >
                     <SidebarHoverRevealContent frame={repositorySidebarFrame}>
                       <DeferredRepositorySidebar
@@ -1873,19 +1703,16 @@ export default function App() {
                 <AnimatePresence initial={false}>
                   <motion.div
                     key="worktree"
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{
-                      width: worktreeSidebarFrame.trackWidth,
-                      opacity: 1,
-                    }}
-                    exit={{ width: 0, opacity: 0 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
                     transition={panelTransition}
                     className={getSidebarHoverRevealClassName(worktreeSidebarFrame)}
-                    style={getSidebarHoverRevealStyle(worktreeSidebarFrame)}
-                    data-sidebar-hover-reveal={worktreeSidebarFrame.floating ? 'active' : undefined}
-                    data-sidebar-hover-reveal-state={getSidebarHoverRevealState(
-                      worktreeSidebarFrame
+                    style={getSidebarHoverRevealStyle(
+                      worktreeSidebarFrame,
+                      worktreeSidebarFloatingOffset
                     )}
+                    data-sidebar-hover-reveal={worktreeSidebarFrame.floating ? 'active' : undefined}
                   >
                     <SidebarHoverRevealContent frame={worktreeSidebarFrame}>
                       {isTempRepo ? (
@@ -1951,7 +1778,7 @@ export default function App() {
                 </AnimatePresence>
               </>
             )}
-          </div>
+          </SidebarHoverRevealGroup>
 
           {/* Main Content */}
           {shouldRenderFileSidebar && (

@@ -518,9 +518,9 @@ export function FileSidebar({
         <AnimatePresence initial={false}>
           <motion.aside
             key="file-sidebar"
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
+            initial={{ x: -8, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -8, opacity: 0 }}
             transition={panelTransition}
             className="relative h-full shrink-0 overflow-hidden border-r bg-background"
             style={{ width }}

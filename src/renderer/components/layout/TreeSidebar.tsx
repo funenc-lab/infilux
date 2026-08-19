@@ -88,8 +88,10 @@ import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
+import { RepositoryLoadMoreButton } from './RepositoryLoadMoreButton';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummary';
+import { resolveActiveRepositoryPaths } from './repositoryVisibilityPolicy';
 import { SidebarAiCenterButton } from './SidebarAiCenterButton';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { SidebarFloatingMenuPortal } from './SidebarFloatingMenuPortal';
@@ -98,6 +100,7 @@ import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetc
 import { TempWorkspaceTreeItem } from './tree-sidebar/TempWorkspaceTreeItem';
 import { WorktreeTreeItem } from './tree-sidebar/WorktreeTreeItem';
 import { resolveTreeSidebarRepoSnapshot } from './treeSidebarRepoSnapshot';
+import { useProgressiveRepositoryVisibility } from './useProgressiveRepositoryVisibility';
 import { resolveWorktreeLoadErrorState } from './worktreeLoadErrorState';
 
 function getSidebarSectionId(prefix: string, value: string): string {
@@ -342,15 +345,55 @@ export function TreeSidebar({
       ),
     [activeWorktree, selectedRepo, selectedSnapshotWorktrees]
   );
+  const activities = useWorktreeActivityStore((s) => s.activities);
+  const agentSessions = useAgentSessionsStore((s) => s.sessions);
+  const activePathSet = useMemo(
+    () =>
+      new Set(
+        Object.entries(activities)
+          .filter(([, activity]) => activity.agentCount > 0 || activity.terminalCount > 0)
+          .map(([path]) => normalizePath(path))
+      ),
+    [activities]
+  );
+  const selectedWorktreesByRepository = useMemo(
+    () =>
+      selectedRepo && selectedRepo !== TEMP_REPO_ID
+        ? { [selectedRepo]: selectedVisibleWorktrees }
+        : {},
+    [selectedRepo, selectedVisibleWorktrees]
+  );
+  const activeRepositoryPaths = useMemo(() => {
+    const activePaths = [...activePathSet];
+    for (const session of agentSessions) {
+      if (isOpenAgentSession(session)) {
+        activePaths.push(session.repoPath);
+      }
+    }
+
+    return resolveActiveRepositoryPaths({
+      repositories: visibleRepos,
+      activeWorktreePaths: activePaths,
+      worktreesByRepository: selectedWorktreesByRepository,
+    });
+  }, [activePathSet, agentSessions, selectedWorktreesByRepository, visibleRepos]);
+  const repositorySearchActive = searchQuery.trim().length > 0 || showAgentWorktreesOnly;
+  const progressiveVisibility = useProgressiveRepositoryVisibility({
+    repositories: visibleRepos,
+    selectedRepo,
+    activeRepositoryPaths,
+    searchActive: repositorySearchActive,
+    resetKey: `${activeGroupId}\u0000${searchQuery}\u0000${showAgentWorktreesOnly}`,
+  });
 
   // Convert list to set for fast lookups
   const expandedRepos = useMemo(() => new Set(expandedRepoList), [expandedRepoList]);
   const expandedRepoPaths = useMemo(
     () =>
-      visibleRepos
+      progressiveVisibility.repositories
         .filter((repo) => expandedRepos.has(normalizePath(repo.path)))
         .map((repo) => repo.path),
-    [expandedRepos, visibleRepos]
+    [expandedRepos, progressiveVisibility.repositories]
   );
 
   useEffect(() => {
@@ -513,18 +556,7 @@ export function TreeSidebar({
   const mainWorktree = selectedRepoWorktrees.find((wt) => wt.isMainWorktree);
   const workdir = mainWorktree?.path || selectedRepo || '';
 
-  const activities = useWorktreeActivityStore((s) => s.activities);
-  const agentSessions = useAgentSessionsStore((s) => s.sessions);
   const shouldPoll = useShouldPoll();
-  const activePathSet = useMemo(
-    () =>
-      new Set(
-        Object.entries(activities)
-          .filter(([, activity]) => activity.agentCount > 0 || activity.terminalCount > 0)
-          .map(([path]) => normalizePath(path))
-      ),
-    [activities]
-  );
   const liveDiffStatPaths = useMemo(() => [...activePathSet], [activePathSet]);
 
   // Auto-expand selected repo (only when selectedRepo changes externally, not from tree click)
@@ -830,9 +862,11 @@ export function TreeSidebar({
   const searchableRepos = useMemo(
     () =>
       activeGroupId === ALL_GROUP_ID
-        ? visibleRepos
-        : visibleRepos.filter((repo) => repo.groupId === activeGroupId),
-    [activeGroupId, visibleRepos]
+        ? progressiveVisibility.repositories
+        : progressiveVisibility.repositories.filter(
+            (repository) => repository.groupId === activeGroupId
+          ),
+    [activeGroupId, progressiveVisibility.repositories]
   );
   const searchableRepoPaths = useMemo(
     () => searchableRepos.map((repo) => repo.path),
@@ -999,11 +1033,12 @@ export function TreeSidebar({
       emoji: string;
       color: string;
       repos: Array<{ repo: Repository; originalIndex: number }>;
+      totalCount: number;
     }> = [];
 
     const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
     for (const group of sortedGroups) {
-      const groupRepos = visibleRepos
+      const groupRepos = progressiveVisibility.repositories
         .filter((r) => r.groupId === group.id)
         .map((repo) => ({ repo, originalIndex: repoIndexMap.get(repo.path) ?? -1 }));
       if (groupRepos.length > 0) {
@@ -1013,11 +1048,12 @@ export function TreeSidebar({
           emoji: group.emoji,
           color: group.color,
           repos: groupRepos,
+          totalCount: repositoryCounts[group.id] ?? groupRepos.length,
         });
       }
     }
 
-    const ungroupedRepos = visibleRepos
+    const ungroupedRepos = progressiveVisibility.repositories
       .filter((r) => !r.groupId)
       .map((repo) => ({ repo, originalIndex: repoIndexMap.get(repo.path) ?? -1 }));
     if (ungroupedRepos.length > 0) {
@@ -1027,11 +1063,20 @@ export function TreeSidebar({
         emoji: '',
         color: '',
         repos: ungroupedRepos,
+        totalCount: visibleRepos.filter((repository) => !repository.groupId).length,
       });
     }
 
     return sections;
-  }, [showSections, groups, repoIndexMap, t, visibleRepos]);
+  }, [
+    groups,
+    progressiveVisibility.repositories,
+    repoIndexMap,
+    repositoryCounts,
+    showSections,
+    t,
+    visibleRepos,
+  ]);
 
   // Filter worktrees for a specific repo
   const getFilteredWorktrees = useCallback(
@@ -1794,7 +1839,7 @@ export function TreeSidebar({
                     )}
                     <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
                     <span className="control-section-count" aria-hidden="true">
-                      {section.repos.length}
+                      {section.totalCount}
                     </span>
                   </button>
                   <div
@@ -1817,6 +1862,13 @@ export function TreeSidebar({
             {filteredRepos.map(({ repo, originalIndex }) => renderRepoItem(repo, originalIndex))}
           </div>
         )}
+        {visibleRepos.length > 0 && !hasSearchFilter ? (
+          <RepositoryLoadMoreButton
+            hiddenCount={progressiveVisibility.hiddenCount}
+            nextBatchSize={progressiveVisibility.nextBatchSize}
+            onShowMore={progressiveVisibility.showMore}
+          />
+        ) : null}
       </div>
 
       {/* Footer */}

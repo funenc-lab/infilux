@@ -9,6 +9,7 @@ import {
   type Repository,
   type RepositoryGroup,
 } from '../constants';
+import { normalizeRepositoryLastAccessedAt, touchRepositoryAccess } from '../repositoryAccess';
 import {
   ensureRepositoryId,
   getActiveGroupId,
@@ -24,7 +25,7 @@ import { resolveActiveGroupId } from './activeGroupPolicy';
 
 export function useRepositoryState() {
   const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
+  const [selectedRepo, setSelectedRepoState] = useState<string | null>(null);
   const [groups, setGroups] = useState<RepositoryGroup[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string>(ALL_GROUP_ID);
 
@@ -48,26 +49,47 @@ export function useRepositoryState() {
 
     const validGroupIds = new Set(savedGroups.map((g) => g.id));
 
+    const savedSelectedRepo = localStorage.getItem(STORAGE_KEYS.SELECTED_REPO);
     const savedRepos = localStorage.getItem(STORAGE_KEYS.REPOSITORIES);
     if (savedRepos) {
       try {
         let parsed = JSON.parse(savedRepos) as Repository[];
         let needsMigration = false;
         parsed = parsed.map((repo) => {
-          const withId = ensureRepositoryId(repo);
-          if (withId.id !== repo.id) {
+          let normalizedRepository = ensureRepositoryId(repo);
+          if (normalizedRepository.id !== repo.id) {
             needsMigration = true;
           }
           if (repo.name.includes('/') || repo.name.includes('\\')) {
             needsMigration = true;
-            return { ...withId, name: getDisplayPathBasename(repo.path) };
+            normalizedRepository = {
+              ...normalizedRepository,
+              name: getDisplayPathBasename(repo.path),
+            };
           }
-          if (withId.groupId && !validGroupIds.has(withId.groupId)) {
+          if (normalizedRepository.groupId && !validGroupIds.has(normalizedRepository.groupId)) {
             needsMigration = true;
-            return { ...withId, groupId: undefined };
+            normalizedRepository = { ...normalizedRepository, groupId: undefined };
           }
-          return withId;
+          const normalizedLastAccessedAt = normalizeRepositoryLastAccessedAt(
+            normalizedRepository.lastAccessedAt
+          );
+          if (normalizedLastAccessedAt !== normalizedRepository.lastAccessedAt) {
+            needsMigration = true;
+            normalizedRepository = {
+              ...normalizedRepository,
+              lastAccessedAt: normalizedLastAccessedAt,
+            };
+          }
+          return normalizedRepository;
         });
+        if (savedSelectedRepo) {
+          const restored = touchRepositoryAccess(parsed, savedSelectedRepo, Date.now());
+          if (restored !== parsed) {
+            parsed = restored;
+            needsMigration = true;
+          }
+        }
         if (needsMigration) {
           localStorage.setItem(STORAGE_KEYS.REPOSITORIES, JSON.stringify(parsed));
           scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
@@ -78,9 +100,8 @@ export function useRepositoryState() {
       }
     }
 
-    const savedSelectedRepo = localStorage.getItem(STORAGE_KEYS.SELECTED_REPO);
     if (savedSelectedRepo) {
-      setSelectedRepo(savedSelectedRepo);
+      setSelectedRepoState(savedSelectedRepo);
     }
   }, []);
 
@@ -89,6 +110,23 @@ export function useRepositoryState() {
     localStorage.setItem(STORAGE_KEYS.REPOSITORIES, JSON.stringify(repos));
     scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
     setRepositories(repos);
+  }, []);
+
+  const setSelectedRepo = useCallback((repositoryPath: string | null) => {
+    if (repositoryPath) {
+      setRepositories((currentRepositories) => {
+        const updated = touchRepositoryAccess(currentRepositories, repositoryPath, Date.now());
+        if (updated === currentRepositories) {
+          return currentRepositories;
+        }
+
+        localStorage.setItem(STORAGE_KEYS.REPOSITORIES, JSON.stringify(updated));
+        scheduleManagedLocalStorageSync({ allowEmptyRepositoryState: true });
+        return updated;
+      });
+    }
+
+    setSelectedRepoState(repositoryPath);
   }, []);
 
   // Save selected repo to localStorage
@@ -210,13 +248,14 @@ export function useRepositoryState() {
         kind: options?.kind ?? 'local',
         connectionId: options?.connectionId,
         groupId: groupId || undefined,
+        lastAccessedAt: Date.now(),
       };
 
       const updated = [...repositories, newRepo];
       saveRepositories(updated);
-      setSelectedRepo(path);
+      setSelectedRepoState(path);
     },
-    [repositories, saveRepositories]
+    [repositories, saveRepositories, setSelectedRepo]
   );
 
   const handleReorderRepositories = useCallback(

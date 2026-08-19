@@ -112,9 +112,26 @@ vi.mock('framer-motion', () => ({
   motion: {
     aside: ({
       children,
+      initial,
+      animate,
+      exit,
       ...props
-    }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) =>
-      React.createElement('aside', props, children),
+    }: React.HTMLAttributes<HTMLElement> & {
+      children?: React.ReactNode;
+      initial?: unknown;
+      animate?: unknown;
+      exit?: unknown;
+    }) =>
+      React.createElement(
+        'aside',
+        {
+          ...props,
+          'data-motion-initial': JSON.stringify(initial),
+          'data-motion-animate': JSON.stringify(animate),
+          'data-motion-exit': JSON.stringify(exit),
+        },
+        children
+      ),
   },
 }));
 
@@ -452,6 +469,25 @@ describe('FileSidebar integration', () => {
     Reflect.deleteProperty(window, 'electronAPI');
     document.body.innerHTML = '';
     vi.useRealTimers();
+  });
+
+  it('animates the panel on the compositor without changing its layout width', async () => {
+    const view = await mountFileSidebar({ width: 320 });
+
+    try {
+      const sidebar = view.container.querySelector('aside');
+
+      expect(sidebar?.getAttribute('data-motion-initial')).toBe(
+        JSON.stringify({ x: -8, opacity: 0 })
+      );
+      expect(sidebar?.getAttribute('data-motion-animate')).toBe(
+        JSON.stringify({ x: 0, opacity: 1 })
+      );
+      expect(sidebar?.getAttribute('data-motion-exit')).toBe(JSON.stringify({ x: -8, opacity: 0 }));
+      expect(sidebar?.style.width).toBe('320px');
+    } finally {
+      await view.unmount();
+    }
   });
 
   it('mirrors the active editor tab into the tree selection and reveal flow', async () => {

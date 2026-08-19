@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appSource = readFileSync(resolve(currentDir, '../../../App.tsx'), 'utf8');
+const hoverRevealGroupSource = readFileSync(
+  resolve(currentDir, '../SidebarHoverRevealGroup.tsx'),
+  'utf8'
+);
 const globalsSource = readFileSync(resolve(currentDir, '../../../styles/globals.css'), 'utf8');
 
 const hoverRevealShadowScale = {
@@ -55,7 +59,7 @@ function getHoverRevealContentRuleSource(): string {
 
 function getHoverRevealOpenStateRuleSource(): string {
   return getCssSection(
-    ".control-sidebar-hover-rail[data-sidebar-hover-reveal-state='open']\n    > [data-sidebar-hover-content='true'] {",
+    ".control-sidebar-hover-reveal-group[data-sidebar-hover-reveal-state='open']\n    .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']\n    > [data-sidebar-hover-content='true'] {",
     '\n  @media (prefers-reduced-motion: reduce)'
   );
 }
@@ -67,22 +71,23 @@ function expectCssDeclaration(source: string, propertyName: string, valuePattern
 describe('sidebar hover reveal style policy', () => {
   it('connects the persisted setting to auto-hidden sidebar layout frames', () => {
     expect(appSource).toContain('floatingSidebarEnabled');
-    expect(appSource).toContain('floatingSidebarActive');
+    expect(appSource).not.toContain('floatingSidebarActive');
     expect(appSource).toContain('resolveSidebarHoverRevealFrame');
-    expect(appSource).toContain('SIDEBAR_HOVER_REVEAL_FLOATING_GAP');
-    expect(appSource).toContain('getSidebarHoverRevealGroupClassName(floatingSidebarEnabled)');
-    expect(appSource).toContain('getSidebarHoverRevealGroupStyle(floatingSidebarEnabled)');
-    expect(appSource).toContain('getSidebarHoverRevealState(');
+    expect(appSource).toContain('<SidebarHoverRevealGroup enabled={floatingSidebarEnabled}>');
     expect(appSource).toContain('repositorySidebarFrame');
-    expect(appSource).toMatch(
+    expect(appSource).toMatch(/width: frame\.trackWidth/);
+    expect(hoverRevealGroupSource).toMatch(
       /'--control-sidebar-hover-edge-gap': `\$\{SIDEBAR_HOVER_REVEAL_FLOATING_GAP\}px`/
     );
     expect(appSource).toMatch(
       /'--control-sidebar-hover-trigger-width': `\$\{frame\.triggerWidth\}px`/
     );
     expect(appSource).toMatch(/'--control-sidebar-hover-panel-width': `\$\{frame\.panelWidth\}px`/);
-    expect(appSource).toContain('width: repositorySidebarFrame.trackWidth');
-    expect(appSource).toContain('width: worktreeSidebarFrame.trackWidth');
+    expect(appSource).toMatch(
+      /'--control-sidebar-hover-panel-offset': `\$\{panelOffset\}px`/
+    );
+    expect(appSource).not.toContain('width: repositorySidebarFrame.trackWidth');
+    expect(appSource).not.toContain('width: worktreeSidebarFrame.trackWidth');
     expect(appSource).toContain('data-sidebar-hover-content="true"');
     expect(appSource).toContain(
       "data-sidebar-hover-reveal={repositorySidebarFrame.floating ? 'active' : undefined}"
@@ -93,8 +98,8 @@ describe('sidebar hover reveal style policy', () => {
   });
 
   it('keeps the hidden trigger out of normal layout flow so the canvas can reach the left edge', () => {
-    expect(appSource).toMatch(
-      /return hoverRevealEnabled\s+\?\s+'control-sidebar-hover-reveal-group absolute left-0 top-0 z-30 flex h-full shrink-0 overflow-visible'\s+:\s+'flex h-full shrink-0';/
+    expect(hoverRevealGroupSource).toMatch(
+      /const className = enabled\s+\?\s+'control-sidebar-hover-reveal-group absolute left-0 top-0 z-30 flex h-full shrink-0 overflow-visible'\s+:\s+'flex h-full shrink-0';/
     );
     expect(appSource).not.toContain('className="flex h-full shrink-0"');
   });
@@ -219,10 +224,24 @@ describe('sidebar hover reveal style policy', () => {
     expect(hoverRevealContentRuleSource).toContain('transform 140ms cubic-bezier(0.4, 0, 1, 1)');
     expect(hoverRevealOpenRuleSource).toContain('opacity 130ms cubic-bezier(0.16, 1, 0.3, 1)');
     expect(hoverRevealOpenRuleSource).toContain('transform 220ms cubic-bezier(0.16, 1, 0.3, 1)');
-    expectCssDeclaration(hoverRevealOpenRuleSource, 'transform', 'translate3d\\(0, 0, 0\\)');
+    expectCssDeclaration(
+      hoverRevealOpenRuleSource,
+      'transform',
+      'translate3d\\(var\\(--control-sidebar-hover-panel-offset\\), 0, 0\\)'
+    );
     expect(hoverRevealContentRuleSource).not.toContain('opacity 140ms ease');
     expect(hoverRevealContentRuleSource).not.toContain('transform 180ms ease');
     expect(hoverRevealContentRuleSource).not.toContain('transition: opacity 80ms ease;');
+  });
+
+  it('offsets the worktree floating panel after the repository panel in columns layout', () => {
+    expect(appSource).toContain('const worktreeSidebarFloatingOffset =');
+    expect(appSource).toContain(
+      'repositorySidebarFrame.panelWidth - repositorySidebarFrame.trackWidth'
+    );
+    expect(appSource).toMatch(
+      /style=\{getSidebarHoverRevealStyle\(\s*worktreeSidebarFrame,\s*worktreeSidebarFloatingOffset\s*\)\}/
+    );
   });
 
   it('keeps the full sidebar hidden until pointer or keyboard focus enters the left edge', () => {
@@ -238,20 +257,18 @@ describe('sidebar hover reveal style policy', () => {
   });
 
   it('uses explicit reveal state instead of raw hover css so selection drags can stay closed', () => {
-    expect(appSource).toMatch(
-      /onPointerEnter=\{\s*floatingSidebarEnabled\s*\?\s*handleSidebarHoverRevealPointerEvent\s*:\s*undefined\s*\}/
+    expect(hoverRevealGroupSource).toMatch(
+      /onPointerEnter=\{enabled \? handlePointerEvent : undefined\}/
     );
-    expect(appSource).toMatch(
-      /onPointerMove=\{\s*floatingSidebarEnabled\s*\?\s*handleSidebarHoverRevealPointerEvent\s*:\s*undefined\s*\}/
+    expect(hoverRevealGroupSource).toMatch(
+      /onPointerMove=\{enabled \? handlePointerEvent : undefined\}/
     );
-    expect(appSource).toMatch(
-      /onFocusCapture=\{\s*floatingSidebarEnabled\s*\?\s*handleSidebarHoverRevealFocus\s*:\s*undefined\s*\}/
+    expect(hoverRevealGroupSource).toMatch(/onFocusCapture=\{enabled \? handleFocus : undefined\}/);
+    expect(hoverRevealGroupSource).toContain(
+      "window.addEventListener('focus', syncAfterWindowFocus);"
     );
-    expect(appSource).toContain(
-      "window.addEventListener('focus', syncSidebarHoverRevealAfterWindowFocus);"
-    );
-    expect(appSource).toContain('shouldOpenSidebarHoverReveal');
-    expect(appSource).toContain('shouldSyncSidebarHoverRevealAfterWindowFocus');
+    expect(hoverRevealGroupSource).toContain('shouldOpenSidebarHoverReveal');
+    expect(hoverRevealGroupSource).toContain('shouldSyncSidebarHoverRevealAfterWindowFocus');
     expect(globalsSource).not.toContain(
       ".control-sidebar-hover-rail[data-sidebar-hover-reveal='active']:hover"
     );

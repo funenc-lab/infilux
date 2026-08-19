@@ -67,7 +67,7 @@ export function resolveSidebarHoverRevealFrame({
   if (hoverRevealEnabled) {
     return {
       layoutWidth: 0,
-      trackWidth: hoverRevealActive ? expandedWidth : SIDEBAR_HOVER_REVEAL_TRIGGER_WIDTH,
+      trackWidth: SIDEBAR_HOVER_REVEAL_TRIGGER_WIDTH,
       triggerWidth: SIDEBAR_HOVER_REVEAL_TRIGGER_WIDTH,
       panelWidth: expandedWidth,
       floating: true,

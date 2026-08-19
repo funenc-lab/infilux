@@ -119,6 +119,54 @@ describe('useRepositoryState', () => {
     document.body.innerHTML = '';
     localStorage.clear();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('persists recent access when restoring and switching repositories', async () => {
+    vi.spyOn(Date, 'now').mockReturnValueOnce(1_000).mockReturnValueOnce(2_000);
+    localStorage.setItem(STORAGE_KEYS.SELECTED_REPO, '/repo/a');
+    const mounted = await mountRepositoryStateHarness();
+
+    expect(latestSnapshot?.repositories[0]?.lastAccessedAt).toBe(1_000);
+
+    await act(async () => {
+      latestSnapshot?.setSelectedRepo('/repo/a');
+    });
+
+    const storedRepositories = JSON.parse(
+      localStorage.getItem(STORAGE_KEYS.REPOSITORIES) ?? '[]'
+    ) as Repository[];
+    expect(storedRepositories[0]?.lastAccessedAt).toBe(2_000);
+
+    await mounted.unmount();
+  });
+
+  it('timestamps new repositories and refreshes duplicate selections without reordering', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(3_000);
+    const mounted = await mountRepositoryStateHarness();
+
+    await act(async () => {
+      latestSnapshot?.handleAddRepository('/repo/new');
+    });
+
+    expect(latestSnapshot?.repositories.map((repository) => repository.path)).toEqual([
+      '/repo/a',
+      '/repo/new',
+    ]);
+    expect(latestSnapshot?.repositories[1]?.lastAccessedAt).toBe(3_000);
+
+    now.mockReturnValue(4_000);
+    await act(async () => {
+      latestSnapshot?.handleAddRepository('/repo/new');
+    });
+
+    expect(latestSnapshot?.repositories.map((repository) => repository.path)).toEqual([
+      '/repo/a',
+      '/repo/new',
+    ]);
+    expect(latestSnapshot?.repositories[1]?.lastAccessedAt).toBe(4_000);
+
+    await mounted.unmount();
   });
 
   it('moves repositories by path when sidebar actions pass a path instead of the repository id', async () => {

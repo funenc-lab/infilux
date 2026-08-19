@@ -10,6 +10,7 @@ vi.mock('lucide-react', () => {
     Activity: icon,
     BotMessageSquare: icon,
     BrainCircuit: icon,
+    ChevronDown: icon,
     ChevronRight: icon,
     Clock: icon,
     EyeOff: icon,
@@ -51,7 +52,8 @@ vi.mock('framer-motion', () => ({
 
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
-    t: (value: string) => value,
+    t: (value: string, variables?: Record<string, string | number>) =>
+      value.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => String(variables?.[key] ?? '')),
     tNode: (value: string) => value,
   }),
 }));
@@ -386,5 +388,47 @@ describe('TreeSidebar render smoke', () => {
     );
 
     expect(markup).not.toContain('data-sidebar-empty="No matches"');
+  });
+
+  it('renders only the current and recent repositories before progressive expansion', () => {
+    const repositories = Array.from({ length: 12 }, (_, index) => ({
+      id: `repo-${index}`,
+      name: index === 1 ? 'Hidden Oldest Project' : `Project ${index}`,
+      path: `/project/${index}`,
+      lastAccessedAt: index,
+    }));
+    const markup = renderToStaticMarkup(
+      React.createElement(TreeSidebar, {
+        repositories,
+        selectedRepo: '/project/0',
+        activeWorktree: null,
+        worktrees: [],
+        branches: [],
+        onSelectRepo: vi.fn(),
+        canLoadRepo: () => true,
+        onActivateRemoteRepo: vi.fn(),
+        onSelectWorktree: vi.fn(),
+        onAddRepository: vi.fn(),
+        onCreateWorktree: vi.fn(async () => {}),
+        onRemoveWorktree: vi.fn(),
+        onRefresh: vi.fn(),
+        groups: [],
+        activeGroupId: ALL_GROUP_ID,
+        onSwitchGroup: vi.fn(),
+        onCreateGroup: vi.fn(() => ({
+          id: 'group',
+          name: 'Group',
+          emoji: 'G',
+          color: '#000000',
+          order: 0,
+        })),
+        onUpdateGroup: vi.fn(),
+        onDeleteGroup: vi.fn(),
+      })
+    );
+
+    expect(markup).toContain('Project 0');
+    expect(markup).not.toContain('Hidden Oldest Project');
+    expect(markup).toContain('aria-label="Show 3 more projects"');
   });
 });

@@ -17,6 +17,7 @@ import {
 import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ALL_GROUP_ID,
+  type Repository,
   type RepositoryGroup,
   type TabId,
   TEMP_REPO_ID,
@@ -30,6 +31,7 @@ import {
   type RepositorySettings,
   saveGroupCollapsedState,
 } from '@/App/storage';
+import { isOpenAgentSession } from '@/components/chat/agentSessionLiveness';
 import {
   CreateGroupDialog,
   GroupEditDialog,
@@ -54,19 +56,20 @@ import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y'
 import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { CollapsedSidebarRail } from './CollapsedSidebarRail';
+import { RepositoryLoadMoreButton } from './RepositoryLoadMoreButton';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
-import {
-  type RepositoryTreeItemRepository as Repository,
-  RepositoryTreeItem,
-} from './repository-sidebar/RepositoryTreeItem';
+import { RepositoryTreeItem } from './repository-sidebar/RepositoryTreeItem';
+import { resolveActiveRepositoryPaths } from './repositoryVisibilityPolicy';
 import { SidebarAiCenterButton } from './SidebarAiCenterButton';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { SidebarFloatingMenuPortal } from './SidebarFloatingMenuPortal';
 import { SidebarToolbarTooltip } from './SidebarToolbarTooltip';
 import { buildTreeSidebarWorktreePrefetchInputs } from './sidebarWorktreePrefetchPolicy';
+import { useProgressiveRepositoryVisibility } from './useProgressiveRepositoryVisibility';
 
 export interface RepositorySidebarProps {
   repositories: Repository[];
@@ -308,6 +311,7 @@ export function RepositorySidebar({
   };
 
   const activities = useWorktreeActivityStore((s) => s.activities);
+  const agentSessions = useAgentSessionsStore((s) => s.sessions);
   const activePathSet = useMemo(
     () =>
       new Set(
@@ -359,11 +363,32 @@ export function RepositorySidebar({
   const hasSearchFilter = parsedSearch.hasActiveFilter || parsedSearch.textQuery.length > 0;
   const SearchFilterIcon = parsedSearch.hasActiveFilter ? ListFilter : Search;
   const showSections = activeGroupId === ALL_GROUP_ID && !hasSearchFilter && !hideGroups;
+  const activeRepositoryPaths = useMemo(() => {
+    const activePaths = [...activePathSet];
+    for (const session of agentSessions) {
+      if (isOpenAgentSession(session)) {
+        activePaths.push(session.repoPath);
+      }
+    }
+
+    return resolveActiveRepositoryPaths({
+      repositories: visibleRepos,
+      activeWorktreePaths: activePaths,
+      worktreesByRepository: allRepoWorktreesMap,
+    });
+  }, [activePathSet, agentSessions, allRepoWorktreesMap, visibleRepos]);
+  const progressiveVisibility = useProgressiveRepositoryVisibility({
+    repositories: visibleRepos,
+    selectedRepo,
+    activeRepositoryPaths,
+    searchActive: hasSearchFilter,
+    resetKey: `${activeGroupId}\u0000${searchQuery}`,
+  });
 
   const filteredRepos = useMemo(() => {
-    let filtered = visibleRepos;
+    let filtered = progressiveVisibility.repositories;
     if (activeGroupId !== ALL_GROUP_ID) {
-      filtered = filtered.filter((r) => r.groupId === activeGroupId);
+      filtered = filtered.filter((repository) => repository.groupId === activeGroupId);
     }
     if (parsedSearch.hasActiveFilter) {
       filtered = filtered.filter((repo) => {
@@ -383,7 +408,14 @@ export function RepositorySidebar({
       repo,
       originalIndex: repositories.indexOf(repo),
     }));
-  }, [activeGroupId, activePathSet, allRepoWorktreesMap, parsedSearch, repositories, visibleRepos]);
+  }, [
+    activePathSet,
+    activeGroupId,
+    allRepoWorktreesMap,
+    parsedSearch,
+    progressiveVisibility.repositories,
+    repositories,
+  ]);
 
   const groupedSections = useMemo(() => {
     if (!showSections) return [];
@@ -394,12 +426,13 @@ export function RepositorySidebar({
       emoji: string;
       color: string;
       repos: Array<{ repo: Repository; originalIndex: number }>;
+      totalCount: number;
     }> = [];
 
     // Build sections for each group in display order.
     const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
     for (const group of sortedGroups) {
-      const groupRepos = visibleRepos
+      const groupRepos = progressiveVisibility.repositories
         .filter((r) => r.groupId === group.id)
         .map((repo) => ({ repo, originalIndex: repositories.indexOf(repo) }));
       if (groupRepos.length > 0) {
@@ -409,12 +442,13 @@ export function RepositorySidebar({
           emoji: group.emoji,
           color: group.color,
           repos: groupRepos,
+          totalCount: repositoryCounts[group.id] ?? groupRepos.length,
         });
       }
     }
 
     // Ungrouped section.
-    const ungroupedRepos = visibleRepos
+    const ungroupedRepos = progressiveVisibility.repositories
       .filter((r) => !r.groupId)
       .map((repo) => ({ repo, originalIndex: repositories.indexOf(repo) }));
     if (ungroupedRepos.length > 0) {
@@ -424,11 +458,20 @@ export function RepositorySidebar({
         emoji: '',
         color: '',
         repos: ungroupedRepos,
+        totalCount: visibleRepos.filter((repository) => !repository.groupId).length,
       });
     }
 
     return sections;
-  }, [showSections, groups, repositories, t, visibleRepos]);
+  }, [
+    groups,
+    progressiveVisibility.repositories,
+    repositories,
+    repositoryCounts,
+    showSections,
+    t,
+    visibleRepos,
+  ]);
 
   const handleOpenRepoActions = useCallback(
     (event: MouseEvent<HTMLButtonElement>, repo: Repository) => {
@@ -673,109 +716,118 @@ export function RepositorySidebar({
             />
           </div>
         ) : (
-          <LayoutGroup>
-            {showSections ? (
-              <div className="control-tree-section-list">
-                {groupedSections.map((section) => {
-                  const isCollapsed = !!collapsedGroups[section.groupId];
-                  return (
-                    <div key={section.groupId}>
-                      {/* Section Header */}
-                      <button
-                        type="button"
-                        onClick={() => toggleGroupCollapsed(section.groupId)}
-                        className="control-section-header select-none"
-                        aria-expanded={!isCollapsed}
-                        aria-controls={`repository-section-${section.groupId}`}
-                      >
-                        <ChevronRight
-                          className={cn(
-                            'h-3 w-3 shrink-0 transition-transform duration-150',
-                            !isCollapsed && 'rotate-90'
+          <>
+            <LayoutGroup>
+              {showSections ? (
+                <div className="control-tree-section-list">
+                  {groupedSections.map((section) => {
+                    const isCollapsed = !!collapsedGroups[section.groupId];
+                    return (
+                      <div key={section.groupId}>
+                        {/* Section Header */}
+                        <button
+                          type="button"
+                          onClick={() => toggleGroupCollapsed(section.groupId)}
+                          className="control-section-header select-none"
+                          aria-expanded={!isCollapsed}
+                          aria-controls={`repository-section-${section.groupId}`}
+                        >
+                          <ChevronRight
+                            className={cn(
+                              'h-3 w-3 shrink-0 transition-transform duration-150',
+                              !isCollapsed && 'rotate-90'
+                            )}
+                          />
+                          {section.emoji && (
+                            <span className="control-section-marker" aria-hidden="true">
+                              {section.emoji}
+                            </span>
                           )}
-                        />
-                        {section.emoji && (
-                          <span className="control-section-marker" aria-hidden="true">
-                            {section.emoji}
+                          <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
+                          <span className="control-section-count" aria-hidden="true">
+                            {section.totalCount}
                           </span>
-                        )}
-                        <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
-                        <span className="control-section-count" aria-hidden="true">
-                          {section.repos.length}
-                        </span>
-                      </button>
-                      {/* Section Content */}
-                      <AnimatePresence initial={false}>
-                        {!isCollapsed && (
-                          <motion.div
-                            key={`content-${section.groupId}`}
-                            initial="initial"
-                            animate="animate"
-                            exit="exit"
-                            variants={heightVariants}
-                            transition={springStandard}
-                            className="overflow-hidden"
-                            id={`repository-section-${section.groupId}`}
-                          >
-                            <div className="control-tree-section-body">
-                              {section.repos.map(({ repo, originalIndex }) => (
-                                <RepositoryTreeItem
-                                  key={repo.path}
-                                  repo={repo}
-                                  originalIndex={originalIndex}
-                                  sectionGroupId={section.groupId}
-                                  selectedRepo={selectedRepo}
-                                  allRepoWorktreesMap={allRepoWorktreesMap}
-                                  activePathSet={activePathSet}
-                                  searchQuery={searchQuery}
-                                  dropTargetIndex={dropTargetIndex}
-                                  draggedIndex={draggedIndexRef.current}
-                                  onDragStart={handleDragStart}
-                                  onDragEnd={handleDragEnd}
-                                  onDragOver={handleDragOver}
-                                  onDragLeave={handleDragLeave}
-                                  onDrop={handleDrop}
-                                  onContextMenu={handleContextMenu}
-                                  onSelectRepo={onSelectRepo}
-                                  onOpenActions={handleOpenRepoActions}
-                                  t={t}
-                                />
-                              ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="control-tree-flat-list">
-                {filteredRepos.map(({ repo, originalIndex }) => (
-                  <RepositoryTreeItem
-                    key={repo.path}
-                    repo={repo}
-                    originalIndex={originalIndex}
-                    selectedRepo={selectedRepo}
-                    allRepoWorktreesMap={allRepoWorktreesMap}
-                    activePathSet={activePathSet}
-                    searchQuery={searchQuery}
-                    dropTargetIndex={dropTargetIndex}
-                    draggedIndex={draggedIndexRef.current}
-                    onDragStart={handleDragStart}
-                    onDragEnd={handleDragEnd}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onContextMenu={handleContextMenu}
-                    onSelectRepo={onSelectRepo}
-                    onOpenActions={handleOpenRepoActions}
-                    t={t}
-                  />
-                ))}
-              </div>
-            )}
-          </LayoutGroup>
+                        </button>
+                        {/* Section Content */}
+                        <AnimatePresence initial={false}>
+                          {!isCollapsed && (
+                            <motion.div
+                              key={`content-${section.groupId}`}
+                              initial="initial"
+                              animate="animate"
+                              exit="exit"
+                              variants={heightVariants}
+                              transition={springStandard}
+                              className="overflow-hidden"
+                              id={`repository-section-${section.groupId}`}
+                            >
+                              <div className="control-tree-section-body">
+                                {section.repos.map(({ repo, originalIndex }) => (
+                                  <RepositoryTreeItem
+                                    key={repo.path}
+                                    repo={repo}
+                                    originalIndex={originalIndex}
+                                    sectionGroupId={section.groupId}
+                                    selectedRepo={selectedRepo}
+                                    allRepoWorktreesMap={allRepoWorktreesMap}
+                                    activePathSet={activePathSet}
+                                    searchQuery={searchQuery}
+                                    dropTargetIndex={dropTargetIndex}
+                                    draggedIndex={draggedIndexRef.current}
+                                    onDragStart={handleDragStart}
+                                    onDragEnd={handleDragEnd}
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                    onContextMenu={handleContextMenu}
+                                    onSelectRepo={onSelectRepo}
+                                    onOpenActions={handleOpenRepoActions}
+                                    t={t}
+                                  />
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="control-tree-flat-list">
+                  {filteredRepos.map(({ repo, originalIndex }) => (
+                    <RepositoryTreeItem
+                      key={repo.path}
+                      repo={repo}
+                      originalIndex={originalIndex}
+                      selectedRepo={selectedRepo}
+                      allRepoWorktreesMap={allRepoWorktreesMap}
+                      activePathSet={activePathSet}
+                      searchQuery={searchQuery}
+                      dropTargetIndex={dropTargetIndex}
+                      draggedIndex={draggedIndexRef.current}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      onContextMenu={handleContextMenu}
+                      onSelectRepo={onSelectRepo}
+                      onOpenActions={handleOpenRepoActions}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
+            </LayoutGroup>
+            {!hasSearchFilter ? (
+              <RepositoryLoadMoreButton
+                hiddenCount={progressiveVisibility.hiddenCount}
+                nextBatchSize={progressiveVisibility.nextBatchSize}
+                onShowMore={progressiveVisibility.showMore}
+              />
+            ) : null}
+          </>
         )}
       </div>
 

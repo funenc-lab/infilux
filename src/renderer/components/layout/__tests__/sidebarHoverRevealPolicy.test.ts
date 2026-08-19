@@ -53,7 +53,7 @@ describe('resolveSidebarHoverRevealFrame', () => {
     });
   });
 
-  it('expands only the floating overlay track while hover reveal is active', () => {
+  it('keeps the floating trigger track fixed while hover reveal is active', () => {
     expect(
       resolveSidebarHoverRevealFrame({
         collapsed: true,
@@ -64,7 +64,7 @@ describe('resolveSidebarHoverRevealFrame', () => {
       })
     ).toEqual({
       layoutWidth: 0,
-      trackWidth: 320,
+      trackWidth: SIDEBAR_HOVER_REVEAL_TRIGGER_WIDTH,
       triggerWidth: SIDEBAR_HOVER_REVEAL_TRIGGER_WIDTH,
       panelWidth: 320,
       floating: true,

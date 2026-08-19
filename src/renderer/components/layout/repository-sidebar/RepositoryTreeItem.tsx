@@ -2,20 +2,15 @@ import type { GitWorktree } from '@shared/types';
 import { getDisplayPath, isWslUncPath } from '@shared/utils/path';
 import { FolderGit2, MoreHorizontal } from 'lucide-react';
 import type { DragEvent, MouseEvent } from 'react';
+import type { Repository } from '@/App/constants';
 import { normalizePath } from '@/App/storage';
 import type { TFunction } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { RepositoryTreeSummary } from './RepositoryTreeSummary';
 
-export interface RepositoryTreeItemRepository {
-  name: string;
-  path: string;
-  groupId?: string;
-}
-
 interface RepositoryTreeItemProps {
-  repo: RepositoryTreeItemRepository;
+  repo: Repository;
   originalIndex: number;
   sectionGroupId?: string;
   selectedRepo: string | null;
@@ -24,19 +19,19 @@ interface RepositoryTreeItemProps {
   searchQuery: string;
   dropTargetIndex: number | null;
   draggedIndex: number | null;
-  onDragStart: (event: DragEvent, index: number, repo: RepositoryTreeItemRepository) => void;
+  onDragStart: (event: DragEvent, index: number, repo: Repository) => void;
   onDragEnd: () => void;
   onDragOver: (event: DragEvent, index: number, targetGroupId?: string) => void;
   onDragLeave: () => void;
   onDrop: (event: DragEvent, index: number, targetGroupId?: string) => void;
-  onContextMenu: (event: MouseEvent, repo: RepositoryTreeItemRepository) => void;
+  onContextMenu: (event: MouseEvent, repo: Repository) => void;
   onSelectRepo: (
     repoPath: string,
     options?: {
       activateRemote?: boolean;
     }
   ) => void;
-  onOpenActions: (event: MouseEvent<HTMLButtonElement>, repo: RepositoryTreeItemRepository) => void;
+  onOpenActions: (event: MouseEvent<HTMLButtonElement>, repo: Repository) => void;
   t: TFunction;
 }
 

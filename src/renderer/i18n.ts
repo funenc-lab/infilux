@@ -157,6 +157,11 @@ const rendererZhTranslations: Record<string, string> = {
       '{{label}} \\u5fc5\\u987b\\u5c0f\\u4e8e {{limit}} MB \\u624d\\u80fd\\u7c98\\u8d34\\u5230 Agent \\u8f93\\u5165\\u6846\\u3002\\u5f53\\u524d\\u7c98\\u8d34\\u6587\\u4ef6\\u4e2d\\u6700\\u5927\\u7684\\u662f {{size}} MB\\u3002'
     ),
   'Tree sidebar actions': decodeEscapedUnicode('\\u6811\\u5f62\\u4fa7\\u680f\\u64cd\\u4f5c'),
+  'Show {{count}} more projects': decodeEscapedUnicode(
+    '\\u518d\\u663e\\u793a {{count}} \\u4e2a\\u9879\\u76ee'
+  ),
+  'Show {{count}} more': decodeEscapedUnicode('\\u518d\\u663e\\u793a {{count}} \\u4e2a'),
+  '{{count}} remaining': decodeEscapedUnicode('\\u8fd8\\u5269 {{count}} \\u4e2a'),
   'Show all worktrees': decodeEscapedUnicode('\\u663e\\u793a\\u5168\\u90e8\\u5de5\\u4f5c\\u6811'),
   'Only show Agent worktrees': decodeEscapedUnicode(
     '\\u4ec5\\u663e\\u793a Agent \\u5de5\\u4f5c\\u6811'
