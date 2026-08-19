@@ -383,6 +383,9 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       restore: vi.fn(() => {
         minimized = false;
       }),
+      show: vi.fn(() => {
+        visible = true;
+      }),
       webContents: {
         id: webContentsId,
         capturePage: vi.fn(async () => createMockImage('capture-page')),
@@ -1470,6 +1473,19 @@ describe('main entry', () => {
     __testables.sendOpenPath('/tmp/pending');
     __testables.handleCommandLineArgs(['--flag', 'plain-arg']);
     expect(__testables.getAnyWindow()).toBeNull();
+  });
+
+  it('reveals a hidden window when the tray opens the app', async () => {
+    const existingWindow = mainIndexTestDoubles.createWindow({ visible: false });
+    mainIndexTestDoubles.setWindows([existingWindow], existingWindow);
+
+    const { __testables } = await importMainModule({
+      platform: 'darwin',
+    });
+
+    expect(__testables.openOrRestoreMainWindow()).toBe(existingWindow);
+    expect(existingWindow.isVisible()).toBe(true);
+    expect(existingWindow.isFocused()).toBe(true);
   });
 
   it('opens paths from command line arguments and second-instance events', async () => {

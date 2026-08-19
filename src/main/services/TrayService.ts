@@ -1,8 +1,13 @@
 import { Buffer } from 'node:buffer';
+import { join } from 'node:path';
 import { translate } from '@shared/i18n';
 import { app, Menu, nativeImage, Tray } from 'electron';
 import { getCurrentLocale } from './i18n';
 
+const DEVELOPMENT_ASSET_DIRECTORY = 'build';
+const TRAY_ASSET_DIRECTORY = 'tray';
+const TRAY_TEMPLATE_ICON_FILE = 'iconTemplate.png';
+const APPLICATION_ICON_FILE = 'icon.png';
 const TRAY_ICON_SVG = `
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path
@@ -21,15 +26,29 @@ interface TrayServiceOptions {
   statusLabel?: string;
 }
 
-function createTrayIcon() {
+function resolveTrayIconPath(): string {
+  const assetRoot = app.isPackaged
+    ? process.resourcesPath
+    : join(app.getAppPath(), DEVELOPMENT_ASSET_DIRECTORY);
+  return process.platform === 'darwin'
+    ? join(assetRoot, TRAY_ASSET_DIRECTORY, TRAY_TEMPLATE_ICON_FILE)
+    : join(assetRoot, APPLICATION_ICON_FILE);
+}
+
+function createFallbackTrayIcon() {
   const dataUrl = `data:image/svg+xml;base64,${Buffer.from(TRAY_ICON_SVG).toString('base64')}`;
-  const icon = nativeImage.createFromDataURL(dataUrl);
+  return nativeImage.createFromDataURL(dataUrl);
+}
+
+function createTrayIcon() {
+  const icon = nativeImage.createFromPath(resolveTrayIconPath());
+  const resolvedIcon = icon.isEmpty() ? createFallbackTrayIcon() : icon;
 
   if (process.platform === 'darwin') {
-    icon.setTemplateImage(true);
+    resolvedIcon.setTemplateImage(true);
   }
 
-  return icon;
+  return resolvedIcon;
 }
 
 function t(key: string): string {

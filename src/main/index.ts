@@ -895,6 +895,9 @@ function openOrRestoreMainWindow(): BrowserWindow {
     if (existingWindow.isMinimized()) {
       existingWindow.restore();
     }
+    if (!existingWindow.isVisible()) {
+      existingWindow.show();
+    }
     existingWindow.focus();
     return existingWindow;
   }

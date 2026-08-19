@@ -36,11 +36,24 @@ render_png() {
   magick -background none "$source_path" -resize "${size}x${size}" "PNG32:$output_path"
 }
 
+render_tray_icons() {
+  render_png "$MONO_SOURCE_SVG" 18 "$TRAY_DIR/iconTemplate.png"
+  render_png "$MONO_SOURCE_SVG" 36 "$TRAY_DIR/iconTemplate@2x.png"
+  render_png "$MONO_SOURCE_SVG" 54 "$TRAY_DIR/iconTemplate@3x.png"
+}
+
 require_command magick
-require_command iconutil
 
 mkdir -p "$BUILD_DIR" "$BUILD_ICON_DIR" "$RENDERER_ASSET_DIR" "$DOCS_ASSET_DIR"
 mkdir -p "$TRAY_DIR"
+
+if [ "${1:-}" = "--tray-only" ]; then
+  render_tray_icons
+  echo "Generated macOS tray assets from $MONO_SOURCE_SVG"
+  exit 0
+fi
+
+require_command iconutil
 
 render_png "$SOURCE_SVG" 1024 "$BUILD_DIR/icon.png"
 render_png "$MAC_SOURCE_SVG" 1024 "$BUILD_DIR/icon-mac.png"
@@ -80,8 +93,6 @@ cp "$BUILD_DIR/icon-mac.png" "$ICONSET_DIR/icon_512x512@2x.png"
 
 iconutil -c icns "$ICONSET_DIR" -o "$BUILD_DIR/icon.icns"
 
-magick "$MONO_SOURCE_SVG" -background none -resize 18x18 "$TRAY_DIR/iconTemplate.png"
-magick "$MONO_SOURCE_SVG" -background none -resize 36x36 "$TRAY_DIR/iconTemplate@2x.png"
-magick "$MONO_SOURCE_SVG" -background none -resize 54x54 "$TRAY_DIR/iconTemplate@3x.png"
+render_tray_icons
 
 echo "Generated logo assets from $SOURCE_SVG"
