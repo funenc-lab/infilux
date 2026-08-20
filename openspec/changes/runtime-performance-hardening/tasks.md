@@ -117,3 +117,8 @@
 - 2026-08-20: The final `pnpm test -- --reporter=dot` run reported five unrelated failures: the
   sidebar hover-reveal style policy test and four Codex workspace-history migration tests. The
   performance-focused target suites passed before and after the final formatting fixes.
+- 2026-08-21: Isolated packaged validation is retained in
+  `reports/2026-08-21-isolated-runtime-validation.md`. The one-active-agent scenario preserved
+  output integrity and reduced renderer CPU growth, but slightly increased renderer and main heap
+  growth versus the immediate pre-change baseline. The four-visible-terminal, Windows
+  local-supervisor, and real-remote scenarios remain unexecuted, so the release gate is not met.

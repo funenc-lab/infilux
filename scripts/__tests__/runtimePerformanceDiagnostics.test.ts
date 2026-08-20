@@ -21,6 +21,19 @@ describe('runtime performance diagnostics', () => {
       inspectorUrl: 'http://127.0.0.1:9333',
     });
 
+    expect(
+      parseRuntimePerformanceCliOptions([
+        '--',
+        '--duration-ms=60000',
+        '--interval-ms=5000',
+        '--inspector-url=http://127.0.0.1:9333',
+      ])
+    ).toEqual({
+      durationMs: 60000,
+      intervalMs: 5000,
+      inspectorUrl: 'http://127.0.0.1:9333',
+    });
+
     expect(() =>
       parseRuntimePerformanceCliOptions(['--inspector-url=https://diagnostics.example.com'])
     ).toThrow('loopback');
@@ -142,6 +155,7 @@ describe('runtime performance diagnostics', () => {
       sampleCount: 2,
       renderer: {
         mountedTerminalCount: { current: 4, max: 4 },
+        jsHeapUsedBytes: { first: 100, current: 140, delta: 40 },
         longTasks: { count: 3, durationMs: 130 },
         cpuPercent: { average: 20, max: 20 },
       },

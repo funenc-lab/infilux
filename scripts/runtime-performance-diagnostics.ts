@@ -103,9 +103,11 @@ export interface RuntimePerformanceSample {
 }
 
 interface NumericSummary {
+  first: number | null;
   current: number | null;
   max: number | null;
   average: number | null;
+  delta: number | null;
 }
 
 interface CounterSummary {
@@ -234,6 +236,9 @@ export function parseRuntimePerformanceCliOptions(args: string[]): RuntimePerfor
   };
 
   for (const argument of args) {
+    if (argument === '--') {
+      continue;
+    }
     if (argument.startsWith('--duration-ms=')) {
       options.durationMs = parsePositiveInteger(
         argument.slice('--duration-ms='.length),
@@ -473,12 +478,16 @@ function calculateRendererCpuPercents(samples: RuntimePerformanceSample[]): numb
 function summarizeNumbers(values: Array<number | null>): NumericSummary {
   const numericValues = values.filter((value): value is number => value !== null);
   if (numericValues.length === 0) {
-    return { current: null, max: null, average: null };
+    return { first: null, current: null, max: null, average: null, delta: null };
   }
+  const first = numericValues[0] ?? null;
+  const current = numericValues.at(-1) ?? null;
   return {
-    current: numericValues.at(-1) ?? null,
+    first,
+    current,
     max: Math.max(...numericValues),
     average: numericValues.reduce((total, value) => total + value, 0) / numericValues.length,
+    delta: first === null || current === null ? null : current - first,
   };
 }
 
