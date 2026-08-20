@@ -22,11 +22,16 @@ describe('appearance typography policy', () => {
     );
   });
 
-  it('offers a recommended font-stack picker while preserving manual font entry', () => {
+  it('offers interface font selection through the recommended picker only', () => {
     expect(appearanceSettingsSource).toContain("t('Recommended font stack')");
-    expect(appearanceSettingsSource).toContain("t('Custom font stack')");
-    expect(appearanceSettingsSource).toContain('uiFontPresetOptions.map((option) => (');
+    expect(appearanceSettingsSource).toContain('buildInterfaceFontPresetSelection');
+    expect(appearanceSettingsSource).toContain('value={uiFontPresetSelection.selectedId}');
+    expect(appearanceSettingsSource).toContain('{t(uiFontPresetSelection.selectedLabel)}');
+    expect(appearanceSettingsSource).toContain('uiFontPresetSelection.options.map((option) => (');
+    expect(appearanceSettingsSource).toContain('if (!nextPreset?.fontFamily)');
     expect(appearanceSettingsSource).toContain('setLocalAppFontFamily(nextPreset.fontFamily)');
-    expect(appearanceSettingsSource).toContain('placeholder="system-ui, sans-serif"');
+    expect(appearanceSettingsSource).not.toContain('const applyAppFontFamilyChange');
+    expect(appearanceSettingsSource).not.toContain('value={localAppFontFamily}');
+    expect(appearanceSettingsSource).not.toContain('placeholder="system-ui, sans-serif"');
   });
 });

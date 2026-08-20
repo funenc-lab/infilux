@@ -60,6 +60,7 @@ import { AppearanceTerminalSettingsSection } from './AppearanceTerminalSettingsS
 import { AppearanceThemeEditorView } from './AppearanceThemeEditorView';
 import { buildAppearanceColorPresetModel } from './appearanceColorPresetModel';
 import { buildAppearanceThemeModel } from './appearanceThemeModel';
+import { buildInterfaceFontPresetSelection } from './interfaceFontPresetModel';
 import { filterTerminalThemeNames, localizeTerminalThemeName } from './terminalThemeLocalization';
 
 function resolveAppearancePreviewMode(theme: Theme): ResolvedThemeMode {
@@ -1429,20 +1430,8 @@ export function AppearanceSettings() {
     }
   }, [localAppFontSize, appFontSize, setAppFontSize]);
 
-  const applyAppFontFamilyChange = React.useCallback(() => {
-    const validFontFamily = localAppFontFamily.trim() || appFontFamily;
-    if (validFontFamily !== localAppFontFamily) {
-      setLocalAppFontFamily(validFontFamily);
-    }
-    if (validFontFamily !== appFontFamily) {
-      setAppFontFamily(validFontFamily);
-    }
-  }, [localAppFontFamily, appFontFamily, setAppFontFamily]);
-
-  const selectedUIFontPresetId = React.useMemo(
-    () =>
-      uiFontPresetOptions.find((option) => option.fontFamily === localAppFontFamily)?.id ??
-      'custom',
+  const uiFontPresetSelection = React.useMemo(
+    () => buildInterfaceFontPresetSelection(uiFontPresetOptions, localAppFontFamily),
     [localAppFontFamily, uiFontPresetOptions]
   );
 
@@ -1452,16 +1441,16 @@ export function AppearanceSettings() {
         return;
       }
 
-      const nextPreset = uiFontPresetOptions.find((option) => option.id === presetId);
+      const nextPreset = uiFontPresetSelection.options.find((option) => option.id === presetId);
 
-      if (!nextPreset) {
+      if (!nextPreset?.fontFamily) {
         return;
       }
 
       setLocalAppFontFamily(nextPreset.fontFamily);
       setAppFontFamily(nextPreset.fontFamily);
     },
-    [setAppFontFamily, uiFontPresetOptions]
+    [setAppFontFamily, uiFontPresetSelection.options]
   );
 
   const applyTerminalFontSizeChange = React.useCallback(() => {
@@ -2338,38 +2327,18 @@ export function AppearanceSettings() {
 
       <div className="settings-field-row">
         <span className="text-sm font-medium">{t('Recommended font stack')}</span>
-        <Select value={selectedUIFontPresetId} onValueChange={handleUIFontPresetChange}>
+        <Select value={uiFontPresetSelection.selectedId} onValueChange={handleUIFontPresetChange}>
           <SelectTrigger>
-            <SelectValue />
+            <SelectValue>{t(uiFontPresetSelection.selectedLabel)}</SelectValue>
           </SelectTrigger>
           <SelectPopup>
-            {uiFontPresetOptions.map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.id === 'platform-default'
-                  ? t('Platform default')
-                  : option.id === 'english-priority'
-                    ? t('English UI optimized')
-                    : t('Chinese UI optimized')}
+            {uiFontPresetSelection.options.map((option) => (
+              <SelectItem key={option.id} value={option.id} disabled={option.disabled}>
+                {t(option.label)}
               </SelectItem>
             ))}
           </SelectPopup>
         </Select>
-      </div>
-
-      <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Custom font stack')}</span>
-        <Input
-          value={localAppFontFamily}
-          onChange={(e) => setLocalAppFontFamily(e.target.value)}
-          onBlur={applyAppFontFamilyChange}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              applyAppFontFamilyChange();
-              e.currentTarget.blur();
-            }
-          }}
-          placeholder="system-ui, sans-serif"
-        />
       </div>
 
       <div className="settings-field-row">
