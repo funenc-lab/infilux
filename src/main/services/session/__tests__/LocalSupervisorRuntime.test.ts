@@ -174,6 +174,22 @@ const runtimeTestDoubles = vi.hoisted(() => {
     });
   }
 
+  function emitSubscriptionChunk(chunk: string): void {
+    const socket = subscriptionSockets[subscriptionSockets.length - 1];
+    if (!socket) {
+      throw new Error('Missing subscription socket');
+    }
+    socket.emit('data', chunk);
+  }
+
+  function getLatestSubscriptionSocket(): FakeSocket {
+    const socket = subscriptionSockets[subscriptionSockets.length - 1];
+    if (!socket) {
+      throw new Error('Missing subscription socket');
+    }
+    return socket;
+  }
+
   function closeSubscription(): void {
     const socket = subscriptionSockets[subscriptionSockets.length - 1];
     if (!socket) {
@@ -251,6 +267,8 @@ const runtimeTestDoubles = vi.hoisted(() => {
     methodCalls,
     setDaemonInfo,
     emitSubscriptionEvent,
+    emitSubscriptionChunk,
+    getLatestSubscriptionSocket,
     closeSubscription,
     reset,
   };
@@ -368,6 +386,58 @@ describe('LocalSupervisorRuntime', () => {
       exitCode: 0,
     });
     expect(onDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('disconnects an authenticated subscription after an oversized unterminated frame', async () => {
+    runtimeTestDoubles.setDaemonInfo();
+    const { LocalSupervisorRuntime } = await import('../LocalSupervisorRuntime');
+    const runtime = new LocalSupervisorRuntime();
+    const onDisconnect = vi.fn();
+    runtime.onDisconnect(onDisconnect);
+
+    await runtime.createSession({
+      sessionId: 'supervisor-overflow',
+      options: {
+        cwd: 'C:/repo',
+        kind: 'agent',
+      },
+    });
+
+    runtimeTestDoubles.emitSubscriptionChunk('x'.repeat(4 * 1024 * 1024 + 1));
+
+    const failedSocket = runtimeTestDoubles.getLatestSubscriptionSocket();
+    expect(failedSocket.destroy).toHaveBeenCalledTimes(1);
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+
+    await expect(runtime.attachSession('supervisor-overflow')).resolves.toEqual(
+      expect.objectContaining({ replay: 'replay-output' })
+    );
+    expect(runtimeTestDoubles.getLatestSubscriptionSocket()).not.toBe(failedSocket);
+  });
+
+  it('dispatches supervisor output resync events independently from data events', async () => {
+    runtimeTestDoubles.setDaemonInfo();
+    const { LocalSupervisorRuntime } = await import('../LocalSupervisorRuntime');
+    const runtime = new LocalSupervisorRuntime();
+    const onResync = vi.fn();
+    runtime.onOutputResync(onResync);
+
+    await runtime.createSession({
+      sessionId: 'supervisor-resync',
+      options: {
+        cwd: 'C:/repo',
+        kind: 'agent',
+      },
+    });
+    runtimeTestDoubles.emitSubscriptionEvent('session:output-resync', {
+      sessionId: 'supervisor-resync',
+      replay: 'replayed-output',
+    });
+
+    expect(onResync).toHaveBeenCalledWith({
+      sessionId: 'supervisor-resync',
+      replay: 'replayed-output',
+    });
   });
 
   it('writes the daemon source and starts a detached daemon when the info file is missing', async () => {

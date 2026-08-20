@@ -32,6 +32,7 @@ import {
   registerMainProcessDiagnosticsCollector,
   requestMainProcessDiagnosticsCapture,
 } from '../../utils/mainProcessDiagnostics';
+import { codexRuntimeHomeService } from '../agent/CodexRuntimeHomeService';
 import { tmuxDetector } from '../cli/TmuxDetector';
 import { remoteConnectionManager } from '../remote/RemoteConnectionManager';
 import { isRemoteVirtualPath, parseRemoteVirtualPath } from '../remote/RemotePath';
@@ -61,6 +62,21 @@ interface ManagedSessionRecord extends SessionDescriptor {
   pendingExit?: SessionExitEvent;
   transcriptArchiveState?: 'ready' | 'degraded';
   transcriptArchiveId?: string;
+}
+
+interface SessionPerformanceDiagnostics {
+  sessionCount: number;
+  backendCounts: Record<string, number>;
+  runtimeStateCounts: Record<string, number>;
+  kindCounts: Record<string, number>;
+  suspendedWindowCount: number;
+  attachedWindowCount: number;
+  outputSuspendedSessionCount: number;
+  sessionOutputBatcher: ReturnType<SessionOutputBatcher['getDiagnostics']>;
+  transcript: {
+    pendingAppendBytes: number;
+  };
+  localPty: ReturnType<PtyManager['getDiagnosticsSummary']>;
 }
 
 const SESSION_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
@@ -189,6 +205,7 @@ export class SessionManager {
     {
       offData: () => void;
       offExit: () => void;
+      offOutputResync: () => void;
     }
   >();
   private readonly remoteSubscriptionPromises = new Map<string, Promise<void>>();
@@ -452,8 +469,14 @@ export class SessionManager {
 
     if (session.localRuntime === 'supervisor') {
       const attachedWindowIds = new Set(session.attachedWindowIds);
+      const supervisorTerminated = await localSupervisorRuntime
+        .killSession(sessionId)
+        .then(() => true)
+        .catch(() => false);
       await this.cleanupPersistentSessionForExplicitTermination(session);
-      await localSupervisorRuntime.killSession(sessionId).catch(() => {});
+      if (supervisorTerminated) {
+        await this.releaseCodexRuntimeHomeForExplicitTermination(session);
+      }
       this.sessions.delete(sessionId);
       this.emitExit(
         {
@@ -467,9 +490,12 @@ export class SessionManager {
 
     const attachedWindowIds = new Set(session.attachedWindowIds);
     this.sessions.delete(sessionId);
-    this.localPtyManager.destroy(sessionId);
-    await this.cleanupPersistentSessionForExplicitTermination(session);
+    const ptyTerminationResult = await this.localPtyManager.destroyAndWait(sessionId);
     await this.flushLocalAgentTranscript(session);
+    await this.cleanupPersistentSessionForExplicitTermination(session);
+    if (ptyTerminationResult === 'exited') {
+      await this.releaseCodexRuntimeHomeForExplicitTermination(session);
+    }
     this.emitExit(
       {
         sessionId,
@@ -1587,6 +1613,14 @@ export class SessionManager {
       this.emitBatchedSessionData(event.sessionId, event.data, new Set(session.attachedWindowIds));
     });
 
+    localSupervisorRuntime.onOutputResync((event) => {
+      const session = this.sessions.get(event.sessionId);
+      if (!session || session.localRuntime !== 'supervisor') {
+        return;
+      }
+      this.handleUpstreamOutputResync(session, event);
+    });
+
     localSupervisorRuntime.onExit((event) => {
       this.handleLocalExit(event.sessionId, event.exitCode, event.signal);
     });
@@ -1623,6 +1657,29 @@ export class SessionManager {
         }
       );
 
+      let offOutputResync: (() => void) | null = null;
+      try {
+        offOutputResync = await remoteConnectionManager.addEventListener(
+          connectionId,
+          'remote:session:output-resync',
+          (payload) => {
+            const event = payload as SessionOutputResyncEvent;
+            const session = this.sessions.get(event.sessionId);
+            if (!session || session.backend !== 'remote') {
+              return;
+            }
+            this.handleUpstreamOutputResync(session, event);
+          }
+        );
+      } catch (error) {
+        try {
+          offData();
+        } catch {
+          // Ignore
+        }
+        throw error;
+      }
+
       let offExit: (() => void) | null = null;
       try {
         offExit = await remoteConnectionManager.addEventListener(
@@ -1658,6 +1715,11 @@ export class SessionManager {
         } catch {
           // Ignore
         }
+        try {
+          offOutputResync();
+        } catch {
+          // Ignore
+        }
         throw error;
       }
 
@@ -1672,6 +1734,11 @@ export class SessionManager {
           // Ignore
         }
         try {
+          offOutputResync();
+        } catch {
+          // Ignore
+        }
+        try {
           offExit();
         } catch {
           // Ignore
@@ -1682,6 +1749,7 @@ export class SessionManager {
       this.remoteSubscriptions.set(connectionId, {
         offData,
         offExit,
+        offOutputResync,
       });
     })().finally(() => {
       if (this.remoteSubscriptionPromises.get(connectionId) === subscriptionPromise) {
@@ -1838,6 +1906,12 @@ export class SessionManager {
       subscription.offExit();
     } catch (error) {
       console.warn('[session] Failed to dispose remote exit listener:', error);
+    }
+
+    try {
+      subscription.offOutputResync();
+    } catch (error) {
+      console.warn('[session] Failed to dispose remote output resync listener:', error);
     }
   }
 
@@ -2042,6 +2116,19 @@ export class SessionManager {
     });
   }
 
+  private async releaseCodexRuntimeHomeForExplicitTermination(
+    session: ManagedSessionRecord
+  ): Promise<void> {
+    const runtimeHomePath = getCodexRuntimeHomePath(session.metadata);
+    if (!runtimeHomePath) {
+      return;
+    }
+
+    await codexRuntimeHomeService.releaseRuntimeHome(runtimeHomePath).catch((error) => {
+      console.warn('[session] Failed to release Codex runtime home:', error);
+    });
+  }
+
   private emitBatchedSessionData(sessionId: string, data: string, windowIds?: Set<number>): void {
     const targetWindowIds = windowIds ?? this.sessions.get(sessionId)?.attachedWindowIds;
     if (!data || !targetWindowIds || targetWindowIds.size === 0) {
@@ -2072,6 +2159,22 @@ export class SessionManager {
       replay: this.sessions.get(sessionId)?.replayBuffer ?? '',
     };
     this.emitToWindows(new Set([windowId]), 'session:outputResync', event);
+  }
+
+  private handleUpstreamOutputResync(
+    session: ManagedSessionRecord,
+    event: SessionOutputResyncEvent
+  ): void {
+    session.replayBuffer = event.replay;
+    for (const windowId of session.attachedWindowIds) {
+      if (
+        this.suspendedWindowIds.has(windowId) ||
+        this.isOutputSuspended(windowId, session.sessionId)
+      ) {
+        continue;
+      }
+      this.sessionOutputBatcher.requestResync(windowId, session.sessionId);
+    }
   }
 
   private emitState(event: SessionStateEvent, windowIds?: Set<number>): void {
@@ -2232,12 +2335,13 @@ export class SessionManager {
     };
   }
 
-  private buildDiagnosticsSnapshot(): Record<string, unknown> {
+  private buildDiagnosticsSnapshot(): SessionPerformanceDiagnostics {
     const backendCounts: Record<string, number> = {};
     const runtimeStateCounts: Record<string, number> = {};
     const kindCounts: Record<string, number> = {};
     let attachedWindowCount = 0;
     let outputSuspendedSessionCount = 0;
+    let pendingAppendBytes = 0;
 
     for (const session of this.sessions.values()) {
       backendCounts[session.backend] = (backendCounts[session.backend] ?? 0) + 1;
@@ -2245,6 +2349,11 @@ export class SessionManager {
       runtimeStateCounts[runtimeState] = (runtimeStateCounts[runtimeState] ?? 0) + 1;
       kindCounts[session.kind] = (kindCounts[session.kind] ?? 0) + 1;
       attachedWindowCount += session.attachedWindowIds.size;
+      if (this.isLocalPtyAgentSession(session)) {
+        pendingAppendBytes += sessionTranscriptArchive.getDiagnostics(
+          session.transcriptArchiveId ?? session.sessionId
+        ).pendingAppendBytes;
+      }
     }
     for (const sessionIds of this.outputSuspendedSessionIdsByWindowId.values()) {
       outputSuspendedSessionCount += sessionIds.size;
@@ -2259,18 +2368,10 @@ export class SessionManager {
       attachedWindowCount,
       outputSuspendedSessionCount,
       sessionOutputBatcher: this.sessionOutputBatcher.getDiagnostics(),
+      transcript: {
+        pendingAppendBytes,
+      },
       localPty: this.localPtyManager.getDiagnosticsSummary(),
-      sampleSessions: Array.from(this.sessions.values())
-        .slice(0, 6)
-        .map((session) => ({
-          sessionId: session.sessionId,
-          backend: session.backend,
-          kind: session.kind,
-          cwd: session.cwd,
-          runtimeState: session.runtimeState ?? 'live',
-          localRuntime: session.localRuntime ?? null,
-          attachedWindowIds: Array.from(session.attachedWindowIds),
-        })),
     };
   }
 }

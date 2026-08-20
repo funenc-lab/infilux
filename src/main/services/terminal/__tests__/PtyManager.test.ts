@@ -432,14 +432,6 @@ describe('PtyManager utilities', () => {
     );
     expect(manager.getDiagnosticsSummary()).toEqual({
       sessionCount: 1,
-      sampleSessions: [
-        {
-          ptyId: 'session-2',
-          cwd: '/repo',
-          pid: pty.pid,
-          ownerId: null,
-        },
-      ],
     });
   });
 
@@ -522,7 +514,10 @@ describe('PtyManager utilities', () => {
 
     const internals = manager as unknown as {
       sessions: Map<string, { cwd: string; ownerId: number | null; pty: FakePty }>;
-      destroyAndWait: (id: string, timeout?: number) => Promise<void>;
+      destroyAndWait: (
+        id: string,
+        timeout?: number
+      ) => Promise<'exited' | 'not-found' | 'timed-out'>;
     };
     internals.sessions.get('pty-1')!.ownerId = 7;
 
@@ -540,7 +535,7 @@ describe('PtyManager utilities', () => {
     const managerForAll = new PtyManager();
     managerForAll.create({ cwd: '/a' }, vi.fn(), undefined, 'one');
     managerForAll.create({ cwd: '/b' }, vi.fn(), undefined, 'two');
-    const waitSpy = vi.spyOn(managerForAll, 'destroyAndWait').mockResolvedValue(undefined);
+    const waitSpy = vi.spyOn(managerForAll, 'destroyAndWait').mockResolvedValue('exited');
     await managerForAll.destroyAllAndWait(25);
     expect(logSpy).toHaveBeenCalledWith('[pty] Destroying 2 PTY sessions...');
     expect(logSpy).toHaveBeenCalledWith('[pty] All PTY sessions destroyed');
@@ -825,7 +820,7 @@ describe('PtyManager utilities', () => {
     });
   });
 
-  it('resolves destroyAndWait on exit or timeout and does not call the original exit handler during cleanup', async () => {
+  it('reports whether destroyAndWait observed an exit or reached its timeout without calling the original exit handler', async () => {
     const { PtyManager } = await import('../PtyManager');
     const manager = new PtyManager();
     const onExit = vi.fn();
@@ -838,7 +833,7 @@ describe('PtyManager utilities', () => {
     const waitPromise = manager.destroyAndWait(id, 50);
     expect(ptyManagerTestDoubles.killProcessTree).toHaveBeenCalledWith(pty);
     pty.emitExit({ exitCode: 0 });
-    await expect(waitPromise).resolves.toBeUndefined();
+    await expect(waitPromise).resolves.toBe('exited');
     expect(onExit).not.toHaveBeenCalled();
 
     const timedManager = new PtyManager();
@@ -849,7 +844,7 @@ describe('PtyManager utilities', () => {
     }
     const timeoutPromise = timedManager.destroyAndWait('wait-2', 20);
     await vi.advanceTimersByTimeAsync(25);
-    await expect(timeoutPromise).resolves.toBeUndefined();
+    await expect(timeoutPromise).resolves.toBe('timed-out');
     expect(ptyManagerTestDoubles.killProcessTree).toHaveBeenCalledWith(timedPty);
   });
 

@@ -76,6 +76,7 @@ export interface ResolveAgentProviderSessionResult {
 export interface ReadAgentProviderSessionTitleRequest {
   agentCommand: string;
   providerSessionId: string;
+  cwd?: string;
 }
 
 export interface ReadAgentProviderSessionTitleResult {

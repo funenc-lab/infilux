@@ -12,7 +12,7 @@ import {
 
 describe('canvas terminal mount limit policy', () => {
   it('normalizes worktree canvas terminal limits to bounded whole numbers', () => {
-    expect(DEFAULT_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT).toBe(6);
+    expect(DEFAULT_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT).toBe(4);
     expect(normalizeWorktreeCanvasTerminalMountLimit(8.9)).toBe(8);
     expect(normalizeWorktreeCanvasTerminalMountLimit(0)).toBe(
       MIN_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT
@@ -24,7 +24,7 @@ describe('canvas terminal mount limit policy', () => {
   });
 
   it('normalizes workspace canvas terminal limits to bounded whole numbers', () => {
-    expect(DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT).toBe(12);
+    expect(DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT).toBe(8);
     expect(normalizeWorkspaceCanvasTerminalMountLimit(20.8)).toBe(20);
     expect(normalizeWorkspaceCanvasTerminalMountLimit(0)).toBe(
       MIN_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT

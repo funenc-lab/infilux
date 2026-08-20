@@ -46,6 +46,11 @@ const rendererZhTranslations: Record<string, string> = {
     '\\u9009\\u62e9 Agent \\u4f1a\\u8bdd\\u7684\\u5c55\\u793a\\u65b9\\u5f0f'
   ),
   'Current Worktree': decodeEscapedUnicode('\\u5f53\\u524d Worktree'),
+  'More project actions': decodeEscapedUnicode('\\u66f4\\u591a\\u9879\\u76ee\\u64cd\\u4f5c'),
+  'Only show active projects': decodeEscapedUnicode(
+    '\\u4ec5\\u663e\\u793a\\u6d3b\\u8dc3\\u9879\\u76ee'
+  ),
+  'Show all projects': decodeEscapedUnicode('\\u663e\\u793a\\u6240\\u6709\\u9879\\u76ee'),
   'Repository workspace': decodeEscapedUnicode('\\u4ed3\\u5e93\\u5de5\\u4f5c\\u533a'),
   'Current worktree: {{name}}': decodeEscapedUnicode('\\u5f53\\u524d Worktree\\uff1a{{name}}'),
   'Agent Sessions': decodeEscapedUnicode('Agent \\u4f1a\\u8bdd'),
@@ -584,6 +589,10 @@ const rendererZhTranslations: Record<string, string> = {
   'Task reorder failed. The local order was restored.': decodeEscapedUnicode(
     '\\u4efb\\u52a1\\u6392\\u5e8f\\u5931\\u8d25\\uff0c\\u672c\\u5730\\u987a\\u5e8f\\u5df2\\u6062\\u590d\\u3002'
   ),
+  'Choose the font stack used across the app interface.': decodeEscapedUnicode(
+    '\\u9009\\u62e9\\u7528\\u4e8e\\u6574\\u4e2a\\u5e94\\u7528\\u754c\\u9762\\u7684\\u5b57\\u4f53\\u6808\\u3002'
+  ),
+  'System monospace': decodeEscapedUnicode('\\u7cfb\\u7edf\\u7b49\\u5bbd\\u5b57\\u4f53'),
   'Details: {{message}}': decodeEscapedUnicode('\\u8be6\\u60c5\\uff1a{{message}}'),
 };
 

@@ -10,8 +10,10 @@ import type {
   SessionDataEvent,
   SessionDescriptor,
   SessionExitEvent,
+  SessionOutputResyncEvent,
 } from '@shared/types';
 import { app } from 'electron';
+import { JsonLineBuffer } from './JsonLineBuffer';
 import {
   getLocalSupervisorSource,
   LOCAL_SUPERVISOR_RUNTIME_VERSION,
@@ -41,7 +43,7 @@ interface LocalSupervisorCreateRequest {
 
 interface LocalSupervisorSubscriptionState {
   socket: net.Socket;
-  buffer: string;
+  lineBuffer: JsonLineBuffer;
   authenticated: boolean;
 }
 
@@ -112,6 +114,7 @@ function parseDaemonInfo(raw: string): LocalSupervisorDaemonInfo | null {
 export class LocalSupervisorRuntime {
   private readonly dataListeners = new Set<(event: SessionDataEvent) => void>();
   private readonly exitListeners = new Set<(event: SessionExitEvent) => void>();
+  private readonly outputResyncListeners = new Set<(event: SessionOutputResyncEvent) => void>();
   private readonly disconnectListeners = new Set<DisconnectListener>();
   private subscriptionPromise: Promise<void> | null = null;
   private subscription: LocalSupervisorSubscriptionState | null = null;
@@ -127,6 +130,13 @@ export class LocalSupervisorRuntime {
     this.exitListeners.add(listener);
     return () => {
       this.exitListeners.delete(listener);
+    };
+  }
+
+  onOutputResync(listener: (event: SessionOutputResyncEvent) => void): () => void {
+    this.outputResyncListeners.add(listener);
+    return () => {
+      this.outputResyncListeners.delete(listener);
     };
   }
 
@@ -209,6 +219,16 @@ export class LocalSupervisorRuntime {
     }
   }
 
+  private emitOutputResync(event: SessionOutputResyncEvent): void {
+    for (const listener of this.outputResyncListeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.warn('[LocalSupervisorRuntime] Failed to deliver output resync event:', error);
+      }
+    }
+  }
+
   private emitDisconnect(): void {
     for (const listener of this.disconnectListeners) {
       try {
@@ -227,7 +247,7 @@ export class LocalSupervisorRuntime {
         port: info.port,
       });
       const requestId = nextRequestId();
-      let buffer = '';
+      const lineBuffer = new JsonLineBuffer();
       let authenticated = false;
       let settled = false;
 
@@ -252,9 +272,13 @@ export class LocalSupervisorRuntime {
         );
       });
       socket.on('data', (chunk) => {
-        buffer += chunk;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        let lines: string[];
+        try {
+          lines = lineBuffer.push(chunk.toString());
+        } catch (error) {
+          finish(() => reject(error));
+          return;
+        }
         for (const line of lines) {
           if (!line.trim()) {
             continue;
@@ -353,7 +377,7 @@ export class LocalSupervisorRuntime {
       const requestId = nextRequestId();
       const state: LocalSupervisorSubscriptionState = {
         socket,
-        buffer: '',
+        lineBuffer: new JsonLineBuffer(),
         authenticated: false,
       };
       let resolved = false;
@@ -364,6 +388,22 @@ export class LocalSupervisorRuntime {
         }
         resolved = true;
         reject(error);
+      };
+
+      const terminateSubscription = (error: unknown) => {
+        const wasCurrent = this.subscription === state;
+        if (wasCurrent) {
+          this.subscription = null;
+        }
+        state.lineBuffer.reset();
+        socket.destroy();
+        if (!resolved) {
+          fail(error);
+          return;
+        }
+        if (wasCurrent) {
+          this.emitDisconnect();
+        }
       };
 
       socket.setEncoding('utf8');
@@ -380,9 +420,13 @@ export class LocalSupervisorRuntime {
         );
       });
       socket.on('data', (chunk) => {
-        state.buffer += chunk;
-        const lines = state.buffer.split('\n');
-        state.buffer = lines.pop() || '';
+        let lines: string[];
+        try {
+          lines = state.lineBuffer.push(chunk.toString());
+        } catch (error) {
+          terminateSubscription(error);
+          return;
+        }
         for (const line of lines) {
           if (!line.trim()) {
             continue;
@@ -412,7 +456,7 @@ export class LocalSupervisorRuntime {
                   payload?: unknown;
                 };
           } catch (error) {
-            fail(error);
+            terminateSubscription(error);
             return;
           }
 
@@ -452,6 +496,11 @@ export class LocalSupervisorRuntime {
 
           if (message.event === 'session:exit' && message.payload) {
             this.emitExit(message.payload as SessionExitEvent);
+            continue;
+          }
+
+          if (message.event === 'session:output-resync' && message.payload) {
+            this.emitOutputResync(message.payload as SessionOutputResyncEvent);
           }
         }
       });
@@ -535,7 +584,7 @@ export class LocalSupervisorRuntime {
         port: info.port,
       });
       const requestId = nextRequestId();
-      let buffer = '';
+      const lineBuffer = new JsonLineBuffer();
       let authenticated = false;
       let settled = false;
 
@@ -560,19 +609,33 @@ export class LocalSupervisorRuntime {
         );
       });
       socket.on('data', (chunk) => {
-        buffer += chunk;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        let lines: string[];
+        try {
+          lines = lineBuffer.push(chunk.toString());
+        } catch (error) {
+          finish(() => reject(error));
+          return;
+        }
         for (const line of lines) {
           if (!line.trim()) {
             continue;
           }
 
-          const message = JSON.parse(line) as {
+          let message: {
             id?: number;
             result?: unknown;
             error?: string;
           };
+          try {
+            message = JSON.parse(line) as {
+              id?: number;
+              result?: unknown;
+              error?: string;
+            };
+          } catch (error) {
+            finish(() => reject(error));
+            return;
+          }
           if (message.id !== requestId) {
             continue;
           }

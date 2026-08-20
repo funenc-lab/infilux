@@ -608,8 +608,8 @@ describe('settings store setters', () => {
     const store = env.useSettingsStore.getState();
 
     expect(env.useSettingsStore.getState().agentSessionDisplayMode).toBe('tab');
-    expect(env.useSettingsStore.getState().worktreeCanvasTerminalMountLimit).toBe(6);
-    expect(env.useSettingsStore.getState().workspaceCanvasTerminalMountLimit).toBe(12);
+    expect(env.useSettingsStore.getState().worktreeCanvasTerminalMountLimit).toBe(4);
+    expect(env.useSettingsStore.getState().workspaceCanvasTerminalMountLimit).toBe(8);
     expect(env.useSettingsStore.getState().floatingSidebarEnabled).toBe(true);
     expect(env.useSettingsStore.getState().floatingToolbarEnabled).toBe(false);
 

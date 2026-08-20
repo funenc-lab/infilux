@@ -63,4 +63,47 @@ describe('SessionOutputBatcher', () => {
 
     expect(deliver).toHaveBeenCalledWith(1, 'agent-1', 'next');
   });
+
+  it('round-robins a bounded window budget across busy sessions', () => {
+    vi.useFakeTimers();
+    const deliver = vi.fn();
+    const batcher = new SessionOutputBatcher({
+      deliver,
+      delayMs: 10,
+      maxChars: 4,
+      maxPendingChars: 16,
+      maxWindowChars: 4,
+    });
+
+    batcher.enqueue(1, 'agent-a', 'abcdefgh');
+    batcher.enqueue(1, 'agent-b', 'ijkl');
+
+    vi.advanceTimersByTime(10);
+    expect(deliver).toHaveBeenLastCalledWith(1, 'agent-a', 'abcd');
+
+    vi.advanceTimersByTime(10);
+    expect(deliver).toHaveBeenLastCalledWith(1, 'agent-b', 'ijkl');
+
+    vi.advanceTimersByTime(10);
+    expect(deliver).toHaveBeenLastCalledWith(1, 'agent-a', 'efgh');
+  });
+
+  it('drains all pending output for a session before its exit is emitted', () => {
+    vi.useFakeTimers();
+    const deliver = vi.fn();
+    const batcher = new SessionOutputBatcher({
+      deliver,
+      delayMs: 10,
+      maxChars: 4,
+      maxPendingChars: 16,
+    });
+
+    batcher.enqueue(1, 'agent-1', 'abcdefgh');
+    batcher.flushSession('agent-1', [1]);
+
+    expect(deliver.mock.calls).toEqual([
+      [1, 'agent-1', 'abcd'],
+      [1, 'agent-1', 'efgh'],
+    ]);
+  });
 });

@@ -129,7 +129,13 @@ function TranslationProbe() {
       { id: 'startup-stalled-detail' },
       t('Runtime is taking longer than expected. Retry if the terminal stays quiet.')
     ),
-    React.createElement('span', { id: 'startup-attention' }, t('Needs attention'))
+    React.createElement('span', { id: 'startup-attention' }, t('Needs attention')),
+    React.createElement(
+      'span',
+      { id: 'interface-font-stack-detail' },
+      t('Choose the font stack used across the app interface.')
+    ),
+    React.createElement('span', { id: 'system-monospace' }, t('System monospace'))
   );
 }
 
@@ -238,6 +244,12 @@ describe('renderer i18n', () => {
     );
     expect(container.querySelector('#agent-ide-bridge-detail')?.textContent).toBe(
       '\u542f\u52a8 provider \u652f\u6301\u7684\u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c\u751f\u547d\u5468\u671f hook \u6865\u63a5'
+    );
+    expect(container.querySelector('#interface-font-stack-detail')?.textContent).toBe(
+      '\u9009\u62e9\u7528\u4e8e\u6574\u4e2a\u5e94\u7528\u754c\u9762\u7684\u5b57\u4f53\u6808\u3002'
+    );
+    expect(container.querySelector('#system-monospace')?.textContent).toBe(
+      '\u7cfb\u7edf\u7b49\u5bbd\u5b57\u4f53'
     );
     expect(container.querySelector('#live-agent-filter')?.textContent).toBe(
       '\u4ec5\u663e\u793a\u6d3b\u8dc3 Agent \u4f1a\u8bdd'

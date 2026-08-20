@@ -7,27 +7,27 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const agentTerminalSource = readFileSync(resolve(currentDir, '../AgentTerminal.tsx'), 'utf8');
 
 describe('agent terminal activity polling source', () => {
-  it('derives the activity polling interval from the focused active terminal state', () => {
-    expect(agentTerminalSource).toContain('resolveAgentTerminalActivityPollIntervalMs');
+  it('registers backend sessions with the window activity scheduler', () => {
     expect(agentTerminalSource).toContain(
-      'const activityPollIntervalMs = resolveAgentTerminalActivityPollIntervalMs({'
+      "import { useAgentSessionActivity } from './useAgentSessionActivity';"
     );
+    expect(agentTerminalSource).toContain('const sessionActivity = useAgentSessionActivity({');
+    expect(agentTerminalSource).toContain('sessionId: activityBackendSessionId');
     expect(agentTerminalSource).toContain('isActive: effectiveIsActive');
-    expect(agentTerminalSource).toContain('}, activityPollIntervalMs);');
+    expect(agentTerminalSource).toContain('isVisible: effectiveIsVisible');
     expect(agentTerminalSource).toContain(
       'const effectiveIsActive = isAgentStartupReady ? isActive : false;'
     );
     expect(agentTerminalSource).toContain(
       'const effectiveIsVisible = isReadOnlyTranscript ? isVisible : isVisible && isAgentStartupReady;'
     );
-    expect(agentTerminalSource).not.toContain('return isActive || hasPendingCommand;');
+    expect(agentTerminalSource).toContain('onSessionIdChange: handleBackendSessionIdChange');
   });
 
-  it('restarts activity polling when the effective terminal visibility changes mid-run', () => {
-    expect(agentTerminalSource).toContain(
-      'if (!isMonitoringOutputRef.current || !activityPollIntervalRef.current) {'
-    );
+  it('uses output-driven activity refresh without component-local polling intervals', () => {
+    expect(agentTerminalSource).toContain('recordSessionActivityOutput();');
     expect(agentTerminalSource).toContain('startActivityPolling();');
-    expect(agentTerminalSource).toContain('}, [startActivityPolling]);');
+    expect(agentTerminalSource).not.toContain('window.electronAPI.session.getActivity');
+    expect(agentTerminalSource).not.toContain('activityPollIntervalRef');
   });
 });

@@ -88,7 +88,6 @@ import {
   resolveAgentStartupOverlayPresentation,
 } from './agentStartupOverlay';
 import { shouldShowAgentStartupOverlayForVisibility } from './agentStartupVisibilityPolicy';
-import { resolveAgentTerminalActivityPollIntervalMs } from './agentTerminalActivityPollingPolicy';
 import { resolveAgentTerminalAttachmentInsertDisposition } from './agentTerminalAttachmentInsertPolicy';
 import {
   collectAgentTerminalClipboardFiles,
@@ -113,6 +112,7 @@ import { formatAgentTranscriptForTerminal } from './agentTranscriptTerminalForma
 import { extractClaudePolicySessionMetadata } from './claudePolicyLaunch';
 import { isClaudeWorkspaceTrustPrompt } from './claudeTrustPrompt';
 import { resolveProjectConfigSchemeLaunchState } from './projectConfigSchemeLaunch';
+import { useAgentSessionActivity } from './useAgentSessionActivity';
 
 export interface AgentTerminalReadOnlyTranscript {
   entries: AgentSubagentTranscriptEntry[];
@@ -185,7 +185,6 @@ interface AgentTerminalProps {
 const MIN_OUTPUT_FOR_NOTIFICATION = 100; // Minimum chars to consider agent is doing work
 const MIN_OUTPUT_FOR_INDICATOR = 200; // Minimum chars to show "outputting" indicator (higher to avoid noise)
 const IDLE_CONFIRMATION_COUNT = 2; // Require 2 consecutive idle polls (2 seconds) before marking as idle
-const RECENT_OUTPUT_TIMEOUT_MS = 3000; // If output received within this time, consider still active
 const AGENT_TERMINAL_FLOATING_CONTROL_ATTRIBUTE = 'data-agent-terminal-floating-control';
 const MOUSE_SELECTION_AUTO_SCROLL_EDGE_PX = 32;
 const MOUSE_SELECTION_AUTO_SCROLL_INTERVAL_MS = 50;
@@ -708,9 +707,7 @@ export function AgentTerminal({
   const isMonitoringOutputRef = useRef(false); // Only monitor after user presses Enter
   const outputSinceEnterRef = useRef(0); // Track output volume since Enter for indicator
   const lastOutputTimeRef = useRef(0); // Track last output timestamp for idle detection
-  const activityPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const consecutiveIdleCountRef = useRef(0); // Count consecutive idle polls
-  const ptyIdRef = useRef<string | null>(null); // Store PTY ID for activity checks
   const isActiveRef = useRef(isActive); // Track latest isActive value for interval callback
   const lastCommandWasSlashCommand = useRef(false); // Track if last command was a slash command
   const pendingTerminalAttachmentInsertRef = useRef<AgentAttachmentItem[]>([]);
@@ -723,6 +720,7 @@ export function AgentTerminal({
   const setEnhancedInputAttachments = useAgentSessionsStore((s) => s.setEnhancedInputAttachments);
 
   const terminalSessionId = id ?? sessionId;
+  const [activityBackendSessionId, setActivityBackendSessionId] = useState(backendSessionId);
   const [shouldBypassHostSessionRecovery, setShouldBypassHostSessionRecovery] = useState(
     recoveryState === 'missing-host-session'
   );
@@ -800,6 +798,7 @@ export function AgentTerminal({
     agentCommand: isReadOnlyTranscript ? '' : agentCommand,
     uiSessionId: id,
     providerSessionId: sessionId,
+    cwd,
     titleSource,
     isRemoteExecution,
     activitySignal: lastSessionActivityAt,
@@ -816,6 +815,18 @@ export function AgentTerminal({
     recoveryState === 'missing-host-session' &&
     providerSessionResolutionPending;
   const effectiveBackendSessionId = shouldHoldAgentSessionStartup ? undefined : backendSessionId;
+
+  useEffect(() => {
+    setActivityBackendSessionId(effectiveBackendSessionId);
+  }, [effectiveBackendSessionId]);
+
+  const handleBackendSessionIdChange = useCallback(
+    (nextSessionId: string) => {
+      setActivityBackendSessionId(nextSessionId);
+      onBackendSessionIdChange?.(nextSessionId);
+    },
+    [onBackendSessionIdChange]
+  );
 
   useEffect(() => {
     if (providerSessionResolutionPending || !onProviderSessionIdentityValidityChange) {
@@ -1341,73 +1352,46 @@ export function AgentTerminal({
     }
   }, [isActive, terminalSessionId, markSessionActive]);
 
-  const activityPollIntervalMs = resolveAgentTerminalActivityPollIntervalMs({
-    isActive: effectiveIsActive,
-  });
   const activateOnInitialCommandWhenInactive = hasPendingCommand || !recovered;
   const isTerminalStartupVisible = isActive || isVisible || hasPendingCommand;
+  const stopActivityPollingRef = useRef<() => void>(() => undefined);
+  const handleScheduledSessionActivity = useCallback(
+    (hasProcessActivity: boolean) => {
+      if (!isMonitoringOutputRef.current) {
+        return;
+      }
 
-  // Start polling for process activity
-  const startActivityPolling = useCallback(() => {
-    // Clear any existing interval
-    if (activityPollIntervalRef.current) {
-      clearInterval(activityPollIntervalRef.current);
-    }
-    consecutiveIdleCountRef.current = 0;
-
-    activityPollIntervalRef.current = setInterval(async () => {
-      if (!ptyIdRef.current || !isMonitoringOutputRef.current) {
-        // Stop polling if no PTY or not monitoring
-        if (activityPollIntervalRef.current) {
-          clearInterval(activityPollIntervalRef.current);
-          activityPollIntervalRef.current = null;
+      if (hasProcessActivity) {
+        consecutiveIdleCountRef.current = 0;
+        if (outputSinceEnterRef.current > MIN_OUTPUT_FOR_INDICATOR) {
+          updateOutputState('outputting');
         }
         return;
       }
 
-      try {
-        const hasProcessActivity = await window.electronAPI.session.getActivity(ptyIdRef.current);
-        const now = Date.now();
-        const hasRecentOutput = now - lastOutputTimeRef.current < RECENT_OUTPUT_TIMEOUT_MS;
-
-        if (hasProcessActivity || hasRecentOutput) {
-          // Process is active OR has recent output, reset idle counter
-          consecutiveIdleCountRef.current = 0;
-          // If we have enough output, show the indicator
-          if (outputSinceEnterRef.current > MIN_OUTPUT_FOR_INDICATOR) {
-            updateOutputState('outputting');
-            // Activity state is now managed by Hook notifications only
-          }
-        } else {
-          // Process is idle AND no recent output
-          consecutiveIdleCountRef.current++;
-          // Only mark as idle after several consecutive idle polls
-          if (consecutiveIdleCountRef.current >= IDLE_CONFIRMATION_COUNT) {
-            updateOutputState('idle');
-            isMonitoringOutputRef.current = false;
-
-            // Activity state is now managed by Hook notifications only
-
-            // Stop polling when confirmed idle
-            if (activityPollIntervalRef.current) {
-              clearInterval(activityPollIntervalRef.current);
-              activityPollIntervalRef.current = null;
-            }
-          }
-        }
-      } catch {
-        // Error checking activity, ignore
+      consecutiveIdleCountRef.current += 1;
+      if (consecutiveIdleCountRef.current >= IDLE_CONFIRMATION_COUNT) {
+        updateOutputState('idle');
+        isMonitoringOutputRef.current = false;
+        stopActivityPollingRef.current();
       }
-    }, activityPollIntervalMs);
-  }, [activityPollIntervalMs, updateOutputState]);
-
-  // Stop polling for process activity
-  const stopActivityPolling = useCallback(() => {
-    if (activityPollIntervalRef.current) {
-      clearInterval(activityPollIntervalRef.current);
-      activityPollIntervalRef.current = null;
-    }
+    },
+    [updateOutputState]
+  );
+  const handleScheduledSessionOutput = useCallback(() => {
+    consecutiveIdleCountRef.current = 0;
   }, []);
+  const sessionActivity = useAgentSessionActivity({
+    isActive: effectiveIsActive,
+    isVisible: effectiveIsVisible,
+    onActivity: handleScheduledSessionActivity,
+    onOutput: handleScheduledSessionOutput,
+    sessionId: activityBackendSessionId,
+  });
+  const startActivityPolling = sessionActivity.startMonitoring;
+  const stopActivityPolling = sessionActivity.stopMonitoring;
+  const recordSessionActivityOutput = sessionActivity.recordOutput;
+  stopActivityPollingRef.current = stopActivityPolling;
 
   // Cleanup runtime state on unmount
   useEffect(() => {
@@ -1421,12 +1405,10 @@ export function AgentTerminal({
   }, [terminalSessionId, clearInterruptIdleResetTimer, clearRuntimeState, stopActivityPolling]);
 
   useEffect(() => {
-    if (!isMonitoringOutputRef.current || !activityPollIntervalRef.current) {
-      return;
+    if (isMonitoringOutputRef.current && activityBackendSessionId) {
+      startActivityPolling();
     }
-
-    startActivityPolling();
-  }, [startActivityPolling]);
+  }, [activityBackendSessionId, startActivityPolling]);
 
   // Build command with session args
   const handleSessionCreateFallbackRetry = useCallback(() => {
@@ -1548,6 +1530,7 @@ export function AgentTerminal({
       if (isMonitoringOutputRef.current) {
         outputSinceEnterRef.current += data.length;
         lastOutputTimeRef.current = Date.now(); // Track last output time for idle detection
+        recordSessionActivityOutput();
         if (lastInterruptRequestAtRef.current !== null) {
           scheduleInterruptOutputStateReset();
         }
@@ -1619,6 +1602,7 @@ export function AgentTerminal({
       agentIntegration.stopHookEnabled,
       hasRenderableTerminalOutput,
       scheduleInterruptOutputStateReset,
+      recordSessionActivityOutput,
       terminalSessionId,
       t,
       updateOutputState,
@@ -1719,12 +1703,10 @@ export function AgentTerminal({
         // Activity state is now managed by Hook notifications (PreToolUse, Stop, AskUserQuestion)
         // Enter event no longer sets activity state to avoid conflicts with other terminals
 
-        if (terminalSessionId) {
-          isMonitoringOutputRef.current = true;
-          outputSinceEnterRef.current = 0;
-          ptyIdRef.current = ptyId;
-          startActivityPolling();
-        }
+        isMonitoringOutputRef.current = true;
+        outputSinceEnterRef.current = 0;
+        setActivityBackendSessionId(ptyId);
+        startActivityPolling();
 
         // Clear any existing enter delay timer.
         if (enterDelayTimerRef.current) {
@@ -1886,7 +1868,7 @@ export function AgentTerminal({
     onReplaySnapshotChange,
     onCustomKey: handleCustomKey,
     onTitleChange: handleTitleChange,
-    onSessionIdChange: onBackendSessionIdChange,
+    onSessionIdChange: handleBackendSessionIdChange,
     onHostScrollbackStateChange: setIsTmuxHostScrollbackActive,
     onSessionOpen: (session) => {
       const capabilityState = extractAgentCapabilitySessionMetadata(session.metadata);

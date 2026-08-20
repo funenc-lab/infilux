@@ -20,17 +20,25 @@ type GeneratedSession = {
 
 type GeneratedSessionEvent = {
   event: string;
-  payload: { sessionId: string; data?: string; exitCode?: number; signal?: number };
+  payload: {
+    sessionId: string;
+    data?: string;
+    replay?: string;
+    exitCode?: number;
+    signal?: number;
+  };
 };
 
 type GeneratedSessionFunctions = {
   activateSessionAfterAttach: (sessionId: string, replayLength: number) => void;
   appendReplay: (session: GeneratedSession, chunk: string) => void;
+  enqueueSessionOutput: (session: GeneratedSession, chunk: string) => void;
+  flushSessionOutput: (sessionId: string, drainAll?: boolean) => void;
 };
 
 type GeneratedSessionFactory = (
   state: { clients: Set<unknown>; sessions: Map<string, GeneratedSession> },
-  sessionOutputQueues: Map<string, { data: string; timer: unknown }>,
+  sessionOutputQueues: Map<string, { chunks: string[]; queuedChars: number; timer: unknown }>,
   broadcast: (event: string, payload: GeneratedSessionEvent['payload']) => void,
   setTimeout: (callback: () => void, delay: number) => unknown,
   clearTimeout: (timer: unknown) => void,
@@ -62,15 +70,110 @@ function createGeneratedSessionFunctions(source: string): GeneratedSessionFactor
     `
       const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
       const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
+      const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;
       const isSessionTranscriptAgent = (session) => Boolean(session && session.kind === 'agent');
       const flushSessionTranscript = async () => true;
       ${helperSource}
       ${sessionSource}
-      return { activateSessionAfterAttach, appendReplay };
+      return { activateSessionAfterAttach, appendReplay, enqueueSessionOutput, flushSessionOutput };
     `
   ) as GeneratedSessionFactory;
 
   return factory;
+}
+
+function createGeneratedTmuxCacheFunctions(
+  source: string,
+  tmuxScrollPaneCache: Map<string, unknown>,
+  now: () => number
+): {
+  getCachedTmuxScrollPane: (serverName: string, sessionName: string) => unknown;
+  setCachedTmuxScrollPane: (
+    serverName: string,
+    sessionName: string,
+    pane: { paneId: string; inMode: boolean }
+  ) => void;
+} {
+  const start = source.indexOf('function buildTmuxScrollPaneCacheKey(serverName, sessionName) {');
+  const end = source.indexOf('async function resolveTmuxScrollPane(', start);
+
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  return new Function(
+    'tmuxScrollPaneCache',
+    'Date',
+    `
+      const TMUX_SCROLL_PANE_CACHE_TTL_MS = 250;
+      const TMUX_SCROLL_PANE_CACHE_MAX_ENTRIES = 2;
+      ${source.slice(start, end)}
+      return { getCachedTmuxScrollPane, setCachedTmuxScrollPane };
+    `
+  )(tmuxScrollPaneCache, { now }) as {
+    getCachedTmuxScrollPane: (serverName: string, sessionName: string) => unknown;
+    setCachedTmuxScrollPane: (
+      serverName: string,
+      sessionName: string,
+      pane: { paneId: string; inMode: boolean }
+    ) => void;
+  };
+}
+
+function createGeneratedUntrackedCacheFunctions(
+  source: string,
+  state: { untrackedDiffStatsCache: Map<string, unknown> },
+  now: () => number
+): {
+  getCachedUntrackedDiffStats: (cacheKey: string) => unknown;
+  setCachedUntrackedDiffStats: (cacheKey: string, value: unknown) => void;
+} {
+  const start = source.indexOf('function pruneUntrackedDiffStatsCache(now = Date.now()) {');
+  const end = source.indexOf('async function gitDiffStats(rootPath) {', start);
+
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  return new Function(
+    'state',
+    'Date',
+    `
+      const UNTRACKED_DIFF_STATS_CACHE_TTL_MS = 250;
+      const UNTRACKED_DIFF_STATS_CACHE_MAX_ENTRIES = 2;
+      ${source.slice(start, end)}
+      return { getCachedUntrackedDiffStats, setCachedUntrackedDiffStats };
+    `
+  )(state, { now }) as {
+    getCachedUntrackedDiffStats: (cacheKey: string) => unknown;
+    setCachedUntrackedDiffStats: (cacheKey: string, value: unknown) => void;
+  };
+}
+
+function createGeneratedFinalClientCleanup(
+  source: string,
+  state: {
+    clients: Set<unknown>;
+    sessions: Map<string, unknown>;
+    watchers: Map<string, { close: () => void }>;
+    activeSearches: Map<string, { kill: () => void }>;
+    untrackedDiffStatsCache: Map<string, unknown>;
+  },
+  tmuxScrollPaneCache: Map<string, unknown>,
+  clientWriteStates: Map<unknown, unknown>,
+  discardSessionOutput: (sessionId: string) => void
+): () => void {
+  const start = source.indexOf('function cleanupFinalClientState() {');
+  const end = source.indexOf('function killChildTree(session) {', start);
+
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  return new Function(
+    'state',
+    'tmuxScrollPaneCache',
+    'clientWriteStates',
+    'discardSessionOutput',
+    `${source.slice(start, end)} return pauseAttachedSessions;`
+  )(state, tmuxScrollPaneCache, clientWriteStates, discardSessionOutput) as () => void;
 }
 
 describe('getRemoteServerSource', () => {
@@ -78,6 +181,14 @@ describe('getRemoteServerSource', () => {
     const source = getRemoteServerSource();
 
     expect(() => new Function(source.replace(/^#!.*\r?\n/, ''))).not.toThrow();
+  });
+
+  it('bounds generated remote JSON-line input before it accumulates indefinitely', () => {
+    const source = getRemoteServerSource();
+
+    expect(source).toContain('const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;');
+    expect(source).toContain('if (buffer.length > JSON_LINE_MAX_CHARS) {');
+    expect(source).toContain('stream.destroy();');
   });
 
   it('batches attach delta before a pending exit without splitting surrogate pairs', () => {
@@ -99,7 +210,10 @@ describe('getRemoteServerSource', () => {
       clients: new Set<unknown>([{}]),
       sessions: new Map<string, GeneratedSession>([[sessionId, session]]),
     };
-    const sessionOutputQueues = new Map<string, { data: string; timer: unknown }>();
+    const sessionOutputQueues = new Map<
+      string,
+      { chunks: string[]; queuedChars: number; timer: unknown }
+    >();
     const events: GeneratedSessionEvent[] = [];
     const { activateSessionAfterAttach } = createSessionFunctions(
       state,
@@ -146,16 +260,71 @@ describe('getRemoteServerSource', () => {
     expect(source).toContain('isHighSurrogate(data.charCodeAt(end - 1))');
     expect(source).toContain('isLowSurrogate(data.charCodeAt(end))');
     expect(source).toContain('function enqueueSessionOutput(session, chunk) {');
-    expect(source).toContain('function flushSessionOutput(sessionId) {');
+    expect(source).toContain('function flushSessionOutput(sessionId, drainAll = false) {');
     expect(source).toContain('function discardSessionOutput(sessionId) {');
     expect(source).toContain(
       'setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS)'
     );
-    expect(source).toContain('queue.data.length >= SESSION_OUTPUT_BATCH_MAX_CHARS');
-    expect(source).toContain(
-      'if (!nextChunk) {\n      flushSessionOutput(session.sessionId);\n      continue;\n    }'
-    );
+    expect(source).toContain('function takeQueuedSessionOutput(queue, maxChars) {');
+    expect(source).toContain('queue.chunks.push(nextChunk);');
+    expect(source).toContain('queue.queuedChars += nextChunk.length;');
     expect(source).toContain('enqueueSessionOutput(session, chunk);');
+  });
+
+  it('uses bounded chunk queues and requests replay resync after remote output overflow', () => {
+    const source = getRemoteServerSource();
+
+    expect(source).toContain('const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;');
+    expect(source).toContain('chunks: [],');
+    expect(source).toContain('queuedChars: 0,');
+    expect(source).toContain("broadcast('session:output-resync', {");
+    expect(source).not.toContain('queue.data += nextChunk;');
+  });
+
+  it('drains generated remote output in order and replaces overflow with replay resync', () => {
+    const source = getRemoteServerSource();
+    const createSessionFunctions = createGeneratedSessionFunctions(source);
+    const session: GeneratedSession = {
+      sessionId: 'remote-output',
+      kind: 'agent',
+      replay: 'replay snapshot',
+      lastDataAt: 0,
+      streamState: 'live',
+      attachCount: 1,
+      pendingExit: null,
+      writable: null,
+    };
+    const state = {
+      clients: new Set<unknown>([{}]),
+      sessions: new Map<string, GeneratedSession>([[session.sessionId, session]]),
+    };
+    const queues = new Map<string, { chunks: string[]; queuedChars: number; timer: unknown }>();
+    const events: GeneratedSessionEvent[] = [];
+    const { enqueueSessionOutput, flushSessionOutput } = createSessionFunctions(
+      state,
+      queues,
+      (event, payload) => events.push({ event, payload }),
+      () => 0,
+      () => {},
+      TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+      AGENT_SESSION_REPLAY_CHAR_LIMIT
+    );
+    const output = 'x'.repeat(64 * 1024 + 7);
+
+    enqueueSessionOutput(session, output);
+    flushSessionOutput(session.sessionId, true);
+
+    const dataEvents = events.filter((event) => event.event === 'session:data');
+    expect(dataEvents.map((event) => event.payload.data).join('')).toBe(output);
+    expect(dataEvents.every((event) => (event.payload.data?.length ?? 0) <= 64 * 1024)).toBe(true);
+    expect(queues.size).toBe(0);
+
+    enqueueSessionOutput(session, 'y'.repeat(512 * 1024 + 1));
+    expect(events.at(-1)).toEqual({
+      event: 'session:output-resync',
+      payload: { sessionId: 'remote-output', replay: 'replay snapshot' },
+    });
+    expect(queues.size).toBe(0);
   });
 
   it('bounds remote client write queues when socket backpressure applies', () => {
@@ -171,7 +340,7 @@ describe('getRemoteServerSource', () => {
 
   it('flushes live output before session exit and discards queues without consumers', () => {
     const source = getRemoteServerSource();
-    const exitFlushIndex = source.indexOf('flushSessionOutput(session.sessionId);');
+    const exitFlushIndex = source.indexOf('flushSessionOutput(session.sessionId, true);');
     const exitEventIndex = source.indexOf('emitSessionExit(session, session.pendingExit.exitCode');
 
     expect(exitFlushIndex).toBeGreaterThan(-1);
@@ -200,6 +369,80 @@ describe('getRemoteServerSource', () => {
     expect(source).toContain('const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;');
     expect(source).toContain("['ctimeMs', 'ino', 'dev', 'mode']");
     expect(source).not.toContain('fsp.readFile(absolutePath)');
+  });
+
+  it('expires and evicts generated tmux and untracked caches deterministically', () => {
+    let timestamp = 0;
+    const now = () => timestamp;
+    const tmuxCache = new Map<string, unknown>();
+    const { getCachedTmuxScrollPane, setCachedTmuxScrollPane } = createGeneratedTmuxCacheFunctions(
+      getRemoteServerSource(),
+      tmuxCache,
+      now
+    );
+
+    setCachedTmuxScrollPane('server', 'one', { paneId: '%1', inMode: false });
+    setCachedTmuxScrollPane('server', 'two', { paneId: '%2', inMode: false });
+    expect(getCachedTmuxScrollPane('server', 'one')).toEqual({ paneId: '%1', inMode: false });
+    setCachedTmuxScrollPane('server', 'three', { paneId: '%3', inMode: true });
+    expect(getCachedTmuxScrollPane('server', 'two')).toBeNull();
+    timestamp = 251;
+    expect(getCachedTmuxScrollPane('server', 'one')).toBeNull();
+
+    const untrackedState = { untrackedDiffStatsCache: new Map<string, unknown>() };
+    const { getCachedUntrackedDiffStats, setCachedUntrackedDiffStats } =
+      createGeneratedUntrackedCacheFunctions(getRemoteServerSource(), untrackedState, now);
+    timestamp = 0;
+    setCachedUntrackedDiffStats('one', { marker: 'one' });
+    setCachedUntrackedDiffStats('two', { marker: 'two' });
+    expect(getCachedUntrackedDiffStats('one')).toEqual(expect.objectContaining({ marker: 'one' }));
+    setCachedUntrackedDiffStats('three', { marker: 'three' });
+    expect(getCachedUntrackedDiffStats('two')).toBeNull();
+    timestamp = 251;
+    expect(getCachedUntrackedDiffStats('one')).toBeNull();
+  });
+
+  it('cleans generated watchers, searches, caches, and client writes after the final client leaves', () => {
+    const watcher = {
+      closed: false,
+      close: () => {
+        watcher.closed = true;
+      },
+    };
+    const search = {
+      killed: false,
+      kill: () => {
+        search.killed = true;
+      },
+    };
+    const state = {
+      clients: new Set<unknown>(),
+      sessions: new Map<string, unknown>(),
+      watchers: new Map([['watcher', watcher]]),
+      activeSearches: new Map([['search', search]]),
+      untrackedDiffStatsCache: new Map<string, unknown>([['cache', {}]]),
+    };
+    const tmuxCache = new Map<string, unknown>([['cache', {}]]);
+    const clientWriteStates = new Map<unknown, unknown>([[{}, {}]]);
+    const discardedSessionIds: string[] = [];
+    const pauseAttachedSessions = createGeneratedFinalClientCleanup(
+      getRemoteServerSource(),
+      state,
+      tmuxCache,
+      clientWriteStates,
+      (sessionId) => discardedSessionIds.push(sessionId)
+    );
+
+    pauseAttachedSessions();
+
+    expect(watcher.closed).toBe(true);
+    expect(search.killed).toBe(true);
+    expect(state.watchers.size).toBe(0);
+    expect(state.activeSearches.size).toBe(0);
+    expect(state.untrackedDiffStatsCache.size).toBe(0);
+    expect(tmuxCache.size).toBe(0);
+    expect(clientWriteStates.size).toBe(0);
+    expect(discardedSessionIds).toEqual([]);
   });
 
   it('keeps the remote server version aligned with the app release version', () => {

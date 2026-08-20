@@ -1,13 +1,13 @@
-export const DEFAULT_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT = 6;
+export const DEFAULT_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT = 4;
 export const MIN_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT = 1;
 export const MAX_WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT = 24;
 
-export const DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT = 12;
+export const DEFAULT_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT = 8;
 export const MIN_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT = 1;
 export const MAX_WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT = 48;
 
-export const WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT_OPTIONS = [3, 6, 9, 12, 18, 24] as const;
-export const WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT_OPTIONS = [6, 12, 18, 24, 36, 48] as const;
+export const WORKTREE_CANVAS_TERMINAL_MOUNT_LIMIT_OPTIONS = [2, 4, 6, 9, 12, 18, 24] as const;
+export const WORKSPACE_CANVAS_TERMINAL_MOUNT_LIMIT_OPTIONS = [4, 8, 12, 18, 24, 36, 48] as const;
 
 function normalizeInteger(value: unknown, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value)) {

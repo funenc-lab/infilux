@@ -126,7 +126,8 @@ function assertReadProviderSessionTitleRequest(
   if (
     !isPlainObject(value) ||
     !isNonEmptyString(value.agentCommand) ||
-    !isNonEmptyString(value.providerSessionId)
+    !isNonEmptyString(value.providerSessionId) ||
+    (value.cwd !== undefined && !isNonEmptyString(value.cwd))
   ) {
     throw new Error('Invalid agent provider session title request');
   }
@@ -134,6 +135,7 @@ function assertReadProviderSessionTitleRequest(
   return {
     agentCommand: value.agentCommand,
     providerSessionId: value.providerSessionId,
+    ...(typeof value.cwd === 'string' ? { cwd: value.cwd } : {}),
   };
 }
 

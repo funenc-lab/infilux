@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type UseXtermOptions, useXterm } from '../useXterm';
+import { XTERM_HIBERNATION_IDLE_MS } from '../xtermHibernateController';
 import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_WRITE_CHAR_LIMIT,
@@ -26,6 +27,10 @@ const testState = vi.hoisted(() => ({
   latestSnapshot: {
     isLoading: false,
     runtimeState: 'live' as 'live' | 'reconnecting' | 'dead',
+    searchState: {
+      resultCount: 0,
+      resultIndex: -1,
+    },
   },
   restartSession: null as (() => void) | null,
   sessionHandlers: null as SessionSubscriptionHandlers | null,
@@ -80,12 +85,18 @@ const testState = vi.hoisted(() => ({
   terminalInstanceCount: 0,
   terminalConstructorOptions: [] as Array<Record<string, unknown>>,
   terminalScrollToBottom: vi.fn(),
+  terminalScrollToLine: vi.fn(),
   terminalScrollLines: vi.fn(),
+  terminalHasSelection: false,
+  searchResultHandler: null as
+    | ((result: { resultCount: number; resultIndex: number }) => void)
+    | null,
   terminalDataHandler: null as ((data: string) => void) | null,
   customKeyHandler: null as ((event: KeyboardEvent) => boolean) | null,
   terminalBufferLines: [] as Array<{ text: string; isWrapped?: boolean }>,
   terminalCursorY: 0,
   terminalBaseY: 0,
+  terminalViewportY: 0,
   textareaEventTypes: [] as string[],
   latestTextarea: null as HTMLTextAreaElement | null,
   terminalFocus: vi.fn(),
@@ -141,6 +152,9 @@ vi.mock('@xterm/xterm', () => ({
         },
         get baseY() {
           return testState.terminalBaseY;
+        },
+        get viewportY() {
+          return testState.terminalViewportY;
         },
         getLine: (index: number) => {
           const line = testState.terminalBufferLines[index];
@@ -205,11 +219,14 @@ vi.mock('@xterm/xterm', () => ({
     }
     selectAll(): void {}
     hasSelection(): boolean {
-      return false;
+      return testState.terminalHasSelection;
     }
     paste(): void {}
     scrollToBottom(): void {
       testState.terminalScrollToBottom();
+    }
+    scrollToLine(line: number): void {
+      testState.terminalScrollToLine(line);
     }
     scrollLines(amount?: number): void {
       testState.terminalScrollLines(amount);
@@ -251,7 +268,11 @@ vi.mock('@xterm/addon-search', () => ({
       return false;
     }
     clearDecorations(): void {}
-    onDidChangeResults(): void {}
+    onDidChangeResults(
+      handler: (result: { resultCount: number; resultIndex: number }) => void
+    ): void {
+      testState.searchResultHandler = handler;
+    }
   },
 }));
 
@@ -445,6 +466,10 @@ function HookHarness() {
   testState.latestSnapshot = {
     isLoading: hook.isLoading,
     runtimeState: hook.runtimeState,
+    searchState: {
+      resultCount: hook.searchState.resultCount,
+      resultIndex: hook.searchState.resultIndex,
+    },
   };
   testState.restartSession = hook.restartSession;
   testState.recreateWebglRenderer =
@@ -498,6 +523,10 @@ describe('useXterm startup loading state', () => {
     testState.latestSnapshot = {
       isLoading: false,
       runtimeState: 'live',
+      searchState: {
+        resultCount: 0,
+        resultIndex: -1,
+      },
     };
     testState.restartSession = null;
     testState.sessionHandlers = null;
@@ -531,12 +560,16 @@ describe('useXterm startup loading state', () => {
     testState.terminalInstanceCount = 0;
     testState.terminalConstructorOptions = [];
     testState.terminalScrollToBottom.mockClear();
+    testState.terminalScrollToLine.mockClear();
     testState.terminalScrollLines.mockClear();
+    testState.terminalHasSelection = false;
+    testState.searchResultHandler = null;
     testState.terminalDataHandler = null;
     testState.customKeyHandler = null;
     testState.terminalBufferLines = [];
     testState.terminalCursorY = 0;
     testState.terminalBaseY = 0;
+    testState.terminalViewportY = 0;
     testState.textareaEventTypes = [];
     testState.latestTextarea = null;
     testState.terminalFocus.mockClear();
@@ -1786,6 +1819,146 @@ describe('useXterm startup loading state', () => {
 
     expect(testState.activationRefreshCalls).toHaveLength(1);
 
+    await mounted.unmount();
+  });
+
+  it('hibernates only hidden inactive terminals and suppresses their live output', async () => {
+    testState.terminalRenderer = 'webgl';
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const rendererAddon = testState.webglAddons.at(-1);
+    expect(rendererAddon).toBeDefined();
+    vi.useFakeTimers();
+
+    mounted.rerender({
+      isActive: false,
+      isVisible: false,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS - 1);
+      await flushMicrotasks();
+    });
+    expect(testState.terminalDispose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalDispose).toHaveBeenCalledWith(0);
+    expect(rendererAddon?.dispose).toHaveBeenCalledTimes(1);
+    const writesBeforeHiddenOutput = testState.terminalWrite.mock.calls.length;
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'hidden output\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(writesBeforeHiddenOutput);
+    await mounted.unmount();
+  });
+
+  it('recreates a hibernated surface from replay before resuming output delivery', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+        replay: '',
+      });
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      testState.searchResultHandler?.({
+        resultCount: 3,
+        resultIndex: 1,
+      });
+      await flushMicrotasks();
+    });
+    expect(testState.latestSnapshot.searchState).toEqual({
+      resultCount: 3,
+      resultIndex: 1,
+    });
+
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'replay before hibernation\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      await flushMicrotasks();
+    });
+
+    testState.terminalViewportY = 7;
+    mounted.rerender({
+      isActive: false,
+      isVisible: false,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalDispose).toHaveBeenCalledWith(0);
+    testState.sessionSetOutputDelivery.mockClear();
+    testState.terminalWrite.mockClear();
+    testState.terminalScrollToLine.mockClear();
+
+    mounted.rerender({
+      isActive: false,
+      isVisible: true,
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalInstanceCount).toBe(2);
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+    expect(testState.terminalWrite).toHaveBeenCalledWith('replay before hibernation\n');
+    expect(testState.sessionSetOutputDelivery).not.toHaveBeenCalledWith('backend-session-1', true);
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionSetOutputDelivery).toHaveBeenCalledWith('backend-session-1', true);
+    expect(testState.terminalScrollToLine).toHaveBeenCalledWith(7);
+    expect(testState.latestSnapshot.searchState).toEqual({
+      resultCount: 3,
+      resultIndex: 1,
+    });
     await mounted.unmount();
   });
 

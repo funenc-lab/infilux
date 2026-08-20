@@ -20,6 +20,8 @@ import { detectShell, shellDetector } from './ShellDetector';
 const isWindows = process.platform === 'win32';
 const WINDOWS_PATH_DELIMITER = ';';
 
+export type PtyTerminationResult = 'exited' | 'not-found' | 'timed-out';
+
 // Cache for Windows registry PATH (read once)
 let cachedWindowsPath: string | null = null;
 
@@ -812,20 +814,9 @@ export class PtyManager {
     }
   }
 
-  getDiagnosticsSummary(): {
-    sessionCount: number;
-    sampleSessions: Array<{ ptyId: string; cwd: string; pid: number; ownerId: number | null }>;
-  } {
+  getDiagnosticsSummary(): { sessionCount: number } {
     return {
       sessionCount: this.sessions.size,
-      sampleSessions: Array.from(this.sessions.entries())
-        .slice(0, 6)
-        .map(([ptyId, session]) => ({
-          ptyId,
-          cwd: session.cwd,
-          pid: session.pty.pid,
-          ownerId: session.ownerId,
-        })),
     };
   }
 
@@ -850,14 +841,14 @@ export class PtyManager {
   }
 
   /**
-   * Destroy a PTY session and wait for it to fully exit.
-   * Returns a promise that resolves when the process has exited.
+   * Destroy a PTY session and wait for its exit up to the specified timeout.
+   * Returns the observed termination outcome.
    */
-  destroyAndWait(id: string, timeout = 3000): Promise<void> {
+  destroyAndWait(id: string, timeout = 3000): Promise<PtyTerminationResult> {
     return new Promise((resolve) => {
       const session = this.sessions.get(id);
       if (!session) {
-        resolve();
+        resolve('not-found');
         return;
       }
 
@@ -881,7 +872,7 @@ export class PtyManager {
           }
           this.sessions.delete(id);
           this.activityCache.delete(id);
-          resolve();
+          resolve('timed-out');
         }
       }, timeout);
 
@@ -891,7 +882,7 @@ export class PtyManager {
           resolved = true;
           clearTimeout(timer);
           // Don't call original onExit during cleanup to avoid issues
-          resolve();
+          resolve('exited');
         }
       };
 

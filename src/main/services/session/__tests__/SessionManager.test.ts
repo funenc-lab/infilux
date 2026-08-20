@@ -101,6 +101,12 @@ const sessionTestDoubles = vi.hoisted(() => {
     readonly destroy = vi.fn((sessionId: string) => {
       this.callbacks.delete(sessionId);
     });
+    readonly destroyAndWait = vi.fn<
+      (sessionId: string) => Promise<'exited' | 'not-found' | 'timed-out'>
+    >(async (sessionId: string) => {
+      this.callbacks.delete(sessionId);
+      return 'exited';
+    });
     readonly write = vi.fn();
     readonly resize = vi.fn();
     readonly getProcessActivity = vi.fn(async () => false);
@@ -149,6 +155,7 @@ const sessionTestDoubles = vi.hoisted(() => {
 
   const remoteDataListeners = new Map<string, (payload: unknown) => void>();
   const remoteExitListeners = new Map<string, (payload: unknown) => void>();
+  const remoteOutputResyncListeners = new Map<string, (payload: unknown) => void>();
   const remoteDisconnectListeners = new Map<string, () => void>();
   const remoteStatusListeners = new Map<
     string,
@@ -165,16 +172,19 @@ const sessionTestDoubles = vi.hoisted(() => {
   const supervisorHasSession = vi.fn();
   const supervisorOnData = vi.fn();
   const supervisorOnExit = vi.fn();
+  const supervisorOnOutputResync = vi.fn();
   const supervisorOnDisconnect = vi.fn();
   const persistentAbandonSession = vi.fn();
   const transcriptArchiveOpen = vi.fn();
   const transcriptArchiveAppend = vi.fn();
   const transcriptArchiveFlush = vi.fn();
   const transcriptArchiveReadPage = vi.fn();
+  const transcriptArchiveGetDiagnostics = vi.fn();
   const tmuxEnsureServerHealthy = vi.fn();
   const tmuxProbeSession = vi.fn();
   const tmuxCaptureSessionHistory = vi.fn();
   const tmuxKillSession = vi.fn();
+  const codexReleaseRuntimeHome = vi.fn();
   const logInfo = vi.fn();
   const requestMainProcessDiagnosticsCapture = vi.fn(() => 'diag-session');
   const registerMainProcessDiagnosticsCollector = vi.fn(() => vi.fn());
@@ -189,12 +199,18 @@ const sessionTestDoubles = vi.hoisted(() => {
         if (event === 'remote:session:exit') {
           remoteExitListeners.set(connectionId, listener);
         }
+        if (event === 'remote:session:output-resync') {
+          remoteOutputResyncListeners.set(connectionId, listener);
+        }
         const off = vi.fn(() => {
           if (event === 'remote:session:data') {
             remoteDataListeners.delete(connectionId);
           }
           if (event === 'remote:session:exit') {
             remoteExitListeners.delete(connectionId);
+          }
+          if (event === 'remote:session:output-resync') {
+            remoteOutputResyncListeners.delete(connectionId);
           }
         });
         remoteOffCallbacks.push(off);
@@ -231,6 +247,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     MockPtyManager,
     remoteDataListeners,
     remoteExitListeners,
+    remoteOutputResyncListeners,
     remoteDisconnectListeners,
     remoteStatusListeners,
     remoteOffCallbacks,
@@ -244,22 +261,26 @@ const sessionTestDoubles = vi.hoisted(() => {
     supervisorHasSession,
     supervisorOnData,
     supervisorOnExit,
+    supervisorOnOutputResync,
     supervisorOnDisconnect,
     persistentAbandonSession,
     transcriptArchiveOpen,
     transcriptArchiveAppend,
     transcriptArchiveFlush,
     transcriptArchiveReadPage,
+    transcriptArchiveGetDiagnostics,
     sessionTranscriptArchive: {
       open: transcriptArchiveOpen,
       append: transcriptArchiveAppend,
       flush: transcriptArchiveFlush,
       readPage: transcriptArchiveReadPage,
+      getDiagnostics: transcriptArchiveGetDiagnostics,
     },
     tmuxEnsureServerHealthy,
     tmuxProbeSession,
     tmuxCaptureSessionHistory,
     tmuxKillSession,
+    codexReleaseRuntimeHome,
     logInfo,
     requestMainProcessDiagnosticsCapture,
     registerMainProcessDiagnosticsCollector,
@@ -291,6 +312,7 @@ vi.mock('../LocalSupervisorRuntime', () => ({
     hasSession: sessionTestDoubles.supervisorHasSession,
     onData: sessionTestDoubles.supervisorOnData,
     onExit: sessionTestDoubles.supervisorOnExit,
+    onOutputResync: sessionTestDoubles.supervisorOnOutputResync,
     onDisconnect: sessionTestDoubles.supervisorOnDisconnect,
   },
 }));
@@ -298,6 +320,12 @@ vi.mock('../LocalSupervisorRuntime', () => ({
 vi.mock('../PersistentAgentSessionService', () => ({
   persistentAgentSessionService: {
     abandonSession: sessionTestDoubles.persistentAbandonSession,
+  },
+}));
+
+vi.mock('../../agent/CodexRuntimeHomeService', () => ({
+  codexRuntimeHomeService: {
+    releaseRuntimeHome: sessionTestDoubles.codexReleaseRuntimeHome,
   },
 }));
 
@@ -402,6 +430,7 @@ describe('SessionManager', () => {
     sessionTestDoubles.ptyInstances.length = 0;
     sessionTestDoubles.remoteDataListeners.clear();
     sessionTestDoubles.remoteExitListeners.clear();
+    sessionTestDoubles.remoteOutputResyncListeners.clear();
     sessionTestDoubles.remoteDisconnectListeners.clear();
     sessionTestDoubles.remoteStatusListeners.clear();
     sessionTestDoubles.remoteOffCallbacks.length = 0;
@@ -450,6 +479,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.supervisorOnData.mockReturnValue(() => {});
     sessionTestDoubles.supervisorOnExit.mockReset();
     sessionTestDoubles.supervisorOnExit.mockReturnValue(() => {});
+    sessionTestDoubles.supervisorOnOutputResync.mockReset();
+    sessionTestDoubles.supervisorOnOutputResync.mockReturnValue(() => {});
     sessionTestDoubles.supervisorOnDisconnect.mockReset();
     sessionTestDoubles.supervisorOnDisconnect.mockReturnValue(() => {});
     sessionTestDoubles.persistentAbandonSession.mockReset();
@@ -468,6 +499,12 @@ describe('SessionManager', () => {
       totalBytes: 1024,
       health: 'complete',
     });
+    sessionTestDoubles.transcriptArchiveGetDiagnostics.mockReset();
+    sessionTestDoubles.transcriptArchiveGetDiagnostics.mockReturnValue({
+      retainedBytes: 0,
+      segmentCount: 0,
+      pendingAppendBytes: 0,
+    });
     sessionTestDoubles.tmuxEnsureServerHealthy.mockReset();
     sessionTestDoubles.tmuxEnsureServerHealthy.mockResolvedValue(true);
     sessionTestDoubles.tmuxProbeSession.mockReset();
@@ -476,6 +513,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValue('');
     sessionTestDoubles.tmuxKillSession.mockReset();
     sessionTestDoubles.tmuxKillSession.mockResolvedValue(undefined);
+    sessionTestDoubles.codexReleaseRuntimeHome.mockReset();
+    sessionTestDoubles.codexReleaseRuntimeHome.mockResolvedValue(true);
     sessionTestDoubles.logInfo.mockReset();
     sessionTestDoubles.requestMainProcessDiagnosticsCapture.mockReset();
     sessionTestDoubles.requestMainProcessDiagnosticsCapture.mockReturnValue('diag-session');
@@ -1521,6 +1560,31 @@ describe('SessionManager', () => {
     expect(staleWindow.webContents.send).not.toHaveBeenCalled();
   });
 
+  it('reports aggregate diagnostics without session identifiers, paths, or output', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/private/repository', kind: 'agent' });
+    const snapshot = getPrivateMethod<[], Record<string, unknown>>(
+      manager,
+      'buildDiagnosticsSnapshot'
+    )();
+
+    expect(snapshot).toMatchObject({
+      sessionCount: 1,
+      attachedWindowCount: 1,
+      outputSuspendedSessionCount: 0,
+      transcript: {
+        pendingAppendBytes: 0,
+      },
+    });
+    expect(sessionTestDoubles.transcriptArchiveGetDiagnostics).toHaveBeenCalledWith(
+      opened.session.sessionId
+    );
+    expect(JSON.stringify(snapshot)).not.toContain(opened.session.sessionId);
+    expect(JSON.stringify(snapshot)).not.toContain('/private/repository');
+    expect(JSON.stringify(snapshot)).not.toContain('terminal output payload');
+  });
+
   it('pauses hidden session delivery and resyncs the replay before live output resumes', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -1721,6 +1785,67 @@ describe('SessionManager', () => {
     } finally {
       platform.mockRestore();
     }
+  });
+
+  it('releases a managed Codex runtime home only after its local PTY has exited', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const runtimeHomePath = '/infilux/codex-runtime-homes/ui-session-to-close';
+    const opened = await manager.create(1, {
+      cwd: '/repo-a',
+      kind: 'agent',
+      metadata: {
+        uiSessionId: 'ui-session-to-close',
+        codexRuntimeHome: {
+          homePath: runtimeHomePath,
+          sourceHomePath: '/Users/test/.codex',
+        },
+      },
+    });
+    const pty = sessionTestDoubles.ptyInstances[0];
+    let resolvePtyExit: () => void = () => {
+      throw new Error('PTY exit resolver was not initialized');
+    };
+    pty.destroyAndWait.mockImplementationOnce(
+      () =>
+        new Promise<'exited'>((resolve) => {
+          resolvePtyExit = () => resolve('exited');
+        })
+    );
+
+    const killPromise = manager.kill(opened.session.sessionId);
+    await Promise.resolve();
+
+    expect(pty.destroyAndWait).toHaveBeenCalledWith(opened.session.sessionId);
+    expect(sessionTestDoubles.codexReleaseRuntimeHome).not.toHaveBeenCalled();
+
+    resolvePtyExit();
+    await killPromise;
+
+    expect(sessionTestDoubles.codexReleaseRuntimeHome).toHaveBeenCalledWith(runtimeHomePath);
+  });
+
+  it('retains a managed Codex runtime home when the local PTY termination times out', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const runtimeHomePath = '/infilux/codex-runtime-homes/ui-session-timeout';
+    const opened = await manager.create(1, {
+      cwd: '/repo-a',
+      kind: 'agent',
+      metadata: {
+        uiSessionId: 'ui-session-timeout',
+        codexRuntimeHome: {
+          homePath: runtimeHomePath,
+          sourceHomePath: '/Users/test/.codex',
+        },
+      },
+    });
+    const pty = sessionTestDoubles.ptyInstances[0];
+    pty.destroyAndWait.mockResolvedValueOnce('timed-out');
+
+    await manager.kill(opened.session.sessionId);
+
+    expect(sessionTestDoubles.codexReleaseRuntimeHome).not.toHaveBeenCalled();
   });
 
   it('workdir cleanup explicitly terminates matching persistent unix agent hosts', async () => {
@@ -1933,6 +2058,44 @@ describe('SessionManager', () => {
         { sessionId: opened.session.sessionId, exitCode: 23, signal: 9 },
       ]);
       expect(manager.list(1)).toEqual([]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('replaces queued supervisor output with an upstream replay resync', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+      const onData = sessionTestDoubles.supervisorOnData.mock.calls[0]?.[0] as
+        | ((event: { sessionId: string; data: string }) => void)
+        | undefined;
+      const onOutputResync = sessionTestDoubles.supervisorOnOutputResync.mock.calls[0]?.[0] as
+        | ((event: { sessionId: string; replay: string }) => void)
+        | undefined;
+
+      onData?.({ sessionId: opened.session.sessionId, data: 'stale output' });
+      onOutputResync?.({
+        sessionId: opened.session.sessionId,
+        replay: 'replayed output',
+      });
+
+      expect(getWindowSendCalls(1)).toEqual([
+        [
+          IPC_CHANNELS.SESSION_OUTPUT_RESYNC,
+          { sessionId: opened.session.sessionId, replay: 'replayed output' },
+        ],
+      ]);
+
+      await vi.advanceTimersByTimeAsync(16);
+      expect(getWindowSendCalls(1)).toHaveLength(1);
     } finally {
       platform.mockRestore();
     }
@@ -2433,7 +2596,7 @@ describe('SessionManager', () => {
         replay: '',
       },
     ]);
-    expect(sessionTestDoubles.remoteConnectionManager.addEventListener).toHaveBeenCalledTimes(2);
+    expect(sessionTestDoubles.remoteConnectionManager.addEventListener).toHaveBeenCalledTimes(3);
     expect(sessionTestDoubles.remoteConnectionManager.onDidDisconnect).toHaveBeenCalledTimes(1);
     expect(sessionTestDoubles.remoteConnectionManager.onDidStatusChange).toHaveBeenCalledTimes(1);
   });
@@ -2523,6 +2686,7 @@ describe('SessionManager', () => {
         }
         return offData;
       })
+      .mockImplementationOnce(async () => vi.fn())
       .mockImplementationOnce(async () => {
         throw new Error('exit listener failed');
       });
@@ -2547,6 +2711,7 @@ describe('SessionManager', () => {
           throw new Error('dispose data failed');
         })
       )
+      .mockImplementationOnce(async () => vi.fn())
       .mockImplementationOnce(async () => {
         throw new Error('exit listener failed');
       });
@@ -3466,12 +3631,6 @@ describe('SessionManager', () => {
       expect(buildDiagnosticsSnapshot()).toMatchObject({
         attachedWindowCount: 1,
         suspendedWindowCount: 1,
-        sampleSessions: [
-          expect.objectContaining({
-            sessionId: opened.session.sessionId,
-            attachedWindowIds: [2],
-          }),
-        ],
       });
       expect(warnSpy).not.toHaveBeenCalled();
     } finally {
@@ -3534,9 +3693,9 @@ describe('SessionManager', () => {
 
     await manager.killByWorkdir('/Repo');
 
-    expect(pty?.destroy).toHaveBeenCalledWith(localA.session.sessionId);
-    expect(pty?.destroy).toHaveBeenCalledWith(localB.session.sessionId);
-    expect(pty?.destroy).not.toHaveBeenCalledWith(localC.session.sessionId);
+    expect(pty?.destroyAndWait).toHaveBeenCalledWith(localA.session.sessionId);
+    expect(pty?.destroyAndWait).toHaveBeenCalledWith(localB.session.sessionId);
+    expect(pty?.destroyAndWait).not.toHaveBeenCalledWith(localC.session.sessionId);
 
     const remoteDescriptor = makeRemoteDescriptor({
       sessionId: 'remote-4',
@@ -3673,6 +3832,11 @@ describe('SessionManager', () => {
         )
         .mockImplementationOnce(async () =>
           vi.fn(() => {
+            throw new Error('output resync cleanup failed');
+          })
+        )
+        .mockImplementationOnce(async () =>
+          vi.fn(() => {
             throw new Error('exit cleanup failed');
           })
         );
@@ -3699,6 +3863,10 @@ describe('SessionManager', () => {
 
       expect(warnSpy).toHaveBeenCalledWith(
         '[session] Failed to dispose remote data listener:',
+        expect.any(Error)
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[session] Failed to dispose remote output resync listener:',
         expect.any(Error)
       );
       expect(warnSpy).toHaveBeenCalledWith(

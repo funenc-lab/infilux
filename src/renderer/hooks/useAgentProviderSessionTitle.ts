@@ -9,6 +9,7 @@ interface UseAgentProviderSessionTitleOptions {
   agentCommand: string;
   uiSessionId?: string;
   providerSessionId?: string;
+  cwd?: string;
   titleSource?: AgentSessionTitleSource;
   isRemoteExecution?: boolean;
   activitySignal?: number;
@@ -43,6 +44,7 @@ export function useAgentProviderSessionTitle(options: UseAgentProviderSessionTit
     agentCommand,
     uiSessionId,
     providerSessionId,
+    cwd,
     titleSource,
     isRemoteExecution,
     activitySignal,
@@ -118,6 +120,7 @@ export function useAgentProviderSessionTitle(options: UseAgentProviderSessionTit
         const result = await window.electronAPI.agentSession.readProviderSessionTitle({
           agentCommand,
           providerSessionId,
+          ...(cwd ? { cwd } : {}),
         });
         if (cancelled) {
           return;
@@ -159,5 +162,5 @@ export function useAgentProviderSessionTitle(options: UseAgentProviderSessionTit
         clearTimeout(timer);
       }
     };
-  }, [agentCommand, lookupKey, maxAttempts, pollIntervalMs, providerSessionId, titleKey]);
+  }, [agentCommand, cwd, lookupKey, maxAttempts, pollIntervalMs, providerSessionId, titleKey]);
 }

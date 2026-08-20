@@ -18,6 +18,11 @@ type GeneratedLocalReplayAppender = (
   chunk: string
 ) => string;
 
+type GeneratedLocalOutputFunctions = {
+  queueSessionOutput: (session: { sessionId: string; replay: string }, data: string) => void;
+  flushSessionOutput: (sessionId: string, drainAll?: boolean) => void;
+};
+
 function createGeneratedLocalReplayAppender(source: string): GeneratedLocalReplayAppender {
   const start = source.indexOf('function getSessionReplayCharLimit(session) {');
   const end = source.indexOf('function loadNodePty()', start);
@@ -33,6 +38,41 @@ function createGeneratedLocalReplayAppender(source: string): GeneratedLocalRepla
     TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
     AGENT_SESSION_REPLAY_CHAR_LIMIT
   ) as GeneratedLocalReplayAppender;
+}
+
+function createGeneratedLocalOutputFunctions(
+  source: string,
+  sessionOutputQueues: Map<string, unknown>,
+  broadcast: (event: string, payload: unknown) => void
+): GeneratedLocalOutputFunctions {
+  const start = source.indexOf('function getSessionReplayCharLimit(session) {');
+  const end = source.indexOf('function loadNodePty()', start);
+
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  return new Function(
+    'sessionOutputQueues',
+    'broadcast',
+    'setTimeout',
+    'clearTimeout',
+    'TERMINAL_SESSION_REPLAY_CHAR_LIMIT',
+    'AGENT_SESSION_REPLAY_CHAR_LIMIT',
+    `
+      const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
+      const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
+      const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;
+      ${source.slice(start, end)}
+      return { queueSessionOutput, flushSessionOutput };
+    `
+  )(
+    sessionOutputQueues,
+    broadcast,
+    () => 0,
+    () => {},
+    TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+    AGENT_SESSION_REPLAY_CHAR_LIMIT
+  ) as GeneratedLocalOutputFunctions;
 }
 
 describe('getLocalSupervisorSource', () => {
@@ -92,6 +132,50 @@ describe('getLocalSupervisorSource', () => {
     expect(source).toContain('stream.destroy();');
   });
 
+  it('uses bounded chunk queues and requests replay resync after supervisor output overflow', () => {
+    const source = getLocalSupervisorSource();
+
+    expect(source).toContain('const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;');
+    expect(source).toContain('chunks: [],');
+    expect(source).toContain('queuedChars: 0,');
+    expect(source).toContain("broadcast('session:output-resync', {");
+    expect(source).not.toContain('existing.data += data;');
+  });
+
+  it('drains generated supervisor output in order and replaces overflow with replay resync', () => {
+    const events: Array<{
+      event: string;
+      payload: { sessionId?: string; data?: string; replay?: string };
+    }> = [];
+    const queues = new Map<string, unknown>();
+    const { queueSessionOutput, flushSessionOutput } = createGeneratedLocalOutputFunctions(
+      getLocalSupervisorSource(),
+      queues,
+      (event, payload) =>
+        events.push({
+          event,
+          payload: payload as { sessionId?: string; data?: string; replay?: string },
+        })
+    );
+    const session = { sessionId: 'supervisor-output', replay: 'replay snapshot' };
+    const output = 'x'.repeat(64 * 1024 + 7);
+
+    queueSessionOutput(session, output);
+    flushSessionOutput(session.sessionId, true);
+
+    const dataEvents = events.filter((event) => event.event === 'session:data');
+    expect(dataEvents.map((event) => event.payload.data).join('')).toBe(output);
+    expect(dataEvents.every((event) => (event.payload.data?.length ?? 0) <= 64 * 1024)).toBe(true);
+    expect(queues.size).toBe(0);
+
+    queueSessionOutput(session, 'y'.repeat(512 * 1024 + 1));
+    expect(events.at(-1)).toEqual({
+      event: 'session:output-resync',
+      payload: { sessionId: 'supervisor-output', replay: 'replay snapshot' },
+    });
+    expect(queues.size).toBe(0);
+  });
+
   it('drains all queued supervisor output before emitting a session exit', () => {
     const source = getLocalSupervisorSource();
     const outputFlushIndex = source.indexOf('flushSessionOutput(session.sessionId, true);');
@@ -99,5 +183,13 @@ describe('getLocalSupervisorSource', () => {
 
     expect(outputFlushIndex).toBeGreaterThan(-1);
     expect(exitBroadcastIndex).toBeGreaterThan(outputFlushIndex);
+  });
+
+  it('bounds generated supervisor JSON-line input before it accumulates indefinitely', () => {
+    const source = getLocalSupervisorSource();
+
+    expect(source).toContain('const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;');
+    expect(source).toContain('if (buffer.length > JSON_LINE_MAX_CHARS) {');
+    expect(source).toContain('stream.destroy();');
   });
 });

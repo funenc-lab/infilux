@@ -54,6 +54,8 @@ const EXEC_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
 const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
 const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;
+const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;
+const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;
 const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;
 const UNTRACKED_BINARY_INSPECTION_SIZE = 8000;
 const UNTRACKED_FILE_OPEN_FLAGS = process.platform === 'win32'
@@ -66,6 +68,9 @@ const UNTRACKED_FILE_OPEN_FLAGS = process.platform === 'win32'
     const RUNTIME_MANIFEST_FILENAME = ${JSON.stringify(REMOTE_RUNTIME_MANIFEST_FILENAME)};
     const DEFAULT_TMUX_SERVER_NAME = ${JSON.stringify(defaultTmuxServerName)};
     const TMUX_SCROLL_PANE_CACHE_TTL_MS = 250;
+    const TMUX_SCROLL_PANE_CACHE_MAX_ENTRIES = 128;
+    const UNTRACKED_DIFF_STATS_CACHE_TTL_MS = 5 * 60 * 1000;
+    const UNTRACKED_DIFF_STATS_CACHE_MAX_ENTRIES = 4096;
     const GLOBAL_STATUS_CACHE_TTL = 300000;
     const AUTH_TOKEN_BYTES = 36;
 let cachedNodePty = undefined;
@@ -1196,6 +1201,42 @@ async function gitCommitDiff(rootPath, hash, filePath) {
   };
 }
 
+function pruneUntrackedDiffStatsCache(now = Date.now()) {
+  for (const [cacheKey, entry] of state.untrackedDiffStatsCache) {
+    if (entry.expiresAt <= now) {
+      state.untrackedDiffStatsCache.delete(cacheKey);
+    }
+  }
+  while (state.untrackedDiffStatsCache.size > UNTRACKED_DIFF_STATS_CACHE_MAX_ENTRIES) {
+    const oldestCacheKey = state.untrackedDiffStatsCache.keys().next().value;
+    if (oldestCacheKey === undefined) {
+      return;
+    }
+    state.untrackedDiffStatsCache.delete(oldestCacheKey);
+  }
+}
+
+function getCachedUntrackedDiffStats(cacheKey) {
+  pruneUntrackedDiffStatsCache();
+  const cached = state.untrackedDiffStatsCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+  state.untrackedDiffStatsCache.delete(cacheKey);
+  state.untrackedDiffStatsCache.set(cacheKey, cached);
+  return cached;
+}
+
+function setCachedUntrackedDiffStats(cacheKey, value) {
+  pruneUntrackedDiffStatsCache();
+  state.untrackedDiffStatsCache.delete(cacheKey);
+  state.untrackedDiffStatsCache.set(cacheKey, {
+    ...value,
+    expiresAt: Date.now() + UNTRACKED_DIFF_STATS_CACHE_TTL_MS,
+  });
+  pruneUntrackedDiffStatsCache();
+}
+
 async function gitDiffStats(rootPath) {
   let trackedStats = { insertions: 0, deletions: 0 };
 
@@ -1242,7 +1283,7 @@ async function gitDiffStats(rootPath) {
           continue;
         }
         const fingerprint = createUntrackedFingerprint(untrackedFileEntry);
-        const cached = state.untrackedDiffStatsCache.get(cacheKey);
+        const cached = getCachedUntrackedDiffStats(cacheKey);
         if (cached && matchesUntrackedFingerprint(cached, fingerprint)) {
           untrackedInsertions += cached.insertions;
           continue;
@@ -1257,7 +1298,7 @@ async function gitDiffStats(rootPath) {
             continue;
           }
           const insertions = await countUntrackedFileInsertions(handle);
-          state.untrackedDiffStatsCache.set(cacheKey, {
+          setCachedUntrackedDiffStats(cacheKey, {
             ...fingerprint,
             insertions,
           });
@@ -2504,17 +2545,15 @@ function buildTmuxScrollPaneCacheKey(serverName, sessionName) {
 }
 
 function getCachedTmuxScrollPane(serverName, sessionName) {
+  pruneTmuxScrollPaneCache();
   const cacheKey = buildTmuxScrollPaneCacheKey(serverName, sessionName);
   const cached = tmuxScrollPaneCache.get(cacheKey);
   if (!cached) {
     return null;
   }
 
-  if (cached.expiresAt <= Date.now()) {
-    tmuxScrollPaneCache.delete(cacheKey);
-    return null;
-  }
-
+  tmuxScrollPaneCache.delete(cacheKey);
+  tmuxScrollPaneCache.set(cacheKey, cached);
   return {
     paneId: cached.paneId,
     inMode: cached.inMode,
@@ -2522,15 +2561,34 @@ function getCachedTmuxScrollPane(serverName, sessionName) {
 }
 
 function setCachedTmuxScrollPane(serverName, sessionName, pane) {
-  tmuxScrollPaneCache.set(buildTmuxScrollPaneCacheKey(serverName, sessionName), {
+  pruneTmuxScrollPaneCache();
+  const cacheKey = buildTmuxScrollPaneCacheKey(serverName, sessionName);
+  tmuxScrollPaneCache.delete(cacheKey);
+  tmuxScrollPaneCache.set(cacheKey, {
     expiresAt: Date.now() + TMUX_SCROLL_PANE_CACHE_TTL_MS,
     inMode: pane.inMode,
     paneId: pane.paneId,
   });
+  pruneTmuxScrollPaneCache();
 }
 
 function clearCachedTmuxScrollPane(serverName, sessionName) {
   tmuxScrollPaneCache.delete(buildTmuxScrollPaneCacheKey(serverName, sessionName));
+}
+
+function pruneTmuxScrollPaneCache(now = Date.now()) {
+  for (const [cacheKey, entry] of tmuxScrollPaneCache) {
+    if (entry.expiresAt <= now) {
+      tmuxScrollPaneCache.delete(cacheKey);
+    }
+  }
+  while (tmuxScrollPaneCache.size > TMUX_SCROLL_PANE_CACHE_MAX_ENTRIES) {
+    const oldestCacheKey = tmuxScrollPaneCache.keys().next().value;
+    if (oldestCacheKey === undefined) {
+      return;
+    }
+    tmuxScrollPaneCache.delete(oldestCacheKey);
+  }
 }
 
 async function resolveTmuxScrollPane(sessionName, serverName, options = {}) {
@@ -2935,28 +2993,71 @@ function discardSessionOutput(sessionId) {
   sessionOutputQueues.delete(sessionId);
 }
 
-function flushSessionOutput(sessionId) {
-  const queue = sessionOutputQueues.get(sessionId);
-  if (!queue) {
-    return;
+function takeQueuedSessionOutput(queue, maxChars) {
+  const chunks = [];
+  let remainingChars = maxChars;
+  while (queue.chunks.length > 0 && remainingChars > 0) {
+    const current = queue.chunks[0];
+    const next = takeSessionOutputChunk(current, remainingChars);
+    if (!next) {
+      break;
+    }
+    chunks.push(next);
+    queue.queuedChars -= next.length;
+    remainingChars -= next.length;
+    if (next.length === current.length) {
+      queue.chunks.shift();
+    } else {
+      queue.chunks[0] = current.slice(next.length);
+    }
   }
+  return chunks.join('');
+}
 
-  clearTimeout(queue.timer);
-  sessionOutputQueues.delete(sessionId);
-  const session = state.sessions.get(sessionId);
-  if (
-    !session ||
-    session.streamState !== 'live' ||
-    session.attachCount <= 0 ||
-    state.clients.size === 0
-  ) {
-    return;
-  }
-
-  broadcast('session:data', {
-    sessionId,
-    data: queue.data,
+function requestSessionOutputResync(session) {
+  discardSessionOutput(session.sessionId);
+  broadcast('session:output-resync', {
+    sessionId: session.sessionId,
+    replay: session.replay,
   });
+}
+
+function flushSessionOutput(sessionId, drainAll = false) {
+  let queue = sessionOutputQueues.get(sessionId);
+  while (queue) {
+    clearTimeout(queue.timer);
+    const session = state.sessions.get(sessionId);
+    if (
+      !session ||
+      session.streamState !== 'live' ||
+      session.attachCount <= 0 ||
+      state.clients.size === 0
+    ) {
+      sessionOutputQueues.delete(sessionId);
+      return;
+    }
+
+    const data = takeQueuedSessionOutput(queue, SESSION_OUTPUT_BATCH_MAX_CHARS);
+    if (queue.queuedChars > 0) {
+      if (!drainAll) {
+        queue.timer = setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS);
+      }
+    } else {
+      sessionOutputQueues.delete(sessionId);
+    }
+
+    if (data) {
+      broadcast('session:data', {
+        sessionId,
+        data,
+      });
+    }
+
+    if (!drainAll || queue.queuedChars === 0) {
+      return;
+    }
+    queue = sessionOutputQueues.get(sessionId);
+  }
 }
 
 function enqueueSessionOutput(session, chunk) {
@@ -2969,35 +3070,32 @@ function enqueueSessionOutput(session, chunk) {
     return;
   }
 
+  let queue = sessionOutputQueues.get(session.sessionId);
+  if (!queue) {
+    const sessionId = session.sessionId;
+    queue = {
+      chunks: [],
+      queuedChars: 0,
+      timer: setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS),
+    };
+    sessionOutputQueues.set(sessionId, queue);
+  }
+
   let remaining = chunk;
   while (remaining) {
-    let queue = sessionOutputQueues.get(session.sessionId);
-    if (!queue) {
-      const sessionId = session.sessionId;
-      queue = {
-        data: '',
-        timer: setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS),
-      };
-      sessionOutputQueues.set(sessionId, queue);
+    const availableChars = SESSION_OUTPUT_PENDING_CHAR_LIMIT - queue.queuedChars;
+    if (availableChars <= 0) {
+      requestSessionOutputResync(session);
+      return;
     }
-
-    const availableLength = SESSION_OUTPUT_BATCH_MAX_CHARS - queue.data.length;
-    if (availableLength === 0) {
-      flushSessionOutput(session.sessionId);
-      continue;
+    const nextChunk = takeSessionOutputChunk(remaining, availableChars);
+    if (!nextChunk || queue.queuedChars + nextChunk.length > SESSION_OUTPUT_PENDING_CHAR_LIMIT) {
+      requestSessionOutputResync(session);
+      return;
     }
-
-    const nextChunk = takeSessionOutputChunk(remaining, availableLength);
-    if (!nextChunk) {
-      flushSessionOutput(session.sessionId);
-      continue;
-    }
-    queue.data += nextChunk;
+    queue.chunks.push(nextChunk);
+    queue.queuedChars += nextChunk.length;
     remaining = remaining.slice(nextChunk.length);
-
-    if (queue.data.length >= SESSION_OUTPUT_BATCH_MAX_CHARS) {
-      flushSessionOutput(session.sessionId);
-    }
   }
 }
 
@@ -3037,7 +3135,7 @@ function completeSessionExit(session) {
     return;
   }
 
-  flushSessionOutput(session.sessionId);
+  flushSessionOutput(session.sessionId, true);
   const finish = () => {
     emitSessionExit(session, session.pendingExit.exitCode, session.pendingExit.signal);
     removeSession(session.sessionId);
@@ -3108,11 +3206,30 @@ function activateSessionAfterAttach(sessionId, replayLength) {
   }
 }
 
+function cleanupFinalClientState() {
+  for (const watcher of state.watchers.values()) {
+    try {
+      watcher.close();
+    } catch {}
+  }
+  state.watchers.clear();
+  for (const child of state.activeSearches.values()) {
+    try {
+      child.kill('SIGKILL');
+    } catch {}
+  }
+  state.activeSearches.clear();
+  state.untrackedDiffStatsCache.clear();
+  tmuxScrollPaneCache.clear();
+  clientWriteStates.clear();
+}
+
 function pauseAttachedSessions() {
   if (state.clients.size > 0) {
     return;
   }
 
+  cleanupFinalClientState();
   for (const session of state.sessions.values()) {
     discardSessionOutput(session.sessionId);
     if (session.exited || session.attachCount <= 0) {
@@ -3424,10 +3541,19 @@ function createJsonLineDispatcher(stream, onMessage) {
   stream.setEncoding('utf8');
   stream.on('data', (chunk) => {
     buffer += chunk;
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (!line.trim()) continue;
+    let lineEnd = buffer.indexOf('\n');
+    while (lineEnd >= 0) {
+      const line = buffer.slice(0, lineEnd);
+      buffer = buffer.slice(lineEnd + 1);
+      if (line.length > JSON_LINE_MAX_CHARS) {
+        buffer = '';
+        stream.destroy();
+        return;
+      }
+      if (!line.trim()) {
+        lineEnd = buffer.indexOf('\n');
+        continue;
+      }
       let message;
       try {
         message = JSON.parse(line);
@@ -3438,9 +3564,15 @@ function createJsonLineDispatcher(stream, onMessage) {
             error: error instanceof Error ? error.message : String(error),
           });
         }
+        lineEnd = buffer.indexOf('\n');
         continue;
       }
       onMessage(message);
+      lineEnd = buffer.indexOf('\n');
+    }
+    if (buffer.length > JSON_LINE_MAX_CHARS) {
+      buffer = '';
+      stream.destroy();
     }
   });
 }
@@ -3725,10 +3857,7 @@ async function startDaemon() {
   });
 
   const cleanup = async () => {
-    for (const watcher of state.watchers.values()) {
-      watcher.close();
-    }
-    state.watchers.clear();
+    cleanupFinalClientState();
     for (const session of state.sessions.values()) {
       killChildTree(session);
     }
@@ -3736,12 +3865,6 @@ async function startDaemon() {
       [...state.sessions.values()].map((session) => flushSessionTranscript(session))
     );
     state.sessions.clear();
-    for (const child of state.activeSearches.values()) {
-      try {
-        child.kill('SIGKILL');
-      } catch {}
-    }
-    state.activeSearches.clear();
     for (const client of state.clients) {
       client.destroy();
     }

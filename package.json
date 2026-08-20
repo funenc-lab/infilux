@@ -23,6 +23,7 @@
     "build:linux": "pnpm build && electron-builder --linux",
     "generate:themes": "npx tsx scripts/generate-themes.ts",
     "diagnostics:collect": "npx tsx scripts/collect-diagnostics.ts",
+    "diagnostics:runtime-performance": "npx tsx scripts/runtime-performance-diagnostics.ts",
     "diagnostics:sessions": "npx tsx scripts/session-diagnostics.ts",
     "test": "vitest run",
     "test:coverage": "pnpm test:coverage:full",

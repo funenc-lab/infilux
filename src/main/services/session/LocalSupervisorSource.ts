@@ -20,9 +20,11 @@ const DAEMON_INFO_FILENAME = 'local-supervisor-daemon.json';
 	const TERMINAL_SESSION_REPLAY_CHAR_LIMIT = ${TERMINAL_SESSION_REPLAY_CHAR_LIMIT};
 	const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};
 	const AUTH_TOKEN_BYTES = 36;
-	const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
-	const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
-	const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;
+		const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
+		const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
+		const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;
+		const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;
+		const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;
 
 let cachedNodePty = undefined;
 let cachedNodePtyError = null;
@@ -198,35 +200,80 @@ function appendReplayTail(session, chunk) {
   return takeUtf16Tail(combined, limit);
 }
 
+function takeQueuedSessionOutput(queue, maxChars) {
+  const chunks = [];
+  let remainingChars = maxChars;
+  while (queue.chunks.length > 0 && remainingChars > 0) {
+    const current = queue.chunks[0];
+    const next = takeUtf16Prefix(current, remainingChars);
+    if (!next) {
+      break;
+    }
+    chunks.push(next);
+    queue.queuedChars -= next.length;
+    remainingChars -= next.length;
+    if (next.length === current.length) {
+      queue.chunks.shift();
+    } else {
+      queue.chunks[0] = current.slice(next.length);
+    }
+  }
+  return chunks.join('');
+}
+
+function requestSessionOutputResync(session) {
+  const queue = sessionOutputQueues.get(session.sessionId);
+  if (queue) {
+    clearTimeout(queue.timer);
+    sessionOutputQueues.delete(session.sessionId);
+  }
+  broadcast('session:output-resync', {
+    sessionId: session.sessionId,
+    replay: session.replay,
+  });
+}
+
 function queueSessionOutput(session, data) {
   if (!session || !data) {
     return;
   }
 
-  const existing = sessionOutputQueues.get(session.sessionId);
-  if (existing) {
-    existing.data += data;
-    if (existing.data.length >= SESSION_OUTPUT_BATCH_MAX_CHARS) {
-      flushSessionOutput(session.sessionId);
-    }
-    return;
+  let queue = sessionOutputQueues.get(session.sessionId);
+  if (!queue) {
+    const sessionId = session.sessionId;
+    queue = {
+      session,
+      chunks: [],
+      queuedChars: 0,
+      timer: setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS),
+    };
+    sessionOutputQueues.set(sessionId, queue);
   }
 
-  const queue = {
-    session,
-    data,
-    timer: setTimeout(() => flushSessionOutput(session.sessionId), SESSION_OUTPUT_BATCH_DELAY_MS),
-  };
-  sessionOutputQueues.set(session.sessionId, queue);
+  let remaining = data;
+  while (remaining) {
+    const availableChars = SESSION_OUTPUT_PENDING_CHAR_LIMIT - queue.queuedChars;
+    if (availableChars <= 0) {
+      requestSessionOutputResync(session);
+      return;
+    }
+    const next = takeUtf16Prefix(remaining, availableChars);
+    if (!next || queue.queuedChars + next.length > SESSION_OUTPUT_PENDING_CHAR_LIMIT) {
+      requestSessionOutputResync(session);
+      return;
+    }
+    queue.chunks.push(next);
+    queue.queuedChars += next.length;
+    remaining = remaining.slice(next.length);
+  }
 }
 
 function flushSessionOutput(sessionId, drainAll = false) {
   let queue = sessionOutputQueues.get(sessionId);
   while (queue) {
     clearTimeout(queue.timer);
-    const data = takeUtf16Prefix(queue.data, SESSION_OUTPUT_BATCH_MAX_CHARS);
-    queue.data = queue.data.slice(data.length);
-    if (queue.data) {
+    const data = takeQueuedSessionOutput(queue, SESSION_OUTPUT_BATCH_MAX_CHARS);
+    if (queue.queuedChars > 0) {
       if (!drainAll) {
         queue.timer = setTimeout(() => flushSessionOutput(sessionId), SESSION_OUTPUT_BATCH_DELAY_MS);
       }
@@ -234,12 +281,14 @@ function flushSessionOutput(sessionId, drainAll = false) {
       sessionOutputQueues.delete(sessionId);
     }
 
-    broadcast('session:data', {
-      sessionId,
-      data,
-    });
+    if (data) {
+      broadcast('session:data', {
+        sessionId,
+        data,
+      });
+    }
 
-    if (!drainAll || !queue.data) {
+    if (!drainAll || queue.queuedChars === 0) {
       return;
     }
     queue = sessionOutputQueues.get(sessionId);
@@ -302,10 +351,17 @@ function createJsonLineDispatcher(stream, onMessage) {
   stream.setEncoding('utf8');
   stream.on('data', (chunk) => {
     buffer += chunk;
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
+    let lineEnd = buffer.indexOf('\n');
+    while (lineEnd >= 0) {
+      const line = buffer.slice(0, lineEnd);
+      buffer = buffer.slice(lineEnd + 1);
+      if (line.length > JSON_LINE_MAX_CHARS) {
+        buffer = '';
+        stream.destroy();
+        return;
+      }
       if (!line.trim()) {
+        lineEnd = buffer.indexOf('\n');
         continue;
       }
       try {
@@ -318,6 +374,11 @@ function createJsonLineDispatcher(stream, onMessage) {
           });
         }
       }
+      lineEnd = buffer.indexOf('\n');
+    }
+    if (buffer.length > JSON_LINE_MAX_CHARS) {
+      buffer = '';
+      stream.destroy();
     }
   });
 }

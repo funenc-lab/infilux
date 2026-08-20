@@ -42,6 +42,7 @@ import {
   writeClipboardText,
 } from './xtermClipboard';
 import { isXtermContainerReady, scheduleXtermContainerReady } from './xtermContainerReady';
+import { XtermHibernateController } from './xtermHibernateController';
 import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK,
@@ -176,6 +177,11 @@ interface PendingHostScrollRequest {
 interface InFlightTerminalWrite {
   generation: number;
   terminal: Terminal;
+}
+
+interface HibernatedXtermSurfaceState {
+  searchState: TerminalSearchState;
+  viewportY: number;
 }
 
 function resolveCurrentTerminalInputLine(terminal: Terminal): string | null {
@@ -504,6 +510,8 @@ export function useXterm({
   const [searchState, setSearchState] = useState<TerminalSearchState>(
     createEmptyTerminalSearchState()
   );
+  const searchStateRef = useRef(searchState);
+  searchStateRef.current = searchState;
   const runtimeStateRef = useRef<SessionRuntimeState>('live');
   runtimeStateRef.current = runtimeState;
   const initialCommandRef = useRef(initialCommand);
@@ -549,6 +557,11 @@ export function useXterm({
   const terminalWriteInFlightIdentityRef = useRef<InFlightTerminalWrite | null>(null);
   const terminalWriteGenerationRef = useRef(0);
   const pendingOutputResyncRef = useRef<{ sessionId: string; replay: string } | null>(null);
+  const hibernateControllerRef = useRef(new XtermHibernateController());
+  const hibernateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hibernatedSurfaceStateRef = useRef<HibernatedXtermSurfaceState | null>(null);
+  const isHibernatedRef = useRef(false);
+  const isHibernationRestoreInProgressRef = useRef(false);
   const performViewportSyncRef = useRef<() => boolean>(() => false);
   const viewportSyncControllerRef = useRef<XtermViewportSyncController>(
     createXtermViewportSyncController({
@@ -1262,59 +1275,38 @@ export function useXterm({
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
-  const initTerminal = useCallback(async () => {
-    if (!containerRef.current && !terminalRef.current) return;
+  const initTerminal = useCallback(
+    async (options?: { restoreHibernatedSurface?: boolean }) => {
+      if (!containerRef.current && !terminalRef.current) return;
 
-    const initAttemptId = ++initAttemptIdRef.current;
-    containerReadyCleanupRef.current?.();
-    containerReadyCleanupRef.current = null;
-    if (staticContent) {
-      initializingStaticContentKeyRef.current = staticContentKey;
-    }
-    setIsLoading(true);
-    if (!staticContent && kind === 'agent') {
-      agentStartupFirstOutputLoggedRef.current = false;
-      agentStartupLoggerRef.current = createAgentStartupTimelineLogger({
-        source: 'renderer',
-        getLabel: () => ptyIdRef.current ?? backendSessionId ?? command?.shell ?? 'pending',
-        log: (message) => recordAgentStartup(message),
-      });
-      agentStartupLoggerRef.current.markStage('init-terminal-start');
-    } else {
-      agentStartupLoggerRef.current = null;
-    }
-
-    let terminal = terminalRef.current;
-
-    if (terminal) {
-      await resetSessionBinding();
-      disposeTerminal();
-      terminal = null;
-
-      if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
-        setIsLoading(false);
-        return;
+      const restoreHibernatedSurface = Boolean(
+        options?.restoreHibernatedSurface && isHibernatedRef.current && ptyIdRef.current
+      );
+      const initAttemptId = ++initAttemptIdRef.current;
+      containerReadyCleanupRef.current?.();
+      containerReadyCleanupRef.current = null;
+      if (staticContent) {
+        initializingStaticContentKeyRef.current = staticContentKey;
       }
-    }
-
-    if (!terminal) {
-      const initialContainer = containerRef.current;
-      if (!initialContainer) {
-        setIsLoading(false);
-        return;
-      }
-
-      if (!isXtermContainerReady(initialContainer)) {
-        await new Promise<void>((resolve) => {
-          containerReadyCleanupRef.current?.();
-          containerReadyCleanupRef.current = scheduleXtermContainerReady({
-            container: initialContainer,
-            onReady: resolve,
-            requestAnimationFrame: window.requestAnimationFrame.bind(window),
-            cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
-          });
+      setIsLoading(true);
+      if (!staticContent && kind === 'agent') {
+        agentStartupFirstOutputLoggedRef.current = false;
+        agentStartupLoggerRef.current = createAgentStartupTimelineLogger({
+          source: 'renderer',
+          getLabel: () => ptyIdRef.current ?? backendSessionId ?? command?.shell ?? 'pending',
+          log: (message) => recordAgentStartup(message),
         });
-        containerReadyCleanupRef.current = null;
+        agentStartupLoggerRef.current.markStage('init-terminal-start');
+      } else {
+        agentStartupLoggerRef.current = null;
+      }
+
+      let terminal = terminalRef.current;
+
+      if (terminal) {
+        await resetSessionBinding();
+        disposeTerminal();
+        terminal = null;
 
         if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
           setIsLoading(false);
@@ -1322,247 +1314,297 @@ export function useXterm({
         }
       }
 
-      const container = containerRef.current;
-      if (!container || !isXtermContainerReady(container)) {
-        setIsLoading(false);
-        return;
-      }
+      if (!terminal) {
+        const initialContainer = containerRef.current;
+        if (!initialContainer) {
+          setIsLoading(false);
+          return;
+        }
 
-      const nextTerminal = new Terminal(
-        buildXtermTerminalOptions({
-          kind,
-          platform: getRendererEnvironment().platform,
-          settings,
-        })
-      );
-      terminal = nextTerminal;
+        if (!isXtermContainerReady(initialContainer)) {
+          await new Promise<void>((resolve) => {
+            containerReadyCleanupRef.current?.();
+            containerReadyCleanupRef.current = scheduleXtermContainerReady({
+              container: initialContainer,
+              onReady: resolve,
+              requestAnimationFrame: window.requestAnimationFrame.bind(window),
+              cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+            });
+          });
+          containerReadyCleanupRef.current = null;
 
-      const fitAddon = new FitAddon();
-      const searchAddon = new SearchAddon();
-      const webLinksAddon = new WebLinksAddon((_event, uri) => {
-        window.electronAPI.shell.openExternal(uri);
-      });
-      const unicode11Addon = new Unicode11Addon();
-
-      terminal.loadAddon(fitAddon);
-      terminal.loadAddon(searchAddon);
-      terminal.loadAddon(webLinksAddon);
-      terminal.loadAddon(unicode11Addon);
-      terminal.unicode.activeVersion = '11';
-
-      terminal.open(container);
-      fitAddon.fit();
-
-      terminal.onTitleChange((title) => {
-        onTitleChangeRef.current?.(title);
-      });
-
-      loadRenderer(terminal, effectiveTerminalRenderer, latestWebglVisualSignatureRef.current);
-
-      const linkProviderDisposable = terminal.registerLinkProvider({
-        provideLinks: (bufferLineNumber, callback) => {
-          const currentTerminal = terminalRef.current;
-          if (!currentTerminal) {
-            callback(undefined);
+          if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
+            setIsLoading(false);
             return;
           }
-          const line = currentTerminal.buffer.active.getLine(bufferLineNumber - 1);
-          if (!line) {
-            callback(undefined);
-            return;
-          }
+        }
 
-          const lineText = line.translateToString();
-          const links: Array<{
-            range: {
-              start: { x: number; y: number };
-              end: { x: number; y: number };
-            };
-            text: string;
-            activate: () => void;
-          }> = [];
+        const container = containerRef.current;
+        if (!container || !isXtermContainerReady(container)) {
+          setIsLoading(false);
+          return;
+        }
 
-          FILE_PATH_REGEX.lastIndex = 0;
+        const nextTerminal = new Terminal(
+          buildXtermTerminalOptions({
+            kind,
+            platform: getRendererEnvironment().platform,
+            settings,
+          })
+        );
+        terminal = nextTerminal;
 
-          while (true) {
-            const match = FILE_PATH_REGEX.exec(lineText);
-            if (match === null) {
-              break;
+        const fitAddon = new FitAddon();
+        const searchAddon = new SearchAddon();
+        const webLinksAddon = new WebLinksAddon((_event, uri) => {
+          window.electronAPI.shell.openExternal(uri);
+        });
+        const unicode11Addon = new Unicode11Addon();
+
+        terminal.loadAddon(fitAddon);
+        terminal.loadAddon(searchAddon);
+        terminal.loadAddon(webLinksAddon);
+        terminal.loadAddon(unicode11Addon);
+        terminal.unicode.activeVersion = '11';
+
+        terminal.open(container);
+        fitAddon.fit();
+
+        terminal.onTitleChange((title) => {
+          onTitleChangeRef.current?.(title);
+        });
+
+        loadRenderer(terminal, effectiveTerminalRenderer, latestWebglVisualSignatureRef.current);
+
+        const linkProviderDisposable = terminal.registerLinkProvider({
+          provideLinks: (bufferLineNumber, callback) => {
+            const currentTerminal = terminalRef.current;
+            if (!currentTerminal) {
+              callback(undefined);
+              return;
+            }
+            const line = currentTerminal.buffer.active.getLine(bufferLineNumber - 1);
+            if (!line) {
+              callback(undefined);
+              return;
             }
 
-            const fullMatch = match[0];
-            const filePath = match[1];
-            const lineNum = match[2] ? Number.parseInt(match[2], 10) : undefined;
-            const colNum = match[3] ? Number.parseInt(match[3], 10) : undefined;
-            const startIndex =
-              match.index +
-              (fullMatch.length -
-                filePath.length -
-                (match[2] ? `:${match[2]}`.length : 0) -
-                (match[3] ? `:${match[3]}`.length : 0));
-            const endIndex = match.index + fullMatch.length;
-
-            links.push({
+            const lineText = line.translateToString();
+            const links: Array<{
               range: {
-                start: { x: startIndex + 1, y: bufferLineNumber },
-                end: { x: endIndex + 1, y: bufferLineNumber },
-              },
-              text: fullMatch.trim(),
-              activate: async () => {
-                const basePath = cwdRef.current || '';
-                let absolutePath = filePath.startsWith('/')
-                  ? filePath
-                  : `${basePath}/${filePath}`.replace(/\/\.\//g, '/');
+                start: { x: number; y: number };
+                end: { x: number; y: number };
+              };
+              text: string;
+              activate: () => void;
+            }> = [];
 
-                let exists = await window.electronAPI.file.exists(absolutePath);
-                if (!exists && !filePath.includes('/')) {
-                  try {
-                    const results = await window.electronAPI.search.files({
-                      query: filePath,
-                      rootPath: basePath,
-                      maxResults: 1,
-                    });
-                    if (results?.length > 0) {
-                      absolutePath = results[0].path;
-                      exists = true;
+            FILE_PATH_REGEX.lastIndex = 0;
+
+            while (true) {
+              const match = FILE_PATH_REGEX.exec(lineText);
+              if (match === null) {
+                break;
+              }
+
+              const fullMatch = match[0];
+              const filePath = match[1];
+              const lineNum = match[2] ? Number.parseInt(match[2], 10) : undefined;
+              const colNum = match[3] ? Number.parseInt(match[3], 10) : undefined;
+              const startIndex =
+                match.index +
+                (fullMatch.length -
+                  filePath.length -
+                  (match[2] ? `:${match[2]}`.length : 0) -
+                  (match[3] ? `:${match[3]}`.length : 0));
+              const endIndex = match.index + fullMatch.length;
+
+              links.push({
+                range: {
+                  start: { x: startIndex + 1, y: bufferLineNumber },
+                  end: { x: endIndex + 1, y: bufferLineNumber },
+                },
+                text: fullMatch.trim(),
+                activate: async () => {
+                  const basePath = cwdRef.current || '';
+                  let absolutePath = filePath.startsWith('/')
+                    ? filePath
+                    : `${basePath}/${filePath}`.replace(/\/\.\//g, '/');
+
+                  let exists = await window.electronAPI.file.exists(absolutePath);
+                  if (!exists && !filePath.includes('/')) {
+                    try {
+                      const results = await window.electronAPI.search.files({
+                        query: filePath,
+                        rootPath: basePath,
+                        maxResults: 1,
+                      });
+                      if (results?.length > 0) {
+                        absolutePath = results[0].path;
+                        exists = true;
+                      }
+                    } catch (error) {
+                      console.warn(`Failed to search for file: ${filePath}`, error);
                     }
-                  } catch (error) {
-                    console.warn(`Failed to search for file: ${filePath}`, error);
                   }
-                }
 
-                if (!exists) return;
+                  if (!exists) return;
 
-                const isMarkdown = absolutePath.toLowerCase().endsWith('.md');
-                navigateToFile({
-                  path: absolutePath,
-                  line: lineNum,
-                  column: colNum,
-                  previewMode: isMarkdown ? 'fullscreen' : undefined,
-                });
-              },
+                  const isMarkdown = absolutePath.toLowerCase().endsWith('.md');
+                  navigateToFile({
+                    path: absolutePath,
+                    line: lineNum,
+                    column: colNum,
+                    previewMode: isMarkdown ? 'fullscreen' : undefined,
+                  });
+                },
+              });
+            }
+
+            callback(links.length > 0 ? links : undefined);
+          },
+        });
+        linkProviderDisposableRef.current = linkProviderDisposable;
+
+        const handleCopyOnSelection = () => {
+          if (!copyOnSelectionRef.current) return;
+          setTimeout(() => {
+            const currentTerminal = terminalRef.current;
+            if (!currentTerminal) return;
+            void copyTerminalSelectionToClipboard(currentTerminal).finally(() => {
+              restoreTerminalInteractionAfterCopy(currentTerminal);
             });
+          }, 0);
+        };
+        const handleCopyEvent = (event: ClipboardEvent) => {
+          const currentTerminal = terminalRef.current;
+          const selectionText = getTerminalSelectionText(currentTerminal);
+          if (
+            !shouldHandleTerminalCopyEvent({
+              container,
+              eventTarget: event.target,
+              activeElement: document.activeElement,
+              domSelectionText: document.getSelection()?.toString() ?? '',
+              selectionText,
+            })
+          ) {
+            return;
+          }
+          if (!selectionText) {
+            return;
           }
 
-          callback(links.length > 0 ? links : undefined);
-        },
-      });
-      linkProviderDisposableRef.current = linkProviderDisposable;
-
-      const handleCopyOnSelection = () => {
-        if (!copyOnSelectionRef.current) return;
-        setTimeout(() => {
-          const currentTerminal = terminalRef.current;
-          if (!currentTerminal) return;
-          void copyTerminalSelectionToClipboard(currentTerminal).finally(() => {
+          event.preventDefault();
+          event.stopPropagation();
+          event.clipboardData?.setData('text/plain', selectionText);
+          void writeClipboardText(selectionText).finally(() => {
             restoreTerminalInteractionAfterCopy(currentTerminal);
           });
-        }, 0);
-      };
-      const handleCopyEvent = (event: ClipboardEvent) => {
-        const currentTerminal = terminalRef.current;
-        const selectionText = getTerminalSelectionText(currentTerminal);
-        if (
-          !shouldHandleTerminalCopyEvent({
-            container,
-            eventTarget: event.target,
-            activeElement: document.activeElement,
-            domSelectionText: document.getSelection()?.toString() ?? '',
-            selectionText,
-          })
-        ) {
-          return;
-        }
-        if (!selectionText) {
-          return;
-        }
+        };
 
-        event.preventDefault();
-        event.stopPropagation();
-        event.clipboardData?.setData('text/plain', selectionText);
-        void writeClipboardText(selectionText).finally(() => {
-          restoreTerminalInteractionAfterCopy(currentTerminal);
+        terminal.element?.addEventListener('mouseup', handleCopyOnSelection);
+        window.addEventListener('copy', handleCopyEvent);
+        copyOnSelectionHandlerRef.current = handleCopyOnSelection;
+        copyEventHandlerRef.current = handleCopyEvent;
+
+        terminalInputCleanupRef.current = terminal.onData((data) => {
+          if (ptyIdRef.current && runtimeStateRef.current === 'live') {
+            window.electronAPI.session.write(ptyIdRef.current, data);
+          }
         });
-      };
+        terminalImeFocusCleanupRef.current = installXtermImeFocusBridge(terminal);
 
-      terminal.element?.addEventListener('mouseup', handleCopyOnSelection);
-      window.addEventListener('copy', handleCopyEvent);
-      copyOnSelectionHandlerRef.current = handleCopyOnSelection;
-      copyEventHandlerRef.current = handleCopyEvent;
+        searchAddon.onDidChangeResults((result: InternalTerminalSearchResultChange) => {
+          setSearchState(createTerminalSearchState(result));
+        });
 
-      terminalInputCleanupRef.current = terminal.onData((data) => {
-        if (ptyIdRef.current && runtimeStateRef.current === 'live') {
-          window.electronAPI.session.write(ptyIdRef.current, data);
+        terminalRef.current = terminal;
+        if ((window as InfiluxE2ETerminalWindow).__INFILUX_E2E_ENABLE__ === true) {
+          (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = terminal;
         }
-      });
-      terminalImeFocusCleanupRef.current = installXtermImeFocusBridge(terminal);
-
-      searchAddon.onDidChangeResults((result: InternalTerminalSearchResultChange) => {
-        setSearchState(createTerminalSearchState(result));
-      });
-
-      terminalRef.current = terminal;
-      if ((window as InfiluxE2ETerminalWindow).__INFILUX_E2E_ENABLE__ === true) {
-        (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = terminal;
-      }
-      fitAddonRef.current = fitAddon;
-      searchAddonRef.current = searchAddon;
-      setWheelHandlerAttachmentEpoch((current) => current + 1);
-    }
-
-    // Custom key handler
-    terminal.attachCustomKeyEventHandler((event) => {
-      // Let IME composition events pass through so composed input is not interrupted.
-      if (isNativeImeCompositionKeyEvent(event)) {
-        return true;
+        fitAddonRef.current = fitAddon;
+        searchAddonRef.current = searchAddon;
+        setWheelHandlerAttachmentEpoch((current) => current + 1);
       }
 
-      // Only respond to tab/clear shortcuts when this terminal is active
-      const shouldHandleShortcuts = isActiveRef.current;
-      if (
-        matchesKeybinding(event, settings.xtermKeybindings.newTab) ||
-        matchesKeybinding(event, settings.xtermKeybindings.closeTab) ||
-        matchesKeybinding(event, settings.xtermKeybindings.nextTab) ||
-        matchesKeybinding(event, settings.xtermKeybindings.prevTab)
-      ) {
-        return false;
-      }
-      // Handle clear directly here, only when active
-      if (shouldHandleShortcuts && matchesKeybinding(event, settings.xtermKeybindings.clear)) {
+      // Custom key handler
+      terminal.attachCustomKeyEventHandler((event) => {
+        // Let IME composition events pass through so composed input is not interrupted.
+        if (isNativeImeCompositionKeyEvent(event)) {
+          return true;
+        }
+
+        // Only respond to tab/clear shortcuts when this terminal is active
+        const shouldHandleShortcuts = isActiveRef.current;
+        if (
+          matchesKeybinding(event, settings.xtermKeybindings.newTab) ||
+          matchesKeybinding(event, settings.xtermKeybindings.closeTab) ||
+          matchesKeybinding(event, settings.xtermKeybindings.nextTab) ||
+          matchesKeybinding(event, settings.xtermKeybindings.prevTab)
+        ) {
+          return false;
+        }
+        // Handle clear directly here, only when active
+        if (shouldHandleShortcuts && matchesKeybinding(event, settings.xtermKeybindings.clear)) {
+          if (event.type === 'keydown') {
+            terminal.clear();
+          }
+          return false;
+        }
         if (event.type === 'keydown') {
-          terminal.clear();
+          if (matchesKeybinding(event, settings.xtermKeybindings.split)) {
+            onSplitRef.current?.();
+            return false;
+          }
+          if (canMergeRef.current && matchesKeybinding(event, settings.xtermKeybindings.merge)) {
+            onMergeRef.current?.();
+            return false;
+          }
         }
-        return false;
-      }
-      if (event.type === 'keydown') {
-        if (matchesKeybinding(event, settings.xtermKeybindings.split)) {
-          onSplitRef.current?.();
-          return false;
+        // Cmd/Ctrl+1-9 or Option+1-9: let global shortcuts handle panel/tab switching
+        // Use event.code for keyboard layout independence (Option+1 may produce special chars)
+        const isDigit1to9 = event.code >= 'Digit1' && event.code <= 'Digit9';
+        if (isDigit1to9) {
+          const hasModifier =
+            ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) ||
+            (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey);
+          if (hasModifier) {
+            return false;
+          }
         }
-        if (canMergeRef.current && matchesKeybinding(event, settings.xtermKeybindings.merge)) {
-          onMergeRef.current?.();
-          return false;
-        }
-      }
-      // Cmd/Ctrl+1-9 or Option+1-9: let global shortcuts handle panel/tab switching
-      // Use event.code for keyboard layout independence (Option+1 may produce special chars)
-      const isDigit1to9 = event.code >= 'Digit1' && event.code <= 'Digit9';
-      if (isDigit1to9) {
-        const hasModifier =
-          ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) ||
-          (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey);
-        if (hasModifier) {
-          return false;
-        }
-      }
 
-      // Handle copy - paste is NOT intercepted to allow image paste in agents
-      const platform = getRendererEnvironment().platform;
-      const isMac = platform === 'darwin';
-      const modKey = isMac ? event.metaKey : event.ctrlKey;
+        // Handle copy - paste is NOT intercepted to allow image paste in agents
+        const platform = getRendererEnvironment().platform;
+        const isMac = platform === 'darwin';
+        const modKey = isMac ? event.metaKey : event.ctrlKey;
 
-      if (isStaticContentModeRef.current) {
+        if (isStaticContentModeRef.current) {
+          if (event.type === 'keydown' && modKey && !event.altKey) {
+            if (event.key === 'c' || event.key === 'C') {
+              if (getTerminalSelectionText(terminal)) {
+                void copyTerminalSelectionToClipboard(terminal).finally(() => {
+                  restoreTerminalInteractionAfterCopy(terminal);
+                });
+                return false;
+              }
+              if (!isMac) {
+                return true;
+              }
+              return false;
+            }
+          }
+
+          return true;
+        }
+
         if (event.type === 'keydown' && modKey && !event.altKey) {
+          // Paste: DO NOT intercept - let browser/agent handle it naturally
+          // This allows Claude Code and other agents to receive image paste events
+          if (event.key === 'v' || event.key === 'V') {
+            return false; // Let event bubble up
+          }
+
+          // Copy: Cmd+C (mac) or Ctrl+C (win/linux)
           if (event.key === 'c' || event.key === 'C') {
             if (getTerminalSelectionText(terminal)) {
               void copyTerminalSelectionToClipboard(terminal).finally(() => {
@@ -1570,486 +1612,617 @@ export function useXterm({
               });
               return false;
             }
-            if (!isMac) {
-              return true;
-            }
+            // On Windows/Linux, let Ctrl+C pass through as SIGINT when no selection
+            if (!isMac) return true;
             return false;
           }
         }
 
+        // macOS-style navigation shortcuts (only on keydown to avoid double-firing)
+        if (event.type === 'keydown' && ptyIdRef.current && runtimeStateRef.current === 'live') {
+          // Cmd+Left: jump to line start (Ctrl+A)
+          if (event.metaKey && !event.altKey && event.key === 'ArrowLeft') {
+            write('\x01');
+            return false;
+          }
+          // Cmd+Right: jump to line end (Ctrl+E)
+          if (event.metaKey && !event.altKey && event.key === 'ArrowRight') {
+            write('\x05');
+            return false;
+          }
+          // Option+Left: jump word backward (ESC+b)
+          if (event.altKey && !event.metaKey && event.key === 'ArrowLeft') {
+            write('\x1bb');
+            return false;
+          }
+          // Option+Right: jump word forward (ESC+f)
+          if (event.altKey && !event.metaKey && event.key === 'ArrowRight') {
+            write('\x1bf');
+            return false;
+          }
+          // Option+Backspace: delete word backward (Ctrl+W)
+          if (event.altKey && !event.metaKey && event.key === 'Backspace') {
+            write('\x17');
+            return false;
+          }
+          // Cmd+Backspace: delete to line start (Ctrl+U)
+          if (event.metaKey && !event.altKey && event.key === 'Backspace') {
+            write('\x15');
+            return false;
+          }
+        }
+
+        if (ptyIdRef.current && onCustomKeyRef.current) {
+          const getCurrentLine = (): string | null => {
+            const term = terminalRef.current;
+            if (!term) return null;
+            return resolveCurrentTerminalInputLine(term);
+          };
+          return onCustomKeyRef.current(event, ptyIdRef.current, getCurrentLine);
+        }
         return true;
-      }
-
-      if (event.type === 'keydown' && modKey && !event.altKey) {
-        // Paste: DO NOT intercept - let browser/agent handle it naturally
-        // This allows Claude Code and other agents to receive image paste events
-        if (event.key === 'v' || event.key === 'V') {
-          return false; // Let event bubble up
-        }
-
-        // Copy: Cmd+C (mac) or Ctrl+C (win/linux)
-        if (event.key === 'c' || event.key === 'C') {
-          if (getTerminalSelectionText(terminal)) {
-            void copyTerminalSelectionToClipboard(terminal).finally(() => {
-              restoreTerminalInteractionAfterCopy(terminal);
-            });
-            return false;
-          }
-          // On Windows/Linux, let Ctrl+C pass through as SIGINT when no selection
-          if (!isMac) return true;
-          return false;
-        }
-      }
-
-      // macOS-style navigation shortcuts (only on keydown to avoid double-firing)
-      if (event.type === 'keydown' && ptyIdRef.current && runtimeStateRef.current === 'live') {
-        // Cmd+Left: jump to line start (Ctrl+A)
-        if (event.metaKey && !event.altKey && event.key === 'ArrowLeft') {
-          write('\x01');
-          return false;
-        }
-        // Cmd+Right: jump to line end (Ctrl+E)
-        if (event.metaKey && !event.altKey && event.key === 'ArrowRight') {
-          write('\x05');
-          return false;
-        }
-        // Option+Left: jump word backward (ESC+b)
-        if (event.altKey && !event.metaKey && event.key === 'ArrowLeft') {
-          write('\x1bb');
-          return false;
-        }
-        // Option+Right: jump word forward (ESC+f)
-        if (event.altKey && !event.metaKey && event.key === 'ArrowRight') {
-          write('\x1bf');
-          return false;
-        }
-        // Option+Backspace: delete word backward (Ctrl+W)
-        if (event.altKey && !event.metaKey && event.key === 'Backspace') {
-          write('\x17');
-          return false;
-        }
-        // Cmd+Backspace: delete to line start (Ctrl+U)
-        if (event.metaKey && !event.altKey && event.key === 'Backspace') {
-          write('\x15');
-          return false;
-        }
-      }
-
-      if (ptyIdRef.current && onCustomKeyRef.current) {
-        const getCurrentLine = (): string | null => {
-          const term = terminalRef.current;
-          if (!term) return null;
-          return resolveCurrentTerminalInputLine(term);
-        };
-        return onCustomKeyRef.current(event, ptyIdRef.current, getCurrentLine);
-      }
-      return true;
-    });
-
-    terminal.options.disableStdin = Boolean(staticContent);
-
-    if (staticContent) {
-      const staticContentKeyForAttempt = staticContentKey;
-      initializingStaticContentKeyRef.current = staticContentKeyForAttempt;
-      hasReceivedDataRef.current = staticContent.text.length > 0;
-      activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
-        cwd: cwd || getRendererEnvironment().HOME,
-        kind,
-        persistOnDisconnect,
-        sessionId: `static:${staticContentKey}`,
       });
-      deadRecoveryAttemptKeyRef.current = null;
-      setRuntimeState('live');
 
-      if (staticContent.text) {
-        await writeInitialTerminalContent(terminal, staticContent.text);
-      }
-      if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
+      terminal.options.disableStdin = Boolean(staticContent);
+
+      if (restoreHibernatedSurface) {
+        const sessionId = ptyIdRef.current;
+        if (!sessionId) {
+          isHibernatedRef.current = false;
+          setIsLoading(false);
+          return;
+        }
+
+        const hibernatedSurfaceState = hibernatedSurfaceStateRef.current;
+        const pendingResync = pendingOutputResyncRef.current;
+        flushReplaySnapshotWithPendingOutput(true);
+        if (pendingResync?.sessionId === sessionId) {
+          pendingOutputResyncRef.current = null;
+          await restoreOutputAfterResync(sessionId, pendingResync.replay);
+        } else {
+          await writeInitialTerminalContent(terminal, replaySnapshotRef.current);
+        }
+
+        if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
+          return;
+        }
+
+        if (hibernatedSurfaceState) {
+          terminal.scrollToLine(hibernatedSurfaceState.viewportY);
+          setSearchState(hibernatedSurfaceState.searchState);
+        }
+        hibernatedSurfaceStateRef.current = null;
+        isHibernatedRef.current = false;
+        await window.electronAPI.session.setOutputDelivery(sessionId, true).catch((error) => {
+          console.warn('[xterm] Failed to resume session output delivery:', error);
+        });
+        setIsLoading(false);
         return;
       }
-      setIsLoading(false);
-      if (initializingStaticContentKeyRef.current === staticContentKeyForAttempt) {
-        appliedStaticContentKeyRef.current = staticContentKeyForAttempt;
-        initializingStaticContentKeyRef.current = null;
-      }
 
-      return;
-    }
-
-    try {
-      const createRequestId = ++createRequestIdRef.current;
-      const baseCwd = cwd || getRendererEnvironment().HOME;
-      const hasOwnOverride = <K extends keyof XtermSessionCreateFallbackOptions>(
-        overrides: XtermSessionCreateFallbackOptions | undefined,
-        key: K
-      ): overrides is XtermSessionCreateFallbackOptions &
-        Required<Pick<XtermSessionCreateFallbackOptions, K>> =>
-        Boolean(overrides && Object.hasOwn(overrides, key));
-      const buildCreateOptions = (
-        overrides?: XtermSessionCreateFallbackOptions
-      ): SessionCreateOptions => {
-        const nextCommand = hasOwnOverride(overrides, 'command') ? overrides.command : command;
-        const nextEnv = hasOwnOverride(overrides, 'env') ? overrides.env : env;
-        const nextHostSession = hasOwnOverride(overrides, 'hostSession')
-          ? overrides.hostSession
-          : hostSession;
-        const nextInitialCommand = hasOwnOverride(overrides, 'initialCommand')
-          ? overrides.initialCommand
-          : initialCommandRef.current;
-
-        return {
-          cwd: baseCwd,
-          ...(nextCommand
-            ? {
-                shell: nextCommand.shell,
-                args: nextCommand.args,
-                fallbackShell: nextCommand.fallbackCommand?.shell,
-                fallbackArgs: nextCommand.fallbackCommand?.args,
-              }
-            : { shellConfig }),
-          cols: terminal.cols,
-          rows: terminal.rows,
-          env: nextEnv,
-          hostSession: nextHostSession,
-          metadata,
-          initialCommand: nextInitialCommand,
+      if (staticContent) {
+        const staticContentKeyForAttempt = staticContentKey;
+        initializingStaticContentKeyRef.current = staticContentKeyForAttempt;
+        hasReceivedDataRef.current = staticContent.text.length > 0;
+        activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
+          cwd: cwd || getRendererEnvironment().HOME,
           kind,
           persistOnDisconnect,
-        };
-      };
-      const createOptions = buildCreateOptions();
-
-      const setCurrentSessionId = (sessionId: string) => {
-        if (ptyIdRef.current !== sessionId) {
-          lastSyncedViewportRef.current = null;
-        }
-        ptyIdRef.current = sessionId;
+          sessionId: `static:${staticContentKey}`,
+        });
+        deadRecoveryAttemptKeyRef.current = null;
         setRuntimeState('live');
-        onInitRef.current?.(sessionId);
-        onSessionIdChangeRef.current?.(sessionId);
-      };
 
-      const subscribeToSession = (sessionId: string) => {
-        sessionEventsCleanupRef.current?.();
-        sessionEventsCleanupRef.current = window.electronAPI.session.subscribe(sessionId, {
-          onData: (event) => {
-            const isFirstOutputChunk = !hasReceivedDataRef.current;
-            hasReceivedDataRef.current = true;
-            if (isFirstOutputChunk) {
-              const waiters = Array.from(firstOutputWaitersRef.current);
-              firstOutputWaitersRef.current.clear();
-              for (const resolve of waiters) {
-                resolve();
-              }
-              setIsLoading(false);
-            }
-            if (
-              shouldRearmDeadSessionRecovery({
-                hasReceivedData: hasReceivedDataRef.current,
-              })
-            ) {
-              deadRecoveryAttemptKeyRef.current = null;
-            }
-            if (!agentStartupFirstOutputLoggedRef.current) {
-              agentStartupFirstOutputLoggedRef.current = true;
-              agentStartupLoggerRef.current?.markStage('first-output');
-            }
-            const outputBuffer = terminalOutputBufferRef.current;
-            outputBuffer.append(event.data);
-            if (
-              !terminalOutputBacklogWarningRef.current &&
-              outputBuffer.charCount >= XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK
-            ) {
-              terminalOutputBacklogWarningRef.current = true;
-              console.warn('[xterm] Terminal output backlog exceeded high-water mark', {
-                sessionId: event.sessionId,
-                pendingChars: outputBuffer.charCount,
-              });
-            }
-            appendReplaySnapshot(event.data);
+        if (staticContent.text) {
+          await writeInitialTerminalContent(terminal, staticContent.text);
+        }
+        if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
+          return;
+        }
+        setIsLoading(false);
+        if (initializingStaticContentKeyRef.current === staticContentKeyForAttempt) {
+          appliedStaticContentKeyRef.current = staticContentKeyForAttempt;
+          initializingStaticContentKeyRef.current = null;
+        }
 
-            if (!isVisibleRef.current) {
-              return;
-            }
+        return;
+      }
 
-            if (!isFlushPendingRef.current) {
-              isFlushPendingRef.current = true;
-              dataFlushTimerRef.current = setTimeout(() => {
-                dataFlushTimerRef.current = null;
-                flushBufferedTerminalOutput(terminal);
-              }, 30);
-            }
-          },
-          onResync: (event) => {
-            if (!isVisibleRef.current) {
-              pendingOutputResyncRef.current = event;
-              return;
-            }
-            void restoreOutputAfterResync(event.sessionId, event.replay);
-          },
-          onExit: () => {
-            pendingTerminalExitRef.current = true;
-            flushBufferedTerminalOutput(terminal);
-            setRuntimeState('dead');
-            flushReplaySnapshotWithPendingOutput(true);
-            if (exitFlushTimerRef.current) {
-              clearTimeout(exitFlushTimerRef.current);
-            }
-            exitFlushTimerRef.current = setTimeout(() => {
-              exitFlushTimerRef.current = null;
-              flushBufferedTerminalOutput(terminal);
-              flushPendingTerminalExit();
-            }, 30);
-          },
-          onState: (event) => {
-            setRuntimeState(event.state);
-          },
-        });
-        void window.electronAPI.session
-          .setOutputDelivery(sessionId, isVisibleRef.current)
-          .catch((error) => {
-            console.warn('[xterm] Failed to update session output delivery mode:', error);
-          });
-      };
+      try {
+        const createRequestId = ++createRequestIdRef.current;
+        const baseCwd = cwd || getRendererEnvironment().HOME;
+        const hasOwnOverride = <K extends keyof XtermSessionCreateFallbackOptions>(
+          overrides: XtermSessionCreateFallbackOptions | undefined,
+          key: K
+        ): overrides is XtermSessionCreateFallbackOptions &
+          Required<Pick<XtermSessionCreateFallbackOptions, K>> =>
+          Boolean(overrides && Object.hasOwn(overrides, key));
+        const buildCreateOptions = (
+          overrides?: XtermSessionCreateFallbackOptions
+        ): SessionCreateOptions => {
+          const nextCommand = hasOwnOverride(overrides, 'command') ? overrides.command : command;
+          const nextEnv = hasOwnOverride(overrides, 'env') ? overrides.env : env;
+          const nextHostSession = hasOwnOverride(overrides, 'hostSession')
+            ? overrides.hostSession
+            : hostSession;
+          const nextInitialCommand = hasOwnOverride(overrides, 'initialCommand')
+            ? overrides.initialCommand
+            : initialCommandRef.current;
 
-      const createFirstSessionOutputWaiter = () => {
-        if (hasReceivedDataRef.current) {
           return {
-            promise: Promise.resolve(),
-            dispose: () => undefined,
+            cwd: baseCwd,
+            ...(nextCommand
+              ? {
+                  shell: nextCommand.shell,
+                  args: nextCommand.args,
+                  fallbackShell: nextCommand.fallbackCommand?.shell,
+                  fallbackArgs: nextCommand.fallbackCommand?.args,
+                }
+              : { shellConfig }),
+            cols: terminal.cols,
+            rows: terminal.rows,
+            env: nextEnv,
+            hostSession: nextHostSession,
+            metadata,
+            initialCommand: nextInitialCommand,
+            kind,
+            persistOnDisconnect,
           };
-        }
-
-        let disposed = false;
-        let resolveWaiter: (() => void) | null = null;
-        const promise = new Promise<void>((resolve) => {
-          const waiter = () => {
-            if (disposed) {
-              return;
-            }
-            disposed = true;
-            firstOutputWaitersRef.current.delete(waiter);
-            resolve();
-          };
-          resolveWaiter = waiter;
-          firstOutputWaitersRef.current.add(waiter);
-        });
-
-        return {
-          promise,
-          dispose: () => {
-            if (disposed || !resolveWaiter) {
-              return;
-            }
-            disposed = true;
-            firstOutputWaitersRef.current.delete(resolveWaiter);
-          },
         };
-      };
+        const createOptions = buildCreateOptions();
 
-      const attachToSession = (sessionId: string) => {
-        agentStartupLoggerRef.current?.markStage('session-attach-start');
-        return window.electronAPI.session.attach({
-          sessionId,
-          cwd: createOptions.cwd,
-        });
-      };
+        const setCurrentSessionId = (sessionId: string) => {
+          if (ptyIdRef.current !== sessionId) {
+            lastSyncedViewportRef.current = null;
+          }
+          ptyIdRef.current = sessionId;
+          setRuntimeState('live');
+          onInitRef.current?.(sessionId);
+          onSessionIdChangeRef.current?.(sessionId);
+        };
 
-      const createAndAttachSessionWithOptions = async (
-        sessionCreateOptions: SessionCreateOptions,
-        stagePrefix: 'session-create' | 'session-create-fallback'
-      ) => {
-        agentStartupLoggerRef.current?.markStage(`${stagePrefix}-start`);
-        const created = await window.electronAPI.session.create(sessionCreateOptions);
-        agentStartupLoggerRef.current?.markStage(`${stagePrefix}-created`);
-        const createdSessionId = created.session.sessionId;
-        setCurrentSessionId(createdSessionId);
-        subscribeToSession(createdSessionId);
-        if (isRemoteVirtualPath(sessionCreateOptions.cwd ?? '')) {
-          return created;
-        }
-        const attachPromise = attachToSession(createdSessionId);
-        const firstOutputWaiter = createFirstSessionOutputWaiter();
-        const attached = await Promise.race([
-          attachPromise.then((result) => ({
-            type: 'attached' as const,
-            result,
-          })),
-          firstOutputWaiter.promise.then(() => ({
-            type: 'first-output' as const,
-          })),
-        ]).finally(() => {
-          firstOutputWaiter.dispose();
-        });
-        if (attached.type === 'first-output') {
-          agentStartupLoggerRef.current?.markStage(`${stagePrefix}-attach-bypassed-on-output`);
-          return created;
-        }
-        agentStartupLoggerRef.current?.markStage(`${stagePrefix}-attached`);
-        return attached.result;
-      };
+        const subscribeToSession = (sessionId: string) => {
+          sessionEventsCleanupRef.current?.();
+          sessionEventsCleanupRef.current = window.electronAPI.session.subscribe(sessionId, {
+            onData: (event) => {
+              const isFirstOutputChunk = !hasReceivedDataRef.current;
+              hasReceivedDataRef.current = true;
+              if (isFirstOutputChunk) {
+                const waiters = Array.from(firstOutputWaitersRef.current);
+                firstOutputWaitersRef.current.clear();
+                for (const resolve of waiters) {
+                  resolve();
+                }
+                setIsLoading(false);
+              }
+              if (
+                shouldRearmDeadSessionRecovery({
+                  hasReceivedData: hasReceivedDataRef.current,
+                })
+              ) {
+                deadRecoveryAttemptKeyRef.current = null;
+              }
+              if (!agentStartupFirstOutputLoggedRef.current) {
+                agentStartupFirstOutputLoggedRef.current = true;
+                agentStartupLoggerRef.current?.markStage('first-output');
+              }
+              const outputBuffer = terminalOutputBufferRef.current;
+              outputBuffer.append(event.data);
+              if (
+                !terminalOutputBacklogWarningRef.current &&
+                outputBuffer.charCount >= XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK
+              ) {
+                terminalOutputBacklogWarningRef.current = true;
+                console.warn('[xterm] Terminal output backlog exceeded high-water mark', {
+                  sessionId: event.sessionId,
+                  pendingChars: outputBuffer.charCount,
+                });
+              }
+              appendReplaySnapshot(event.data);
 
-      const createAndAttachSession = async () => {
-        try {
-          return await createAndAttachSessionWithOptions(createOptions, 'session-create');
-        } catch (error) {
-          if (
-            !shouldRetrySessionCreateWithoutHost({
-              error,
-              kind,
-              persistOnDisconnect,
-              hostSession,
-              hasFallback: Boolean(sessionCreateFallback),
-            })
-          ) {
-            throw error;
+              if (isHibernatedRef.current || !isVisibleRef.current) {
+                return;
+              }
+
+              if (!isFlushPendingRef.current) {
+                isFlushPendingRef.current = true;
+                dataFlushTimerRef.current = setTimeout(() => {
+                  dataFlushTimerRef.current = null;
+                  flushBufferedTerminalOutput(terminalRef.current);
+                }, 30);
+              }
+            },
+            onResync: (event) => {
+              if (isHibernatedRef.current || !isVisibleRef.current) {
+                pendingOutputResyncRef.current = event;
+                return;
+              }
+              void restoreOutputAfterResync(event.sessionId, event.replay);
+            },
+            onExit: () => {
+              if (isHibernatedRef.current || !terminalRef.current) {
+                clearTerminalWriteFlushTimers();
+                setRuntimeState('dead');
+                flushReplaySnapshotWithPendingOutput(true);
+                onExitRef.current?.();
+                return;
+              }
+              pendingTerminalExitRef.current = true;
+              flushBufferedTerminalOutput(terminalRef.current);
+              setRuntimeState('dead');
+              flushReplaySnapshotWithPendingOutput(true);
+              if (exitFlushTimerRef.current) {
+                clearTimeout(exitFlushTimerRef.current);
+              }
+              exitFlushTimerRef.current = setTimeout(() => {
+                exitFlushTimerRef.current = null;
+                flushBufferedTerminalOutput(terminalRef.current);
+                flushPendingTerminalExit();
+              }, 30);
+            },
+            onState: (event) => {
+              setRuntimeState(event.state);
+            },
+          });
+          void window.electronAPI.session
+            .setOutputDelivery(sessionId, isVisibleRef.current)
+            .catch((error) => {
+              console.warn('[xterm] Failed to update session output delivery mode:', error);
+            });
+        };
+
+        const createFirstSessionOutputWaiter = () => {
+          if (hasReceivedDataRef.current) {
+            return {
+              promise: Promise.resolve(),
+              dispose: () => undefined,
+            };
           }
 
-          sessionCreateFallback?.onRetry?.();
-          return createAndAttachSessionWithOptions(
-            buildCreateOptions(sessionCreateFallback),
-            'session-create-fallback'
-          );
+          let disposed = false;
+          let resolveWaiter: (() => void) | null = null;
+          const promise = new Promise<void>((resolve) => {
+            const waiter = () => {
+              if (disposed) {
+                return;
+              }
+              disposed = true;
+              firstOutputWaitersRef.current.delete(waiter);
+              resolve();
+            };
+            resolveWaiter = waiter;
+            firstOutputWaitersRef.current.add(waiter);
+          });
+
+          return {
+            promise,
+            dispose: () => {
+              if (disposed || !resolveWaiter) {
+                return;
+              }
+              disposed = true;
+              firstOutputWaitersRef.current.delete(resolveWaiter);
+            },
+          };
+        };
+
+        const attachToSession = (sessionId: string) => {
+          agentStartupLoggerRef.current?.markStage('session-attach-start');
+          return window.electronAPI.session.attach({
+            sessionId,
+            cwd: createOptions.cwd,
+          });
+        };
+
+        const createAndAttachSessionWithOptions = async (
+          sessionCreateOptions: SessionCreateOptions,
+          stagePrefix: 'session-create' | 'session-create-fallback'
+        ) => {
+          agentStartupLoggerRef.current?.markStage(`${stagePrefix}-start`);
+          const created = await window.electronAPI.session.create(sessionCreateOptions);
+          agentStartupLoggerRef.current?.markStage(`${stagePrefix}-created`);
+          const createdSessionId = created.session.sessionId;
+          setCurrentSessionId(createdSessionId);
+          subscribeToSession(createdSessionId);
+          if (isRemoteVirtualPath(sessionCreateOptions.cwd ?? '')) {
+            return created;
+          }
+          const attachPromise = attachToSession(createdSessionId);
+          const firstOutputWaiter = createFirstSessionOutputWaiter();
+          const attached = await Promise.race([
+            attachPromise.then((result) => ({
+              type: 'attached' as const,
+              result,
+            })),
+            firstOutputWaiter.promise.then(() => ({
+              type: 'first-output' as const,
+            })),
+          ]).finally(() => {
+            firstOutputWaiter.dispose();
+          });
+          if (attached.type === 'first-output') {
+            agentStartupLoggerRef.current?.markStage(`${stagePrefix}-attach-bypassed-on-output`);
+            return created;
+          }
+          agentStartupLoggerRef.current?.markStage(`${stagePrefix}-attached`);
+          return attached.result;
+        };
+
+        const createAndAttachSession = async () => {
+          try {
+            return await createAndAttachSessionWithOptions(createOptions, 'session-create');
+          } catch (error) {
+            if (
+              !shouldRetrySessionCreateWithoutHost({
+                error,
+                kind,
+                persistOnDisconnect,
+                hostSession,
+                hasFallback: Boolean(sessionCreateFallback),
+              })
+            ) {
+              throw error;
+            }
+
+            sessionCreateFallback?.onRetry?.();
+            return createAndAttachSessionWithOptions(
+              buildCreateOptions(sessionCreateFallback),
+              'session-create-fallback'
+            );
+          }
+        };
+
+        let session: SessionDescriptor | null = null;
+        let replay: string | undefined;
+        let reusedExistingSession = false;
+        const reusableBackendSessionId = await resolveReusableBackendSessionId({
+          backendSessionId,
+          cwd: createOptions.cwd,
+          getRemoteStatus: (connectionId) => window.electronAPI.remote.getStatus(connectionId),
+          getLocalRuntimeInfo: (sessionId) => window.electronAPI.session.getRuntimeInfo(sessionId),
+          allowUntrackedLocalAttach:
+            kind === 'agent' &&
+            persistOnDisconnect &&
+            getRendererEnvironment().platform === 'win32',
+        });
+
+        if (reusableBackendSessionId) {
+          try {
+            setCurrentSessionId(reusableBackendSessionId);
+            subscribeToSession(reusableBackendSessionId);
+            const result = await attachToSession(reusableBackendSessionId);
+            agentStartupLoggerRef.current?.markStage('session-attached');
+            session = result.session;
+            replay = result.replay;
+            reusedExistingSession = true;
+          } catch (error) {
+            agentStartupLoggerRef.current?.markStage('attach-existing-failed');
+            console.warn('[xterm] Failed to attach existing session, creating a new one:', error);
+            sessionEventsCleanupRef.current?.();
+            sessionEventsCleanupRef.current = null;
+            ptyIdRef.current = null;
+          }
         }
-      };
 
-      let session: SessionDescriptor | null = null;
-      let replay: string | undefined;
-      let reusedExistingSession = false;
-      const reusableBackendSessionId = await resolveReusableBackendSessionId({
-        backendSessionId,
-        cwd: createOptions.cwd,
-        getRemoteStatus: (connectionId) => window.electronAPI.remote.getStatus(connectionId),
-        getLocalRuntimeInfo: (sessionId) => window.electronAPI.session.getRuntimeInfo(sessionId),
-        allowUntrackedLocalAttach:
-          kind === 'agent' && persistOnDisconnect && getRendererEnvironment().platform === 'win32',
-      });
+        if (!session) {
+          const attached = await createAndAttachSession();
+          session = attached.session;
+          replay = attached.replay;
+        }
 
-      if (reusableBackendSessionId) {
-        try {
-          setCurrentSessionId(reusableBackendSessionId);
-          subscribeToSession(reusableBackendSessionId);
-          const result = await attachToSession(reusableBackendSessionId);
-          agentStartupLoggerRef.current?.markStage('session-attached');
-          session = result.session;
-          replay = result.replay;
-          reusedExistingSession = true;
-        } catch (error) {
-          agentStartupLoggerRef.current?.markStage('attach-existing-failed');
-          console.warn('[xterm] Failed to attach existing session, creating a new one:', error);
+        if (!session) {
+          throw new Error('Failed to initialize terminal session');
+        }
+
+        if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
           sessionEventsCleanupRef.current?.();
           sessionEventsCleanupRef.current = null;
           ptyIdRef.current = null;
+          await window.electronAPI.session.kill(session.sessionId).catch(() => {});
+          return;
         }
-      }
 
-      if (!session) {
-        const attached = await createAndAttachSession();
-        session = attached.session;
-        replay = attached.replay;
-      }
+        onSessionOpenRef.current?.(session);
 
-      if (!session) {
-        throw new Error('Failed to initialize terminal session');
-      }
+        if (ptyIdRef.current !== session.sessionId) {
+          setCurrentSessionId(session.sessionId);
+          subscribeToSession(session.sessionId);
+        }
+        activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
+          cwd: baseCwd,
+          kind,
+          persistOnDisconnect,
+          sessionId: session.sessionId,
+        });
+        deadRecoveryAttemptKeyRef.current = null;
 
-      if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
+        const initialReplay = resolveRecoveredInitialTerminalReplay({
+          attachedReplay: replay,
+          persistedReplaySnapshot: recoveredReplaySnapshot,
+          reusedExistingSession,
+        });
+        const liveReplaySnapshot = replaySnapshotRef.current;
+        const persistedReplaySnapshot = resolveRecoveredReplaySnapshotPersistence({
+          attachedReplay: replay,
+          reusedExistingSession,
+        });
+        const shouldApplyReplay = shouldApplyInitialTerminalReplay({
+          initialReplay,
+          hasReceivedData: hasReceivedDataRef.current,
+          liveReplaySnapshot,
+        });
+        replaceReplaySnapshot(persistedReplaySnapshot);
+
+        if (shouldApplyReplay && initialReplay) {
+          hasReceivedDataRef.current = true;
+          if (
+            shouldRearmDeadSessionRecovery({
+              hasReceivedData: hasReceivedDataRef.current,
+              replay: initialReplay,
+            })
+          ) {
+            deadRecoveryAttemptKeyRef.current = null;
+          }
+          await writeInitialTerminalContent(terminal, initialReplay);
+          if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
+            return;
+          }
+          onDataRef.current?.(initialReplay);
+        }
+        setIsLoading(false);
+
+        // Focus is handled by the isActive effect after loading ends.
+      } catch (error) {
+        agentStartupLoggerRef.current?.markStage('init-terminal-failed');
         sessionEventsCleanupRef.current?.();
         sessionEventsCleanupRef.current = null;
         ptyIdRef.current = null;
-        await window.electronAPI.session.kill(session.sessionId).catch(() => {});
-        return;
-      }
-
-      onSessionOpenRef.current?.(session);
-
-      if (ptyIdRef.current !== session.sessionId) {
-        setCurrentSessionId(session.sessionId);
-        subscribeToSession(session.sessionId);
-      }
-      activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
-        cwd: baseCwd,
-        kind,
-        persistOnDisconnect,
-        sessionId: session.sessionId,
-      });
-      deadRecoveryAttemptKeyRef.current = null;
-
-      const initialReplay = resolveRecoveredInitialTerminalReplay({
-        attachedReplay: replay,
-        persistedReplaySnapshot: recoveredReplaySnapshot,
-        reusedExistingSession,
-      });
-      const liveReplaySnapshot = replaySnapshotRef.current;
-      const persistedReplaySnapshot = resolveRecoveredReplaySnapshotPersistence({
-        attachedReplay: replay,
-        reusedExistingSession,
-      });
-      const shouldApplyReplay = shouldApplyInitialTerminalReplay({
-        initialReplay,
-        hasReceivedData: hasReceivedDataRef.current,
-        liveReplaySnapshot,
-      });
-      replaceReplaySnapshot(persistedReplaySnapshot);
-
-      if (shouldApplyReplay && initialReplay) {
-        hasReceivedDataRef.current = true;
-        if (
-          shouldRearmDeadSessionRecovery({
-            hasReceivedData: hasReceivedDataRef.current,
-            replay: initialReplay,
-          })
-        ) {
-          deadRecoveryAttemptKeyRef.current = null;
-        }
-        await writeInitialTerminalContent(terminal, initialReplay);
-        if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
+        if (isUnmountedRef.current) {
           return;
         }
-        onDataRef.current?.(initialReplay);
+        setIsLoading(false);
+        terminal.writeln(`\x1b[31mFailed to start terminal.\x1b[0m`);
+        terminal.writeln(`\x1b[33mError: ${error}\x1b[0m`);
       }
-      setIsLoading(false);
+    },
+    [
+      backendSessionId,
+      cwd,
+      command,
+      shellConfig,
+      commandKey,
+      env,
+      hostSession,
+      metadata,
+      effectiveTerminalRenderer,
+      kind,
+      persistOnDisconnect,
+      sessionCreateFallback,
+      recoveredReplaySnapshot,
+      navigateToFile,
+      loadRenderer,
+      resetSessionBinding,
+      disposeTerminal,
+      appendReplaySnapshot,
+      flushReplaySnapshotWithPendingOutput,
+      replaceReplaySnapshot,
+      staticContent,
+      staticContentKey,
+      write,
+      writeInitialTerminalContent,
+      flushBufferedTerminalOutput,
+      flushPendingTerminalExit,
+      restoreOutputAfterResync,
+      clearTerminalWriteFlushTimers,
+    ]
+  );
 
-      // Focus is handled by the isActive effect after loading ends.
-    } catch (error) {
-      agentStartupLoggerRef.current?.markStage('init-terminal-failed');
-      sessionEventsCleanupRef.current?.();
-      sessionEventsCleanupRef.current = null;
-      ptyIdRef.current = null;
-      if (isUnmountedRef.current) {
+  const clearHibernationTimer = useCallback(() => {
+    if (!hibernateTimerRef.current) {
+      return;
+    }
+
+    clearTimeout(hibernateTimerRef.current);
+    hibernateTimerRef.current = null;
+  }, []);
+
+  const resumeHibernatedTerminal = useCallback(() => {
+    if (
+      !isHibernatedRef.current ||
+      isHibernationRestoreInProgressRef.current ||
+      !ptyIdRef.current ||
+      staticContent
+    ) {
+      return;
+    }
+
+    isHibernationRestoreInProgressRef.current = true;
+    void initTerminal({ restoreHibernatedSurface: true }).finally(() => {
+      isHibernationRestoreInProgressRef.current = false;
+    });
+  }, [initTerminal, staticContent]);
+
+  const hibernateTerminal = useCallback(async () => {
+    const terminal = terminalRef.current;
+    const sessionId = ptyIdRef.current;
+    if (
+      !terminal ||
+      !sessionId ||
+      isActiveRef.current ||
+      isVisibleRef.current ||
+      isStaticContentModeRef.current ||
+      terminal.hasSelection()
+    ) {
+      return;
+    }
+
+    hibernatedSurfaceStateRef.current = {
+      searchState: searchStateRef.current,
+      viewportY: terminal.buffer.active.viewportY,
+    };
+    isHibernatedRef.current = true;
+    flushReplaySnapshotWithPendingOutput(true);
+    clearPendingHostScroll();
+
+    await window.electronAPI.session.setOutputDelivery(sessionId, false).catch((error) => {
+      console.warn('[xterm] Failed to suspend session output delivery:', error);
+    });
+
+    if (
+      isUnmountedRef.current ||
+      terminalRef.current !== terminal ||
+      isActiveRef.current ||
+      isVisibleRef.current
+    ) {
+      isHibernatedRef.current = false;
+      hibernatedSurfaceStateRef.current = null;
+      await window.electronAPI.session.setOutputDelivery(sessionId, true).catch((error) => {
+        console.warn('[xterm] Failed to restore session output delivery:', error);
+      });
+      return;
+    }
+
+    disposeTerminal();
+  }, [clearPendingHostScroll, disposeTerminal, flushReplaySnapshotWithPendingOutput]);
+
+  useEffect(() => {
+    const evaluate = () =>
+      hibernateControllerRef.current.evaluate({
+        hasSelection: terminalRef.current?.hasSelection() ?? false,
+        isActive,
+        isReadOnlyTranscript: Boolean(staticContent),
+        isVisible,
+      });
+
+    const schedule = (): void => {
+      clearHibernationTimer();
+      const decision = evaluate();
+      if (decision.kind === 'ineligible') {
+        if (isHibernatedRef.current) {
+          resumeHibernatedTerminal();
+        }
         return;
       }
-      setIsLoading(false);
-      terminal.writeln(`\x1b[31mFailed to start terminal.\x1b[0m`);
-      terminal.writeln(`\x1b[33mError: ${error}\x1b[0m`);
-    }
+      if (decision.kind === 'hibernate') {
+        void hibernateTerminal();
+        return;
+      }
+
+      hibernateTimerRef.current = setTimeout(() => {
+        hibernateTimerRef.current = null;
+        schedule();
+      }, decision.delayMs);
+    };
+
+    schedule();
+    return clearHibernationTimer;
   }, [
-    backendSessionId,
-    cwd,
-    command,
-    shellConfig,
-    commandKey,
-    env,
-    hostSession,
-    metadata,
-    effectiveTerminalRenderer,
-    kind,
-    persistOnDisconnect,
-    sessionCreateFallback,
-    recoveredReplaySnapshot,
-    navigateToFile,
-    loadRenderer,
-    resetSessionBinding,
-    disposeTerminal,
-    appendReplaySnapshot,
-    flushReplaySnapshotWithPendingOutput,
-    replaceReplaySnapshot,
+    clearHibernationTimer,
+    hibernateTerminal,
+    isActive,
+    isVisible,
+    resumeHibernatedTerminal,
     staticContent,
-    staticContentKey,
-    write,
-    writeInitialTerminalContent,
-    flushBufferedTerminalOutput,
-    flushPendingTerminalExit,
   ]);
 
   useEffect(() => {
@@ -2225,6 +2398,13 @@ export function useXterm({
       return;
     }
 
+    if (isHibernatedRef.current) {
+      if (isActive || isVisible) {
+        resumeHibernatedTerminal();
+      }
+      return;
+    }
+
     void window.electronAPI.session.setOutputDelivery(sessionId, isVisible).catch((error) => {
       console.warn('[xterm] Failed to update session output delivery mode:', error);
     });
@@ -2234,7 +2414,7 @@ export function useXterm({
       pendingOutputResyncRef.current = null;
       void restoreOutputAfterResync(pendingResync.sessionId, pendingResync.replay);
     }
-  }, [isVisible, restoreOutputAfterResync, staticContent]);
+  }, [isActive, isVisible, restoreOutputAfterResync, resumeHibernatedTerminal, staticContent]);
 
   // Cleanup on unmount.
   // Setup: reset isUnmountedRef so StrictMode re-mount can re-initialize.
@@ -2246,6 +2426,11 @@ export function useXterm({
     return () => {
       isUnmountedRef.current = true;
       initAttemptIdRef.current += 1;
+      clearHibernationTimer();
+      hibernateControllerRef.current.reset();
+      isHibernatedRef.current = false;
+      isHibernationRestoreInProgressRef.current = false;
+      hibernatedSurfaceStateRef.current = null;
       containerReadyCleanupRef.current?.();
       containerReadyCleanupRef.current = null;
       hasBeenActivatedRef.current = false;
@@ -2272,7 +2457,13 @@ export function useXterm({
       flushBufferedTerminalOutput(terminalRef.current);
       disposeTerminal();
     };
-  }, [clearPendingHostScroll, disposeTerminal, flushBufferedTerminalOutput, kind]);
+  }, [
+    clearHibernationTimer,
+    clearPendingHostScroll,
+    disposeTerminal,
+    flushBufferedTerminalOutput,
+    kind,
+  ]);
 
   // Update settings dynamically
   useEffect(() => {
