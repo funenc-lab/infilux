@@ -32,6 +32,7 @@ interface InitializeAppScopedProviderConfigOptions {
 
 interface ProviderScopeSeed {
   envKey: keyof NodeJS.ProcessEnv;
+  excludedTomlSections?: readonly string[];
   files: readonly string[];
   linkedDirectories?: readonly string[];
   replaceLinkedDirectories?: readonly string[];
@@ -64,8 +65,24 @@ function hasExplicitEnvironmentOverride(
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function copyMissingProviderFile(sourcePath: string, targetPath: string): void {
+function copyMissingProviderFile(
+  sourcePath: string,
+  targetPath: string,
+  excludedTomlSections: readonly string[] = []
+): void {
   if (!existsSync(sourcePath) || existsSync(targetPath)) {
+    return;
+  }
+
+  if (excludedTomlSections.length > 0 && path.extname(sourcePath) === '.toml') {
+    writeFileSync(
+      targetPath,
+      stripTomlSections(readFileSync(sourcePath, 'utf8'), excludedTomlSections),
+      {
+        encoding: 'utf8',
+        mode: 0o600,
+      }
+    );
     return;
   }
 
@@ -123,8 +140,75 @@ interface TomlSectionBlock {
   sectionName: string | null;
 }
 
+interface TomlValueContinuationState {
+  bracketDepth: number;
+  braceDepth: number;
+  multilineStringDelimiter: '"""' | "'''" | null;
+}
+
+function findTomlCommentStart(line: string): number {
+  let stringDelimiter: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (stringDelimiter !== null) {
+      if (stringDelimiter === '"' && !escaped && character === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (!escaped && character === stringDelimiter) {
+        stringDelimiter = null;
+      }
+      escaped = false;
+      continue;
+    }
+
+    if (character === '"' || character === "'") {
+      stringDelimiter = character;
+      continue;
+    }
+    if (character === '#') {
+      return index;
+    }
+  }
+
+  return line.length;
+}
+
+function getTomlAssignmentSeparatorIndex(line: string): number {
+  const uncommentedLine = line.slice(0, findTomlCommentStart(line));
+  let stringDelimiter: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < uncommentedLine.length; index += 1) {
+    const character = uncommentedLine[index];
+    if (stringDelimiter !== null) {
+      if (stringDelimiter === '"' && !escaped && character === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (!escaped && character === stringDelimiter) {
+        stringDelimiter = null;
+      }
+      escaped = false;
+      continue;
+    }
+
+    if (character === '"' || character === "'") {
+      stringDelimiter = character;
+      continue;
+    }
+    if (character === '=') {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function getTomlSectionName(line: string): string | null {
-  const trimmed = line.trim();
+  const trimmed = line.slice(0, findTomlCommentStart(line)).trim();
   const isArray = trimmed.startsWith('[[');
   const openingLength = isArray ? 2 : 1;
   const closing = isArray ? ']]' : ']';
@@ -168,6 +252,153 @@ function serializeTomlSectionBlocks(blocks: TomlSectionBlock[]): string {
     .map((block) => block.lines.join('\n'))
     .join('\n')
     .replace(/\n+$/, '');
+}
+
+function getTomlAssignmentSectionName(line: string): string | null {
+  const separatorIndex = getTomlAssignmentSeparatorIndex(line);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const key = line.slice(0, separatorIndex).trim();
+  const firstSegment = key.split('.', 1)[0]?.trim();
+  if (!firstSegment) {
+    return null;
+  }
+
+  return firstSegment.replace(/^["']|["']$/g, '');
+}
+
+function isTomlValueContinuationComplete(state: TomlValueContinuationState): boolean {
+  return (
+    state.braceDepth === 0 && state.bracketDepth === 0 && state.multilineStringDelimiter === null
+  );
+}
+
+function updateTomlValueContinuationState(value: string, state: TomlValueContinuationState): void {
+  let stringDelimiter: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (state.multilineStringDelimiter !== null) {
+      const delimiter = state.multilineStringDelimiter;
+      if (delimiter === '"""' && value[index] === '\\') {
+        index += 1;
+        continue;
+      }
+      if (value.startsWith(delimiter, index)) {
+        state.multilineStringDelimiter = null;
+        index += delimiter.length - 1;
+      }
+      continue;
+    }
+
+    const character = value[index];
+    if (stringDelimiter !== null) {
+      if (stringDelimiter === '"' && !escaped && character === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (!escaped && character === stringDelimiter) {
+        stringDelimiter = null;
+      }
+      escaped = false;
+      continue;
+    }
+
+    if (value.startsWith('"""', index)) {
+      state.multilineStringDelimiter = '"""';
+      index += 2;
+      continue;
+    }
+    if (value.startsWith("'''", index)) {
+      state.multilineStringDelimiter = "'''";
+      index += 2;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      stringDelimiter = character;
+      continue;
+    }
+    if (character === '#') {
+      return;
+    }
+    if (character === '{') {
+      state.braceDepth += 1;
+    } else if (character === '}') {
+      state.braceDepth = Math.max(0, state.braceDepth - 1);
+    } else if (character === '[') {
+      state.bracketDepth += 1;
+    } else if (character === ']') {
+      state.bracketDepth = Math.max(0, state.bracketDepth - 1);
+    }
+  }
+}
+
+function filterExcludedTomlRootAssignments(
+  lines: readonly string[],
+  excludedSectionNames: ReadonlySet<string>
+): string[] {
+  const retainedLines: string[] = [];
+  let excludedValueState: TomlValueContinuationState | null = null;
+
+  for (const line of lines) {
+    if (excludedValueState !== null) {
+      updateTomlValueContinuationState(line, excludedValueState);
+      if (isTomlValueContinuationComplete(excludedValueState)) {
+        excludedValueState = null;
+      }
+      continue;
+    }
+
+    if (!excludedSectionNames.has(getTomlAssignmentSectionName(line) ?? '')) {
+      retainedLines.push(line);
+      continue;
+    }
+
+    const separatorIndex = getTomlAssignmentSeparatorIndex(line);
+    const valueState: TomlValueContinuationState = {
+      bracketDepth: 0,
+      braceDepth: 0,
+      multilineStringDelimiter: null,
+    };
+    updateTomlValueContinuationState(line.slice(separatorIndex + 1), valueState);
+    if (!isTomlValueContinuationComplete(valueState)) {
+      excludedValueState = valueState;
+    }
+  }
+
+  return retainedLines;
+}
+
+function stripTomlSections(content: string, sectionNames: readonly string[]): string {
+  const excludedSectionNames = new Set(sectionNames);
+  const retainedBlocks = splitTomlSectionBlocks(content)
+    .filter((block) => block.sectionName === null || !excludedSectionNames.has(block.sectionName))
+    .map((block) =>
+      block.sectionName === null
+        ? {
+            ...block,
+            lines: filterExcludedTomlRootAssignments(block.lines, excludedSectionNames),
+          }
+        : block
+    )
+    .filter((block) => block.lines.some((line) => line.trim().length > 0));
+  const sanitized = serializeTomlSectionBlocks(retainedBlocks);
+
+  return sanitized ? `${sanitized}\n` : '';
+}
+
+function sanitizeTomlFileSections(filePath: string, sectionNames: readonly string[]): void {
+  if (sectionNames.length === 0 || !existsSync(filePath)) {
+    return;
+  }
+
+  const currentContent = readFileSync(filePath, 'utf8');
+  const sanitizedContent = stripTomlSections(currentContent, sectionNames);
+  if (sanitizedContent !== currentContent) {
+    writeFileSync(filePath, sanitizedContent, { encoding: 'utf8', mode: 0o600 });
+  }
 }
 
 function synchronizeTomlSections(
@@ -215,7 +446,8 @@ function initializeProviderScope(seed: ProviderScopeSeed): boolean {
       for (const fileName of seed.files) {
         copyMissingProviderFile(
           path.join(seed.sourceDir, fileName),
-          path.join(seed.targetDir, fileName)
+          path.join(seed.targetDir, fileName),
+          fileName === 'config.toml' ? seed.excludedTomlSections : undefined
         );
       }
       writeFileSync(markerPath, '1\n', { encoding: 'utf8', mode: 0o600 });
@@ -236,6 +468,10 @@ function initializeProviderScope(seed: ProviderScopeSeed): boolean {
         seed.synchronizedTomlSections
       );
     }
+    sanitizeTomlFileSections(
+      path.join(seed.targetDir, 'config.toml'),
+      seed.excludedTomlSections ?? []
+    );
     return true;
   } catch (error) {
     const errorName = error instanceof Error ? error.name : 'UnknownError';
@@ -260,6 +496,7 @@ export function initializeAppScopedProviderConfig(
   const seeds: ProviderScopeSeed[] = [
     {
       envKey: 'CODEX_HOME',
+      excludedTomlSections: ['mcp_servers'],
       files: ['auth.json', 'config.toml'],
       linkedDirectories: ['.tmp/marketplaces', 'plugins', 'sessions', 'skills', 'skills.disabled'],
       replaceLinkedDirectories: ['.tmp/marketplaces'],

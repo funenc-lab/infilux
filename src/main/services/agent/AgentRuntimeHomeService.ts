@@ -126,6 +126,36 @@ export class AgentRuntimeHomeService {
     }
   }
 
+  async releaseRuntimeHome(homePath: string): Promise<boolean> {
+    const runtimeRootPath = path.resolve(this.runtimeRootPath);
+    const resolvedHomePath = path.resolve(homePath);
+    if (
+      resolvedHomePath === runtimeRootPath ||
+      path.dirname(resolvedHomePath) !== runtimeRootPath
+    ) {
+      return false;
+    }
+
+    const runtimeKey = path.basename(resolvedHomePath);
+    if (sanitizeRuntimeKey(runtimeKey) !== runtimeKey) {
+      return false;
+    }
+
+    return this.runExclusive(runtimeKey, () => {
+      if (!existsSync(resolvedHomePath)) {
+        return false;
+      }
+
+      const stat = lstatSync(resolvedHomePath);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        return false;
+      }
+
+      rmSync(resolvedHomePath, { recursive: true, force: true });
+      return true;
+    });
+  }
+
   pruneOrphanedRuntimeHomes(options: AgentRuntimeHomePruneOptions): AgentRuntimeHomePruneResult {
     const result: AgentRuntimeHomePruneResult = {
       prunedHomePaths: [],

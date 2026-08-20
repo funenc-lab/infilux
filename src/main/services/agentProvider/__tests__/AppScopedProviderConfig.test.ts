@@ -100,6 +100,156 @@ describe('AppScopedProviderConfig', () => {
     );
   });
 
+  it('excludes user MCP configuration from a newly seeded Codex provider scope', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const userConfigPath = join(homeDir, '.codex', 'config.toml');
+
+    writeTextFile(
+      userConfigPath,
+      [
+        'model = "global-model"',
+        'mcp_servers.inline.command = "npx"',
+        '',
+        '[mcp_servers.penpad]',
+        'command = "node"',
+        'args = ["penpad-mcp"]',
+        '',
+        '[marketplaces.review-marketplace]',
+        'source = "https://example.com/review-marketplace.git"',
+      ].join('\n')
+    );
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    const scopedConfig = readFileSync(join(configRoot, 'codex', 'config.toml'), 'utf8');
+    expect(scopedConfig).toContain('model = "global-model"');
+    expect(scopedConfig).toContain('[marketplaces.review-marketplace]');
+    expect(scopedConfig).not.toContain('mcp_servers');
+    expect(readFileSync(userConfigPath, 'utf8')).toContain('[mcp_servers.penpad]');
+  });
+
+  it('removes legacy MCP configuration from an existing Codex provider scope', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const scopedConfigPath = join(configRoot, 'codex', 'config.toml');
+
+    writeTextFile(
+      join(homeDir, '.codex', 'config.toml'),
+      [
+        'model = "global-model"',
+        '',
+        '[plugins."review-plugin@review-marketplace"]',
+        'enabled = true',
+      ].join('\n')
+    );
+    writeTextFile(join(configRoot, 'codex', '.infilux-provider-scope-v1'), '1\n');
+    writeTextFile(
+      scopedConfigPath,
+      [
+        'model = "scoped-model"',
+        'mcp_servers.inline.command = "npx"',
+        '',
+        '[mcp_servers.penpad]',
+        'command = "node"',
+        'args = ["penpad-mcp"]',
+        '',
+        '[plugins."review-plugin@review-marketplace"]',
+        'enabled = true',
+      ].join('\n')
+    );
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    const scopedConfig = readFileSync(scopedConfigPath, 'utf8');
+    expect(scopedConfig).toContain('model = "scoped-model"');
+    expect(scopedConfig).toContain('[plugins."review-plugin@review-marketplace"]');
+    expect(scopedConfig).not.toContain('mcp_servers');
+  });
+
+  it('removes MCP table headers with trailing comments from a scoped Codex config', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const scopedConfigPath = join(configRoot, 'codex', 'config.toml');
+
+    writeTextFile(
+      join(homeDir, '.codex', 'config.toml'),
+      [
+        'model = "global-model"',
+        '',
+        '[plugins."review-plugin@review-marketplace"]',
+        'enabled = true',
+      ].join('\n')
+    );
+    writeTextFile(join(configRoot, 'codex', '.infilux-provider-scope-v1'), '1\n');
+    writeTextFile(
+      scopedConfigPath,
+      [
+        'model = "scoped-model"',
+        '',
+        '[mcp_servers.penpad] # migrated legacy configuration',
+        'command = "node"',
+        'args = ["penpad-mcp"]',
+        '',
+        '[plugins."review-plugin@review-marketplace"]',
+        'enabled = true',
+      ].join('\n')
+    );
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    const scopedConfig = readFileSync(scopedConfigPath, 'utf8');
+    expect(scopedConfig).toContain('model = "scoped-model"');
+    expect(scopedConfig).toContain('[plugins."review-plugin@review-marketplace"]');
+    expect(scopedConfig).not.toContain('mcp_servers');
+    expect(scopedConfig).not.toContain('penpad-mcp');
+  });
+
+  it('removes complete multiline root MCP assignments from a scoped Codex config', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const scopedConfigPath = join(configRoot, 'codex', 'config.toml');
+
+    writeTextFile(
+      join(homeDir, '.codex', 'config.toml'),
+      [
+        'model = "global-model"',
+        '',
+        '[plugins."review-plugin@review-marketplace"]',
+        'enabled = true',
+      ].join('\n')
+    );
+    writeTextFile(join(configRoot, 'codex', '.infilux-provider-scope-v1'), '1\n');
+    writeTextFile(
+      scopedConfigPath,
+      [
+        'model = "scoped-model"',
+        'mcp_servers = {',
+        '  penpad = { command = "node", args = ["penpad-mcp"] },',
+        '  codegraph = { command = "codegraph" },',
+        '}',
+        'log_level = "info"',
+        '',
+        '[plugins."review-plugin@review-marketplace"]',
+        'enabled = true',
+      ].join('\n')
+    );
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    const scopedConfig = readFileSync(scopedConfigPath, 'utf8');
+    expect(scopedConfig).toContain('model = "scoped-model"');
+    expect(scopedConfig).toContain('log_level = "info"');
+    expect(scopedConfig).toContain('[plugins."review-plugin@review-marketplace"]');
+    expect(scopedConfig).not.toContain('mcp_servers');
+    expect(scopedConfig).not.toContain('penpad-mcp');
+    expect(scopedConfig).not.toContain('codegraph');
+  });
+
   it('does not re-import later changes from the global EnsoAI-compatible configuration', () => {
     const root = createTemporaryRoot();
     const homeDir = join(root, 'home');

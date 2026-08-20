@@ -22,8 +22,9 @@ import type {
   PreparedAgentCapabilityLaunch,
 } from './AgentCapabilityProviderAdapter';
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
+import { resolveUserCodexHome } from './CodexHomePaths';
 import { type CodexRuntimeHomeService, codexRuntimeHomeService } from './CodexRuntimeHomeService';
-import { shouldShareCodexSessionHistory } from './CodexSessionHistoryPolicy';
+import { resolveCodexWorkspaceSessionHistoryPath } from './CodexWorkspaceSessionHistory';
 
 export interface CodexCapabilityProviderAdapterDependencies {
   listClaudeCapabilityCatalog?: typeof listClaudeCapabilityCatalog;
@@ -509,9 +510,19 @@ export function createCodexCapabilityProviderAdapter(
         sessionOptions.metadata.uiSessionId.length > 0
           ? sessionOptions.metadata.uiSessionId
           : undefined;
-      const runtimeHome = runtimeHomeService.prepareRuntimeHome(
+      const runtimeHome = await runtimeHomeService.prepareRuntimeHome(
         uiSessionId ?? `${request.worktreePath}:${Date.now()}`,
-        { shareSessions: shouldShareCodexSessionHistory(sessionOptions) }
+        {
+          sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath({
+            repoPath: request.repoPath,
+            worktreePath: request.worktreePath,
+          }),
+          sessionHistoryScope: {
+            repoPath: request.repoPath,
+            worktreePath: request.worktreePath,
+          },
+          legacySessionPaths: [path.join(resolveUserCodexHome(), 'sessions')],
+        }
       );
       const sessionOverrides: AgentCapabilitySessionOverrides = {
         ...(projection.sessionOverrides ?? {}),

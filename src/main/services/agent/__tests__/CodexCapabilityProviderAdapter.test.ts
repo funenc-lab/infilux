@@ -457,10 +457,10 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
     const resolveCapabilityMcpConfigEntriesFn = vi.fn().mockResolvedValue(createMcpConfigs());
     const codexRuntimeHomeService = {
-      prepareRuntimeHome: vi.fn(() => ({
+      prepareRuntimeHome: vi.fn().mockResolvedValue({
         homePath: '/runtime/codex/ui-session-1',
         sourceHomePath: '/Users/test/.codex',
-      })),
+      }),
     };
     const adapter = createCodexCapabilityProviderAdapter({
       listClaudeCapabilityCatalog,
@@ -500,7 +500,12 @@ describe('CodexCapabilityProviderAdapter', () => {
       worktreePath: '/repo/worktrees/feat-a',
     });
     expect(codexRuntimeHomeService.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-1', {
-      shareSessions: false,
+      sessionHistoryPath: expect.stringContaining('codex-session-histories'),
+      sessionHistoryScope: {
+        repoPath: '/repo',
+        worktreePath: '/repo/worktrees/feat-a',
+      },
+      legacySessionPaths: [expect.stringMatching(/\.codex\/sessions$/)],
     });
     expect(result.launchResult).toMatchObject({
       provider: 'codex',

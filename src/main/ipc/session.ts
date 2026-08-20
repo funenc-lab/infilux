@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   IPC_CHANNELS,
   type SessionAttachOptions,
@@ -13,8 +14,9 @@ import {
   resolveAgentCapabilityLaunchRequest,
 } from '../services/agent/AgentCapabilityLaunchService';
 import type { PreparedAgentCapabilityLaunch } from '../services/agent/AgentCapabilityProviderAdapter';
+import { resolveUserCodexHome } from '../services/agent/CodexHomePaths';
 import { codexRuntimeHomeService } from '../services/agent/CodexRuntimeHomeService';
-import { shouldShareCodexSessionHistory } from '../services/agent/CodexSessionHistoryPolicy';
+import { resolveCodexWorkspaceSessionHistoryPath } from '../services/agent/CodexWorkspaceSessionHistory';
 import { sessionManager } from '../services/session/SessionManager';
 
 function toSessionCreateOptions(options: TerminalCreateOptions = {}): SessionCreateOptions {
@@ -118,7 +120,9 @@ function isCodexAgentSession(options: SessionCreateOptions): boolean {
   );
 }
 
-function ensureCodexRuntimeHome(options: SessionCreateOptions): SessionCreateOptions {
+async function ensureCodexRuntimeHome(
+  options: SessionCreateOptions
+): Promise<SessionCreateOptions> {
   if (!isCodexAgentSession(options) || options.env?.CODEX_HOME) {
     return options;
   }
@@ -128,9 +132,22 @@ function ensureCodexRuntimeHome(options: SessionCreateOptions): SessionCreateOpt
     typeof metadata.uiSessionId === 'string' && metadata.uiSessionId.length > 0
       ? metadata.uiSessionId
       : undefined;
-  const runtimeHome = codexRuntimeHomeService.prepareRuntimeHome(
+  const worktreePath =
+    options.cwd ?? (typeof metadata.worktreePath === 'string' ? metadata.worktreePath : undefined);
+  const sessionHistoryPath = resolveCodexWorkspaceSessionHistoryPath({
+    repoPath: typeof metadata.repoPath === 'string' ? metadata.repoPath : undefined,
+    worktreePath,
+  });
+  const runtimeHome = await codexRuntimeHomeService.prepareRuntimeHome(
     uiSessionId ?? `${options.cwd ?? 'codex'}:${Date.now()}`,
-    { shareSessions: shouldShareCodexSessionHistory(options) }
+    {
+      sessionHistoryPath,
+      sessionHistoryScope: {
+        repoPath: typeof metadata.repoPath === 'string' ? metadata.repoPath : undefined,
+        worktreePath,
+      },
+      legacySessionPaths: [path.join(resolveUserCodexHome(), 'sessions')],
+    }
   );
 
   return {

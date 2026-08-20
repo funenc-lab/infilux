@@ -8,12 +8,13 @@ import type {
 } from '@shared/types';
 import { normalizeAgentSessionTitleText } from '@shared/utils/agentSessionTitle';
 import { resolveCodexSessionsDir } from './CodexHomePaths';
+import { resolveCodexWorkspaceSessionHistoryPath } from './CodexWorkspaceSessionHistory';
 import { findCodexSessionFileByThreadId } from './codexSessionMetadata';
 import { closeFileLineReader, createFileLineReader } from './fileLineReader';
 
 const SESSION_DISCOVERY_CLOCK_SKEW_MS = 5_000;
 const SESSION_DISCOVERY_MAX_START_AGE_MS = 2 * 60_000;
-type CodexSessionsDirProvider = string | (() => string);
+type CodexSessionsDirProvider = string | ((cwd?: string) => string);
 
 interface CodexSessionMeta {
   threadId: string;
@@ -252,7 +253,9 @@ async function readCodexFirstUserMessage(filePath: string): Promise<string | nul
   return null;
 }
 
-function createCodexSessionsDirResolver(provider: CodexSessionsDirProvider): () => string {
+function createCodexSessionsDirResolver(
+  provider: CodexSessionsDirProvider
+): (cwd?: string) => string {
   if (typeof provider === 'string') {
     return () => provider;
   }
@@ -311,9 +314,14 @@ export class AgentProviderSessionService {
   private readonly uiSessionIdByProviderSessionId = new Map<string, string>();
   private readonly pendingDiscoveryByUiSessionId = new Map<string, PendingSessionDiscovery>();
   private readonly activeResolutionTokenByUiSessionId = new Map<string, symbol>();
-  private readonly resolveCodexSessionsDir: () => string;
+  private readonly resolveCodexSessionsDir: (cwd?: string) => string;
 
-  constructor(codexSessionsDir: CodexSessionsDirProvider = resolveCodexSessionsDir) {
+  constructor(
+    codexSessionsDir: CodexSessionsDirProvider = (cwd) =>
+      cwd
+        ? resolveCodexWorkspaceSessionHistoryPath({ worktreePath: cwd })
+        : resolveCodexSessionsDir()
+  ) {
     this.resolveCodexSessionsDir = createCodexSessionsDirResolver(codexSessionsDir);
   }
 
@@ -370,7 +378,7 @@ export class AgentProviderSessionService {
     try {
       if (requestedProviderSessionId) {
         const sessionFile = await findCodexSessionFileByThreadId(
-          this.resolveCodexSessionsDir(),
+          this.resolveCodexSessionsDir(request.cwd),
           requestedProviderSessionId
         );
         if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
@@ -393,7 +401,7 @@ export class AgentProviderSessionService {
 
       const { earliestStartedAt, latestStartedAt, sortTargetAt } =
         discoveryWindow ?? resolveSessionDiscoveryWindow(request);
-      const codexSessionsDir = this.resolveCodexSessionsDir();
+      const codexSessionsDir = this.resolveCodexSessionsDir(request.cwd);
       const candidateFiles = await listCandidateSessionFiles(
         codexSessionsDir,
         earliestStartedAt,
@@ -482,7 +490,7 @@ export class AgentProviderSessionService {
     }
 
     const sessionFile = await findCodexSessionFileByThreadId(
-      this.resolveCodexSessionsDir(),
+      this.resolveCodexSessionsDir(request.cwd),
       request.providerSessionId
     );
     if (!sessionFile) {

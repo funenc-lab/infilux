@@ -121,7 +121,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     });
 
     prepareRuntimeHome.mockReset();
-    prepareRuntimeHome.mockReturnValue({
+    prepareRuntimeHome.mockResolvedValue({
       homePath: '/runtime/codex/session-1',
       sourceHomePath: '/Users/test/.codex',
     });
@@ -346,7 +346,7 @@ describe('session IPC handlers', () => {
     expect(sessionTestDoubles.destroyAllLocalAndWait).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves shell-config launch options and isolates plain Codex agent sessions', async () => {
+  it('preserves shell-config launch options and scopes plain Codex history to its worktree', async () => {
     const event = createEvent();
 
     const { registerSessionHandlers } = await import('../session');
@@ -368,7 +368,12 @@ describe('session IPC handlers', () => {
     });
 
     expect(sessionTestDoubles.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-plain-codex', {
-      shareSessions: false,
+      sessionHistoryPath: expect.stringContaining('codex-session-histories'),
+      sessionHistoryScope: {
+        repoPath: undefined,
+        worktreePath: '/repo',
+      },
+      legacySessionPaths: [expect.stringMatching(/\.codex\/sessions$/)],
     });
     expect(sessionTestDoubles.create).toHaveBeenCalledWith(
       event.sender,
@@ -394,7 +399,7 @@ describe('session IPC handlers', () => {
     );
   });
 
-  it('shares Codex history only for explicit resume launches', async () => {
+  it('uses the same worktree-scoped Codex history for explicit resume launches', async () => {
     const event = createEvent();
 
     const { registerSessionHandlers } = await import('../session');
@@ -415,7 +420,12 @@ describe('session IPC handlers', () => {
     });
 
     expect(sessionTestDoubles.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-resume-codex', {
-      shareSessions: true,
+      sessionHistoryPath: expect.stringContaining('codex-session-histories'),
+      sessionHistoryScope: {
+        repoPath: undefined,
+        worktreePath: '/repo',
+      },
+      legacySessionPaths: [expect.stringMatching(/\.codex\/sessions$/)],
     });
   });
 

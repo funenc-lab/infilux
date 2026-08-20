@@ -58,6 +58,94 @@ async function writeCodexTranscriptFile(params: {
 }
 
 describe('AgentProviderSessionService', () => {
+  it('discovers Codex sessions from the current worktree history', async () => {
+    const worktreeAHistory = await mkdtemp(
+      path.join(os.tmpdir(), 'agent-provider-worktree-a-test-')
+    );
+    const worktreeBHistory = await mkdtemp(
+      path.join(os.tmpdir(), 'agent-provider-worktree-b-test-')
+    );
+    TEMP_DIRECTORIES.push(worktreeAHistory, worktreeBHistory);
+
+    await writeCodexSessionFile({
+      rootDir: worktreeAHistory,
+      dayPath: '2026/08/20',
+      threadId: 'worktree-a-session',
+      cwd: '/repo/worktree-a',
+      timestamp: '2026-08-20T01:14:40.000Z',
+    });
+
+    const service = new AgentProviderSessionService((cwd?: string) =>
+      cwd === '/repo/worktree-a' ? worktreeAHistory : worktreeBHistory
+    );
+    const result = await service.resolveProviderSession({
+      agentCommand: 'codex',
+      cwd: '/repo/worktree-a',
+      createdAt: Date.parse('2026-08-20T01:14:30.000Z'),
+      observedAt: Date.parse('2026-08-20T01:14:45.000Z'),
+    });
+
+    expect(result).toEqual({ providerSessionId: 'worktree-a-session' });
+  });
+
+  it('reads a provider title from the current worktree history', async () => {
+    const worktreeAHistory = await mkdtemp(
+      path.join(os.tmpdir(), 'agent-provider-worktree-title-a-test-')
+    );
+    const worktreeBHistory = await mkdtemp(
+      path.join(os.tmpdir(), 'agent-provider-worktree-title-b-test-')
+    );
+    TEMP_DIRECTORIES.push(worktreeAHistory, worktreeBHistory);
+    const providerSessionId = 'shared-provider-session-id';
+
+    await writeCodexTranscriptFile({
+      rootDir: worktreeAHistory,
+      dayPath: '2026/08/20',
+      threadId: providerSessionId,
+      lines: [
+        { type: 'session_meta', payload: { id: providerSessionId, cwd: '/repo/worktree-a' } },
+        { type: 'event_msg', payload: { type: 'task_started' } },
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Title from worktree A' }],
+          },
+        },
+      ],
+    });
+    await writeCodexTranscriptFile({
+      rootDir: worktreeBHistory,
+      dayPath: '2026/08/20',
+      threadId: providerSessionId,
+      lines: [
+        { type: 'session_meta', payload: { id: providerSessionId, cwd: '/repo/worktree-b' } },
+        { type: 'event_msg', payload: { type: 'task_started' } },
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Title from worktree B' }],
+          },
+        },
+      ],
+    });
+
+    const service = new AgentProviderSessionService((cwd?: string) =>
+      cwd === '/repo/worktree-a' ? worktreeAHistory : worktreeBHistory
+    );
+
+    await expect(
+      service.readProviderSessionTitle({
+        agentCommand: 'codex',
+        providerSessionId,
+        cwd: '/repo/worktree-a',
+      })
+    ).resolves.toEqual({ title: 'Title from worktree A' });
+  });
+
   it('resolves the nearest codex provider session id for the same cwd inside the startup window', async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
     TEMP_DIRECTORIES.push(tempRoot);
@@ -743,17 +831,18 @@ describe('AgentProviderSessionService', () => {
     ).resolves.toEqual({ providerSessionId: 'codex-current-session' });
   });
 
-  it('resolves codex sessions from the current CODEX_HOME when no sessions directory is injected', async () => {
+  it('does not discover worktree sessions from the app-scoped CODEX_HOME', async () => {
     const originalCodexHome = process.env.CODEX_HOME;
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-session-test-'));
     TEMP_DIRECTORIES.push(tempRoot);
     const codexHome = path.join(tempRoot, 'codex-home');
+    const worktreePath = path.join(tempRoot, 'worktree');
 
     await writeCodexSessionFile({
       rootDir: path.join(codexHome, 'sessions'),
       dayPath: '2026/05/01',
       threadId: 'codex-scoped-home-session',
-      cwd: '/repo/worktree-scoped-home',
+      cwd: worktreePath,
       timestamp: '2026-05-01T08:12:16.200Z',
     });
 
@@ -768,13 +857,11 @@ describe('AgentProviderSessionService', () => {
       await expect(
         service.resolveProviderSession({
           agentCommand: 'codex',
-          cwd: '/repo/worktree-scoped-home',
+          cwd: worktreePath,
           createdAt: Date.parse('2026-05-01T08:12:10.000Z'),
           observedAt: Date.parse('2026-05-01T08:12:18.000Z'),
         })
-      ).resolves.toEqual({
-        providerSessionId: 'codex-scoped-home-session',
-      });
+      ).resolves.toEqual({ providerSessionId: null });
     } finally {
       if (originalCodexHome === undefined) {
         delete process.env.CODEX_HOME;

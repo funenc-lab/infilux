@@ -1,10 +1,10 @@
 import {
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readlinkSync,
+  renameSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -18,11 +18,17 @@ import {
   AgentRuntimeHomeService,
 } from './AgentRuntimeHomeService';
 import { resolveSourceCodexHome } from './CodexHomePaths';
+import {
+  type CodexWorkspaceSessionHistoryScope,
+  migrateCodexWorkspaceSessionHistory,
+} from './CodexWorkspaceSessionHistory';
 
 export type CodexRuntimeHomeResult = AgentRuntimeHomeResult;
 
 export interface CodexRuntimeHomeOptions {
-  shareSessions?: boolean;
+  sessionHistoryPath: string;
+  sessionHistoryScope: CodexWorkspaceSessionHistoryScope;
+  legacySessionPaths?: readonly string[];
 }
 
 const SAFE_SHARED_CODEX_ENTRIES = [
@@ -46,44 +52,26 @@ function resolveSymlinkTarget(linkPath: string, linkValue: string): string {
   return path.resolve(path.dirname(linkPath), linkValue);
 }
 
-function copyMissingTreeContents(sourceDir: string, targetDir: string): void {
-  if (!existsSync(sourceDir)) {
-    return;
+function resolveLegacyRuntimeSessionsPath(runtimeSessionsPath: string): string {
+  const basePath = `${runtimeSessionsPath}.legacy-${Date.now()}`;
+  let candidatePath = basePath;
+  let suffix = 1;
+
+  while (existsSync(candidatePath)) {
+    candidatePath = `${basePath}-${suffix}`;
+    suffix += 1;
   }
 
-  mkdirSync(targetDir, { recursive: true });
-
-  for (const entryName of readdirSync(sourceDir)) {
-    const sourcePath = path.join(sourceDir, entryName);
-    const targetPath = path.join(targetDir, entryName);
-    const sourceStat = lstatSync(sourcePath);
-
-    if (sourceStat.isDirectory() && !sourceStat.isSymbolicLink()) {
-      copyMissingTreeContents(sourcePath, targetPath);
-      continue;
-    }
-
-    if (existsSync(targetPath)) {
-      continue;
-    }
-
-    if (sourceStat.isSymbolicLink()) {
-      symlinkSync(readlinkSync(sourcePath), targetPath);
-      continue;
-    }
-
-    if (sourceStat.isFile()) {
-      mkdirSync(path.dirname(targetPath), { recursive: true });
-      copyFileSync(sourcePath, targetPath);
-    }
-  }
+  return candidatePath;
 }
 
-function ensureSharedCodexRuntimeSessions(sourceHomePath: string, runtimeHomePath: string): void {
-  const sourceSessionsPath = path.join(sourceHomePath, 'sessions');
+function ensureWorkspaceCodexRuntimeSessions(
+  sessionHistoryPath: string,
+  runtimeHomePath: string
+): void {
   const runtimeSessionsPath = path.join(runtimeHomePath, 'sessions');
 
-  mkdirSync(sourceSessionsPath, { recursive: true });
+  mkdirSync(sessionHistoryPath, { recursive: true });
 
   if (existsSync(runtimeSessionsPath)) {
     const runtimeSessionsStat = lstatSync(runtimeSessionsPath);
@@ -92,38 +80,19 @@ function ensureSharedCodexRuntimeSessions(sourceHomePath: string, runtimeHomePat
         runtimeSessionsPath,
         readlinkSync(runtimeSessionsPath)
       );
-      if (linkedTarget === path.resolve(sourceSessionsPath)) {
+      if (linkedTarget === path.resolve(sessionHistoryPath)) {
         return;
       }
       unlinkSync(runtimeSessionsPath);
     } else if (runtimeSessionsStat.isDirectory()) {
-      copyMissingTreeContents(runtimeSessionsPath, sourceSessionsPath);
-      rmSync(runtimeSessionsPath, { recursive: true, force: true });
+      renameSync(runtimeSessionsPath, resolveLegacyRuntimeSessionsPath(runtimeSessionsPath));
     } else {
-      return;
+      throw new Error(`Unexpected Codex sessions path: ${runtimeSessionsPath}`);
     }
   }
 
   const symlinkType = process.platform === 'win32' ? 'junction' : undefined;
-  symlinkSync(sourceSessionsPath, runtimeSessionsPath, symlinkType);
-}
-
-function ensureIsolatedCodexRuntimeSessions(runtimeHomePath: string): void {
-  const runtimeSessionsPath = path.join(runtimeHomePath, 'sessions');
-
-  if (existsSync(runtimeSessionsPath)) {
-    const runtimeSessionsStat = lstatSync(runtimeSessionsPath);
-    if (runtimeSessionsStat.isDirectory() && !runtimeSessionsStat.isSymbolicLink()) {
-      return;
-    }
-    if (runtimeSessionsStat.isSymbolicLink()) {
-      unlinkSync(runtimeSessionsPath);
-    } else {
-      return;
-    }
-  }
-
-  mkdirSync(runtimeSessionsPath, { recursive: true });
+  symlinkSync(sessionHistoryPath, runtimeSessionsPath, symlinkType);
 }
 
 function ensureSharedCodexMarketplaceSnapshots(
@@ -165,6 +134,7 @@ function ensureSharedCodexMarketplaceSnapshots(
 
 export class CodexRuntimeHomeService {
   private delegate: AgentRuntimeHomeService | null = null;
+  private readonly workspaceMigrationLocks = new Map<string, Promise<void>>();
 
   constructor(
     private readonly sourceHomePath?: string,
@@ -183,22 +153,85 @@ export class CodexRuntimeHomeService {
     return this.delegate;
   }
 
-  prepareRuntimeHome(
+  private collectRuntimeSessionPaths(): string[] {
+    if (!existsSync(this.runtimeRootPath)) {
+      return [];
+    }
+
+    try {
+      return readdirSync(this.runtimeRootPath, { withFileTypes: true }).flatMap((entry) => {
+        if (!entry.isDirectory() || entry.isSymbolicLink()) {
+          return [];
+        }
+
+        const runtimeHomePath = path.join(this.runtimeRootPath, entry.name);
+        try {
+          return readdirSync(runtimeHomePath, { withFileTypes: true })
+            .filter(
+              (runtimeEntry) =>
+                runtimeEntry.name === 'sessions' || runtimeEntry.name.startsWith('sessions.legacy-')
+            )
+            .map((runtimeEntry) => path.join(runtimeHomePath, runtimeEntry.name));
+        } catch {
+          return [];
+        }
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private async runWorkspaceMigration<T>(
+    sessionHistoryPath: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const lockKey = path.resolve(sessionHistoryPath);
+    const previousLock = this.workspaceMigrationLocks.get(lockKey) ?? Promise.resolve();
+    let releaseCurrentLock: () => void = () => undefined;
+    const currentLock = new Promise<void>((resolve) => {
+      releaseCurrentLock = resolve;
+    });
+    const trackedLock = previousLock.catch(() => undefined).then(() => currentLock);
+    this.workspaceMigrationLocks.set(lockKey, trackedLock);
+
+    await previousLock.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      releaseCurrentLock();
+      if (this.workspaceMigrationLocks.get(lockKey) === trackedLock) {
+        this.workspaceMigrationLocks.delete(lockKey);
+      }
+    }
+  }
+
+  async prepareRuntimeHome(
     runtimeKey: string,
-    options: CodexRuntimeHomeOptions = {}
-  ): CodexRuntimeHomeResult {
+    options: CodexRuntimeHomeOptions
+  ): Promise<CodexRuntimeHomeResult> {
     const runtimeHome = this.getDelegate().prepareRuntimeHome(runtimeKey);
     ensureSharedCodexMarketplaceSnapshots(runtimeHome.sourceHomePath, runtimeHome.homePath);
-    if (options.shareSessions) {
-      ensureSharedCodexRuntimeSessions(runtimeHome.sourceHomePath, runtimeHome.homePath);
-    } else {
-      ensureIsolatedCodexRuntimeSessions(runtimeHome.homePath);
-    }
+    await this.runWorkspaceMigration(options.sessionHistoryPath, async () => {
+      await migrateCodexWorkspaceSessionHistory({
+        sessionHistoryPath: options.sessionHistoryPath,
+        sourceSessionsPaths: [
+          ...(options.legacySessionPaths ?? []),
+          path.join(runtimeHome.sourceHomePath, 'sessions'),
+          ...this.collectRuntimeSessionPaths(),
+        ],
+        worktreePath: options.sessionHistoryScope.worktreePath ?? '',
+      });
+    });
+    ensureWorkspaceCodexRuntimeSessions(options.sessionHistoryPath, runtimeHome.homePath);
     return runtimeHome;
   }
 
   async runExclusive<T>(runtimeKey: string, operation: () => Promise<T> | T): Promise<T> {
     return this.getDelegate().runExclusive(runtimeKey, operation);
+  }
+
+  async releaseRuntimeHome(homePath: string): Promise<boolean> {
+    return this.getDelegate().releaseRuntimeHome(homePath);
   }
 
   pruneOrphanedRuntimeHomes(options: AgentRuntimeHomePruneOptions): AgentRuntimeHomePruneResult {
