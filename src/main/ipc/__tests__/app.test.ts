@@ -14,6 +14,7 @@ const appHandlerTestDoubles = vi.hoisted(() => {
   const testProxy = vi.fn();
   const getResourceSnapshot = vi.fn();
   const executeResourceAction = vi.fn();
+  const listFontCatalog = vi.fn();
 
   function reset() {
     handlers.clear();
@@ -44,6 +45,11 @@ const appHandlerTestDoubles = vi.hoisted(() => {
       kind: 'kill-session',
       message: 'done',
     });
+    listFontCatalog.mockReset();
+    listFontCatalog.mockResolvedValue({
+      families: ['Menlo', 'PingFang SC'],
+      monospaceFamilies: ['Menlo'],
+    });
   }
 
   return {
@@ -57,6 +63,7 @@ const appHandlerTestDoubles = vi.hoisted(() => {
     testProxy,
     getResourceSnapshot,
     executeResourceAction,
+    listFontCatalog,
     reset,
   };
 });
@@ -97,6 +104,12 @@ vi.mock('../../services/app/AppResourceManager', () => ({
   appResourceManager: {
     getSnapshot: appHandlerTestDoubles.getResourceSnapshot,
     executeAction: appHandlerTestDoubles.executeResourceAction,
+  },
+}));
+
+vi.mock('../../services/app/SystemFontService', () => ({
+  systemFontService: {
+    listFontCatalog: appHandlerTestDoubles.listFontCatalog,
   },
 }));
 
@@ -156,5 +169,16 @@ describe('app IPC handlers', () => {
       event.sender,
       event.sender
     );
+  });
+
+  it('returns locally available font families through the app capability boundary', async () => {
+    const { registerAppHandlers } = await import('../app');
+    registerAppHandlers();
+
+    await expect(getHandler(IPC_CHANNELS.APP_LIST_SYSTEM_FONT_FAMILIES)({})).resolves.toEqual({
+      families: ['Menlo', 'PingFang SC'],
+      monospaceFamilies: ['Menlo'],
+    });
+    expect(appHandlerTestDoubles.listFontCatalog).toHaveBeenCalledOnce();
   });
 });

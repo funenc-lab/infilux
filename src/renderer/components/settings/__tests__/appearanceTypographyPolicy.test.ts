@@ -22,16 +22,30 @@ describe('appearance typography policy', () => {
     );
   });
 
-  it('offers interface font selection through the recommended picker only', () => {
-    expect(appearanceSettingsSource).toContain("t('Recommended font stack')");
+  it('offers interface font selection through a concrete font-family picker', () => {
+    expect(appearanceSettingsSource).toContain("from './FontFamilyPresetSelect'");
     expect(appearanceSettingsSource).toContain('buildInterfaceFontPresetSelection');
-    expect(appearanceSettingsSource).toContain('value={uiFontPresetSelection.selectedId}');
-    expect(appearanceSettingsSource).toContain('{t(uiFontPresetSelection.selectedLabel)}');
-    expect(appearanceSettingsSource).toContain('uiFontPresetSelection.options.map((option) => (');
-    expect(appearanceSettingsSource).toContain('if (!nextPreset?.fontFamily)');
-    expect(appearanceSettingsSource).toContain('setLocalAppFontFamily(nextPreset.fontFamily)');
+    expect(appearanceSettingsSource).toContain('<FontFamilyPresetSelect');
+    expect(appearanceSettingsSource).toContain('label="Font family"');
+    expect(appearanceSettingsSource).not.toContain('label="Recommended font stack"');
+    expect(appearanceSettingsSource).toContain(
+      'applyFontPresetSelection(uiFontPresetSelection, presetId, setAppFontFamily)'
+    );
     expect(appearanceSettingsSource).not.toContain('const applyAppFontFamilyChange');
-    expect(appearanceSettingsSource).not.toContain('value={localAppFontFamily}');
+    expect(appearanceSettingsSource).not.toContain('localAppFontFamily');
     expect(appearanceSettingsSource).not.toContain('placeholder="system-ui, sans-serif"');
+  });
+
+  it('places interface typography before the color scheme browser', () => {
+    const interfaceTypographyIndex = appearanceSettingsSource.indexOf(
+      '<h3 className="ui-type-section-title">{t(\'Interface typography\')}</h3>'
+    );
+    const colorSchemeIndex = appearanceSettingsSource.indexOf(
+      '<h3 className="ui-type-section-title">{t(\'Color scheme\')}</h3>'
+    );
+
+    expect(interfaceTypographyIndex).toBeGreaterThanOrEqual(0);
+    expect(colorSchemeIndex).toBeGreaterThanOrEqual(0);
+    expect(interfaceTypographyIndex).toBeLessThan(colorSchemeIndex);
   });
 });

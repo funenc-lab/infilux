@@ -11,6 +11,7 @@ export * from './claude';
 export * from './claudePolicy';
 export * from './cli';
 export * from './file';
+export * from './font';
 export * from './git';
 export * from './ipc';
 export * from './log';

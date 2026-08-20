@@ -10,6 +10,8 @@ import {
   type ResolvedThemeMode,
 } from '@/lib/appTheme';
 import type { ColorPreset, CustomThemeDocument, Theme } from '@/stores/settings';
+import { FontFamilyPresetSelect } from './FontFamilyPresetSelect';
+import type { FontPresetSelection } from './interfaceFontPresetModel';
 
 const protectedThemeTokenKeys = new Set<string>(APP_THEME_PROTECTED_TOKEN_KEYS);
 
@@ -56,7 +58,9 @@ interface AppearanceThemeEditorViewProps {
   editorFontSize: number;
   editorFontFamily: string;
   editorLineHeight: number;
+  uiFontPresetSelection: FontPresetSelection;
   onBack: () => void;
+  onUIFontPresetChange: (value: string | null) => void;
   onTokenEditorModeChange: (mode: ResolvedThemeMode) => void;
   onRename: (name: string) => void;
   onDelete: () => void;
@@ -80,7 +84,9 @@ export function AppearanceThemeEditorView({
   editorFontSize,
   editorFontFamily,
   editorLineHeight,
+  uiFontPresetSelection,
   onBack,
+  onUIFontPresetChange,
   onTokenEditorModeChange,
   onRename,
   onDelete,
@@ -160,6 +166,20 @@ export function AppearanceThemeEditorView({
                 'Changes apply immediately to the current theme preview while semantic status tokens remain protected.'
               )}
             </p>
+          </div>
+
+          <div className="control-panel-muted space-y-3 rounded-xl p-4">
+            <div>
+              <p className="text-sm font-medium">{t('Interface typography')}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {t('Choose the font stack used across the app interface.')}
+              </p>
+            </div>
+            <FontFamilyPresetSelect
+              label="Font family"
+              selection={uiFontPresetSelection}
+              onValueChange={onUIFontPresetChange}
+            />
           </div>
 
           {APP_THEME_TOKEN_GROUPS.map((group) => (

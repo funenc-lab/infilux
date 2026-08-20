@@ -340,6 +340,18 @@ describe('preload bridge', () => {
         expected: [IPC_CHANNELS.APP_GET_PATH, 'logs'],
       },
       {
+        run: () =>
+          (
+            api.app as unknown as {
+              listSystemFontFamilies: () => Promise<{
+                families: string[];
+                monospaceFamilies: string[];
+              }>;
+            }
+          ).listSystemFontFamilies(),
+        expected: [IPC_CHANNELS.APP_LIST_SYSTEM_FONT_FAMILIES],
+      },
+      {
         run: () => api.app.setLanguage('en'),
         expected: [IPC_CHANNELS.APP_SET_LANGUAGE, 'en'],
       },

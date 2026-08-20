@@ -14,6 +14,8 @@ import { useI18n } from '@/i18n';
 import type { XtermTheme } from '@/lib/ghosttyTheme';
 import type { FontWeight } from '@/stores/settings';
 import { fontWeightOptions } from './constants';
+import { FontFamilyPresetSelect } from './FontFamilyPresetSelect';
+import type { FontPresetSelection } from './interfaceFontPresetModel';
 
 interface ThemeComboboxProps {
   value: string;
@@ -36,7 +38,8 @@ interface TerminalPreviewProps {
 interface AppearanceTerminalSettingsSectionProps {
   terminalPreviewTheme: XtermTheme;
   localFontSize: number;
-  localFontFamily: string;
+  fontFamily: string;
+  fontSelection: FontPresetSelection;
   terminalFontWeight: string;
   terminalFontWeightBold: string;
   terminalTheme: string;
@@ -49,8 +52,7 @@ interface AppearanceTerminalSettingsSectionProps {
   onThemeChange: (value: string | null) => void;
   onToggleFavoriteTheme: (theme: string) => void;
   onShowFavoritesOnlyChange: (checked: boolean) => void;
-  onFontFamilyChange: (value: string) => void;
-  onFontFamilyCommit: () => void;
+  onFontPresetChange: (value: string | null) => void;
   onFontSizeChange: (value: number) => void;
   onFontSizeCommit: () => void;
   onFontWeightChange: (value: FontWeight) => void;
@@ -62,7 +64,8 @@ interface AppearanceTerminalSettingsSectionProps {
 export function AppearanceTerminalSettingsSection({
   terminalPreviewTheme,
   localFontSize,
-  localFontFamily,
+  fontFamily,
+  fontSelection,
   terminalFontWeight,
   terminalFontWeightBold,
   terminalTheme,
@@ -75,8 +78,7 @@ export function AppearanceTerminalSettingsSection({
   onThemeChange,
   onToggleFavoriteTheme,
   onShowFavoritesOnlyChange,
-  onFontFamilyChange,
-  onFontFamilyCommit,
+  onFontPresetChange,
   onFontSizeChange,
   onFontSizeCommit,
   onFontWeightChange,
@@ -85,8 +87,8 @@ export function AppearanceTerminalSettingsSection({
   TerminalPreview,
 }: AppearanceTerminalSettingsSectionProps) {
   const { t } = useI18n();
-  const resolvedFontFamily = localFontFamily.trim()
-    ? localFontFamily
+  const resolvedFontFamily = fontFamily.trim()
+    ? fontFamily
     : 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
 
   return (
@@ -158,21 +160,11 @@ export function AppearanceTerminalSettingsSection({
             </CollapsibleTrigger>
           </div>
           <CollapsibleContent className="mt-4 space-y-3">
-            <div className="settings-field-row">
-              <span className="text-sm font-medium">{t('Font')}</span>
-              <Input
-                value={localFontFamily}
-                onChange={(e) => onFontFamilyChange(e.target.value)}
-                onBlur={onFontFamilyCommit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    onFontFamilyCommit();
-                    e.currentTarget.blur();
-                  }
-                }}
-                placeholder="JetBrains Mono, monospace"
-              />
-            </div>
+            <FontFamilyPresetSelect
+              label="Font"
+              selection={fontSelection}
+              onValueChange={onFontPresetChange}
+            />
 
             <div className="settings-field-row">
               <span className="text-sm font-medium">{t('Font size')}</span>

@@ -90,6 +90,7 @@ import type {
   SessionTranscriptPageRequest,
   ShellConfig,
   ShellInfo,
+  SystemFontCatalog,
   TempWorkspaceCheckResult,
   TempWorkspaceCreateResult,
   TempWorkspaceItem,
@@ -664,6 +665,8 @@ const electronAPI = {
   // App
   app: {
     getPath: (name: string): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PATH, name),
+    listSystemFontFamilies: (): Promise<SystemFontCatalog> =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_LIST_SYSTEM_FONT_FAMILIES),
     onUpdateAvailable: (callback: (info: unknown) => void): (() => void) => {
       const handler = (_: unknown, info: unknown) => callback(info);
       ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_AVAILABLE, handler);

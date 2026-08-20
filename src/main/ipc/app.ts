@@ -5,6 +5,7 @@ import { appDetector } from '../services/app/AppDetector';
 import { appResourceManager } from '../services/app/AppResourceManager';
 import { validateLocalPath } from '../services/app/PathValidator';
 import { getRecentProjects } from '../services/app/RecentProjectsService';
+import { systemFontService } from '../services/app/SystemFontService';
 import { applyProxy, testProxy } from '../services/proxy/ProxyConfig';
 import { buildRuntimeMemorySnapshot } from '../utils/runtimeMemory';
 
@@ -59,6 +60,10 @@ export function registerAppHandlers() {
       return await appResourceManager.executeAction(action, event.sender, event.sender);
     }
   );
+
+  ipcMain.handle(IPC_CHANNELS.APP_LIST_SYSTEM_FONT_FAMILIES, async () => {
+    return await systemFontService.listFontCatalog();
+  });
 
   ipcMain.handle(IPC_CHANNELS.APP_RECENT_PROJECTS, async () => {
     return await getRecentProjects();

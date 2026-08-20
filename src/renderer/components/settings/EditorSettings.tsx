@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { useSystemFontCatalog } from '@/hooks/useSystemFontCatalog';
 import { useI18n } from '@/i18n';
 import {
   type EditorAutoClosingBrackets,
@@ -29,14 +30,17 @@ import {
   EDITOR_READABILITY_PRESETS,
   getMatchingEditorReadabilityPreset,
 } from './editorReadabilityPresets';
+import { FontFamilyPresetSelect } from './FontFamilyPresetSelect';
+import { buildLocalFontPresetOptions, EDITOR_FONT_PRESET_OPTIONS } from './fontFamilyPresets';
+import { applyFontPresetSelection, buildFontPresetSelection } from './interfaceFontPresetModel';
 
 export function EditorSettings() {
   const { editorSettings, setEditorSettings } = useSettingsStore();
   const { t } = useI18n();
+  const { monospaceFamilies } = useSystemFontCatalog();
 
-  // Local state for font inputs
+  // Local state for numeric inputs
   const [localFontSize, setLocalFontSize] = React.useState(editorSettings.fontSize);
-  const [localFontFamily, setLocalFontFamily] = React.useState(editorSettings.fontFamily);
   const [localLineHeight, setLocalLineHeight] = React.useState(editorSettings.lineHeight);
   const [localPaddingTop, setLocalPaddingTop] = React.useState(editorSettings.paddingTop);
   const [localPaddingBottom, setLocalPaddingBottom] = React.useState(editorSettings.paddingBottom);
@@ -45,10 +49,6 @@ export function EditorSettings() {
   React.useEffect(() => {
     setLocalFontSize(editorSettings.fontSize);
   }, [editorSettings.fontSize]);
-
-  React.useEffect(() => {
-    setLocalFontFamily(editorSettings.fontFamily);
-  }, [editorSettings.fontFamily]);
 
   React.useEffect(() => {
     setLocalLineHeight(editorSettings.lineHeight);
@@ -72,12 +72,29 @@ export function EditorSettings() {
     if (validFontSize !== editorSettings.fontSize) setEditorSettings({ fontSize: validFontSize });
   }, [localFontSize, editorSettings.fontSize, setEditorSettings]);
 
-  const applyFontFamilyChange = React.useCallback(() => {
-    const validFontFamily = localFontFamily.trim() || editorSettings.fontFamily;
-    if (validFontFamily !== localFontFamily) setLocalFontFamily(validFontFamily);
-    if (validFontFamily !== editorSettings.fontFamily)
-      setEditorSettings({ fontFamily: validFontFamily });
-  }, [localFontFamily, editorSettings.fontFamily, setEditorSettings]);
+  const fontPresetOptions = useMemo(
+    () =>
+      monospaceFamilies.length > 0
+        ? buildLocalFontPresetOptions(
+            monospaceFamilies,
+            'ui-monospace, SF Mono, Menlo, Monaco, Consolas, monospace'
+          )
+        : EDITOR_FONT_PRESET_OPTIONS,
+    [monospaceFamilies]
+  );
+  const fontPresetSelection = useMemo(
+    () => buildFontPresetSelection(fontPresetOptions, editorSettings.fontFamily),
+    [editorSettings.fontFamily, fontPresetOptions]
+  );
+
+  const handleFontPresetChange = React.useCallback(
+    (presetId: string | null) => {
+      applyFontPresetSelection(fontPresetSelection, presetId, (fontFamily) => {
+        setEditorSettings({ fontFamily });
+      });
+    },
+    [fontPresetSelection, setEditorSettings]
+  );
 
   const applyLineHeightChange = React.useCallback(() => {
     const validLineHeight = Math.max(12, Math.min(60, localLineHeight || 20));
@@ -270,21 +287,11 @@ export function EditorSettings() {
       </div>
 
       {/* Font Family */}
-      <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Font family')}</span>
-        <Input
-          value={localFontFamily}
-          onChange={(e) => setLocalFontFamily(e.target.value)}
-          onBlur={applyFontFamilyChange}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              applyFontFamilyChange();
-              e.currentTarget.blur();
-            }
-          }}
-          placeholder="JetBrains Mono, monospace"
-        />
-      </div>
+      <FontFamilyPresetSelect
+        label="Font family"
+        selection={fontPresetSelection}
+        onValueChange={handleFontPresetChange}
+      />
 
       {/* Font Size */}
       <div className="settings-field-row">

@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { useSystemFontCatalog } from '@/hooks/useSystemFontCatalog';
 import { useI18n } from '@/i18n';
 import {
   APP_COLOR_PRESET_OPTIONS,
@@ -60,7 +61,13 @@ import { AppearanceTerminalSettingsSection } from './AppearanceTerminalSettingsS
 import { AppearanceThemeEditorView } from './AppearanceThemeEditorView';
 import { buildAppearanceColorPresetModel } from './appearanceColorPresetModel';
 import { buildAppearanceThemeModel } from './appearanceThemeModel';
-import { buildInterfaceFontPresetSelection } from './interfaceFontPresetModel';
+import { FontFamilyPresetSelect } from './FontFamilyPresetSelect';
+import { buildLocalFontPresetOptions, TERMINAL_FONT_PRESET_OPTIONS } from './fontFamilyPresets';
+import {
+  applyFontPresetSelection,
+  buildFontPresetSelection,
+  buildInterfaceFontPresetSelection,
+} from './interfaceFontPresetModel';
 import { filterTerminalThemeNames, localizeTerminalThemeName } from './terminalThemeLocalization';
 
 function resolveAppearancePreviewMode(theme: Theme): ResolvedThemeMode {
@@ -1364,6 +1371,7 @@ export function AppearanceSettings() {
     toggleFavoriteTerminalTheme,
   } = useSettingsStore();
   const { t } = useI18n();
+  const { families: systemFontFamilies, monospaceFamilies } = useSystemFontCatalog();
   const [tokenEditorMode, setTokenEditorMode] = React.useState<ResolvedThemeMode>('dark');
   const [editingCustomThemeId, setEditingCustomThemeId] = React.useState<string | null>(null);
   const themeModel = React.useMemo(
@@ -1383,17 +1391,29 @@ export function AppearanceSettings() {
     () => getRecommendedUIFontPresets(language),
     [language]
   );
+  const localUIFontPresetOptions = React.useMemo(
+    () => buildLocalFontPresetOptions(systemFontFamilies, 'system-ui, sans-serif'),
+    [systemFontFamilies]
+  );
+  const terminalFontPresetOptions = React.useMemo(
+    () =>
+      monospaceFamilies.length > 0
+        ? buildLocalFontPresetOptions(
+            monospaceFamilies,
+            'ui-monospace, SF Mono, Menlo, Monaco, Consolas, monospace'
+          )
+        : TERMINAL_FONT_PRESET_OPTIONS,
+    [monospaceFamilies]
+  );
   const themeModeIcons: Record<Theme, React.ElementType> = {
     light: Sun,
     dark: Moon,
     system: Monitor,
   };
 
-  // Local state for inputs
+  // Local state for numeric inputs
   const [localAppFontSize, setLocalAppFontSize] = React.useState(appFontSize);
-  const [localAppFontFamily, setLocalAppFontFamily] = React.useState(appFontFamily);
   const [localTerminalFontSize, setLocalTerminalFontSize] = React.useState(terminalFontSize);
-  const [localTerminalFontFamily, setLocalTerminalFontFamily] = React.useState(terminalFontFamily);
   const [showFavoritesOnly, setShowFavoritesOnly] = React.useState(false);
   const [bgSettingsOpen, setBgSettingsOpen] = React.useState(false);
 
@@ -1403,16 +1423,8 @@ export function AppearanceSettings() {
   }, [appFontSize]);
 
   React.useEffect(() => {
-    setLocalAppFontFamily(appFontFamily);
-  }, [appFontFamily]);
-
-  React.useEffect(() => {
     setLocalTerminalFontSize(terminalFontSize);
   }, [terminalFontSize]);
-
-  React.useEffect(() => {
-    setLocalTerminalFontFamily(terminalFontFamily);
-  }, [terminalFontFamily]);
 
   React.useEffect(() => {
     if (editingCustomThemeId && !editingCustomTheme) {
@@ -1431,26 +1443,18 @@ export function AppearanceSettings() {
   }, [localAppFontSize, appFontSize, setAppFontSize]);
 
   const uiFontPresetSelection = React.useMemo(
-    () => buildInterfaceFontPresetSelection(uiFontPresetOptions, localAppFontFamily),
-    [localAppFontFamily, uiFontPresetOptions]
+    () =>
+      localUIFontPresetOptions.length > 0
+        ? buildFontPresetSelection(localUIFontPresetOptions, appFontFamily)
+        : buildInterfaceFontPresetSelection(uiFontPresetOptions, appFontFamily),
+    [appFontFamily, localUIFontPresetOptions, uiFontPresetOptions]
   );
 
   const handleUIFontPresetChange = React.useCallback(
     (presetId: string | null) => {
-      if (!presetId) {
-        return;
-      }
-
-      const nextPreset = uiFontPresetSelection.options.find((option) => option.id === presetId);
-
-      if (!nextPreset?.fontFamily) {
-        return;
-      }
-
-      setLocalAppFontFamily(nextPreset.fontFamily);
-      setAppFontFamily(nextPreset.fontFamily);
+      applyFontPresetSelection(uiFontPresetSelection, presetId, setAppFontFamily);
     },
-    [setAppFontFamily, uiFontPresetSelection.options]
+    [setAppFontFamily, uiFontPresetSelection]
   );
 
   const applyTerminalFontSizeChange = React.useCallback(() => {
@@ -1463,15 +1467,17 @@ export function AppearanceSettings() {
     }
   }, [localTerminalFontSize, setTerminalFontSize, terminalFontSize]);
 
-  const applyTerminalFontFamilyChange = React.useCallback(() => {
-    const validFontFamily = localTerminalFontFamily.trim() || terminalFontFamily;
-    if (validFontFamily !== localTerminalFontFamily) {
-      setLocalTerminalFontFamily(validFontFamily);
-    }
-    if (validFontFamily !== terminalFontFamily) {
-      setTerminalFontFamily(validFontFamily);
-    }
-  }, [localTerminalFontFamily, setTerminalFontFamily, terminalFontFamily]);
+  const terminalFontPresetSelection = React.useMemo(
+    () => buildFontPresetSelection(terminalFontPresetOptions, terminalFontFamily),
+    [terminalFontFamily, terminalFontPresetOptions]
+  );
+
+  const handleTerminalFontPresetChange = React.useCallback(
+    (presetId: string | null) => {
+      applyFontPresetSelection(terminalFontPresetSelection, presetId, setTerminalFontFamily);
+    },
+    [setTerminalFontFamily, terminalFontPresetSelection]
+  );
 
   // Get theme names synchronously from embedded data
   const themeNames = React.useMemo(() => getThemeNames(), []);
@@ -1670,7 +1676,9 @@ export function AppearanceSettings() {
         editorFontSize={editorSettings.fontSize}
         editorFontFamily={editorSettings.fontFamily}
         editorLineHeight={editorSettings.lineHeight}
+        uiFontPresetSelection={uiFontPresetSelection}
         onBack={() => setEditingCustomThemeId(null)}
+        onUIFontPresetChange={handleUIFontPresetChange}
         onTokenEditorModeChange={setTokenEditorMode}
         onRename={(name) => renameCustomTheme(editingCustomTheme.id, name)}
         onDelete={handleDeleteEditingTheme}
@@ -1718,6 +1726,65 @@ export function AppearanceSettings() {
                   />
                 );
               })}
+            </div>
+
+            <div className="border-t pt-6">
+              <h3 className="ui-type-section-title">{t('Interface typography')}</h3>
+              <p className="ui-type-section-description text-muted-foreground">
+                {t(
+                  'Adjust the app font family and UI base size without changing editor or terminal text.'
+                )}
+              </p>
+            </div>
+
+            <div className="control-panel-muted rounded-xl p-4">
+              <div
+                className="rounded-[0.95rem] border border-border/70 bg-background/40 px-4 py-4"
+                style={{
+                  fontFamily: appFontFamily,
+                  fontSize: `${localAppFontSize}px`,
+                }}
+              >
+                <p className="text-[0.72em] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  {t('Interface sample')}
+                </p>
+                <p className="mt-2 text-[1.2em] font-semibold tracking-[-0.02em] text-foreground">
+                  {t('Workspace control surface')}
+                </p>
+                <p className="mt-2 max-w-[56ch] text-[0.94em] leading-[1.55] text-muted-foreground">
+                  {t(
+                    'This preview follows the app typography tokens only. Editor and terminal fonts stay independent.'
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <FontFamilyPresetSelect
+              label="Font family"
+              selection={uiFontPresetSelection}
+              onValueChange={handleUIFontPresetChange}
+            />
+
+            <div className="settings-field-row">
+              <span className="text-sm font-medium">{t('UI font size')}</span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  value={localAppFontSize}
+                  onChange={(e) => setLocalAppFontSize(Number(e.target.value))}
+                  onBlur={applyAppFontSizeChange}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      applyAppFontSizeChange();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  min={12}
+                  max={20}
+                  className="w-20"
+                />
+                <span className="ui-type-section-description text-muted-foreground">px</span>
+              </div>
             </div>
 
             <div className="control-panel-muted overflow-hidden rounded-xl p-4">
@@ -2294,79 +2361,11 @@ export function AppearanceSettings() {
         </CollapsibleContent>
       </Collapsible>
 
-      <div className="border-t pt-6">
-        <h3 className="ui-type-section-title">{t('Interface typography')}</h3>
-        <p className="ui-type-section-description text-muted-foreground">
-          {t(
-            'Adjust the app font family and UI base size without changing editor or terminal text.'
-          )}
-        </p>
-      </div>
-
-      <div className="control-panel-muted rounded-xl p-4">
-        <div
-          className="rounded-[0.95rem] border border-border/70 bg-background/40 px-4 py-4"
-          style={{
-            fontFamily: localAppFontFamily,
-            fontSize: `${localAppFontSize}px`,
-          }}
-        >
-          <p className="text-[0.72em] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {t('Interface sample')}
-          </p>
-          <p className="mt-2 text-[1.2em] font-semibold tracking-[-0.02em] text-foreground">
-            {t('Workspace control surface')}
-          </p>
-          <p className="mt-2 max-w-[56ch] text-[0.94em] leading-[1.55] text-muted-foreground">
-            {t(
-              'This preview follows the app typography tokens only. Editor and terminal fonts stay independent.'
-            )}
-          </p>
-        </div>
-      </div>
-
-      <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('Recommended font stack')}</span>
-        <Select value={uiFontPresetSelection.selectedId} onValueChange={handleUIFontPresetChange}>
-          <SelectTrigger>
-            <SelectValue>{t(uiFontPresetSelection.selectedLabel)}</SelectValue>
-          </SelectTrigger>
-          <SelectPopup>
-            {uiFontPresetSelection.options.map((option) => (
-              <SelectItem key={option.id} value={option.id} disabled={option.disabled}>
-                {t(option.label)}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-      </div>
-
-      <div className="settings-field-row">
-        <span className="text-sm font-medium">{t('UI font size')}</span>
-        <div className="flex items-center gap-2">
-          <Input
-            type="number"
-            value={localAppFontSize}
-            onChange={(e) => setLocalAppFontSize(Number(e.target.value))}
-            onBlur={applyAppFontSizeChange}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                applyAppFontSizeChange();
-                e.currentTarget.blur();
-              }
-            }}
-            min={12}
-            max={20}
-            className="w-20"
-          />
-          <span className="ui-type-section-description text-muted-foreground">px</span>
-        </div>
-      </div>
-
       <AppearanceTerminalSettingsSection
         terminalPreviewTheme={terminalPreviewTheme}
         localFontSize={localTerminalFontSize}
-        localFontFamily={localTerminalFontFamily}
+        fontFamily={terminalFontFamily}
+        fontSelection={terminalFontPresetSelection}
         terminalFontWeight={terminalFontWeight}
         terminalFontWeightBold={terminalFontWeightBold}
         terminalTheme={terminalTheme}
@@ -2379,8 +2378,7 @@ export function AppearanceSettings() {
         onThemeChange={handleThemeChange}
         onToggleFavoriteTheme={toggleFavoriteTerminalTheme}
         onShowFavoritesOnlyChange={setShowFavoritesOnly}
-        onFontFamilyChange={setLocalTerminalFontFamily}
-        onFontFamilyCommit={applyTerminalFontFamilyChange}
+        onFontPresetChange={handleTerminalFontPresetChange}
         onFontSizeChange={setLocalTerminalFontSize}
         onFontSizeCommit={applyTerminalFontSizeChange}
         onFontWeightChange={setTerminalFontWeight}
