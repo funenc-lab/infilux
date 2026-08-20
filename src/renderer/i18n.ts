@@ -594,6 +594,8 @@ const rendererZhTranslations: Record<string, string> = {
   ),
   'System monospace': decodeEscapedUnicode('\\u7cfb\\u7edf\\u7b49\\u5bbd\\u5b57\\u4f53'),
   'Details: {{message}}': decodeEscapedUnicode('\\u8be6\\u60c5\\uff1a{{message}}'),
+  'Search fonts': decodeEscapedUnicode('\\u641c\\u7d22\\u5b57\\u4f53'),
+  'No fonts found': decodeEscapedUnicode('\\u672a\\u627e\\u5230\\u5b57\\u4f53'),
 };
 
 function getRendererTranslation(locale: Locale, key: string): string {

@@ -135,7 +135,9 @@ function TranslationProbe() {
       { id: 'interface-font-stack-detail' },
       t('Choose the font stack used across the app interface.')
     ),
-    React.createElement('span', { id: 'system-monospace' }, t('System monospace'))
+    React.createElement('span', { id: 'system-monospace' }, t('System monospace')),
+    React.createElement('span', { id: 'search-fonts' }, t('Search fonts')),
+    React.createElement('span', { id: 'no-fonts-found' }, t('No fonts found'))
   );
 }
 
@@ -250,6 +252,10 @@ describe('renderer i18n', () => {
     );
     expect(container.querySelector('#system-monospace')?.textContent).toBe(
       '\u7cfb\u7edf\u7b49\u5bbd\u5b57\u4f53'
+    );
+    expect(container.querySelector('#search-fonts')?.textContent).toBe('\u641c\u7d22\u5b57\u4f53');
+    expect(container.querySelector('#no-fonts-found')?.textContent).toBe(
+      '\u672a\u627e\u5230\u5b57\u4f53'
     );
     expect(container.querySelector('#live-agent-filter')?.textContent).toBe(
       '\u4ec5\u663e\u793a\u6d3b\u8dc3 Agent \u4f1a\u8bdd'
