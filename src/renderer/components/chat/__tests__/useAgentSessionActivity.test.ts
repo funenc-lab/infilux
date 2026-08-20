@@ -141,6 +141,49 @@ describe('AgentSessionActivityScheduler', () => {
     observation.dispose();
   });
 
+  it('coalesces sustained visible output without rearming a timer for every event', async () => {
+    const document = new VisibilityDocument();
+    const getActivity = vi.fn(async () => false);
+    const setTimeout = vi.fn(function (
+      this: typeof globalThis,
+      callback: () => void,
+      delay: number
+    ) {
+      return globalThis.setTimeout.call(this, callback, delay);
+    });
+    const clearTimeout = vi.fn(function (
+      this: typeof globalThis,
+      timer: ReturnType<typeof globalThis.setTimeout>
+    ) {
+      return globalThis.clearTimeout.call(this, timer);
+    });
+    const scheduler = new AgentSessionActivityScheduler({
+      clearTimeout,
+      document,
+      getActivity,
+      now: () => Date.now(),
+      setTimeout,
+    });
+    const observation = scheduler.observe({
+      isActive: true,
+      isVisible: true,
+      sessionId: 'session-a',
+    });
+    observation.startMonitoring();
+
+    for (let index = 0; index < 100; index += 1) {
+      observation.recordOutput();
+    }
+
+    expect(setTimeout).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(getActivity).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getActivity).toHaveBeenCalledWith('session-a');
+
+    observation.dispose();
+  });
+
   it('invokes injected timer functions with the global receiver', () => {
     const document = new VisibilityDocument();
     const timer = {} as ReturnType<typeof globalThis.setTimeout>;

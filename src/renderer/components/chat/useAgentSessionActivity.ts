@@ -58,6 +58,7 @@ export class AgentSessionActivityScheduler {
   private nextObservationId = 1;
   private isPolling = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private timerDueAt: number | null = null;
 
   constructor(options: AgentSessionActivitySchedulerOptions) {
     const clearTimer = options.clearTimeout ?? globalThis.clearTimeout;
@@ -107,13 +108,14 @@ export class AgentSessionActivityScheduler {
           return;
         }
 
-        this.lastOutputAtBySessionId.set(observation.sessionId, this.now());
+        const outputAt = this.now();
+        this.lastOutputAtBySessionId.set(observation.sessionId, outputAt);
         for (const current of this.observations.values()) {
           if (current.sessionId === observation.sessionId && current.isMonitoring) {
             current.onOutput?.();
           }
         }
-        this.schedule();
+        this.scheduleOutputStalenessCheck(observation.sessionId, outputAt);
       },
       setMonitoring: (isMonitoring) => {
         if (!this.observations.has(observation.id)) {
@@ -162,12 +164,13 @@ export class AgentSessionActivityScheduler {
   }
 
   private clearTimer(): void {
-    if (!this.timer) {
+    if (this.timer === null) {
       return;
     }
 
     this.clearTimeoutFn(this.timer);
     this.timer = null;
+    this.timerDueAt = null;
   }
 
   private detachVisibilityListenerWhenUnused(): void {
@@ -234,12 +237,17 @@ export class AgentSessionActivityScheduler {
 
   private poll = async (): Promise<void> => {
     this.timer = null;
+    this.timerDueAt = null;
     if (this.isPolling || this.document?.hidden) {
       return;
     }
 
     const next = this.getNextCandidate();
     if (!next) {
+      return;
+    }
+    if (next.delayMs > 0) {
+      this.schedule();
       return;
     }
 
@@ -279,6 +287,38 @@ export class AgentSessionActivityScheduler {
     this.lastPolledAtBySessionId.delete(sessionId);
   }
 
+  private hasVisibleMonitoringObservation(sessionId: string): boolean {
+    for (const observation of this.observations.values()) {
+      if (
+        observation.sessionId === sessionId &&
+        observation.isMonitoring &&
+        observation.isVisible
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private scheduleOutputStalenessCheck(sessionId: string, outputAt: number): void {
+    if (
+      this.isPolling ||
+      this.document?.hidden ||
+      !this.hasVisibleMonitoringObservation(sessionId)
+    ) {
+      return;
+    }
+
+    const staleAt = outputAt + AGENT_SESSION_ACTIVITY_OUTPUT_STALE_MS;
+    if (this.timerDueAt !== null && this.timerDueAt <= staleAt) {
+      return;
+    }
+
+    this.clearTimer();
+    this.scheduleTimer(Math.max(0, staleAt - this.now()));
+  }
+
   private schedule(): void {
     this.clearTimer();
     if (this.isPolling || this.document?.hidden) {
@@ -290,9 +330,14 @@ export class AgentSessionActivityScheduler {
       return;
     }
 
+    this.scheduleTimer(next.delayMs);
+  }
+
+  private scheduleTimer(delayMs: number): void {
+    this.timerDueAt = this.now() + delayMs;
     this.timer = this.setTimeoutFn(() => {
       void this.poll();
-    }, next.delayMs);
+    }, delayMs);
   }
 }
 
