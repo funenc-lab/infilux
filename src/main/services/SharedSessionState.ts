@@ -83,10 +83,7 @@ function atomicWriteJson(targetPath: string, data: unknown): void {
 
 function defaultSessionStorageDocument(
   input?: Partial<
-    Pick<
-      SessionStorageDocument,
-      'updatedAt' | 'settingsData' | 'localStorage' | 'persistentAgentSessions' | 'todos'
-    >
+    Pick<SessionStorageDocument, 'updatedAt' | 'settingsData' | 'localStorage' | 'todos'>
   >
 ): SessionStorageDocument {
   return {
@@ -94,7 +91,6 @@ function defaultSessionStorageDocument(
     updatedAt: input?.updatedAt ?? now(),
     settingsData: input?.settingsData ?? {},
     localStorage: input?.localStorage ?? {},
-    persistentAgentSessions: input?.persistentAgentSessions ?? [],
     todos: input?.todos ?? {},
   };
 }
@@ -185,7 +181,6 @@ export function readSharedSessionState(): SessionStorageDocument {
             parsed.localStorage && typeof parsed.localStorage === 'object'
               ? (parsed.localStorage as Record<string, string>)
               : {},
-          persistentAgentSessions: normalizePersistentAgentSessions(parsed.persistentAgentSessions),
           todos: normalizeTodoMap(parsed.todos),
         })
       : defaultSessionStorageDocument();
@@ -221,24 +216,20 @@ export function writeSharedLocalStorageSnapshot(snapshot: Record<string, string>
   }));
 }
 
-export function readPersistentAgentSessions(): PersistentAgentSessionRecord[] {
-  return [...readSharedSessionState().persistentAgentSessions];
+export function readLegacyPersistentAgentSessions(): PersistentAgentSessionRecord[] {
+  const parsed = readJsonFile<Record<string, unknown>>(getSessionPath());
+  return normalizePersistentAgentSessions(parsed?.persistentAgentSessions);
 }
 
-export function writePersistentAgentSessions(records: PersistentAgentSessionRecord[]): void {
-  updateSharedSessionState((current) => ({
-    ...current,
-    updatedAt: now(),
-    persistentAgentSessions: [...records],
-  }));
-}
+export function clearLegacyPersistentAgentSessions(): void {
+  const parsed = readJsonFile<Record<string, unknown>>(getSessionPath());
+  if (!parsed || !Object.hasOwn(parsed, 'persistentAgentSessions')) {
+    return;
+  }
 
-export function updatePersistentAgentSessions(
-  updater: (current: PersistentAgentSessionRecord[]) => PersistentAgentSessionRecord[]
-): PersistentAgentSessionRecord[] {
-  const next = updater(readPersistentAgentSessions());
-  writePersistentAgentSessions(next);
-  return next;
+  delete parsed.persistentAgentSessions;
+  cachedSessionState = null;
+  atomicWriteJson(getSessionPath(), parsed);
 }
 
 export function readSharedTodoTasks(repoPath: string): SessionTodoTask[] {

@@ -34,6 +34,10 @@ type SessionRow = {
   metadata_json: string | null;
 };
 
+type MetadataRow = {
+  value: string;
+};
+
 const repositoryTestDoubles = vi.hoisted(() => {
   const registerMainProcessDiagnosticsCollector = vi.fn();
   class FakeDatabase {
@@ -101,6 +105,14 @@ const repositoryTestDoubles = vi.hoisted(() => {
             string | null,
           ];
 
+          if (
+            normalizedSql.includes('ON CONFLICT(ui_session_id) DO NOTHING') &&
+            state.rows.some((row) => row.ui_session_id === uiSessionId)
+          ) {
+            cb(null);
+            return this;
+          }
+
           state.rows = state.rows.filter((row) => row.ui_session_id !== uiSessionId);
           state.rows.push({
             ui_session_id: uiSessionId,
@@ -128,6 +140,13 @@ const repositoryTestDoubles = vi.hoisted(() => {
           return this;
         }
 
+        if (normalizedSql.startsWith('INSERT INTO persistent_agent_session_metadata')) {
+          const [key] = normalizedParams as [string];
+          state.migrationMarkers.add(key);
+          cb(null);
+          return this;
+        }
+
         if (normalizedSql.startsWith('DELETE FROM persistent_agent_sessions')) {
           const [uiSessionId] = normalizedParams as [string];
           state.rows = state.rows.filter((row) => row.ui_session_id !== uiSessionId);
@@ -143,8 +162,8 @@ const repositoryTestDoubles = vi.hoisted(() => {
     public all = vi.fn(
       (
         sql: string,
-        params: unknown[] | ((err: Error | null, rows: SessionRow[]) => void),
-        callback?: (err: Error | null, rows: SessionRow[]) => void
+        params: unknown[] | ((err: Error | null, rows: Array<SessionRow | MetadataRow>) => void),
+        callback?: (err: Error | null, rows: Array<SessionRow | MetadataRow>) => void
       ) => {
         const normalizedSql = sql.trim();
         const normalizedParams = Array.isArray(params) ? params : [];
@@ -157,6 +176,12 @@ const repositoryTestDoubles = vi.hoisted(() => {
           return this;
         }
 
+        if (normalizedSql.includes('FROM persistent_agent_session_metadata')) {
+          const [key] = normalizedParams as [string];
+          cb(null, state.migrationMarkers.has(key) ? [{ value: 'completed' }] : []);
+          return this;
+        }
+
         const rows = [...state.rows].sort((left, right) => right.updated_at - left.updated_at);
         cb(null, rows);
         return this;
@@ -166,7 +191,22 @@ const repositoryTestDoubles = vi.hoisted(() => {
     public exec = vi.fn((sql: string, callback?: (err: Error | null) => void) => {
       const normalizedSql = sql.trim();
       state.lastExecs.push(sql);
-      callback?.(consumeMatchingError(state.execErrors, normalizedSql));
+      const injectedError = consumeMatchingError(state.execErrors, normalizedSql);
+      if (!injectedError && normalizedSql === 'BEGIN IMMEDIATE') {
+        state.transactionSnapshot = {
+          rows: state.rows.map((row) => ({ ...row })),
+          migrationMarkers: new Set(state.migrationMarkers),
+        };
+      }
+      if (!injectedError && normalizedSql === 'COMMIT') {
+        state.transactionSnapshot = null;
+      }
+      if (normalizedSql === 'ROLLBACK' && state.transactionSnapshot) {
+        state.rows = state.transactionSnapshot.rows;
+        state.migrationMarkers = state.transactionSnapshot.migrationMarkers;
+        state.transactionSnapshot = null;
+      }
+      callback?.(injectedError);
       return this;
     });
 
@@ -176,7 +216,8 @@ const repositoryTestDoubles = vi.hoisted(() => {
   }
 
   const appGetPath = vi.fn();
-  const readPersistentAgentSessions = vi.fn<() => PersistentAgentSessionRecord[]>(() => []);
+  const readLegacyPersistentAgentSessions = vi.fn<() => PersistentAgentSessionRecord[]>(() => []);
+  const clearLegacyPersistentAgentSessions = vi.fn();
   const pruneOrphanedRuntimeHomes = vi.fn();
   const databases: FakeDatabase[] = [];
   const sqlite3 = {
@@ -199,6 +240,11 @@ const repositoryTestDoubles = vi.hoisted(() => {
 
   const state = {
     rows: [] as SessionRow[],
+    migrationMarkers: new Set<string>(),
+    transactionSnapshot: null as {
+      rows: SessionRow[];
+      migrationMarkers: Set<string>;
+    } | null,
     lastRuns: [] as Array<{ sql: string; params: unknown[] }>,
     lastAlls: [] as Array<{ sql: string; params: unknown[] }>,
     lastExecs: [] as string[],
@@ -225,8 +271,9 @@ const repositoryTestDoubles = vi.hoisted(() => {
     appGetPath.mockImplementation((name: string) =>
       name === 'home' ? '/tmp/home' : name === 'userData' ? '/tmp/user-data' : `/tmp/${name}`
     );
-    readPersistentAgentSessions.mockReset();
-    readPersistentAgentSessions.mockReturnValue([]);
+    readLegacyPersistentAgentSessions.mockReset();
+    readLegacyPersistentAgentSessions.mockReturnValue([]);
+    clearLegacyPersistentAgentSessions.mockReset();
     pruneOrphanedRuntimeHomes.mockReset();
     pruneOrphanedRuntimeHomes.mockReturnValue({
       prunedHomePaths: [],
@@ -236,6 +283,8 @@ const repositoryTestDoubles = vi.hoisted(() => {
     sqlite3.Database.mockClear();
     databases.length = 0;
     state.rows = [];
+    state.migrationMarkers.clear();
+    state.transactionSnapshot = null;
     state.lastRuns = [];
     state.lastAlls = [];
     state.lastExecs = [];
@@ -249,7 +298,8 @@ const repositoryTestDoubles = vi.hoisted(() => {
   return {
     registerMainProcessDiagnosticsCollector,
     appGetPath,
-    readPersistentAgentSessions,
+    readLegacyPersistentAgentSessions,
+    clearLegacyPersistentAgentSessions,
     pruneOrphanedRuntimeHomes,
     sqlite3,
     databases,
@@ -277,7 +327,8 @@ vi.mock('../../SharedSessionState', async () => {
 
   return {
     ...actual,
-    readPersistentAgentSessions: repositoryTestDoubles.readPersistentAgentSessions,
+    readLegacyPersistentAgentSessions: repositoryTestDoubles.readLegacyPersistentAgentSessions,
+    clearLegacyPersistentAgentSessions: repositoryTestDoubles.clearLegacyPersistentAgentSessions,
   };
 });
 
@@ -372,13 +423,13 @@ describe('PersistentAgentSessionRepository', () => {
     vi.unstubAllEnvs();
   });
 
-  it('initializes sqlite storage and migrates legacy JSON records when the table is empty', async () => {
+  it('initializes SQLite storage, migrates legacy JSON records, and clears the legacy field', async () => {
     const homeDir = createTempHomeDir();
     tempDirs.push(homeDir);
     vi.stubEnv('HOME', homeDir);
     vi.stubEnv('USERPROFILE', '');
 
-    repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([
+    const legacyRecords = [
       makeRecord(),
       makeRecord({
         uiSessionId: 'session-2',
@@ -387,7 +438,8 @@ describe('PersistentAgentSessionRepository', () => {
         hostSessionKey: 'enso-session-2',
         updatedAt: 22,
       }),
-    ]);
+    ];
+    repositoryTestDoubles.readLegacyPersistentAgentSessions.mockReturnValue(legacyRecords);
 
     const { PersistentAgentSessionRepository } = await import(
       '../PersistentAgentSessionRepository'
@@ -402,11 +454,97 @@ describe('PersistentAgentSessionRepository', () => {
       expect.any(Function)
     );
     expect(repositoryTestDoubles.databases[0]?.configure).toHaveBeenCalledWith('busyTimeout', 3000);
-    expect(repositoryTestDoubles.databases[0]?.exec).toHaveBeenCalledTimes(1);
+    expect(repositoryTestDoubles.state.lastExecs.join('\n')).toContain(
+      'CREATE TABLE IF NOT EXISTS persistent_agent_session_metadata'
+    );
     expect(repository.listCachedSessions()).toEqual([
       expect.objectContaining({ uiSessionId: 'session-2' }),
       expect.objectContaining({ uiSessionId: 'session-1' }),
     ]);
+    expect(repositoryTestDoubles.clearLegacyPersistentAgentSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains legacy JSON until a failed migration is retried successfully', async () => {
+    const legacyRecords = [makeRecord({ uiSessionId: 'retry-session' })];
+    repositoryTestDoubles.readLegacyPersistentAgentSessions.mockReturnValue(legacyRecords);
+    repositoryTestDoubles.state.runErrors.push({
+      pattern: 'INSERT INTO persistent_agent_sessions',
+      error: new Error('legacy import failed'),
+    });
+
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const failedRepository = new PersistentAgentSessionRepository();
+
+    await expect(failedRepository.initialize()).rejects.toThrow('legacy import failed');
+    expect(repositoryTestDoubles.clearLegacyPersistentAgentSessions).not.toHaveBeenCalled();
+
+    await failedRepository.close();
+    const retriedRepository = new PersistentAgentSessionRepository();
+    await retriedRepository.initialize();
+
+    await expect(retriedRepository.listSessions()).resolves.toEqual([
+      expect.objectContaining({ uiSessionId: 'retry-session' }),
+    ]);
+    expect(repositoryTestDoubles.clearLegacyPersistentAgentSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back every legacy record when migration bookkeeping fails', async () => {
+    repositoryTestDoubles.readLegacyPersistentAgentSessions.mockReturnValue([
+      makeRecord({ uiSessionId: 'rollback-session-1' }),
+      makeRecord({
+        uiSessionId: 'rollback-session-2',
+        hostSessionKey: 'infilux-rollback-session-2',
+      }),
+    ]);
+    repositoryTestDoubles.state.runErrors.push({
+      pattern: 'INSERT INTO persistent_agent_session_metadata',
+      error: new Error('migration marker failed'),
+    });
+
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+
+    await expect(repository.initialize()).rejects.toThrow('migration marker failed');
+    expect(repositoryTestDoubles.state.rows).toEqual([]);
+    expect(repositoryTestDoubles.state.migrationMarkers.size).toBe(0);
+    expect(repositoryTestDoubles.clearLegacyPersistentAgentSessions).not.toHaveBeenCalled();
+  });
+
+  it('merges missing legacy JSON sessions without overwriting existing SQLite records', async () => {
+    repositoryTestDoubles.state.rows = [
+      makeRow({
+        ui_session_id: 'session-1',
+        display_name: 'SQLite Claude',
+        updated_at: 100,
+      }),
+    ];
+    const legacyRecords = [
+      makeRecord({ displayName: 'Legacy Claude', updatedAt: 10 }),
+      makeRecord({
+        uiSessionId: 'session-2',
+        displayName: 'Legacy Codex',
+        hostSessionKey: 'infilux-session-2',
+        updatedAt: 20,
+      }),
+    ];
+    repositoryTestDoubles.readLegacyPersistentAgentSessions.mockReturnValue(legacyRecords);
+
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+
+    await repository.initialize();
+
+    await expect(repository.listSessions()).resolves.toEqual([
+      expect.objectContaining({ uiSessionId: 'session-1', displayName: 'SQLite Claude' }),
+      expect.objectContaining({ uiSessionId: 'session-2', displayName: 'Legacy Codex' }),
+    ]);
+    expect(repositoryTestDoubles.clearLegacyPersistentAgentSessions).toHaveBeenCalledTimes(1);
   });
 
   it('prefers HOME overrides for the persistent session database path', async () => {
@@ -639,7 +777,7 @@ describe('PersistentAgentSessionRepository', () => {
     );
     await firstLaunchRepository.close();
 
-    repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([]);
+    repositoryTestDoubles.readLegacyPersistentAgentSessions.mockReturnValue([]);
 
     const secondLaunchRepository = new PersistentAgentSessionRepository();
     await secondLaunchRepository.initialize();
@@ -708,7 +846,7 @@ describe('PersistentAgentSessionRepository', () => {
       .mockReturnValue(Date.parse('2026-04-10T00:00:00.000Z'));
 
     try {
-      repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([
+      repositoryTestDoubles.readLegacyPersistentAgentSessions.mockReturnValue([
         makeRecord({
           uiSessionId: 'stale-dead-session',
           lastKnownState: 'dead',
@@ -745,7 +883,7 @@ describe('PersistentAgentSessionRepository', () => {
     const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
 
     try {
-      repositoryTestDoubles.readPersistentAgentSessions.mockReturnValue([
+      repositoryTestDoubles.readLegacyPersistentAgentSessions.mockReturnValue([
         makeRecord({
           uiSessionId: 'stale-codex-session',
           agentId: 'codex',

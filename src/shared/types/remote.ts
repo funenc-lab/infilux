@@ -1,4 +1,3 @@
-import type { PersistentAgentSessionRecord } from './agentSession';
 import type { TodoTaskContext } from './todo';
 
 export type WorkspaceKind = 'local' | 'remote';
@@ -191,5 +190,4 @@ export interface SessionStorageDocument {
   settingsData: Record<string, unknown>;
   localStorage: Record<string, string>;
   todos: Record<string, SessionTodoTask[]>;
-  persistentAgentSessions: PersistentAgentSessionRecord[];
 }

@@ -98,7 +98,7 @@ describe('SharedSessionState', () => {
     vi.restoreAllMocks();
   });
 
-  it('reads, caches, and updates shared settings and session state', async () => {
+  it('keeps legacy persistent agent sessions out of shared state and clears them after migration', async () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
     const sharedRoot = '/Users/tester/.infilux';
     const settingsPath = `${sharedRoot}/settings.json`;
@@ -187,27 +187,6 @@ describe('SharedSessionState', () => {
       updatedAt: 42,
       settingsData: { theme: 'dark' },
       localStorage: {},
-      persistentAgentSessions: [
-        {
-          uiSessionId: 'session-1',
-          backendSessionId: 'backend-1',
-          providerSessionId: 'provider-1',
-          agentId: 'claude',
-          agentCommand: 'claude',
-          environment: 'native',
-          repoPath: '/repo',
-          cwd: '/repo/worktree',
-          displayName: 'Claude',
-          activated: true,
-          initialized: true,
-          hostKind: 'tmux',
-          hostSessionKey: 'enso-session-1',
-          recoveryPolicy: 'auto',
-          createdAt: 10,
-          updatedAt: 11,
-          lastKnownState: 'live',
-        },
-      ],
       todos: {
         '/repo': [
           { id: 'todo-2', title: 'Second', status: 'done', order: 2 },
@@ -237,7 +216,7 @@ describe('SharedSessionState', () => {
     sharedState.writeSharedLocalStorageSnapshot({ sidebar: 'collapsed' });
     expect(sharedState.getSharedLocalStorageSnapshot()).toEqual({ sidebar: 'collapsed' });
 
-    expect(sharedState.readPersistentAgentSessions()).toEqual([
+    expect(sharedState.readLegacyPersistentAgentSessions()).toEqual([
       {
         uiSessionId: 'session-1',
         backendSessionId: 'backend-1',
@@ -259,44 +238,11 @@ describe('SharedSessionState', () => {
       },
     ]);
 
-    sharedState.writePersistentAgentSessions([
-      {
-        uiSessionId: 'session-2',
-        agentId: 'codex',
-        agentCommand: 'codex',
-        environment: 'native',
-        repoPath: '/repo',
-        cwd: '/repo/worktree',
-        displayName: 'Codex',
-        activated: true,
-        initialized: false,
-        hostKind: 'tmux',
-        hostSessionKey: 'enso-session-2',
-        recoveryPolicy: 'auto',
-        createdAt: 20,
-        updatedAt: 21,
-        lastKnownState: 'reconnecting',
-      },
-    ]);
-    expect(sharedState.readPersistentAgentSessions()).toEqual([
-      {
-        uiSessionId: 'session-2',
-        agentId: 'codex',
-        agentCommand: 'codex',
-        environment: 'native',
-        repoPath: '/repo',
-        cwd: '/repo/worktree',
-        displayName: 'Codex',
-        activated: true,
-        initialized: false,
-        hostKind: 'tmux',
-        hostSessionKey: 'enso-session-2',
-        recoveryPolicy: 'auto',
-        createdAt: 20,
-        updatedAt: 21,
-        lastKnownState: 'reconnecting',
-      },
-    ]);
+    sharedState.clearLegacyPersistentAgentSessions();
+    const clearedSessionState = JSON.parse(
+      sharedSessionStateTestDoubles.writeFileSync.mock.calls.at(-1)?.[1] as string
+    ) as Record<string, unknown>;
+    expect(clearedSessionState).not.toHaveProperty('persistentAgentSessions');
 
     sharedState.writeSharedSettingsToSession({ theme: 'blue' });
     expect(sharedState.readSharedSettingsFromSession()).toEqual({ theme: 'blue' });
@@ -307,32 +253,60 @@ describe('SharedSessionState', () => {
         ...current.todos,
         '/next': [],
       },
-      persistentAgentSessions: current.persistentAgentSessions.concat({
-        uiSessionId: 'session-3',
-        agentId: 'cursor',
-        agentCommand: 'cursor-agent',
-        environment: 'native',
-        repoPath: '/repo',
-        cwd: '/repo/other',
-        displayName: 'Cursor',
-        activated: false,
-        initialized: false,
-        hostKind: 'tmux',
-        hostSessionKey: 'enso-session-3',
-        recoveryPolicy: 'manual',
-        createdAt: 30,
-        updatedAt: 31,
-        lastKnownState: 'dead',
-      }),
     }));
     expect(updated.todos['/next']).toEqual([]);
-    expect(updated.persistentAgentSessions).toHaveLength(2);
     expect(sharedSessionStateTestDoubles.renameSync).toHaveBeenCalledWith(
       `${sessionPath}.tmp`,
       sessionPath
     );
 
     nowSpy.mockRestore();
+  });
+
+  it('clears only the legacy session field from the latest on-disk document', async () => {
+    const sessionPath = '/Users/tester/.infilux/session-state.json';
+    let sessionDocument = JSON.stringify({
+      version: 2,
+      updatedAt: 1,
+      settingsData: { theme: 'dark' },
+      localStorage: { sidebar: 'expanded' },
+      todos: {},
+      persistentAgentSessions: [],
+    });
+    sharedSessionStateTestDoubles.existsSync.mockImplementation(
+      (target: string) => target === sessionPath
+    );
+    sharedSessionStateTestDoubles.readFileSync.mockImplementation(
+      (target: string, encoding?: BufferEncoding) => {
+        if (target === sessionPath && encoding === 'utf-8') {
+          return sessionDocument;
+        }
+        return encoding === 'utf-8' ? '{}' : Buffer.from('file');
+      }
+    );
+
+    const sharedState = await import('../SharedSessionState');
+    expect(sharedState.readSharedSessionState().settingsData).toEqual({ theme: 'dark' });
+
+    sessionDocument = JSON.stringify({
+      version: 2,
+      updatedAt: 2,
+      settingsData: { theme: 'light' },
+      localStorage: { sidebar: 'collapsed' },
+      todos: { '/repo': [] },
+      persistentAgentSessions: [],
+    });
+    sharedState.clearLegacyPersistentAgentSessions();
+
+    expect(
+      JSON.parse(sharedSessionStateTestDoubles.writeFileSync.mock.calls.at(-1)?.[1] as string)
+    ).toEqual({
+      version: 2,
+      updatedAt: 2,
+      settingsData: { theme: 'light' },
+      localStorage: { sidebar: 'collapsed' },
+      todos: { '/repo': [] },
+    });
   });
 
   it('falls back to defaults, exposes state paths, and manages migration markers', async () => {
@@ -353,7 +327,6 @@ describe('SharedSessionState', () => {
       updatedAt: 1_700_000_000_123,
       settingsData: {},
       localStorage: {},
-      persistentAgentSessions: [],
       todos: {},
     });
 

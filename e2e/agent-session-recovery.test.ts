@@ -13,6 +13,8 @@ import {
 } from './helpers/electronApp';
 
 const cleanupTasks: Array<() => Promise<void>> = [];
+type ScenarioPage = Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'];
+type ScenarioLocator = ReturnType<ScenarioPage['locator']>;
 
 async function runCleanupTasks(): Promise<void> {
   while (cleanupTasks.length > 0) {
@@ -161,6 +163,7 @@ async function assertSessionIsRecoveredAfterWorktreeSelection(
     .locator('button[data-surface="row"]')
     .first();
 
+  await revealWorktreeSidebarForInteraction(worktreeButton);
   console.info('[e2e] clicking recovery worktree row');
   await worktreeButton.click();
 
@@ -173,6 +176,39 @@ async function assertSessionIsRecoveredAfterWorktreeSelection(
   await expect
     .poll(async () => (await sessionTab.textContent())?.trim() ?? '', { timeout: 10000 })
     .toContain(scenario.sessionDisplayName);
+}
+
+async function revealWorktreeSidebarForInteraction(worktreeButton: ScenarioLocator): Promise<void> {
+  const hoverRevealGroup = worktreeButton
+    .locator('xpath=ancestor::*[@data-sidebar-hover-reveal-group="active"]')
+    .first();
+
+  if ((await hoverRevealGroup.count()) === 0) {
+    return;
+  }
+
+  const hoverRevealTrigger = hoverRevealGroup
+    .locator('[data-sidebar-hover-reveal="active"]')
+    .first();
+  await hoverRevealTrigger.hover();
+  await expect
+    .poll(async () => await hoverRevealGroup.getAttribute('data-sidebar-hover-reveal-state'))
+    .toBe('open');
+  await expect
+    .poll(async () =>
+      worktreeButton.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const hitTarget = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2
+        );
+
+        return (
+          hitTarget === element || hitTarget?.closest('button[data-surface="row"]') === element
+        );
+      })
+    )
+    .toBe(true);
 }
 
 async function openRecoveredSessionAfterWorktreeSelection(

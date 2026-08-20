@@ -10,12 +10,17 @@ import log from '../../utils/logger';
 import { registerMainProcessDiagnosticsCollector } from '../../utils/mainProcessDiagnostics';
 import { getAppRuntimeIdentity } from '../../utils/runtimeIdentity';
 import { codexRuntimeHomeService } from '../agent/CodexRuntimeHomeService';
-import { getSharedRootPath, readPersistentAgentSessions } from '../SharedSessionState';
+import {
+  clearLegacyPersistentAgentSessions,
+  getSharedRootPath,
+  readLegacyPersistentAgentSessions,
+} from '../SharedSessionState';
 
 const BUSY_TIMEOUT_MS = 3000;
 const STALE_PERSISTENT_SESSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const RUNTIME_HOME_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const MAX_RAW_METADATA_BYTES = PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT * 8;
+const LEGACY_SESSION_STATE_MIGRATION_KEY = 'legacy-session-state-json-v1';
 
 type ActiveCodexRuntimeHomeProvider = () => Iterable<string>;
 
@@ -40,6 +45,10 @@ interface PersistentAgentSessionRow {
   updated_at: number;
   last_known_state: 'live' | 'reconnecting' | 'dead' | 'missing-host-session';
   metadata_json: string | null;
+}
+
+interface PersistentAgentSessionMetadataRow {
+  value: string;
 }
 
 function dbRun(database: sqlite3.Database, sql: string, params: unknown[] = []): Promise<void> {
@@ -439,11 +448,12 @@ export class PersistentAgentSessionRepository {
       );
     });
 
-    database.configure('busyTimeout', BUSY_TIMEOUT_MS);
+    try {
+      database.configure('busyTimeout', BUSY_TIMEOUT_MS);
 
-    await dbExec(
-      database,
-      `
+      await dbExec(
+        database,
+        `
       CREATE TABLE IF NOT EXISTS persistent_agent_sessions (
         ui_session_id       TEXT PRIMARY KEY,
         backend_session_id  TEXT,
@@ -470,30 +480,88 @@ export class PersistentAgentSessionRepository {
         ON persistent_agent_sessions(repo_path, cwd, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_persistent_agent_sessions_host
         ON persistent_agent_sessions(host_kind, last_known_state, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS persistent_agent_session_metadata (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
       `
-    );
+      );
 
-    this.db = database;
-    await this.refreshCache();
-    await this.migrateLegacyStateIfNeeded();
-    await this.pruneStaleSessions();
+      this.db = database;
+      await this.refreshCache();
+      await this.migrateLegacyStateIfNeeded();
+      await this.pruneStaleSessions();
+    } catch (error) {
+      this.db = null;
+      this.cache = [];
+      await dbClose(database).catch((closeError: unknown) => {
+        log.warn(
+          '[PersistentAgentSessionRepository] Failed to close database after initialization error:',
+          closeError
+        );
+      });
+      throw error;
+    }
   }
 
   private async migrateLegacyStateIfNeeded(): Promise<void> {
-    if (this.cache.length > 0) {
-      return;
+    const migrationCompleted = await this.hasCompletedLegacyStateMigration();
+
+    if (!migrationCompleted) {
+      const legacyRecords = readLegacyPersistentAgentSessions().sort(compareByUpdatedAtDesc);
+      const database = this.getDb();
+
+      await dbExec(database, 'BEGIN IMMEDIATE');
+      try {
+        for (const record of legacyRecords) {
+          await this.writeLegacyRecordIfMissing(normalizeRecord(record));
+        }
+        await this.markLegacyStateMigrationCompleted();
+        await dbExec(database, 'COMMIT');
+      } catch (error) {
+        await dbExec(database, 'ROLLBACK').catch((rollbackError: unknown) => {
+          log.warn(
+            '[PersistentAgentSessionRepository] Failed to roll back legacy session migration:',
+            rollbackError
+          );
+        });
+        throw error;
+      }
+
+      if (legacyRecords.length > 0) {
+        await this.refreshCache();
+      }
     }
 
-    const legacyRecords = readPersistentAgentSessions().sort(compareByUpdatedAtDesc);
-    if (legacyRecords.length === 0) {
-      return;
+    try {
+      clearLegacyPersistentAgentSessions();
+    } catch (error) {
+      log.warn(
+        '[PersistentAgentSessionRepository] Failed to clear migrated legacy session state:',
+        error
+      );
     }
+  }
 
-    for (const record of legacyRecords) {
-      const normalizedRecord = normalizeRecord(record);
-      await this.writeRecord(normalizedRecord);
-      this.cache = upsertCachedRecord(this.cache, normalizedRecord);
-    }
+  private async hasCompletedLegacyStateMigration(): Promise<boolean> {
+    const rows = await dbAll<PersistentAgentSessionMetadataRow>(
+      this.getDb(),
+      'SELECT value FROM persistent_agent_session_metadata WHERE key = ?',
+      [LEGACY_SESSION_STATE_MIGRATION_KEY]
+    );
+    return rows.length > 0;
+  }
+
+  private async markLegacyStateMigrationCompleted(): Promise<void> {
+    await dbRun(
+      this.getDb(),
+      `
+      INSERT INTO persistent_agent_session_metadata (key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO NOTHING
+      `,
+      [LEGACY_SESSION_STATE_MIGRATION_KEY, 'completed']
+    );
   }
 
   private async refreshCache(): Promise<void> {
@@ -623,6 +691,39 @@ export class PersistentAgentSessionRepository {
         updated_at = excluded.updated_at,
         last_known_state = excluded.last_known_state,
         metadata_json = excluded.metadata_json
+      `,
+      recordToParams(record)
+    );
+  }
+
+  private async writeLegacyRecordIfMissing(record: PersistentAgentSessionRecord): Promise<void> {
+    await dbRun(
+      this.getDb(),
+      `
+      INSERT INTO persistent_agent_sessions (
+        ui_session_id,
+        backend_session_id,
+        provider_session_id,
+        agent_id,
+        agent_command,
+        custom_path,
+        custom_args,
+        environment,
+        repo_path,
+        cwd,
+        display_name,
+        activated,
+        initialized,
+        host_kind,
+        host_session_key,
+        recovery_policy,
+        created_at,
+        updated_at,
+        last_known_state,
+        metadata_json
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(ui_session_id) DO NOTHING
       `,
       recordToParams(record)
     );
