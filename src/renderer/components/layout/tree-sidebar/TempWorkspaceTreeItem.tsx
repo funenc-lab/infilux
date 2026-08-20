@@ -1,10 +1,8 @@
 import type { TempWorkspaceItem } from '@shared/types';
-import { getDisplayPath } from '@shared/utils/path';
 import { GitBranch } from 'lucide-react';
 import { useState } from 'react';
 import { TempWorkspaceContextMenu } from '@/components/temp-workspace/TempWorkspaceContextMenu';
 import { useI18n } from '@/i18n';
-import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 
 interface TempWorkspaceTreeItemProps {
@@ -28,7 +26,6 @@ export function TempWorkspaceTreeItem({
   const activities = useWorktreeActivityStore((s) => s.activities);
   const activity = activities[item.path] || { agentCount: 0, terminalCount: 0 };
   const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
-  const displayTempPath = getDisplayPath(item.path);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -46,7 +43,6 @@ export function TempWorkspaceTreeItem({
           className="control-tree-node group flex w-full flex-col gap-0.5 px-2 py-1 text-left"
           data-active={isActive ? 'worktree' : 'false'}
           aria-current={isActive ? 'page' : undefined}
-          title={displayTempPath}
         >
           <div className="control-tree-row">
             <span className="control-tree-glyph h-4 w-4 shrink-0">
@@ -74,14 +70,6 @@ export function TempWorkspaceTreeItem({
                     ) : null}
                   </div>
                 ) : null}
-              </div>
-              <div
-                className={cn(
-                  'control-tree-subtitle truncate [unicode-bidi:plaintext]',
-                  '[text-align:left]'
-                )}
-              >
-                {displayTempPath}
               </div>
             </div>
           </div>

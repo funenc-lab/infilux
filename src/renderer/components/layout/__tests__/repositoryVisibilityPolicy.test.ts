@@ -1,8 +1,9 @@
 import type { GitWorktree } from '@shared/types';
 import { describe, expect, it } from 'vitest';
-import type { Repository } from '@/App/constants';
+import { ALL_GROUP_ID, type Repository } from '@/App/constants';
 import {
   resolveActiveRepositoryPaths,
+  resolveRepositoryGroupScope,
   resolveRepositoryVisibility,
 } from '../repositoryVisibilityPolicy';
 
@@ -31,9 +32,9 @@ describe('resolveRepositoryVisibility', () => {
     expect(result.repositories.map((repository) => repository.path)).toEqual([
       '/repo/0',
       '/repo/1',
-      '/repo/9',
-      '/repo/10',
       '/repo/11',
+      '/repo/10',
+      '/repo/9',
     ]);
     expect(result.hiddenCount).toBe(7);
   });
@@ -50,11 +51,11 @@ describe('resolveRepositoryVisibility', () => {
     });
 
     expect(result.repositories.map((repository) => repository.path)).toEqual([
-      '/repo/0',
-      '/repo/1',
-      '/repo/3',
-      '/repo/4',
       '/repo/5',
+      '/repo/4',
+      '/repo/3',
+      '/repo/1',
+      '/repo/0',
     ]);
     expect(result.hiddenCount).toBe(1);
   });
@@ -89,7 +90,38 @@ describe('resolveRepositoryVisibility', () => {
       searchActive: false,
     });
 
-    expect(result.repositories.map((repository) => repository.path)).toEqual(['/a', '/c']);
+    expect(result.repositories.map((repository) => repository.path)).toEqual(['/c', '/a']);
+  });
+});
+
+describe('resolveRepositoryGroupScope', () => {
+  it('keeps every repository in scope for the all-projects group', () => {
+    const repositories: Repository[] = [
+      { id: 'alpha-1', name: 'Alpha 1', path: '/alpha/1', groupId: 'alpha' },
+      { id: 'beta-1', name: 'Beta 1', path: '/beta/1', groupId: 'beta' },
+    ];
+
+    expect(
+      resolveRepositoryGroupScope({
+        repositories,
+        activeGroupId: ALL_GROUP_ID,
+      })
+    ).toEqual(repositories);
+  });
+
+  it('limits progressive visibility candidates to the active group', () => {
+    const repositories: Repository[] = [
+      { id: 'alpha-1', name: 'Alpha 1', path: '/alpha/1', groupId: 'alpha' },
+      { id: 'beta-1', name: 'Beta 1', path: '/beta/1', groupId: 'beta' },
+      { id: 'alpha-2', name: 'Alpha 2', path: '/alpha/2', groupId: 'alpha' },
+    ];
+
+    expect(
+      resolveRepositoryGroupScope({
+        repositories,
+        activeGroupId: 'alpha',
+      }).map((repository) => repository.path)
+    ).toEqual(['/alpha/1', '/alpha/2']);
   });
 });
 

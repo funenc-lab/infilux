@@ -54,18 +54,16 @@ function renderInlineItem(items: ReturnType<typeof buildWorktreeInlineItems>, ke
 }
 
 describe('sidebar design policy', () => {
-  it('keeps sidebar headers action-led instead of repeating section labels', () => {
-    expect(treeSidebarSource).not.toContain('<span className="control-sidebar-title">');
-    expect(repositorySidebarSource).not.toContain('<span className="control-sidebar-title">');
+  it('keeps sidebar headers scoped without repeating dynamic section labels', () => {
+    expect(treeSidebarSource).toContain(
+      '<span className="control-sidebar-title">{t(\'Projects\')}</span>'
+    );
+    expect(repositorySidebarSource).toContain(
+      '<span className="control-sidebar-title">{t(\'Projects\')}</span>'
+    );
     expect(worktreePanelSource).not.toContain('<span className="control-sidebar-title">');
     expect(temporaryWorkspacePanelSource).not.toContain('<span className="control-sidebar-title">');
     expect(repositorySidebarSource).not.toContain("{activeGroup?.name ?? t('All repositories')}");
-    expect(treeSidebarSource).toContain(
-      '<div className="control-sidebar-heading no-drag" aria-hidden="true" />'
-    );
-    expect(repositorySidebarSource).toContain(
-      '<div className="control-sidebar-heading no-drag" aria-hidden="true" />'
-    );
     expect(worktreePanelSource).toContain(
       '<div className="control-sidebar-heading no-drag" aria-hidden="true" />'
     );
@@ -124,8 +122,8 @@ describe('sidebar design policy', () => {
     expect(repositorySidebarSource).toContain(
       `data-selection-tone={isSelected && activeWorktreeCount > 0 ? 'context' : 'default'}`
     );
-    expect(treeSidebarSource).toContain(
-      `data-selection-tone={isSelected && activeWorktreeCount > 0 ? 'context' : 'default'}`
+    expect(treeSidebarSource).toMatch(
+      /data-selection-tone=\{\s*isSelected && isExpanded && activeWorktreeCount > 0 \? 'context' : 'default'\s*\}/
     );
     expect(treeSidebarSource).toContain(
       `data-selection-tone={hasActiveTempWorkspace ? 'context' : 'default'}`
@@ -152,8 +150,7 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).toContain('{displayRepoPath}');
     expect(treeSidebarSource).toContain('<RepositoryTreeSummary');
     expect(repositorySidebarSource).toContain('<RepositoryTreeSummary');
-    expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">trees</span>');
-    expect(treeSidebarSource).toContain('<span className="control-tree-metric-label">live</span>');
+    expect(treeSidebarSource).toContain('activeWorktreeName={collapsedActiveWorktreeName}');
     expect(treeSidebarSource).not.toContain('title={displayWorktreePath}');
     expect(treeSidebarSource).not.toContain('>{displayWorktreePath}</');
     expect(worktreePanelSource).not.toContain('title={displayWorktreePath}');
@@ -367,10 +364,29 @@ describe('sidebar design policy', () => {
     );
   });
 
-  it('keeps the active worktree card free of an inner rail so the guide owns hierarchy', () => {
+  it('uses the reference active worktree treatment without a competing side rail', () => {
+    expect(globalsSource).toContain('var(--accent) 12%,\n      var(--background) 88%');
+    expect(globalsSource).toContain(
+      '--control-tree-node-border: color-mix(in oklch, var(--foreground) 82%, transparent);'
+    );
     expect(globalsSource).toContain(".control-tree-node[data-active='worktree']::before {");
     expect(globalsSource).toMatch(
       /\.control-tree-node\[data-active='worktree'\]::before\s*\{\s*opacity:\s*0;\s*background:\s*transparent;/
+    );
+    expect(globalsSource).not.toContain(
+      '--control-tree-rail-color: color-mix(in oklch, var(--primary) 58%, transparent);'
+    );
+  });
+
+  it('keeps keyboard focus stronger than persistent worktree selection', () => {
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-active="worktree"]:has(.control-tree-primary:focus-visible) {'
+    );
+    expect(globalsSource).toContain(
+      '--control-tree-node-ring: color-mix(in oklch, var(--ring) 42%, transparent);'
+    );
+    expect(globalsSource).not.toMatch(
+      /\.control-tree-node\[data-active="worktree"\]:focus-within\s*\{[^}]*--control-tree-node-ring:/s
     );
   });
 
@@ -409,8 +425,10 @@ describe('sidebar design policy', () => {
     expect(runningProjectsSource).toContain('import { SidebarToolbarTooltip }');
     expect(runningProjectsSource).toContain('formatKeybindingDisplay');
     expect(fileTreeSource).toContain('import { SidebarToolbarTooltip }');
-    expect(treeSidebarSource).toContain("<SidebarToolbarTooltip label={t('Manage repositories')}>");
-    expect(treeSidebarSource).toContain('<SidebarToolbarTooltip label={refreshProjectsLabel}>');
+    expect(treeSidebarSource).toContain("aria-label={t('More project actions')}");
+    expect(treeSidebarSource).toContain(
+      '<MenuPopup align="end" sideOffset={6} className="min-w-44" withBackdrop={false}>'
+    );
     expect(worktreePanelSource).toContain('<SidebarToolbarTooltip label={refreshWorktreesLabel}>');
     expect(temporaryWorkspacePanelSource).toContain(
       "<SidebarToolbarTooltip label={t('Refresh temp sessions')}>"
@@ -461,6 +479,13 @@ describe('sidebar design policy', () => {
     );
   });
 
+  it('keeps sidebar toolbar menus non-modal so their triggers remain interactive', () => {
+    expect(repositorySidebarSource).toContain('<Menu modal={false}>');
+    expect(treeSidebarSource).toContain('<Menu modal={false}>');
+    expect(repositorySidebarSource).toContain('withBackdrop={false}');
+    expect(treeSidebarSource).toContain('withBackdrop={false}');
+  });
+
   it('locks collapsed sidebar rail actions to the expected visual order', () => {
     const primaryOrderIndex = globalsSource.indexOf(
       '.control-collapsed-sidebar-primary-action {\n    order: 0;'
@@ -483,7 +508,7 @@ describe('sidebar design policy', () => {
 
   it('marks refreshing top controls with explicit busy state instead of relying on static icons', () => {
     expect(treeSidebarSource).toContain('const refreshProjectsLabel = isToolbarRefreshActive');
-    expect(treeSidebarSource).toContain("data-state={isToolbarRefreshActive ? 'busy' : 'idle'}");
+    expect(treeSidebarSource).toContain('disabled={isToolbarRefreshActive}');
     expect(treeSidebarSource).toContain("isToolbarRefreshActive && 'animate-spin'");
     expect(worktreePanelSource).toContain('const refreshWorktreesLabel = inactiveRemote');
     expect(worktreePanelSource).toContain(
@@ -496,10 +521,21 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('.control-icon-button[data-state="busy"]');
   });
 
-  it('keeps inline empty states from indenting deeper than worktree rows', () => {
+  it('keeps inline empty states compact and aligned with worktree rows', () => {
     expect(globalsSource).toContain('.control-tree-inline-empty {');
-    expect(globalsSource).toContain('padding: 0.75rem 0.875rem 0.75rem 0.5rem;');
+    expect(globalsSource).toContain('padding: 0.25rem 0.375rem;');
+    expect(globalsSource).toContain(".control-tree-inline-empty[data-density='compact'] {");
     expect(globalsSource).not.toContain('padding: 0.75rem 0.875rem;');
+  });
+
+  it('renders the no-worktree state as a quiet tree hint with a coordinated icon surface', () => {
+    expect(treeSidebarSource).toContain("tone={hasSearchFilter ? undefined : 'empty'}");
+    expect(globalsSource).toContain(".control-tree-inline-empty[data-tone='empty'] {");
+    expect(globalsSource).toContain(
+      ".control-tree-inline-empty[data-tone='empty'] .control-tree-inline-icon {"
+    );
+    expect(globalsSource).toContain('border-radius: 0;');
+    expect(globalsSource).toContain('background: transparent;');
   });
 
   it('keeps running projects and temp sessions aligned with the flattened tree hierarchy', () => {
@@ -532,12 +568,13 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="repo"][data-selection-tone="context"] {'
     );
-    expect(globalsSource).toContain('var(--accent) 0.8%');
+    expect(globalsSource).toContain('var(--accent) 6.5%');
     expect(globalsSource).toContain('--control-tree-title-weight: 568;');
     expect(globalsSource).toContain('.control-tree-node[data-active="worktree"] {');
-    expect(globalsSource).toContain('var(--primary) 4.2%');
+    expect(globalsSource).toContain('var(--accent) 12%');
     expect(globalsSource).toContain('--control-tree-title-weight: 608;');
     expect(globalsSource).toContain('.control-tree-node[data-active="worktree"]:hover {');
+    expect(globalsSource).toContain('var(--accent) 14%');
     expect(globalsSource).toContain('--control-tree-title-weight: 604;');
     expect(globalsSource).not.toContain('var(--accent) 2.8%');
     expect(globalsSource).not.toContain('var(--border) 40%');
@@ -547,18 +584,42 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('color: var(--control-tree-title-color);');
   });
 
-  it('keeps structural guides outside nested worktree cards instead of adding an inner active rail', () => {
+  it('uses one continuous context surface for an expanded selected repository', () => {
+    expect(treeSidebarSource).toContain('className="control-tree-repository-group relative"');
+    expect(treeSidebarSource).toContain("data-expanded={isExpanded ? 'true' : 'false'}");
+    expect(treeSidebarSource).toContain("data-selected={isSelected ? 'true' : 'false'}");
+    expect(globalsSource).toMatch(
+      /\.control-tree-repository-group\s*\{[^}]*margin-inline:\s*0\.25rem;/s
+    );
+    expect(globalsSource).toContain(
+      ".control-tree-repository-group[data-expanded='true'][data-selected='true'] {"
+    );
+    expect(globalsSource).toContain(
+      "> .control-tree-node[data-active='repo'] {\n    --control-tree-node-bg: transparent;"
+    );
+  });
+
+  it('keeps project selection free of a rail and aligns the subtree guide with its disclosure', () => {
     expect(globalsSource).toContain('--control-tree-rail-color: transparent;');
     expect(globalsSource).toContain('--control-tree-rail-opacity: 0;');
     expect(globalsSource).toContain('--control-tree-rail-width: 1px;');
     expect(globalsSource).toContain('width: var(--control-tree-rail-width);');
     expect(globalsSource).toContain('background: var(--control-tree-rail-color);');
     expect(globalsSource).toContain('opacity: var(--control-tree-rail-opacity);');
-    expect(globalsSource).toContain('--control-tree-rail-width: 1.5px;');
-    expect(globalsSource).toContain('--control-tree-rail-width: 2px;');
+    expect(globalsSource).toMatch(
+      /\.control-tree-node\[data-active="repo"\]\s*\{[^}]*--control-tree-rail-color:\s*transparent;[^}]*--control-tree-rail-opacity:\s*0;/s
+    );
     expect(globalsSource).toContain('.control-tree-guide::before {');
+    expect(globalsSource).toMatch(/\.control-tree-guide::before\s*\{[^}]*left:\s*1\.125rem;/s);
     expect(globalsSource).toMatch(
       /\.control-tree-node\[data-active='worktree'\]::before\s*\{\s*opacity:\s*0;\s*background:\s*transparent;/
+    );
+  });
+
+  it('does not turn pointer-focused inactive repositories into selected-looking rows', () => {
+    expect(globalsSource).not.toContain('.control-tree-node[data-active="false"]:focus-within {');
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-active="false"]:has(.control-tree-primary:focus-visible) {'
     );
   });
 
@@ -603,7 +664,7 @@ describe('sidebar design policy', () => {
 
   it('keeps secondary text emphasis on a continuous ramp from idle to active', () => {
     expect(globalsSource).toContain(
-      '--control-tree-subtitle-color: color-mix(\n      in oklch,\n      var(--muted-foreground) 72%,\n      var(--background) 28%\n    );'
+      '--control-tree-subtitle-color: color-mix(\n      in oklch,\n      var(--muted-foreground) 66%,\n      var(--foreground) 34%\n    );'
     );
     expect(globalsSource).toContain(
       '--control-tree-subtitle-color: color-mix(\n      in oklch,\n      var(--muted-foreground) 58%,\n      var(--foreground) 42%\n    );'
@@ -761,7 +822,7 @@ describe('sidebar design policy', () => {
   it('keeps section stacks and guide indentation driven by shared structural classes', () => {
     expect(globalsSource).toContain('.control-tree-section-list {');
     expect(globalsSource).toContain('.control-tree-section-body {');
-    expect(globalsSource).toContain('.control-tree-collapsible {');
+    expect(globalsSource).not.toContain('.control-tree-collapsible {');
     expect(globalsSource).toContain('.control-tree-flat-list {');
     expect(globalsSource).toContain('.control-tree-guide {');
     expect(globalsSource).toContain('--control-tree-child-indent: 2rem;');
@@ -872,6 +933,19 @@ describe('sidebar design policy', () => {
     expect(worktreePanelSource).not.toContain('title={displayWorktreePath}');
     expect(treeSidebarSource).not.toContain('rounded-[inherit]');
     expect(worktreePanelSource).not.toContain('rounded-[inherit]');
+  });
+
+  it('keeps the full compact worktree row as the primary click target', () => {
+    expect(globalsSource).toMatch(
+      /\.control-tree-node\[data-node-kind='worktree'\]\s*\{\s*padding-block: 0;/
+    );
+    expect(globalsSource).toContain(
+      ".control-tree-node[data-node-kind='worktree'] .control-tree-row {"
+    );
+    expect(globalsSource).toContain('min-height: 2.75rem;');
+    expect(treeSidebarSource).toContain(
+      'control-tree-primary relative min-w-0 flex-1 self-stretch text-left outline-none'
+    );
   });
 
   it('uses shared menu item styling instead of scattered sidebar hover classes', () => {

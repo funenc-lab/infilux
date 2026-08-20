@@ -49,6 +49,7 @@ interface SidebarHoverRevealFocusChangeInput {
   groupHovered: boolean;
   nextFocusInside: boolean;
   nextFocusManagedBySidebar?: boolean;
+  portalDismissedWithoutNextFocus?: boolean;
 }
 
 interface SidebarHoverRevealWindowFocusInput {
@@ -143,8 +144,14 @@ export function shouldCloseSidebarHoverRevealAfterFocusChange({
   groupHovered,
   nextFocusInside,
   nextFocusManagedBySidebar = false,
+  portalDismissedWithoutNextFocus = false,
 }: SidebarHoverRevealFocusChangeInput): boolean {
-  return !nextFocusInside && !nextFocusManagedBySidebar && !groupHovered;
+  return (
+    !portalDismissedWithoutNextFocus &&
+    !nextFocusInside &&
+    !nextFocusManagedBySidebar &&
+    !groupHovered
+  );
 }
 
 export function shouldSyncSidebarHoverRevealAfterWindowFocus({

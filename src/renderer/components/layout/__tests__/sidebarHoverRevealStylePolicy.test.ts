@@ -83,9 +83,7 @@ describe('sidebar hover reveal style policy', () => {
       /'--control-sidebar-hover-trigger-width': `\$\{frame\.triggerWidth\}px`/
     );
     expect(appSource).toMatch(/'--control-sidebar-hover-panel-width': `\$\{frame\.panelWidth\}px`/);
-    expect(appSource).toMatch(
-      /'--control-sidebar-hover-panel-offset': `\$\{panelOffset\}px`/
-    );
+    expect(appSource).toMatch(/'--control-sidebar-hover-panel-offset': `\$\{panelOffset\}px`/);
     expect(appSource).not.toContain('width: repositorySidebarFrame.trackWidth');
     expect(appSource).not.toContain('width: worktreeSidebarFrame.trackWidth');
     expect(appSource).toContain('data-sidebar-hover-content="true"');
@@ -210,25 +208,25 @@ describe('sidebar hover reveal style policy', () => {
     );
   });
 
-  it('uses fast eased motion for hover reveal without layout animation', () => {
+  it('uses fast opacity-only motion so content and panel arrive together', () => {
     const hoverRevealContentRuleSource = getHoverRevealContentRuleSource();
     const hoverRevealOpenRuleSource = getHoverRevealOpenStateRuleSource();
 
-    expect(hoverRevealContentRuleSource).toContain('will-change: opacity, transform;');
+    expect(hoverRevealContentRuleSource).toContain('will-change: opacity;');
     expectCssDeclaration(
       hoverRevealContentRuleSource,
       'transform',
-      'translate3d\\(\\s*calc\\(-1 \\* var\\(--control-sidebar-hover-panel-width\\) - var\\(--control-sidebar-hover-edge-gap\\) \\+ var\\(--control-sidebar-hover-trigger-width\\)\\),\\s*0,\\s*0\\s*\\)'
+      'translate3d\\(var\\(--control-sidebar-hover-panel-offset\\), 0, 0\\)'
     );
-    expect(hoverRevealContentRuleSource).toContain('opacity 90ms cubic-bezier(0.4, 0, 1, 1)');
-    expect(hoverRevealContentRuleSource).toContain('transform 140ms cubic-bezier(0.4, 0, 1, 1)');
-    expect(hoverRevealOpenRuleSource).toContain('opacity 130ms cubic-bezier(0.16, 1, 0.3, 1)');
-    expect(hoverRevealOpenRuleSource).toContain('transform 220ms cubic-bezier(0.16, 1, 0.3, 1)');
+    expect(hoverRevealContentRuleSource).toContain('opacity 70ms cubic-bezier(0.4, 0, 1, 1)');
+    expect(hoverRevealOpenRuleSource).toContain('opacity 100ms cubic-bezier(0.16, 1, 0.3, 1)');
     expectCssDeclaration(
       hoverRevealOpenRuleSource,
       'transform',
       'translate3d\\(var\\(--control-sidebar-hover-panel-offset\\), 0, 0\\)'
     );
+    expect(hoverRevealContentRuleSource).not.toContain('transform 140ms');
+    expect(hoverRevealOpenRuleSource).not.toContain('transform 220ms');
     expect(hoverRevealContentRuleSource).not.toContain('opacity 140ms ease');
     expect(hoverRevealContentRuleSource).not.toContain('transform 180ms ease');
     expect(hoverRevealContentRuleSource).not.toContain('transition: opacity 80ms ease;');

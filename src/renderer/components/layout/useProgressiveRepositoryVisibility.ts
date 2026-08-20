@@ -6,6 +6,22 @@ import { resolveRepositoryVisibility } from './repositoryVisibilityPolicy';
 export const INITIAL_INACTIVE_REPOSITORY_LIMIT = 8;
 export const INACTIVE_REPOSITORY_BATCH_SIZE = 8;
 
+interface GroupedRepositoryPaginationInput {
+  groupIds: readonly string[];
+  resetKey?: string;
+}
+
+interface GroupedRepositoryPage {
+  visibleCount: number;
+  hiddenCount: number;
+  nextBatchSize: number;
+}
+
+interface GroupedRepositoryPaginationResult {
+  getPage: (groupId: string, totalCount: number) => GroupedRepositoryPage;
+  showMore: (groupId: string) => void;
+}
+
 interface ProgressiveRepositoryVisibilityInput {
   repositories: readonly Repository[];
   selectedRepo: string | null;
@@ -129,4 +145,69 @@ export function useProgressiveRepositoryVisibility({
     nextBatchSize: Math.min(INACTIVE_REPOSITORY_BATCH_SIZE, visibility.hiddenCount),
     showMore,
   };
+}
+
+export function useGroupedRepositoryPagination({
+  groupIds,
+  resetKey = '',
+}: GroupedRepositoryPaginationInput): GroupedRepositoryPaginationResult {
+  const groupInventoryKey = useMemo(
+    () => `${resetKey}\u0002${[...groupIds].sort().join('\u0001')}`,
+    [groupIds, resetKey]
+  );
+  const [pagination, setPagination] = useState(() => ({
+    inventoryKey: groupInventoryKey,
+    limits: {} as Record<string, number>,
+  }));
+  const effectivePagination =
+    pagination.inventoryKey === groupInventoryKey
+      ? pagination
+      : { inventoryKey: groupInventoryKey, limits: {} as Record<string, number> };
+
+  useEffect(() => {
+    setPagination((current) =>
+      current.inventoryKey === groupInventoryKey
+        ? current
+        : { inventoryKey: groupInventoryKey, limits: {} }
+    );
+  }, [groupInventoryKey]);
+
+  const getPage = useCallback(
+    (groupId: string, totalCount: number): GroupedRepositoryPage => {
+      const normalizedTotalCount = Math.max(0, Math.floor(totalCount));
+      const limit = effectivePagination.limits[groupId] ?? INITIAL_INACTIVE_REPOSITORY_LIMIT;
+      const visibleCount = Math.min(normalizedTotalCount, limit);
+      const hiddenCount = normalizedTotalCount - visibleCount;
+
+      return {
+        visibleCount,
+        hiddenCount,
+        nextBatchSize: Math.min(INACTIVE_REPOSITORY_BATCH_SIZE, hiddenCount),
+      };
+    },
+    [effectivePagination.limits]
+  );
+
+  const showMore = useCallback(
+    (groupId: string) => {
+      setPagination((current) => {
+        const base =
+          current.inventoryKey === groupInventoryKey
+            ? current
+            : { inventoryKey: groupInventoryKey, limits: {} as Record<string, number> };
+        const currentLimit = base.limits[groupId] ?? INITIAL_INACTIVE_REPOSITORY_LIMIT;
+
+        return {
+          ...base,
+          limits: {
+            ...base.limits,
+            [groupId]: currentLimit + INACTIVE_REPOSITORY_BATCH_SIZE,
+          },
+        };
+      });
+    },
+    [groupInventoryKey]
+  );
+
+  return { getPage, showMore };
 }

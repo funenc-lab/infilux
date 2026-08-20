@@ -8,6 +8,7 @@ const treeSidebarWorktreeItemSource = readFileSync(
   resolve(currentDir, '../tree-sidebar/WorktreeTreeItem.tsx'),
   'utf8'
 );
+const treeSidebarSource = readFileSync(resolve(currentDir, '../TreeSidebar.tsx'), 'utf8');
 const worktreePanelItemSource = readFileSync(
   resolve(currentDir, '../worktree-panel/WorktreeItem.tsx'),
   'utf8'
@@ -22,7 +23,18 @@ describe('worktree row performance policy', () => {
   });
 
   it('keeps memoized worktree rows from retaining stale event handlers', () => {
-    const callbackComparisons = [
+    const treeSidebarCallbackComparisons = [
+      'onSelect',
+      'onDelete',
+      'onEditPolicy',
+      'onMerge',
+      'onDragStart',
+      'onDragEnd',
+      'onDragOver',
+      'onDragLeave',
+      'onDrop',
+    ];
+    const worktreePanelCallbackComparisons = [
       'onClick',
       'onDelete',
       'onEditPolicy',
@@ -34,14 +46,30 @@ describe('worktree row performance policy', () => {
       'onDrop',
     ];
 
-    for (const callbackName of callbackComparisons) {
+    for (const callbackName of treeSidebarCallbackComparisons) {
       expect(treeSidebarWorktreeItemSource).toContain(
         `previousProps.${callbackName} === nextProps.${callbackName}`
       );
+    }
+
+    for (const callbackName of worktreePanelCallbackComparisons) {
       expect(worktreePanelItemSource).toContain(
         `previousProps.${callbackName} === nextProps.${callbackName}`
       );
     }
+  });
+
+  it('passes stable worktree actions instead of allocating callbacks for every rendered row', () => {
+    expect(treeSidebarSource).toContain('onSelect={handleTreeWorktreeSelect}');
+    expect(treeSidebarSource).toContain('onDelete={handleTreeWorktreeDelete}');
+    expect(treeSidebarSource).toContain('onEditPolicy={handleTreeWorktreePolicyEdit}');
+    expect(treeSidebarSource).toContain(
+      'onMerge={onMergeWorktree ? handleTreeWorktreeMerge : undefined}'
+    );
+    expect(treeSidebarSource).not.toContain(
+      'onClick={() => onSelectWorktree(worktree, isSelected ? undefined : repo.path)}'
+    );
+    expect(treeSidebarSource).not.toContain('onDelete={() => setWorktreeToDelete(worktree)}');
   });
 
   it('keeps tree sidebar worktree rows on path-scoped subscriptions only', () => {

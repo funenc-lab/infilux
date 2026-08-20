@@ -1,5 +1,6 @@
 import type { CSSProperties, FocusEvent, PointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PortalScopeProvider } from '@/components/ui/portal-scope';
 import {
   isSidebarHoverRevealTextSelectionActive,
   resolveSidebarHoverRevealPointerActiveState,
@@ -8,6 +9,7 @@ import {
   shouldOpenSidebarHoverReveal,
   shouldSyncSidebarHoverRevealAfterWindowFocus,
 } from './sidebarHoverRevealPolicy';
+import { SIDEBAR_MANAGED_PORTAL_SELECTOR, SIDEBAR_PORTAL_SCOPE } from './sidebarPortalScope';
 
 interface SidebarHoverRevealGroupProps {
   children?: ReactNode;
@@ -15,15 +17,37 @@ interface SidebarHoverRevealGroupProps {
 }
 
 function isSidebarManagedTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(SIDEBAR_MANAGED_PORTAL_SELECTOR) !== null;
+}
+
+function isPointWithinRect(clientX: number, clientY: number, rect: DOMRect): boolean {
+  if (rect.width <= 0 || rect.height <= 0) {
+    return false;
+  }
+
   return (
-    target instanceof Element &&
-    target.closest('[data-sidebar-floating-menu-portal="true"]') !== null
+    clientX >= rect.left && clientX < rect.right && clientY >= rect.top && clientY < rect.bottom
   );
 }
 
 export function SidebarHoverRevealGroup({ children, enabled }: SidebarHoverRevealGroupProps) {
   const groupRef = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(false);
+
+  const isPointWithinInteractionSurface = useCallback((clientX: number, clientY: number) => {
+    const groupElement = groupRef.current;
+    if (!groupElement) {
+      return false;
+    }
+
+    if (isPointWithinRect(clientX, clientY, groupElement.getBoundingClientRect())) {
+      return true;
+    }
+
+    return Array.from(
+      groupElement.querySelectorAll<HTMLElement>('[data-sidebar-hover-content="true"]')
+    ).some((surface) => isPointWithinRect(clientX, clientY, surface.getBoundingClientRect()));
+  }, []);
 
   const hasActiveTextSelection = useCallback(
     () => isSidebarHoverRevealTextSelectionActive(window.getSelection()),
@@ -44,17 +68,21 @@ export function SidebarHoverRevealGroup({ children, enabled }: SidebarHoverRevea
     [hasActiveTextSelection]
   );
 
-  const handlePointerOut = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    const nextTarget = event.relatedTarget;
-    if (
-      (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) ||
-      isSidebarManagedTarget(nextTarget)
-    ) {
-      return;
-    }
+  const handlePointerOut = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const nextTarget = event.relatedTarget;
+      if (
+        (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) ||
+        isSidebarManagedTarget(nextTarget) ||
+        isPointWithinInteractionSurface(event.clientX, event.clientY)
+      ) {
+        return;
+      }
 
-    setActive(false);
-  }, []);
+      setActive(false);
+    },
+    [isPointWithinInteractionSurface]
+  );
 
   const handleFocus = useCallback(
     (event: FocusEvent<HTMLDivElement>) => {
@@ -83,6 +111,8 @@ export function SidebarHoverRevealGroup({ children, enabled }: SidebarHoverRevea
         groupHovered: event.currentTarget.matches(':hover'),
         nextFocusInside,
         nextFocusManagedBySidebar: isSidebarManagedTarget(nextTarget),
+        portalDismissedWithoutNextFocus:
+          isSidebarManagedTarget(event.target) && nextTarget === null,
       })
     ) {
       return;
@@ -146,7 +176,8 @@ export function SidebarHoverRevealGroup({ children, enabled }: SidebarHoverRevea
       const groupElement = groupRef.current;
       if (
         (target instanceof Node && groupElement?.contains(target)) ||
-        isSidebarManagedTarget(target)
+        isSidebarManagedTarget(target) ||
+        isPointWithinInteractionSurface(event.clientX, event.clientY)
       ) {
         return;
       }
@@ -156,7 +187,7 @@ export function SidebarHoverRevealGroup({ children, enabled }: SidebarHoverRevea
 
     document.addEventListener('pointerover', handleDocumentPointerOver);
     return () => document.removeEventListener('pointerover', handleDocumentPointerOver);
-  }, [active, enabled]);
+  }, [active, enabled, isPointWithinInteractionSurface]);
 
   const className = enabled
     ? 'control-sidebar-hover-reveal-group absolute left-0 top-0 z-30 flex h-full shrink-0 overflow-visible'
@@ -180,7 +211,7 @@ export function SidebarHoverRevealGroup({ children, enabled }: SidebarHoverRevea
       onFocusCapture={enabled ? handleFocus : undefined}
       onBlurCapture={enabled ? handleBlur : undefined}
     >
-      {children}
+      <PortalScopeProvider scope={SIDEBAR_PORTAL_SCOPE}>{children}</PortalScopeProvider>
     </div>
   );
 }

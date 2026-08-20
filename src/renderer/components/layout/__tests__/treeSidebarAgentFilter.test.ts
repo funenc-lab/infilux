@@ -23,6 +23,7 @@ vi.mock('lucide-react', () => {
   return {
     Activity: icon,
     BotMessageSquare: icon,
+    ChevronDown: icon,
     ChevronRight: icon,
     Clock: icon,
     EyeOff: icon,
@@ -31,6 +32,7 @@ vi.mock('lucide-react', () => {
     FolderMinus: icon,
     GitBranch: icon,
     List: icon,
+    ListCollapse: icon,
     MoreHorizontal: icon,
     PanelLeftClose: icon,
     PanelLeftOpen: icon,
@@ -45,7 +47,8 @@ vi.mock('lucide-react', () => {
 
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
-    t: (value: string) => value,
+    t: (value: string, variables?: Record<string, string | number>) =>
+      value.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => String(variables?.[key] ?? '')),
     tNode: (value: string) => value,
   }),
 }));
@@ -240,6 +243,7 @@ vi.mock('../tree-sidebar/WorktreeTreeItem', () => ({
 }));
 
 const repoWorktrees: Record<string, GitWorktree[]> = {
+  '/repo-empty': [],
   '/repo-a': [
     {
       path: '/repo-a/main',
@@ -297,74 +301,81 @@ async function mountTreeSidebar(
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root: Root = createRoot(container);
+  const defaultProps: React.ComponentProps<typeof TreeSidebar> = {
+    repositories: [
+      {
+        id: 'repo-a',
+        name: 'Repo A',
+        path: '/repo-a',
+        groupId: undefined,
+      },
+      {
+        id: 'repo-b',
+        name: 'Repo B',
+        path: '/repo-b',
+        groupId: undefined,
+      },
+    ],
+    selectedRepo: '/repo-a',
+    activeWorktree: repoWorktrees['/repo-a'][1],
+    worktrees: repoWorktrees['/repo-a'],
+    branches: [],
+    onSelectRepo: vi.fn(),
+    canLoadRepo: () => true,
+    onActivateRemoteRepo: vi.fn(),
+    onSelectWorktree: vi.fn(),
+    onAddRepository: vi.fn(),
+    onCreateWorktree: vi.fn(async () => {}),
+    onRemoveWorktree: vi.fn(),
+    onRefresh: vi.fn(),
+    groups: [],
+    activeGroupId: ALL_GROUP_ID,
+    onSwitchGroup: vi.fn(),
+    onCreateGroup: vi.fn(() => ({
+      id: 'group',
+      name: 'Group',
+      emoji: 'G',
+      color: '#000000',
+      order: 0,
+    })),
+    onUpdateGroup: vi.fn(),
+    onDeleteGroup: vi.fn(),
+    temporaryWorkspaceEnabled: true,
+    tempBasePath: '/tmp/sessions',
+    tempWorkspaces: [
+      {
+        id: 'temp-agent',
+        title: 'Agent Scratch',
+        folderName: 'agent-scratch',
+        path: '/tmp/temp-agent',
+        createdAt: 10,
+      },
+      {
+        id: 'temp-idle',
+        title: 'Idle Scratch',
+        folderName: 'idle-scratch',
+        path: '/tmp/temp-idle',
+        createdAt: 9,
+      },
+    ],
+    onSelectTempWorkspace: vi.fn(),
+  };
+  let currentProps = { ...defaultProps, ...overrides };
 
-  await act(async () => {
-    root.render(
-      React.createElement(TreeSidebar, {
-        repositories: [
-          {
-            id: 'repo-a',
-            name: 'Repo A',
-            path: '/repo-a',
-            groupId: undefined,
-          },
-          {
-            id: 'repo-b',
-            name: 'Repo B',
-            path: '/repo-b',
-            groupId: undefined,
-          },
-        ],
-        selectedRepo: '/repo-a',
-        activeWorktree: repoWorktrees['/repo-a'][1],
-        worktrees: repoWorktrees['/repo-a'],
-        branches: [],
-        onSelectRepo: vi.fn(),
-        canLoadRepo: () => true,
-        onActivateRemoteRepo: vi.fn(),
-        onSelectWorktree: vi.fn(),
-        onAddRepository: vi.fn(),
-        onCreateWorktree: vi.fn(async () => {}),
-        onRemoveWorktree: vi.fn(),
-        onRefresh: vi.fn(),
-        groups: [],
-        activeGroupId: ALL_GROUP_ID,
-        onSwitchGroup: vi.fn(),
-        onCreateGroup: vi.fn(() => ({
-          id: 'group',
-          name: 'Group',
-          emoji: 'G',
-          color: '#000000',
-          order: 0,
-        })),
-        onUpdateGroup: vi.fn(),
-        onDeleteGroup: vi.fn(),
-        temporaryWorkspaceEnabled: true,
-        tempBasePath: '/tmp/sessions',
-        tempWorkspaces: [
-          {
-            id: 'temp-agent',
-            title: 'Agent Scratch',
-            folderName: 'agent-scratch',
-            path: '/tmp/temp-agent',
-            createdAt: 10,
-          },
-          {
-            id: 'temp-idle',
-            title: 'Idle Scratch',
-            folderName: 'idle-scratch',
-            path: '/tmp/temp-idle',
-            createdAt: 9,
-          },
-        ],
-        onSelectTempWorkspace: vi.fn(),
-        ...overrides,
-      })
-    );
-  });
+  const render = async () => {
+    await act(async () => {
+      root.render(React.createElement(TreeSidebar, currentProps));
+    });
+  };
+
+  await render();
 
   return {
     container,
+    async rerender(nextOverrides: Partial<React.ComponentProps<typeof TreeSidebar>>) {
+      currentProps = { ...currentProps, ...nextOverrides };
+      await render();
+    },
     unmount() {
       act(() => {
         root.unmount();
@@ -448,6 +459,291 @@ describe('TreeSidebar agent filter', () => {
       expect(view.container.querySelector('[data-temp-item="temp-agent"]')).not.toBeNull();
       expect(view.container.querySelector('[data-temp-item="temp-idle"]')).toBeNull();
     } finally {
+      view.unmount();
+    }
+  });
+
+  it('applies the active group before calculating progressive visibility', async () => {
+    const alphaRepositories = Array.from({ length: 10 }, (_, index) => ({
+      id: `alpha-${index}`,
+      name: `Alpha ${index}`,
+      path: `/alpha/${index}`,
+      groupId: 'alpha',
+      lastAccessedAt: index,
+    }));
+    const betaRepositories = Array.from({ length: 10 }, (_, index) => ({
+      id: `beta-${index}`,
+      name: `Beta ${index}`,
+      path: `/beta/${index}`,
+      groupId: 'beta',
+      lastAccessedAt: 100 + index,
+    }));
+    const view = await mountTreeSidebar({
+      repositories: [...alphaRepositories, ...betaRepositories],
+      selectedRepo: '/beta/0',
+      activeWorktree: null,
+      worktrees: [],
+      groups: [
+        { id: 'alpha', name: 'Alpha', emoji: 'A', color: '#336699', order: 0 },
+        { id: 'beta', name: 'Beta', emoji: 'B', color: '#993366', order: 1 },
+      ],
+      activeGroupId: 'alpha',
+    });
+
+    try {
+      const visibleAlphaRows = alphaRepositories.filter((repository) =>
+        Array.from(view.container.querySelectorAll('button')).some((button) =>
+          button.textContent?.includes(repository.name)
+        )
+      );
+
+      expect(visibleAlphaRows).toHaveLength(8);
+      expect(view.container.textContent).not.toContain('Beta 9');
+      expect(
+        view.container.querySelector('button[aria-label="Show 2 more projects"]')
+      ).not.toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('collapses grouped projects and repositories without hiding temp sessions', async () => {
+    const view = await mountTreeSidebar({
+      repositories: [
+        { id: 'repo-a', name: 'Repo A', path: '/repo-a', groupId: 'alpha' },
+        { id: 'repo-b', name: 'Repo B', path: '/repo-b', groupId: 'beta' },
+      ],
+      groups: [
+        { id: 'alpha', name: 'Alpha', emoji: 'A', color: '#336699', order: 0 },
+        { id: 'beta', name: 'Beta', emoji: 'B', color: '#993366', order: 1 },
+      ],
+    });
+
+    try {
+      const moreActionsButton = view.container.querySelector<HTMLButtonElement>(
+        'button[aria-label="More project actions"]'
+      );
+      expect(moreActionsButton).not.toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).not.toBeNull();
+      expect(view.container.querySelector('[data-temp-item="temp-agent"]')).not.toBeNull();
+
+      await act(async () => {
+        moreActionsButton?.click();
+      });
+
+      const collapseAllButton = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]')
+      ).find((item) => item.textContent?.includes('Collapse all'));
+      expect(collapseAllButton?.textContent).toContain('Collapse all');
+
+      await act(async () => {
+        collapseAllButton?.click();
+      });
+
+      expect(view.container.querySelector('#tree-section-alpha')).toBeNull();
+      expect(view.container.querySelector('#tree-section-beta')).toBeNull();
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).toBeNull();
+      expect(view.container.querySelector('[data-temp-item="temp-agent"]')).not.toBeNull();
+      expect(collapseAllButton?.getAttribute('data-disabled')).toBe('');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('keeps the selected repository and active worktree identifiable after collapsing it', async () => {
+    const view = await mountTreeSidebar();
+
+    try {
+      const disclosure = view.container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Collapse repository worktrees"]'
+      );
+
+      expect(disclosure).not.toBeNull();
+
+      await act(async () => {
+        disclosure?.click();
+      });
+
+      const selectedRepository = view.container.querySelector<HTMLElement>(
+        '.control-tree-node[data-active="repo"]'
+      );
+
+      expect(selectedRepository?.dataset.selectionTone).toBe('default');
+      expect(selectedRepository?.textContent).toContain('agent-task');
+      expect(
+        selectedRepository?.querySelector('[data-current-worktree="true"]')?.getAttribute('title')
+      ).toBe('Current worktree: agent-task');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('supports arrow-key navigation between repository tree items', async () => {
+    const view = await mountTreeSidebar();
+
+    try {
+      const repositoryItems = Array.from(
+        view.container.querySelectorAll<HTMLButtonElement>(
+          '[data-tree-navigation-item="repository"]'
+        )
+      );
+
+      expect(repositoryItems).toHaveLength(4);
+
+      await act(async () => {
+        repositoryItems[0]?.focus();
+        repositoryItems[0]?.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })
+        );
+      });
+
+      expect(document.activeElement).toBe(repositoryItems[1]);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('keeps focus on a collapsed root repository when ArrowLeft is pressed', async () => {
+    const view = await mountTreeSidebar();
+
+    try {
+      const allProjectsSection = view.container.querySelector(
+        '[data-tree-section-kind="all-projects"]'
+      );
+      const repositoryItems = Array.from(
+        allProjectsSection?.querySelectorAll<HTMLButtonElement>(
+          '[data-tree-navigation-item="repository"]'
+        ) ?? []
+      );
+      const secondRepository = repositoryItems[1];
+      expect(secondRepository?.getAttribute('aria-expanded')).toBe('false');
+
+      await act(async () => {
+        secondRepository?.focus();
+        secondRepository?.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })
+        );
+      });
+
+      expect(document.activeElement).toBe(secondRepository);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('shows a compact worktree status with a direct create action', async () => {
+    const view = await mountTreeSidebar({
+      repositories: [
+        {
+          id: 'repo-empty',
+          name: 'Repo Empty',
+          path: '/repo-empty',
+          groupId: undefined,
+        },
+      ],
+      selectedRepo: '/repo-empty',
+      activeWorktree: null,
+      worktrees: [],
+    });
+
+    try {
+      const disclosure = view.container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Expand repository worktrees"]'
+      );
+      if (disclosure) {
+        await act(async () => {
+          disclosure.click();
+        });
+      }
+
+      const emptyState = view.container.querySelector(
+        '.control-tree-inline-empty[data-has-icon="true"]'
+      );
+      const emptyStateIcon = emptyState?.querySelector('.control-tree-inline-icon');
+      const emptyStateTitle = emptyState?.querySelector('.control-tree-inline-title');
+      const createWorktreeAction = Array.from(
+        emptyState?.querySelectorAll<HTMLButtonElement>('button') ?? []
+      ).find((button) => button.textContent?.includes('New Worktree'));
+
+      expect(emptyStateIcon?.getAttribute('aria-hidden')).toBe('true');
+      expect(emptyStateIcon?.querySelector('svg')).not.toBeNull();
+      expect(emptyStateTitle?.textContent).toBe('No worktrees');
+      expect(emptyState?.textContent).toContain('No worktrees');
+      expect(createWorktreeAction).toBeDefined();
+      expect(createWorktreeAction?.getAttribute('aria-label')).toBe('New Worktree');
+      expect(createWorktreeAction?.getAttribute('title')).toBe('New Worktree');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('opens worktree creation after selecting a different empty repository', async () => {
+    const onSelectRepo = vi.fn();
+    const onRefresh = vi.fn();
+    const repositories = [
+      {
+        id: 'repo-a',
+        name: 'Repo A',
+        path: '/repo-a',
+        groupId: undefined,
+      },
+      {
+        id: 'repo-empty',
+        name: 'Repo Empty',
+        path: '/repo-empty',
+        groupId: undefined,
+      },
+    ];
+    const branches = [
+      {
+        name: 'main',
+        current: true,
+        commit: 'abc123',
+        label: 'main',
+        merged: false,
+      },
+    ];
+    const view = await mountTreeSidebar({ repositories, onSelectRepo, onRefresh, branches });
+
+    try {
+      const emptyRepositoryButton = Array.from(
+        view.container.querySelectorAll<HTMLButtonElement>('.control-tree-primary')
+      ).find((button) => button.textContent?.includes('Repo Empty'));
+      const emptyRepositoryContainer =
+        emptyRepositoryButton?.closest('.control-tree-node')?.parentElement?.parentElement;
+      const disclosure = emptyRepositoryContainer?.querySelector<HTMLButtonElement>(
+        'button[aria-label="Expand repository worktrees"]'
+      );
+
+      await act(async () => {
+        disclosure?.click();
+      });
+
+      const newWorktreeButton = Array.from(
+        emptyRepositoryContainer?.querySelectorAll<HTMLButtonElement>('button') ?? []
+      ).find((button) => button.textContent?.includes('New Worktree'));
+      expect(newWorktreeButton).toBeDefined();
+
+      await act(async () => {
+        newWorktreeButton?.click();
+      });
+      expect(onSelectRepo).toHaveBeenCalledWith('/repo-empty', { activateRemote: true });
+
+      vi.useFakeTimers();
+      await view.rerender({
+        selectedRepo: '/repo-empty',
+        activeWorktree: null,
+        worktrees: [],
+        branches,
+      });
+      await act(async () => {
+        vi.runAllTimers();
+      });
+
+      expect(view.container.querySelector('[data-create-worktree-submit="true"]')).not.toBeNull();
+      expect(onRefresh).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
       view.unmount();
     }
   });
@@ -872,6 +1168,83 @@ describe('TreeSidebar agent filter', () => {
         })
       );
       expect(worktreeActivityState.fetchDiffStats).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('re-expands the selected repository when its active worktree changes', async () => {
+    const view = await mountTreeSidebar();
+
+    try {
+      const disclosure = view.container.querySelector(
+        'button[aria-controls="tree-worktrees--repo-a"]'
+      ) as HTMLButtonElement | null;
+
+      await act(async () => {
+        disclosure?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(disclosure?.getAttribute('aria-expanded')).toBe('false');
+
+      await view.rerender({
+        activeWorktree: repoWorktrees['/repo-a'][0],
+      });
+
+      expect(disclosure?.getAttribute('aria-expanded')).toBe('true');
+      expect(view.container.querySelector('[data-worktree-item="/repo-a/main"]')).not.toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('aligns a specific group when an external worktree selection changes repository context', async () => {
+    const onSwitchGroup = vi.fn();
+    const view = await mountTreeSidebar({
+      repositories: [
+        { id: 'repo-a', name: 'Repo A', path: '/repo-a', groupId: 'group-a' },
+        { id: 'repo-b', name: 'Repo B', path: '/repo-b', groupId: 'group-b' },
+      ],
+      selectedRepo: '/repo-b',
+      activeWorktree: repoWorktrees['/repo-b'][0],
+      worktrees: repoWorktrees['/repo-b'],
+      groups: [
+        { id: 'group-a', name: 'Group A', emoji: 'A', color: '#111111', order: 0 },
+        { id: 'group-b', name: 'Group B', emoji: 'B', color: '#222222', order: 1 },
+      ],
+      activeGroupId: 'group-a',
+      onSwitchGroup,
+    });
+
+    try {
+      expect(onSwitchGroup).toHaveBeenCalledWith('group-b');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('offers a direct create action for an expanded repository without worktrees', async () => {
+    const view = await mountTreeSidebar({
+      repositories: [{ id: 'repo-empty', name: 'Empty Repo', path: '/repo-empty' }],
+      selectedRepo: '/repo-empty',
+      activeWorktree: null,
+      worktrees: [],
+    });
+
+    try {
+      const createButton = Array.from(view.container.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === 'New Worktree'
+      );
+
+      expect(createButton).toBeDefined();
+
+      await act(async () => {
+        createButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(
+        view.container.querySelector('button[data-create-worktree-submit="true"]')
+      ).not.toBeNull();
     } finally {
       view.unmount();
     }

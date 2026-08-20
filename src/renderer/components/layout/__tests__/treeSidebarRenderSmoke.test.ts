@@ -19,6 +19,7 @@ vi.mock('lucide-react', () => {
     FolderMinus: icon,
     GitBranch: icon,
     List: icon,
+    ListCollapse: icon,
     MoreHorizontal: icon,
     PanelLeftClose: icon,
     Plus: icon,
@@ -390,7 +391,7 @@ describe('TreeSidebar render smoke', () => {
     expect(markup).not.toContain('data-sidebar-empty="No matches"');
   });
 
-  it('renders only the current and recent repositories before progressive expansion', () => {
+  it('keeps the full project directory available through grouped pagination', () => {
     const repositories = Array.from({ length: 12 }, (_, index) => ({
       id: `repo-${index}`,
       name: index === 1 ? 'Hidden Oldest Project' : `Project ${index}`,
@@ -428,7 +429,79 @@ describe('TreeSidebar render smoke', () => {
     );
 
     expect(markup).toContain('Project 0');
-    expect(markup).not.toContain('Hidden Oldest Project');
-    expect(markup).toContain('aria-label="Show 3 more projects"');
+    expect(markup).toContain('Hidden Oldest Project');
+    expect(markup).toContain('aria-label="Show 4 more projects"');
+  });
+
+  it('renders recent projects outside the grouped paginated project directory', () => {
+    const repositories = [
+      {
+        id: 'alpha-recent',
+        name: 'Alpha Recent',
+        path: '/project/alpha-recent',
+        groupId: 'alpha',
+        lastAccessedAt: 120,
+      },
+      ...Array.from({ length: 9 }, (_, index) => ({
+        id: `alpha-${index}`,
+        name: `Alpha ${index}`,
+        path: `/project/alpha-${index}`,
+        groupId: 'alpha',
+        lastAccessedAt: index,
+      })),
+      {
+        id: 'beta-recent',
+        name: 'Beta Recent',
+        path: '/project/beta-recent',
+        groupId: 'beta',
+        lastAccessedAt: 110,
+      },
+    ];
+    const markup = renderToStaticMarkup(
+      React.createElement(TreeSidebar, {
+        repositories,
+        selectedRepo: '/project/alpha-recent',
+        activeWorktree: null,
+        worktrees: [],
+        branches: [],
+        onSelectRepo: vi.fn(),
+        canLoadRepo: () => true,
+        onActivateRemoteRepo: vi.fn(),
+        onSelectWorktree: vi.fn(),
+        onAddRepository: vi.fn(),
+        onCreateWorktree: vi.fn(async () => {}),
+        onRemoveWorktree: vi.fn(),
+        onRefresh: vi.fn(),
+        groups: [
+          { id: 'alpha', name: 'Alpha', emoji: 'A', color: '#111111', order: 0 },
+          { id: 'beta', name: 'Beta', emoji: 'B', color: '#222222', order: 1 },
+        ],
+        activeGroupId: ALL_GROUP_ID,
+        onSwitchGroup: vi.fn(),
+        onCreateGroup: vi.fn(() => ({
+          id: 'group',
+          name: 'Group',
+          emoji: 'G',
+          color: '#000000',
+          order: 0,
+        })),
+        onUpdateGroup: vi.fn(),
+        onDeleteGroup: vi.fn(),
+      })
+    );
+
+    const recentStart = markup.indexOf('data-tree-section-kind="recent"');
+    const allProjectsStart = markup.indexOf('data-tree-section-kind="all-projects"');
+    const recentMarkup = markup.slice(recentStart, allProjectsStart);
+    const allProjectsMarkup = markup.slice(allProjectsStart);
+
+    expect(recentStart).toBeGreaterThanOrEqual(0);
+    expect(allProjectsStart).toBeGreaterThan(recentStart);
+    expect(recentMarkup).toContain('Alpha Recent');
+    expect(recentMarkup).toContain('Beta Recent');
+    expect(recentMarkup).not.toContain('Alpha</span>');
+    expect(allProjectsMarkup).toContain('Alpha</span>');
+    expect(allProjectsMarkup).toContain('Beta</span>');
+    expect(allProjectsMarkup).toContain('aria-label="Show 2 more projects"');
   });
 });

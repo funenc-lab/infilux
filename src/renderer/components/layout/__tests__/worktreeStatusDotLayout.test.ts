@@ -120,12 +120,16 @@ describe('worktree status dot layout', () => {
       React.createElement(WorktreeTreeItem, {
         worktree: WORKTREE,
         isActive: true,
-        onClick: vi.fn(),
+        repositoryPath: '/repo',
+        isRepositorySelected: true,
+        worktreeIndex: 0,
+        onSelect: vi.fn(),
         onDelete: vi.fn(),
       })
     );
 
     expectLeadingStatusDot(markup);
+    expect(markup).toContain('control-tree-primary relative min-w-0 flex-1 self-stretch text-left');
   });
 
   it('renders the worktree panel status dot in a leading status slot instead of the title row', () => {
@@ -158,7 +162,10 @@ describe('worktree status dot layout', () => {
           React.createElement(WorktreeTreeItem, {
             worktree: WORKTREE,
             isActive: true,
-            onClick: vi.fn(),
+            repositoryPath: '/repo',
+            isRepositorySelected: true,
+            worktreeIndex: 0,
+            onSelect: vi.fn(),
             onDelete: vi.fn(),
           }),
           React.createElement(WorktreeItem, {

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Repository } from '@/App/constants';
 import {
   INITIAL_INACTIVE_REPOSITORY_LIMIT,
+  useGroupedRepositoryPagination,
   useProgressiveRepositoryVisibility,
 } from '../useProgressiveRepositoryVisibility';
 
@@ -24,6 +25,8 @@ const repositories: Repository[] = Array.from({ length: 20 }, (_, index) => ({
 
 type Snapshot = ReturnType<typeof useProgressiveRepositoryVisibility>;
 let snapshot: Snapshot | null = null;
+type GroupedSnapshot = ReturnType<typeof useGroupedRepositoryPagination>;
+let groupedSnapshot: GroupedSnapshot | null = null;
 
 function Harness({
   activePaths = [],
@@ -44,10 +47,16 @@ function Harness({
   return React.createElement('div');
 }
 
+function GroupedHarness({ groupIds, resetKey }: { groupIds: string[]; resetKey: string }) {
+  groupedSnapshot = useGroupedRepositoryPagination({ groupIds, resetKey });
+  return React.createElement('div');
+}
+
 describe('useProgressiveRepositoryVisibility', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     snapshot = null;
+    groupedSnapshot = null;
   });
 
   it('reveals inactive repositories in stable batches while retaining formerly active projects', async () => {
@@ -130,6 +139,44 @@ describe('useProgressiveRepositoryVisibility', () => {
       root.render(React.createElement(Harness, { resetKey: 'all' }));
     });
     expect(snapshot?.repositories).toHaveLength(9);
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it('paginates each project group independently and resets when the directory changes', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        React.createElement(GroupedHarness, { groupIds: ['alpha', 'beta'], resetKey: 'all' })
+      );
+    });
+
+    expect(groupedSnapshot?.getPage('alpha', 20)).toMatchObject({
+      visibleCount: INITIAL_INACTIVE_REPOSITORY_LIMIT,
+      hiddenCount: 12,
+    });
+    expect(groupedSnapshot?.getPage('beta', 10)).toMatchObject({
+      visibleCount: INITIAL_INACTIVE_REPOSITORY_LIMIT,
+      hiddenCount: 2,
+    });
+
+    await act(async () => {
+      groupedSnapshot?.showMore('alpha');
+    });
+
+    expect(groupedSnapshot?.getPage('alpha', 20)).toMatchObject({ visibleCount: 16 });
+    expect(groupedSnapshot?.getPage('beta', 10)).toMatchObject({ visibleCount: 8 });
+
+    await act(async () => {
+      root.render(React.createElement(GroupedHarness, { groupIds: ['alpha'], resetKey: 'all' }));
+    });
+
+    expect(groupedSnapshot?.getPage('alpha', 20)).toMatchObject({ visibleCount: 8 });
 
     await act(async () => {
       root.unmount();

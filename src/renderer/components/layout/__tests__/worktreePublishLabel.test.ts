@@ -105,7 +105,10 @@ describe('worktree publish button layout', () => {
       React.createElement(WorktreeTreeItem, {
         worktree: WORKTREE,
         isActive: true,
-        onClick: vi.fn(),
+        repositoryPath: '/repo',
+        isRepositorySelected: true,
+        worktreeIndex: 0,
+        onSelect: vi.fn(),
         onDelete: vi.fn(),
       })
     );

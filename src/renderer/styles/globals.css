@@ -1905,18 +1905,12 @@
     height: 100%;
     opacity: 0;
     pointer-events: none;
-    transform: translate3d(
-      calc(-1 * var(--control-sidebar-hover-panel-width) - var(--control-sidebar-hover-edge-gap) + var(--control-sidebar-hover-trigger-width)),
-      0,
-      0
-    );
-    will-change: opacity, transform;
+    transform: translate3d(var(--control-sidebar-hover-panel-offset), 0, 0);
+    will-change: opacity;
     overflow: hidden;
     border-radius: 0.625rem;
     background: var(--control-sidebar-hover-surface);
-    transition:
-      opacity 90ms cubic-bezier(0.4, 0, 1, 1),
-      transform 140ms cubic-bezier(0.4, 0, 1, 1);
+    transition: opacity 70ms cubic-bezier(0.4, 0, 1, 1);
     box-shadow:
       inset 0 -1px 0 var(--control-sidebar-hover-border),
       inset 0 1px 0 color-mix(in oklch, var(--control-sidebar-hover-border) 64%, transparent),
@@ -1932,6 +1926,18 @@
     .control-sidebar {
     border-color: var(--control-sidebar-hover-border);
     background: var(--control-sidebar-hover-surface);
+  }
+
+  .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']
+    > [data-sidebar-hover-content='true']
+    .control-sidebar-scroll-region {
+    scrollbar-width: none;
+  }
+
+  .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']
+    > [data-sidebar-hover-content='true']
+    .control-sidebar-scroll-region::-webkit-scrollbar {
+    display: none;
   }
 
   .dark
@@ -1970,15 +1976,13 @@
     opacity: 1;
     pointer-events: auto;
     transform: translate3d(var(--control-sidebar-hover-panel-offset), 0, 0);
-    transition:
-      opacity 130ms cubic-bezier(0.16, 1, 0.3, 1),
-      transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: opacity 100ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   @media (prefers-reduced-motion: reduce) {
     .control-sidebar-hover-rail[data-sidebar-hover-reveal='active']
       > [data-sidebar-hover-content='true'] {
-      transition: opacity 70ms linear;
+      transition: none;
     }
   }
 
@@ -2231,7 +2235,7 @@
   }
 
   .control-sidebar-search-input::placeholder {
-    color: color-mix(in oklch, var(--muted-foreground) 74%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 72%, var(--foreground) 28%);
   }
 
   .control-sidebar-search-clear {
@@ -2314,7 +2318,7 @@
     letter-spacing: 0.065em;
     text-transform: uppercase;
     border: 1px solid transparent;
-    color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 68%, var(--foreground) 32%);
     transition:
       background-color 140ms ease,
       box-shadow 140ms ease,
@@ -2325,6 +2329,16 @@
     background: color-mix(in oklch, var(--accent) 0.9%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 14%, transparent);
     color: color-mix(in oklch, var(--foreground) 66%, var(--muted-foreground) 34%);
+  }
+
+  .control-section-header[data-static='true'] {
+    cursor: default;
+  }
+
+  .control-section-header[data-static='true']:hover {
+    background: transparent;
+    box-shadow: none;
+    color: color-mix(in oklch, var(--muted-foreground) 68%, var(--foreground) 32%);
   }
 
   .control-section-header:focus-visible {
@@ -2572,17 +2586,17 @@
     --control-tree-title-weight: 590;
     --control-tree-subtitle-color: color-mix(
       in oklch,
-      var(--muted-foreground) 72%,
-      var(--background) 28%
+      var(--muted-foreground) 66%,
+      var(--foreground) 34%
     );
-    --control-tree-meta-color: color-mix(in oklch, var(--muted-foreground) 78%, transparent);
-    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 58%, transparent);
+    --control-tree-meta-color: color-mix(in oklch, var(--muted-foreground) 72%, var(--foreground) 28%);
+    --control-tree-metric-label-color: color-mix(in oklch, var(--muted-foreground) 62%, var(--foreground) 38%);
     --control-tree-metric-value-color: color-mix(
       in oklch,
       var(--muted-foreground) 72%,
       var(--foreground) 28%
     );
-    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
+    --control-tree-separator-color: color-mix(in oklch, var(--muted-foreground) 54%, var(--foreground) 46%);
     --control-tree-icon-color: var(--muted-foreground);
     --control-tree-glyph-bg: transparent;
     --control-tree-disclosure-opacity: 0.64;
@@ -2607,7 +2621,7 @@
     --control-tree-tail-offset-y: 0.125rem;
     --control-tree-tail-padding-start: 0.5rem;
     position: relative;
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     background: var(--control-tree-node-bg);
     box-shadow:
       inset 0 0 0 1px var(--control-tree-node-border),
@@ -2619,7 +2633,7 @@
   }
 
   .control-tree-node[data-node-kind='worktree'] {
-    padding-block: 0.375rem;
+    padding-block: 0;
   }
 
   .control-tree-node[data-node-kind='worktree'] .control-tree-row {
@@ -2642,7 +2656,9 @@
   }
 
   .control-tree-primary:focus-visible {
-    outline: none;
+    outline: 2px solid color-mix(in oklch, var(--ring) 78%, transparent);
+    outline-offset: 2px;
+    border-radius: 0.375rem;
   }
 
   .control-tree-primary[data-surface="row"] {
@@ -2699,7 +2715,7 @@
     --control-tree-disclosure-border: color-mix(in oklch, var(--border) 18%, transparent);
   }
 
-  .control-tree-node[data-active="false"]:focus-within {
+  .control-tree-node[data-active="false"]:has(.control-tree-primary:focus-visible) {
     --control-tree-node-bg: color-mix(in oklch, var(--accent) 1.6%, transparent);
     --control-tree-node-border: color-mix(in oklch, var(--border) 28%, transparent);
     --control-tree-node-ring: color-mix(in oklch, var(--ring) 26%, transparent);
@@ -2736,12 +2752,8 @@
   }
 
   .control-tree-node[data-active="repo"] {
-    --control-tree-node-bg: color-mix(
-      in oklch,
-      var(--accent) 2.4%,
-      var(--background) 97.6%
-    );
-    --control-tree-node-border: color-mix(in oklch, var(--border) 36%, transparent);
+    --control-tree-node-bg: color-mix(in oklch, var(--accent) 4%, transparent);
+    --control-tree-node-border: transparent;
     --control-tree-title-color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);
     --control-tree-title-weight: 582;
     --control-tree-subtitle-color: color-mix(
@@ -2766,9 +2778,9 @@
       var(--foreground) 18%,
       var(--muted-foreground) 82%
     );
-    --control-tree-rail-color: color-mix(in oklch, var(--border) 44%, transparent);
-    --control-tree-rail-opacity: 1;
-    --control-tree-rail-width: 1.5px;
+    --control-tree-rail-color: transparent;
+    --control-tree-rail-opacity: 0;
+    --control-tree-rail-width: 1px;
     --control-tree-disclosure-opacity: 0.72;
     --control-tree-action-opacity: 0.18;
     --control-tree-tail-opacity: 0.18;
@@ -2777,8 +2789,8 @@
   .control-tree-node[data-active="repo"][data-selection-tone="context"] {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--accent) 0.8%,
-      var(--background) 99.2%
+      var(--accent) 6.5%,
+      var(--background) 93.5%
     );
     --control-tree-node-border: transparent;
     --control-tree-title-color: color-mix(in oklch, var(--foreground) 86%, var(--muted-foreground) 14%);
@@ -2816,10 +2828,10 @@
   .control-tree-node[data-active="worktree"] {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--primary) 4.2%,
-      var(--background) 95.8%
+      var(--accent) 12%,
+      var(--background) 88%
     );
-    --control-tree-node-border: color-mix(in oklch, var(--primary) 22%, transparent);
+    --control-tree-node-border: color-mix(in oklch, var(--foreground) 82%, transparent);
     --control-tree-title-color: color-mix(in oklch, var(--foreground) 98%, var(--muted-foreground) 2%);
     --control-tree-title-weight: 608;
     --control-tree-subtitle-color: color-mix(
@@ -2844,9 +2856,9 @@
       var(--foreground) 48%,
       var(--muted-foreground) 52%
     );
-    --control-tree-rail-color: color-mix(in oklch, var(--primary) 34%, transparent);
-    --control-tree-rail-opacity: 1;
-    --control-tree-rail-width: 2px;
+    --control-tree-rail-color: transparent;
+    --control-tree-rail-opacity: 0;
+    --control-tree-rail-width: 1px;
     --control-tree-action-opacity: 0.18;
     --control-tree-tail-opacity: 0.18;
   }
@@ -2857,12 +2869,8 @@
   }
 
   .control-tree-node[data-active="repo"]:hover {
-    --control-tree-node-bg: color-mix(
-      in oklch,
-      var(--accent) 2.6%,
-      var(--background) 97.4%
-    );
-    --control-tree-node-border: color-mix(in oklch, var(--border) 36%, transparent);
+    --control-tree-node-bg: color-mix(in oklch, var(--accent) 5.5%, transparent);
+    --control-tree-node-border: transparent;
     --control-tree-title-color: color-mix(in oklch, var(--foreground) 94%, var(--muted-foreground) 6%);
     --control-tree-title-weight: 586;
     --control-tree-subtitle-color: color-mix(
@@ -2898,8 +2906,8 @@
   .control-tree-node[data-active="repo"][data-selection-tone="context"]:hover {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--accent) 1.15%,
-      var(--background) 98.85%
+      var(--accent) 8%,
+      var(--background) 92%
     );
     --control-tree-node-border: transparent;
     --control-tree-title-color: color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground) 12%);
@@ -2933,7 +2941,7 @@
     --control-tree-tail-opacity: 0.2;
   }
 
-  .control-tree-node[data-active="repo"]:focus-within {
+  .control-tree-node[data-active="repo"]:has(.control-tree-primary:focus-visible) {
     --control-tree-node-bg: color-mix(
       in oklch,
       var(--accent) 2.6%,
@@ -2973,11 +2981,13 @@
     --control-tree-tail-opacity: 0.24;
   }
 
-  .control-tree-node[data-active="repo"][data-selection-tone="context"]:focus-within {
+  .control-tree-node[data-active="repo"][data-selection-tone="context"]:has(
+      .control-tree-primary:focus-visible
+    ) {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--accent) 1.35%,
-      var(--background) 98.65%
+      var(--accent) 8%,
+      var(--background) 92%
     );
     --control-tree-node-border: transparent;
     --control-tree-title-color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);
@@ -3014,10 +3024,10 @@
   .control-tree-node[data-active="worktree"]:hover {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--primary) 4.5%,
-      var(--background) 95.5%
+      var(--accent) 14%,
+      var(--background) 86%
     );
-    --control-tree-node-border: color-mix(in oklch, var(--primary) 24%, transparent);
+    --control-tree-node-border: color-mix(in oklch, var(--foreground) 92%, transparent);
     --control-tree-title-color: var(--foreground);
     --control-tree-title-weight: 604;
     --control-tree-subtitle-color: color-mix(
@@ -3047,14 +3057,14 @@
     --control-tree-tail-opacity: 0.24;
   }
 
-  .control-tree-node[data-active="worktree"]:focus-within {
+  .control-tree-node[data-active="worktree"]:has(.control-tree-primary:focus-visible) {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--primary) 4.5%,
-      var(--background) 95.5%
+      var(--accent) 14%,
+      var(--background) 86%
     );
-    --control-tree-node-border: color-mix(in oklch, var(--primary) 24%, transparent);
-    --control-tree-node-ring: color-mix(in oklch, var(--ring) 30%, transparent);
+    --control-tree-node-border: color-mix(in oklch, var(--foreground) 92%, transparent);
+    --control-tree-node-ring: color-mix(in oklch, var(--ring) 42%, transparent);
     --control-tree-title-color: var(--foreground);
     --control-tree-title-weight: 604;
     --control-tree-subtitle-color: color-mix(
@@ -3084,7 +3094,44 @@
     --control-tree-tail-opacity: 0.24;
   }
 
+  .control-tree-node[data-active="worktree"] .control-tree-primary:focus-visible {
+    outline: none;
+  }
+
+  .control-tree-repository-group {
+    margin-inline: 0.25rem;
+    border-radius: 0.5rem;
+    transition: background-color 100ms ease;
+  }
+
+  .control-tree-repository-group[data-expanded='true'][data-selected='true'] {
+    background: color-mix(in oklch, var(--accent) 6.5%, var(--background) 93.5%);
+  }
+
+  .control-tree-repository-group[data-expanded='true'][data-selected='true']
+    > div
+    > .control-tree-node[data-active='repo'] {
+    --control-tree-node-bg: transparent;
+  }
+
+  .control-tree-repository-group[data-expanded='true'][data-selected='true']
+    > div
+    > .control-tree-node[data-active='repo']:hover {
+    --control-tree-node-bg: color-mix(in oklch, var(--accent) 2%, transparent);
+  }
+
+  .control-tree-repository-group[data-expanded='true'][data-selected='true']
+    > div
+    > .control-tree-node[data-active='repo']:has(.control-tree-primary:focus-visible) {
+    --control-tree-node-bg: color-mix(in oklch, var(--accent) 2.5%, transparent);
+  }
+
   .control-tree-node[data-active='repo']::before {
+    opacity: 0;
+    background: transparent;
+  }
+
+  .control-tree-node[data-active='repo'][data-selection-tone='context']::before {
     opacity: 0;
     background: transparent;
   }
@@ -3378,6 +3425,19 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .control-tree-current-worktree {
+    display: inline-block;
+    min-width: 0;
+    max-width: 8rem;
+    overflow: hidden;
+    color: var(--control-tree-title-color);
+    font-size: 0.65625rem;
+    font-weight: 620;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .control-tree-count-live {
     border-color: color-mix(in oklch, var(--control-live) 28%, var(--border) 72%);
     background: color-mix(in oklch, var(--control-live) 10%, var(--background) 90%);
@@ -3474,25 +3534,6 @@
     flex-direction: column;
     gap: 0.375rem;
     padding-top: 0.375rem;
-  }
-
-  .control-tree-collapsible {
-    display: grid;
-    grid-template-rows: 0fr;
-    opacity: 0;
-    overflow: hidden;
-    transition:
-      grid-template-rows 180ms ease,
-      opacity 120ms ease;
-  }
-
-  .control-tree-collapsible[data-expanded='true'] {
-    grid-template-rows: 1fr;
-    opacity: 1;
-  }
-
-  .control-tree-collapsible > * {
-    min-height: 0;
   }
 
   .control-tree-flat-list {
@@ -3630,8 +3671,8 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
-    margin-top: 0.375rem;
+    gap: 0.125rem;
+    margin-top: 0.125rem;
     margin-right: 0;
     margin-left: 0.5rem;
     overflow: hidden;
@@ -3641,7 +3682,7 @@
   .control-tree-guide::before {
     content: '';
     position: absolute;
-    left: 0.3125rem;
+    left: 1.125rem;
     top: 0.125rem;
     bottom: 0.125rem;
     width: 1px;
@@ -3691,7 +3732,7 @@
   .control-tree-summary {
     flex-wrap: nowrap;
     justify-content: flex-end;
-    opacity: 0.82;
+    opacity: 0.9;
     transition: opacity 140ms ease;
   }
 
@@ -3714,25 +3755,110 @@
   }
 
   .control-tree-inline-empty {
+    display: grid;
+    min-height: 2rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+    padding: 0.25rem 0.375rem;
+    border-radius: 0.25rem;
+    background: transparent;
+  }
+
+  .control-tree-inline-empty[data-has-icon='true'] {
+    min-height: 2.25rem;
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+    column-gap: 0.5rem;
+    padding-inline: 0.25rem;
+  }
+
+  .control-tree-inline-empty[data-tone='empty'] {
+    grid-template-columns: 1.375rem minmax(0, 1fr) auto;
+    column-gap: 0.4375rem;
+    padding-inline: 0.375rem 0.25rem;
+  }
+
+  .control-tree-inline-icon {
+    display: inline-flex;
+    height: 1.5rem;
+    width: 1.5rem;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    background: color-mix(in oklch, var(--accent) 72%, var(--background) 28%);
+    color: color-mix(in oklch, var(--muted-foreground) 64%, var(--foreground) 36%);
+  }
+
+  .control-tree-inline-empty[data-tone='empty'] .control-tree-inline-icon {
+    height: 1.25rem;
+    width: 1.25rem;
+    border-radius: 0;
+    background: transparent;
+    color: color-mix(in oklch, var(--muted-foreground) 76%, var(--foreground) 24%);
+  }
+
+  .control-tree-inline-text {
     display: flex;
+    min-width: 0;
     flex-direction: column;
-    gap: 0.375rem;
-    padding: 0.75rem 0.875rem 0.75rem 0.5rem;
-    border-radius: 0.625rem;
-    background: color-mix(in oklch, var(--background) 97%, var(--muted) 3%);
+    gap: 0.125rem;
+  }
+
+  .control-tree-inline-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.25rem;
   }
 
   .control-tree-inline-title {
     font-size: var(--ui-text-tree-title-size);
     line-height: var(--ui-text-tree-title-line-height);
-    font-weight: 590;
-    color: var(--foreground);
+    font-weight: 560;
+    color: color-mix(in oklch, var(--muted-foreground) 82%, var(--foreground) 18%);
+  }
+
+  .control-tree-inline-empty[data-has-icon='true'] .control-tree-inline-title {
+    font-weight: 580;
+    color: color-mix(in oklch, var(--muted-foreground) 62%, var(--foreground) 38%);
+  }
+
+  .control-tree-inline-empty[data-tone='empty'] .control-tree-inline-title {
+    font-weight: 520;
+    color: color-mix(in oklch, var(--muted-foreground) 84%, var(--foreground) 16%);
+  }
+
+  .control-tree-inline-empty[data-has-icon='true'] .control-tree-inline-actions > button {
+    background: color-mix(in oklch, var(--accent) 22%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 54%, var(--foreground) 46%);
+  }
+
+  .control-tree-inline-empty[data-tone='empty'] .control-tree-inline-actions > button {
+    background: transparent;
+    color: color-mix(in oklch, var(--muted-foreground) 58%, var(--foreground) 42%);
+    font-weight: 520;
+  }
+
+  .control-tree-inline-empty[data-has-icon='true'] .control-tree-inline-actions > button:hover {
+    background: color-mix(in oklch, var(--accent) 58%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 34%, var(--foreground) 66%);
+  }
+
+  .control-tree-inline-empty[data-tone='empty'] .control-tree-inline-actions > button:hover {
+    background: color-mix(in oklch, var(--accent) 34%, transparent);
+    color: color-mix(in oklch, var(--muted-foreground) 36%, var(--foreground) 64%);
   }
 
   .control-tree-inline-copy {
     font-size: var(--ui-text-tree-subtitle-size);
     line-height: var(--ui-text-tree-subtitle-line-height);
     color: var(--muted-foreground);
+  }
+
+  .control-tree-inline-empty[data-density='compact'] {
+    min-height: 1.75rem;
+    padding-block: 0.125rem;
   }
 
   .control-tree-skeleton {

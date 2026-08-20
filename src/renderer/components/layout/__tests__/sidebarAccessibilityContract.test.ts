@@ -35,9 +35,15 @@ describe('Sidebar accessibility contract', () => {
   it('keeps keyboard focus styling distinct from hover and selection', () => {
     expect(globalsSource).toContain('.control-tree-primary:focus-visible {');
     expect(globalsSource).toContain('.control-section-header:focus-visible {');
-    expect(globalsSource).toContain('.control-tree-node[data-active="false"]:focus-within {');
-    expect(globalsSource).toContain('.control-tree-node[data-active="repo"]:focus-within {');
-    expect(globalsSource).toContain('.control-tree-node[data-active="worktree"]:focus-within {');
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-active="false"]:has(.control-tree-primary:focus-visible) {'
+    );
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-active="repo"]:has(.control-tree-primary:focus-visible) {'
+    );
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-active="worktree"]:has(.control-tree-primary:focus-visible) {'
+    );
     expect(globalsSource).toContain('.control-sidebar-search:focus-within {');
     expect(globalsSource).toContain('var(--ring) 26%');
   });

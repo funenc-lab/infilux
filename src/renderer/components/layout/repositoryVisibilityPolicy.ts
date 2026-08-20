@@ -1,5 +1,5 @@
 import type { GitWorktree } from '@shared/types';
-import type { Repository } from '@/App/constants';
+import { ALL_GROUP_ID, type Repository } from '@/App/constants';
 import { normalizeRepositoryLastAccessedAt } from '@/App/repositoryAccess';
 import { normalizePath } from '@/App/storage';
 
@@ -18,9 +18,25 @@ interface ActiveRepositoryPathsInput {
   worktreesByRepository: Readonly<Record<string, readonly GitWorktree[] | undefined>>;
 }
 
+interface RepositoryGroupScopeInput {
+  repositories: readonly Repository[];
+  activeGroupId: string;
+}
+
 export interface RepositoryVisibilityResult {
   repositories: Repository[];
   hiddenCount: number;
+}
+
+export function resolveRepositoryGroupScope({
+  repositories,
+  activeGroupId,
+}: RepositoryGroupScopeInput): Repository[] {
+  if (activeGroupId === ALL_GROUP_ID) {
+    return [...repositories];
+  }
+
+  return repositories.filter((repository) => repository.groupId === activeGroupId);
 }
 
 function toNormalizedPathSet(paths: readonly string[]): Set<string> {
@@ -79,14 +95,34 @@ export function resolveRepositoryVisibility({
     selectedRecentPaths.add(normalizePath(repository.path));
   }
 
-  const visibleRepositories = repositories.filter((repository) => {
-    const repositoryPath = normalizePath(repository.path);
-    return (
-      forcedPaths.has(repositoryPath) ||
-      retainedInactivePaths.has(repositoryPath) ||
-      selectedRecentPaths.has(repositoryPath)
-    );
-  });
+  const normalizedSelectedRepo = selectedRepo ? normalizePath(selectedRepo) : null;
+  const visibleRepositories = repositories
+    .map((repository, index) => ({ repository, index }))
+    .filter(({ repository }) => {
+      const repositoryPath = normalizePath(repository.path);
+      return (
+        forcedPaths.has(repositoryPath) ||
+        retainedInactivePaths.has(repositoryPath) ||
+        selectedRecentPaths.has(repositoryPath)
+      );
+    })
+    .sort((left, right) => {
+      const leftPath = normalizePath(left.repository.path);
+      const rightPath = normalizePath(right.repository.path);
+      const leftPriority =
+        leftPath === normalizedSelectedRepo ? 0 : forcedPaths.has(leftPath) ? 1 : 2;
+      const rightPriority =
+        rightPath === normalizedSelectedRepo ? 0 : forcedPaths.has(rightPath) ? 1 : 2;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+
+      const leftAccessedAt = normalizeRepositoryLastAccessedAt(left.repository.lastAccessedAt) ?? 0;
+      const rightAccessedAt =
+        normalizeRepositoryLastAccessedAt(right.repository.lastAccessedAt) ?? 0;
+      return rightAccessedAt - leftAccessedAt || left.index - right.index;
+    })
+    .map(({ repository }) => repository);
 
   return {
     repositories: visibleRepositories,

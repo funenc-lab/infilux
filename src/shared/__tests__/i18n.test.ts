@@ -33,7 +33,9 @@ describe('shared i18n helpers', () => {
     expect(
       getTranslation('zh', 'Terminal input is temporarily disabled while the session reconnects.')
     ).toBe('终端会话正在重连，输入暂时不可用。');
-    expect(getTranslation('zh', 'No matching worktrees')).toBe('没有匹配的 worktree');
+    expect(getTranslation('zh', 'No matching worktrees')).toBe(
+      '\u6ca1\u6709\u5339\u914d\u7684\u5de5\u4f5c\u6811'
+    );
     expect(getTranslation('zh', 'Worktree not found')).toBe('Worktree 不存在');
     expect(getTranslation('zh', 'No matches found')).toBe('没有搜索结果');
     expect(getTranslation('zh', 'Dispatch Result')).toBe('派发结果');

@@ -23,7 +23,7 @@ describe('tree sidebar policy entry', () => {
 
   it('adds a direct worktree policy entry to the worktree context menu', () => {
     expect(worktreeTreeItemSource).toContain("{t('Worktree Configuration')}");
-    expect(worktreeTreeItemSource).toContain('onEditPolicy();');
+    expect(worktreeTreeItemSource).toContain('onEditPolicy(repositoryPath, worktree);');
     expect(worktreePanelItemSource).toContain("{t('Worktree Configuration')}");
     expect(worktreePanelItemSource).toContain('onEditPolicy();');
     expect(worktreePanelSource).toContain('setWorktreePolicyOpen(true)');

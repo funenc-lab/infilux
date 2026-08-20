@@ -40,16 +40,19 @@ const DEFAULT_DIFF_STATS = Object.freeze({
 interface WorktreeTreeItemProps {
   worktree: GitWorktree;
   isActive: boolean;
-  onClick: () => void;
-  onDelete: () => void;
-  onEditPolicy?: () => void;
-  onMerge?: () => void;
+  repositoryPath: string;
+  isRepositorySelected: boolean;
+  onSelect: (worktree: GitWorktree, nextRepoPath?: string) => void;
+  onDelete: (worktree: GitWorktree) => void;
+  onEditPolicy?: (repositoryPath: string, worktree: GitWorktree) => void;
+  onMerge?: (worktree: GitWorktree) => void;
   draggable?: boolean;
-  onDragStart?: (e: React.DragEvent) => void;
+  worktreeIndex: number;
+  onDragStart?: (e: React.DragEvent, index: number, worktree: GitWorktree) => void;
   onDragEnd?: () => void;
-  onDragOver?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent, index: number) => void;
   onDragLeave?: () => void;
-  onDrop?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent, index: number) => void;
   showDropIndicator?: boolean;
   dropDirection?: 'top' | 'bottom' | null;
   branches?: GitBranchType[];
@@ -70,11 +73,14 @@ function areWorktreeTreeItemPropsEqual(
     previousWorktree.isLocked === nextWorktree.isLocked &&
     previousWorktree.prunable === nextWorktree.prunable &&
     previousProps.isActive === nextProps.isActive &&
-    previousProps.onClick === nextProps.onClick &&
+    previousProps.repositoryPath === nextProps.repositoryPath &&
+    previousProps.isRepositorySelected === nextProps.isRepositorySelected &&
+    previousProps.onSelect === nextProps.onSelect &&
     previousProps.onDelete === nextProps.onDelete &&
     previousProps.onEditPolicy === nextProps.onEditPolicy &&
     previousProps.onMerge === nextProps.onMerge &&
     previousProps.draggable === nextProps.draggable &&
+    previousProps.worktreeIndex === nextProps.worktreeIndex &&
     previousProps.onDragStart === nextProps.onDragStart &&
     previousProps.onDragEnd === nextProps.onDragEnd &&
     previousProps.onDragOver === nextProps.onDragOver &&
@@ -89,11 +95,14 @@ function areWorktreeTreeItemPropsEqual(
 export const WorktreeTreeItem = memo(function WorktreeTreeItem({
   worktree,
   isActive,
-  onClick,
+  repositoryPath,
+  isRepositorySelected,
+  onSelect,
   onDelete,
   onEditPolicy,
   onMerge,
   draggable,
+  worktreeIndex,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -233,8 +242,14 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
     Boolean(tracking && (aheadCount > 0 || behindCount > 0) && handleSync);
   const handleSelectWorktree = useCallback(() => {
     clearTaskCompletedUnreadByWorktree(worktree.path);
-    onClick();
-  }, [clearTaskCompletedUnreadByWorktree, onClick, worktree.path]);
+    onSelect(worktree, isRepositorySelected ? undefined : repositoryPath);
+  }, [
+    clearTaskCompletedUnreadByWorktree,
+    isRepositorySelected,
+    onSelect,
+    repositoryPath,
+    worktree,
+  ]);
   const buttonContent = (
     <>
       {showDropIndicator && dropDirection === 'top' && (
@@ -242,11 +257,11 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
       )}
       <div
         draggable={draggable}
-        onDragStart={onDragStart}
+        onDragStart={(event) => onDragStart?.(event, worktreeIndex, worktree)}
         onDragEnd={onDragEnd}
-        onDragOver={onDragOver}
+        onDragOver={(event) => onDragOver?.(event, worktreeIndex)}
         onDragLeave={onDragLeave}
-        onDrop={onDrop}
+        onDrop={(event) => onDrop?.(event, worktreeIndex)}
         onContextMenu={handleContextMenu}
         className={cn(
           'control-tree-node relative flex w-full flex-col gap-0.5 px-2 py-1 text-left text-sm transition-colors cursor-pointer',
@@ -260,9 +275,12 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
             ref={menuTriggerRef}
             type="button"
             onClick={handleSelectWorktree}
-            className="control-tree-primary relative min-w-0 flex-1 text-left outline-none"
+            className="control-tree-primary relative min-w-0 flex-1 self-stretch text-left outline-none"
             data-surface="row"
+            data-tree-navigation-item="worktree"
             aria-current={isActive ? 'page' : undefined}
+            aria-level={2}
+            role="treeitem"
           >
             <span className="control-tree-status-slot">
               <WorktreeActivityMarker state={activityState} />
@@ -436,7 +454,7 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
                 className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
                 onClick={() => {
                   setMenuOpen(false);
-                  onEditPolicy();
+                  onEditPolicy(repositoryPath, worktree);
                 }}
                 role="menuitem"
               >
@@ -451,7 +469,7 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
                 className="control-menu-item flex w-full items-center gap-2 rounded-md px-2 py-1.5"
                 onClick={() => {
                   setMenuOpen(false);
-                  onMerge();
+                  onMerge(worktree);
                 }}
                 role="menuitem"
               >
@@ -470,7 +488,7 @@ export const WorktreeTreeItem = memo(function WorktreeTreeItem({
               )}
               onClick={() => {
                 setMenuOpen(false);
-                onDelete();
+                onDelete(worktree);
               }}
               disabled={isMain}
               role="menuitem"

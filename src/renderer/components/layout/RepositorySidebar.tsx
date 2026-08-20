@@ -1,12 +1,12 @@
-import { isWslUncPath } from '@shared/utils/path';
-import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import {
   BrainCircuit,
   ChevronRight,
   Clock,
   FolderGit2,
   FolderMinus,
+  ListCollapse,
   ListFilter,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -49,11 +49,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
 import { buildRemovalDialogCopy } from '@/lib/feedbackCopy';
 import { focusFirstMenuItem, handleMenuNavigationKeyDown } from '@/lib/menuA11y';
-import { heightVariants, springStandard } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
@@ -63,7 +63,10 @@ import { CollapsedSidebarRail } from './CollapsedSidebarRail';
 import { RepositoryLoadMoreButton } from './RepositoryLoadMoreButton';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { RepositoryTreeItem } from './repository-sidebar/RepositoryTreeItem';
-import { resolveActiveRepositoryPaths } from './repositoryVisibilityPolicy';
+import {
+  resolveActiveRepositoryPaths,
+  resolveRepositoryGroupScope,
+} from './repositoryVisibilityPolicy';
 import { SidebarAiCenterButton } from './SidebarAiCenterButton';
 import { SidebarEmptyState } from './SidebarEmptyState';
 import { SidebarFloatingMenuPortal } from './SidebarFloatingMenuPortal';
@@ -137,6 +140,7 @@ export function RepositorySidebar({
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const todoEnabled = useSettingsStore((s) => s.todoEnabled);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showActiveProjectsOnly, setShowActiveProjectsOnly] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
@@ -191,6 +195,10 @@ export function RepositorySidebar({
     }
     return counts;
   }, [groups, visibleRepos]);
+  const repositoriesInActiveGroup = useMemo(
+    () => resolveRepositoryGroupScope({ repositories: visibleRepos, activeGroupId }),
+    [activeGroupId, visibleRepos]
+  );
 
   // Drag reorder
   const draggedIndexRef = useRef<number | null>(null);
@@ -329,7 +337,7 @@ export function RepositorySidebar({
   const parsedSearch = useMemo(() => {
     const tokens = searchQuery.trim().split(/\s+/).filter(Boolean);
     const textTokens: string[] = [];
-    let hasActiveFilter = false;
+    let hasActiveFilter = showActiveProjectsOnly;
 
     for (const token of tokens) {
       if (token.toLowerCase() === ':active') {
@@ -343,7 +351,7 @@ export function RepositorySidebar({
       hasActiveFilter,
       textQuery: textTokens.join(' ').toLowerCase(),
     };
-  }, [searchQuery]);
+  }, [searchQuery, showActiveProjectsOnly]);
 
   const allRepoPaths = useMemo(() => visibleRepos.map((repo) => repo.path), [visibleRepos]);
   const allRepoWorktreePrefetchInputs = useMemo(
@@ -372,13 +380,13 @@ export function RepositorySidebar({
     }
 
     return resolveActiveRepositoryPaths({
-      repositories: visibleRepos,
+      repositories: repositoriesInActiveGroup,
       activeWorktreePaths: activePaths,
       worktreesByRepository: allRepoWorktreesMap,
     });
-  }, [activePathSet, agentSessions, allRepoWorktreesMap, visibleRepos]);
+  }, [activePathSet, agentSessions, allRepoWorktreesMap, repositoriesInActiveGroup]);
   const progressiveVisibility = useProgressiveRepositoryVisibility({
-    repositories: visibleRepos,
+    repositories: repositoriesInActiveGroup,
     selectedRepo,
     activeRepositoryPaths,
     searchActive: hasSearchFilter,
@@ -387,9 +395,6 @@ export function RepositorySidebar({
 
   const filteredRepos = useMemo(() => {
     let filtered = progressiveVisibility.repositories;
-    if (activeGroupId !== ALL_GROUP_ID) {
-      filtered = filtered.filter((repository) => repository.groupId === activeGroupId);
-    }
     if (parsedSearch.hasActiveFilter) {
       filtered = filtered.filter((repo) => {
         const normalizedRepoPath = normalizePath(repo.path);
@@ -410,7 +415,6 @@ export function RepositorySidebar({
     }));
   }, [
     activePathSet,
-    activeGroupId,
     allRepoWorktreesMap,
     parsedSearch,
     progressiveVisibility.repositories,
@@ -472,6 +476,36 @@ export function RepositorySidebar({
     t,
     visibleRepos,
   ]);
+  const collapsibleGroupIds = useMemo(
+    () =>
+      showSections
+        ? Array.from(
+            new Set(
+              repositoriesInActiveGroup.map(
+                (repository) => repository.groupId ?? UNGROUPED_SECTION_ID
+              )
+            )
+          )
+        : [],
+    [repositoriesInActiveGroup, showSections]
+  );
+  const allProjectSectionsCollapsed =
+    collapsibleGroupIds.length > 0 &&
+    collapsibleGroupIds.every((groupId) => collapsedGroups[groupId] === true);
+  const collapseAllProjectSections = useCallback(() => {
+    if (collapsibleGroupIds.length === 0) {
+      return;
+    }
+
+    setCollapsedGroups((previous) => {
+      const next = { ...previous };
+      for (const groupId of collapsibleGroupIds) {
+        next[groupId] = true;
+      }
+      saveGroupCollapsedState(next);
+      return next;
+    });
+  }, [collapsibleGroupIds]);
 
   const handleOpenRepoActions = useCallback(
     (event: MouseEvent<HTMLButtonElement>, repo: Repository) => {
@@ -546,7 +580,9 @@ export function RepositorySidebar({
     >
       {/* Header */}
       <div className="control-sidebar-header drag-region">
-        <div className="control-sidebar-heading no-drag" aria-hidden="true" />
+        <div className="control-sidebar-heading no-drag">
+          <span className="control-sidebar-title">{t('Projects')}</span>
+        </div>
         <div className="control-sidebar-toolbar no-drag">
           {onSwitchWorktreeByPath || showAiCenterEntry ? (
             <div className="control-sidebar-toolbar-group" data-role="context">
@@ -559,6 +595,33 @@ export function RepositorySidebar({
               {showAiCenterEntry ? (
                 <SidebarAiCenterButton active={isAiCenterActive} onSelect={handleOpenAiCenter} />
               ) : null}
+            </div>
+          ) : null}
+          {showSections && collapsibleGroupIds.length > 0 ? (
+            <div className="control-sidebar-toolbar-group" data-role="data">
+              <Menu modal={false}>
+                <MenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="control-sidebar-toolbutton no-drag"
+                      aria-label={t('More project actions')}
+                      title={t('More project actions')}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                  }
+                />
+                <MenuPopup align="end" sideOffset={6} className="min-w-44" withBackdrop={false}>
+                  <MenuItem
+                    onClick={collapseAllProjectSections}
+                    disabled={allProjectSectionsCollapsed}
+                  >
+                    <ListCollapse className="h-3.5 w-3.5" />
+                    {t('Collapse all')}
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
             </div>
           ) : null}
           {onCollapse ? (
@@ -592,36 +655,52 @@ export function RepositorySidebar({
           />
         )}
 
-        <div className="control-sidebar-filter control-sidebar-search">
-          <SearchFilterIcon className="control-sidebar-search-icon h-3.5 w-3.5" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            aria-label={t('Search projects')}
-            placeholder={t('Search projects')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="control-sidebar-search-input"
-          />
-          {searchQuery.length > 0 && (
-            <button
-              type="button"
-              className="control-sidebar-search-clear"
-              onClick={() => {
-                setSearchQuery('');
-                searchInputRef.current?.focus();
-              }}
-              aria-label={t('Clear search')}
-              title={t('Clear')}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
+        <div className="control-sidebar-search-row">
+          <div className="control-sidebar-filter control-sidebar-search">
+            <SearchFilterIcon className="control-sidebar-search-icon h-3.5 w-3.5" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              aria-label={t('Search projects')}
+              placeholder={t('Search projects')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="control-sidebar-search-input"
+            />
+            {searchQuery.length > 0 && (
+              <button
+                type="button"
+                className="control-sidebar-search-clear"
+                onClick={() => {
+                  setSearchQuery('');
+                  searchInputRef.current?.focus();
+                }}
+                aria-label={t('Clear search')}
+                title={t('Clear')}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            className="control-sidebar-inline-filter"
+            data-active={showActiveProjectsOnly ? 'true' : 'false'}
+            onClick={() => setShowActiveProjectsOnly((previous) => !previous)}
+            aria-pressed={showActiveProjectsOnly}
+            aria-label={
+              showActiveProjectsOnly ? t('Show all projects') : t('Only show active projects')
+            }
+            title={showActiveProjectsOnly ? t('Show all projects') : t('Only show active projects')}
+          >
+            <ListFilter className="h-3.5 w-3.5 shrink-0" />
+            <span>{t('Active')}</span>
+          </button>
         </div>
       </div>
 
       {/* Repository List */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5">
+      <div className="control-sidebar-scroll-region flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5">
         {temporaryWorkspaceEnabled && (
           <div className="mb-2">
             <button
@@ -643,9 +722,7 @@ export function RepositorySidebar({
                   <span
                     className={cn(
                       'control-tree-subtitle overflow-hidden whitespace-nowrap text-ellipsis [unicode-bidi:plaintext]',
-                      tempBasePath && isWslUncPath(tempBasePath)
-                        ? '[direction:ltr]'
-                        : '[direction:rtl]'
+                      '[direction:ltr]'
                     )}
                   >
                     {tempBasePath || t('Quick scratch sessions')}
@@ -682,6 +759,7 @@ export function RepositorySidebar({
                   className="control-action-button control-action-button-secondary h-8 rounded-lg px-3 text-sm"
                   onClick={() => {
                     setSearchQuery('');
+                    setShowActiveProjectsOnly(false);
                     searchInputRef.current?.focus();
                   }}
                 >
@@ -717,109 +795,96 @@ export function RepositorySidebar({
           </div>
         ) : (
           <>
-            <LayoutGroup>
-              {showSections ? (
-                <div className="control-tree-section-list">
-                  {groupedSections.map((section) => {
-                    const isCollapsed = !!collapsedGroups[section.groupId];
-                    return (
-                      <div key={section.groupId}>
-                        {/* Section Header */}
-                        <button
-                          type="button"
-                          onClick={() => toggleGroupCollapsed(section.groupId)}
-                          className="control-section-header select-none"
-                          aria-expanded={!isCollapsed}
-                          aria-controls={`repository-section-${section.groupId}`}
-                        >
-                          <ChevronRight
-                            className={cn(
-                              'h-3 w-3 shrink-0 transition-transform duration-150',
-                              !isCollapsed && 'rotate-90'
-                            )}
-                          />
-                          {section.emoji && (
-                            <span className="control-section-marker" aria-hidden="true">
-                              {section.emoji}
-                            </span>
+            {showSections ? (
+              <div className="control-tree-section-list">
+                {groupedSections.map((section) => {
+                  const isCollapsed = !!collapsedGroups[section.groupId];
+                  return (
+                    <div key={section.groupId}>
+                      {/* Section Header */}
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupCollapsed(section.groupId)}
+                        className="control-section-header select-none"
+                        aria-expanded={!isCollapsed}
+                        aria-controls={`repository-section-${section.groupId}`}
+                      >
+                        <ChevronRight
+                          className={cn(
+                            'h-3 w-3 shrink-0 transition-transform duration-150',
+                            !isCollapsed && 'rotate-90'
                           )}
-                          <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
-                          <span className="control-section-count" aria-hidden="true">
-                            {section.totalCount}
+                        />
+                        {section.emoji && (
+                          <span className="control-section-marker" aria-hidden="true">
+                            {section.emoji}
                           </span>
-                        </button>
-                        {/* Section Content */}
-                        <AnimatePresence initial={false}>
-                          {!isCollapsed && (
-                            <motion.div
-                              key={`content-${section.groupId}`}
-                              initial="initial"
-                              animate="animate"
-                              exit="exit"
-                              variants={heightVariants}
-                              transition={springStandard}
-                              className="overflow-hidden"
-                              id={`repository-section-${section.groupId}`}
-                            >
-                              <div className="control-tree-section-body">
-                                {section.repos.map(({ repo, originalIndex }) => (
-                                  <RepositoryTreeItem
-                                    key={repo.path}
-                                    repo={repo}
-                                    originalIndex={originalIndex}
-                                    sectionGroupId={section.groupId}
-                                    selectedRepo={selectedRepo}
-                                    allRepoWorktreesMap={allRepoWorktreesMap}
-                                    activePathSet={activePathSet}
-                                    searchQuery={searchQuery}
-                                    dropTargetIndex={dropTargetIndex}
-                                    draggedIndex={draggedIndexRef.current}
-                                    onDragStart={handleDragStart}
-                                    onDragEnd={handleDragEnd}
-                                    onDragOver={handleDragOver}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={handleDrop}
-                                    onContextMenu={handleContextMenu}
-                                    onSelectRepo={onSelectRepo}
-                                    onOpenActions={handleOpenRepoActions}
-                                    t={t}
-                                  />
-                                ))}
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="control-tree-flat-list">
-                  {filteredRepos.map(({ repo, originalIndex }) => (
-                    <RepositoryTreeItem
-                      key={repo.path}
-                      repo={repo}
-                      originalIndex={originalIndex}
-                      selectedRepo={selectedRepo}
-                      allRepoWorktreesMap={allRepoWorktreesMap}
-                      activePathSet={activePathSet}
-                      searchQuery={searchQuery}
-                      dropTargetIndex={dropTargetIndex}
-                      draggedIndex={draggedIndexRef.current}
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      onContextMenu={handleContextMenu}
-                      onSelectRepo={onSelectRepo}
-                      onOpenActions={handleOpenRepoActions}
-                      t={t}
-                    />
-                  ))}
-                </div>
-              )}
-            </LayoutGroup>
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
+                        <span className="control-section-count" aria-hidden="true">
+                          {section.totalCount}
+                        </span>
+                      </button>
+                      {/* Section Content */}
+                      {!isCollapsed ? (
+                        <div id={`repository-section-${section.groupId}`}>
+                          <div className="control-tree-section-body">
+                            {section.repos.map(({ repo, originalIndex }) => (
+                              <RepositoryTreeItem
+                                key={repo.path}
+                                repo={repo}
+                                originalIndex={originalIndex}
+                                sectionGroupId={section.groupId}
+                                selectedRepo={selectedRepo}
+                                allRepoWorktreesMap={allRepoWorktreesMap}
+                                activePathSet={activePathSet}
+                                searchQuery={searchQuery}
+                                dropTargetIndex={dropTargetIndex}
+                                draggedIndex={draggedIndexRef.current}
+                                onDragStart={handleDragStart}
+                                onDragEnd={handleDragEnd}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                onContextMenu={handleContextMenu}
+                                onSelectRepo={onSelectRepo}
+                                onOpenActions={handleOpenRepoActions}
+                                t={t}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="control-tree-flat-list">
+                {filteredRepos.map(({ repo, originalIndex }) => (
+                  <RepositoryTreeItem
+                    key={repo.path}
+                    repo={repo}
+                    originalIndex={originalIndex}
+                    selectedRepo={selectedRepo}
+                    allRepoWorktreesMap={allRepoWorktreesMap}
+                    activePathSet={activePathSet}
+                    searchQuery={searchQuery}
+                    dropTargetIndex={dropTargetIndex}
+                    draggedIndex={draggedIndexRef.current}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onContextMenu={handleContextMenu}
+                    onSelectRepo={onSelectRepo}
+                    onOpenActions={handleOpenRepoActions}
+                    t={t}
+                  />
+                ))}
+              </div>
+            )}
             {!hasSearchFilter ? (
               <RepositoryLoadMoreButton
                 hiddenCount={progressiveVisibility.hiddenCount}
