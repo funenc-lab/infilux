@@ -122,3 +122,7 @@
   output integrity and reduced renderer CPU growth, but slightly increased renderer and main heap
   growth versus the immediate pre-change baseline. The four-visible-terminal, Windows
   local-supervisor, and real-remote scenarios remain unexecuted, so the release gate is not met.
+- 2026-08-21: Follow-up commit `b0c44b9` coalesced sustained-output activity checks. The isolated
+  one-active-agent rerun removed the renderer heap-growth regression and preserved 6,300 ordered
+  output lines, but the main-process heap delta remains above the single baseline sample. The
+  release gate therefore remains unmet.
