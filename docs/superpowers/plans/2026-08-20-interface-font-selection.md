@@ -8,6 +8,13 @@
 
 **Tech Stack:** React 19, TypeScript 5.9, Vitest, Base UI Select, Zustand.
 
+## Scope Amendment
+
+The implementation also places the interface font selector in the custom theme editor and
+converts terminal and editor font-family controls to the same shared preset selector. Font sizes
+remain numeric inputs. Persisted custom font stacks remain visible as disabled selections and are
+only replaced when a user explicitly chooses a recommended preset.
+
 ## Global Constraints
 
 - Keep persisted `fontFamily` values backward compatible; do not add a store field or migration.

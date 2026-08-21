@@ -4,6 +4,7 @@ import { Menu as MenuPrimitive } from '@base-ui/react/menu';
 import { ChevronRightIcon } from 'lucide-react';
 import type * as React from 'react';
 import { cn } from '@/lib/utils';
+import { useResolvedPortalScope } from './portal-scope';
 
 /**
  * 扩展 CSSProperties 以支持 Electron 特有的 WebkitAppRegion 属性
@@ -28,21 +29,34 @@ function MenuPopup({
   align = 'center',
   alignOffset,
   side = 'bottom',
+  portalScope: explicitPortalScope,
+  withBackdrop = true,
   ...props
 }: MenuPrimitive.Popup.Props & {
   align?: MenuPrimitive.Positioner.Props['align'];
   sideOffset?: MenuPrimitive.Positioner.Props['sideOffset'];
   alignOffset?: MenuPrimitive.Positioner.Props['alignOffset'];
   side?: MenuPrimitive.Positioner.Props['side'];
+  portalScope?: string;
+  withBackdrop?: boolean;
 }) {
+  const portalScope = useResolvedPortalScope(explicitPortalScope);
+
   return (
     <MenuPrimitive.Portal>
-      <MenuPrimitive.Backdrop className="fixed inset-0 z-40" />
+      {withBackdrop ? (
+        <MenuPrimitive.Backdrop
+          className="fixed inset-0 z-40"
+          data-slot="menu-backdrop"
+          data-ui-portal-scope={portalScope}
+        />
+      ) : null}
       <MenuPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}
         className="z-50"
         data-slot="menu-positioner"
+        data-ui-portal-scope={portalScope}
         side={side}
         sideOffset={sideOffset}
       >

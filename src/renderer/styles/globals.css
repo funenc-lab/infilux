@@ -2633,7 +2633,7 @@
   }
 
   .control-tree-node[data-node-kind='worktree'] {
-    padding-block: 0;
+    padding-block: 0.25rem;
   }
 
   .control-tree-node[data-node-kind='worktree'] .control-tree-row {
@@ -3100,6 +3100,7 @@
 
   .control-tree-repository-group {
     margin-inline: 0.25rem;
+    padding-block: 0.25rem;
     border-radius: 0.5rem;
     transition: background-color 100ms ease;
   }
@@ -3671,8 +3672,8 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
-    margin-top: 0.125rem;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
     margin-right: 0;
     margin-left: 0.5rem;
     overflow: hidden;

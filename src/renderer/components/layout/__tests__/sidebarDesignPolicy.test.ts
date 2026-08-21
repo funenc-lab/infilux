@@ -589,7 +589,7 @@ describe('sidebar design policy', () => {
     expect(treeSidebarSource).toContain("data-expanded={isExpanded ? 'true' : 'false'}");
     expect(treeSidebarSource).toContain("data-selected={isSelected ? 'true' : 'false'}");
     expect(globalsSource).toMatch(
-      /\.control-tree-repository-group\s*\{[^}]*margin-inline:\s*0\.25rem;/s
+      /\.control-tree-repository-group\s*\{[^}]*margin-inline:\s*0\.25rem;[^}]*padding-block:\s*0\.25rem;/s
     );
     expect(globalsSource).toContain(
       ".control-tree-repository-group[data-expanded='true'][data-selected='true'] {"
@@ -937,7 +937,7 @@ describe('sidebar design policy', () => {
 
   it('keeps the full compact worktree row as the primary click target', () => {
     expect(globalsSource).toMatch(
-      /\.control-tree-node\[data-node-kind='worktree'\]\s*\{\s*padding-block: 0;/
+      /\.control-tree-node\[data-node-kind='worktree'\]\s*\{\s*padding-block: 0\.25rem;/
     );
     expect(globalsSource).toContain(
       ".control-tree-node[data-node-kind='worktree'] .control-tree-row {"
@@ -945,6 +945,12 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('min-height: 2.75rem;');
     expect(treeSidebarSource).toContain(
       'control-tree-primary relative min-w-0 flex-1 self-stretch text-left outline-none'
+    );
+  });
+
+  it('separates repository and worktree selection surfaces with the compact spacing token', () => {
+    expect(globalsSource).toMatch(
+      /\.control-tree-guide\s*\{[^}]*gap:\s*0\.25rem;[^}]*margin-top:\s*0\.25rem;/s
     );
   });
 

@@ -3,6 +3,7 @@
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip';
 import { cn } from '@/lib/utils';
 import { Z_INDEX } from '@/lib/z-index';
+import { useResolvedPortalScope } from './portal-scope';
 
 const TooltipCreateHandle = TooltipPrimitive.createHandle;
 
@@ -21,13 +22,17 @@ function TooltipPopup({
   side = 'top',
   zIndex,
   children,
+  portalScope: explicitPortalScope,
   ...props
 }: TooltipPrimitive.Popup.Props & {
   align?: TooltipPrimitive.Positioner.Props['align'];
   side?: TooltipPrimitive.Positioner.Props['side'];
   sideOffset?: TooltipPrimitive.Positioner.Props['sideOffset'];
   zIndex?: number;
+  portalScope?: string;
 }) {
+  const portalScope = useResolvedPortalScope(explicitPortalScope);
+
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Positioner
@@ -35,6 +40,7 @@ function TooltipPopup({
         className="h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) data-instant:transition-none"
         style={{ zIndex: zIndex ?? Z_INDEX.TOOLTIP }}
         data-slot="tooltip-positioner"
+        data-ui-portal-scope={portalScope}
         side={side}
         sideOffset={sideOffset}
       >

@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTrafficLightsGuard } from '@/hooks/useTrafficLightsGuard';
 import { cn } from '@/lib/utils';
 import { Z_INDEX } from '@/lib/z-index';
+import { useResolvedPortalScope } from './portal-scope';
 
 // Traffic lights guard is driven by the controlled `open` prop.
 // Uncontrolled Dialogs (without `open`) will not trigger the guard.
@@ -59,6 +60,7 @@ function DialogPopup({
   disableNestedTransform = false,
   showBackdrop = true,
   zIndexLevel = 'base',
+  portalScope: explicitPortalScope,
   style,
   ...props
 }: DialogPrimitive.Popup.Props & {
@@ -67,7 +69,9 @@ function DialogPopup({
   disableNestedTransform?: boolean;
   showBackdrop?: boolean;
   zIndexLevel?: 'base' | 'nested';
+  portalScope?: string;
 }) {
+  const portalScope = useResolvedPortalScope(explicitPortalScope);
   const mergedStyle = disableNestedTransform
     ? ({ ...(style ?? {}), '--nested-dialogs': 0 } as React.CSSProperties)
     : style;
@@ -79,9 +83,12 @@ function DialogPopup({
 
   return (
     <DialogPortal>
-      {showBackdrop && <DialogBackdrop style={{ zIndex: backdropZIndex }} />}
+      {showBackdrop && (
+        <DialogBackdrop data-ui-portal-scope={portalScope} style={{ zIndex: backdropZIndex }} />
+      )}
       <DialogViewport
         className={cn(bottomStickOnMobile && 'max-sm:grid-rows-[1fr_auto] max-sm:pt-12')}
+        data-ui-portal-scope={portalScope}
         style={{ zIndex: contentZIndex }}
       >
         <DialogPrimitive.Popup
