@@ -47,6 +47,7 @@ interface FileTreeNode extends FileEntry {
 
 const shouldLogFileTreeDiagnostics = import.meta.env.DEV;
 const FILE_TREE_WATCH_BATCH_MS = 48;
+const MAX_PENDING_FILE_TREE_WATCH_EVENTS = 500;
 
 function logFileTreeDiagnostics(
   stage: string,
@@ -583,13 +584,16 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
 
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingEvents: FileTreeWatchEvent[] = [];
+    let pendingEventsOverflowed = false;
     let flushQueue = Promise.resolve();
 
     const flushPendingEvents = async () => {
       flushTimer = null;
       const queuedEvents = pendingEvents;
       pendingEvents = [];
-      if (queuedEvents.length === 0) {
+      const overflowed = pendingEventsOverflowed;
+      pendingEventsOverflowed = false;
+      if (queuedEvents.length === 0 && !overflowed) {
         return;
       }
 
@@ -597,6 +601,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         rootPath,
         expandedPaths: expandedPathsRef.current,
         events: queuedEvents,
+        overflowed,
       });
 
       for (const invalidatePath of refreshPlan.invalidateQueryPaths) {
@@ -623,7 +628,11 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
     };
 
     const unsubscribe = window.electronAPI.file.onChange((event) => {
-      pendingEvents.push(event);
+      if (pendingEvents.length < MAX_PENDING_FILE_TREE_WATCH_EVENTS) {
+        pendingEvents.push(event);
+      } else {
+        pendingEventsOverflowed = true;
+      }
       scheduleFlush();
     });
 
@@ -633,6 +642,7 @@ export function useFileTree({ rootPath, enabled = true, isActive = true }: UseFi
         flushTimer = null;
       }
       pendingEvents = [];
+      pendingEventsOverflowed = false;
       unsubscribe();
       window.electronAPI.file.watchStop(rootPath);
     };

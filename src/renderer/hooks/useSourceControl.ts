@@ -7,6 +7,7 @@ import { buildSourceControlToastCopy } from '@/lib/feedbackCopy';
 import { resolveGitPollingInterval, shouldRetryGitPollingError } from '@/lib/gitPollingError';
 
 const emptyResult: FileChangesResult = { changes: [] };
+const FILE_DIFF_CACHE_TIME_MS = 60_000;
 
 export function useFileChanges(workdir: string | null, isActive = true) {
   const shouldPoll = useShouldPoll();
@@ -41,6 +42,7 @@ export function useFileDiff(
   options?: { enabled?: boolean }
 ) {
   const shouldPoll = useShouldPoll();
+  const enabled = (options?.enabled ?? true) && !!workdir && !!path;
 
   return useQuery({
     queryKey: ['git', 'file-diff', workdir, path, staged],
@@ -48,11 +50,12 @@ export function useFileDiff(
       if (!workdir || !path) return null;
       return window.electronAPI.git.getFileDiff(workdir, path, staged);
     },
-    enabled: (options?.enabled ?? true) && !!workdir && !!path,
+    enabled,
     retry: shouldRetryGitPollingError,
     staleTime: 0, // Always consider data stale
+    gcTime: FILE_DIFF_CACHE_TIME_MS,
     refetchInterval: (query) => {
-      if (!shouldPoll) {
+      if (!enabled || !shouldPoll) {
         return false;
       }
 

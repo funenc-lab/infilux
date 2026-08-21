@@ -239,7 +239,15 @@ vi.mock('../tree-sidebar/TempWorkspaceTreeItem', () => ({
 
 vi.mock('../tree-sidebar/WorktreeTreeItem', () => ({
   WorktreeTreeItem: ({ worktree }: { worktree: GitWorktree }) =>
-    React.createElement('div', { 'data-worktree-item': worktree.path }, worktree.branch),
+    React.createElement(
+      'button',
+      {
+        type: 'button',
+        'data-worktree-item': worktree.path,
+        'data-tree-navigation-item': 'worktree',
+      },
+      worktree.branch
+    ),
 }));
 
 const repoWorktrees: Record<string, GitWorktree[]> = {
@@ -583,9 +591,7 @@ describe('TreeSidebar agent filter', () => {
 
     try {
       const repositoryItems = Array.from(
-        view.container.querySelectorAll<HTMLButtonElement>(
-          '[data-tree-navigation-item="repository"]'
-        )
+        view.container.querySelectorAll<HTMLButtonElement>('[data-tree-navigation-item]')
       );
 
       expect(repositoryItems).toHaveLength(4);

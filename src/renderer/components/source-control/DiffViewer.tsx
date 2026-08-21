@@ -136,7 +136,7 @@ export function DiffViewer({
   const canEdit = !isCommitView;
 
   // In commit view, we don't fetch diff - we use the provided externalDiff
-  const shouldFetch = !skipFetch && !isCommitView;
+  const shouldFetch = isActive && !skipFetch && !isCommitView;
 
   const { data: fetchedDiff, isLoading } = useFileDiff(
     rootPath,
@@ -1089,6 +1089,19 @@ export function DiffViewer({
         description={t('Binary file not supported for diff preview')}
         metaLabel={t('Status')}
         metaValue={t('Binary preview unavailable')}
+      />
+    );
+  }
+
+  if (diff.isTooLarge) {
+    return (
+      <DiffViewerStateCard
+        icon={<FileX2 className="h-5 w-5" />}
+        eyebrow={t('Diff Viewer')}
+        title={file.path}
+        description={t('Preview not available')}
+        metaLabel={t('Status')}
+        metaValue={t('Open the file externally or choose another file')}
       />
     );
   }

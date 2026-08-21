@@ -41,6 +41,7 @@ import { getFileIcon, getFileIconColor } from './fileIcons';
 import {
   didExpansionChangeAffectSubtree,
   didPathChangeAffectSubtree,
+  getFileTreeRowViewportStyle,
   isPathInSubtree,
 } from './fileTreeRenderUtils';
 import { shouldHandleFileTreeShortcut } from './fileTreeShortcutPolicy';
@@ -1721,7 +1722,7 @@ function FileTreeNodeComponent({
           actualNode.ignored && 'opacity-50',
           isBeingDragged && 'opacity-40'
         )}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        style={{ ...getFileTreeRowViewportStyle(), paddingLeft: `${depth * 12 + 8}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         onKeyDown={(e) => e.key === 'Enter' && handleClick()}

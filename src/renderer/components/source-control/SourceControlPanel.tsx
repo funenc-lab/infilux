@@ -264,7 +264,8 @@ export function SourceControlPanel({
     rootPath ?? null,
     selectedSubmoduleFile?.submodulePath ?? null,
     selectedSubmoduleFile?.path ?? null,
-    selectedSubmoduleFile?.staged ?? false
+    selectedSubmoduleFile?.staged ?? false,
+    { enabled: isActive }
   );
 
   const {

@@ -37,6 +37,7 @@ export function CommitDiffViewer({
       original: fileDiff?.original ?? '',
       modified: fileDiff?.modified ?? '',
       isBinary: fileDiff?.isBinary,
+      isTooLarge: fileDiff?.isTooLarge,
     }),
     [filePath, fileDiff]
   );

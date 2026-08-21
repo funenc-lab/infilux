@@ -22,8 +22,18 @@ export function buildFileTreeWatchRefreshPlan(options: {
   rootPath: string;
   expandedPaths: Set<string>;
   events: FileTreeWatchEvent[];
+  overflowed?: boolean;
 }): FileTreeWatchRefreshPlan {
-  const { rootPath, expandedPaths, events } = options;
+  const { rootPath, expandedPaths, events, overflowed = false } = options;
+
+  if (overflowed) {
+    return {
+      shouldRefetchRoot: true,
+      invalidateQueryPaths: [],
+      refreshNodePaths: [...expandedPaths].filter((path) => path !== rootPath),
+    };
+  }
+
   const invalidateQueryPaths = new Set<string>();
   const refreshNodePaths = new Set<string>();
   let shouldRefetchRoot = false;

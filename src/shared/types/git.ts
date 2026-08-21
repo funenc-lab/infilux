@@ -78,6 +78,7 @@ export interface FileDiff {
   original: string; // HEAD version (empty for new files)
   modified: string; // working tree version (empty for deleted files)
   isBinary?: boolean; // true if file is binary (images, PDFs, executables, etc.)
+  isTooLarge?: boolean; // true if text content exceeds the safe diff rendering limit
 }
 
 // Commit history detail types

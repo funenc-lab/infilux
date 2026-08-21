@@ -35,6 +35,7 @@ const execAsync = promisify(exec);
 
 const MAX_GIT_STATUS_ENTRIES = 5000;
 const MAX_GIT_FILE_CHANGES = 5000;
+const MAX_RENDERABLE_FILE_DIFF_BYTES = 2 * 1024 * 1024;
 const GIT_STATUS_STREAM_TIMEOUT_MS = 15000;
 const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;
 const UNTRACKED_BINARY_INSPECTION_SIZE = 8000;
@@ -43,6 +44,35 @@ const UNTRACKED_FILE_OPEN_FLAGS =
     ? fsConstants.O_RDONLY
     : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
 const DEFAULT_DIFF_STATS = Object.freeze({ insertions: 0, deletions: 0 });
+
+function createTooLargeFileDiff(filePath: string): FileDiff {
+  return {
+    path: filePath,
+    original: '',
+    modified: '',
+    isTooLarge: true,
+  };
+}
+
+function isOversizedFileSize(size: number | undefined): boolean {
+  return typeof size === 'number' && size > MAX_RENDERABLE_FILE_DIFF_BYTES;
+}
+
+async function isOversizedGitBlob(git: SimpleGit, reference: string): Promise<boolean> {
+  try {
+    const size = Number.parseInt((await git.raw(['cat-file', '-s', reference])).trim(), 10);
+    return Number.isFinite(size) && size > MAX_RENDERABLE_FILE_DIFF_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+async function hasOversizedGitBlob(git: SimpleGit, references: string[]): Promise<boolean> {
+  const oversized = await Promise.all(
+    references.filter(Boolean).map((reference) => isOversizedGitBlob(git, reference))
+  );
+  return oversized.some(Boolean);
+}
 
 type PorcelainBranchInfo = {
   current: string | null;
@@ -750,14 +780,7 @@ export class GitService {
   }
 
   async getFileDiff(filePath: string, staged: boolean): Promise<FileDiff> {
-    // 1. Check for symbolic links first (before resolving path)
-    const initialPath = path.join(this.workdir, filePath);
-    const stats = await fs.lstat(initialPath).catch(() => null);
-    if (stats?.isSymbolicLink()) {
-      throw new Error('Cannot read symbolic links');
-    }
-
-    // 2. Validate path to prevent path traversal attacks
+    // 1. Validate path to prevent path traversal attacks
     const absolutePath = path.resolve(this.workdir, filePath);
     const relativePath = path.relative(this.workdir, absolutePath);
 
@@ -765,7 +788,20 @@ export class GitService {
       throw new Error('Invalid file path: path traversal detected');
     }
 
-    // 3. Detect binary files to avoid rendering garbage in Monaco
+    // 2. Check for symbolic links after the path is validated.
+    const stats = await fs.lstat(absolutePath).catch(() => null);
+    if (stats?.isSymbolicLink()) {
+      throw new Error('Cannot read symbolic links');
+    }
+
+    const blobReferences = staged
+      ? [`HEAD:${filePath}`, `:${filePath}`]
+      : [`:${filePath}`, `HEAD:${filePath}`];
+    if (isOversizedFileSize(stats?.size) || (await hasOversizedGitBlob(this.git, blobReferences))) {
+      return createTooLargeFileDiff(filePath);
+    }
+
+    // 3. Detect binary files to avoid rendering garbage in Monaco.
     if (await detectBinaryFile(absolutePath, this.workdir, `:${filePath}`)) {
       return { path: filePath, original: '', modified: '', isBinary: true };
     }
@@ -926,6 +962,16 @@ export class GitService {
       }
     } catch {
       // If detection fails (e.g., root commit without parent), continue with text diff
+    }
+
+    const blobReferences =
+      status === 'A'
+        ? [`${hash}:${filePath}`]
+        : status === 'D'
+          ? [`${hash}^:${filePath}`]
+          : [`${hash}^:${filePath}`, `${hash}:${filePath}`];
+    if (await hasOversizedGitBlob(git, blobReferences)) {
+      return createTooLargeFileDiff(filePath);
     }
 
     let originalContent = '';
@@ -1572,6 +1618,16 @@ export class GitService {
       throw new Error('Invalid file path: path traversal detected');
     }
 
+    const fileStats = await fs.lstat(fullFilePath).catch(() => null);
+    const subGit = this.getSubmoduleGit(submodulePath);
+    const blobReferences = staged ? [`HEAD:${filePath}`, `:${filePath}`] : [`HEAD:${filePath}`];
+    if (
+      isOversizedFileSize(fileStats?.size) ||
+      (await hasOversizedGitBlob(subGit, blobReferences))
+    ) {
+      return createTooLargeFileDiff(filePath);
+    }
+
     // Detect binary files
     if (await detectBinaryFile(fullFilePath, fullSubPath, `:${filePath}`)) {
       return { path: filePath, original: '', modified: '', isBinary: true };
@@ -1581,22 +1637,22 @@ export class GitService {
     let modified = '';
 
     try {
-      // 获取 HEAD 版本
+      // Read the HEAD version.
       original = await gitShow(fullSubPath, `HEAD:${filePath}`);
     } catch {
-      // 新文件，没有 HEAD 版本
+      // New files do not have a HEAD version.
     }
 
     try {
       if (staged) {
-        // 暂存区版本
+        // Read the index version.
         modified = await gitShow(fullSubPath, `:${filePath}`);
       } else {
-        // 工作区版本
+        // Read the working tree version.
         modified = await fs.readFile(fullFilePath).then((buffer) => decodeBuffer(buffer));
       }
     } catch {
-      // 删除的文件
+      // Deleted files have no working tree version.
     }
 
     return { path: filePath, original, modified };

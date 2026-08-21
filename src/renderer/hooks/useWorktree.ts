@@ -9,7 +9,7 @@ import type {
 import { normalizePath } from '@shared/utils/path';
 import type { QueryClient } from '@tanstack/react-query';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { sanitizeGitWorktrees } from '@/lib/worktreeData';
 import {
   canRecoverWorktreeListFromPreviousSnapshot,
@@ -30,7 +30,12 @@ interface WorktreeListOptions {
 }
 
 const WORKTREE_RECOVERY_COOLDOWN_MS = 5000;
+const MAX_CONCURRENT_WORKTREE_LIST_REQUESTS = 4;
 const lastWorktreeRecoveryAt = new Map<string, number>();
+
+function haveSamePaths(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((path) => right.has(path));
+}
 
 function maybeScheduleWorktreeListRecovery(
   queryClient: Pick<QueryClient, 'invalidateQueries'>,
@@ -127,9 +132,39 @@ export function useWorktreeListMultiple(repoInputs: WorktreeListMultipleInput[])
       ),
     [repoInputs]
   );
+  const [completedRepoPaths, setCompletedRepoPaths] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    const enabledRepoPaths = new Set(
+      repoQueries.filter(({ enabled }) => enabled).map(({ repoPath }) => repoPath)
+    );
+    setCompletedRepoPaths((currentPaths) => {
+      const nextPaths = new Set(
+        [...currentPaths].filter((repoPath) => enabledRepoPaths.has(repoPath))
+      );
+      return haveSamePaths(currentPaths, nextPaths) ? currentPaths : nextPaths;
+    });
+  }, [repoQueries]);
+
+  const queryEnabledByIndex = useMemo(() => {
+    let pendingQueryCount = 0;
+
+    return repoQueries.map(({ repoPath, enabled }) => {
+      if (!enabled || completedRepoPaths.has(repoPath)) {
+        return Boolean(enabled && completedRepoPaths.has(repoPath));
+      }
+
+      if (pendingQueryCount >= MAX_CONCURRENT_WORKTREE_LIST_REQUESTS) {
+        return false;
+      }
+
+      pendingQueryCount += 1;
+      return true;
+    });
+  }, [completedRepoPaths, repoQueries]);
 
   const queries = useQueries({
-    queries: repoQueries.map(({ repoPath, enabled }) => ({
+    queries: repoQueries.map(({ repoPath }, index) => ({
       queryKey: worktreeQueryKeys.list(repoPath),
       queryFn: async () => {
         const previousWorktrees = previousWorktreesMapRef.current[repoPath] ?? [];
@@ -151,13 +186,42 @@ export function useWorktreeListMultiple(repoInputs: WorktreeListMultipleInput[])
           throw error instanceof Error ? error : new Error(message);
         }
       },
-      enabled,
+      enabled: queryEnabledByIndex[index],
       retry: shouldRetryWorktreeLoadError,
       staleTime: 30000, // Cache for 30 seconds to avoid excessive refetching
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
     })),
   });
+
+  useEffect(() => {
+    setCompletedRepoPaths((currentPaths) => {
+      let nextPaths = currentPaths;
+
+      for (let index = 0; index < repoQueries.length; index += 1) {
+        if (!queryEnabledByIndex[index]) {
+          continue;
+        }
+
+        const query = queries[index];
+        if (!query?.isSuccess && !query?.isError) {
+          continue;
+        }
+
+        const repoPath = repoQueries[index]?.repoPath;
+        if (!repoPath || nextPaths.has(repoPath)) {
+          continue;
+        }
+
+        if (nextPaths === currentPaths) {
+          nextPaths = new Set(currentPaths);
+        }
+        nextPaths.add(repoPath);
+      }
+
+      return nextPaths;
+    });
+  }, [queries, queryEnabledByIndex, repoQueries]);
 
   const worktreesMap = useMemo(() => {
     return buildWorktreeListMap(
@@ -199,21 +263,27 @@ export function useWorktreeListMultiple(repoInputs: WorktreeListMultipleInput[])
       if (!repoPath) {
         continue;
       }
-      map[repoPath] = repoQueries[i]?.enabled ? (queries[i]?.isLoading ?? false) : false;
+      map[repoPath] = repoQueries[i]?.enabled
+        ? (queries[i]?.isLoading ?? !queryEnabledByIndex[i])
+        : false;
     }
     return map;
-  }, [queries, repoQueries]);
+  }, [queries, queryEnabledByIndex, repoQueries]);
 
   const isLoading = repoQueries.some(
-    (queryInfo, index) => queryInfo.enabled && queries[index]?.isLoading
+    (queryInfo, index) =>
+      queryInfo.enabled && (queries[index]?.isLoading ?? !queryEnabledByIndex[index])
   );
 
   const refetchAll = () => {
-    for (let i = 0; i < repoQueries.length; i++) {
-      if (!repoQueries[i]?.enabled) {
-        continue;
+    setCompletedRepoPaths(new Set());
+    for (const { repoPath, enabled } of repoQueries) {
+      if (enabled) {
+        void queryClient.invalidateQueries({
+          queryKey: worktreeQueryKeys.list(repoPath),
+          refetchType: 'none',
+        });
       }
-      queries[i]?.refetch();
     }
   };
 

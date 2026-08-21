@@ -54,4 +54,19 @@ describe('fileTreeWatchBatch', () => {
       refreshNodePaths: [],
     });
   });
+
+  it('falls back to a root refresh after the watcher queue overflows', () => {
+    const plan = buildFileTreeWatchRefreshPlan({
+      rootPath: '/repo',
+      expandedPaths: new Set(['/repo/src']),
+      events: [{ type: 'update', path: '/repo/src/generated/output.ts' }],
+      overflowed: true,
+    });
+
+    expect(plan).toEqual({
+      shouldRefetchRoot: true,
+      invalidateQueryPaths: [],
+      refreshNodePaths: ['/repo/src'],
+    });
+  });
 });

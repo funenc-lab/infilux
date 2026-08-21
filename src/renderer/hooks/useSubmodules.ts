@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useShouldPoll } from '@/hooks/useWindowFocus';
 
+const SUBMODULE_FILE_DIFF_CACHE_TIME_MS = 60_000;
+
 export function useSubmodules(workdir: string | null) {
   const shouldPoll = useShouldPoll();
 
@@ -217,15 +219,19 @@ export function useSubmoduleFileDiff(
   workdir: string | null,
   submodulePath: string | null,
   filePath: string | null,
-  staged: boolean
+  staged: boolean,
+  options?: { enabled?: boolean }
 ) {
+  const enabled = (options?.enabled ?? true) && !!workdir && !!submodulePath && !!filePath;
+
   return useQuery({
     queryKey: ['git', 'submodule', 'diff', workdir, submodulePath, filePath, staged],
     queryFn: async () => {
       if (!workdir || !submodulePath || !filePath) return null;
       return window.electronAPI.git.getSubmoduleFileDiff(workdir, submodulePath, filePath, staged);
     },
-    enabled: !!workdir && !!submodulePath && !!filePath,
+    enabled,
+    gcTime: SUBMODULE_FILE_DIFF_CACHE_TIME_MS,
   });
 }
 

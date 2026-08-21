@@ -38,9 +38,26 @@ vi.mock('@/stores/worktree', () => ({
   useWorktreeStore: worktreeStoreMock.hook,
 }));
 
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>();
+  return {
+    ...actual,
+    useEffect: (callback: () => unknown) => {
+      callback();
+    },
+    useMemo: <T>(factory: () => T) => factory(),
+    useRef: <T>(value: T) => ({ current: value }),
+    useState: <T>(value: T | (() => T)) => [
+      typeof value === 'function' ? (value as () => T)() : value,
+      vi.fn(),
+    ],
+  };
+});
+
 import {
   resetWorktreeRecoveryStateForTests,
   useWorktreeList,
+  useWorktreeListMultiple,
   useWorktreeRemove,
 } from '../useWorktree';
 
@@ -202,6 +219,35 @@ describe('useWorktreeList', () => {
         new Error('Invalid workdir: not a git repository')
       )
     ).toBe(false);
+  });
+});
+
+describe('useWorktreeListMultiple', () => {
+  beforeEach(() => {
+    reactQueryMock.useQueryClient.mockReturnValue({
+      invalidateQueries: reactQueryMock.invalidateQueries,
+      getQueryData: reactQueryMock.getQueryData,
+    });
+    reactQueryMock.useQueries.mockReturnValue(
+      Array.from({ length: 6 }, () => ({ data: undefined, isLoading: true, error: null }))
+    );
+  });
+
+  it('starts only a bounded initial window of repository lookups', () => {
+    useWorktreeListMultiple(['/repo/a', '/repo/b', '/repo/c', '/repo/d', '/repo/e', '/repo/f']);
+
+    const options = reactQueryMock.useQueries.mock.calls[0]?.[0] as {
+      queries: Array<{ enabled: boolean }>;
+    };
+
+    expect(options.queries.map((query) => query.enabled)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+    ]);
   });
 });
 

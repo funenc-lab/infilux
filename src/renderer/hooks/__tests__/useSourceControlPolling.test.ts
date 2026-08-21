@@ -39,6 +39,8 @@ vi.mock('@/lib/feedbackCopy', () => ({
 import { useFileChanges, useFileDiff } from '../useSourceControl';
 
 type MockedSourceControlQueryOptions = {
+  enabled: boolean;
+  gcTime: number;
   refetchOnReconnect: boolean;
   refetchOnWindowFocus: boolean;
   refetchInterval: (query: {
@@ -86,5 +88,14 @@ describe('source control polling', () => {
       })
     ).toBe(false);
     expect(query.retry(0, new Error('spawn EBADF'))).toBe(false);
+  });
+
+  it('does not retain disabled file diffs and expires inactive diff cache entries quickly', () => {
+    const query = useFileDiff('/repo', 'README.md', false, {
+      enabled: false,
+    }) as unknown as MockedSourceControlQueryOptions;
+
+    expect(query.enabled).toBe(false);
+    expect(query.gcTime).toBe(60_000);
   });
 });

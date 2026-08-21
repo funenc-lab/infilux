@@ -318,7 +318,8 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
   const { data: mainDiff, isLoading: isLoadingMainDiff } = useFileDiff(
     rootPath ?? null,
     selectedFile && !selectedFile.submodulePath ? selectedFile.path : null,
-    selectedFile?.staged ?? false
+    selectedFile?.staged ?? false,
+    { enabled: open }
   );
 
   // Fetch diff for selected file (子模块)
@@ -326,7 +327,8 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
     rootPath ?? null,
     selectedFile?.submodulePath ?? null,
     selectedFile?.submodulePath ? selectedFile.path : null,
-    selectedFile?.staged ?? false
+    selectedFile?.staged ?? false,
+    { enabled: open }
   );
 
   // 合并 diff 数据
@@ -1208,6 +1210,17 @@ export function DiffReviewModal({ open, onOpenChange, rootPath, onSend }: DiffRe
                     title={selectedFile.path}
                     description={t('Binary file not supported for diff preview')}
                     chips={[{ label: t('Binary File'), tone: 'wait' }]}
+                  />
+                </div>
+              ) : diff?.isTooLarge ? (
+                <div className="flex h-full items-center justify-center p-5">
+                  <ConsoleEmptyState
+                    variant="embedded"
+                    icon={<FileX2 className="h-4.5 w-4.5" />}
+                    eyebrow={t('Review Diff')}
+                    title={selectedFile.path}
+                    description={t('Preview not available')}
+                    chips={[{ label: t('Preview Unavailable'), tone: 'wait' }]}
                   />
                 </div>
               ) : diff && isThemeReady ? (

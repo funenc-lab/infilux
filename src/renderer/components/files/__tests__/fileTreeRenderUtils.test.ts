@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as fileTreeRenderUtils from '../fileTreeRenderUtils';
 import {
   didExpansionChangeAffectSubtree,
   didPathChangeAffectSubtree,
@@ -42,5 +43,18 @@ describe('fileTreeRenderUtils', () => {
         '/repo/src'
       )
     ).toBe(false);
+  });
+
+  it('uses browser viewport containment for fixed-height tree rows', () => {
+    const getFileTreeRowViewportStyle = (
+      fileTreeRenderUtils as unknown as {
+        getFileTreeRowViewportStyle?: () => unknown;
+      }
+    ).getFileTreeRowViewportStyle;
+
+    expect(getFileTreeRowViewportStyle?.()).toEqual({
+      contentVisibility: 'auto',
+      containIntrinsicSize: '28px',
+    });
   });
 });
