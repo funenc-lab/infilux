@@ -72,11 +72,13 @@ const UNTRACKED_FILE_OPEN_FLAGS = process.platform === 'win32'
     const UNTRACKED_DIFF_STATS_CACHE_TTL_MS = 5 * 60 * 1000;
     const UNTRACKED_DIFF_STATS_CACHE_MAX_ENTRIES = 4096;
     const GLOBAL_STATUS_CACHE_TTL = 300000;
+    const GLOBAL_STATUS_FAILURE_CACHE_TTL = 30000;
     const AUTH_TOKEN_BYTES = 36;
 let cachedNodePty = undefined;
 let cachedNodePtyLoadError = null;
 let cachedHapiGlobalStatus = null;
 let cachedHapiGlobalStatusAt = 0;
+let cachedHapiGlobalStatusPromise = null;
     let cachedHappyGlobalStatus = null;
     let cachedHappyGlobalStatusAt = 0;
     let cachedTmuxStatus = null;
@@ -2379,7 +2381,10 @@ function getCachedStatus(kind, forceRefresh) {
     if (
       !forceRefresh &&
       cachedHapiGlobalStatus &&
-      currentTime - cachedHapiGlobalStatusAt < GLOBAL_STATUS_CACHE_TTL
+      currentTime - cachedHapiGlobalStatusAt <
+        (cachedHapiGlobalStatus.installed
+          ? GLOBAL_STATUS_CACHE_TTL
+          : GLOBAL_STATUS_FAILURE_CACHE_TTL)
     ) {
       return cachedHapiGlobalStatus;
     }
@@ -2415,26 +2420,39 @@ async function checkHapiGlobal({ forceRefresh }) {
     return cached;
   }
 
-  try {
-    const stdout = await execInConfiguredShell('hapi --version', { timeout: 30000 });
-    const match = stdout.match(/(\d+\.\d+\.\d+)/);
-    return setCachedStatus('hapi', {
-      installed: true,
-      version: match ? match[1] : undefined,
-    });
-  } catch (error) {
-    const stdout =
-      error && typeof error === 'object' && typeof error.stdout === 'string' ? error.stdout : '';
-    const match = stdout.match(/(\d+\.\d+\.\d+)/);
-    if (match) {
+  if (cachedHapiGlobalStatusPromise) {
+    return cachedHapiGlobalStatusPromise;
+  }
+
+  const probe = (async () => {
+    try {
+      const stdout = await execInConfiguredShell('hapi --version', { timeout: 30000 });
+      const match = stdout.match(/(\d+\.\d+\.\d+)/);
       return setCachedStatus('hapi', {
         installed: true,
-        version: match[1],
+        version: match ? match[1] : undefined,
       });
-    }
+    } catch (error) {
+      const stdout =
+        error && typeof error === 'object' && typeof error.stdout === 'string' ? error.stdout : '';
+      const match = stdout.match(/(\d+\.\d+\.\d+)/);
+      if (match) {
+        return setCachedStatus('hapi', {
+          installed: true,
+          version: match[1],
+        });
+      }
 
-    return { installed: false };
-  }
+      return setCachedStatus('hapi', { installed: false });
+    }
+  })().finally(() => {
+    if (cachedHapiGlobalStatusPromise === probe) {
+      cachedHapiGlobalStatusPromise = null;
+    }
+  });
+
+  cachedHapiGlobalStatusPromise = probe;
+  return probe;
 }
 
 async function checkHappyGlobal({ forceRefresh }) {

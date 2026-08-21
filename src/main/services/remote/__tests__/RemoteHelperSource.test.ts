@@ -3,7 +3,7 @@ import {
   TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
 } from '@shared/utils/agentTerminalHistoryPolicy';
 import { buildAppRuntimeIdentity } from '@shared/utils/runtimeIdentity';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import pkg from '../../../../../package.json';
 import { getRemoteServerSource, REMOTE_SERVER_VERSION } from '../RemoteHelperSource';
 
@@ -45,6 +45,37 @@ type GeneratedSessionFactory = (
   terminalReplayLimit: number,
   agentReplayLimit: number
 ) => GeneratedSessionFunctions;
+
+type GeneratedHapiGlobalCheck = (request: { forceRefresh?: boolean }) => Promise<{
+  installed: boolean;
+  version?: string;
+}>;
+
+function createGeneratedHapiGlobalCheck(
+  source: string,
+  execInConfiguredShell: (command: string, options: { timeout: number }) => Promise<string>
+): GeneratedHapiGlobalCheck {
+  const start = source.indexOf('function getCachedStatus(kind, forceRefresh) {');
+  const end = source.indexOf('async function checkTmux({ forceRefresh }) {', start);
+
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  return new Function(
+    'execInConfiguredShell',
+    `
+      const GLOBAL_STATUS_CACHE_TTL = 300000;
+      const GLOBAL_STATUS_FAILURE_CACHE_TTL = 30000;
+      let cachedHapiGlobalStatus = null;
+      let cachedHapiGlobalStatusAt = 0;
+      let cachedHapiGlobalStatusPromise = null;
+      let cachedHappyGlobalStatus = null;
+      let cachedHappyGlobalStatusAt = 0;
+      ${source.slice(start, end)}
+      return checkHapiGlobal;
+    `
+  )(execInConfiguredShell) as GeneratedHapiGlobalCheck;
+}
 
 function createGeneratedSessionFunctions(source: string): GeneratedSessionFactory {
   const helperStart = source.indexOf('function isHighSurrogate(code) {');
@@ -181,6 +212,44 @@ describe('getRemoteServerSource', () => {
     const source = getRemoteServerSource();
 
     expect(() => new Function(source.replace(/^#!.*\r?\n/, ''))).not.toThrow();
+  });
+
+  it('shares one generated Hapi install probe across concurrent requests', async () => {
+    let resolveProbe: ((value: string) => void) | undefined;
+    const execInConfiguredShell = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveProbe = resolve;
+        })
+    );
+    const checkHapiGlobal = createGeneratedHapiGlobalCheck(
+      getRemoteServerSource(),
+      execInConfiguredShell
+    );
+
+    const firstProbe = checkHapiGlobal({});
+    const secondProbe = checkHapiGlobal({});
+
+    expect(execInConfiguredShell).toHaveBeenCalledTimes(1);
+    resolveProbe?.('hapi 1.2.3\n');
+
+    await expect(Promise.all([firstProbe, secondProbe])).resolves.toEqual([
+      { installed: true, version: '1.2.3' },
+      { installed: true, version: '1.2.3' },
+    ]);
+  });
+
+  it('temporarily caches a failed generated Hapi install probe', async () => {
+    const execInConfiguredShell = vi.fn().mockRejectedValue(new Error('missing'));
+    const checkHapiGlobal = createGeneratedHapiGlobalCheck(
+      getRemoteServerSource(),
+      execInConfiguredShell
+    );
+
+    await expect(checkHapiGlobal({})).resolves.toEqual({ installed: false });
+    await expect(checkHapiGlobal({})).resolves.toEqual({ installed: false });
+
+    expect(execInConfiguredShell).toHaveBeenCalledTimes(1);
   });
 
   it('bounds generated remote JSON-line input before it accumulates indefinitely', () => {

@@ -112,6 +112,8 @@ class GitAutoFetchService {
   private enabled = false;
   private fetching = false;
   private onFocusHandler: (() => void) | null = null;
+  private onBlurHandler: (() => void) | null = null;
+  private windowFocused = false;
   private trackedHeadStates: Map<string, HeadTrackingState> = new Map();
   private pendingHeadTracking = new Map<string, PendingHeadTracking>();
   private headTrackingVersions = new Map<string, number>();
@@ -126,7 +128,10 @@ class GitAutoFetchService {
     }
 
     this.mainWindow = window;
+    this.windowFocused = typeof window.isFocused === 'function' ? window.isFocused() : true;
     this.onFocusHandler = () => {
+      this.windowFocused = true;
+      this.syncHeadPolling();
       if (!this.enabled) {
         return;
       }
@@ -136,7 +141,12 @@ class GitAutoFetchService {
         void this.fetchAll();
       }
     };
+    this.onBlurHandler = () => {
+      this.windowFocused = false;
+      this.syncHeadPolling();
+    };
     window.on('focus', this.onFocusHandler);
+    window.on('blur', this.onBlurHandler);
 
     if (this.enabled) {
       this.start();
@@ -152,12 +162,19 @@ class GitAutoFetchService {
     this.headPollInFlight = false;
     this.clearWorktrees();
 
-    if (this.mainWindow && this.onFocusHandler) {
-      this.mainWindow.off('focus', this.onFocusHandler);
+    if (this.mainWindow) {
+      if (this.onFocusHandler) {
+        this.mainWindow.off('focus', this.onFocusHandler);
+      }
+      if (this.onBlurHandler) {
+        this.mainWindow.off('blur', this.onBlurHandler);
+      }
       this.onFocusHandler = null;
+      this.onBlurHandler = null;
     }
 
     this.mainWindow = null;
+    this.windowFocused = false;
     this.enabled = false;
     this.fetching = false;
     this.lastFetchTime = 0;
@@ -374,7 +391,7 @@ class GitAutoFetchService {
   }
 
   private syncHeadPolling(): void {
-    if (this.mainWindow && this.trackedHeadStates.size > 0) {
+    if (this.mainWindow && this.windowFocused && this.trackedHeadStates.size > 0) {
       this.startHeadPolling();
       return;
     }
@@ -383,7 +400,7 @@ class GitAutoFetchService {
   }
 
   private pollHeadChanges(): void {
-    if (!this.mainWindow || this.headPollInFlight) {
+    if (!this.mainWindow || !this.windowFocused || this.headPollInFlight) {
       return;
     }
 

@@ -116,6 +116,9 @@ export class LocalSupervisorRuntime {
   private readonly exitListeners = new Set<(event: SessionExitEvent) => void>();
   private readonly outputResyncListeners = new Set<(event: SessionOutputResyncEvent) => void>();
   private readonly disconnectListeners = new Set<DisconnectListener>();
+  private daemonInfo: LocalSupervisorDaemonInfo | null = null;
+  private daemonPromise: Promise<LocalSupervisorDaemonInfo> | null = null;
+  private daemonSourcePromise: Promise<void> | null = null;
   private subscriptionPromise: Promise<void> | null = null;
   private subscription: LocalSupervisorSubscriptionState | null = null;
 
@@ -260,6 +263,10 @@ export class LocalSupervisorRuntime {
         socket.destroy();
         callback();
       };
+      const failConnection = (error: unknown) => {
+        this.invalidateDaemon(info);
+        finish(() => reject(error));
+      };
 
       socket.setEncoding('utf8');
       socket.on('connect', () => {
@@ -276,7 +283,7 @@ export class LocalSupervisorRuntime {
         try {
           lines = lineBuffer.push(chunk.toString());
         } catch (error) {
-          finish(() => reject(error));
+          failConnection(error);
           return;
         }
         for (const line of lines) {
@@ -296,7 +303,7 @@ export class LocalSupervisorRuntime {
               error?: string;
             };
           } catch (error) {
-            finish(() => reject(error));
+            failConnection(error);
             return;
           }
 
@@ -306,7 +313,7 @@ export class LocalSupervisorRuntime {
 
           if (!authenticated) {
             if (message.error) {
-              finish(() => reject(new Error(message.error)));
+              failConnection(new Error(message.error));
               return;
             }
             const ok = Boolean(
@@ -316,7 +323,7 @@ export class LocalSupervisorRuntime {
                 message.result.ok
             );
             if (!ok) {
-              finish(() => reject(new Error('Local supervisor authentication failed')));
+              failConnection(new Error('Local supervisor authentication failed'));
               return;
             }
             authenticated = true;
@@ -340,11 +347,11 @@ export class LocalSupervisorRuntime {
         }
       });
       socket.on('error', (error) => {
-        finish(() => reject(error));
+        failConnection(error);
       });
       socket.on('close', () => {
         if (!settled) {
-          reject(new Error(`Local supervisor connection closed during ${method}`));
+          failConnection(new Error(`Local supervisor connection closed during ${method}`));
         }
       });
     });
@@ -529,19 +536,47 @@ export class LocalSupervisorRuntime {
   }
 
   private async ensureDaemon(): Promise<LocalSupervisorDaemonInfo> {
+    if (this.daemonInfo) {
+      return this.daemonInfo;
+    }
+    if (this.daemonPromise) {
+      return this.daemonPromise;
+    }
+
+    const daemonPromise = this.resolveDaemon();
+    this.daemonPromise = daemonPromise;
+    try {
+      return await daemonPromise;
+    } finally {
+      if (this.daemonPromise === daemonPromise) {
+        this.daemonPromise = null;
+      }
+    }
+  }
+
+  private async resolveDaemon(): Promise<LocalSupervisorDaemonInfo> {
     await this.ensureDaemonSource();
 
     const existing = await this.readDaemonInfo();
     if (existing) {
       try {
         await this.ping(existing);
+        this.daemonInfo = existing;
         return existing;
       } catch {
         await rm(getDaemonInfoPath(), { force: true }).catch(() => {});
       }
     }
 
-    return this.startDaemon();
+    const started = await this.startDaemon();
+    this.daemonInfo = started;
+    return started;
+  }
+
+  private invalidateDaemon(info: LocalSupervisorDaemonInfo): void {
+    if (this.daemonInfo === info) {
+      this.daemonInfo = null;
+    }
   }
 
   private async startDaemon(): Promise<LocalSupervisorDaemonInfo> {
@@ -676,6 +711,21 @@ export class LocalSupervisorRuntime {
   }
 
   private async ensureDaemonSource(): Promise<void> {
+    if (!this.daemonSourcePromise) {
+      this.daemonSourcePromise = this.writeDaemonSource();
+    }
+    const sourcePromise = this.daemonSourcePromise;
+    try {
+      await sourcePromise;
+    } catch (error) {
+      if (this.daemonSourcePromise === sourcePromise) {
+        this.daemonSourcePromise = null;
+      }
+      throw error;
+    }
+  }
+
+  private async writeDaemonSource(): Promise<void> {
     const sourcePath = getDaemonSourcePath();
     mkdirSync(dirname(sourcePath), { recursive: true });
     const nextSource = getLocalSupervisorSource();

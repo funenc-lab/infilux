@@ -5,6 +5,7 @@ import { groupSubagentsByWorktree } from '@/lib/worktreeAgentSummary';
 import { useShouldPoll } from './useWindowFocus';
 
 const POLL_INTERVAL_MS = 5_000;
+const inFlightLiveSubagentLookups = new Map<string, Promise<unknown>>();
 
 export function buildLiveSubagentCwds(cwds: string[]): string[] {
   return [...new Set(cwds.filter(Boolean).map((cwd) => normalizePath(cwd)))].sort();
@@ -36,6 +37,29 @@ function extractLiveSubagentItems(result: unknown): LiveAgentSubagent[] {
   }
 
   return normalizeLiveSubagentItems((result as { items?: unknown }).items);
+}
+
+function requestLiveSubagents(cwds: string[], cwdKey: string): Promise<unknown> {
+  const existing = inFlightLiveSubagentLookups.get(cwdKey);
+  if (existing) {
+    return existing;
+  }
+
+  const request = window.electronAPI.agentSubagent.listLive({ cwds });
+  inFlightLiveSubagentLookups.set(cwdKey, request);
+  void request.then(
+    () => {
+      if (inFlightLiveSubagentLookups.get(cwdKey) === request) {
+        inFlightLiveSubagentLookups.delete(cwdKey);
+      }
+    },
+    () => {
+      if (inFlightLiveSubagentLookups.get(cwdKey) === request) {
+        inFlightLiveSubagentLookups.delete(cwdKey);
+      }
+    }
+  );
+  return request;
 }
 
 export function areLiveSubagentListsEqual(
@@ -96,9 +120,7 @@ export function useLiveSubagents(cwds: string[]): Map<string, LiveAgentSubagent[
 
     const load = async () => {
       try {
-        const result = await window.electronAPI.agentSubagent.listLive({
-          cwds: stableCwds,
-        });
+        const result = await requestLiveSubagents(stableCwds, stableCwdKey);
         const nextItems = extractLiveSubagentItems(result);
 
         if (!cancelled) {
@@ -122,7 +144,7 @@ export function useLiveSubagents(cwds: string[]): Map<string, LiveAgentSubagent[
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [shouldPoll, stableCwds]);
+  }, [shouldPoll, stableCwds, stableCwdKey]);
 
   return useMemo(() => groupSubagentsByWorktree(items), [items]);
 }

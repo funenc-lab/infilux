@@ -20,10 +20,7 @@ import {
   type AgentStartupTimelineLogger,
   createAgentStartupTimelineLogger,
 } from '@shared/utils/agentStartupTimeline';
-import {
-  appendSessionReplayTail,
-  getSessionReplayCharLimit,
-} from '@shared/utils/agentTerminalHistoryPolicy';
+import { getSessionReplayCharLimit } from '@shared/utils/agentTerminalHistoryPolicy';
 import { takeUtf16Tail } from '@shared/utils/utf16Tail';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { BrowserWindow, type WebContents } from 'electron';
@@ -40,6 +37,7 @@ import { PtyManager } from '../terminal/PtyManager';
 import { localSupervisorRuntime } from './LocalSupervisorRuntime';
 import { persistentAgentSessionService } from './PersistentAgentSessionService';
 import { SessionOutputBatcher } from './SessionOutputBatcher';
+import { SessionReplayBuffer } from './SessionReplayBuffer';
 import {
   MAX_SESSION_TRANSCRIPT_PAGE_BYTES,
   type SessionTranscriptArchivePage,
@@ -52,7 +50,7 @@ interface ManagedSessionRecord extends SessionDescriptor {
   connectionId?: string;
   hostSession?: SessionCreateOptions['hostSession'];
   runtimeState?: SessionRuntimeState;
-  replayBuffer?: string;
+  replayBuffer?: SessionReplayBuffer;
   pendingHostReplayDedup?: boolean;
   pendingHostReplayCursor?: number;
   pendingHostReplayScreenBuffer?: string;
@@ -266,10 +264,13 @@ export class SessionManager {
         return this.attachSupervisorSession(windowId, existing);
       }
       existing.attachedWindowIds.add(windowId);
-      const replay = existing.replayBuffer || undefined;
+      const replay = this.getReplayBufferText(existing) || undefined;
       if (existing.streamState === 'buffering') {
         existing.streamState = 'attaching';
-        this.activateLocalStreamAfterAttach(existing.sessionId, existing.replayBuffer?.length ?? 0);
+        this.activateLocalStreamAfterAttach(
+          existing.sessionId,
+          this.getReplayBufferLength(existing)
+        );
       }
       return {
         session: this.toDescriptor(existing),
@@ -293,7 +294,7 @@ export class SessionManager {
         );
         return {
           session: this.toDescriptor(existing),
-          replay: existing.replayBuffer || undefined,
+          replay: this.getReplayBufferText(existing) || undefined,
         };
       }
 
@@ -308,7 +309,7 @@ export class SessionManager {
         );
         const record = this.registerRemoteSession(windowId, existing.connectionId, result.session);
         this.setSessionRuntimeState(record.sessionId, 'live');
-        record.replayBuffer = this.trimReplayBuffer(record, result.replay ?? '');
+        this.replaceReplayBuffer(record, result.replay ?? '');
         return {
           session: this.toDescriptor(record),
           replay: result.replay,
@@ -327,7 +328,7 @@ export class SessionManager {
           );
           return {
             session: this.toDescriptor(existing),
-            replay: existing.replayBuffer || undefined,
+            replay: this.getReplayBufferText(existing) || undefined,
           };
         }
         if (!wasAttached) {
@@ -364,7 +365,7 @@ export class SessionManager {
       );
       const record = this.registerRemoteSession(windowId, connectionId, result.session);
       this.setSessionRuntimeState(record.sessionId, 'live');
-      record.replayBuffer = this.trimReplayBuffer(record, result.replay ?? '');
+      this.replaceReplayBuffer(record, result.replay ?? '');
       return {
         session: this.toDescriptor(record),
         replay: result.replay,
@@ -791,7 +792,7 @@ export class SessionManager {
   ): SessionTranscriptPage {
     const health: SessionTranscriptHealth =
       session?.transcriptArchiveState === 'degraded' ? 'degraded' : page.health;
-    if (session && health === 'unavailable' && session.replayBuffer) {
+    if (session && health === 'unavailable' && this.getReplayBufferLength(session) > 0) {
       return this.buildTranscriptFallback(session, 'degraded');
     }
 
@@ -807,7 +808,7 @@ export class SessionManager {
     session: ManagedSessionRecord,
     health: SessionTranscriptHealth
   ): SessionTranscriptPage {
-    const text = session.replayBuffer ?? '';
+    const text = this.getReplayBufferText(session);
     return {
       text,
       totalBytes: Buffer.byteLength(text, 'utf8'),
@@ -980,7 +981,7 @@ export class SessionManager {
       attachedWindowIds: new Set([windowId]),
       ...(transcriptArchiveId ? { transcriptArchiveId } : {}),
       ...(options.hostSession ? { hostSession: options.hostSession } : {}),
-      replayBuffer: initialReplayTail,
+      replayBuffer: new SessionReplayBuffer(getSessionReplayCharLimit(kind), initialReplayTail),
       pendingHostReplayDedup,
       ...(pendingHostReplayDedup ? { pendingHostReplayCursor: 0 } : {}),
       streamState: 'buffering',
@@ -1086,7 +1087,7 @@ export class SessionManager {
       backend: 'local',
       localRuntime: 'supervisor',
       attachedWindowIds: new Set([windowId]),
-      replayBuffer: '',
+      replayBuffer: new SessionReplayBuffer(getSessionReplayCharLimit(result.session.kind)),
       streamState: 'live',
     };
     this.sessions.set(record.sessionId, record);
@@ -1108,7 +1109,7 @@ export class SessionManager {
     session.createdAt = result.session.createdAt;
     session.metadata = result.session.metadata;
     session.localRuntime = 'supervisor';
-    session.replayBuffer = this.trimReplayBuffer(session, result.replay ?? '');
+    this.replaceReplayBuffer(session, result.replay ?? '');
     session.streamState = 'live';
     return {
       session: this.toDescriptor(session),
@@ -1127,7 +1128,7 @@ export class SessionManager {
       backend: 'local',
       localRuntime: 'supervisor',
       attachedWindowIds: new Set([windowId]),
-      replayBuffer: this.trimReplayBuffer(result.session, result.replay ?? ''),
+      replayBuffer: this.createReplayBuffer(result.session, result.replay ?? ''),
       streamState: 'live',
     };
     this.sessions.set(sessionId, record);
@@ -1158,7 +1159,7 @@ export class SessionManager {
       }
     );
     const record = this.registerRemoteSession(windowId, connectionId, result.session);
-    record.replayBuffer = this.trimReplayBuffer(record, result.replay ?? '');
+    this.replaceReplayBuffer(record, result.replay ?? '');
     return {
       session: this.toDescriptor(record),
       replay: result.replay,
@@ -1172,6 +1173,7 @@ export class SessionManager {
   ): ManagedSessionRecord {
     const existing = this.sessions.get(descriptor.sessionId);
     if (existing) {
+      const replay = this.getReplayBufferText(existing);
       existing.attachedWindowIds.add(windowId);
       existing.connectionId = connectionId;
       existing.cwd = descriptor.cwd;
@@ -1179,6 +1181,7 @@ export class SessionManager {
       existing.persistOnDisconnect = descriptor.persistOnDisconnect;
       existing.metadata = descriptor.metadata;
       existing.runtimeState = existing.runtimeState ?? 'live';
+      this.replaceReplayBuffer(existing, replay);
       return existing;
     }
 
@@ -1188,6 +1191,7 @@ export class SessionManager {
       connectionId,
       runtimeState: 'live',
       attachedWindowIds: new Set([windowId]),
+      replayBuffer: this.createReplayBuffer(descriptor),
     };
     this.sessions.set(record.sessionId, record);
     return record;
@@ -1326,7 +1330,7 @@ export class SessionManager {
 
     if (bufferedScreenData || this.containsTerminalControlSequence(data)) {
       const screenData = `${bufferedScreenData ?? ''}${data}`;
-      const replayText = this.normalizeTerminalScreenText(session.replayBuffer ?? '');
+      const replayText = this.normalizeTerminalScreenText(this.getReplayBufferText(session));
       const screenText = this.normalizeTerminalScreenText(screenData);
 
       if (!screenText) {
@@ -1353,7 +1357,7 @@ export class SessionManager {
       return screenData;
     }
 
-    const replay = session.replayBuffer ?? '';
+    const replay = this.getReplayBufferText(session);
     const cursor = Math.min(session.pendingHostReplayCursor ?? 0, replay.length);
     const expectedChunk = replay.slice(cursor, cursor + data.length);
 
@@ -1583,7 +1587,7 @@ export class SessionManager {
       }
 
       session.streamState = 'live';
-      const replayBuffer = session.replayBuffer || '';
+      const replayBuffer = this.getReplayBufferText(session);
       const delta = replayBuffer.slice(replayCursor);
       if (delta) {
         this.emitBatchedSessionData(sessionId, delta, new Set(session.attachedWindowIds));
@@ -1829,8 +1833,8 @@ export class SessionManager {
               session.persistOnDisconnect = mergedDescriptor.persistOnDisconnect;
               session.metadata = mergedDescriptor.metadata;
               const replay = this.trimReplayBuffer(session, restored.replay ?? '');
-              const delta = this.getReplayDelta(session.replayBuffer, replay);
-              session.replayBuffer = replay;
+              const delta = this.getReplayDelta(this.getReplayBufferText(session), replay);
+              this.replaceReplayBuffer(session, replay);
               if (delta) {
                 this.emitBatchedSessionData(
                   session.sessionId,
@@ -1951,7 +1955,29 @@ export class SessionManager {
       return;
     }
 
-    session.replayBuffer = appendSessionReplayTail(session.replayBuffer, data, session.kind);
+    const replayBuffer =
+      session.replayBuffer ?? new SessionReplayBuffer(getSessionReplayCharLimit(session.kind));
+    replayBuffer.append(data);
+    session.replayBuffer = replayBuffer;
+  }
+
+  private createReplayBuffer(
+    session: Pick<SessionDescriptor, 'kind'>,
+    replay = ''
+  ): SessionReplayBuffer {
+    return new SessionReplayBuffer(getSessionReplayCharLimit(session.kind), replay);
+  }
+
+  private replaceReplayBuffer(session: ManagedSessionRecord, replay: string): void {
+    session.replayBuffer = this.createReplayBuffer(session, replay);
+  }
+
+  private getReplayBufferText(session: ManagedSessionRecord | undefined): string {
+    return session?.replayBuffer?.toString() ?? '';
+  }
+
+  private getReplayBufferLength(session: ManagedSessionRecord): number {
+    return session.replayBuffer?.length ?? 0;
   }
 
   private trimReplayBuffer(
@@ -2156,7 +2182,7 @@ export class SessionManager {
   private emitSessionOutputResync(windowId: number, sessionId: string): void {
     const event: SessionOutputResyncEvent = {
       sessionId,
-      replay: this.sessions.get(sessionId)?.replayBuffer ?? '',
+      replay: this.getReplayBufferText(this.sessions.get(sessionId)),
     };
     this.emitToWindows(new Set([windowId]), 'session:outputResync', event);
   }
@@ -2165,7 +2191,7 @@ export class SessionManager {
     session: ManagedSessionRecord,
     event: SessionOutputResyncEvent
   ): void {
-    session.replayBuffer = event.replay;
+    this.replaceReplayBuffer(session, event.replay);
     for (const windowId of session.attachedWindowIds) {
       if (
         this.suspendedWindowIds.has(windowId) ||

@@ -388,6 +388,46 @@ describe('LocalSupervisorRuntime', () => {
     expect(onDisconnect).toHaveBeenCalledTimes(1);
   });
 
+  it('reuses a verified daemon connection target for consecutive session writes', async () => {
+    runtimeTestDoubles.setDaemonInfo();
+    const { LocalSupervisorRuntime } = await import('../LocalSupervisorRuntime');
+    const runtime = new LocalSupervisorRuntime();
+
+    await runtime.createSession({
+      sessionId: 'supervisor-write-cache',
+      options: {
+        cwd: 'C:/repo',
+        kind: 'agent',
+      },
+    });
+    runtimeTestDoubles.createConnection.mockClear();
+
+    await Promise.all([
+      runtime.writeSession('supervisor-write-cache', 'first'),
+      runtime.writeSession('supervisor-write-cache', 'second'),
+    ]);
+
+    expect(runtimeTestDoubles.createConnection).toHaveBeenCalledTimes(2);
+    expect(
+      runtimeTestDoubles.methodCalls.filter((call) => call.method === 'session:write')
+    ).toEqual([
+      {
+        method: 'session:write',
+        params: {
+          sessionId: 'supervisor-write-cache',
+          data: 'first',
+        },
+      },
+      {
+        method: 'session:write',
+        params: {
+          sessionId: 'supervisor-write-cache',
+          data: 'second',
+        },
+      },
+    ]);
+  });
+
   it('disconnects an authenticated subscription after an oversized unterminated frame', async () => {
     runtimeTestDoubles.setDaemonInfo();
     const { LocalSupervisorRuntime } = await import('../LocalSupervisorRuntime');

@@ -6,6 +6,7 @@ const localSessionManagerTestDoubles = vi.hoisted(() => {
   const readSharedTodoProjects = vi.fn();
   const readSharedTodoTasks = vi.fn();
   const updateSharedSessionState = vi.fn();
+  const updateSharedSessionStateDeferred = vi.fn();
   const writeSharedLocalStorageSnapshot = vi.fn();
 
   function reset() {
@@ -14,6 +15,7 @@ const localSessionManagerTestDoubles = vi.hoisted(() => {
     readSharedTodoProjects.mockReset();
     readSharedTodoTasks.mockReset();
     updateSharedSessionState.mockReset();
+    updateSharedSessionStateDeferred.mockReset();
     writeSharedLocalStorageSnapshot.mockReset();
   }
 
@@ -23,6 +25,7 @@ const localSessionManagerTestDoubles = vi.hoisted(() => {
     readSharedTodoProjects,
     readSharedTodoTasks,
     updateSharedSessionState,
+    updateSharedSessionStateDeferred,
     writeSharedLocalStorageSnapshot,
     reset,
   };
@@ -34,6 +37,7 @@ vi.mock('../SharedSessionState', () => ({
   readSharedTodoProjects: localSessionManagerTestDoubles.readSharedTodoProjects,
   readSharedTodoTasks: localSessionManagerTestDoubles.readSharedTodoTasks,
   updateSharedSessionState: localSessionManagerTestDoubles.updateSharedSessionState,
+  updateSharedSessionStateDeferred: localSessionManagerTestDoubles.updateSharedSessionStateDeferred,
   writeSharedLocalStorageSnapshot: localSessionManagerTestDoubles.writeSharedLocalStorageSnapshot,
 }));
 
@@ -124,6 +128,9 @@ describe('LocalSessionManager', () => {
     localSessionManagerTestDoubles.updateSharedSessionState.mockImplementation((updater) =>
       updater(currentState)
     );
+    localSessionManagerTestDoubles.updateSharedSessionStateDeferred.mockImplementation((updater) =>
+      updater(currentState)
+    );
 
     const { localSessionManager } = await import('../LocalSessionManager');
 
@@ -155,14 +162,16 @@ describe('LocalSessionManager', () => {
     localSessionManager.moveTodoTask(repoPath, 'task-1', 'done', 9);
     localSessionManager.reorderTodoTasks(repoPath, 'todo', ['task-1', 'task-3']);
 
-    const addCall = localSessionManagerTestDoubles.updateSharedSessionState.mock.results[0]?.value;
+    const addCall =
+      localSessionManagerTestDoubles.updateSharedSessionStateDeferred.mock.results[0]?.value;
     const updateCall =
-      localSessionManagerTestDoubles.updateSharedSessionState.mock.results[1]?.value;
+      localSessionManagerTestDoubles.updateSharedSessionStateDeferred.mock.results[1]?.value;
     const deleteCall =
-      localSessionManagerTestDoubles.updateSharedSessionState.mock.results[2]?.value;
-    const moveCall = localSessionManagerTestDoubles.updateSharedSessionState.mock.results[3]?.value;
+      localSessionManagerTestDoubles.updateSharedSessionStateDeferred.mock.results[2]?.value;
+    const moveCall =
+      localSessionManagerTestDoubles.updateSharedSessionStateDeferred.mock.results[3]?.value;
     const reorderCall =
-      localSessionManagerTestDoubles.updateSharedSessionState.mock.results[4]?.value;
+      localSessionManagerTestDoubles.updateSharedSessionStateDeferred.mock.results[4]?.value;
 
     expect(addCall).toEqual({
       ...currentState,
@@ -201,6 +210,41 @@ describe('LocalSessionManager', () => {
       updatedAt: 123456,
     });
     expect(reorderCall.todos[repoPath][1]).toEqual(currentState.todos[repoPath][1]);
+  });
+
+  it('defers disk persistence for interactive todo mutations', async () => {
+    const repoPath = '/repo';
+    const task = {
+      id: 'task-1',
+      title: 'Task',
+      description: '',
+      priority: 'medium',
+      status: 'todo',
+      order: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    localSessionManagerTestDoubles.updateSharedSessionStateDeferred.mockImplementation((updater) =>
+      updater({
+        version: 2,
+        updatedAt: 1,
+        settingsData: {},
+        localStorage: {},
+        todos: {
+          [repoPath]: [],
+        },
+      })
+    );
+
+    const { localSessionManager } = await import('../LocalSessionManager');
+    localSessionManager.addTodoTask(repoPath, task);
+    localSessionManager.updateTodoTask(repoPath, task.id, { status: 'done' });
+    localSessionManager.deleteTodoTask(repoPath, task.id);
+
+    expect(localSessionManagerTestDoubles.updateSharedSessionStateDeferred).toHaveBeenCalledTimes(
+      3
+    );
+    expect(localSessionManagerTestDoubles.updateSharedSessionState).not.toHaveBeenCalled();
   });
 
   it('migrates legacy localStorage todo boards into shared todo state', async () => {

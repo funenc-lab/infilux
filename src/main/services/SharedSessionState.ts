@@ -15,9 +15,13 @@ const STORAGE_VERSION = 2;
 const SETTINGS_MIGRATION_MARKER = '.local-settings-migrated';
 const TODO_MIGRATION_MARKER = '.local-todo-migrated';
 const LOCAL_STORAGE_MIGRATION_MARKER = '.local-localstorage-migrated';
+const DEFERRED_SESSION_STATE_WRITE_DELAY_MS = 200;
 
 let cachedSettings: Record<string, unknown> | null = null;
 let cachedSessionState: SessionStorageDocument | null = null;
+let pendingSessionStateWrite: SessionStorageDocument | null = null;
+let pendingSessionStateWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let deferredWriteFlushHookRegistered = false;
 
 function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true });
@@ -189,6 +193,11 @@ export function readSharedSessionState(): SessionStorageDocument {
 }
 
 export function writeSharedSessionState(data: SessionStorageDocument): void {
+  if (pendingSessionStateWriteTimer) {
+    clearTimeout(pendingSessionStateWriteTimer);
+    pendingSessionStateWriteTimer = null;
+  }
+  pendingSessionStateWrite = null;
   cachedSessionState = {
     ...data,
     version: STORAGE_VERSION,
@@ -202,6 +211,55 @@ export function updateSharedSessionState(
   const next = updater(readSharedSessionState());
   writeSharedSessionState(next);
   return next;
+}
+
+export function updateSharedSessionStateDeferred(
+  updater: (current: SessionStorageDocument) => SessionStorageDocument
+): SessionStorageDocument {
+  const next: SessionStorageDocument = {
+    ...updater(readSharedSessionState()),
+    version: STORAGE_VERSION,
+  };
+  cachedSessionState = next;
+  pendingSessionStateWrite = next;
+  scheduleDeferredSessionStateWrite();
+  return next;
+}
+
+export function flushDeferredSharedSessionStateWrite(): void {
+  if (pendingSessionStateWriteTimer) {
+    clearTimeout(pendingSessionStateWriteTimer);
+    pendingSessionStateWriteTimer = null;
+  }
+
+  const pending = pendingSessionStateWrite;
+  pendingSessionStateWrite = null;
+  if (pending) {
+    atomicWriteJson(getSessionPath(), pending);
+  }
+}
+
+function scheduleDeferredSessionStateWrite(): void {
+  if (pendingSessionStateWriteTimer) {
+    return;
+  }
+
+  registerDeferredWriteFlushHook();
+  pendingSessionStateWriteTimer = setTimeout(() => {
+    pendingSessionStateWriteTimer = null;
+    flushDeferredSharedSessionStateWrite();
+  }, DEFERRED_SESSION_STATE_WRITE_DELAY_MS);
+  pendingSessionStateWriteTimer.unref?.();
+}
+
+function registerDeferredWriteFlushHook(): void {
+  if (deferredWriteFlushHookRegistered) {
+    return;
+  }
+
+  deferredWriteFlushHookRegistered = true;
+  app.once?.('will-quit', flushDeferredSharedSessionStateWrite);
+  process.once('exit', flushDeferredSharedSessionStateWrite);
 }
 
 export function getSharedLocalStorageSnapshot(): Record<string, string> {

@@ -163,6 +163,42 @@ describe('HapiServerManager', () => {
     });
   });
 
+  it('shares one global install probe across concurrent callers', async () => {
+    let completeProbe: (() => void) | undefined;
+    let probeCount = 0;
+    hapiServerTestDoubles.mockExecImplementation((_command, callback) => {
+      probeCount += 1;
+      completeProbe = () => callback(null, 'hapi 1.2.3\n', '');
+    });
+
+    const { hapiServerManager } = await import('../HapiServerManager');
+    const firstProbe = hapiServerManager.checkGlobalInstall();
+    const secondProbe = hapiServerManager.checkGlobalInstall();
+
+    expect(probeCount).toBe(1);
+    completeProbe?.();
+
+    await expect(Promise.all([firstProbe, secondProbe])).resolves.toEqual([
+      { installed: true, version: '1.2.3' },
+      { installed: true, version: '1.2.3' },
+    ]);
+  });
+
+  it('temporarily caches a failed global install probe', async () => {
+    let probeCount = 0;
+    hapiServerTestDoubles.mockExecImplementation((_command, callback) => {
+      probeCount += 1;
+      callback(new Error('missing'), '', '');
+    });
+
+    const { hapiServerManager } = await import('../HapiServerManager');
+
+    await expect(hapiServerManager.checkGlobalInstall()).resolves.toEqual({ installed: false });
+    await expect(hapiServerManager.checkGlobalInstall()).resolves.toEqual({ installed: false });
+
+    expect(probeCount).toBe(1);
+  });
+
   it('reads version from exec errors and reports failed global installs', async () => {
     hapiServerTestDoubles.mockExecImplementation((_command, callback) => {
       const error = Object.assign(new Error('profile warning'), {

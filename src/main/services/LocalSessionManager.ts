@@ -13,6 +13,7 @@ import {
   readSharedTodoProjects,
   readSharedTodoTasks,
   updateSharedSessionState,
+  updateSharedSessionStateDeferred,
   writeSharedLocalStorageSnapshot,
 } from './SharedSessionState';
 
@@ -313,7 +314,7 @@ export class LocalSessionManager {
 
   addTodoTask(repoPath: string, task: SessionTodoTask): SessionTodoTask {
     const normalizedTask = normalizeTodoTaskForSession(task);
-    updateSharedSessionState((current) => ({
+    updateSharedSessionStateDeferred((current) => ({
       ...current,
       updatedAt: now(),
       todos: {
@@ -335,7 +336,7 @@ export class LocalSessionManager {
     >
   ): void {
     const normalizedUpdates = normalizeTodoTaskUpdates(updates);
-    updateSharedSessionState((current) => ({
+    updateSharedSessionStateDeferred((current) => ({
       ...current,
       updatedAt: now(),
       todos: {
@@ -348,7 +349,7 @@ export class LocalSessionManager {
   }
 
   deleteTodoTask(repoPath: string, taskId: string): void {
-    updateSharedSessionState((current) => ({
+    updateSharedSessionStateDeferred((current) => ({
       ...current,
       updatedAt: now(),
       todos: {
@@ -359,7 +360,7 @@ export class LocalSessionManager {
   }
 
   moveTodoTask(repoPath: string, taskId: string, newStatus: string, newOrder: number): void {
-    updateSharedSessionState((current) => ({
+    updateSharedSessionStateDeferred((current) => ({
       ...current,
       updatedAt: now(),
       todos: {
@@ -375,7 +376,7 @@ export class LocalSessionManager {
 
   reorderTodoTasks(repoPath: string, status: string, orderedIds: string[]): void {
     const orderMap = new Map(orderedIds.map((id, index) => [id, index]));
-    updateSharedSessionState((current) => ({
+    updateSharedSessionStateDeferred((current) => ({
       ...current,
       updatedAt: now(),
       todos: {

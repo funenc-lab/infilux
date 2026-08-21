@@ -270,6 +270,51 @@ describe('GitAutoFetchService', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('suspends HEAD polling while the application window is unfocused', async () => {
+    const focusListeners: Array<() => void> = [];
+    const blurListeners: Array<() => void> = [];
+    const worktreePath = '/repo-background';
+
+    gitAutoFetchTestDoubles.setDirectory(`${worktreePath}/.git`);
+    gitAutoFetchTestDoubles.setFile(`${worktreePath}/.git/HEAD`, 'ref: refs/heads/main\n');
+
+    const window = {
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === 'focus') {
+          focusListeners.push(listener);
+        }
+        if (event === 'blur') {
+          blurListeners.push(listener);
+        }
+      }),
+      off: vi.fn(),
+      isFocused: vi.fn(() => false),
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        send: vi.fn(),
+      },
+    };
+
+    const gitAutoFetchService = await loadGitAutoFetchService();
+    gitAutoFetchService.init(window as never);
+    gitAutoFetchService.registerWorktree(worktreePath);
+    await vi.advanceTimersByTimeAsync(0);
+    gitAutoFetchTestDoubles.readFile.mockClear();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(gitAutoFetchTestDoubles.readFile).not.toHaveBeenCalled();
+
+    focusListeners[0]?.();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(gitAutoFetchTestDoubles.readFile).toHaveBeenCalledTimes(1);
+
+    blurListeners[0]?.();
+    gitAutoFetchTestDoubles.readFile.mockClear();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(gitAutoFetchTestDoubles.readFile).not.toHaveBeenCalled();
+  });
+
   it('handles fetch failures, disabled state, and destroyed windows safely', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const worktreePath = '/repo-b';

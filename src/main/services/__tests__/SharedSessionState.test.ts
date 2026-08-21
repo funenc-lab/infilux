@@ -404,4 +404,46 @@ describe('SharedSessionState', () => {
       localStorageMarkerPath: '/Users/tester/.infilux-dev/dev/.local-localstorage-migrated',
     });
   });
+
+  it('coalesces deferred session-state updates into one atomic disk write', async () => {
+    vi.useFakeTimers();
+    const sharedState = await import('../SharedSessionState');
+
+    sharedState.updateSharedSessionStateDeferred((current) => ({
+      ...current,
+      todos: {
+        '/repo': [],
+      },
+    }));
+    sharedState.updateSharedSessionStateDeferred((current) => ({
+      ...current,
+      todos: {
+        '/repo': [
+          {
+            id: 'task-1',
+            title: 'Task',
+            description: '',
+            priority: 'medium',
+            status: 'todo',
+            order: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      },
+    }));
+
+    expect(sharedSessionStateTestDoubles.writeFileSync).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(sharedSessionStateTestDoubles.writeFileSync).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(sharedSessionStateTestDoubles.writeFileSync.mock.calls[0]?.[1] as string)
+    ).toMatchObject({
+      todos: {
+        '/repo': [{ id: 'task-1' }],
+      },
+    });
+  });
 });

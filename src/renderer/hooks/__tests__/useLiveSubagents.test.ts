@@ -185,6 +185,29 @@ describe('useLiveSubagents', () => {
     mounted.unmount();
   });
 
+  it('shares an in-flight lookup between hooks polling the same worktree set', async () => {
+    let resolveLookup: ((value: { items: LiveAgentSubagent[] }) => void) | undefined;
+    listLive.mockImplementation(
+      () =>
+        new Promise<{ items: LiveAgentSubagent[] }>((resolve) => {
+          resolveLookup = resolve;
+        })
+    );
+
+    const first = mountHookHarness(['/Users/tanzv/project/worktree-a']);
+    const second = mountHookHarness(['/Users/tanzv/project/worktree-a']);
+
+    expect(listLive).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveLookup?.({ items: [] });
+      await Promise.resolve();
+    });
+
+    first.unmount();
+    second.unmount();
+  });
+
   it('stops polling after unmounting or switching to an empty cwd list', async () => {
     listLive.mockResolvedValue({ items: [] });
 

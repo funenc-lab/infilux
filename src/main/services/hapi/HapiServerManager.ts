@@ -7,6 +7,7 @@ import { killProcessTree } from '../../utils/processUtils';
 import { execInPty, getEnvForCommand, getShellForCommand } from '../../utils/shell';
 
 const execAsync = promisify(exec);
+const FAILED_GLOBAL_INSTALL_CACHE_TTL_MS = 30_000;
 
 export interface HapiConfig {
   webappPort: number;
@@ -42,6 +43,7 @@ class HapiServerManager extends EventEmitter {
   // Global installation cache
   private globalStatus: HapiGlobalStatus | null = null;
   private globalCacheTimestamp: number = 0;
+  private globalStatusProbe: Promise<HapiGlobalStatus> | null = null;
   private readonly CACHE_TTL = 300000; // 5 minutes cache
 
   // Happy global installation cache
@@ -71,15 +73,30 @@ class HapiServerManager extends EventEmitter {
    * Check if hapi is globally installed (cached)
    */
   async checkGlobalInstall(forceRefresh = false): Promise<HapiGlobalStatus> {
-    // Return cached result if still valid
-    if (
-      !forceRefresh &&
-      this.globalStatus &&
-      Date.now() - this.globalCacheTimestamp < this.CACHE_TTL
-    ) {
-      return this.globalStatus;
+    const cachedStatus = this.globalStatus;
+    if (!forceRefresh && cachedStatus && this.hasFreshGlobalStatus(cachedStatus)) {
+      return cachedStatus;
     }
 
+    if (this.globalStatusProbe) {
+      return this.globalStatusProbe;
+    }
+
+    const probe = this.probeGlobalInstall().finally(() => {
+      if (this.globalStatusProbe === probe) {
+        this.globalStatusProbe = null;
+      }
+    });
+    this.globalStatusProbe = probe;
+    return probe;
+  }
+
+  private hasFreshGlobalStatus(status: HapiGlobalStatus, now = Date.now()): boolean {
+    const cacheTtl = status.installed ? this.CACHE_TTL : FAILED_GLOBAL_INSTALL_CACHE_TTL_MS;
+    return now - this.globalCacheTimestamp < cacheTtl;
+  }
+
+  private async probeGlobalInstall(): Promise<HapiGlobalStatus> {
     try {
       // Increase timeout to 30000ms - PowerShell profile loading can be slow on first run
       const stdout = await this.execInLoginShell('hapi --version', 30000);
@@ -104,7 +121,7 @@ class HapiServerManager extends EventEmitter {
         }
       }
       this.globalStatus = { installed: false };
-      // Don't cache failed result - allow immediate retry
+      this.globalCacheTimestamp = Date.now();
       return this.globalStatus;
     }
 
