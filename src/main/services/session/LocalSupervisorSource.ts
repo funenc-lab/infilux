@@ -4,7 +4,7 @@ import {
 } from '@shared/utils/agentTerminalHistoryPolicy';
 import { getSessionTranscriptArchiveRuntimeSource } from './SessionTranscriptArchiveSource';
 
-export const LOCAL_SUPERVISOR_RUNTIME_VERSION = '0.1.0';
+export const LOCAL_SUPERVISOR_RUNTIME_VERSION = '0.1.1';
 
 export function getLocalSupervisorSource(): string {
   return String.raw`#!/usr/bin/env node
@@ -173,6 +173,109 @@ function takeUtf16Tail(value, maxCodeUnits) {
   return value.slice(start);
 }
 
+function isTerminalReplayStringIntroducer(codeUnit) {
+  return codeUnit === 0x90 || codeUnit === 0x98 || codeUnit === 0x9e || codeUnit === 0x9f;
+}
+
+function isTerminalReplayControlCancellation(codeUnit) {
+  return codeUnit === 0x18 || codeUnit === 0x1a;
+}
+
+function isTerminalReplayEscapeIntermediate(codeUnit) {
+  return codeUnit >= 0x20 && codeUnit <= 0x2f;
+}
+
+function advanceTerminalReplayParserState(state, codeUnit) {
+  if (state === 'text') {
+    if (codeUnit === 0x1b) return 'escape';
+    if (codeUnit === 0x9b) return 'csi';
+    if (codeUnit === 0x9d) return 'osc';
+    return isTerminalReplayStringIntroducer(codeUnit) ? 'string' : 'text';
+  }
+
+  if (state === 'escape') {
+    if (isTerminalReplayControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === 0x1b) return 'escape';
+    if (codeUnit === 0x5b) return 'csi';
+    if (codeUnit === 0x5d) return 'osc';
+    if (codeUnit === 0x50 || codeUnit === 0x58 || codeUnit === 0x5e || codeUnit === 0x5f) {
+      return 'string';
+    }
+    if (codeUnit === 0x9b) return 'csi';
+    if (codeUnit === 0x9d) return 'osc';
+    if (isTerminalReplayStringIntroducer(codeUnit)) return 'string';
+    if (isTerminalReplayEscapeIntermediate(codeUnit)) return 'escapeIntermediate';
+    return 'text';
+  }
+
+  if (state === 'escapeIntermediate') {
+    if (isTerminalReplayControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === 0x1b) return 'escape';
+    if (isTerminalReplayEscapeIntermediate(codeUnit)) return 'escapeIntermediate';
+    if (codeUnit === 0x9b) return 'csi';
+    if (codeUnit === 0x9d) return 'osc';
+    return isTerminalReplayStringIntroducer(codeUnit) ? 'string' : 'text';
+  }
+
+  if (state === 'csi') {
+    if (isTerminalReplayControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === 0x1b) return 'escape';
+    if (codeUnit >= 0x40 && codeUnit <= 0x7e) return 'text';
+    if (codeUnit === 0x9b) return 'csi';
+    if (codeUnit === 0x9d) return 'osc';
+    return isTerminalReplayStringIntroducer(codeUnit) ? 'string' : 'csi';
+  }
+
+  if (state === 'osc') {
+    if (isTerminalReplayControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === 0x07 || codeUnit === 0x9c) return 'text';
+    return codeUnit === 0x1b ? 'oscEscape' : 'osc';
+  }
+
+  if (state === 'string') {
+    if (isTerminalReplayControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === 0x9c) return 'text';
+    return codeUnit === 0x1b ? 'stringEscape' : 'string';
+  }
+
+  if (state === 'oscEscape') {
+    if (isTerminalReplayControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === 0x5c || codeUnit === 0x07 || codeUnit === 0x9c) return 'text';
+    return codeUnit === 0x1b ? 'oscEscape' : 'osc';
+  }
+
+  if (isTerminalReplayControlCancellation(codeUnit)) return 'text';
+  if (codeUnit === 0x5c || codeUnit === 0x9c) return 'text';
+  return codeUnit === 0x1b ? 'stringEscape' : 'string';
+}
+
+function resolveTerminalReplayParserState(value, initialState = 'text') {
+  let state = initialState;
+  for (let index = 0; index < value.length; index += 1) {
+    state = advanceTerminalReplayParserState(state, value.charCodeAt(index));
+  }
+  return state;
+}
+
+function takeTerminalReplayTail(value, maxCodeUnits, initialState = 'text') {
+  const utf16SafeTail = takeUtf16Tail(value, maxCodeUnits);
+  if (!utf16SafeTail || (utf16SafeTail.length === value.length && initialState === 'text')) {
+    return utf16SafeTail;
+  }
+
+  const requestedStart = value.length - utf16SafeTail.length;
+  let safeStart = requestedStart;
+  let state = initialState;
+  for (let index = 0; index < requestedStart; index += 1) {
+    state = advanceTerminalReplayParserState(state, value.charCodeAt(index));
+  }
+  while (state !== 'text' && safeStart < value.length) {
+    state = advanceTerminalReplayParserState(state, value.charCodeAt(safeStart));
+    safeStart += 1;
+  }
+  return value.slice(safeStart);
+}
+
 function takeUtf16Prefix(value, maxCodeUnits) {
   if (!value || maxCodeUnits <= 0 || Number.isNaN(maxCodeUnits)) {
     return '';
@@ -197,7 +300,12 @@ function appendReplayTail(session, chunk) {
   }
   const limit = getSessionReplayCharLimit(session);
   const combined = session.replay + chunk;
-  return takeUtf16Tail(combined, limit);
+  const initialState = session.replay ? 'text' : session.replayParserState || 'text';
+  const replay = takeTerminalReplayTail(combined, limit, initialState);
+  session.replayParserState = replay
+    ? 'text'
+    : resolveTerminalReplayParserState(combined, initialState);
+  return replay;
 }
 
 function takeQueuedSessionOutput(queue, maxChars) {
@@ -508,6 +616,7 @@ async function createSession(params = {}) {
     metadata: cloneMetadata(options.metadata),
     createdAt: Date.now(),
     replay: '',
+    replayParserState: 'text',
     lastDataAt: 0,
     attachCount: 0,
     pty: null,

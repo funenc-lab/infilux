@@ -1,6 +1,10 @@
 import { type AgentSessionTitleSource, isAgentSessionTitleSource } from '../types/agentSession';
 import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from './agentTerminalHistoryPolicy';
-import { takeUtf16Tail } from './utf16Tail';
+import {
+  appendTerminalReplayTail,
+  type TerminalReplayTailState,
+  takeTerminalReplayTail,
+} from './terminalReplayTail';
 
 export const PERSISTENT_AGENT_SESSION_METADATA_BYTE_LIMIT = 1024 * 1024;
 export const PERSISTENT_AGENT_REPLAY_SNAPSHOT_METADATA_BYTE_LIMIT = 256 * 1024;
@@ -26,7 +30,7 @@ function normalizeReplaySnapshot(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0) {
     return undefined;
   }
-  return takeUtf16Tail(value, PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT);
+  return takeTerminalReplayTail(value, PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT);
 }
 
 function normalizeCapturedAt(value: unknown): number | undefined {
@@ -150,7 +154,7 @@ function fitPersistentReplaySnapshotToBudget(
     const middle = Math.floor((lower + upper) / 2);
     const candidate = buildMetadataWithReplaySnapshot(
       metadata,
-      middle > 0 ? takeUtf16Tail(namespace.replaySnapshot, middle) : undefined,
+      middle > 0 ? takeTerminalReplayTail(namespace.replaySnapshot, middle) : undefined,
       capturedAt
     );
     const candidateLength = getSerializedLength(candidate);
@@ -174,12 +178,19 @@ export function appendPersistentAgentReplaySnapshot(
   chunk: string,
   maxChars = PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT
 ): string {
-  if (!chunk) {
-    return current ?? '';
-  }
+  return appendPersistentAgentReplaySnapshotState(
+    { replay: current ?? '', initialParserState: 'text' },
+    chunk,
+    maxChars
+  ).replay;
+}
 
-  const combined = `${current ?? ''}${chunk}`;
-  return takeUtf16Tail(combined, maxChars);
+export function appendPersistentAgentReplaySnapshotState(
+  current: TerminalReplayTailState,
+  chunk: string,
+  maxChars = PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT
+): TerminalReplayTailState {
+  return appendTerminalReplayTail(current, chunk, maxChars);
 }
 
 export function extractPersistentAgentReplaySnapshot(

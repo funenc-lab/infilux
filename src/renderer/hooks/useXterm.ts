@@ -5,8 +5,9 @@ import type {
   SessionRuntimeState,
 } from '@shared/types';
 import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
-import { appendPersistentAgentReplaySnapshot } from '@shared/utils/persistentAgentSession';
+import { appendPersistentAgentReplaySnapshotState } from '@shared/utils/persistentAgentSession';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
+import type { TerminalReplayTailState } from '@shared/utils/terminalReplayTail';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -581,8 +582,9 @@ export function useXterm({
     [settings.theme]
   );
   const replaySnapshotRef = useRef(recoveredReplaySnapshot ?? '');
+  const replaySnapshotParserStateRef =
+    useRef<TerminalReplayTailState['initialParserState']>('text');
   const replaySnapshotFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const replaySnapshotAppendBufferRef = useRef('');
   const replaySnapshotAppendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const buildSearchOptions = useCallback(
@@ -603,6 +605,7 @@ export function useXterm({
     }
 
     replaySnapshotRef.current = recoveredReplaySnapshot ?? '';
+    replaySnapshotParserStateRef.current = 'text';
   }, [recoveredReplaySnapshot]);
 
   const write = useCallback((data: string) => {
@@ -648,42 +651,29 @@ export function useXterm({
     replaySnapshotAppendTimerRef.current = null;
   }, []);
 
-  const flushReplaySnapshotAppendBuffer = useCallback(() => {
-    const chunk = replaySnapshotAppendBufferRef.current;
-    if (!chunk) {
-      return false;
-    }
-
-    replaySnapshotAppendBufferRef.current = '';
-    const nextSnapshot = appendPersistentAgentReplaySnapshot(replaySnapshotRef.current, chunk);
-    if (nextSnapshot === replaySnapshotRef.current) {
-      return false;
-    }
-
-    replaySnapshotRef.current = nextSnapshot;
-    return true;
-  }, []);
-
   const flushReplaySnapshotWithPendingOutput = useCallback(
     (immediate = false) => {
       clearReplaySnapshotAppendTimer();
-      const didUpdateSnapshot = flushReplaySnapshotAppendBuffer();
-      if (didUpdateSnapshot || immediate) {
-        flushReplaySnapshot(immediate);
-      }
+      flushReplaySnapshot(immediate);
     },
-    [clearReplaySnapshotAppendTimer, flushReplaySnapshot, flushReplaySnapshotAppendBuffer]
+    [clearReplaySnapshotAppendTimer, flushReplaySnapshot]
   );
 
   const replaceReplaySnapshot = useCallback(
     (nextSnapshot: string | undefined) => {
       clearReplaySnapshotAppendTimer();
-      replaySnapshotAppendBufferRef.current = '';
-      const normalized = nextSnapshot ? appendPersistentAgentReplaySnapshot('', nextSnapshot) : '';
-      if (normalized === replaySnapshotRef.current) {
+      const normalized = appendPersistentAgentReplaySnapshotState(
+        { replay: '', initialParserState: 'text' },
+        nextSnapshot ?? ''
+      );
+      if (
+        normalized.replay === replaySnapshotRef.current &&
+        normalized.initialParserState === replaySnapshotParserStateRef.current
+      ) {
         return;
       }
-      replaySnapshotRef.current = normalized;
+      replaySnapshotRef.current = normalized.replay;
+      replaySnapshotParserStateRef.current = normalized.initialParserState;
       flushReplaySnapshot();
     },
     [clearReplaySnapshotAppendTimer, flushReplaySnapshot]
@@ -695,22 +685,25 @@ export function useXterm({
         return;
       }
 
-      replaySnapshotAppendBufferRef.current = appendPersistentAgentReplaySnapshot(
-        replaySnapshotAppendBufferRef.current,
+      const nextSnapshot = appendPersistentAgentReplaySnapshotState(
+        {
+          replay: replaySnapshotRef.current,
+          initialParserState: replaySnapshotParserStateRef.current,
+        },
         chunk
       );
+      replaySnapshotRef.current = nextSnapshot.replay;
+      replaySnapshotParserStateRef.current = nextSnapshot.initialParserState;
       if (replaySnapshotAppendTimerRef.current) {
         return;
       }
 
       replaySnapshotAppendTimerRef.current = setTimeout(() => {
         replaySnapshotAppendTimerRef.current = null;
-        if (flushReplaySnapshotAppendBuffer()) {
-          flushReplaySnapshot(true);
-        }
+        flushReplaySnapshot(true);
       }, REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS);
     },
-    [flushReplaySnapshot, flushReplaySnapshotAppendBuffer]
+    [flushReplaySnapshot]
   );
 
   const refreshTerminalViewport = useCallback(() => {

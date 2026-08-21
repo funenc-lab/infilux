@@ -56,6 +56,7 @@ const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
 const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;
 const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;
 const JSON_LINE_MAX_CHARS = 32 * 1024 * 1024;
+const MAX_RENDERABLE_FILE_DIFF_BYTES = 2 * 1024 * 1024;
 const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;
 const UNTRACKED_BINARY_INSPECTION_SIZE = 8000;
 const UNTRACKED_FILE_OPEN_FLAGS = process.platform === 'win32'
@@ -317,6 +318,107 @@ function takeUtf16Tail(value, maxCodeUnits) {
     start += 1;
   }
   return value.slice(start);
+}
+
+function isTerminalReplayStringIntroducer(code) {
+  return code === 0x90 || code === 0x98 || code === 0x9e || code === 0x9f;
+}
+
+function isTerminalReplayControlCancellation(code) {
+  return code === 0x18 || code === 0x1a;
+}
+
+function isTerminalReplayEscapeIntermediate(code) {
+  return code >= 0x20 && code <= 0x2f;
+}
+
+function advanceTerminalReplayParserState(state, code) {
+  if (state === 'text') {
+    if (code === 0x1b) return 'escape';
+    if (code === 0x9b) return 'csi';
+    if (code === 0x9d) return 'osc';
+    return isTerminalReplayStringIntroducer(code) ? 'string' : 'text';
+  }
+
+  if (state === 'escape') {
+    if (isTerminalReplayControlCancellation(code)) return 'text';
+    if (code === 0x1b) return 'escape';
+    if (code === 0x5b) return 'csi';
+    if (code === 0x5d) return 'osc';
+    if (code === 0x50 || code === 0x58 || code === 0x5e || code === 0x5f) return 'string';
+    if (code === 0x9b) return 'csi';
+    if (code === 0x9d) return 'osc';
+    if (isTerminalReplayStringIntroducer(code)) return 'string';
+    if (isTerminalReplayEscapeIntermediate(code)) return 'escapeIntermediate';
+    return 'text';
+  }
+
+  if (state === 'escapeIntermediate') {
+    if (isTerminalReplayControlCancellation(code)) return 'text';
+    if (code === 0x1b) return 'escape';
+    if (isTerminalReplayEscapeIntermediate(code)) return 'escapeIntermediate';
+    if (code === 0x9b) return 'csi';
+    if (code === 0x9d) return 'osc';
+    return isTerminalReplayStringIntroducer(code) ? 'string' : 'text';
+  }
+
+  if (state === 'csi') {
+    if (isTerminalReplayControlCancellation(code)) return 'text';
+    if (code === 0x1b) return 'escape';
+    if (code >= 0x40 && code <= 0x7e) return 'text';
+    if (code === 0x9b) return 'csi';
+    if (code === 0x9d) return 'osc';
+    return isTerminalReplayStringIntroducer(code) ? 'string' : 'csi';
+  }
+
+  if (state === 'osc') {
+    if (isTerminalReplayControlCancellation(code)) return 'text';
+    if (code === 0x07 || code === 0x9c) return 'text';
+    return code === 0x1b ? 'oscEscape' : 'osc';
+  }
+
+  if (state === 'string') {
+    if (isTerminalReplayControlCancellation(code)) return 'text';
+    if (code === 0x9c) return 'text';
+    return code === 0x1b ? 'stringEscape' : 'string';
+  }
+
+  if (state === 'oscEscape') {
+    if (isTerminalReplayControlCancellation(code)) return 'text';
+    if (code === 0x5c || code === 0x07 || code === 0x9c) return 'text';
+    return code === 0x1b ? 'oscEscape' : 'osc';
+  }
+
+  if (isTerminalReplayControlCancellation(code)) return 'text';
+  if (code === 0x5c || code === 0x9c) return 'text';
+  return code === 0x1b ? 'stringEscape' : 'string';
+}
+
+function resolveTerminalReplayParserState(value, initialState = 'text') {
+  let state = initialState;
+  for (let index = 0; index < value.length; index += 1) {
+    state = advanceTerminalReplayParserState(state, value.charCodeAt(index));
+  }
+  return state;
+}
+
+function takeTerminalReplayTail(value, maxCodeUnits, initialState = 'text') {
+  const utf16SafeTail = takeUtf16Tail(value, maxCodeUnits);
+  if (!utf16SafeTail || (utf16SafeTail.length === value.length && initialState === 'text')) {
+    return utf16SafeTail;
+  }
+
+  const requestedStart = value.length - utf16SafeTail.length;
+  let safeStart = requestedStart;
+  let state = initialState;
+  for (let index = 0; index < requestedStart; index += 1) {
+    state = advanceTerminalReplayParserState(state, value.charCodeAt(index));
+  }
+  while (state !== 'text' && safeStart < value.length) {
+    state = advanceTerminalReplayParserState(state, value.charCodeAt(safeStart));
+    safeStart += 1;
+  }
+  return value.slice(safeStart);
 }
 
 function appendOutputTail(current, chunk, limit) {
@@ -1142,7 +1244,44 @@ async function gitShowOrEmpty(rootPath, spec) {
   }
 }
 
+async function isOversizedGitBlob(rootPath, spec) {
+  try {
+    const { stdout } = await execCommand('git', ['cat-file', '-s', spec], { cwd: rootPath });
+    const size = Number.parseInt(stdout.trim(), 10);
+    return Number.isFinite(size) && size > MAX_RENDERABLE_FILE_DIFF_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+async function isOversizedFileDiff(rootPath, filePath, staged) {
+  const stats = await fsp.lstat(path.join(rootPath, filePath)).catch(() => null);
+  if (stats && stats.size > MAX_RENDERABLE_FILE_DIFF_BYTES) {
+    return true;
+  }
+
+  const references = staged
+    ? ['HEAD:' + filePath, ':' + filePath]
+    : [':' + filePath, 'HEAD:' + filePath];
+  const oversized = await Promise.all(
+    references.map((reference) => isOversizedGitBlob(rootPath, reference))
+  );
+  return oversized.some(Boolean);
+}
+
+async function isOversizedCommitDiff(rootPath, hash, filePath) {
+  const oversized = await Promise.all([
+    isOversizedGitBlob(rootPath, hash + '^:' + filePath),
+    isOversizedGitBlob(rootPath, hash + ':' + filePath),
+  ]);
+  return oversized.some(Boolean);
+}
+
 async function gitFileDiff(rootPath, filePath, staged) {
+  if (await isOversizedFileDiff(rootPath, filePath, staged)) {
+    return { path: filePath, original: '', modified: '', isTooLarge: true };
+  }
+
   let original = '';
   let modified = '';
 
@@ -1179,6 +1318,10 @@ async function gitCommitFiles(rootPath, hash) {
 }
 
 async function gitCommitDiff(rootPath, hash, filePath) {
+  if (await isOversizedCommitDiff(rootPath, hash, filePath)) {
+    return { path: filePath, original: '', modified: '', isTooLarge: true };
+  }
+
   let original = '';
   let modified = '';
 
@@ -2986,7 +3129,16 @@ function getSessionReplayCharLimit(session) {
 }
 
 function appendReplay(session, chunk) {
-  session.replay = takeUtf16Tail(session.replay + chunk, getSessionReplayCharLimit(session));
+  const combined = session.replay + chunk;
+  const initialState = session.replay ? 'text' : session.replayParserState || 'text';
+  session.replay = takeTerminalReplayTail(
+    combined,
+    getSessionReplayCharLimit(session),
+    initialState
+  );
+  session.replayParserState = session.replay
+    ? 'text'
+    : resolveTerminalReplayParserState(combined, initialState);
   session.lastDataAt = Date.now();
 }
 
@@ -3377,6 +3529,7 @@ async function createSession(options = {}) {
     metadata: options.metadata,
     createdAt: Date.now(),
     replay: '',
+    replayParserState: 'text',
     lastDataAt: 0,
     exited: false,
     attachCount: 0,

@@ -21,6 +21,7 @@ import {
   createAgentStartupTimelineLogger,
 } from '@shared/utils/agentStartupTimeline';
 import { getSessionReplayCharLimit } from '@shared/utils/agentTerminalHistoryPolicy';
+import { takeTerminalReplayTail } from '@shared/utils/terminalReplayTail';
 import { takeUtf16Tail } from '@shared/utils/utf16Tail';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { BrowserWindow, type WebContents } from 'electron';
@@ -994,7 +995,11 @@ export class SessionManager {
     }
 
     const initialReplay = await this.loadLocalReplaySeed(options, startupLogger);
-    const initialReplayTail = takeUtf16Tail(initialReplay, getSessionReplayCharLimit(options.kind));
+    const initialReplayBuffer = new SessionReplayBuffer(
+      getSessionReplayCharLimit(options.kind),
+      initialReplay
+    );
+    const initialReplayTail = initialReplayBuffer.toString();
     const pendingHostReplayDedup =
       initialReplayTail.length > 0 && this.shouldSeedTmuxHostReplay(options);
     const kind = options.kind ?? 'terminal';
@@ -1015,7 +1020,7 @@ export class SessionManager {
       attachedWindowIds: new Set([windowId]),
       ...(transcriptArchiveId ? { transcriptArchiveId } : {}),
       ...(options.hostSession ? { hostSession: options.hostSession } : {}),
-      replayBuffer: new SessionReplayBuffer(getSessionReplayCharLimit(kind), initialReplayTail),
+      replayBuffer: initialReplayBuffer,
       pendingHostReplayDedup,
       ...(pendingHostReplayDedup ? { pendingHostReplayCursor: 0 } : {}),
       streamState: 'buffering',
@@ -2114,7 +2119,7 @@ export class SessionManager {
       return '';
     }
 
-    return takeUtf16Tail(replay, getSessionReplayCharLimit(session.kind));
+    return takeTerminalReplayTail(replay, getSessionReplayCharLimit(session.kind));
   }
 
   private getReplayDelta(previousReplay: string | undefined, nextReplay: string): string {

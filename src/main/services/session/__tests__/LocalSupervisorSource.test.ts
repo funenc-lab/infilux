@@ -105,6 +105,32 @@ describe('getLocalSupervisorSource', () => {
     );
   });
 
+  it('drops partial terminal control strings from generated local supervisor replays', () => {
+    const appendReplayTail = createGeneratedLocalReplayAppender(getLocalSupervisorSource());
+    const controlString = '\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\';
+    const visibleOutput = 'prompt ready\n';
+    const retainedOutput = `${visibleOutput}${'x'.repeat(
+      TERMINAL_SESSION_REPLAY_CHAR_LIMIT - (controlString.length - 2 + visibleOutput.length)
+    )}`;
+
+    expect(
+      appendReplayTail({ kind: 'terminal', replay: '' }, `${controlString}${retainedOutput}`)
+    ).toBe(retainedOutput);
+  });
+
+  it('keeps generated local supervisor replay parser state across an oversized control string', () => {
+    const appendReplayTail = createGeneratedLocalReplayAppender(getLocalSupervisorSource());
+    const session = { kind: 'terminal' as const, replay: '' };
+
+    session.replay = appendReplayTail(
+      session,
+      `\x1bP${'x'.repeat(TERMINAL_SESSION_REPLAY_CHAR_LIMIT + 1)}`
+    );
+    session.replay = appendReplayTail(session, '\x1b\\prompt ready\n');
+
+    expect(session.replay).toBe('prompt ready\n');
+  });
+
   it('archives generated supervisor agent output before broadcasting it to clients', () => {
     const source = getLocalSupervisorSource();
 

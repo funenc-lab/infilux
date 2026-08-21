@@ -51,6 +51,50 @@ type GeneratedHapiGlobalCheck = (request: { forceRefresh?: boolean }) => Promise
   version?: string;
 }>;
 
+type GeneratedFileDiff = {
+  path: string;
+  original: string;
+  modified: string;
+  isTooLarge?: boolean;
+};
+
+type GeneratedGitDiffFunctions = {
+  gitFileDiff: (rootPath: string, filePath: string, staged: boolean) => Promise<GeneratedFileDiff>;
+  gitCommitDiff: (rootPath: string, hash: string, filePath: string) => Promise<GeneratedFileDiff>;
+};
+
+function createGeneratedGitDiffFunctions(
+  source: string,
+  execCommand: (
+    command: string,
+    args: string[],
+    options: { cwd: string }
+  ) => Promise<{ stdout: string }>,
+  fsp: {
+    lstat: (path: string) => Promise<{ size: number }>;
+    readFile: (path: string, encoding: string) => Promise<string>;
+  }
+): GeneratedGitDiffFunctions {
+  const start = source.indexOf('async function gitShowOrEmpty(rootPath, spec) {');
+  const end = source.indexOf('function pruneUntrackedDiffStatsCache(now = Date.now()) {', start);
+
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+
+  return new Function(
+    'execCommand',
+    'fsp',
+    'path',
+    `
+      const MAX_RENDERABLE_FILE_DIFF_BYTES = 2 * 1024 * 1024;
+      ${source.slice(start, end)}
+      return { gitFileDiff, gitCommitDiff };
+    `
+  )(execCommand, fsp, {
+    join: (...parts: string[]) => parts.join('/'),
+  }) as GeneratedGitDiffFunctions;
+}
+
 function createGeneratedHapiGlobalCheck(
   source: string,
   execInConfiguredShell: (command: string, options: { timeout: number }) => Promise<string>
@@ -212,6 +256,42 @@ describe('getRemoteServerSource', () => {
     const source = getRemoteServerSource();
 
     expect(() => new Function(source.replace(/^#!.*\r?\n/, ''))).not.toThrow();
+  });
+
+  it('does not serialize an oversized remote file diff', async () => {
+    const { gitFileDiff } = createGeneratedGitDiffFunctions(getRemoteServerSource(), vi.fn(), {
+      lstat: vi.fn().mockResolvedValue({ size: 2 * 1024 * 1024 + 1 }),
+      readFile: vi.fn(),
+    });
+
+    await expect(gitFileDiff('/repo', 'large.ts', false)).resolves.toEqual({
+      path: 'large.ts',
+      original: '',
+      modified: '',
+      isTooLarge: true,
+    });
+  });
+
+  it('does not serialize an oversized remote commit diff', async () => {
+    const execCommand = vi.fn().mockResolvedValue({ stdout: `${2 * 1024 * 1024 + 1}\n` });
+    const { gitCommitDiff } = createGeneratedGitDiffFunctions(
+      getRemoteServerSource(),
+      execCommand,
+      {
+        lstat: vi.fn(),
+        readFile: vi.fn(),
+      }
+    );
+
+    await expect(gitCommitDiff('/repo', 'abc123', 'large.ts')).resolves.toEqual({
+      path: 'large.ts',
+      original: '',
+      modified: '',
+      isTooLarge: true,
+    });
+    expect(execCommand).toHaveBeenCalledWith('git', ['cat-file', '-s', 'abc123^:large.ts'], {
+      cwd: '/repo',
+    });
   });
 
   it('shares one generated Hapi install probe across concurrent requests', async () => {
@@ -589,8 +669,10 @@ describe('getRemoteServerSource', () => {
     );
     expect(source).toContain('function getSessionReplayCharLimit(session) {');
     expect(source).toContain(
-      'session.replay = takeUtf16Tail(session.replay + chunk, getSessionReplayCharLimit(session));'
+      "const initialState = session.replay ? 'text' : session.replayParserState || 'text';"
     );
+    expect(source).toContain('session.replay = takeTerminalReplayTail(');
+    expect(source).toContain('session.replayParserState = session.replay');
     expect(source).not.toContain('MAX_SESSION_REPLAY_CHARS');
   });
 
@@ -619,6 +701,66 @@ describe('getRemoteServerSource', () => {
     appendReplay(session, `A\u{1F680}BC`);
 
     expect(session.replay).toBe('BC');
+  });
+
+  it('drops partial terminal control strings from generated remote replays', () => {
+    const createSessionFunctions = createGeneratedSessionFunctions(getRemoteServerSource());
+    const controlString = '\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\';
+    const visibleOutput = 'prompt ready\n';
+    const retainedOutput = `${visibleOutput}${'x'.repeat(
+      TERMINAL_SESSION_REPLAY_CHAR_LIMIT - (controlString.length - 2 + visibleOutput.length)
+    )}`;
+    const session: GeneratedSession = {
+      sessionId: 'session-terminal-control-tail',
+      kind: 'terminal',
+      replay: '',
+      lastDataAt: 0,
+      streamState: 'live',
+      attachCount: 1,
+      pendingExit: null,
+      writable: null,
+    };
+    const { appendReplay } = createSessionFunctions(
+      { clients: new Set(), sessions: new Map() },
+      new Map(),
+      () => {},
+      () => 0,
+      () => {},
+      TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+      AGENT_SESSION_REPLAY_CHAR_LIMIT
+    );
+
+    appendReplay(session, `${controlString}${retainedOutput}`);
+
+    expect(session.replay).toBe(retainedOutput);
+  });
+
+  it('keeps generated remote replay parser state across an oversized control string', () => {
+    const createSessionFunctions = createGeneratedSessionFunctions(getRemoteServerSource());
+    const session = {
+      sessionId: 'session-terminal-control-state',
+      kind: 'terminal' as const,
+      replay: '',
+      lastDataAt: 0,
+      streamState: 'live' as const,
+      attachCount: 1,
+      pendingExit: null,
+      writable: null,
+    };
+    const { appendReplay } = createSessionFunctions(
+      { clients: new Set(), sessions: new Map() },
+      new Map(),
+      () => {},
+      () => 0,
+      () => {},
+      16,
+      16
+    );
+
+    appendReplay(session, `\x1bP${'x'.repeat(32)}`);
+    appendReplay(session, '\x1b\\prompt ready\n');
+
+    expect(session.replay).toBe('prompt ready\n');
   });
 
   it('archives generated remote agent output before transport batching', () => {

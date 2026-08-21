@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PERSISTENT_AGENT_REPLAY_SNAPSHOT_CHAR_LIMIT } from '../agentTerminalHistoryPolicy';
 import {
   appendPersistentAgentReplaySnapshot,
+  appendPersistentAgentReplaySnapshotState,
   extractPersistentAgentReplaySnapshot,
   extractPersistentAgentSessionTitleMetadata,
   normalizePersistentAgentSessionMetadata,
@@ -92,6 +93,32 @@ describe('persistent agent session metadata', () => {
 
   it('does not begin a bounded replay snapshot with a low surrogate', () => {
     expect(appendPersistentAgentReplaySnapshot('', `A\u{1F680}BC`, 3)).toBe('BC');
+  });
+
+  it('drops a partial terminal control string when truncating a replay snapshot', () => {
+    const controlString = '\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\';
+    const visibleOutput = 'prompt ready\n';
+    const snapshot = appendPersistentAgentReplaySnapshot(
+      'completed\n',
+      `${controlString}${visibleOutput}`,
+      controlString.length - 2 + visibleOutput.length
+    );
+
+    expect(snapshot).toBe(visibleOutput);
+  });
+
+  it('keeps parser state when an unterminated control string exceeds the replay snapshot limit', () => {
+    const initial = appendPersistentAgentReplaySnapshotState(
+      { replay: '', initialParserState: 'text' },
+      `\x1bP${'x'.repeat(16)}`,
+      8
+    );
+
+    expect(initial).toEqual({ replay: '', initialParserState: 'string' });
+    expect(appendPersistentAgentReplaySnapshotState(initial, '\x1b\\prompt ready\n', 16)).toEqual({
+      replay: 'prompt ready\n',
+      initialParserState: 'text',
+    });
   });
 
   it('keeps a larger default replay snapshot for active agent transcript recovery', () => {

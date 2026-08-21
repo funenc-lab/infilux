@@ -1,4 +1,10 @@
-import { takeUtf16Tail } from '@shared/utils/utf16Tail';
+import {
+  advanceTerminalReplayParserState,
+  isTerminalReplayBoundary,
+  resolveTerminalReplayParserState,
+  type TerminalReplayParserState,
+  takeTerminalReplayTail,
+} from '@shared/utils/terminalReplayTail';
 
 function isHighSurrogate(codeUnit: number): boolean {
   return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
@@ -13,6 +19,7 @@ export class SessionReplayBuffer {
   private startChunkIndex = 0;
   private startOffset = 0;
   private retainedLength = 0;
+  private pendingParserState: TerminalReplayParserState = 'text';
 
   constructor(
     private readonly maxCodeUnits: number,
@@ -30,8 +37,13 @@ export class SessionReplayBuffer {
       return;
     }
 
+    if (!isTerminalReplayBoundary(this.pendingParserState)) {
+      this.replaceWithInitialParserState(value, this.pendingParserState);
+      return;
+    }
+
     if (value.length >= this.maxCodeUnits) {
-      this.replace(value);
+      this.replaceWithInitialParserState(value, this.resolveRetainedParserState());
       return;
     }
 
@@ -41,18 +53,7 @@ export class SessionReplayBuffer {
   }
 
   replace(value: string): void {
-    this.chunks.length = 0;
-    this.startChunkIndex = 0;
-    this.startOffset = 0;
-
-    const tail = takeUtf16Tail(value, this.maxCodeUnits);
-    if (!tail) {
-      this.retainedLength = 0;
-      return;
-    }
-
-    this.chunks.push(tail);
-    this.retainedLength = tail.length;
+    this.replaceWithInitialParserState(value, 'text');
   }
 
   toString(): string {
@@ -71,13 +72,38 @@ export class SessionReplayBuffer {
     ].join('');
   }
 
+  private replaceWithInitialParserState(
+    value: string,
+    initialParserState: TerminalReplayParserState
+  ): void {
+    this.chunks.length = 0;
+    this.startChunkIndex = 0;
+    this.startOffset = 0;
+    this.pendingParserState = 'text';
+
+    const tail = takeTerminalReplayTail(value, this.maxCodeUnits, initialParserState);
+    if (!tail) {
+      this.retainedLength = 0;
+      this.pendingParserState = resolveTerminalReplayParserState(value, initialParserState);
+      return;
+    }
+
+    this.chunks.push(tail);
+    this.retainedLength = tail.length;
+  }
+
   private trimToCapacity(): void {
     const overflow = this.retainedLength - this.maxCodeUnits;
     if (overflow <= 0) {
       return;
     }
 
-    const lastDiscardedCodeUnit = this.discard(overflow);
+    const safeDiscard = this.resolveSafeDiscardCount(overflow);
+    const lastDiscardedCodeUnit = this.discard(safeDiscard.count);
+    if (this.retainedLength === 0 && !isTerminalReplayBoundary(safeDiscard.endState)) {
+      this.pendingParserState = safeDiscard.endState;
+      return;
+    }
     const nextCodeUnit = this.getFirstCodeUnit();
     if (
       lastDiscardedCodeUnit !== null &&
@@ -110,6 +136,50 @@ export class SessionReplayBuffer {
 
     this.compactDiscardedChunks();
     return lastDiscardedCodeUnit;
+  }
+
+  private resolveSafeDiscardCount(minimumCount: number): {
+    count: number;
+    endState: TerminalReplayParserState;
+  } {
+    let chunkIndex = this.startChunkIndex;
+    let chunkOffset = this.startOffset;
+    let consumed = 0;
+    let state: TerminalReplayParserState = 'text';
+
+    while (consumed < minimumCount || !isTerminalReplayBoundary(state)) {
+      const chunk = this.chunks[chunkIndex];
+      if (!chunk) {
+        return { count: consumed, endState: state };
+      }
+
+      if (chunkOffset === chunk.length) {
+        chunkIndex += 1;
+        chunkOffset = 0;
+        continue;
+      }
+
+      state = advanceTerminalReplayParserState(state, chunk.charCodeAt(chunkOffset));
+      chunkOffset += 1;
+      consumed += 1;
+    }
+
+    return { count: consumed, endState: state };
+  }
+
+  private resolveRetainedParserState(): TerminalReplayParserState {
+    let state: TerminalReplayParserState = 'text';
+
+    for (let chunkIndex = this.startChunkIndex; chunkIndex < this.chunks.length; chunkIndex += 1) {
+      const chunk = this.chunks[chunkIndex];
+      const startOffset = chunkIndex === this.startChunkIndex ? this.startOffset : 0;
+
+      for (let index = startOffset; index < chunk.length; index += 1) {
+        state = advanceTerminalReplayParserState(state, chunk.charCodeAt(index));
+      }
+    }
+
+    return state;
   }
 
   private getFirstCodeUnit(): number | null {

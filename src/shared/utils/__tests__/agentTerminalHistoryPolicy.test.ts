@@ -36,4 +36,15 @@ describe('agentTerminalHistoryPolicy', () => {
 
     expect(appendSessionReplayTail('', output, 'terminal')).toBe(trailing);
   });
+
+  it('drops a partial terminal control string from a bounded replay tail', () => {
+    const controlString = '\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\';
+    const visibleOutput = 'prompt ready\n';
+    const retainedOutput = `${visibleOutput}${'x'.repeat(
+      TERMINAL_SESSION_REPLAY_CHAR_LIMIT - (controlString.length - 2 + visibleOutput.length)
+    )}`;
+    const replay = appendSessionReplayTail('', `${controlString}${retainedOutput}`, 'terminal');
+
+    expect(replay).toBe(retainedOutput);
+  });
 });
