@@ -1026,6 +1026,14 @@ export const saveTreeSidebarTempExpanded = (expanded: boolean): void => {
   scheduleManagedLocalStorageSync();
 };
 
+export const getStoredTreeSidebarRecentCollapsed = (): boolean =>
+  getStoredBoolean(STORAGE_KEYS.TREE_SIDEBAR_RECENT_COLLAPSED, false);
+
+export const saveTreeSidebarRecentCollapsed = (collapsed: boolean): void => {
+  localStorage.setItem(STORAGE_KEYS.TREE_SIDEBAR_RECENT_COLLAPSED, String(collapsed));
+  scheduleManagedLocalStorageSync();
+};
+
 // File tree expanded paths helpers (per-worktree, keyed by rootPath)
 const getFileTreeExpandedKey = (rootPath: string): string =>
   `${STORAGE_KEYS.FILE_TREE_EXPANDED_PREFIX}:${normalizePath(rootPath)}`;

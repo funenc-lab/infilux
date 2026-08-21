@@ -87,6 +87,7 @@ function getInitialState() {
     layoutMode: 'tree' as const,
     fileTreeDisplayMode: 'legacy' as const,
     repositoryListDisplayMode: 'list' as const,
+    recentProjectDisplayLimit: 8 as const,
     floatingSidebarEnabled: true,
     floatingToolbarEnabled: false,
     agentSessionDisplayMode: 'tab' as const,
@@ -358,6 +359,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       setRepositoryListDisplayMode: (repositoryListDisplayMode) =>
         set({ repositoryListDisplayMode }),
+
+      setRecentProjectDisplayLimit: (recentProjectDisplayLimit) =>
+        set({ recentProjectDisplayLimit }),
 
       setFloatingSidebarEnabled: (floatingSidebarEnabled) => set({ floatingSidebarEnabled }),
 

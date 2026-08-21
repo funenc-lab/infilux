@@ -142,6 +142,9 @@ export function RepositorySidebar({
   const [searchQuery, setSearchQuery] = useState('');
   const [showActiveProjectsOnly, setShowActiveProjectsOnly] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [repositoryScrollContainer, setRepositoryScrollContainer] = useState<HTMLDivElement | null>(
+    null
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPlacement, setMenuPlacement] = useState<'pointer' | 'anchor-end'>('pointer');
@@ -700,7 +703,10 @@ export function RepositorySidebar({
       </div>
 
       {/* Repository List */}
-      <div className="control-sidebar-scroll-region flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5">
+      <div
+        ref={setRepositoryScrollContainer}
+        className="control-sidebar-scroll-region flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5"
+      >
         {temporaryWorkspaceEnabled && (
           <div className="mb-2">
             <button
@@ -890,6 +896,7 @@ export function RepositorySidebar({
                 hiddenCount={progressiveVisibility.hiddenCount}
                 nextBatchSize={progressiveVisibility.nextBatchSize}
                 onShowMore={progressiveVisibility.showMore}
+                scrollContainer={repositoryScrollContainer}
               />
             ) : null}
           </>

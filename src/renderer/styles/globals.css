@@ -2341,6 +2341,46 @@
     color: color-mix(in oklch, var(--muted-foreground) 68%, var(--foreground) 32%);
   }
 
+  .control-tree-section[data-tree-section-level="primary"] > .control-section-header {
+    min-height: 1.875rem;
+    border-color: color-mix(in oklch, var(--border) 42%, transparent);
+    background: color-mix(in oklch, var(--muted) 9%, var(--background) 91%);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 16%, transparent);
+    color: color-mix(in oklch, var(--foreground) 64%, var(--muted-foreground) 36%);
+  }
+
+  .control-tree-section[data-tree-section-level="primary"] > .control-section-header:hover {
+    border-color: color-mix(in oklch, var(--border) 54%, transparent);
+    background: color-mix(in oklch, var(--accent) 5%, var(--muted) 9%);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 24%, transparent);
+  }
+
+  .control-tree-section[data-tree-section-level="primary"] > .control-section-header[data-static='true'],
+  .control-tree-section[data-tree-section-level="primary"]
+    > .control-section-header[data-static='true']:hover {
+    border-color: color-mix(in oklch, var(--border) 42%, transparent);
+    background: color-mix(in oklch, var(--muted) 9%, var(--background) 91%);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 16%, transparent);
+    color: color-mix(in oklch, var(--foreground) 64%, var(--muted-foreground) 36%);
+  }
+
+  .control-tree-section[data-tree-section-level="primary"] > .control-tree-section-list {
+    margin-top: 0.25rem;
+    gap: 0.375rem;
+  }
+
+  .control-tree-section [data-tree-section-level="secondary"] {
+    width: 100%;
+    margin: 0;
+    padding-block: 0.125rem 0.25rem;
+    padding-inline-start: 0;
+  }
+
+  .control-tree-section [data-tree-section-level="secondary"] > .control-section-header {
+    min-height: 1.75rem;
+    color: color-mix(in oklch, var(--muted-foreground) 78%, var(--foreground) 22%);
+  }
+
   .control-section-header:focus-visible {
     background: color-mix(in oklch, var(--accent) 1.3%, transparent);
     box-shadow:
@@ -2752,10 +2792,14 @@
   }
 
   .control-tree-node[data-active="repo"] {
-    --control-tree-node-bg: color-mix(in oklch, var(--accent) 4%, transparent);
-    --control-tree-node-border: transparent;
-    --control-tree-title-color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);
-    --control-tree-title-weight: 582;
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--accent) 10%,
+      var(--background) 90%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--ring) 36%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 96%, var(--muted-foreground) 4%);
+    --control-tree-title-weight: 596;
     --control-tree-subtitle-color: color-mix(
       in oklch,
       var(--muted-foreground) 58%,
@@ -2789,12 +2833,12 @@
   .control-tree-node[data-active="repo"][data-selection-tone="context"] {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--accent) 6.5%,
-      var(--background) 93.5%
+      var(--accent) 12%,
+      var(--background) 88%
     );
-    --control-tree-node-border: transparent;
-    --control-tree-title-color: color-mix(in oklch, var(--foreground) 86%, var(--muted-foreground) 14%);
-    --control-tree-title-weight: 568;
+    --control-tree-node-border: color-mix(in oklch, var(--ring) 42%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 97%, var(--muted-foreground) 3%);
+    --control-tree-title-weight: 600;
     --control-tree-subtitle-color: color-mix(
       in oklch,
       var(--muted-foreground) 68%,
@@ -2869,10 +2913,14 @@
   }
 
   .control-tree-node[data-active="repo"]:hover {
-    --control-tree-node-bg: color-mix(in oklch, var(--accent) 5.5%, transparent);
-    --control-tree-node-border: transparent;
-    --control-tree-title-color: color-mix(in oklch, var(--foreground) 94%, var(--muted-foreground) 6%);
-    --control-tree-title-weight: 586;
+    --control-tree-node-bg: color-mix(
+      in oklch,
+      var(--accent) 12%,
+      var(--background) 88%
+    );
+    --control-tree-node-border: color-mix(in oklch, var(--ring) 42%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 97%, var(--muted-foreground) 3%);
+    --control-tree-title-weight: 600;
     --control-tree-subtitle-color: color-mix(
       in oklch,
       var(--muted-foreground) 54%,
@@ -2906,12 +2954,12 @@
   .control-tree-node[data-active="repo"][data-selection-tone="context"]:hover {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--accent) 8%,
-      var(--background) 92%
+      var(--accent) 14%,
+      var(--background) 86%
     );
-    --control-tree-node-border: transparent;
-    --control-tree-title-color: color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground) 12%);
-    --control-tree-title-weight: 572;
+    --control-tree-node-border: color-mix(in oklch, var(--ring) 48%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 98%, var(--muted-foreground) 2%);
+    --control-tree-title-weight: 604;
     --control-tree-subtitle-color: color-mix(
       in oklch,
       var(--muted-foreground) 64%,
@@ -2944,13 +2992,13 @@
   .control-tree-node[data-active="repo"]:has(.control-tree-primary:focus-visible) {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--accent) 2.6%,
-      var(--background) 97.4%
+      var(--accent) 12%,
+      var(--background) 88%
     );
-    --control-tree-node-border: color-mix(in oklch, var(--border) 36%, transparent);
-    --control-tree-node-ring: color-mix(in oklch, var(--ring) 26%, transparent);
-    --control-tree-title-color: color-mix(in oklch, var(--foreground) 95%, var(--muted-foreground) 5%);
-    --control-tree-title-weight: 578;
+    --control-tree-node-border: color-mix(in oklch, var(--ring) 48%, transparent);
+    --control-tree-node-ring: color-mix(in oklch, var(--ring) 32%, transparent);
+    --control-tree-title-color: color-mix(in oklch, var(--foreground) 98%, var(--muted-foreground) 2%);
+    --control-tree-title-weight: 604;
     --control-tree-subtitle-color: color-mix(
       in oklch,
       var(--muted-foreground) 52%,
@@ -2986,10 +3034,10 @@
     ) {
     --control-tree-node-bg: color-mix(
       in oklch,
-      var(--accent) 8%,
-      var(--background) 92%
+      var(--accent) 14%,
+      var(--background) 86%
     );
-    --control-tree-node-border: transparent;
+    --control-tree-node-border: color-mix(in oklch, var(--ring) 54%, transparent);
     --control-tree-title-color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);
     --control-tree-title-weight: 576;
     --control-tree-subtitle-color: color-mix(
@@ -3103,28 +3151,6 @@
     padding-block: 0.25rem;
     border-radius: 0.5rem;
     transition: background-color 100ms ease;
-  }
-
-  .control-tree-repository-group[data-expanded='true'][data-selected='true'] {
-    background: color-mix(in oklch, var(--accent) 6.5%, var(--background) 93.5%);
-  }
-
-  .control-tree-repository-group[data-expanded='true'][data-selected='true']
-    > div
-    > .control-tree-node[data-active='repo'] {
-    --control-tree-node-bg: transparent;
-  }
-
-  .control-tree-repository-group[data-expanded='true'][data-selected='true']
-    > div
-    > .control-tree-node[data-active='repo']:hover {
-    --control-tree-node-bg: color-mix(in oklch, var(--accent) 2%, transparent);
-  }
-
-  .control-tree-repository-group[data-expanded='true'][data-selected='true']
-    > div
-    > .control-tree-node[data-active='repo']:has(.control-tree-primary:focus-visible) {
-    --control-tree-node-bg: color-mix(in oklch, var(--accent) 2.5%, transparent);
   }
 
   .control-tree-node[data-active='repo']::before {

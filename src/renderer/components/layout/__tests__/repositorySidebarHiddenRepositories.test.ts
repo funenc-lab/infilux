@@ -359,7 +359,7 @@ describe('RepositorySidebar hidden repositories', () => {
         '/repo/4',
       ]);
       const showMoreButton = view.container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Show 3 more projects"]'
+        'button[aria-label="Load more projects"]'
       );
       expect(showMoreButton).not.toBeNull();
 
@@ -368,9 +368,7 @@ describe('RepositorySidebar hidden repositories', () => {
       });
 
       expect(view.container.querySelector('[title="/repo/1"]')).not.toBeNull();
-      expect(
-        view.container.querySelector('button[aria-label^="Show "][aria-label$=" more projects"]')
-      ).toBeNull();
+      expect(view.container.querySelector('button[aria-label="Load more projects"]')).toBeNull();
     } finally {
       view.unmount();
     }
@@ -410,7 +408,7 @@ describe('RepositorySidebar hidden repositories', () => {
       expect(visibleAlphaRows).toHaveLength(8);
       expect(view.container.textContent).not.toContain('Beta 9');
       expect(
-        view.container.querySelector('button[aria-label="Show 2 more projects"]')
+        view.container.querySelector('button[aria-label="Load more projects"]')
       ).not.toBeNull();
     } finally {
       view.unmount();
@@ -537,7 +535,7 @@ describe('RepositorySidebar hidden repositories', () => {
       });
 
       const showMoreButton = view.container.querySelector<HTMLButtonElement>(
-        'button[aria-label^="Show "][aria-label$=" more projects"]'
+        'button[aria-label="Load more projects"]'
       );
       expect(showMoreButton).not.toBeNull();
       await act(async () => {

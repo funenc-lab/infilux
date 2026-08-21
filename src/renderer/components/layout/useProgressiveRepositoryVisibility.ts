@@ -27,6 +27,7 @@ interface ProgressiveRepositoryVisibilityInput {
   selectedRepo: string | null;
   activeRepositoryPaths: readonly string[];
   searchActive: boolean;
+  initialInactiveLimit?: number;
   resetKey?: string;
 }
 
@@ -43,10 +44,13 @@ interface ProgressiveRepositoryState {
   retainedRepositoryPaths: string[];
 }
 
-function createInitialState(inventoryKey: string): ProgressiveRepositoryState {
+function createInitialState(
+  inventoryKey: string,
+  initialInactiveLimit: number
+): ProgressiveRepositoryState {
   return {
     inventoryKey,
-    inactiveLimit: INITIAL_INACTIVE_REPOSITORY_LIMIT,
+    inactiveLimit: initialInactiveLimit,
     retainedRepositoryPaths: [],
   };
 }
@@ -62,17 +66,22 @@ export function useProgressiveRepositoryVisibility({
   selectedRepo,
   activeRepositoryPaths,
   searchActive,
+  initialInactiveLimit = INITIAL_INACTIVE_REPOSITORY_LIMIT,
   resetKey = '',
 }: ProgressiveRepositoryVisibilityInput): ProgressiveRepositoryVisibilityResult {
+  const normalizedInitialInactiveLimit = Math.max(0, Math.floor(initialInactiveLimit));
   const inventoryKey = useMemo(
-    () => `${resetKey}\u0002${buildRepositoryInventoryKey(repositories)}`,
-    [repositories, resetKey]
+    () =>
+      `${resetKey}\u0002${normalizedInitialInactiveLimit}\u0002${buildRepositoryInventoryKey(repositories)}`,
+    [normalizedInitialInactiveLimit, repositories, resetKey]
   );
   const [progress, setProgress] = useState<ProgressiveRepositoryState>(() =>
-    createInitialState(inventoryKey)
+    createInitialState(inventoryKey, normalizedInitialInactiveLimit)
   );
   const effectiveProgress =
-    progress.inventoryKey === inventoryKey ? progress : createInitialState(inventoryKey);
+    progress.inventoryKey === inventoryKey
+      ? progress
+      : createInitialState(inventoryKey, normalizedInitialInactiveLimit);
   const visibility = useMemo(
     () =>
       resolveRepositoryVisibility({
@@ -96,14 +105,18 @@ export function useProgressiveRepositoryVisibility({
   useEffect(() => {
     if (searchActive) {
       setProgress((current) =>
-        current.inventoryKey === inventoryKey ? current : createInitialState(inventoryKey)
+        current.inventoryKey === inventoryKey
+          ? current
+          : createInitialState(inventoryKey, normalizedInitialInactiveLimit)
       );
       return;
     }
 
     setProgress((current) => {
       const base =
-        current.inventoryKey === inventoryKey ? current : createInitialState(inventoryKey);
+        current.inventoryKey === inventoryKey
+          ? current
+          : createInitialState(inventoryKey, normalizedInitialInactiveLimit);
       const retainedPaths = new Set(base.retainedRepositoryPaths.map(normalizePath));
       let changed = current.inventoryKey !== inventoryKey;
 
@@ -127,18 +140,26 @@ export function useProgressiveRepositoryVisibility({
         retainedRepositoryPaths: [...retainedPaths],
       };
     });
-  }, [activeRepositoryPaths, inventoryKey, searchActive, selectedRepo]);
+  }, [
+    activeRepositoryPaths,
+    inventoryKey,
+    normalizedInitialInactiveLimit,
+    searchActive,
+    selectedRepo,
+  ]);
 
   const showMore = useCallback(() => {
     setProgress((current) => {
       const base =
-        current.inventoryKey === inventoryKey ? current : createInitialState(inventoryKey);
+        current.inventoryKey === inventoryKey
+          ? current
+          : createInitialState(inventoryKey, normalizedInitialInactiveLimit);
       return {
         ...base,
         inactiveLimit: base.inactiveLimit + INACTIVE_REPOSITORY_BATCH_SIZE,
       };
     });
-  }, [inventoryKey]);
+  }, [inventoryKey, normalizedInitialInactiveLimit]);
 
   return {
     ...visibility,

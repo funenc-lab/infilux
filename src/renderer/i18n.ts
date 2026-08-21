@@ -162,10 +162,18 @@ const rendererZhTranslations: Record<string, string> = {
       '{{label}} \\u5fc5\\u987b\\u5c0f\\u4e8e {{limit}} MB \\u624d\\u80fd\\u7c98\\u8d34\\u5230 Agent \\u8f93\\u5165\\u6846\\u3002\\u5f53\\u524d\\u7c98\\u8d34\\u6587\\u4ef6\\u4e2d\\u6700\\u5927\\u7684\\u662f {{size}} MB\\u3002'
     ),
   'Tree sidebar actions': decodeEscapedUnicode('\\u6811\\u5f62\\u4fa7\\u680f\\u64cd\\u4f5c'),
+  'Recent projects': decodeEscapedUnicode('\\u6700\\u8fd1\\u9879\\u76ee'),
+  'Choose how many recent projects are initially shown in the tree sidebar': decodeEscapedUnicode(
+    '\\u9009\\u62e9\\u6811\\u5f62\\u4fa7\\u680f\\u4e2d\\u521d\\u59cb\\u663e\\u793a\\u7684\\u6700\\u8fd1\\u9879\\u76ee\\u6570\\u91cf'
+  ),
+  'Show recent projects': decodeEscapedUnicode('\\u5c55\\u5f00\\u6700\\u8fd1\\u9879\\u76ee'),
+  'Hide recent projects': decodeEscapedUnicode('\\u6536\\u8d77\\u6700\\u8fd1\\u9879\\u76ee'),
   'Show {{count}} more projects': decodeEscapedUnicode(
     '\\u518d\\u663e\\u793a {{count}} \\u4e2a\\u9879\\u76ee'
   ),
   'Show {{count}} more': decodeEscapedUnicode('\\u518d\\u663e\\u793a {{count}} \\u4e2a'),
+  'Load more projects': decodeEscapedUnicode('\\u52a0\\u8f7d\\u66f4\\u591a\\u9879\\u76ee'),
+  'Load more': decodeEscapedUnicode('\\u52a0\\u8f7d\\u66f4\\u591a'),
   '{{count}} remaining': decodeEscapedUnicode('\\u8fd8\\u5269 {{count}} \\u4e2a'),
   'Show all worktrees': decodeEscapedUnicode('\\u663e\\u793a\\u5168\\u90e8\\u5de5\\u4f5c\\u6811'),
   'Only show Agent worktrees': decodeEscapedUnicode(

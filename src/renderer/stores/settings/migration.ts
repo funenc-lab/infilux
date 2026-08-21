@@ -12,12 +12,14 @@ import type {
   AgentSessionDisplayMode,
   ColorPreset,
   CustomThemeDocument,
+  RecentProjectDisplayLimit,
   SettingsState,
   TerminalKeybinding,
   TerminalRenderer,
   ThemeTokenSet,
   XtermKeybindings,
 } from './types';
+import { RECENT_PROJECT_DISPLAY_LIMIT_OPTIONS } from './types';
 
 type LegacyTheme = SettingsState['theme'] | 'sync-terminal';
 type LegacyClaudeCodeIntegrationSettings = {
@@ -124,6 +126,16 @@ function sanitizeAgentSessionDisplayMode(
   fallback: AgentSessionDisplayMode
 ): AgentSessionDisplayMode {
   return value === 'canvas' || value === 'global-canvas' || value === 'tab' ? value : fallback;
+}
+
+function sanitizeRecentProjectDisplayLimit(
+  value: unknown,
+  fallback: RecentProjectDisplayLimit
+): RecentProjectDisplayLimit {
+  return typeof value === 'number' &&
+    RECENT_PROJECT_DISPLAY_LIMIT_OPTIONS.includes(value as RecentProjectDisplayLimit)
+    ? (value as RecentProjectDisplayLimit)
+    : fallback;
 }
 
 function sanitizeTerminalRenderer(value: unknown, fallback: TerminalRenderer): TerminalRenderer {
@@ -412,6 +424,10 @@ export function migrateSettings(
     persisted.agentSessionDisplayMode,
     currentState.agentSessionDisplayMode
   );
+  const recentProjectDisplayLimit = sanitizeRecentProjectDisplayLimit(
+    persisted.recentProjectDisplayLimit,
+    currentState.recentProjectDisplayLimit
+  );
 
   return {
     ...currentState,
@@ -421,6 +437,7 @@ export function migrateSettings(
     language: sanitizedLanguage,
     fontFamily: sanitizedFontFamily,
     agentSessionDisplayMode: sanitizedAgentSessionDisplayMode,
+    recentProjectDisplayLimit,
     colorPreset: sanitizedColorPreset,
     customAccentColor: sanitizedCustomAccentColor,
     customThemes: sanitizedCustomThemes,

@@ -30,10 +30,12 @@ let groupedSnapshot: GroupedSnapshot | null = null;
 
 function Harness({
   activePaths = [],
+  initialInactiveLimit,
   resetKey = '',
   searchActive = false,
 }: {
   activePaths?: string[];
+  initialInactiveLimit?: number;
   resetKey?: string;
   searchActive?: boolean;
 }) {
@@ -41,6 +43,7 @@ function Harness({
     repositories,
     selectedRepo: '/repo/0',
     activeRepositoryPaths: activePaths,
+    initialInactiveLimit,
     searchActive,
     resetKey,
   });
@@ -106,6 +109,35 @@ describe('useProgressiveRepositoryVisibility', () => {
       root.render(React.createElement(Harness, { resetKey: 'group-a' }));
     });
     expect(snapshot?.repositories).toHaveLength(9);
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it('uses a configured initial inactive limit while preserving selected and active projects', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        React.createElement(Harness, {
+          activePaths: ['/repo/1'],
+          initialInactiveLimit: 4,
+        })
+      );
+    });
+
+    expect(snapshot?.repositories).toHaveLength(6);
+    expect(snapshot?.hiddenCount).toBe(14);
+    expect(snapshot?.nextBatchSize).toBe(8);
+
+    await act(async () => {
+      snapshot?.showMore();
+    });
+
+    expect(snapshot?.repositories).toHaveLength(14);
 
     await act(async () => {
       root.unmount();

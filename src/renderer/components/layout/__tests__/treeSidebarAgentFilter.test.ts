@@ -500,7 +500,7 @@ describe('TreeSidebar agent filter', () => {
       expect(visibleAlphaRows).toHaveLength(8);
       expect(view.container.textContent).not.toContain('Beta 9');
       expect(
-        view.container.querySelector('button[aria-label="Show 2 more projects"]')
+        view.container.querySelector('button[aria-label="Load more projects"]')
       ).not.toBeNull();
     } finally {
       view.unmount();

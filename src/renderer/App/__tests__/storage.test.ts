@@ -125,6 +125,7 @@ describe('storage helpers', () => {
         [envKey('REPOSITORY_SETTINGS')]: '{invalid',
         [envKey('REPOSITORY_GROUPS')]: '{invalid',
         [envKey('GROUP_COLLAPSED_STATE')]: '{invalid',
+        [envKey('TREE_SIDEBAR_RECENT_COLLAPSED')]: 'invalid',
         [`${envKey('FILE_TREE_EXPANDED_PREFIX')}:/repo/current`]: '{invalid',
       },
     });
@@ -136,6 +137,7 @@ describe('storage helpers', () => {
     expect(env.getStoredRepositorySettings()).toEqual({});
     expect(env.getStoredGroups()).toEqual([]);
     expect(env.getStoredGroupCollapsedState()).toEqual({});
+    expect(env.getStoredTreeSidebarRecentCollapsed()).toBe(false);
     expect(env.loadFileTreeExpandedPaths('/repo/current')).toEqual(new Set());
   });
 
@@ -564,20 +566,23 @@ describe('storage helpers', () => {
     expect(persistedEnv.getStoredGroupCollapsedState()).toEqual({ 'group-9': true });
   });
 
-  it('loads and saves tree sidebar expanded repositories and temp workspace section state', async () => {
+  it('loads and saves tree sidebar expanded repositories and section states', async () => {
     const env = await loadStorageModule({
       initialStorage: {
         [envKey('TREE_SIDEBAR_EXPANDED_REPOS')]: JSON.stringify(['/Repo/A', '/Repo/B/']),
         [envKey('TREE_SIDEBAR_TEMP_EXPANDED')]: 'false',
+        [envKey('TREE_SIDEBAR_RECENT_COLLAPSED')]: 'true',
       },
       platform: 'MacIntel',
     });
 
     expect(env.getStoredTreeSidebarExpandedRepos()).toEqual(['/repo/a', '/repo/b']);
     expect(env.getStoredTreeSidebarTempExpanded()).toBe(false);
+    expect(env.getStoredTreeSidebarRecentCollapsed()).toBe(true);
 
     env.saveTreeSidebarExpandedRepos(['/Repo/C/', '/Repo/D']);
     env.saveTreeSidebarTempExpanded(true);
+    env.saveTreeSidebarRecentCollapsed(false);
 
     expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
       env.STORAGE_KEYS.TREE_SIDEBAR_EXPANDED_REPOS,
@@ -586,6 +591,10 @@ describe('storage helpers', () => {
     expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
       env.STORAGE_KEYS.TREE_SIDEBAR_TEMP_EXPANDED,
       'true'
+    );
+    expect(env.localStorageMock.setItem).toHaveBeenCalledWith(
+      env.STORAGE_KEYS.TREE_SIDEBAR_RECENT_COLLAPSED,
+      'false'
     );
   });
 
@@ -774,6 +783,7 @@ function envKey(key: keyof typeof import('../storage').STORAGE_KEYS): string {
     GROUP_COLLAPSED_STATE: 'enso-group-collapsed-state',
     TREE_SIDEBAR_EXPANDED_REPOS: 'enso-tree-sidebar-expanded-repos',
     TREE_SIDEBAR_TEMP_EXPANDED: 'enso-tree-sidebar-temp-expanded',
+    TREE_SIDEBAR_RECENT_COLLAPSED: 'enso-tree-sidebar-recent-collapsed',
     TODO_BOARDS: 'enso-todo-boards',
     FILE_TREE_EXPANDED_PREFIX: 'enso-file-tree-expanded',
     SC_REPO_LIST_EXPANDED: 'enso-sc-repo-list-expanded',

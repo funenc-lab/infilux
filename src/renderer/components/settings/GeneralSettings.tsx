@@ -73,6 +73,8 @@ import {
   type AgentSessionDisplayMode,
   type FileTreeDisplayMode,
   type LayoutMode,
+  RECENT_PROJECT_DISPLAY_LIMIT_OPTIONS,
+  type RecentProjectDisplayLimit,
   type RepositoryListDisplayMode,
   type TerminalRenderer,
   useSettingsStore,
@@ -237,6 +239,8 @@ export function GeneralSettings() {
     setAutoCreateSessionOnActivate,
     quickTerminal,
     setQuickTerminalEnabled,
+    recentProjectDisplayLimit,
+    setRecentProjectDisplayLimit,
     hideGroups,
     setHideGroups,
     hiddenOpenInApps,
@@ -1118,6 +1122,32 @@ export function GeneralSettings() {
             {t('Hide group management panel and show all repositories')}
           </p>
           <Switch checked={hideGroups} onCheckedChange={setHideGroups} />
+        </div>
+      </div>
+
+      <div className="settings-field-row settings-field-row-start">
+        <span className="mt-2 text-sm font-medium">{t('Recent projects')}</span>
+        <div className="space-y-1.5">
+          <Select
+            value={String(recentProjectDisplayLimit)}
+            onValueChange={(value) =>
+              setRecentProjectDisplayLimit(Number(value) as RecentProjectDisplayLimit)
+            }
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue>{recentProjectDisplayLimit}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {RECENT_PROJECT_DISPLAY_LIMIT_OPTIONS.map((limit) => (
+                <SelectItem key={limit} value={String(limit)}>
+                  {limit}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t('Choose how many recent projects are initially shown in the tree sidebar')}
+          </p>
         </div>
       </div>
 

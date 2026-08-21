@@ -66,19 +66,28 @@ vi.mock('@/App/storage', async () => {
     getStoredGroupCollapsedState: () => ({}),
     getStoredTreeSidebarExpandedRepos: () => ['/repo-a'],
     getStoredTreeSidebarTempExpanded: () => false,
+    getStoredTreeSidebarRecentCollapsed: () => recentProjectsCollapsed,
     getStoredRepositorySettings: () => ({}),
     saveGroupCollapsedState: vi.fn(),
     saveTreeSidebarExpandedRepos: vi.fn(),
     saveTreeSidebarTempExpanded: vi.fn(),
+    saveTreeSidebarRecentCollapsed: vi.fn(),
     saveRepositorySettings: vi.fn(),
     getRepositorySettings: vi.fn(() => ({ hidden: false })),
   };
 });
 
 vi.mock('@/stores/settings', () => ({
-  useSettingsStore: (selector: (state: { hideGroups: boolean; todoEnabled: boolean }) => unknown) =>
-    selector({ hideGroups: false, todoEnabled: true }),
+  useSettingsStore: (
+    selector: (state: {
+      hideGroups: boolean;
+      todoEnabled: boolean;
+      recentProjectDisplayLimit: number;
+    }) => unknown
+  ) => selector({ hideGroups: false, todoEnabled: true, recentProjectDisplayLimit: 4 }),
 }));
+
+let recentProjectsCollapsed = false;
 
 const agentSessionsState = {
   sessions: [],
@@ -207,6 +216,7 @@ describe('TreeSidebar render smoke', () => {
   }, 30000);
 
   beforeEach(() => {
+    recentProjectsCollapsed = false;
     agentSessionsState.sessions = [];
     agentSessionsState.activeIds = {};
     agentSessionsState.runtimeStates = {};
@@ -430,7 +440,7 @@ describe('TreeSidebar render smoke', () => {
 
     expect(markup).toContain('Project 0');
     expect(markup).toContain('Hidden Oldest Project');
-    expect(markup).toContain('aria-label="Show 4 more projects"');
+    expect(markup).toContain('aria-label="Load more projects"');
   });
 
   it('renders recent projects outside the grouped paginated project directory', () => {
@@ -502,6 +512,56 @@ describe('TreeSidebar render smoke', () => {
     expect(recentMarkup).not.toContain('Alpha</span>');
     expect(allProjectsMarkup).toContain('Alpha</span>');
     expect(allProjectsMarkup).toContain('Beta</span>');
-    expect(allProjectsMarkup).toContain('aria-label="Show 2 more projects"');
+    expect(recentMarkup).toContain('data-tree-section-level="primary"');
+    expect(allProjectsMarkup).toContain('data-tree-section-level="primary"');
+    expect(allProjectsMarkup).toContain('data-tree-section-level="secondary"');
+    expect(allProjectsMarkup).toContain('aria-label="Load more projects"');
+  });
+
+  it('keeps a selected repository row identifiable while the persisted recent section is collapsed', () => {
+    recentProjectsCollapsed = true;
+    const markup = renderToStaticMarkup(
+      React.createElement(TreeSidebar, {
+        repositories: [
+          {
+            id: 'repo-a',
+            name: 'Repo A',
+            path: '/repo-a',
+            lastAccessedAt: 10,
+          },
+        ],
+        selectedRepo: '/repo-a',
+        activeWorktree: null,
+        worktrees: [],
+        branches: [],
+        onSelectRepo: vi.fn(),
+        canLoadRepo: () => true,
+        onActivateRemoteRepo: vi.fn(),
+        onSelectWorktree: vi.fn(),
+        onAddRepository: vi.fn(),
+        onCreateWorktree: vi.fn(async () => {}),
+        onRemoveWorktree: vi.fn(),
+        onRefresh: vi.fn(),
+        groups: [],
+        activeGroupId: ALL_GROUP_ID,
+        onSwitchGroup: vi.fn(),
+        onCreateGroup: vi.fn(() => ({
+          id: 'group',
+          name: 'Group',
+          emoji: 'G',
+          color: '#000000',
+          order: 0,
+        })),
+        onUpdateGroup: vi.fn(),
+        onDeleteGroup: vi.fn(),
+      })
+    );
+
+    expect(markup).toContain('data-tree-section-kind="recent"');
+    expect(markup).toContain('aria-controls="tree-recent-projects"');
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain('id="tree-recent-projects"');
+    expect(markup).toContain('data-active="repo"');
+    expect(markup).not.toContain('Current context');
   });
 });

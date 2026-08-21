@@ -156,6 +156,19 @@ describe('settings store setters', () => {
     vi.restoreAllMocks();
   });
 
+  it('persists the selected initial recent project display limit', async () => {
+    const env = await loadSettingsStore();
+    const store = env.useSettingsStore.getState();
+
+    expect(store.recentProjectDisplayLimit).toBe(8);
+
+    store.setRecentProjectDisplayLimit(4);
+    expect(env.useSettingsStore.getState().recentProjectDisplayLimit).toBe(4);
+
+    store.setRecentProjectDisplayLimit(16);
+    expect(env.useSettingsStore.getState().recentProjectDisplayLimit).toBe(16);
+  });
+
   it('applies theme, terminal, proxy, logging, and web inspector side effects', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const env = await loadSettingsStore({

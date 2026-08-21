@@ -31,6 +31,7 @@ function createCurrentState(): SettingsState {
     floatingToolbarEnabled: false,
     worktreeCanvasTerminalMountLimit: 6,
     workspaceCanvasTerminalMountLimit: 12,
+    recentProjectDisplayLimit: 8,
     backgroundOpacity: 0.85,
     backgroundBlur: 0,
     backgroundBrightness: 1,
@@ -189,6 +190,28 @@ describe('migrateSettings', () => {
     const result = migrateSettings({}, createCurrentState());
 
     expect(result.projectConfigSchemes).toEqual([]);
+  });
+
+  it('accepts supported recent project limits and falls back for invalid persisted values', () => {
+    const currentState = createCurrentState();
+
+    expect(
+      migrateSettings(
+        {
+          recentProjectDisplayLimit: 12,
+        } as Partial<SettingsState>,
+        currentState
+      ).recentProjectDisplayLimit
+    ).toBe(12);
+
+    expect(
+      migrateSettings(
+        {
+          recentProjectDisplayLimit: 10,
+        } as unknown as Partial<SettingsState>,
+        currentState
+      ).recentProjectDisplayLimit
+    ).toBe(8);
   });
 
   it('clamps persisted background values, migrates url source path, and upgrades legacy canvas renderers', () => {

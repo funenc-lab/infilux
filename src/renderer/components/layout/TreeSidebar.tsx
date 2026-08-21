@@ -44,6 +44,7 @@ import {
   getStoredGroupCollapsedState,
   getStoredRepositorySettings,
   getStoredTreeSidebarExpandedRepos,
+  getStoredTreeSidebarRecentCollapsed,
   getStoredTreeSidebarTempExpanded,
   normalizePath,
   type RepositorySettings,
@@ -52,6 +53,7 @@ import {
   saveGroupCollapsedState,
   saveRepositorySettings,
   saveTreeSidebarExpandedRepos,
+  saveTreeSidebarRecentCollapsed,
   saveTreeSidebarTempExpanded,
 } from '@/App/storage';
 import { isOpenAgentSession } from '@/components/chat/agentSessionLiveness';
@@ -304,10 +306,17 @@ export function TreeSidebar({
   const { t, tNode } = useI18n();
   const hideGroups = useSettingsStore((s) => s.hideGroups);
   const todoEnabled = useSettingsStore((s) => s.todoEnabled);
+  const recentProjectDisplayLimit = useSettingsStore((s) => s.recentProjectDisplayLimit);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAgentWorktreesOnly, setShowAgentWorktreesOnly] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [repositoryScrollContainer, setRepositoryScrollContainer] = useState<HTMLDivElement | null>(
+    null
+  );
   const [tempExpanded, setTempExpanded] = useState(() => getStoredTreeSidebarTempExpanded());
+  const [recentProjectsCollapsed, setRecentProjectsCollapsed] = useState(() =>
+    getStoredTreeSidebarRecentCollapsed()
+  );
   const [expandedRepoList, setExpandedRepoList] = useState<string[]>(() =>
     getStoredTreeSidebarExpandedRepos()
   );
@@ -323,6 +332,14 @@ export function TreeSidebar({
     setCollapsedGroups((prev) => {
       const next = { ...prev, [groupId]: !prev[groupId] };
       saveGroupCollapsedState(next);
+      return next;
+    });
+  }, []);
+
+  const toggleRecentProjectsCollapsed = useCallback(() => {
+    setRecentProjectsCollapsed((previous) => {
+      const next = !previous;
+      saveTreeSidebarRecentCollapsed(next);
       return next;
     });
   }, []);
@@ -422,6 +439,7 @@ export function TreeSidebar({
     selectedRepo,
     activeRepositoryPaths,
     searchActive: repositorySearchActive,
+    initialInactiveLimit: recentProjectDisplayLimit,
     resetKey: `${searchQuery}\u0000${showAgentWorktreesOnly}`,
   });
   const scopedVisibility = useProgressiveRepositoryVisibility({
@@ -1908,6 +1926,7 @@ export function TreeSidebar({
 
       {/* Tree List */}
       <div
+        ref={setRepositoryScrollContainer}
         className="control-sidebar-scroll-region flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5"
         role="tree"
         aria-label={t('Projects')}
@@ -2070,22 +2089,58 @@ export function TreeSidebar({
         ) : showSections ? (
           <div>
             {recentProjects.length > 0 ? (
-              <section className="mb-2" data-tree-section-kind="recent" aria-label={t('Recent')}>
-                <div className="control-section-header" data-static="true">
+              <section
+                className="control-tree-section mb-2"
+                data-tree-section-kind="recent"
+                data-tree-section-level="primary"
+                aria-label={t('Recent')}
+              >
+                <button
+                  type="button"
+                  className="control-section-header select-none"
+                  onClick={toggleRecentProjectsCollapsed}
+                  aria-expanded={!recentProjectsCollapsed}
+                  aria-controls="tree-recent-projects"
+                  aria-label={
+                    recentProjectsCollapsed ? t('Show recent projects') : t('Hide recent projects')
+                  }
+                >
+                  <ChevronRight
+                    className={cn(
+                      'h-3 w-3 shrink-0 transition-transform duration-150',
+                      !recentProjectsCollapsed && 'rotate-90'
+                    )}
+                    aria-hidden="true"
+                  />
                   <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate text-left">{t('Recent')}</span>
                   <span className="control-section-count" aria-hidden="true">
                     {recentProjects.length}
                   </span>
-                </div>
-                <div className="control-tree-section-body">
-                  {recentProjects.map((repo) =>
-                    renderRepoItem(repo, repoIndexMap.get(repo.path) ?? -1)
-                  )}
-                </div>
+                </button>
+                {!recentProjectsCollapsed ? (
+                  <div id="tree-recent-projects">
+                    <div className="control-tree-section-body">
+                      {recentProjects.map((repo) =>
+                        renderRepoItem(repo, repoIndexMap.get(repo.path) ?? -1)
+                      )}
+                    </div>
+                    <RepositoryLoadMoreButton
+                      hiddenCount={recentVisibility.hiddenCount}
+                      nextBatchSize={recentVisibility.nextBatchSize}
+                      onShowMore={recentVisibility.showMore}
+                      scrollContainer={repositoryScrollContainer}
+                    />
+                  </div>
+                ) : null}
               </section>
             ) : null}
-            <section data-tree-section-kind="all-projects" aria-label={t('All repositories')}>
+            <section
+              className="control-tree-section"
+              data-tree-section-kind="all-projects"
+              data-tree-section-level="primary"
+              aria-label={t('All repositories')}
+            >
               <div className="control-section-header" data-static="true">
                 <FolderGit2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate text-left">{t('All repositories')}</span>
@@ -2098,7 +2153,7 @@ export function TreeSidebar({
                   const isGroupCollapsed = !!collapsedGroups[section.groupId];
                   const sectionContentId = `tree-section-${section.groupId}`;
                   return (
-                    <div key={section.groupId}>
+                    <div key={section.groupId} data-tree-section-level="secondary">
                       <button
                         type="button"
                         onClick={() => toggleGroupCollapsed(section.groupId)}
@@ -2133,6 +2188,7 @@ export function TreeSidebar({
                             hiddenCount={section.hiddenCount}
                             nextBatchSize={section.nextBatchSize}
                             onShowMore={() => groupedRepositoryPagination.showMore(section.groupId)}
+                            scrollContainer={repositoryScrollContainer}
                           />
                         </div>
                       ) : null}
@@ -2152,6 +2208,7 @@ export function TreeSidebar({
                 hiddenCount={scopedVisibility.hiddenCount}
                 nextBatchSize={scopedVisibility.nextBatchSize}
                 onShowMore={scopedVisibility.showMore}
+                scrollContainer={repositoryScrollContainer}
               />
             ) : null}
           </div>

@@ -133,6 +133,40 @@ describe('sidebar design policy', () => {
     );
   });
 
+  it('confines primary visual emphasis to headers and keeps secondary groups full-width', () => {
+    expect(globalsSource).toContain(
+      '.control-tree-section[data-tree-section-level="primary"] > .control-section-header {'
+    );
+    expect(globalsSource).toMatch(
+      /\.control-tree-section\[data-tree-section-level="primary"\] > \.control-section-header\s*\{[^}]*background:/s
+    );
+    expect(globalsSource).not.toMatch(
+      /\.control-tree-section\[data-tree-section-level="primary"\]\s*\{[^}]*\b(background|border|padding):/s
+    );
+    expect(globalsSource).toContain(
+      '.control-tree-section [data-tree-section-level="secondary"] {'
+    );
+    expect(globalsSource).toContain('padding-inline-start: 0;');
+    expect(globalsSource).not.toMatch(
+      /\.control-tree-section \[data-tree-section-level="secondary"\] > \.control-section-header\s*\{[^}]*background:/s
+    );
+    expect(globalsSource).not.toContain(
+      '.control-tree-section [data-tree-section-level="secondary"] {\n    margin-left:'
+    );
+  });
+
+  it('keeps selected repository identity on the project row without an expanded parent background', () => {
+    expect(globalsSource).toContain(
+      '.control-tree-node[data-active="repo"] {\n    --control-tree-node-bg: color-mix(\n      in oklch,\n      var(--accent) 10%'
+    );
+    expect(globalsSource).toContain(
+      '--control-tree-node-border: color-mix(in oklch, var(--ring) 36%, transparent);'
+    );
+    expect(globalsSource).not.toContain(
+      ".control-tree-repository-group[data-expanded='true'][data-selected='true'] {"
+    );
+  });
+
   it('keeps git diff polling available for loaded worktrees instead of activity-only rows', () => {
     expect(treeSidebarSource).toContain('useRegisterWorktreeDiffStatsScope({');
     expect(treeSidebarSource).toContain('livePaths: liveDiffStatPaths');
@@ -564,12 +598,12 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('--control-tree-title-weight: 580;');
     expect(globalsSource).toContain('.control-tree-node[data-active="repo"] {');
     expect(globalsSource).toContain('var(--accent) 2.4%');
-    expect(globalsSource).toContain('--control-tree-title-weight: 582;');
+    expect(globalsSource).toContain('--control-tree-title-weight: 596;');
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="repo"][data-selection-tone="context"] {'
     );
-    expect(globalsSource).toContain('var(--accent) 6.5%');
-    expect(globalsSource).toContain('--control-tree-title-weight: 568;');
+    expect(globalsSource).toContain('var(--accent) 10%');
+    expect(globalsSource).toContain('--control-tree-title-weight: 600;');
     expect(globalsSource).toContain('.control-tree-node[data-active="worktree"] {');
     expect(globalsSource).toContain('var(--accent) 12%');
     expect(globalsSource).toContain('--control-tree-title-weight: 608;');
@@ -584,18 +618,15 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('color: var(--control-tree-title-color);');
   });
 
-  it('uses one continuous context surface for an expanded selected repository', () => {
+  it('keeps expanded repository selection local to the project row', () => {
     expect(treeSidebarSource).toContain('className="control-tree-repository-group relative"');
     expect(treeSidebarSource).toContain("data-expanded={isExpanded ? 'true' : 'false'}");
     expect(treeSidebarSource).toContain("data-selected={isSelected ? 'true' : 'false'}");
     expect(globalsSource).toMatch(
       /\.control-tree-repository-group\s*\{[^}]*margin-inline:\s*0\.25rem;[^}]*padding-block:\s*0\.25rem;/s
     );
-    expect(globalsSource).toContain(
+    expect(globalsSource).not.toContain(
       ".control-tree-repository-group[data-expanded='true'][data-selected='true'] {"
-    );
-    expect(globalsSource).toContain(
-      "> .control-tree-node[data-active='repo'] {\n    --control-tree-node-bg: transparent;"
     );
   });
 
@@ -649,10 +680,10 @@ describe('sidebar design policy', () => {
 
   it('keeps title and icon emphasis on a continuous ramp from idle to active', () => {
     expect(globalsSource).toContain(
-      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);'
+      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 96%, var(--muted-foreground) 4%);'
     );
     expect(globalsSource).toContain(
-      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 86%, var(--muted-foreground) 14%);'
+      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 97%, var(--muted-foreground) 3%);'
     );
     expect(globalsSource).toContain(
       '--control-tree-title-color: color-mix(in oklch, var(--foreground) 98%, var(--muted-foreground) 2%);'

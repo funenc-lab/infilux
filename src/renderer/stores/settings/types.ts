@@ -83,6 +83,9 @@ export type FileTreeDisplayMode = 'legacy' | 'current';
 
 export type RepositoryListDisplayMode = 'tabs' | 'list';
 
+export const RECENT_PROJECT_DISPLAY_LIMIT_OPTIONS = [4, 8, 12, 16] as const;
+export type RecentProjectDisplayLimit = (typeof RECENT_PROJECT_DISPLAY_LIMIT_OPTIONS)[number];
+
 export type SettingsDisplayMode = 'tab' | 'draggable-modal';
 
 export type AgentSessionDisplayMode = 'tab' | 'canvas' | 'global-canvas';
@@ -378,6 +381,7 @@ export interface SettingsState {
   layoutMode: LayoutMode;
   fileTreeDisplayMode: FileTreeDisplayMode;
   repositoryListDisplayMode: RepositoryListDisplayMode;
+  recentProjectDisplayLimit: RecentProjectDisplayLimit;
   floatingSidebarEnabled: boolean;
   floatingToolbarEnabled: boolean;
   agentSessionDisplayMode: AgentSessionDisplayMode;
@@ -515,6 +519,7 @@ export interface SettingsState {
   setLayoutMode: (mode: LayoutMode) => void;
   setFileTreeDisplayMode: (mode: FileTreeDisplayMode) => void;
   setRepositoryListDisplayMode: (mode: RepositoryListDisplayMode) => void;
+  setRecentProjectDisplayLimit: (limit: RecentProjectDisplayLimit) => void;
   setFloatingSidebarEnabled: (enabled: boolean) => void;
   setFloatingToolbarEnabled: (enabled: boolean) => void;
   setAgentSessionDisplayMode: (mode: AgentSessionDisplayMode) => void;
