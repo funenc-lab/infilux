@@ -64,6 +64,10 @@ describe('runtime performance diagnostics', () => {
               pendingBatchCount: 2,
               pendingCharCount: 1024,
               resyncSessionCount: 1,
+              deliveredBatchCount: 7,
+              deliveredCharCount: 4096,
+              resyncCount: 2,
+              maxPendingCharCount: 2048,
             },
             transcript: { pendingAppendBytes: 128 },
             sessionIds: ['secret-session-id'],
@@ -98,6 +102,10 @@ describe('runtime performance diagnostics', () => {
         pendingOutputBatches: 2,
         pendingOutputChars: 1024,
         resyncSessions: 1,
+        deliveredOutputBatches: 7,
+        deliveredOutputChars: 4096,
+        outputResyncCount: 2,
+        maxPendingOutputChars: 2048,
         transcriptPendingAppendBytes: 128,
         outputSuspendedSessions: 1,
       },
@@ -131,6 +139,9 @@ describe('runtime performance diagnostics', () => {
         longTaskCount: 2,
         longTaskDurationMs: 80,
         pendingOutputChars: 10,
+        deliveredOutputChars: 1024,
+        outputResyncCount: 1,
+        maxPendingOutputChars: 10,
         listRecoverableCalls: 1,
       }),
       createSample({
@@ -141,6 +152,9 @@ describe('runtime performance diagnostics', () => {
         longTaskCount: 3,
         longTaskDurationMs: 130,
         pendingOutputChars: 20,
+        deliveredOutputChars: 4096,
+        outputResyncCount: 3,
+        maxPendingOutputChars: 20,
         listRecoverableCalls: 4,
       }),
     ];
@@ -161,6 +175,9 @@ describe('runtime performance diagnostics', () => {
       },
       queueCounts: {
         pendingOutputChars: { current: 20, max: 20 },
+        deliveredOutputChars: { first: 1024, current: 4096, delta: 3072 },
+        outputResyncCount: { first: 1, current: 3, delta: 2 },
+        maxPendingOutputChars: { current: 20, max: 20 },
       },
       ipcCounts: {
         total: { first: 1, current: 4, delta: 3 },
@@ -179,6 +196,9 @@ function createSample(overrides: {
   longTaskCount: number;
   longTaskDurationMs: number;
   pendingOutputChars: number;
+  deliveredOutputChars: number;
+  outputResyncCount: number;
+  maxPendingOutputChars: number;
   listRecoverableCalls: number;
 }): RuntimePerformanceSample {
   return {
@@ -210,6 +230,10 @@ function createSample(overrides: {
         pendingOutputBatches: 1,
         pendingOutputChars: overrides.pendingOutputChars,
         resyncSessions: 0,
+        deliveredOutputBatches: 0,
+        deliveredOutputChars: overrides.deliveredOutputChars,
+        outputResyncCount: overrides.outputResyncCount,
+        maxPendingOutputChars: overrides.maxPendingOutputChars,
         transcriptPendingAppendBytes: 0,
         outputSuspendedSessions: 0,
       },

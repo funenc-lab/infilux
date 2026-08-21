@@ -55,7 +55,7 @@ const SESSION_OUTPUT_BATCH_DELAY_MS = 16;
 const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
 const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;
 const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;
-const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;
+const JSON_LINE_MAX_CHARS = 32 * 1024 * 1024;
 const UNTRACKED_DIFF_READ_CHUNK_SIZE = 256 * 1024;
 const UNTRACKED_BINARY_INSPECTION_SIZE = 8000;
 const UNTRACKED_FILE_OPEN_FLAGS = process.platform === 'win32'
@@ -3425,11 +3425,6 @@ async function attachSession(sessionId) {
 
   if (session.streamState === 'buffering') {
     session.streamState = 'attaching';
-    result.__postReply = {
-      type: 'activate-session',
-      sessionId,
-      replayLength: replay.length,
-    };
   }
 
   return result;
@@ -3449,14 +3444,23 @@ async function resumeSession(sessionId) {
 
   if (session.attachCount > 0 && session.streamState === 'buffering') {
     session.streamState = 'attaching';
-    result.__postReply = {
-      type: 'activate-session',
-      sessionId,
-      replayLength: replay.length,
-    };
   }
 
   return result;
+}
+
+function activateSession(params = {}) {
+  const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
+  const session = state.sessions.get(sessionId);
+  if (!session) {
+    throw new Error('Remote session does not exist: ' + sessionId);
+  }
+
+  const replayLength = Number.isSafeInteger(params.replayLength)
+    ? Math.max(0, Math.min(params.replayLength, session.replay.length))
+    : session.replay.length;
+  activateSessionAfterAttach(sessionId, replayLength);
+  return { success: true };
 }
 
 async function detachSession(sessionId) {
@@ -3625,24 +3629,7 @@ async function dispatchRequest(stream, message, authState) {
   }
 
   Promise.resolve(handler(message.params || {}))
-    .then((rawResult) => {
-      let result = rawResult;
-      let postReply = null;
-
-      if (result && typeof result === 'object' && result.__postReply) {
-        postReply = result.__postReply;
-        result = { ...result };
-        delete result.__postReply;
-      }
-
-      reply(stream, message.id, result);
-
-      if (postReply?.type === 'activate-session') {
-        setTimeout(() => {
-          activateSessionAfterAttach(postReply.sessionId, postReply.replayLength);
-        }, 0);
-      }
-    })
+    .then((result) => reply(stream, message.id, result))
     .catch((error) => replyError(stream, message.id, error));
 }
 
@@ -3997,6 +3984,8 @@ const handlers = {
   'session:createAndAttach': ({ options }) => createAndAttachSession(options),
   'session:attach': ({ sessionId }) => attachSession(sessionId),
   'session:resume': ({ sessionId }) => resumeSession(sessionId),
+  'session:activate': ({ sessionId, replayLength }) =>
+    activateSession({ sessionId, replayLength }),
   'session:detach': ({ sessionId }) => detachSession(sessionId),
   'session:kill': ({ sessionId }) => killSession(sessionId),
   'session:write': ({ sessionId, data }) => writeSession(sessionId, data),

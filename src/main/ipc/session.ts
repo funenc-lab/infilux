@@ -300,6 +300,13 @@ export function registerSessionHandlers(): void {
     return sessionManager.getTranscriptPage(normalizeTranscriptPageRequest(request));
   });
 
+  ipcMain.handle(IPC_CHANNELS.SESSION_ACTIVATE_OUTPUT, async (event, sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId.trim()) {
+      throw new Error('Invalid session output activation request');
+    }
+    await sessionManager.activateOutput(resolveSessionTarget(event.sender), sessionId);
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.SESSION_ACKNOWLEDGE_OUTPUT_RESYNC,
     async (event, sessionId: unknown) => {

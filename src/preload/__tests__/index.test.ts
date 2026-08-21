@@ -1124,18 +1124,21 @@ describe('preload bridge', () => {
         register: (callback: (value: unknown) => void) => api.session.onData(callback as never),
         emitted: [{ sessionId: 'session-1', data: 'hello' }],
         expected: [{ sessionId: 'session-1', data: 'hello' }],
+        keepsIpcHandler: true,
       },
       {
         channel: IPC_CHANNELS.SESSION_EXIT,
         register: (callback: (value: unknown) => void) => api.session.onExit(callback as never),
         emitted: [{ sessionId: 'session-1', exitCode: 0 }],
         expected: [{ sessionId: 'session-1', exitCode: 0 }],
+        keepsIpcHandler: true,
       },
       {
         channel: IPC_CHANNELS.SESSION_STATE,
         register: (callback: (value: unknown) => void) => api.session.onState(callback as never),
         emitted: [{ sessionId: 'session-1', active: true }],
         expected: [{ sessionId: 'session-1', active: true }],
+        keepsIpcHandler: true,
       },
       {
         channel: IPC_CHANNELS.APP_UPDATE_AVAILABLE,
@@ -1297,8 +1300,15 @@ describe('preload bridge', () => {
 
       preloadTestDoubles.emit(testCase.channel, {}, ...testCase.emitted);
       expect(received).toEqual([testCase.expected]);
+      const offCallCount = preloadTestDoubles.off.mock.calls.length;
       unsubscribe();
-      expect(preloadTestDoubles.off).toHaveBeenCalledWith(testCase.channel, expect.any(Function));
+      if (testCase.keepsIpcHandler) {
+        preloadTestDoubles.emit(testCase.channel, {}, ...testCase.emitted);
+        expect(received).toEqual([testCase.expected]);
+        expect(preloadTestDoubles.off).toHaveBeenCalledTimes(offCallCount);
+      } else {
+        expect(preloadTestDoubles.off).toHaveBeenCalledWith(testCase.channel, expect.any(Function));
+      }
     }
 
     const menuActions: string[] = [];

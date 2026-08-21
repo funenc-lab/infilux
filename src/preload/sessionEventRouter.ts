@@ -23,6 +23,17 @@ type SessionEventHandlers = {
   onState?: SessionEventCallback<'state'>;
 };
 
+type PendingSessionEvent =
+  | { key: 'data'; payload: SessionDataEvent }
+  | { key: 'resync'; payload: SessionOutputResyncEvent }
+  | { key: 'exit'; payload: SessionExitEvent }
+  | { key: 'state'; payload: SessionStateEvent };
+
+const MAX_PENDING_SESSION_EVENTS_PER_SESSION = 256;
+const MAX_PENDING_SESSION_COUNT = 32;
+const MAX_PENDING_SESSION_OUTPUT_CHARS = 4 * 1024 * 1024;
+const MAX_PENDING_OUTPUT_CHARS = 8 * 1024 * 1024;
+
 type IpcRendererLike = {
   on: (channel: string, listener: (_event: unknown, payload: unknown) => void) => void;
   off: (channel: string, listener: (_event: unknown, payload: unknown) => void) => void;
@@ -42,16 +53,6 @@ function createBucket<TKey extends SessionEventKey>(channel: string): SessionEve
     globalListeners: new Set(),
     sessionListeners: new Map(),
   };
-}
-
-function countBucketListeners<TKey extends SessionEventKey>(
-  bucket: SessionEventBucket<TKey>
-): number {
-  let count = bucket.globalListeners.size;
-  for (const listeners of bucket.sessionListeners.values()) {
-    count += listeners.size;
-  }
-  return count;
 }
 
 function addSessionListener<TKey extends SessionEventKey>(
@@ -86,6 +87,86 @@ export function createSessionEventRouter(ipcRenderer: IpcRendererLike) {
     exit: createBucket<'exit'>(IPC_CHANNELS.SESSION_EXIT),
     state: createBucket<'state'>(IPC_CHANNELS.SESSION_STATE),
   };
+  const pendingEventsBySessionId = new Map<
+    string,
+    {
+      events: PendingSessionEvent[];
+      outputChars: number;
+    }
+  >();
+  const pendingDeliverySessionIds = new Set<string>();
+  let pendingOutputChars = 0;
+
+  const storePendingSessionEvent = <TKey extends SessionEventKey>(
+    key: TKey,
+    payload: SessionEventMap[TKey]
+  ) => {
+    const existingPending = pendingEventsBySessionId.get(payload.sessionId);
+    const pending = existingPending ?? {
+      events: [],
+      outputChars: 0,
+    };
+    const outputChars =
+      key === 'data'
+        ? (payload as SessionDataEvent).data.length
+        : key === 'resync'
+          ? (payload as SessionOutputResyncEvent).replay.length
+          : 0;
+    if (
+      (!existingPending && pendingEventsBySessionId.size >= MAX_PENDING_SESSION_COUNT) ||
+      pending.events.length >= MAX_PENDING_SESSION_EVENTS_PER_SESSION ||
+      pending.outputChars + outputChars > MAX_PENDING_SESSION_OUTPUT_CHARS ||
+      pendingOutputChars + outputChars > MAX_PENDING_OUTPUT_CHARS
+    ) {
+      console.warn(
+        '[preload] Dropping unclaimed session events after the bounded startup buffer filled',
+        {
+          sessionId: payload.sessionId,
+        }
+      );
+      return;
+    }
+
+    pending.events.push({ key, payload } as PendingSessionEvent);
+    pending.outputChars += outputChars;
+    pendingOutputChars += outputChars;
+    pendingEventsBySessionId.set(payload.sessionId, pending);
+  };
+
+  const flushPendingSessionEvents = (sessionId: string) => {
+    pendingDeliverySessionIds.delete(sessionId);
+    const pending = pendingEventsBySessionId.get(sessionId);
+    if (!pending) {
+      return;
+    }
+
+    const hasSessionListener = pending.events.some(
+      (event) => (buckets[event.key].sessionListeners.get(sessionId)?.size ?? 0) > 0
+    );
+    if (!hasSessionListener) {
+      return;
+    }
+
+    pendingEventsBySessionId.delete(sessionId);
+    pendingOutputChars -= pending.outputChars;
+    for (const event of pending.events) {
+      const listeners = buckets[event.key].sessionListeners.get(sessionId);
+      if (!listeners) {
+        continue;
+      }
+      for (const listener of listeners) {
+        listener(event.payload as never);
+      }
+    }
+  };
+
+  const schedulePendingSessionEventFlush = (sessionId: string) => {
+    if (!pendingEventsBySessionId.has(sessionId) || pendingDeliverySessionIds.has(sessionId)) {
+      return;
+    }
+    pendingDeliverySessionIds.add(sessionId);
+    queueMicrotask(() => flushPendingSessionEvents(sessionId));
+  };
 
   const ensureBucketHandler = <TKey extends SessionEventKey>(key: TKey) => {
     const bucket = buckets[key];
@@ -99,6 +180,9 @@ export function createSessionEventRouter(ipcRenderer: IpcRendererLike) {
       }
       const sessionListeners = bucket.sessionListeners.get(payload.sessionId);
       if (!sessionListeners) {
+        if (bucket.globalListeners.size === 0) {
+          storePendingSessionEvent(key, payload);
+        }
         return;
       }
       for (const listener of sessionListeners) {
@@ -108,16 +192,6 @@ export function createSessionEventRouter(ipcRenderer: IpcRendererLike) {
 
     bucket.handler = handler;
     ipcRenderer.on(bucket.channel, handler as (_event: unknown, payload: unknown) => void);
-  };
-
-  const releaseBucketHandler = <TKey extends SessionEventKey>(key: TKey) => {
-    const bucket = buckets[key];
-    if (!bucket.handler || countBucketListeners(bucket) > 0) {
-      return;
-    }
-
-    ipcRenderer.off(bucket.channel, bucket.handler as (_event: unknown, payload: unknown) => void);
-    bucket.handler = null;
   };
 
   const subscribeGlobal = <TKey extends SessionEventKey>(
@@ -130,7 +204,6 @@ export function createSessionEventRouter(ipcRenderer: IpcRendererLike) {
 
     return () => {
       bucket.globalListeners.delete(callback);
-      releaseBucketHandler(key);
     };
   };
 
@@ -142,12 +215,16 @@ export function createSessionEventRouter(ipcRenderer: IpcRendererLike) {
     const bucket = buckets[key];
     addSessionListener(bucket, sessionId, callback);
     ensureBucketHandler(key);
+    schedulePendingSessionEventFlush(sessionId);
 
     return () => {
       removeSessionListener(bucket, sessionId, callback);
-      releaseBucketHandler(key);
     };
   };
+
+  for (const key of Object.keys(buckets) as SessionEventKey[]) {
+    ensureBucketHandler(key);
+  }
 
   return {
     onData: (callback: SessionEventCallback<'data'>) => subscribeGlobal('data', callback),

@@ -66,7 +66,7 @@ describe('sessionEventRouter', () => {
     cleanupBeta();
     cleanupAny();
 
-    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_DATA)).toBe(0);
+    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_DATA)).toBe(1);
   });
 
   it('supports grouped session subscriptions across data, resync, exit, and state', () => {
@@ -108,9 +108,69 @@ describe('sessionEventRouter', () => {
 
     cleanup();
 
-    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_DATA)).toBe(0);
-    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_OUTPUT_RESYNC)).toBe(0);
-    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_EXIT)).toBe(0);
-    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_STATE)).toBe(0);
+    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_DATA)).toBe(1);
+    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_OUTPUT_RESYNC)).toBe(1);
+    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_EXIT)).toBe(1);
+    expect(ipcRenderer.listenerCount(IPC_CHANNELS.SESSION_STATE)).toBe(1);
+  });
+
+  it('replays early session events after the first matching subscription is registered', async () => {
+    const ipcRenderer = createIpcRendererMock();
+    const router = createSessionEventRouter(ipcRenderer);
+    const onData = vi.fn();
+    const onExit = vi.fn();
+
+    ipcRenderer.emit(IPC_CHANNELS.SESSION_DATA, {
+      sessionId: 'remote-agent',
+      data: 'early output',
+    } satisfies SessionDataEvent);
+    ipcRenderer.emit(IPC_CHANNELS.SESSION_EXIT, {
+      sessionId: 'remote-agent',
+      exitCode: 0,
+    });
+
+    const cleanup = router.subscribe('remote-agent', { onData, onExit });
+    expect(onData).not.toHaveBeenCalled();
+    expect(onExit).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+
+    expect(onData).toHaveBeenCalledWith({
+      sessionId: 'remote-agent',
+      data: 'early output',
+    });
+    expect(onExit).toHaveBeenCalledWith({
+      sessionId: 'remote-agent',
+      exitCode: 0,
+    });
+    cleanup();
+  });
+
+  it('bounds pending startup events across abandoned session ids', async () => {
+    const ipcRenderer = createIpcRendererMock();
+    const router = createSessionEventRouter(ipcRenderer);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      for (let index = 0; index <= 32; index += 1) {
+        ipcRenderer.emit(IPC_CHANNELS.SESSION_DATA, {
+          sessionId: `abandoned-${index}`,
+          data: 'output',
+        } satisfies SessionDataEvent);
+      }
+
+      const onData = vi.fn();
+      const cleanup = router.onDataForSession('abandoned-32', onData);
+      await Promise.resolve();
+
+      expect(onData).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        '[preload] Dropping unclaimed session events after the bounded startup buffer filled',
+        { sessionId: 'abandoned-32' }
+      );
+      cleanup();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

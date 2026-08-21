@@ -24,7 +24,7 @@ const DAEMON_INFO_FILENAME = 'local-supervisor-daemon.json';
 		const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
 		const SESSION_OUTPUT_CLIENT_QUEUE_MAX_CHARS = 512 * 1024;
 		const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;
-		const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;
+		const JSON_LINE_MAX_CHARS = 32 * 1024 * 1024;
 
 let cachedNodePty = undefined;
 let cachedNodePtyError = null;
@@ -557,6 +557,19 @@ async function attachSession(params = {}) {
   };
 }
 
+async function getSessionSnapshot(params = {}) {
+  const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
+  const session = state.sessions.get(sessionId);
+  if (!session) {
+    throw new Error('Session not found: ' + sessionId);
+  }
+
+  return {
+    session: createDescriptor(session),
+    replay: session.replay,
+  };
+}
+
 async function detachSession(params = {}) {
   const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
   const session = state.sessions.get(sessionId);
@@ -656,6 +669,7 @@ const handlers = {
   'daemon:ping': () => pingDaemon(),
   'session:create': (params) => createSession(params),
   'session:attach': (params) => attachSession(params),
+  'session:snapshot': (params) => getSessionSnapshot(params),
   'session:detach': (params) => detachSession(params),
   'session:kill': (params) => killSession(params),
   'session:write': (params) => writeSession(params),

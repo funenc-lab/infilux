@@ -1032,7 +1032,7 @@ export function useXterm({
       }
 
       let restoredOutput = replay;
-      if (kind === 'agent') {
+      if (kind === 'agent' && !restoredOutput) {
         try {
           const page = await window.electronAPI.session.getTranscriptPage({
             sessionId,
@@ -2068,6 +2068,10 @@ export function useXterm({
             return;
           }
           onDataRef.current?.(initialReplay);
+        }
+        await window.electronAPI.session.activateOutput(session.sessionId);
+        if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
+          return;
         }
         setIsLoading(false);
 

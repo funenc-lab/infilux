@@ -170,6 +170,8 @@ const sessionTestDoubles = vi.hoisted(() => {
   const supervisorResizeSession = vi.fn();
   const supervisorGetSessionActivity = vi.fn();
   const supervisorHasSession = vi.fn();
+  const supervisorGetSessionSnapshot = vi.fn();
+  const supervisorRestoreSubscription = vi.fn();
   const supervisorOnData = vi.fn();
   const supervisorOnExit = vi.fn();
   const supervisorOnOutputResync = vi.fn();
@@ -259,6 +261,8 @@ const sessionTestDoubles = vi.hoisted(() => {
     supervisorResizeSession,
     supervisorGetSessionActivity,
     supervisorHasSession,
+    supervisorGetSessionSnapshot,
+    supervisorRestoreSubscription,
     supervisorOnData,
     supervisorOnExit,
     supervisorOnOutputResync,
@@ -310,6 +314,8 @@ vi.mock('../LocalSupervisorRuntime', () => ({
     resizeSession: sessionTestDoubles.supervisorResizeSession,
     getSessionActivity: sessionTestDoubles.supervisorGetSessionActivity,
     hasSession: sessionTestDoubles.supervisorHasSession,
+    getSessionSnapshot: sessionTestDoubles.supervisorGetSessionSnapshot,
+    restoreSubscription: sessionTestDoubles.supervisorRestoreSubscription,
     onData: sessionTestDoubles.supervisorOnData,
     onExit: sessionTestDoubles.supervisorOnExit,
     onOutputResync: sessionTestDoubles.supervisorOnOutputResync,
@@ -475,6 +481,20 @@ describe('SessionManager', () => {
     sessionTestDoubles.supervisorGetSessionActivity.mockResolvedValue(false);
     sessionTestDoubles.supervisorHasSession.mockReset();
     sessionTestDoubles.supervisorHasSession.mockResolvedValue(true);
+    sessionTestDoubles.supervisorGetSessionSnapshot.mockReset();
+    sessionTestDoubles.supervisorGetSessionSnapshot.mockResolvedValue({
+      session: {
+        sessionId: 'supervisor-created',
+        backend: 'local',
+        kind: 'agent',
+        cwd: 'C:/repo',
+        persistOnDisconnect: true,
+        createdAt: 101,
+      },
+      replay: 'supervisor replay after reconnect',
+    });
+    sessionTestDoubles.supervisorRestoreSubscription.mockReset();
+    sessionTestDoubles.supervisorRestoreSubscription.mockResolvedValue(undefined);
     sessionTestDoubles.supervisorOnData.mockReset();
     sessionTestDoubles.supervisorOnData.mockReturnValue(() => {});
     sessionTestDoubles.supervisorOnExit.mockReset();
@@ -1624,6 +1644,72 @@ describe('SessionManager', () => {
     expect(buildDiagnosticsSnapshot()).toMatchObject({ outputSuspendedSessionCount: 0 });
   });
 
+  it('refreshes a replay snapshot when output arrives before the renderer acknowledges a resync', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-output-resync' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    manager.setOutputDelivery(1, sessionId, false);
+    pty.emitData(sessionId, 'hidden output');
+    manager.setOutputDelivery(1, sessionId, true);
+    pty.emitData(sessionId, ' while restoring');
+    manager.acknowledgeOutputResync(1, sessionId);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_OUTPUT_RESYNC, { sessionId, replay: 'hidden output' }],
+      [IPC_CHANNELS.SESSION_OUTPUT_RESYNC, { sessionId, replay: 'hidden output while restoring' }],
+    ]);
+  });
+
+  it('sends hidden agent output as a final replay before its exit event', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-hidden-exit', kind: 'agent' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    manager.setOutputDelivery(1, sessionId, false);
+    pty.emitData(sessionId, 'final hidden output');
+    pty.emitExit(sessionId, 0);
+    await flushAsyncWork();
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_OUTPUT_RESYNC, { sessionId, replay: 'final hidden output' }],
+      [IPC_CHANNELS.SESSION_EXIT, { sessionId, exitCode: 0, signal: undefined }],
+    ]);
+  });
+
+  it('sends hidden agent output as a final replay before explicit termination', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-hidden-kill', kind: 'agent' });
+    const sessionId = opened.session.sessionId;
+    const pty = sessionTestDoubles.ptyInstances[0];
+
+    await manager.attach(1, { sessionId });
+    await vi.runAllTimersAsync();
+    sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+
+    manager.setOutputDelivery(1, sessionId, false);
+    pty.emitData(sessionId, 'final hidden output');
+    await manager.kill(sessionId);
+
+    expect(getWindowSendCalls(1)).toEqual([
+      [IPC_CHANNELS.SESSION_OUTPUT_RESYNC, { sessionId, replay: 'final hidden output' }],
+      [IPC_CHANNELS.SESSION_EXIT, { sessionId, exitCode: 0 }],
+    ]);
+  });
+
   it('splits an oversized local output chunk into bounded renderer payloads', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -2063,6 +2149,41 @@ describe('SessionManager', () => {
     }
   });
 
+  it('restores a disconnected supervisor subscription and resyncs every attached session', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+      sessionTestDoubles.windowRegistry.get(1)?.webContents.send.mockClear();
+      const onDisconnect = sessionTestDoubles.supervisorOnDisconnect.mock.calls[0]?.[0] as
+        | (() => void)
+        | undefined;
+
+      onDisconnect?.();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(sessionTestDoubles.supervisorRestoreSubscription).toHaveBeenCalledTimes(1);
+      expect(sessionTestDoubles.supervisorGetSessionSnapshot).toHaveBeenCalledWith(
+        opened.session.sessionId
+      );
+      expect(getWindowSendCalls(1)).toContainEqual([
+        IPC_CHANNELS.SESSION_OUTPUT_RESYNC,
+        {
+          sessionId: opened.session.sessionId,
+          replay: 'supervisor replay after reconnect',
+        },
+      ]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
   it('replaces queued supervisor output with an upstream replay resync', async () => {
     createWindow(1);
     const manager = new SessionManager();
@@ -2315,6 +2436,12 @@ describe('SessionManager', () => {
           persistOnDisconnect: false,
         }),
       }
+    );
+    await manager.activateOutput(1, 'remote-2');
+    expect(sessionTestDoubles.remoteConnectionManager.call).toHaveBeenCalledWith(
+      'conn-2',
+      'session:activate',
+      { sessionId: 'remote-2', replayLength: 4 }
     );
 
     const attached = await manager.attach(2, { sessionId: 'remote-2' });

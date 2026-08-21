@@ -443,7 +443,7 @@ describe('LocalSupervisorRuntime', () => {
       },
     });
 
-    runtimeTestDoubles.emitSubscriptionChunk('x'.repeat(4 * 1024 * 1024 + 1));
+    runtimeTestDoubles.emitSubscriptionChunk('x'.repeat(32 * 1024 * 1024 + 1));
 
     const failedSocket = runtimeTestDoubles.getLatestSubscriptionSocket();
     expect(failedSocket.destroy).toHaveBeenCalledTimes(1);
@@ -453,6 +453,29 @@ describe('LocalSupervisorRuntime', () => {
       expect.objectContaining({ replay: 'replay-output' })
     );
     expect(runtimeTestDoubles.getLatestSubscriptionSocket()).not.toBe(failedSocket);
+  });
+
+  it('restores a dropped subscription without changing the session attachment count', async () => {
+    runtimeTestDoubles.setDaemonInfo();
+    const { LocalSupervisorRuntime } = await import('../LocalSupervisorRuntime');
+    const runtime = new LocalSupervisorRuntime();
+
+    await runtime.createSession({
+      sessionId: 'supervisor-reconnect',
+      options: {
+        cwd: 'C:/repo',
+        kind: 'agent',
+      },
+    });
+    const failedSocket = runtimeTestDoubles.getLatestSubscriptionSocket();
+    runtimeTestDoubles.closeSubscription();
+
+    await runtime.restoreSubscription();
+
+    expect(runtimeTestDoubles.getLatestSubscriptionSocket()).not.toBe(failedSocket);
+    expect(
+      runtimeTestDoubles.methodCalls.filter((call) => call.method === 'session:attach')
+    ).toEqual([]);
   });
 
   it('dispatches supervisor output resync events independently from data events', async () => {

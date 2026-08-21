@@ -32,7 +32,8 @@ export function useTerminal() {
         kind: 'terminal',
       });
       const id = session.session.sessionId;
-      if (!createOptions.cwd || !isRemoteVirtualPath(createOptions.cwd)) {
+      const isRemoteSession = Boolean(createOptions.cwd && isRemoteVirtualPath(createOptions.cwd));
+      if (!isRemoteSession) {
         await window.electronAPI.session.attach({
           sessionId: id,
           cwd: createOptions.cwd,
@@ -43,6 +44,9 @@ export function useTerminal() {
         title: 'Terminal',
         cwd: options?.cwd || getRendererEnvironment().HOME || '/',
       });
+      if (isRemoteSession) {
+        await window.electronAPI.session.activateOutput(id);
+      }
       return id;
     },
     [addSession, shellConfig]

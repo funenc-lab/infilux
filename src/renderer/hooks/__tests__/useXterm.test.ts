@@ -64,6 +64,7 @@ const testState = vi.hoisted(() => ({
     totalBytes: 0,
     health: 'unavailable' as 'complete' | 'degraded' | 'unavailable',
   })),
+  sessionActivateOutput: vi.fn(async () => undefined),
   sessionAcknowledgeOutputResync: vi.fn(async () => undefined),
   sessionSetOutputDelivery: vi.fn(async () => undefined),
   tmuxScrollClient: vi.fn(async () => ({
@@ -540,6 +541,7 @@ describe('useXterm startup loading state', () => {
     testState.sessionWrite.mockClear();
     testState.sessionGetRuntimeInfo.mockClear();
     testState.sessionGetTranscriptPage.mockClear();
+    testState.sessionActivateOutput.mockClear();
     testState.sessionAcknowledgeOutputResync.mockClear();
     testState.sessionSetOutputDelivery.mockClear();
     testState.tmuxScrollClient.mockClear();
@@ -648,6 +650,7 @@ describe('useXterm startup loading state', () => {
         resize: testState.sessionResize,
         getRuntimeInfo: testState.sessionGetRuntimeInfo,
         getTranscriptPage: testState.sessionGetTranscriptPage,
+        activateOutput: testState.sessionActivateOutput,
         acknowledgeOutputResync: testState.sessionAcknowledgeOutputResync,
         setOutputDelivery: testState.sessionSetOutputDelivery,
         subscribe: (_sessionId: string, handlers: SessionSubscriptionHandlers) => {
@@ -674,6 +677,44 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.terminalParserRegisterCsiHandler).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('activates a remote stream only after xterm writes its attach replay', async () => {
+    testState.sessionCreate.mockResolvedValueOnce({
+      session: {
+        sessionId: 'remote-session-1',
+        backend: 'remote',
+        kind: 'agent',
+        cwd: '/workspace',
+        persistOnDisconnect: true,
+        createdAt: 1,
+        runtimeState: 'live',
+        metadata: undefined,
+      },
+      replay: 'remote bootstrap\n',
+    } as never);
+    const mounted = mountHookHarness({
+      cwd: '/__enso_remote__/connection-1/workspace',
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('remote bootstrap\n');
+    await act(async () => {
+      const callbacks = testState.terminalWriteCallbacks.splice(0);
+      callbacks.forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+    expect(testState.sessionActivateOutput).toHaveBeenCalledWith('remote-session-1');
+    expect(testState.terminalWrite.mock.invocationCallOrder[0]).toBeLessThan(
+      testState.sessionActivateOutput.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
 
     await mounted.unmount();
   });
@@ -722,12 +763,7 @@ describe('useXterm startup loading state', () => {
     expect(testState.sessionDetach).toHaveBeenCalledWith('backend-session-1');
   });
 
-  it('restores archived agent output before acknowledging a resync request', async () => {
-    testState.sessionGetTranscriptPage.mockResolvedValueOnce({
-      text: 'archived output',
-      totalBytes: 15,
-      health: 'complete',
-    });
+  it('restores the supplied agent replay before acknowledging a resync request', async () => {
     const mounted = mountHookHarness();
 
     await act(async () => {
@@ -739,7 +775,39 @@ describe('useXterm startup loading state', () => {
     await act(async () => {
       testState.sessionHandlers?.onResync?.({
         sessionId: 'backend-session-1',
-        replay: 'fallback output',
+        replay: 'complete replay output',
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionGetTranscriptPage).not.toHaveBeenCalled();
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('complete replay output');
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.at(-1)?.();
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionAcknowledgeOutputResync).toHaveBeenCalledWith('backend-session-1');
+    await mounted.unmount();
+  });
+
+  it('falls back to archived agent output when a resync has no replay', async () => {
+    testState.sessionGetTranscriptPage.mockResolvedValueOnce({
+      text: 'archived output',
+      totalBytes: 15,
+      health: 'complete',
+    });
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      testState.sessionHandlers?.onResync?.({
+        sessionId: 'backend-session-1',
+        replay: '',
       });
       await flushMicrotasks();
     });

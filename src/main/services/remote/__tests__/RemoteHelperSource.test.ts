@@ -255,9 +255,17 @@ describe('getRemoteServerSource', () => {
   it('bounds generated remote JSON-line input before it accumulates indefinitely', () => {
     const source = getRemoteServerSource();
 
-    expect(source).toContain('const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;');
+    expect(source).toContain('const JSON_LINE_MAX_CHARS = 32 * 1024 * 1024;');
     expect(source).toContain('if (buffer.length > JSON_LINE_MAX_CHARS) {');
     expect(source).toContain('stream.destroy();');
+  });
+
+  it('requires the main process to explicitly activate an attached session after it records the replay', () => {
+    const source = getRemoteServerSource();
+
+    expect(source).toContain('function activateSession(params = {}) {');
+    expect(source).toContain("'session:activate': ({ sessionId, replayLength }) =>");
+    expect(source).not.toContain('setTimeout(() => {\n          activateSessionAfterAttach');
   });
 
   it('batches attach delta before a pending exit without splitting surrogate pairs', () => {

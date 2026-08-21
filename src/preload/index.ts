@@ -554,6 +554,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_RUNTIME_INFO, sessionId),
     getTranscriptPage: (request: SessionTranscriptPageRequest): Promise<SessionTranscriptPage> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_TRANSCRIPT_PAGE, request),
+    activateOutput: (sessionId: string): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_ACTIVATE_OUTPUT, sessionId),
     acknowledgeOutputResync: (sessionId: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_ACKNOWLEDGE_OUTPUT_RESYNC, sessionId),
     setOutputDelivery: (sessionId: string, isVisible: boolean): Promise<void> =>

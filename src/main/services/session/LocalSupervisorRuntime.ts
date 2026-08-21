@@ -168,6 +168,17 @@ export class LocalSupervisorRuntime {
     return cloneAttachResult(result);
   }
 
+  async getSessionSnapshot(sessionId: string): Promise<SessionAttachResult> {
+    const result = await this.request<SessionAttachResult>('session:snapshot', {
+      sessionId,
+    });
+    return cloneAttachResult(result);
+  }
+
+  async restoreSubscription(): Promise<void> {
+    await this.ensureSubscribed();
+  }
+
   async detachSession(sessionId: string): Promise<void> {
     await this.request('session:detach', { sessionId });
   }

@@ -188,8 +188,15 @@ describe('getLocalSupervisorSource', () => {
   it('bounds generated supervisor JSON-line input before it accumulates indefinitely', () => {
     const source = getLocalSupervisorSource();
 
-    expect(source).toContain('const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;');
+    expect(source).toContain('const JSON_LINE_MAX_CHARS = 32 * 1024 * 1024;');
     expect(source).toContain('if (buffer.length > JSON_LINE_MAX_CHARS) {');
     expect(source).toContain('stream.destroy();');
+  });
+
+  it('exposes a non-attaching session snapshot for subscription recovery', () => {
+    const source = getLocalSupervisorSource();
+
+    expect(source).toContain('async function getSessionSnapshot(params = {}) {');
+    expect(source).toContain("'session:snapshot': (params) => getSessionSnapshot(params)");
   });
 });

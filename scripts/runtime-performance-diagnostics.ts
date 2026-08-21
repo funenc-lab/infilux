@@ -52,6 +52,10 @@ interface AggregateQueueCounts {
   pendingOutputBatches: number;
   pendingOutputChars: number;
   resyncSessions: number;
+  deliveredOutputBatches: number;
+  deliveredOutputChars: number;
+  outputResyncCount: number;
+  maxPendingOutputChars: number;
   transcriptPendingAppendBytes: number;
   outputSuspendedSessions: number;
 }
@@ -306,6 +310,10 @@ export function sanitizeMainProcessDiagnostics(value: unknown): SanitizedMainPro
       pendingOutputBatches: readNonNegativeNumber(outputBatcher.pendingBatchCount),
       pendingOutputChars: readNonNegativeNumber(outputBatcher.pendingCharCount),
       resyncSessions: readNonNegativeNumber(outputBatcher.resyncSessionCount),
+      deliveredOutputBatches: readNonNegativeNumber(outputBatcher.deliveredBatchCount),
+      deliveredOutputChars: readNonNegativeNumber(outputBatcher.deliveredCharCount),
+      outputResyncCount: readNonNegativeNumber(outputBatcher.resyncCount),
+      maxPendingOutputChars: readNonNegativeNumber(outputBatcher.maxPendingCharCount),
       transcriptPendingAppendBytes: readNonNegativeNumber(transcript.pendingAppendBytes),
       outputSuspendedSessions: readNonNegativeNumber(sessions.outputSuspendedSessionCount),
     },
@@ -506,6 +514,10 @@ function emptyQueueCounts(): AggregateQueueCounts {
     pendingOutputBatches: 0,
     pendingOutputChars: 0,
     resyncSessions: 0,
+    deliveredOutputBatches: 0,
+    deliveredOutputChars: 0,
+    outputResyncCount: 0,
+    maxPendingOutputChars: 0,
     transcriptPendingAppendBytes: 0,
     outputSuspendedSessions: 0,
   };

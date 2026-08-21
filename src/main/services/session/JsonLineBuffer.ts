@@ -1,4 +1,4 @@
-export const JSON_LINE_MAX_CHARS = 4 * 1024 * 1024;
+export const JSON_LINE_MAX_CHARS = 32 * 1024 * 1024;
 
 export class JsonLineBufferOverflowError extends Error {
   constructor(maxChars: number) {

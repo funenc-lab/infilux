@@ -79,6 +79,8 @@ interface SessionPerformanceDiagnostics {
 
 const SESSION_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 const DEFAULT_SESSION_TRANSCRIPT_PAGE_BYTES = 64 * 1024;
+const LOCAL_SUPERVISOR_RECONNECT_DELAY_MS = 1_000;
+const LOCAL_SUPERVISOR_RECONNECT_MAX_DELAY_MS = 8_000;
 const TERMINAL_ESCAPE = String.fromCharCode(0x1b);
 const TERMINAL_BELL = String.fromCharCode(0x07);
 const PENDING_HOST_REPLAY_SCREEN_BUFFER_CHAR_LIMIT = 64 * 1024;
@@ -198,6 +200,10 @@ export class SessionManager {
   private readonly transcriptArchiveIdsByBackendSessionId = new Map<string, string>();
   private readonly suspendedWindowIds = new Set<number>();
   private localSupervisorSubscriptionsInitialized = false;
+  private localSupervisorReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private localSupervisorRecoveryPromise: Promise<void> | null = null;
+  private localSupervisorReconnectAttempt = 0;
+  private localSupervisorRecoveryRequested = false;
   private readonly remoteSubscriptions = new Map<
     string,
     {
@@ -281,6 +287,12 @@ export class SessionManager {
     if (existing?.backend === 'remote' && existing.connectionId) {
       const wasAttached = existing.attachedWindowIds.has(windowId);
       existing.attachedWindowIds.add(windowId);
+      if (wasAttached) {
+        return {
+          session: this.toDescriptor(existing),
+          replay: this.getReplayBufferText(existing) || undefined,
+        };
+      }
       const status = remoteConnectionManager.getStatus(existing.connectionId);
       if (!status.connected) {
         const runtimeState = status.recoverable ? 'reconnecting' : 'dead';
@@ -449,6 +461,7 @@ export class SessionManager {
       await remoteConnectionManager
         .call(connectionId, 'session:kill', { sessionId })
         .catch(() => {});
+      this.emitFinalOutputResync(session, attachedWindowIds);
       this.sessions.delete(sessionId);
       this.cleanupRemoteResourcesIfUnused(connectionId);
       this.emitState(
@@ -478,6 +491,7 @@ export class SessionManager {
       if (supervisorTerminated) {
         await this.releaseCodexRuntimeHomeForExplicitTermination(session);
       }
+      this.emitFinalOutputResync(session, attachedWindowIds);
       this.sessions.delete(sessionId);
       this.emitExit(
         {
@@ -490,6 +504,7 @@ export class SessionManager {
     }
 
     const attachedWindowIds = new Set(session.attachedWindowIds);
+    this.emitFinalOutputResync(session, attachedWindowIds);
     this.sessions.delete(sessionId);
     const ptyTerminationResult = await this.localPtyManager.destroyAndWait(sessionId);
     await this.flushLocalAgentTranscript(session);
@@ -709,6 +724,25 @@ export class SessionManager {
       });
       return this.buildTranscriptFallback(session, 'degraded');
     }
+  }
+
+  async activateOutput(
+    target: BrowserWindow | WebContents | number,
+    sessionId: string
+  ): Promise<void> {
+    const windowId = getWindowId(target);
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.attachedWindowIds.has(windowId) || session.backend !== 'remote') {
+      return;
+    }
+    if (!session.connectionId) {
+      throw new Error(`Remote session has no connection: ${sessionId}`);
+    }
+
+    await remoteConnectionManager.call(session.connectionId, 'session:activate', {
+      sessionId,
+      replayLength: this.getReplayBufferLength(session),
+    });
   }
 
   acknowledgeOutputResync(target: BrowserWindow | WebContents | number, sessionId: string): void {
@@ -1257,7 +1291,9 @@ export class SessionManager {
 
   private finalizeLocalExit(session: ManagedSessionRecord, event: SessionExitEvent): void {
     const attachedWindowIds = new Set(session.attachedWindowIds);
+    this.emitFinalOutputResync(session, attachedWindowIds);
     this.sessions.delete(session.sessionId);
+    this.stopLocalSupervisorRecoveryIfUnused();
 
     if (!this.isLocalPtyAgentSession(session)) {
       this.emitExit(event, attachedWindowIds);
@@ -1630,8 +1666,93 @@ export class SessionManager {
     });
 
     localSupervisorRuntime.onDisconnect(() => {
-      // Supervisor-backed sessions remain alive without renderer attachments.
+      this.localSupervisorRecoveryRequested = true;
+      this.scheduleLocalSupervisorRecovery();
     });
+  }
+
+  private scheduleLocalSupervisorRecovery(): void {
+    if (!this.hasManagedSupervisorSessions()) {
+      this.stopLocalSupervisorRecoveryIfUnused();
+      return;
+    }
+    if (this.localSupervisorReconnectTimer || this.localSupervisorRecoveryPromise) {
+      return;
+    }
+
+    const delay = Math.min(
+      LOCAL_SUPERVISOR_RECONNECT_DELAY_MS * 2 ** this.localSupervisorReconnectAttempt,
+      LOCAL_SUPERVISOR_RECONNECT_MAX_DELAY_MS
+    );
+    this.localSupervisorReconnectTimer = setTimeout(() => {
+      this.localSupervisorReconnectTimer = null;
+      this.localSupervisorRecoveryRequested = false;
+      const recovery = this.recoverLocalSupervisorSubscription();
+      this.localSupervisorRecoveryPromise = recovery;
+      void recovery
+        .then(() => {
+          this.localSupervisorReconnectAttempt = 0;
+        })
+        .catch((error) => {
+          this.localSupervisorReconnectAttempt += 1;
+          this.localSupervisorRecoveryRequested = true;
+          console.warn('[session] Failed to restore local supervisor output subscription:', error);
+        })
+        .finally(() => {
+          if (this.localSupervisorRecoveryPromise !== recovery) {
+            return;
+          }
+          this.localSupervisorRecoveryPromise = null;
+          if (this.localSupervisorRecoveryRequested) {
+            this.scheduleLocalSupervisorRecovery();
+          }
+        });
+    }, delay);
+  }
+
+  private async recoverLocalSupervisorSubscription(): Promise<void> {
+    await localSupervisorRuntime.restoreSubscription();
+    const sessions = [...this.sessions.values()].filter(
+      (session) => session.backend === 'local' && session.localRuntime === 'supervisor'
+    );
+
+    for (const session of sessions) {
+      const snapshot = await localSupervisorRuntime.getSessionSnapshot(session.sessionId);
+      if (this.sessions.get(session.sessionId) !== session) {
+        continue;
+      }
+
+      session.cwd = snapshot.session.cwd;
+      session.kind = snapshot.session.kind;
+      session.persistOnDisconnect = snapshot.session.persistOnDisconnect;
+      session.createdAt = snapshot.session.createdAt;
+      session.metadata = snapshot.session.metadata;
+      this.handleUpstreamOutputResync(session, {
+        sessionId: session.sessionId,
+        replay: snapshot.replay ?? '',
+      });
+    }
+  }
+
+  private hasManagedSupervisorSessions(): boolean {
+    for (const session of this.sessions.values()) {
+      if (session.backend === 'local' && session.localRuntime === 'supervisor') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private stopLocalSupervisorRecoveryIfUnused(): void {
+    if (this.hasManagedSupervisorSessions()) {
+      return;
+    }
+    if (this.localSupervisorReconnectTimer) {
+      clearTimeout(this.localSupervisorReconnectTimer);
+      this.localSupervisorReconnectTimer = null;
+    }
+    this.localSupervisorReconnectAttempt = 0;
+    this.localSupervisorRecoveryRequested = false;
   }
 
   private async ensureRemoteSubscriptions(connectionId: string): Promise<void> {
@@ -1698,6 +1819,7 @@ export class SessionManager {
               : new Set<number>();
             if (session) {
               this.cleanupPersistentSessionRecord(session);
+              this.emitFinalOutputResync(session, attachedWindowIds);
             }
             this.sessions.delete(event.sessionId);
             if (connectionId) {
@@ -1842,6 +1964,10 @@ export class SessionManager {
                   new Set(session.attachedWindowIds)
                 );
               }
+              await remoteConnectionManager.call(connectionId, 'session:activate', {
+                sessionId: session.sessionId,
+                replayLength: replay.length,
+              });
               this.setSessionRuntimeState(session.sessionId, 'live');
               return;
             } catch {
@@ -2010,7 +2136,7 @@ export class SessionManager {
       return 0;
     }
 
-    const prefixTable = new Array<number>(nextReplay.length).fill(0);
+    const prefixTable = new Uint32Array(nextReplay.length);
     for (let index = 1, matched = 0; index < nextReplay.length; ) {
       if (nextReplay[index] === nextReplay[matched]) {
         matched += 1;
@@ -2064,6 +2190,7 @@ export class SessionManager {
     const attachedWindowIds = new Set(session.attachedWindowIds);
     const connectionId = session.connectionId;
     this.cleanupPersistentSessionRecord(session);
+    this.emitFinalOutputResync(session, attachedWindowIds);
     this.sessions.delete(session.sessionId);
     if (connectionId) {
       this.cleanupRemoteResourcesIfUnused(connectionId);
@@ -2185,6 +2312,29 @@ export class SessionManager {
       replay: this.getReplayBufferText(this.sessions.get(sessionId)),
     };
     this.emitToWindows(new Set([windowId]), 'session:outputResync', event);
+  }
+
+  private emitFinalOutputResync(session: ManagedSessionRecord, windowIds: Set<number>): void {
+    const replay = this.getReplayBufferText(session);
+    if (!replay) {
+      return;
+    }
+
+    for (const windowId of windowIds) {
+      if (
+        this.suspendedWindowIds.has(windowId) ||
+        (!this.isOutputSuspended(windowId, session.sessionId) &&
+          !this.sessionOutputBatcher.isResyncPending(windowId, session.sessionId))
+      ) {
+        continue;
+      }
+
+      this.sessionOutputBatcher.discard(windowId, session.sessionId);
+      this.emitToWindows(new Set([windowId]), 'session:outputResync', {
+        sessionId: session.sessionId,
+        replay,
+      });
+    }
   }
 
   private handleUpstreamOutputResync(
