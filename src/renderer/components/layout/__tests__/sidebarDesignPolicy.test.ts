@@ -155,15 +155,18 @@ describe('sidebar design policy', () => {
     );
   });
 
-  it('keeps selected repository identity on the project row without an expanded parent background', () => {
-    expect(globalsSource).toContain(
-      '.control-tree-node[data-active="repo"] {\n    --control-tree-node-bg: color-mix(\n      in oklch,\n      var(--accent) 10%'
+  it('uses an expanded project background for selected repository context', () => {
+    expect(globalsSource).toMatch(
+      /\.control-tree-node\[data-active="repo"\]\s*\{[^}]*--control-tree-node-border:\s*transparent;/s
     );
     expect(globalsSource).toContain(
-      '--control-tree-node-border: color-mix(in oklch, var(--ring) 36%, transparent);'
-    );
-    expect(globalsSource).not.toContain(
       ".control-tree-repository-group[data-expanded='true'][data-selected='true'] {"
+    );
+    expect(globalsSource).toContain(
+      'background: color-mix(in oklch, var(--accent) 6.5%, var(--background) 93.5%);'
+    );
+    expect(globalsSource).toContain(
+      ".control-tree-repository-group[data-expanded='true'][data-selected='true']\n    > div\n    > .control-tree-node[data-active='repo'] {\n    --control-tree-node-bg: transparent;"
     );
   });
 
@@ -585,7 +588,7 @@ describe('sidebar design policy', () => {
     expect(temporaryWorkspacePanelSource).not.toContain('Disposable workspaces');
   });
 
-  it('keeps hover states lighter than selected states across the shell', () => {
+  it('keeps repository row emphasis subdued beneath the selected project background', () => {
     expect(globalsSource).toContain('.control-topbar-tab[data-active="false"]:hover {');
     expect(globalsSource).toContain('var(--control-surface-muted) 22%');
     expect(globalsSource).toContain('.control-topbar-tab[data-active="true"] {');
@@ -597,13 +600,13 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('var(--accent) 0.9%');
     expect(globalsSource).toContain('--control-tree-title-weight: 580;');
     expect(globalsSource).toContain('.control-tree-node[data-active="repo"] {');
-    expect(globalsSource).toContain('var(--accent) 2.4%');
-    expect(globalsSource).toContain('--control-tree-title-weight: 596;');
+    expect(globalsSource).toContain('var(--accent) 4%');
+    expect(globalsSource).toContain('--control-tree-title-weight: 582;');
     expect(globalsSource).toContain(
       '.control-tree-node[data-active="repo"][data-selection-tone="context"] {'
     );
-    expect(globalsSource).toContain('var(--accent) 10%');
-    expect(globalsSource).toContain('--control-tree-title-weight: 600;');
+    expect(globalsSource).toContain('var(--accent) 6.5%');
+    expect(globalsSource).toContain('--control-tree-title-weight: 568;');
     expect(globalsSource).toContain('.control-tree-node[data-active="worktree"] {');
     expect(globalsSource).toContain('var(--accent) 12%');
     expect(globalsSource).toContain('--control-tree-title-weight: 608;');
@@ -618,14 +621,14 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('color: var(--control-tree-title-color);');
   });
 
-  it('keeps expanded repository selection local to the project row', () => {
+  it('uses the expanded project container as the repository selection surface', () => {
     expect(treeSidebarSource).toContain('className="control-tree-repository-group relative"');
     expect(treeSidebarSource).toContain("data-expanded={isExpanded ? 'true' : 'false'}");
     expect(treeSidebarSource).toContain("data-selected={isSelected ? 'true' : 'false'}");
     expect(globalsSource).toMatch(
       /\.control-tree-repository-group\s*\{[^}]*margin-inline:\s*0\.25rem;[^}]*padding-block:\s*0\.25rem;/s
     );
-    expect(globalsSource).not.toContain(
+    expect(globalsSource).toContain(
       ".control-tree-repository-group[data-expanded='true'][data-selected='true'] {"
     );
   });
@@ -678,15 +681,15 @@ describe('sidebar design policy', () => {
     );
   });
 
-  it('keeps title and icon emphasis on a continuous ramp from idle to active', () => {
+  it('keeps selected project text subdued beneath active worktree context', () => {
     expect(globalsSource).toContain(
-      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 96%, var(--muted-foreground) 4%);'
+      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 86%, var(--muted-foreground) 14%);'
     );
     expect(globalsSource).toContain(
-      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 97%, var(--muted-foreground) 3%);'
+      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 90%, var(--muted-foreground) 10%);'
     );
     expect(globalsSource).toContain(
-      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 98%, var(--muted-foreground) 2%);'
+      '--control-tree-title-color: color-mix(in oklch, var(--foreground) 95%, var(--muted-foreground) 5%);'
     );
     expect(globalsSource).toContain('var(--foreground) 48%');
     expect(globalsSource).toContain('var(--foreground) 54%');
