@@ -79,7 +79,7 @@ export class ClaudeCapabilityCatalogCache {
   }
 
   async getCatalog(request: ClaudePolicyCatalogRequest): Promise<ClaudeCapabilityCatalog> {
-    if (this.disposed || isRemoteCatalogRequest(request)) {
+    if (this.disposed) {
       return this.dependencies.listCatalog(request);
     }
 
@@ -242,6 +242,10 @@ export class ClaudeCapabilityCatalogCache {
     key: string,
     request: ClaudePolicyCatalogRequest
   ): CapabilityCatalogWatcher[] {
+    if (isRemoteCatalogRequest(request)) {
+      return [];
+    }
+
     return this.dependencies
       .getWatchTargets(request)
       .map((target) =>

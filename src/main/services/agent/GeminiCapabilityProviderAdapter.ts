@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -44,6 +45,7 @@ interface GeminiResolvedSkillEntry {
   runtimeName: string;
   sourcePath: string;
   sourceDir: string;
+  sourceContentHash: string | null;
   autoLoaded: boolean;
 }
 
@@ -73,6 +75,8 @@ const GEMINI_RUNTIME_FILE_NAMES = [
   'system.md',
 ];
 const GEMINI_FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---/;
+const GEMINI_RUNTIME_MANIFEST_FILE = '.infilux-runtime-manifest.json';
+const GEMINI_RUNTIME_MANIFEST_VERSION = 1;
 
 function resolveLocalGeminiConfigDir(): string {
   return process.env.GEMINI_CLI_HOME?.trim() || path.join(os.homedir(), '.gemini');
@@ -95,6 +99,49 @@ function toStableValue(value: unknown): unknown {
 
 function stableStringify(value: unknown): string {
   return JSON.stringify(toStableValue(value));
+}
+
+function createContentHash(content: string | null): string | null {
+  return content === null ? null : createHash('sha256').update(content).digest('hex');
+}
+
+function resolveGeminiRuntimeKey(
+  worktreePath: string,
+  policyHash: string,
+  isRemoteRuntime: boolean
+): string {
+  const workspaceIdentity = isRemoteRuntime
+    ? normalizeRemotePath(parseRemoteVirtualPath(worktreePath).remotePath)
+    : path.resolve(worktreePath);
+  return createHash('sha256')
+    .update(
+      stableStringify({
+        provider: 'gemini',
+        policyHash,
+        workspaceIdentity,
+      })
+    )
+    .digest('hex')
+    .slice(0, 32);
+}
+
+function createGeminiRuntimeManifest(
+  policyHash: string,
+  settings: JsonObject,
+  linkedSkills: GeminiResolvedSkillEntry[]
+): string {
+  return stableStringify({
+    version: GEMINI_RUNTIME_MANIFEST_VERSION,
+    policyHash,
+    settings,
+    linkedSkills: linkedSkills
+      .map((skill) => ({
+        id: skill.id,
+        sourcePath: skill.sourcePath,
+        sourceContentHash: skill.sourceContentHash,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  });
 }
 
 function sanitizeGeminiSkillName(name: string): string {
@@ -294,6 +341,7 @@ async function resolveGeminiSkillEntries(
       sourceDir: isRemote
         ? path.posix.dirname(selectedSourcePath)
         : path.dirname(selectedSourcePath),
+      sourceContentHash: createContentHash(content),
       autoLoaded: isGeminiWorkspaceAutoLoadedSkillSource(
         isRemote
           ? normalizeRemotePath(parseRemoteVirtualPath(worktreePath).remotePath)
@@ -336,6 +384,13 @@ function buildGeminiSettings(
 
 async function ensureLocalDirectory(dirPath: string): Promise<void> {
   await fs.promises.mkdir(dirPath, { recursive: true });
+}
+
+async function writeLocalTextFileAtomically(targetPath: string, content: string): Promise<void> {
+  await ensureLocalDirectory(path.dirname(targetPath));
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.promises.writeFile(temporaryPath, content, 'utf8');
+  await fs.promises.rename(temporaryPath, targetPath);
 }
 
 async function removeLocalPath(targetPath: string): Promise<void> {
@@ -444,6 +499,37 @@ async function copyRemoteFileIfExists(
   await copyRemotePath(connectionId, sourcePath, targetPath);
 }
 
+async function hasMatchingLocalGeminiRuntimeManifest(
+  runtimeGeminiDir: string,
+  manifestContent: string
+): Promise<boolean> {
+  const [existingManifest, settingsEntry, skillsEntry] = await Promise.all([
+    readLocalTextFile(path.join(runtimeGeminiDir, GEMINI_RUNTIME_MANIFEST_FILE)),
+    fs.promises.lstat(path.join(runtimeGeminiDir, 'settings.json')).catch(() => null),
+    fs.promises.lstat(path.join(runtimeGeminiDir, 'skills')).catch(() => null),
+  ]);
+  return (
+    existingManifest === manifestContent &&
+    settingsEntry?.isFile() === true &&
+    skillsEntry?.isDirectory() === true
+  );
+}
+
+async function hasMatchingRemoteGeminiRuntimeManifest(
+  connectionId: string,
+  repoPath: string,
+  runtimeGeminiDir: string,
+  manifestContent: string,
+  readRemoteTextFile: typeof readRepositoryRemoteTextFile
+): Promise<boolean> {
+  const [existingManifest, settingsExists, skillsExists] = await Promise.all([
+    readRemoteTextFile(repoPath, path.posix.join(runtimeGeminiDir, GEMINI_RUNTIME_MANIFEST_FILE)),
+    remotePathExists(connectionId, path.posix.join(runtimeGeminiDir, 'settings.json')),
+    remotePathExists(connectionId, path.posix.join(runtimeGeminiDir, 'skills')),
+  ]);
+  return existingManifest === manifestContent && settingsExists && skillsExists;
+}
+
 export function createGeminiCapabilityProviderAdapter(
   dependencies: GeminiCapabilityProviderAdapterDependencies = {}
 ): AgentCapabilityProviderAdapter {
@@ -492,6 +578,11 @@ export function createGeminiCapabilityProviderAdapter(
     }
 
     const runtimeIsRemote = isRemoteVirtualPath(request.worktreePath);
+    const runtimeKey = resolveGeminiRuntimeKey(
+      request.worktreePath,
+      resolvedPolicy.hash,
+      runtimeIsRemote
+    );
     if (runtimeIsRemote) {
       const context = await getRemoteContext(request.repoPath);
       if (context.kind !== 'remote') {
@@ -519,12 +610,10 @@ export function createGeminiCapabilityProviderAdapter(
         '.infilux',
         'agent-capability',
         'gemini',
-        resolvedPolicy.hash
+        runtimeKey
       );
       const runtimeGeminiDir = path.posix.join(runtimeHome, '.gemini');
       const runtimeSkillsDir = path.posix.join(runtimeGeminiDir, 'skills');
-      await removeRemotePath(context.connectionId, runtimeSkillsDir);
-      await ensureRemoteDirectory(context.connectionId, runtimeSkillsDir);
 
       const baseSettings = readJsonText(
         await readRemoteTextFile(
@@ -533,6 +622,46 @@ export function createGeminiCapabilityProviderAdapter(
         )
       );
       const settings = buildGeminiSettings(baseSettings, mcpEntries, [...disabledSkillNames]);
+      const manifestContent = createGeminiRuntimeManifest(
+        resolvedPolicy.hash,
+        settings,
+        linkedSkills
+      );
+      if (
+        await hasMatchingRemoteGeminiRuntimeManifest(
+          context.connectionId,
+          request.repoPath,
+          runtimeGeminiDir,
+          manifestContent,
+          readRemoteTextFile
+        )
+      ) {
+        return {
+          warnings,
+          sessionOverrides: {
+            env: {
+              GEMINI_CLI_HOME: runtimeHome,
+            },
+            metadata: {
+              providerLaunchStrategy: 'gemini-runtime-home',
+              geminiHomePath: runtimeHome,
+              geminiLinkedSkillIds: linkedSkills.map((entry) => entry.id),
+              geminiDisabledSkillNames: [...disabledSkillNames].sort((left, right) =>
+                left.localeCompare(right)
+              ),
+              geminiMcpServerIds: mcpEntries.map((entry) => entry.id),
+            },
+          },
+          linkedSkillIds: linkedSkills.map((entry) => entry.id),
+          disabledSkillNames: [...disabledSkillNames].sort((left, right) =>
+            left.localeCompare(right)
+          ),
+          applied: true,
+        };
+      }
+
+      await removeRemotePath(context.connectionId, runtimeSkillsDir);
+      await ensureRemoteDirectory(context.connectionId, runtimeSkillsDir);
       await remoteConnectionManager.call(context.connectionId, 'fs:write', {
         path: path.posix.join(runtimeGeminiDir, 'settings.json'),
         content: JSON.stringify(settings, null, 2),
@@ -553,6 +682,10 @@ export function createGeminiCapabilityProviderAdapter(
           path.posix.join(runtimeSkillsDir, skill.id.replace(/^legacy-skill:/, ''))
         );
       }
+      await remoteConnectionManager.call(context.connectionId, 'fs:write', {
+        path: path.posix.join(runtimeGeminiDir, GEMINI_RUNTIME_MANIFEST_FILE),
+        content: manifestContent,
+      });
 
       return {
         warnings,
@@ -579,16 +712,46 @@ export function createGeminiCapabilityProviderAdapter(
     }
 
     const localGeminiConfigDir = resolveLocalGeminiConfigDir();
-    const runtimeHome = path.join(tempRootDir, 'gemini', resolvedPolicy.hash);
+    const runtimeHome = path.join(tempRootDir, 'gemini', runtimeKey);
     const runtimeGeminiDir = path.join(runtimeHome, '.gemini');
     const runtimeSkillsDir = path.join(runtimeGeminiDir, 'skills');
-    await removeLocalPath(runtimeSkillsDir);
-    await ensureLocalDirectory(runtimeSkillsDir);
 
     const baseSettings = readJsonText(
       await readLocalTextFile(path.join(localGeminiConfigDir, 'settings.json'))
     );
     const settings = buildGeminiSettings(baseSettings, mcpEntries, [...disabledSkillNames]);
+    const manifestContent = createGeminiRuntimeManifest(
+      resolvedPolicy.hash,
+      settings,
+      linkedSkills
+    );
+    if (await hasMatchingLocalGeminiRuntimeManifest(runtimeGeminiDir, manifestContent)) {
+      return {
+        warnings,
+        sessionOverrides: {
+          env: {
+            GEMINI_CLI_HOME: runtimeHome,
+          },
+          metadata: {
+            providerLaunchStrategy: 'gemini-runtime-home',
+            geminiHomePath: runtimeHome,
+            geminiLinkedSkillIds: linkedSkills.map((entry) => entry.id),
+            geminiDisabledSkillNames: [...disabledSkillNames].sort((left, right) =>
+              left.localeCompare(right)
+            ),
+            geminiMcpServerIds: mcpEntries.map((entry) => entry.id),
+          },
+        },
+        linkedSkillIds: linkedSkills.map((entry) => entry.id),
+        disabledSkillNames: [...disabledSkillNames].sort((left, right) =>
+          left.localeCompare(right)
+        ),
+        applied: true,
+      };
+    }
+
+    await removeLocalPath(runtimeSkillsDir);
+    await ensureLocalDirectory(runtimeSkillsDir);
     await fs.promises.writeFile(
       path.join(runtimeGeminiDir, 'settings.json'),
       JSON.stringify(settings, null, 2),
@@ -610,6 +773,10 @@ export function createGeminiCapabilityProviderAdapter(
         warnings
       );
     }
+    await writeLocalTextFileAtomically(
+      path.join(runtimeGeminiDir, GEMINI_RUNTIME_MANIFEST_FILE),
+      manifestContent
+    );
 
     return {
       warnings,

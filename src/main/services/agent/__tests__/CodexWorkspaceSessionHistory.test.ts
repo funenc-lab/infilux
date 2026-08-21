@@ -15,7 +15,12 @@ function createTempDirectory(): string {
   return directory;
 }
 
-function writeSessionFile(options: { root: string; threadId: string; cwd: string }): string {
+function writeSessionFile(options: {
+  root: string;
+  threadId: string;
+  cwd: string;
+  metadataPadding?: number;
+}): string {
   const relativePath = path.join('2026', '08', '20', `rollout-${options.threadId}.jsonl`);
   const filePath = path.join(options.root, relativePath);
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -23,7 +28,11 @@ function writeSessionFile(options: { root: string; threadId: string; cwd: string
     filePath,
     `${JSON.stringify({
       type: 'session_meta',
-      payload: { id: options.threadId, cwd: options.cwd },
+      payload: {
+        id: options.threadId,
+        cwd: options.cwd,
+        metadataPadding: options.metadataPadding ? 'x'.repeat(options.metadataPadding) : undefined,
+      },
     })}\n`,
     'utf8'
   );
@@ -125,6 +134,36 @@ describe('resolveCodexWorkspaceSessionHistoryPath', () => {
       'feature-a-session'
     );
     expect(existsSync(path.join(sessionHistoryPath, siblingRelativePath))).toBe(false);
+  });
+
+  it('imports a session whose metadata line exceeds 16 KiB', async () => {
+    const legacySessionsPath = createTempDirectory();
+    const historyRoot = createTempDirectory();
+    const worktreePath = '/workspace/infilux-worktrees/feature-a';
+    const relativePath = writeSessionFile({
+      root: legacySessionsPath,
+      threadId: 'long-metadata-session',
+      cwd: worktreePath,
+      metadataPadding: 20 * 1024,
+    });
+    const sessionHistoryPath = resolveCodexWorkspaceSessionHistoryPath({
+      historyRoot,
+      worktreePath,
+    });
+
+    const result = await migrateCodexWorkspaceSessionHistory({
+      sessionHistoryPath,
+      sourceSessionsPaths: [legacySessionsPath],
+      worktreePath,
+    });
+
+    expect(result).toEqual({ complete: true, migratedFileCount: 1 });
+    expect(readFileSync(path.join(sessionHistoryPath, relativePath), 'utf8')).toContain(
+      'long-metadata-session'
+    );
+    expect(
+      existsSync(path.join(path.dirname(sessionHistoryPath), '.legacy-session-history-migrated-v1'))
+    ).toBe(true);
   });
 
   it('leaves migration retryable when a legacy session cannot be classified', async () => {

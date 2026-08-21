@@ -61,20 +61,8 @@ function ensureLinkedEntry(sourcePath: string, targetPath: string): void {
   symlinkSync(sourcePath, targetPath, symlinkType);
 }
 
-function collectLatestMtimeMs(targetPath: string): number {
-  const stat = lstatSync(targetPath);
-  let latestMtimeMs = stat.mtimeMs;
-
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    return latestMtimeMs;
-  }
-
-  for (const entryName of readdirSync(targetPath)) {
-    const entryMtimeMs = collectLatestMtimeMs(path.join(targetPath, entryName));
-    latestMtimeMs = Math.max(latestMtimeMs, entryMtimeMs);
-  }
-
-  return latestMtimeMs;
+function getRuntimeHomeActivityMtimeMs(runtimeHomePath: string): number {
+  return lstatSync(runtimeHomePath).mtimeMs;
 }
 
 export class AgentRuntimeHomeService {
@@ -191,8 +179,8 @@ export class AgentRuntimeHomeService {
           continue;
         }
 
-        const latestMtimeMs = collectLatestMtimeMs(homePath);
-        if (now - latestMtimeMs < options.minAgeMs) {
+        const activityMtimeMs = getRuntimeHomeActivityMtimeMs(homePath);
+        if (now - activityMtimeMs < options.minAgeMs) {
           result.retainedHomePaths.push(homePath);
           continue;
         }

@@ -214,15 +214,35 @@ describe('ClaudeCapabilityCatalogCache', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('does not cache remote catalogs', async () => {
+  it('reuses a fresh remote catalog without creating local filesystem watchers', async () => {
     const listCatalog = vi.fn(async () => createCatalog(1));
-    const cache = createCache({ listCatalog });
+    const watchDirectory = vi.fn(() => ({ close: vi.fn() }));
+    const cache = createCache({ listCatalog, watchDirectory });
     caches.push(cache);
     const repoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
 
     await cache.getCatalog({ repoPath, worktreePath: repoPath });
     await cache.getCatalog({ repoPath, worktreePath: repoPath });
 
+    expect(listCatalog).toHaveBeenCalledTimes(1);
+    expect(watchDirectory).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a remote catalog after explicit invalidation', async () => {
+    const listCatalog = vi
+      .fn<() => Promise<ClaudeCapabilityCatalog>>()
+      .mockResolvedValueOnce(createCatalog(1))
+      .mockResolvedValueOnce(createCatalog(2));
+    const cache = createCache({ listCatalog });
+    caches.push(cache);
+    const repoPath = toRemoteVirtualPath('connection-1', '/srv/repo');
+
+    await cache.getCatalog({ repoPath, worktreePath: repoPath });
+    cache.invalidateWorkspace(repoPath);
+
+    await expect(cache.getCatalog({ repoPath, worktreePath: repoPath })).resolves.toEqual(
+      createCatalog(2)
+    );
     expect(listCatalog).toHaveBeenCalledTimes(2);
   });
 });

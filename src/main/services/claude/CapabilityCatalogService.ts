@@ -1485,9 +1485,6 @@ const capabilityCatalogCache = new ClaudeCapabilityCatalogCache({
 });
 
 export function invalidateClaudeCapabilityCatalogWorkspace(workspacePath: string): void {
-  if (isRemoteVirtualPath(workspacePath)) {
-    return;
-  }
   capabilityCatalogCache.invalidateWorkspace(workspacePath);
 }
 

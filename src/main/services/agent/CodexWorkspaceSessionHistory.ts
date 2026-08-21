@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import { constants, existsSync } from 'node:fs';
-import { copyFile, mkdir, open, readdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, open, readdir, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { WorkspacePlatform } from '@shared/types/remote';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { getSharedRootPath } from '../SharedSessionState';
 
-const SESSION_META_SCAN_BYTES = 16 * 1024;
+const SESSION_META_SCAN_BYTES = 64 * 1024;
 const LEGACY_MIGRATION_MARKER = '.legacy-session-history-migrated-v1';
 
 export interface CodexWorkspaceSessionHistoryScope {
@@ -77,7 +77,11 @@ async function readSessionWorktreePath(
     try {
       const buffer = Buffer.alloc(SESSION_META_SCAN_BYTES);
       const { bytesRead } = await fileHandle.read(buffer, 0, buffer.length, 0);
-      const lines = buffer.toString('utf8', 0, bytesRead).split('\n');
+      const contents = buffer.toString('utf8', 0, bytesRead);
+      const lines = contents.split('\n');
+      if (bytesRead === SESSION_META_SCAN_BYTES && !contents.endsWith('\n')) {
+        lines.pop();
+      }
 
       for (const line of lines) {
         if (!line.trim()) {
@@ -160,6 +164,14 @@ function resolveMigrationMarkerPath(sessionHistoryPath: string): string {
   return path.join(path.dirname(sessionHistoryPath), LEGACY_MIGRATION_MARKER);
 }
 
+async function resolveCanonicalPath(targetPath: string): Promise<string> {
+  try {
+    return await realpath(targetPath);
+  } catch {
+    return path.resolve(targetPath);
+  }
+}
+
 export function resolveCodexWorkspaceSessionHistoryPath(
   scope: CodexWorkspaceSessionHistoryScope
 ): string {
@@ -182,10 +194,11 @@ export async function migrateCodexWorkspaceSessionHistory({
 
   const normalizedWorktreePath = requireWorktreePath(worktreePath);
   await mkdir(sessionHistoryPath, { recursive: true });
-  const resolvedHistoryPath = path.resolve(sessionHistoryPath);
-  const uniqueSourcePaths = new Set(
-    sourceSessionsPaths.map((sourcePath) => path.resolve(sourcePath))
-  );
+  const resolvedHistoryPath = await resolveCanonicalPath(sessionHistoryPath);
+  const uniqueSourcePaths = new Set<string>();
+  for (const sourceSessionsPath of sourceSessionsPaths) {
+    uniqueSourcePaths.add(await resolveCanonicalPath(sourceSessionsPath));
+  }
   let complete = true;
   let migratedFileCount = 0;
 

@@ -14,6 +14,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AgentRuntimeHomeService } from '../AgentRuntimeHomeService';
 import { CodexRuntimeHomeService } from '../CodexRuntimeHomeService';
+import type {
+  CodexWorkspaceHistoryMigrationOperation,
+  CodexWorkspaceHistoryMigrationScheduler,
+} from '../CodexWorkspaceHistoryMigrationCoordinator';
+import { resolveCodexWorkspaceSessionHistoryPath } from '../CodexWorkspaceSessionHistory';
 
 const tempRoots: string[] = [];
 
@@ -21,6 +26,27 @@ function createTempRoot(): string {
   const root = mkdtempSync(path.join(os.tmpdir(), 'infilux-codex-runtime-home-'));
   tempRoots.push(root);
   return root;
+}
+
+function createControlledMigrationCoordinator(): {
+  coordinator: CodexWorkspaceHistoryMigrationScheduler;
+  flush: () => Promise<void>;
+} {
+  const operations: CodexWorkspaceHistoryMigrationOperation[] = [];
+
+  return {
+    coordinator: {
+      schedule: (_key, operation) => {
+        operations.push(operation);
+        return Promise.resolve();
+      },
+    },
+    async flush() {
+      while (operations.length > 0) {
+        await operations.shift()?.();
+      }
+    },
+  };
 }
 
 describe('CodexRuntimeHomeService', () => {
@@ -125,7 +151,48 @@ describe('CodexRuntimeHomeService', () => {
     expect(readlinkSync(path.join(result.homePath, '.tmp', 'marketplaces'))).toBe(marketplacePath);
   });
 
-  it('migrates existing runtime session files into the worktree history before linking it', async () => {
+  it('returns before importing legacy runtime sessions', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    const runtimeHome = path.join(runtimeRoot, 'ui-session-legacy');
+    const relativeSessionPath = path.join('2026', '08', '20', 'rollout-local.jsonl');
+    const scheduledOperations: CodexWorkspaceHistoryMigrationOperation[] = [];
+    const migrationCoordinator = {
+      schedule: (_key: string, operation: CodexWorkspaceHistoryMigrationOperation) => {
+        scheduledOperations.push(operation);
+        return Promise.resolve();
+      },
+    };
+    mkdirSync(path.dirname(path.join(runtimeHome, 'sessions', relativeSessionPath)), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(runtimeHome, 'sessions', relativeSessionPath),
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: { id: 'local-session', cwd: '/repo/worktree-a' },
+      })}\nlocal`
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot, migrationCoordinator);
+
+    const result = await service.prepareRuntimeHome('ui-session-legacy', {
+      sessionHistoryPath: workspaceSessionsPath,
+      sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+    });
+
+    expect(readlinkSync(path.join(result.homePath, 'sessions'))).toBe(workspaceSessionsPath);
+    expect(existsSync(path.join(workspaceSessionsPath, relativeSessionPath))).toBe(false);
+    expect(scheduledOperations).toHaveLength(1);
+
+    await scheduledOperations[0]?.();
+
+    expect(readFileSync(path.join(workspaceSessionsPath, relativeSessionPath), 'utf8')).toContain(
+      'local-session'
+    );
+  });
+
+  it('migrates existing runtime session files after linking the worktree history', async () => {
     const sourceHome = createTempRoot();
     const runtimeRoot = createTempRoot();
     const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
@@ -144,12 +211,15 @@ describe('CodexRuntimeHomeService', () => {
         payload: { cwd: '/repo/worktree-a' },
       })}\nlocal`
     );
-    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+    const migration = createControlledMigrationCoordinator();
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot, migration.coordinator);
 
     const result = await service.prepareRuntimeHome('ui-session-legacy', {
       sessionHistoryPath: workspaceSessionsPath,
       sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
     });
+
+    await migration.flush();
 
     expect(readlinkSync(path.join(result.homePath, 'sessions'))).toBe(workspaceSessionsPath);
     expect(
@@ -169,7 +239,11 @@ describe('CodexRuntimeHomeService', () => {
   it('does not import another worktree when replacing a legacy shared sessions link', async () => {
     const sourceHome = createTempRoot();
     const runtimeRoot = createTempRoot();
-    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    const historyRoot = createTempRoot();
+    const workspaceSessionsPath = resolveCodexWorkspaceSessionHistoryPath({
+      historyRoot,
+      worktreePath: '/repo/worktree-a',
+    });
     const sharedSessionsPath = path.join(createTempRoot(), 'sessions');
     const runtimeHome = path.join(runtimeRoot, 'legacy-shared-home');
     const matchingRelativePath = path.join('2026', '08', '20', 'feature-a.jsonl');
@@ -191,15 +265,57 @@ describe('CodexRuntimeHomeService', () => {
       })}\n`
     );
     symlinkSync(sharedSessionsPath, path.join(runtimeHome, 'sessions'));
-    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+    const migration = createControlledMigrationCoordinator();
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot, migration.coordinator);
 
     await service.prepareRuntimeHome('legacy-shared-home', {
       sessionHistoryPath: workspaceSessionsPath,
       sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
     });
 
+    await migration.flush();
+
     expect(existsSync(path.join(workspaceSessionsPath, matchingRelativePath))).toBe(true);
     expect(existsSync(path.join(workspaceSessionsPath, siblingRelativePath))).toBe(false);
+  });
+
+  it('does not treat isolated workspace sessions as legacy migration sources', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const historyRoot = createTempRoot();
+    const worktreePath = '/repo/worktree-a';
+    const workspaceSessionsPath = resolveCodexWorkspaceSessionHistoryPath({
+      historyRoot,
+      worktreePath,
+    });
+    const siblingSessionsPath = resolveCodexWorkspaceSessionHistoryPath({
+      historyRoot,
+      worktreePath: '/repo/worktree-b',
+    });
+    const isolatedRuntimeHome = path.join(runtimeRoot, 'previous-worktree-session');
+    const relativeSessionPath = path.join('2026', '08', '20', 'already-isolated.jsonl');
+    mkdirSync(path.dirname(path.join(siblingSessionsPath, relativeSessionPath)), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(siblingSessionsPath, relativeSessionPath),
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: { id: 'isolated-session', cwd: worktreePath },
+      })}\n`
+    );
+    mkdirSync(isolatedRuntimeHome, { recursive: true });
+    symlinkSync(siblingSessionsPath, path.join(isolatedRuntimeHome, 'sessions'));
+    const migration = createControlledMigrationCoordinator();
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot, migration.coordinator);
+
+    await service.prepareRuntimeHome('new-worktree-session', {
+      sessionHistoryPath: workspaceSessionsPath,
+      sessionHistoryScope: { worktreePath },
+    });
+    await migration.flush();
+
+    expect(existsSync(path.join(workspaceSessionsPath, relativeSessionPath))).toBe(false);
   });
 
   it('keeps concurrent UI runtime homes on one worktree history', async () => {
@@ -218,7 +334,8 @@ describe('CodexRuntimeHomeService', () => {
         payload: { cwd: '/repo/worktree-a' },
       })}\n`
     );
-    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+    const migration = createControlledMigrationCoordinator();
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot, migration.coordinator);
     const options = {
       sessionHistoryPath: workspaceSessionsPath,
       sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
@@ -229,6 +346,8 @@ describe('CodexRuntimeHomeService', () => {
       service.prepareRuntimeHome('ui-session-one', options),
       service.prepareRuntimeHome('ui-session-two', options),
     ]);
+
+    await migration.flush();
 
     expect(readlinkSync(path.join(firstRuntimeHome.homePath, 'sessions'))).toBe(
       workspaceSessionsPath
@@ -294,6 +413,30 @@ describe('CodexRuntimeHomeService', () => {
     expect(existsSync(activeHome)).toBe(true);
     expect(existsSync(activeHomeByPath)).toBe(true);
     expect(existsSync(recentHome)).toBe(true);
+  });
+
+  it('prunes an untracked runtime home by its own lifetime without traversing nested state', () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const orphanHome = path.join(runtimeRoot, 'old-orphan-with-recent-state');
+    const nestedStatePath = path.join(orphanHome, 'nested', 'state_5.sqlite');
+    mkdirSync(path.dirname(nestedStatePath), { recursive: true });
+    writeFileSync(nestedStatePath, 'runtime-state');
+
+    const oldTimestamp = new Date('2026-01-01T00:00:00.000Z');
+    const recentTimestamp = new Date('2026-04-09T00:00:00.000Z');
+    utimesSync(orphanHome, oldTimestamp, oldTimestamp);
+    utimesSync(nestedStatePath, recentTimestamp, recentTimestamp);
+
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+    const result = service.pruneOrphanedRuntimeHomes({
+      retainedRuntimeKeys: [],
+      minAgeMs: 30 * 24 * 60 * 60 * 1_000,
+      now: Date.parse('2026-04-10T00:00:00.000Z'),
+    });
+
+    expect(result.prunedHomePaths).toEqual([orphanHome]);
+    expect(existsSync(orphanHome)).toBe(false);
   });
 
   it('releases an explicitly terminated runtime home without deleting its worktree session history', async () => {
