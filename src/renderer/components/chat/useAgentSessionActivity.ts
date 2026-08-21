@@ -62,16 +62,18 @@ export class AgentSessionActivityScheduler {
   private timerDueAt: number | null = null;
 
   constructor(options: AgentSessionActivitySchedulerOptions) {
-    const clearTimer = options.clearTimeout ?? globalThis.clearTimeout;
-    const scheduleTimer = options.setTimeout ?? globalThis.setTimeout;
+    const clearTimeout = options.clearTimeout;
+    const setTimeout = options.setTimeout;
 
-    this.clearTimeoutFn = (timer) => {
-      clearTimer(timer);
-    };
+    this.clearTimeoutFn = clearTimeout
+      ? (timer) => clearTimeout(timer)
+      : (timer) => globalThis.clearTimeout(timer);
     this.document = options.document;
     this.getActivity = options.getActivity;
     this.now = options.now ?? Date.now;
-    this.setTimeoutFn = (callback, delay) => scheduleTimer(callback, delay);
+    this.setTimeoutFn = setTimeout
+      ? (callback, delay) => setTimeout(callback, delay)
+      : (callback, delay) => globalThis.setTimeout(callback, delay);
   }
 
   private readonly setTimeoutFn: (callback: () => void, delay: number) => AgentSessionActivityTimer;

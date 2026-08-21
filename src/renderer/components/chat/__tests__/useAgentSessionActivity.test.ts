@@ -212,6 +212,49 @@ describe('AgentSessionActivityScheduler', () => {
     expect(clearTimeout).toHaveBeenCalledWith(timer);
   });
 
+  it('uses the global receiver for default renderer timers during disposal', () => {
+    const document = new VisibilityDocument();
+    const timer = {} as NodeJS.Timeout;
+    const calls: string[] = [];
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(function (
+      this: unknown,
+      _callback: () => void,
+      _delay?: number
+    ) {
+      if (this !== globalThis) {
+        throw new TypeError('Illegal invocation');
+      }
+      calls.push('set');
+      return timer;
+    });
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(function (
+      this: unknown,
+      _timer?: string | number | ReturnType<typeof globalThis.setTimeout>
+    ) {
+      if (this !== globalThis) {
+        throw new TypeError('Illegal invocation');
+      }
+      calls.push('clear');
+    });
+
+    const scheduler = new AgentSessionActivityScheduler({
+      document,
+      getActivity: async () => false,
+    });
+    const observation = scheduler.observe({
+      isActive: true,
+      isVisible: true,
+      sessionId: 'session-a',
+    });
+
+    expect(() => observation.startMonitoring()).not.toThrow();
+    expect(() => observation.dispose()).not.toThrow();
+    expect(calls).toEqual(['set', 'clear']);
+
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
+  });
+
   it('cleans up hook registrations on unmount', async () => {
     const visibilityDocument = new VisibilityDocument();
     const { getActivity, scheduler } = createScheduler(visibilityDocument);
