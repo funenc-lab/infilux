@@ -19,6 +19,7 @@ function PopoverPopup({
   align = 'center',
   sideOffset = 4,
   alignOffset = 0,
+  positionMethod,
   tooltipStyle = false,
   ...props
 }: PopoverPrimitive.Popup.Props & {
@@ -26,6 +27,7 @@ function PopoverPopup({
   align?: PopoverPrimitive.Positioner.Props['align'];
   sideOffset?: PopoverPrimitive.Positioner.Props['sideOffset'];
   alignOffset?: PopoverPrimitive.Positioner.Props['alignOffset'];
+  positionMethod?: PopoverPrimitive.Positioner.Props['positionMethod'];
   tooltipStyle?: boolean;
 }) {
   return (
@@ -33,8 +35,9 @@ function PopoverPopup({
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}
-        className="z-50 h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none"
+        className="z-50 h-fit w-fit max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none"
         data-slot="popover-positioner"
+        positionMethod={positionMethod}
         side={side}
         sideOffset={sideOffset}
       >

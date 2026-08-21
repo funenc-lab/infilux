@@ -81,6 +81,34 @@ describe('FontFamilyPresetSelect', () => {
     expect(trigger?.tagName).toBe('BUTTON');
   });
 
+  it('sizes the popup positioner to the visible popup for collision avoidance', async () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        React.createElement(FontFamilyPresetSelect, {
+          label: 'Font family',
+          selection,
+          onValueChange: vi.fn(),
+        })
+      );
+    });
+
+    const trigger = container.querySelector<HTMLElement>('[data-slot="font-family-trigger"]');
+
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const popup = document.body.querySelector<HTMLElement>('[data-slot="font-family-popup"]');
+    const positioner = popup?.parentElement;
+
+    expect(positioner?.className).toContain('w-fit');
+    expect(positioner?.className).toContain('h-fit');
+  });
+
   it('keeps the popup compact and filters results without showing CSS fallback stacks', async () => {
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -107,6 +135,7 @@ describe('FontFamilyPresetSelect', () => {
       '[data-slot="font-family-search"]'
     );
 
+    expect(popup?.parentElement?.style.position).toBe('fixed');
     expect(popup?.className).toContain('w-[min(30rem,calc(100vw-1rem))]');
     expect(popup?.className).toContain('h-80');
     expect(document.body.textContent).toContain('JetBrains Mono');

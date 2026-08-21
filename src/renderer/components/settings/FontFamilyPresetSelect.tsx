@@ -164,6 +164,7 @@ export function FontFamilyPresetSelect({
           align="end"
           className="h-80 w-[min(30rem,calc(100vw-1rem))] max-w-(--available-width)"
           data-slot="font-family-popup"
+          positionMethod="fixed"
           style={
             {
               '--popup-height': 'min(20rem, var(--available-height))',
