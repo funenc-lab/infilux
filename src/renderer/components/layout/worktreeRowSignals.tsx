@@ -31,6 +31,12 @@ interface BuildWorktreeInlineItemsOptions {
   hasCompletedTaskNotice: boolean;
 }
 
+const COMPACT_DIFF_UNITS = [
+  { divisor: 1_000_000_000, suffix: 'b' },
+  { divisor: 1_000_000, suffix: 'm' },
+  { divisor: 1_000, suffix: 'k' },
+] as const;
+
 function isWorktreeInlineItem(item: WorktreeInlineItem | null): item is WorktreeInlineItem {
   return item !== null;
 }
@@ -45,6 +51,21 @@ export function buildWorktreeActivitySummary(
   ]
     .filter(Boolean)
     .join(' · ');
+}
+
+export function formatCompactDiffStat(value: number): string {
+  const normalizedValue = Math.max(0, Math.trunc(value));
+  const unit = COMPACT_DIFF_UNITS.find(({ divisor }) => normalizedValue >= divisor);
+
+  if (!unit) {
+    return String(normalizedValue);
+  }
+
+  const scaledValue = normalizedValue / unit.divisor;
+  const maximumFractionDigits = scaledValue < 100 ? 1 : 0;
+  const compactValue = Number(scaledValue.toFixed(maximumFractionDigits));
+
+  return `${compactValue}${unit.suffix}`;
 }
 
 export function buildWorktreeInlineItems({
@@ -70,10 +91,14 @@ export function buildWorktreeInlineItems({
           content: (
             <span className="control-tree-diff-badge" data-kind="diff">
               {diffStats.insertions > 0 ? (
-                <span className="control-tree-diff-positive">+{diffStats.insertions}</span>
+                <span className="control-tree-diff-positive">
+                  +{formatCompactDiffStat(diffStats.insertions)}
+                </span>
               ) : null}
               {diffStats.deletions > 0 ? (
-                <span className="control-tree-diff-negative">-{diffStats.deletions}</span>
+                <span className="control-tree-diff-negative">
+                  -{formatCompactDiffStat(diffStats.deletions)}
+                </span>
               ) : null}
             </span>
           ),

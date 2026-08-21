@@ -510,16 +510,18 @@ describe('TreeSidebar render smoke', () => {
     expect(recentMarkup).toContain('Alpha Recent');
     expect(recentMarkup).toContain('Beta Recent');
     expect(recentMarkup).not.toContain('Alpha</span>');
+    expect(recentMarkup).toContain('class="control-section-count" aria-hidden="true">4</span>');
     expect(allProjectsMarkup).toContain('Alpha</span>');
     expect(allProjectsMarkup).toContain('Beta</span>');
     expect(recentMarkup).toContain('data-tree-section-level="primary"');
     expect(allProjectsMarkup).toContain('data-tree-section-level="primary"');
     expect(allProjectsMarkup).toContain('data-tree-section-level="secondary"');
     expect(allProjectsMarkup).toContain('aria-label="Load more projects"');
+    expect(recentMarkup).toContain('class="control-tree-section-list"');
+    expect(recentMarkup).not.toContain('aria-label="Load more projects"');
   });
 
-  it('keeps a selected repository row identifiable while the persisted recent section is collapsed', () => {
-    recentProjectsCollapsed = true;
+  it('does not duplicate the entire repository directory as a recent section', () => {
     const markup = renderToStaticMarkup(
       React.createElement(TreeSidebar, {
         repositories: [
@@ -557,10 +559,7 @@ describe('TreeSidebar render smoke', () => {
       })
     );
 
-    expect(markup).toContain('data-tree-section-kind="recent"');
-    expect(markup).toContain('aria-controls="tree-recent-projects"');
-    expect(markup).toContain('aria-expanded="false"');
-    expect(markup).not.toContain('id="tree-recent-projects"');
+    expect(markup).not.toContain('data-tree-section-kind="recent"');
     expect(markup).toContain('data-active="repo"');
     expect(markup).not.toContain('Current context');
   });

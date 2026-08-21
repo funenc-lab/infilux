@@ -28,6 +28,24 @@ export interface RepositoryVisibilityResult {
   hiddenCount: number;
 }
 
+export function resolveRecentRepositories(
+  repositories: readonly Repository[],
+  limit: number
+): Repository[] {
+  const effectiveLimit = Math.max(0, Math.floor(limit));
+
+  return repositories
+    .map((repository, index) => ({ repository, index }))
+    .sort((left, right) => {
+      const leftAccessedAt = normalizeRepositoryLastAccessedAt(left.repository.lastAccessedAt) ?? 0;
+      const rightAccessedAt =
+        normalizeRepositoryLastAccessedAt(right.repository.lastAccessedAt) ?? 0;
+      return rightAccessedAt - leftAccessedAt || left.index - right.index;
+    })
+    .slice(0, effectiveLimit)
+    .map(({ repository }) => repository);
+}
+
 export function resolveRepositoryGroupScope({
   repositories,
   activeGroupId,

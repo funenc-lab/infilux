@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ALL_GROUP_ID, type Repository } from '@/App/constants';
 import {
   resolveActiveRepositoryPaths,
+  resolveRecentRepositories,
   resolveRepositoryGroupScope,
   resolveRepositoryVisibility,
 } from '../repositoryVisibilityPolicy';
@@ -91,6 +92,37 @@ describe('resolveRepositoryVisibility', () => {
     });
 
     expect(result.repositories.map((repository) => repository.path)).toEqual(['/c', '/a']);
+  });
+});
+
+describe('resolveRecentRepositories', () => {
+  it('uses the configured limit as an exact recent-project budget', () => {
+    const repositories: Repository[] = [
+      { id: 'old', name: 'Old', path: '/old', lastAccessedAt: 10 },
+      { id: 'newest', name: 'Newest', path: '/newest', lastAccessedAt: 40 },
+      {
+        id: 'same-time-first',
+        name: 'Same time first',
+        path: '/same-time-first',
+        lastAccessedAt: 30,
+      },
+      {
+        id: 'same-time-second',
+        name: 'Same time second',
+        path: '/same-time-second',
+        lastAccessedAt: 30,
+      },
+      { id: 'invalid', name: 'Invalid', path: '/invalid', lastAccessedAt: Number.NaN },
+    ];
+
+    expect(resolveRecentRepositories(repositories, 3).map((repository) => repository.path)).toEqual(
+      ['/newest', '/same-time-first', '/same-time-second']
+    );
+  });
+
+  it('treats a non-positive configured limit as an empty recent section', () => {
+    expect(resolveRecentRepositories(createRepositories(2), 0)).toEqual([]);
+    expect(resolveRecentRepositories(createRepositories(2), -1)).toEqual([]);
   });
 });
 

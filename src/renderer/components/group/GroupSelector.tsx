@@ -36,7 +36,6 @@ export function GroupSelector({
 
   const displayEmoji = isAllSelected ? '' : activeGroup?.emoji || '';
   const displayName = isAllSelected ? t('All') : activeGroup?.name || t('All');
-  const displayCount = isAllSelected ? totalCount : repositoryCounts[activeGroupId] || 0;
 
   useEffect(() => {
     if (isOpen) {
@@ -77,18 +76,8 @@ export function GroupSelector({
           {displayEmoji && (
             <span className="w-4 shrink-0 text-center text-[14px]">{displayEmoji}</span>
           )}
-          {!isAllSelected && (
-            <span
-              className="h-2 w-2 shrink-0 rounded-full border"
-              style={{ backgroundColor: activeGroup?.color }}
-              aria-hidden="true"
-            />
-          )}
           <span className="control-tree-title min-w-0 flex-1 truncate text-left">
             {displayName}
-          </span>
-          <span className="control-tree-meta shrink-0 font-medium uppercase tabular-nums">
-            {displayCount}
           </span>
           <ChevronDown
             className={cn(

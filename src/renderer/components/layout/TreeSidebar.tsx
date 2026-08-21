@@ -97,6 +97,7 @@ import { RunningProjectsPopover } from './RunningProjectsPopover';
 import { RepositoryTreeSummary } from './repository-sidebar/RepositoryTreeSummary';
 import {
   resolveActiveRepositoryPaths,
+  resolveRecentRepositories,
   resolveRepositoryGroupScope,
 } from './repositoryVisibilityPolicy';
 import { SidebarAiCenterButton } from './SidebarAiCenterButton';
@@ -434,14 +435,6 @@ export function TreeSidebar({
     });
   }, [activePathSet, agentSessions, repositoriesInActiveGroup, selectedWorktreesByRepository]);
   const repositorySearchActive = searchQuery.trim().length > 0 || showAgentWorktreesOnly;
-  const recentVisibility = useProgressiveRepositoryVisibility({
-    repositories: visibleRepos,
-    selectedRepo,
-    activeRepositoryPaths,
-    searchActive: repositorySearchActive,
-    initialInactiveLimit: recentProjectDisplayLimit,
-    resetKey: `${searchQuery}\u0000${showAgentWorktreesOnly}`,
-  });
   const scopedVisibility = useProgressiveRepositoryVisibility({
     repositories: repositoriesInActiveGroup,
     selectedRepo,
@@ -1292,10 +1285,14 @@ export function TreeSidebar({
       }),
     [allProjectSections, groupedRepositoryPagination]
   );
-  const recentProjects = useMemo(
-    () => (hasSearchFilter ? [] : recentVisibility.repositories),
-    [hasSearchFilter, recentVisibility.repositories]
-  );
+  const recentProjects = useMemo(() => {
+    if (hasSearchFilter) {
+      return [];
+    }
+
+    const recentRepositories = resolveRecentRepositories(visibleRepos, recentProjectDisplayLimit);
+    return recentRepositories.length < visibleRepos.length ? recentRepositories : [];
+  }, [hasSearchFilter, recentProjectDisplayLimit, visibleRepos]);
   const collapsibleGroupIds = useMemo(
     () => groupedSections.map((section) => section.groupId),
     [groupedSections]
@@ -2119,18 +2116,12 @@ export function TreeSidebar({
                   </span>
                 </button>
                 {!recentProjectsCollapsed ? (
-                  <div id="tree-recent-projects">
+                  <div id="tree-recent-projects" className="control-tree-section-list">
                     <div className="control-tree-section-body">
                       {recentProjects.map((repo) =>
                         renderRepoItem(repo, repoIndexMap.get(repo.path) ?? -1)
                       )}
                     </div>
-                    <RepositoryLoadMoreButton
-                      hiddenCount={recentVisibility.hiddenCount}
-                      nextBatchSize={recentVisibility.nextBatchSize}
-                      onShowMore={recentVisibility.showMore}
-                      scrollContainer={repositoryScrollContainer}
-                    />
                   </div>
                 ) : null}
               </section>

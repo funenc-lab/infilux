@@ -1,7 +1,11 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { buildWorktreeActivitySummary, buildWorktreeInlineItems } from '../worktreeRowSignals';
+import {
+  buildWorktreeActivitySummary,
+  buildWorktreeInlineItems,
+  formatCompactDiffStat,
+} from '../worktreeRowSignals';
 
 const t = (value: string) => value;
 
@@ -72,5 +76,31 @@ describe('worktree row signals', () => {
     expect(buildWorktreeActivitySummary({ agentCount: 2, terminalCount: 3 }, t)).toBe(
       '2 agents · 3 terminals'
     );
+  });
+
+  it('compacts large diff counts without losing their magnitude', () => {
+    expect(formatCompactDiffStat(999)).toBe('999');
+    expect(formatCompactDiffStat(1000)).toBe('1k');
+    expect(formatCompactDiffStat(1234)).toBe('1.2k');
+    expect(formatCompactDiffStat(26272)).toBe('26.3k');
+    expect(formatCompactDiffStat(1_000_000)).toBe('1m');
+  });
+
+  it('renders compact diff counts inside the inline signal', () => {
+    const items = buildWorktreeInlineItems({
+      t,
+      isMain: false,
+      isPrunable: false,
+      isMerged: false,
+      diffStats: { insertions: 26272, deletions: 1234 },
+      ahead: 0,
+      behind: 0,
+      activity: { agentCount: 0, terminalCount: 0 },
+      hasCompletedTaskNotice: false,
+    });
+
+    const markup = renderToStaticMarkup(items[0].content);
+    expect(markup).toContain('+26.3k');
+    expect(markup).toContain('-1.2k');
   });
 });

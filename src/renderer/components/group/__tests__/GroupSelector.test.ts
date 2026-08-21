@@ -82,6 +82,22 @@ describe('GroupSelector', () => {
     }
   });
 
+  it('keeps the active group trigger focused on scope instead of duplicating repository counts', async () => {
+    const view = await mountGroupSelector();
+
+    try {
+      const trigger = view.container.querySelector<HTMLButtonElement>(
+        'button[aria-haspopup="menu"]'
+      );
+
+      expect(trigger?.textContent).toContain('Alpha');
+      expect(trigger?.textContent).not.toContain('3');
+      expect(trigger?.querySelector('[style*="background-color"]')).toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
   it('supports menu navigation and restores trigger focus after Escape', async () => {
     const view = await mountGroupSelector();
 

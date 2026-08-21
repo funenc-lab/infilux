@@ -133,12 +133,18 @@ describe('sidebar design policy', () => {
     );
   });
 
-  it('confines primary visual emphasis to headers and keeps secondary groups full-width', () => {
+  it('keeps primary headers as full-width background bands without side borders', () => {
     expect(globalsSource).toContain(
       '.control-tree-section[data-tree-section-level="primary"] > .control-section-header {'
     );
     expect(globalsSource).toMatch(
-      /\.control-tree-section\[data-tree-section-level="primary"\] > \.control-section-header\s*\{[^}]*background:/s
+      /\.control-tree-section\[data-tree-section-level="primary"\] > \.control-section-header\s*\{[^}]*margin-inline:\s*-0\.375rem;[^}]*width:\s*calc\(100% \+ 0\.75rem\);[^}]*padding-inline:\s*calc\(0\.875rem \+ 1px\);[^}]*min-height:\s*1\.875rem;[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:[^}]*box-shadow:\s*none;/s
+    );
+    expect(globalsSource).toMatch(
+      /\.control-tree-section\[data-tree-section-level="primary"\] > \.control-section-header:hover\s*\{[^}]*background:[^}]*box-shadow:\s*none;/s
+    );
+    expect(globalsSource).not.toMatch(
+      /\.control-tree-section\[data-tree-section-level="primary"\] > \.control-section-header\s*\{[^}]*border-color:/s
     );
     expect(globalsSource).not.toMatch(
       /\.control-tree-section\[data-tree-section-level="primary"\]\s*\{[^}]*\b(background|border|padding):/s
@@ -155,18 +161,54 @@ describe('sidebar design policy', () => {
     );
   });
 
-  it('uses an expanded project background for selected repository context', () => {
+  it('keeps tree hierarchy labels and counts readable without competing with repository names', () => {
+    expect(globalsSource).toMatch(
+      /\.control-tree-section\[data-tree-section-level="primary"\] > \.control-section-header\s*\{[^}]*font-size:\s*0\.78125rem;[^}]*font-weight:\s*590;[^}]*letter-spacing:\s*0\.02em;/s
+    );
+    expect(globalsSource).toMatch(
+      /\.control-tree-section \[data-tree-section-level="secondary"\] > \.control-section-header\s*\{[^}]*font-size:\s*0\.71875rem;[^}]*font-weight:\s*560;[^}]*letter-spacing:\s*0\.02em;/s
+    );
+    expect(globalsSource).toMatch(
+      /\.control-tree-section \.control-section-count\s*\{[^}]*font-size:\s*0\.6875rem;[^}]*font-weight:\s*560;/s
+    );
+    expect(globalsSource).toMatch(/\.control-sidebar-title\s*\{[^}]*letter-spacing:\s*0\.04em;/s);
+    expect(globalsSource).toContain('--ui-text-tree-meta-size: 0.71875rem;');
+    expect(globalsSource).toMatch(
+      /\.control-tree-current-worktree\s*\{[^}]*font-size:\s*0\.71875rem;/s
+    );
+    expect(globalsSource).toMatch(/\.control-tree-flag\s*\{[^}]*font-size:\s*0\.6875rem;/s);
+  });
+
+  it('keeps the search input and adjacent filter control visually aligned', () => {
+    expect(globalsSource).toMatch(
+      /\.control-sidebar-search\s*\{[^}]*min-height:\s*2\.25rem;[^}]*border-radius:\s*0\.75rem;/s
+    );
+    expect(globalsSource).toMatch(
+      /\.control-sidebar-inline-filter\s*\{[^}]*min-height:\s*2\.25rem;[^}]*border-radius:\s*0\.75rem;/s
+    );
+  });
+
+  it('uses a project container background for selected repository context', () => {
     expect(globalsSource).toMatch(
       /\.control-tree-node\[data-active="repo"\]\s*\{[^}]*--control-tree-node-border:\s*transparent;/s
     );
-    expect(globalsSource).toContain(
-      ".control-tree-repository-group[data-expanded='true'][data-selected='true'] {"
-    );
+    expect(globalsSource).toContain(".control-tree-repository-group[data-selected='true'] {");
     expect(globalsSource).toContain(
       'background: color-mix(in oklch, var(--accent) 6.5%, var(--background) 93.5%);'
     );
-    expect(globalsSource).toContain(
-      ".control-tree-repository-group[data-expanded='true'][data-selected='true']\n    > div\n    > .control-tree-node[data-active='repo'] {\n    --control-tree-node-bg: transparent;"
+    expect(globalsSource).toMatch(
+      /\.control-tree-repository-group\[data-selected='true'\]\s*> div\s*> \.control-tree-node\[data-active='repo'\]\s*\{[^}]*--control-tree-node-bg:\s*transparent;/s
+    );
+  });
+
+  it('keeps selected project context visible after its worktrees are collapsed', () => {
+    expect(treeSidebarSource).toContain("data-expanded={isExpanded ? 'true' : 'false'}");
+    expect(treeSidebarSource).toContain("data-selected={isSelected ? 'true' : 'false'}");
+    expect(globalsSource).toMatch(
+      /\.control-tree-repository-group\[data-selected='true'\]\s*\{[^}]*background:\s*color-mix\(in oklch, var\(--accent\) 6\.5%, var\(--background\) 93\.5%\);/s
+    );
+    expect(globalsSource).toMatch(
+      /\.control-tree-repository-group\[data-selected='true'\]\s*> div\s*> \.control-tree-node\[data-active='repo'\]\s*\{[^}]*--control-tree-node-bg:\s*transparent;/s
     );
   });
 
@@ -621,16 +663,14 @@ describe('sidebar design policy', () => {
     expect(globalsSource).toContain('color: var(--control-tree-title-color);');
   });
 
-  it('uses the expanded project container as the repository selection surface', () => {
+  it('uses the project container as the repository selection surface across expansion states', () => {
     expect(treeSidebarSource).toContain('className="control-tree-repository-group relative"');
     expect(treeSidebarSource).toContain("data-expanded={isExpanded ? 'true' : 'false'}");
     expect(treeSidebarSource).toContain("data-selected={isSelected ? 'true' : 'false'}");
     expect(globalsSource).toMatch(
       /\.control-tree-repository-group\s*\{[^}]*margin-inline:\s*0\.25rem;[^}]*padding-block:\s*0\.25rem;/s
     );
-    expect(globalsSource).toContain(
-      ".control-tree-repository-group[data-expanded='true'][data-selected='true'] {"
-    );
+    expect(globalsSource).toContain(".control-tree-repository-group[data-selected='true'] {");
   });
 
   it('keeps project selection free of a rail and aligns the subtree guide with its disclosure', () => {
